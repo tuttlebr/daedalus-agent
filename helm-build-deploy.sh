@@ -12,7 +12,7 @@ White="\033[0;37m"        # White
 Color_Off='\033[0m'       # No Color
 
 # Absolute paths
-REPO_ROOT="/volume1/brandon/datasets/deadalus"
+REPO_ROOT="/volume1/brandon/datasets/daedalus"
 CHART_DIR="$REPO_ROOT/helm/daedalus"
 
 require_command() {
