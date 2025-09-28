@@ -1,0 +1,17 @@
+{{- if and .Values.nginx.enabled .Values.nginx.imageVolume.enabled .Values.nginx.imageVolume.create }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "daedalus.fullname" . }}-images
+  labels:
+    {{- include "daedalus.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.nginx.imageVolume.size }}
+  {{- if .Values.nginx.imageVolume.storageClassName }}
+  storageClassName: {{ .Values.nginx.imageVolume.storageClassName }}
+  {{- end }}
+{{- end }}

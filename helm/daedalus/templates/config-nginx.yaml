@@ -1,0 +1,413 @@
+{{- if .Values.nginx.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "daedalus.fullname" . }}-nginx-conf
+  labels:
+    {{- include "daedalus.labels" . | nindent 4 }}
+data:
+  frontend.conf: |-
+{{- if .Values.nginx.config.useTemplate }}
+{{- if .Values.nginx.config.restrictedMode }}
+{{- $frontendHost := printf "%s-frontend.%s.svc.cluster.local" (include "daedalus.fullname" .) .Release.Namespace -}}
+{{- $_ := set . "_frontendHost" $frontendHost -}}
+{{ tpl (printf "%s" (include "nginx.frontend.conf.restricted" .)) . | indent 4 }}
+{{- else }}
+{{- $backendHost := .Values.nginx.config.backendHost | default (printf "%s-backend.%s.svc.cluster.local" (include "daedalus.fullname" .) .Release.Namespace) -}}
+{{- $backendPort := .Values.nginx.config.backendPort | default 8000 -}}
+{{- $_ := set . "_backendHost" $backendHost -}}
+{{- $_ := set . "_backendPort" $backendPort -}}
+{{- $frontendHost := printf "%s-frontend.%s.svc.cluster.local" (include "daedalus.fullname" .) .Release.Namespace -}}
+{{- $_ := set . "_frontendHost" $frontendHost -}}
+{{ tpl (printf "%s" (include "nginx.frontend.conf.template" .)) . | indent 4 }}
+{{- end }}
+{{- else }}
+{{ .Values.nginx.config.rawConf | indent 4 }}
+{{- end }}
+{{- end }}
+
+{{/* Inline the nginx template from repository with variables */}}
+{{- define "nginx.frontend.conf.template" -}}
+{{`# Nginx configuration template for Next.js frontend with API routing
+# This template supports environment variable substitution
+
+# Upstream definitions with variables for dynamic resolution
+upstream frontend {
+    server {{ include "daedalus.fullname" . }}-frontend.{{ .Release.Namespace }}.svc.cluster.local:3000 max_fails=3 fail_timeout=30s;
+}
+
+upstream backend {
+    server {{ include "daedalus.fullname" . }}-backend.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.nginx.config.backendPort }} max_fails=3 fail_timeout=30s;
+}
+
+# Main server block
+server {
+    listen 80;
+    {{- if .Values.nginx.https.enabled }}
+    listen 443 ssl http2;
+    {{- end }}
+    server_name localhost;
+
+    # Security headers
+    add_header X-Frame-Options "DENY" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-XSS-Protection "1; mode=block" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+
+    # TLS (enabled when https.enabled)
+    {{- if .Values.nginx.https.enabled }}
+    ssl_certificate /etc/nginx/ssl/tls.crt;
+    ssl_certificate_key /etc/nginx/ssl/tls.key;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers HIGH:!aNULL:!MD5;
+    ssl_prefer_server_ciphers on;
+    {{- end }}
+
+    # Logging
+    access_log /var/log/nginx/access.log;
+    error_log /var/log/nginx/error.log;
+
+    # Client settings
+    client_max_body_size 50M;
+    client_body_timeout 60s;
+    client_header_timeout 60s;
+
+    # Proxy settings
+    proxy_connect_timeout 60s;
+    proxy_send_timeout 60s;
+    proxy_read_timeout 60s;
+    proxy_buffering off;
+    proxy_request_buffering off;
+
+    # Main application - Next.js frontend
+    location / {
+        proxy_pass http://frontend;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_cache_bypass $http_upgrade;
+
+        # Handle Next.js specific paths
+        proxy_set_header Accept-Encoding "";
+    }
+
+    # API routes - OpenAI compatible endpoint
+    location /v1/ {
+        proxy_pass http://backend;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_cache_bypass $http_upgrade;
+
+        # Enable streaming for chat completions
+        proxy_buffering off;
+        proxy_request_buffering off;
+        proxy_cache off;
+
+        # SSE specific headers
+        proxy_set_header Cache-Control no-cache;
+        proxy_set_header X-Accel-Buffering no;
+
+        # Increase timeouts for long-running requests (deep research)
+        proxy_connect_timeout 300s;
+        proxy_send_timeout 300s;
+        proxy_read_timeout 300s;
+
+        # Enable chunked responses
+        chunked_transfer_encoding on;
+    }
+
+    # NAT generate endpoints (including streaming)
+    location /generate/ {
+        proxy_pass http://backend/generate/;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_cache_bypass $http_upgrade;
+
+        # Enable streaming
+        proxy_buffering off;
+        proxy_request_buffering off;
+        proxy_cache off;
+
+        # SSE specific headers
+        proxy_set_header Cache-Control no-cache;
+        proxy_set_header X-Accel-Buffering no;
+
+        # Increase timeouts for long-running requests
+        proxy_connect_timeout 300s;
+        proxy_send_timeout 300s;
+        proxy_read_timeout 300s;
+
+        # Enable chunked responses
+        chunked_transfer_encoding on;
+    }
+
+    # Chat endpoints
+    location /chat/ {
+        proxy_pass http://backend/chat/;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_cache_bypass $http_upgrade;
+
+        # Enable streaming
+        proxy_buffering off;
+        proxy_request_buffering off;
+        proxy_cache off;
+
+        # SSE specific headers
+        proxy_set_header Cache-Control no-cache;
+        proxy_set_header X-Accel-Buffering no;
+
+        # Increase timeouts for long-running requests
+        proxy_connect_timeout 300s;
+        proxy_send_timeout 300s;
+        proxy_read_timeout 300s;
+
+        # Enable chunked responses
+        chunked_transfer_encoding on;
+    }
+
+    # Session endpoints (mock responses since NAT backend is stateless)
+    location = /session/create {
+        add_header Content-Type application/json;
+        return 200 '{"session_id": "session-$request_id", "created": true}';
+    }
+
+    location ~ ^/session/([a-zA-Z0-9\-_]+)$ {
+        add_header Content-Type application/json;
+        if ($request_method = GET) {
+            return 200 '{"session_id": "$1", "status": "active", "created_at": "2024-01-01T00:00:00Z"}';
+        }
+        if ($request_method = DELETE) {
+            return 200 '{"session_id": "$1", "deleted": true}';
+        }
+        return 404 '{"error": "Session method not supported"}';
+    }
+
+    # Upload endpoints
+    location ~ ^/(upload|tools|health)/ {
+        proxy_pass http://backend;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # Large file uploads
+        client_max_body_size 100M;
+        proxy_request_buffering off;
+    }
+
+    # Evaluate endpoints
+    location /evaluate {
+        proxy_pass http://backend;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # Increase timeouts for evaluation jobs
+        proxy_connect_timeout 600s;
+        proxy_send_timeout 600s;
+        proxy_read_timeout 600s;
+    }
+
+    # Auth redirect endpoint
+    location /auth/redirect {
+        proxy_pass http://backend;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # Image serving endpoint - serve directly from volume
+    location /images/ {
+        alias /tmp/generated_images/;
+        try_files $uri =404;
+
+        # Security headers
+        add_header X-Content-Type-Options nosniff;
+        add_header X-Frame-Options DENY;
+
+        # Cache images for better performance
+        expires 1h;
+        add_header Cache-Control "public, max-age=3600";
+
+        # Only allow image files
+        location ~* \.(jpg|jpeg|png|gif)$ {
+            expires 1h;
+            add_header Cache-Control "public, max-age=3600";
+        }
+    }
+
+    # Health check endpoint (backend doesn not have /health, use /docs as health check)
+    location /health {
+        proxy_pass http://backend/docs;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # Static files caching
+    location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$ {
+        proxy_pass http://frontend;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # Cache static assets
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+    }
+
+    # Next.js specific routes
+    location /_next/ {
+        proxy_pass http://frontend;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # Cache Next.js assets
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+    }
+
+    # Handle favicon
+    location /favicon.ico {
+        proxy_pass http://frontend/favicon.ico;
+        expires 1d;
+        add_header Cache-Control "public";
+    }
+
+    # Error pages
+    error_page 500 502 503 504 /50x.html;
+    location = /50x.html {
+        root /usr/share/nginx/html;
+    }
+}
+`}}
+{{- end }}
+
+{{/* Restricted nginx template - blocks direct API access */}}
+{{- define "nginx.frontend.conf.restricted" -}}
+{{`# Nginx configuration for restricted mode - NO direct backend access
+# All API calls must go through the frontend
+
+upstream frontend {
+    server {{ ._frontendHost }}:3000 max_fails=3 fail_timeout=30s;
+}
+
+server {
+    listen 80;
+    {{- if .Values.nginx.https.enabled }}
+    listen 443 ssl http2;
+    {{- end }}
+    server_name localhost;
+
+    # Security headers
+    add_header X-Frame-Options "DENY" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-XSS-Protection "1; mode=block" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+
+    {{- if .Values.nginx.https.enabled }}
+    ssl_certificate /etc/nginx/ssl/tls.crt;
+    ssl_certificate_key /etc/nginx/ssl/tls.key;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers HIGH:!aNULL:!MD5;
+    ssl_prefer_server_ciphers on;
+    {{- end }}
+
+    # Logging
+    access_log /var/log/nginx/access.log;
+    error_log /var/log/nginx/error.log;
+
+    # Client settings
+    client_max_body_size 50M;
+
+    # Block direct API access - return 403 Forbidden
+    location ~ ^/(v1|generate|chat|evaluate|upload|tools|health|auth)/ {
+        return 403 "Direct API access is forbidden. Please use the application interface.";
+    }
+
+    # Main application - Next.js frontend ONLY
+    location / {
+        proxy_pass http://frontend;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_cache_bypass $http_upgrade;
+    }
+
+    # Next.js specific routes
+    location /_next/ {
+        proxy_pass http://frontend;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+    }
+
+    # Static files
+    location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$ {
+        proxy_pass http://frontend;
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+    }
+
+    # Handle favicon
+    location /favicon.ico {
+        proxy_pass http://frontend/favicon.ico;
+        expires 1d;
+        add_header Cache-Control "public";
+    }
+
+    # Image serving endpoint (if needed)
+    {{- if .Values.nginx.imageVolume.enabled }}
+    location /images/ {
+        alias /tmp/generated_images/;
+        try_files $uri =404;
+    }
+    {{- end }}
+
+    error_page 500 502 503 504 /50x.html;
+    location = /50x.html {
+        root /usr/share/nginx/html;
+    }
+}
+`}}
+{{- end }}

@@ -1,0 +1,12 @@
+general:
+  logging:
+    console:
+      _type: console
+      level: WARN
+
+workflow:
+  _type: weather
+  include_hourly: true
+  fallback_location_name: "Saline, Michigan, US"
+  fallback_latitude: 42.1667
+  fallback_longitude: -83.7816

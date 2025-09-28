@@ -1,0 +1,10 @@
+logs/
+ssl/
+.env
+redis/
+auth.yaml
+config.yaml
+*.logs
+frontend/auth-passwords.json
+*/auth-passwords.json
+test-security.sh

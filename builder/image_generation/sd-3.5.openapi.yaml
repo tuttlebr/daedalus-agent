@@ -1,0 +1,450 @@
+openapi: 3.1.0
+info:
+    title: NVIDIA Visual Generative AI NIM for stabilityai/stable-diffusion-3.5-large
+    version: 1.0.0
+paths:
+    /v1/health/live:
+        get:
+            operationId: health_live_v1_health_live_get
+            responses:
+                '200':
+                    content:
+                        application/json:
+                            schema: {}
+                    description: Successful Response
+            summary: Health Live
+    /v1/health/ready:
+        get:
+            operationId: health_ready_v1_health_ready_get
+            responses:
+                '200':
+                    content:
+                        application/json:
+                            schema: {}
+                    description: Successful Response
+            summary: Health Ready
+    /v1/infer:
+        post:
+            operationId: _infer_v1_infer_post
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/ImageRequest'
+                required: true
+            responses:
+                '200':
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ImageResponse'
+                    description: Successful Response
+                '422':
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/HTTPValidationError'
+                    description: Validation Error
+            summary: ' Infer'
+    /v1/license:
+        get:
+            description: Handler for license endpoint.
+            operationId: license_v1_license_get
+            responses:
+                '200':
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/LicenseEndpointModel'
+                    description: Successful Response
+            summary: License
+    /v1/manifest:
+        get:
+            description: Handler for the manifest endpoint.
+            operationId: manifest_v1_manifest_get
+            responses:
+                '200':
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ManifestEndpointModel'
+                    description: Successful Response
+            summary: Manifest
+    /v1/metadata:
+        get:
+            description: Handler for metadata endpoint.
+            operationId: metadata_v1_metadata_get
+            responses:
+                '200':
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/MetadataEndpointModel'
+                    description: Successful Response
+            summary: Metadata
+    /v1/metrics:
+        get:
+            description: Handler for metrics endpoint.
+            operationId: metrics_v1_metrics_get
+            responses:
+                '200':
+                    content:
+                        application/json:
+                            schema:
+                                title: Response Metrics V1 Metrics Get
+                                type: string
+                    description: Successful Response
+            summary: Metrics
+components:
+    schemas:
+        Artifact:
+            properties:
+                base64:
+                    description: A base64-encoded string of the generated image (JPEG).
+                    examples:
+                    - /9j/4AAQSkZ...b+AVZ/9k=
+                    title: Base64
+                    type: string
+                finishReason:
+                    $ref: '#/components/schemas/FinishReason'
+                    description: The result of the generation process. `SUCCESS` indicates
+                        success. `ERROR` indicates an error. `CONTENT_FILTERED` indicates
+                        the result affected by the content filter.
+                seed:
+                    description: The seed used during generation.
+                    title: Seed
+                    type: integer
+            required:
+            - base64
+            - finishReason
+            - seed
+            title: Artifact
+            type: object
+        FinishReason:
+            enum:
+            - CONTENT_FILTERED
+            - ERROR
+            - SUCCESS
+            title: FinishReason
+            type: string
+        HTTPValidationError:
+            properties:
+                detail:
+                    items:
+                        $ref: '#/components/schemas/ValidationError'
+                    title: Detail
+                    type: array
+            title: HTTPValidationError
+            type: object
+        ImageRequest:
+            additionalProperties: false
+            properties:
+                cfg_scale:
+                    anyOf:
+                    -   exclusiveMinimum: 1.0
+                        maximum: 9.0
+                        type: number
+                    -   type: 'null'
+                    default: 3.5
+                    description: How strictly the diffusion process adheres to the
+                        prompt text (higher values keep your image closer to your
+                        prompt).
+                    title: Cfg Scale
+                disable_safety_checker:
+                    anyOf:
+                    -   type: boolean
+                    -   type: 'null'
+                    default: false
+                    description: Set this to True to disable safety checks on the
+                        generated images.
+                    title: Disable Safety Checker
+                height:
+                    anyOf:
+                    -   enum:
+                        - 768
+                        - 832
+                        - 896
+                        - 960
+                        - 1024
+                        - 1088
+                        - 1152
+                        - 1216
+                        - 1280
+                        - 1344
+                        ge: 768
+                        le: 1344
+                        type: integer
+                    -   type: 'null'
+                    default: 1024
+                    description: The height of the image to generate, in pixels. Supported
+                        heights = [768, 832, 896, 960, 1024, 1088, 1152, 1216, 1280,
+                        1344].
+                    title: Height
+                image:
+                    anyOf:
+                    -   type: string
+                    -   type: 'null'
+                    description: 'In depth or canny mode, you upload an image with
+                        its matching depth map or canny edges. If your image is under
+                        200 KB, just inline it as a base64 data URL: data:image/{format};base64,{base64encodedimage}.
+                        If it''s larger, upload it to a presigned S3 bucket using
+                        the NVCF Asset APIs. After it''s in S3, refer to it in the
+                        following format: `data:image/png;asset_id,{asset_id}`. Supported
+                        formats are `jpg`, `png` and `jpeg`.'
+                    examples:
+                    - data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAAEElEQVR4nGK6HcwNCAAA//8DTgE8HuxwEQAAAABJRU5ErkJggg==
+                    - data:image/png;asset_id,5576911c-6031-47a4-8796-bb506b026ad0
+                    title: Image
+                mode:
+                    anyOf:
+                    -   const: base
+                        type: string
+                    -   type: 'null'
+                    default: base
+                    description: The NIM inference mode. Selecting canny or depth
+                        requires an image input.
+                    title: Mode
+                preprocess_image:
+                    anyOf:
+                    -   type: boolean
+                    -   type: 'null'
+                    default: true
+                    description: Set to True to apply the canny detector or depth
+                        map estimator to the input image based on the selected mode.
+                    title: Preprocess Image
+                prompt:
+                    description: The text prompt for generation.
+                    title: Prompt
+                    type: string
+                samples:
+                    anyOf:
+                    -   maximum: 1.0
+                        minimum: 1.0
+                        type: integer
+                    -   type: 'null'
+                    default: 1
+                    description: Number of images to generate. Only samples=1 is supported.
+                    title: Samples
+                seed:
+                    anyOf:
+                    -   exclusiveMaximum: 4294967296.0
+                        minimum: 0.0
+                        type: integer
+                    -   type: 'null'
+                    default: 0
+                    description: The seed which governs generation. Omit this option
+                        or use 0 for a random seed.
+                    title: Seed
+                steps:
+                    anyOf:
+                    -   maximum: 100.0
+                        minimum: 5.0
+                        type: integer
+                    -   type: 'null'
+                    default: 50
+                    description: Number of diffusion steps to run.
+                    title: Steps
+                text_prompts:
+                    anyOf:
+                    -   items:
+                            $ref: '#/components/schemas/TextPrompt'
+                        maxItems: 1
+                        minItems: 1
+                        type: array
+                    -   type: 'null'
+                    deprecated: true
+                    description: An array of text prompts to use for generation.
+                    title: Text Prompts
+                width:
+                    anyOf:
+                    -   enum:
+                        - 768
+                        - 832
+                        - 896
+                        - 960
+                        - 1024
+                        - 1088
+                        - 1152
+                        - 1216
+                        - 1280
+                        - 1344
+                        ge: 768
+                        le: 1344
+                        type: integer
+                    -   type: 'null'
+                    default: 1024
+                    description: The width of the image to generate, in pixels. Supported
+                        widths = [768, 832, 896, 960, 1024, 1088, 1152, 1216, 1280,
+                        1344].
+                    title: Width
+            required:
+            - prompt
+            title: ImageRequest
+            type: object
+        ImageResponse:
+            properties:
+                artifacts:
+                    items:
+                        $ref: '#/components/schemas/Artifact'
+                    maxItems: 1
+                    minItems: 1
+                    title: Artifacts
+                    type: array
+            required:
+            - artifacts
+            title: ImageResponse
+            type: object
+        LicenseEndpointModel:
+            description: A model representing the license response.
+            properties:
+                content:
+                    description: The license text.
+                    title: Content
+                    type: string
+                name:
+                    description: The name of the license for the NIM container.
+                    title: Name
+                    type: string
+                path:
+                    description: The filepath within the container containing the
+                        license content.
+                    title: Path
+                    type: string
+                sha:
+                    description: A SHA1 hash of the license contents.
+                    title: Sha
+                    type: string
+                size:
+                    description: The number of characters in the license content.
+                    title: Size
+                    type: integer
+                type:
+                    const: file
+                    description: The format of the license content.
+                    title: Type
+                    type: string
+                url:
+                    description: The url where this license is hosted externally.
+                    title: Url
+                    type: string
+            required:
+            - name
+            - path
+            - sha
+            - size
+            - url
+            - type
+            - content
+            title: LicenseEndpointModel
+            type: object
+        ManifestEndpointModel:
+            description: A model representing the manifest response.
+            properties:
+                manifest_file:
+                    description: The content of the manifest file describing the required
+                        model artifacts.
+                    title: Manifest File
+                    type: string
+                repository_override:
+                    description: Alternate location used to retrieve artifacts from
+                        manifest file.
+                    title: Repository Override
+                    type: string
+            required:
+            - manifest_file
+            - repository_override
+            title: ManifestEndpointModel
+            type: object
+        MetadataEndpointModel:
+            description: A model representing the metadata response.
+            properties:
+                assetInfo:
+                    description: A list of required container assets excluding model
+                        artifacts
+                    items:
+                        type: string
+                    title: Assetinfo
+                    type: array
+                licenseInfo:
+                    $ref: '#/components/schemas/LicenseEndpointModel'
+                    description: The license info.
+                modelInfo:
+                    description: A list of models being served by the NIM.
+                    items:
+                        $ref: '#/components/schemas/ModelInfo'
+                    title: Modelinfo
+                    type: array
+                repository_override:
+                    description: Alternate location used to retrieve artifacts from
+                        manifest file.
+                    title: Repository Override
+                    type: string
+                version:
+                    description: The version of the NIM service.
+                    title: Version
+                    type: string
+            required:
+            - assetInfo
+            - licenseInfo
+            - modelInfo
+            - repository_override
+            - version
+            title: MetadataEndpointModel
+            type: object
+        ModelInfo:
+            description: A model representing the model response.
+            properties:
+                modelUrl:
+                    title: Modelurl
+                    type: string
+                shortName:
+                    title: Shortname
+                    type: string
+            required:
+            - modelUrl
+            - shortName
+            title: ModelInfo
+            type: object
+        TextPrompt:
+            additionalProperties: false
+            properties:
+                text:
+                    description: The prompt itself.
+                    examples:
+                    - A photo of a Shiba Inu dog with a backpack riding a bike
+                    title: Text
+                    type: string
+                weight:
+                    anyOf:
+                    -   const: 1.0
+                        type: number
+                    -   type: 'null'
+                    default: 1.0
+                    description: The weight of the prompt; only a value of 1.0 is
+                        supported.
+                    title: Weight
+            required:
+            - text
+            title: TextPrompt
+            type: object
+        ValidationError:
+            properties:
+                loc:
+                    items:
+                        anyOf:
+                        -   type: string
+                        -   type: integer
+                    title: Location
+                    type: array
+                msg:
+                    title: Message
+                    type: string
+                type:
+                    title: Error Type
+                    type: string
+            required:
+            - loc
+            - msg
+            - type
+            title: ValidationError
+            type: object

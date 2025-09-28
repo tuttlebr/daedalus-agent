@@ -1,0 +1,12 @@
+general:
+  logging:
+    console:
+      _type: console
+      level: WARN
+
+  front_end:
+    _type: fastapi
+
+workflow:
+  _type: webscrape
+  parameter: default_value

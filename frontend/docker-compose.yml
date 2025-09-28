@@ -1,0 +1,46 @@
+version: '3.8'
+
+services:
+  frontend:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      # Redis configuration
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379}
+
+      # Authentication configuration
+      # Single user setup
+      - AUTH_USERNAME=${AUTH_USERNAME:-admin}
+      - AUTH_PASSWORD=${AUTH_PASSWORD:-changeme}
+      - AUTH_NAME=${AUTH_NAME:-Administrator}
+
+      # Or multiple users setup (uncomment and configure as needed)
+      # - AUTH_USER_1_USERNAME=${AUTH_USER_1_USERNAME}
+      # - AUTH_USER_1_PASSWORD=${AUTH_USER_1_PASSWORD}
+      # - AUTH_USER_1_NAME=${AUTH_USER_1_NAME}
+      # - AUTH_USER_2_USERNAME=${AUTH_USER_2_USERNAME}
+      # - AUTH_USER_2_PASSWORD=${AUTH_USER_2_PASSWORD}
+      # - AUTH_USER_2_NAME=${AUTH_USER_2_NAME}
+
+      # Other environment variables
+      - NODE_ENV=production
+      # Set to 'true' only if running behind HTTPS
+      - FORCE_SECURE_COOKIES=false
+    depends_on:
+      - redis
+    networks:
+      - app-network
+
+  redis:
+    image: redis:7-alpine
+    volumes:
+      - redis-data:/data
+    networks:
+      - app-network
+
+volumes:
+  redis-data:
+
+networks:
+  app-network:

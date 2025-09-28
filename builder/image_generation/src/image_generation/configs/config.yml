@@ -1,0 +1,26 @@
+general:
+  logging:
+    console:
+      _type: console
+      level: INFO
+
+  front_end:
+    _type: fastapi
+
+workflow:
+  _type: image_generation
+  api_endpoint: "http://localhost:8000"
+  api_key: null  # Set if your API requires authentication
+  timeout: 60.0
+  default_width: 1024
+  default_height: 1024
+  default_steps: 50
+  prompt_rewrite: null  # Example:
+  #   llm: balanced_llm
+  #   system_prompt: |
+  #     You are an expert visual prompt engineer. Rewrite the user's input
+  #     into a vivid, detailed prompt suitable for Stable Diffusion 3.5 while
+  #     keeping their intent and required elements intact. Output only the
+  #     improved prompt.
+  #   max_tokens: 256
+  #   temperature: 0.2

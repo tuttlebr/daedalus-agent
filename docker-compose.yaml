@@ -1,0 +1,96 @@
+name: daedalus
+volumes:
+  ssl_certs:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: nginx/ssl
+  generated_images:
+    driver: local
+
+services:
+  builder:
+    build:
+      context: builder
+      dockerfile: Dockerfile
+      target: base
+      args:
+        NAT_VERSION: caa95bbcf0a8d0935e22923725c915d8c37e944b
+    image: daedalus.ddns.me:5050/btuttle/daedalus:builder-${DAEDALUS_VERSION:-latest}
+    working_dir: /builder
+    volumes:
+      - ${DOCKER_VOLUME_DIRECTORY:-.}/builder:/builder
+    entrypoint: sleep infinity
+
+  backend:
+    build:
+      context: builder
+      dockerfile: Dockerfile
+      target: backend
+      args:
+        NAT_VERSION: caa95bbcf0a8d0935e22923725c915d8c37e944b
+    image: daedalus.ddns.me:5050/btuttle/daedalus:backend-${DAEDALUS_VERSION}
+    env_file:
+      - .env
+    environment:
+      - NAT_LOG_LEVEL=INFO
+      - LOG_LEVEL=INFO
+      - REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
+      - SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    networks:
+      - ${NETWORK_NAME:-daedalus-network}
+    volumes:
+      - ${DOCKER_VOLUME_DIRECTORY:-.}/backend/config.yaml:/workspace/config.yaml
+
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "${NGINX_HTTP_PORT:-80}:80"
+      - "${NGINX_HTTPS_PORT:-443}:443"
+    volumes:
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./nginx/logs:/var/log/nginx
+      - ssl_certs:/etc/nginx/ssl:ro
+      - generated_images:/tmp/generated_images:ro
+    restart: unless-stopped
+    networks:
+      - ${NETWORK_NAME:-daedalus-network}
+    environment:
+      - BACKEND_HOST=${BACKEND_HOST:-backend}
+      - BACKEND_PORT=${BACKEND_PORT:-8000}
+      - DEPLOYMENT_MODE=${DEPLOYMENT_MODE:-local}
+
+  frontend:
+    build:
+      context: frontend
+      dockerfile: Dockerfile
+    env_file:
+      - .env
+    ports:
+      - "3000:3000"
+    networks:
+      - ${NETWORK_NAME:-daedalus-network}
+    image: daedalus.ddns.me:5050/btuttle/daedalus:frontend-${DAEDALUS_VERSION:-latest}
+    depends_on:
+      backend:
+        condition: service_started
+      nginx:
+        condition: service_started
+      redis:
+        condition: service_started
+
+  redis:
+    image: redis:7-alpine
+    command: [ "redis-server", "--save", "60", "1", "--appendonly", "yes" ]
+    restart: unless-stopped
+    volumes:
+      - ${DOCKER_VOLUME_DIRECTORY:-.}/redis/data:/data
+    networks:
+      - ${NETWORK_NAME:-daedalus-network}
+
+networks:
+  daedalus-network:
+    driver: bridge

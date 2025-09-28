@@ -1,0 +1,4509 @@
+openapi: 3.0.0
+info:
+  title: Google Search API
+  version: 1.0.0
+  description: Google Search API allows you to search the web with Google using various parameters to filter and customize the results.
+servers:
+  - url: https://www.searchapi.io/api/v1
+paths:
+  /search:
+    get:
+      operationId: searchGoogle
+      summary: Search Google
+      description: Use this endpoint to search Google. You can use various parameters to filter and customize the results.
+      parameters:
+        - $ref: '#/components/parameters/engine'
+        - $ref: '#/components/parameters/api_key'
+        - $ref: '#/components/parameters/q'
+        - $ref: '#/components/parameters/kgmid'
+        - $ref: '#/components/parameters/device'
+        - $ref: '#/components/parameters/location'
+        - $ref: '#/components/parameters/uule'
+        - $ref: '#/components/parameters/google_domain'
+        - $ref: '#/components/parameters/gl'
+        - $ref: '#/components/parameters/hl'
+        - $ref: '#/components/parameters/lr'
+        - $ref: '#/components/parameters/cr'
+        - $ref: '#/components/parameters/nfpr'
+        - $ref: '#/components/parameters/filter'
+        - $ref: '#/components/parameters/safe'
+        - $ref: '#/components/parameters/time_period'
+        - $ref: '#/components/parameters/time_period_min'
+        - $ref: '#/components/parameters/time_period_max'
+        - $ref: '#/components/parameters/num'
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/optimization_strategy'
+      responses:
+        '200':
+          description: Successful search
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SearchResponse'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    description: "Error message describing what went wrong"
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    description: "Error message describing what went wrong"
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    description: "Error message describing what went wrong"
+        '429':
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    description: "Error message describing what went wrong"
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    description: "Error message describing what went wrong"
+components:
+  parameters:
+    # Search Query Parameters
+    q:
+      name: q
+      in: query
+      required: false
+      description: "Parameter defines the query you want to search. You can use anything that you would use in a regular Google search. e.g. inurl:, site:, intitle:, and more. Either q or kgmid must be provided."
+      schema:
+        type: string
+    kgmid:
+      name: kgmid
+      in: query
+      required: false
+      description: "Defines a Knowledge Graph identifier (kgmid), representing entities in Google's Knowledge Graph. Format: Location Identifier (/m/): Typically followed by 2 to 7 characters. Used primarily to represent specific locations. Find the identifier by searching for the 'Freebase ID' on Wikidata. Example: kgmid=/m/02_286 refers to New York. Google Knowledge Graph Identifier (/g/): Typically followed by a longer alphanumeric string. Represents general entities in Google's Knowledge Graph. Find details on Wikidata. Example: kgmid=/g/11f555cn8l refers to TikTok."
+      schema:
+        type: string
+
+    # Device Parameters
+    device:
+      name: device
+      in: query
+      required: false
+      description: "The default parameter desktop defines the search on a desktop device. The mobile parameter defines the search on a mobile device. The tablet parameter defines the search on a tablet device."
+      schema:
+        type: string
+        enum: ["desktop", "mobile", "tablet"]
+        default: "desktop"
+
+    # Geographic Location Parameters
+    location:
+      name: location
+      in: query
+      required: false
+      description: "Parameter defines from where you want the search to originate. If several locations match the location requested, we'll pick the most popular one. Head to the Locations API if you need more precise control."
+      schema:
+        type: string
+    uule:
+      name: uule
+      in: query
+      required: false
+      description: "Parameter is the Google encoded location you want to use for the search. SearchApi automatically generated the uule parameter when you use the location parameter but we allow you to overwrite it directly. uule and location parameters can't be used together."
+      schema:
+        type: string
+
+    # Localization Parameters
+    google_domain:
+      name: google_domain
+      in: query
+      required: false
+      description: "Defines the Google domain for the search. The default is google.com. Check the full list of supported Google google_domain domains."
+      schema:
+        type: string
+        default: "google.com"
+        enum: ["google.com", "google.ad", "google.ae", "google.com.af", "google.com.ag", "google.com.ai", "google.al", "google.am", "google.co.ao", "google.com.ar", "google.as", "google.at", "google.com.au", "google.az", "google.ba", "google.com.bd", "google.be", "google.bf", "google.bg", "google.com.bh", "google.bi", "google.bj", "google.com.bn", "google.com.bo", "google.com.br", "google.bs", "google.bt", "google.co.bw", "google.by", "google.com.bz", "google.ca", "google.com.kh", "google.cd", "google.cf", "google.cg", "google.ch", "google.ci", "google.co.ck", "google.cl", "google.cm", "google.com.co", "google.co.cr", "google.com.cu", "google.cv", "google.com.cy", "google.cz", "google.de", "google.dj", "google.dk", "google.dm", "google.com.do", "google.dz", "google.com.ec", "google.ee", "google.com.eg", "google.es", "google.com.et", "google.fi", "google.fm", "google.com.fj", "google.fr", "google.ga", "google.ge", "google.com.gh", "google.com.gi", "google.gg", "google.gl", "google.gm", "google.gp", "google.gr", "google.com.gt", "google.gy", "google.com.hk", "google.hn", "google.hr", "google.ht", "google.hu", "google.co.id", "google.iq", "google.ie", "google.co.il", "google.co.in", "google.is", "google.it", "google.com.jm", "google.jo", "google.co.jp", "google.co.ke", "google.ki", "google.kg", "google.co.kr", "google.com.kw", "google.kz", "google.la", "google.com.lb", "google.li", "google.lk", "google.co.ls", "google.lt", "google.lu", "google.lv", "google.com.ly", "google.co.ma", "google.md", "google.mg", "google.mk", "google.ml", "google.com.mm", "google.mn", "google.ms", "google.com.mt", "google.mu", "google.mv", "google.mw", "google.com.mx", "google.com.my", "google.co.mz", "google.com.na", "google.ne", "google.com.ng", "google.com.ni", "google.nl", "google.no", "google.com.np", "google.nr", "google.nu", "google.co.nz", "google.com.om", "google.com.pk", "google.com.pa", "google.com.pe", "google.com.ph", "google.pl", "google.com.pg", "google.com.pr", "google.ps", "google.pt", "google.com.py", "google.com.qa", "google.ro", "google.rs", "google.ru", "google.rw", "google.com.sa", "google.com.sb", "google.sc", "google.se", "google.com.sg", "google.sh", "google.si", "google.sk", "google.com.sl", "google.sn", "google.sm", "google.so", "google.sr", "google.com.sv", "google.td", "google.tg", "google.co.th", "google.com.tj", "google.tk", "google.tl", "google.tm", "google.to", "google.tn", "google.com.tr", "google.tt", "google.com.tw", "google.co.tz", "google.com.ua", "google.co.ug", "google.co.uk", "google.com.uy", "google.co.uz", "google.com.vc", "google.co.ve", "google.vg", "google.co.vi", "google.com.vn", "google.vu", "google.ws", "google.co.za", "google.co.zm", "google.co.zw", "google.im", "google.je", "google.me", "google.pn", "google.st", "google.cat"]
+    gl:
+      name: gl
+      in: query
+      required: false
+      description: "The default parameter us defines the country of the search. See the full list of Google Shopping countries."
+      schema:
+        type: string
+        default: "us"
+        enum: ["af", "al", "dz", "as", "ad", "ao", "ai", "aq", "ag", "ar", "am", "aw", "au", "at", "az", "bs", "bh", "bd", "bb", "by", "be", "bz", "bj", "bm", "bt", "bo", "ba", "bw", "bv", "br", "io", "bn", "bg", "bf", "bi", "kh", "cm", "ca", "cv", "ky", "cf", "td", "cl", "cn", "cx", "cc", "co", "km", "cg", "cd", "ck", "cr", "ci", "hr", "cu", "cy", "cz", "dk", "dj", "dm", "do", "ec", "eg", "sv", "gq", "er", "ee", "et", "fk", "fo", "fj", "fi", "fr", "gf", "pf", "tf", "ga", "gm", "ge", "de", "gh", "gi", "gr", "gl", "gd", "gp", "gu", "gt", "gn", "gw", "gy", "ht", "hm", "va", "hn", "hk", "hu", "is", "in", "id", "ir", "iq", "ie", "il", "it", "jm", "jp", "jo", "kz", "ke", "ki", "kp", "kr", "kw", "kg", "la", "lv", "lb", "ls", "lr", "ly", "li", "lt", "lu", "mo", "mk", "mg", "mw", "my", "mv", "ml", "mt", "mh", "mq", "mr", "mu", "yt", "mx", "fm", "md", "mc", "mn", "ms", "ma", "mz", "mm", "na", "nr", "np", "nl", "nc", "nz", "ni", "ne", "ng", "nu", "nf", "mp", "no", "om", "pk", "pw", "ps", "pa", "pg", "py", "pe", "ph", "pn", "pl", "pt", "pr", "qa", "re", "ro", "ru", "rw", "sh", "kn", "lc", "pm", "vc", "ws", "sm", "st", "sa", "sn", "rs", "sc", "sl", "sg", "sk", "si", "sb", "so", "za", "gs", "es", "lk", "sd", "sr", "sj", "sz", "se", "ch", "sy", "tw", "tj", "tz", "th", "tl", "tg", "tk", "to", "tt", "tn", "tr", "tm", "tc", "tv", "ug", "ua", "ae", "uk", "gb", "us", "um", "uy", "uz", "vu", "ve", "vn", "vg", "vi", "wf", "eh", "ye", "zm", "zw", "gg", "je", "im", "me"]
+    hl:
+      name: hl
+      in: query
+      required: false
+      description: "The default parameter en defines the interface language of the search. Check the full list of supported Google hl languages."
+      schema:
+        type: string
+        default: "en"
+        enum: ["af", "ak", "sq", "am", "ar", "hy", "az", "eu", "be", "bem", "bn", "bh", "xx-bork", "bs", "br", "bg", "km", "ca", "chr", "ny", "zh-cn", "zh-tw", "co", "hr", "cs", "da", "nl", "xx-elmer", "en", "eo", "et", "ee", "fo", "tl", "fi", "fr", "fy", "gaa", "gl", "ka", "de", "el", "kl", "gn", "gu", "xx-hacker", "ht", "ha", "haw", "iw", "hi", "hu", "is", "ig", "id", "ia", "ga", "it", "ja", "jw", "kn", "kk", "rw", "rn", "xx-klingon", "kg", "ko", "kri", "ku", "ckb", "ky", "lo", "la", "lv", "ln", "lt", "loz", "lg", "ach", "mk", "mg", "my", "ms", "ml", "mt", "mv", "mi", "mr", "mfe", "mo", "mn", "sr-me", "ne", "pcm", "nso", "no", "nn", "oc", "or", "om", "ps", "fa", "xx-pirate", "pl", "pt", "pt-br", "pt-pt", "pa", "qu", "ro", "rm", "nyn", "ru", "gd", "sr", "sh", "st", "tn", "crs", "sn", "sd", "si", "sk", "sl", "so", "es", "es-419", "su", "sw", "sv", "tg", "ta", "tt", "te", "th", "ti", "to", "lua", "tum", "tr", "tk", "tw", "ug", "uk", "ur", "uz", "vu", "vi", "cy", "wo", "xh", "yi", "yo", "zu"]
+
+    lr:
+      name: lr
+      in: query
+      required: false
+      description: "The lr parameter restricts search results to documents written in a particular language or a set of languages. The accepted format for this parameter is lang_{2-letter country code}. For instance, to filter documents written in Japanese, the value should be set to lang_jp. To incorporate multiple languages, a value like lang_it|lang_de restricts the search to documents written in either Italian or German. Google identifies the document language based on the top-level domain (TLD) of the document's URL, any language meta tags present, or the language utilized within the document's body text. Supported languages include: lang_ar, lang_hy, lang_bg, lang_ca, lang_cs, lang_da, lang_de, lang_el, lang_en, lang_es, lang_et, lang_tl, lang_fi, lang_fr, lang_hr, lang_hi, lang_hu, lang_id, lang_is, lang_it, lang_iw, lang_ja, lang_ko, lang_lt, lang_lv, lang_nl, lang_no, lang_fa, lang_pl, lang_pt, lang_ro, lang_ru, lang_sk, lang_sl, lang_sr, lang_sv, lang_th, lang_tr, lang_uk, lang_vi, lang_zh-CN, lang_zh-TW."
+      schema:
+        type: string
+        pattern: "^lang_[a-z]{2}(-[A-Z]{2})?(\\|lang_[a-z]{2}(-[A-Z]{2})?)*$"
+        example: "lang_en|lang_de"
+    cr:
+      name: cr
+      in: query
+      required: false
+      description: "The cr parameter restricts search results to documents originating in a particular country. Google determines the country of a document by the top-level domain (TLD) of the document's URL or by Web server's IP address geographic location. Check the full list of supported Google cr countries."
+      schema:
+        type: string
+
+    # Filter Parameters
+    nfpr:
+      name: nfpr
+      in: query
+      required: false
+      description: "This parameter controls whether results from queries that have been auto-corrected for spelling errors are included. To exclude these auto-corrected results, set the value to 1. By default, the value is 0, meaning auto-corrected results are included."
+      schema:
+        type: string
+        enum: ["0", "1"]
+        default: "0"
+    filter:
+      name: filter
+      in: query
+      required: false
+      description: "This parameter controls whether the 'Duplicate Content' and 'Host Crowding' filters are enabled. Set the value to 1 to enable these filters, which is the default setting. To disable these filters, set the value to 0."
+      schema:
+        type: string
+        enum: ["0", "1"]
+        default: "1"
+    safe:
+      name: safe
+      in: query
+      required: false
+      description: "This parameter toggles the SafeSearch feature for the results. SafeSearch operates by filtering out adult content from your search results. Google's filters use proprietary technology to check keywords, phrases and URLs. While no filters are 100 percent accurate, SafeSearch will remove the overwhelming majority of adult content from your search results. Set the value to active to enable SafeSearch. To disable it, set the value to off. By default, SafeSearch is disabled."
+      schema:
+        type: string
+        enum: ["active", "off"]
+        default: "off"
+    time_period:
+      name: time_period
+      in: query
+      required: false
+      description: "This parameter restricts results to URLs based on date. Supported values are: last_hour - data from the past hour. last_day - data from the past 24 hours. last_week - data from the past week. last_month - data from the past month. last_year - data from the past year. Using time_period_min or time_period_max parameters, you can specify a custom time period. Note, that the time_period_min and time_period_max parameters could be used separately as well."
+      schema:
+        type: string
+        enum: ["last_hour", "last_day", "last_week", "last_month", "last_year"]
+    time_period_min:
+      name: time_period_min
+      in: query
+      required: false
+      description: "This parameter specifies the start of the time period. It could be used in combination with the time_period_max parameter. The value should be in the format MM/DD/YYYY."
+      schema:
+        type: string
+        pattern: '^(0?[1-9]|1[0-2])\/(0?[1-9]|[12][0-9]|3[01])\/(19|20)\d\d$'
+    time_period_max:
+      name: time_period_max
+      in: query
+      required: false
+      description: "This parameter specifies the end of the time period. It could be used in combination with the time_period_min parameter. The value should be in the format MM/DD/YYYY."
+      schema:
+        type: string
+        pattern: '^(0?[1-9]|1[0-2])\/(0?[1-9]|[12][0-9]|3[01])\/(19|20)\d\d$'
+
+    # Pagination Parameters
+    num:
+      name: num
+      in: query
+      required: false
+      description: "This parameter specifies the number of results to display per page. Use in combination with the page parameter to implement pagination functionality."
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 10
+    page:
+      name: page
+      in: query
+      required: false
+      description: "This parameter indicates which page of results to return. By default, it is set to 1. Use in combination with the num parameter to implement pagination."
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+
+    # Optimization Parameters
+    optimization_strategy:
+      name: optimization_strategy
+      in: query
+      required: false
+      description: "Controls how the search request is optimized. Available options: performance (Default), ads - optimizes for higher ad collection success rate, which may result in longer request processing times."
+      schema:
+        type: string
+        enum: ["performance", "ads"]
+        default: "performance"
+
+    # Engine Parameters
+    engine:
+      name: engine
+      in: query
+      required: true
+      description: "Parameter defines an engine that will be used to retrieve real-time data. It must be set to google."
+      schema:
+        type: string
+        enum: ["google"]
+
+    # API Key Parameters
+    api_key:
+      name: api_key
+      in: query
+      required: true
+      description: "The api_key authenticates your requests. Use it as a query parameter (https://www.searchapi.io/api/v1/search?api_key=YOUR_API_KEY) or in the Authorization header (Bearer YOUR_API_KEY)."
+      schema:
+        type: string
+
+  schemas:
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+          description: "Error message describing what went wrong"
+      required: [error]
+
+    SearchResponse:
+      type: object
+      properties:
+        search_metadata:
+          $ref: '#/components/schemas/SearchMetadata'
+        search_parameters:
+          $ref: '#/components/schemas/SearchParameters'
+        search_information:
+          $ref: '#/components/schemas/SearchInformation'
+        ai_overview:
+          $ref: '#/components/schemas/AiOverview'
+        shopping_ads:
+          type: array
+          items:
+            $ref: '#/components/schemas/ShoppingAd'
+        shopping_ads_more_link:
+          type: string
+          description: "Link to see more shopping ads"
+        ads:
+          type: array
+          items:
+            $ref: '#/components/schemas/Ad'
+        local_ads:
+          $ref: '#/components/schemas/LocalAds'
+        answer_box:
+          $ref: '#/components/schemas/AnswerBox'
+        sports_results:
+          $ref: '#/components/schemas/SportResults'
+        weather_result:
+          $ref: '#/components/schemas/WeatherResult'
+        salary_estimates:
+          type: array
+          items:
+            $ref: '#/components/schemas/SalaryEstimate'
+        knowledge_graph:
+          $ref: '#/components/schemas/KnowledgeGraph'
+        organic_results:
+          type: array
+          items:
+            $ref: '#/components/schemas/OrganicResult'
+        events:
+          type: array
+          items:
+            $ref: '#/components/schemas/Event'
+        nearby_events:
+          type: array
+          items:
+            $ref: '#/components/schemas/NearbyEvent'
+        universities:
+          type: array
+          items:
+            $ref: '#/components/schemas/University'
+        about_this_result:
+          type: array
+          items:
+            $ref: '#/components/schemas/AboutThisResultItem'
+          description: "About this result information"
+        about_this_result_more_link:
+          type: string
+          description: "Link to more about this result information"
+        jobs:
+          type: array
+          items:
+            $ref: '#/components/schemas/Job'
+        inline_images:
+          $ref: '#/components/schemas/InlineImages'
+        inline_shopping:
+          type: array
+          items:
+            $ref: '#/components/schemas/InlineShoppingItem'
+        local_map:
+          $ref: '#/components/schemas/LocalMap'
+        local_results:
+          type: array
+          items:
+            $ref: '#/components/schemas/LocalResult'
+        local_results_more_link:
+          type: object
+          properties:
+            link:
+              type: string
+              description: "Link to more local results"
+        from_sources_across_the_web:
+          $ref: '#/components/schemas/FromSourcesAcrossTheWeb'
+        discussions_and_forums:
+          type: array
+          items:
+            $ref: '#/components/schemas/DiscussionForum'
+        related_questions:
+          type: array
+          items:
+            $ref: '#/components/schemas/RelatedQuestion'
+        questions_and_answers:
+          type: array
+          items:
+            $ref: '#/components/schemas/QuestionAnswer'
+        explore_brands:
+          type: array
+          items:
+            $ref: '#/components/schemas/ExploreBrand'
+        courses:
+          type: array
+          items:
+            $ref: '#/components/schemas/Course'
+        top_stories:
+          type: array
+          items:
+            $ref: '#/components/schemas/TopStory'
+        top_stories_more_link:
+          type: string
+          description: "Link to more top stories"
+        latest_posts:
+          type: array
+          items:
+            $ref: '#/components/schemas/LatestPost'
+        perspectives:
+          type: array
+          items:
+            $ref: '#/components/schemas/Perspective'
+        local_news:
+          type: array
+          items:
+            $ref: '#/components/schemas/LocalNewsItem'
+        things_to_do:
+          type: array
+          items:
+            $ref: '#/components/schemas/ThingToDo'
+        things_to_do_more_link:
+          type: string
+          description: "Link to more things to do"
+        popular_destinations:
+          type: array
+          items:
+            $ref: '#/components/schemas/PopularDestination'
+        inline_videos:
+          type: array
+          items:
+            $ref: '#/components/schemas/VideoItem'
+          description: "Array of inline video results"
+        inline_videos_more_link:
+          type: string
+          description: "Link to more inline videos"
+        inline_tweets:
+          $ref: '#/components/schemas/InlineTweets'
+        scholarly_articles:
+          $ref: '#/components/schemas/ScholarlyArticles'
+        inline_recipes:
+          type: array
+          items:
+            $ref: '#/components/schemas/InlineRecipe'
+        related_searches:
+          type: array
+          items:
+            $ref: '#/components/schemas/RelatedSearch'
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+      additionalProperties: false
+
+    SearchMetadata:
+      type: object
+      properties:
+        id:
+          type: string
+          description: "Unique identifier for the search request"
+        status:
+          type: string
+          description: "Status of the search request"
+        created_at:
+          type: string
+          format: date-time
+          description: "Timestamp when the search was created"
+        request_time_taken:
+          type: number
+          description: "Time taken to make the request in seconds"
+        parsing_time_taken:
+          type: number
+          description: "Time taken to parse the results in seconds"
+        total_time_taken:
+          type: number
+          description: "Total time taken for the search in seconds"
+      required: [id, status]
+
+    SearchParameters:
+      type: object
+      properties:
+        engine:
+          type: string
+          description: "Search engine used"
+        q:
+          type: string
+          description: "Search query"
+        kgmid:
+          type: string
+          description: "Knowledge Graph ID"
+        location:
+          type: string
+          description: "Location for the search"
+        location_used:
+          type: string
+          description: "Canonical name of the location actually used for the search"
+        uule:
+          type: string
+          description: "Encoded location"
+        google_domain:
+          type: string
+          description: "Google domain used"
+        hl:
+          type: string
+          description: "Interface language"
+        gl:
+          type: string
+          description: "Country code"
+        lr:
+          type: string
+          description: "Language restriction"
+        cr:
+          type: string
+          description: "Country restriction"
+        device:
+          type: string
+          description: "Device type"
+        page:
+          type: integer
+          description: "Page number"
+        num:
+          type: integer
+          description: "Results per page"
+        safe:
+          type: string
+          description: "SafeSearch setting"
+        filter:
+          type: string
+          description: "Content filter setting"
+        nfpr:
+          type: string
+          description: "No auto-correction setting"
+        time_period:
+          type: string
+          description: "Time period filter"
+        time_period_min:
+          type: string
+          description: "Start date for time period"
+        time_period_max:
+          type: string
+          description: "End date for time period"
+        optimization_strategy:
+          type: string
+          description: "Optimization strategy used"
+      additionalProperties: true
+
+    SearchInformation:
+      type: object
+      properties:
+        query_displayed:
+          type: string
+          description: "Query as displayed in the search results"
+        total_results:
+          type: integer
+          description: "Total number of results found"
+        page:
+          type: integer
+          description: "Current page number"
+        time_taken_displayed:
+          type: string
+          description: "Time taken as displayed in search results"
+        detected_location:
+          type: string
+          description: "Location detected by Google"
+        did_you_mean:
+          type: string
+          description: "Alternative query suggestion"
+
+    AiOverview:
+      type: object
+      properties:
+        text_blocks:
+          type: array
+          items:
+            type: object
+            properties:
+              text:
+                type: string
+                description: "Text content of the AI overview block"
+              position:
+                type: integer
+                description: "Position of the text block"
+          description: "Array of text blocks in the AI overview"
+        markdown:
+          type: string
+          description: "Markdown formatted version of the AI overview"
+        reference_links:
+          type: array
+          items:
+            type: object
+            properties:
+              link:
+                type: string
+                description: "URL of the reference"
+              title:
+                type: string
+                description: "Title of the reference"
+              source:
+                type: string
+                description: "Source domain of the reference"
+          description: "Links referenced in the AI overview"
+        error:
+          type: string
+          description: "Error message if AI overview failed to generate"
+        has_no_results_for:
+          type: boolean
+          description: "Whether there are no results for the query"
+        showing_results_for:
+          type: string
+          description: "Query that results are actually shown for"
+      additionalProperties: false
+
+    AnswerBox:
+      oneOf:
+        - $ref: '#/components/schemas/CoreAnswerBox'
+        - $ref: '#/components/schemas/OrganicResultAnswerBox'
+        - $ref: '#/components/schemas/FinanceAnswerBox'
+        - $ref: '#/components/schemas/PopulationAnswerBox'
+        - $ref: '#/components/schemas/OpenHoursAnswerBox'
+        - $ref: '#/components/schemas/LocalTimeAnswerBox'
+        - $ref: '#/components/schemas/CurrencyConverterAnswerBox'
+        - $ref: '#/components/schemas/LocationAnswerBox'
+      discriminator:
+        propertyName: type
+        mapping:
+          core_answer: '#/components/schemas/CoreAnswerBox'
+          organic_result: '#/components/schemas/OrganicResultAnswerBox'
+          finance_results: '#/components/schemas/FinanceAnswerBox'
+          population_graph: '#/components/schemas/PopulationAnswerBox'
+          open_hours: '#/components/schemas/OpenHoursAnswerBox'
+          local_time: '#/components/schemas/LocalTimeAnswerBox'
+          currency_converter: '#/components/schemas/CurrencyConverterAnswerBox'
+          location: '#/components/schemas/LocationAnswerBox'
+
+    CoreAnswerBox:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [core_answer]
+          description: "Type of answer box"
+        answer:
+          type: string
+          description: "Direct answer text"
+        thumbnail:
+          type: string
+          description: "Thumbnail image URL"
+        related_answers:
+          type: array
+          items:
+            type: string
+          description: "Related answer items"
+      additionalProperties: false
+
+    OrganicResultAnswerBox:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [organic_result]
+          description: "Type of answer box"
+        title:
+          type: string
+          description: "Title of the answer box"
+        answer:
+          type: string
+          description: "Direct answer text"
+        answer_date:
+          type: string
+          description: "Date associated with the answer"
+        link:
+          type: string
+          description: "Source URL"
+        answer_table:
+          type: object
+          properties:
+            headers:
+              type: array
+              items:
+                type: string
+              description: "Table headers"
+            rows:
+              type: array
+              items:
+                type: array
+                items:
+                  type: string
+              description: "Table rows"
+          description: "Structured table data"
+        answer_list:
+          type: array
+          items:
+            type: string
+          description: "List items in the answer"
+        snippet:
+          type: string
+          description: "Text snippet"
+        date:
+          type: string
+          description: "Publication or relevance date"
+        organic_result:
+          $ref: '#/components/schemas/OrganicResult'
+          description: "Full organic result data"
+        people_also_search_for:
+          type: array
+          items:
+            type: object
+            properties:
+              title:
+                type: string
+                description: "Person or entity name"
+              link:
+                type: string
+                description: "Link to search results"
+              thumbnail:
+                type: string
+                description: "Thumbnail image URL"
+          description: "Related people or entities"
+        thumbnail:
+          type: string
+          description: "Thumbnail image URL"
+      additionalProperties: false
+
+    FinanceAnswerBox:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [finance_results]
+          description: "Type of answer box"
+        title:
+          type: string
+          description: "Company or stock name"
+        answer:
+          type: string
+          description: "Comprehensive financial summary"
+        exchange:
+          type: string
+          description: "Stock exchange (e.g., NASDAQ, NYSE)"
+        stock:
+          type: string
+          description: "Stock ticker symbol"
+        price:
+          type: number
+          description: "Current stock price"
+        currency:
+          type: string
+          description: "Currency code"
+        previous_close:
+          type: number
+          description: "Previous closing price"
+        price_change:
+          type: object
+          properties:
+            amount:
+              type: number
+              description: "Price change amount"
+            percentage:
+              type: number
+              description: "Price change percentage"
+            period:
+              type: string
+              description: "Time period for the change"
+            is_up:
+              type: boolean
+              description: "Whether price went up"
+            is_down:
+              type: boolean
+              description: "Whether price went down"
+          description: "Price change information"
+        market:
+          type: object
+          properties:
+            is_closed:
+              type: boolean
+              description: "Whether market is closed"
+            date:
+              type: string
+              description: "Market date"
+            trading:
+              type: string
+              description: "Trading status"
+            price:
+              type: number
+              description: "Market price"
+            price_change:
+              type: object
+              properties:
+                amount:
+                  type: number
+                  description: "Price change amount"
+                percentage:
+                  type: number
+                  description: "Price change percentage"
+                is_up:
+                  type: boolean
+                  description: "Whether price went up"
+                is_down:
+                  type: boolean
+                  description: "Whether price went down"
+          description: "Market information"
+        market_table:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+                description: "Metric name"
+              value:
+                type: string
+                description: "Metric value"
+          description: "Additional market metrics"
+      additionalProperties: false
+
+    PopulationAnswerBox:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [population_graph]
+          description: "Type of answer box"
+        place:
+          type: string
+          description: "Location name"
+        answer:
+          type: string
+          description: "Population data summary"
+        population:
+          type: string
+          description: "Population number"
+        year:
+          type: number
+          description: "Year of the population data"
+        others:
+          type: array
+          items:
+            type: object
+            properties:
+              place:
+                type: string
+                description: "Other location name"
+              population:
+                type: string
+                description: "Population of other location"
+              link:
+                type: string
+                description: "Link to other location data"
+          description: "Related population data for other places"
+        sources:
+          type: array
+          items:
+            type: object
+            properties:
+              text:
+                type: string
+                description: "Source description"
+              link:
+                type: string
+                description: "Source URL"
+          description: "Data sources"
+        explore_more_link:
+          type: string
+          description: "Link to explore more population data"
+      additionalProperties: false
+
+    OpenHoursAnswerBox:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [open_hours]
+          description: "Type of answer box"
+        answer:
+          type: string
+          description: "Comprehensive hours summary"
+        title:
+          type: string
+          description: "Business or place name"
+        rating:
+          type: number
+          description: "Business rating"
+        reviews:
+          type: number
+          description: "Number of reviews"
+        time:
+          type: string
+          description: "Current status (open/closed)"
+        description:
+          type: string
+          description: "Business description"
+        open_hours:
+          type: array
+          items:
+            type: object
+            properties:
+              day:
+                type: string
+                description: "Day of the week"
+              time:
+                type: string
+                description: "Opening hours for the day"
+          description: "Weekly opening hours"
+        local_results:
+          type: array
+          items:
+            type: object
+            properties:
+              title:
+                type: string
+                description: "Business name"
+              link:
+                type: string
+                description: "Business URL"
+              time:
+                type: string
+                description: "Business hours"
+          description: "Related local business hours"
+      additionalProperties: false
+
+    LocalTimeAnswerBox:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [local_time]
+          description: "Type of answer box"
+        answer:
+          type: string
+          description: "Time and location summary"
+        local_time:
+          type: string
+          description: "Current local time"
+        location:
+          type: string
+          description: "Location name"
+      additionalProperties: false
+
+    CurrencyConverterAnswerBox:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [currency_converter]
+          description: "Type of answer box"
+        answer:
+          type: string
+          description: "Currency conversion summary"
+        price:
+          type: number
+          description: "Converted price"
+        currency:
+          type: string
+          description: "Target currency"
+        date:
+          type: string
+          description: "Exchange rate date"
+        price_change:
+          type: object
+          properties:
+            amount:
+              type: number
+              description: "Price change amount"
+            percentage:
+              type: number
+              description: "Price change percentage"
+            period:
+              type: string
+              description: "Time period for the change"
+          description: "Currency rate change information"
+        from:
+          type: object
+          properties:
+            price:
+              type: number
+              description: "Source amount"
+            currency:
+              type: string
+              description: "Source currency"
+          description: "Source currency information"
+        to:
+          type: object
+          properties:
+            price:
+              type: number
+              description: "Target amount"
+            currency:
+              type: string
+              description: "Target currency"
+          description: "Target currency information"
+        chart:
+          type: array
+          items:
+            type: object
+            properties:
+              price:
+                type: number
+                description: "Exchange rate at time point"
+              datetime:
+                type: string
+                format: date-time
+                description: "Time point in ISO 8601 format"
+              unix_date:
+                type: number
+                description: "Unix timestamp"
+          description: "Historical exchange rate data"
+      additionalProperties: false
+
+    LocationAnswerBox:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [location]
+          description: "Type of answer box"
+        answer:
+          type: string
+          description: "Location description"
+        landmark:
+          type: string
+          description: "Landmark or notable feature"
+        rating:
+          type: number
+          description: "Location rating (mobile variant)"
+        reviews:
+          type: number
+          description: "Number of reviews (mobile variant)"
+      additionalProperties: false
+
+    KnowledgeGraph:
+      type: object
+      properties:
+        kgmid:
+          type: string
+          description: "Knowledge Graph Machine ID - unique identifier starting with /m (Freebase, pre-2015) or /g (Google, post-2015)"
+        knowledge_graph_type:
+          type: string
+          description: "Type of knowledge graph entity (formatted from underscores to capitalized text)"
+        title:
+          type: string
+          description: "Title of the entity"
+        description:
+          type: string
+          description: "Description of the entity"
+        source:
+          type: object
+          properties:
+            name:
+              type: string
+              description: "Source name"
+            link:
+              type: string
+              description: "Source URL"
+          additionalProperties: false
+        website:
+          type: string
+          description: "Official website URL"
+        directions:
+          type: string
+          description: "Directions URL (Google Maps link)"
+        phone:
+          type: string
+          description: "Phone number"
+        place_actions:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+                description: "Action name"
+              link:
+                type: string
+                description: "Action URL"
+            additionalProperties: false
+          description: "Available place actions (call, directions, etc.)"
+        rating:
+          type: number
+          description: "Average rating (1-5 scale)"
+        reviews:
+          type: integer
+          description: "Number of reviews"
+        price:
+          type: string
+          description: "Price or price range (e.g., $$, $10-$20)"
+        price_description:
+          type: string
+          description: "Aria-label description of price level"
+        type:
+          type: string
+          description: "Business or entity type (e.g., Restaurant, Hotel)"
+        address:
+          type: string
+          description: "Physical address"
+        ludocid:
+          type: string
+          description: "Google's unique place ID"
+        menu:
+          type: object
+          properties:
+            text:
+              type: string
+              description: "Menu link text"
+            link:
+              type: string
+              description: "Menu URL"
+          additionalProperties: false
+        local_time:
+          type: string
+          description: "Current local time"
+        weather:
+          type: object
+          additionalProperties: true
+          description: "Weather information for locations"
+        manufacturer:
+          type: string
+          description: "Product manufacturer"
+        stock:
+          type: object
+          properties:
+            ticker:
+              type: string
+              description: "Stock ticker symbol"
+            link:
+              type: string
+              description: "Stock information URL"
+            exchange:
+              type: string
+              description: "Stock exchange name"
+            price:
+              type: string
+              description: "Current stock price"
+            extracted_price:
+              type: number
+              description: "Numeric price value"
+            change:
+              type: number
+              description: "Price change amount"
+            change_percent:
+              type: number
+              description: "Price change percentage"
+            last_updated:
+              type: string
+              format: date-time
+              description: "Last update timestamp in ISO 8601 format"
+          additionalProperties: false
+        service_options:
+          type: array
+          items:
+            type: string
+          description: "Available service options (delivery, takeout, etc.)"
+        # Dynamic facts - any fact can appear with corresponding _links field
+        # Facts structure: each fact has a value and optional links array
+        products:
+          type: array
+          items:
+            $ref: '#/components/schemas/KGProduct'
+        typical_prices:
+          type: object
+          properties:
+            currency:
+              type: string
+              description: "Currency code"
+            min:
+              type: number
+              description: "Minimum price"
+            max:
+              type: number
+              description: "Maximum price"
+          additionalProperties: false
+        offers:
+          type: array
+          items:
+            $ref: '#/components/schemas/KGOffer'
+        features:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+                description: "Feature name"
+              value:
+                type: string
+                description: "Feature value"
+            additionalProperties: false
+        details:
+          type: object
+          properties:
+            description:
+              type: string
+              description: "Product description"
+            source:
+              type: object
+              properties:
+                name:
+                  type: string
+                  description: "Source name"
+                link:
+                  type: string
+                  description: "Source URL"
+              additionalProperties: false
+            specifications:
+              type: array
+              items:
+                type: object
+                properties:
+                  category:
+                    type: string
+                    description: "Specification category"
+                  attributes:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        name:
+                          type: string
+                          description: "Attribute name"
+                        value:
+                          type: string
+                          description: "Attribute value"
+                      additionalProperties: false
+                additionalProperties: false
+          additionalProperties: false
+        # Business hours information
+        hours:
+          type: object
+          additionalProperties: true
+          description: "Business hours information"
+        # Popular times data with live information
+        popular_times:
+          type: object
+          properties:
+            live:
+              type: object
+              properties:
+                time:
+                  type: string
+                  description: "Current time"
+                info:
+                  type: string
+                  description: "Busyness information"
+                wait_time:
+                  type: string
+                  description: "Current wait time"
+                busyness_score:
+                  type: integer
+                  description: "Busyness score (0-100)"
+                typical_time_spent:
+                  type: string
+                  description: "Typical time spent"
+              additionalProperties: false
+            chart:
+              type: object
+              additionalProperties: true
+              description: "Popular times chart data"
+          additionalProperties: false
+        web_reviews:
+          type: array
+          items:
+            type: object
+            properties:
+              title:
+                type: string
+                description: "Review source title"
+              link:
+                type: string
+                description: "Review source URL"
+              rating_text:
+                type: string
+                description: "Rating text display"
+              rating:
+                type: number
+                description: "Numeric rating"
+              rating_out_of:
+                type: number
+                description: "Rating scale maximum"
+              reviews:
+                type: integer
+                description: "Number of reviews"
+            additionalProperties: false
+        user_reviews:
+          type: array
+          items:
+            type: object
+            properties:
+              review:
+                type: string
+                description: "Review text"
+              review_highlighted_words:
+                type: array
+                items:
+                  type: string
+                description: "Highlighted words in review"
+              link:
+                type: string
+                description: "Review URL"
+              rating:
+                type: number
+                description: "Review rating"
+              user:
+                type: object
+                properties:
+                  name:
+                    type: string
+                    description: "User name"
+                  link:
+                    type: string
+                    description: "User profile URL"
+                  image:
+                    type: string
+                    description: "User avatar image URL"
+                additionalProperties: false
+            additionalProperties: false
+        product_reviews:
+          type: object
+          properties:
+            rating:
+              type: number
+              description: "Average product rating"
+            reviews:
+              type: integer
+              description: "Number of product reviews"
+            reviews_histogram:
+              type: object
+              additionalProperties:
+                type: string
+              description: "Rating distribution histogram"
+            top_review:
+              type: object
+              properties:
+                review:
+                  type: string
+                  description: "Review text"
+                date:
+                  type: string
+                  description: "Review date"
+                rating:
+                  type: number
+                  description: "Review rating"
+                source:
+                  type: string
+                  description: "Review source"
+                user:
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                      description: "User name"
+                    link:
+                      type: string
+                      description: "User profile URL"
+                    image:
+                      type: string
+                      description: "User avatar image URL"
+                  additionalProperties: false
+              additionalProperties: false
+            popular_questions:
+              type: array
+              items:
+                type: string
+              description: "Popular questions about the product"
+          additionalProperties: false
+        merchant_description:
+          type: string
+          description: "Merchant description text"
+        profiles:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+                description: "Social profile name"
+              link:
+                type: string
+                description: "Social profile URL"
+              image:
+                type: string
+                description: "Social profile image URL"
+            additionalProperties: false
+          description: "Social media profiles"
+        company_reviews:
+          type: array
+          items:
+            type: object
+            properties:
+              title:
+                type: string
+                description: "Review platform title"
+              link:
+                type: string
+                description: "Review platform URL"
+              rating_text:
+                type: string
+                description: "Rating text display"
+              rating:
+                type: number
+                description: "Numeric rating"
+              rating_out_of:
+                type: number
+                description: "Rating scale maximum"
+              reviews:
+                type: integer
+                description: "Number of reviews"
+            additionalProperties: false
+        extensions:
+          type: array
+          items:
+            type: string
+          description: "Additional extension information"
+        typical_salaries:
+          type: array
+          items:
+            type: object
+            properties:
+              title:
+                type: string
+                description: "Job title"
+              salary:
+                type: string
+                description: "Salary amount"
+              salary_range:
+                type: string
+                description: "Salary range"
+              source:
+                type: object
+                properties:
+                  name:
+                    type: string
+                    description: "Source name"
+                  link:
+                    type: string
+                    description: "Source URL"
+                additionalProperties: false
+            additionalProperties: false
+        editorial_reviews:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+          description: "Editorial reviews from publications"
+        events:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+          description: "Upcoming events"
+        # People also search for - can come from multiple parsers
+        people_also_search_for:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+                description: "Person or entity name"
+              type:
+                type: string
+                description: "Entity type"
+              extension:
+                type: string
+                description: "Additional information"
+              link:
+                type: string
+                description: "Search URL"
+              ludocid:
+                type: string
+                description: "Location ID (for places)"
+              image:
+                type: string
+                description: "Image URL"
+            additionalProperties: false
+        people_also_search_for_link:
+          type: string
+          description: "Link to more related searches"
+        # Dynamic scrolling carousel fields - field names vary by content type
+        # Structure: [content_type]: array of items with title, extension, link, image
+        # [content_type]_link: string URL for more items
+        image:
+          type: string
+          description: "Main entity image URL"
+        images:
+          type: array
+          items:
+            type: string
+          description: "Additional entity images"
+        local_map:
+          type: object
+          properties:
+            link:
+              type: string
+              description: "Maps link URL"
+            gps_coordinates:
+              type: object
+              properties:
+                latitude:
+                  type: number
+                longitude:
+                  type: number
+                altitude:
+                  type: number
+              additionalProperties: false
+            image:
+              type: string
+              description: "Map image URL"
+          additionalProperties: false
+      # Additional dynamic fields from Facts parser - any fact can appear
+      # Format: [fact_name]: string value, [fact_name]_links: array of {text, link} objects
+      # Additional dynamic fields from ScrollingCarousel parser
+      # Format: [carousel_type]: array of {title, extension, link, image}, [carousel_type]_link: string
+      additionalProperties: true
+
+    KGProduct:
+      type: object
+      properties:
+        title:
+          type: string
+          description: "Product title"
+        price:
+          type: string
+          description: "Display price"
+        extracted_price:
+          type: number
+          description: "Numeric price value"
+        image:
+          type: string
+          description: "Product image URL"
+      additionalProperties: false
+
+    KGOffer:
+      type: object
+      properties:
+        name:
+          type: string
+          description: "Offer name"
+        price:
+          type: string
+          description: "Display price"
+        extracted_price:
+          type: number
+          description: "Numeric price value"
+        merchant:
+          type: string
+          description: "Merchant name"
+        link:
+          type: string
+          description: "Offer URL"
+      additionalProperties: false
+
+    OrganicResult:
+      oneOf:
+        - $ref: '#/components/schemas/DesktopOrganicResult'
+        - $ref: '#/components/schemas/MobileOrganicResult'
+      discriminator:
+        propertyName: device_type
+        mapping:
+          desktop: '#/components/schemas/DesktopOrganicResult'
+          mobile: '#/components/schemas/MobileOrganicResult'
+          tablet: '#/components/schemas/MobileOrganicResult'
+
+    DesktopOrganicResult:
+      type: object
+      properties:
+        device_type:
+          type: string
+          enum: [desktop]
+          description: "Device type discriminator"
+        position:
+          type: integer
+          description: "Position in search results"
+        title:
+          type: string
+          description: "Result title"
+        link:
+          type: string
+          description: "Result URL"
+        source:
+          type: string
+          description: "Source text from VuuXrf element"
+        domain:
+          type: string
+          description: "Domain of the result"
+        displayed_link:
+          type: string
+          description: "Display URL"
+        snippet:
+          type: string
+          description: "Result snippet"
+        snippet_highlighted_words:
+          type: array
+          items:
+            type: string
+          description: "Highlighted words in snippet"
+        tag:
+          type: string
+          description: "Tag from snippet info block (e.g., date tag)"
+        date:
+          type: string
+          description: "Date from snippet info block"
+        sitelinks:
+          $ref: '#/components/schemas/DesktopSitelinks'
+        rich_snippet:
+          $ref: '#/components/schemas/DesktopRichSnippet'
+        about_this_result:
+          $ref: '#/components/schemas/AboutThisResult'
+        favicon:
+          type: string
+          description: "Favicon URL"
+        nested_results:
+          type: array
+          items:
+            $ref: '#/components/schemas/DesktopOrganicResult'
+          description: "Nested results within this result"
+        video:
+          $ref: '#/components/schemas/DesktopVideoInfo'
+        thumbnail:
+          type: string
+          description: "Thumbnail image URL"
+        images:
+          type: array
+          items:
+            type: string
+          description: "Array of image URLs associated with the result"
+        cached_page_link:
+          type: string
+          description: "Cached page URL"
+      additionalProperties: false
+
+    MobileOrganicResult:
+      type: object
+      properties:
+        device_type:
+          type: string
+          enum: [mobile, tablet]
+          description: "Device type discriminator"
+        position:
+          type: integer
+          description: "Position in search results"
+        title:
+          type: string
+          description: "Result title"
+        link:
+          type: string
+          description: "Result URL"
+        source:
+          type: string
+          description: "Source text from Aozhyc element"
+        domain:
+          type: string
+          description: "Domain of the result"
+        displayed_link:
+          type: string
+          description: "Display URL"
+        snippet:
+          type: string
+          description: "Result snippet"
+        tag:
+          type: string
+          description: "Tag from snippet info block (e.g., date tag)"
+        date:
+          type: string
+          description: "Date from snippet info block"
+        sitelinks:
+          $ref: '#/components/schemas/MobileSitelinks'
+        rich_snippet:
+          $ref: '#/components/schemas/MobileRichSnippet'
+        about_this_result:
+          $ref: '#/components/schemas/AboutThisResult'
+        answers:
+          type: array
+          items:
+            $ref: '#/components/schemas/MobileAnswer'
+          description: "Mobile-specific answers"
+        favicon:
+          type: string
+          description: "Favicon URL"
+        nested_results:
+          type: array
+          items:
+            $ref: '#/components/schemas/MobileOrganicResult'
+          description: "Nested results within this result"
+        articles:
+          type: array
+          items:
+            $ref: '#/components/schemas/MobileArticle'
+          description: "Mobile-specific articles"
+        video:
+          $ref: '#/components/schemas/MobileVideoInfo'
+        thumbnail:
+          type: string
+          description: "Thumbnail image URL"
+        images:
+          type: array
+          items:
+            type: string
+          description: "Array of image URLs associated with the result"
+      additionalProperties: false
+
+    Sitelinks:
+      type: object
+      properties:
+        inline:
+          type: array
+          items:
+            $ref: '#/components/schemas/Sitelink'
+        expanded:
+          type: array
+          items:
+            $ref: '#/components/schemas/Sitelink'
+      additionalProperties: false
+
+    Sitelink:
+      type: object
+      properties:
+        title:
+          type: string
+          description: "Sitelink title"
+        link:
+          type: string
+          description: "Sitelink URL"
+        snippet:
+          type: string
+          description: "Sitelink description"
+      additionalProperties: false
+
+    RichSnippet:
+      type: object
+      properties:
+        detected_extensions:
+          type: object
+          additionalProperties: true
+        attributes:
+          type: array
+          items:
+            type: string
+      additionalProperties: true
+
+    DesktopSitelinks:
+      type: object
+      properties:
+        inline:
+          type: array
+          items:
+            $ref: '#/components/schemas/Sitelink'
+          description: "Inline sitelinks"
+        expanded:
+          type: array
+          items:
+            type: object
+            properties:
+              title:
+                type: string
+                description: "Sitelink title"
+              link:
+                type: string
+                description: "Sitelink URL"
+              snippet:
+                type: string
+                description: "Sitelink description"
+            additionalProperties: false
+          description: "Expanded sitelinks with descriptions"
+        list:
+          type: array
+          items:
+            type: object
+            properties:
+              title:
+                type: string
+                description: "Sitelink title"
+              link:
+                type: string
+                description: "Sitelink URL"
+              answer_count:
+                type: integer
+                description: "Number of answers"
+              date:
+                type: string
+                description: "Date information"
+            additionalProperties: false
+          description: "List-style sitelinks"
+        searchbox:
+          type: boolean
+          description: "Whether a searchbox is present"
+      additionalProperties: false
+
+    MobileSitelinks:
+      type: object
+      properties:
+        inline:
+          type: array
+          items:
+            $ref: '#/components/schemas/Sitelink'
+          description: "Inline sitelinks"
+        expanded:
+          type: array
+          items:
+            $ref: '#/components/schemas/Sitelink'
+          description: "Expanded sitelinks"
+        list:
+          type: array
+          items:
+            type: object
+            properties:
+              title:
+                type: string
+                description: "Sitelink title"
+              link:
+                type: string
+                description: "Sitelink URL"
+              answer_count:
+                type: integer
+                description: "Number of answers"
+              date:
+                type: string
+                description: "Date information"
+            additionalProperties: false
+          description: "List-style sitelinks"
+        searchbox:
+          type: boolean
+          description: "Whether a searchbox is present"
+      additionalProperties: false
+
+    DesktopRichSnippet:
+      type: object
+      properties:
+        detected_extensions:
+          type: object
+          properties:
+            rating:
+              type: number
+              description: "Product or service rating"
+            reviews:
+              type: integer
+              description: "Number of reviews"
+            time:
+              type: string
+              description: "Time information (duration, etc.)"
+            table:
+              type: object
+              properties:
+                headers:
+                  type: array
+                  items:
+                    type: string
+                  description: "Table headers"
+                rows:
+                  type: array
+                  items:
+                    type: array
+                    items:
+                      type: string
+                  description: "Table rows"
+              description: "Structured table data"
+            questions:
+              type: array
+              items:
+                type: object
+                properties:
+                  question:
+                    type: string
+                    description: "Question text"
+                  answer:
+                    type: string
+                    description: "Answer text"
+                additionalProperties: false
+              description: "Frequently asked questions"
+            list:
+              type: array
+              items:
+                type: string
+              description: "List items"
+          additionalProperties: false
+        attributes:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+                description: "Attribute name"
+              value:
+                type: string
+                description: "Attribute value"
+            additionalProperties: false
+          description: "Rich snippet attributes"
+        extensions:
+          type: array
+          items:
+            type: string
+          description: "Additional extensions"
+      additionalProperties: false
+
+    MobileRichSnippet:
+      type: object
+      properties:
+        detected_extensions:
+          type: object
+          properties:
+            rating:
+              type: number
+              description: "Product or service rating"
+            reviews:
+              type: integer
+              description: "Number of reviews"
+            merchant_link:
+              type: string
+              description: "Link to merchant"
+            pros_and_cons:
+              type: string
+              description: "Pros and cons information"
+          additionalProperties: false
+        extensions:
+          type: array
+          items:
+            type: string
+          description: "Rich snippet extensions"
+      additionalProperties: false
+
+    AboutThisResultItem:
+      type: object
+      properties:
+        title:
+          type: string
+          description: "Result title"
+        link:
+          type: string
+          description: "Result URL"
+        source:
+          type: string
+          description: "Source text"
+        domain:
+          type: string
+          description: "Domain of the result URL"
+        displayed_link:
+          type: string
+          description: "Display URL"
+        snippet:
+          type: string
+          description: "Result snippet text"
+        date:
+          type: string
+          description: "Publication or relevance date"
+        rating:
+          type: number
+          description: "Result rating"
+        reviews:
+          type: number
+          description: "Number of reviews"
+        favicon:
+          type: string
+          description: "Favicon image URL"
+      additionalProperties: false
+
+    AboutThisResult:
+      type: object
+      properties:
+        about_page_link:
+          type: string
+          description: "Link to about page with source information"
+      additionalProperties: false
+
+    DesktopVideoInfo:
+      type: object
+      properties:
+        link:
+          type: string
+          description: "Video URL"
+        source:
+          type: string
+          description: "Video source platform"
+        channel:
+          type: string
+          description: "Channel name"
+        date:
+          type: string
+          description: "Video upload or stream date"
+        length:
+          type: string
+          description: "Video duration"
+        key_moments:
+          type: array
+          items:
+            $ref: '#/components/schemas/VideoKeyMoment'
+          description: "Video key moments"
+      additionalProperties: false
+
+    MobileVideoInfo:
+      type: object
+      properties:
+        link:
+          type: string
+          description: "Video URL"
+        channel:
+          type: string
+          description: "Channel name"
+        date:
+          type: string
+          description: "Video upload or stream date"
+        length:
+          type: string
+          description: "Video duration"
+        key_moments:
+          type: array
+          items:
+            $ref: '#/components/schemas/VideoKeyMoment'
+          description: "Video key moments"
+      additionalProperties: false
+
+    VideoKeyMoment:
+      type: object
+      properties:
+        time:
+          type: string
+          description: "Time display (e.g., '1:23')"
+        seconds:
+          type: integer
+          description: "Time in seconds"
+        title:
+          type: string
+          description: "Key moment title"
+        link:
+          type: string
+          description: "Link to this moment in the video"
+        thumbnail:
+          type: string
+          description: "Thumbnail image URL for this moment"
+      additionalProperties: false
+
+    MobileAnswer:
+      type: object
+      properties:
+        link:
+          type: string
+          description: "Link to the answer source"
+        answer:
+          type: string
+          description: "Answer text"
+        is_top_answer:
+          type: boolean
+          description: "Whether this is marked as the top answer"
+        votes:
+          type: integer
+          description: "Number of votes for this answer"
+      additionalProperties: false
+
+    MobileArticle:
+      type: object
+      properties:
+        title:
+          type: string
+          description: "Article title"
+        link:
+          type: string
+          description: "Article URL"
+        date:
+          type: string
+          description: "Article publication date"
+        thumbnail:
+          type: string
+          description: "Article thumbnail image URL"
+      additionalProperties: false
+
+    ShoppingAd:
+      type: object
+      properties:
+        position:
+          type: integer
+          description: "Position in results"
+        block_position:
+          type: string
+          description: "Block position (top, middle, bottom)"
+        title:
+          type: string
+          description: "Product title"
+        seller:
+          type: string
+          description: "Seller/merchant name"
+        link:
+          type: string
+          description: "Product URL"
+        deal:
+          type: string
+          description: "Deal information (e.g., price drop, special offer)"
+        price:
+          type: string
+          description: "Display price"
+        extracted_price:
+          type: number
+          description: "Numeric price value"
+        original_price:
+          type: string
+          description: "Original price before discount"
+        extracted_original_price:
+          type: number
+          description: "Numeric original price value"
+        order_fulfillment_method:
+          type: string
+          description: "Order fulfillment method (e.g., shipping, pickup)"
+        order_fullfillmed_method:
+          type: string
+          description: "Order fulfillment method (deprecated spelling)"
+          deprecated: true
+        promo_code:
+          type: string
+          description: "Promotional code information"
+        installment:
+          type: string
+          description: "Installment payment information"
+        rating:
+          type: number
+          description: "Product rating"
+        reviews:
+          type: integer
+          description: "Number of reviews"
+        durability:
+          type: string
+          description: "Product durability information"
+        delivery:
+          type: string
+          description: "Delivery information"
+        source:
+          type: string
+          description: "Merchant name"
+        extensions:
+          type: array
+          items:
+            type: string
+          description: "Additional product extensions and features"
+        image:
+          type: string
+          description: "Product image URL"
+        thumbnail:
+          type: string
+          description: "Product thumbnail URL (alias for image)"
+      additionalProperties: true
+
+    Ad:
+      oneOf:
+        - $ref: '#/components/schemas/DesktopAd'
+        - $ref: '#/components/schemas/MobileAd'
+      discriminator:
+        propertyName: device_type
+        mapping:
+          desktop: '#/components/schemas/DesktopAd'
+          mobile: '#/components/schemas/MobileAd'
+          tablet: '#/components/schemas/MobileAd'
+
+    AdBase:
+      type: object
+      properties:
+        position:
+          type: integer
+          description: "Position in results"
+        block_position:
+          type: string
+          description: "Block position (top, middle, bottom)"
+        title:
+          type: string
+          description: "Ad title"
+        link:
+          type: string
+          description: "Ad destination URL"
+        source:
+          type: string
+          description: "Ad source text"
+        domain:
+          type: string
+          description: "Domain of the ad destination"
+        displayed_link:
+          type: string
+          description: "Display URL"
+        tracking_link:
+          type: string
+          description: "Ad tracking URL"
+        snippet:
+          type: string
+          description: "Ad description/snippet text"
+        snippet_highlighted_words:
+          type: array
+          items:
+            type: string
+          description: "Highlighted words in the ad snippet"
+        sitelinks:
+          $ref: '#/components/schemas/AdSitelinks'
+        phone:
+          type: string
+          description: "Phone number associated with the ad"
+        rating:
+          type: number
+          description: "Ad rating"
+        reviews:
+          type: integer
+          description: "Number of reviews"
+        rating_link:
+          type: string
+          description: "Link to ratings/reviews"
+        thumbnail:
+          type: string
+          description: "Ad thumbnail image URL"
+        favicon:
+          type: string
+          description: "Favicon URL"
+        advertiser_info_token:
+          type: string
+          description: "Token for advertiser transparency info"
+      additionalProperties: true
+
+    DesktopAd:
+      allOf:
+        - $ref: '#/components/schemas/AdBase'
+        - type: object
+          properties:
+            device_type:
+              type: string
+              enum: [desktop]
+              description: "Device type for discriminator"
+            address:
+              type: object
+              properties:
+                title:
+                  type: string
+                  description: "Address title"
+                tracking_link:
+                  type: string
+                  description: "Address tracking link"
+              description: "Address information for the ad"
+            sale:
+              type: object
+              properties:
+                title:
+                  type: string
+                  description: "Sale title"
+                link:
+                  type: string
+                  description: "Sale link"
+              description: "Sale information"
+            products:
+              type: array
+              items:
+                type: object
+                properties:
+                  title:
+                    type: string
+                    description: "Product title"
+                  tracking_link:
+                    type: string
+                    description: "Product tracking link"
+                  extensions:
+                    type: array
+                    items:
+                      type: string
+                    description: "Product extensions"
+              description: "Products associated with the ad"
+            extensions:
+              type: array
+              items:
+                type: string
+              description: "Ad extensions as simple strings"
+            thumbnails:
+              type: array
+              items:
+                type: string
+              description: "Multiple thumbnail images"
+          additionalProperties: true
+
+    MobileAd:
+      allOf:
+        - $ref: '#/components/schemas/AdBase'
+        - type: object
+          properties:
+            device_type:
+              type: string
+              enum: [mobile, tablet]
+              description: "Device type for discriminator"
+            phone_description:
+              type: string
+              description: "Description for the phone number"
+            addresses:
+              type: array
+              items:
+                type: object
+                properties:
+                  title:
+                    type: string
+                    description: "Address title"
+                  link:
+                    type: string
+                    description: "Address link"
+                  tracking_link:
+                    type: string
+                    description: "Address tracking link"
+              description: "Multiple addresses"
+            website:
+              type: string
+              description: "Website URL"
+            application:
+              type: object
+              properties:
+                title:
+                  type: string
+                  description: "Application title"
+                link:
+                  type: string
+                  description: "Application link"
+                thumbnail:
+                  type: string
+                  description: "Application thumbnail URL"
+              description: "Application information"
+            sale:
+              type: object
+              properties:
+                title:
+                  type: string
+                  description: "Sale title"
+                link:
+                  type: string
+                  description: "Sale link"
+                snippet:
+                  type: string
+                  description: "Sale description"
+                tracking_link:
+                  type: string
+                  description: "Sale tracking link"
+              description: "Sale information"
+            prices:
+              type: array
+              items:
+                type: object
+                properties:
+                  title:
+                    type: string
+                    description: "Price item title"
+                  price:
+                    type: string
+                    description: "Display price"
+                  extracted_price:
+                    type: number
+                    description: "Numeric price value"
+                  description:
+                    type: string
+                    description: "Price description"
+                  link:
+                    type: string
+                    description: "Price item link"
+              description: "Price information"
+            call:
+              type: object
+              properties:
+                title:
+                  type: string
+                  description: "Call title"
+                description:
+                  type: string
+                  description: "Call description"
+              description: "Call information"
+            extensions:
+              oneOf:
+                - type: array
+                  items:
+                    type: string
+                  description: "Ad extensions as simple strings"
+                - type: array
+                  items:
+                    type: object
+                    additionalProperties: true
+                  description: "Ad extensions as objects with dynamic properties"
+              description: "Ad extensions (format varies)"
+          additionalProperties: true
+
+    AdSitelink:
+      type: object
+      properties:
+        title:
+          type: string
+          description: "Sitelink title"
+        link:
+          type: string
+          description: "Sitelink URL"
+        snippet:
+          type: string
+          description: "Sitelink description/snippet (for expanded sitelinks)"
+      additionalProperties: false
+
+    AdSitelinks:
+      type: object
+      properties:
+        expanded:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdSitelink'
+          description: "Expanded sitelinks with descriptions"
+        inline:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdSitelink'
+          description: "Inline sitelinks without descriptions"
+      additionalProperties: false
+
+    LocalAd:
+      type: object
+      properties:
+        position:
+          type: integer
+          description: "Position in results"
+        block_position:
+          type: string
+          description: "Block position"
+        title:
+          type: string
+          description: "Business name"
+        link:
+          type: string
+          description: "Business URL"
+        rating:
+          type: number
+          description: "Business rating"
+        reviews:
+          type: integer
+          description: "Number of reviews"
+        type:
+          type: string
+          description: "Business type"
+        address:
+          type: string
+          description: "Business address"
+        phone:
+          type: string
+          description: "Phone number"
+        thumbnail:
+          type: string
+          description: "Business image URL"
+      additionalProperties: true
+
+    LocalResult:
+      type: object
+      properties:
+        position:
+          type: integer
+          description: "Position in results"
+        title:
+          type: string
+          description: "Business name"
+        link:
+          type: string
+          description: "Business URL"
+        ludocid:
+          type: string
+          description: "Google's unique place ID"
+        is_sponsored:
+          type: boolean
+          description: "Whether the result is sponsored (mobile only)"
+        rating:
+          type: number
+          description: "Business rating"
+        reviews:
+          type: integer
+          description: "Number of reviews"
+        price:
+          type: string
+          description: "Price range symbols"
+        price_description:
+          type: string
+          description: "Price range description"
+        type:
+          type: string
+          description: "Business type"
+        address:
+          type: string
+          description: "Business address"
+        phone:
+          type: string
+          description: "Phone number"
+        is_closed:
+          type: boolean
+          description: "Whether the business is currently closed"
+        comment:
+          type: string
+          description: "Additional comment about the business"
+        description:
+          type: string
+          description: "Business description (mobile only)"
+        service_options:
+          type: array
+          items:
+            type: string
+          description: "Available service options"
+        order:
+          type: string
+          description: "Order link URL"
+        website:
+          type: string
+          description: "Website link URL"
+        direction:
+          type: string
+          description: "Direction link URL"
+        extensions:
+          type: array
+          items:
+            type: string
+          description: "Additional business information"
+        image:
+          type: string
+          description: "Business image URL (desktop)"
+        images:
+          type: array
+          items:
+            type: string
+          description: "Business image URLs (mobile)"
+      additionalProperties: true
+
+    LocalResults:
+      type: object
+      properties:
+        local_results:
+          type: array
+          items:
+            $ref: '#/components/schemas/LocalResult'
+          description: "Array of local business results"
+        local_results_more_link:
+          type: object
+          properties:
+            link:
+              type: string
+              description: "Link to more local results"
+      additionalProperties: true
+
+    LocalMap:
+      type: object
+      properties:
+        link:
+          type: string
+          description: "Maps link"
+        image:
+          type: string
+          description: "Map image URL"
+        gps_coordinates:
+          type: object
+          properties:
+            latitude:
+              type: number
+            longitude:
+              type: number
+            altitude:
+              type: number
+        streetview:
+          type: object
+          properties:
+            link:
+              type: string
+              description: "Street view link"
+            image:
+              type: string
+              description: "Street view image URL"
+      additionalProperties: true
+
+    InlineImages:
+      type: object
+      properties:
+        suggestions:
+          type: array
+          items:
+            $ref: '#/components/schemas/ImageSuggestion'
+        images:
+          type: array
+          items:
+            $ref: '#/components/schemas/ImageItem'
+      additionalProperties: false
+
+    ImageSuggestion:
+      type: object
+      properties:
+        title:
+          type: string
+          description: "Suggestion title"
+        link:
+          type: string
+          description: "Search URL for suggestion"
+        chips:
+          type: string
+          description: "Suggestion chip text"
+        thumbnail:
+          type: string
+          description: "Suggestion thumbnail URL"
+      additionalProperties: false
+
+    ImageItem:
+      type: object
+      properties:
+        title:
+          type: string
+          description: "Image title"
+        source:
+          $ref: '#/components/schemas/ImageSource'
+        original:
+          $ref: '#/components/schemas/ImageOriginal'
+        tag:
+          type: string
+          description: "Image tag"
+        thumbnail:
+          type: string
+          description: "Thumbnail URL"
+      additionalProperties: false
+
+    ImageSource:
+      type: object
+      properties:
+        name:
+          type: string
+          description: "Source website name"
+        link:
+          type: string
+          description: "Source page URL"
+      additionalProperties: false
+
+    ImageOriginal:
+      type: object
+      properties:
+        link:
+          type: string
+          description: "Original image URL"
+        height:
+          type: integer
+          description: "Image height in pixels"
+        width:
+          type: integer
+          description: "Image width in pixels"
+        size:
+          type: string
+          description: "Image file size"
+      additionalProperties: false
+
+    InlineVideos:
+      type: object
+      properties:
+        inline_videos:
+          type: array
+          items:
+            $ref: '#/components/schemas/VideoItem'
+        inline_videos_more_link:
+          type: string
+          description: "Link to more videos"
+      additionalProperties: false
+
+    VideoItem:
+      type: object
+      properties:
+        position:
+          type: integer
+          description: "Position in results"
+        title:
+          type: string
+          description: "Video title"
+        link:
+          type: string
+          description: "Video URL"
+        is_live:
+          type: boolean
+          description: "Whether video is live"
+        source:
+          type: string
+          description: "Video platform"
+        channel:
+          type: string
+          description: "Channel name"
+        date:
+          type: string
+          description: "Upload or stream date"
+        length:
+          type: string
+          description: "Video duration"
+        image:
+          type: string
+          description: "Thumbnail URL"
+      additionalProperties: false
+
+    RelatedQuestion:
+      type: object
+      properties:
+        question:
+          type: string
+          description: "Question text"
+        answer:
+          type: string
+          description: "Answer text"
+        answer_highlight:
+          type: string
+          description: "Highlighted text in answer"
+        answer_list:
+          type: array
+          description: "Answer as list items"
+          items:
+            oneOf:
+              - type: object
+                properties:
+                  text:
+                    type: string
+                    description: "List item text"
+                additionalProperties: false
+              - type: object
+                properties:
+                  text:
+                    type: string
+                    description: "Item text"
+                  link:
+                    type: string
+                    description: "Item link"
+                  image:
+                    type: string
+                    description: "Item image URL"
+                additionalProperties: false
+        answer_table:
+          type: object
+          description: "Answer as table structure"
+          additionalProperties: true
+        date:
+          type: string
+          description: "Answer date"
+        duration:
+          type: string
+          description: "Duration information"
+        entity:
+          type: object
+          description: "Entity information"
+          properties:
+            subject:
+              type: string
+              description: "Entity subject"
+            attribute:
+              type: string
+              description: "Entity attribute"
+            value:
+              type: string
+              description: "Entity value"
+          additionalProperties: false
+        source:
+          $ref: '#/components/schemas/OrganicResult'
+        search:
+          type: object
+          description: "Related search information"
+          properties:
+            title:
+              type: string
+              description: "Search title"
+            link:
+              type: string
+              description: "Search URL"
+          additionalProperties: false
+      additionalProperties: false
+
+    Pagination:
+      type: object
+      properties:
+        current:
+          type: integer
+          description: "Current page number"
+        previous:
+          type: string
+          description: "Previous page URL"
+        next:
+          type: string
+          description: "Next page URL"
+        other_pages:
+          type: array
+          items:
+            type: object
+            properties:
+              page:
+                type: integer
+              link:
+                type: string
+      additionalProperties: false
+
+    # Additional schemas for other response components
+    LocalAds:
+      type: object
+      properties:
+        title:
+          type: string
+          description: "Title of the local ads section"
+        badge:
+          type: string
+          description: "Badge text for the local ads"
+        ads:
+          type: array
+          items:
+            $ref: '#/components/schemas/LocalAd'
+          description: "Array of local ads"
+        see_more_link:
+          type: object
+          properties:
+            title:
+              type: string
+              description: "Title of the see more link"
+            link:
+              type: string
+              description: "URL to see more ads"
+          description: "Link to see more local ads"
+        categories:
+          type: array
+          items:
+            type: object
+            properties:
+              title:
+                type: string
+                description: "Category title"
+              link:
+                type: string
+                description: "Category link"
+          description: "Available categories"
+      additionalProperties: true
+
+    SportResults:
+      oneOf:
+        - $ref: '#/components/schemas/AthleteStats'
+        - $ref: '#/components/schemas/IndividualSportGame'
+        - $ref: '#/components/schemas/IndividualSportStandings'
+        - $ref: '#/components/schemas/TeamSport'
+      discriminator:
+        propertyName: type
+        mapping:
+          athlete_stats: '#/components/schemas/AthleteStats'
+          individual_sport: '#/components/schemas/IndividualSportGame'
+          individual_sport_standings: '#/components/schemas/IndividualSportStandings'
+          team_sport: '#/components/schemas/TeamSport'
+
+    AthleteStats:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [athlete_stats]
+          description: "Type of sports result"
+        title:
+          type: string
+          description: "Athlete name or title"
+        profession:
+          type: string
+          description: "Athlete profession or sport"
+        stats:
+          type: array
+          items:
+            type: object
+            properties:
+              team:
+                type: string
+                description: "Team name"
+              games:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    title:
+                      type: string
+                      description: "Stats table title"
+                    games_table:
+                      type: object
+                      properties:
+                        headers:
+                          type: array
+                          items:
+                            type: string
+                          description: "Table headers"
+                        rows:
+                          type: array
+                          items:
+                            type: array
+                            items:
+                              type: string
+                          description: "Table rows with stats"
+                      description: "Games statistics table"
+                  additionalProperties: false
+            additionalProperties: false
+          description: "Athlete statistics data"
+        thumbnail:
+          type: string
+          description: "Athlete image URL"
+      additionalProperties: false
+
+    IndividualSportGame:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [individual_sport]
+          description: "Type of sports result"
+        title:
+          type: string
+          description: "Event or tournament title"
+        subtitle:
+          type: string
+          description: "Event subtitle or additional info"
+        profession:
+          type: string
+          description: "Sport profession or category"
+        date:
+          type: string
+          description: "Event date"
+        track:
+          type: object
+          properties:
+            name:
+              type: string
+              description: "Track or venue name"
+            link:
+              type: string
+              description: "Track link URL"
+          description: "Track or venue information"
+        tournament_details:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+                description: "Detail name"
+              value:
+                type: string
+                description: "Detail value"
+            additionalProperties: false
+          description: "Tournament detail information"
+        video:
+          type: object
+          properties:
+            title:
+              type: string
+              description: "Video title"
+            length:
+              type: string
+              description: "Video length"
+            link:
+              type: string
+              description: "Video URL"
+            thumbnail:
+              type: string
+              description: "Video thumbnail URL"
+          description: "Featured video"
+        status:
+          type: string
+          description: "Event status"
+        games:
+          type: array
+          items:
+            type: object
+            properties:
+              date:
+                type: string
+                description: "Game date"
+              stage:
+                type: string
+                description: "Game stage"
+              status:
+                type: string
+                description: "Game status"
+              location:
+                type: string
+                description: "Game location"
+              video:
+                type: object
+                properties:
+                  link:
+                    type: string
+                    description: "Video URL"
+                  length:
+                    type: string
+                    description: "Video duration"
+                  thumbnail:
+                    type: string
+                    description: "Video thumbnail URL"
+                description: "Game video"
+              players:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                      description: "Player name"
+                    nationality:
+                      type: string
+                      description: "Player nationality"
+                    ranking:
+                      type: integer
+                      description: "Player ranking"
+                    sets:
+                      type: object
+                      additionalProperties:
+                        type: string
+                      description: "Set scores"
+                  additionalProperties: false
+                description: "Game players"
+              teams:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                      description: "Team name"
+                    score:
+                      type: string
+                      description: "Team score"
+                  additionalProperties: false
+                description: "Game teams"
+            additionalProperties: false
+          description: "Individual sport games"
+        leaderboard:
+          type: array
+          items:
+            type: object
+            properties:
+              position:
+                oneOf:
+                  - type: integer
+                  - type: string
+                description: "Position in leaderboard"
+              nationality:
+                type: string
+                description: "Competitor nationality"
+              name:
+                type: string
+                description: "Competitor name"
+              team:
+                type: string
+                description: "Team name"
+              car_number:
+                type: string
+                description: "Car number (racing)"
+              time:
+                type: string
+                description: "Time or score"
+              points:
+                type: integer
+                description: "Points earned"
+              results:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                      description: "Result category name"
+                    value:
+                      type: string
+                      description: "Result value"
+                  additionalProperties: false
+                description: "Additional results"
+            additionalProperties: false
+          description: "Event leaderboard"
+        thumbnail:
+          type: string
+          description: "Event image URL"
+      additionalProperties: false
+
+    IndividualSportStandings:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [individual_sport_standings]
+          description: "Type of sports result"
+        title:
+          type: string
+          description: "Tournament or competition title"
+        subtitle:
+          type: string
+          description: "Competition subtitle"
+        date:
+          type: string
+          description: "Standings date"
+        standings:
+          type: array
+          items:
+            type: object
+            properties:
+              rank:
+                type: integer
+                description: "Player ranking"
+              name:
+                type: string
+                description: "Player name"
+              team:
+                type: string
+                description: "Player team"
+              link:
+                type: string
+                description: "Player profile link"
+              results:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                      description: "Result category name"
+                    value:
+                      type: integer
+                      description: "Result value"
+                  additionalProperties: false
+                description: "Player results"
+            additionalProperties: false
+          description: "Individual sport standings"
+        thumbnail:
+          type: string
+          description: "Competition image URL"
+      additionalProperties: false
+
+    TeamSport:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [team_sport]
+          description: "Type of sports result"
+        title:
+          type: string
+          description: "League or team name"
+        subtitle:
+          type: string
+          description: "Team or league subtitle"
+        game_spotlight:
+          type: object
+          properties:
+            league:
+              type: string
+              description: "League name"
+            stage:
+              type: string
+              description: "Game stage or round"
+            date:
+              type: string
+              description: "Game date"
+            time:
+              type: string
+              description: "Game time"
+            stadium:
+              type: string
+              description: "Stadium name"
+            city:
+              type: string
+              description: "City where game is played"
+            status:
+              type: string
+              description: "Game status (e.g., Final, Live)"
+            videos:
+              type: array
+              items:
+                type: object
+                properties:
+                  title:
+                    type: string
+                    description: "Video title"
+                  link:
+                    type: string
+                    description: "Video URL"
+                  length:
+                    type: string
+                    description: "Video duration"
+                  source:
+                    type: string
+                    description: "Video source"
+                additionalProperties: false
+              description: "Related videos"
+            teams:
+              type: array
+              items:
+                type: object
+                properties:
+                  name:
+                    type: string
+                    description: "Team name"
+                  rankings:
+                    type: string
+                    description: "Team rankings"
+                  stats:
+                    type: object
+                    properties:
+                      wins:
+                        type: integer
+                        description: "Number of wins"
+                      losses:
+                        type: integer
+                        description: "Number of losses"
+                    additionalProperties: false
+                    description: "Team statistics"
+                  score:
+                    type: string
+                    description: "Team score"
+                additionalProperties: false
+              description: "Teams in the game"
+            score_table:
+              type: object
+              properties:
+                headers:
+                  type: array
+                  items:
+                    type: string
+                  description: "Table headers"
+                rows:
+                  type: array
+                  items:
+                    type: array
+                    items:
+                      type: string
+                  description: "Table rows"
+              additionalProperties: false
+              description: "Score breakdown table"
+          additionalProperties: false
+          description: "Featured game information"
+        games:
+          type: array
+          items:
+            type: object
+            properties:
+              league:
+                type: string
+                description: "League name"
+              stage:
+                type: string
+                description: "Game stage or round"
+              date:
+                type: string
+                description: "Game date"
+              time:
+                type: string
+                description: "Game time"
+              stadium:
+                type: string
+                description: "Stadium name"
+              status:
+                type: string
+                description: "Game status"
+              videos:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    title:
+                      type: string
+                      description: "Video title"
+                    link:
+                      type: string
+                      description: "Video URL"
+                    length:
+                      type: string
+                      description: "Video duration"
+                    source:
+                      type: string
+                      description: "Video source"
+                  additionalProperties: false
+                description: "Game videos"
+              teams:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                      description: "Team name"
+                    rankings:
+                      type: string
+                      description: "Team rankings"
+                    stats:
+                      type: object
+                      properties:
+                        wins:
+                          type: integer
+                          description: "Number of wins"
+                        losses:
+                          type: integer
+                          description: "Number of losses"
+                      additionalProperties: false
+                      description: "Team statistics"
+                    score:
+                      type: string
+                      description: "Team score"
+                  additionalProperties: false
+                description: "Teams in the game"
+            additionalProperties: false
+          description: "Team sport games"
+        standings:
+          type: object
+          properties:
+            season:
+              type: string
+              description: "Season information"
+            round:
+              type: string
+              description: "Round information"
+            headers:
+              type: array
+              items:
+                type: string
+              description: "Standings table headers"
+            rows:
+              type: array
+              items:
+                type: array
+                items:
+                  type: string
+              description: "Standings table rows"
+          additionalProperties: false
+          description: "Team standings"
+        thumbnail:
+          type: string
+          description: "Team or league image URL"
+      additionalProperties: false
+
+    SportsResult:
+      type: object
+      additionalProperties: true
+
+    WeatherResult:
+      oneOf:
+        - $ref: '#/components/schemas/DesktopWeatherResult'
+        - $ref: '#/components/schemas/MobileTableWeatherResult'
+        - $ref: '#/components/schemas/MobileSliderWeatherResult'
+      discriminator:
+        propertyName: layout_type
+        mapping:
+          desktop: '#/components/schemas/DesktopWeatherResult'
+          mobile_table: '#/components/schemas/MobileTableWeatherResult'
+          mobile_slider: '#/components/schemas/MobileSliderWeatherResult'
+
+    DesktopWeatherResult:
+      type: object
+      properties:
+        layout_type:
+          type: string
+          enum: [desktop]
+          description: "Layout type discriminator"
+        temperature:
+          $ref: '#/components/schemas/WeatherTemperature'
+        unit:
+          type: string
+          description: "Temperature unit (Fahrenheit or Celsius)"
+          enum: [Fahrenheit, Celsius]
+        precipitation:
+          type: string
+          description: "Precipitation information"
+        humidity:
+          type: string
+          description: "Humidity percentage"
+        wind:
+          $ref: '#/components/schemas/WeatherWind'
+        location:
+          type: string
+          description: "Weather location"
+        date:
+          type: string
+          description: "Weather date"
+        weather:
+          type: string
+          description: "Weather condition description"
+        thumbnail:
+          type: string
+          description: "Weather icon URL"
+        forecast:
+          type: array
+          items:
+            $ref: '#/components/schemas/WeatherDailyForecast'
+          description: "Daily weather forecast"
+        hourly_forecast:
+          type: array
+          items:
+            $ref: '#/components/schemas/WeatherHourlyForecast'
+          description: "Hourly weather forecast"
+        precipitation_forecast:
+          type: array
+          items:
+            $ref: '#/components/schemas/WeatherPrecipitationForecast'
+          description: "Precipitation forecast"
+        wind_forecast:
+          type: array
+          items:
+            $ref: '#/components/schemas/WeatherWindForecast'
+          description: "Wind forecast"
+      additionalProperties: false
+
+    MobileTableWeatherResult:
+      type: object
+      properties:
+        layout_type:
+          type: string
+          enum: [mobile_table]
+          description: "Layout type discriminator"
+        temperature:
+          $ref: '#/components/schemas/WeatherTemperature'
+        unit:
+          type: string
+          description: "Temperature unit (Fahrenheit or Celsius)"
+          enum: [Fahrenheit, Celsius]
+        precipitation:
+          type: string
+          description: "Precipitation information"
+        humidity:
+          type: string
+          description: "Humidity percentage"
+        wind:
+          $ref: '#/components/schemas/WeatherWind'
+        location:
+          type: string
+          description: "Weather location"
+        date:
+          type: string
+          description: "Weather date"
+        weather:
+          type: string
+          description: "Weather condition description"
+        thumbnail:
+          type: string
+          description: "Weather icon URL"
+        forecast:
+          type: array
+          items:
+            $ref: '#/components/schemas/MobileWeatherDailyForecast'
+          description: "Daily weather forecast"
+        hourly_forecast:
+          type: array
+          items:
+            $ref: '#/components/schemas/MobileWeatherHourlyForecast'
+          description: "Hourly weather forecast"
+        precipitation_forecast:
+          type: array
+          items:
+            $ref: '#/components/schemas/MobileWeatherPrecipitationForecast'
+          description: "Precipitation forecast"
+        wind_forecast:
+          type: array
+          items:
+            $ref: '#/components/schemas/MobileWeatherWindForecast'
+          description: "Wind forecast"
+        humidity_forecast:
+          type: array
+          items:
+            $ref: '#/components/schemas/WeatherHumidityForecast'
+          description: "Humidity forecast"
+      additionalProperties: false
+
+    MobileSliderWeatherResult:
+      type: object
+      properties:
+        layout_type:
+          type: string
+          enum: [mobile_slider]
+          description: "Layout type discriminator"
+        temperature:
+          $ref: '#/components/schemas/WeatherTemperature'
+        unit:
+          type: string
+          description: "Temperature unit (Fahrenheit or Celsius)"
+          enum: [Fahrenheit, Celsius]
+        precipitation:
+          type: string
+          description: "Precipitation information"
+        humidity:
+          type: string
+          description: "Humidity percentage"
+        wind:
+          $ref: '#/components/schemas/WeatherWind'
+        location:
+          type: string
+          description: "Weather location"
+        date:
+          type: string
+          description: "Weather date"
+        weather:
+          type: string
+          description: "Weather condition description"
+        thumbnail:
+          type: string
+          description: "Weather icon URL"
+        forecast:
+          type: array
+          items:
+            $ref: '#/components/schemas/MobileWeatherDailyForecast'
+          description: "Daily weather forecast"
+        hourly_forecast:
+          type: array
+          items:
+            $ref: '#/components/schemas/WeatherHourlyForecast'
+          description: "Hourly weather forecast"
+      additionalProperties: false
+
+    WeatherTemperature:
+      type: object
+      properties:
+        fahrenheit:
+          type: integer
+          description: "Temperature in Fahrenheit"
+        celsius:
+          type: integer
+          description: "Temperature in Celsius"
+      additionalProperties: false
+
+    WeatherWind:
+      type: object
+      properties:
+        kmh:
+          type: number
+          description: "Wind speed in kilometers per hour"
+        mph:
+          type: number
+          description: "Wind speed in miles per hour"
+      additionalProperties: false
+
+    WeatherDailyForecast:
+      type: object
+      properties:
+        day:
+          type: string
+          description: "Day of the week"
+        weather:
+          type: string
+          description: "Weather condition"
+        temperature:
+          type: object
+          properties:
+            high:
+              type: integer
+              description: "High temperature"
+            low:
+              type: integer
+              description: "Low temperature"
+          additionalProperties: false
+          description: "Daily temperature range"
+        precipitation:
+          type: string
+          description: "Precipitation information"
+        humidity:
+          type: string
+          description: "Humidity information"
+        wind:
+          type: string
+          description: "Wind information"
+        thumbnail:
+          type: string
+          description: "Weather icon URL"
+      additionalProperties: false
+
+    MobileWeatherDailyForecast:
+      type: object
+      properties:
+        day:
+          type: string
+          description: "Day of the week"
+        weather:
+          type: string
+          description: "Weather condition"
+        temperature:
+          type: object
+          properties:
+            high:
+              type: integer
+              description: "High temperature"
+            low:
+              type: integer
+              description: "Low temperature"
+          additionalProperties: false
+          description: "Daily temperature range"
+        thumbnail:
+          type: string
+          description: "Weather icon URL"
+      additionalProperties: false
+
+    WeatherHourlyForecast:
+      type: object
+      properties:
+        time:
+          type: string
+          description: "Time of the forecast"
+        weather:
+          type: string
+          description: "Weather condition"
+        temperature:
+          type: string
+          description: "Temperature"
+        precipitation:
+          type: string
+          description: "Precipitation information"
+        humidity:
+          type: string
+          description: "Humidity information"
+        wind:
+          type: string
+          description: "Wind information"
+      additionalProperties: false
+
+    MobileWeatherHourlyForecast:
+      type: object
+      properties:
+        time:
+          type: string
+          description: "Time of the forecast"
+        weather:
+          type: string
+          description: "Weather condition"
+        temperature:
+          type: string
+          description: "Temperature"
+      additionalProperties: false
+
+    WeatherPrecipitationForecast:
+      type: object
+      properties:
+        precipitation:
+          type: string
+          description: "Precipitation amount"
+        day:
+          type: string
+          description: "Day of the forecast"
+        time:
+          type: string
+          description: "Time of the forecast"
+      additionalProperties: false
+
+    MobileWeatherPrecipitationForecast:
+      type: object
+      properties:
+        precipitation:
+          type: string
+          description: "Precipitation amount"
+        time:
+          type: string
+          description: "Time of the forecast"
+      additionalProperties: false
+
+    WeatherWindForecast:
+      type: object
+      properties:
+        speed:
+          type: string
+          description: "Wind speed"
+        direction:
+          type: string
+          description: "Wind direction"
+        day:
+          type: string
+          description: "Day of the forecast"
+        time:
+          type: string
+          description: "Time of the forecast"
+        angle:
+          type: number
+          description: "Wind direction angle in degrees"
+      additionalProperties: false
+
+    MobileWeatherWindForecast:
+      type: object
+      properties:
+        speed:
+          type: string
+          description: "Wind speed"
+        direction:
+          type: string
+          description: "Wind direction"
+        time:
+          type: string
+          description: "Time of the forecast"
+        angle:
+          type: number
+          description: "Wind direction angle in degrees"
+      additionalProperties: false
+
+    WeatherHumidityForecast:
+      type: object
+      properties:
+        time:
+          type: string
+          description: "Time of the forecast"
+        humidity:
+          type: string
+          description: "Humidity percentage"
+      additionalProperties: false
+
+    SalaryEstimate:
+      type: object
+      properties:
+        title:
+          type: string
+          description: "Job title"
+        salary:
+          type: object
+          properties:
+            text:
+              type: string
+              description: "Combined salary range and frequency display text"
+            range:
+              type: string
+              description: "Salary range text"
+            range_from:
+              type: number
+              description: "Minimum salary value extracted from range"
+            range_to:
+              type: number
+              description: "Maximum salary value extracted from range"
+            frequency:
+              type: string
+              description: "Salary frequency or period (e.g., year, hour)"
+          description: "Salary information object"
+        link:
+          type: string
+          description: "Source URL for the salary estimate"
+        location:
+          type: string
+          description: "Job location"
+        source:
+          type: string
+          description: "Data source name"
+        favicon:
+          type: string
+          description: "Favicon image URL from the source"
+      additionalProperties: false
+
+    Event:
+      type: object
+      properties:
+        title:
+          type: string
+          description: "Event title"
+        link:
+          type: string
+          description: "Event URL"
+        date:
+          oneOf:
+            - type: string
+              description: "Event date as string"
+            - type: object
+              properties:
+                day:
+                  type: string
+                  description: "Event day"
+                month:
+                  type: string
+                  description: "Event month"
+              description: "Event date as object with day and month"
+        duration:
+          type: string
+          description: "Event duration"
+        time:
+          type: string
+          description: "Event time"
+        location:
+          type: string
+          description: "Event location"
+        address:
+          type: string
+          description: "Event address"
+        price:
+          type: number
+          description: "Event price as number"
+        extracted_price:
+          type: string
+          description: "Raw price text as extracted"
+        thumbnail:
+          type: string
+          description: "Event image URL"
+        offers:
+          type: array
+          items:
+            $ref: '#/components/schemas/EventOffer'
+          description: "Event ticket offers"
+      additionalProperties: true
+
+    EventOffer:
+      type: object
+      properties:
+        seller:
+          type: string
+          description: "Ticket seller name"
+        link:
+          type: string
+          description: "Link to purchase tickets"
+        is_official:
+          type: boolean
+          description: "Whether this is an official ticket seller"
+        extracted_price:
+          type: number
+          description: "Ticket price as number"
+        price:
+          type: string
+          description: "Raw price text"
+      additionalProperties: true
+
+    Job:
+      type: object
+      properties:
+        position:
+          type: integer
+          description: "Position in results"
+        title:
+          type: string
+          description: "Job title"
+        company_name:
+          type: string
+          description: "Company name"
+        location:
+          type: string
+          description: "Job location"
+        via:
+          type: string
+          description: "Source where job was found"
+        description:
+          type: string
+          description: "Job description"
+        job_highlights:
+          type: array
+          items:
+            $ref: '#/components/schemas/JobHighlight'
+          description: "Job highlights with sections"
+        extensions:
+          type: array
+          items:
+            type: string
+          description: "Job extension information"
+        detected_extensions:
+          type: object
+          properties:
+            schedule:
+              type: string
+              description: "Job schedule information"
+            posted_at:
+              type: string
+              description: "When the job was posted"
+            salary:
+              type: string
+              description: "Salary information"
+            work_from_home:
+              type: boolean
+              description: "Work from home availability"
+            no_degree_mentioned:
+              type: boolean
+              description: "Whether no degree is mentioned"
+            health_insurance:
+              type: boolean
+              description: "Health insurance availability"
+            dental_insurance:
+              type: boolean
+              description: "Dental insurance availability"
+            paid_time_off:
+              type: boolean
+              description: "Paid time off availability"
+          additionalProperties: true
+          description: "Detected extension information from job posting"
+        apply_link:
+          type: string
+          description: "Primary application URL"
+        apply_links:
+          type: array
+          items:
+            $ref: '#/components/schemas/ApplyLink'
+          description: "Multiple application links"
+        sharing_link:
+          type: string
+          description: "Job sharing URL"
+        thumbnail:
+          type: string
+          description: "Company logo URL"
+      additionalProperties: true
+
+    JobHighlight:
+      type: object
+      properties:
+        title:
+          type: string
+          description: "Highlight section title"
+        items:
+          type: array
+          items:
+            type: string
+          description: "Highlight items in this section"
+      additionalProperties: true
+
+    ApplyLink:
+      type: object
+      properties:
+        link:
+          type: string
+          description: "Application URL"
+        source:
+          type: string
+          description: "Application source/platform"
+      additionalProperties: true
+
+    InlineShoppingItem:
+      type: object
+      properties:
+        position:
+          type: integer
+          description: "Position in results"
+        title:
+          type: string
+          description: "Product title"
+        seller:
+          type: string
+          description: "Product seller/merchant"
+        rating:
+          type: number
+          description: "Product rating"
+        reviews:
+          type: integer
+          description: "Number of reviews"
+        price:
+          type: string
+          description: "Display price"
+        extracted_price:
+          type: number
+          description: "Numeric price value"
+        original_price:
+          type: string
+          description: "Original price before discount"
+        extracted_original_price:
+          type: number
+          description: "Numeric original price value"
+        installment:
+          $ref: '#/components/schemas/InstallmentInfo'
+          description: "Installment payment information"
+        deal:
+          type: string
+          description: "Deal or discount information"
+        durability:
+          type: string
+          description: "Product durability information"
+        comments:
+          type: array
+          items:
+            type: string
+          description: "Product comments or features"
+        review:
+          $ref: '#/components/schemas/ProductReview'
+          description: "Product review information"
+        extensions:
+          type: array
+          items:
+            type: string
+          description: "Additional product information"
+        thumbnail:
+          type: string
+          description: "Product image URL"
+      additionalProperties: true
+
+    InstallmentInfo:
+      type: object
+      properties:
+        months:
+          type: string
+          description: "Number of months for installment"
+        extracted_months:
+          type: integer
+          description: "Numeric number of months"
+        cost_per_month:
+          type: string
+          description: "Cost per month"
+        extracted_cost_per_month:
+          type: number
+          description: "Numeric cost per month"
+        down_payment:
+          type: string
+          description: "Down payment amount"
+        extracted_down_payment:
+          type: number
+          description: "Numeric down payment"
+      additionalProperties: true
+
+    ProductReview:
+      type: object
+      properties:
+        link:
+          type: string
+          description: "Review URL"
+        source:
+          type: string
+          description: "Review source"
+      additionalProperties: true
+
+    FromSourcesAcrossTheWeb:
+      type: object
+      properties:
+        title:
+          type: string
+          description: "Section title"
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/SourceAcrossWebItem'
+          description: "Array of source items"
+      additionalProperties: true
+
+    SourceAcrossWebItem:
+      type: object
+      properties:
+        name:
+          type: string
+          description: "Source name"
+        thumbnail:
+          type: string
+          description: "Source thumbnail image URL"
+      additionalProperties: true
+
+    DiscussionForum:
+      type: object
+      properties:
+        title:
+          type: string
+          description: "Discussion title"
+        link:
+          type: string
+          description: "Discussion URL"
+        source:
+          type: string
+          description: "Forum name"
+        date:
+          type: string
+          description: "Discussion date"
+        posts:
+          type: string
+          description: "Number of posts"
+        community:
+          type: string
+          description: "Community name from extensions"
+        favicon:
+          type: string
+          description: "Forum favicon URL"
+        answers:
+          type: array
+          description: "Discussion answers"
+          items:
+            $ref: '#/components/schemas/DiscussionAnswer'
+      additionalProperties: true
+
+    DiscussionAnswer:
+      type: object
+      properties:
+        snippet:
+          type: string
+          description: "Answer snippet text"
+        link:
+          type: string
+          description: "Answer source URL"
+        is_top_answer:
+          type: boolean
+          description: "Whether this is marked as top answer"
+        extensions:
+          type: array
+          description: "Additional answer extensions"
+          items:
+            type: string
+      additionalProperties: false
+
+    QuestionAnswer:
+      type: object
+      properties:
+        question:
+          type: string
+          description: "Question text"
+        answer:
+          type: string
+          description: "Answer text"
+        link:
+          type: string
+          description: "Source URL"
+        votes:
+          type: integer
+          description: "Number of votes for the answer"
+        source:
+          type: string
+          description: "Source name"
+      additionalProperties: true
+
+    ExploreBrand:
+      type: object
+      properties:
+        title:
+          type: string
+          description: "Brand name"
+        link:
+          type: string
+          description: "Brand URL"
+        thumbnail:
+          type: string
+          description: "Brand logo URL"
+        description:
+          type: string
+          description: "Brand description"
+      additionalProperties: true
+
+    Perspective:
+      type: object
+      properties:
+        title:
+          type: string
+          description: "Perspective title"
+        link:
+          type: string
+          description: "Perspective URL"
+        author:
+          type: string
+          description: "Perspective author"
+        source:
+          type: string
+          description: "Source name"
+        date:
+          type: string
+          description: "Perspective date"
+        snippet:
+          type: string
+          description: "Perspective snippet"
+        reactions:
+          type: string
+          description: "Social media reactions count"
+        thumbnail:
+          type: string
+          description: "Perspective thumbnail image URL"
+      additionalProperties: true
+
+    LocalNewsItem:
+      type: object
+      properties:
+        title:
+          type: string
+          description: "News title"
+        source:
+          type: string
+          description: "News source"
+        link:
+          type: string
+          description: "News URL"
+        thumbnail:
+          type: string
+          description: "News image URL"
+        date:
+          type: string
+          description: "News date"
+      additionalProperties: true
+
+    ThingToDo:
+      type: object
+      properties:
+        title:
+          type: string
+          description: "Activity title"
+        link:
+          type: string
+          description: "Activity URL"
+        rating:
+          type: number
+          description: "Activity rating"
+        reviews:
+          type: integer
+          description: "Number of reviews"
+        attraction:
+          type: string
+          description: "Attraction or activity type"
+        price:
+          type: string
+          description: "Activity price as text"
+        extracted_price:
+          type: number
+          description: "Numeric price value extracted from price text"
+        thumbnail:
+          type: string
+          description: "Activity image URL"
+      additionalProperties: true
+
+    PopularDestination:
+      type: object
+      properties:
+        title:
+          type: string
+          description: "Destination name"
+        link:
+          type: string
+          description: "Destination URL"
+        description:
+          type: string
+          description: "Destination description"
+        thumbnail:
+          type: string
+          description: "Destination image URL"
+        flight_price:
+          type: string
+          description: "Flight price to destination"
+        extracted_flight_price:
+          type: number
+          description: "Extracted numeric flight price"
+        hotel_price:
+          type: string
+          description: "Hotel price at destination"
+        extracted_hotel_price:
+          type: number
+          description: "Extracted numeric hotel price"
+        flight_duration:
+          type: string
+          description: "Flight duration to destination"
+        drive_duration:
+          type: string
+          description: "Driving duration to destination"
+      additionalProperties: true
+
+    ScholarlyArticles:
+      type: object
+      properties:
+        title:
+          type: string
+          description: "Section title"
+        link:
+          type: string
+          description: "Section URL"
+        articles:
+          type: array
+          items:
+            $ref: '#/components/schemas/ScholarlyArticle'
+          description: "List of scholarly articles"
+      additionalProperties: false
+
+    ScholarlyArticle:
+      type: object
+      properties:
+        title:
+          type: string
+          description: "Article title"
+        link:
+          type: string
+          description: "Article URL"
+        title_highlighted_words:
+          type: array
+          items:
+            type: string
+          description: "Highlighted words in title"
+        author:
+          type: string
+          description: "Article author"
+        cited_by:
+          type: integer
+          description: "Number of citations"
+      additionalProperties: true
+
+    InlineRecipe:
+      type: object
+      properties:
+        title:
+          type: string
+          description: "Recipe title"
+        link:
+          type: string
+          description: "Recipe URL"
+        source:
+          type: string
+          description: "Recipe source"
+        rating:
+          type: number
+          description: "Recipe rating"
+        reviews:
+          type: integer
+          description: "Number of reviews"
+        ingredients_count:
+          type: integer
+          description: "Number of ingredients"
+        ingredients:
+          type: array
+          items:
+            type: string
+          description: "Recipe ingredients"
+        duration:
+          type: string
+          description: "Recipe duration"
+        thumbnail:
+          type: string
+          description: "Recipe image URL"
+      additionalProperties: true
+
+    RelatedSearch:
+      type: object
+      properties:
+        query:
+          type: string
+          description: "Search query text"
+        link:
+          type: string
+          description: "Search query URL"
+      additionalProperties: false
+
+    Course:
+      type: object
+      properties:
+        title:
+          type: string
+          description: "Course title"
+        provider:
+          type: string
+          description: "Course provider"
+        price:
+          type: string
+          description: "Course price"
+        rating:
+          type: number
+          description: "Course rating"
+        reviews:
+          type: integer
+          description: "Number of reviews"
+        duration:
+          type: string
+          description: "Course duration"
+        level:
+          type: string
+          description: "Course difficulty level"
+        description:
+          type: string
+          description: "Course description"
+        link:
+          type: string
+          description: "Course URL"
+        thumbnail:
+          type: string
+          description: "Course image URL"
+        instructor:
+          type: string
+          description: "Course instructor"
+      additionalProperties: true
+
+    TopStory:
+      type: object
+      properties:
+        position:
+          type: integer
+          description: "Position in results"
+        title:
+          type: string
+          description: "Story title"
+        link:
+          type: string
+          description: "Story URL"
+        source:
+          type: string
+          description: "News source"
+        date:
+          type: string
+          description: "Publication date"
+        thumbnail:
+          type: string
+          description: "Story image URL"
+        snippet:
+          type: string
+          description: "Story snippet"
+      additionalProperties: true
+
+    LatestPost:
+      type: object
+      properties:
+        position:
+          type: integer
+          description: "Position in results"
+        title:
+          type: string
+          description: "Post title"
+        link:
+          type: string
+          description: "Post URL"
+        source:
+          type: string
+          description: "Post source"
+        date:
+          type: string
+          description: "Post date"
+        thumbnail:
+          type: string
+          description: "Post image URL"
+        snippet:
+          type: string
+          description: "Post snippet"
+      additionalProperties: true
+
+    InlineTweets:
+      type: object
+      properties:
+        title:
+          type: string
+          description: "Title of the tweets section"
+        link:
+          type: string
+          description: "Link to the source"
+        displayed_link:
+          type: string
+          description: "Display URL"
+        tweets:
+          type: array
+          items:
+            type: object
+            properties:
+              tweet_id:
+                type: string
+                description: "Unique tweet identifier"
+              link:
+                type: string
+                description: "Tweet URL"
+              snippet:
+                type: string
+                description: "Tweet content or snippet"
+              snippet_link:
+                type: string
+                description: "Link within the tweet snippet"
+              is_video:
+                type: boolean
+                description: "Whether the tweet contains video"
+              date:
+                type: string
+                description: "Tweet date"
+              author:
+                type: object
+                properties:
+                  name:
+                    type: string
+                    description: "Author's display name"
+                  screen_name:
+                    type: string
+                    description: "Author's Twitter handle"
+                  link:
+                    type: string
+                    description: "Link to author's profile"
+                  thumbnail:
+                    type: string
+                    description: "Author's profile image"
+                additionalProperties: false
+                description: "Tweet author information"
+              images:
+                type: array
+                items:
+                  type: string
+                description: "Array of image URLs in the tweet"
+            additionalProperties: true
+          description: "Array of individual tweets"
+        thumbnail:
+          type: string
+          description: "Section thumbnail URL"
+      additionalProperties: false
+
+    NearbyEvent:
+      type: object
+      properties:
+        title:
+          type: string
+          description: "Event title"
+        link:
+          type: string
+          description: "Event URL"
+        rating:
+          type: number
+          description: "Event rating"
+        reviews:
+          type: integer
+          description: "Number of reviews"
+        source:
+          type: string
+          description: "Event source"
+        price:
+          type: string
+          description: "Event price as text"
+        extracted_price:
+          type: number
+          description: "Event price as numeric value"
+        date:
+          type: string
+          description: "Event date"
+        location:
+          type: string
+          description: "Event location"
+        city:
+          type: string
+          description: "Event city"
+        author:
+          type: object
+          properties:
+            name:
+              type: string
+              description: "Author name"
+            thumbnail:
+              type: string
+              description: "Author thumbnail image URL"
+          description: "Event author information"
+        thumbnail:
+          type: string
+          description: "Event image URL"
+      additionalProperties: true
+
+    University:
+      type: object
+      properties:
+        title:
+          type: string
+          description: "University name"
+        link:
+          type: string
+          description: "University URL"
+        city:
+          type: string
+          description: "University city location"
+        education_type:
+          type: string
+          description: "Type of education offered"
+        education_duration:
+          type: string
+          description: "Duration of education program"
+        extracted_education_duration:
+          type: number
+          description: "Numeric duration value extracted from education_duration text"
+        thumbnail:
+          type: string
+          description: "University image URL"
+      additionalProperties: false

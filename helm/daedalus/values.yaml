@@ -1,0 +1,104 @@
+global:
+  nameOverride: ""
+  fullnameOverride: ""
+  networkName: daedalus-network
+
+images:
+  builder:
+    repository: daedalus.ddns.me:5050/btuttle/daedalus
+    tag: builder-0.1.0
+    pullPolicy: Always
+  backend:
+    repository: daedalus.ddns.me:5050/btuttle/daedalus
+    tag: backend-0.1.0
+    pullPolicy: Always
+  frontend:
+    repository: daedalus.ddns.me:5050/btuttle/daedalus
+    tag: frontend-0.1.0
+    pullPolicy: Always
+  nginx:
+    repository: nginx
+    tag: alpine
+    pullPolicy: Always
+  redis:
+    repository: redis
+    tag: "7-alpine"
+    pullPolicy: Always
+
+backend:
+  enabled: true
+  port: 8000
+  env:
+    # Name of an existing Secret to load via envFrom (external secret)
+    fromSecret: ""
+    # If you prefer Helm to create the Secret, set createSecret=true and provide key/value pairs under data
+    createSecret: false
+    data: {}
+    # Explicit env overrides applied in the pod, useful to fix bad values from secrets
+    overrides:
+      SSL_CERT_FILE: /etc/ssl/certs/ca-certificates.crt
+  config:
+    enabled: true
+    # Contents of backend/config.yaml; if empty, configMap not created
+    data: |
+      # Override to inject your backend config.yaml
+  service:
+    type: ClusterIP
+    port: 8000
+  networkPolicy:
+    enabled: false  # Set to true to restrict backend access to only frontend and nginx pods
+
+frontend:
+  enabled: true
+  port: 3000
+  env:
+    fromSecret: ""
+    createSecret: false
+    data: {}
+    overrides: {}
+  service:
+    type: ClusterIP
+    port: 3000
+
+nginx:
+  enabled: true
+  httpPort: 80
+  https:
+    enabled: true
+    tlsSecretName: ""
+  config:
+    useTemplate: true
+    restrictedMode: true  # Set to true to block direct API access through nginx
+    # If useTemplate is false, rawConf is used
+    rawConf: |
+      # Provide nginx conf if not using template
+    # Leave empty to default to the in-cluster FQDN of the backend Service
+    backendHost: ""
+    backendPort: 8000
+  imageVolume:
+    enabled: true
+    size: 1Gi
+    storageClassName: ""
+    create: true
+    existingClaimName: ""
+  service:
+    type: ClusterIP
+
+redis:
+  enabled: true
+  persistence:
+    enabled: true
+    size: 64Gi
+    storageClassName: ""
+    create: true
+    existingClaimName: ""
+  service:
+    type: ClusterIP
+    port: 6379
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts: []
+  tls: []

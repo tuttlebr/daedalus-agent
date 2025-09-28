@@ -1,0 +1,14 @@
+general:
+  logging:
+    console:
+      _type: console
+      level: INFO
+
+  front_end:
+    _type: console
+
+workflow:
+  _type: serpapi_search
+  # api_key: "your-serpapi-key-here"  # Optional: Can also use SERPAPI_KEY env var
+  default_location: "United States"
+  default_num_results: 10
