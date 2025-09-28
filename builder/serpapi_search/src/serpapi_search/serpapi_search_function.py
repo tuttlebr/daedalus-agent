@@ -448,7 +448,7 @@ async def serpapi_search_function(
         # Register the primary structured search function
         yield FunctionInfo.create(
             single_fn=_search_function,
-            description="Perform Google searches using SerpAPI and return structured results.",
+            description="Perform Google search. Use for getting the latest information, news, sports and event information. Anything you'd use Google for.",
         )
     except GeneratorExit:
         logger.warning("SerpAPI search function exited early!")
