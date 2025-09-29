@@ -43,7 +43,7 @@ class WebscrapeFunctionConfig(FunctionBaseConfig, name="webscrape"):
         description="URL schemes permitted for scraping.",
     )
     max_output_tokens: int = Field(
-        default=8000,
+        default=64000,
         ge=100,
         le=128000,
         description="Maximum number of tokens in the output markdown. Content will be truncated if it exceeds this limit.",

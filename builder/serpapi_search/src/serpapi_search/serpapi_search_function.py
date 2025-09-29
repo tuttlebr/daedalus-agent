@@ -12,6 +12,8 @@ from nat.builder.function_info import FunctionInfo
 from nat.cli.register_workflow import register_function
 from nat.data_models.function import FunctionBaseConfig
 
+from .result_scraper import SerpLinkScraperSettings, scrape_serp_links
+
 logger = logging.getLogger(__name__)
 
 # Configure logging level/format if not already configured by the host app
@@ -90,14 +92,29 @@ class SearchResult(BaseModel):
     source: Optional[str] = None
 
 
+class TopStory(BaseModel):
+    """Top stories result model"""
+    position: int
+    title: str
+    link: str
+    source: Optional[str] = None
+    date: Optional[str] = None
+    thumbnail: Optional[str] = None
+    live: Optional[bool] = None
+    source_logo: Optional[str] = None
+
+
 class SearchResponse(BaseModel):
     """Response model for search results"""
     success: bool
     query: str
     total_results: Optional[int] = None
-    results: List[SearchResult] = Field(default_factory=list)
-    related_questions: List[Dict[str, Any]] = Field(default_factory=list)
-    related_searches: List[Dict[str, str]] = Field(default_factory=list)
+    answer_box: Optional[Dict[str, Any]] = None
+    organic_results: List[SearchResult] = Field(default_factory=list)
+    top_stories: List[TopStory] = Field(default_factory=list)
+    hierarchy_levels: List[Dict[str, Any]] = Field(default_factory=list)
+    organic_scrape: Optional[Dict[str, Any]] = None
+    top_story_scrape: Optional[Dict[str, Any]] = None
     error: Optional[str] = None
     raw_response: Optional[Dict[str, Any]] = None
 
@@ -325,39 +342,93 @@ async def serpapi_search_function(
                 raise
 
             # Parse organic results
-            results = []
-            organic_results = response_data.get("organic_results", [])
-            for idx, result in enumerate(organic_results):
-                search_result = SearchResult(
-                    position=result.get("position", idx + 1),
-                    title=result.get("title", ""),
-                    link=result.get("link", ""),
-                    snippet=result.get("snippet", ""),
-                    displayed_link=result.get("displayed_link"),
-                    date=result.get("date"),
-                    source=result.get("source")
-                )
-                results.append(search_result)
-
-            # Extract related questions
-            related_questions = []
-            for question in response_data.get("related_questions", []):
-                related_questions.append({
-                    "question": question.get("question", ""),
-                    "answer": question.get("answer", ""),
-                    "source": (
-                        question.get("source", {})
-                        if question.get("source") else {}
+            organic_results_models: List[SearchResult] = []
+            organic_results_raw = response_data.get("organic_results", [])
+            for idx, result in enumerate(organic_results_raw):
+                organic_results_models.append(
+                    SearchResult(
+                        position=result.get("position", idx + 1),
+                        title=result.get("title", ""),
+                        link=result.get("link", ""),
+                        snippet=result.get("snippet", ""),
+                        displayed_link=result.get("displayed_link"),
+                        date=result.get("date"),
+                        source=result.get("source"),
                     )
-                })
+                )
 
-            # Extract related searches
-            related_searches = []
-            for search in response_data.get("related_searches", []):
-                related_searches.append({
-                    "query": search.get("query", ""),
-                    "link": search.get("link", "")
-                })
+            # Parse answer box
+            answer_box = response_data.get("answer_box")
+
+            # Parse top stories
+            top_stories_models: List[TopStory] = []
+            top_stories_raw = response_data.get("top_stories", [])
+            for idx, story in enumerate(top_stories_raw):
+                top_stories_models.append(
+                    TopStory(
+                        position=story.get("position", idx + 1),
+                        title=story.get("title", ""),
+                        link=story.get("link", ""),
+                        source=story.get("source"),
+                        date=story.get("date"),
+                        thumbnail=story.get("thumbnail"),
+                        live=story.get("live"),
+                        source_logo=story.get("source_logo"),
+                    )
+                )
+
+            organic_results_payload = [item.model_dump() for item in organic_results_models]
+            top_stories_payload = [item.model_dump() for item in top_stories_models]
+
+            # Build hierarchy levels
+            hierarchy_levels: List[Dict[str, Any]] = []
+
+            level_one_data = {"answer_box": answer_box} if answer_box else {}
+            hierarchy_levels.append({
+                "level": 1,
+                "description": "answer_box",
+                "available": bool(level_one_data),
+                "data": level_one_data,
+            })
+
+            level_two_data: Dict[str, Any] = {}
+            if answer_box:
+                level_two_data["answer_box"] = answer_box
+            if organic_results_payload:
+                level_two_data["organic_results"] = organic_results_payload
+            hierarchy_levels.append({
+                "level": 2,
+                "description": "answer_box + organic_results",
+                "available": bool(level_two_data),
+                "data": level_two_data,
+            })
+
+            level_three_data = dict(level_two_data)
+            if top_stories_payload:
+                level_three_data["top_stories"] = top_stories_payload
+            hierarchy_levels.append({
+                "level": 3,
+                "description": "answer_box + organic_results + top_stories",
+                "available": bool(level_three_data),
+                "data": level_three_data,
+            })
+
+            # Scrape representative links from results
+            organic_scrape_data: Optional[Dict[str, Any]] = None
+            top_story_scrape_data: Optional[Dict[str, Any]] = None
+
+            try:
+                organic_scrape_outcome, top_story_scrape_outcome = await scrape_serp_links(
+                    organic_entries=organic_results_payload,
+                    top_story_entries=top_stories_payload,
+                    settings=SerpLinkScraperSettings(),
+                )
+                organic_scrape_data = organic_scrape_outcome.model_dump()
+                top_story_scrape_data = top_story_scrape_outcome.model_dump()
+            except Exception as scrape_error:  # noqa: BLE001 - defensive catch
+                logger.exception("[%s] Enrichment scrape failed: %s", request_id, scrape_error)
+                organic_scrape_data = {"error": str(scrape_error)}
+                top_story_scrape_data = {"error": str(scrape_error)}
 
             # Get total results from search information
             search_info = response_data.get("search_information", {})
@@ -368,22 +439,24 @@ async def serpapi_search_function(
                 success=True,
                 query=search_request.query,
                 total_results=total_results,
-                results=[r.model_dump() for r in results],
-                related_questions=related_questions,
-                related_searches=related_searches,
-                raw_response=response_data  # Include raw response
+                answer_box=answer_box,
+                organic_results=organic_results_models,
+                top_stories=top_stories_models,
+                hierarchy_levels=hierarchy_levels,
+                organic_scrape=organic_scrape_data,
+                top_story_scrape=top_story_scrape_data,
             )
 
             duration_ms = int((time.time() - start_time) * 1000)
             logger.info(
                 "[%s] Search completed ok in %d ms: q='%s' "
-                "results=%s related_q=%s related_s=%s",
+                "organic=%s top_stories=%s answer_box=%s",
                 request_id,
                 duration_ms,
                 response.query,
-                len(response.results),
-                len(response.related_questions),
-                len(response.related_searches),
+                len(response.organic_results),
+                len(response.top_stories),
+                bool(response.answer_box),
             )
             return response.model_dump()
 
@@ -420,27 +493,36 @@ async def serpapi_search_function(
             f"Total results: {result.get('total_results', 'Unknown')}\n\n"
         )
 
+        # Add answer box summary if present
+        answer_box = result.get("answer_box")
+        if isinstance(answer_box, dict) and answer_box:
+            output += "Answer Box:\n"
+            for key, value in answer_box.items():
+                if isinstance(value, (str, int, float)):
+                    output += f"- {key}: {value}\n"
+            output += "\n"
+
         # Add organic results
-        if result["results"]:
+        organic_results = result.get("organic_results", [])
+        if organic_results:
             output += "Top Results:\n"
-            for r in result["results"]:
+            for r in organic_results:
                 output += f"{r['position']}. {r['title']}\n"
                 output += f"   URL: {r['link']}\n"
                 output += f"   {r['snippet']}\n\n"
 
-        # Add related questions
-        if result["related_questions"]:
-            output += "\nPeople Also Ask:\n"
-            for q in result["related_questions"][:3]:
-                output += f"- {q['question']}\n"
-                if q.get('answer'):
-                    output += f"  {q['answer'][:100]}...\n"
-
-        # Add related searches
-        if result["related_searches"]:
-            output += "\nRelated Searches:\n"
-            for s in result["related_searches"][:5]:
-                output += f"- {s['query']}\n"
+        # Add top stories
+        top_stories = result.get("top_stories", [])
+        if top_stories:
+            output += "\nTop Stories:\n"
+            for story in top_stories:
+                output += f"- {story['title']} ({story.get('source', 'Unknown source')})\n"
+                output += f"  URL: {story['link']}\n"
+                if story.get('date'):
+                    output += f"  Date: {story['date']}\n"
+                if story.get('live'):
+                    output += "  Live update\n"
+                output += "\n"
 
         return output
 
