@@ -179,17 +179,20 @@ ENV_FILE_PRESENT="false"
 USE_RELEASE_SECRETS="false"
 HELM_PRESET_PVC_IMAGES=()
 HELM_PRESET_PVC_REDIS=()
+HELM_PRESET_PVC_REDISINSIGHT=()
 
 configure_pvc_presets() {
   local images_pvc
   local redis_pvc
+  local redisinsight_pvc
   images_pvc="${RELEASE}-images"
   redis_pvc="${RELEASE}-redis"
+  redisinsight_pvc="${RELEASE}-redisinsight"
 
   # Default to allowing Helm to (re)create PVCs and ensure existingClaimName is cleared
   HELM_PRESET_PVC_IMAGES=( --set nginx.imageVolume.create=true --set-string nginx.imageVolume.existingClaimName="" )
   HELM_PRESET_PVC_REDIS=( --set redis.persistence.create=true --set-string redis.persistence.existingClaimName="" )
-
+  HELM_PRESET_PVC_REDISINSIGHT=( --set redisinsight.persistence.create=true --set-string redisinsight.persistence.existingClaimName="" )
   if kubectl -n "$NAMESPACE" get pvc "$images_pvc" >/dev/null 2>&1; then
     echo -e "${Yellow}Found existing PVC:${Color_Off} $images_pvc (will not create in Helm)"
     HELM_PRESET_PVC_IMAGES=( --set nginx.imageVolume.create=false --set nginx.imageVolume.existingClaimName="$images_pvc" )
@@ -198,6 +201,11 @@ configure_pvc_presets() {
   if kubectl -n "$NAMESPACE" get pvc "$redis_pvc" >/dev/null 2>&1; then
     echo -e "${Yellow}Found existing PVC:${Color_Off} $redis_pvc (will not create in Helm)"
     HELM_PRESET_PVC_REDIS=( --set redis.persistence.create=false --set redis.persistence.existingClaimName="$redis_pvc" )
+  fi
+
+  if kubectl -n "$NAMESPACE" get pvc "$redisinsight_pvc" >/dev/null 2>&1; then
+    echo -e "${Yellow}Found existing PVC:${Color_Off} $redisinsight_pvc (will not create in Helm)"
+    HELM_PRESET_PVC_REDISINSIGHT=( --set redisinsight.persistence.create=false --set redisinsight.persistence.existingClaimName="$redisinsight_pvc" )
   fi
 }
 
@@ -377,6 +385,9 @@ if [[ ${#HELM_PRESET_PVC_IMAGES[@]} -gt 0 ]]; then
 fi
 if [[ ${#HELM_PRESET_PVC_REDIS[@]} -gt 0 ]]; then
   HELM_CMD+=( "${HELM_PRESET_PVC_REDIS[@]}" )
+fi
+if [[ ${#HELM_PRESET_PVC_REDISINSIGHT[@]} -gt 0 ]]; then
+  HELM_CMD+=( "${HELM_PRESET_PVC_REDISINSIGHT[@]}" )
 fi
 if [[ -n "${BACKEND_CONFIG}" && -f "${BACKEND_CONFIG}" ]]; then
   HELM_CMD+=( --set-file backend.config.data="$BACKEND_CONFIG" )

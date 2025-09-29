@@ -475,11 +475,11 @@ export const ChatInput = ({
             appConfig?.fileUploadEnabled && !inputFile &&
             <>
               <button
-                className="absolute right-12 top-3 rounded-md p-2 text-neutral-800 opacity-60 hover:text-nvidia-green dark:bg-opacity-50 dark:text-neutral-100 dark:hover:text-neutral-200"
-            onClick={triggerFileUpload}
-            disabled={isUploadingImage}
-          >
-            {messageIsStreaming || isUploadingImage ? (
+                className="absolute right-12 top-1/2 -translate-y-1/2 rounded-md p-2 text-neutral-800 opacity-60 hover:text-nvidia-green dark:bg-opacity-50 dark:text-neutral-100 dark:hover:text-neutral-200"
+                onClick={triggerFileUpload}
+                disabled={isUploadingImage}
+              >
+                {messageIsStreaming || isUploadingImage ? (
                   <></>
                 ) : (
                   <>
@@ -497,7 +497,7 @@ export const ChatInput = ({
           }
           <button
             onClick={handleSpeechToText}
-            className={`absolute left-3 top-3 rounded-md p-2 text-neutral-800 opacity-60 dark:bg-opacity-50 dark:text-neutral-100 ${messageIsStreaming
+            className={`absolute left-3 top-1/2 -translate-y-1/2 rounded-md p-2 text-neutral-800 opacity-60 dark:bg-opacity-50 dark:text-neutral-100 ${messageIsStreaming
               ? 'text-neutral-400' // Disable hover and change color when streaming
               : 'hover:text-nvidia-green dark:hover:text-neutral-200' // Normal hover effect
               }`}
@@ -510,7 +510,7 @@ export const ChatInput = ({
             )}
           </button>
           <button
-            className="absolute right-3 top-3 rounded-md p-2 text-neutral-800 opacity-60 hover:bg-neutral-200 hover:text-neutral-900 dark:bg-opacity-50 dark:text-neutral-100 dark:hover:text-neutral-200"
+            className="absolute right-3 top-1/2 -translate-y-1/2 rounded-md p-2 text-neutral-800 opacity-60 hover:bg-neutral-200 hover:text-neutral-900 dark:bg-opacity-50 dark:text-neutral-100 dark:hover:text-neutral-200"
             onClick={handleSend}
           >
             {messageIsStreaming ? (
