@@ -2,15 +2,11 @@
 import {
   IconCheck,
   IconCopy,
-  IconEdit,
   IconPlayerPause,
-  IconTrash,
   IconUser,
   IconVolume2,
 } from '@tabler/icons-react';
 import { FC, memo, useContext, useEffect, useRef, useState } from 'react';
-import { useTranslation } from 'next-i18next';
-import { updateConversation } from '@/utils/app/conversation';
 import { Message } from '@/types/chat';
 import HomeContext from '@/pages/api/home/home.context';
 import { MemoizedReactMarkdown } from '../Markdown/MemoizedReactMarkdown';
@@ -26,10 +22,9 @@ import { OptimizedImage } from './OptimizedImage';
 export interface Props {
   message: Message;
   messageIndex: number;
-  onEdit?: (editedMessage: Message) => void;
 }
 
-export const ChatMessage: FC<Props> = memo(({ message, messageIndex, onEdit}) => {
+export const ChatMessage: FC<Props> = memo(({ message, messageIndex }) => {
 
   // return if the there is nothing to show
   // no message and no intermediate steps
@@ -38,77 +33,13 @@ export const ChatMessage: FC<Props> = memo(({ message, messageIndex, onEdit}) =>
     return null
   }
 
-  const { t } = useTranslation('chat');
-
   const {
-    state: { selectedConversation, conversations, messageIsStreaming },
-    dispatch: homeDispatch,
+    state: { messageIsStreaming },
   } = useContext(HomeContext);
 
-  const [isEditing, setIsEditing] = useState<boolean>(false);
-  const [isTyping, setIsTyping] = useState<boolean>(false);
-  const [messageContent, setMessageContent] = useState(message.content);
   const [messagedCopied, setMessageCopied] = useState(false);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const speechSynthesisRef = useRef<SpeechSynthesisUtterance | null>(null);
-
-  const toggleEditing = () => {
-    setIsEditing(!isEditing);
-  };
-
-  const handleInputChange = (event: React.ChangeEvent<HTMLTextAreaElement>) => {
-    setMessageContent(event.target.value);
-    if (textareaRef.current) {
-      textareaRef.current.style.height = 'inherit';
-      textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`;
-    }
-  };
-
-  const handleEditMessage = () => {
-    if (message.content != messageContent) {
-      if (selectedConversation && onEdit) {
-        onEdit({ ...message, content: messageContent });
-      }
-    }
-    setIsEditing(false);
-  };
-
-  const handleDeleteMessage = () => {
-    if (!selectedConversation) return;
-
-    const { messages } = selectedConversation;
-    const findIndex = messages.findIndex((elm) => elm === message);
-
-    if (findIndex < 0) return;
-
-    if (
-      findIndex < messages.length - 1 &&
-      messages[findIndex + 1].role === 'assistant'
-    ) {
-      messages.splice(findIndex, 2);
-    } else {
-      messages.splice(findIndex, 1);
-    }
-    const updatedConversation = {
-      ...selectedConversation,
-      messages,
-    };
-
-    const { single, all } = updateConversation(
-      updatedConversation,
-      conversations,
-    );
-    homeDispatch({ field: 'selectedConversation', value: single });
-    homeDispatch({ field: 'conversations', value: all });
-  };
-
-  const handlePressEnter = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && !isTyping && !e.shiftKey) {
-      e.preventDefault();
-      handleEditMessage();
-    }
-  };
 
   const copyOnClick = () => {
     if (!navigator.clipboard) return;
@@ -120,18 +51,6 @@ export const ChatMessage: FC<Props> = memo(({ message, messageIndex, onEdit}) =>
       }, 2000);
     });
   };
-
-  useEffect(() => {
-    setMessageContent(message.content);
-  }, [message.content]);
-
-
-  useEffect(() => {
-    if (textareaRef.current) {
-      textareaRef.current.style.height = 'inherit';
-      textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`;
-    }
-  }, [isEditing]);
 
   const removeLinks = (text: string) => {
     // This regex matches http/https URLs
@@ -212,99 +131,39 @@ export const ChatMessage: FC<Props> = memo(({ message, messageIndex, onEdit}) =>
           )}
         </div>
 
-        <div className={`w-full dark:prose-invert overflow-hidden ${message.role === 'user' ? 'text-right' : ''}`}>
+        <div className="w-full dark:prose-invert overflow-hidden">
           {message.role === 'user' ? (
-            <div className={`flex flex-col w-full ${message.role === 'user' ? 'items-end' : ''}`}>
-              {isEditing ? (
-                <div className="flex w-full flex-col">
-                  <textarea
-                    ref={textareaRef}
-                    className="w-full resize-none whitespace-pre-wrap border-none dark:bg-dark-bg-primary"
-                    value={messageContent}
-                    onChange={handleInputChange}
-                    onKeyDown={handlePressEnter}
-                    onCompositionStart={() => setIsTyping(true)}
-                    onCompositionEnd={() => setIsTyping(false)}
-                    style={{
-                      fontFamily: 'inherit',
-                      fontSize: 'inherit',
-                      lineHeight: 'inherit',
-                      padding: '0',
-                      margin: '0',
-                      overflow: 'hidden',
-                    }}
-                  />
-
-                  <div className="mt-10 flex justify-center space-x-4">
-                    <button
-                      className="h-[40px] rounded-md border border-neutral-300 px-4 py-1 text-sm font-medium text-neutral-700 enabled:hover:bg-nvidia-green disabled:opacity-50"
-                      onClick={handleEditMessage}
-                      disabled={messageContent.trim().length <= 0}
-                    >
-                      {t('Save & Submit')}
-                    </button>
-                    <button
-                      className="h-[40px] rounded-md border border-neutral-300 px-4 py-1 text-sm font-medium text-neutral-700 hover:bg-neutral-100 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
-                      onClick={() => {
-                        setMessageContent(message.content);
-                        setIsEditing(false);
-                      }}
-                    >
-                      {t('Cancel')}
-                    </button>
+            <div className="flex flex-col w-full items-end">
+              <div className="prose whitespace-pre-wrap dark:prose-invert flex-1 w-full overflow-x-auto text-left">
+                <ReactMarkdown
+                  className="prose dark:prose-invert flex-1 w-full flex-grow max-w-full whitespace-normal"
+                  remarkPlugins={[remarkGfm, remarkMath]}
+                  rehypePlugins={[rehypeRaw] as any}
+                  linkTarget="_blank"
+                  components={getReactMarkDownCustomComponents(messageIndex, message?.id)}
+                >
+                  {prepareContent({ message, role: 'user' })}
+                </ReactMarkdown>
+                {/* Render image attachments for user messages */}
+                {message.attachments && message.attachments.length > 0 && (
+                  <div className="mt-2 flex flex-wrap gap-2 justify-end">
+                    {message.attachments.map((attachment, idx) => {
+                      if (attachment.type === 'image' && attachment.imageRef) {
+                        return (
+                          <div key={idx} className="max-w-xs">
+                            <OptimizedImage
+                              imageRef={attachment.imageRef}
+                              alt="User attachment"
+                              className="rounded-lg"
+                            />
+                          </div>
+                        );
+                      }
+                      return null;
+                    })}
                   </div>
-                </div>
-              ) : (
-                <div className="prose whitespace-pre-wrap dark:prose-invert flex-1 w-full overflow-x-auto">
-                  <ReactMarkdown
-                    className="prose dark:prose-invert flex-1 w-full flex-grow max-w-full whitespace-normal"
-                    remarkPlugins={[remarkGfm, remarkMath]}
-                    rehypePlugins={[rehypeRaw] as any}
-                    linkTarget="_blank"
-                    components={getReactMarkDownCustomComponents(messageIndex, message?.id)}
-                  >
-                    {prepareContent({ message, role: 'user' })}
-                  </ReactMarkdown>
-                  {/* Render image attachments for user messages */}
-                  {message.attachments && message.attachments.length > 0 && (
-                    <div className="mt-2 flex flex-wrap gap-2 justify-end">
-                      {message.attachments.map((attachment, idx) => {
-                        if (attachment.type === 'image' && attachment.imageRef) {
-                          return (
-                            <div key={idx} className="max-w-xs">
-                              <OptimizedImage
-                                imageRef={attachment.imageRef}
-                                alt="User attachment"
-                                className="rounded-lg"
-                              />
-                            </div>
-                          );
-                        }
-                        return null;
-                      })}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {!isEditing && (
-                <div className="absolute right-2 top-1 flex flex-row gap-1 items-center">
-                  <button
-                    className="invisible rounded-md p-1 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300 group-hover:visible focus:visible"
-                    onClick={toggleEditing}
-                    aria-label="Edit message"
-                  >
-                    <IconEdit size={20} />
-                  </button>
-                  <button
-                    className="invisible rounded-md p-1 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300 group-hover:visible focus:visible"
-                    onClick={handleDeleteMessage}
-                    aria-label="Delete message"
-                  >
-                    <IconTrash size={20} />
-                  </button>
-                </div>
-              )}
+                )}
+              </div>
             </div>
           ) : (
             <div className="flex flex-col w-[90%]">

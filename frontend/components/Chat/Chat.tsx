@@ -905,13 +905,6 @@ export const Chat = () => {
                 key={index}
                 message={message}
                 messageIndex={index}
-                onEdit={(editedMessage) => {
-                  setCurrentMessage(editedMessage);
-                  handleSend(
-                    editedMessage,
-                    selectedConversation?.messages.length - index,
-                  );
-                }}
               />
             ))}
           </div>
