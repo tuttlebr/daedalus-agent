@@ -1,5 +1,5 @@
 
-import { memo, useMemo } from 'react';
+import { Children, memo, useMemo } from 'react';
 import { isEqual } from 'lodash';
 import { CodeBlock } from '@/components/Markdown/CodeBlock';
 import Chart from '@/components/Markdown/Chart';
@@ -13,12 +13,19 @@ export const getReactMarkDownCustomComponents = (messageIndex = 0, messageId = '
   return useMemo(() => ({
     code: memo(
       ({ node, inline, className, children, ...props }: { children: React.ReactNode; inline?: boolean; [key: string]: any }) => {
-        if (children?.length) {
-          if (children[0] === '▍') {
+        const childArray = Children.toArray(children);
+
+        if (childArray.length > 0 && typeof childArray[0] === 'string') {
+          const firstChild = childArray[0];
+          if (firstChild === '▍') {
             return <span className="animate-pulse cursor-default mt-1">▍</span>;
           }
-          children[0] = (children[0] as string).replace("`▍`", "▍");
+          childArray[0] = firstChild.replace('`▍`', '▍');
         }
+
+        const textContent = childArray
+          .map((child) => (typeof child === 'string' || typeof child === 'number' ? String(child) : ''))
+          .join('');
 
         const match = /language-(\w+)/.exec(className || '');
 
@@ -26,7 +33,7 @@ export const getReactMarkDownCustomComponents = (messageIndex = 0, messageId = '
         if (inline) {
           return (
             <code className="font-mono bg-gray-100 dark:bg-gray-800 px-1 py-0.5 rounded text-sm" {...props}>
-              {children}
+              {childArray}
             </code>
           );
         }
@@ -35,7 +42,7 @@ export const getReactMarkDownCustomComponents = (messageIndex = 0, messageId = '
         return <CodeBlock
             key={Math.random()}
             language={(match && match.length > 1 && match[1]) || ''}
-            value={String(children).replace(/\n$/, '')}
+            value={textContent.replace(/\n$/, '')}
             {...props}
           />
       },
@@ -46,7 +53,17 @@ export const getReactMarkDownCustomComponents = (messageIndex = 0, messageId = '
 
     chart: memo(({ children }) => {
       try {
-        const payload = JSON.parse(children[0].replaceAll("\n", ""));
+        const childArray = Children.toArray(children);
+        const payloadString = childArray
+          .map((child) => (typeof child === 'string' || typeof child === 'number' ? String(child) : ''))
+          .join('')
+          .replace(/\n/g, '');
+
+        if (!payloadString) {
+          return null;
+        }
+
+        const payload = JSON.parse(payloadString);
         return payload ? <Chart payload={payload} /> : null;
       } catch (error) {
         console.error(error);
