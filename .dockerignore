@@ -6,3 +6,4 @@ tests/
 .idea
 out/
 k8s
+.env

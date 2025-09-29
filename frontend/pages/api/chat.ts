@@ -21,6 +21,9 @@ const handler = async (req: Request): Promise<Response> => {
     }
   } = (await req.json()) as ChatBody;
 
+  // Extract username from additionalProps
+  const username = additionalProps?.username || 'anon';
+
   // Safety check: Strip any base64 content from messages before processing
   messages = messages.map(message => {
     const cleanedMessage = { ...message };
@@ -95,7 +98,7 @@ const handler = async (req: Request): Promise<Response> => {
       }
     }
 
-    console.log('aiq - making request to', { url: chatCompletionURL });
+    console.log('aiq - making request to', { url: chatCompletionURL, username });
 
     console.log('aiq - forwarding chat request to backend', {
       chatCompletionURL,
@@ -108,6 +111,7 @@ const handler = async (req: Request): Promise<Response> => {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'x-user-id': username,
       },
       body: JSON.stringify(payload),
     });

@@ -32,9 +32,11 @@ import { v4 as uuidv4 } from 'uuid';
 import { InteractionModal } from '@/components/Chat/ChatInteractionMessage';
 import { webSocketMessageTypes } from '@/utils/app/const';
 import { ChatHeader } from './ChatHeader';
+import { useAuth } from '@/components/Auth/AuthProvider';
 
 export const Chat = () => {
   const { t } = useTranslation('chat');
+  const { user, isLoading: authLoading } = useAuth();
   const {
     state: {
       selectedConversation,
@@ -93,6 +95,7 @@ export const Chat = () => {
       id: uuidv4(), //new id for every new message
       thread_id: interactionMessage?.thread_id, // same thread_id from interaction message received
       parent_id: interactionMessage?.parent_id, // same parent_id from interaction message received
+      username: user?.username || 'anon',
       content: {
         messages: [
           {
@@ -474,6 +477,7 @@ export const Chat = () => {
             schema_type: sessionStorage.getItem('webSocketSchema') || webSocketSchema,
             id: message?.id,
             thread_id: selectedConversation.id,
+            username: user?.username || 'anon',
             content: {
               messages: chatMessages
             },
@@ -494,6 +498,7 @@ export const Chat = () => {
             enableIntermediateSteps: sessionStorage.getItem('enableIntermediateSteps')
             ? sessionStorage.getItem('enableIntermediateSteps') === 'true'
             : enableIntermediateSteps,
+            username: user?.username || 'anon'
           }
         };
 

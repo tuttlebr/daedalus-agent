@@ -1,8 +1,7 @@
 import logging
 
 import httpx
-from bs4 import BeautifulSoup
-from markdownify import markdownify
+from markitdown import MarkItDown
 from pydantic import Field
 
 from nat.builder.builder import Builder
@@ -33,19 +32,7 @@ class WebscrapeFunctionConfig(FunctionBaseConfig, name="webscrape"):
 
     user_agent: str = Field(
         default="daedalus-webscraper/1.0",
-        description="User-Agent header presented to upstream servers.",
-    )
-    request_timeout: float = Field(
-        default=15.0,
-        ge=1.0,
-        le=60.0,
-        description="Timeout in seconds applied to outbound HTTP requests.",
-    )
-    max_content_length: int = Field(
-        default=1_000_000,
-        ge=1_024,
-        le=5_000_000,
-        description="Maximum response body size (in bytes) that will be processed.",
+        description="User-Agent header for robots.txt checking.",
     )
     respect_robots_txt: bool = Field(
         default=True,
@@ -126,23 +113,29 @@ def _truncate_to_token_limit(text: str, max_tokens: int, truncation_msg: str, en
     return truncated + truncation_msg, True
 
 
-def _prepare_markdown(html: str, url: str, max_tokens: int = None, truncation_msg: str = "") -> str:
-    soup = BeautifulSoup(html, "html.parser")
-    for tag in soup(["script", "style", "noscript", "iframe"]):
-        tag.decompose()
+def _prepare_markdown(url: str, max_tokens: int = None, truncation_msg: str = "") -> str:
+    """Convert web content to markdown using markitdown."""
+    try:
+        md = MarkItDown(enable_plugins=True)
+        # Convert URL directly - markitdown handles the HTTP request
+        url_markdown = md.convert(url)
 
-    title_text = soup.title.string.strip() if soup.title and soup.title.string else url
-    body = soup.body or soup
-    markdown_content = markdownify(str(body), heading_style="ATX", escape_asterisks=False)
-    header = f"# {title_text}\n\n_Source: {url}_\n\n"
-    full_content = header + markdown_content.strip()
+        # Extract title, use URL as fallback
+        title_text = url_markdown.title if url_markdown.title else url
 
-    if max_tokens is not None:
-        full_content, was_truncated = _truncate_to_token_limit(full_content, max_tokens, truncation_msg)
-        if was_truncated:
-            logger.info("Content from %s was truncated to fit within %d token limit", url, max_tokens)
+        # Format the content with title and source
+        header = f"# {title_text}\n\n_Source: {url}_\n\n"
+        full_content = header + (url_markdown.text_content or "")
 
-    return full_content
+        if max_tokens is not None:
+            full_content, was_truncated = _truncate_to_token_limit(full_content, max_tokens, truncation_msg)
+            if was_truncated:
+                logger.info("Content from %s was truncated to fit within %d token limit", url, max_tokens)
+
+        return full_content
+    except Exception as exc:
+        logger.exception("Failed to convert content from %s to markdown: %s", url, exc)
+        raise
 
 
 async def _check_robots(
@@ -202,9 +195,9 @@ def _validate_url(url_candidate: str, allowed_schemes: list[str]) -> tuple[str, 
 async def webscrape_function(
     config: WebscrapeFunctionConfig, builder: Builder
 ):
-    timeout = httpx.Timeout(config.request_timeout)
+    # Create client only for robots.txt checking
     headers = {"User-Agent": config.user_agent}
-    client = httpx.AsyncClient(timeout=timeout, headers=headers, follow_redirects=True)
+    client = httpx.AsyncClient(headers=headers, follow_redirects=True)
 
     async def _response_fn(input_message: str) -> str:
         """
@@ -239,34 +232,11 @@ async def webscrape_function(
                 logger.info("robots.txt disallowed scraping for %s: %s", url, exc)
                 return _format_error(str(exc))
 
-        try:
-            response = await client.get(url)
-            response.raise_for_status()
-        except httpx.HTTPStatusError as exc:
-            status = exc.response.status_code
-            logger.warning("HTTP %s encountered while fetching %s", status, url)
-            return _format_error(f"Upstream server returned HTTP {status}.")
-        except httpx.RequestError as exc:
-            logger.warning("Request error while fetching %s: %s", url, exc)
-            return _format_error("Failed to retrieve the URL due to a network error.")
-
-        content_length = len(response.content)
-        if content_length > config.max_content_length:
-            logger.info(
-                "Response from %s exceeds max content length (%s bytes).",
-                url,
-                content_length,
-            )
-            return _format_error("Response body is too large to process safely.")
-
-        content_type = response.headers.get("content-type", "").lower()
-        if "text/html" not in content_type:
-            logger.info("Unsupported content-type '%s' for %s", content_type, url)
-            return _format_error("Content is not HTML and cannot be rendered as markdown.")
-
+        # Since markitdown handles the HTTP request internally, we can't easily
+        # enforce max_content_length or check content-type beforehand.
+        # We'll rely on markitdown's error handling for these cases.
         try:
             markdown_output = _prepare_markdown(
-                response.text,
                 url,
                 max_tokens=config.max_output_tokens,
                 truncation_msg=config.truncation_message
@@ -282,8 +252,8 @@ async def webscrape_function(
             _response_fn,
             description=(
                 "Scrape web content from URLs and convert to clean markdown "
-                "format. Respects robots.txt by default and handles various "
-                "content types safely."
+                "format using markitdown. Respects robots.txt by default and "
+                "supports various content types including HTML, PDFs, and more."
             )
         )
     except GeneratorExit:

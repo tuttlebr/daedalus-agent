@@ -1,5 +1,5 @@
 import bcrypt from 'bcryptjs';
-import { getRedis, sessionKey } from '@/pages/api/session/redis';
+import { getRedis, sessionKey, jsonGet, jsonSet, jsonMGet } from '@/pages/api/session/redis';
 import fs from 'fs';
 import path from 'path';
 
@@ -92,7 +92,7 @@ export async function initializeUsers() {
         createdAt: Date.now(),
       };
 
-      await redis.set(userKey, JSON.stringify(fullUser));
+      await jsonSet(userKey, '.', fullUser);
       console.log(`Created default user: ${configUser.username}`);
     }
   }
@@ -100,13 +100,8 @@ export async function initializeUsers() {
 
 // Get user by username
 export async function getUserByUsername(username: string): Promise<User | null> {
-  const redis = getRedis();
   const userKey = sessionKey(['user', username]);
-
-  const userData = await redis.get(userKey);
-  if (!userData) return null;
-
-  return JSON.parse(userData) as User;
+  return await jsonGet(userKey) as User | null;
 }
 
 // Verify user credentials
@@ -142,7 +137,7 @@ export async function createUser(username: string, password: string, name: strin
     createdAt: Date.now(),
   };
 
-  await redis.set(userKey, JSON.stringify(user));
+  await jsonSet(userKey, '.', user);
   return user;
 }
 
@@ -155,7 +150,7 @@ export async function updateUserPassword(username: string, newPassword: string):
   const userKey = sessionKey(['user', username]);
 
   user.passwordHash = await bcrypt.hash(newPassword, 10);
-  await redis.set(userKey, JSON.stringify(user));
+  await jsonSet(userKey, '.', user);
 
   return true;
 }
@@ -168,12 +163,14 @@ export async function listUsers(): Promise<Omit<User, 'passwordHash'>[]> {
   const keys = await redis.keys(pattern);
   const users: Omit<User, 'passwordHash'>[] = [];
 
-  for (const key of keys) {
-    const userData = await redis.get(key);
-    if (userData) {
-      const user = JSON.parse(userData) as User;
-      const { passwordHash, ...userWithoutPassword } = user;
-      users.push(userWithoutPassword);
+  if (keys.length > 0) {
+    const userDataArray = await jsonMGet(keys);
+    for (const userData of userDataArray) {
+      if (userData) {
+        const user = userData as User;
+        const { passwordHash, ...userWithoutPassword } = user;
+        users.push(userWithoutPassword);
+      }
     }
   }
 

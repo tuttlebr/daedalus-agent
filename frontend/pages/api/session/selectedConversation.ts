@@ -1,5 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { getRedis, sessionKey } from './redis';
+import { getRedis, sessionKey, jsonGet, jsonSetWithExpiry } from './redis';
 import { getOrSetSessionId, getUserId } from './_utils';
 
 // Utility function to strip base64 content from objects
@@ -39,14 +39,14 @@ export const config = {
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   const redis = getRedis();
   const sid = getOrSetSessionId(req, res);
-  const userId = getUserId(req);
+  const userId = await getUserId(req, res);
   const key = sessionKey(['user', userId, 'session', sid, 'selectedConversation']);
 
   if (req.method === 'GET') {
     try {
-      const data = await redis.get(key);
+      const data = await jsonGet(key);
       if (!data) return res.status(200).json(null);
-      return res.status(200).json(JSON.parse(data));
+      return res.status(200).json(data);
     } catch (e) {
       return res.status(500).json({ error: 'Failed to load selectedConversation' });
     }
@@ -65,7 +65,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       conversation = stripBase64FromObject(conversation);
 
       try {
-        await redis.set(key, JSON.stringify(conversation), 'EX', 60 * 60 * 24 * 7);
+        await jsonSetWithExpiry(key, conversation, 60 * 60 * 24 * 7);
       } catch (err) {
         console.error('Failed to save selectedConversation to Redis', err);
         // Fall through – respond 204 so UI continues working even if Redis is down

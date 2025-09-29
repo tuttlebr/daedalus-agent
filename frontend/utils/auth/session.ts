@@ -1,5 +1,5 @@
 import { NextApiRequest, NextApiResponse } from 'next';
-import { getRedis, sessionKey } from '@/pages/api/session/redis';
+import { getRedis, sessionKey, jsonGet, jsonSetWithExpiry } from '@/pages/api/session/redis';
 import { getOrSetSessionId } from '@/pages/api/session/_utils';
 import { User } from './users';
 
@@ -31,7 +31,7 @@ export async function createSession(
   };
 
   const key = sessionKey(['auth-session', sessionId]);
-  await redis.setex(key, SESSION_EXPIRY, JSON.stringify(sessionData));
+  await jsonSetWithExpiry(key, sessionData, SESSION_EXPIRY);
 
   return sessionId;
 }
@@ -41,19 +41,15 @@ export async function getSession(
   req: NextApiRequest,
   res: NextApiResponse
 ): Promise<SessionData | null> {
-  const redis = getRedis();
   const sessionId = getOrSetSessionId(req, res);
-
   const key = sessionKey(['auth-session', sessionId]);
-  const data = await redis.get(key);
 
-  if (!data) return null;
-
-  const session = JSON.parse(data) as SessionData;
+  const session = await jsonGet(key) as SessionData | null;
+  if (!session) return null;
 
   // Update last activity
   session.lastActivity = Date.now();
-  await redis.setex(key, SESSION_EXPIRY, JSON.stringify(session));
+  await jsonSetWithExpiry(key, session, SESSION_EXPIRY);
 
   return session;
 }
