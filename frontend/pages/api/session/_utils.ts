@@ -1,6 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import cookie from 'cookie';
 import { randomUUID } from 'crypto';
+import { getSession } from '@/utils/auth/session';
 
 const COOKIE_NAME = 'sid';
 
@@ -26,8 +27,15 @@ export function getOrSetSessionId(req: NextApiRequest, res: NextApiResponse): st
   return sid;
 }
 
-export function getUserId(req: NextApiRequest): string {
-  // Optional: obtain from auth header or fallback to 'anon'
+export async function getUserId(req: NextApiRequest, res: NextApiResponse): Promise<string> {
+  // Try to get user ID from authenticated session first
+  const session = await getSession(req, res);
+
+  if (session && session.username) {
+    return session.username;
+  }
+
+  // Fallback to header (for backwards compatibility) or 'anon'
   const userId = (req.headers['x-user-id'] as string) || 'anon';
   return userId;
 }

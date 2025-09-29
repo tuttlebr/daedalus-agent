@@ -1,5 +1,5 @@
 import { NextApiRequest, NextApiResponse } from 'next';
-import { getRedis, sessionKey } from './redis';
+import { getRedis, sessionKey, jsonSet, jsonGet, jsonDel, jsonSetWithExpiry } from './redis';
 import { getUserId, getOrSetSessionId } from './_utils';
 import crypto from 'crypto';
 
@@ -50,7 +50,7 @@ export async function storeImage(
   };
 
   const key = sessionKey(['image', sessionId, imageId]);
-  await redis.setex(key, IMAGE_EXPIRY_SECONDS, JSON.stringify(imageData));
+  await jsonSetWithExpiry(key, imageData, IMAGE_EXPIRY_SECONDS);
 
   // Also store a reference in a session-specific set for easy cleanup
   const sessionImagesKey = sessionKey(['session-images', sessionId]);
@@ -65,13 +65,8 @@ export async function getImage(
   sessionId: string,
   imageId: string
 ): Promise<StoredImage | null> {
-  const redis = getRedis();
   const key = sessionKey(['image', sessionId, imageId]);
-
-  const data = await redis.get(key);
-  if (!data) return null;
-
-  return JSON.parse(data) as StoredImage;
+  return await jsonGet(key) as StoredImage | null;
 }
 
 // Delete image from Redis
@@ -82,7 +77,7 @@ export async function deleteImage(
   const redis = getRedis();
   const key = sessionKey(['image', sessionId, imageId]);
 
-  const result = await redis.del(key);
+  const result = await jsonDel(key);
 
   // Remove from session images set
   const sessionImagesKey = sessionKey(['session-images', sessionId]);
@@ -119,7 +114,7 @@ export async function cleanupSessionImages(sessionId: string): Promise<number> {
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   const sessionId = getOrSetSessionId(req, res);
-  const userId = getUserId(req);
+  const userId = await getUserId(req, res);
 
   if (req.method === 'POST') {
     // Store image

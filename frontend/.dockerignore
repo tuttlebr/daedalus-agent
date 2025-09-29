@@ -10,3 +10,9 @@ auth-passwords.json
 .env
 .env.*
 env.example
+node_modules/
+.next/
+build/
+coverage/
+.npm/
+*.log

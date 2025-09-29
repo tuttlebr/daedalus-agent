@@ -385,6 +385,7 @@ fi
 if [[ "$ENABLE_TLS" == "true" ]]; then
   SECRET_NAME="${TLS_SECRET_NAME:-$RELEASE-tls}"
   HELM_CMD+=( --set nginx.https.enabled=true --set nginx.https.tlsSecretName="$SECRET_NAME" --set nginx.service.type=NodePort --set nginx.service.nodePorts.https=30443)
+  HELM_CMD+=( --set redisinsight.service.type=NodePort --set redisinsight.service.nodePorts.https=30540)
 fi
 if [[ ${#HELM_EXTRA_ARGS[@]} -gt 0 ]]; then
   HELM_CMD+=( "${HELM_EXTRA_ARGS[@]}" )
@@ -401,3 +402,5 @@ fi
 
 
 echo -e "${Green}Done.${Color_Off}"
+
+kubectl get all -n "$NAMESPACE"

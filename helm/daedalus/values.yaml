@@ -22,7 +22,11 @@ images:
     pullPolicy: Always
   redis:
     repository: redis
-    tag: "7-alpine"
+    tag: "8.0.3"
+    pullPolicy: Always
+  redisinsight:
+    repository: redis/redisinsight
+    tag: "latest"
     pullPolicy: Always
 
 backend:
@@ -95,6 +99,21 @@ redis:
   service:
     type: ClusterIP
     port: 6379
+
+
+redisinsight:
+  enabled: true
+  persistence:
+    enabled: true
+    size: 4Gi
+    storageClassName: ""
+    create: true
+    existingClaimName: ""
+  service:
+    type: ClusterIP
+    port: 5540
+  env:
+    overrides: {}
 
 ingress:
   enabled: false

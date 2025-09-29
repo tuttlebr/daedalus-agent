@@ -1,0 +1,17 @@
+{{- if and .Values.redis.enabled .Values.redis.persistence.enabled .Values.redis.persistence.create }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "daedalus.fullname" . }}-redisinsight
+  labels:
+    {{- include "daedalus.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.redisinsight.persistence.size }}
+  {{- if .Values.redisinsight.persistence.storageClassName }}
+  storageClassName: {{ .Values.redisinsight.persistence.storageClassName }}
+  {{- end }}
+{{- end }}
