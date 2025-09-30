@@ -64,6 +64,11 @@ COPY serpapi_search /workspace/serpapi_search
 RUN NAT_VERSION= nat workflow reinstall serpapi_search
 RUN uv pip install -e serpapi_search --prerelease=allow
 
+# Install the serpapi_news package
+COPY serpapi_news /workspace/serpapi_news
+RUN NAT_VERSION= nat workflow reinstall serpapi_news
+RUN uv pip install -e serpapi_news --prerelease=allow
+
 # Install the weather package
 COPY weather /workspace/weather
 RUN NAT_VERSION= nat workflow reinstall weather

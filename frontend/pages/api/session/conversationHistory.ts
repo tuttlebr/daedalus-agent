@@ -55,7 +55,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const redis = getRedis();
   const sid = getOrSetSessionId(req, res);
   const userId = await getUserId(req, res);
-  const key = sessionKey(['user', userId, 'session', sid, 'conversationHistory']);
+  // Store conversations at user level for cross-device persistence
+  const key = sessionKey(['user', userId, 'conversationHistory']);
 
   if (req.method === 'GET') {
     try {

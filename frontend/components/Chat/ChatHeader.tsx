@@ -5,7 +5,7 @@ import HomeContext from '@/pages/api/home/home.context';
 import { getWorkflowName } from '@/utils/app/helper';
 import { GalaxyAnimation } from '@/components/GalaxyAnimation';
 
-export const ChatHeader = ({ webSocketModeRef = {} }) => {
+export const ChatHeader = () => {
 
     const workflow = getWorkflowName()
 

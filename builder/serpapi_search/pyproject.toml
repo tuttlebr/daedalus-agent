@@ -6,7 +6,7 @@ requires = ["setuptools>=64.0.0", "wheel"]
 name = "serpapi_search"
 dynamic = ["version"]
 dependencies = [
-  "nvidia-nat[all] @ git+https://github.com/NVIDIA/NeMo-Agent-Toolkit.git@caa95bbcf0a8d0935e22923725c915d8c37e944b",
+  "nvidia-nat[all] @ git+https://github.com/NVIDIA/NeMo-Agent-Toolkit.git@develop",
   "serpapi>=0.1.5",
   "httpx>=0.27",
   "markitdown[all]==0.1.3",

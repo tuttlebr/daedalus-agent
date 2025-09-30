@@ -50,7 +50,13 @@ backend:
     type: ClusterIP
     port: 8000
   networkPolicy:
-    enabled: false  # Set to true to restrict backend access to only frontend and nginx pods
+    enabled: true # Set to true to restrict backend access to only frontend and nginx pods
+  persistence:
+    enabled: true
+    size: 6Gi
+    storageClassName: ""
+    create: true
+    existingClaimName: ""
 
 frontend:
   enabled: true
@@ -72,7 +78,7 @@ nginx:
     tlsSecretName: ""
   config:
     useTemplate: true
-    restrictedMode: true  # Set to true to block direct API access through nginx
+    restrictedMode: true # Set to true to block direct API access through nginx
     # If useTemplate is false, rawConf is used
     rawConf: |
       # Provide nginx conf if not using template
@@ -99,7 +105,6 @@ redis:
   service:
     type: ClusterIP
     port: 6379
-
 
 redisinsight:
   enabled: true

@@ -28,28 +28,19 @@ if not logging.getLogger().handlers:
     logger.setLevel(level)
 
 
-class SerpapiSearchFunctionConfig(FunctionBaseConfig, name="serpapi_search"):
+class SerpapiSearchFunctionConfig(FunctionBaseConfig, name="serpapi_news"):
     """
-    Google Search function using SerpAPI for real-time web search results.
+    Google News search function using SerpAPI for real-time news results.
 
-    This function provides access to Google search results including organic
-    results, related questions, knowledge graph, and more.
+    This function provides access to Google News results including
+    news articles, sources, dates, and optional full-text scraping
+    of up to 3 articles.
     """
     api_key: Optional[str] = Field(
         default=None,
         description=(
             "SerpAPI API key. If not provided, will use SERPAPI_KEY "
             "environment variable"
-        )
-    )
-    default_location: str = Field(
-        default="United States",
-        description="Default location for searches if not specified in request"
-    )
-    default_num_results: int = Field(
-        default=10,
-        description=(
-            "Default number of results to return if not specified in request"
         )
     )
 
@@ -81,73 +72,74 @@ class SearchRequest(BaseModel):
     )
 
 
-class SearchResult(BaseModel):
-    """Simplified search result model"""
-    position: int
-    title: str
-    link: str
-    snippet: str
-    displayed_link: Optional[str] = None
-    date: Optional[str] = None
-    source: Optional[str] = None
+class NewsSource(BaseModel):
+    """News source information"""
+    title: Optional[str] = None
+    name: Optional[str] = None
+    icon: Optional[str] = None
+    authors: Optional[List[str]] = None
 
 
-class TopStory(BaseModel):
-    """Top stories result model"""
-    position: int
-    title: str
-    link: str
-    source: Optional[str] = None
-    date: Optional[str] = None
+class NewsAuthor(BaseModel):
+    """News author information"""
     thumbnail: Optional[str] = None
-    live: Optional[bool] = None
-    source_logo: Optional[str] = None
+    name: Optional[str] = None
+    handle: Optional[str] = None
+
+
+class NewsResult(BaseModel):
+    """News result model"""
+    position: int
+    title: str
+    link: str
+    snippet: Optional[str] = None
+    source: Optional[NewsSource] = None
+    author: Optional[NewsAuthor] = None
+    thumbnail: Optional[str] = None
+    thumbnail_small: Optional[str] = None
+    type: Optional[str] = None
+    video: Optional[bool] = None
+    date: Optional[str] = None
 
 
 class SearchResponse(BaseModel):
-    """Response model for search results"""
+    """Response model for news search results"""
     success: bool
     query: str
-    total_results: Optional[int] = None
-    answer_box: Optional[Dict[str, Any]] = None
-    organic_results: List[SearchResult] = Field(default_factory=list)
-    top_stories: List[TopStory] = Field(default_factory=list)
-    hierarchy_levels: List[Dict[str, Any]] = Field(default_factory=list)
-    organic_scrape: Optional[Dict[str, Any]] = None
-    top_story_scrape: Optional[Dict[str, Any]] = None
+    news_results: List[NewsResult] = Field(default_factory=list)
+    scraped_articles: List[Dict[str, Any]] = Field(default_factory=list)
     error: Optional[str] = None
-    raw_response: Optional[Dict[str, Any]] = None
 
 
 @register_function(config_type=SerpapiSearchFunctionConfig)
-async def serpapi_search_function(
+async def serpapi_news_function(
     config: SerpapiSearchFunctionConfig, builder: Builder  # noqa: F841
 ):
     """
-    Google Search function using SerpAPI.
+    Google News search function using SerpAPI.
 
-    This function performs web searches using Google via the SerpAPI service.
-    It returns structured search results including organic results, related
-    questions, and related searches.
+    This function performs news searches using Google News via the
+    SerpAPI service. It returns structured news results including
+    articles with sources, dates, and optional full-text scraping
+    of up to 3 articles.
     """
     # Get default API key from config or environment
     default_api_key = config.api_key or os.getenv("SERPAPI_KEY")
 
     async def _search_function(request: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Perform a Google search using SerpAPI.
+        Perform a Google News search using SerpAPI.
 
         Args:
             request: Dictionary containing search parameters
-                - query (str): Search query (required)
-                - location (str): Location for search (optional)
-                - num (int): Number of results (optional, 1-100)
-                - page (int): Page number for pagination (optional)
-                - time_period (str): Time filter (optional)
+                - query (str): News search query (required)
+                - time_period (str): Time filter (optional: last_hour,
+                                     last_day, etc.)
                 - api_key (str): SerpAPI key for this request (optional)
 
         Returns:
-            Dictionary containing search results and metadata
+            Dictionary containing news results and scraped article
+            content
         """
         request_id = uuid.uuid4().hex
         start_time = time.time()
@@ -173,7 +165,11 @@ async def serpapi_search_function(
                 if isinstance(raw_dict.get("request"), dict):
                     raw_dict = raw_dict["request"]
 
-                logger.debug("[%s] Raw request keys: %s", request_id, list(raw_dict.keys()))
+                logger.debug(
+                    "[%s] Raw request keys: %s",
+                    request_id,
+                    list(raw_dict.keys()),
+                )
 
                 # Normalize to SearchRequest fields
                 parsed: Dict[str, Any] = {}
@@ -243,22 +239,15 @@ async def serpapi_search_function(
             # Initialize SerpAPI client with the appropriate key
             client = serpapi.Client(api_key=api_key)
 
-            # Build search parameters
+            # Build search parameters for Google News
             search_params = {
                 "q": search_request.query,
-                "engine": "google",
-                "location": search_request.location or config.default_location,
-                "google_domain": "google.com",
-                "hl": "en",
+                "engine": "google_news",
                 "gl": "us",
-                "start": 1,
-                "num": search_request.num or config.default_num_results,
+                "hl": "en",
             }
 
             # Add optional parameters
-            if search_request.page:
-                search_params["page"] = search_request.page
-
             if search_request.time_period:
                 search_params["time_period"] = search_request.time_period
 
@@ -267,17 +256,16 @@ async def serpapi_search_function(
             logger.debug(
                 "[%s] Built search params: %s",
                 request_id,
-                {k: safe_params.get(k) for k in (
-                    "q", "location", "num", "page", "time_period"
-                )},
+                {
+                    k: safe_params.get(k)
+                    for k in ("q", "gl", "hl", "time_period")
+                },
             )
             logger.info(
-                "[%s] SerpAPI request q='%s' loc='%s' num=%s page=%s t='%s'",
+                "[%s] SerpAPI News request q='%s' gl='%s' t='%s'",
                 request_id,
                 search_request.query,
-                safe_params.get("location"),
-                safe_params.get("num"),
-                safe_params.get("page"),
+                safe_params.get("gl"),
                 search_request.time_period,
             )
 
@@ -341,122 +329,113 @@ async def serpapi_search_function(
                 )
                 raise
 
-            # Parse organic results
-            organic_results_models: List[SearchResult] = []
-            organic_results_raw = response_data.get("organic_results", [])
-            for idx, result in enumerate(organic_results_raw):
-                organic_results_models.append(
-                    SearchResult(
+            # Parse news results
+            news_results_models: List[NewsResult] = []
+            news_results_raw = response_data.get("news_results", [])
+            for idx, result in enumerate(news_results_raw):
+                # Parse source
+                source_data = result.get("source")
+                source = None
+                if isinstance(source_data, dict):
+                    source = NewsSource(
+                        title=source_data.get("title"),
+                        name=source_data.get("name"),
+                        icon=source_data.get("icon"),
+                        authors=source_data.get("authors"),
+                    )
+
+                # Parse author
+                author_data = result.get("author")
+                author = None
+                if isinstance(author_data, dict):
+                    author = NewsAuthor(
+                        thumbnail=author_data.get("thumbnail"),
+                        name=author_data.get("name"),
+                        handle=author_data.get("handle"),
+                    )
+
+                news_results_models.append(
+                    NewsResult(
                         position=result.get("position", idx + 1),
                         title=result.get("title", ""),
                         link=result.get("link", ""),
-                        snippet=result.get("snippet", ""),
-                        displayed_link=result.get("displayed_link"),
+                        snippet=result.get("snippet"),
+                        source=source,
+                        author=author,
+                        thumbnail=result.get("thumbnail"),
+                        thumbnail_small=result.get("thumbnail_small"),
+                        type=result.get("type"),
+                        video=result.get("video"),
                         date=result.get("date"),
-                        source=result.get("source"),
                     )
                 )
 
-            # Parse answer box
-            answer_box = response_data.get("answer_box")
+            news_results_payload = [
+                item.model_dump() for item in news_results_models
+            ]
 
-            # Parse top stories
-            top_stories_models: List[TopStory] = []
-            top_stories_raw = response_data.get("top_stories", [])
-            for idx, story in enumerate(top_stories_raw):
-                top_stories_models.append(
-                    TopStory(
-                        position=story.get("position", idx + 1),
-                        title=story.get("title", ""),
-                        link=story.get("link", ""),
-                        source=story.get("source"),
-                        date=story.get("date"),
-                        thumbnail=story.get("thumbnail"),
-                        live=story.get("live"),
-                        source_logo=story.get("source_logo"),
-                    )
-                )
-
-            organic_results_payload = [item.model_dump() for item in organic_results_models]
-            top_stories_payload = [item.model_dump() for item in top_stories_models]
-
-            # Build hierarchy levels
-            hierarchy_levels: List[Dict[str, Any]] = []
-
-            level_one_data = {"answer_box": answer_box} if answer_box else {}
-            hierarchy_levels.append({
-                "level": 1,
-                "description": "answer_box",
-                "available": bool(level_one_data),
-                "data": level_one_data,
-            })
-
-            level_two_data: Dict[str, Any] = {}
-            if answer_box:
-                level_two_data["answer_box"] = answer_box
-            if organic_results_payload:
-                level_two_data["organic_results"] = organic_results_payload
-            hierarchy_levels.append({
-                "level": 2,
-                "description": "answer_box + organic_results",
-                "available": bool(level_two_data),
-                "data": level_two_data,
-            })
-
-            level_three_data = dict(level_two_data)
-            if top_stories_payload:
-                level_three_data["top_stories"] = top_stories_payload
-            hierarchy_levels.append({
-                "level": 3,
-                "description": "answer_box + organic_results + top_stories",
-                "available": bool(level_three_data),
-                "data": level_three_data,
-            })
-
-            # Scrape representative links from results
-            organic_scrape_data: Optional[Dict[str, Any]] = None
-            top_story_scrape_data: Optional[Dict[str, Any]] = None
+            # Scrape up to 3 news article links
+            scraped_articles: List[Dict[str, Any]] = []
 
             try:
-                organic_scrape_outcome, top_story_scrape_outcome = await scrape_serp_links(
-                    organic_entries=organic_results_payload,
-                    top_story_entries=top_stories_payload,
-                    settings=SerpLinkScraperSettings(),
-                )
-                organic_scrape_data = organic_scrape_outcome.model_dump()
-                top_story_scrape_data = top_story_scrape_outcome.model_dump()
-            except Exception as scrape_error:  # noqa: BLE001 - defensive catch
-                logger.exception("[%s] Enrichment scrape failed: %s", request_id, scrape_error)
-                organic_scrape_data = {"error": str(scrape_error)}
-                top_story_scrape_data = {"error": str(scrape_error)}
+                # Extract up to 3 news entries for scraping
+                entries_to_scrape = news_results_payload[:3]
 
-            # Get total results from search information
-            search_info = response_data.get("search_information", {})
-            total_results = search_info.get("total_results")
+                if entries_to_scrape:
+                    logger.info(
+                        "[%s] Attempting to scrape %d news articles",
+                        request_id,
+                        len(entries_to_scrape),
+                    )
+
+                    # Use the existing scraper
+                    scrape_outcome, _ = await scrape_serp_links(
+                        organic_entries=entries_to_scrape,
+                        top_story_entries=[],
+                        settings=SerpLinkScraperSettings(
+                            max_attempts_per_group=3
+                        ),
+                    )
+
+                    # If we got content, add it to scraped articles
+                    if scrape_outcome.content:
+                        scraped_articles.append(scrape_outcome.model_dump())
+                        logger.info(
+                            "[%s] Successfully scraped 1 article: %s",
+                            request_id,
+                            scrape_outcome.link,
+                        )
+                    else:
+                        logger.info(
+                            "[%s] No articles successfully scraped. Error: %s",
+                            request_id,
+                            scrape_outcome.error,
+                        )
+            except Exception as scrape_error:  # noqa: BLE001 - defensive catch
+                logger.exception(
+                    "[%s] Article scraping failed: %s",
+                    request_id,
+                    scrape_error,
+                )
+                scraped_articles.append({"error": str(scrape_error)})
 
             # Build response
             response = SearchResponse(
                 success=True,
                 query=search_request.query,
-                total_results=total_results,
-                answer_box=answer_box,
-                organic_results=organic_results_models,
-                top_stories=top_stories_models,
-                hierarchy_levels=hierarchy_levels,
-                organic_scrape=organic_scrape_data,
-                top_story_scrape=top_story_scrape_data,
+                news_results=news_results_models,
+                scraped_articles=scraped_articles,
             )
 
             duration_ms = int((time.time() - start_time) * 1000)
             logger.info(
-                "[%s] Search completed ok in %d ms: q='%s' "
-                "organic=%s top_stories=%s answer_box=%s",
+                "[%s] News search completed ok in %d ms: q='%s' "
+                "news_results=%s scraped_articles=%s",
                 request_id,
                 duration_ms,
                 response.query,
-                len(response.organic_results),
-                len(response.top_stories),
-                bool(response.answer_box),
+                len(response.news_results),
+                len(response.scraped_articles),
             )
             return response.model_dump()
 
@@ -474,55 +453,63 @@ async def serpapi_search_function(
     # Create a user-friendly wrapper function
     async def _simple_search(query: str) -> str:
         """
-        Simple search function that returns formatted results as a string.
+        Simple news search function that returns formatted results
+        as a string.
 
         Args:
             query: Search query string
 
         Returns:
-            Formatted search results as a string
+            Formatted news search results as a string
         """
         result = await _search_function({"query": query})
 
         if not result["success"]:
-            return f"Search failed: {result.get('error', 'Unknown error')}"
+            error = result.get('error', 'Unknown error')
+            return f"News search failed: {error}"
 
         # Format results as a readable string
-        output = f"Search Results for: '{result['query']}'\n"
-        output += (
-            f"Total results: {result.get('total_results', 'Unknown')}\n\n"
-        )
+        output = f"News Search Results for: '{result['query']}'\n\n"
 
-        # Add answer box summary if present
-        answer_box = result.get("answer_box")
-        if isinstance(answer_box, dict) and answer_box:
-            output += "Answer Box:\n"
-            for key, value in answer_box.items():
-                if isinstance(value, (str, int, float)):
-                    output += f"- {key}: {value}\n"
-            output += "\n"
+        # Add news results
+        news_results = result.get("news_results", [])
+        if news_results:
+            output += f"Found {len(news_results)} news articles:\n\n"
+            for article in news_results:
+                output += f"{article['position']}. {article['title']}\n"
+                output += f"   URL: {article['link']}\n"
 
-        # Add organic results
-        organic_results = result.get("organic_results", [])
-        if organic_results:
-            output += "Top Results:\n"
-            for r in organic_results:
-                output += f"{r['position']}. {r['title']}\n"
-                output += f"   URL: {r['link']}\n"
-                output += f"   {r['snippet']}\n\n"
+                if article.get('snippet'):
+                    output += f"   {article['snippet']}\n"
 
-        # Add top stories
-        top_stories = result.get("top_stories", [])
-        if top_stories:
-            output += "\nTop Stories:\n"
-            for story in top_stories:
-                output += f"- {story['title']} ({story.get('source', 'Unknown source')})\n"
-                output += f"  URL: {story['link']}\n"
-                if story.get('date'):
-                    output += f"  Date: {story['date']}\n"
-                if story.get('live'):
-                    output += "  Live update\n"
+                source = article.get('source')
+                if isinstance(source, dict):
+                    source_name = (
+                        source.get('name') or
+                        source.get('title', 'Unknown')
+                    )
+                    output += f"   Source: {source_name}\n"
+
+                if article.get('date'):
+                    output += f"   Date: {article['date']}\n"
+
+                if article.get('type'):
+                    output += f"   Type: {article['type']}\n"
+
                 output += "\n"
+
+        # Add scraped article content if available
+        scraped_articles = result.get("scraped_articles", [])
+        if scraped_articles:
+            output += "\n--- Scraped Article Content ---\n\n"
+            for scraped in scraped_articles:
+                if scraped.get('content'):
+                    output += f"From: {scraped.get('link', 'Unknown')}\n"
+                    output += f"Title: {scraped.get('title', 'N/A')}\n\n"
+                    output += scraped['content']
+                    if scraped.get('was_truncated'):
+                        output += "\n(Content was truncated)\n"
+                    output += "\n\n"
 
         return output
 
@@ -530,9 +517,11 @@ async def serpapi_search_function(
         # Register the primary structured search function
         yield FunctionInfo.create(
             single_fn=_search_function,
-            description="API endpoint allows you to scrape the results from Google search engine via our SerpApi service.",
+            description=(
+                "Our Google News API allows you to scrape results from the Google News search page."
+            ),
         )
     except GeneratorExit:
-        logger.warning("SerpAPI search function exited early!")
+        logger.warning("SerpAPI news function exited early!")
     finally:
-        logger.info("Cleaning up SerpAPI search function.")
+        logger.info("Cleaning up SerpAPI news function.")
