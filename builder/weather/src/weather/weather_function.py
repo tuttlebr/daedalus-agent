@@ -2,18 +2,13 @@ import logging
 import os
 from dataclasses import dataclass
 from typing import Any
-from typing import Dict
-from typing import List
-from typing import Optional
 
 import httpx
-from pydantic import BaseModel
-from pydantic import Field
-
 from nat.builder.builder import Builder
 from nat.builder.function_info import FunctionInfo
 from nat.cli.register_workflow import register_function
 from nat.data_models.function import FunctionBaseConfig
+from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
 
@@ -22,17 +17,13 @@ class CurrentWeather(BaseModel):
     """Current weather conditions."""
 
     temperature: float = Field(description="Current temperature in Fahrenheit")
-    relative_humidity: Optional[float] = Field(
+    relative_humidity: float | None = Field(
         None, description="Current relative humidity in %"
     )
     wind_speed: float = Field(description="Current wind speed in mph")
-    weather_code: Optional[int] = Field(
-        None, description="Weather condition code"
-    )
-    is_day: Optional[bool] = Field(
-        None, description="Whether it's day or night"
-    )
-    precipitation_probability: Optional[float] = Field(
+    weather_code: int | None = Field(None, description="Weather condition code")
+    is_day: bool | None = Field(None, description="Whether it's day or night")
+    precipitation_probability: float | None = Field(
         None, description="Current precipitation probability in %"
     )
 
@@ -40,23 +31,23 @@ class CurrentWeather(BaseModel):
 class HourlyWeather(BaseModel):
     """Hourly weather forecast."""
 
-    time: List[str] = Field(default_factory=list, description="Hourly timestamps")
-    temperature: List[float] = Field(
+    time: list[str] = Field(default_factory=list, description="Hourly timestamps")
+    temperature: list[float] = Field(
         default_factory=list, description="Hourly temperatures in Fahrenheit"
     )
-    relative_humidity: List[float] = Field(
+    relative_humidity: list[float] = Field(
         default_factory=list, description="Hourly relative humidity in %"
     )
-    wind_speed: List[float] = Field(
+    wind_speed: list[float] = Field(
         default_factory=list, description="Hourly wind speed in mph"
     )
-    weather_code: List[int] = Field(
+    weather_code: list[int] = Field(
         default_factory=list, description="Hourly weather condition code"
     )
-    is_day: List[bool] = Field(
+    is_day: list[bool] = Field(
         default_factory=list, description="Hourly day/night indicator"
     )
-    precipitation_probability: List[float] = Field(
+    precipitation_probability: list[float] = Field(
         default_factory=list,
         description="Hourly precipitation probability in %",
     )
@@ -70,16 +61,16 @@ class WeatherResponseModel(BaseModel):
     longitude: float = Field(description="Longitude coordinate")
     timezone: str = Field(description="Timezone")
     current: CurrentWeather = Field(description="Current weather conditions")
-    hourly: Optional[HourlyWeather] = Field(
-        None, description="Hourly weather forecast"
+    hourly: HourlyWeather | None = Field(None, description="Hourly weather forecast")
+    source: str = Field(
+        description="Source of the weather data", default="Open-Meteo API"
     )
-    source: str = Field(description="Source of the weather data", default="Open-Meteo API")
     success: bool = Field(default=True, description="Whether the request succeeded")
     fallback_applied: bool = Field(
         default=False,
         description="Whether a configured fallback location was used after geocoding failure",
     )
-    geocoding_error: Optional[str] = Field(
+    geocoding_error: str | None = Field(
         default=None,
         description="Original geocoding error message when fallback was used",
     )
@@ -108,17 +99,17 @@ class WeatherFunctionConfig(FunctionBaseConfig, name="weather"):
         default="daedalus-weather-agent/1.0",
         description="User-Agent header used for outgoing HTTP requests",
     )
-    fallback_location_name: Optional[str] = Field(
+    fallback_location_name: str | None = Field(
         default="Saline, Michigan, US",
         description="Display name used when fallback coordinates are applied",
     )
-    fallback_latitude: Optional[float] = Field(
+    fallback_latitude: float | None = Field(
         default=42.1667,
         ge=-90.0,
         le=90.0,
         description="Latitude coordinate used when geocoding fails",
     )
-    fallback_longitude: Optional[float] = Field(
+    fallback_longitude: float | None = Field(
         default=-83.7816,
         ge=-180.0,
         le=180.0,
@@ -134,11 +125,11 @@ class LocationResult:
     latitude: float
     longitude: float
     country: str
-    admin1: Optional[str] = None
+    admin1: str | None = None
 
     @property
     def display_name(self) -> str:
-        parts: List[str] = [self.name]
+        parts: list[str] = [self.name]
         if self.admin1 and self.admin1 != self.name:
             parts.append(self.admin1)
         if self.country:
@@ -238,8 +229,8 @@ class WeatherAPIClient:
 
     @staticmethod
     def _extract_best_result(
-        location: str, geocoding_data: Dict[str, Any]
-    ) -> Optional[LocationResult]:
+        location: str, geocoding_data: dict[str, Any]
+    ) -> LocationResult | None:
         results = geocoding_data.get("results") or []
         if not results:
             return None
@@ -256,7 +247,7 @@ class WeatherAPIClient:
 
 def _build_fallback_location(
     config: WeatherFunctionConfig,
-) -> Optional[LocationResult]:
+) -> LocationResult | None:
     if config.fallback_latitude is None or config.fallback_longitude is None:
         return None
     name = config.fallback_location_name or "Configured Fallback Location"
@@ -280,7 +271,7 @@ def _parse_current_weather(data: dict[str, Any]) -> CurrentWeather:
     )
 
 
-def _parse_hourly_weather(data: dict[str, Any]) -> Optional[HourlyWeather]:
+def _parse_hourly_weather(data: dict[str, Any]) -> HourlyWeather | None:
     if "hourly" not in data:
         return None
     hourly = data["hourly"]
@@ -313,7 +304,7 @@ async def _weather_step(
     include_hourly: bool,
     timeout: float,
     fallback_applied: bool = False,
-    geocoding_error: Optional[str] = None,
+    geocoding_error: str | None = None,
 ) -> WeatherResponseModel:
     raw_weather = await client.fetch_weather(
         latitude=location_result.latitude,
@@ -341,7 +332,8 @@ async def _weather_step(
 
 @register_function(config_type=WeatherFunctionConfig)
 async def weather_function(
-    config: WeatherFunctionConfig, builder: Builder  # noqa: ARG001
+    config: WeatherFunctionConfig,
+    builder: Builder,  # noqa: ARG001
 ):
     """Register the weather workflow with the NAT builder."""
 
@@ -354,12 +346,12 @@ async def weather_function(
         timeout=max(config.geocoding_timeout, config.weather_timeout),
     )
 
-    async def _weather_workflow(request: Dict[str, Any]) -> Dict[str, Any]:
+    async def _weather_workflow(request: dict[str, Any]) -> dict[str, Any]:
         location = _extract_location(request)
         include_hourly = _extract_include_hourly(request, config.include_hourly)
 
         fallback_used = False
-        geocoding_error: Optional[str] = None
+        geocoding_error: str | None = None
 
         try:
             location_result = await _geocode_step(
@@ -369,13 +361,12 @@ async def weather_function(
             )
         except Exception as exc:  # noqa: BLE001
             geocoding_error = str(exc)
-            logger.warning(
-                "Geocoding failed for '%s': %s", location, geocoding_error
-            )
+            logger.warning("Geocoding failed for '%s': %s", location, geocoding_error)
             fallback_location = _build_fallback_location(config)
             if fallback_location is None:
                 logger.exception(
-                    "No fallback configured; weather workflow aborting for '%s'", location
+                    "No fallback configured; weather workflow aborting for '%s'",
+                    location,
                 )
                 return {
                     "success": False,
@@ -408,7 +399,7 @@ async def weather_function(
                 location_result.display_name,
                 exc,
             )
-            response: Dict[str, Any] = {
+            response: dict[str, Any] = {
                 "success": False,
                 "error": str(exc),
                 "error_type": exc.__class__.__name__,
@@ -430,7 +421,7 @@ async def weather_function(
         await client.close()
 
 
-def _extract_location(request: Dict[str, Any]) -> str:
+def _extract_location(request: dict[str, Any]) -> str:
     if isinstance(request, dict):
         candidate_keys = [
             "location",
@@ -452,7 +443,7 @@ def _extract_location(request: Dict[str, Any]) -> str:
     raise ValueError("Missing required 'location' field in request")
 
 
-def _extract_include_hourly(request: Dict[str, Any], default: bool) -> bool:
+def _extract_include_hourly(request: dict[str, Any], default: bool) -> bool:
     if isinstance(request, dict):
         raw = request.get("include_hourly")
         if isinstance(raw, bool):

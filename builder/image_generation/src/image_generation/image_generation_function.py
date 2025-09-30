@@ -1,14 +1,13 @@
 import logging
 import os
-from typing import Optional, List, Literal, Dict, Any
+from typing import Any, Literal
 
 import httpx
-from pydantic import Field, BaseModel, field_validator
-
 from nat.builder.builder import Builder, LLMFrameworkEnum
 from nat.builder.function_info import FunctionInfo
 from nat.cli.register_workflow import register_function
 from nat.data_models.function import FunctionBaseConfig
+from pydantic import BaseModel, Field, field_validator
 
 logger = logging.getLogger(__name__)
 
@@ -27,46 +26,44 @@ class ImageRequest(BaseModel):
     """Request model for image generation."""
 
     prompt: str = Field(..., description="The text prompt for generation")
-    cfg_scale: Optional[float] = Field(
+    cfg_scale: float | None = Field(
         3.5,
         description=("How strictly the diffusion process adheres to the prompt"),
         ge=1.0,
         le=9.0,
     )
-    disable_safety_checker: Optional[bool] = Field(
+    disable_safety_checker: bool | None = Field(
         False, description="Disable safety checks on the generated images"
     )
-    height: Optional[int] = Field(
+    height: int | None = Field(
         1024,
         description="The height of the image to generate, in pixels",
         ge=768,
         le=1344,
     )
-    width: Optional[int] = Field(
+    width: int | None = Field(
         1024,
         description="The width of the image to generate, in pixels",
         ge=768,
         le=1344,
     )
-    image: Optional[str] = Field(
+    image: str | None = Field(
         None, description="Base64 encoded image for depth/canny mode"
     )
-    mode: Optional[Literal["base"]] = Field(
-        "base", description="The NIM inference mode"
-    )
-    preprocess_image: Optional[bool] = Field(
+    mode: Literal["base"] | None = Field("base", description="The NIM inference mode")
+    preprocess_image: bool | None = Field(
         True, description="Apply preprocessor to input image"
     )
-    samples: Optional[int] = Field(
+    samples: int | None = Field(
         1, description="Number of images to generate. Only 1 is supported", ge=1, le=1
     )
-    seed: Optional[int] = Field(
+    seed: int | None = Field(
         0, description="Seed for generation. 0 for random seed", ge=0, lt=4294967296
     )
-    steps: Optional[int] = Field(
+    steps: int | None = Field(
         50, description="Number of diffusion steps to run", ge=5, le=100
     )
-    text_prompts: Optional[List[TextPrompt]] = Field(
+    text_prompts: list[TextPrompt] | None = Field(
         None, description="Deprecated: Array of text prompts"
     )
 
@@ -95,7 +92,7 @@ class Artifact(BaseModel):
 class ImageResponse(BaseModel):
     """Response model for image generation."""
 
-    artifacts: List[Artifact] = Field(..., min_length=1, max_length=1)
+    artifacts: list[Artifact] = Field(..., min_length=1, max_length=1)
 
 
 class ImageGenerationFunctionConfig(FunctionBaseConfig, name="image_generation"):
@@ -106,14 +103,14 @@ class ImageGenerationFunctionConfig(FunctionBaseConfig, name="image_generation")
     api_endpoint: str = Field(
         "http://localhost:8000", description="Base URL for the SD 3.5 API endpoint"
     )
-    api_key: Optional[str] = Field(
+    api_key: str | None = Field(
         None, description="API key for authentication (if required)"
     )
     timeout: float = Field(120.0, description="Request timeout in seconds")
     default_width: int = Field(1024, description="Default image width in pixels")
     default_height: int = Field(1024, description="Default image height in pixels")
     default_steps: int = Field(50, description="Default number of diffusion steps")
-    prompt_rewrite: Optional[Dict[str, Any]] = Field(
+    prompt_rewrite: dict[str, Any] | None = Field(
         default=None,
         description=(
             "Optional prompt rewrite configuration. Set to a mapping with "
@@ -127,16 +124,16 @@ class ImageGenerationInput(BaseModel):
     """Input model for the image generation function."""
 
     prompt: str = Field(..., description="The text prompt for image generation")
-    width: Optional[int] = Field(
+    width: int | None = Field(
         None, description="Image width (768-1344, supported values only)"
     )
-    height: Optional[int] = Field(
+    height: int | None = Field(
         None, description="Image height (768-1344, supported values only)"
     )
-    steps: Optional[int] = Field(None, description="Number of diffusion steps (5-100)")
-    seed: Optional[int] = Field(None, description="Random seed (0 for random)")
-    cfg_scale: Optional[float] = Field(None, description="Guidance scale (1.0-9.0)")
-    disable_safety_checker: Optional[bool] = Field(
+    steps: int | None = Field(None, description="Number of diffusion steps (5-100)")
+    seed: int | None = Field(None, description="Random seed (0 for random)")
+    cfg_scale: float | None = Field(None, description="Guidance scale (1.0-9.0)")
+    disable_safety_checker: bool | None = Field(
         None, description="Disable safety checks"
     )
 
@@ -170,7 +167,7 @@ async def image_generation_function(
                 logger.warning("Prompt rewrite requested but no LLM provided")
                 return original_prompt
 
-            llm_kwargs: Dict[str, Any] = {}
+            llm_kwargs: dict[str, Any] = {}
             if "max_tokens" in config.prompt_rewrite:
                 llm_kwargs["max_tokens"] = config.prompt_rewrite["max_tokens"]
             if "temperature" in config.prompt_rewrite:
@@ -179,10 +176,8 @@ async def image_generation_function(
             system_prompt = config.prompt_rewrite.get(
                 "system_prompt",
                 (
-                    (
-                        "You are an expert creative assistant. Improve the given prompt "
-                        "for high quality image generation while keeping the user's intent intact."
-                    )
+                    "You are an expert creative assistant. Improve the given prompt "
+                    "for high quality image generation while keeping the user's intent intact."
                 ),
             )
 
@@ -224,7 +219,6 @@ async def image_generation_function(
 
                     rewritten = await langchain_llm.ainvoke(messages_sequence)
                 else:
-
                     rewritten = await llm_callable.invoke(
                         messages=[
                             {"role": "system", "content": system_prompt},

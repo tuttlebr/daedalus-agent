@@ -2,15 +2,14 @@ import logging
 import os
 import time
 import uuid
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import serpapi
-from pydantic import BaseModel, Field
-
 from nat.builder.builder import Builder
 from nat.builder.function_info import FunctionInfo
 from nat.cli.register_workflow import register_function
 from nat.data_models.function import FunctionBaseConfig
+from pydantic import BaseModel, Field
 
 from .result_scraper import SerpLinkScraperSettings, scrape_serp_links
 
@@ -36,84 +35,83 @@ class SerpapiSearchFunctionConfig(FunctionBaseConfig, name="serpapi_news"):
     news articles, sources, dates, and optional full-text scraping
     of up to 3 articles.
     """
-    api_key: Optional[str] = Field(
+
+    api_key: str | None = Field(
         default=None,
         description=(
             "SerpAPI API key. If not provided, will use SERPAPI_KEY "
             "environment variable"
-        )
+        ),
     )
 
 
 class SearchRequest(BaseModel):
     """Request model for search queries"""
+
     query: str = Field(..., description="Search query")
-    location: Optional[str] = Field(
-        None, description="Location for the search"
-    )
-    num: Optional[int] = Field(
-        None, description="Number of results to return (1-100)"
-    )
-    page: Optional[int] = Field(
-        None, description="Page number for pagination"
-    )
-    time_period: Optional[str] = Field(
+    location: str | None = Field(None, description="Location for the search")
+    num: int | None = Field(None, description="Number of results to return (1-100)")
+    page: int | None = Field(None, description="Page number for pagination")
+    time_period: str | None = Field(
         None,
         description=(
             "Time period filter: last_hour, last_day, last_week, "
             "last_month, last_year"
-        )
+        ),
     )
-    api_key: Optional[str] = Field(
+    api_key: str | None = Field(
         None,
-        description=(
-            "SerpAPI key for this request. Overrides config/env settings"
-        )
+        description=("SerpAPI key for this request. Overrides config/env settings"),
     )
 
 
 class NewsSource(BaseModel):
     """News source information"""
-    title: Optional[str] = None
-    name: Optional[str] = None
-    icon: Optional[str] = None
-    authors: Optional[List[str]] = None
+
+    title: str | None = None
+    name: str | None = None
+    icon: str | None = None
+    authors: list[str] | None = None
 
 
 class NewsAuthor(BaseModel):
     """News author information"""
-    thumbnail: Optional[str] = None
-    name: Optional[str] = None
-    handle: Optional[str] = None
+
+    thumbnail: str | None = None
+    name: str | None = None
+    handle: str | None = None
 
 
 class NewsResult(BaseModel):
     """News result model"""
+
     position: int
     title: str
     link: str
-    snippet: Optional[str] = None
-    source: Optional[NewsSource] = None
-    author: Optional[NewsAuthor] = None
-    thumbnail: Optional[str] = None
-    thumbnail_small: Optional[str] = None
-    type: Optional[str] = None
-    video: Optional[bool] = None
-    date: Optional[str] = None
+    snippet: str | None = None
+    source: NewsSource | None = None
+    author: NewsAuthor | None = None
+    thumbnail: str | None = None
+    thumbnail_small: str | None = None
+    type: str | None = None
+    video: bool | None = None
+    date: str | None = None
 
 
 class SearchResponse(BaseModel):
     """Response model for news search results"""
+
     success: bool
     query: str
-    news_results: List[NewsResult] = Field(default_factory=list)
-    scraped_articles: List[Dict[str, Any]] = Field(default_factory=list)
-    error: Optional[str] = None
+    news_results: list[NewsResult] = Field(default_factory=list)
+    scraped_articles: list[dict[str, Any]] = Field(default_factory=list)
+    error: str | None = None
 
 
 @register_function(config_type=SerpapiSearchFunctionConfig)
 async def serpapi_news_function(
-    config: SerpapiSearchFunctionConfig, builder: Builder  # noqa: F841
+    config: SerpapiSearchFunctionConfig,
+    builder: Builder,  # noqa: F841
 ):
     """
     Google News search function using SerpAPI.
@@ -126,7 +124,7 @@ async def serpapi_news_function(
     # Get default API key from config or environment
     default_api_key = config.api_key or os.getenv("SERPAPI_KEY")
 
-    async def _search_function(request: Dict[str, Any]) -> Dict[str, Any]:
+    async def _search_function(request: dict[str, Any]) -> dict[str, Any]:
         """
         Perform a Google News search using SerpAPI.
 
@@ -172,7 +170,7 @@ async def serpapi_news_function(
                 )
 
                 # Normalize to SearchRequest fields
-                parsed: Dict[str, Any] = {}
+                parsed: dict[str, Any] = {}
 
                 # Map possible query fields
                 for key in [
@@ -196,20 +194,17 @@ async def serpapi_news_function(
                     if nkey in raw_dict and raw_dict[nkey] is not None:
                         try:
                             parsed["num"] = int(raw_dict[nkey])
-                        except Exception:
-                            pass
+                        except (ValueError, TypeError) as e:
+                            logger.debug(f"Failed to convert '{nkey}' to int: {e}")
                         break
 
                 if "page" in raw_dict and raw_dict["page"] is not None:
                     try:
                         parsed["page"] = int(raw_dict["page"])
-                    except Exception:
-                        pass
+                    except (ValueError, TypeError) as e:
+                        logger.debug(f"Failed to convert 'page' to int: {e}")
 
-                if (
-                    "time_period" in raw_dict
-                    and raw_dict["time_period"] is not None
-                ):
+                if "time_period" in raw_dict and raw_dict["time_period"] is not None:
                     parsed["time_period"] = str(raw_dict["time_period"])
 
                 if "api_key" in raw_dict and raw_dict["api_key"] is not None:
@@ -256,10 +251,7 @@ async def serpapi_news_function(
             logger.debug(
                 "[%s] Built search params: %s",
                 request_id,
-                {
-                    k: safe_params.get(k)
-                    for k in ("q", "gl", "hl", "time_period")
-                },
+                {k: safe_params.get(k) for k in ("q", "gl", "hl", "time_period")},
             )
             logger.info(
                 "[%s] SerpAPI News request q='%s' gl='%s' t='%s'",
@@ -300,21 +292,19 @@ async def serpapi_news_function(
                             body_text = getattr(resp, "content", None)
                         if isinstance(body_text, (bytes, bytearray)):
                             try:
-                                body_text = body_text.decode(
-                                    "utf-8", errors="replace"
-                                )
-                            except Exception:
+                                body_text = body_text.decode("utf-8", errors="replace")
+                            except (UnicodeDecodeError, AttributeError) as e:
+                                logger.debug(f"Failed to decode response body: {e}")
                                 body_text = None
                         if isinstance(body_text, str):
                             raw_body_snippet = body_text[:500]
-                except Exception:
-                    pass
+                except (AttributeError, TypeError) as e:
+                    logger.debug(
+                        f"Failed to extract response body for error logging: {e}"
+                    )
 
                 body_snippet = None
-                if (
-                    isinstance(raw_body_snippet, str)
-                    and len(raw_body_snippet) > 200
-                ):
+                if isinstance(raw_body_snippet, str) and len(raw_body_snippet) > 200:
                     body_snippet = raw_body_snippet[:200] + "..."
                 else:
                     body_snippet = raw_body_snippet
@@ -330,7 +320,7 @@ async def serpapi_news_function(
                 raise
 
             # Parse news results
-            news_results_models: List[NewsResult] = []
+            news_results_models: list[NewsResult] = []
             news_results_raw = response_data.get("news_results", [])
             for idx, result in enumerate(news_results_raw):
                 # Parse source
@@ -370,12 +360,10 @@ async def serpapi_news_function(
                     )
                 )
 
-            news_results_payload = [
-                item.model_dump() for item in news_results_models
-            ]
+            news_results_payload = [item.model_dump() for item in news_results_models]
 
             # Scrape up to 3 news article links
-            scraped_articles: List[Dict[str, Any]] = []
+            scraped_articles: list[dict[str, Any]] = []
 
             try:
                 # Extract up to 3 news entries for scraping
@@ -392,9 +380,7 @@ async def serpapi_news_function(
                     scrape_outcome, _ = await scrape_serp_links(
                         organic_entries=entries_to_scrape,
                         top_story_entries=[],
-                        settings=SerpLinkScraperSettings(
-                            max_attempts_per_group=3
-                        ),
+                        settings=SerpLinkScraperSettings(max_attempts_per_group=3),
                     )
 
                     # If we got content, add it to scraped articles
@@ -445,9 +431,10 @@ async def serpapi_news_function(
                 success=False,
                 query=(
                     request.get("query", "")
-                    if isinstance(request, dict) else str(request)
+                    if isinstance(request, dict)
+                    else str(request)
                 ),
-                error=str(e)
+                error=str(e),
             ).model_dump()
 
     # Create a user-friendly wrapper function
@@ -465,7 +452,7 @@ async def serpapi_news_function(
         result = await _search_function({"query": query})
 
         if not result["success"]:
-            error = result.get('error', 'Unknown error')
+            error = result.get("error", "Unknown error")
             return f"News search failed: {error}"
 
         # Format results as a readable string
@@ -479,21 +466,18 @@ async def serpapi_news_function(
                 output += f"{article['position']}. {article['title']}\n"
                 output += f"   URL: {article['link']}\n"
 
-                if article.get('snippet'):
+                if article.get("snippet"):
                     output += f"   {article['snippet']}\n"
 
-                source = article.get('source')
+                source = article.get("source")
                 if isinstance(source, dict):
-                    source_name = (
-                        source.get('name') or
-                        source.get('title', 'Unknown')
-                    )
+                    source_name = source.get("name") or source.get("title", "Unknown")
                     output += f"   Source: {source_name}\n"
 
-                if article.get('date'):
+                if article.get("date"):
                     output += f"   Date: {article['date']}\n"
 
-                if article.get('type'):
+                if article.get("type"):
                     output += f"   Type: {article['type']}\n"
 
                 output += "\n"
@@ -503,11 +487,11 @@ async def serpapi_news_function(
         if scraped_articles:
             output += "\n--- Scraped Article Content ---\n\n"
             for scraped in scraped_articles:
-                if scraped.get('content'):
+                if scraped.get("content"):
                     output += f"From: {scraped.get('link', 'Unknown')}\n"
                     output += f"Title: {scraped.get('title', 'N/A')}\n\n"
-                    output += scraped['content']
-                    if scraped.get('was_truncated'):
+                    output += scraped["content"]
+                    if scraped.get("was_truncated"):
                         output += "\n(Content was truncated)\n"
                     output += "\n\n"
 
