@@ -4,14 +4,13 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Mapping, Sequence
-from typing import Optional, Union
+from typing import Union
+from urllib.parse import ParseResult, urljoin, urlparse
+from urllib.robotparser import RobotFileParser
 
 import httpx
 from markitdown import MarkItDown
 from pydantic import BaseModel, Field
-
-from urllib.parse import ParseResult, urljoin, urlparse
-from urllib.robotparser import RobotFileParser
 
 try:
     import tiktoken
@@ -27,7 +26,9 @@ if not logger.handlers:
     logging.basicConfig(level=logging.INFO)
 
 
-if False:  # pragma: no cover - for type checkers only (avoids circular import at runtime)
+if (
+    False
+):  # pragma: no cover - for type checkers only (avoids circular import at runtime)
     from .serpapi_search_function import SearchResult, TopStory
 
 
@@ -71,19 +72,19 @@ class ScrapeOutcome(BaseModel):
     """Represents the result of attempting to scrape a single SerpAPI link."""
 
     source_type: str
-    link: Optional[str] = None
-    title: Optional[str] = None
-    content: Optional[str] = None
+    link: str | None = None
+    title: str | None = None
+    content: str | None = None
     was_truncated: bool = False
     attempts: int = 0
-    error: Optional[str] = None
+    error: str | None = None
 
 
 async def scrape_serp_links(
     *,
     organic_entries: Sequence[SerpEntry],
     top_story_entries: Sequence[SerpEntry],
-    settings: Optional[SerpLinkScraperSettings] = None,
+    settings: SerpLinkScraperSettings | None = None,
 ) -> tuple[ScrapeOutcome, ScrapeOutcome]:
     """Scrape up to one link from organic results and top stories.
 
@@ -186,9 +187,9 @@ async def _scrape_group(
     return outcome
 
 
-def _extract_link_and_title(entry: SerpEntry) -> tuple[Optional[str], Optional[str]]:
-    link: Optional[str] = None
-    title: Optional[str] = None
+def _extract_link_and_title(entry: SerpEntry) -> tuple[str | None, str | None]:
+    link: str | None = None
+    title: str | None = None
 
     if hasattr(entry, "link"):
         link_value = getattr(entry, "link")
@@ -211,7 +212,9 @@ def _extract_link_and_title(entry: SerpEntry) -> tuple[Optional[str], Optional[s
     return link, title
 
 
-def _validate_url(url_candidate: str, allowed_schemes: list[str]) -> tuple[str, ParseResult]:
+def _validate_url(
+    url_candidate: str, allowed_schemes: list[str]
+) -> tuple[str, ParseResult]:
     normalized = url_candidate.strip()
     if "//" not in normalized:
         normalized = f"https://{normalized}"
@@ -260,7 +263,9 @@ async def _check_robots(
     robots_parser.parse(response.text.splitlines())
 
     if not robots_parser.can_fetch(user_agent, url):
-        raise PermissionError("robots.txt disallows accessing this URL with the configured user agent.")
+        raise PermissionError(
+            "robots.txt disallows accessing this URL with the configured user agent."
+        )
 
 
 def _count_tokens(text: str, encoding_name: str = "cl100k_base") -> int:
@@ -271,7 +276,9 @@ def _count_tokens(text: str, encoding_name: str = "cl100k_base") -> int:
         encoding = tiktoken.get_encoding(encoding_name)
         return len(encoding.encode(text))
     except Exception as exc:  # pragma: no cover - defensive
-        logger.warning("Failed to count tokens with tiktoken: %s. Using approximation.", exc)
+        logger.warning(
+            "Failed to count tokens with tiktoken: %s. Using approximation.", exc
+        )
         return len(text) // 4
 
 

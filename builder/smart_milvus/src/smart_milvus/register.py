@@ -1,12 +1,11 @@
-from pydantic import Field
-from pydantic import HttpUrl
-
-from nat.builder.builder import Builder
-from nat.builder.builder import LLMFrameworkEnum
+from nat.builder.builder import Builder, LLMFrameworkEnum
 from nat.builder.retriever import RetrieverProviderInfo
-from nat.cli.register_workflow import register_retriever_client
-from nat.cli.register_workflow import register_retriever_provider
+from nat.cli.register_workflow import (
+    register_retriever_client,
+    register_retriever_provider,
+)
 from nat.data_models.retriever import RetrieverBaseConfig
+from pydantic import Field, HttpUrl
 
 
 class MilvusRetrieverConfig(RetrieverBaseConfig, name="smart_milvus"):
@@ -61,33 +60,30 @@ class MilvusRetrieverConfig(RetrieverBaseConfig, name="smart_milvus"):
     # Reranker configuration
     use_reranker: bool = Field(
         default=False,
-        description="Whether to use a reranker to improve result relevance"
+        description="Whether to use a reranker to improve result relevance",
     )
     reranker_endpoint: HttpUrl | None = Field(
-        default=None,
-        description="The endpoint URL for the reranker service"
+        default=None, description="The endpoint URL for the reranker service"
     )
     reranker_model: str | None = Field(
         default=None,
         description="The reranker model to use "
-        "(e.g., 'nvidia/nv-rerankqa-mistral-4b-v3')"
+        "(e.g., 'nvidia/nv-rerankqa-mistral-4b-v3')",
     )
     reranker_top_n: int | None = Field(
         default=None,
         description="Number of top results to return after reranking. "
-        "If None, returns all reranked results up to top_k"
+        "If None, returns all reranked results up to top_k",
     )
     reranker_api_key: str | None = Field(
         default=None,
         description="API key for the reranker service. Can also be set via "
-        "NVIDIA_API_KEY environment variable"
+        "NVIDIA_API_KEY environment variable",
     )
 
 
 @register_retriever_provider(config_type=MilvusRetrieverConfig)
-async def smart_milvus(
-    retriever_config: MilvusRetrieverConfig, builder: Builder
-):
+async def smart_milvus(retriever_config: MilvusRetrieverConfig, builder: Builder):
     yield RetrieverProviderInfo(
         config=retriever_config,
         description="An adapter for a Milvus data store to use with a "
@@ -95,17 +91,13 @@ async def smart_milvus(
     )
 
 
-@register_retriever_client(
-    config_type=MilvusRetrieverConfig, wrapper_type=None
-)
+@register_retriever_client(config_type=MilvusRetrieverConfig, wrapper_type=None)
 async def smart_milvus_client(config: MilvusRetrieverConfig, builder: Builder):
     from pymilvus import MilvusClient
-
     from smart_milvus.smart_milvus_function import MilvusRetriever
 
     embedder = await builder.get_embedder(
-        embedder_name=config.embedding_model,
-        wrapper_type=LLMFrameworkEnum.LANGCHAIN
+        embedder_name=config.embedding_model, wrapper_type=LLMFrameworkEnum.LANGCHAIN
     )
 
     milvus_client = MilvusClient(uri=str(config.uri), **config.connection_args)

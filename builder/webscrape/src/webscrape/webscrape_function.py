@@ -1,21 +1,18 @@
 import logging
+from urllib.parse import ParseResult, urljoin, urlparse
+from urllib.robotparser import RobotFileParser
 
 import httpx
 from markitdown import MarkItDown
-from pydantic import Field
-
 from nat.builder.builder import Builder
 from nat.builder.function_info import FunctionInfo
 from nat.cli.register_workflow import register_function
 from nat.data_models.function import FunctionBaseConfig
-
-from urllib.parse import ParseResult
-from urllib.parse import urljoin
-from urllib.parse import urlparse
-from urllib.robotparser import RobotFileParser
+from pydantic import Field
 
 try:
     import tiktoken
+
     TIKTOKEN_AVAILABLE = True
 except ImportError:
     TIKTOKEN_AVAILABLE = False
@@ -68,11 +65,15 @@ def _count_tokens(text: str, encoding_name: str = "cl100k_base") -> int:
         encoding = tiktoken.get_encoding(encoding_name)
         return len(encoding.encode(text))
     except Exception as exc:
-        logger.warning("Failed to count tokens with tiktoken: %s. Using approximation.", exc)
+        logger.warning(
+            "Failed to count tokens with tiktoken: %s. Using approximation.", exc
+        )
         return len(text) // 4
 
 
-def _truncate_to_token_limit(text: str, max_tokens: int, truncation_msg: str, encoding_name: str = "cl100k_base") -> tuple[str, bool]:
+def _truncate_to_token_limit(
+    text: str, max_tokens: int, truncation_msg: str, encoding_name: str = "cl100k_base"
+) -> tuple[str, bool]:
     """Truncate text to fit within token limit.
 
     Returns:
@@ -99,21 +100,23 @@ def _truncate_to_token_limit(text: str, max_tokens: int, truncation_msg: str, en
     truncated = text[:left]
 
     # Try to break at paragraph
-    last_para = truncated.rfind('\n\n')
+    last_para = truncated.rfind("\n\n")
     if last_para > len(truncated) * 0.8:  # If we're not losing too much
         truncated = truncated[:last_para]
     else:
         # Try to break at sentence
-        for sep in ['. ', '! ', '? ', '\n']:
+        for sep in [". ", "! ", "? ", "\n"]:
             last_sep = truncated.rfind(sep)
             if last_sep > len(truncated) * 0.9:
-                truncated = truncated[:last_sep + 1]
+                truncated = truncated[: last_sep + 1]
                 break
 
     return truncated + truncation_msg, True
 
 
-def _prepare_markdown(url: str, max_tokens: int = None, truncation_msg: str = "") -> str:
+def _prepare_markdown(
+    url: str, max_tokens: int = None, truncation_msg: str = ""
+) -> str:
     """Convert web content to markdown using markitdown."""
     try:
         md = MarkItDown(enable_plugins=True)
@@ -128,9 +131,15 @@ def _prepare_markdown(url: str, max_tokens: int = None, truncation_msg: str = ""
         full_content = header + (url_markdown.text_content or "")
 
         if max_tokens is not None:
-            full_content, was_truncated = _truncate_to_token_limit(full_content, max_tokens, truncation_msg)
+            full_content, was_truncated = _truncate_to_token_limit(
+                full_content, max_tokens, truncation_msg
+            )
             if was_truncated:
-                logger.info("Content from %s was truncated to fit within %d token limit", url, max_tokens)
+                logger.info(
+                    "Content from %s was truncated to fit within %d token limit",
+                    url,
+                    max_tokens,
+                )
 
         return full_content
     except Exception as exc:
@@ -170,10 +179,14 @@ async def _check_robots(
     robots_parser.parse(response.text.splitlines())
 
     if not robots_parser.can_fetch(user_agent, url):
-        raise PermissionError("robots.txt disallows accessing this URL with the configured user agent.")
+        raise PermissionError(
+            "robots.txt disallows accessing this URL with the configured user agent."
+        )
 
 
-def _validate_url(url_candidate: str, allowed_schemes: list[str]) -> tuple[str, ParseResult]:
+def _validate_url(
+    url_candidate: str, allowed_schemes: list[str]
+) -> tuple[str, ParseResult]:
     if not url_candidate:
         raise ValueError("No URL supplied.")
 
@@ -183,7 +196,9 @@ def _validate_url(url_candidate: str, allowed_schemes: list[str]) -> tuple[str, 
 
     parsed = urlparse(normalized_url)
 
-    if not parsed.scheme or parsed.scheme.lower() not in {scheme.lower() for scheme in allowed_schemes}:
+    if not parsed.scheme or parsed.scheme.lower() not in {
+        scheme.lower() for scheme in allowed_schemes
+    }:
         raise ValueError("URL scheme is not allowed.")
     if not parsed.netloc:
         raise ValueError("URL is missing a host.")
@@ -192,9 +207,7 @@ def _validate_url(url_candidate: str, allowed_schemes: list[str]) -> tuple[str, 
 
 
 @register_function(config_type=WebscrapeFunctionConfig)
-async def webscrape_function(
-    config: WebscrapeFunctionConfig, builder: Builder
-):
+async def webscrape_function(config: WebscrapeFunctionConfig, builder: Builder):
     # Create client only for robots.txt checking
     headers = {"User-Agent": config.user_agent}
     client = httpx.AsyncClient(headers=headers, follow_redirects=True)
@@ -239,7 +252,7 @@ async def webscrape_function(
             markdown_output = _prepare_markdown(
                 url,
                 max_tokens=config.max_output_tokens,
-                truncation_msg=config.truncation_message
+                truncation_msg=config.truncation_message,
             )
         except Exception as exc:  # noqa: BLE001
             logger.exception("Markdown conversion failed for %s: %s", url, exc)
@@ -254,7 +267,7 @@ async def webscrape_function(
                 "Scrape web content from URLs and convert to clean markdown "
                 "format using markitdown. Respects robots.txt by default and "
                 "supports various content types including HTML, PDFs, and more."
-            )
+            ),
         )
     except GeneratorExit:
         logger.warning("Function exited early!")

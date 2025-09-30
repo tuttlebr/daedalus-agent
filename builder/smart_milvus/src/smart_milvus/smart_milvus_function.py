@@ -5,13 +5,10 @@ from typing import Any
 
 import requests
 from langchain_core.embeddings import Embeddings
+from nat.retriever.interface import Retriever
+from nat.retriever.models import Document, RetrieverError, RetrieverOutput
 from pymilvus import MilvusClient
 from pymilvus.client.abstract import Hit
-
-from nat.retriever.interface import Retriever
-from nat.retriever.models import Document
-from nat.retriever.models import RetrieverError
-from nat.retriever.models import RetrieverOutput
 
 logger = logging.getLogger(__name__)
 
@@ -72,15 +69,16 @@ class MilvusRetriever(Retriever):
         if use_iterator and "search_iterator" not in dir(self._client):
             raise ValueError(
                 "This version of the pymilvus.MilvusClient does not support "
-                "the search iterator.")
+                "the search iterator."
+            )
 
-        self._search_func = (self._search if not use_iterator else
-                             self._search_with_iterator)
+        self._search_func = (
+            self._search if not use_iterator else self._search_with_iterator
+        )
         self._default_params = None
         self._bound_params = []
         self.content_field = content_field
-        logger.info("Milvus Retriever using %s for search.",
-                    self._search_func.__name__)
+        logger.info("Milvus Retriever using %s for search.", self._search_func.__name__)
 
     def bind(self, **kwargs) -> None:
         """
@@ -95,8 +93,12 @@ class MilvusRetriever(Retriever):
             kwargs = {k: v for k, v in kwargs.items() if k != "query"}
         self._search_func = partial(self._search_func, **kwargs)
         self._bound_params = list(kwargs.keys())
-        logger.info("MilvusRetriever: Binding parameters for search function: %s", kwargs)
-        logger.info("MilvusRetriever: Instance vector_field_name: %s", self._vector_field_name)
+        logger.info(
+            "MilvusRetriever: Binding parameters for search function: %s", kwargs
+        )
+        logger.info(
+            "MilvusRetriever: Instance vector_field_name: %s", self._vector_field_name
+        )
 
     def get_unbound_params(self) -> list[str]:
         """
@@ -114,8 +116,10 @@ class MilvusRetriever(Retriever):
         if self._database_name and self._database_name != "default":
             full_name = f"{self._database_name}.{collection_name}"
             # Try both with and without database prefix
-            return (full_name in self._client.list_collections() or
-                    collection_name in self._client.list_collections())
+            return (
+                full_name in self._client.list_collections()
+                or collection_name in self._client.list_collections()
+            )
         return collection_name in self._client.list_collections()
 
     def _get_collection_name(self, collection_name: str) -> str:
@@ -133,8 +137,7 @@ class MilvusRetriever(Retriever):
             self._session = requests.Session()
         return self._session
 
-    async def _rerank(self, query: str,
-                      documents: list[Document]) -> list[Document]:
+    async def _rerank(self, query: str, documents: list[Document]) -> list[Document]:
         """
         Rerank documents using the configured reranker service.
 
@@ -151,10 +154,10 @@ class MilvusRetriever(Retriever):
         try:
             # Prepare API key
             api_key = self._reranker_config.get("api_key") or os.getenv(
-                "NVIDIA_API_KEY")
+                "NVIDIA_API_KEY"
+            )
             if not api_key:
-                logger.warning(
-                    "No API key provided for reranker. Skipping reranking.")
+                logger.warning("No API key provided for reranker. Skipping reranking.")
                 return documents
 
             # Prepare request
@@ -169,9 +172,7 @@ class MilvusRetriever(Retriever):
 
             payload = {
                 "model": self._reranker_config.get("model"),
-                "query": {
-                    "text": query
-                },
+                "query": {"text": query},
                 "passages": passages,
             }
 
@@ -205,14 +206,17 @@ class MilvusRetriever(Retriever):
                     doc.metadata["rerank_position"] = i + 1
                     reranked_docs.append(doc)
 
-            logger.debug("Reranked %d documents, returning top %d",
-                         len(documents), len(reranked_docs))
+            logger.debug(
+                "Reranked %d documents, returning top %d",
+                len(documents),
+                len(reranked_docs),
+            )
             return reranked_docs
 
         except Exception as e:
             logger.warning(
-                "Failed to rerank documents: %s. Returning original order.",
-                str(e))
+                "Failed to rerank documents: %s. Returning original order.", str(e)
+            )
             return documents
 
     async def search(self, query: str, **kwargs):
@@ -250,17 +254,18 @@ class MilvusRetriever(Retriever):
 
         if not self._validate_collection(collection_name):
             raise CollectionNotFoundError(
-                f"Collection: {collection_name} does not exist")
+                f"Collection: {collection_name} does not exist"
+            )
 
         # Get the actual collection name (with database prefix if needed)
         actual_collection_name = self._get_collection_name(collection_name)
 
         # If no output fields are specified, return all of them
         if not output_fields:
-            collection_schema = self._client.describe_collection(
-                actual_collection_name)
+            collection_schema = self._client.describe_collection(actual_collection_name)
             output_fields = [
-                field["name"] for field in collection_schema.get("fields")
+                field["name"]
+                for field in collection_schema.get("fields")
                 if field["name"] != vector_field_name
             ]
 
@@ -273,9 +278,7 @@ class MilvusRetriever(Retriever):
             filter=filters,
             limit=top_k,
             output_fields=output_fields,
-            search_params=(search_params if search_params else {
-                "metric_type": "L2"
-            }),
+            search_params=(search_params if search_params else {"metric_type": "L2"}),
             timeout=timeout,
             anns_field=vector_field_name,
             round_decimal=kwargs.get("round_decimal", -1),
@@ -300,9 +303,9 @@ class MilvusRetriever(Retriever):
                             # Results are sorted by distance, so we can stop early
                             search_iterator.close()
                             wrapped = _wrap_milvus_results(
-                                results, content_field=self.content_field)
-                            wrapped.results = await self._rerank(
-                                query, wrapped.results)
+                                results, content_field=self.content_field
+                            )
+                            wrapped.results = await self._rerank(query, wrapped.results)
                             return wrapped
                 else:
                     results.extend(res[0])
@@ -313,8 +316,7 @@ class MilvusRetriever(Retriever):
                     search_iterator.close()
                     break
 
-            wrapped = _wrap_milvus_results(results,
-                                           content_field=self.content_field)
+            wrapped = _wrap_milvus_results(results, content_field=self.content_field)
             wrapped.results = await self._rerank(query, wrapped.results)
             return wrapped
 
@@ -326,7 +328,8 @@ class MilvusRetriever(Retriever):
             )
             raise RetrieverError(
                 f"Error when retrieving documents from {collection_name} "
-                f"for query '{query}'") from e
+                f"for query '{query}'"
+            ) from e
 
     async def _search(
         self,
@@ -358,7 +361,8 @@ class MilvusRetriever(Retriever):
 
         if not self._validate_collection(collection_name):
             raise CollectionNotFoundError(
-                f"Collection: {collection_name} does not exist")
+                f"Collection: {collection_name} does not exist"
+            )
 
         # Get the actual collection name (with database prefix if needed)
         actual_collection_name = self._get_collection_name(collection_name)
@@ -366,7 +370,8 @@ class MilvusRetriever(Retriever):
         available_fields = [
             v.get("name")
             for v in self._client.describe_collection(actual_collection_name).get(
-                "fields", {})
+                "fields", {}
+            )
         ]
 
         if self.content_field not in available_fields:
@@ -384,8 +389,7 @@ class MilvusRetriever(Retriever):
         # If no output fields are specified, return all of them
         if not output_fields:
             output_fields = [
-                field for field in available_fields
-                if field != vector_field_name
+                field for field in available_fields if field != vector_field_name
             ]
 
         if self.content_field not in output_fields:
@@ -397,16 +401,13 @@ class MilvusRetriever(Retriever):
             data=[search_vector],
             filter=filters,
             output_fields=output_fields,
-            search_params=(search_params if search_params else {
-                "metric_type": "L2"
-            }),
+            search_params=(search_params if search_params else {"metric_type": "L2"}),
             timeout=timeout,
             anns_field=vector_field_name,
             limit=top_k,
         )
 
-        wrapped = _wrap_milvus_results(res[0],
-                                       content_field=self.content_field)
+        wrapped = _wrap_milvus_results(res[0], content_field=self.content_field)
         wrapped.results = await self._rerank(query, wrapped.results)
         return wrapped
 

@@ -2,15 +2,14 @@ import logging
 import os
 import time
 import uuid
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import serpapi
-from pydantic import BaseModel, Field
-
 from nat.builder.builder import Builder
 from nat.builder.function_info import FunctionInfo
 from nat.cli.register_workflow import register_function
 from nat.data_models.function import FunctionBaseConfig
+from pydantic import BaseModel, Field
 
 from .result_scraper import SerpLinkScraperSettings, scrape_serp_links
 
@@ -35,93 +34,89 @@ class SerpapiSearchFunctionConfig(FunctionBaseConfig, name="serpapi_search"):
     This function provides access to Google search results including organic
     results, related questions, knowledge graph, and more.
     """
-    api_key: Optional[str] = Field(
+
+    api_key: str | None = Field(
         default=None,
         description=(
             "SerpAPI API key. If not provided, will use SERPAPI_KEY "
             "environment variable"
-        )
+        ),
     )
     default_location: str = Field(
         default="United States",
-        description="Default location for searches if not specified in request"
+        description="Default location for searches if not specified in request",
     )
     default_num_results: int = Field(
         default=10,
-        description=(
-            "Default number of results to return if not specified in request"
-        )
+        description=("Default number of results to return if not specified in request"),
     )
 
 
 class SearchRequest(BaseModel):
     """Request model for search queries"""
+
     query: str = Field(..., description="Search query")
-    location: Optional[str] = Field(
-        None, description="Location for the search"
-    )
-    num: Optional[int] = Field(
-        None, description="Number of results to return (1-100)"
-    )
-    page: Optional[int] = Field(
-        None, description="Page number for pagination"
-    )
-    time_period: Optional[str] = Field(
+    location: str | None = Field(None, description="Location for the search")
+    num: int | None = Field(None, description="Number of results to return (1-100)")
+    page: int | None = Field(None, description="Page number for pagination")
+    time_period: str | None = Field(
         None,
         description=(
             "Time period filter: last_hour, last_day, last_week, "
             "last_month, last_year"
-        )
+        ),
     )
-    api_key: Optional[str] = Field(
+    api_key: str | None = Field(
         None,
-        description=(
-            "SerpAPI key for this request. Overrides config/env settings"
-        )
+        description=("SerpAPI key for this request. Overrides config/env settings"),
     )
 
 
 class SearchResult(BaseModel):
     """Simplified search result model"""
+
     position: int
     title: str
     link: str
     snippet: str
-    displayed_link: Optional[str] = None
-    date: Optional[str] = None
-    source: Optional[str] = None
+    displayed_link: str | None = None
+    date: str | None = None
+    source: str | None = None
 
 
 class TopStory(BaseModel):
     """Top stories result model"""
+
     position: int
     title: str
     link: str
-    source: Optional[str] = None
-    date: Optional[str] = None
-    thumbnail: Optional[str] = None
-    live: Optional[bool] = None
-    source_logo: Optional[str] = None
+    source: str | None = None
+    date: str | None = None
+    thumbnail: str | None = None
+    live: bool | None = None
+    source_logo: str | None = None
 
 
 class SearchResponse(BaseModel):
     """Response model for search results"""
+
     success: bool
     query: str
-    total_results: Optional[int] = None
-    answer_box: Optional[Dict[str, Any]] = None
-    organic_results: List[SearchResult] = Field(default_factory=list)
-    top_stories: List[TopStory] = Field(default_factory=list)
-    hierarchy_levels: List[Dict[str, Any]] = Field(default_factory=list)
-    organic_scrape: Optional[Dict[str, Any]] = None
-    top_story_scrape: Optional[Dict[str, Any]] = None
-    error: Optional[str] = None
-    raw_response: Optional[Dict[str, Any]] = None
+    total_results: int | None = None
+    answer_box: dict[str, Any] | None = None
+    organic_results: list[SearchResult] = Field(default_factory=list)
+    top_stories: list[TopStory] = Field(default_factory=list)
+    hierarchy_levels: list[dict[str, Any]] = Field(default_factory=list)
+    organic_scrape: dict[str, Any] | None = None
+    top_story_scrape: dict[str, Any] | None = None
+    error: str | None = None
+    raw_response: dict[str, Any] | None = None
 
 
 @register_function(config_type=SerpapiSearchFunctionConfig)
 async def serpapi_search_function(
-    config: SerpapiSearchFunctionConfig, builder: Builder  # noqa: F841
+    config: SerpapiSearchFunctionConfig,
+    builder: Builder,  # noqa: F841
 ):
     """
     Google Search function using SerpAPI.
@@ -133,7 +128,7 @@ async def serpapi_search_function(
     # Get default API key from config or environment
     default_api_key = config.api_key or os.getenv("SERPAPI_KEY")
 
-    async def _search_function(request: Dict[str, Any]) -> Dict[str, Any]:
+    async def _search_function(request: dict[str, Any]) -> dict[str, Any]:
         """
         Perform a Google search using SerpAPI.
 
@@ -173,10 +168,12 @@ async def serpapi_search_function(
                 if isinstance(raw_dict.get("request"), dict):
                     raw_dict = raw_dict["request"]
 
-                logger.debug("[%s] Raw request keys: %s", request_id, list(raw_dict.keys()))
+                logger.debug(
+                    "[%s] Raw request keys: %s", request_id, list(raw_dict.keys())
+                )
 
                 # Normalize to SearchRequest fields
-                parsed: Dict[str, Any] = {}
+                parsed: dict[str, Any] = {}
 
                 # Map possible query fields
                 for key in [
@@ -200,20 +197,17 @@ async def serpapi_search_function(
                     if nkey in raw_dict and raw_dict[nkey] is not None:
                         try:
                             parsed["num"] = int(raw_dict[nkey])
-                        except Exception:
-                            pass
+                        except (ValueError, TypeError) as e:
+                            logger.debug(f"Failed to convert '{nkey}' to int: {e}")
                         break
 
                 if "page" in raw_dict and raw_dict["page"] is not None:
                     try:
                         parsed["page"] = int(raw_dict["page"])
-                    except Exception:
-                        pass
+                    except (ValueError, TypeError) as e:
+                        logger.debug(f"Failed to convert 'page' to int: {e}")
 
-                if (
-                    "time_period" in raw_dict
-                    and raw_dict["time_period"] is not None
-                ):
+                if "time_period" in raw_dict and raw_dict["time_period"] is not None:
                     parsed["time_period"] = str(raw_dict["time_period"])
 
                 if "api_key" in raw_dict and raw_dict["api_key"] is not None:
@@ -267,9 +261,10 @@ async def serpapi_search_function(
             logger.debug(
                 "[%s] Built search params: %s",
                 request_id,
-                {k: safe_params.get(k) for k in (
-                    "q", "location", "num", "page", "time_period"
-                )},
+                {
+                    k: safe_params.get(k)
+                    for k in ("q", "location", "num", "page", "time_period")
+                },
             )
             logger.info(
                 "[%s] SerpAPI request q='%s' loc='%s' num=%s page=%s t='%s'",
@@ -312,21 +307,19 @@ async def serpapi_search_function(
                             body_text = getattr(resp, "content", None)
                         if isinstance(body_text, (bytes, bytearray)):
                             try:
-                                body_text = body_text.decode(
-                                    "utf-8", errors="replace"
-                                )
-                            except Exception:
+                                body_text = body_text.decode("utf-8", errors="replace")
+                            except (UnicodeDecodeError, AttributeError) as e:
+                                logger.debug(f"Failed to decode response body: {e}")
                                 body_text = None
                         if isinstance(body_text, str):
                             raw_body_snippet = body_text[:500]
-                except Exception:
-                    pass
+                except (AttributeError, TypeError) as e:
+                    logger.debug(
+                        f"Failed to extract response body for error logging: {e}"
+                    )
 
                 body_snippet = None
-                if (
-                    isinstance(raw_body_snippet, str)
-                    and len(raw_body_snippet) > 200
-                ):
+                if isinstance(raw_body_snippet, str) and len(raw_body_snippet) > 200:
                     body_snippet = raw_body_snippet[:200] + "..."
                 else:
                     body_snippet = raw_body_snippet
@@ -342,7 +335,7 @@ async def serpapi_search_function(
                 raise
 
             # Parse organic results
-            organic_results_models: List[SearchResult] = []
+            organic_results_models: list[SearchResult] = []
             organic_results_raw = response_data.get("organic_results", [])
             for idx, result in enumerate(organic_results_raw):
                 organic_results_models.append(
@@ -361,7 +354,7 @@ async def serpapi_search_function(
             answer_box = response_data.get("answer_box")
 
             # Parse top stories
-            top_stories_models: List[TopStory] = []
+            top_stories_models: list[TopStory] = []
             top_stories_raw = response_data.get("top_stories", [])
             for idx, story in enumerate(top_stories_raw):
                 top_stories_models.append(
@@ -377,48 +370,59 @@ async def serpapi_search_function(
                     )
                 )
 
-            organic_results_payload = [item.model_dump() for item in organic_results_models]
+            organic_results_payload = [
+                item.model_dump() for item in organic_results_models
+            ]
             top_stories_payload = [item.model_dump() for item in top_stories_models]
 
             # Build hierarchy levels
-            hierarchy_levels: List[Dict[str, Any]] = []
+            hierarchy_levels: list[dict[str, Any]] = []
 
             level_one_data = {"answer_box": answer_box} if answer_box else {}
-            hierarchy_levels.append({
-                "level": 1,
-                "description": "answer_box",
-                "available": bool(level_one_data),
-                "data": level_one_data,
-            })
+            hierarchy_levels.append(
+                {
+                    "level": 1,
+                    "description": "answer_box",
+                    "available": bool(level_one_data),
+                    "data": level_one_data,
+                }
+            )
 
-            level_two_data: Dict[str, Any] = {}
+            level_two_data: dict[str, Any] = {}
             if answer_box:
                 level_two_data["answer_box"] = answer_box
             if organic_results_payload:
                 level_two_data["organic_results"] = organic_results_payload
-            hierarchy_levels.append({
-                "level": 2,
-                "description": "answer_box + organic_results",
-                "available": bool(level_two_data),
-                "data": level_two_data,
-            })
+            hierarchy_levels.append(
+                {
+                    "level": 2,
+                    "description": "answer_box + organic_results",
+                    "available": bool(level_two_data),
+                    "data": level_two_data,
+                }
+            )
 
             level_three_data = dict(level_two_data)
             if top_stories_payload:
                 level_three_data["top_stories"] = top_stories_payload
-            hierarchy_levels.append({
-                "level": 3,
-                "description": "answer_box + organic_results + top_stories",
-                "available": bool(level_three_data),
-                "data": level_three_data,
-            })
+            hierarchy_levels.append(
+                {
+                    "level": 3,
+                    "description": "answer_box + organic_results + top_stories",
+                    "available": bool(level_three_data),
+                    "data": level_three_data,
+                }
+            )
 
             # Scrape representative links from results
-            organic_scrape_data: Optional[Dict[str, Any]] = None
-            top_story_scrape_data: Optional[Dict[str, Any]] = None
+            organic_scrape_data: dict[str, Any] | None = None
+            top_story_scrape_data: dict[str, Any] | None = None
 
             try:
-                organic_scrape_outcome, top_story_scrape_outcome = await scrape_serp_links(
+                (
+                    organic_scrape_outcome,
+                    top_story_scrape_outcome,
+                ) = await scrape_serp_links(
                     organic_entries=organic_results_payload,
                     top_story_entries=top_stories_payload,
                     settings=SerpLinkScraperSettings(),
@@ -426,7 +430,9 @@ async def serpapi_search_function(
                 organic_scrape_data = organic_scrape_outcome.model_dump()
                 top_story_scrape_data = top_story_scrape_outcome.model_dump()
             except Exception as scrape_error:  # noqa: BLE001 - defensive catch
-                logger.exception("[%s] Enrichment scrape failed: %s", request_id, scrape_error)
+                logger.exception(
+                    "[%s] Enrichment scrape failed: %s", request_id, scrape_error
+                )
                 organic_scrape_data = {"error": str(scrape_error)}
                 top_story_scrape_data = {"error": str(scrape_error)}
 
@@ -466,9 +472,10 @@ async def serpapi_search_function(
                 success=False,
                 query=(
                     request.get("query", "")
-                    if isinstance(request, dict) else str(request)
+                    if isinstance(request, dict)
+                    else str(request)
                 ),
-                error=str(e)
+                error=str(e),
             ).model_dump()
 
     # Create a user-friendly wrapper function
@@ -489,9 +496,7 @@ async def serpapi_search_function(
 
         # Format results as a readable string
         output = f"Search Results for: '{result['query']}'\n"
-        output += (
-            f"Total results: {result.get('total_results', 'Unknown')}\n\n"
-        )
+        output += f"Total results: {result.get('total_results', 'Unknown')}\n\n"
 
         # Add answer box summary if present
         answer_box = result.get("answer_box")
@@ -516,11 +521,13 @@ async def serpapi_search_function(
         if top_stories:
             output += "\nTop Stories:\n"
             for story in top_stories:
-                output += f"- {story['title']} ({story.get('source', 'Unknown source')})\n"
+                output += (
+                    f"- {story['title']} ({story.get('source', 'Unknown source')})\n"
+                )
                 output += f"  URL: {story['link']}\n"
-                if story.get('date'):
+                if story.get("date"):
                     output += f"  Date: {story['date']}\n"
-                if story.get('live'):
+                if story.get("live"):
                     output += "  Live update\n"
                 output += "\n"
 

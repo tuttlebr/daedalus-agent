@@ -1,17 +1,15 @@
-# AgentIQ - UI
+# Daedalus - UI
 
-[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![AgentIQ](https://img.shields.io/badge/AgentIQ-Frontend-green)](https://github.com/NVIDIA/AgentIQ)
+This is the frontend user interface for Daedalus, an AI agent system for research and data gathering.
 
-This is the official frontend user interface component for [AgentIQ](https://github.com/NVIDIA/AgentIQ), an open-source library for building AI agents and workflows.
-
-This project builds upon the work of:
+This project was originally forked from [NeMo-Agent-Toolkit-UI](https://github.com/NVIDIA/NeMo-Agent-Toolkit-UI) and builds upon:
 - [chatbot-ui](https://github.com/mckaywrigley/chatbot-ui) by Mckay Wrigley
 - [chatbot-ollama](https://github.com/ivanfioravanti/chatbot-ollama) by Ivan Fioravanti
 
 ## Features
 - 🎨 Modern and responsive user interface
 - 🔄 Real-time streaming responses
+- 🔐 User authentication with Redis
 - 🌙 Light/Dark theme
 - 🔌 HTTP API integration
 - 🐳 Docker support
@@ -19,21 +17,16 @@ This project builds upon the work of:
 ## Getting Started
 
 ### Prerequisites
-- [AgentIQ](https://github.com/NVIDIA/AgentIQ) installed and configured
-- Git
+- Daedalus backend services running
 - Node.js (v18 or higher)
 - npm or Docker
+- Redis (for authentication)
 
 ### Installation
 
-Clone the repository:
-```bash
-git clone git@github.com:NVIDIA/AgentIQ-UI.git
-cd AgentIQ-UI
-```
-
 Install dependencies:
 ```bash
+cd frontend
 npm ci
 ```
 
@@ -48,56 +41,44 @@ The application will be available at `http://localhost:3000`
 #### Docker Deployment
 ```bash
 # Build the Docker image
-docker build -t agentiq-ui .
+docker build -t daedalus-ui .
 
 # Run the container with environment variables from .env
 # Ensure the .env file is present before running this command.
 # Skip --env-file .env if no overrides are needed.
-docker run --env-file .env -p 3000:3000 agentiq-ui
+docker run --env-file .env -p 3000:3000 daedalus-ui
 ```
 
-![AgentIQ Web User Interface](public/screenshots/ui_home_page.png)
-
 ## Configuration
+
+### Environment Variables
+Configure the application using environment variables or a `.env` file:
+
+```bash
+# Authentication
+AUTH_USERNAME=admin
+AUTH_PASSWORD=your-secure-password
+AUTH_NAME=Administrator
+
+# Redis Configuration
+REDIS_HOST=localhost
+REDIS_PORT=6379
+
+# Backend API
+API_URL=http://localhost:8000
+```
 
 ### HTTP API Connection
 Settings can be configured by selecting the `Settings` icon located on the bottom left corner of the home page.
 
-![AgentIQ Web UI Settings](public/screenshots/ui_generate_example_settings.png)
-
 ### Settings Options
-NOTE: Most of the time, you will want to select /chat/stream for intermediate results streaming.
-
-- `Theme`: Light or Dark Theme
+- `Theme`: Light or Dark theme
 - `HTTP URL for Chat Completion`: REST API endpoint
-  - /generate - Single response generation
-  - /generate/stream - Streaming response generation
-  - /chat - Single response chat completion
-  - /chat/stream - Streaming chat completion
+  - `/chat/stream` - Streaming chat completion (recommended)
+  - `/chat` - Single response chat completion
 
-## Usage Examples
+## User Management
 
-### Simple Calculator Example
-
-#### Setup and Configuration
-1. Set up [AgentIQ](https://github.com/NVIDIA/AgentIQ/blob/main/docs/source/1_intro/getting_started.md)
-2. Start workflow by following the [Simple Calculator Example](https://github.com/NVIDIA/AgentIQ/blob/main/examples/simple_calculator/README.md)
-```bash
-aiq serve --config_file=examples/simple_calculator/configs/config.yml
-```
-
-#### Testing the Calculator
-Interact with the chat interface by prompting the agent with the message:
-```
-Is 4 + 4 greater than the current hour of the day?
-```
-
-![AgentIQ Web UI Workflow Result](public/screenshots/ui_generate_example.png)
-
-## API Integration
-
-### Server Communication
-The UI supports HTTP requests (OpenAI compatible) for server communication.
-
-## License
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details. The project includes code from [chatbot-ui](https://github.com/mckaywrigley/chatbot-ui) and [chatbot-ollama](https://github.com/ivanfioravanti/chatbot-ollama), which are also MIT licensed.
+For detailed information on managing users, see:
+- [User Management Guide](docs/USER_MANAGEMENT.md)
+- [User Management Quick Reference](docs/USER_MANAGEMENT_QUICK_REFERENCE.md)
