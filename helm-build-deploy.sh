@@ -185,14 +185,16 @@ configure_pvc_presets() {
   local images_pvc
   local redis_pvc
   local redisinsight_pvc
+  local backend_pvc
   images_pvc="${RELEASE}-images"
   redis_pvc="${RELEASE}-redis"
   redisinsight_pvc="${RELEASE}-redisinsight"
-
+  backend_pvc="${RELEASE}-backend"
   # Default to allowing Helm to (re)create PVCs and ensure existingClaimName is cleared
   HELM_PRESET_PVC_IMAGES=( --set nginx.imageVolume.create=true --set-string nginx.imageVolume.existingClaimName="" )
   HELM_PRESET_PVC_REDIS=( --set redis.persistence.create=true --set-string redis.persistence.existingClaimName="" )
   HELM_PRESET_PVC_REDISINSIGHT=( --set redisinsight.persistence.create=true --set-string redisinsight.persistence.existingClaimName="" )
+  HELM_PRESET_PVC_BACKEND=( --set backend.persistence.create=true --set-string backend.persistence.existingClaimName="" )
   if kubectl -n "$NAMESPACE" get pvc "$images_pvc" >/dev/null 2>&1; then
     echo -e "${Yellow}Found existing PVC:${Color_Off} $images_pvc (will not create in Helm)"
     HELM_PRESET_PVC_IMAGES=( --set nginx.imageVolume.create=false --set nginx.imageVolume.existingClaimName="$images_pvc" )
@@ -206,6 +208,11 @@ configure_pvc_presets() {
   if kubectl -n "$NAMESPACE" get pvc "$redisinsight_pvc" >/dev/null 2>&1; then
     echo -e "${Yellow}Found existing PVC:${Color_Off} $redisinsight_pvc (will not create in Helm)"
     HELM_PRESET_PVC_REDISINSIGHT=( --set redisinsight.persistence.create=false --set redisinsight.persistence.existingClaimName="$redisinsight_pvc" )
+  fi
+
+  if kubectl -n "$NAMESPACE" get pvc "$backend_pvc" >/dev/null 2>&1; then
+    echo -e "${Yellow}Found existing PVC:${Color_Off} $backend_pvc (will not create in Helm)"
+    HELM_PRESET_PVC_BACKEND=( --set backend.persistence.create=false --set backend.persistence.existingClaimName="$backend_pvc" )
   fi
 }
 
@@ -389,6 +396,9 @@ fi
 if [[ ${#HELM_PRESET_PVC_REDISINSIGHT[@]} -gt 0 ]]; then
   HELM_CMD+=( "${HELM_PRESET_PVC_REDISINSIGHT[@]}" )
 fi
+if [[ ${#HELM_PRESET_PVC_BACKEND[@]} -gt 0 ]]; then
+  HELM_CMD+=( "${HELM_PRESET_PVC_BACKEND[@]}" )
+fi
 if [[ -n "${BACKEND_CONFIG}" && -f "${BACKEND_CONFIG}" ]]; then
   HELM_CMD+=( --set-file backend.config.data="$BACKEND_CONFIG" )
 fi
@@ -415,3 +425,6 @@ fi
 echo -e "${Green}Done.${Color_Off}"
 
 kubectl get all -n "$NAMESPACE"
+
+echo -e "${Cyan}Following logs for daedalus-backend pod...${Color_Off}"
+kubectl logs -f deployment/daedalus-backend -n "$NAMESPACE"

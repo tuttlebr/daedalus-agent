@@ -12,9 +12,8 @@ This project builds upon the work of:
 ## Features
 - 🎨 Modern and responsive user interface
 - 🔄 Real-time streaming responses
-- 🤝 Human-in-the-loop workflow support
 - 🌙 Light/Dark theme
-- 🔌 WebSocket and HTTP API integration
+- 🔌 HTTP API integration
 - 🐳 Docker support
 
 ## Getting Started
@@ -75,8 +74,6 @@ NOTE: Most of the time, you will want to select /chat/stream for intermediate re
   - /generate/stream - Streaming response generation
   - /chat - Single response chat completion
   - /chat/stream - Streaming chat completion
-- `WebSocket URL for Completion`: WebSocket URL to connect to running AgentIQ server
-- `WebSocket Schema`: Workflow schema type over WebSocket connection
 
 ## Usage Examples
 
@@ -97,40 +94,10 @@ Is 4 + 4 greater than the current hour of the day?
 
 ![AgentIQ Web UI Workflow Result](public/screenshots/ui_generate_example.png)
 
-### Human In The Loop (HITL) Example
-
-#### Setup and Configuration
-1. Set up [AgentIQ](https://github.com/NVIDIA/AgentIQ/blob/main/docs/source/1_intro/getting_started.md)
-2. Start workflow by following the [HITL Example](https://github.com/NVIDIA/AgentIQ/blob/main/examples/simple_human_in_the_loop/README.md)
-```bash
-aiq serve --config_file=examples/simple_human_in_the_loop/configs/config.yml
-```
-
-#### Configuring HITL Settings
-Enable WebSocket mode in the settings panel for bidirectional real-time communication between the client and server.
-
-![AgentIQ Web UI HITL Settings](public/screenshots/hitl_settings.png)
-
-#### Example Conversation
-1. Send the following prompt:
-```
-Can you process my input and display the result for the given prompt: How are you today?
-```
-
-2. Enter your response when prompted:
-
-![AgentIQ Web UI HITL Prompt](public/screenshots/hitl_prompt.png)
-
-3. Monitor the result:
-
-![AgentIQ Web UI HITL Prompt](public/screenshots/hitl_result.png)
-
 ## API Integration
 
 ### Server Communication
-The UI supports both HTTP requests (OpenAI compatible) and WebSocket connections for server communication. For detailed information about WebSocket messaging integration, please refer to the [WebSocket Documentation](https://github.com/NVIDIA/AgentIQ/blob/main/docs/5_advanced/websockets.md) in the AgentIQ documentation.
-
-
+The UI supports HTTP requests (OpenAI compatible) for server communication.
 
 ## License
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details. The project includes code from [chatbot-ui](https://github.com/mckaywrigley/chatbot-ui) and [chatbot-ollama](https://github.com/ivanfioravanti/chatbot-ollama), which are also MIT licensed.

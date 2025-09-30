@@ -53,7 +53,7 @@ export const ChatInput = ({
   const { t } = useTranslation('chat');
 
   const {
-    state: { selectedConversation, messageIsStreaming, loading, webSocketMode },
+    state: { selectedConversation, messageIsStreaming, loading },
     dispatch: homeDispatch,
   } = useContext(HomeContext);
 
@@ -167,21 +167,13 @@ export const ChatInput = ({
 
 
   const handleStopConversation = () => {
-    if(webSocketMode) {
-      console.log('stop conversation is yet to be implemented');
-      homeDispatch({ field: 'loading', value: false });
-      homeDispatch({ field: 'messageIsStreaming', value: false });
-      return
-    }
-    else {
-      try {
-        controller?.current?.abort('aborted');
-        setTimeout(() => {
-          controller.current = new AbortController(); // Reset the controller
-        }, 100);
-      } catch (error) {
-        console.log('error aborting - ', error);
-      }
+    try {
+      controller?.current?.abort('aborted');
+      setTimeout(() => {
+        controller.current = new AbortController(); // Reset the controller
+      }, 100);
+    } catch (error) {
+      console.log('error aborting - ', error);
     }
   };
 

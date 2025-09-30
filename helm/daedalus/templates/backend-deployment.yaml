@@ -42,12 +42,23 @@ spec:
               mountPath: /workspace/config.yaml
               subPath: config.yaml
             {{- end }}
+            {{- if .Values.backend.persistence.enabled }}
+            - name: backend-data
+              mountPath: /data
+            {{- end }}
+      {{- if or .Values.backend.persistence.enabled (and .Values.backend.config.enabled .Values.backend.config.data) }}
       volumes:
+        {{- if .Values.backend.persistence.enabled }}
+        - name: backend-data
+          persistentVolumeClaim:
+            claimName: {{ include "daedalus.fullname" . }}-backend
+        {{- end }}
         {{- if and .Values.backend.config.enabled .Values.backend.config.data }}
         - name: backend-config
           configMap:
             name: {{ include "daedalus.fullname" . }}-backend-config
         {{- end }}
+      {{- end }}
 ---
 apiVersion: v1
 kind: Service

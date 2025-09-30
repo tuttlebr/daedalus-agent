@@ -16,7 +16,7 @@ services:
       dockerfile: Dockerfile
       target: base
       args:
-        NAT_VERSION: caa95bbcf0a8d0935e22923725c915d8c37e944b
+        NAT_VERSION: develop
     image: daedalus.ddns.me:5050/btuttle/daedalus:builder-${DAEDALUS_VERSION:-latest}
     working_dir: /builder
     volumes:
@@ -29,7 +29,7 @@ services:
       dockerfile: Dockerfile
       target: backend
       args:
-        NAT_VERSION: caa95bbcf0a8d0935e22923725c915d8c37e944b
+        NAT_VERSION: develop
     image: daedalus.ddns.me:5050/btuttle/daedalus:backend-${DAEDALUS_VERSION}
     env_file:
       - .env

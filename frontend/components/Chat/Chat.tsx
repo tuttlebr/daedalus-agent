@@ -29,8 +29,6 @@ import { MemoizedChatMessage } from './MemoizedChatMessage';
 import { cleanMessagesForLLM, processMessageImages } from '@/utils/app/imageHandler';
 
 import { v4 as uuidv4 } from 'uuid';
-import { InteractionModal } from '@/components/Chat/ChatInteractionMessage';
-import { webSocketMessageTypes } from '@/utils/app/const';
 import { ChatHeader } from './ChatHeader';
 import { useAuth } from '@/components/Auth/AuthProvider';
 
@@ -44,10 +42,6 @@ export const Chat = () => {
       messageIsStreaming,
       loading,
       chatHistory,
-      webSocketConnected,
-      webSocketMode,
-      webSocketURL,
-      webSocketSchema,
       chatCompletionURL,
       expandIntermediateSteps,
       intermediateStepOverride,
@@ -69,304 +63,15 @@ export const Chat = () => {
   const controllerRef = useRef(new AbortController());
   const selectedConversationRef = useRef(selectedConversation);
 
-  const [modalOpen, setModalOpen] = useState(false);
-  const [interactionMessage, setInteractionMessage] = useState(null);
-  const webSocketRef = useRef(null);
-  const webSocketConnectedRef = useRef(false);
-  const webSocketModeRef = useRef(sessionStorage.getItem('webSocketMode') === 'false' ? false : webSocketMode);
-  let websocketLoadingToastId = null;
   const lastScrollTop = useRef(0); // Store last known scroll position
 
   // Add these variables near the top of your component
   const isUserInitiatedScroll = useRef(false);
   const scrollTimeout = useRef(null);
 
-
-  const openModal = (data : any = {}) => {
-    setInteractionMessage(data);
-    setModalOpen(true);
-  };
-
-  const handleUserInteraction = ({interactionMessage = {}, userResponse = ''} : any) => {
-    // todo send user input to websocket server as user response to interaction message
-    // console.log("User response:", userResponse);
-    const wsMessage = {
-      type: webSocketMessageTypes.userInteractionMessage,
-      id: uuidv4(), //new id for every new message
-      thread_id: interactionMessage?.thread_id, // same thread_id from interaction message received
-      parent_id: interactionMessage?.parent_id, // same parent_id from interaction message received
-      username: user?.username || 'anon',
-      content: {
-        messages: [
-          {
-            role: 'user',
-            content: [
-              {
-                type: 'text',
-                text: userResponse
-              }
-            ]
-          }
-        ]
-      },
-      timestamp: new Date().toISOString(),
-    };
-    console.log('sending user response for interaction message via websocket', wsMessage)
-    webSocketRef?.current?.send(JSON.stringify(wsMessage));
-  };
-
   useEffect(() => {
     selectedConversationRef.current = selectedConversation;
   }, [selectedConversation]);
-
-  useEffect(() => {
-    if (webSocketModeRef?.current && !webSocketConnectedRef.current) {
-      connectWebSocket();
-    }
-
-    // todo cancel ongoing connection attempts
-    else {
-      toast.dismiss(websocketLoadingToastId);
-    }
-
-    return () => {
-      if (webSocketRef?.current) {
-        webSocketRef?.current?.close();
-        webSocketConnectedRef.current = false;
-      }
-    };
-  }, [webSocketModeRef?.current, webSocketURL]);
-
-  const connectWebSocket = async (retryCount = 0) => {
-
-    const maxRetries = 3;
-    const retryDelay = 1000; // 1-second delay between retries
-
-    if (!(sessionStorage.getItem('webSocketURL') || webSocketURL)) {
-      toast.error("Please set a valid WebSocket server in settings");
-      return false;
-    }
-
-    return new Promise((resolve) => {
-      const ws = new WebSocket((sessionStorage.getItem('webSocketURL') || webSocketURL));
-
-      websocketLoadingToastId = toast.loading(
-        "WebSocket is not connected, trying to connect...",
-        { id: "websocketLoadingToastId" }
-      );
-
-      ws.onopen = () => {
-
-        toast.success("Connected to " + (sessionStorage.getItem('webSocketURL') || webSocketURL), {
-          id: "websocketSuccessToastId",
-        });
-        toast.dismiss(websocketLoadingToastId);
-
-        // using ref due to usecallback for handlesend which will be recreated during next render when dependency array changes
-        // so values inside of are still one and be updated after next render
-        // so we'll not see any changes to websocket (state variable) or webSocketConnected (context variable) changes while the function is executing
-        webSocketConnectedRef.current = true;
-        homeDispatch({ field: "webSocketConnected", value: true });
-        webSocketRef.current = ws;
-        resolve(true); // Resolve true only when connected
-      };
-
-      ws.onmessage = (event) => {
-        const message = JSON.parse(event.data);
-        handleWebSocketMessage(message);
-      };
-
-      ws.onclose = async () => {
-        if (retryCount < maxRetries) {
-          retryCount++;
-
-          // Retry and capture the result
-          if(webSocketModeRef?.current) {
-             // Wait for retry delay
-            await new Promise((res) => setTimeout(res, retryDelay));
-            console.log(`Retrying connection... Attempt ${retryCount}`);
-            const success = await connectWebSocket(retryCount);
-            resolve(success);
-          }
-        } else {
-          // Only resolve(false) after all retries fail
-          console.log("WebSocket connection failed after retries.");
-          homeDispatch({ field: "webSocketConnected", value: false });
-          webSocketConnectedRef.current = false;
-          homeDispatch({ field: "loading", value: false });
-          homeDispatch({ field: "messageIsStreaming", value: false });
-          toast.dismiss(websocketLoadingToastId);
-          toast.error("WebSocket connection failed.", {
-            id: "websocketErrorToastId",
-          });
-          resolve(false);
-        }
-      };
-
-      ws.onerror = (error) => {
-        console.log("WebSocket connection error");
-        homeDispatch({ field: "webSocketConnected", value: false });
-        webSocketConnectedRef.current = false;
-        homeDispatch({ field: "loading", value: false });
-        homeDispatch({ field: "messageIsStreaming", value: false });
-        ws.close(); // Ensure the WebSocket is closed on error
-      };
-    });
-  };
-
-
-  // Re-attach the WebSocket handler when intermediateStepOverride changes because we need updated value from settings
-  useEffect(() => {
-    if (webSocketRef.current) {
-      webSocketRef.current.onmessage = (event) => {
-        const message = JSON.parse(event.data);
-        handleWebSocketMessage(message);
-      };
-    }
-  }, [intermediateStepOverride]);
-
-
-  const handleWebSocketMessage = (message: any) => {
-    // console.log('Received message via websocket', message);
-
-    // todo ingore messages that are coming after stop conversation
-    // idea - add a field in stored messsage that indicates if its been cancelled
-
-    // stop loading after receiving a message
-    homeDispatch({ field: 'loading', value: false });
-    if(message?.status === 'complete') {
-      // stop streaming status after receiving a message with status completed -> END
-      // to show the message on UI and scroll to the bottom after 500ms delay
-      setTimeout(() => {
-        homeDispatch({ field: 'messageIsStreaming', value: false });
-      }, 200);
-    }
-
-    // handling human in the loop messages
-    if(message?.type === webSocketMessageTypes.systemInteractionMessage) {
-      openModal(message)
-    }
-
-    if(sessionStorage.getItem('enableIntermediateSteps') === 'false' && message?.type === webSocketMessageTypes.systemIntermediateMessage) {
-      console.log('ignoring intermediate steps');
-      return
-    }
-
-    // handle error messages
-    if(message?.type === 'error') {
-      message.content.text = 'Something went wrong. Please try again. \n\n' + `<details id=${message?.id}><summary></summary>${JSON.stringify(message?.content)}</details>`
-      // to show the message on UI and scroll to the bottom after 500ms delay
-      setTimeout(() => {
-        homeDispatch({ field: 'messageIsStreaming', value: false });
-      }, 200);
-    }
-
-    // updating conversation with new message
-    let updatedMessages
-    // Use the selectedConversation from React state (via ref) instead of sessionStorage
-    // This ensures we have the full conversation history, not the truncated version
-    let currentSelectedConversation = selectedConversationRef.current
-    let currentConversations = conversations
-
-    // logic
-    // if this is the first message (of the assistant response to user message), then add the message to the conversation as 'assistant' message
-    // else append the message to the exisiting assistant message (part of the stream appending)
-    // look through the conversation messages and find if a assistant message has id = parentId
-    const isLastMessageFromAssistant = currentSelectedConversation?.messages && currentSelectedConversation.messages.length > 0 && currentSelectedConversation.messages[currentSelectedConversation.messages.length - 1].role === 'assistant'
-    if(isLastMessageFromAssistant) {
-      // console.log('found assistant message, appending to it')
-      // update the assistant message inside selectedConversation
-      updatedMessages = currentSelectedConversation?.messages?.map((msg, idx) => {
-        if (msg.role === 'assistant' && idx === currentSelectedConversation?.messages?.length - 1) {
-          // do this only for response token
-          let updatedContent = msg.content || '';
-          if(message?.type === webSocketMessageTypes.systemResponseMessage) {
-            updatedContent = updatedContent + (message?.content?.text || '');
-          }
-
-          // find index for new message
-          // it can be the length of the intermediate messages last one
-          let index = msg?.intermediateSteps?.length || 0;
-          message = {...message, index}
-
-          // process IntermediateSteps
-          let processedIntermediateSteps = (message?.type === webSocketMessageTypes.systemIntermediateMessage)
-            ? processIntermediateMessage(msg.intermediateSteps || [], message, sessionStorage.getItem('intermediateStepOverride') === 'false' ? false : intermediateStepOverride)
-            : msg.intermediateSteps || [];
-
-          if(message?.type === webSocketMessageTypes.systemInteractionMessage){
-            msg.humanInteractionMessages = msg.humanInteractionMessages || [];
-            msg.humanInteractionMessages.push(message);
-          }
-          if(message?.type === 'error') {
-            msg.errorMessages = msg.errorMessages || [];
-            msg.errorMessages.push(message);
-          }
-
-          // update the assistant message with new content and processed intermediate steps
-          return {
-            ...msg,
-            content: updatedContent,
-            intermediateSteps: processedIntermediateSteps,
-            humanInteractionMessages: msg.humanInteractionMessages || [],
-            errorMessages: msg.errorMessages || []
-          };
-        }
-        return msg;
-      });
-    } else {
-      // console.log('didnt find assistant message, adding new one (first chunk of response)')
-      // add the new message to the conversation as 'assistant' message
-      updatedMessages = [
-        ...(currentSelectedConversation?.messages || []),
-        {
-          role: 'assistant',
-          id: message?.id,
-          parentId: message?.parent_id,
-          content: message?.content?.text || '',
-          intermediateSteps: (message?.type === webSocketMessageTypes.systemIntermediateMessage) ? [{...message, index: 0}] : [],
-          humanInteractionMessages: (message?.type === webSocketMessageTypes.systemInteractionMessage) ? [message] : [],
-          errorMessages: message?.type === 'error' ? [message] : []
-        },
-      ];
-    }
-
-    // update the conversation
-    let updatedConversation = {
-      ...currentSelectedConversation,
-      messages: updatedMessages,
-      id: currentSelectedConversation?.id || '',
-    };
-    homeDispatch({
-      field: 'selectedConversation',
-      value: updatedConversation,
-    });
-
-    // save the conversation to session storage
-    saveConversation(updatedConversation);
-
-    // update the conversations
-    const updatedConversations = currentConversations?.map(
-      (conversation) => {
-        if (conversation.id === updatedConversation?.id) {
-          return updatedConversation;
-        }
-        return conversation;
-      },
-    ) || [];
-
-    if (updatedConversations.length === 0) {
-      updatedConversations.push(updatedConversation);
-    }
-    homeDispatch({
-      field: 'conversations',
-      value: updatedConversations,
-    });
-
-    // save the conversations to session storage
-    saveConversations(updatedConversations);
-  };
-
 
   const handleSend = useCallback(
     async (message: Message, deleteCount = 0, retry = false) => {
@@ -402,7 +107,7 @@ export const Chat = () => {
         homeDispatch({ field: 'loading', value: true });
         homeDispatch({ field: 'messageIsStreaming', value: true });
 
-        // Store processed conversation for both websocket and HTTP
+        // Store processed conversation
         saveConversation(updatedConversation);
         const updatedConversations: Conversation[] = conversations.map(
           (conversation) => {
@@ -420,73 +125,6 @@ export const Chat = () => {
           value: updatedConversations,
         });
         saveConversations(updatedConversations);
-
-        // websocket connection chat request
-        if (webSocketModeRef?.current) {
-          if (!webSocketConnectedRef?.current) {
-            const connected = await connectWebSocket();
-            if (!connected) {
-              console.log("WebSocket connection failed.");
-              homeDispatch({ field: "loading", value: false });
-              homeDispatch({ field: "messageIsStreaming", value: false });
-              return;
-            }
-            else {
-              console.log("WebSocket connected successfully!, Resend the query");
-              handleSend(message, 1)
-              return
-            }
-
-          }
-          toast.dismiss()
-
-
-          saveConversation(updatedConversation);
-          const updatedConversations: Conversation[] = conversations.map(
-            (conversation) => {
-              if (conversation.id === selectedConversation.id) {
-                return updatedConversation;
-              }
-              return conversation;
-            },
-          );
-          if (updatedConversations.length === 0) {
-            updatedConversations.push(updatedConversation);
-          }
-          homeDispatch({
-            field: 'conversations',
-            value: updatedConversations,
-          });
-          saveConversations(updatedConversations);
-
-          const wsMessagesSource = updatedConversation?.messages || [];
-          // Clean messages before sending via WebSocket
-          const cleanedMessages = cleanMessagesForLLM(wsMessagesSource);
-          const chatMessages = cleanedMessages.map((message: Message) => ({
-            role: message.role,
-            content: [
-              {
-                type: 'text',
-                text: (typeof message?.content === 'string' ? message.content.trim() : '') || '',
-              },
-            ],
-          }));
-
-          const wsMessage = {
-            type: webSocketMessageTypes.userMessage,
-            schema_type: sessionStorage.getItem('webSocketSchema') || webSocketSchema,
-            id: message?.id,
-            thread_id: selectedConversation.id,
-            username: user?.username || 'anon',
-            content: {
-              messages: chatMessages
-            },
-            timestamp: new Date().toISOString(),
-          };
-          // console.log('Sent message via websocket', wsMessage)
-          webSocketRef?.current?.send(JSON.stringify(wsMessage));
-          return
-        }
 
         // cleaning up messages to fit the request payload and remove image data
         const messagesCleaned = cleanMessagesForLLM(updatedConversation.messages);
@@ -741,8 +379,6 @@ export const Chat = () => {
       selectedConversation,
       homeDispatch,
       chatHistory,
-      webSocketConnected,
-      webSocketSchema,
       chatCompletionURL,
       expandIntermediateSteps,
       intermediateStepOverride,
@@ -898,7 +534,7 @@ export const Chat = () => {
             paddingBottom: '1.5rem'
           }}
         >
-          <ChatHeader webSocketModeRef={webSocketModeRef} />
+          <ChatHeader />
           <div className="flex flex-col gap-4 sm:gap-3 md:gap-2">
             {selectedConversation?.messages.map((message, index) => (
               <MemoizedChatMessage
@@ -935,7 +571,6 @@ export const Chat = () => {
           showScrollDownButton={showScrollDownButton}
           controller={controllerRef}
         />
-        <InteractionModal isOpen={modalOpen} interactionMessage={interactionMessage} onClose={() => setModalOpen(false)} onSubmit={handleUserInteraction} />
       </>
     </div>
   );

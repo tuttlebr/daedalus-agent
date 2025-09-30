@@ -12,14 +12,12 @@ export const SettingDialog: FC<Props> = ({ open, onClose }) => {
   const { t } = useTranslation('settings');
   const modalRef = useRef<HTMLDivElement>(null);
   const {
-    state: { lightMode, chatCompletionURL, webSocketURL, webSocketSchema: schema, expandIntermediateSteps, intermediateStepOverride, enableIntermediateSteps, webSocketSchemas, chatHistory },
+    state: { lightMode, chatCompletionURL, expandIntermediateSteps, intermediateStepOverride, enableIntermediateSteps, chatHistory },
     dispatch: homeDispatch,
   } = useContext(HomeContext);
 
   const [theme, setTheme] = useState(lightMode);
   const [chatCompletionEndPoint, setChatCompletionEndPoint] = useState(sessionStorage.getItem('chatCompletionURL') || chatCompletionURL);
-  const [webSocketEndPoint, setWebSocketEndPoint] = useState( sessionStorage.getItem('webSocketURL') || webSocketURL);
-  const [webSocketSchema, setWebSocketSchema] = useState( sessionStorage.getItem('webSocketSchema') || schema);
   const [isIntermediateStepsEnabled, setIsIntermediateStepsEnabled] = useState(sessionStorage.getItem('enableIntermediateSteps') ? sessionStorage.getItem('enableIntermediateSteps') === 'true' : enableIntermediateSteps);
   const [detailsToggle, setDetailsToggle] = useState( sessionStorage.getItem('expandIntermediateSteps') === 'true' ? true : expandIntermediateSteps);
   const [intermediateStepOverrideToggle, setIntermediateStepOverrideToggle] = useState( sessionStorage.getItem('intermediateStepOverride') === 'false' ? false : intermediateStepOverride);
@@ -40,23 +38,19 @@ export const SettingDialog: FC<Props> = ({ open, onClose }) => {
   }, [open, onClose]);
 
   const handleSave = () => {
-    if(!chatCompletionEndPoint || !webSocketEndPoint) {
+    if(!chatCompletionEndPoint) {
       toast.error('Please fill all the fields to save settings');
       return;
     }
 
     homeDispatch({ field: 'lightMode', value: theme });
     homeDispatch({ field: 'chatCompletionURL', value: chatCompletionEndPoint });
-    homeDispatch({ field: 'webSocketURL', value: webSocketEndPoint });
-    homeDispatch({ field: 'webSocketSchema', value: webSocketSchema });
     homeDispatch({ field: 'expandIntermediateSteps', value: detailsToggle });
     homeDispatch({ field: 'intermediateStepOverride', value: intermediateStepOverrideToggle });
     homeDispatch({ field: 'enableIntermediateSteps', value: isIntermediateStepsEnabled });
     homeDispatch({ field: 'chatHistory', value: chatHistoryEnabled });
 
     sessionStorage.setItem('chatCompletionURL', chatCompletionEndPoint);
-    sessionStorage.setItem('webSocketURL', webSocketEndPoint);
-    sessionStorage.setItem('webSocketSchema', webSocketSchema || '');
     sessionStorage.setItem('expandIntermediateSteps', String(detailsToggle));
     sessionStorage.setItem('intermediateStepOverride', String(intermediateStepOverrideToggle));
     sessionStorage.setItem('enableIntermediateSteps', String(isIntermediateStepsEnabled));
@@ -93,29 +87,6 @@ export const SettingDialog: FC<Props> = ({ open, onClose }) => {
           onChange={(e) => setChatCompletionEndPoint(e.target.value)}
           className="w-full mt-1 p-2 rounded-lg bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white focus:outline-none"
         />
-
-        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mt-4">{t('WebSocket URL for Chat Completion')}</label>
-        <input
-          type="text"
-          value={webSocketEndPoint}
-          onChange={(e) => setWebSocketEndPoint(e.target.value)}
-          className="w-full mt-1 p-2 rounded-lg bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white focus:outline-none"
-        />
-
-        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mt-4">{t('WebSocket Schema')}</label>
-        <select
-          className="w-full mt-1 p-2 rounded-lg bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white focus:outline-none"
-          value={webSocketSchema}
-          onChange={(e) => {
-            setWebSocketSchema(e.target.value)}
-          }
-        >
-          {webSocketSchemas?.map((schema) => (
-            <option key={schema} value={schema}>
-              {schema}
-            </option>
-          ))}
-        </select>
 
         <div className="flex align-middle text-sm font-medium text-gray-700 dark:text-gray-300 mt-4">
           <input

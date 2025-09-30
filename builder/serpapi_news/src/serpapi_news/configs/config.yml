@@ -10,5 +10,3 @@ general:
 workflow:
   _type: serpapi_news
   # api_key: "your-serpapi-key-here"  # Optional: Can also use SERPAPI_KEY env var
-  default_location: "United States"
-  default_num_results: 10
