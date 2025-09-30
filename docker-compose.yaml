@@ -83,7 +83,7 @@ services:
         condition: service_started
 
   redis:
-    image: redis:7-alpine
+    image: redis:8.0.3
     command: [ "redis-server", "--save", "60", "1", "--appendonly", "yes" ]
     restart: unless-stopped
     volumes:

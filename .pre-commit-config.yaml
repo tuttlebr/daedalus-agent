@@ -21,6 +21,10 @@ exclude: |
   (^\.pytest_cache/)
 
 repos:
+  - repo: https://github.com/tuttlebr/nv-pre-commit
+    rev: v0.0.5
+    hooks:
+      - id: detect-nv-keys
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v4.6.0
     hooks:
