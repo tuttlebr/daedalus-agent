@@ -36,7 +36,7 @@ export const initialState: HomeInitialState = {
   messageError: false,
   searchTerm: '',
   chatHistory: process?.env?.NEXT_PUBLIC_CHAT_HISTORY_DEFAULT_ON === 'false' ? false : true,
-  chatCompletionURL: process?.env?.NEXT_PUBLIC_HTTP_CHAT_COMPLETION_URL || 'http://127.0.0.1:8000/chat/stream',
+  chatCompletionURL: process?.env?.NEXT_PUBLIC_HTTP_CHAT_COMPLETION_URL || 'http://127.0.0.1:8000/chat',
   enableIntermediateSteps: process?.env?.NEXT_PUBLIC_ENABLE_INTERMEDIATE_STEPS ? process.env.NEXT_PUBLIC_ENABLE_INTERMEDIATE_STEPS === 'true' : true,
   expandIntermediateSteps: false,
   intermediateStepOverride: true,

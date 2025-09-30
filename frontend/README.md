@@ -74,7 +74,7 @@ Settings can be configured by selecting the `Settings` icon located on the botto
 ### Settings Options
 - `Theme`: Light or Dark theme
 - `HTTP URL for Chat Completion`: REST API endpoint
-  - `/chat/stream` - Streaming chat completion (recommended)
+  - `/chat` - Streaming chat completion (recommended)
   - `/chat` - Single response chat completion
 
 ## User Management

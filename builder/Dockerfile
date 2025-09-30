@@ -24,7 +24,9 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
         build-essential \
         ca-certificates \
         clang \
+        curl \
         git \
+        jq \
         python3-pip && \
     apt clean && \
     update-ca-certificates
