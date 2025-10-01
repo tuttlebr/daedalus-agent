@@ -77,16 +77,36 @@ export async function trackUserUsage(username: string, usage: UsageData): Promis
   const redis = getRedis();
   const key = getUserUsageKey(username);
 
+  console.log('aiq - trackUserUsage called:', {
+    username,
+    key,
+    usage
+  });
+
   try {
     // Get existing stats or initialize new ones
     let stats = await jsonGet(key) as UserUsageStats | null;
 
+    console.log('aiq - existing stats:', stats ? 'found' : 'not found, will initialize');
+
     if (!stats) {
+      console.log('aiq - initializing new user stats for:', username);
       stats = await initializeUserUsageStats(username);
+      console.log('aiq - initialized stats:', stats);
     }
 
     const dateString = getCurrentDateString();
     const monthString = getCurrentMonthString();
+
+    console.log('aiq - date/month strings:', { dateString, monthString });
+
+    // Log before update
+    console.log('aiq - stats before update:', {
+      total_prompt_tokens: stats.total_prompt_tokens,
+      total_completion_tokens: stats.total_completion_tokens,
+      total_tokens: stats.total_tokens,
+      request_count: stats.request_count
+    });
 
     // Update total usage
     stats.total_prompt_tokens += usage.prompt_tokens;
@@ -119,12 +139,21 @@ export async function trackUserUsage(username: string, usage: UsageData): Promis
     stats.monthly_usage[monthString].completion_tokens += usage.completion_tokens;
     stats.monthly_usage[monthString].total_tokens += usage.total_tokens;
 
+    // Log after update
+    console.log('aiq - stats after update:', {
+      total_prompt_tokens: stats.total_prompt_tokens,
+      total_completion_tokens: stats.total_completion_tokens,
+      total_tokens: stats.total_tokens,
+      request_count: stats.request_count
+    });
+
     // Save updated stats
+    console.log('aiq - saving updated stats to Redis key:', key);
     await jsonSet(key, '.', stats);
 
-    console.log(`Usage tracked for user ${username}: ${usage.total_tokens} tokens`);
+    console.log(`aiq - usage tracked successfully for user ${username}: ${usage.total_tokens} total tokens (${usage.prompt_tokens} prompt + ${usage.completion_tokens} completion)`);
   } catch (error) {
-    console.error('Error tracking user usage:', error);
+    console.error('aiq - error in trackUserUsage:', error);
     throw error;
   }
 }

@@ -11,6 +11,7 @@ from nat.cli.register_workflow import register_function
 from nat.data_models.function import FunctionBaseConfig
 from pydantic import BaseModel, Field
 
+from .geolocation_helper import GeolocationResult
 from .result_scraper import SerpLinkScraperSettings, scrape_serp_links
 
 logger = logging.getLogger(__name__)
@@ -41,6 +42,14 @@ class SerpapiSearchFunctionConfig(FunctionBaseConfig, name="serpapi_search"):
             "SerpAPI API key. If not provided, will use SERPAPI_KEY "
             "environment variable"
         ),
+    )
+    use_geolocation_retriever: bool = Field(
+        default=False,
+        description="Use geolocation_retriever to resolve location names to canonical forms",
+    )
+    geolocation_retriever_name: str | None = Field(
+        default="geolocation_retriever_tool",
+        description="Name of the geolocation retriever to use when use_geolocation_retriever is True",
     )
     default_location: str = Field(
         default="United States",
@@ -103,6 +112,7 @@ class SearchResponse(BaseModel):
     success: bool
     query: str
     total_results: int | None = None
+    ai_overview: dict[str, Any] | None = None
     answer_box: dict[str, Any] | None = None
     organic_results: list[SearchResult] = Field(default_factory=list)
     top_stories: list[TopStory] = Field(default_factory=list)
@@ -116,7 +126,7 @@ class SearchResponse(BaseModel):
 @register_function(config_type=SerpapiSearchFunctionConfig)
 async def serpapi_search_function(
     config: SerpapiSearchFunctionConfig,
-    builder: Builder,  # noqa: F841
+    builder: Builder,
 ):
     """
     Google Search function using SerpAPI.
@@ -127,6 +137,49 @@ async def serpapi_search_function(
     """
     # Get default API key from config or environment
     default_api_key = config.api_key or os.getenv("SERPAPI_KEY")
+
+    async def _resolve_location(location_str: str) -> str:
+        """Resolve location using geolocation_retriever if configured."""
+        if (
+            not config.use_geolocation_retriever
+            or not config.geolocation_retriever_name
+        ):
+            return location_str
+
+        try:
+            # Get retriever lazily during execution
+            geolocation_fn = await builder.get_function(
+                config.geolocation_retriever_name
+            )
+
+            # Call the retriever function - try .ainvoke() first, then direct call
+            if hasattr(geolocation_fn, "ainvoke"):
+                result = await geolocation_fn.ainvoke(location_str)
+            else:
+                result = await geolocation_fn(location_str)
+
+            logger.debug(
+                "Geolocation retriever raw result for '%s': %s",
+                location_str,
+                result,
+            )
+            geoloc = GeolocationResult.from_retriever_output(result)
+            if geoloc:
+                # Return the canonical display name
+                logger.info(
+                    "Resolved location '%s' to '%s'",
+                    location_str,
+                    geoloc.display_name,
+                )
+                return geoloc.display_name
+        except Exception as exc:
+            logger.warning(
+                "Failed to resolve location '%s' using retriever: %s. Using original.",
+                location_str,
+                exc,
+            )
+
+        return location_str
 
     async def _search_function(request: dict[str, Any]) -> dict[str, Any]:
         """
@@ -237,17 +290,27 @@ async def serpapi_search_function(
             # Initialize SerpAPI client with the appropriate key
             client = serpapi.Client(api_key=api_key)
 
+            # Resolve location if provided
+            resolved_location = None
+            if search_request.location:
+                resolved_location = await _resolve_location(search_request.location)
+            elif config.default_location:
+                resolved_location = await _resolve_location(config.default_location)
+
             # Build search parameters
             search_params = {
                 "q": search_request.query,
                 "engine": "google",
-                "location": search_request.location or config.default_location,
                 "google_domain": "google.com",
                 "hl": "en",
                 "gl": "us",
                 "start": 1,
                 "num": search_request.num or config.default_num_results,
             }
+
+            # Add location if available
+            if resolved_location:
+                search_params["location"] = resolved_location
 
             # Add optional parameters
             if search_request.page:
@@ -350,6 +413,9 @@ async def serpapi_search_function(
                     )
                 )
 
+            # Parse AI overview (highest priority)
+            ai_overview = response_data.get("ai_overview")
+
             # Parse answer box
             answer_box = response_data.get("answer_box")
 
@@ -378,6 +444,18 @@ async def serpapi_search_function(
             # Build hierarchy levels
             hierarchy_levels: list[dict[str, Any]] = []
 
+            # Level 0: AI Overview (highest priority)
+            level_zero_data = {"ai_overview": ai_overview} if ai_overview else {}
+            hierarchy_levels.append(
+                {
+                    "level": 0,
+                    "description": "ai_overview",
+                    "available": bool(level_zero_data),
+                    "data": level_zero_data,
+                }
+            )
+
+            # Level 1: Answer Box
             level_one_data = {"answer_box": answer_box} if answer_box else {}
             hierarchy_levels.append(
                 {
@@ -388,6 +466,7 @@ async def serpapi_search_function(
                 }
             )
 
+            # Level 2: Answer Box + Organic Results
             level_two_data: dict[str, Any] = {}
             if answer_box:
                 level_two_data["answer_box"] = answer_box
@@ -402,6 +481,7 @@ async def serpapi_search_function(
                 }
             )
 
+            # Level 3: Answer Box + Organic Results + Top Stories
             level_three_data = dict(level_two_data)
             if top_stories_payload:
                 level_three_data["top_stories"] = top_stories_payload
@@ -414,27 +494,36 @@ async def serpapi_search_function(
                 }
             )
 
-            # Scrape representative links from results
+            # Scrape representative links from results (skip if ai_overview is present)
             organic_scrape_data: dict[str, Any] | None = None
             top_story_scrape_data: dict[str, Any] | None = None
 
-            try:
-                (
-                    organic_scrape_outcome,
-                    top_story_scrape_outcome,
-                ) = await scrape_serp_links(
-                    organic_entries=organic_results_payload,
-                    top_story_entries=top_stories_payload,
-                    settings=SerpLinkScraperSettings(),
+            if ai_overview:
+                # AI Overview provides sufficient context, skip web scraping
+                logger.info(
+                    "[%s] AI Overview present, skipping web scraping enrichment",
+                    request_id,
                 )
-                organic_scrape_data = organic_scrape_outcome.model_dump()
-                top_story_scrape_data = top_story_scrape_outcome.model_dump()
-            except Exception as scrape_error:  # noqa: BLE001 - defensive catch
-                logger.exception(
-                    "[%s] Enrichment scrape failed: %s", request_id, scrape_error
-                )
-                organic_scrape_data = {"error": str(scrape_error)}
-                top_story_scrape_data = {"error": str(scrape_error)}
+                organic_scrape_data = {"skipped": "AI Overview available"}
+                top_story_scrape_data = {"skipped": "AI Overview available"}
+            else:
+                try:
+                    (
+                        organic_scrape_outcome,
+                        top_story_scrape_outcome,
+                    ) = await scrape_serp_links(
+                        organic_entries=organic_results_payload,
+                        top_story_entries=top_stories_payload,
+                        settings=SerpLinkScraperSettings(),
+                    )
+                    organic_scrape_data = organic_scrape_outcome.model_dump()
+                    top_story_scrape_data = top_story_scrape_outcome.model_dump()
+                except Exception as scrape_error:  # noqa: BLE001 - defensive catch
+                    logger.exception(
+                        "[%s] Enrichment scrape failed: %s", request_id, scrape_error
+                    )
+                    organic_scrape_data = {"error": str(scrape_error)}
+                    top_story_scrape_data = {"error": str(scrape_error)}
 
             # Get total results from search information
             search_info = response_data.get("search_information", {})
@@ -445,6 +534,7 @@ async def serpapi_search_function(
                 success=True,
                 query=search_request.query,
                 total_results=total_results,
+                ai_overview=ai_overview,
                 answer_box=answer_box,
                 organic_results=organic_results_models,
                 top_stories=top_stories_models,
@@ -456,13 +546,14 @@ async def serpapi_search_function(
             duration_ms = int((time.time() - start_time) * 1000)
             logger.info(
                 "[%s] Search completed ok in %d ms: q='%s' "
-                "organic=%s top_stories=%s answer_box=%s",
+                "ai_overview=%s answer_box=%s organic=%s top_stories=%s",
                 request_id,
                 duration_ms,
                 response.query,
+                bool(response.ai_overview),
+                bool(response.answer_box),
                 len(response.organic_results),
                 len(response.top_stories),
-                bool(response.answer_box),
             )
             return response.model_dump()
 
@@ -497,6 +588,34 @@ async def serpapi_search_function(
         # Format results as a readable string
         output = f"Search Results for: '{result['query']}'\n"
         output += f"Total results: {result.get('total_results', 'Unknown')}\n\n"
+
+        # Add AI Overview if present (highest priority)
+        ai_overview = result.get("ai_overview")
+        if isinstance(ai_overview, dict) and ai_overview:
+            output += "AI Overview:\n"
+            text_blocks = ai_overview.get("text_blocks", [])
+            for block in text_blocks:
+                block_type = block.get("type", "")
+                snippet = block.get("snippet", "")
+
+                if block_type == "heading":
+                    output += f"\n{snippet}\n"
+                elif block_type == "paragraph":
+                    output += f"{snippet}\n\n"
+                elif block_type == "list" and "list" in block:
+                    for item in block["list"]:
+                        title = item.get("title", "")
+                        item_snippet = item.get("snippet", "")
+                        output += f"  • {title} {item_snippet}\n"
+                    output += "\n"
+
+            # Add references if present
+            references = ai_overview.get("references", [])
+            if references:
+                output += "Sources:\n"
+                for ref in references[:3]:  # Show top 3 references
+                    output += f"  [{ref.get('index', '')}] {ref.get('title', '')} - {ref.get('source', '')}\n"
+                output += "\n"
 
         # Add answer box summary if present
         answer_box = result.get("answer_box")
@@ -537,7 +656,7 @@ async def serpapi_search_function(
         # Register the primary structured search function
         yield FunctionInfo.create(
             single_fn=_search_function,
-            description="API endpoint allows you to scrape the results from Google search engine via our SerpApi service.",
+            description="API endpoint allows you to scrape the results from Google search engine via our SerpApi service. Always use this when you think you need access to real-time information.",
         )
     except GeneratorExit:
         logger.warning("SerpAPI search function exited early!")

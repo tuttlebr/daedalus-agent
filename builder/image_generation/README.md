@@ -53,6 +53,8 @@ The following parameters are configured in `config.yml`:
 - `default_width`: Default image width (1024)
 - `default_height`: Default image height (1024)
 - `default_steps`: Default number of diffusion steps (50)
+- `default_cfg_scale`: Default guidance scale (3.5)
+- `prompt_rewrite`: Optional prompt enhancement using an LLM
 
 ## Supported Image Dimensions
 

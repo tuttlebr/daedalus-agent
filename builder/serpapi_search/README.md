@@ -33,6 +33,9 @@ Add the API key to your `config.yml` file:
 workflow:
   _type: serpapi_search
   api_key: "your-serpapi-key-here"
+  # Optional: Enable geolocation_retriever for location resolution
+  use_geolocation_retriever: true
+  geolocation_retriever_name: geolocation_retriever_tool
 ```
 
 ### Method 3: Per-Request API Key
@@ -54,7 +57,17 @@ workflow:
   # api_key: "your-serpapi-key-here"  # Optional: Can also use SERPAPI_KEY env var
   default_location: "United States"
   default_num_results: 10
+  # Enable geolocation_retriever for intelligent location resolution
+  use_geolocation_retriever: true
+  geolocation_retriever_name: geolocation_retriever_tool
 ```
+
+### Geolocation Integration
+
+When `use_geolocation_retriever` is enabled, the function will use your configured geolocation_retriever to:
+- Resolve fuzzy location names to canonical forms (e.g., "SF" → "San Francisco, California, United States")
+- Standardize location names for more consistent search results
+- Handle location ambiguity using semantic search
 
 ## Usage
 

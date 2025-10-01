@@ -56,10 +56,10 @@ COPY image_generation /workspace/image_generation
 RUN NAT_VERSION= nat workflow reinstall image_generation
 RUN uv pip install -e image_generation --prerelease=allow
 
-# Install the smart_milvus package
-COPY smart_milvus /workspace/smart_milvus
-RUN NAT_VERSION= nat workflow reinstall smart_milvus
-RUN uv pip install -e smart_milvus --prerelease=allow
+# Install the serpapi_ai package
+COPY serpapi_ai /workspace/serpapi_ai
+RUN NAT_VERSION= nat workflow reinstall serpapi_ai
+RUN uv pip install -e serpapi_ai --prerelease=allow
 
 # Install the serpapi_search package
 COPY serpapi_search /workspace/serpapi_search
@@ -70,6 +70,11 @@ RUN uv pip install -e serpapi_search --prerelease=allow
 COPY serpapi_news /workspace/serpapi_news
 RUN NAT_VERSION= nat workflow reinstall serpapi_news
 RUN uv pip install -e serpapi_news --prerelease=allow
+
+# Install the smart_milvus package
+COPY smart_milvus /workspace/smart_milvus
+RUN NAT_VERSION= nat workflow reinstall smart_milvus
+RUN uv pip install -e smart_milvus --prerelease=allow
 
 # Install the weather package
 COPY weather /workspace/weather

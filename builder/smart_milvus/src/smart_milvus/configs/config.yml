@@ -17,11 +17,10 @@ workflow:
       embedding_model: "milvus_embedder"  # or another embedder
       database_name: "default"
       collection_name: null  # Will be set dynamically
-      content_field: "content"
+      content_field: null
       top_k: 5
       vector_field_name: "vector"
       description: "Search for relevant documents in Milvus vector database"
-
       # Optional reranker configuration
       use_reranker: false  # Set to true to enable reranking
       reranker_endpoint: "https://ai.api.nvidia.com/v1/ranking"
