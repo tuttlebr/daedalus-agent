@@ -8,9 +8,8 @@ general:
     _type: console
 
 workflow:
-  _type: serpapi_search
+  _type: serpapi_ai
   # api_key: "your-serpapi-key-here"  # Optional: Can also use SERPAPI_KEY env var
   default_location: "United States"
-  default_num_results: 10
-  use_geolocation_retriever: true  # Enable to use geolocation_retriever for location resolution
+  use_geolocation_retriever: true  # Enable geolocation_retriever for location resolution
   geolocation_retriever_name: geolocation_retriever_tool  # Name of the retriever function

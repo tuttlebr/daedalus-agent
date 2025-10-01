@@ -11,6 +11,7 @@ from nat.cli.register_workflow import register_function
 from nat.data_models.function import FunctionBaseConfig
 from pydantic import BaseModel, Field
 
+from .geolocation_helper import GeolocationResult
 from .result_scraper import SerpLinkScraperSettings, scrape_serp_links
 
 logger = logging.getLogger(__name__)
@@ -42,6 +43,14 @@ class SerpapiSearchFunctionConfig(FunctionBaseConfig, name="serpapi_news"):
             "SerpAPI API key. If not provided, will use SERPAPI_KEY "
             "environment variable"
         ),
+    )
+    use_geolocation_retriever: bool = Field(
+        default=False,
+        description="Use geolocation_retriever to resolve location names to canonical forms",
+    )
+    geolocation_retriever_name: str | None = Field(
+        default="geolocation_retriever_tool",
+        description="Name of the geolocation retriever to use when use_geolocation_retriever is True",
     )
 
 
@@ -111,7 +120,7 @@ class SearchResponse(BaseModel):
 @register_function(config_type=SerpapiSearchFunctionConfig)
 async def serpapi_news_function(
     config: SerpapiSearchFunctionConfig,
-    builder: Builder,  # noqa: F841
+    builder: Builder,
 ):
     """
     Google News search function using SerpAPI.
@@ -123,6 +132,54 @@ async def serpapi_news_function(
     """
     # Get default API key from config or environment
     default_api_key = config.api_key or os.getenv("SERPAPI_KEY")
+
+    async def _resolve_location(location_str: str) -> tuple[str, str | None]:
+        """
+        Resolve location using geolocation_retriever if configured.
+
+        Returns:
+            Tuple of (location_name, country_code)
+        """
+        if (
+            not config.use_geolocation_retriever
+            or not config.geolocation_retriever_name
+        ):
+            return location_str, None
+
+        try:
+            # Get retriever lazily during execution
+            geolocation_fn = await builder.get_function(
+                config.geolocation_retriever_name
+            )
+
+            # Call the retriever function - try .ainvoke() first, then direct call
+            if hasattr(geolocation_fn, "ainvoke"):
+                result = await geolocation_fn.ainvoke(location_str)
+            else:
+                result = await geolocation_fn(location_str)
+
+            logger.debug(
+                "Geolocation retriever raw result for '%s': %s",
+                location_str,
+                result,
+            )
+            geoloc = GeolocationResult.from_retriever_output(result)
+            if geoloc:
+                logger.info(
+                    "Resolved location '%s' to '%s' (%s)",
+                    location_str,
+                    geoloc.display_name,
+                    geoloc.country_code,
+                )
+                return geoloc.display_name, geoloc.country_code
+        except Exception as exc:
+            logger.warning(
+                "Failed to resolve location '%s' using retriever: %s. Using original.",
+                location_str,
+                exc,
+            )
+
+        return location_str, None
 
     async def _search_function(request: dict[str, Any]) -> dict[str, Any]:
         """
@@ -234,6 +291,11 @@ async def serpapi_news_function(
             # Initialize SerpAPI client with the appropriate key
             client = serpapi.Client(api_key=api_key)
 
+            # Resolve location if provided
+            resolved_country = None
+            if search_request.location:
+                _, resolved_country = await _resolve_location(search_request.location)
+
             # Build search parameters for Google News
             search_params = {
                 "q": search_request.query,
@@ -241,6 +303,10 @@ async def serpapi_news_function(
                 "gl": "us",
                 "hl": "en",
             }
+
+            # Override gl (country) if we resolved a location with country_code
+            if resolved_country:
+                search_params["gl"] = resolved_country.lower()
 
             # Add optional parameters
             if search_request.time_period:

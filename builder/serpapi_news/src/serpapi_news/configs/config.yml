@@ -10,3 +10,5 @@ general:
 workflow:
   _type: serpapi_news
   # api_key: "your-serpapi-key-here"  # Optional: Can also use SERPAPI_KEY env var
+  use_geolocation_retriever: true  # Enable to use geolocation_retriever for location resolution
+  geolocation_retriever_name: geolocation_retriever_tool  # Name of the retriever function

@@ -13,6 +13,8 @@ class MilvusRetrieverConfig(RetrieverBaseConfig, name="smart_milvus"):
     Configuration for a Retriever which pulls data from a Milvus service.
     """
 
+    model_config = {"populate_by_name": True}
+
     uri: HttpUrl = Field(description="The uri of Milvus service")
     connection_args: dict = Field(
         description="Dictionary of arguments used to connect to and "

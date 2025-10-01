@@ -14,6 +14,38 @@ export const config = {
 // Helper function to track usage (Edge runtime compatible)
 async function trackUsage(username: string, usage: any): Promise<void> {
   try {
+    // Validate usage data before sending
+    if (!usage || typeof usage !== 'object') {
+      console.error('aiq - invalid usage data (not an object):', usage);
+      return;
+    }
+
+    const { prompt_tokens, completion_tokens, total_tokens } = usage;
+
+    // Log what we're trying to track
+    console.log('aiq - attempting to track usage:', {
+      username,
+      prompt_tokens,
+      completion_tokens,
+      total_tokens,
+      rawUsage: usage
+    });
+
+    // Validate that we have numeric values
+    if (
+      typeof prompt_tokens !== 'number' ||
+      typeof completion_tokens !== 'number' ||
+      typeof total_tokens !== 'number'
+    ) {
+      console.error('aiq - invalid usage data (non-numeric values):', {
+        prompt_tokens: typeof prompt_tokens,
+        completion_tokens: typeof completion_tokens,
+        total_tokens: typeof total_tokens,
+        rawUsage: usage
+      });
+      return;
+    }
+
     // Use 127.0.0.1 instead of localhost to avoid IPv6 issues
     // Edge runtime in same container can call Node.js runtime endpoints
     const baseUrl = 'http://127.0.0.1:3000';
@@ -25,13 +57,23 @@ async function trackUsage(username: string, usage: any): Promise<void> {
     });
 
     if (!response.ok) {
-      console.error('Failed to track usage:', response.statusText);
+      const errorText = await response.text();
+      console.error('aiq - failed to track usage:', response.status, errorText);
     } else {
-      console.log('aiq - usage tracking request sent successfully');
+      const result = await response.json();
+      console.log('aiq - usage tracking successful:', result);
     }
   } catch (err) {
-    console.error('Error tracking usage:', err);
+    console.error('aiq - error tracking usage:', err);
   }
+}
+
+// Rough token estimation (4 chars ≈ 1 token)
+function estimateTokens(text: string): number {
+  if (!text) return 0;
+  // Basic estimation: ~4 characters per token
+  // This is a rough approximation used when backend doesn't provide accurate counts
+  return Math.ceil(text.length / 4);
 }
 
 const handler = async (req: Request): Promise<Response> => {
@@ -46,6 +88,13 @@ const handler = async (req: Request): Promise<Response> => {
 
   // Extract username from additionalProps
   const username = additionalProps?.username || 'anon';
+
+  // Calculate estimated prompt tokens before sending
+  const estimatedPromptTokens = messages.reduce((total, msg) => {
+    return total + estimateTokens(msg.content || '');
+  }, 0);
+
+  console.log('aiq - estimated prompt tokens for request:', estimatedPromptTokens);
 
   // Safety check: Strip any base64 content from messages before processing
   messages = messages.map((message) => {
@@ -85,7 +134,7 @@ const handler = async (req: Request): Promise<Response> => {
   try {
     // Normalize backend URL to in-cluster FQDN if an unsafe/default value is provided by the client
     const backendHost = process.env.BACKEND_HOST || 'backend';
-    const defaultStreamUrl = `http://${backendHost}:8000/chat/stream`;
+    const defaultStreamUrl = `http://${backendHost}:8000/chat`;
     const unsafeHosts = new Set(['backend', '127.0.0.1', 'localhost']);
     try {
       const provided = chatCompletionURL || '';
@@ -228,7 +277,23 @@ const handler = async (req: Request): Promise<Response> => {
                     // Extract usage data if available
                     if (parsed.usage) {
                       usageData = parsed.usage;
-                      console.log('aiq - extracted usage data:', usageData);
+
+                      // WORKAROUND: If backend returns prompt_tokens as 0, use our estimate
+                      if (usageData.prompt_tokens === 0 && estimatedPromptTokens > 0) {
+                        console.log('aiq - backend returned prompt_tokens=0, using estimated value:', estimatedPromptTokens);
+                        usageData.prompt_tokens = estimatedPromptTokens;
+                        // Recalculate total if it seems wrong
+                        if (usageData.total_tokens === usageData.completion_tokens) {
+                          usageData.total_tokens = estimatedPromptTokens + usageData.completion_tokens;
+                        }
+                      }
+
+                      console.log('aiq - extracted usage data from streaming chunk:', {
+                        prompt_tokens: usageData.prompt_tokens,
+                        completion_tokens: usageData.completion_tokens,
+                        total_tokens: usageData.total_tokens,
+                        rawUsage: usageData
+                      });
                     }
 
                     if (content) {
@@ -332,21 +397,39 @@ const handler = async (req: Request): Promise<Response> => {
         parsed ? Object.keys(parsed) : 'null',
       );
       console.log(
+        'aiq - full parsed response for debugging:',
+        JSON.stringify(parsed, null, 2).substring(0, 500)
+      );
+      console.log(
         'aiq - usage data in response:',
         parsed?.usage || 'NO USAGE DATA',
       );
 
       // Extract and track usage if available
       if (parsed?.usage && username) {
+        console.log('aiq - found usage data, attempting to track for user:', username, parsed.usage);
+
+        // WORKAROUND: If backend returns prompt_tokens as 0, use our estimate
+        if (parsed.usage.prompt_tokens === 0 && estimatedPromptTokens > 0) {
+          console.log('aiq - backend returned prompt_tokens=0, using estimated value:', estimatedPromptTokens);
+          parsed.usage.prompt_tokens = estimatedPromptTokens;
+          // Recalculate total if it seems wrong
+          if (parsed.usage.total_tokens === parsed.usage.completion_tokens) {
+            parsed.usage.total_tokens = estimatedPromptTokens + parsed.usage.completion_tokens;
+          }
+        }
+
         await trackUsage(username, parsed.usage);
-        console.log('aiq - usage tracked successfully for user:', username);
+        console.log('aiq - usage tracking call completed for user:', username);
       } else {
         console.log(
-          'aiq - no usage data to track (parsed?.usage:',
-          parsed?.usage,
-          'username:',
-          username,
-          ')',
+          'aiq - no usage data to track - details:',
+          {
+            hasUsage: !!parsed?.usage,
+            usage: parsed?.usage,
+            username,
+            parsedType: typeof parsed,
+          }
         );
       }
 
