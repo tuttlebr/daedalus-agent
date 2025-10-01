@@ -34,8 +34,8 @@ graph TB
             end
 
             subgraph "Tools & Functions"
-                RETRIEVAL[Retrieval Tools<br/>Kubernetes<br/>NVIDIA<br/>Veterinarian]
-                SEARCH[Web Search<br/>SerpAPI Search<br/>SerpAPI News<br/>Wikipedia]
+                RETRIEVAL[Retrieval Tools<br/>Geolocation<br/>Kubernetes<br/>NVIDIA<br/>Veterinarian]
+                SEARCH[Web Search<br/>SerpAPI Search<br/>SerpAPI AI Mode<br/>SerpAPI News<br/>Wikipedia]
                 UTILITY[Utility Tools<br/>Weather<br/>DateTime<br/>WebScrape]
                 GENERATION[Generation Tools<br/>Code Gen<br/>Image Gen]
                 ANALYSIS[Analysis Tools<br/>Bang-for-Buck<br/>First Principles<br/>Socratic Method]
@@ -199,20 +199,22 @@ graph TB
 **Tool Categories:**
 
 1. **Knowledge Retrieval Tools**
+   - `geolocation_retriever_tool`: Canonical geolocation data (top-1 with reranking)
    - `nvidia_retriever_tool`: NVIDIA docs and blogs
    - `kubernetes_retriever_tool`: K8s documentation
    - `veterinarian_retriever_tool`: Veterinary knowledge
    - Uses Smart Milvus with reranking
 
 2. **Web Search & Information**
-   - `serpapi_search_tool`: General web search
-   - `serpapi_news_tool`: News aggregation
+   - `serpapi_search_tool`: Google standard search with organic results, related questions, and web scraping enrichment (geolocation integration)
+   - `serpapi_ai_tool`: Google AI Mode search with AI-generated summaries and structured text blocks (geolocation integration)
+   - `serpapi_news_tool`: News aggregation with geolocation integration
    - `wikipedia_search_tool`: Wikipedia queries
    - `webscrape_tool`: Web page content extraction
 
 3. **Utility Tools**
    - `current_datetime_tool`: System time
-   - `weather_tool`: Weather forecasting with hourly data
+   - `weather_tool`: Weather forecasting with hourly data and geolocation integration
 
 4. **Content Generation**
    - `code_generation_tool`: Python code generation using intelligent LLM
@@ -223,6 +225,45 @@ graph TB
    - `first_principles_tool`: First-principles reasoning
    - `socratic_method_tool`: Socratic dialogue
    - `thinker_sequential_executor_tool`: Deep reasoning orchestrator
+
+**SerpAPI Tool Comparison:**
+
+| Feature | serpapi_search_tool | serpapi_ai_tool |
+|---------|---------------------|-----------------|
+| **Engine** | `google` | `google_ai_mode` |
+| **Results Type** | Raw search results | AI-generated summaries |
+| **Web Scraping** | Yes (enrichment) | No (self-contained) |
+| **Response Structure** | Organic results, related questions, hierarchical (0-3 levels) | Structured text blocks with references |
+| **Text Blocks** | Only in ai_overview (if available) | Primary response format |
+| **Source Citations** | URLs in organic results | Structured references with snippets |
+| **Geolocation** | Optional integration | Optional integration |
+| **Use Case** | Comprehensive search with multiple result types | Quick AI-generated answers with sources |
+| **Latency** | Higher (due to scraping) | Lower (no scraping) |
+| **Result Hierarchy** | 4 levels (0-3) | Single level |
+
+**Geolocation Integration:**
+
+The geolocation retriever provides intelligent location name resolution for location-aware tools:
+
+- **Purpose**: Resolve fuzzy or ambiguous location names to canonical forms
+- **Technology**: Smart Milvus retriever with vector search and reranking
+- **Data Source**: Milvus `geolocation` collection with canonical location data
+- **Integration**: Used by `serpapi_search_tool`, `serpapi_ai_tool`, `serpapi_news_tool`, and `weather_tool`
+- **Process**:
+  1. User provides location (e.g., "SF", "Ann Arbor", "NYC")
+  2. Location embedded using NIM Embeddings
+  3. Vector search in geolocation collection (top-5 candidates)
+  4. Reranked to top-1 canonical location
+  5. Returns structured data: canonical name, GPS coordinates, country code
+  6. Tool uses canonical location for API requests
+- **Benefits**:
+  - Consistent location naming across tools
+  - Handles abbreviations and informal names
+  - Reduces ambiguity in location-based queries
+  - Improves search result relevance
+  - Better weather data accuracy
+- **Configuration**: Optional (controlled by `use_geolocation_retriever` flag in tool config)
+- **Fallback**: Tools gracefully fall back to original location if retriever fails
 
 ### 4. Data Layer
 
@@ -288,26 +329,29 @@ graph TB
 **Milvus Vector Database**
 - Kubernetes cluster deployment
 - Collections:
+  - `geolocation`: Canonical geolocation data for location resolution
   - `kubernetes`: K8s documentation
   - `nvidia`: NVIDIA corporate/technical docs
   - `vetpartner`: Veterinary knowledge
 - Features: Vector search with reranking
 
 **SerpAPI**
-- Web search integration
+- Web search integration (Google standard search)
+- AI Mode search with structured summaries
 - News search capabilities
-- Location-aware results
+- Location-aware results with geolocation integration
 
 ### 6. Builder Environment
 
 **Purpose**: Package custom NAT functions
 
 **Custom Functions:**
-- `serpapi_search`: Google search via SerpAPI
-- `serpapi_news`: News aggregation
+- `serpapi_search`: Google standard search via SerpAPI with geolocation integration
+- `serpapi_ai`: Google AI Mode search with structured summaries and geolocation integration
+- `serpapi_news`: News aggregation with geolocation integration
 - `image_generation`: SD 3.5 integration
 - `smart_milvus`: Enhanced Milvus retrieval with reranking
-- `weather`: Weather data fetching
+- `weather`: Weather data fetching with geolocation integration
 - `webscrape`: Web content extraction
 
 **Build Process:**
@@ -352,15 +396,32 @@ Agent calls appropriate retriever tool
   ↓
 Query embedded via NIM Embeddings
   ↓
-Vector search in Milvus (top-10 results)
+Vector search in Milvus (top-K results)
   ↓
-Results reranked via NIM Reranker (top-5)
+Results reranked via NIM Reranker (top-N)
   ↓
 Context provided to LLM
   ↓
 LLM generates answer using retrieved context
   ↓
 Response streamed to user
+```
+
+**Example for Geolocation:**
+```
+User provides fuzzy location (e.g., "SF")
+  ↓
+Geolocation retriever tool called
+  ↓
+Query embedded via NIM Embeddings
+  ↓
+Vector search in Milvus geolocation collection (top-5)
+  ↓
+Reranked to top-1 canonical location
+  ↓
+Returns "San Francisco, California, United States"
+  ↓
+Canonical location used for weather/search tools
 ```
 
 ### 3. Image Generation
@@ -387,7 +448,51 @@ Frontend renders inline image from base64 data
 
 **Note:** Images are returned as base64-encoded data embedded in markdown, not saved to disk. A `/tmp/generated_images` volume exists for optional file-based serving but is not currently used by the image generation function.
 
-### 4. Code Generation
+### 4. Web Search with AI Mode
+
+```
+User requests information via web search
+  ↓
+Agent selects between serpapi_search_tool or serpapi_ai_tool
+  ↓
+If location provided, geolocation_retriever resolves it (optional)
+  ↓
+serpapi_ai_tool: Requests AI-generated summary
+  ↓
+Returns structured text blocks with source references
+  ↓
+OR serpapi_search_tool: Requests standard search results
+  ↓
+Returns organic results, related questions, and enriched content
+  ↓
+Response streamed to user with formatted markdown
+```
+
+### 5. Location-Aware Tool Integration
+
+```
+User asks location-aware question (weather, news, search)
+  ↓
+Tool receives location parameter (e.g., "Ann Arbor")
+  ↓
+If geolocation integration enabled:
+  ↓
+  geolocation_retriever_tool called
+  ↓
+  Fuzzy location → Canonical location (e.g., "Ann Arbor, Michigan, United States")
+  ↓
+Tool uses canonical location for API request
+  ↓
+More accurate, consistent results returned
+```
+
+**Supported Tools with Geolocation:**
+- `serpapi_search_tool`: Better search result locality
+- `serpapi_ai_tool`: Improved AI summary context
+- `serpapi_news_tool`: More relevant news results
+- `weather_tool`: Accurate weather data fetching
+
+### 6. Code Generation
 
 ```
 User requests code
@@ -401,7 +506,7 @@ Code returned with proper formatting
 Frontend renders with syntax highlighting
 ```
 
-### 5. Usage Tracking
+### 7. Usage Tracking
 
 ```mermaid
 sequenceDiagram
@@ -1103,12 +1208,12 @@ docker compose up --build
 
 | Service | Purpose | Provider |
 |---------|---------|----------|
-| NVIDIA NIM LLMs | Language models | NVIDIA Cloud |
+| NVIDIA NIM LLMs | Language models (3 tiers) | NVIDIA Cloud |
 | NVIDIA NIM Embeddings | Text embeddings | NVIDIA Cloud |
 | NVIDIA NIM Reranker | Result reranking | NVIDIA Cloud |
 | NVIDIA NIM SD 3.5 | Image generation | NVIDIA Cloud |
-| Milvus | Vector database | Self-hosted K8s |
-| SerpAPI | Web/news search | Third-party API |
+| Milvus | Vector database (4 collections) | Self-hosted K8s |
+| SerpAPI | Web search (standard + AI mode) and news | Third-party API |
 
 ## Deployment Comparison: Docker Compose vs Kubernetes
 
@@ -1389,6 +1494,8 @@ Potential areas for expansion:
 6. **Model Fine-tuning**: Custom model training pipeline integration
 7. **Analytics Dashboard**: Usage statistics, cost tracking, and insights
 8. **Plugin System**: Third-party tool integration marketplace
+9. **Expanded Geolocation**: Global coverage with multi-language support
+10. **Tool Orchestration**: Intelligent tool selection and chaining based on context
 
 ### Usage Tracking Enhancements
 1. **Rate Limiting**: Per-user token limits and throttling
