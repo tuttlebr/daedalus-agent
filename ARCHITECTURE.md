@@ -658,7 +658,7 @@ graph TB
     NGINX_CFG -.->|Normal Mode| NGINX_POD
     NGINX_CFG -.->|Restricted Mode| NGINX_POD
     NGINX_POD -->|Proxy to Frontend| FE_SVC
-    NGINX_POD -.->|Direct API (Normal Mode Only)| BE_SVC
+    NGINX_POD -.->|Direct API<br/>Normal Mode Only| BE_SVC
 
     %% Frontend to Backend
     FE_SVC --> FE_POD
