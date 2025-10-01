@@ -81,7 +81,7 @@ class TextBlock(BaseModel):
     reference_indexes: list[int] | None = Field(
         None, description="Indexes of supporting references"
     )
-    list: list[dict[str, Any]] | None = Field(
+    items: list[dict[str, Any]] | None = Field(
         None, description="List items for list-type blocks"
     )
     text_blocks: list[dict[str, Any]] | None = Field(
@@ -350,7 +350,7 @@ async def serpapi_ai_function(
                             "snippet_highlighted_words"
                         ),
                         reference_indexes=block.get("reference_indexes"),
-                        list=block.get("list"),
+                        items=block.get("list"),
                         text_blocks=block.get("text_blocks"),
                     )
                 )
@@ -432,8 +432,8 @@ async def serpapi_ai_function(
                 output += f"\n{snippet}\n"
             elif block_type == "paragraph":
                 output += f"{snippet}\n\n"
-            elif block_type == "list" and "list" in block:
-                for item in block["list"]:
+            elif block_type == "list" and "items" in block:
+                for item in block["items"]:
                     item_snippet = item.get("snippet", "")
                     output += f"  • {item_snippet}\n"
                 output += "\n"
