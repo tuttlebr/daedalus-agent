@@ -422,7 +422,7 @@ export const ChatInput = ({
             <button
               className={`inline-flex items-center gap-2 rounded-full border px-4 py-2 text-sm font-medium shadow-sm transition-colors duration-150 ${
                 useDeepThinker
-                  ? 'border-nvidia-green bg-nvidia-green/10 text-nvidia-green hover:bg-nvidia-green/20 dark:border-nvidia-green dark:bg-nvidia-green/20 dark:text-nvidia-green'
+                  ? 'border-nvidia-green bg-bg-primary text-nvidia-green hover:border-nvidia-green/80 dark:border-nvidia-green dark:bg-dark-bg-tertiary dark:text-nvidia-green'
                   : 'border-neutral-200 bg-bg-primary text-text-primary hover:border-neutral-300 hover:text-neutral-900 dark:border-neutral-700 dark:bg-dark-bg-tertiary dark:text-neutral-100 dark:hover:border-neutral-600'
               }`}
               onClick={() => setUseDeepThinker(!useDeepThinker)}
