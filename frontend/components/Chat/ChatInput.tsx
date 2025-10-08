@@ -386,7 +386,7 @@ export const ChatInput = ({
         paddingBottom: `calc(24px + env(safe-area-inset-bottom))`,
       }}
     >
-      <div className="stretch mx-auto flex w-full max-w-3xl flex-col gap-4 px-4 sm:px-6">
+      <div className="stretch mx-auto flex w-full max-w-5xl flex-col gap-4 px-4 sm:px-6">
         <div className="-mt-6 flex justify-center">
           {messageIsStreaming ? (
             <button
@@ -408,7 +408,7 @@ export const ChatInput = ({
           )}
         </div>
 
-        <div className="relative mx-auto flex w-full max-w-3xl flex-grow flex-col rounded-3xl border border-neutral-200/70 bg-bg-primary/95 px-4 py-3 shadow-[0_10px_40px_rgba(15,23,42,0.08)] backdrop-blur supports-[backdrop-filter]:bg-bg-primary/80 dark:border-neutral-700 dark:bg-dark-bg-tertiary/90 dark:text-white">
+        <div className="relative mx-auto flex w-full max-w-5xl flex-grow flex-col rounded-3xl border border-neutral-200/70 bg-bg-primary/95 px-4 py-3 shadow-[0_10px_40px_rgba(15,23,42,0.08)] backdrop-blur supports-[backdrop-filter]:bg-bg-primary/80 dark:border-neutral-700 dark:bg-dark-bg-tertiary/90 dark:text-white">
           <textarea
             ref={textareaRef}
             className="m-0 w-full resize-none border-0 bg-transparent py-4 pr-12 pl-12 text-[15px] leading-relaxed text-neutral-900 outline-none placeholder:text-neutral-400 focus:outline-none dark:bg-transparent dark:text-white"

@@ -21,7 +21,7 @@ export const ChatHeader = () => {
       }}
     >
       {hasMessages && (
-        <div className="flex w-full max-w-3xl items-center justify-center">
+        <div className="flex w-full max-w-5xl items-center justify-center">
           <div className="truncate text-base font-medium text-neutral-700 dark:text-neutral-200">
             {workflow}
           </div>

@@ -573,7 +573,7 @@ export const Chat = () => {
           ref={chatContainerRef}
           onScroll={handleScroll}
         >
-          <div className="mx-auto flex h-full w-full max-w-3xl flex-col px-4 pb-8 pt-6 sm:px-6 lg:px-8">
+          <div className="mx-auto flex h-full w-full max-w-5xl flex-col px-4 pb-8 pt-6 sm:px-6 lg:px-8">
             {hasMessages ? (
               <div className="flex flex-col space-y-4 sm:space-y-5">
                 {selectedConversation?.messages.map((message, index) => (
