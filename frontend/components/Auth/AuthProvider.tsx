@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { useRouter } from 'next/router';
+import { setStorageUser, clearUserSessionData, migrateLegacyStorage } from '@/utils/app/storage';
 
 interface User {
   id: string;
@@ -43,12 +44,20 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       if (response.ok) {
         const data = await response.json();
         setUser(data.user);
+        // SECURITY: Set the storage user to ensure user-specific storage keys
+        setStorageUser(data.user.username);
+        // Migrate any legacy non-user-specific data
+        migrateLegacyStorage(data.user.username);
       } else {
         setUser(null);
+        // SECURITY: Clear storage user when not authenticated
+        setStorageUser(null);
       }
     } catch (error) {
       console.error('Auth check failed:', error);
       setUser(null);
+      // SECURITY: Clear storage user on error
+      setStorageUser(null);
     } finally {
       setIsLoading(false);
     }
@@ -70,7 +79,18 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       throw new Error(data.error || 'Login failed');
     }
 
+    // SECURITY: Clear any existing session data before setting new user
+    // This prevents data leakage from previous user sessions
+    clearUserSessionData();
+
     setUser(data.user);
+
+    // SECURITY: Set the storage user to ensure user-specific storage keys
+    setStorageUser(data.user.username);
+
+    // Migrate any legacy non-user-specific data for this user
+    migrateLegacyStorage(data.user.username);
+
     router.push('/');
   };
 
@@ -83,7 +103,14 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     } catch (error) {
       console.error('Logout error:', error);
     } finally {
+      // SECURITY: Clear all user-specific session data on logout
+      clearUserSessionData();
+
       setUser(null);
+
+      // SECURITY: Clear storage user reference
+      setStorageUser(null);
+
       router.push('/login');
     }
   };

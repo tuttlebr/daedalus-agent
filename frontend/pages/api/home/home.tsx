@@ -7,6 +7,7 @@ import { serverSideTranslations } from 'next-i18next/serverSideTranslations';
 import Head from 'next/head';
 
 import { useCreateReducer } from '@/hooks/useCreateReducer';
+import { getUserSessionItem, setUserSessionItem } from '@/utils/app/storage';
 
 
 import {
@@ -179,26 +180,27 @@ const Home = (props: any) => {
       });
     }
 
-    const showChatbar = sessionStorage.getItem('showChatbar');
+    // Use user-specific storage keys to prevent data leakage between users
+    const showChatbar = getUserSessionItem('showChatbar');
     if (showChatbar) {
       dispatch({ field: 'showChatbar', value: showChatbar === 'true' });
     }
 
-    const chatHistory = sessionStorage.getItem('chatHistory');
+    const chatHistory = getUserSessionItem('chatHistory');
     if (chatHistory !== null) {
       dispatch({ field: 'chatHistory', value: chatHistory === 'true' });
     } else {
       // If no sessionStorage value, use the default from initialState (true)
       dispatch({ field: 'chatHistory', value: true });
-      sessionStorage.setItem('chatHistory', 'true');
+      setUserSessionItem('chatHistory', 'true');
     }
 
-    const folders = sessionStorage.getItem('folders');
+    const folders = getUserSessionItem('folders');
     if (folders) {
       dispatch({ field: 'folders', value: JSON.parse(folders) });
     }
 
-    const conversationHistory = sessionStorage.getItem('conversationHistory');
+    const conversationHistory = getUserSessionItem('conversationHistory');
     if (conversationHistory) {
       const parsedConversationHistory: Conversation[] =
         JSON.parse(conversationHistory);
@@ -209,7 +211,7 @@ const Home = (props: any) => {
       dispatch({ field: 'conversations', value: cleanedConversationHistory });
     }
 
-    const selectedConversation = sessionStorage.getItem('selectedConversation');
+    const selectedConversation = getUserSessionItem('selectedConversation');
     if (selectedConversation) {
       const parsedSelectedConversation: Conversation =
         JSON.parse(selectedConversation);
@@ -244,13 +246,15 @@ const Home = (props: any) => {
         if (Array.isArray(serverConversations) && serverConversations.length > 0) {
           const cleanedConversationHistory = cleanConversationHistory(serverConversations);
           dispatch({ field: 'conversations', value: cleanedConversationHistory });
-          sessionStorage.setItem('conversationHistory', JSON.stringify(cleanedConversationHistory));
+          // Use user-specific storage key to prevent data leakage between users
+          setUserSessionItem('conversationHistory', JSON.stringify(cleanedConversationHistory));
         }
 
         if (serverSelectedConversation) {
           const cleanedSelectedConversation = cleanSelectedConversation(serverSelectedConversation);
           dispatch({ field: 'selectedConversation', value: cleanedSelectedConversation });
-          sessionStorage.setItem('selectedConversation', JSON.stringify(cleanedSelectedConversation));
+          // Use user-specific storage key to prevent data leakage between users
+          setUserSessionItem('selectedConversation', JSON.stringify(cleanedSelectedConversation));
         }
       } catch (error) {
         console.log('error hydrating conversations from server', error);

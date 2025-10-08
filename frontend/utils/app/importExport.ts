@@ -9,6 +9,7 @@ import {
 } from '@/types/export';
 import { FolderInterface } from '@/types/folder';
 import { Prompt } from '@/types/prompt';
+import { getUserSessionItem, setUserSessionItem, removeUserSessionItem } from './storage';
 
 import { cleanConversationHistory } from './clean';
 
@@ -72,9 +73,10 @@ function currentDate() {
 }
 
 export const exportData = () => {
-  let history = sessionStorage.getItem('conversationHistory');
-  let folders = sessionStorage.getItem('folders');
-  let prompts = sessionStorage.getItem('prompts');
+  // Use user-specific storage keys to prevent data leakage between users
+  let history = getUserSessionItem('conversationHistory');
+  let folders = getUserSessionItem('folders');
+  let prompts = getUserSessionItem('prompts');
 
   if (history) {
     history = JSON.parse(history);
@@ -114,7 +116,8 @@ export const importData = (
 ): LatestExportFormat => {
   const { history, folders, prompts } = cleanData(data);
 
-  const oldConversations = sessionStorage.getItem('conversationHistory');
+  // Use user-specific storage keys to prevent data leakage between users
+  const oldConversations = getUserSessionItem('conversationHistory');
   const oldConversationsParsed = oldConversations
     ? JSON.parse(oldConversations)
     : [];
@@ -126,17 +129,17 @@ export const importData = (
     (conversation, index, self) =>
       index === self.findIndex((c) => c.id === conversation.id),
   );
-  sessionStorage.setItem('conversationHistory', JSON.stringify(newHistory));
+  setUserSessionItem('conversationHistory', JSON.stringify(newHistory));
   if (newHistory.length > 0) {
-    sessionStorage.setItem(
+    setUserSessionItem(
       'selectedConversation',
       JSON.stringify(newHistory[newHistory.length - 1]),
     );
   } else {
-    sessionStorage.removeItem('selectedConversation');
+    removeUserSessionItem('selectedConversation');
   }
 
-  const oldFolders = sessionStorage.getItem('folders');
+  const oldFolders = getUserSessionItem('folders');
   const oldFoldersParsed = oldFolders ? JSON.parse(oldFolders) : [];
   const newFolders: FolderInterface[] = [
     ...oldFoldersParsed,
@@ -145,15 +148,15 @@ export const importData = (
     (folder, index, self) =>
       index === self.findIndex((f) => f.id === folder.id),
   );
-  sessionStorage.setItem('folders', JSON.stringify(newFolders));
+  setUserSessionItem('folders', JSON.stringify(newFolders));
 
-  const oldPrompts = sessionStorage.getItem('prompts');
+  const oldPrompts = getUserSessionItem('prompts');
   const oldPromptsParsed = oldPrompts ? JSON.parse(oldPrompts) : [];
   const newPrompts: Prompt[] = [...oldPromptsParsed, ...prompts].filter(
     (prompt, index, self) =>
       index === self.findIndex((p) => p.id === prompt.id),
   );
-  sessionStorage.setItem('prompts', JSON.stringify(newPrompts));
+  setUserSessionItem('prompts', JSON.stringify(newPrompts));
 
   return {
     version: 4,

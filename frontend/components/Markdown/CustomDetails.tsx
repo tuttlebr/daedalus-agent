@@ -4,6 +4,7 @@ import { useContext, useEffect, useMemo, useRef, useState } from "react";
 import HomeContext from "@/pages/api/home/home.context";
 import { IconChevronCompactDown } from "@tabler/icons-react";
 import { fetchLastMessage } from "@/utils/app/helper";
+import { getUserSessionItem, setUserSessionItem } from "@/utils/app/storage";
 
 export const CustomDetails = ({ children, id, messageIndex, index}) => {
 
@@ -36,7 +37,8 @@ export const CustomDetails = ({ children, id, messageIndex, index}) => {
 
     const shouldOpen = () => {
         let isOpen = false
-        const savedState = sessionStorage.getItem(`details-${id}`);
+        // Use user-specific storage key to prevent data leakage between users
+        const savedState = getUserSessionItem(`details-${id}`);
 
         // user saved state by toggling
         if(savedState) {
@@ -65,7 +67,8 @@ export const CustomDetails = ({ children, id, messageIndex, index}) => {
     // Handle manual toggling (optional if you want more control)
     const handleToggle = () => {
         setIsOpen((prev) => {
-            sessionStorage.setItem(`details-${id}`, !prev);
+            // Use user-specific storage key to prevent data leakage between users
+            setUserSessionItem(`details-${id}`, String(!prev));
             return !prev
         })
     };

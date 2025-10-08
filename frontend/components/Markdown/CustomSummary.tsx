@@ -1,6 +1,7 @@
 'use client';
 import { useState, useEffect } from 'react';
 import { IconCheck, IconCpu, IconTool, IconLoader, IconChevronDown, IconChevronUp } from "@tabler/icons-react"; // Import IconLoader for the loading state
+import { getUserSessionItem } from '@/utils/app/storage';
 
 // Custom summary with additional props
 export const CustomSummary = ({ children, id }) => {
@@ -8,7 +9,8 @@ export const CustomSummary = ({ children, id }) => {
   const [checkOpen, setCheckOpen] = useState(false)
 
   const shouldOpen = () => {
-    const savedState = sessionStorage.getItem(`details-${id}`)
+    // Use user-specific storage key to prevent data leakage between users
+    const savedState = getUserSessionItem(`details-${id}`)
     const open = savedState === "true"
     return open
   }

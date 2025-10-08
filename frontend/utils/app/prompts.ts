@@ -1,4 +1,5 @@
 import { Prompt } from '@/types/prompt';
+import { setUserSessionItem } from './storage';
 
 export const updatePrompt = (updatedPrompt: Prompt, allPrompts: Prompt[]) => {
   const updatedPrompts = allPrompts.map((c) => {
@@ -18,5 +19,6 @@ export const updatePrompt = (updatedPrompt: Prompt, allPrompts: Prompt[]) => {
 };
 
 export const savePrompts = (prompts: Prompt[]) => {
-  sessionStorage.setItem('prompts', JSON.stringify(prompts));
+  // Use user-specific storage key to prevent data leakage between users
+  setUserSessionItem('prompts', JSON.stringify(prompts));
 };
