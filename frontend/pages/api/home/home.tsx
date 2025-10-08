@@ -54,6 +54,7 @@ const Home = (props: any) => {
       folders,
       conversations,
       selectedConversation,
+      showChatbar,
     },
     dispatch,
   } = contextValue;
@@ -303,7 +304,7 @@ const Home = (props: any) => {
             <div className="flex h-full">
               <Chatbar />
 
-              <div className="flex flex-1">
+              <div className={`flex flex-1 transition-all duration-300 ${showChatbar ? 'sm:ml-[260px]' : 'ml-0'}`}>
                 <Chat />
               </div>
             </div>
