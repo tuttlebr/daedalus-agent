@@ -49,11 +49,33 @@ export const Image = memo(({ src, alt, ...props }: ImageProps) => {
       const response = await fetch(src);
       const blob = await response.blob();
 
-      // Create download link
+      const fileName = alt ? `${alt}.png` : `image-${Date.now()}.png`;
+
+      // Try Web Share API first (mobile devices)
+      if (navigator.canShare && navigator.share) {
+        try {
+          const file = new File([blob], fileName, { type: blob.type || 'image/png' });
+
+          // Check if we can share this file
+          if (navigator.canShare({ files: [file] })) {
+            await navigator.share({
+              files: [file],
+              title: 'Share Image',
+              text: alt || 'Image from chat',
+            });
+            return; // Successfully shared, exit early
+          }
+        } catch (shareErr) {
+          // If share fails or is cancelled, fall through to download
+          console.log('Share cancelled or failed, falling back to download');
+        }
+      }
+
+      // Fallback: Standard download (desktop or if share not supported)
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      link.download = alt ? `${alt}.png` : `image-${Date.now()}.png`;
+      link.download = fileName;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
