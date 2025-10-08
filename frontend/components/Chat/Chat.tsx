@@ -1,4 +1,5 @@
 'use client';
+import { IconArrowDown } from '@tabler/icons-react';
 import {
   useCallback,
   useContext,
@@ -28,6 +29,7 @@ import { ChatInput } from './ChatInput';
 import { ChatLoader } from './ChatLoader';
 import { MemoizedChatMessage } from './MemoizedChatMessage';
 import { cleanMessagesForLLM, processMessageImages } from '@/utils/app/imageHandler';
+import { GalaxyAnimation } from '@/components/GalaxyAnimation';
 
 import { v4 as uuidv4 } from 'uuid';
 import { ChatHeader } from './ChatHeader';
@@ -54,7 +56,6 @@ export const Chat = () => {
 
   const [currentMessage, setCurrentMessage] = useState<Message>();
   const [autoScrollEnabled, setAutoScrollEnabled] = useState<boolean>(true);
-  const [showSettings, setShowSettings] = useState<boolean>(false);
   const [showScrollDownButton, setShowScrollDownButton] =
     useState<boolean>(false);
 
@@ -309,6 +310,37 @@ export const Chat = () => {
               }
             }
 
+            // Process any base64 images in the assistant's message content
+            // This happens after streaming is complete
+            const lastMessage = updatedConversation.messages[updatedConversation.messages.length - 1];
+            if (lastMessage && lastMessage.role === 'assistant' && lastMessage.content) {
+              const { processMarkdownImages } = await import('@/utils/app/imageHandler');
+              const processedContent = await processMarkdownImages(lastMessage.content);
+
+              // Update the message with processed content (base64 replaced with references)
+              if (processedContent !== lastMessage.content) {
+                console.log('Image processing: Replaced base64 images with Redis references');
+
+                // Create NEW message and conversation objects to trigger React re-render
+                const updatedMessage = { ...lastMessage, content: processedContent };
+                const updatedMessages = [
+                  ...updatedConversation.messages.slice(0, -1),
+                  updatedMessage
+                ];
+
+                updatedConversation = {
+                  ...updatedConversation,
+                  messages: updatedMessages,
+                };
+
+                // Update the conversation state to trigger re-render with processed images
+                homeDispatch({
+                  field: 'selectedConversation',
+                  value: updatedConversation,
+                });
+              }
+            }
+
             saveConversation(updatedConversation);
             const updatedConversations: Conversation[] = conversations.map(
               (conversation) => {
@@ -333,9 +365,18 @@ export const Chat = () => {
             }, 200);
           } else {
             const { answer } = await response?.json();
+
+            // Process any base64 images in the response
+            const { processMarkdownImages } = await import('@/utils/app/imageHandler');
+            const processedAnswer = await processMarkdownImages(answer);
+
+            if (processedAnswer !== answer) {
+              console.log('Image processing: Replaced base64 images with Redis references');
+            }
+
             const updatedMessages: Message[] = [
               ...updatedConversation.messages,
-              { role: 'assistant', content: answer },
+              { role: 'assistant', content: processedAnswer },
             ];
             updatedConversation = {
               ...updatedConversation,
@@ -343,7 +384,7 @@ export const Chat = () => {
             };
             homeDispatch({
               field: 'selectedConversation',
-              value: updateConversation,
+              value: updatedConversation,
             });
             saveConversation(updatedConversation);
             const updatedConversations: Conversation[] = conversations.map(
@@ -462,7 +503,6 @@ export const Chat = () => {
       top: chatContainerRef.current.scrollHeight,
       behavior: 'smooth',
     });
-    // Enable auto-scroll after user clicks scroll down, assuming the user wants to auto-scroll
     setAutoScrollEnabled(true);
     homeDispatch({ field: 'autoScroll', value: true });
   };
@@ -486,18 +526,15 @@ export const Chat = () => {
   useEffect(() => {
     const observer = new IntersectionObserver(
       ([entry]) => {
-        if (entry.isIntersecting) {
-          textareaRef.current?.focus();
-        }
-
-        // Only auto-scroll if we're streaming and auto-scroll is enabled
         if (autoScrollEnabled && messageIsStreaming) {
-          requestAnimationFrame(() => {
-            messagesEndRef.current?.scrollIntoView({
-              behavior: 'smooth',
-              block: 'end',
+          if (entry.isIntersecting) {
+            requestAnimationFrame(() => {
+              messagesEndRef.current?.scrollIntoView({
+                behavior: 'smooth',
+                block: 'end',
+              });
             });
-          });
+          }
         }
       },
       {
@@ -517,65 +554,86 @@ export const Chat = () => {
     };
   }, [autoScrollEnabled, messageIsStreaming]);
 
+  const hasMessages = Boolean(selectedConversation?.messages?.length);
+
   return (
     <div
-      className="safari-safe-area relative flex-1 overflow-hidden bg-white dark:bg-dark-bg-primary transition-all duration-300 ease-in-out"
+      className="relative flex min-h-0 flex-1 flex-col bg-bg-secondary transition-colors duration-300 ease-in-out dark:bg-dark-bg-primary"
       style={{
         paddingTop: 'env(safe-area-inset-top)',
-        paddingBottom: 'env(safe-area-inset-bottom)'
+        paddingBottom: 'env(safe-area-inset-bottom)',
+        paddingLeft: 'env(safe-area-inset-left)',
+        paddingRight: 'env(safe-area-inset-right)',
       }}
     >
-      <>
+      <ChatHeader />
+      <div className="relative flex flex-1 flex-col">
         <div
-          className="max-h-full overflow-x-hidden bg-white dark:bg-dark-bg-primary"
+          className="flex-1 overflow-y-auto"
           ref={chatContainerRef}
           onScroll={handleScroll}
-          style={{
-            // Ensure consistent background
-            minHeight: '100%',
-            paddingLeft: 'calc(env(safe-area-inset-left) + 1rem)',
-            paddingRight: 'calc(env(safe-area-inset-right) + 1rem)',
-            paddingBottom: '1.5rem'
-          }}
         >
-          <ChatHeader />
-          <div className="flex flex-col gap-4 sm:gap-3 md:gap-2">
-            {selectedConversation?.messages.map((message, index) => (
-              <MemoizedChatMessage
-                key={index}
-                message={message}
-                messageIndex={index}
-              />
-            ))}
-          </div>
-          {loading && <ChatLoader statusUpdateText={`Thinking...`} />}
-          <div
-            className="h-[162px] bg-white dark:bg-dark-bg-primary"
-            ref={messagesEndRef}
-          >
+          <div className="mx-auto flex h-full w-full max-w-3xl flex-col px-4 pb-8 pt-6 sm:px-6 lg:px-8">
+            {hasMessages ? (
+              <div className="flex flex-col space-y-4 sm:space-y-5">
+                {selectedConversation?.messages.map((message, index) => (
+                  <MemoizedChatMessage
+                    key={message.id || index}
+                    message={message}
+                    messageIndex={index}
+                  />
+                ))}
+              </div>
+            ) : (
+              <div className="flex flex-1 items-center justify-center py-8">
+                <div className="flex items-center justify-center">
+                  <GalaxyAnimation containerSize={220} />
+                </div>
+              </div>
+            )}
+
+            {loading && <ChatLoader statusUpdateText={`Thinking...`} />}
+
+            <div className="h-16 shrink-0" ref={messagesEndRef} />
           </div>
         </div>
+
+        {showScrollDownButton && (
+          <button
+            type="button"
+            className="pointer-events-auto absolute bottom-[7.5rem] right-5 z-20 flex h-11 w-11 items-center justify-center rounded-full border border-neutral-200 bg-bg-primary text-text-primary shadow-md transition-colors duration-150 hover:border-neutral-300 hover:text-neutral-900 dark:border-neutral-700 dark:bg-dark-bg-tertiary dark:text-neutral-200 dark:hover:border-neutral-600"
+            onClick={handleScrollDown}
+            style={{
+              marginBottom: 'env(safe-area-inset-bottom)'
+            }}
+            aria-label={t('Scroll to bottom')}
+          >
+            <IconArrowDown size={20} />
+          </button>
+        )}
+
         <ChatInput
           textareaRef={textareaRef}
           onSend={(message) => {
             setCurrentMessage(message);
             handleSend(message, 0);
           }}
-          onScrollDownClick={handleScrollDown}
           onRegenerate={() => {
             if (currentMessage && currentMessage?.role === 'user') {
               handleSend(currentMessage, 0);
             } else {
-              const lastUserMessage = fetchLastMessage(
-                {messages: selectedConversation?.messages, role: 'user'}
-              );
+              const lastUserMessage = fetchLastMessage({
+                messages: selectedConversation?.messages,
+                role: 'user',
+              });
               lastUserMessage && handleSend(lastUserMessage, 1);
             }
           }}
           showScrollDownButton={showScrollDownButton}
+          onScrollDownClick={handleScrollDown}
           controller={controllerRef}
         />
-      </>
+      </div>
     </div>
   );
 };

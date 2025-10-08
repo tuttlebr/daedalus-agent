@@ -32,7 +32,7 @@ spec:
             - name: BACKEND_HOST
               value: {{ (get (.Values.frontend.env.overrides | default dict) "BACKEND_HOST") | default (printf "%s-backend.%s.svc.cluster.local" (include "daedalus.fullname" .) .Release.Namespace) | quote }}
             - name: NEXT_PUBLIC_HTTP_CHAT_COMPLETION_URL
-              value: {{ (get (.Values.frontend.env.overrides | default dict) "NEXT_PUBLIC_HTTP_CHAT_COMPLETION_URL") | default (printf "http://%s-backend.%s.svc.cluster.local:8000/chat" (include "daedalus.fullname" .) .Release.Namespace) | quote }}
+              value: {{ (get (.Values.frontend.env.overrides | default dict) "NEXT_PUBLIC_HTTP_CHAT_COMPLETION_URL") | default (printf "http://%s-backend.%s.svc.cluster.local:8000/chat/stream" (include "daedalus.fullname" .) .Release.Namespace) | quote }}
             - name: NEXT_PUBLIC_WEBSOCKET_CHAT_COMPLETION_URL
               value: {{ (get (.Values.frontend.env.overrides | default dict) "NEXT_PUBLIC_WEBSOCKET_CHAT_COMPLETION_URL") | default (printf "ws://%s-backend.%s.svc.cluster.local:8000/websocket" (include "daedalus.fullname" .) .Release.Namespace) | quote }}
             {{- with .Values.frontend.env.overrides }}
