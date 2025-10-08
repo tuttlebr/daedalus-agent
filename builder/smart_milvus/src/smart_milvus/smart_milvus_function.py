@@ -432,12 +432,9 @@ def _wrap_milvus_single_results(res: Hit | dict, content_field: str) -> Document
         return Document(
             page_content=res.fields[content_field],
             metadata=metadata,
-            document_id=res.id,
         )
 
     fields = res["entity"]
     metadata = {k: v for k, v in fields.items() if k != content_field}
     metadata.update({"distance": res.get("distance")})
-    return Document(
-        page_content=fields.get(content_field), metadata=metadata, document_id=res["id"]
-    )
+    return Document(page_content=fields.get(content_field), metadata=metadata)

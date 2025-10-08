@@ -1,4 +1,5 @@
 import { Settings } from '@/types/settings';
+import { getUserSessionItem, setUserSessionItem } from './storage';
 
 const STORAGE_KEY = 'settings';
 
@@ -6,7 +7,8 @@ export const getSettings = (): Settings => {
   let settings: Settings = {
     theme: 'dark',
   };
-  const settingsJson = sessionStorage.getItem(STORAGE_KEY);
+  // Use user-specific storage key to prevent data leakage between users
+  const settingsJson = getUserSessionItem(STORAGE_KEY);
   if (settingsJson) {
     try {
       let savedSettings = JSON.parse(settingsJson) as Settings;
@@ -19,5 +21,6 @@ export const getSettings = (): Settings => {
 };
 
 export const saveSettings = (settings: Settings) => {
-  sessionStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
+  // Use user-specific storage key to prevent data leakage between users
+  setUserSessionItem(STORAGE_KEY, JSON.stringify(settings));
 };

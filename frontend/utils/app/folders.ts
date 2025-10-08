@@ -1,5 +1,7 @@
 import { FolderInterface } from '@/types/folder';
+import { setUserSessionItem } from './storage';
 
 export const saveFolders = (folders: FolderInterface[]) => {
-  sessionStorage.setItem('folders', JSON.stringify(folders));
+  // Use user-specific storage key to prevent data leakage between users
+  setUserSessionItem('folders', JSON.stringify(folders));
 };

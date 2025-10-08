@@ -2,6 +2,7 @@ import { Conversation } from '@/types/chat';
 import toast from 'react-hot-toast';
 import { apiGet, apiPut } from '@/utils/app/api';
 import { restoreMessageImages, cleanMessagesForStorage, stripBase64Content } from './imageHandler';
+import { getUserSessionItem, setUserSessionItem, removeUserSessionItem } from './storage';
 
 export const updateConversation = (
   updatedConversation: Conversation,
@@ -35,7 +36,8 @@ export const saveConversation = async (conversation: Conversation) => {
     // Aggressively strip any remaining base64 content as a safety measure
     cleanedConversation = stripBase64Content(cleanedConversation);
 
-    sessionStorage.setItem('selectedConversation', JSON.stringify(cleanedConversation));
+    // Use user-specific storage key to prevent data leakage between users
+    setUserSessionItem('selectedConversation', JSON.stringify(cleanedConversation));
     await apiPut('/api/session/selectedConversation', cleanedConversation);
   } catch (error) {
     console.log('Failed to persist conversation to server', error);
@@ -54,7 +56,8 @@ export const saveConversations = async (conversations: Conversation[]) => {
     // Aggressively strip any remaining base64 content as a safety measure
     cleanedConversations = stripBase64Content(cleanedConversations);
 
-    sessionStorage.setItem('conversationHistory', JSON.stringify(cleanedConversations));
+    // Use user-specific storage key to prevent data leakage between users
+    setUserSessionItem('conversationHistory', JSON.stringify(cleanedConversations));
     await apiPut('/api/session/conversationHistory', cleanedConversations);
   } catch (error) {
     console.log('Failed to persist conversations to server', error);

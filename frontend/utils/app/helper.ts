@@ -1,4 +1,6 @@
 import { v4 as uuidv4 } from 'uuid';
+import { getUserSessionItem, setUserSessionItem, removeUserSessionItem } from './storage';
+
 export const getInitials = (fullName = '') => {
     if (!fullName) {
         return "";
@@ -91,13 +93,15 @@ export const getWorkflowName = () => {
 }
 
 export const setSessionError = (message = 'unknown error') => {
-    sessionStorage.setItem('error', 'true');
-    sessionStorage.setItem('errorMessage', message);
+    // Use user-specific storage keys to prevent data leakage between users
+    setUserSessionItem('error', 'true');
+    setUserSessionItem('errorMessage', message);
 }
 
 export const removeSessionError = () => {
-    sessionStorage.removeItem('error');
-    sessionStorage.removeItem('errorMessage');
+    // Use user-specific storage keys to prevent data leakage between users
+    removeUserSessionItem('error');
+    removeUserSessionItem('errorMessage');
 }
 
 export const isInsideIframe = () => {

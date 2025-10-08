@@ -7,6 +7,7 @@ import { useCreateReducer } from '@/hooks/useCreateReducer';
 import { saveConversation, saveConversations } from '@/utils/app/conversation';
 import { saveFolders } from '@/utils/app/folders';
 import { exportData, importData } from '@/utils/app/importExport';
+import { removeUserSessionItem, setUserSessionItem } from '@/utils/app/storage';
 
 import { Conversation } from '@/types/chat';
 import { LatestExportFormat, SupportedExportFormats } from '@/types/export';
@@ -73,8 +74,9 @@ export const Chatbar = () => {
 
     homeDispatch({ field: 'conversations', value: [] });
 
-    sessionStorage.removeItem('conversationHistory');
-    sessionStorage.removeItem('selectedConversation');
+    // Use user-specific storage keys to prevent data leakage between users
+    removeUserSessionItem('conversationHistory');
+    removeUserSessionItem('selectedConversation');
 
     const updatedFolders = folders.filter((f) => f.type !== 'chat');
 
@@ -116,13 +118,15 @@ export const Chatbar = () => {
           },
         });
 
-        sessionStorage.removeItem('selectedConversation');
+        // Use user-specific storage key to prevent data leakage between users
+        removeUserSessionItem('selectedConversation');
     }
   };
 
   const handleToggleChatbar = () => {
     homeDispatch({ field: 'showChatbar', value: !showChatbar });
-    sessionStorage.setItem('showChatbar', JSON.stringify(!showChatbar));
+    // Use user-specific storage key to prevent data leakage between users
+    setUserSessionItem('showChatbar', JSON.stringify(!showChatbar));
   };
 
   const handleDrop = (e: any) => {

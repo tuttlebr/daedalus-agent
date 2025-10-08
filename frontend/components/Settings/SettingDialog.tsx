@@ -2,6 +2,7 @@ import { FC, useContext, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'next-i18next';
 import HomeContext from '@/pages/api/home/home.context';
 import toast from 'react-hot-toast';
+import { getUserSessionItem, setUserSessionItem } from '@/utils/app/storage';
 
 interface Props {
   open: boolean;
@@ -17,11 +18,12 @@ export const SettingDialog: FC<Props> = ({ open, onClose }) => {
   } = useContext(HomeContext);
 
   const [theme, setTheme] = useState(lightMode);
-  const [chatCompletionEndPoint, setChatCompletionEndPoint] = useState(sessionStorage.getItem('chatCompletionURL') || chatCompletionURL);
-  const [isIntermediateStepsEnabled, setIsIntermediateStepsEnabled] = useState(sessionStorage.getItem('enableIntermediateSteps') ? sessionStorage.getItem('enableIntermediateSteps') === 'true' : enableIntermediateSteps);
-  const [detailsToggle, setDetailsToggle] = useState( sessionStorage.getItem('expandIntermediateSteps') === 'true' ? true : expandIntermediateSteps);
-  const [intermediateStepOverrideToggle, setIntermediateStepOverrideToggle] = useState( sessionStorage.getItem('intermediateStepOverride') === 'false' ? false : intermediateStepOverride);
-  const [chatHistoryEnabled, setChatHistoryEnabled] = useState(sessionStorage.getItem('chatHistory') ? sessionStorage.getItem('chatHistory') === 'true' : chatHistory);
+  // Use user-specific storage keys to prevent data leakage between users
+  const [chatCompletionEndPoint, setChatCompletionEndPoint] = useState(getUserSessionItem('chatCompletionURL') || chatCompletionURL);
+  const [isIntermediateStepsEnabled, setIsIntermediateStepsEnabled] = useState(getUserSessionItem('enableIntermediateSteps') ? getUserSessionItem('enableIntermediateSteps') === 'true' : enableIntermediateSteps);
+  const [detailsToggle, setDetailsToggle] = useState( getUserSessionItem('expandIntermediateSteps') === 'true' ? true : expandIntermediateSteps);
+  const [intermediateStepOverrideToggle, setIntermediateStepOverrideToggle] = useState( getUserSessionItem('intermediateStepOverride') === 'false' ? false : intermediateStepOverride);
+  const [chatHistoryEnabled, setChatHistoryEnabled] = useState(getUserSessionItem('chatHistory') ? getUserSessionItem('chatHistory') === 'true' : chatHistory);
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -50,11 +52,12 @@ export const SettingDialog: FC<Props> = ({ open, onClose }) => {
     homeDispatch({ field: 'enableIntermediateSteps', value: isIntermediateStepsEnabled });
     homeDispatch({ field: 'chatHistory', value: chatHistoryEnabled });
 
-    sessionStorage.setItem('chatCompletionURL', chatCompletionEndPoint);
-    sessionStorage.setItem('expandIntermediateSteps', String(detailsToggle));
-    sessionStorage.setItem('intermediateStepOverride', String(intermediateStepOverrideToggle));
-    sessionStorage.setItem('enableIntermediateSteps', String(isIntermediateStepsEnabled));
-    sessionStorage.setItem('chatHistory', String(chatHistoryEnabled));
+    // Use user-specific storage keys to prevent data leakage between users
+    setUserSessionItem('chatCompletionURL', chatCompletionEndPoint);
+    setUserSessionItem('expandIntermediateSteps', String(detailsToggle));
+    setUserSessionItem('intermediateStepOverride', String(intermediateStepOverrideToggle));
+    setUserSessionItem('enableIntermediateSteps', String(isIntermediateStepsEnabled));
+    setUserSessionItem('chatHistory', String(chatHistoryEnabled));
 
     toast.success('Settings saved successfully');
     onClose();

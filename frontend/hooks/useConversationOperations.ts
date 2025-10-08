@@ -1,5 +1,6 @@
 import { saveConversation, saveConversations, updateConversation} from '@/utils/app/conversation';
 import { v4 as uuidv4 } from 'uuid';
+import { setUserSessionItem } from '@/utils/app/storage';
 
 export const useConversationOperations = ({ conversations, dispatch, t, appConfig }) => {
   const handleSelectConversation = (conversation) => {
@@ -8,8 +9,9 @@ export const useConversationOperations = ({ conversations, dispatch, t, appConfi
       value: conversation,
     });
 
-    // updating the session id based on the selcted conversation
-    sessionStorage.setItem('sessionId', conversation?.id);
+    // updating the session id based on the selected conversation
+    // Use user-specific storage key to prevent data leakage between users
+    setUserSessionItem('sessionId', conversation?.id);
     saveConversation(conversation);
   };
 
@@ -24,7 +26,8 @@ export const useConversationOperations = ({ conversations, dispatch, t, appConfi
     };
 
     // setting new the session id for new chat conversation
-    sessionStorage.setItem('sessionId', newConversation.id);
+    // Use user-specific storage key to prevent data leakage between users
+    setUserSessionItem('sessionId', newConversation.id);
     const updatedConversations = [...conversations, newConversation];
 
     dispatch({ field: 'selectedConversation', value: newConversation });

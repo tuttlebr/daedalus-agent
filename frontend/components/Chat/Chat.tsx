@@ -21,6 +21,7 @@ import {
   processIntermediateMessage,
 } from '@/utils/app/helper';
 import { throttle } from '@/utils/data/throttle';
+import { getUserSessionItem } from '@/utils/app/storage';
 import { ChatBody, Conversation, Message } from '@/types/chat';
 import HomeContext from '@/pages/api/home/home.context';
 import { ChatInput } from './ChatInput';
@@ -131,10 +132,11 @@ export const Chat = () => {
 
         const chatBody: ChatBody = {
           messages: messagesCleaned,
-          chatCompletionURL: sessionStorage.getItem('chatCompletionURL') || chatCompletionURL,
+          // Use user-specific storage key to prevent data leakage between users
+          chatCompletionURL: getUserSessionItem('chatCompletionURL') || chatCompletionURL,
           additionalProps: {
-            enableIntermediateSteps: sessionStorage.getItem('enableIntermediateSteps')
-            ? sessionStorage.getItem('enableIntermediateSteps') === 'true'
+            enableIntermediateSteps: getUserSessionItem('enableIntermediateSteps')
+            ? getUserSessionItem('enableIntermediateSteps') === 'true'
             : enableIntermediateSteps,
             username: user?.username || 'anon'
           }
@@ -250,7 +252,8 @@ export const Chat = () => {
                 // loop through rawIntermediateSteps and add them to the processedIntermediateSteps
                 let processedIntermediateSteps = []
                 rawIntermediateSteps.forEach((step) => {
-                  processedIntermediateSteps = processIntermediateMessage(processedIntermediateSteps, step, sessionStorage.getItem('intermediateStepOverride') === 'false' ? false : intermediateStepOverride )
+                  // Use user-specific storage key to prevent data leakage between users
+                  processedIntermediateSteps = processIntermediateMessage(processedIntermediateSteps, step, getUserSessionItem('intermediateStepOverride') === 'false' ? false : intermediateStepOverride )
                 })
 
                 // update the message
@@ -281,7 +284,8 @@ export const Chat = () => {
                       // need to loop through raw rawIntermediateSteps and add them to the updatedIntermediateSteps
                       let updatedIntermediateSteps = [...message?.intermediateSteps]
                       rawIntermediateSteps.forEach((step) => {
-                        updatedIntermediateSteps = processIntermediateMessage(updatedIntermediateSteps, step, sessionStorage.getItem('intermediateStepOverride') === 'false' ? false : intermediateStepOverride)
+                        // Use user-specific storage key to prevent data leakage between users
+                        updatedIntermediateSteps = processIntermediateMessage(updatedIntermediateSteps, step, getUserSessionItem('intermediateStepOverride') === 'false' ? false : intermediateStepOverride)
                       })
 
                       // update the message
