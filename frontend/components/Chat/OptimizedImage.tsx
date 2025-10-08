@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, memo } from 'react';
-import { IconPhoto, IconMaximize, IconX, IconExclamationCircle } from '@tabler/icons-react';
+import { IconPhoto, IconMaximize, IconX, IconExclamationCircle, IconDownload } from '@tabler/icons-react';
 import { ImageReference, getImageUrl } from '@/utils/app/imageHandler';
 
 interface OptimizedImageProps {
@@ -19,7 +19,8 @@ export const OptimizedImage = memo(({
 }: OptimizedImageProps) => {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(false);
-  const [isVisible, setIsVisible] = useState(false);
+  // Start as visible for chat messages (they're always at bottom and visible)
+  const [isVisible, setIsVisible] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const imgRef = useRef<HTMLImageElement>(null);
   const observerRef = useRef<IntersectionObserver | null>(null);
@@ -28,47 +29,58 @@ export const OptimizedImage = memo(({
   // Get the image source
   const imageSrc = imageRef ? getImageUrl(imageRef) : base64Data || '';
 
-  // Set up intersection observer for lazy loading
+  // Debug logging
   useEffect(() => {
-    if (!containerRef.current) return;
+    if (imageRef) {
+      console.log('OptimizedImage: imageRef received', { imageId: imageRef.imageId, imageSrc });
+    }
+  }, [imageRef, imageSrc]);
 
-    observerRef.current = new IntersectionObserver(
-      (entries) => {
-        entries.forEach((entry) => {
-          if (entry.isIntersecting) {
-            setIsVisible(true);
-            // Disconnect after image becomes visible
-            observerRef.current?.disconnect();
-          }
-        });
-      },
-      {
-        rootMargin: '100px', // Start loading 100px before image comes into view
-        threshold: 0.01
-      }
-    );
-
-    observerRef.current.observe(containerRef.current);
-
-    return () => {
-      observerRef.current?.disconnect();
-    };
-  }, []);
+  // Reset loading state when image source changes
+  useEffect(() => {
+    if (imageSrc) {
+      console.log('OptimizedImage: Image source changed, resetting loading state', imageSrc);
+      setIsLoading(true);
+      setError(false);
+    }
+  }, [imageSrc]);
 
   const handleImageLoad = () => {
+    console.log('OptimizedImage: Image loaded successfully', imageSrc);
     setIsLoading(false);
     setError(false);
   };
 
   const handleImageError = () => {
+    console.error('OptimizedImage: Failed to load image', imageSrc);
     setIsLoading(false);
     setError(true);
-    console.error('Failed to load image');
   };
 
   const toggleFullscreen = (e: React.MouseEvent) => {
     e.stopPropagation();
     setIsFullscreen(!isFullscreen);
+  };
+
+  const handleDownload = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      // Fetch the image as a blob
+      const response = await fetch(imageSrc);
+      const blob = await response.blob();
+
+      // Create download link
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = alt ? `${alt}.png` : `image-${imageRef?.imageId || Date.now()}.png`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('Failed to download image:', err);
+    }
   };
 
   // Prevent body scroll when fullscreen is open
@@ -88,7 +100,7 @@ export const OptimizedImage = memo(({
     <>
       <div
         ref={containerRef}
-        className={`relative inline-block max-w-full ${className}`}
+        className={`relative inline-block max-w-full group ${className}`}
       >
         {/* Placeholder while loading or before visible */}
         {(!isVisible || isLoading) && !error && (
@@ -122,25 +134,41 @@ export const OptimizedImage = memo(({
               onLoad={handleImageLoad}
               onError={handleImageError}
               className={`
-                ${isLoading ? 'hidden' : 'block'}
-                max-w-full h-auto rounded-lg border border-gray-200 dark:border-gray-700
+                block max-w-full h-auto rounded-lg border border-gray-200 dark:border-gray-700
                 cursor-pointer hover:shadow-lg transition-shadow duration-200
                 ${className}
               `}
+              style={{
+                opacity: isLoading ? 0 : 1,
+                visibility: isLoading ? 'hidden' : 'visible',
+                pointerEvents: isLoading ? 'none' : 'auto',
+                transitionProperty: 'opacity, visibility',
+              }}
               onClick={toggleFullscreen}
               loading="lazy"
               decoding="async"
             />
 
-            {/* Fullscreen button overlay */}
+            {/* Action buttons overlay */}
             {!isLoading && (
-              <button
-                className="absolute top-2 right-2 bg-black/50 hover:bg-black/70 text-white p-2 rounded-lg opacity-0 hover:opacity-100 transition-opacity duration-200 sm:opacity-100"
-                onClick={toggleFullscreen}
-                aria-label="View fullscreen"
-              >
-                <IconMaximize size={20} />
-              </button>
+              <div className="absolute top-2 right-2 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity duration-200 sm:opacity-100">
+                <button
+                  className="bg-black/50 hover:bg-black/70 text-white p-2 rounded-lg"
+                  onClick={handleDownload}
+                  aria-label="Download image"
+                  title="Download as PNG"
+                >
+                  <IconDownload size={20} />
+                </button>
+                <button
+                  className="bg-black/50 hover:bg-black/70 text-white p-2 rounded-lg"
+                  onClick={toggleFullscreen}
+                  aria-label="View fullscreen"
+                  title="View fullscreen"
+                >
+                  <IconMaximize size={20} />
+                </button>
+              </div>
             )}
           </>
         )}
@@ -152,14 +180,25 @@ export const OptimizedImage = memo(({
           className="fixed inset-0 z-50 bg-black/95 flex items-center justify-center"
           onClick={toggleFullscreen}
         >
-          {/* Close button */}
-          <button
-            className="absolute top-4 right-4 text-white hover:text-gray-300 p-2 rounded-lg bg-black/50 hover:bg-black/70 transition-colors"
-            onClick={toggleFullscreen}
-            aria-label="Close fullscreen"
-          >
-            <IconX size={24} />
-          </button>
+          {/* Action buttons */}
+          <div className="absolute top-4 right-4 flex gap-2">
+            <button
+              className="text-white hover:text-gray-300 p-2 rounded-lg bg-black/50 hover:bg-black/70 transition-colors"
+              onClick={handleDownload}
+              aria-label="Download image"
+              title="Download as PNG"
+            >
+              <IconDownload size={24} />
+            </button>
+            <button
+              className="text-white hover:text-gray-300 p-2 rounded-lg bg-black/50 hover:bg-black/70 transition-colors"
+              onClick={toggleFullscreen}
+              aria-label="Close fullscreen"
+              title="Close fullscreen"
+            >
+              <IconX size={24} />
+            </button>
+          </div>
 
           {/* Fullscreen image */}
           <div className="relative max-w-full max-h-full p-4">

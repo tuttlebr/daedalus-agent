@@ -6,7 +6,8 @@ import {
   IconUser,
   IconVolume2,
 } from '@tabler/icons-react';
-import { FC, memo, useContext, useEffect, useRef, useState } from 'react';
+import classNames from 'classnames';
+import { FC, memo, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { Message } from '@/types/chat';
 import HomeContext from '@/pages/api/home/home.context';
 import { MemoizedReactMarkdown } from '../Markdown/MemoizedReactMarkdown';
@@ -25,12 +26,11 @@ export interface Props {
 }
 
 export const ChatMessage: FC<Props> = memo(({ message, messageIndex }) => {
+  const hasPrimaryContent = Boolean(message?.content?.trim());
+  const hasIntermediateSteps = Boolean(message?.intermediateSteps?.length);
 
-  // return if the there is nothing to show
-  // no message and no intermediate steps
-  if (message?.content === ''
-      && message?.intermediateSteps?.length === 0) {
-    return null
+  if (!hasPrimaryContent && !hasIntermediateSteps) {
+    return null;
   }
 
   const {
@@ -41,10 +41,56 @@ export const ChatMessage: FC<Props> = memo(({ message, messageIndex }) => {
   const [isPlaying, setIsPlaying] = useState(false);
   const speechSynthesisRef = useRef<SpeechSynthesisUtterance | null>(null);
 
-  const copyOnClick = () => {
-    if (!navigator.clipboard) return;
+  const isAssistantMessage = message.role === 'assistant';
 
-    navigator.clipboard.writeText(message.content).then(() => {
+  const cx = (...classes: Array<string | false | null | undefined>) =>
+    classes.filter(Boolean).join(' ');
+
+  const prepareContent = ({
+    message: contentMessage = {} as Partial<Message>,
+    responseContent = true,
+    intermediateStepsContent = false,
+    role = 'assistant',
+  }: {
+    message?: Partial<Message>;
+    responseContent?: boolean;
+    intermediateStepsContent?: boolean;
+    role?: 'assistant' | 'user';
+  } = {}) => {
+    const { content = '', intermediateSteps = [] } = contentMessage;
+
+    if (role === 'user') return content.trim();
+
+    let result = '';
+    if (intermediateStepsContent) {
+      result += generateContentIntermediate(intermediateSteps);
+    }
+
+    if (responseContent) {
+      result += result ? `\n\n${content}` : content;
+    }
+
+    // fixing malformed html and removing extra spaces to avoid markdown issues
+    return fixMalformedHtml(result)?.trim()?.replace(/\n\s+/, '\n ');
+  };
+
+  const copyText = useMemo(() => {
+    if (message.role === 'user') {
+      return prepareContent({ message, role: 'user' });
+    }
+
+    return prepareContent({
+      message,
+      role: 'assistant',
+      intermediateStepsContent: true,
+      responseContent: true,
+    });
+  }, [message]);
+
+  const copyOnClick = () => {
+    if (!navigator.clipboard || !copyText) return;
+
+    navigator.clipboard.writeText(copyText).then(() => {
       setMessageCopied(true);
       setTimeout(() => {
         setMessageCopied(false);
@@ -59,12 +105,14 @@ export const ChatMessage: FC<Props> = memo(({ message, messageIndex }) => {
   };
 
   const handleTextToSpeech = () => {
+    if (!copyText) return;
+
     if ('speechSynthesis' in window) {
       if (isPlaying) {
         window.speechSynthesis.cancel();
         setIsPlaying(false);
       } else {
-        const textWithoutLinks = removeLinks(message?.content);
+        const textWithoutLinks = removeLinks(copyText);
         const utterance = new SpeechSynthesisUtterance(textWithoutLinks);
         utterance.onend = () => setIsPlaying(false);
         utterance.onerror = () => setIsPlaying(false);
@@ -85,58 +133,55 @@ export const ChatMessage: FC<Props> = memo(({ message, messageIndex }) => {
     };
   }, []);
 
-  const prepareContent = ({
-    message = {} as Partial<Message>,
-    responseContent = true,
-    intermediateStepsContent = false,
-    role = 'assistant'
-  }: {
-    message?: Partial<Message>
-    responseContent?: boolean
-    intermediateStepsContent?: boolean
-    role?: 'assistant' | 'user'
-  } = {}) => {
-    const { content = '', intermediateSteps = [] } = message;
+  const wrapperClasses = cx('group px-3 sm:px-4 md:px-6');
 
-    if (role === 'user') return content.trim();
+  const rowClasses = cx(
+    'mx-auto flex w-full max-w-3xl gap-3 sm:gap-4 md:gap-5 py-4',
+    message.role === 'user' ? 'flex-row-reverse' : 'flex-row'
+  );
 
-    let result = '';
-    if (intermediateStepsContent) {
-      result += generateContentIntermediate(intermediateSteps);
-    }
+  const avatarWrapperClasses = cx(
+    'flex-shrink-0 pt-1',
+    message.role === 'assistant' ? 'text-right' : 'text-left'
+  );
 
-    if (responseContent) {
-      result += result ? `\n\n${content}` : content;
-    }
+  const bubbleClasses = cx(
+    'relative w-full max-w-full rounded-2xl border px-4 py-3 text-[15px] leading-relaxed shadow-sm transition-colors duration-200',
+    'backdrop-blur supports-[backdrop-filter]:bg-white/90',
+    isAssistantMessage
+      ? 'self-start border-[var(--chat-bubble-assistant-border)] bg-[var(--chat-bubble-assistant-bg)] text-gray-900 dark:border-[var(--chat-bubble-assistant-border-dark)] dark:bg-[var(--chat-bubble-assistant-bg-dark)] dark:text-gray-100'
+      : 'self-end border-[var(--chat-bubble-user-border)] bg-[var(--chat-bubble-user-bg)] text-gray-900 dark:border-[var(--chat-bubble-user-border-dark)] dark:bg-[var(--chat-bubble-user-bg-dark)] dark:text-gray-50'
+  );
 
-    // fixing malformed html and removing extra spaces to avoid markdown issues
-    return fixMalformedHtml(result)?.trim()?.replace(/\n\s+/, "\n ");
-  };
+  const markdownBaseClasses = cx(
+    'prose prose-neutral max-w-none break-words text-[15px] leading-relaxed dark:prose-invert',
+    '[&>*]:max-w-full [&_*]:break-words'
+  );
+
+  const actionBarClasses = cx(
+    'flex items-center gap-2 text-xs font-medium text-neutral-500 transition-opacity duration-150 dark:text-neutral-300',
+    'mt-3',
+    isAssistantMessage ? 'justify-end' : 'justify-start sm:justify-end'
+  );
+
+  const attachmentWrapperClasses = cx(
+    'mt-3 flex flex-wrap gap-3',
+    message.role === 'assistant' ? 'justify-start' : 'justify-end'
+  );
 
   return (
-    <div
-      className={`group px-4 sm:px-0 md:px-4 ${
-        message.role === 'assistant'
-          ? 'border-b border-black/10 bg-gray-50 text-gray-800 dark:border-gray-900/50 dark:bg-dark-bg-quaternary dark:text-gray-100'
-          : 'border-b border-black/10 bg-white text-gray-800 dark:border-gray-900/50 dark:bg-dark-bg-primary dark:text-gray-100'
-      }`}
-      style={{ overflowWrap: 'anywhere' }}
-    >
-      <div className={`relative m-auto flex text-base sm:w-[95%] 2xl:w-[60%] gap-3 sm:gap-4 md:gap-6 p-3 sm:p-3 md:py-6 lg:px-0 ${message.role === 'user' ? 'flex-row-reverse' : ''}`}>
-        <div className="min-w-[40px] text-right font-bold">
-          {message.role === 'assistant' ? (
-            <BotAvatar src={'favicon.png'} />
-          ) : (
-            <IconUser size={30} />
-          )}
+    <div className={wrapperClasses}>
+      <div className={rowClasses} style={{ overflowWrap: 'anywhere' }}>
+        <div className={avatarWrapperClasses}>
+          {isAssistantMessage ? <BotAvatar src={'favicon.png'} /> : <IconUser size={30} />}
         </div>
 
-        <div className="w-full dark:prose-invert overflow-hidden">
-          {message.role === 'user' ? (
-            <div className="flex flex-col w-full items-end">
-              <div className="prose whitespace-pre-wrap dark:prose-invert flex-1 w-full overflow-x-auto text-left">
+        <div className={cx('flex min-w-0 flex-1 flex-col', isAssistantMessage ? 'items-start' : 'items-end')}>
+          <div className={bubbleClasses}>
+            {message.role === 'user' ? (
+              <div className={markdownBaseClasses}>
                 <ReactMarkdown
-                  className="prose dark:prose-invert flex-1 w-full flex-grow max-w-full whitespace-normal"
+                  className="prose dark:prose-invert"
                   remarkPlugins={[remarkGfm, remarkMath]}
                   rehypePlugins={[rehypeRaw] as any}
                   linkTarget="_blank"
@@ -144,17 +189,16 @@ export const ChatMessage: FC<Props> = memo(({ message, messageIndex }) => {
                 >
                   {prepareContent({ message, role: 'user' })}
                 </ReactMarkdown>
-                {/* Render image attachments for user messages */}
                 {message.attachments && message.attachments.length > 0 && (
-                  <div className="mt-2 flex flex-wrap gap-2 justify-end">
+                  <div className={attachmentWrapperClasses}>
                     {message.attachments.map((attachment, idx) => {
                       if (attachment.type === 'image' && attachment.imageRef) {
                         return (
-                          <div key={idx} className="max-w-xs">
+                          <div key={idx} className="max-w-[220px] sm:max-w-xs">
                             <OptimizedImage
                               imageRef={attachment.imageRef}
                               alt="User attachment"
-                              className="rounded-lg"
+                              className="rounded-lg shadow-sm"
                             />
                           </div>
                         );
@@ -164,74 +208,95 @@ export const ChatMessage: FC<Props> = memo(({ message, messageIndex }) => {
                   </div>
                 )}
               </div>
-            </div>
-          ) : (
-            <div className="flex flex-col w-[90%]">
-              <div className="flex flex-col gap-2">
-                {/* for intermediate steps content  */}
-                <div className="overflow-x-auto">
+            ) : (
+              <div className="flex w-full flex-col gap-4">
+                {prepareContent({
+                  message,
+                  role: 'assistant',
+                  intermediateStepsContent: true,
+                  responseContent: false,
+                }) && (
                   <MemoizedReactMarkdown
-                    className="prose dark:prose-invert flex-1 w-full flex-grow max-w-full whitespace-normal"
+                    className={markdownBaseClasses}
                     rehypePlugins={[rehypeRaw] as any}
                     remarkPlugins={[
                       remarkGfm,
-                      [remarkMath, {
-                        singleDollarTextMath: false,
-                      }]
+                      [remarkMath, { singleDollarTextMath: false }],
                     ]}
                     linkTarget="_blank"
                     components={getReactMarkDownCustomComponents(messageIndex, message?.id)}
                   >
-                    {prepareContent({ message, role: 'assistant', intermediateStepsContent: true, responseContent: false })}
+                    {prepareContent({
+                      message,
+                      role: 'assistant',
+                      intermediateStepsContent: true,
+                      responseContent: false,
+                    })}
                   </MemoizedReactMarkdown>
-                </div>
-                {/* for response content */}
-                <div className="overflow-x-auto">
-                  <MemoizedReactMarkdown
-                    className="prose dark:prose-invert flex-1 w-full flex-grow max-w-full whitespace-normal"
-                    rehypePlugins={[rehypeRaw] as any}
-                    remarkPlugins={[
-                      remarkGfm,
-                      [remarkMath, {
-                        singleDollarTextMath: false,
-                      }]
-                    ]}
-                    linkTarget="_blank"
-                    components={getReactMarkDownCustomComponents(messageIndex, message?.id)}
-                  >
-                    {prepareContent({ message, role: 'assistant', intermediateStepsContent: false, responseContent: true })}
-                  </MemoizedReactMarkdown>
-                </div>
-                <div className="mt-2 flex gap-2">
-                  {
-                    !messageIsStreaming &&
-                    <>
-                      {messagedCopied ?
-                        <IconCheck
-                            size={20}
-                            className="text-nvidia-green dark:text-nvidia-green"
-                            id={message?.id}
-                          /> :
-                        <button
-                          className="invisible absolute right-12 top-1 rounded-md p-1 text-nvidia-green hover:text-gray-700 dark:text-nvidia-green dark:hover:text-gray-300 group-hover:visible focus:visible"
-                          onClick={copyOnClick}
-                          title="Copy to clipboard"
-                          id={message?.id}
-                        >
-                          <IconCopy size={20} />
-                        </button>
-                      }
-                      <button
-                        className="invisible absolute right-6 top-1 rounded-md p-1 text-nvidia-green hover:text-gray-700 dark:text-nvidia-green dark:hover:text-gray-300 group-hover:visible focus:visible"
-                        onClick={handleTextToSpeech}
-                        aria-label={isPlaying ? "Stop speaking" : "Start speaking"}
-                      >
-                        {isPlaying ? <IconPlayerPause size={20} className='animate-pulse text-red-400' /> : <IconVolume2 size={20} />}
-                      </button>
-                    </>
-                  }
-                </div>
+                )}
+
+                <MemoizedReactMarkdown
+                  key={`msg-${message?.id}-${message?.content?.includes('/api/session/imageStorage') ? 'stored' : 'raw'}`}
+                  className={markdownBaseClasses}
+                  rehypePlugins={[rehypeRaw] as any}
+                  remarkPlugins={[
+                    remarkGfm,
+                    [remarkMath, { singleDollarTextMath: false }],
+                  ]}
+                  linkTarget="_blank"
+                  components={getReactMarkDownCustomComponents(messageIndex, message?.id)}
+                >
+                  {prepareContent({
+                    message,
+                    role: 'assistant',
+                    intermediateStepsContent: false,
+                    responseContent: true,
+                  })}
+                </MemoizedReactMarkdown>
               </div>
+            )}
+          </div>
+
+          {!messageIsStreaming && copyText && (
+            <div className={actionBarClasses}>
+              <button
+                className={classNames(
+                  'inline-flex items-center gap-1 rounded-full border border-transparent px-3 py-1 text-xs transition-colors duration-150',
+                  'bg-[var(--action-button-bg)] text-[var(--action-button-text)] hover:bg-[var(--action-button-hover-bg)]',
+                  'dark:bg-[var(--action-button-bg-dark)] dark:text-[var(--action-button-text-dark)] dark:hover:bg-[var(--action-button-hover-bg-dark)]',
+                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-neutral-400'
+                )}
+                onClick={copyOnClick}
+                aria-label="Copy message"
+                id={message?.id}
+              >
+                {messagedCopied ? (
+                  <IconCheck size={18} className="text-nvidia-green dark:text-nvidia-green" />
+                ) : (
+                  <IconCopy size={18} />
+                )}
+                <span className="hidden sm:inline">Copy</span>
+              </button>
+
+              {isAssistantMessage && hasPrimaryContent && (
+                <button
+                  className={classNames(
+                    'inline-flex items-center gap-1 rounded-full border border-transparent px-3 py-1 text-xs transition-colors duration-150',
+                    'bg-[var(--action-button-bg)] text-[var(--action-button-text)] hover:bg-[var(--action-button-hover-bg)]',
+                    'dark:bg-[var(--action-button-bg-dark)] dark:text-[var(--action-button-text-dark)] dark:hover:bg-[var(--action-button-hover-bg-dark)]',
+                    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-neutral-400'
+                  )}
+                  onClick={handleTextToSpeech}
+                  aria-label={isPlaying ? 'Stop speaking' : 'Play message'}
+                >
+                  {isPlaying ? (
+                    <IconPlayerPause size={18} className="text-red-400" />
+                  ) : (
+                    <IconVolume2 size={18} />
+                  )}
+                  <span className="hidden sm:inline">Listen</span>
+                </button>
+              )}
             </div>
           )}
         </div>

@@ -1,15 +1,13 @@
 import {
   IconArrowDown,
-  IconBolt,
+  IconMicrophone,
   IconPaperclip,
   IconPhoto,
   IconPlayerStop,
+  IconPlayerStopFilled,
   IconRepeat,
   IconSend,
   IconTrash,
-  IconMicrophone,
-  IconPlayerStopFilled,
-  IconMicrophone2,
 } from '@tabler/icons-react';
 import {
   KeyboardEvent,
@@ -27,7 +25,7 @@ import { useTranslation } from 'next-i18next';
 import { Message } from '@/types/chat';
 
 import HomeContext from '@/pages/api/home/home.context';
-import { compressImage, getWorkflowName } from '@/utils/app/helper';
+import { compressImage } from '@/utils/app/helper';
 import { appConfig } from '@/utils/app/const';
 import { uploadImage, ImageReference } from '@/utils/app/imageHandler';
 import { OptimizedImage } from './OptimizedImage';
@@ -48,7 +46,7 @@ export const ChatInput = ({
   onScrollDownClick,
   textareaRef,
   showScrollDownButton,
-  controller
+  controller,
 }: Props) => {
   const { t } = useTranslation('chat');
 
@@ -56,8 +54,6 @@ export const ChatInput = ({
     state: { selectedConversation, messageIsStreaming, loading },
     dispatch: homeDispatch,
   } = useContext(HomeContext);
-
-  const workflow = getWorkflowName()
 
   // todo add the audio file
   const recordingStartSound = new Audio('audio/recording.wav');
@@ -78,7 +74,7 @@ export const ChatInput = ({
     fileInputRef?.current.click();
   };
 
-  const handleInputFileDelete = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+  const handleInputFileDelete = (e: React.ChangeEvent<HTMLTextAreaElement> | null) => {
     setInputFile(null);
     setInputFileExtension('');
     setInputFileContent('');
@@ -178,11 +174,11 @@ export const ChatInput = ({
   };
 
   const isMobile = () => {
-    const userAgent =
-      typeof window.navigator === 'undefined' ? '' : navigator.userAgent;
-    const mobileRegex =
-      /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini|Mobile|mobile|CriOS/i;
-    return mobileRegex.test(userAgent);
+    if (typeof window === 'undefined') {
+      return false;
+    }
+
+    return window.matchMedia('(pointer: coarse)').matches;
   };
 
 
@@ -232,7 +228,7 @@ export const ChatInput = ({
     } catch (error) {
       console.error('Error processing image:', error);
       alert('Failed to upload image. Please try again.');
-      handleInputFileDelete(null as any);
+      handleInputFileDelete(null);
     } finally {
       setIsUploadingImage(false);
     }
@@ -385,44 +381,45 @@ export const ChatInput = ({
 
   return (
     <div
-      className={`absolute bottom-0 left-0 w-full border-transparent bg-white dark:bg-dark-bg-primary pt-8 dark:border-white/20 ${isMobile() ? 'pb-[calc(24px+env(safe-area-inset-bottom))]' : 'pb-[calc(24px+env(safe-area-inset-bottom))]'}`}
-      style={{ paddingBottom: `calc(24px + env(safe-area-inset-bottom))` }}
+      className="sticky bottom-0 left-0 right-0 z-30 border-transparent bg-gradient-to-t from-bg-secondary via-bg-secondary/95 to-bg-secondary/0 pb-6 pt-6 dark:from-dark-bg-primary dark:via-dark-bg-primary/95 dark:to-dark-bg-primary/0"
+      style={{
+        paddingBottom: `calc(24px + env(safe-area-inset-bottom))`,
+      }}
     >
-      <div className="stretch mx-3 mt-5 flex flex-row gap-4 last:mb-2 md:mx-4 md:mt-[52px] md:gap-3 2xl:mx-auto 2xl:max-w-5xl">
-        {messageIsStreaming && (
-          <button
-            className="absolute top-0 left-0 right-0 mx-auto mb-3 flex w-fit items-center gap-3 rounded border border-neutral-200 bg-white py-2 px-4 text-black hover:opacity-50 dark:border-neutral-600 dark:bg-dark-bg-primary dark:text-white md:mb-0 md:mt-2"
-            onClick={handleStopConversation}
-          >
-            <IconPlayerStop size={16} /> {t('Stop Generating')}
-          </button>
-        )}
-
-        {!messageIsStreaming &&
-          selectedConversation &&
-          selectedConversation.messages.length > 1 &&
-          // selectedConversation.messages[selectedConversation.messages.length - 1].role === 'assistant' &&
-          (
+      <div className="stretch mx-auto flex w-full max-w-3xl flex-col gap-4 px-4 sm:px-6">
+        <div className="-mt-6 flex justify-center">
+          {messageIsStreaming ? (
             <button
-              className="absolute top-0 left-0 right-0 mx-auto mb-3 flex w-fit items-center gap-3 rounded border border-neutral-200 bg-white py-2 px-4 text-black hover:opacity-50 dark:border-neutral-600 dark:bg-dark-bg-primary dark:text-white md:mb-0 md:mt-2"
-              onClick={onRegenerate}
+              className="inline-flex items-center gap-2 rounded-full bg-neutral-900 px-4 py-2 text-sm font-medium text-white shadow-sm transition-colors duration-150 hover:bg-neutral-800 dark:bg-nvidia-green dark:text-neutral-900"
+              onClick={handleStopConversation}
             >
-              <IconRepeat size={16} /> {t('Regenerate response')}
+              <IconPlayerStop size={16} /> {t('Stop Generating')}
             </button>
+          ) : (
+            selectedConversation &&
+            selectedConversation.messages.length > 1 && (
+              <button
+                className="inline-flex items-center gap-2 rounded-full border border-neutral-200 bg-bg-primary px-4 py-2 text-sm font-medium text-text-primary shadow-sm transition-colors duration-150 hover:border-neutral-300 hover:text-neutral-900 dark:border-neutral-700 dark:bg-dark-bg-tertiary dark:text-neutral-100 dark:hover:border-neutral-600"
+                onClick={onRegenerate}
+              >
+                <IconRepeat size={16} /> {t('Regenerate response')}
+              </button>
+            )
           )}
+        </div>
 
-        <div className="relative mx-3 sm:mx-4 flex w-[calc(100%-1.5rem)] sm:w-full flex-grow flex-col rounded-xl border border-black/10 bg-white shadow-[0_0_12px_rgba(0,0,0,0.12)] dark:border-gray-900/50 dark:bg-dark-bg-tertiary dark:text-white dark:shadow-[0_0_18px_rgba(0,0,0,0.12)] md:rounded-lg">
+        <div className="relative mx-auto flex w-full max-w-3xl flex-grow flex-col rounded-3xl border border-neutral-200/70 bg-bg-primary/95 px-4 py-3 shadow-[0_10px_40px_rgba(15,23,42,0.08)] backdrop-blur supports-[backdrop-filter]:bg-bg-primary/80 dark:border-neutral-700 dark:bg-dark-bg-tertiary/90 dark:text-white">
           <textarea
             ref={textareaRef}
-            className="m-0 w-full resize-none border-0 sm:p-3 sm:pl-8 bg-transparent p-0 py-4 pr-11 pl-12 text-black dark:bg-transparent dark:text-white md:py-3 md:pl-10 outline-none"
+            className="m-0 w-full resize-none border-0 bg-transparent py-4 pr-12 pl-12 text-[15px] leading-relaxed text-neutral-900 outline-none placeholder:text-neutral-400 focus:outline-none dark:bg-transparent dark:text-white"
             style={{
               resize: 'none',
               bottom: `${textareaRef?.current?.scrollHeight}px`,
-              minHeight: '48px',
+              minHeight: '54px',
               maxHeight: '320px',
               overflow: `${textareaRef.current && textareaRef.current.scrollHeight > 400 ? 'auto' : 'hidden'}`,
             }}
-            placeholder={isRecording ? 'Listening...' : ``}
+            placeholder={isRecording ? 'Listening…' : t('Send a message')}
             value={content}
             rows={1}
             onCompositionStart={() => setIsTyping(true)}
@@ -432,31 +429,31 @@ export const ChatInput = ({
             {...(appConfig?.fileUploadEnabled && {
               onDragOver: handleDragOver,
               onDrop: handleDrop,
-              onPaste: handlePaste
+              onPaste: handlePaste,
             })}
           />
           {inputFile && (imageRef || inputFileContentCompressed) &&
             <div>
-              <div className="relative right-0 top-0 p-3 bg-nvidia-green-light dark:bg-green-700 text-black dark:text-white flex flex-col gap-2 rounded-lg">
+              <div className="relative right-0 top-0 flex flex-col gap-2 rounded-2xl border border-neutral-200 bg-neutral-50 p-3 text-black shadow-sm dark:border-neutral-600 dark:bg-dark-bg-primary dark:text-white">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <IconPhoto className="ml-8" size={16} />
-                    <span className="text-sm">{inputFile}</span>
-                    {isUploadingImage && <span className="text-xs opacity-75">Uploading...</span>}
+                    <IconPhoto className="ml-2 text-neutral-600 dark:text-neutral-200" size={16} />
+                    <span className="text-sm font-medium text-neutral-700 dark:text-neutral-50">{inputFile}</span>
+                    {isUploadingImage && <span className="text-xs text-neutral-500">Uploading…</span>}
                   </div>
                   <IconTrash
-                    className="hover:text-[#ff1717e9] cursor-pointer"
+                    className="cursor-pointer text-neutral-400 transition-colors duration-150 hover:text-red-500"
                     size={18}
-                    onClick={handleInputFileDelete}
+                    onClick={handleInputFileDelete as unknown as any}
                   />
                 </div>
                 {/* Show preview using OptimizedImage */}
                 {imageRef && (
-                  <div className="max-w-[200px] mx-auto">
+                  <div className="mx-auto max-w-[220px]">
                     <OptimizedImage
                       imageRef={imageRef}
                       alt={inputFile}
-                      className="rounded-md"
+                      className="rounded-xl"
                     />
                   </div>
                 )}
@@ -467,7 +464,7 @@ export const ChatInput = ({
             appConfig?.fileUploadEnabled && !inputFile &&
             <>
               <button
-                className="absolute right-12 top-1/2 -translate-y-1/2 rounded-md p-2 text-neutral-800 opacity-60 hover:text-nvidia-green dark:bg-opacity-50 dark:text-neutral-100 dark:hover:text-neutral-200"
+            className="absolute right-12 top-1/2 -translate-y-1/2 rounded-full p-2 text-neutral-500 transition-colors duration-150 hover:bg-neutral-100 hover:text-neutral-900 dark:text-neutral-300 dark:hover:bg-dark-bg-primary/60"
                 onClick={triggerFileUpload}
                 disabled={isUploadingImage}
               >
@@ -489,9 +486,9 @@ export const ChatInput = ({
           }
           <button
             onClick={handleSpeechToText}
-            className={`absolute left-3 top-1/2 -translate-y-1/2 rounded-md p-2 text-neutral-800 opacity-60 dark:bg-opacity-50 dark:text-neutral-100 ${messageIsStreaming
-              ? 'text-neutral-400' // Disable hover and change color when streaming
-              : 'hover:text-nvidia-green dark:hover:text-neutral-200' // Normal hover effect
+            className={`absolute left-3 top-1/2 -translate-y-1/2 rounded-full p-2 text-neutral-500 transition-colors duration-150 dark:text-neutral-300 ${messageIsStreaming
+              ? 'text-neutral-400'
+              : 'hover:bg-neutral-100 hover:text-neutral-900 dark:hover:bg-dark-bg-primary/60'
               }`}
             disabled={messageIsStreaming}
           >
@@ -502,7 +499,7 @@ export const ChatInput = ({
             )}
           </button>
           <button
-            className="absolute right-3 top-1/2 -translate-y-1/2 rounded-md p-2 text-neutral-800 opacity-60 hover:bg-neutral-200 hover:text-neutral-900 dark:bg-opacity-50 dark:text-neutral-100 dark:hover:text-neutral-200"
+            className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full bg-neutral-900 p-2 text-white transition-transform duration-150 hover:scale-105 dark:bg-nvidia-green"
             onClick={handleSend}
           >
             {messageIsStreaming ? (
@@ -513,10 +510,11 @@ export const ChatInput = ({
           </button>
 
           {showScrollDownButton && (
-            <div className="absolute bottom-[calc(3rem+env(safe-area-inset-bottom))] right-2 lg:bottom-2 lg:-right-10">
+            <div className="pointer-events-none absolute -top-14 right-0 flex items-center justify-end">
               <button
-                className="flex h-9 w-9 items-center justify-center rounded-full bg-neutral-300 text-gray-800 shadow-md hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-neutral-200"
+                className="pointer-events-auto flex h-10 w-10 items-center justify-center rounded-full border border-neutral-200 bg-bg-primary text-text-primary shadow-md transition-colors duration-150 hover:border-neutral-300 hover:text-neutral-900 dark:border-neutral-700 dark:bg-dark-bg-tertiary dark:text-neutral-200 dark:hover:border-neutral-600"
                 onClick={onScrollDownClick}
+                aria-label={t('Scroll to bottom')}
               >
                 <IconArrowDown size={18} />
               </button>

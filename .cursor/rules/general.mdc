@@ -30,7 +30,7 @@ These are the overarching standards that every **source, test, documentation and
 
 ## Project Structure
 
-- All importable Python code lives under `src/` or `packages/<pkg>/src/` so namespace-packages resolve correctly.
+- All importable Python code lives under `builder`, `src/` or `packages/<pkg>/src/` so namespace-packages resolve correctly.
 - Each example is an installable package in `examples/<example_name>` and exposes an `__main__.py` for `python -m <example_name>` execution.
 - **Examples directory guidelines**:
   - At minimum, examples should contain a `README.md` or `README.ipynb` file.

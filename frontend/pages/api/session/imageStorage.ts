@@ -134,14 +134,20 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
   } else if (req.method === 'GET') {
     // Retrieve image
-    const { imageId } = req.query;
+    const { imageId, sessionId: querySessionId } = req.query;
 
     if (!imageId || typeof imageId !== 'string') {
       return res.status(400).json({ error: 'Invalid image ID' });
     }
 
+    // Allow retrieving images from other sessions (for cross-device persistence)
+    // Use the sessionId from query params if provided, otherwise use current session
+    const targetSessionId = (typeof querySessionId === 'string' && querySessionId)
+      ? querySessionId
+      : sessionId;
+
     try {
-      const image = await getImage(sessionId, imageId);
+      const image = await getImage(targetSessionId, imageId);
 
       if (!image) {
         return res.status(404).json({ error: 'Image not found' });

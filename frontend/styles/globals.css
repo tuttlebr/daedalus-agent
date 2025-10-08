@@ -392,6 +392,26 @@
   --color-nvidia-green-light: #91c438;
   --color-nvidia-green-bright: #8ed400;
 
+  /* Chat bubble palette */
+  --chat-bubble-user-bg: rgba(118, 185, 0, 0.14);
+  --chat-bubble-user-border: rgba(118, 185, 0, 0.35);
+  --chat-bubble-assistant-bg: rgba(38, 38, 38, 0.88);
+  --chat-bubble-assistant-border: rgba(38, 38, 38, 0.08);
+
+  /* Dark mode chat bubble colors */
+  --chat-bubble-user-bg-dark: rgba(118, 185, 0, 0.14);
+  --chat-bubble-user-border-dark: rgba(118, 185, 0, 0.35);
+  --chat-bubble-assistant-bg-dark: rgba(26, 26, 26, 0.9);
+  --chat-bubble-assistant-border-dark: rgba(64, 64, 64, 1);
+
+  /* Action button colors (Copy, Listen, etc.) */
+  --action-button-bg: rgba(229, 229, 229, 0.8);
+  --action-button-text: #1f2937;
+  --action-button-hover-bg: rgba(212, 212, 212, 1);
+  --action-button-bg-dark: rgba(36, 36, 36, 0.8);
+  --action-button-text-dark: #f3f4f6;
+  --action-button-hover-bg-dark: rgba(30, 30, 30, 1);
+
   /* =================================================================
      TYPOGRAPHY
      System fonts with NVIDIA Sans as primary
@@ -409,10 +429,10 @@
      DARK THEME COLORS (Default)
      Pure blacks and high contrast for modern UI
      ================================================================= */
-  --color-dark-bg-primary: #000000;
-  --color-dark-bg-secondary: #1f1e1e;
-  --color-dark-bg-tertiary: #111111;
-  --color-dark-bg-quaternary: #1a1a1a;
+  --color-dark-bg-primary: #0a0a0a;
+  --color-dark-bg-secondary: #1a1a1a;
+  --color-dark-bg-tertiary: #1e1e1e;
+  --color-dark-bg-quaternary: #242424;
 
   --color-dark-text-primary: #ffffff;
   --color-dark-text-secondary: #e5e5e5;

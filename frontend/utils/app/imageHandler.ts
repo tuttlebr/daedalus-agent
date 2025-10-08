@@ -40,7 +40,7 @@ export async function uploadImage(base64Data: string, mimeType: string = 'image/
 
 // Get image URL from reference
 export function getImageUrl(imageRef: ImageReference): string {
-  return `/api/session/imageStorage?imageId=${imageRef.imageId}`;
+  return `/api/session/imageStorage?imageId=${imageRef.imageId}&sessionId=${imageRef.sessionId}`;
 }
 
 // Process message to replace base64 images with references
@@ -237,4 +237,47 @@ export async function deleteImage(imageId: string): Promise<void> {
     console.error('Error deleting image:', error);
     throw error;
   }
+}
+
+// Process markdown content to extract and store base64 images, replacing them with references
+export async function processMarkdownImages(content: string): Promise<string> {
+  if (!content || typeof content !== 'string') {
+    return content;
+  }
+
+  // Regex to match markdown images with base64 data
+  const markdownImageRegex = /!\[([^\]]*)\]\((data:image\/[a-zA-Z]+;base64,[^\)]+)\)/g;
+
+  let processedContent = content;
+  const matches = Array.from(content.matchAll(markdownImageRegex));
+
+  // Process each image sequentially to avoid race conditions
+  for (const match of matches) {
+    try {
+      const fullMatch = match[0];
+      const altText = match[1] || 'Generated image';
+      const base64Data = match[2];
+
+      // Extract mime type from data URL
+      const mimeTypeMatch = base64Data.match(/data:(image\/[a-zA-Z]+);base64,/);
+      const mimeType = mimeTypeMatch ? mimeTypeMatch[1] : 'image/png';
+
+      // Upload to Redis
+      const imageRef = await uploadImage(base64Data, mimeType);
+
+      // Create a reference URL that can be rendered
+      const imageUrl = getImageUrl(imageRef);
+
+      // Replace the base64 image with the reference URL
+      const replacement = `![${altText}](${imageUrl})`;
+      processedContent = processedContent.replace(fullMatch, replacement);
+
+      console.log(`Processed markdown image: ${altText}, stored as ${imageRef.imageId}`);
+    } catch (error) {
+      console.error('Failed to process markdown image:', error);
+      // Keep the original base64 image if processing fails
+    }
+  }
+
+  return processedContent;
 }
