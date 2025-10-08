@@ -87,12 +87,17 @@ export async function processMessageImages(message: ProcessedMessage): Promise<P
 export function cleanMessagesForLLM(messages: any[]): Message[] {
   const cleaned = messages.map((message) => {
     // Create a clean copy without attachments first
-    const cleanedMessage = {
+    const cleanedMessage: any = {
       role: message.role,
       content: message.content || '',
       id: message.id,
       // Explicitly exclude attachments and any other fields that might contain base64
     };
+
+    // Preserve metadata (includes useDeepThinker flag)
+    if (message.metadata) {
+      cleanedMessage.metadata = message.metadata;
+    }
 
     // If message has attachments, add text descriptions instead of raw data
     if (message.attachments && message.attachments.length > 0) {

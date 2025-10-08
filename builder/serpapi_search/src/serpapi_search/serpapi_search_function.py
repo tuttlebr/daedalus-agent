@@ -2,7 +2,8 @@ import logging
 import os
 import time
 import uuid
-from typing import Any
+from collections.abc import Mapping
+from typing import TypedDict
 
 import serpapi
 from nat.builder.builder import Builder
@@ -13,6 +14,24 @@ from pydantic import BaseModel, Field
 
 from .geolocation_helper import GeolocationResult
 from .result_scraper import SerpLinkScraperSettings, scrape_serp_links
+
+
+class WorkflowMapping(TypedDict, total=False):
+    query: object
+    q: object
+    text: object
+    input: object
+    message: object
+    prompt: object
+    location: object
+    num: object
+    n: object
+    limit: object
+    page: object
+    time_period: object
+    api_key: object
+    request: "WorkflowMapping"
+
 
 logger = logging.getLogger(__name__)
 
@@ -112,15 +131,15 @@ class SearchResponse(BaseModel):
     success: bool
     query: str
     total_results: int | None = None
-    ai_overview: dict[str, Any] | None = None
-    answer_box: dict[str, Any] | None = None
+    ai_overview: dict[str, object] | None = None
+    answer_box: dict[str, object] | None = None
     organic_results: list[SearchResult] = Field(default_factory=list)
     top_stories: list[TopStory] = Field(default_factory=list)
-    hierarchy_levels: list[dict[str, Any]] = Field(default_factory=list)
-    organic_scrape: dict[str, Any] | None = None
-    top_story_scrape: dict[str, Any] | None = None
+    hierarchy_levels: list[dict[str, object]] = Field(default_factory=list)
+    organic_scrape: dict[str, object] | None = None
+    top_story_scrape: dict[str, object] | None = None
     error: str | None = None
-    raw_response: dict[str, Any] | None = None
+    raw_response: dict[str, object] | None = None
 
 
 @register_function(config_type=SerpapiSearchFunctionConfig)
@@ -181,7 +200,7 @@ async def serpapi_search_function(
 
         return location_str
 
-    async def _search_function(request: dict[str, Any]) -> dict[str, Any]:
+    async def _search_function(request: str | WorkflowMapping) -> dict[str, object]:
         """
         Perform a Google search using SerpAPI.
 
@@ -215,18 +234,19 @@ async def serpapi_search_function(
                     request,
                 )
                 search_request = SearchRequest(query=request)
-            elif isinstance(request, dict):
-                raw_dict = request
+            elif isinstance(request, Mapping):
+                raw_dict: WorkflowMapping = request
                 # NAT may wrap inputs under a 'request' key
-                if isinstance(raw_dict.get("request"), dict):
-                    raw_dict = raw_dict["request"]
+                inner = raw_dict.get("request")
+                if isinstance(inner, Mapping):
+                    raw_dict = inner  # type: ignore[assignment]
 
                 logger.debug(
                     "[%s] Raw request keys: %s", request_id, list(raw_dict.keys())
                 )
 
                 # Normalize to SearchRequest fields
-                parsed: dict[str, Any] = {}
+                parsed: dict[str, object] = {}
 
                 # Map possible query fields
                 for key in [
@@ -442,7 +462,7 @@ async def serpapi_search_function(
             top_stories_payload = [item.model_dump() for item in top_stories_models]
 
             # Build hierarchy levels
-            hierarchy_levels: list[dict[str, Any]] = []
+            hierarchy_levels: list[dict[str, object]] = []
 
             # Level 0: AI Overview (highest priority)
             level_zero_data = {"ai_overview": ai_overview} if ai_overview else {}
@@ -467,7 +487,7 @@ async def serpapi_search_function(
             )
 
             # Level 2: Answer Box + Organic Results
-            level_two_data: dict[str, Any] = {}
+            level_two_data: dict[str, object] = {}
             if answer_box:
                 level_two_data["answer_box"] = answer_box
             if organic_results_payload:
@@ -495,8 +515,8 @@ async def serpapi_search_function(
             )
 
             # Scrape representative links from results (skip if ai_overview is present)
-            organic_scrape_data: dict[str, Any] | None = None
-            top_story_scrape_data: dict[str, Any] | None = None
+            organic_scrape_data: dict[str, object] | None = None
+            top_story_scrape_data: dict[str, object] | None = None
 
             if ai_overview:
                 # AI Overview provides sufficient context, skip web scraping
@@ -559,13 +579,16 @@ async def serpapi_search_function(
 
         except Exception as e:
             logger.exception("[%s] Search error: %s", request_id, str(e))
+            fallback_query = ""
+            if isinstance(request, Mapping):
+                raw_query = request.get("query")
+                if isinstance(raw_query, str):
+                    fallback_query = raw_query
+            if not fallback_query:
+                fallback_query = str(request)
             return SearchResponse(
                 success=False,
-                query=(
-                    request.get("query", "")
-                    if isinstance(request, dict)
-                    else str(request)
-                ),
+                query=fallback_query,
                 error=str(e),
             ).model_dump()
 

@@ -1,7 +1,6 @@
 import logging
 import os
 from functools import partial
-from typing import Any
 
 import requests
 from langchain_core.embeddings import Embeddings
@@ -34,7 +33,7 @@ class MilvusRetriever(Retriever):
         use_iterator: bool = False,
         database_name: str | None = None,
         vector_field_name: str = "vector",
-        reranker_config: dict[str, Any] | None = None,
+        reranker_config: dict[str, object] | None = None,
     ) -> None:
         """
         Initialize the Milvus Retriever using a preconfigured MilvusClient.

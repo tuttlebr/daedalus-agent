@@ -123,6 +123,19 @@ redisinsight:
 ingress:
   enabled: false
   className: ""
-  annotations: {}
+  annotations:
+    # Nginx Ingress Controller - Increase timeouts for long-running AI requests
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "600"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "600"
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+    # Disable buffering for streaming responses
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"
+    nginx.ingress.kubernetes.io/proxy-request-buffering: "off"
+    # Traefik Ingress Controller (alternative)
+    # traefik.ingress.kubernetes.io/timeout: "600s"
+    # HAProxy Ingress Controller (alternative)
+    # haproxy.org/timeout-client: "600s"
+    # haproxy.org/timeout-server: "600s"
   hosts: []
   tls: []

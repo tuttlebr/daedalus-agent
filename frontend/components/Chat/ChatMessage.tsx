@@ -1,5 +1,6 @@
 'use client';
 import {
+  IconBrain,
   IconCheck,
   IconCopy,
   IconPlayerPause,
@@ -148,6 +149,7 @@ export const ChatMessage: FC<Props> = memo(({ message, messageIndex }) => {
   const bubbleClasses = cx(
     'relative w-full max-w-full rounded-2xl border px-4 py-3 text-[15px] leading-relaxed shadow-sm transition-colors duration-200',
     'backdrop-blur supports-[backdrop-filter]:bg-white/90',
+    'overflow-hidden',
     isAssistantMessage
       ? 'self-start border-[var(--chat-bubble-assistant-border)] bg-[var(--chat-bubble-assistant-bg)] text-gray-900 dark:border-[var(--chat-bubble-assistant-border-dark)] dark:bg-[var(--chat-bubble-assistant-bg-dark)] dark:text-gray-100'
       : 'self-end border-[var(--chat-bubble-user-border)] bg-[var(--chat-bubble-user-bg)] text-gray-900 dark:border-[var(--chat-bubble-user-border-dark)] dark:bg-[var(--chat-bubble-user-bg-dark)] dark:text-gray-50'
@@ -155,7 +157,10 @@ export const ChatMessage: FC<Props> = memo(({ message, messageIndex }) => {
 
   const markdownBaseClasses = cx(
     'prose prose-neutral max-w-none break-words text-[15px] leading-relaxed dark:prose-invert',
-    '[&>*]:max-w-full [&_*]:break-words'
+    '[&>*]:max-w-full [&_*]:break-words',
+    '[&_pre]:max-w-full [&_pre]:overflow-x-auto',
+    '[&_code]:break-words [&_code]:whitespace-pre-wrap',
+    '[&_table]:w-full [&_table]:table-fixed'
   );
 
   const actionBarClasses = cx(
@@ -177,6 +182,13 @@ export const ChatMessage: FC<Props> = memo(({ message, messageIndex }) => {
         </div>
 
         <div className={cx('flex min-w-0 flex-1 flex-col', isAssistantMessage ? 'items-start' : 'items-end')}>
+          {/* Deep Thinker mode badge for user messages */}
+          {message.role === 'user' && (message as any).metadata?.useDeepThinker && (
+            <div className="mb-1 flex items-center gap-1.5 px-2 py-1 rounded-full bg-nvidia-green/10 border border-nvidia-green/30 text-xs text-nvidia-green dark:bg-nvidia-green/20 dark:border-nvidia-green/40">
+              <IconBrain size={12} />
+              <span className="font-medium">Deep Thinker</span>
+            </div>
+          )}
           <div className={bubbleClasses}>
             {message.role === 'user' ? (
               <div className={markdownBaseClasses}>

@@ -2,7 +2,8 @@ import logging
 import os
 import time
 import uuid
-from typing import Any
+from collections.abc import Mapping
+from typing import Any, TypedDict
 
 import serpapi
 from nat.builder.builder import Builder
@@ -13,6 +14,24 @@ from pydantic import BaseModel, Field
 
 from .geolocation_helper import GeolocationResult
 from .result_scraper import SerpLinkScraperSettings, scrape_serp_links
+
+
+class WorkflowMapping(TypedDict, total=False):
+    query: object
+    q: object
+    text: object
+    input: object
+    message: object
+    prompt: object
+    location: object
+    num: object
+    n: object
+    limit: object
+    page: object
+    time_period: object
+    api_key: object
+    request: "WorkflowMapping"
+
 
 logger = logging.getLogger(__name__)
 
@@ -113,7 +132,7 @@ class SearchResponse(BaseModel):
     success: bool
     query: str
     news_results: list[NewsResult] = Field(default_factory=list)
-    scraped_articles: list[dict[str, Any]] = Field(default_factory=list)
+    scraped_articles: list[dict[str, object]] = Field(default_factory=list)
     error: str | None = None
 
 
@@ -181,7 +200,7 @@ async def serpapi_news_function(
 
         return location_str, None
 
-    async def _search_function(request: dict[str, Any]) -> dict[str, Any]:
+    async def _search_function(request: str | WorkflowMapping) -> dict[str, object]:
         """
         Perform a Google News search using SerpAPI.
 
@@ -214,11 +233,12 @@ async def serpapi_news_function(
                     request,
                 )
                 search_request = SearchRequest(query=request)
-            elif isinstance(request, dict):
-                raw_dict = request
+            elif isinstance(request, Mapping):
+                raw_dict: WorkflowMapping = request
                 # NAT may wrap inputs under a 'request' key
-                if isinstance(raw_dict.get("request"), dict):
-                    raw_dict = raw_dict["request"]
+                inner = raw_dict.get("request")
+                if isinstance(inner, Mapping):
+                    raw_dict = inner  # type: ignore[assignment]
 
                 logger.debug(
                     "[%s] Raw request keys: %s",
@@ -227,7 +247,7 @@ async def serpapi_news_function(
                 )
 
                 # Normalize to SearchRequest fields
-                parsed: dict[str, Any] = {}
+                parsed: dict[str, object] = {}
 
                 # Map possible query fields
                 for key in [
@@ -493,13 +513,16 @@ async def serpapi_news_function(
 
         except Exception as e:
             logger.exception("[%s] Search error: %s", request_id, str(e))
+            fallback_query = ""
+            if isinstance(request, Mapping):
+                raw_query = request.get("query")
+                if isinstance(raw_query, str):
+                    fallback_query = raw_query
+            if not fallback_query:
+                fallback_query = str(request)
             return SearchResponse(
                 success=False,
-                query=(
-                    request.get("query", "")
-                    if isinstance(request, dict)
-                    else str(request)
-                ),
+                query=fallback_query,
                 error=str(e),
             ).model_dump()
 

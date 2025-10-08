@@ -9,6 +9,8 @@ export const config = {
       sizeLimit: '5mb',
     },
   },
+  // Increase timeout for long-running requests (Edge runtime default is 30s)
+  maxDuration: 300, // 5 minutes
 };
 
 // Helper function to track usage (Edge runtime compatible)

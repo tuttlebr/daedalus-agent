@@ -72,19 +72,19 @@ export const getReactMarkDownCustomComponents = (messageIndex = 0, messageId = '
     }, (prevProps, nextProps) => isEqual(prevProps.children, nextProps.children)),
 
     table: memo(({ children }) => (
-      <table className="border-collapse border border-black px-3 py-1 dark:border-white">
+      <table className="border-collapse border border-black dark:border-white w-full table-fixed my-3">
         {children}
       </table>
     ), (prevProps, nextProps) => isEqual(prevProps.children, nextProps.children)),
 
     th: memo(({ children }) => (
-      <th className="break-words border border-black bg-gray-500 px-3 py-1 text-white dark:border-white">
+      <th className="border border-black bg-gray-500 px-3 py-1 text-white dark:border-white align-top" style={{ wordBreak: 'break-word', overflowWrap: 'anywhere', whiteSpace: 'normal' }}>
         {children}
       </th>
     ), (prevProps, nextProps) => isEqual(prevProps.children, nextProps.children)),
 
     td: memo(({ children }) => (
-      <td className="break-words border border-black px-3 py-1 dark:border-white">
+      <td className="border border-black px-3 py-1 dark:border-white align-top" style={{ wordBreak: 'break-word', overflowWrap: 'anywhere', whiteSpace: 'normal' }}>
         {children}
       </td>
     ), (prevProps, nextProps) => isEqual(prevProps.children, nextProps.children)),

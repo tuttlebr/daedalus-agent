@@ -5,6 +5,10 @@ export interface Message {
   intermediateSteps?: any;
   humanInteractionMessages?: any;
   errorMessages?: any;
+  metadata?: {
+    useDeepThinker?: boolean;
+    [key: string]: any;
+  };
   attachments?: Array<{
     content: string;
     type: string;
