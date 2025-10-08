@@ -131,6 +131,13 @@ export const Chat = () => {
         // cleaning up messages to fit the request payload and remove image data
         const messagesCleaned = cleanMessagesForLLM(updatedConversation.messages);
 
+        // Apply Deep Thinker system instruction if the last user message has the metadata flag
+        const lastMessage = messagesCleaned[messagesCleaned.length - 1];
+        if (lastMessage?.role === 'user' && (lastMessage as any).metadata?.useDeepThinker) {
+          // Append system instruction only to the API request, not to displayed/saved content
+          lastMessage.content = `${lastMessage.content}\n\n[SYSTEM INSTRUCTION: You MUST use the deep_thinker_tool to analyze this question through deep philosophical and multi-perspective analysis, applying first-principles reasoning and Socratic questioning. Do not use any other tools.]`;
+        }
+
         const chatBody: ChatBody = {
           messages: messagesCleaned,
           // Use user-specific storage key to prevent data leakage between users
@@ -575,7 +582,7 @@ export const Chat = () => {
         >
           <div className="mx-auto flex h-full w-full max-w-5xl flex-col px-4 pb-8 pt-6 sm:px-6 lg:px-8">
             {hasMessages ? (
-              <div className="flex flex-col space-y-4 sm:space-y-5">
+              <div className="flex flex-col space-y-4 sm:space-y-5 min-w-0">
                 {selectedConversation?.messages.map((message, index) => (
                   <MemoizedChatMessage
                     key={message.id || index}

@@ -860,6 +860,59 @@ img {
   }
 }
 
+/* Handle wide content in chat messages */
+.prose pre {
+  max-width: 100% !important;
+  overflow-x: auto !important;
+}
+
+.prose code {
+  word-break: break-word !important;
+  overflow-wrap: break-word !important;
+}
+
+/* Tables fit within container with wrapping */
+.prose table {
+  display: table !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  table-layout: fixed !important;
+  margin: 0.75rem 0 !important;
+}
+
+/* Table cells wrap content */
+.prose th,
+.prose td {
+  white-space: normal !important;
+  word-wrap: break-word !important;
+  overflow-wrap: break-word !important;
+  word-break: break-word !important;
+  hyphens: auto !important;
+  vertical-align: top !important;
+}
+
+/* Ensure table headers and cells have proper padding */
+.prose th {
+  padding: 0.75rem !important;
+  font-weight: 600 !important;
+}
+
+.prose td {
+  padding: 0.75rem !important;
+}
+
+/* Break long URLs */
+.prose a {
+  word-break: break-all !important;
+  overflow-wrap: anywhere !important;
+}
+
+/* Prevent images from exceeding container */
+.prose img {
+  max-width: 100% !important;
+  height: auto !important;
+}
+
 /* Optimized image rendering for mobile */
 .optimized-image {
   will-change: transform;

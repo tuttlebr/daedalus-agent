@@ -8,6 +8,7 @@ import {
   IconRepeat,
   IconSend,
   IconTrash,
+  IconBrain,
 } from '@tabler/icons-react';
 import {
   KeyboardEvent,
@@ -68,6 +69,7 @@ export const ChatInput = ({
   const [imageRef, setImageRef] = useState<ImageReference | null>(null);
   const [isUploadingImage, setIsUploadingImage] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
+  const [useDeepThinker, setUseDeepThinker] = useState(false);
   const recognitionRef = useRef(null);
 
   const triggerFileUpload = () => {
@@ -118,10 +120,14 @@ export const ChatInput = ({
       return;
     }
 
+    // Store deep thinker mode in metadata instead of appending to content
     if (inputFile || imageRef) {
       onSend({
         role: 'user',
         content: content,
+        metadata: {
+          useDeepThinker: useDeepThinker
+        },
         attachments: [{
           content: '', // Don't send base64 in the message
           type: 'image',
@@ -137,7 +143,13 @@ export const ChatInput = ({
     }
 
     else {
-      onSend({ role: 'user', content })
+      onSend({
+        role: 'user',
+        content: content,
+        metadata: {
+          useDeepThinker: useDeepThinker
+        }
+      })
       setContent('');
       setInputFile(null)
       setInputFileExtension('')
@@ -387,13 +399,13 @@ export const ChatInput = ({
       }}
     >
       <div className="stretch mx-auto flex w-full max-w-5xl flex-col gap-4 px-4 sm:px-6">
-        <div className="-mt-6 flex justify-center">
+        <div className="-mt-6 flex justify-center items-center gap-3">
           {messageIsStreaming ? (
             <button
               className="inline-flex items-center gap-2 rounded-full bg-neutral-900 px-4 py-2 text-sm font-medium text-white shadow-sm transition-colors duration-150 hover:bg-neutral-800 dark:bg-nvidia-green dark:text-neutral-900"
               onClick={handleStopConversation}
             >
-              <IconPlayerStop size={16} /> {t('Stop Generating')}
+              <IconPlayerStop size={14} /> {t('Stop Generating')}
             </button>
           ) : (
             selectedConversation &&
@@ -402,9 +414,22 @@ export const ChatInput = ({
                 className="inline-flex items-center gap-2 rounded-full border border-neutral-200 bg-bg-primary px-4 py-2 text-sm font-medium text-text-primary shadow-sm transition-colors duration-150 hover:border-neutral-300 hover:text-neutral-900 dark:border-neutral-700 dark:bg-dark-bg-tertiary dark:text-neutral-100 dark:hover:border-neutral-600"
                 onClick={onRegenerate}
               >
-                <IconRepeat size={16} /> {t('Regenerate response')}
+                <IconRepeat size={14} /> {t('Regenerate response')}
               </button>
             )
+          )}
+          {!messageIsStreaming && (
+            <button
+              className={`inline-flex items-center gap-2 rounded-full border px-4 py-2 text-sm font-medium shadow-sm transition-colors duration-150 ${
+                useDeepThinker
+                  ? 'border-nvidia-green bg-nvidia-green/10 text-nvidia-green hover:bg-nvidia-green/20 dark:border-nvidia-green dark:bg-nvidia-green/20 dark:text-nvidia-green'
+                  : 'border-neutral-200 bg-bg-primary text-text-primary hover:border-neutral-300 hover:text-neutral-900 dark:border-neutral-700 dark:bg-dark-bg-tertiary dark:text-neutral-100 dark:hover:border-neutral-600'
+              }`}
+              onClick={() => setUseDeepThinker(!useDeepThinker)}
+              title="Enable deep philosophical analysis with first-principles reasoning"
+            >
+              <IconBrain size={14} /> Deep Thinker {useDeepThinker ? 'ON' : 'OFF'}
+            </button>
           )}
         </div>
 

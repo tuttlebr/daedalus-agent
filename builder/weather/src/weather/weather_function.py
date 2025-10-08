@@ -1,7 +1,6 @@
 import logging
 import os
 from dataclasses import dataclass
-from typing import Any
 
 import httpx
 from nat.builder.builder import Builder
@@ -193,8 +192,8 @@ class WeatherAPIClient:
         longitude: float,
         include_hourly: bool,
         timeout: float,
-    ) -> dict[str, Any]:
-        params: dict[str, Any] = {
+    ) -> dict[str, object]:
+        params: dict[str, object] = {
             "latitude": latitude,
             "longitude": longitude,
             "current": [
@@ -239,7 +238,7 @@ class WeatherAPIClient:
 
     @staticmethod
     def _extract_best_result(
-        location: str, geocoding_data: dict[str, Any]
+        location: str, geocoding_data: dict[str, object]
     ) -> LocationResult | None:
         results = geocoding_data.get("results") or []
         if not results:
@@ -269,7 +268,7 @@ def _build_fallback_location(
     )
 
 
-def _parse_current_weather(data: dict[str, Any]) -> CurrentWeather:
+def _parse_current_weather(data: dict[str, object]) -> CurrentWeather:
     current = data.get("current", {})
     return CurrentWeather(
         temperature=current.get("temperature_2m", 0.0),
@@ -281,7 +280,7 @@ def _parse_current_weather(data: dict[str, Any]) -> CurrentWeather:
     )
 
 
-def _parse_hourly_weather(data: dict[str, Any]) -> HourlyWeather | None:
+def _parse_hourly_weather(data: dict[str, object]) -> HourlyWeather | None:
     if "hourly" not in data:
         return None
     hourly = data["hourly"]
@@ -309,7 +308,7 @@ async def _geocode_step(
 
 async def _geocode_with_retriever(
     *,
-    geolocation_fn: Any,
+    geolocation_fn: object,
     location: str,
 ) -> LocationResult:
     """
@@ -419,7 +418,7 @@ async def weather_function(
         config.geolocation_retriever_name,
     )
 
-    async def _weather_workflow(request: dict[str, Any]) -> dict[str, Any]:
+    async def _weather_workflow(request: dict[str, object]) -> dict[str, object]:
         location = _extract_location(request)
         include_hourly = _extract_include_hourly(request, config.include_hourly)
 
@@ -512,7 +511,7 @@ async def weather_function(
                 location_result.display_name,
                 exc,
             )
-            response: dict[str, Any] = {
+            response: dict[str, object] = {
                 "success": False,
                 "error": str(exc),
                 "error_type": exc.__class__.__name__,
@@ -534,7 +533,7 @@ async def weather_function(
         await client.close()
 
 
-def _extract_location(request: dict[str, Any]) -> str:
+def _extract_location(request: dict[str, object]) -> str:
     if isinstance(request, dict):
         candidate_keys = [
             "location",
@@ -556,7 +555,7 @@ def _extract_location(request: dict[str, Any]) -> str:
     raise ValueError("Missing required 'location' field in request")
 
 
-def _extract_include_hourly(request: dict[str, Any], default: bool) -> bool:
+def _extract_include_hourly(request: dict[str, object], default: bool) -> bool:
     if isinstance(request, dict):
         raw = request.get("include_hourly")
         if isinstance(raw, bool):

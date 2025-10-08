@@ -29,7 +29,7 @@ export const ChatLoader: FC<Props> = ({ statusUpdateText = '' }) => {
 
   return (
     <div
-      className="group border-b border-black/10 bg-gray-50 text-gray-800 dark:border-gray-900/50 dark:bg-dark-bg-quaternary dark:text-gray-100 px-4 sm:px-0"
+      className="group border-b border-black/10 bg-gray-900/0 text-gray-800 dark:border-gray-900/50 dark:bg-transparent dark:text-gray-100 px-4 sm:px-0"
       style={{ overflowWrap: 'anywhere' }}
     >
       <div className="relative m-auto flex p-4 text-base sm:w-[95%] md:w-[92%] lg:w-[93%] 2xl:w-[59%] md:gap-6 md:py-6 lg:px-0">

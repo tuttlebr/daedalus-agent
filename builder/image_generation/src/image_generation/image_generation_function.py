@@ -1,6 +1,6 @@
 import logging
 import os
-from typing import Any, Literal
+from typing import Literal
 
 import httpx
 from nat.builder.builder import Builder, LLMFrameworkEnum
@@ -110,7 +110,7 @@ class ImageGenerationFunctionConfig(FunctionBaseConfig, name="image_generation")
     default_width: int = Field(1024, description="Default image width in pixels")
     default_height: int = Field(1024, description="Default image height in pixels")
     default_steps: int = Field(50, description="Default number of diffusion steps")
-    prompt_rewrite: dict[str, Any] | None = Field(
+    prompt_rewrite: dict[str, object] | None = Field(
         default=None,
         description=(
             "Optional prompt rewrite configuration. Set to a mapping with "
@@ -167,7 +167,7 @@ async def image_generation_function(
                 logger.warning("Prompt rewrite requested but no LLM provided")
                 return original_prompt
 
-            llm_kwargs: dict[str, Any] = {}
+            llm_kwargs: dict[str, object] = {}
             if "max_tokens" in config.prompt_rewrite:
                 llm_kwargs["max_tokens"] = config.prompt_rewrite["max_tokens"]
             if "temperature" in config.prompt_rewrite:
