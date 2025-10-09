@@ -69,7 +69,7 @@ class SerpapiAiFunctionConfig(FunctionBaseConfig, name="serpapi_ai"):
         ),
     )
     default_location: str = Field(
-        default="United States",
+        default="Ann Arbor,Michigan,United States",
         description="Default location for searches if not specified",
     )
 

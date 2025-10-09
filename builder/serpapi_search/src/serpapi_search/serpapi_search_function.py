@@ -71,7 +71,7 @@ class SerpapiSearchFunctionConfig(FunctionBaseConfig, name="serpapi_search"):
         description="Name of the geolocation retriever to use when use_geolocation_retriever is True",
     )
     default_location: str = Field(
-        default="United States",
+        default="Ann Arbor,Michigan,United States",
         description="Default location for searches if not specified in request",
     )
     default_num_results: int = Field(
