@@ -95,12 +95,10 @@ class TextBlock(BaseModel):
     reference_indexes: list[int] | None = Field(
         None, description="Indexes of supporting references"
     )
-    items: list[dict[str, object]] | None = Field(
+    items: list[dict] | None = Field(
         None, description="List items for list-type blocks"
     )
-    text_blocks: list[dict[str, object]] | None = Field(
-        None, description="Nested text blocks"
-    )
+    text_blocks: list[dict] | None = Field(None, description="Nested text blocks")
 
 
 class Reference(BaseModel):
@@ -120,7 +118,7 @@ class SearchResponse(BaseModel):
     query: str
     text_blocks: list[TextBlock] = Field(default_factory=list)
     references: list[Reference] = Field(default_factory=list)
-    search_metadata: dict[str, object] | None = None
+    search_metadata: dict | None = None
     error: str | None = None
 
 
@@ -194,7 +192,7 @@ async def serpapi_ai_function(
 
         return location_str
 
-    async def _search_function(request: str | WorkflowMapping) -> dict[str, object]:
+    async def _search_function(request: str | WorkflowMapping) -> dict:
         """
         Perform a Google AI Mode search using SerpAPI.
 
@@ -232,7 +230,7 @@ async def serpapi_ai_function(
                 )
 
                 # Normalize to SearchRequest fields
-                parsed: dict[str, object] = {}
+                parsed: dict = {}
 
                 # Map possible query fields
                 for key in [
@@ -286,7 +284,7 @@ async def serpapi_ai_function(
                 resolved_location = await _resolve_location(config.default_location)
 
             # Build search parameters for AI Mode
-            search_params: dict[str, object] = {
+            search_params: dict = {
                 "q": search_request.query,
                 "engine": "google_ai_mode",
                 "device": "desktop",

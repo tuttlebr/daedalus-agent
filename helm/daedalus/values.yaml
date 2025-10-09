@@ -121,21 +121,26 @@ redisinsight:
     overrides: {}
 
 ingress:
-  enabled: false
+  enabled: true
   className: ""
   annotations:
-    # Nginx Ingress Controller - Increase timeouts for long-running AI requests
-    nginx.ingress.kubernetes.io/proxy-connect-timeout: "600"
-    nginx.ingress.kubernetes.io/proxy-send-timeout: "600"
-    nginx.ingress.kubernetes.io/proxy-read-timeout: "600"
+    # Nginx Ingress Controller - Increase timeouts for long-running AI requests (deep_thinker_tool can take up to 15 minutes)
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "900"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "900"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "900"
     nginx.ingress.kubernetes.io/proxy-body-size: "10m"
     # Disable buffering for streaming responses
     nginx.ingress.kubernetes.io/proxy-buffering: "off"
     nginx.ingress.kubernetes.io/proxy-request-buffering: "off"
     # Traefik Ingress Controller (alternative)
-    # traefik.ingress.kubernetes.io/timeout: "600s"
+    # traefik.ingress.kubernetes.io/timeout: "900s"
     # HAProxy Ingress Controller (alternative)
-    # haproxy.org/timeout-client: "600s"
-    # haproxy.org/timeout-server: "600s"
-  hosts: []
-  tls: []
+    # haproxy.org/timeout-client: "900s"
+    # haproxy.org/timeout-server: "900s"
+  hosts:
+    - host: daedalus.ddns.me
+      # Additional hosts can be added here
+  tls:
+    - secretName: daedalus-tls
+      hosts:
+        - daedalus.ddns.me

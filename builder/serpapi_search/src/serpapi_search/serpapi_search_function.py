@@ -131,15 +131,15 @@ class SearchResponse(BaseModel):
     success: bool
     query: str
     total_results: int | None = None
-    ai_overview: dict[str, object] | None = None
-    answer_box: dict[str, object] | None = None
+    ai_overview: dict | None = None
+    answer_box: dict | None = None
     organic_results: list[SearchResult] = Field(default_factory=list)
     top_stories: list[TopStory] = Field(default_factory=list)
-    hierarchy_levels: list[dict[str, object]] = Field(default_factory=list)
-    organic_scrape: dict[str, object] | None = None
-    top_story_scrape: dict[str, object] | None = None
+    hierarchy_levels: list[dict] = Field(default_factory=list)
+    organic_scrape: dict | None = None
+    top_story_scrape: dict | None = None
     error: str | None = None
-    raw_response: dict[str, object] | None = None
+    raw_response: dict | None = None
 
 
 @register_function(config_type=SerpapiSearchFunctionConfig)
@@ -200,7 +200,7 @@ async def serpapi_search_function(
 
         return location_str
 
-    async def _search_function(request: str | WorkflowMapping) -> dict[str, object]:
+    async def _search_function(request: str | WorkflowMapping) -> dict:
         """
         Perform a Google search using SerpAPI.
 
@@ -246,7 +246,7 @@ async def serpapi_search_function(
                 )
 
                 # Normalize to SearchRequest fields
-                parsed: dict[str, object] = {}
+                parsed: dict = {}
 
                 # Map possible query fields
                 for key in [
@@ -462,7 +462,7 @@ async def serpapi_search_function(
             top_stories_payload = [item.model_dump() for item in top_stories_models]
 
             # Build hierarchy levels
-            hierarchy_levels: list[dict[str, object]] = []
+            hierarchy_levels: list[dict] = []
 
             # Level 0: AI Overview (highest priority)
             level_zero_data = {"ai_overview": ai_overview} if ai_overview else {}
@@ -487,7 +487,7 @@ async def serpapi_search_function(
             )
 
             # Level 2: Answer Box + Organic Results
-            level_two_data: dict[str, object] = {}
+            level_two_data: dict = {}
             if answer_box:
                 level_two_data["answer_box"] = answer_box
             if organic_results_payload:
@@ -515,8 +515,8 @@ async def serpapi_search_function(
             )
 
             # Scrape representative links from results (skip if ai_overview is present)
-            organic_scrape_data: dict[str, object] | None = None
-            top_story_scrape_data: dict[str, object] | None = None
+            organic_scrape_data: dict | None = None
+            top_story_scrape_data: dict | None = None
 
             if ai_overview:
                 # AI Overview provides sufficient context, skip web scraping

@@ -132,7 +132,7 @@ class SearchResponse(BaseModel):
     success: bool
     query: str
     news_results: list[NewsResult] = Field(default_factory=list)
-    scraped_articles: list[dict[str, object]] = Field(default_factory=list)
+    scraped_articles: list[dict] = Field(default_factory=list)
     error: str | None = None
 
 
@@ -200,7 +200,7 @@ async def serpapi_news_function(
 
         return location_str, None
 
-    async def _search_function(request: str | WorkflowMapping) -> dict[str, object]:
+    async def _search_function(request: str | WorkflowMapping) -> dict:
         """
         Perform a Google News search using SerpAPI.
 
@@ -247,7 +247,7 @@ async def serpapi_news_function(
                 )
 
                 # Normalize to SearchRequest fields
-                parsed: dict[str, object] = {}
+                parsed: dict = {}
 
                 # Map possible query fields
                 for key in [
