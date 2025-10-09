@@ -1,0 +1,28 @@
+[build-system]
+build-backend = "setuptools.build_meta"
+requires = ["setuptools >= 64", "setuptools-scm>=8"]
+
+[project]
+name = "nat_automated_description_generation"
+dynamic = ["version"]
+dependencies = [
+    "nvidia-nat[all] @ git+https://github.com/NVIDIA/NeMo-Agent-Toolkit.git@develop",
+    "usearch~=2.21.0",
+]
+requires-python = ">=3.11,<3.14"
+description = "Automated Description Generation NAT example"
+keywords = ["ai", "rag", "agents"]
+classifiers = ["Programming Language :: Python"]
+
+[project.entry-points.'nat.components']
+nat_automated_description_generation = "nat_automated_description_generation.register"
+
+[tool.setuptools]
+packages = ["nat_automated_description_generation"]
+package-dir = {"" = "src"}
+
+[tool.setuptools.package-data]
+nat_automated_description_generation = ["configs/*.yml", "configs/*.yaml"]
+
+[tool.uv]
+config-settings = { editable_mode = "compat" }

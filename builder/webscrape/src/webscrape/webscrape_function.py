@@ -143,7 +143,7 @@ def _prepare_markdown(
 
         return full_content
     except Exception as exc:
-        logger.exception("Failed to convert content from %s to markdown: %s", url, exc)
+        logger.warning("Failed to convert content from %s to markdown: %s", url, exc)
         raise
 
 
@@ -255,7 +255,7 @@ async def webscrape_function(config: WebscrapeFunctionConfig, builder: Builder):
                 truncation_msg=config.truncation_message,
             )
         except Exception as exc:  # noqa: BLE001
-            logger.exception("Markdown conversion failed for %s: %s", url, exc)
+            logger.warning("Markdown conversion failed for %s: %s", url, exc)
             return _format_error("Failed to convert page contents to markdown.")
 
         return markdown_output

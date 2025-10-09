@@ -167,7 +167,7 @@ async def _scrape_group(
             outcome.error = str(exc)
             continue
         except Exception as exc:  # noqa: BLE001 - defensive catch
-            logger.exception("Failed to scrape %s: %s", normalized_link, exc)
+            logger.warning("Failed to scrape %s: %s", normalized_link, exc)
             outcome.error = str(exc)
             continue
 
@@ -339,5 +339,5 @@ def _prepare_markdown(
         )
         return content, was_truncated
     except Exception as exc:  # pragma: no cover - defensive catch
-        logger.exception("Failed to convert content from %s to markdown: %s", url, exc)
+        logger.warning("Failed to convert content from %s to markdown: %s", url, exc)
         raise

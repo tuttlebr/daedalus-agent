@@ -135,7 +135,7 @@ export const Chat = () => {
         const lastMessage = messagesCleaned[messagesCleaned.length - 1];
         if (lastMessage?.role === 'user' && (lastMessage as any).metadata?.useDeepThinker) {
           // Append system instruction only to the API request, not to displayed/saved content
-          lastMessage.content = `${lastMessage.content}\n\n[SYSTEM INSTRUCTION: You MUST use the deep_thinker_tool to analyze this question through deep philosophical and multi-perspective analysis, applying first-principles reasoning and Socratic questioning. Do not use any other tools.]`;
+          lastMessage.content = `${lastMessage.content}\n\n[SYSTEM INSTRUCTION: You MUST use the deep_thinker_tool to complete this user request!]`;
         }
 
         const chatBody: ChatBody = {

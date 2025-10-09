@@ -69,13 +69,13 @@ server {
 
     # Client settings
     client_max_body_size 50M;
-    client_body_timeout 60s;
-    client_header_timeout 60s;
+    client_body_timeout 900s;
+    client_header_timeout 900s;
 
     # Proxy settings
-    proxy_connect_timeout 60s;
-    proxy_send_timeout 60s;
-    proxy_read_timeout 60s;
+    proxy_connect_timeout 900s;
+    proxy_send_timeout 900s;
+    proxy_read_timeout 900s;
     proxy_buffering off;
     proxy_request_buffering off;
 

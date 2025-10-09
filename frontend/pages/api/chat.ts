@@ -9,9 +9,27 @@ export const config = {
       sizeLimit: '5mb',
     },
   },
-  // Increase timeout for long-running requests (Edge runtime default is 30s)
-  maxDuration: 300, // 5 minutes
+  // Increase timeout for long-running requests (deep_thinker_tool can take up to 15 minutes)
+  maxDuration: 900, // 15 minutes
 };
+
+/**
+ * USAGE TRACKING LIMITATION:
+ *
+ * When streaming with intermediate steps enabled, the backend currently does NOT include
+ * cumulative token usage in the final response chunk. This means:
+ *
+ * - Tool call tokens are NOT tracked (e.g., retriever queries, search API calls)
+ * - Intermediate reasoning tokens are NOT tracked
+ * - Only the final assistant response tokens are estimated
+ *
+ * As a workaround, we estimate usage based on request/response text length when no
+ * actual usage data is received. This provides approximate tracking but underestimates
+ * total usage.
+ *
+ * BACKEND FIX NEEDED: The backend should aggregate token usage from all intermediate
+ * steps and include it in the final streaming chunk when stream_options.include_usage is true.
+ */
 
 // Helper function to track usage (Edge runtime compatible)
 async function trackUsage(username: string, usage: any): Promise<void> {
@@ -183,6 +201,10 @@ const handler = async (req: Request): Promise<Response> => {
         collection_name: 'string',
         stop: true,
         additionalProp1: {},
+        // Request usage data in streaming responses (OpenAI-compatible)
+        stream_options: {
+          include_usage: true
+        },
       };
     }
 
@@ -246,6 +268,25 @@ const handler = async (req: Request): Promise<Response> => {
           let buffer = '';
           let counter = 0;
           let usageData: any = null;
+          let lastDataTime = Date.now();
+          let totalResponseText = ''; // Track total response for token estimation
+
+          // Keepalive mechanism: Send a space character every 30 seconds to prevent 504 timeouts
+          const keepaliveInterval = setInterval(() => {
+            const timeSinceLastData = Date.now() - lastDataTime;
+            const secondsSinceData = Math.floor(timeSinceLastData / 1000);
+            // If no data received in last 25 seconds, send keepalive
+            if (timeSinceLastData > 25000) {
+              try {
+                // Send a whitespace that won't affect the UI
+                controller.enqueue(encoder.encode(''));
+                console.log(`aiq - sent keepalive ping (${secondsSinceData}s since last data)`);
+              } catch (err) {
+                console.log('aiq - keepalive ping failed (stream may be closed):', err);
+              }
+            }
+          }, 30000); // Check every 30 seconds
+
           try {
             while (true) {
               const result = await reader?.read();
@@ -253,6 +294,7 @@ const handler = async (req: Request): Promise<Response> => {
               const { done, value } = result;
               if (done) break;
 
+              lastDataTime = Date.now(); // Update last data time
               buffer += decoder.decode(value, { stream: true });
               const lines = buffer.split('\n');
               buffer = lines.pop() || '';
@@ -261,6 +303,9 @@ const handler = async (req: Request): Promise<Response> => {
                 if (line.startsWith('data: ')) {
                   const data = line.slice(5);
                   if (data.trim() === '[DONE]') {
+                    // Clear the keepalive interval
+                    clearInterval(keepaliveInterval);
+
                     // Track usage if we have it
                     if (usageData && username) {
                       // Track usage (fire and forget)
@@ -275,6 +320,16 @@ const handler = async (req: Request): Promise<Response> => {
                       parsed.choices[0]?.message?.content ||
                       parsed.choices[0]?.delta?.content ||
                       '';
+
+                    // Debug: Log what fields are in each chunk
+                    if (parsed.usage || parsed.choices[0]?.finish_reason) {
+                      console.log('aiq - streaming chunk contains:', {
+                        hasUsage: !!parsed.usage,
+                        usage: parsed.usage,
+                        finishReason: parsed.choices[0]?.finish_reason,
+                        hasContent: !!content
+                      });
+                    }
 
                     // Extract usage data if available
                     if (parsed.usage) {
@@ -300,6 +355,7 @@ const handler = async (req: Request): Promise<Response> => {
 
                     if (content) {
                       // console.log(`aiq - stream response received from server with length`, content?.length)
+                      totalResponseText += content; // Accumulate for token estimation
                       controller.enqueue(encoder.encode(content));
                     }
                   } catch (error) {
@@ -311,6 +367,7 @@ const handler = async (req: Request): Promise<Response> => {
                   if (additionalProps.enableIntermediateSteps === true) {
                     const data = line.split('intermediate_data: ')[1];
                     if (data.trim() === '[DONE]') {
+                      clearInterval(keepaliveInterval);
                       controller.close();
                       return;
                     }
@@ -365,9 +422,33 @@ const handler = async (req: Request): Promise<Response> => {
             console.log('aiq - stream reading error, closing stream', error);
             controller.close();
           } finally {
+            // Clear the keepalive interval
+            clearInterval(keepaliveInterval);
+
             // Track usage if we have it and haven't already
             if (usageData && username) {
               trackUsage(username, usageData).catch(() => {});
+            } else if (username && estimatedPromptTokens > 0) {
+              // FALLBACK: If no usage data received (common with intermediate steps),
+              // track estimated usage based on actual request/response
+              const estimatedCompletionTokens = estimateTokens(totalResponseText);
+
+              console.log('aiq - no usage data from backend, tracking estimated usage', {
+                username,
+                estimatedPromptTokens,
+                estimatedCompletionTokens,
+                responseLength: totalResponseText.length
+              });
+
+              // Create estimated usage data
+              // NOTE: This is approximate - actual token counts may differ
+              const estimatedUsage = {
+                prompt_tokens: estimatedPromptTokens,
+                completion_tokens: estimatedCompletionTokens,
+                total_tokens: estimatedPromptTokens + estimatedCompletionTokens,
+              };
+
+              trackUsage(username, estimatedUsage).catch(() => {});
             }
             console.log(
               'aiq - response processing is completed, closing stream',

@@ -71,7 +71,7 @@ class GeolocationResult:
     latitude: float
     longitude: float
     country_code: str | None = None
-    metadata: dict[str, object] | None = None
+    metadata: dict | None = None
 
     @property
     def display_name(self) -> str:
@@ -134,7 +134,7 @@ class GeolocationResult:
             )
             return None
 
-        metadata_dict: dict[str, object] = (
+        metadata_dict: dict = (
             dict(metadata_map)
             if isinstance(metadata_map, MutableMapping)
             else dict(metadata_map)

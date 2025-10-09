@@ -33,7 +33,7 @@ class MilvusRetriever(Retriever):
         use_iterator: bool = False,
         database_name: str | None = None,
         vector_field_name: str = "vector",
-        reranker_config: dict[str, object] | None = None,
+        reranker_config: dict | None = None,
     ) -> None:
         """
         Initialize the Milvus Retriever using a preconfigured MilvusClient.

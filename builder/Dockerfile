@@ -25,6 +25,7 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
         ca-certificates \
         clang \
         curl \
+        ffmpeg \
         git \
         jq \
         python3-pip && \
@@ -53,6 +54,11 @@ RUN source /workspace/.venv/bin/activate
 
 # Install each package in separate layers for better caching
 # Changes to one package won't invalidate the cache for others
+
+COPY automated_description_generation /workspace/automated_description_generation
+RUN --mount=type=cache,id=uv_cache,target=/root/.cache/uv,sharing=locked \
+    NAT_VERSION= nat workflow reinstall automated_description_generation && \
+    uv pip install -e automated_description_generation --prerelease=allow
 
 COPY image_generation /workspace/image_generation
 RUN --mount=type=cache,id=uv_cache,target=/root/.cache/uv,sharing=locked \
