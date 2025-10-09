@@ -109,7 +109,7 @@ class WeatherFunctionConfig(FunctionBaseConfig, name="weather"):
         description="User-Agent header used for outgoing HTTP requests",
     )
     fallback_location_name: str | None = Field(
-        default="Saline, Michigan, US",
+        default="Saline,Michigan,United States",
         description="Display name used when fallback coordinates are applied",
     )
     fallback_latitude: float | None = Field(
