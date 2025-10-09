@@ -10,6 +10,6 @@ general:
 workflow:
   _type: serpapi_ai
   # api_key: "your-serpapi-key-here"  # Optional: Can also use SERPAPI_KEY env var
-  default_location: "Saline,Michigan,United States"
+  default_location: "Ann Arbor,Michigan,United States"
   use_geolocation_retriever: true  # Enable geolocation_retriever for location resolution
   geolocation_retriever_name: geolocation_retriever_tool  # Name of the retriever function

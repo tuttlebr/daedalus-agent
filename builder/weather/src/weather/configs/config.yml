@@ -7,7 +7,7 @@ general:
 workflow:
   _type: weather
   include_hourly: true
-  fallback_location_name: "Saline,Michigan,United States"
+  fallback_location_name: "Ann Arbor,Michigan,United States"
   fallback_latitude: 42.1667
   fallback_longitude: -83.7816
   use_geolocation_retriever: true  # Enable to use geolocation_retriever instead of Open-Meteo geocoding
