@@ -37,7 +37,7 @@ export const initialState: HomeInitialState = {
   searchTerm: '',
   chatHistory: process?.env?.NEXT_PUBLIC_CHAT_HISTORY_DEFAULT_ON === 'false' ? false : true,
   chatCompletionURL: process?.env?.NEXT_PUBLIC_HTTP_CHAT_COMPLETION_URL || 'http://daedalus-backend.daedalus.svc.cluster.local:8000/chat/stream',
-  enableIntermediateSteps: process?.env?.NEXT_PUBLIC_ENABLE_INTERMEDIATE_STEPS ? process.env.NEXT_PUBLIC_ENABLE_INTERMEDIATE_STEPS === 'true' : false,
+  enableIntermediateSteps: process?.env?.NEXT_PUBLIC_ENABLE_INTERMEDIATE_STEPS === 'false' ? false : true,
   expandIntermediateSteps: false,
   intermediateStepOverride: true,
   autoScroll: true,

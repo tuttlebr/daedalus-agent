@@ -124,7 +124,7 @@ ingress:
   enabled: true
   className: ""
   annotations:
-    # Nginx Ingress Controller - Increase timeouts for long-running AI requests (deep_thinker_tool can take up to 15 minutes)
+    # Nginx Ingress Controller - Increase timeouts for long-running AI requests (comprehensive_research_agent can take up to 15 minutes)
     nginx.ingress.kubernetes.io/proxy-connect-timeout: "900"
     nginx.ingress.kubernetes.io/proxy-send-timeout: "900"
     nginx.ingress.kubernetes.io/proxy-read-timeout: "900"

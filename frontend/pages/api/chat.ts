@@ -9,7 +9,7 @@ export const config = {
       sizeLimit: '5mb',
     },
   },
-  // Increase timeout for long-running requests (deep_thinker_tool can take up to 15 minutes)
+  // Increase timeout for long-running requests (comprehensive_research_agent can take up to 15 minutes)
   maxDuration: 900, // 15 minutes
 };
 
@@ -94,6 +94,35 @@ function estimateTokens(text: string): number {
   // Basic estimation: ~4 characters per token
   // This is a rough approximation used when backend doesn't provide accurate counts
   return Math.ceil(text.length / 4);
+}
+
+// Extract complete JSON objects from a string (handles nested objects)
+function extractJsonObjects(text: string): { json: any; startIdx: number; endIdx: number }[] {
+  const results: { json: any; startIdx: number; endIdx: number }[] = [];
+  let depth = 0;
+  let startIdx = -1;
+
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] === '{') {
+      if (depth === 0) startIdx = i;
+      depth++;
+    } else if (text[i] === '}') {
+      depth--;
+      if (depth === 0 && startIdx !== -1) {
+        // Found a complete JSON object
+        const jsonStr = text.substring(startIdx, i + 1);
+        try {
+          const parsed = JSON.parse(jsonStr);
+          results.push({ json: parsed, startIdx, endIdx: i + 1 });
+        } catch (e) {
+          // Not valid JSON, ignore
+        }
+        startIdx = -1;
+      }
+    }
+  }
+
+  return results;
 }
 
 const handler = async (req: Request): Promise<Response> => {
@@ -354,9 +383,32 @@ const handler = async (req: Request): Promise<Response> => {
                     }
 
                     if (content) {
-                      // console.log(`aiq - stream response received from server with length`, content?.length)
-                      totalResponseText += content; // Accumulate for token estimation
-                      controller.enqueue(encoder.encode(content));
+                      // Filter out raw intermediate step JSON that might be sent without proper wrapping
+                      let filteredContent = content;
+
+                      // Extract all complete JSON objects from the content
+                      const jsonObjects = extractJsonObjects(content);
+
+                      // Filter out intermediate steps
+                      const intermediateSteps = jsonObjects.filter(
+                        obj => obj.json.type === 'system_intermediate' && obj.json.id
+                      );
+
+                      if (intermediateSteps.length > 0) {
+                        console.log(`aiq - filtering ${intermediateSteps.length} raw intermediate step(s) from content`);
+
+                        // Remove intermediate steps from the content (reverse order to maintain indices)
+                        for (let i = intermediateSteps.length - 1; i >= 0; i--) {
+                          const { startIdx, endIdx } = intermediateSteps[i];
+                          filteredContent = filteredContent.substring(0, startIdx) + filteredContent.substring(endIdx);
+                        }
+                      }
+
+                      // Only send content if there's something left after filtering
+                      if (filteredContent.trim()) {
+                        totalResponseText += filteredContent; // Accumulate for token estimation
+                        controller.enqueue(encoder.encode(filteredContent));
+                      }
                     }
                   } catch (error) {
                     console.log('aiq - error parsing JSON:', error);

@@ -20,6 +20,7 @@ import {
 import {
   fetchLastMessage,
   processIntermediateMessage,
+  trimIntermediateSteps,
 } from '@/utils/app/helper';
 import { throttle } from '@/utils/data/throttle';
 import { getUserSessionItem } from '@/utils/app/storage';
@@ -69,7 +70,7 @@ export const Chat = () => {
 
   // Add these variables near the top of your component
   const isUserInitiatedScroll = useRef(false);
-  const scrollTimeout = useRef(null);
+  const scrollTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     selectedConversationRef.current = selectedConversation;
@@ -134,8 +135,24 @@ export const Chat = () => {
         // Apply Deep Thinker system instruction if the last user message has the metadata flag
         const lastMessage = messagesCleaned[messagesCleaned.length - 1];
         if (lastMessage?.role === 'user' && (lastMessage as any).metadata?.useDeepThinker) {
+          // Format current date as "October 10th, 2025"
+          const now = new Date();
+          const monthNames = ["January", "February", "March", "April", "May", "June",
+            "July", "August", "September", "October", "November", "December"];
+          const day = now.getDate();
+          const daySuffix = (day: number) => {
+            if (day > 3 && day < 21) return 'th';
+            switch (day % 10) {
+              case 1: return 'st';
+              case 2: return 'nd';
+              case 3: return 'rd';
+              default: return 'th';
+            }
+          };
+          const formattedDate = `${monthNames[now.getMonth()]} ${day}${daySuffix(day)}, ${now.getFullYear()}`;
+
           // Append system instruction only to the API request, not to displayed/saved content
-          lastMessage.content = `${lastMessage.content}\n\n[SYSTEM INSTRUCTION: You MUST use the deep_thinker_tool to complete this user request!]`;
+          lastMessage.content = `${lastMessage.content}\n\nDEEP RESEARCH NEEDED: Today is ${formattedDate}. You must follow the researcher workflow: query_writer_researcher → execute research → summarizer_researcher → (optional) reflection_researcher/report_extender_researcher → finalize_report_researcher.`;
         }
 
         const chatBody: ChatBody = {
@@ -144,8 +161,8 @@ export const Chat = () => {
           chatCompletionURL: getUserSessionItem('chatCompletionURL') || chatCompletionURL,
           additionalProps: {
             enableIntermediateSteps: getUserSessionItem('enableIntermediateSteps')
-            ? getUserSessionItem('enableIntermediateSteps') === 'true'
-            : enableIntermediateSteps,
+              ? getUserSessionItem('enableIntermediateSteps') === 'true'
+              : enableIntermediateSteps,
             username: user?.username || 'anon'
           }
         };
@@ -206,6 +223,7 @@ export const Chat = () => {
             let text = '';
             let counter = 1;
             let partialIntermediateStep = ''; // Add this to store partial chunks
+            let partialToolCall = '';
             while (!done) {
               const { value, done: doneReading } = await reader.read();
               done = doneReading;
@@ -232,7 +250,7 @@ export const Chat = () => {
 
               // Process complete intermediate steps
               let rawIntermediateSteps = [];
-              let messages = chunkValue.match(/<intermediatestep>(.*?)<\/intermediatestep>/gs) || [];
+              let messages = chunkValue.match(/<intermediatestep>[\s\S]*?<\/intermediatestep>/g) || [];
               for (const message of messages) {
                 try {
                   const jsonString = message.replace('<intermediatestep>', '').replace('</intermediatestep>', '').trim();
@@ -242,14 +260,73 @@ export const Chat = () => {
                     rawIntermediateSteps.push(rawIntermediateMessage);
                   }
                 } catch (error) {
-                  // console.log('Stream response parse error:', error.message);
+                  console.error('Failed to parse intermediate step JSON:', error);
+                  // Still continue - we'll remove the tags below to prevent raw display
                 }
               }
 
-              // if the received chunk contains rawIntermediateSteps then remove them from the chunkValue
-              if (messages.length > 0) {
-                chunkValue = chunkValue.replace(/<intermediatestep>[\s\S]*?<\/intermediatestep>/g, '');
+              // ALWAYS remove intermediate step tags from visible content, even if parsing failed
+              // This prevents raw JSON from being displayed to users
+              chunkValue = chunkValue.replace(/<intermediatestep>[\s\S]*?<\/intermediatestep>/g, '');
+
+              // Handle react_agent tool-call artifacts: accumulate partial <TOOLCALL> blocks across chunks
+              const toolOpenIdx = chunkValue.lastIndexOf('<TOOLCALL>');
+              const toolCloseIdx = chunkValue.lastIndexOf('</TOOLCALL>');
+              if (toolOpenIdx > toolCloseIdx) {
+                partialToolCall = chunkValue.substring(toolOpenIdx);
+                chunkValue = chunkValue.substring(0, toolOpenIdx);
               }
+              if (partialToolCall) {
+                const maybeCloseIdx = chunkValue.indexOf('</TOOLCALL>');
+                if (maybeCloseIdx !== -1) {
+                  // Complete the partial
+                  const completed = partialToolCall + chunkValue.substring(0, maybeCloseIdx + '</TOOLCALL>'.length);
+                  chunkValue = chunkValue.substring(maybeCloseIdx + '</TOOLCALL>'.length);
+                  partialToolCall = '';
+                  // Prepend for parsing below
+                  chunkValue = completed + chunkValue;
+                }
+              }
+
+              // Extract complete <TOOLCALL> blocks and convert them to intermediate steps
+              const toolCallMatches = chunkValue.match(/<TOOLCALL>[\s\S]*?<\/TOOLCALL>/g) || [];
+              if (toolCallMatches.length > 0) {
+                for (const m of toolCallMatches) {
+                  try {
+                    const inner = m.replace('<TOOLCALL>', '').replace('</TOOLCALL>', '').trim();
+                    let pretty = inner;
+                    try {
+                      const obj = JSON.parse(inner);
+                      pretty = JSON.stringify(obj, null, 2);
+                    } catch (_) {
+                      // keep raw inner if not valid JSON
+                    }
+                    const intermediate_message = {
+                      id: `toolcall-${Date.now()}-${Math.floor(Math.random() * 1e6)}`,
+                      status: 'completed',
+                      error: '',
+                      type: 'system_intermediate',
+                      parent_id: 'agent_tool',
+                      content: {
+                        name: 'Tool Call',
+                        payload: pretty,
+                      },
+                      time_stamp: Date.now(),
+                      index: -1,
+                    };
+                    rawIntermediateSteps.push(intermediate_message);
+                  } catch (_) {
+                    // ignore malformed blocks
+                  }
+                }
+                // Remove all TOOLCALL blocks from visible content
+                chunkValue = chunkValue.replace(/<TOOLCALL>[\s\S]*?<\/TOOLCALL>/g, '');
+              }
+
+              // Hide orchestration scaffolding from react_agent outputs
+              // Remove Thought/Action/Action Input/Observation lines; keep Final Answer content
+              chunkValue = chunkValue.replace(/^(Thought:|Action:|Action Input:|Observation:).*$/gm, '');
+              chunkValue = chunkValue.replace(/\bFinal Answer:\s*/g, '');
 
               text = text + chunkValue;
 
@@ -258,11 +335,14 @@ export const Chat = () => {
                 isFirst = false;
 
                 // loop through rawIntermediateSteps and add them to the processedIntermediateSteps
-                let processedIntermediateSteps = []
+                let processedIntermediateSteps: any[] = []
                 rawIntermediateSteps.forEach((step) => {
                   // Use user-specific storage key to prevent data leakage between users
-                  processedIntermediateSteps = processIntermediateMessage(processedIntermediateSteps, step, getUserSessionItem('intermediateStepOverride') === 'false' ? false : intermediateStepOverride )
+                  processedIntermediateSteps = processIntermediateMessage(processedIntermediateSteps, step, getUserSessionItem('intermediateStepOverride') === 'false' ? false : intermediateStepOverride)
                 })
+
+                // Trim intermediate steps to prevent memory bloat
+                processedIntermediateSteps = trimIntermediateSteps(processedIntermediateSteps);
 
                 // update the message
                 const updatedMessages: Message[] = [
@@ -290,11 +370,14 @@ export const Chat = () => {
                     if (index === updatedConversation.messages.length - 1) {
                       // process intermediate steps
                       // need to loop through raw rawIntermediateSteps and add them to the updatedIntermediateSteps
-                      let updatedIntermediateSteps = [...message?.intermediateSteps]
+                      let updatedIntermediateSteps: any[] = [...(message?.intermediateSteps || [])]
                       rawIntermediateSteps.forEach((step) => {
                         // Use user-specific storage key to prevent data leakage between users
                         updatedIntermediateSteps = processIntermediateMessage(updatedIntermediateSteps, step, getUserSessionItem('intermediateStepOverride') === 'false' ? false : intermediateStepOverride)
                       })
+
+                      // Trim intermediate steps to prevent memory bloat
+                      updatedIntermediateSteps = trimIntermediateSteps(updatedIntermediateSteps);
 
                       // update the message
                       const msg = {
@@ -413,7 +496,7 @@ export const Chat = () => {
             homeDispatch({ field: 'loading', value: false });
             homeDispatch({ field: 'messageIsStreaming', value: false });
           }
-        } catch (error) {
+        } catch (error: any) {
           saveConversation(updatedConversation);
           homeDispatch({ field: 'loading', value: false });
           homeDispatch({ field: 'messageIsStreaming', value: false });
@@ -480,7 +563,7 @@ export const Chat = () => {
     };
   }, [chatContainerRef.current]); // Only re-run if the container ref changes
 
-// Now modify your handleScroll function to use this flag
+  // Now modify your handleScroll function to use this flag
   const handleScroll = useCallback(() => {
     if (!chatContainerRef.current || !isUserInitiatedScroll.current) return;
 
@@ -613,7 +696,7 @@ export const Chat = () => {
             style={{
               marginBottom: 'env(safe-area-inset-bottom)'
             }}
-            aria-label={t('Scroll to bottom')}
+            aria-label={t('Scroll to bottom') as unknown as string}
           >
             <IconArrowDown size={20} />
           </button>
@@ -630,7 +713,7 @@ export const Chat = () => {
               handleSend(currentMessage, 0);
             } else {
               const lastUserMessage = fetchLastMessage({
-                messages: selectedConversation?.messages,
+                messages: (selectedConversation?.messages as any[]) || [],
                 role: 'user',
               });
               lastUserMessage && handleSend(lastUserMessage, 1);
