@@ -148,7 +148,7 @@ apply_tls_secret() {
 }
 
 usage() {
-  echo "Usage: $0 [-n namespace] [-r release] [-e env_file] [-c backend_config] [-f values_file] [--enable-tls] [--tls-secret-name name] [--uninstall-first] [--dry-run] [--] [extra helm args]" 1>&2
+  echo "Usage: $0 [-n namespace] [-r release] [-e env_file] [-c backend_config] [-f values_file] [--enable-tls] [--tls-secret-name name] [--uninstall-first] [--skip-config-sort] [--sort-lists] [--dry-run] [--] [extra helm args]" 1>&2
   echo "  -n namespace        Kubernetes namespace (default: daedalus)" 1>&2
   echo "  -r release          Helm release name (default: <chartVersion>-daedalus)" 1>&2
   echo "  -e env_file         .env file path for Secrets (default: $REPO_ROOT/.env)" 1>&2
@@ -157,6 +157,8 @@ usage() {
   echo "  --enable-tls        Enable HTTPS on nginx and create/update TLS Secret from nginx/ssl (.crt or .pem + .key)" 1>&2
   echo "  --tls-secret-name   TLS Secret name (default: <release>-tls)" 1>&2
   echo "  --uninstall-first   Uninstall release before install/upgrade" 1>&2
+  echo "  --skip-config-sort  Skip automatic alphabetical sorting of backend config keys" 1>&2
+  echo "  --sort-lists        Also sort list items alphabetically and remove duplicates" 1>&2
   echo "  --dry-run           Print actions without applying changes" 1>&2
 }
 
@@ -171,6 +173,8 @@ VALUES_FILE="$CHART_DIR/values.yaml"
 BACKEND_CONFIG_DEFAULT="$REPO_ROOT/backend/config.yaml"
 BACKEND_CONFIG=""
 UNINSTALL_FIRST="false"
+SKIP_CONFIG_SORT="false"
+SORT_LISTS="false"
 DRY_RUN="false"
 HELM_EXTRA_ARGS=()
 ENABLE_TLS="false"
@@ -233,6 +237,92 @@ sanitize_release() {
   echo -n "$out"
 }
 
+sort_backend_config_keys() {
+  local config_file="$1"
+  local sort_lists="${2:-false}"  # Optional parameter to sort lists (default: false)
+
+  if [[ ! -f "$config_file" ]]; then
+    echo -e "${Yellow}Config file not found, skipping sort: $config_file${Color_Off}"
+    return 0
+  fi
+
+  if [[ "$sort_lists" == "true" ]]; then
+    echo -e "${Cyan}Sorting keys and lists (removing duplicates) in backend config: $config_file${Color_Off}"
+  else
+    echo -e "${Cyan}Sorting keys in backend config: $config_file${Color_Off}"
+  fi
+
+  if [[ "${DRY_RUN}" == "true" ]]; then
+    if [[ "$sort_lists" == "true" ]]; then
+      echo "[dry-run] Would sort YAML keys and lists alphabetically (removing duplicates) in $config_file"
+    else
+      echo "[dry-run] Would sort YAML keys alphabetically in $config_file"
+    fi
+    return 0
+  fi
+
+  local temp_sorted
+  temp_sorted=$(mktemp)
+
+  python3 -c "
+import yaml
+import sys
+
+def sort_dict_recursive(obj, sort_lists=False):
+    if isinstance(obj, dict):
+        return {k: sort_dict_recursive(v, sort_lists) for k, v in sorted(obj.items())}
+    elif isinstance(obj, list):
+        if sort_lists:
+            # Sort list items if they are strings or have a consistent type
+            try:
+                # Remove duplicates while preserving order for sortable items
+                seen = set()
+                unique_items = []
+                for item in obj:
+                    # For hashable items, check for duplicates
+                    try:
+                        if item not in seen:
+                            seen.add(item)
+                            unique_items.append(item)
+                    except TypeError:
+                        # For unhashable items (like dicts), just keep them
+                        unique_items.append(item)
+
+                # Sort the deduplicated list
+                sorted_list = sorted(unique_items)
+                return [sort_dict_recursive(item, sort_lists) for item in sorted_list]
+            except (TypeError, AttributeError):
+                # If list items aren't sortable (mixed types, dicts, etc.), just recurse
+                return [sort_dict_recursive(item, sort_lists) for item in obj]
+        else:
+            return [sort_dict_recursive(item, sort_lists) for item in obj]
+    return obj
+
+try:
+    with open('$config_file', 'r') as f:
+        data = yaml.safe_load(f)
+    sort_lists = '$sort_lists' == 'true'
+    sorted_data = sort_dict_recursive(data, sort_lists)
+    print(yaml.dump(sorted_data, default_flow_style=False, allow_unicode=True, width=float('inf')), end='')
+except Exception as e:
+    print(f'Error sorting YAML: {e}', file=sys.stderr)
+    sys.exit(1)
+" > "$temp_sorted"
+
+  if [[ $? -eq 0 ]]; then
+    mv "$temp_sorted" "$config_file"
+    if [[ "$sort_lists" == "true" ]]; then
+      echo -e "${Green}Successfully sorted keys and lists (duplicates removed) in $config_file${Color_Off}"
+    else
+      echo -e "${Green}Successfully sorted keys in $config_file${Color_Off}"
+    fi
+  else
+    rm -f "$temp_sorted"
+    echo -e "${Red}Failed to sort in $config_file${Color_Off}"
+    return 1
+  fi
+}
+
 # Parse args
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -244,6 +334,8 @@ while [[ $# -gt 0 ]]; do
     --enable-tls) ENABLE_TLS="true"; shift;;
     --tls-secret-name) TLS_SECRET_NAME="$2"; shift 2;;
     --uninstall-first) UNINSTALL_FIRST="true"; shift;;
+    --skip-config-sort) SKIP_CONFIG_SORT="true"; shift;;
+    --sort-lists) SORT_LISTS="true"; shift;;
     --dry-run) DRY_RUN="true"; shift;;
     --) shift; HELM_EXTRA_ARGS+=("$@"); break;;
     -h|--help) usage; exit 0;;
@@ -321,6 +413,11 @@ fi
 
 if [[ -z "$BACKEND_CONFIG" && -f "$BACKEND_CONFIG_DEFAULT" ]]; then
   BACKEND_CONFIG="$BACKEND_CONFIG_DEFAULT"
+fi
+
+# Sort backend config keys alphabetically before deployment
+if [[ "$SKIP_CONFIG_SORT" != "true" && -n "$BACKEND_CONFIG" && -f "$BACKEND_CONFIG" ]]; then
+  sort_backend_config_keys "$BACKEND_CONFIG" "$SORT_LISTS"
 fi
 
 echo -e "${Cyan}Namespace:${Color_Off} $NAMESPACE"

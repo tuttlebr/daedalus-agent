@@ -1,42 +1,40 @@
 ARG BASE_IMAGE_URL=nvcr.io/nvidia/base/ubuntu
 ARG BASE_IMAGE_TAG=22.04_20240212
 ARG NAT_VERSION
-ARG PYTHON_VERSION=3.13
+ARG PYTHON_VERSION=3.12
 ARG UV_VERSION=0.8.3
 
 FROM ghcr.io/astral-sh/uv:${UV_VERSION} AS uv_base
 
 FROM ${BASE_IMAGE_URL}:${BASE_IMAGE_TAG} AS base
 ARG NAT_VERSION
-ARG PYTHON_VERSION=3.13
+ARG PYTHON_VERSION=3.12
 ARG UV_VERSION=0.8.3
 
 COPY --from=uv_base /uv /uvx /bin/
 
 ENV PYTHONDONTWRITEBYTECODE=1
+ENV UV_HTTP_TIMEOUT=300
 
-# Install certificates
 RUN export DEBIAN_FRONTEND=noninteractive && \
     export TZ=Etc/UTC && \
     apt-get update && \
     apt upgrade -y && \
     apt-get install --no-install-recommends -y \
-        build-essential \
-        ca-certificates \
-        clang \
-        curl \
-        ffmpeg \
-        git \
-        jq \
-        python3-pip && \
+    build-essential \
+    ca-certificates \
+    clang \
+    curl \
+    ffmpeg \
+    git \
+    jq \
+    python3-pip && \
     apt clean && \
     update-ca-certificates
 
-# Set SSL environment variables
 ENV REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
 ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
 
-# Set working directory
 WORKDIR /workspace
 
 RUN --mount=type=cache,id=uv_cache,target=/root/.cache/uv,sharing=locked \
@@ -44,21 +42,12 @@ RUN --mount=type=cache,id=uv_cache,target=/root/.cache/uv,sharing=locked \
     . /workspace/.venv/bin/activate && \
     uv pip install "git+https://github.com/NVIDIA/NeMo-Agent-Toolkit.git@${NAT_VERSION}"
 
-# Enivronment variables for the venv
 ENV PATH="/workspace/.venv/bin:$PATH"
 
 FROM base AS backend
 SHELL ["/bin/bash", "-c"]
 WORKDIR /workspace
 RUN source /workspace/.venv/bin/activate
-
-# Install each package in separate layers for better caching
-# Changes to one package won't invalidate the cache for others
-
-COPY automated_description_generation /workspace/automated_description_generation
-RUN --mount=type=cache,id=uv_cache,target=/root/.cache/uv,sharing=locked \
-    NAT_VERSION= nat workflow reinstall automated_description_generation && \
-    uv pip install -e automated_description_generation --prerelease=allow
 
 COPY image_generation /workspace/image_generation
 RUN --mount=type=cache,id=uv_cache,target=/root/.cache/uv,sharing=locked \
@@ -94,11 +83,6 @@ COPY webscrape /workspace/webscrape
 RUN --mount=type=cache,id=uv_cache,target=/root/.cache/uv,sharing=locked \
     NAT_VERSION= nat workflow reinstall webscrape && \
     uv pip install -e webscrape --prerelease=allow
-
-# Install the aiq_aira package
-# COPY --from=nvcr.io/nvidia/blueprint/aira-backend:v1.1.0 /app /workspace/aiq_aira/
-# RUN NAT_VERSION= nat workflow reinstall aiq_aira && \
-#     uv pip install -e aiq_aira --prerelease=allow
 
 WORKDIR /workspace
 ENTRYPOINT nat serve --config_file=/workspace/config.yaml --host=0.0.0.0 --port=8000 --workers=4

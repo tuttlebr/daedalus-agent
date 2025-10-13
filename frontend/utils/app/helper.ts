@@ -32,7 +32,7 @@ export const compressImage = (base64: string, mimeType: string | undefined, shou
 
         canvas.width = width;
         canvas.height = height;
-        ctx.drawImage(img, 0, 0, width, height);
+        if (ctx) ctx.drawImage(img, 0, 0, width, height);
 
         let quality = 0.9;  // Start with high quality
         let newDataUrl = canvas.toDataURL(mimeType, quality);
@@ -55,7 +55,7 @@ export const compressImage = (base64: string, mimeType: string | undefined, shou
                 height *= 0.75;
                 canvas.width = width;
                 canvas.height = height;
-                ctx.drawImage(img, 0, 0, width, height);
+                if (ctx) ctx.drawImage(img, 0, 0, width, height);
                 newDataUrl = canvas.toDataURL(mimeType, quality);
             }
         }
@@ -78,7 +78,7 @@ export const getURLQueryParam = ({ param = '' }) => {
     } else {
         // Get all query params safely
         const paramsObject = Object.create(null); // Prevent prototype pollution
-        for (const [key, value] of urlParams?.entries()) {
+        for (const [key, value] of Array.from(urlParams?.entries())) {
             if (Object.prototype.hasOwnProperty.call(paramsObject, key)) continue; // Extra safety check
             paramsObject[key] = value;
         }
@@ -113,7 +113,7 @@ export const isInsideIframe = () => {
     }
 };
 
-export const fetchLastMessage = ({messages = [], role = 'user'}) => {
+export const fetchLastMessage = ({ messages = [], role = 'user' }: { messages: any[]; role?: string }) => {
     // Loop from the end to find the last message with the role "user"
     for (let i = messages.length - 1; i >= 0; i--) {
         if (messages[i]?.role === role) {
@@ -123,7 +123,7 @@ export const fetchLastMessage = ({messages = [], role = 'user'}) => {
     return null;  // Return null if no user message is found
 }
 
-export const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+export const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 interface IntermediateStep {
     id: string;
@@ -261,23 +261,69 @@ export const convertBackticksToPreCode = (markdown = '') => {
     }
 };
 
+// Truncate a string to a maximum length with ellipsis
+const truncateString = (str: string, maxLength: number): string => {
+    if (!str || str.length <= maxLength) return str;
+    return str.substring(0, maxLength) + '\n\n... [truncated for performance]';
+};
+
+// Configuration for intermediate steps limits
+const INTERMEDIATE_STEPS_CONFIG = {
+    MAX_PAYLOAD_LENGTH: 5000, // Max characters per payload
+    MAX_NESTED_DEPTH: 3, // Max nesting depth to render
+    MAX_STEPS_PER_MESSAGE: 50, // Max number of intermediate steps to keep
+};
+
+/**
+ * Trim intermediate steps to prevent memory bloat
+ * Keeps only the most recent steps up to the configured limit
+ */
+export const trimIntermediateSteps = (steps: IntermediateStep[] = []): IntermediateStep[] => {
+    if (!Array.isArray(steps)) return [];
+
+    const maxSteps = INTERMEDIATE_STEPS_CONFIG.MAX_STEPS_PER_MESSAGE;
+
+    // If we're under the limit, return as-is
+    if (steps.length <= maxSteps) {
+        return steps;
+    }
+
+    // Keep only the most recent steps
+    // We slice from the end to keep the latest intermediate steps
+    const trimmedSteps = steps.slice(-maxSteps);
+
+    console.log(`Trimmed intermediate steps from ${steps.length} to ${trimmedSteps.length} for performance`);
+
+    return trimmedSteps;
+};
+
 export const generateContentIntermediate = (intermediateSteps: IntermediateStep[] = []): string => {
-    const generateDetails = (data: IntermediateStep[]): string => {
+    const generateDetails = (data: IntermediateStep[], depth = 0): string => {
         try {
             if (!Array.isArray(data)) {
                 throw new TypeError('Input must be an array');
             }
+
+            // Stop rendering if we've reached max depth
+            if (depth >= INTERMEDIATE_STEPS_CONFIG.MAX_NESTED_DEPTH) {
+                return '';
+            }
+
             return data.map((item) => {
                 const currentId = item.id;
                 const currentIndex = item.index;
-                const sanitizedPayload = convertBackticksToPreCode(item.content?.payload || '');
+                // Truncate payload to prevent memory bloat
+                const rawPayload = item.content?.payload || '';
+                const truncatedPayload = truncateString(rawPayload, INTERMEDIATE_STEPS_CONFIG.MAX_PAYLOAD_LENGTH);
+                const sanitizedPayload = convertBackticksToPreCode(truncatedPayload);
+
                 let details = `<details id=${currentId} index=${currentIndex}>\n`;
                 details += `  <summary id=${currentId}>${item.content?.name || ''}</summary>\n`;
 
                 details += `\n${sanitizedPayload}\n`;
 
                 if (item.intermediate_steps && item.intermediate_steps.length > 0) {
-                    details += generateDetails(item.intermediate_steps);
+                    details += generateDetails(item.intermediate_steps, depth + 1);
                 }
 
                 details += `</details>\n`;
@@ -293,7 +339,7 @@ export const generateContentIntermediate = (intermediateSteps: IntermediateStep[
         if (!Array.isArray(intermediateSteps) || intermediateSteps.length === 0) {
             return '';
         }
-        let intermediateContent = generateDetails(intermediateSteps);
+        let intermediateContent = generateDetails(intermediateSteps, 0);
         const firstStep = intermediateSteps[0];
         if (firstStep && firstStep.parent_id) {
             intermediateContent = `<details id=${uuidv4()} index="-1" ><summary id=${firstStep.parent_id}>References</summary>\n${intermediateContent}</details>`;
