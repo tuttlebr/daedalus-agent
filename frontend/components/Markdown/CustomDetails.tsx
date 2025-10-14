@@ -83,8 +83,14 @@ export const CustomDetails = ({ children, id, messageIndex, index}) => {
                     m-2 bg-neutral-100 dark:bg-neutral-700 shadow border border-neutral-300 dark:border-neutral-600 rounded-lg p-2
                     transition-[max-height,opacity,scale] duration-500 ease-in-out overflow-auto
                     ${isOpen ? `opacity-100 h-auto scale-100` : `${messageIsStreaming && isLastMessage && 'opacity-60 scale-95'}`}
-                    ${parsedIndex === -1 ? (messageIsStreaming && isLastMessage) ?  "max-h-[30rem]" : "h-auto overflow-auto" : ""}
+                    ${parsedIndex === -1 ? "max-h-[30rem]" : "max-h-[20rem]"}
                 `}
+                style={{
+                    maxHeight: parsedIndex === -1 ? '30rem' : '20rem',
+                    overflowY: 'auto',
+                    overflowX: 'hidden',
+                    wordBreak: 'break-word'
+                }}
                 onClick={(e) => {
                     e.preventDefault(); // Prevent default toggle if needed
                     e.stopPropagation(); // Prevent event from bubbling to parent <details>

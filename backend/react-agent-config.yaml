@@ -190,7 +190,7 @@ functions:
     _type: react_agent
     description: The Daedalus React Agent is a specialized agent that is used to interact with the Daedalus platform. It is used to create and manage Daedalus projects, and to interact with the Daedalus platform.
     llm_name: tool_calling_llm
-    parallel_tool_calls: false
+    max_tool_calls: 8
     parse_agent_response_max_retries: 2
     tool_names:
     - bang_for_buck_tool
