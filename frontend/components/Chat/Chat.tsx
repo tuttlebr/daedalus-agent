@@ -132,27 +132,31 @@ export const Chat = () => {
         // cleaning up messages to fit the request payload and remove image data
         const messagesCleaned = cleanMessagesForLLM(updatedConversation.messages);
 
-        // Apply Deep Thinker system instruction if the last user message has the metadata flag
-        const lastMessage = messagesCleaned[messagesCleaned.length - 1];
-        if (lastMessage?.role === 'user' && (lastMessage as any).metadata?.useDeepThinker) {
-          // Format current date as "October 10th, 2025"
-          const now = new Date();
-          const monthNames = ["January", "February", "March", "April", "May", "June",
-            "July", "August", "September", "October", "November", "December"];
-          const day = now.getDate();
-          const daySuffix = (day: number) => {
-            if (day > 3 && day < 21) return 'th';
-            switch (day % 10) {
-              case 1: return 'st';
-              case 2: return 'nd';
-              case 3: return 'rd';
-              default: return 'th';
-            }
-          };
-          const formattedDate = `${monthNames[now.getMonth()]} ${day}${daySuffix(day)}, ${now.getFullYear()}`;
+        // Format current date for injection
+        const now = new Date();
+        const monthNames = ["January", "February", "March", "April", "May", "June",
+          "July", "August", "September", "October", "November", "December"];
+        const day = now.getDate();
+        const daySuffix = (day: number) => {
+          if (day > 3 && day < 21) return 'th';
+          switch (day % 10) {
+            case 1: return 'st';
+            case 2: return 'nd';
+            case 3: return 'rd';
+            default: return 'th';
+          }
+        };
+        const formattedDate = `${monthNames[now.getMonth()]} ${day}${daySuffix(day)}, ${now.getFullYear()}`;
 
-          // Append system instruction only to the API request, not to displayed/saved content
-          lastMessage.content = `${lastMessage.content}\n\nDEEP RESEARCH NEEDED: Today is ${formattedDate}. You must follow the researcher workflow: query_writer_researcher → execute research → summarizer_researcher → (optional) reflection_researcher/report_extender_researcher → finalize_report_researcher.`;
+        // Always inject date into the last user message
+        const lastMessage = messagesCleaned[messagesCleaned.length - 1];
+        if (lastMessage?.role === 'user') {
+          lastMessage.content = `${lastMessage.content}\n\nToday is ${formattedDate}.`;
+
+          // Append Deep Thinker workflow instructions only if the metadata flag is set
+          if ((lastMessage as any).metadata?.useDeepThinker) {
+            lastMessage.content = `${lastMessage.content}\n\nDEEP RESEARCH NEEDED: You must follow the researcher workflow: query_writer_researcher → execute research → summarizer_researcher → (optional) reflection_researcher/report_extender_researcher → finalize_report_researcher.`;
+          }
         }
 
         const chatBody: ChatBody = {
@@ -327,6 +331,76 @@ export const Chat = () => {
               // Remove Thought/Action/Action Input/Observation lines; keep Final Answer content
               chunkValue = chunkValue.replace(/^(Thought:|Action:|Action Input:|Observation:).*$/gm, '');
               chunkValue = chunkValue.replace(/\bFinal Answer:\s*/g, '');
+
+              // Filter out any raw JSON objects that look like intermediate steps
+              // This catches intermediate steps that aren't wrapped in tags
+              try {
+                // Find potential JSON objects with system_intermediate type
+                let filtered = chunkValue;
+                let startIdx = 0;
+
+                while (true) {
+                  const jsonStart = filtered.indexOf('{"id":"', startIdx);
+                  if (jsonStart === -1) break;
+
+                  // Try to find the matching closing brace by counting braces
+                  let braceCount = 0;
+                  let jsonEnd = -1;
+                  let inString = false;
+                  let escapeNext = false;
+
+                  for (let i = jsonStart; i < filtered.length; i++) {
+                    const char = filtered[i];
+
+                    if (escapeNext) {
+                      escapeNext = false;
+                      continue;
+                    }
+
+                    if (char === '\\') {
+                      escapeNext = true;
+                      continue;
+                    }
+
+                    if (char === '"') {
+                      inString = !inString;
+                      continue;
+                    }
+
+                    if (!inString) {
+                      if (char === '{') braceCount++;
+                      else if (char === '}') {
+                        braceCount--;
+                        if (braceCount === 0) {
+                          jsonEnd = i + 1;
+                          break;
+                        }
+                      }
+                    }
+                  }
+
+                  if (jsonEnd !== -1) {
+                    const potentialJson = filtered.substring(jsonStart, jsonEnd);
+                    try {
+                      const parsed = JSON.parse(potentialJson);
+                      if (parsed.type === 'system_intermediate') {
+                        // Remove this JSON object from the output
+                        filtered = filtered.substring(0, jsonStart) + filtered.substring(jsonEnd);
+                        startIdx = jsonStart; // Continue searching from same position
+                        continue;
+                      }
+                    } catch (e) {
+                      // Not valid JSON, skip past it
+                    }
+                  }
+
+                  startIdx = jsonStart + 1;
+                }
+
+                chunkValue = filtered;
+              } catch (e) {
+                console.error('Error filtering intermediate steps:', e);
+              }
 
               text = text + chunkValue;
 
