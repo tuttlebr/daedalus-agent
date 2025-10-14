@@ -1,3 +1,5 @@
+import base64
+import io
 import json
 import logging
 import os
@@ -8,11 +10,131 @@ from nat.builder.builder import Builder
 from nat.builder.function_info import FunctionInfo
 from nat.cli.register_workflow import register_function
 from nat.data_models.function import FunctionBaseConfig
+from PIL import Image
 from pydantic import BaseModel, Field
 
 import redis
 
 logger = logging.getLogger(__name__)
+
+# Valid dimension pairs (width x height) for Flux Kontext API
+VALID_DIMENSION_PAIRS = [
+    (672, 1568),
+    (688, 1504),
+    (720, 1456),
+    (752, 1392),
+    (800, 1328),
+    (832, 1248),
+    (880, 1184),
+    (944, 1104),
+    (1024, 1024),
+    (1104, 944),
+    (1184, 880),
+    (1248, 832),
+    (1328, 800),
+    (1392, 752),
+    (1456, 720),
+    (1504, 688),
+    (1568, 672),
+]
+
+
+def find_closest_dimension_pair(width: int, height: int) -> tuple[int, int]:
+    """
+    Find the closest valid dimension pair based on aspect ratio.
+
+    Matches based on aspect ratio similarity and total area.
+    """
+    target_aspect = width / height
+    target_area = width * height
+
+    def score(dim_pair: tuple[int, int]) -> float:
+        w, h = dim_pair
+        aspect = w / h
+        area = w * h
+
+        # Weight aspect ratio more heavily than area
+        aspect_diff = abs(aspect - target_aspect)
+        area_diff = abs(area - target_area) / target_area
+
+        return aspect_diff * 2.0 + area_diff
+
+    return min(VALID_DIMENSION_PAIRS, key=score)
+
+
+def resize_image_to_valid_dimensions(
+    image_data: bytes, mime_type: str
+) -> tuple[str, int, int]:
+    """
+    Resize image to valid dimensions for Flux Kontext API.
+
+    Args:
+        image_data: Raw image bytes
+        mime_type: MIME type of the image (e.g., 'image/png')
+
+    Returns:
+        Tuple of (base64_encoded_string, width, height)
+    """
+    try:
+        # Load image from bytes
+        img = Image.open(io.BytesIO(image_data))
+        original_width, original_height = img.size
+
+        # Find closest valid dimension pair
+        target_width, target_height = find_closest_dimension_pair(
+            original_width, original_height
+        )
+
+        # Check if resizing is needed
+        if original_width == target_width and original_height == target_height:
+            logger.info("Image already has valid dimensions, no resizing needed")
+            b64 = base64.b64encode(image_data).decode("utf-8")
+            return b64, original_width, original_height
+
+        logger.info(
+            "Resizing image from %sx%s to %sx%s",
+            original_width,
+            original_height,
+            target_width,
+            target_height,
+        )
+
+        # Calculate scaling to maintain aspect ratio
+        scale = min(target_width / original_width, target_height / original_height)
+        scaled_width = int(original_width * scale)
+        scaled_height = int(original_height * scale)
+
+        # Create new image with target dimensions
+        new_img = Image.new("RGB", (target_width, target_height), color=(0, 0, 0))
+
+        # Resize original image
+        resized = img.resize((scaled_width, scaled_height), Image.Resampling.LANCZOS)
+
+        # Center the resized image
+        offset_x = (target_width - scaled_width) // 2
+        offset_y = (target_height - scaled_height) // 2
+        new_img.paste(resized, (offset_x, offset_y))
+
+        # Convert to bytes - always save as JPEG to match API output
+        output = io.BytesIO()
+        # Convert to RGB if needed (JPEG doesn't support transparency)
+        if new_img.mode in ("RGBA", "LA", "P"):
+            rgb_img = Image.new("RGB", new_img.size, (255, 255, 255))
+            rgb_img.paste(
+                new_img, mask=new_img.split()[-1] if new_img.mode == "RGBA" else None
+            )
+            new_img = rgb_img
+        new_img.save(output, format="JPEG", quality=95)
+        output.seek(0)
+
+        # Return base64 encoded
+        b64_result = base64.b64encode(output.read()).decode("utf-8")
+        return b64_result, target_width, target_height
+
+    except Exception as e:
+        logger.error("Error resizing image: %s", e)
+        # Fall back to returning original image
+        return base64.b64encode(image_data).decode("utf-8"), 0, 0
 
 
 # API Models based on the OpenAPI schema (flux-kontext)
@@ -51,7 +173,7 @@ class ImageAugmentationFunctionConfig(
     timeout: float = Field(300.0, description="HTTP timeout in seconds")
     api_key: str | None = Field(
         default=None,
-        description="Optional API key. Falls back to NVIDIA_API_KEY environment variable if unset.",
+        description=("Optional API key. Falls back to NVIDIA_API_KEY env var."),
     )
 
 
@@ -62,7 +184,7 @@ class ImageAugmentationInput(BaseModel):
         ..., description="Text prompt describing the desired augmentation"
     )
     imageRef: dict = Field(
-        ..., description="Image reference object with imageId and sessionId"
+        ..., description="Image reference with imageId and sessionId"
     )
     steps: int | None = Field(None, description="Number of diffusion steps (5-100)")
     seed: int | None = Field(None, description="Random seed (0 for random)")
@@ -146,8 +268,8 @@ async def image_augmentation_function(
                     return (
                         f"I understand you want to: **{prompt}**\n\n"
                         "However, I couldn't retrieve the image. "
-                        "The image may have expired or the session may be invalid. "
-                        "Please try uploading the image again."
+                        "The image may have expired or the session may be "
+                        "invalid. Please try uploading the image again."
                     )
 
                 # Parse the JSON data
@@ -165,13 +287,24 @@ async def image_augmentation_function(
                     logger.error("Image data is empty for image %s", image_id)
                     return "Error: Retrieved image data is empty."
 
-                # Construct data URL
-                image_data_url = f"data:{mime_type};base64,{image_base64}"
-
                 logger.info(
                     "Successfully retrieved image from Redis (size: %d bytes)",
                     len(image_base64),
                 )
+
+                # Decode base64 to bytes for resizing
+                image_bytes = base64.b64decode(image_base64)
+
+                # Resize image to valid dimensions
+                resized_base64, width, height = resize_image_to_valid_dimensions(
+                    image_bytes, mime_type
+                )
+
+                if width > 0 and height > 0:
+                    logger.info("Image resized to %sx%s", width, height)
+
+                # Construct data URL with resized image
+                image_data_url = f"data:{mime_type};base64,{resized_base64}"
 
             except redis.RedisError as e:
                 logger.error("Redis error fetching image %s: %s", image_id, e)
@@ -209,9 +342,11 @@ async def image_augmentation_function(
                     response.status_code,
                     response.text,
                 )
+                status = response.status_code
+                details = response.text
                 return (
-                    f"Error: Image augmentation failed with status {response.status_code}. "
-                    f"Details: {response.text}"
+                    f"Error: Image augmentation failed with status {status}. "
+                    f"Details: {details}"
                 )
 
             # Parse the response
@@ -219,9 +354,11 @@ async def image_augmentation_function(
                 response_data = ImageResponse.model_validate(response.json())
                 artifact = response_data.artifacts[0]
 
-                # Return markdown directly (same pattern as image_generation)
+                # Return markdown directly (same pattern as generation)
+                # Note: Flux Kontext API returns JPEG per the OpenAPI spec
+                b64_data = artifact.base64
                 markdown_image = (
-                    f"![Augmented image](data:image/png;base64,{artifact.base64})"
+                    f"![Augmented image](data:image/jpeg;base64,{b64_data})"
                 )
 
                 logger.info("Successfully augmented image, returning markdown")
@@ -237,7 +374,8 @@ async def image_augmentation_function(
                 e.response.status_code,
                 e.response.text,
             )
-            return f"Error augmenting image: HTTP {e.response.status_code}"
+            status_code = e.response.status_code
+            return f"Error augmenting image: HTTP {status_code}"
         except Exception as e:
             logger.error("Error augmenting image: %s", str(e), exc_info=True)
             return f"Error augmenting image: {str(e)}"
@@ -245,14 +383,16 @@ async def image_augmentation_function(
     try:
         # Register the function with proper description
         logger.info("Registering function augment_image_simple")
+        description = (
+            "Augments or modifies an uploaded image based on text "
+            "instructions. Use when a user uploads an image and requests "
+            "edits, additions, or transformations. Requires prompt (text "
+            "description of desired changes) and imageRef (object with "
+            "imageId and sessionId). Returns augmented image as markdown."
+        )
         function_info = FunctionInfo.from_fn(
             augment_image_simple,
-            description=(
-                "Augments or modifies an uploaded image based on text instructions. "
-                "Use when a user uploads an image and requests edits, additions, or transformations. "
-                "Requires prompt (text description of desired changes) and imageRef (object with imageId and sessionId). "
-                "Returns augmented image as markdown."
-            ),
+            description=description,
         )
         yield function_info
     finally:

@@ -387,12 +387,6 @@ export const Chat = () => {
                 }
               }
 
-              // If chunk is extremely long (>5000 chars), it's likely a verbose intermediate step
-              if (chunkValue.length > 5000) {
-                shouldFilterChunk = true;
-                console.log('Filtering extremely long chunk:', chunkValue.length, 'chars');
-              }
-
               // Skip this entire chunk if it's verbose
               if (shouldFilterChunk) {
                 chunkValue = '';

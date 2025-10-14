@@ -60,7 +60,7 @@ result = await augment_image_simple(
 The function returns a markdown-formatted image string:
 
 ```markdown
-![Augmented image](data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeA...)
+![Augmented image](data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD...)
 ```
 
 This will be automatically rendered as an image in the UI.
@@ -69,16 +69,17 @@ This will be automatically rendered as an image in the UI.
 
 The image augmentation workflow follows this pattern:
 
-1. **User uploads image** → Frontend resizes to valid dimensions (672-1568 pixels)
+1. **User uploads image** → Frontend uploads image to Redis (with optional compression)
 2. **Image stored in Redis** → Stored as JSON with imageId and sessionId as key
 3. **User requests augmentation** → "make the sky purple" with uploaded image
 4. **Frontend prepares message** → Includes imageRef data in message content
 5. **Backend LLM receives message** → Extracts imageRef from message content
 6. **LLM calls augment_image_simple** → Passes prompt and imageRef parameters
 7. **Function fetches image** → Retrieves directly from Redis using Python redis-py client
-8. **API augmentation** → Sends to NVIDIA Flux Kontext endpoint
-9. **Returns markdown** → `![Augmented image](data:image/png;base64,...)`
-10. **UI renders image** → Displays augmented result
+8. **Function resizes image** → Automatically resizes to closest valid dimension pair using Pillow
+9. **API augmentation** → Sends resized image to NVIDIA Flux Kontext endpoint
+10. **Returns markdown** → `![Augmented image](data:image/png;base64,...)`
+11. **UI renders image** → Displays augmented result
 
 ### Direct Redis Access
 
@@ -103,6 +104,7 @@ pip install .
 This will install the function along with its dependencies including:
 - `httpx` for NVIDIA API requests
 - `redis` (redis-py) for direct Redis access
+- `Pillow` for image processing and resizing
 
 ## API Endpoint
 
@@ -133,14 +135,17 @@ The function supports common image formats:
 - GIF
 
 Images are automatically:
-- Resized to valid dimensions in the frontend (672-1568 pixels)
-- Stored in Redis with references
-- Retrieved and converted to data URLs for API calls
+- Uploaded from the frontend and stored in Redis with references
+- Retrieved by the augmentation function from Redis
+- Resized to valid dimension pairs server-side using Pillow
+- Converted to data URLs for API calls
 - Returned as base64-encoded markdown images
 
 ## Supported Dimensions
 
-The Flux Kontext API accepts images with these dimensions:
-- 672, 688, 720, 752, 800, 832, 880, 944, 1024, 1104, 1184, 1248, 1328, 1392, 1456, 1504, 1568
+The Flux Kontext API accepts images with these specific dimension pairs (width x height):
+- 672×1568, 688×1504, 720×1456, 752×1392, 800×1328, 832×1248, 880×1184, 944×1104
+- 1024×1024 (square)
+- 1104×944, 1184×880, 1248×832, 1328×800, 1392×752, 1456×720, 1504×688, 1568×672
 
-The frontend automatically resizes uploaded images to the closest valid dimensions while maintaining aspect ratio.
+The augmentation function automatically resizes images to the closest valid dimension pair based on aspect ratio similarity before sending them to the API. This resizing happens server-side using Pillow for better quality and consistency.

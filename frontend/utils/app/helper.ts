@@ -269,9 +269,10 @@ const truncateString = (str: string, maxLength: number): string => {
 
 // Configuration for intermediate steps limits
 const INTERMEDIATE_STEPS_CONFIG = {
-    MAX_PAYLOAD_LENGTH: 500, // Max characters per payload (reduced from 5000 to prevent UI overflow)
+    MAX_PAYLOAD_LENGTH: 5000, // Max characters per payload (increased to handle image data)
     MAX_NESTED_DEPTH: 2, // Max nesting depth to render (reduced from 3)
     MAX_STEPS_PER_MESSAGE: 20, // Max number of intermediate steps to keep (reduced from 50)
+    MAX_IMAGE_PAYLOAD_LENGTH: 50000, // Special limit for image-related payloads
 };
 
 /**
@@ -291,6 +292,12 @@ export const trimIntermediateSteps = (steps: IntermediateStep[] = []): Intermedi
             ? step.content.payload
             : JSON.stringify(step.content.payload);
 
+        // Check if this is image-related content
+        const isImageContent = step.content?.name?.toLowerCase().includes('image') ||
+                             payload.includes('data:image') ||
+                             payload.includes('base64') ||
+                             payload.includes('image_generation');
+
         // Filter out system prompts and extremely large payloads
         const verbosePatterns = [
             'Answer the following questions as best you can',
@@ -301,8 +308,11 @@ export const trimIntermediateSteps = (steps: IntermediateStep[] = []): Intermedi
             'Arguments must be provided as a valid JSON object'
         ];
 
-        // If payload is extremely large (>10000 chars) or contains verbose patterns, filter it out
-        if (payload.length > 10000 || verbosePatterns.some(pattern => payload.includes(pattern))) {
+        // Be more lenient with image content, but still filter verbose patterns
+        const sizeLimit = isImageContent ? 100000 : 10000; // 100KB for images, 10KB for regular content
+
+        // If payload is extremely large or contains verbose patterns, filter it out
+        if (payload.length > sizeLimit || verbosePatterns.some(pattern => payload.includes(pattern))) {
             console.log('Filtering out verbose intermediate step:', step.content?.name || 'unknown', 'payload length:', payload.length);
             return true;
         }
@@ -360,8 +370,19 @@ export const generateContentIntermediate = (intermediateSteps: IntermediateStep[
                     return ''; // Skip this step entirely
                 }
 
+                // Check if this is image-related content
+                const isImageContent = item.content?.name?.toLowerCase().includes('image') ||
+                                     payloadStr.includes('data:image') ||
+                                     payloadStr.includes('base64') ||
+                                     payloadStr.includes('image_generation');
+
+                // Use appropriate truncation length based on content type
+                const maxLength = isImageContent
+                    ? INTERMEDIATE_STEPS_CONFIG.MAX_IMAGE_PAYLOAD_LENGTH
+                    : INTERMEDIATE_STEPS_CONFIG.MAX_PAYLOAD_LENGTH;
+
                 // Truncate payload to prevent memory bloat
-                const truncatedPayload = truncateString(payloadStr, INTERMEDIATE_STEPS_CONFIG.MAX_PAYLOAD_LENGTH);
+                const truncatedPayload = truncateString(payloadStr, maxLength);
                 const sanitizedPayload = convertBackticksToPreCode(truncatedPayload);
 
                 let details = `<details id=${currentId} index=${currentIndex}>\n`;
