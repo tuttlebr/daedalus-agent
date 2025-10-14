@@ -1,0 +1,15 @@
+{{- if and .Values.backend.default.enabled .Values.backend.default.config.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "daedalus.fullname" . }}-backend-default-config
+  labels:
+    {{- include "daedalus.labels" . | nindent 4 }}
+data:
+  config.yaml: |-
+{{- if .Values.backend.default.config.data }}
+{{ .Values.backend.default.config.data | indent 4 }}
+{{- else }}
+    {}
+{{- end }}
+{{- end }}

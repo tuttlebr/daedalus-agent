@@ -30,25 +30,51 @@ images:
     pullPolicy: Always
 
 backend:
-  enabled: true
-  port: 8000
-  env:
-    # Name of an existing Secret to load via envFrom (external secret)
-    fromSecret: ""
-    # If you prefer Helm to create the Secret, set createSecret=true and provide key/value pairs under data
-    createSecret: false
-    data: {}
-    # Explicit env overrides applied in the pod, useful to fix bad values from secrets
-    overrides:
-      SSL_CERT_FILE: /etc/ssl/certs/ca-certificates.crt
-  config:
+  # Default backend configuration
+  default:
     enabled: true
-    # Contents of backend/config.yaml; if empty, configMap not created
-    data: |
-      # Override to inject your backend config.yaml
-  service:
-    type: ClusterIP
     port: 8000
+    env:
+      # Name of an existing Secret to load via envFrom (external secret)
+      fromSecret: ""
+      # If you prefer Helm to create the Secret, set createSecret=true and provide key/value pairs under data
+      createSecret: false
+      data: {}
+      # Explicit env overrides applied in the pod, useful to fix bad values from secrets
+      overrides:
+        SSL_CERT_FILE: /etc/ssl/certs/ca-certificates.crt
+    config:
+      enabled: true
+      # Contents of backend/tool-calling-config.yaml; if empty, configMap not created
+      data: |
+        # Override to inject your backend tool-calling-config.yaml
+    service:
+      type: ClusterIP
+      port: 8000
+
+  # Deep Thinker backend configuration
+  deepThinker:
+    enabled: true
+    port: 8000
+    env:
+      # Name of an existing Secret to load via envFrom (external secret)
+      fromSecret: ""
+      # If you prefer Helm to create the Secret, set createSecret=true and provide key/value pairs under data
+      createSecret: false
+      data: {}
+      # Explicit env overrides applied in the pod, useful to fix bad values from secrets
+      overrides:
+        SSL_CERT_FILE: /etc/ssl/certs/ca-certificates.crt
+    config:
+      enabled: true
+      # Contents of backend/react-agent-config.yaml; if empty, configMap not created
+      data: |
+        # Override to inject your backend react-agent-config.yaml
+    service:
+      type: ClusterIP
+      port: 8000
+
+  # Shared backend configuration
   networkPolicy:
     enabled: true # Set to true to restrict backend access to only frontend and nginx pods
   persistence:

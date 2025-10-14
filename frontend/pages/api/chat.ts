@@ -180,22 +180,29 @@ const handler = async (req: Request): Promise<Response> => {
     Array.isArray(messages) ? messages.length : 'n/a',
   );
 
+  // Check if any message has useDeepThinker flag
+  const useDeepThinker = messages.some((msg: any) => msg.metadata?.useDeepThinker === true);
+  console.log('aiq - useDeepThinker:', useDeepThinker);
+
   try {
-    // Normalize backend URL to in-cluster FQDN if an unsafe/default value is provided by the client
-    const backendHost = process.env.BACKEND_HOST || 'backend';
+    // Normalize backend URL to in-cluster FQDN and route based on useDeepThinker flag
+    const baseBackendHost = process.env.BACKEND_HOST || 'daedalus-backend';
+    const backendSuffix = useDeepThinker ? '-deep-thinker' : '-default';
+    const backendHost = baseBackendHost + backendSuffix + '.daedalus.svc.cluster.local';
+
     const defaultStreamUrl = `http://${backendHost}:8000/chat`;
-    const unsafeHosts = new Set(['backend', '127.0.0.1', 'localhost']);
+
     try {
       const provided = chatCompletionURL || '';
       if (!provided) {
         chatCompletionURL = defaultStreamUrl;
       } else {
-        const u = new URL(provided, `http://${backendHost}:8000`);
-        if (unsafeHosts.has(u.hostname)) {
-          u.hostname = backendHost;
-          u.port = '8000';
-          chatCompletionURL = u.toString();
-        }
+        // Always replace the backend host based on deep thinker flag
+        const u = new URL(provided);
+        // Extract the path and query params from the provided URL
+        const pathAndQuery = u.pathname + u.search;
+        // Construct new URL with the correct backend
+        chatCompletionURL = `http://${backendHost}:8000${pathAndQuery}`;
       }
     } catch {
       chatCompletionURL = defaultStreamUrl;
@@ -257,6 +264,8 @@ const handler = async (req: Request): Promise<Response> => {
       headers: {
         'Content-Type': 'application/json',
         'x-user-id': username,
+        // Add backend type header for routing
+        'X-Backend-Type': useDeepThinker ? 'deep-thinker' : 'default',
       },
       body: JSON.stringify(payload),
     });

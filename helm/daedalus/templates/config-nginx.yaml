@@ -36,8 +36,12 @@ upstream frontend {
     server {{ include "daedalus.fullname" . }}-frontend.{{ .Release.Namespace }}.svc.cluster.local:3000 max_fails=3 fail_timeout=30s;
 }
 
-upstream backend {
-    server {{ include "daedalus.fullname" . }}-backend.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.nginx.config.backendPort }} max_fails=3 fail_timeout=30s;
+upstream backend_default {
+    server {{ include "daedalus.fullname" . }}-backend-default.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.backend.default.port }} max_fails=3 fail_timeout=30s;
+}
+
+upstream backend_deep_thinker {
+    server {{ include "daedalus.fullname" . }}-backend-deep-thinker.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.backend.deepThinker.port }} max_fails=3 fail_timeout=30s;
 }
 
 # Main server block
@@ -142,7 +146,12 @@ server {
 
     # API routes - OpenAI compatible endpoint
     location /v1/ {
-        proxy_pass http://backend;
+        # Route based on X-Backend-Type header
+        set $backend_upstream "backend_default";
+        if ($http_x_backend_type = "deep-thinker") {
+            set $backend_upstream "backend_deep_thinker";
+        }
+        proxy_pass http://$backend_upstream;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection 'upgrade';
@@ -172,7 +181,12 @@ server {
 
     # NAT generate endpoints (including streaming)
     location /generate/ {
-        proxy_pass http://backend/generate/;
+        # Route based on X-Backend-Type header
+        set $backend_upstream "backend_default";
+        if ($http_x_backend_type = "deep-thinker") {
+            set $backend_upstream "backend_deep_thinker";
+        }
+        proxy_pass http://$backend_upstream/generate/;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection 'upgrade';
@@ -202,7 +216,12 @@ server {
 
     # Chat endpoints
     location /chat/ {
-        proxy_pass http://backend/chat/;
+        # Route based on X-Backend-Type header
+        set $backend_upstream "backend_default";
+        if ($http_x_backend_type = "deep-thinker") {
+            set $backend_upstream "backend_deep_thinker";
+        }
+        proxy_pass http://$backend_upstream/chat/;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection 'upgrade';
@@ -249,7 +268,12 @@ server {
 
     # Upload endpoints
     location ~ ^/(upload|tools|health)/ {
-        proxy_pass http://backend;
+        # Route based on X-Backend-Type header
+        set $backend_upstream "backend_default";
+        if ($http_x_backend_type = "deep-thinker") {
+            set $backend_upstream "backend_deep_thinker";
+        }
+        proxy_pass http://$backend_upstream;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
@@ -263,7 +287,12 @@ server {
 
     # Evaluate endpoints
     location /evaluate {
-        proxy_pass http://backend;
+        # Route based on X-Backend-Type header
+        set $backend_upstream "backend_default";
+        if ($http_x_backend_type = "deep-thinker") {
+            set $backend_upstream "backend_deep_thinker";
+        }
+        proxy_pass http://$backend_upstream;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
@@ -278,7 +307,12 @@ server {
 
     # Auth redirect endpoint
     location /auth/redirect {
-        proxy_pass http://backend;
+        # Route based on X-Backend-Type header
+        set $backend_upstream "backend_default";
+        if ($http_x_backend_type = "deep-thinker") {
+            set $backend_upstream "backend_deep_thinker";
+        }
+        proxy_pass http://$backend_upstream;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
@@ -308,7 +342,8 @@ server {
 
     # Health check endpoint (backend doesn not have /health, use /docs as health check)
     location /health {
-        proxy_pass http://backend/docs;
+        # Always use default backend for health checks
+        proxy_pass http://backend_default/docs;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;

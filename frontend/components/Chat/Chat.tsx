@@ -151,11 +151,11 @@ export const Chat = () => {
         // Always inject date into the last user message
         const lastMessage = messagesCleaned[messagesCleaned.length - 1];
         if (lastMessage?.role === 'user') {
-          lastMessage.content = `${lastMessage.content}\n\nToday is ${formattedDate}.`;
+          lastMessage.content = `${lastMessage.content}`;
 
           // Append Deep Thinker workflow instructions only if the metadata flag is set
           if ((lastMessage as any).metadata?.useDeepThinker) {
-            lastMessage.content = `${lastMessage.content}\n\nDEEP RESEARCH NEEDED: You must follow the researcher workflow: query_writer_researcher → execute research → summarizer_researcher → (optional) reflection_researcher/report_extender_researcher → finalize_report_researcher.`;
+            lastMessage.content = `${lastMessage.content}\n\nToday is ${formattedDate}.\n\nDEEP RESEARCH NEEDED: You must follow the researcher workflow: query_writer_researcher → execute research → summarizer_researcher → (optional) reflection_researcher/report_extender_researcher → finalize_report_researcher.`;
           }
         }
 

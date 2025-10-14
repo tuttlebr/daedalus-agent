@@ -1,0 +1,80 @@
+{{- if .Values.backend.deepThinker.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "daedalus.fullname" . }}-backend-deep-thinker
+  labels:
+    {{- include "daedalus.labels" . | nindent 4 }}
+    app.kubernetes.io/component: backend-deep-thinker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "daedalus.name" . }}
+      app.kubernetes.io/component: backend-deep-thinker
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ include "daedalus.name" . }}
+        app.kubernetes.io/component: backend-deep-thinker
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      containers:
+        - name: backend
+          image: "{{ .Values.images.backend.repository }}:{{ .Values.images.backend.tag }}"
+          imagePullPolicy: {{ .Values.images.backend.pullPolicy }}
+          ports:
+            - containerPort: {{ .Values.backend.deepThinker.port }}
+              name: http
+          envFrom:
+            - secretRef:
+                name: {{ .Values.backend.deepThinker.env.fromSecret | default (printf "%s-backend-env" (include "daedalus.fullname" .)) }}
+          {{- with .Values.backend.deepThinker.env.overrides }}
+          env:
+            {{- range $k, $v := . }}
+            - name: {{ $k }}
+              value: {{ $v | quote }}
+            {{- end }}
+          {{- end }}
+          volumeMounts:
+            {{- if and .Values.backend.deepThinker.config.enabled .Values.backend.deepThinker.config.data }}
+            - name: backend-config
+              mountPath: /workspace/config.yaml
+              subPath: config.yaml
+            {{- end }}
+            {{- if .Values.backend.persistence.enabled }}
+            - name: backend-data
+              mountPath: /data
+            {{- end }}
+      {{- if or .Values.backend.persistence.enabled (and .Values.backend.deepThinker.config.enabled .Values.backend.deepThinker.config.data) }}
+      volumes:
+        {{- if .Values.backend.persistence.enabled }}
+        - name: backend-data
+          persistentVolumeClaim:
+            claimName: {{ include "daedalus.fullname" . }}-backend
+        {{- end }}
+        {{- if and .Values.backend.deepThinker.config.enabled .Values.backend.deepThinker.config.data }}
+        - name: backend-config
+          configMap:
+            name: {{ include "daedalus.fullname" . }}-backend-deep-thinker-config
+        {{- end }}
+      {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "daedalus.fullname" . }}-backend-deep-thinker
+  labels:
+    {{- include "daedalus.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.backend.deepThinker.service.type }}
+  selector:
+    app.kubernetes.io/name: {{ include "daedalus.name" . }}
+    app.kubernetes.io/component: backend-deep-thinker
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+    - port: {{ .Values.backend.deepThinker.service.port }}
+      targetPort: http
+      name: http
+{{- end }}

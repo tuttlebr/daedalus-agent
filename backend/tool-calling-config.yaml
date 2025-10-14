@@ -1,0 +1,464 @@
+embedders:
+  milvus_embedder:
+    _type: nim
+    base_url: https://84105d6a-bb7e-4fc3-b401-f82cb3707a28.invocation.api.nvcf.nvidia.com/v1
+    model_name: nvidia/llama-3.2-nv-embedqa-1b-v2
+    truncate: END
+functions:
+  bang_for_buck_tool:
+    _type: chat_completion
+    description: Analyzes infrastructure project ROI using Bang for Buck (!/$ ) methodology to prioritize engineering work. Use when users ask about prioritizing infrastructure projects, calculating project value, determining resource allocation, or evaluating whether initiatives are worth the investment. Calculates time savings (bang) versus implementation costs (buck) across affected teams and project timelines. Provides prioritization recommendations based on !/$  ratio thresholds (>10 high priority, 4-10 consider carefully, <4 deprioritize). Best for engineering leadership questions about "should we build," "is it worth it," or "how do we prioritize." Returns detailed analysis with calculations, assumptions, and actionable recommendations.
+    llm_name: reasoning_llm
+    system_prompt: '# Infrastructure Prioritization Assistant - System Prompt
+
+
+      You are an Infrastructure Prioritization Assistant specialized in analyzing and calculating the return on investment (ROI) for infrastructure projects using the Bang for Buck (!/$ ) methodology. Your primary objective is to help teams make data-driven decisions about resource allocation by quantifying the expected benefit versus cost of proposed work.
+
+
+      ## Core Principles
+
+
+      1. **Value Focus**: All infrastructure work must demonstrate measurable time savings for chip teams in a scalable fashion.
+
+      2. **Minimum Threshold**: Do not prioritize items with a !/$ ratio less than 5:1.
+
+      3. **Lasting Impact**: Infrastructure investments should provide durable, scalable value across multiple teams and projects.
+
+
+      ## Bang for Buck (!/$ ) Calculation Framework
+
+
+      ### Formula
+
+      ```
+
+      ! (Bang) = (% time saved) × (number of people affected) × (time in relevant project/milestone)
+
+      $ (Buck) = (estimated implementation effort) + (transition costs + ongoing process costs)
+
+      ```
+
+
+      **Important**: Both ! and $ must use the same effort units (person-days, person-weeks, or person-months).
+
+
+      ### Key Considerations
+
+      - Implementation effort includes testing and documentation time
+
+      - Only major items (>1 week effort) require formal POR documentation
+
+      - Daily operational items (bugs, enhancements) still require !/$ analysis
+
+
+      ## Calculation Guidelines by Scenario Type
+
+
+      ### 1. Standard Time Savings
+
+      Calculate direct time saved per person × number of affected people × project timeframe.
+
+
+      Example: 3 people save 30 min/week for 6 months = ((0.5/40) × 3 × (6×4×5)) = 4.5 person-days saved
+
+
+      ### 2. Productivity Enhancements with Escape Prevention
+
+      Include time saved from preventing downstream issues and debugging.
+
+
+      Example: Eliminating monthly debugging sessions (2 people × 2 days) over 6 months = 24 person-days in bang calculation
+
+
+      ### 3. Risk Insurance Items
+
+      Calculate as: (probability of bad event) × (cost if event occurs)
+
+
+      Example: 1% chance of missed bug × 5 people × 2 months full-time = (0.01 × 5 × 40) = 2 person-days
+
+
+      ### 4. Verification Flow Enablement
+
+      Consider the massive impact of missing critical verification:
+
+      - Potential affected: 150+ people for 3+ months if serious silicon bugs occur
+
+      - Include costs of debugging, workarounds, customer impact, and potential chip respin
+
+
+      ### 5. Bringup/Emergency Items
+
+      Measure in "chip-days" when entire teams are blocked
+
+      - Affects: All SW, Marketing, and related teams waiting on investigation
+
+
+      ### 6. Latency Improvements
+
+      Use 10% of latency reduction as actual time saved (conservative estimate accounting for context switching and non-optimal work ordering)
+
+
+      ### 7. Internal Tool Health/Efficiency
+
+      Use the team''s average !/$ as multiplier for internal improvements
+
+
+      ### 8. Cost Savings (Non-Personnel)
+
+      Convert hardware/license savings to person-time using $250K/year per engineer
+
+
+      ## Project Timeframes (Update Quarterly)
+
+
+      When calculating bang, use the following project horizons:
+
+      - Completed projects: 0 months
+
+      - Active near-term projects: 12 months
+
+      - Future projects: 24+ months (with defined start dates)
+
+      - General infrastructure: 12 months (applies to all projects continuously)
+
+
+      **Default Rule**: Use timeframe for only one project unless other projects explicitly sponsor the request.
+
+
+      ## Prioritization Guidelines
+
+
+      1. **Estimation Accuracy**: Aim for order-of-magnitude correctness, not precision
+
+      2. **People Buckets**: Use standard groupings (1, 3, 10, 30, 100+ people)
+
+      3. **P0 Quick Items**: ~1 hour tasks with clear !/$ >5 can bypass formal analysis
+
+      4. **Iteration**: Update bang estimates as understanding evolves
+
+
+      ## Decision Thresholds
+
+
+      - **!/$ < 4**: Generally will not be prioritized
+
+      - **!/$ between 4-10**: Requires careful consideration and possible scope adjustment
+
+      - **!/$ > 10**: Clear candidates for implementation
+
+
+      ## When Analyzing Requests, Consider:
+
+
+      1. **Who is affected?** Identify specific user groups and their sizes
+
+      2. **What time is saved?** Quantify current inefficiency or risk
+
+      3. **How long is the benefit?** Use appropriate project timeframe
+
+      4. **What''s the true cost?** Include implementation, transition, and ongoing costs
+
+      5. **Can we improve !/$?** Negotiate scope if bang is high but cost is prohibitive
+
+
+      ## Output Format
+
+
+      When analyzing an infrastructure request, provide:
+
+      1. Clear identification of the scenario type
+
+      2. Detailed bang calculation with assumptions
+
+      3. Cost estimation breakdown
+
+      4. Final !/$ ratio
+
+      5. Recommendation (proceed/reconsider/rescope)
+
+      6. Any suggestions for improving !/$ if borderline
+
+
+      Remember: The goal is to maximize company-wide benefit through objective, auditable prioritization that enables management to resolve resource allocation across teams and projects.
+
+      '
+  current_datetime_tool:
+    _type: current_datetime
+    description: Returns the current date, time, day of week, and timezone. Usueful for ALL conversations.
+  first_principles_tool:
+    _type: chat_completion
+    description: Analyzes problems using first-principles thinking by breaking down to fundamental axioms and rebuilding solutions from the ground up. Use when users need deep logical analysis, want to challenge assumptions, or seek innovative approaches to complex problems. Identifies foundational truths, audits assumptions, decomposes problems hierarchically, and reconstructs solutions based only on validated premises. Best for "why does this work," "what are the fundamentals," or "how can we approach this differently" questions. Returns structured analysis with premises, decomposition, and reconstructed solutions.
+    llm_name: reasoning_llm
+    system_prompt: "You are an advanced reasoning engine that operates strictly from first‑principles thinking. Your task is to approach every query by:\n1. **Identifying Indemonstrable Foundations**  \n  - Seek the most basic, self‑evident truths or axioms that cannot be further reduced.  \n  - Explicitly label these as \"Fundamental Premise\" and note any underlying physical, mathematical, or logical laws.\n\n2. **Challenging Assumptions**  \n  - List every implicit or explicit assumption in the problem statement.  \n  - For each, ask: \"Is this truly necessary? Can it be proven, or is it merely a convention?\"  \n  - Discard or replace assumptions that lack justification.\n\n3. **Decomposing the Problem**  \n  - Break the problem into its smallest constituent components, tracing each back to the identified fundamental premises.  \n  - Represent the decomposition as a hierarchy or step‑by‑step logical flow.\n\n4. **Reconstructing Solutions from the Ground Up**  \n  - Using only the validated fundamental premises, rebuild a solution path.  \n  - Ensure each step follows directly from a premise or a previously proven intermediate result.  \n  - Highlight any novel connections or insights that emerge during reconstruction.\n\n5. **Fostering Innovation**  \n  - Actively explore alternative configurations of the fundamental premises that could lead to more efficient, elegant, or previously unseen solutions.  \n  - Propose \"What‑if\" scenarios that relax or modify premises, and evaluate their impact.\n\n**Output Format**  \n- **Fundamental Premises:** bullet list of core truths.  \n- **Assumptions Audit:** table of assumptions with justification status.  \n- **Decomposition Tree:** concise outline of sub‑problems linked to premises.  \n- **Reconstructed Solution:** stepwise reasoning that culminates in the final answer, referencing only validated premises.  \n- **Innovative Extensions (optional):** brief suggestions for further exploration or improvement.\n\nAlways prioritize logical rigor, clarity, and minimal reliance on unproven beliefs. Your goal is to illuminate the problem’s essence and craft solutions that stand on indisputable foundations.\n"
+  geolocation_retriever_tool:
+    _type: nat_retriever
+    content_field: canonical_name
+    description: Resolves and normalizes location names to canonical forms with coordinates. Use when processing user-provided location names before passing them to weather, search, or other location-aware tools. Essential for disambiguating locations and ensuring consistent geographic references. Returns structured geolocation data including canonical names, regions, and coordinates.
+    retriever: geolocation_retriever
+    topic: Canonical geolocation normalization and lookup
+  image_generation_tool:
+    _type: image_generation
+    api_endpoint: https://407754b4-d173-45c9-8d6e-5368726fed70.invocation.api.nvcf.nvidia.com
+    default_cfg_scale: 3.5
+    default_height: 1024
+    default_steps: 50
+    default_width: 1024
+    description: Generates high-quality images from text descriptions using AI diffusion models. Use when users request visual content, illustrations, artwork, or want to visualize concepts, scenes, objects, or designs. Automatically enhances user prompts for better results. Supports various styles (photorealistic, artistic, technical diagrams). Returns 1024x1024 images by default. Best for "create an image of," "show me," "generate a picture," "visualize" requests. Cannot edit existing images or generate text within images reliably. Generation takes 15 seconds.
+    prompt_rewrite:
+      llm: fast_llm
+      max_tokens: 256
+      temperature: 0.9
+    timeout: 300.0
+  kubernetes_retriever_tool:
+    _type: nat_retriever
+    description: Retrieves technical Kubernetes documentation and best practices covering K8s configuration, deployment strategies, troubleshooting, networking (Ingress, Services, CNI), storage (PV, PVC, StorageClass), workload management (Deployments, StatefulSets), security policies, and YAML examples. Covers core Kubernetes and ecosystem tools (Helm, operators). Use for Kubernetes architecture, operations, or configuration questions.
+    retriever: kubernetes_retriever
+    topic: Kubernetes and container orchestration
+  mentalhealth_retriever_tool:
+    _type: nat_retriever
+    description: Retrieves evidence-based mental health information and support resources. Use when users ask about understanding mental health conditions, coping strategies, stress management, emotional wellness, recognizing symptoms, or finding help. Appropriate for educational questions about anxiety, depression, trauma, relationships, and self-care. Always emphasize that this is informational content, not therapy or crisis support. For emergencies, direct users to crisis hotlines.
+    retriever: mentalhealth_retriever
+    topic: Mental health and psychological wellness
+  nvidia_retriever_tool:
+    _type: nat_retriever
+    description: Retrieves authoritative information from NVIDIA knowledge base including GPU specifications, CUDA programming, AI frameworks (NeMo, TensorRT), product comparisons (A100 vs H100), platform capabilities (DGX, Jetson), and corporate announcements. Combines engineering-level technical detail with business context from official NVIDIA sources. Use when queries require NVIDIA-specific expertise or product information.
+    retriever: nvidia_retriever
+    topic: NVIDIA technology, products, and corporate information
+  realtime_serpapi_ai_tool:
+    _type: serpapi_ai
+    default_location: Detroit,Michigan,United States
+    description: 'CRITICAL: This tool provides REAL-TIME access to Google search for ANY current information including LIVE SPORTS SCORES, game results, team standings, player stats, and ongoing games. Also covers: business hours, store/restaurant information, stock prices, current events, breaking news, weather updates, celebrity news, product releases, company info, local information, and general knowledge. Use this for ANY question about current/live/recent information that would be searchable on Google right now. Examples: ''What''s the score of the Lions game?'', ''Who won the Lakers game?'', ''Is Target open?'', ''What time does the movie start?'', ''What''s the stock price of NVIDIA?''. Returns quick AI-generated summaries with source references. This is your PRIMARY tool for real-time factual information.'
+    geolocation_retriever_name: geolocation_retriever_tool
+    use_geolocation_retriever: true
+  realtime_serpapi_news_tool:
+    _type: serpapi_news
+    default_location: Detroit,Michigan,United States
+    description: 'CRITICAL: This tool provides REAL-TIME access to Google News for breaking news including LIVE SPORTS COVERAGE, game recaps, player news, and team updates from major news outlets worldwide. Also covers: breaking news, political developments, entertainment news, technology announcements, business updates, local news, weather events, and all time-sensitive information. Use this when you need detailed news articles about current/recent events. Examples: ''Latest Lions game recap'', ''Breaking news about [team/player]'', ''Recent developments in [topic]''. Returns current headlines with publication timestamps, sources, article snippets, and automatically scrapes up to 3 full article contents. Essential when queries contain ''latest,'' ''recent,'' ''today,'' ''this week,'' ''breaking,'' ''just happened,'' ''current,'' ''news about''.'
+    geolocation_retriever_name: geolocation_retriever_tool
+    use_geolocation_retriever: true
+  realtime_serpapi_search_tool:
+    _type: serpapi_search
+    default_location: Detroit,Michigan,United States
+    default_num_results: 10
+    description: 'CRITICAL: This tool provides REAL-TIME access to comprehensive Google web search results for ANY current information including LIVE SPORTS SCORES, game schedules, team rosters, player statistics, league standings, and sports news. Also covers: local business details (hours, phone numbers, addresses), restaurant menus, store locations, movie showtimes, flight information, stock prices, product availability, service providers, reviews, technical documentation, tutorials, how-to guides, comparison shopping, and any topic requiring breadth and depth. Use when you need multiple diverse sources with full context rather than a quick summary. Examples: ''Detroit Lions score'', ''NBA standings'', ''Premier League results'', ''nearest pizza place'', ''flights to NYC''. Returns ranked organic results with titles, URLs, snippets, plus related questions and top stories. Automatically enriches top results with full page content via web scraping.'
+    geolocation_retriever_name: geolocation_retriever_tool
+    use_geolocation_retriever: true
+  semianalysis_retriever_tool:
+    _type: nat_retriever
+    description: Retrieves expert semiconductor industry analysis from Semianalysis covering chip manufacturing trends, foundry capabilities (TSMC, Samsung, Intel), process node economics, AI accelerator architectures, supply chain dynamics, technology roadmaps, competitive positioning, transistor density, yield, packaging, and market share. Use for semiconductor industry business and technical questions.
+    retriever: semianalysis_retriever
+    topic: Semiconductor industry analysis and market intelligence
+  socratic_method_tool:
+    _type: chat_completion
+    description: Engages users through Socratic dialogue using guided inquiry to facilitate self-discovery and critical thinking. Use when users want to explore concepts deeply through questioning, learn through collaborative dialogue, or develop their own understanding rather than receiving direct answers. Employs open-ended questions, challenges assumptions, promotes evidence-based reasoning, and encourages users to generate their own solutions. Best for educational contexts, complex problem exploration, or when fostering deeper understanding is more valuable than quick answers.
+    llm_name: reasoning_llm
+    system_prompt: 'You are an AI tutor who engages users through the Socratic method. Your role is to facilitate collaborative dialogue, not to provide direct answers. Follow these principles in every interaction:
+
+
+      Guided Inquiry
+
+
+      Begin with open‑ended, thought‑provoking questions that invite the user to explore the topic.
+
+      Use "What…?", "How…?", "Why do you think…?", and "Can you explain…?" to steer the conversation.
+
+      Challenge Assumptions
+
+
+      Gently question any underlying premises the user presents.
+
+      Ask for clarification or evidence: "What evidence supports that assumption?" or "Could there be an alternative perspective?"
+
+      Promote Self‑Discovery
+
+
+      Encourage the user to generate their own examples, analogies, or solutions.
+
+      When the user reaches a partial insight, ask, "What does this imply for the larger problem?" or "How might you test this idea?"
+
+      Foster Evidence‑Based Reasoning
+
+
+      Request supporting data, logical steps, or references: "What sources could verify this claim?"
+
+      Prompt the user to evaluate the reliability of their evidence: "How credible is that source, and why?"
+
+      Maintain Openness and Respect
+
+
+      Acknowledge the user’s contributions and encourage curiosity.
+
+      Avoid judgment; instead, ask, "What other possibilities might we have missed?"
+
+      Avoid Direct Answers
+
+
+      If the user explicitly asks for a solution, respond with a guiding question that leads them toward the answer themselves.
+
+      '
+  veterinarian_retriever_tool:
+    _type: nat_retriever
+    description: Retrieves expert veterinary medical knowledge from VetPartner covering pet symptoms, animal diseases, treatment protocols, medication side effects, preventive care, and nutrition for multiple species (dogs, cats, horses, birds, exotic animals). Use for animal health questions requiring authoritative veterinary expertise. Always include disclaimer that this is educational information requiring veterinary consultation for diagnosis and treatment.
+    retriever: veterinarian_retriever
+    topic: Veterinary medicine and animal care
+  weather_tool:
+    _type: weather
+    description: Retrieves current weather conditions and forecasts for specified locations. Use when users ask about temperature, precipitation, weather conditions, forecasts, or climate. Returns current conditions plus hourly and daily forecasts including temperature, humidity, wind, precipitation probability, and conditions. Automatically normalizes location names using geolocation retriever for accuracy. Supports worldwide locations. Include relevant forecast period when presenting results (current, today, week ahead).
+    fallback_latitude: 42.1667
+    fallback_location_name: Detroit,Michigan,United States
+    fallback_longitude: -83.7816
+    geocoding_timeout: 30.0
+    geolocation_retriever_name: geolocation_retriever_tool
+    include_hourly: true
+    use_geolocation_retriever: true
+    weather_timeout: 30.0
+  webscrape_tool:
+    _type: webscrape
+    allowed_schemes:
+    - http
+    - https
+    description: Extracts and parses full content from specific web pages. Use when you have a URL (from search results or user-provided) and need to read the complete article, documentation page, or webpage content. Returns cleaned, readable text from the page body. Essential for following up on search results to get full details, or when users provide specific URLs to analyze. Respects robots.txt and has timeout/size limits. Not suitable for sites requiring authentication or JavaScript-heavy single-page applications.
+    max_output_tokens: 64000
+    respect_robots_txt: true
+    timeout: 30.0
+    user_agent: daedalus-webscraper/1.0
+llms:
+  fast_llm:
+    _type: nim
+    base_url: https://5183a11a-633e-4945-b882-de86ce85125e.invocation.api.nvcf.nvidia.com/v1
+    max_tokens: 2048
+    model_name: nvidia/nvidia-nemotron-nano-9b-v2
+    temperature: 0.2
+    thinking: false
+    top_p: 0.7
+  reasoning_llm:
+    _type: nim
+    base_url: https://9adef108-3097-4540-ba5f-873a9da8e54f.invocation.api.nvcf.nvidia.com/v1
+    max_tokens: 32000
+    model_name: openai/gpt-oss-120b
+  tool_calling_llm:
+    _type: nim
+    base_url: https://5eb560ed-7ab8-4985-ab2a-dd1f7ea5eb66.invocation.api.nvcf.nvidia.com/v1
+    max_tokens: 32000
+    model_name: nvidia/llama-3-3-nemotron-super-49b-v1-5
+    temperature: 0
+    thinking: false
+retrievers:
+  geolocation_retriever:
+    _type: smart_milvus
+    collection_name: geolocation
+    content_field: canonical_name
+    database_name: default
+    description: Retrieves canonical geolocation data (city names, coordinates, regions) from an authoritative database. Use when you need to normalize location names, resolve ambiguous locations (e.g., "Paris" could be Paris, France or Paris, Texas), or obtain precise geographic coordinates for location-based searches. Returns the most relevant canonical location name based on the input query.
+    embedding_model: milvus_embedder
+    reranker_endpoint: https://c5b64ba3-16fd-4c3c-a2b8-cd9526f9d34b.invocation.api.nvcf.nvidia.com/v1/ranking
+    reranker_model: nvidia/llama-3.2-nv-rerankqa-1b-v2
+    reranker_top_n: 1
+    return_as_string: false
+    top_k: 5
+    uri: http://milvus.milvus.svc.cluster.local:19530
+    use_reranker: true
+    vector_field: embedding
+  kubernetes_retriever:
+    _type: smart_milvus
+    collection_name: kubernetes
+    content_field: text
+    database_name: default
+    description: Retrieves technical information about Kubernetes, including configuration patterns, best practices, troubleshooting guides, and architecture concepts from official documentation and expert technical blogs. Use for questions about pod scheduling, service mesh, networking, storage, security policies, resource management, or deployment strategies. Most valuable for implementation details and operational guidance.
+    embedding_model: milvus_embedder
+    reranker_endpoint: https://c5b64ba3-16fd-4c3c-a2b8-cd9526f9d34b.invocation.api.nvcf.nvidia.com/v1/ranking
+    reranker_model: nvidia/llama-3.2-nv-rerankqa-1b-v2
+    reranker_top_n: 10
+    return_as_string: false
+    top_k: 20
+    uri: http://milvus.milvus.svc.cluster.local:19530
+    use_reranker: true
+    vector_field: vector
+    verbose: true
+  mentalhealth_retriever:
+    _type: smart_milvus
+    collection_name: mentalhealth
+    content_field: text
+    database_name: default
+    description: Retrieves evidence-based mental health information from the Mental Health Foundation, including guidance on conditions (anxiety, depression, stress, trauma), coping strategies, wellness practices, support resources, and psychological well-being. Use for questions about mental health conditions, self-care techniques, understanding symptoms, reducing stigma, or finding appropriate support. Provides educational content, not clinical treatment or crisis intervention.
+    embedding_model: milvus_embedder
+    reranker_endpoint: https://c5b64ba3-16fd-4c3c-a2b8-cd9526f9d34b.invocation.api.nvcf.nvidia.com/v1/ranking
+    reranker_model: nvidia/llama-3.2-nv-rerankqa-1b-v2
+    reranker_top_n: 10
+    return_as_string: false
+    top_k: 20
+    uri: http://milvus.milvus.svc.cluster.local:19530
+    use_reranker: true
+    vector_field: vector
+    verbose: true
+  nvidia_retriever:
+    _type: smart_milvus
+    collection_name: nvidia
+    content_field: text
+    database_name: default
+    description: Retrieves in-depth information about NVIDIA products, technologies, and initiatives from corporate announcements, technical documentation, developer blogs, and research publications. Use for questions about GPU architectures (Hopper, Ada, Ampere), AI platforms (DGX, Jetson), software frameworks (CUDA, TensorRT, NeMo), company strategy, product releases, or technical implementation details of NVIDIA solutions. Combines marketing, technical, and corporate perspectives.
+    embedding_model: milvus_embedder
+    reranker_endpoint: https://c5b64ba3-16fd-4c3c-a2b8-cd9526f9d34b.invocation.api.nvcf.nvidia.com/v1/ranking
+    reranker_model: nvidia/llama-3.2-nv-rerankqa-1b-v2
+    reranker_top_n: 10
+    return_as_string: false
+    top_k: 20
+    uri: http://milvus.milvus.svc.cluster.local:19530
+    use_reranker: true
+    vector_field: vector
+    verbose: true
+  semianalysis_retriever:
+    _type: smart_milvus
+    collection_name: semianalysis
+    content_field: text
+    database_name: default
+    description: Retrieves expert semiconductor industry analysis from Semianalysis, including market trends, chip design insights, manufacturing processes, supply chain dynamics, foundry capacity, technology nodes, competitive analysis, and industry forecasts. Use for questions about chip manufacturing, semiconductor economics, fab technology (TSMC, Samsung, Intel), AI accelerator chips, process node transitions, or strategic semiconductor industry developments. Provides deep technical and business intelligence.
+    embedding_model: milvus_embedder
+    reranker_endpoint: https://c5b64ba3-16fd-4c3c-a2b8-cd9526f9d34b.invocation.api.nvcf.nvidia.com/v1/ranking
+    reranker_model: nvidia/llama-3.2-nv-rerankqa-1b-v2
+    reranker_top_n: 10
+    return_as_string: false
+    top_k: 20
+    uri: http://milvus.milvus.svc.cluster.local:19530
+    use_reranker: true
+    vector_field: vector
+    verbose: true
+  veterinarian_retriever:
+    _type: smart_milvus
+    collection_name: vetpartner
+    content_field: text
+    database_name: default
+    description: Retrieves expert veterinary information from VetPartner, covering animal health conditions, disease symptoms, treatment protocols, preventive care, nutrition, and species-specific medical guidance. Use for questions about pet health issues, animal diseases, medication information, surgical procedures, or general animal care advice. Includes content for multiple species (dogs, cats, horses, exotic animals). Not a substitute for actual veterinary consultation.
+    embedding_model: milvus_embedder
+    reranker_endpoint: https://c5b64ba3-16fd-4c3c-a2b8-cd9526f9d34b.invocation.api.nvcf.nvidia.com/v1/ranking
+    reranker_model: nvidia/llama-3.2-nv-rerankqa-1b-v2
+    reranker_top_n: 10
+    return_as_string: false
+    top_k: 20
+    uri: http://milvus.milvus.svc.cluster.local:19530
+    use_reranker: true
+    vector_field: vector
+    verbose: true
+workflow:
+  _type: tool_calling_agent
+  llm_name: tool_calling_llm
+  return_direct:
+  - image_generation_tool
+  tool_names:
+  - bang_for_buck_tool
+  - current_datetime_tool
+  - first_principles_tool
+  - geolocation_retriever_tool
+  - image_generation_tool
+  - kubernetes_retriever_tool
+  - mentalhealth_retriever_tool
+  - nvidia_retriever_tool
+  - realtime_serpapi_ai_tool
+  - realtime_serpapi_news_tool
+  - realtime_serpapi_search_tool
+  - semianalysis_retriever_tool
+  - socratic_method_tool
+  - veterinarian_retriever_tool
+  - weather_tool
+  - webscrape_tool
