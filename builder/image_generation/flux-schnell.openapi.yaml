@@ -1,0 +1,408 @@
+openapi: 3.1.0
+info:
+  title: NVIDIA Visual Generative AI NIM for black-forest-labs/flux.1-schnell
+  version: 1.0.0
+paths:
+  /v1/health/live:
+    get:
+      summary: Service liveness check
+      description: This endpoint will return a 200 status as soon as the service is
+        able to accept traffic, but it does not mean the service is ready to accept
+        inference requests.
+      operationId: health_live_v1_health_live_get
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: {}
+          description: Successful Response
+  /v1/health/ready:
+    get:
+      summary: Service ready check
+      description: This endpoint will return a 200 status when the service is ready
+        to receive inference requests
+      operationId: health_ready_v1_health_ready_get
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { }
+          description: Successful Response
+  /v1/license:
+    get:
+      summary: License
+      description: This endpoint will return the NIM Container license information
+      operationId: license_v1_license_get
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LicenseEndpointModel'
+          description: Successful Response
+  /v1/manifest:
+    get:
+      summary: Manifest
+      description: This endpoint will return the NIM Manifest information.
+      operationId: manifest_v1_manifest_get
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ManifestEndpointModel'
+          description: Successful Response
+  /v1/metadata:
+    get:
+      summary: Metadata
+      description: This endpoint will return the NIM Container Version, associated
+        models, assets and license information
+      operationId: metadata_v1_metadata_get
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MetadataEndpointModel'
+          description: Successful Response
+  /v1/metrics:
+    get:
+      summary: Metrics
+      description: Handler for metrics endpoint.
+      operationId: metrics_v1_metrics_get
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                title: Response Metrics V1 Metrics Get
+                type: string
+          description: Successful Response
+  /v1/infer:
+    post:
+      summary: 'Model inference endpoint'
+      operationId: _infer_v1_infer_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ImageRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImageResponse'
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+components:
+  schemas:
+    Artifact:
+      properties:
+        base64:
+          description: A base64-encoded string of the generated image (JPEG).
+          examples:
+          - /9j/4AAQSkZ...b+AVZ/9k=
+          title: Base64
+          type: string
+        finishReason:
+          $ref: '#/components/schemas/FinishReason'
+          description: "The result of the generation process: `SUCCESS` when it completes successfully, `ERROR` when it encounters an issue, and `CONTENT_FILTERED` when the content filter alters the output."
+        seed:
+          description: The seed used during generation.
+          title: Seed
+          type: integer
+      required:
+      - base64
+      - finishReason
+      - seed
+      title: Artifact
+      type: object
+    FinishReason:
+      enum:
+      - CONTENT_FILTERED
+      - ERROR
+      - SUCCESS
+      title: FinishReason
+      type: string
+    HTTPValidationError:
+      properties:
+        detail:
+          items:
+            $ref: '#/components/schemas/ValidationError'
+          title: Detail
+          type: array
+      title: HTTPValidationError
+      type: object
+    ImageRequest:
+      additionalProperties: false
+      properties:
+        cfg_scale:
+          minimum: 0.0
+          maximum: 0.0
+          type: number
+          default: 0.0
+          description: How strictly the diffusion process adheres to the prompt text. FLUX.1-schnell does not support cfg_scale.
+          title: Cfg Scale
+        disable_safety_checker:
+          type: boolean
+          default: false
+          description: Set this to True to disable safety checks on the generated images. This parameter is available only if the container is started with NIM_ALLOW_UNCHECKED_GENERATION=true
+          title: Disable Safety Checker
+        height:
+          enum:
+          - 768
+          - 832
+          - 896
+          - 960
+          - 1024
+          - 1088
+          - 1152
+          - 1216
+          - 1280
+          - 1344
+          ge: 768
+          le: 1344
+          type: integer
+          default: 1024
+          description: The image height in pixels. Supported heights=[768,
+            832, 896, 960, 1024, 1088, 1152, 1216, 1280, 1344].
+          title: Height
+        width:
+          enum:
+          - 768
+          - 832
+          - 896
+          - 960
+          - 1024
+          - 1088
+          - 1152
+          - 1216
+          - 1280
+          - 1344
+          ge: 768
+          le: 1344
+          type: integer
+          default: 1024
+          description: The image width in pixels. Supported widths=[768,
+            832, 896, 960, 1024, 1088, 1152, 1216, 1280, 1344].
+          title: Width
+        mode:
+          enum:
+            - base
+          type: string
+          default: base
+          description: NIM inference mode. The accepted values corresponds to the deployed NIM_MODEL_VARIANT. FLUX.1-schnell supports only `base` mode
+          title: Mode
+        image:
+          type: string
+          description: Image input is not supported in the current version. Only `null` value is accepted.
+          examples:
+            - null
+          title: Image
+        preprocess_image:
+          type: boolean
+          default: true
+          description: If True applies canny detector or depth map estimator to an
+            input image based on mode
+          title: Preprocess Image
+        samples:
+          maximum: 1.0
+          minimum: 1.0
+          type: integer
+          default: 1
+          description: The number of images to generate. Only one sample (samples = 1) is supported.
+          title: Samples
+        seed:
+          exclusiveMaximum: 4294967296
+          minimum: 0.0
+          type: integer
+          default: 0
+          description: The seed which governs generation. Omit this option or use 0 for a random seed.
+          title: Seed
+        steps:
+          maximum: 4
+          minimum: 1
+          type: integer
+          default: 4
+          description: The number of diffusion steps to run.
+          title: Steps
+        prompt:
+          description: What you wish to see in the output image. A strong, descriptive prompt that clearly defines elements, colors, and subjects will lead to better results.
+          maxLength: 10000
+          title: Prompt
+          type: string
+          examples:
+            - a simple coffee shop interior
+      required:
+      - prompt
+      title: ImageRequest
+      type: object
+    ImageResponse:
+      properties:
+        artifacts:
+          items:
+            $ref: '#/components/schemas/Artifact'
+          maxItems: 1
+          minItems: 1
+          title: Artifacts
+          type: array
+      required:
+      - artifacts
+      title: ImageResponse
+      type: object
+    LicenseEndpointModel:
+      description: A model representing the license response.
+      properties:
+        content:
+          description: The license text.
+          title: Content
+          type: string
+        name:
+          description: The name of the license for the NIM container.
+          title: Name
+          type: string
+        path:
+          description: The filepath within the container containing the license content.
+          title: Path
+          type: string
+        sha:
+          description: A SHA1 hash of the license contents.
+          title: Sha
+          type: string
+        size:
+          description: The number of characters in the license content.
+          title: Size
+          type: integer
+        type:
+          const: file
+          description: The format of the license content.
+          title: Type
+          type: string
+        url:
+          description: The url where this license is hosted externally.
+          title: Url
+          type: string
+      required:
+      - name
+      - path
+      - sha
+      - size
+      - url
+      - type
+      - content
+      title: LicenseEndpointModel
+      type: object
+    ManifestEndpointModel:
+      description: A model representing the manifest response.
+      properties:
+        manifest_file:
+          description: The content of the manifest file describing the required model
+            artifacts.
+          title: Manifest File
+          type: string
+        repository_override:
+          description: Alternate location used to retrieve artifacts from manifest
+            file.
+          title: Repository Override
+          type: string
+      required:
+      - manifest_file
+      - repository_override
+      title: ManifestEndpointModel
+      type: object
+    MetadataEndpointModel:
+      description: A model representing the metadata response.
+      properties:
+        assetInfo:
+          description: A list of required container assets excluding model artifacts
+          items:
+            type: string
+          title: Assetinfo
+          type: array
+        licenseInfo:
+          $ref: '#/components/schemas/LicenseEndpointModel'
+          description: The license info.
+        modelInfo:
+          description: A list of models being served by the NIM.
+          items:
+            $ref: '#/components/schemas/ModelInfo'
+          title: Modelinfo
+          type: array
+        repository_override:
+          description: Alternate location used to retrieve artifacts from manifest
+            file.
+          title: Repository Override
+          type: string
+        version:
+          description: The version of the NIM service.
+          title: Version
+          type: string
+      required:
+      - assetInfo
+      - licenseInfo
+      - modelInfo
+      - repository_override
+      - version
+      title: MetadataEndpointModel
+      type: object
+    ModelInfo:
+      description: A model representing the model response.
+      properties:
+        modelUrl:
+          title: Modelurl
+          type: string
+        shortName:
+          title: Shortname
+          type: string
+      required:
+      - modelUrl
+      - shortName
+      title: ModelInfo
+      type: object
+    TextPrompt:
+      additionalProperties: false
+      properties:
+        text:
+          description: The prompt itself
+          examples:
+          - A photo of a Shiba Inu dog with a backpack riding a bike
+          title: Text
+          type: string
+        weight:
+          const: 1.0
+          type: number
+          default: 1.0
+          description: Weight of the prompt, only weight=1.0 is supported
+          title: Weight
+      required:
+      - text
+      title: TextPrompt
+      type: object
+    ValidationError:
+      properties:
+        loc:
+          items:
+            anyOf:
+            - type: string
+            - type: integer
+          title: Location
+          type: array
+        msg:
+          title: Message
+          type: string
+        type:
+          title: Error Type
+          type: string
+      required:
+      - loc
+      - msg
+      - type
+      title: ValidationError
+      type: object

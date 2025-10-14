@@ -183,6 +183,12 @@ functions:
       Remember: The goal is to maximize company-wide benefit through objective, auditable prioritization that enables management to resolve resource allocation across teams and projects.
 
       '
+  code_generation:
+    _type: code_generation
+    description: Useful to generate Python code. For any questions about code generation, you must only use this tool!
+    llm_name: reasoning_llm
+    programming_language: Python
+    verbose: true
   current_datetime_tool:
     _type: current_datetime
     description: Returns the current date, time, day of week, and timezone. Usueful for ALL conversations.
@@ -197,6 +203,15 @@ functions:
     description: Resolves and normalizes location names to canonical forms with coordinates. Use when processing user-provided location names before passing them to weather, search, or other location-aware tools. Essential for disambiguating locations and ensuring consistent geographic references. Returns structured geolocation data including canonical names, regions, and coordinates.
     retriever: geolocation_retriever
     topic: Canonical geolocation normalization and lookup
+  image_augmentation_tool:
+    _type: image_augmentation
+    api_endpoint: https://fde8d464-c30b-4a51-ad04-ee3200156352.invocation.api.nvcf.nvidia.com
+    default_seed: 42
+    default_steps: 30
+    description: 'Augments or modifies existing images based on text prompts. Use when a user uploads an image and requests edits, additions, or transformations. CRITICAL: The user''s message will contain ''ImageRef: {JSON}'' with imageId and sessionId. Parse this JSON and pass it as the imageRef parameter. Example: If user message contains ''ImageRef: {"imageId": "abc123", "sessionId": "xyz789", "mimeType": "image/png"}'', call augment_image_simple(prompt=''user request'', imageRef={''imageId'': ''abc123'', ''sessionId'': ''xyz789'', ''mimeType'': ''image/png''}). The function automatically fetches the image from Redis and returns the augmented result as markdown. Optional parameters: steps (int, default 30), seed (int, default 42), cfg_scale (float, 1.0-9.0).'
+    redis_url: redis://daedalus-redis.daedalus.svc.cluster.local:6379
+    timeout: 300.0
+    verbose: true
   image_generation_tool:
     _type: image_generation
     api_endpoint: https://407754b4-d173-45c9-8d6e-5368726fed70.invocation.api.nvcf.nvidia.com
@@ -323,6 +338,10 @@ functions:
     respect_robots_txt: true
     timeout: 30.0
     user_agent: daedalus-webscraper/1.0
+  wikipedia_search:
+    _type: wiki_search
+    max_results: 3
+    verbose: true
 llms:
   fast_llm:
     _type: nim
@@ -445,11 +464,14 @@ workflow:
   llm_name: tool_calling_llm
   return_direct:
   - image_generation_tool
+  - image_augmentation_tool
   tool_names:
   - bang_for_buck_tool
+  - code_generation
   - current_datetime_tool
   - first_principles_tool
   - geolocation_retriever_tool
+  - image_augmentation_tool
   - image_generation_tool
   - kubernetes_retriever_tool
   - mentalhealth_retriever_tool
@@ -462,3 +484,5 @@ workflow:
   - veterinarian_retriever_tool
   - weather_tool
   - webscrape_tool
+  - wikipedia_search
+  verbose: true

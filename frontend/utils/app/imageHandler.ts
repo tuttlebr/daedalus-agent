@@ -5,6 +5,7 @@ export interface ImageReference {
   imageId: string;
   sessionId: string;
   mimeType?: string;
+  url?: string;
 }
 
 export interface ProcessedMessage extends Message {
@@ -86,12 +87,11 @@ export async function processMessageImages(message: ProcessedMessage): Promise<P
 // Clean messages for LLM (remove image data, keep only references)
 export function cleanMessagesForLLM(messages: any[]): Message[] {
   const cleaned = messages.map((message) => {
-    // Create a clean copy without attachments first
+    // Create a clean copy of the message
     const cleanedMessage: any = {
       role: message.role,
       content: message.content || '',
       id: message.id,
-      // Explicitly exclude attachments and any other fields that might contain base64
     };
 
     // Preserve metadata (includes useDeepThinker flag)
@@ -99,27 +99,63 @@ export function cleanMessagesForLLM(messages: any[]): Message[] {
       cleanedMessage.metadata = message.metadata;
     }
 
-    // If message has attachments, add text descriptions instead of raw data
+    // If message has attachments, preserve sanitized metadata and add text descriptions
+    let sanitizedAttachments: any[] | undefined;
+
     if (message.attachments && message.attachments.length > 0) {
+      sanitizedAttachments = message.attachments
+        .filter((att: any) => Boolean(att))
+        .map((att: any) => {
+          if (att.type === 'image') {
+            return {
+              type: att.type,
+              imageRef: att.imageRef ?? null,
+              mimeType: att.mimeType,
+            };
+          }
+
+          return {
+            type: att.type,
+          };
+        });
+
       if (message.role === 'user') {
         const imageCount = message.attachments.filter((att: any) =>
           att.type === 'image' && (att.imageRef || att.content)
         ).length;
 
         if (imageCount > 0) {
+          // Include imageRef metadata in content so LLM can access it for tool calls
+          const imageRefs = message.attachments
+            .filter((att: any) => att.type === 'image' && att.imageRef)
+            .map((att: any) => att.imageRef);
+
           const imageText = imageCount === 1 ? '[Image attachment]' : `[${imageCount} image attachments]`;
-          cleanedMessage.content = `${message.content}${message.content ? '\n' : ''}${imageText}`;
+
+          // Add structured imageRef data for the LLM to extract
+          if (imageRefs.length > 0) {
+            const imageRefData = imageRefs.map((ref: any) =>
+              `ImageRef: {"imageId": "${ref.imageId}", "sessionId": "${ref.sessionId}", "mimeType": "${ref.mimeType || 'image/png'}"}`
+            ).join('\n');
+            cleanedMessage.content = `${message.content}${message.content ? '\n\n' : ''}${imageText}\n${imageRefData}`;
+          } else {
+            cleanedMessage.content = `${message.content}${message.content ? '\n' : ''}${imageText}`;
+          }
         }
       }
     }
 
     // Remove any properties that might contain base64 data
-    const keysToRemove = ['attachments', 'inputFileContent', 'inputFileContentCompressed'];
+    const keysToRemove = ['inputFileContent', 'inputFileContentCompressed'];
     keysToRemove.forEach(key => {
       if (key in cleanedMessage) {
         delete (cleanedMessage as any)[key];
       }
     });
+
+    if (sanitizedAttachments && sanitizedAttachments.length > 0) {
+      cleanedMessage.attachments = sanitizedAttachments;
+    }
 
     return cleanedMessage;
   });
