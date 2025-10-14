@@ -1,0 +1,15 @@
+{{- if and .Values.backend.deepThinker.enabled .Values.backend.deepThinker.config.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "daedalus.fullname" . }}-backend-deep-thinker-config
+  labels:
+    {{- include "daedalus.labels" . | nindent 4 }}
+data:
+  config.yaml: |-
+{{- if .Values.backend.deepThinker.config.data }}
+{{ .Values.backend.deepThinker.config.data | indent 4 }}
+{{- else }}
+    {}
+{{- end }}
+{{- end }}

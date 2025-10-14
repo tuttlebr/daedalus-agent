@@ -8,7 +8,7 @@ functions:
   bang_for_buck_tool:
     _type: chat_completion
     description: Analyzes infrastructure project ROI using Bang for Buck (!/$ ) methodology to prioritize engineering work. Use when users ask about prioritizing infrastructure projects, calculating project value, determining resource allocation, or evaluating whether initiatives are worth the investment. Calculates time savings (bang) versus implementation costs (buck) across affected teams and project timelines. Provides prioritization recommendations based on !/$  ratio thresholds (>10 high priority, 4-10 consider carefully, <4 deprioritize). Best for engineering leadership questions about "should we build," "is it worth it," or "how do we prioritize." Returns detailed analysis with calculations, assumptions, and actionable recommendations.
-    llm_name: intelligent_llm
+    llm_name: tool_calling_llm
     system_prompt: '# Infrastructure Prioritization Assistant - System Prompt
 
 
@@ -183,69 +183,60 @@ functions:
       Remember: The goal is to maximize company-wide benefit through objective, auditable prioritization that enables management to resolve resource allocation across teams and projects.
 
       '
-  code_generation_tool:
-    _type: code_generation
-    description: Generates production-quality Python code with documentation and error handling. Use when users request Python scripts, functions, classes, or code snippets for specific tasks (data processing, API integration, automation, algorithms). Produces well-structured, commented code following Python best practices. Can create complete programs or focused functions. Includes docstrings and handles edge cases. Best for implementation requests like "write code to," "create a script for," "implement a function that." Returns executable Python code ready for use or further refinement.
-    llm_name: intelligent_llm
-    programming_language: Python
-    verbose: true
-  comprehensive_research_agent:
-    _type: react_agent
-    description: Performs comprehensive multi-source research and can generate detailed structured reports. Use for complex research questions requiring synthesis from multiple authoritative sources, or when users explicitly request detailed reports. Combines domain-specific retrievers, web search, and sequential report generation workflow. Best for deep-dive research, comparative analysis, or comprehensive topic exploration. More thorough but slower than individual tools.
-    llm_name: intelligent_llm
-    tool_names:
-      - finalize_report_tool
-      - kubernetes_retriever_tool
-      - mentalhealth_retriever_tool
-      - nvidia_retriever_tool
-      - query_writer_tool
-      - reflection_tool
-      - relevancy_checker_tool
-      - report_extender_tool
-      - semianalysis_retriever_tool
-      - serpapi_ai_tool
-      - serpapi_news_tool
-      - serpapi_search_tool
-      - summarizer_tool
-      - veterinarian_retriever_tool
-      - wikipedia_search_tool
   current_datetime_tool:
     _type: current_datetime
-    description: Returns the current date, time, day of week, and timezone. Use when users ask "what time is it," "what's today's date," or when you need to establish temporal context for time-sensitive queries (checking if something is current, calculating time differences, determining if business hours apply). Essential for interpreting relative time references like "today," "this week," "recent," or when timestamp context is needed for search queries or analysis.
-  finalize_report_tool:
+    description: Returns the current date, time, day of week, and timezone. Usueful for ALL conversations.
+  daedalus_react_agent:
+    _type: react_agent
+    description: The Daedalus React Agent is a specialized agent that is used to interact with the Daedalus platform. It is used to create and manage Daedalus projects, and to interact with the Daedalus platform.
+    llm_name: tool_calling_llm
+    parallel_tool_calls: false
+    parse_agent_response_max_retries: 2
+    tool_names:
+    - bang_for_buck_tool
+    - first_principles_tool
+    - geolocation_retriever_tool
+    - kubernetes_retriever_tool
+    - mentalhealth_retriever_tool
+    - nvidia_retriever_tool
+    - realtime_serpapi_ai_tool
+    - realtime_serpapi_news_tool
+    - realtime_serpapi_search_tool
+    - semianalysis_retriever_tool
+    - socratic_method_tool
+    - veterinarian_retriever_tool
+    - weather_tool
+    - webscrape_tool
+    - finalize_report_researcher
+    - query_writer_researcher
+    - reflection_researcher
+    - relevancy_checker_researcher
+    - report_extender_researcher
+    - summarizer_researcher
+    verbose: true
+  finalize_report_researcher:
     _type: chat_completion
-    description:
-      "**[WORKFLOW STEP 5/6: Final Report Generation]** FINAL tool in sequential workflow. Receives comprehensive draft report and produces publication-ready final deliverable with polish, proper formatting, and citations.
-
-
-      Input: Comprehensive draft from summarizer_tool or report_extender_tool (in tags)
-
-      Output: Publication-ready final report wrapped in <FINALIZE_REPORT_TOOL> tags
-
-      Next step: This is the TERMINAL step - workflow ends here
-
-      "
-    llm_name: intelligent_llm
-    system_prompt:
-      'You are the FINAL tool in the sequential report generation workflow. You receive a comprehensive draft and create the publication-ready final report.
+    description: Creates publication-ready final reports with professional formatting and polish. Use as the terminal step in research workflows to transform comprehensive drafts into polished, well-structured reports with proper citations and editorial quality. Receives drafts from summarizer_researcher or report_extender_researcher and applies final formatting, organization, and readability enhancements. Returns finalized report ready for delivery.
+    llm_name: tool_calling_llm
+    system_prompt: 'You are the FINAL tool in the sequential report generation workflow. You receive a comprehensive draft and create the publication-ready final report.
 
 
       What happened before you:
 
-      1. query_writer_tool generated initial queries (you may see <QUERY_WRITER_TOOL> tags in history)
+      1. query_writer_researcher generated initial queries (you may see <query_writer_researcher> tags in history)
 
-      2. summarizer_tool created initial report (you may see <SUMMARIZER_TOOL> tags)
+      2. summarizer_researcher created initial report (you may see <summarizer_researcher> tags)
 
-      3. Optional: report_extender_tool enhanced it multiple times (you may see <REPORT_EXTENDER_TOOL> tags)
+      3. Optional: report_extender_researcher enhanced it multiple times (you may see <report_extender_researcher> tags)
 
-      4. Optional: reflection_tool verified completeness (may see <REFLECTION_TOOL> with "NO_GAPS")
+      4. Optional: reflection_researcher verified completeness (may see <reflection_researcher> with "NO_GAPS")
 
-      5. Optional: relevancy_checker_tool filtered sources (may see <RELEVANCY_CHECKER_TOOL> tags)
+      5. Optional: relevancy_checker_researcher filtered sources (may see <relevancy_checker_researcher> tags)
 
 
       Your role - THE FINAL POLISH:
 
-      - Extract the most recent report from <SUMMARIZER_TOOL> or <REPORT_EXTENDER_TOOL> tags
+      - Extract the most recent report from <summarizer_researcher> or <report_extender_researcher> tags
 
       - Apply professional formatting and editorial polish
 
@@ -265,7 +256,7 @@ functions:
 
       # Instructions
 
-      1. FIRST: Extract the complete report from <SUMMARIZER_TOOL> or <REPORT_EXTENDER_TOOL> tags
+      1. FIRST: Extract the complete report from <summarizer_researcher> or <report_extender_researcher> tags
 
       2. Polish language for professional, clear, engaging tone
 
@@ -277,14 +268,14 @@ functions:
 
       6. Do NOT wrap the report in markdown code blocks (no triple backticks)
 
-      7. You MUST wrap your final report in <FINALIZE_REPORT_TOOL></FINALIZE_REPORT_TOOL> tags
+      7. You MUST wrap your final report in <finalize_report_researcher></finalize_report_researcher> tags
 
       8. Return ONLY the report - no commentary, no explanations
 
 
       **Output format**
 
-      <FINALIZE_REPORT_TOOL>
+      <finalize_report_researcher>
 
       # Polished Report Title
 
@@ -310,19 +301,13 @@ functions:
 
       - Source 2: [citation details]
 
-      </FINALIZE_REPORT_TOOL>
+      </finalize_report_researcher>
 
       '
   first_principles_tool:
     _type: chat_completion
-    description:
-      '**[WORKFLOW PHASE 2: REASONING - OPTIONAL]** Applies rigorous first-principles reasoning by deconstructing problems to fundamental truths and rebuilding solutions from ground up. Use in comprehensive_research_agent workflow after planning when user explicitly requests philosophical analysis, foundational understanding, or when challenging core assumptions is valuable.
-
-
-      Identifies core axioms, audits assumptions, decomposes problems hierarchically, reconstructs answers from validated premises. Provides analytical foundation that guides subsequent research phase. Best for: engineering challenges requiring root cause analysis, system design from scratch, questions explicitly requesting first-principles analysis, or understanding "why" before "what." For standard informational research without philosophical depth, skip directly to query_writer_tool. Returns structured analysis with fundamental premises, assumption audits, and reconstructed logic ready to guide research.
-
-      '
-    llm_name: intelligent_llm
+    description: Analyzes problems using first-principles thinking by breaking down to fundamental axioms and rebuilding solutions from the ground up. Use when users need deep logical analysis, want to challenge assumptions, or seek innovative approaches to complex problems. Identifies foundational truths, audits assumptions, decomposes problems hierarchically, and reconstructs solutions based only on validated premises. Best for "why does this work," "what are the fundamentals," or "how can we approach this differently" questions. Returns structured analysis with premises, decomposition, and reconstructed solutions.
+    llm_name: tool_calling_llm
     system_prompt: "You are an advanced reasoning engine that operates strictly from first‑principles thinking. Your task is to approach every query by:\n1. **Identifying Indemonstrable Foundations**  \n  - Seek the most basic, self‑evident truths or axioms that cannot be further reduced.  \n  - Explicitly label these as \"Fundamental Premise\" and note any underlying physical, mathematical, or logical laws.\n\n2. **Challenging Assumptions**  \n  - List every implicit or explicit assumption in the problem statement.  \n  - For each, ask: \"Is this truly necessary? Can it be proven, or is it merely a convention?\"  \n  - Discard or replace assumptions that lack justification.\n\n3. **Decomposing the Problem**  \n  - Break the problem into its smallest constituent components, tracing each back to the identified fundamental premises.  \n  - Represent the decomposition as a hierarchy or step‑by‑step logical flow.\n\n4. **Reconstructing Solutions from the Ground Up**  \n  - Using only the validated fundamental premises, rebuild a solution path.  \n  - Ensure each step follows directly from a premise or a previously proven intermediate result.  \n  - Highlight any novel connections or insights that emerge during reconstruction.\n\n5. **Fostering Innovation**  \n  - Actively explore alternative configurations of the fundamental premises that could lead to more efficient, elegant, or previously unseen solutions.  \n  - Propose \"What‑if\" scenarios that relax or modify premises, and evaluate their impact.\n\n**Output Format**  \n- **Fundamental Premises:** bullet list of core truths.  \n- **Assumptions Audit:** table of assumptions with justification status.  \n- **Decomposition Tree:** concise outline of sub‑problems linked to premises.  \n- **Reconstructed Solution:** stepwise reasoning that culminates in the final answer, referencing only validated premises.  \n- **Innovative Extensions (optional):** brief suggestions for further exploration or improvement.\n\nAlways prioritize logical rigor, clarity, and minimal reliance on unproven beliefs. Your goal is to illuminate the problem’s essence and craft solutions that stand on indisputable foundations.\n"
   geolocation_retriever_tool:
     _type: nat_retriever
@@ -343,83 +328,33 @@ functions:
       max_tokens: 256
       temperature: 0.9
     timeout: 300.0
-  internet_research_agent:
-    _type: react_agent
-    description: Performs comprehensive internet research for complex multi-faceted questions requiring synthesis from diverse sources. Uses Google search, AI summaries, and news to gather and cross-reference information. Best for research questions, comparative analysis, trend investigation, or topics requiring breadth and depth. More comprehensive but slower than individual search tools.
-    llm_name: intelligent_llm
-    tool_names:
-      - serpapi_ai_tool
-      - serpapi_news_tool
-      - serpapi_search_tool
-      - wikipedia_search_tool
-  kubernetes_research_agent:
-    _type: react_agent
-    description: Conducts comprehensive Kubernetes research combining official documentation with current best practices and community solutions. Use for complex K8s architecture design, troubleshooting multi-component issues, or understanding advanced concepts. Best for deployment strategies, networking scenarios, stateful applications, or security policy implementation.
-    llm_name: intelligent_llm
-    tool_names:
-      - kubernetes_retriever_tool
-      - serpapi_ai_tool
-      - serpapi_search_tool
-      - wikipedia_search_tool
   kubernetes_retriever_tool:
     _type: nat_retriever
     description: Retrieves technical Kubernetes documentation and best practices covering K8s configuration, deployment strategies, troubleshooting, networking (Ingress, Services, CNI), storage (PV, PVC, StorageClass), workload management (Deployments, StatefulSets), security policies, and YAML examples. Covers core Kubernetes and ecosystem tools (Helm, operators). Use for Kubernetes architecture, operations, or configuration questions.
     retriever: kubernetes_retriever
     topic: Kubernetes and container orchestration
-  mentalhealth_research_agent:
-    _type: react_agent
-    description: Conducts comprehensive mental health research combining evidence-based resources with current support information. Use for complex mental health questions about conditions, coping strategies, treatment approaches, or wellness practices. Combines Mental Health Foundation expertise with current web resources. Always emphasizes educational purpose and professional consultation disclaimer.
-    llm_name: intelligent_llm
-    tool_names:
-      - current_datetime_tool
-      - mentalhealth_retriever_tool
-      - serpapi_ai_tool
-      - serpapi_search_tool
-      - wikipedia_search_tool
   mentalhealth_retriever_tool:
     _type: nat_retriever
     description: Retrieves evidence-based mental health information and support resources. Use when users ask about understanding mental health conditions, coping strategies, stress management, emotional wellness, recognizing symptoms, or finding help. Appropriate for educational questions about anxiety, depression, trauma, relationships, and self-care. Always emphasize that this is informational content, not therapy or crisis support. For emergencies, direct users to crisis hotlines.
     retriever: mentalhealth_retriever
     topic: Mental health and psychological wellness
-  nvidia_research_agent:
-    _type: react_agent
-    description: Conducts comprehensive NVIDIA and semiconductor research combining internal knowledge base with industry analysis and current news. Use for complex NVIDIA questions about products, technologies, strategies, market position, or technical implementations. Best for product comparisons, technology deep-dives, or understanding NVIDIA's semiconductor ecosystem role.
-    llm_name: intelligent_llm
-    tool_names:
-      - nvidia_retriever_tool
-      - semianalysis_retriever_tool
-      - serpapi_ai_tool
-      - serpapi_news_tool
-      - serpapi_search_tool
-      - wikipedia_search_tool
   nvidia_retriever_tool:
     _type: nat_retriever
     description: Retrieves authoritative information from NVIDIA knowledge base including GPU specifications, CUDA programming, AI frameworks (NeMo, TensorRT), product comparisons (A100 vs H100), platform capabilities (DGX, Jetson), and corporate announcements. Combines engineering-level technical detail with business context from official NVIDIA sources. Use when queries require NVIDIA-specific expertise or product information.
     retriever: nvidia_retriever
     topic: NVIDIA technology, products, and corporate information
-  query_writer_tool:
+  query_writer_researcher:
     _type: chat_completion
-    description:
-      "**[WORKFLOW STEP 1: Query Generation]** FIRST tool in sequential report workflow. Generates 2-3 targeted search queries to gather comprehensive information about the research topic. These queries will be executed externally, then passed to summarizer_tool.
-
-
-      Input: User's research question/topic
-
-      Output: List of search queries wrapped in <QUERY_WRITER_TOOL> tags
-
-      Next step: External research tools execute these queries → results go to summarizer_tool
-
-      "
-    llm_name: intelligent_llm
-    system_prompt:
-      'You are the FIRST tool in a sequential report generation workflow. Your job is to create 2-3 well-crafted search queries that will help gather comprehensive information about the research topic.
+    description: Generates 2-3 optimized search queries to gather comprehensive research information. Use as the first step in research workflows when comprehensive reports are needed. Creates diverse queries covering different aspects (overview, technical depth, current developments) of the research topic. Queries are executed by external search tools with results passed to summarizer_researcher. Returns formatted search queries wrapped in tags.
+    llm_name: tool_calling_llm
+    system_prompt: 'You are the FIRST tool in a sequential report generation workflow. Your job is to create 2-3 well-crafted search queries that will help gather comprehensive information about the research topic.
 
 
       The workflow after you:
 
       1. Your queries will be executed by external search tools
 
-      2. The results will be passed to summarizer_tool to create an initial report
+      2. The results will be passed to summarizer_researcher to create an initial report
 
       3. Other tools will refine and finalize the report
 
@@ -432,14 +367,14 @@ functions:
 
       3. Cover breadth: one query for overview/basics, one for technical depth, one for current developments/applications
 
-      4. You MUST wrap your entire response in <QUERY_WRITER_TOOL></QUERY_WRITER_TOOL> tags
+      4. You MUST wrap your entire response in <query_writer_researcher></query_writer_researcher> tags
 
       5. Format as simple quoted strings, one per line
 
 
       **Output format**
 
-      <QUERY_WRITER_TOOL>
+      <query_writer_researcher>
 
       "What is a transformer in machine learning?"
 
@@ -447,48 +382,46 @@ functions:
 
       "latest transformer applications and developments 2025"
 
-      </QUERY_WRITER_TOOL>
+      </query_writer_researcher>
 
 
       Remember: Your queries determine the quality of information for the entire report. Make them count!
 
       '
-  reflection_tool:
+  realtime_serpapi_ai_tool:
+    _type: serpapi_ai
+    default_location: Detroit,Michigan,United States
+    description: 'CRITICAL: This tool provides REAL-TIME access to Google search for ANY current information including LIVE SPORTS SCORES, game results, team standings, player stats, and ongoing games. Also covers: business hours, store/restaurant information, stock prices, current events, breaking news, weather updates, celebrity news, product releases, company info, local information, and general knowledge. Use this for ANY question about current/live/recent information that would be searchable on Google right now. Examples: ''What''s the score of the Lions game?'', ''Who won the Lakers game?'', ''Is Target open?'', ''What time does the movie start?'', ''What''s the stock price of NVIDIA?''. Returns quick AI-generated summaries with source references. This is your PRIMARY tool for real-time factual information.'
+    geolocation_retriever_name: geolocation_retriever_tool
+    use_geolocation_retriever: true
+  realtime_serpapi_news_tool:
+    _type: serpapi_news
+    default_location: Detroit,Michigan,United States
+    description: 'CRITICAL: This tool provides REAL-TIME access to Google News for breaking news including LIVE SPORTS COVERAGE, game recaps, player news, and team updates from major news outlets worldwide. Also covers: breaking news, political developments, entertainment news, technology announcements, business updates, local news, weather events, and all time-sensitive information. Use this when you need detailed news articles about current/recent events. Examples: ''Latest Lions game recap'', ''Breaking news about [team/player]'', ''Recent developments in [topic]''. Returns current headlines with publication timestamps, sources, article snippets, and automatically scrapes up to 3 full article contents. Essential when queries contain ''latest,'' ''recent,'' ''today,'' ''this week,'' ''breaking,'' ''just happened,'' ''current,'' ''news about''.'
+    geolocation_retriever_name: geolocation_retriever_tool
+    use_geolocation_retriever: true
+  realtime_serpapi_search_tool:
+    _type: serpapi_search
+    default_location: Detroit,Michigan,United States
+    default_num_results: 10
+    description: 'CRITICAL: This tool provides REAL-TIME access to comprehensive Google web search results for ANY current information including LIVE SPORTS SCORES, game schedules, team rosters, player statistics, league standings, and sports news. Also covers: local business details (hours, phone numbers, addresses), restaurant menus, store locations, movie showtimes, flight information, stock prices, product availability, service providers, reviews, technical documentation, tutorials, how-to guides, comparison shopping, and any topic requiring breadth and depth. Use when you need multiple diverse sources with full context rather than a quick summary. Examples: ''Detroit Lions score'', ''NBA standings'', ''Premier League results'', ''nearest pizza place'', ''flights to NYC''. Returns ranked organic results with titles, URLs, snippets, plus related questions and top stories. Automatically enriches top results with full page content via web scraping.'
+    geolocation_retriever_name: geolocation_retriever_tool
+    use_geolocation_retriever: true
+  reflection_researcher:
     _type: chat_completion
-    description:
-      '**[WORKFLOW STEP 4: Gap Analysis - OPTIONAL]** FOURTH tool in sequential workflow. Analyzes draft report to identify knowledge gaps and missing information. May trigger iteration back to research and report_extender_tool.
-
-
-      Input: Draft report from summarizer_tool or report_extender_tool (in tags)
-
-      Output: Gap analysis with follow-up queries wrapped in <REFLECTION_TOOL> tags, OR "no gaps" signal
-
-      Next step: If gaps found → external research → report_extender_tool; if complete → finalize_report_tool
-
-      '
-    llm_name: intelligent_llm
-    system_prompt: "You are the FOURTH tool in a sequential report generation workflow (OPTIONAL quality check - may be called 0-N times). You analyze reports for completeness and identify gaps.\n\nWhat happened before you:\n1. query_writer_tool generated queries\n2. summarizer_tool created initial report (you'll see <SUMMARIZER_TOOL> tags)\n3. Optional: report_extender_tool enhanced it (you may see <REPORT_EXTENDER_TOOL> tags instead)\n4. You may have been called before (iterative refinement cycle)\n\nYour role:\n- Extract the report from <SUMMARIZER_TOOL> or <REPORT_EXTENDER_TOOL> tags\n- Identify knowledge gaps, missing details, incomplete explanations\n- Generate specific follow-up queries to fill those gaps\n- Focus on substantive gaps that affect understanding, not minor details\n\nWhat happens after you:\nIf you identify gaps:\n1. Your follow-up queries will be executed by external research tools\n2. Results go back to report_extender_tool to integrate\n3. You may be called again to check for remaining gaps\n\nIf the report is comprehensive:\n- Signal \"NO_GAPS\" and workflow proceeds to finalize_report_tool\n\n# Instructions\n1. FIRST: Extract report from <SUMMARIZER_TOOL> or <REPORT_EXTENDER_TOOL> tags\n2. Analyze for missing information critical to understanding the topic\n3. If you find significant gaps:\n   - Generate 1-2 specific follow-up queries\n   - Make queries self-contained and optimized for web search\n   - Include section context in query if needed\n4. If report is comprehensive, output: NO_GAPS\n5. You MUST wrap response in <REFLECTION_TOOL></REFLECTION_TOOL> tags\n6. Format as simple strings, one per line (query, section, rationale)\n\n**Output format for GAPS FOUND**\n<REFLECTION_TOOL>\n\"query\": \"What are the performance benchmarks for transformer models on NLP tasks?\"\n\"report_section\": \"Performance & Efficiency\"\n\"rationale\": \"Report discusses architecture but lacks concrete performance metrics\"\n</REFLECTION_TOOL>\n\n**Output format for NO GAPS**\n<REFLECTION_TOOL>\nNO_GAPS\n</REFLECTION_TOOL>\n"
-  relevancy_checker_tool:
+    description: Analyzes research reports for completeness and identifies knowledge gaps requiring additional research. Use as optional quality check in research workflows after summarizer_researcher or report_extender_researcher. Extracts reports from workflow tags, identifies substantive gaps affecting understanding, and generates specific follow-up queries to fill those gaps. Returns either follow-up queries with rationale or NO_GAPS signal if report is comprehensive. May be called iteratively for refinement.
+    llm_name: tool_calling_llm
+    system_prompt: "You are the FOURTH tool in a sequential report generation workflow (OPTIONAL quality check - may be called 0-N times). You analyze reports for completeness and identify gaps.\n\nWhat happened before you:\n1. query_writer_researcher generated queries\n2. summarizer_researcher created initial report (you'll see <summarizer_researcher> tags)\n3. Optional: report_extender_researcher enhanced it (you may see <report_extender_researcher> tags instead)\n4. You may have been called before (iterative refinement cycle)\n\nYour role:\n- Extract the report from <summarizer_researcher> or <report_extender_researcher> tags\n- Identify knowledge gaps, missing details, incomplete explanations\n- Generate specific follow-up queries to fill those gaps\n- Focus on substantive gaps that affect understanding, not minor details\n\nWhat happens after you:\nIf you identify gaps:\n1. Your follow-up queries will be executed by external research tools\n2. Results go back to report_extender_researcher to integrate\n3. You may be called again to check for remaining gaps\n\nIf the report is comprehensive:\n- Signal \"NO_GAPS\" and workflow proceeds to finalize_report_researcher\n\n# Instructions\n1. FIRST: Extract report from <summarizer_researcher> or <report_extender_researcher> tags\n2. Analyze for missing information critical to understanding the topic\n3. If you find significant gaps:\n   - Generate 1-2 specific follow-up queries\n   - Make queries self-contained and optimized for web search\n   - Include section context in query if needed\n4. If report is comprehensive, output: NO_GAPS\n5. You MUST wrap response in <reflection_researcher></reflection_researcher> tags\n6. Format as simple strings, one per line (query, section, rationale)\n\n**Output format for GAPS FOUND**\n<reflection_researcher>\n\"query\": \"What are the performance benchmarks for transformer models on NLP tasks?\"\n\"report_section\": \"Performance & Efficiency\"\n\"rationale\": \"Report discusses architecture but lacks concrete performance metrics\"\n</reflection_researcher>\n\n**Output format for NO GAPS**\n<reflection_researcher>\nNO_GAPS\n</reflection_researcher>\n"
+  relevancy_checker_researcher:
     _type: chat_completion
-    description:
-      '**[WORKFLOW UTILITY: Quality Validation]** UTILITY tool that can be called at multiple points in workflow. Validates whether research results are relevant and sufficient to answer queries. Filters out low-quality sources before they reach report synthesis.
-
-
-      Input: Query (from query_writer_tool or reflection_tool) + retrieved context document
-
-      Output: Binary relevancy score ("yes" or "no") wrapped in <RELEVANCY_CHECKER_TOOL> tags
-
-      Usage: Called during research phase to filter sources before summarizer_tool or report_extender_tool
-
-      '
-    llm_name: intelligent_llm
-    system_prompt:
-      'You are a UTILITY tool in the sequential report generation workflow. You can be called at any point during research to validate source quality.
+    description: Validates whether retrieved research sources actually answer the research queries. Use as utility tool during research workflows to filter source quality before passing to summarizer_researcher or report_extender_researcher. Evaluates if context contains substantial information to answer the query and provides binary judgment (yes/no). Helps ensure only relevant, sufficient sources proceed in the research pipeline. Returns relevancy score with explanation.
+    llm_name: tool_calling_llm
+    system_prompt: 'You are a UTILITY tool in the sequential report generation workflow. You can be called at any point during research to validate source quality.
 
 
       When you''re called:
 
-      - A query was generated (by query_writer_tool or reflection_tool)
+      - A query was generated (by query_writer_researcher or reflection_researcher)
 
       - External research retrieved a source document
 
@@ -497,7 +430,7 @@ functions:
 
       Your role:
 
-      - Extract the query if it''s wrapped in <QUERY_WRITER_TOOL> or <REFLECTION_TOOL> tags
+      - Extract the query if it''s wrapped in <query_writer_researcher> or <reflection_researcher> tags
 
       - Evaluate if the retrieved context contains substantial information to answer the query
 
@@ -508,7 +441,7 @@ functions:
 
       Impact of your decision:
 
-      - "yes" → source proceeds to summarizer_tool or report_extender_tool
+      - "yes" → source proceeds to summarizer_researcher or report_extender_researcher
 
       - "no" → source is filtered out, alternative sources sought
 
@@ -525,86 +458,75 @@ functions:
 
       5. Optionally include brief explanation of your judgment
 
-      6. You MUST wrap response in <RELEVANCY_CHECKER_TOOL></RELEVANCY_CHECKER_TOOL> tags
+      6. You MUST wrap response in <relevancy_checker_researcher></relevancy_checker_researcher> tags
 
 
       **Output format**
 
-      <RELEVANCY_CHECKER_TOOL>
+      <relevancy_checker_researcher>
 
       "score": "yes"
 
       "explanation": "Context provides detailed technical explanation directly addressing the query"
 
-      </RELEVANCY_CHECKER_TOOL>
+      </relevancy_checker_researcher>
 
 
       OR
 
 
-      <RELEVANCY_CHECKER_TOOL>
+      <relevancy_checker_researcher>
 
       "score": "no"
 
       "explanation": "Context only mentions topic tangentially without substantive detail"
 
-      </RELEVANCY_CHECKER_TOOL>
+      </relevancy_checker_researcher>
 
       '
-  report_extender_tool:
+  report_extender_researcher:
     _type: chat_completion
-    description:
-      "**[WORKFLOW STEP 3: Report Enhancement - OPTIONAL]** THIRD tool in sequential workflow. Receives draft report and additional research, seamlessly integrating new information while preserving structure. Can be called multiple times iteratively.
-
-
-      Input: Draft report from summarizer_tool (in <SUMMARIZER_TOOL> tags) + new research sources
-
-      Output: Enhanced report wrapped in <REPORT_EXTENDER_TOOL> tags
-
-      Next step: reflection_tool checks for remaining gaps, or proceeds to finalize_report_tool
-
-      "
-    llm_name: intelligent_llm
-    system_prompt:
-      "You are the THIRD tool in a sequential report generation workflow (OPTIONAL step - may be called 0-N times). You receive a draft report and additional research to integrate.
+    description: Seamlessly integrates additional research into existing draft reports while maintaining structure and narrative flow. Use as optional enhancement step in research workflows after gaps are identified by reflection_researcher. Extracts base report from summarizer_researcher or previous report_extender_researcher iterations and integrates new information into appropriate sections. Maintains original title, section headings, and markdown formatting. May be called multiple times for iterative refinement. Returns enhanced report wrapped in tags.
+    llm_name: tool_calling_llm
+    system_prompt: 'You are the THIRD tool in a sequential report generation workflow (OPTIONAL step - may be called 0-N times). You receive a draft report and additional research to integrate.
 
 
       What happened before you:
 
-      1. query_writer_tool generated initial queries
+      1. query_writer_researcher generated initial queries
 
-      2. summarizer_tool created initial draft (you'll see <SUMMARIZER_TOOL> tags)
+      2. summarizer_researcher created initial draft (you''ll see <summarizer_researcher> tags)
 
-      3. Optional: reflection_tool identified gaps (you may see <REFLECTION_TOOL> tags indicating what's missing)
+      3. Optional: reflection_researcher identified gaps (you may see <reflection_researcher> tags indicating what''s missing)
 
       4. Additional research was gathered to fill those gaps
 
-      5. You may have been called before (look for <REPORT_EXTENDER_TOOL> tags from previous iterations)
+      5. You may have been called before (look for <report_extender_researcher> tags from previous iterations)
 
 
       Your role:
 
-      - Extract the existing report from <SUMMARIZER_TOOL> or <REPORT_EXTENDER_TOOL> tags
+      - Extract the existing report from <summarizer_researcher> or <report_extender_researcher> tags
 
       - Seamlessly integrate new information into appropriate sections
 
       - Maintain the original structure, title, and section headings
 
-      - Fill gaps identified by reflection_tool (if present in context)
+      - Fill gaps identified by reflection_researcher (if present in context)
 
       - Enhance depth without disrupting narrative flow
 
 
       What happens after you:
 
-      1. reflection_tool may check for remaining gaps (leading back to you)
+      1. reflection_researcher may check for remaining gaps (leading back to you)
 
-      2. OR finalize_report_tool will create final polished version
+      2. OR finalize_report_researcher will create final polished version
 
 
       # Instructions
 
-      1. FIRST: Extract the base report from within <SUMMARIZER_TOOL> or <REPORT_EXTENDER_TOOL> tags
+      1. FIRST: Extract the base report from within <summarizer_researcher> or <report_extender_researcher> tags
 
       2. Keep the exact same title and section structure
 
@@ -616,12 +538,12 @@ functions:
 
       6. Do NOT wrap in markdown code blocks (no triple backticks)
 
-      7. You MUST wrap your enhanced report in <REPORT_EXTENDER_TOOL></REPORT_EXTENDER_TOOL> tags
+      7. You MUST wrap your enhanced report in <report_extender_researcher></report_extender_researcher> tags
 
 
       **Output format**
 
-      <REPORT_EXTENDER_TOOL>
+      <report_extender_researcher>
 
       # Same Report Title
 
@@ -635,45 +557,19 @@ functions:
 
       [Enhanced with additional details]...
 
-      </REPORT_EXTENDER_TOOL>
+      </report_extender_researcher>
 
-      "
+      '
   semianalysis_retriever_tool:
     _type: nat_retriever
     description: Retrieves expert semiconductor industry analysis from Semianalysis covering chip manufacturing trends, foundry capabilities (TSMC, Samsung, Intel), process node economics, AI accelerator architectures, supply chain dynamics, technology roadmaps, competitive positioning, transistor density, yield, packaging, and market share. Use for semiconductor industry business and technical questions.
     retriever: semianalysis_retriever
     topic: Semiconductor industry analysis and market intelligence
-  serpapi_ai_tool:
-    _type: serpapi_ai
-    default_location: Detroit,Michigan,United States
-    description: Retrieves AI-generated summaries from Google AI Mode with structured text blocks and source references. Returns quick, comprehensive answers synthesized from multiple sources by Google's AI. Best for factual queries ("what is," "who is," "when did," "how much") where you need a concise AI summary rather than raw search results. Faster than serpapi_search_tool but provides less granular source control.
-    geolocation_retriever_name: geolocation_retriever_tool
-    use_geolocation_retriever: true
-  serpapi_news_tool:
-    _type: serpapi_news
-    default_location: Detroit,Michigan,United States
-    description: Searches Google News for recent news articles from major news outlets. Returns news headlines with publication dates, sources, article snippets, and automatically scrapes up to 3 full article contents. Use for current events, recent developments, breaking news, or time-sensitive information. Essential when queries contain "latest," "recent," "today," "this week," or reference announcements and trends.
-    geolocation_retriever_name: geolocation_retriever_tool
-    use_geolocation_retriever: true
-  serpapi_search_tool:
-    _type: serpapi_search
-    default_location: Detroit,Michigan,United States
-    default_num_results: 10
-    description: Performs Google web searches returning ranked organic results with titles, URLs, snippets, plus related questions and top stories. Automatically enriches top results with full page content via web scraping. Use for comprehensive web searches requiring breadth and depth, technical documentation, tutorials, product reviews, or diverse viewpoints. Best when you need actual search result pages rather than AI-generated summaries.
-    geolocation_retriever_name: geolocation_retriever_tool
-    use_geolocation_retriever: true
   socratic_method_tool:
     _type: chat_completion
-    description:
-      '**[WORKFLOW PHASE 2: REASONING - OPTIONAL]** Explores topics through Socratic dialogue using probing questions to uncover assumptions and guide discovery. Use in comprehensive_research_agent workflow after planning when user explicitly requests Socratic questioning, multi-perspective analysis, or when exploring assumptions is valuable.
-
-
-      Challenges assumptions with "What evidence supports that?" and "Could there be alternatives?" to illuminate blind spots and reveal hidden complexity. Best for: exploratory analysis, educational contexts, ethical dilemmas, or questions explicitly requesting Socratic inquiry. Complements first_principles_tool for deeper analytical frameworks. For standard informational research, skip directly to query_writer_tool. Returns thought-provoking questions and perspectives that can guide research strategy.
-
-      '
-    llm_name: intelligent_llm
-    system_prompt:
-      'You are an AI tutor who engages users through the Socratic method. Your role is to facilitate collaborative dialogue, not to provide direct answers. Follow these principles in every interaction:
+    description: Engages users through Socratic dialogue using guided inquiry to facilitate self-discovery and critical thinking. Use when users want to explore concepts deeply through questioning, learn through collaborative dialogue, or develop their own understanding rather than receiving direct answers. Employs open-ended questions, challenges assumptions, promotes evidence-based reasoning, and encourages users to generate their own solutions. Best for educational contexts, complex problem exploration, or when fostering deeper understanding is more valuable than quick answers.
+    llm_name: tool_calling_llm
+    system_prompt: 'You are an AI tutor who engages users through the Socratic method. Your role is to facilitate collaborative dialogue, not to provide direct answers. Follow these principles in every interaction:
 
 
       Guided Inquiry
@@ -717,27 +613,16 @@ functions:
       If the user explicitly asks for a solution, respond with a guiding question that leads them toward the answer themselves.
 
       '
-  summarizer_tool:
+  summarizer_researcher:
     _type: chat_completion
-    description:
-      "**[WORKFLOW STEP 2: Initial Report Creation]** SECOND tool in sequential workflow. Receives research results from queries generated by query_writer_tool and synthesizes them into a well-structured initial draft report.
-
-
-      Input: Research results from queries in <QUERY_WRITER_TOOL> tags
-
-      Output: Initial draft report wrapped in <SUMMARIZER_TOOL> tags
-
-      Next step: report_extender_tool may enhance it, or reflection_tool will identify gaps
-
-      "
-    llm_name: intelligent_llm
-    system_prompt:
-      "You are the SECOND tool in a sequential report generation workflow. You receive research results gathered from queries created by query_writer_tool and synthesize them into a comprehensive initial report.
+    description: Synthesizes research results into comprehensive, well-structured markdown reports. Use as second step in research workflows after query_writer_researcher generates queries and external tools gather research. Creates initial report with clear sections, logical flow, and narrative synthesis of diverse sources. Focuses on significant findings and insights rather than just listing facts. Returns structured report wrapped in tags for optional refinement by report_extender_researcher or finalization by finalize_report_researcher.
+    llm_name: tool_calling_llm
+    system_prompt: 'You are the SECOND tool in a sequential report generation workflow. You receive research results gathered from queries created by query_writer_researcher and synthesize them into a comprehensive initial report.
 
 
       What happened before you:
 
-      1. query_writer_tool generated search queries (you may see <QUERY_WRITER_TOOL> tags)
+      1. query_writer_researcher generated search queries (you may see <query_writer_researcher> tags)
 
       2. External tools executed those queries and gathered research
 
@@ -757,11 +642,11 @@ functions:
 
       What happens after you:
 
-      1. report_extender_tool may add more information (optional)
+      1. report_extender_researcher may add more information (optional)
 
-      2. reflection_tool will check for gaps (optional)
+      2. reflection_researcher will check for gaps (optional)
 
-      3. finalize_report_tool will polish and finalize
+      3. finalize_report_researcher will polish and finalize
 
 
       # Instructions
@@ -770,18 +655,18 @@ functions:
 
       2. Organize content into logical sections with markdown headers (##, ###)
 
-      3. Synthesize information - don't just list facts, create narrative flow
+      3. Synthesize information - don''t just list facts, create narrative flow
 
       4. Use markdown formatting: **bold** for emphasis, bullet points for lists, etc.
 
       5. Do NOT wrap the report in markdown code blocks (no triple backticks)
 
-      6. You MUST wrap your entire report in <SUMMARIZER_TOOL></SUMMARIZER_TOOL> tags
+      6. You MUST wrap your entire report in <summarizer_researcher></summarizer_researcher> tags
 
 
       **Output format**
 
-      <SUMMARIZER_TOOL>
+      <summarizer_researcher>
 
       # Comprehensive Report Title
 
@@ -805,18 +690,9 @@ functions:
 
       Key takeaways...
 
-      </SUMMARIZER_TOOL>
+      </summarizer_researcher>
 
-      "
-  veterinarian_research_agent:
-    _type: react_agent
-    description: Conducts comprehensive veterinary research combining expert veterinary knowledge with current information. Use for complex animal health questions requiring synthesis of medical knowledge, current developments, and background context. Combines VetPartner expertise with web search and Wikipedia. Always includes veterinary consultation disclaimer.
-    llm_name: intelligent_llm
-    tool_names:
-      - serpapi_ai_tool
-      - serpapi_search_tool
-      - veterinarian_retriever_tool
-      - wikipedia_search_tool
+      '
   veterinarian_retriever_tool:
     _type: nat_retriever
     description: Retrieves expert veterinary medical knowledge from VetPartner covering pet symptoms, animal diseases, treatment protocols, medication side effects, preventive care, and nutrition for multiple species (dogs, cats, horses, birds, exotic animals). Use for animal health questions requiring authoritative veterinary expertise. Always include disclaimer that this is educational information requiring veterinary consultation for diagnosis and treatment.
@@ -836,23 +712,14 @@ functions:
   webscrape_tool:
     _type: webscrape
     allowed_schemes:
-      - http
-      - https
+    - http
+    - https
     description: Extracts and parses full content from specific web pages. Use when you have a URL (from search results or user-provided) and need to read the complete article, documentation page, or webpage content. Returns cleaned, readable text from the page body. Essential for following up on search results to get full details, or when users provide specific URLs to analyze. Respects robots.txt and has timeout/size limits. Not suitable for sites requiring authentication or JavaScript-heavy single-page applications.
     max_output_tokens: 64000
     respect_robots_txt: true
     timeout: 30.0
     user_agent: daedalus-webscraper/1.0
-  wikipedia_search_tool:
-    _type: wiki_search
-    description: Searches Wikipedia for encyclopedic information on topics. Use when users ask about historical events, biographical information, scientific concepts, geographic locations, cultural topics, or any subject that benefits from comprehensive, well-sourced reference material. Best for factual background information, definitions, and context. Wikipedia provides neutral, well-edited content but may not have the latest breaking news or highly specialized technical details. Returns article summaries with links to full articles.
-    max_results: 3
 llms:
-  balanced_llm:
-    _type: nim
-    base_url: https://5eb560ed-7ab8-4985-ab2a-dd1f7ea5eb66.invocation.api.nvcf.nvidia.com/v1
-    max_tokens: 16384
-    model_name: nvidia/llama-3-3-nemotron-super-49b-v1-5
   fast_llm:
     _type: nim
     base_url: https://5183a11a-633e-4945-b882-de86ce85125e.invocation.api.nvcf.nvidia.com/v1
@@ -861,13 +728,20 @@ llms:
     temperature: 0.2
     thinking: false
     top_p: 0.7
-  intelligent_llm:
+  reasoning_llm:
     _type: nim
-    base_url: https://5eb560ed-7ab8-4985-ab2a-dd1f7ea5eb66.invocation.api.nvcf.nvidia.com/v1
-    max_tokens: 16384
-    model_name: nvidia/llama-3-3-nemotron-super-49b-v1-5
-    thinking: false
-    tool_choice: auto
+    base_url: https://f8539070-f366-4d0b-91bc-f5ce6ea44e28.invocation.api.nvcf.nvidia.com/v1
+    max_tokens: 32000
+    model_name: Qwen/Qwen3-Next-80B-A3B-Thinking
+    temperature: 0.6
+    top_p: 0.95
+  tool_calling_llm:
+    _type: nim
+    base_url: https://f8539070-f366-4d0b-91bc-f5ce6ea44e28.invocation.api.nvcf.nvidia.com/v1
+    max_tokens: 32000
+    model_name: Qwen/Qwen3-Next-80B-A3B-Thinking
+    parallel_tool_calls: false
+    temperature: 0
 retrievers:
   geolocation_retriever:
     _type: smart_milvus
@@ -899,6 +773,7 @@ retrievers:
     uri: http://milvus.milvus.svc.cluster.local:19530
     use_reranker: true
     vector_field: vector
+    verbose: true
   mentalhealth_retriever:
     _type: smart_milvus
     collection_name: mentalhealth
@@ -914,6 +789,7 @@ retrievers:
     uri: http://milvus.milvus.svc.cluster.local:19530
     use_reranker: true
     vector_field: vector
+    verbose: true
   nvidia_retriever:
     _type: smart_milvus
     collection_name: nvidia
@@ -929,6 +805,7 @@ retrievers:
     uri: http://milvus.milvus.svc.cluster.local:19530
     use_reranker: true
     vector_field: vector
+    verbose: true
   semianalysis_retriever:
     _type: smart_milvus
     collection_name: semianalysis
@@ -944,6 +821,7 @@ retrievers:
     uri: http://milvus.milvus.svc.cluster.local:19530
     use_reranker: true
     vector_field: vector
+    verbose: true
   veterinarian_retriever:
     _type: smart_milvus
     collection_name: vetpartner
@@ -959,83 +837,73 @@ retrievers:
     uri: http://milvus.milvus.svc.cluster.local:19530
     use_reranker: true
     vector_field: vector
+    verbose: true
 workflow:
-  _type: tool_calling_agent
-  handle_tool_errors: true
-  llm_name: intelligent_llm
-  parse_agent_response_max_retries: 3
-  return_direct:
-    - image_generation_tool
-  system_prompt:
-    'You are a concise, factual AI assistant that directly invokes tools to answer questions accurately.
+  _type: reasoning_agent
+  augmented_fn: daedalus_react_agent
+  instruction_prompt_template: '"Answer the following question based on message history: {input_text}"
 
-    **IMPORTANT:** Action must be the exact tool name with NO markdown formatting (use exact tool name, no formatting, no asterisks, no quotes.)
+    "\n\nHere is a plan for execution that you could use to guide you if you wanted to:"
 
+    "\n\n{reasoning_output}"
 
-    **Core principles:**
+    "\n\nReal-time and Dates Policy:\n"
 
-    - **Be terse.** Answer in the fewest words possible while remaining clear. Use bullet points for longer explanations.
+    " - The user will include the current date; accept it as authoritative.\n"
 
-    - **Never hallucinate.** If you cannot answer confidently, say "I don''t know" or request clarification. Do not fabricate details.
+    " - Do not question the date or reference any model knowledge cutoff.\n"
 
-    - **Use tools intelligently.** Analyze the available tool names, descriptions, and input schemas to select the appropriate tool(s). Call tools for accurate, up-to-date information rather than relying on internal knowledge when the answer requires current data or computation.
+    " - If you need the current date/time, call the ''current_datetime_tool''.\n"
 
-    - **Cite sources.** When providing factual claims from tool outputs, reference them (using format: [source name]).
+    " - Prefer real-time tools for any time-sensitive facts.\n"
 
-    - **Ask only when needed.** If the question is ambiguous, request minimal clarification before proceeding.
+    "\n\nNOTE: Remember to follow your guidance on how to format output, etc."
 
-
-    **Tool selection strategy:**
-
-    - **Simple queries:** Call individual tools directly (retrievers, search, utilities)
-
-    - **Complex multi-step research:** Use specialized research agents (comprehensive_research_agent, nvidia_research_agent, etc.)
-
-    - **Domain-specific questions:** Prefer domain retrievers (nvidia_retriever_tool, kubernetes_retriever_tool, etc.) before general search
-
-    - **Current information:** Use search tools (serpapi_search_tool, serpapi_news_tool) for real-time data
-
-    - **Quick facts:** Use serpapi_ai_tool for fast AI-generated summaries
-
-
-    **Available tools:**
-
-    {tools}
-
-
-    **Instructions:**
-
-    - Review tool descriptions and input schemas carefully
-
-    - Use multiple tools when it provides a more complete answer
-
-    - Select the most appropriate tool(s) based on query complexity and domain
-
-    - Call tools directly with necessary parameters
-
-    - Provide concise, factual answers based on tool results
-
-    - Cite tool outputs when making factual claims
-
-
-    **Remember:** Your strength is in directly calling the right tools at the right time. Use tool names, descriptions, and parameter schemas to make informed decisions. Never guess or fabricate information—if uncertain, use a tool or admit you don''t know.
+    "\n\n You must respond with the answer to the original question directly to the user."
 
     '
-  tool_choice: auto
-  tool_names:
-    - bang_for_buck_tool
-    - code_generation_tool
-    - comprehensive_research_agent
-    - current_datetime_tool
-    - first_principles_tool
-    - image_generation_tool
-    - internet_research_agent
-    - kubernetes_research_agent
-    - mentalhealth_research_agent
-    - nvidia_research_agent
-    - internet_research_agent
-    - socratic_method_tool
-    - veterinarian_research_agent
-    - weather_tool
-    - webscrape_tool
+  llm_name: reasoning_llm
+  reasoning_prompt_template: '"You are an expert reasoning model task with creating a detailed execution plan"
+
+    " for a system that has the following description:\n\n"
+
+    "**Description:** \n{augmented_function_desc}\n\n"
+
+    "Given the following input and a list of available tools, please provide a detailed step-by-step plan"
+
+    " that an instruction following system can use to address the input. Ensure the plan includes:\n\n"
+
+    "1. Identifying the key components of the input.\n"
+
+    "2. Determining the most suitable tools for each task.\n"
+
+    "3. Outlining the sequence of actions to be taken.\n\n"
+
+    "IMPORTANT — Real-time and Dates Policy:\n"
+
+    " - Treat any explicit date/time provided in the input or message history as authoritative.\n"
+
+    " - Do not question the current date or reference any model knowledge cutoff.\n"
+
+    " - If a date/time is needed and not provided, call the ''current_datetime_tool'' to obtain it.\n"
+
+    " - For time-sensitive facts, prefer the available real-time tools over prior training.\n\n"
+
+    "**Input:** \n{input_text}\n\n"
+
+    "**Tools and description of the tool:** \n{tools}\n\n"
+
+    "An example plan could look like this:\n\n"
+
+    "1. Call tool A with input X\n"
+
+    "2. Call tool B with input Y\n"
+
+    "3. Interpret the output of tool A and B\n"
+
+    "4. Return the final result"
+
+    "\n\n **PLAN:**\n"
+
+    '
   verbose: true

@@ -148,18 +148,19 @@ apply_tls_secret() {
 }
 
 usage() {
-  echo "Usage: $0 [-n namespace] [-r release] [-e env_file] [-c backend_config] [-f values_file] [--enable-tls] [--tls-secret-name name] [--uninstall-first] [--skip-config-sort] [--sort-lists] [--dry-run] [--] [extra helm args]" 1>&2
-  echo "  -n namespace        Kubernetes namespace (default: daedalus)" 1>&2
-  echo "  -r release          Helm release name (default: <chartVersion>-daedalus)" 1>&2
-  echo "  -e env_file         .env file path for Secrets (default: $REPO_ROOT/.env)" 1>&2
-  echo "  -c backend_config   backend/config.yaml path (default: $REPO_ROOT/backend/config.yaml if exists)" 1>&2
-  echo "  -f values_file      values.yaml path (default: $CHART_DIR/values.yaml)" 1>&2
-  echo "  --enable-tls        Enable HTTPS on nginx and create/update TLS Secret from nginx/ssl (.crt or .pem + .key)" 1>&2
-  echo "  --tls-secret-name   TLS Secret name (default: <release>-tls)" 1>&2
-  echo "  --uninstall-first   Uninstall release before install/upgrade" 1>&2
-  echo "  --skip-config-sort  Skip automatic alphabetical sorting of backend config keys" 1>&2
-  echo "  --sort-lists        Also sort list items alphabetically and remove duplicates" 1>&2
-  echo "  --dry-run           Print actions without applying changes" 1>&2
+  echo "Usage: $0 [-n namespace] [-r release] [-e env_file] [-c backend_config] [-d deep_thinker_config] [-f values_file] [--enable-tls] [--tls-secret-name name] [--uninstall-first] [--skip-config-sort] [--sort-lists] [--dry-run] [--] [extra helm args]" 1>&2
+  echo "  -n namespace            Kubernetes namespace (default: daedalus)" 1>&2
+  echo "  -r release              Helm release name (default: <chartVersion>-daedalus)" 1>&2
+  echo "  -e env_file             .env file path for Secrets (default: $REPO_ROOT/.env)" 1>&2
+  echo "  -c backend_config       Default backend config path (default: $REPO_ROOT/backend/tool-calling-config.yaml if exists)" 1>&2
+  echo "  -d deep_thinker_config  Deep Thinker backend config path (default: $REPO_ROOT/backend/react-agent-config.yaml if exists)" 1>&2
+  echo "  -f values_file          values.yaml path (default: $CHART_DIR/values.yaml)" 1>&2
+  echo "  --enable-tls            Enable HTTPS on nginx and create/update TLS Secret from nginx/ssl (.crt or .pem + .key)" 1>&2
+  echo "  --tls-secret-name       TLS Secret name (default: <release>-tls)" 1>&2
+  echo "  --uninstall-first       Uninstall release before install/upgrade" 1>&2
+  echo "  --skip-config-sort      Skip automatic alphabetical sorting of backend config keys" 1>&2
+  echo "  --sort-lists            Also sort list items alphabetically and remove duplicates" 1>&2
+  echo "  --dry-run               Print actions without applying changes" 1>&2
 }
 
 # Defaults
@@ -170,8 +171,10 @@ if [[ -z "${CHART_VERSION}" ]]; then CHART_VERSION="0.1.0"; fi
 RELEASE="daedalus"
 ENV_FILE="$REPO_ROOT/.env"
 VALUES_FILE="$CHART_DIR/values.yaml"
-BACKEND_CONFIG_DEFAULT="$REPO_ROOT/backend/config.yaml"
+BACKEND_CONFIG_DEFAULT="$REPO_ROOT/backend/tool-calling-config.yaml"
 BACKEND_CONFIG=""
+DEEP_THINKER_CONFIG_DEFAULT="$REPO_ROOT/backend/react-agent-config.yaml"
+DEEP_THINKER_CONFIG=""
 UNINSTALL_FIRST="false"
 SKIP_CONFIG_SORT="false"
 SORT_LISTS="false"
@@ -194,30 +197,44 @@ configure_pvc_presets() {
   redis_pvc="${RELEASE}-redis"
   redisinsight_pvc="${RELEASE}-redisinsight"
   backend_pvc="${RELEASE}-backend"
+
+  echo -e "\n${Cyan}Checking for existing PVCs...${Color_Off}"
+
   # Default to allowing Helm to (re)create PVCs and ensure existingClaimName is cleared
   HELM_PRESET_PVC_IMAGES=( --set nginx.imageVolume.create=true --set-string nginx.imageVolume.existingClaimName="" )
   HELM_PRESET_PVC_REDIS=( --set redis.persistence.create=true --set-string redis.persistence.existingClaimName="" )
   HELM_PRESET_PVC_REDISINSIGHT=( --set redisinsight.persistence.create=true --set-string redisinsight.persistence.existingClaimName="" )
   HELM_PRESET_PVC_BACKEND=( --set backend.persistence.create=true --set-string backend.persistence.existingClaimName="" )
+
   if kubectl -n "$NAMESPACE" get pvc "$images_pvc" >/dev/null 2>&1; then
-    echo -e "${Yellow}Found existing PVC:${Color_Off} $images_pvc (will not create in Helm)"
+    echo -e "${Yellow}✓ Found existing PVC:${Color_Off} $images_pvc (will not create in Helm)"
     HELM_PRESET_PVC_IMAGES=( --set nginx.imageVolume.create=false --set nginx.imageVolume.existingClaimName="$images_pvc" )
+  else
+    echo -e "${Green}• Will create PVC:${Color_Off} $images_pvc"
   fi
 
   if kubectl -n "$NAMESPACE" get pvc "$redis_pvc" >/dev/null 2>&1; then
-    echo -e "${Yellow}Found existing PVC:${Color_Off} $redis_pvc (will not create in Helm)"
+    echo -e "${Yellow}✓ Found existing PVC:${Color_Off} $redis_pvc (will not create in Helm)"
     HELM_PRESET_PVC_REDIS=( --set redis.persistence.create=false --set redis.persistence.existingClaimName="$redis_pvc" )
+  else
+    echo -e "${Green}• Will create PVC:${Color_Off} $redis_pvc"
   fi
 
   if kubectl -n "$NAMESPACE" get pvc "$redisinsight_pvc" >/dev/null 2>&1; then
-    echo -e "${Yellow}Found existing PVC:${Color_Off} $redisinsight_pvc (will not create in Helm)"
+    echo -e "${Yellow}✓ Found existing PVC:${Color_Off} $redisinsight_pvc (will not create in Helm)"
     HELM_PRESET_PVC_REDISINSIGHT=( --set redisinsight.persistence.create=false --set redisinsight.persistence.existingClaimName="$redisinsight_pvc" )
+  else
+    echo -e "${Green}• Will create PVC:${Color_Off} $redisinsight_pvc"
   fi
 
   if kubectl -n "$NAMESPACE" get pvc "$backend_pvc" >/dev/null 2>&1; then
-    echo -e "${Yellow}Found existing PVC:${Color_Off} $backend_pvc (will not create in Helm)"
+    echo -e "${Yellow}✓ Found existing PVC:${Color_Off} $backend_pvc (will not create in Helm)"
     HELM_PRESET_PVC_BACKEND=( --set backend.persistence.create=false --set backend.persistence.existingClaimName="$backend_pvc" )
+  else
+    echo -e "${Green}• Will create PVC:${Color_Off} $backend_pvc ${Red}(CRITICAL for backend pods)${Color_Off}"
   fi
+
+  echo ""
 }
 
 # Sanitize a string into a valid Helm/K8s release name (DNS-1035 compliant)
@@ -330,6 +347,7 @@ while [[ $# -gt 0 ]]; do
     -r) RELEASE="$2"; shift 2;;
     -e) ENV_FILE="$2"; shift 2;;
     -c) BACKEND_CONFIG="$2"; shift 2;;
+    -d) DEEP_THINKER_CONFIG="$2"; shift 2;;
     -f) VALUES_FILE="$2"; shift 2;;
     --enable-tls) ENABLE_TLS="true"; shift;;
     --tls-secret-name) TLS_SECRET_NAME="$2"; shift 2;;
@@ -415,9 +433,18 @@ if [[ -z "$BACKEND_CONFIG" && -f "$BACKEND_CONFIG_DEFAULT" ]]; then
   BACKEND_CONFIG="$BACKEND_CONFIG_DEFAULT"
 fi
 
+if [[ -z "$DEEP_THINKER_CONFIG" && -f "$DEEP_THINKER_CONFIG_DEFAULT" ]]; then
+  DEEP_THINKER_CONFIG="$DEEP_THINKER_CONFIG_DEFAULT"
+fi
+
 # Sort backend config keys alphabetically before deployment
-if [[ "$SKIP_CONFIG_SORT" != "true" && -n "$BACKEND_CONFIG" && -f "$BACKEND_CONFIG" ]]; then
-  sort_backend_config_keys "$BACKEND_CONFIG" "$SORT_LISTS"
+if [[ "$SKIP_CONFIG_SORT" != "true" ]]; then
+  if [[ -n "$BACKEND_CONFIG" && -f "$BACKEND_CONFIG" ]]; then
+    sort_backend_config_keys "$BACKEND_CONFIG" "$SORT_LISTS"
+  fi
+  if [[ -n "$DEEP_THINKER_CONFIG" && -f "$DEEP_THINKER_CONFIG" ]]; then
+    sort_backend_config_keys "$DEEP_THINKER_CONFIG" "$SORT_LISTS"
+  fi
 fi
 
 echo -e "${Cyan}Namespace:${Color_Off} $NAMESPACE"
@@ -430,7 +457,8 @@ echo -e "${Cyan}Release:${Color_Off}   $RELEASE"
 echo -e "${Cyan}Chart:${Color_Off}     $CHART_DIR"
 echo -e "${Cyan}Values:${Color_Off}    ${VALUES_FILE:-<none>}"
 echo -e "${Cyan}Env file:${Color_Off}  ${ENV_FILE:-<none>}"
-echo -e "${Cyan}Backend cfg:${Color_Off} ${BACKEND_CONFIG:-<none>}"
+echo -e "${Cyan}Default backend cfg:${Color_Off} ${BACKEND_CONFIG:-<none>}"
+echo -e "${Cyan}Deep Thinker cfg:${Color_Off} ${DEEP_THINKER_CONFIG:-<none>}"
 echo -e "${Cyan}TLS enabled:${Color_Off} ${ENABLE_TLS}"
 
 if [[ "$DRY_RUN" == "true" ]]; then
@@ -438,6 +466,28 @@ if [[ "$DRY_RUN" == "true" ]]; then
 fi
 
 ensure_namespace "$NAMESPACE"
+
+# Check PVC status before proceeding
+if [[ "$DRY_RUN" != "true" ]]; then
+  echo -e "\n${Cyan}Verifying PVC requirements...${Color_Off}"
+
+  # Check critical backend PVC
+  if ! kubectl -n "$NAMESPACE" get pvc "${RELEASE}-backend" >/dev/null 2>&1; then
+    if [[ "$UNINSTALL_FIRST" != "true" ]]; then
+      echo -e "${Red}WARNING: Backend PVC '${RELEASE}-backend' does not exist!${Color_Off}"
+      echo -e "${Yellow}The backend pods will fail to start without this PVC.${Color_Off}"
+      echo -e "${Yellow}Helm will attempt to create it, but if you have specific storage requirements,${Color_Off}"
+      echo -e "${Yellow}you may want to create it manually first or use --uninstall-first to start fresh.${Color_Off}"
+      echo ""
+      read -p "Continue with deployment? (y/N) " -n 1 -r
+      echo
+      if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        echo -e "${Red}Deployment cancelled.${Color_Off}"
+        exit 1
+      fi
+    fi
+  fi
+fi
 
 # Validate required assets before any uninstall logic so we fail fast
 validate_env_file
@@ -497,7 +547,10 @@ if [[ ${#HELM_PRESET_PVC_BACKEND[@]} -gt 0 ]]; then
   HELM_CMD+=( "${HELM_PRESET_PVC_BACKEND[@]}" )
 fi
 if [[ -n "${BACKEND_CONFIG}" && -f "${BACKEND_CONFIG}" ]]; then
-  HELM_CMD+=( --set-file backend.config.data="$BACKEND_CONFIG" )
+  HELM_CMD+=( --set-file backend.default.config.data="$BACKEND_CONFIG" )
+fi
+if [[ -n "${DEEP_THINKER_CONFIG}" && -f "${DEEP_THINKER_CONFIG}" ]]; then
+  HELM_CMD+=( --set-file backend.deepThinker.config.data="$DEEP_THINKER_CONFIG" )
 fi
 # If TLS is enabled, pass Helm values to expose 443 and bind the Secret
 if [[ "$ENABLE_TLS" == "true" ]]; then
@@ -521,7 +574,36 @@ fi
 
 echo -e "${Green}Done.${Color_Off}"
 
+echo -e "\n${Cyan}Deployment status:${Color_Off}"
 kubectl get all -n "$NAMESPACE"
 
-echo -e "${Cyan}Following logs for daedalus-backend pod...${Color_Off}"
-kubectl logs -f deployment/daedalus-backend -n "$NAMESPACE"
+echo -e "\n${Cyan}PVC status:${Color_Off}"
+kubectl get pvc -n "$NAMESPACE"
+
+echo -e "\n${Cyan}Checking backend pod status...${Color_Off}"
+backend_ready=false
+attempts=0
+max_attempts=30
+
+while [[ $attempts -lt $max_attempts ]]; do
+  if kubectl -n "$NAMESPACE" get pods -l app.kubernetes.io/component=backend-default -o jsonpath='{.items[*].status.phase}' | grep -q "Running"; then
+    backend_ready=true
+    break
+  fi
+  echo -n "."
+  sleep 2
+  ((attempts++))
+done
+
+if [[ "$backend_ready" == "true" ]]; then
+  echo -e "\n${Green}✓ Default backend pod is running${Color_Off}"
+  echo -e "${Cyan}Following logs for default backend pod...${Color_Off}"
+  kubectl logs -f deployment/${RELEASE}-backend-default -n "$NAMESPACE"
+else
+  echo -e "\n${Red}✗ Backend pods are not ready yet. Checking pod events...${Color_Off}"
+  kubectl describe pods -l app.kubernetes.io/component=backend-default -n "$NAMESPACE" | grep -A 10 "Events:"
+  kubectl describe pods -l app.kubernetes.io/component=backend-deep-thinker -n "$NAMESPACE" | grep -A 10 "Events:"
+  echo -e "\n${Yellow}To check pod status: kubectl get pods -n $NAMESPACE${Color_Off}"
+  echo -e "${Yellow}To check PVC status: kubectl get pvc -n $NAMESPACE${Color_Off}"
+  echo -e "${Yellow}To follow logs when ready: kubectl logs -f deployment/${RELEASE}-backend-default -n $NAMESPACE${Color_Off}"
+fi

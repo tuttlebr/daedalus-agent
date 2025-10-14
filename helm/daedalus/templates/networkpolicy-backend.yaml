@@ -1,15 +1,17 @@
 {{- if .Values.backend.networkPolicy.enabled }}
+---
+# Network Policy for Default Backend
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: {{ include "daedalus.fullname" . }}-backend
+  name: {{ include "daedalus.fullname" . }}-backend-default
   labels:
     {{- include "daedalus.labels" . | nindent 4 }}
 spec:
   podSelector:
     matchLabels:
       app.kubernetes.io/name: {{ include "daedalus.name" . }}
-      app.kubernetes.io/component: backend
+      app.kubernetes.io/component: backend-default
       app.kubernetes.io/instance: {{ .Release.Name }}
   policyTypes:
     - Ingress
@@ -23,8 +25,8 @@ spec:
               app.kubernetes.io/instance: {{ .Release.Name }}
       ports:
         - protocol: TCP
-          port: {{ .Values.backend.port }}
-    # Allow traffic from nginx pods (if you still need some nginx access)
+          port: {{ .Values.backend.default.port }}
+    # Allow traffic from nginx pods
     - from:
         - podSelector:
             matchLabels:
@@ -33,7 +35,7 @@ spec:
               app.kubernetes.io/instance: {{ .Release.Name }}
       ports:
         - protocol: TCP
-          port: {{ .Values.backend.port }}
+          port: {{ .Values.backend.default.port }}
     # Allow traffic from the same namespace for health checks
     - from:
         - namespaceSelector:
@@ -41,5 +43,50 @@ spec:
               kubernetes.io/metadata.name: {{ .Release.Namespace }}
       ports:
         - protocol: TCP
-          port: {{ .Values.backend.port }}
+          port: {{ .Values.backend.default.port }}
+---
+# Network Policy for Deep Thinker Backend
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "daedalus.fullname" . }}-backend-deep-thinker
+  labels:
+    {{- include "daedalus.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "daedalus.name" . }}
+      app.kubernetes.io/component: backend-deep-thinker
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  policyTypes:
+    - Ingress
+  ingress:
+    # Allow traffic from frontend pods
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: {{ include "daedalus.name" . }}
+              app.kubernetes.io/component: frontend
+              app.kubernetes.io/instance: {{ .Release.Name }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.backend.deepThinker.port }}
+    # Allow traffic from nginx pods
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: {{ include "daedalus.name" . }}
+              app.kubernetes.io/component: nginx
+              app.kubernetes.io/instance: {{ .Release.Name }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.backend.deepThinker.port }}
+    # Allow traffic from the same namespace for health checks
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Release.Namespace }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.backend.deepThinker.port }}
 {{- end }}

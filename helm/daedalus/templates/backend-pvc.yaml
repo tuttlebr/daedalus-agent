@@ -1,4 +1,4 @@
-{{- if and .Values.backend.enabled .Values.backend.persistence.enabled .Values.backend.persistence.create }}
+{{- if and (or .Values.backend.default.enabled .Values.backend.deepThinker.enabled) .Values.backend.persistence.enabled .Values.backend.persistence.create }}
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
