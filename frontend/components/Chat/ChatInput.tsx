@@ -204,71 +204,6 @@ export const ChatInput = ({
     return window.matchMedia('(pointer: coarse)').matches;
   };
 
-
-  // Valid dimensions for image augmentation
-  const VALID_DIMENSIONS = [672, 688, 720, 752, 800, 832, 880, 944, 1024, 1104, 1184, 1248, 1328, 1392, 1456, 1504, 1568];
-
-  // Find the closest valid dimension
-  const findClosestDimension = (value: number): number => {
-    return VALID_DIMENSIONS.reduce((prev, curr) =>
-      Math.abs(curr - value) < Math.abs(prev - value) ? curr : prev
-    );
-  };
-
-  // Resize image to valid dimensions
-  const resizeImageToValidDimensions = async (base64String: string, mimeType: string): Promise<string> => {
-    return new Promise((resolve) => {
-      const img = new Image();
-      img.onload = () => {
-        // Find closest valid dimensions
-        const targetWidth = findClosestDimension(img.width);
-        const targetHeight = findClosestDimension(img.height);
-
-        // Check if resizing is needed
-        if (img.width === targetWidth && img.height === targetHeight) {
-          console.log('Image already has valid dimensions, no resizing needed');
-          resolve(base64String);
-          return;
-        }
-
-        console.log(`Resizing image from ${img.width}x${img.height} to ${targetWidth}x${targetHeight}`);
-
-        // Create canvas and resize
-        const canvas = document.createElement('canvas');
-        canvas.width = targetWidth;
-        canvas.height = targetHeight;
-        const ctx = canvas.getContext('2d');
-
-        if (ctx) {
-          // Calculate scaling and positioning to maintain aspect ratio
-          const scale = Math.min(targetWidth / img.width, targetHeight / img.height);
-          const scaledWidth = img.width * scale;
-          const scaledHeight = img.height * scale;
-          const offsetX = (targetWidth - scaledWidth) / 2;
-          const offsetY = (targetHeight - scaledHeight) / 2;
-
-          // Fill background (in case image doesn't fill entire canvas)
-          ctx.fillStyle = '#000000';
-          ctx.fillRect(0, 0, targetWidth, targetHeight);
-
-          // Draw scaled image centered
-          ctx.drawImage(img, offsetX, offsetY, scaledWidth, scaledHeight);
-
-          // Convert back to base64
-          const resizedBase64 = canvas.toDataURL(mimeType || 'image/jpeg', 0.95);
-          resolve(resizedBase64);
-        } else {
-          resolve(base64String);
-        }
-      };
-      img.onerror = () => {
-        console.error('Failed to load image for resizing');
-        resolve(base64String);
-      };
-      img.src = base64String;
-    });
-  };
-
   const processFile = async ({ fullBase64String, file }: { fullBase64String: string, file: File }) => {
     const [fileType] = file && file.type.split('/');
     if (!["image"].includes(fileType)) {
@@ -286,10 +221,7 @@ export const ChatInput = ({
     try {
       let imageToUpload = fullBase64String;
 
-      // First, resize image to valid dimensions
-      imageToUpload = await resizeImageToValidDimensions(imageToUpload, file.type);
-
-      // Then check if compression is needed
+      // Check if compression is needed
       const base64WithoutPrefix = imageToUpload.replace(/^data:image\/[a-z]+;base64,/, '');
       const sizeInKB = (base64WithoutPrefix.length * 3 / 4) / 1024;
       const shouldCompress = sizeInKB > 200;
@@ -576,7 +508,7 @@ export const ChatInput = ({
             appConfig?.fileUploadEnabled && !inputFile &&
             <>
               <button
-                className="absolute right-20 top-1/2 -translate-y-1/2 rounded-full p-2 text-neutral-500 transition-colors duration-150 hover:bg-neutral-100 hover:text-neutral-900 dark:text-neutral-300 dark:hover:bg-dark-bg-primary/60"
+                className="absolute right-20 bottom-3 rounded-full p-2 text-neutral-500 transition-colors duration-150 hover:bg-neutral-100 hover:text-neutral-900 dark:text-neutral-300 dark:hover:bg-dark-bg-primary/60"
                 onClick={triggerPhotoUpload}
                 disabled={isUploadingImage}
                 title="Upload or take a photo"
@@ -590,7 +522,7 @@ export const ChatInput = ({
                 )}
               </button>
               <button
-                className="absolute right-12 top-1/2 -translate-y-1/2 rounded-full p-2 text-neutral-500 transition-colors duration-150 hover:bg-neutral-100 hover:text-neutral-900 dark:text-neutral-300 dark:hover:bg-dark-bg-primary/60"
+                className="absolute right-12 bottom-3 rounded-full p-2 text-neutral-500 transition-colors duration-150 hover:bg-neutral-100 hover:text-neutral-900 dark:text-neutral-300 dark:hover:bg-dark-bg-primary/60"
                 onClick={triggerFileUpload}
                 disabled={isUploadingImage}
                 title="Upload a file"
@@ -621,7 +553,7 @@ export const ChatInput = ({
           }
           <button
             onClick={handleSpeechToText}
-            className={`absolute left-3 top-1/2 -translate-y-1/2 rounded-full p-2 text-neutral-500 transition-colors duration-150 dark:text-neutral-300 ${messageIsStreaming
+            className={`absolute left-3 bottom-3 rounded-full p-2 text-neutral-500 transition-colors duration-150 dark:text-neutral-300 ${messageIsStreaming
               ? 'text-neutral-400'
               : 'hover:bg-neutral-100 hover:text-neutral-900 dark:hover:bg-dark-bg-primary/60'
               }`}
@@ -634,7 +566,7 @@ export const ChatInput = ({
             )}
           </button>
           <button
-            className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full bg-neutral-900 p-2 text-white transition-transform duration-150 hover:scale-105 dark:bg-nvidia-green"
+            className="absolute right-3 bottom-3 rounded-full bg-neutral-900 p-2 text-white transition-transform duration-150 hover:scale-105 dark:bg-nvidia-green"
             onClick={handleSend}
           >
             {messageIsStreaming ? (
