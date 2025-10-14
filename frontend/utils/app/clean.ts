@@ -1,50 +1,26 @@
 import { Conversation } from '@/types/chat';
+import { cleanMessagesForStorage, restoreMessageImages } from './imageHandler';
 
 export const cleanSelectedConversation = (conversation: Conversation) => {
-  let updatedConversation = conversation;
+  const cleanedMessages = cleanMessagesForStorage(conversation.messages || []);
 
-  if (!updatedConversation.folderId) {
-    updatedConversation = {
-      ...updatedConversation,
-      folderId: updatedConversation.folderId || null,
-    };
-  }
-
-  if (!updatedConversation.messages) {
-    updatedConversation = {
-      ...updatedConversation,
-      messages: updatedConversation.messages || [],
-    };
-  }
-
-  return updatedConversation;
+  return {
+    ...conversation,
+    folderId: conversation.folderId || null,
+    messages: cleanedMessages,
+  };
 };
 
 export const cleanConversationHistory = (history: any[]): Conversation[] => {
-
   if (!Array.isArray(history)) {
     console.warn('history is not an array. Returning an empty array.');
     return [];
   }
 
-  return history.reduce((acc: any[], conversation) => {
-    try {
-      if (!conversation.folderId) {
-        conversation.folderId = null;
-      }
-
-      if (!conversation.messages) {
-        conversation.messages = [];
-      }
-
-      acc.push(conversation);
-      return acc;
-    } catch (error) {
-      console.warn(
-        `error while cleaning conversations' history. Removing culprit`,
-        error,
-      );
-    }
-    return acc;
-  }, []);
+  return history
+    .map((conversation) => cleanSelectedConversation(conversation))
+    .map((conversation) => ({
+      ...conversation,
+      messages: restoreMessageImages(conversation.messages || []),
+    }));
 };

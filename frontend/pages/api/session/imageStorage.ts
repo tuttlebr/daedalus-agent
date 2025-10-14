@@ -1,5 +1,5 @@
 import { NextApiRequest, NextApiResponse } from 'next';
-import { getRedis, sessionKey, jsonSet, jsonGet, jsonDel, jsonSetWithExpiry } from './redis';
+import { getRedis, sessionKey, jsonGet, jsonDel, jsonSetWithExpiry } from './redis';
 import { getUserId, getOrSetSessionId } from './_utils';
 import crypto from 'crypto';
 

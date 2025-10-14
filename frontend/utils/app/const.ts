@@ -3,5 +3,5 @@ export const nextEndPoints = {
 };
 
 export const appConfig = {
-    fileUploadEnabled : false
+    fileUploadEnabled : true
 }

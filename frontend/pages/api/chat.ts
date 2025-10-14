@@ -96,6 +96,48 @@ function estimateTokens(text: string): number {
   return Math.ceil(text.length / 4);
 }
 
+// Retrieve image from Redis using imageRef
+async function retrieveImageFromRedis(imageRef: any): Promise<string | null> {
+  try {
+    if (!imageRef?.imageId || !imageRef?.sessionId) {
+      console.error('Invalid imageRef:', imageRef);
+      return null;
+    }
+
+    // Use 127.0.0.1 instead of localhost to avoid IPv6 issues
+    const baseUrl = 'http://127.0.0.1:3000';
+    const url = `${baseUrl}/api/session/imageStorage?imageId=${imageRef.imageId}&sessionId=${imageRef.sessionId}`;
+
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        'Accept': 'image/*',
+      },
+    });
+
+    if (!response.ok) {
+      console.error('Failed to retrieve image:', response.status, response.statusText);
+      return null;
+    }
+
+    // Convert response to base64
+    const blob = await response.blob();
+    const arrayBuffer = await blob.arrayBuffer();
+    const base64 = btoa(
+      new Uint8Array(arrayBuffer).reduce(
+        (data, byte) => data + String.fromCharCode(byte),
+        ''
+      )
+    );
+
+    console.log('Successfully retrieved image from Redis:', imageRef.imageId);
+    return base64;
+  } catch (error) {
+    console.error('Error retrieving image from Redis:', error);
+    return null;
+  }
+}
+
 // Extract complete JSON objects from a string (handles nested objects)
 function extractJsonObjects(text: string): { json: any; startIdx: number; endIdx: number }[] {
   const results: { json: any; startIdx: number; endIdx: number }[] = [];
@@ -145,12 +187,31 @@ const handler = async (req: Request): Promise<Response> => {
 
   console.log('aiq - estimated prompt tokens for request:', estimatedPromptTokens);
 
-  // Safety check: Strip any base64 content from messages before processing
-  messages = messages.map((message) => {
+  // Process messages to ensure attachments are represented as references only
+  messages = await Promise.all(messages.map(async (message) => {
     const cleanedMessage = { ...message };
 
-    // Remove attachments to prevent base64 overflow
-    delete cleanedMessage.attachments;
+    // Process attachments - ensure references are preserved but no base64 is added to the prompt
+    if (cleanedMessage.attachments && Array.isArray(cleanedMessage.attachments)) {
+      cleanedMessage.attachments = cleanedMessage.attachments
+        .filter(Boolean)
+        .map((attachment: any) => {
+          if (!attachment?.imageRef) {
+            return null;
+          }
+
+          return {
+            type: attachment.type,
+            imageRef: attachment.imageRef,
+            mimeType: attachment.mimeType,
+          };
+        })
+        .filter(Boolean);
+
+      if (!cleanedMessage.attachments.length) {
+        delete cleanedMessage.attachments;
+      }
+    }
 
     // Remove any properties that might contain base64
     const keysToRemove = ['inputFileContent', 'inputFileContentCompressed'];
@@ -173,7 +234,7 @@ const handler = async (req: Request): Promise<Response> => {
     }
 
     return cleanedMessage;
-  });
+  }));
 
   console.log(
     'aiq - /api/chat received messages count:',

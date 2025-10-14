@@ -54,6 +54,11 @@ RUN --mount=type=cache,id=uv_cache,target=/root/.cache/uv,sharing=locked \
     NAT_VERSION= nat workflow reinstall image_generation && \
     uv pip install -e image_generation --prerelease=allow
 
+COPY image_augmentation /workspace/image_augmentation
+RUN --mount=type=cache,id=uv_cache,target=/root/.cache/uv,sharing=locked \
+    NAT_VERSION= nat workflow reinstall image_augmentation && \
+    uv pip install -e image_augmentation --prerelease=allow
+
 COPY serpapi_ai /workspace/serpapi_ai
 RUN --mount=type=cache,id=uv_cache,target=/root/.cache/uv,sharing=locked \
     NAT_VERSION= nat workflow reinstall serpapi_ai && \
