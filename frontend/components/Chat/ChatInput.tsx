@@ -29,6 +29,7 @@ import HomeContext from '@/pages/api/home/home.context';
 import { compressImage } from '@/utils/app/helper';
 import { appConfig } from '@/utils/app/const';
 import { uploadImage, ImageReference } from '@/utils/app/imageHandler';
+import { setUserSessionItem } from '@/utils/app/storage';
 import { OptimizedImage } from './OptimizedImage';
 
 
@@ -52,7 +53,7 @@ export const ChatInput = ({
   const { t } = useTranslation('chat');
 
   const {
-    state: { selectedConversation, messageIsStreaming, loading },
+    state: { selectedConversation, messageIsStreaming, loading, enableIntermediateSteps },
     dispatch: homeDispatch,
   } = useContext(HomeContext);
 
@@ -425,7 +426,16 @@ export const ChatInput = ({
                   ? 'border-nvidia-green bg-bg-primary text-nvidia-green hover:border-nvidia-green/80 dark:border-nvidia-green dark:bg-dark-bg-tertiary dark:text-nvidia-green'
                   : 'border-neutral-200 bg-bg-primary text-text-primary hover:border-neutral-300 hover:text-neutral-900 dark:border-neutral-700 dark:bg-dark-bg-tertiary dark:text-neutral-100 dark:hover:border-neutral-600'
               }`}
-              onClick={() => setUseDeepThinker(!useDeepThinker)}
+              onClick={() => {
+                const newDeepThinkerState = !useDeepThinker;
+                setUseDeepThinker(newDeepThinkerState);
+
+                // If turning ON deep thinker, also enable intermediate steps
+                if (newDeepThinkerState && !enableIntermediateSteps) {
+                  homeDispatch({ field: 'enableIntermediateSteps', value: true });
+                  setUserSessionItem('enableIntermediateSteps', 'true');
+                }
+              }}
               title="Enable deep philosophical analysis with first-principles reasoning"
             >
               <IconBrain size={14} /> Deep Thinker {useDeepThinker ? 'ON' : 'OFF'}
