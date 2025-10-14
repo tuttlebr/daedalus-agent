@@ -269,9 +269,9 @@ const truncateString = (str: string, maxLength: number): string => {
 
 // Configuration for intermediate steps limits
 const INTERMEDIATE_STEPS_CONFIG = {
-    MAX_PAYLOAD_LENGTH: 5000, // Max characters per payload
-    MAX_NESTED_DEPTH: 3, // Max nesting depth to render
-    MAX_STEPS_PER_MESSAGE: 50, // Max number of intermediate steps to keep
+    MAX_PAYLOAD_LENGTH: 500, // Max characters per payload (reduced from 5000 to prevent UI overflow)
+    MAX_NESTED_DEPTH: 2, // Max nesting depth to render (reduced from 3)
+    MAX_STEPS_PER_MESSAGE: 20, // Max number of intermediate steps to keep (reduced from 50)
 };
 
 /**
@@ -283,16 +283,46 @@ export const trimIntermediateSteps = (steps: IntermediateStep[] = []): Intermedi
 
     const maxSteps = INTERMEDIATE_STEPS_CONFIG.MAX_STEPS_PER_MESSAGE;
 
-    // If we're under the limit, return as-is
-    if (steps.length <= maxSteps) {
-        return steps;
+    // Filter out steps with very large payloads or system prompts
+    const shouldFilterStep = (step: IntermediateStep): boolean => {
+        if (!step?.content?.payload) return false;
+
+        const payload = typeof step.content.payload === 'string'
+            ? step.content.payload
+            : JSON.stringify(step.content.payload);
+
+        // Filter out system prompts and extremely large payloads
+        const verbosePatterns = [
+            'Answer the following questions as best you can',
+            'You are an expert',
+            'System:',
+            'SystemMessage(',
+            'FieldInfo(annotation=',
+            'Arguments must be provided as a valid JSON object'
+        ];
+
+        // If payload is extremely large (>10000 chars) or contains verbose patterns, filter it out
+        if (payload.length > 10000 || verbosePatterns.some(pattern => payload.includes(pattern))) {
+            console.log('Filtering out verbose intermediate step:', step.content?.name || 'unknown', 'payload length:', payload.length);
+            return true;
+        }
+
+        return false;
+    };
+
+    // Filter out verbose steps
+    const filteredSteps = steps.filter(step => !shouldFilterStep(step));
+
+    // If we're under the limit after filtering, return as-is
+    if (filteredSteps.length <= maxSteps) {
+        return filteredSteps;
     }
 
     // Keep only the most recent steps
     // We slice from the end to keep the latest intermediate steps
-    const trimmedSteps = steps.slice(-maxSteps);
+    const trimmedSteps = filteredSteps.slice(-maxSteps);
 
-    console.log(`Trimmed intermediate steps from ${steps.length} to ${trimmedSteps.length} for performance`);
+    console.log(`Trimmed intermediate steps from ${steps.length} to ${trimmedSteps.length} (filtered: ${steps.length - filteredSteps.length}) for performance`);
 
     return trimmedSteps;
 };
@@ -312,9 +342,26 @@ export const generateContentIntermediate = (intermediateSteps: IntermediateStep[
             return data.map((item) => {
                 const currentId = item.id;
                 const currentIndex = item.index;
-                // Truncate payload to prevent memory bloat
+
+                // Get raw payload
                 const rawPayload = item.content?.payload || '';
-                const truncatedPayload = truncateString(rawPayload, INTERMEDIATE_STEPS_CONFIG.MAX_PAYLOAD_LENGTH);
+                const payloadStr = typeof rawPayload === 'string' ? rawPayload : JSON.stringify(rawPayload);
+
+                // Additional filtering: skip extremely verbose steps that shouldn't be displayed
+                const verbosePatterns = [
+                    'Answer the following questions as best you can',
+                    'SystemMessage(',
+                    'FieldInfo(annotation=',
+                    'Arguments must be provided as a valid JSON object'
+                ];
+
+                if (payloadStr.length > 10000 || verbosePatterns.some(pattern => payloadStr.includes(pattern))) {
+                    console.log('Skipping verbose intermediate step in rendering:', item.content?.name || 'unknown');
+                    return ''; // Skip this step entirely
+                }
+
+                // Truncate payload to prevent memory bloat
+                const truncatedPayload = truncateString(payloadStr, INTERMEDIATE_STEPS_CONFIG.MAX_PAYLOAD_LENGTH);
                 const sanitizedPayload = convertBackticksToPreCode(truncatedPayload);
 
                 let details = `<details id=${currentId} index=${currentIndex}>\n`;
@@ -328,7 +375,7 @@ export const generateContentIntermediate = (intermediateSteps: IntermediateStep[
 
                 details += `</details>\n`;
                 return details;
-            }).join('');
+            }).filter(d => d).join(''); // Filter out empty strings
         } catch (error) {
             console.error('error in generateDetails:', error);
             return ''; // Return an empty string in case of error

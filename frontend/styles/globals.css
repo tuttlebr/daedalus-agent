@@ -922,6 +922,33 @@ img {
   backface-visibility: hidden;
 }
 
+/* Intermediate steps overflow prevention */
+details {
+  max-width: 100% !important;
+  overflow: hidden !important;
+}
+
+details > summary {
+  cursor: pointer;
+  user-select: none;
+}
+
+details pre,
+details code {
+  max-width: 100% !important;
+  max-height: 15rem !important;
+  overflow: auto !important;
+  word-break: break-word !important;
+  white-space: pre-wrap !important;
+}
+
+details p,
+details div {
+  max-width: 100% !important;
+  word-break: break-word !important;
+  overflow-wrap: anywhere !important;
+}
+
 /* Prevent image flickering on mobile */
 @media (max-width: 768px) {
   img {

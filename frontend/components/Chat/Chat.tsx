@@ -228,6 +228,7 @@ export const Chat = () => {
             let counter = 1;
             let partialIntermediateStep = ''; // Add this to store partial chunks
             let partialToolCall = '';
+            let partialTagBuffer = ''; // Buffer for partial tag names
             while (!done) {
               const { value, done: doneReading } = await reader.read();
               done = doneReading;
@@ -239,6 +240,35 @@ export const Chat = () => {
                 chunkValue = partialIntermediateStep + chunkValue;
                 partialIntermediateStep = "";
               }
+
+              // Handle partial tag names from previous chunk
+              if (partialTagBuffer) {
+                chunkValue = partialTagBuffer + chunkValue;
+                partialTagBuffer = "";
+              }
+
+              // Check for partial tags at the END of chunk more aggressively
+              // Match any trailing partial opening/closing tag: <, <i, <in, <int, <inte, etc.
+              // Also match partial closing tags: </, </i, </in, etc.
+              const tagPrefixes = [
+                '</intermediatestep', '</intermediateste', '</intermediateste', '</intermediates',
+                '</intermediate', '</intermediat', '</intermedia', '</intermedi', '</intermed',
+                '</interm', '</inter', '</inte', '</int', '</in', '</i', '</',
+                '<intermediatestep', '<intermediateste', '<intermediateste', '<intermediates',
+                '<intermediate', '<intermediat', '<intermedia', '<intermedi', '<intermed',
+                '<interm', '<inter', '<inte', '<int', '<in', '<i', '<'
+              ];
+
+              for (const prefix of tagPrefixes) {
+                if (chunkValue.endsWith(prefix)) {
+                  partialTagBuffer = prefix;
+                  chunkValue = chunkValue.substring(0, chunkValue.length - prefix.length);
+                  break;
+                }
+              }
+
+              // Remove any malformed tag fragments that slipped through (anywhere in the chunk)
+              chunkValue = chunkValue.replace(/<\/?i?n?t?e?r?m?e?d?i?a?t?e?s?t?e?p?(?![>])/g, '');
 
               // Check for incomplete tags
               const openingTagIndex = chunkValue.lastIndexOf("<intermediatestep>");
@@ -332,74 +362,111 @@ export const Chat = () => {
               chunkValue = chunkValue.replace(/^(Thought:|Action:|Action Input:|Observation:).*$/gm, '');
               chunkValue = chunkValue.replace(/\bFinal Answer:\s*/g, '');
 
-              // Filter out any raw JSON objects that look like intermediate steps
-              // This catches intermediate steps that aren't wrapped in tags
-              try {
-                // Find potential JSON objects with system_intermediate type
-                let filtered = chunkValue;
-                let startIdx = 0;
+              // AGGRESSIVE PRE-FILTER: Remove verbose intermediate step patterns before JSON parsing
+              // This catches system prompts and verbose payloads that shouldn't be displayed
+              const verbosePatterns = [
+                'You are an expert reasoning model',
+                'Given the following input and a list of available tools',
+                'Answer the following questions as best you can',
+                'HumanMessage(content=',
+                'SystemMessage(content=',
+                'FieldInfo(annotation=',
+                'Arguments must be provided as a valid JSON object',
+                'Please provide a detailed step-by-step plan',
+                'Determining the most suitable tools for each task',
+                'IMPORTANT — Real-time and Dates Policy'
+              ];
 
-                while (true) {
-                  const jsonStart = filtered.indexOf('{"id":"', startIdx);
-                  if (jsonStart === -1) break;
+              // If chunk contains verbose patterns, it's likely a system intermediate step - filter it out
+              let shouldFilterChunk = false;
+              for (const pattern of verbosePatterns) {
+                if (chunkValue.includes(pattern)) {
+                  shouldFilterChunk = true;
+                  console.log('Filtering verbose chunk containing pattern:', pattern.substring(0, 50));
+                  break;
+                }
+              }
 
-                  // Try to find the matching closing brace by counting braces
-                  let braceCount = 0;
-                  let jsonEnd = -1;
-                  let inString = false;
-                  let escapeNext = false;
+              // If chunk is extremely long (>5000 chars), it's likely a verbose intermediate step
+              if (chunkValue.length > 5000) {
+                shouldFilterChunk = true;
+                console.log('Filtering extremely long chunk:', chunkValue.length, 'chars');
+              }
 
-                  for (let i = jsonStart; i < filtered.length; i++) {
-                    const char = filtered[i];
+              // Skip this entire chunk if it's verbose
+              if (shouldFilterChunk) {
+                chunkValue = '';
+              } else {
+                // Filter out any raw JSON objects that look like intermediate steps
+                // This catches intermediate steps that aren't wrapped in tags
+                try {
+                  // Find potential JSON objects with system_intermediate type
+                  let filtered = chunkValue;
+                  let startIdx = 0;
 
-                    if (escapeNext) {
-                      escapeNext = false;
-                      continue;
-                    }
+                  while (true) {
+                    const jsonStart = filtered.indexOf('{"id":"', startIdx);
+                    if (jsonStart === -1) break;
 
-                    if (char === '\\') {
-                      escapeNext = true;
-                      continue;
-                    }
+                    // Try to find the matching closing brace by counting braces
+                    let braceCount = 0;
+                    let jsonEnd = -1;
+                    let inString = false;
+                    let escapeNext = false;
 
-                    if (char === '"') {
-                      inString = !inString;
-                      continue;
-                    }
+                    for (let i = jsonStart; i < filtered.length; i++) {
+                      const char = filtered[i];
 
-                    if (!inString) {
-                      if (char === '{') braceCount++;
-                      else if (char === '}') {
-                        braceCount--;
-                        if (braceCount === 0) {
-                          jsonEnd = i + 1;
-                          break;
+                      if (escapeNext) {
+                        escapeNext = false;
+                        continue;
+                      }
+
+                      if (char === '\\') {
+                        escapeNext = true;
+                        continue;
+                      }
+
+                      if (char === '"') {
+                        inString = !inString;
+                        continue;
+                      }
+
+                      if (!inString) {
+                        if (char === '{') braceCount++;
+                        else if (char === '}') {
+                          braceCount--;
+                          if (braceCount === 0) {
+                            jsonEnd = i + 1;
+                            break;
+                          }
                         }
                       }
                     }
-                  }
 
-                  if (jsonEnd !== -1) {
-                    const potentialJson = filtered.substring(jsonStart, jsonEnd);
-                    try {
-                      const parsed = JSON.parse(potentialJson);
-                      if (parsed.type === 'system_intermediate') {
-                        // Remove this JSON object from the output
-                        filtered = filtered.substring(0, jsonStart) + filtered.substring(jsonEnd);
-                        startIdx = jsonStart; // Continue searching from same position
-                        continue;
+                    if (jsonEnd !== -1) {
+                      const potentialJson = filtered.substring(jsonStart, jsonEnd);
+                      try {
+                        const parsed = JSON.parse(potentialJson);
+                        if (parsed.type === 'system_intermediate') {
+                          // Remove this JSON object from the output
+                          console.log('Filtered system_intermediate JSON from chunk');
+                          filtered = filtered.substring(0, jsonStart) + filtered.substring(jsonEnd);
+                          startIdx = jsonStart; // Continue searching from same position
+                          continue;
+                        }
+                      } catch (e) {
+                        // Not valid JSON, skip past it
                       }
-                    } catch (e) {
-                      // Not valid JSON, skip past it
                     }
+
+                    startIdx = jsonStart + 1;
                   }
 
-                  startIdx = jsonStart + 1;
+                  chunkValue = filtered;
+                } catch (e) {
+                  console.error('Error filtering intermediate steps:', e);
                 }
-
-                chunkValue = filtered;
-              } catch (e) {
-                console.error('Error filtering intermediate steps:', e);
               }
 
               text = text + chunkValue;
