@@ -219,6 +219,24 @@ class MilvusRetriever(Retriever):
             return documents
 
     async def search(self, query: str, **kwargs):
+        """
+        Search for documents in a Milvus collection.
+
+        Args:
+            query (str): The search query to vectorize and use for
+                similarity search. This parameter is REQUIRED.
+            **kwargs: Additional search parameters like top_k, filters, etc.
+
+        Returns:
+            RetrieverOutput: Search results containing matched documents.
+
+        Raises:
+            CollectionNotFoundError: If the specified collection doesn't exist.
+            ValueError: If required parameters are missing.
+        """
+        if not query:
+            raise ValueError("The 'query' parameter is required and cannot be empty.")
+
         return await self._search_func(query=query, **kwargs)
 
     async def _search_with_iterator(
@@ -239,6 +257,10 @@ class MilvusRetriever(Retriever):
         Retrieve document chunks from a Milvus vectorstore using a search
         iterator, allowing for the retrieval of more results.
         """
+        # Validate required parameters
+        if not query:
+            raise ValueError("The 'query' parameter is required and cannot be empty.")
+
         logger.debug(
             "MilvusRetriever searching query: %s, for collection: %s. "
             "Returning max %s results",
@@ -346,6 +368,10 @@ class MilvusRetriever(Retriever):
         """
         Retrieve document chunks from a Milvus vectorstore
         """
+        # Validate required parameters
+        if not query:
+            raise ValueError("The 'query' parameter is required and cannot be empty.")
+
         logger.debug(
             "MilvusRetriever searching query: %s, for collection: %s. "
             "Returning max %s results",

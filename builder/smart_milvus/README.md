@@ -57,7 +57,7 @@ from smart_milvus.register import MilvusRetrieverConfig
 config = MilvusRetrieverConfig(
     uri="http://localhost:19530",
     embedding_model="text-embedding-ada-002",
-    collection_name="my_collection",
+    collection_name="my_collection",  # Can be set here or provided at search time
     top_k=10
 )
 
@@ -72,6 +72,29 @@ results = await retriever.search(
     top_k=5
 )
 ```
+
+### Dynamic Collection Selection
+
+When you want the LLM to determine which collection to search, don't set `collection_name` in the config:
+
+```python
+# Configure without collection_name - LLM will need to provide it
+config = MilvusRetrieverConfig(
+    uri="http://localhost:19530",
+    embedding_model="text-embedding-ada-002",
+    collection_name=None,  # Or omit entirely
+    top_k=10
+)
+
+# The LLM will need to provide both query AND collection_name
+# when using the retriever:
+results = await retriever.search(
+    query="What is machine learning?",
+    collection_name="ml_documents"  # Required parameter
+)
+```
+
+**Important:** When `collection_name` is not set in the configuration, the LLM MUST provide both `query` and `collection_name` parameters when calling the search function. The tool description will indicate this requirement to the LLM.
 
 ### Advanced Features
 

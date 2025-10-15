@@ -54,7 +54,9 @@ class MilvusRetrieverConfig(RetrieverBaseConfig, name="smart_milvus"):
         alias="vector_field",
     )
     description: str | None = Field(
-        default=None,
+        default="Search for relevant documents in Milvus vector database. "
+        "REQUIRED PARAMETERS: query (search text) and collection_name "
+        "(Milvus collection to search in, unless pre-configured).",
         description="If present it will be used as the tool description",
         alias="collection_description",
     )

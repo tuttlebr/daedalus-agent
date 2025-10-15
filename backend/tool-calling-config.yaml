@@ -326,7 +326,7 @@ functions:
       '
   user_uploaded_files_retriever_tool:
     _type: nat_retriever
-    description: Retrieves technical information about user uploaded file. Should be used if the user just uploaded a PDF file. The name of the collection is the username of the user.
+    description: Retrieves technical information about user uploaded file.
     retriever: user_uploaded_files_retriever
     topic: User uploaded files from PDF
   veterinarian_retriever_tool:
@@ -476,7 +476,7 @@ retrievers:
     verbose: true
   user_uploaded_files_retriever:
     _type: smart_milvus
-    collection_name: null
+    collection_name: nvidia
     content_field: text
     database_name: default
     description: Retrieves technical information about user uploaded file. Should be used if the user just uploaded a PDF file. The name of the collection is the username of the user.

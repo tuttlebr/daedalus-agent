@@ -20,7 +20,7 @@ workflow:
       content_field: null
       top_k: 5
       vector_field_name: "vector"
-      description: "Search for relevant documents in Milvus vector database"
+      description: "Search for relevant documents in Milvus vector database. REQUIRED PARAMETERS: query (the search text) and collection_name (the Milvus collection to search). Example: search(query='What is machine learning?', collection_name='my_collection')"
       # Optional reranker configuration
       use_reranker: false  # Set to true to enable reranking
       reranker_endpoint: "https://ai.api.nvidia.com/v1/ranking"
