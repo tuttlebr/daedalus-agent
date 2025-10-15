@@ -3,8 +3,6 @@ import { Children, memo, useMemo } from 'react';
 import { isEqual } from 'lodash';
 import { CodeBlock } from '@/components/Markdown/CodeBlock';
 import Chart from '@/components/Markdown/Chart';
-import { CustomDetails } from '@/components/Markdown/CustomDetails';
-import { CustomSummary } from '@/components/Markdown/CustomSummary';
 import { Video } from '@/components/Markdown/Video';
 import { Image } from '@/components/Markdown/Image';
 
@@ -128,8 +126,6 @@ export const getReactMarkDownCustomComponents = (messageIndex = 0, messageId = '
       return isEqual(prevProps.children, nextProps.children);
     }),
     img: memo((props) => <Image {...props} />, (prevProps, nextProps) => isEqual(prevProps, nextProps)),
-    video: memo((props) => <Video {...props} />, (prevProps, nextProps) => isEqual(prevProps, nextProps)),
-    details: memo((props) => <CustomDetails messageIndex={messageIndex} {...props} />, (prevProps, nextProps) => isEqual(prevProps, nextProps)),
-    summary: memo((props) => <CustomSummary {...props} />, (prevProps, nextProps) => isEqual(prevProps, nextProps))
+    video: memo((props) => <Video {...props} />, (prevProps, nextProps) => isEqual(prevProps, nextProps))
   }),[messageIndex, messageId]);
 };

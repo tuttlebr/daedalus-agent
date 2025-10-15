@@ -1,8 +1,10 @@
+import { IntermediateStep } from './intermediateSteps';
+
 export interface Message {
   id?: string;
   role: Role;
   content: string;
-  intermediateSteps?: any;
+  intermediateSteps?: IntermediateStep[];
   humanInteractionMessages?: any;
   errorMessages?: any;
   metadata?: {
@@ -15,6 +17,12 @@ export interface Message {
     imageRef?: {
       imageId: string;
       sessionId: string;
+      mimeType?: string;
+    };
+    pdfRef?: {
+      pdfId: string;
+      sessionId: string;
+      filename?: string;
       mimeType?: string;
     };
   }>;

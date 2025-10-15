@@ -199,6 +199,7 @@ functions:
     - kubernetes_retriever_tool
     - mentalhealth_retriever_tool
     - nvidia_retriever_tool
+    - nv_ingest_tool
     - realtime_serpapi_ai_tool
     - realtime_serpapi_news_tool
     - realtime_serpapi_search_tool
@@ -212,6 +213,7 @@ functions:
     - reflection_researcher
     - relevancy_checker_researcher
     - report_extender_researcher
+    - user_uploaded_files_retriever_tool
     - summarizer_researcher
     verbose: true
   finalize_report_researcher:
@@ -338,6 +340,18 @@ functions:
     description: Retrieves evidence-based mental health information and support resources. Use when users ask about understanding mental health conditions, coping strategies, stress management, emotional wellness, recognizing symptoms, or finding help. Appropriate for educational questions about anxiety, depression, trauma, relationships, and self-care. Always emphasize that this is informational content, not therapy or crisis support. For emergencies, direct users to crisis hotlines.
     retriever: mentalhealth_retriever
     topic: Mental health and psychological wellness
+  nv_ingest_tool:
+    _type: nat_nv_ingest
+    chunk_overlap: 150
+    chunk_size: 1024
+    description: Processes PDF documents that users have uploaded. Use this tool when a user uploads a PDF file. The tool requires pdfRef (containing pdfId and sessionId) and username parameters. Do not ask users for these parameters - they are provided by the system.
+    milvus_uri: http://milvus.milvus.svc.cluster.local:19530
+    minio_access_key: minioadmin
+    minio_endpoint: 192.168.1.239:9000
+    minio_secret_key: minioadmin
+    nv_ingest_host: 192.168.1.239
+    nv_ingest_port: 7670
+    redis_url: redis://daedalus-redis.daedalus.svc.cluster.local:6379
   nvidia_retriever_tool:
     _type: nat_retriever
     description: Retrieves authoritative information from NVIDIA knowledge base including GPU specifications, CUDA programming, AI frameworks (NeMo, TensorRT), product comparisons (A100 vs H100), platform capabilities (DGX, Jetson), and corporate announcements. Combines engineering-level technical detail with business context from official NVIDIA sources. Use when queries require NVIDIA-specific expertise or product information.
@@ -693,6 +707,11 @@ functions:
       </summarizer_researcher>
 
       '
+  user_uploaded_files_retriever_tool:
+    _type: nat_retriever
+    description: Retrieves technical information about user uploaded file. Should be used if the user just uploaded a PDF file. The name of the collection is the username of the user.
+    retriever: user_uploaded_files_retriever
+    topic: User uploaded files from PDF
   veterinarian_retriever_tool:
     _type: nat_retriever
     description: Retrieves expert veterinary medical knowledge from VetPartner covering pet symptoms, animal diseases, treatment protocols, medication side effects, preventive care, and nutrition for multiple species (dogs, cats, horses, birds, exotic animals). Use for animal health questions requiring authoritative veterinary expertise. Always include disclaimer that this is educational information requiring veterinary consultation for diagnosis and treatment.
@@ -725,6 +744,7 @@ llms:
     base_url: https://5183a11a-633e-4945-b882-de86ce85125e.invocation.api.nvcf.nvidia.com/v1
     max_tokens: 2048
     model_name: nvidia/nvidia-nemotron-nano-9b-v2
+    stream: false
     temperature: 0.2
     thinking: false
     top_p: 0.7
@@ -733,6 +753,7 @@ llms:
     base_url: https://f8539070-f366-4d0b-91bc-f5ce6ea44e28.invocation.api.nvcf.nvidia.com/v1
     max_tokens: 32000
     model_name: Qwen/Qwen3-Next-80B-A3B-Thinking
+    stream: false
     temperature: 0.6
     top_p: 0.95
   tool_calling_llm:
@@ -741,6 +762,7 @@ llms:
     max_tokens: 32000
     model_name: Qwen/Qwen3-Next-80B-A3B-Thinking
     parallel_tool_calls: false
+    stream: false
     temperature: 0
 retrievers:
   geolocation_retriever:
@@ -822,6 +844,22 @@ retrievers:
     use_reranker: true
     vector_field: vector
     verbose: true
+  user_uploaded_files_retriever:
+    _type: smart_milvus
+    collection_name: null
+    content_field: text
+    database_name: default
+    description: Retrieves technical information about user uploaded file. Should be used if the user just uploaded a PDF file. The name of the collection is the username of the user.
+    embedding_model: milvus_embedder
+    reranker_endpoint: https://c5b64ba3-16fd-4c3c-a2b8-cd9526f9d34b.invocation.api.nvcf.nvidia.com/v1/ranking
+    reranker_model: nvidia/llama-3.2-nv-rerankqa-1b-v2
+    reranker_top_n: 10
+    return_as_string: false
+    top_k: 20
+    uri: http://milvus.milvus.svc.cluster.local:19530
+    use_reranker: true
+    vector_field: vector
+    verbose: true
   veterinarian_retriever:
     _type: smart_milvus
     collection_name: vetpartner
@@ -841,69 +879,95 @@ retrievers:
 workflow:
   _type: reasoning_agent
   augmented_fn: daedalus_react_agent
-  instruction_prompt_template: '"Answer the following question based on message history: {input_text}"
+  instruction_prompt_template: 'Answer the following question based on message history: {input_text}
 
-    "\n\nHere is a plan for execution that you could use to guide you if you wanted to:"
 
-    "\n\n{reasoning_output}"
+    Here is a plan for execution that you should use to guide you:
 
-    "\n\nReal-time and Dates Policy:\n"
+    {reasoning_output}
 
-    " - The user will include the current date; accept it as authoritative.\n"
 
-    " - Do not question the date or reference any model knowledge cutoff.\n"
+    Real-time and Dates Policy:
 
-    " - If you need the current date/time, call the ''current_datetime_tool''.\n"
 
-    " - Prefer real-time tools for any time-sensitive facts.\n"
+    - The user will include the current date; accept it as authoritative.
 
-    "\n\nNOTE: Remember to follow your guidance on how to format output, etc."
+    - Do not question the date or reference any model knowledge cutoff.
 
-    "\n\n You must respond with the answer to the original question directly to the user."
+    - If you need the current date/time, call the "current_datetime_tool".
+
+    - Prefer real-time tools for any time-sensitive facts.
+
+
+    NOTE: Remember to follow your guidance on how to format output, etc.
+
+
+    You must respond with the answer to the original question directly to the user.
 
     '
   llm_name: reasoning_llm
-  reasoning_prompt_template: '"You are an expert reasoning model task with creating a detailed execution plan"
+  reasoning_prompt_template: 'You are an expert reasoning model task with creating a detailed execution plan:
 
-    " for a system that has the following description:\n\n"
 
-    "**Description:** \n{augmented_function_desc}\n\n"
+    For a system that has the following description:
 
-    "Given the following input and a list of available tools, please provide a detailed step-by-step plan"
 
-    " that an instruction following system can use to address the input. Ensure the plan includes:\n\n"
+    **Description:** {augmented_function_desc}
 
-    "1. Identifying the key components of the input.\n"
 
-    "2. Determining the most suitable tools for each task.\n"
+    Given the following input and a list of available tools, please provide a detailed step-by-step plan:
 
-    "3. Outlining the sequence of actions to be taken.\n\n"
 
-    "IMPORTANT — Real-time and Dates Policy:\n"
+    That an instruction following system can use to address the input. Ensure the plan includes:
 
-    " - Treat any explicit date/time provided in the input or message history as authoritative.\n"
 
-    " - Do not question the current date or reference any model knowledge cutoff.\n"
+    1. Identifying the key components of the input.
 
-    " - If a date/time is needed and not provided, call the ''current_datetime_tool'' to obtain it.\n"
 
-    " - For time-sensitive facts, prefer the available real-time tools over prior training.\n\n"
+    2. Determining the most suitable tools for each task.
 
-    "**Input:** \n{input_text}\n\n"
 
-    "**Tools and description of the tool:** \n{tools}\n\n"
+    3. Outlining the sequence of actions to be taken.
 
-    "An example plan could look like this:\n\n"
 
-    "1. Call tool A with input X\n"
+    IMPORTANT — Real-time and Dates Policy:
 
-    "2. Call tool B with input Y\n"
 
-    "3. Interpret the output of tool A and B\n"
+    - Treat any explicit date/time provided in the input or message history as authoritative.
 
-    "4. Return the final result"
 
-    "\n\n **PLAN:**\n"
+    - Do not question the current date or reference any model knowledge cutoff.
+
+
+    - If a date/time is needed and not provided, call the "current_datetime_tool" to obtain it.
+
+
+    - For time-sensitive facts, prefer the available real-time tools over prior training.
+
+
+    **Input:** {input_text}
+
+
+    **Tools and description of the tool:** {tools}
+
+
+    An example plan could look like this:
+
+
+    1. Call tool A with input X
+
+
+    2. Call tool B with input Y
+
+
+    3. Interpret the output of tool A and B
+
+
+    4. Return the final result
+
+
+    **PLAN:**
 
     '
+  use_openai_api: true
   verbose: true
