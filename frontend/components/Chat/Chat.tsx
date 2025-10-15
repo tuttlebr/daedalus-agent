@@ -220,17 +220,12 @@ export const Chat = () => {
         if (user?.username) {
           systemContextMessages.push({
             role: 'system',
-            content:
-              `The authenticated user's username is "${user.username}".` +
-              ' When you need a collection name for Milvus or any storage-related tool, use this exact username.' +
-              ' Do not ask the user to provide their username or collection name because you already have it.',
+            content: `The authenticated user's username is "${user.username}".`
           });
         } else {
           systemContextMessages.push({
             role: 'system',
-
-            content:
-              'The user is authenticated as "anon". If a tool requires a collection name, use "anon" and do not ask the user for credentials.',
+            content: 'The user is authenticated as "anon".'
           });
         }
 

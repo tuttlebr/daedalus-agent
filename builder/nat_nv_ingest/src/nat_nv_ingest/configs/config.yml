@@ -13,7 +13,7 @@ functions:
     chunk_size: 1024
     chunk_overlap: 150
     embedder_dim: 2048
-    recreate_collection: true
+    recreate_collection: false
 
 llms:
   nim_llm:

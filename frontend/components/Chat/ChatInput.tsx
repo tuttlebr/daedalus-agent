@@ -259,7 +259,7 @@ export const ChatInput = ({
       // Send message with only image attachments (if any)
       onSend({
         role: 'user',
-        content: content || (pdfRef ? `I've uploaded and processed a PDF file "${inputFile}". What would you like to know about it?` : content),
+        content: content || (pdfRef ? `Upload and process this PDF file "${inputFile}".` : content),
         metadata: {
           useDeepThinker: useDeepThinker
         },
@@ -577,7 +577,7 @@ export const ChatInput = ({
         </div>
 
         <div
-          className={`relative mx-auto flex w-full max-w-5xl flex-grow flex-col rounded-3xl border border-neutral-200/70 bg-bg-primary/95 px-4 pt-3 shadow-[0_10px_40px_rgba(15,23,42,0.08)] backdrop-blur supports-[backdrop-filter]:bg-bg-primary/80 dark:border-neutral-700 dark:bg-dark-bg-tertiary/90 dark:text-white ${inputFile && (imageRef || pdfRef || inputFileContentCompressed) ? 'pb-14' : 'pb-3'}`}
+          className={`relative mx-auto flex w-full max-w-5xl flex-grow flex-col gap-3 rounded-3xl border border-neutral-200/70 bg-bg-primary/95 px-4 pt-3 shadow-[0_10px_40px_rgba(15,23,42,0.08)] backdrop-blur supports-[backdrop-filter]:bg-bg-primary/80 dark:border-neutral-700 dark:bg-dark-bg-tertiary/90 dark:text-white ${inputFile && (imageRef || pdfRef || inputFileContentCompressed) ? 'pb-14' : 'pb-3'}`}
         >
           <textarea
             ref={textareaRef}
@@ -603,8 +603,8 @@ export const ChatInput = ({
             })}
           />
           {inputFile && (imageRef || pdfRef || inputFileContentCompressed) && (
-            <div className="mt-3">
-              <div className="flex flex-col gap-3 rounded-2xl border border-neutral-200 bg-neutral-50 p-3 text-black shadow-sm dark:border-neutral-600 dark:bg-dark-bg-primary dark:text-white">
+            <div className="flex flex-wrap gap-3">
+              <div className="flex w-full flex-col gap-3 rounded-2xl border border-neutral-200 bg-neutral-50 p-3 text-black shadow-sm dark:border-neutral-600 dark:bg-dark-bg-primary dark:text-white">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-neutral-200 text-neutral-600 dark:bg-neutral-700 dark:text-neutral-100">

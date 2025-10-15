@@ -22,7 +22,7 @@ export const IntermediateSteps: React.FC<IntermediateStepsProps> = ({ steps, cla
   } = useContext(HomeContext);
 
   const [searchTerm, setSearchTerm] = useState('');
-  const [isExpanded, setIsExpanded] = useState(true);
+  const [isExpanded, setIsExpanded] = useState(false);
 
   // Migrate old steps to new format if needed
   const migratedSteps = useMemo(() => {

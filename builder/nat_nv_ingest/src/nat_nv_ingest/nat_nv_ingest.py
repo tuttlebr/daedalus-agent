@@ -42,7 +42,7 @@ class NvIngestFunctionConfig(FunctionBaseConfig, name="nat_nv_ingest"):
     chunk_overlap: int = Field(default=150, description="Overlap between text chunks")
     embedder_dim: int = Field(default=2048, description="Embedding dimension")
     recreate_collection: bool = Field(
-        default=True, description="Whether to recreate Milvus collection on each run"
+        default=False, description="Whether to recreate Milvus collection on each run"
     )
 
 
@@ -110,7 +110,7 @@ async def nv_ingest_function(
             if not pdf_id or not session_id:
                 return "Error: PDF reference must contain pdfId and sessionId."
 
-            if not username or username == "anon":
+            if not username or username == "nvidia":
                 return "Error: Valid username required for PDF processing."
 
             logger.info("Processing PDF %s for user %s", pdf_id, username)
@@ -178,17 +178,17 @@ async def nv_ingest_function(
                     .files([str(pdf_path)])
                     .extract(
                         extract_text=True,
-                        extract_tables=False,
-                        extract_charts=False,
-                        extract_images=False,
+                        extract_tables=True,
+                        extract_charts=True,
+                        extract_images=True,
                         table_output_format="markdown",
-                        extract_infographics=False,
+                        extract_infographics=True,
                         text_depth="page",
                     )
                     .split(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
                     .embed()
                     .vdb_upload(
-                        collection_name=username,  # Use username as collection
+                        collection_name="nvidia",  # Use username as collection
                         milvus_uri=config.milvus_uri,
                         gpu_index=False,
                         gpu_search=False,
@@ -232,7 +232,7 @@ async def nv_ingest_function(
                 return (
                     f"✅ Successfully processed PDF '{filename}'\n\n"
                     f"- Extracted and indexed {success_count} text chunks\n"
-                    f"- Stored in your personal collection '{username}'\n"
+                    f"- Stored in your personal collection 'nvidia'\n"
                     f"- Chunk size: {chunk_size} characters with "
                     f"{chunk_overlap} overlap\n\n"
                     "The document is now searchable in your knowledge base!"
@@ -242,7 +242,7 @@ async def nv_ingest_function(
                     f"⚠️ Partially processed PDF '{filename}'\n\n"
                     f"- Successfully indexed {success_count} chunks\n"
                     f"- Failed to process {failure_count} chunks\n"
-                    f"- Stored in collection '{username}'\n\n"
+                    f"- Stored in collection 'nvidia'\n\n"
                     "Some content may be missing from the search index."
                 )
 
