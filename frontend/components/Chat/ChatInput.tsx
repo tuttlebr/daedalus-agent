@@ -23,15 +23,20 @@ import {
 } from 'react';
 
 import { useTranslation } from 'next-i18next';
+import toast from 'react-hot-toast';
 
-import { Message } from '@/types/chat';
+import { Message, Conversation } from '@/types/chat';
+import { v4 as uuidv4 } from 'uuid';
 
 import HomeContext from '@/pages/api/home/home.context';
 import { compressImage } from '@/utils/app/helper';
 import { appConfig } from '@/utils/app/const';
 import { uploadImage, ImageReference } from '@/utils/app/imageHandler';
+import { uploadPDF, PDFReference } from '@/utils/app/pdfHandler';
 import { setUserSessionItem } from '@/utils/app/storage';
+import { saveConversation, saveConversations } from '@/utils/app/conversation';
 import { OptimizedImage } from './OptimizedImage';
+import { useAuth } from '@/components/Auth/AuthProvider';
 
 
 interface Props {
@@ -40,7 +45,7 @@ interface Props {
   onScrollDownClick: () => void;
   textareaRef: MutableRefObject<HTMLTextAreaElement | null>;
   showScrollDownButton: boolean;
-  controller: Ref<AbortController>
+  controller: MutableRefObject<AbortController>
 }
 
 export const ChatInput = ({
@@ -52,9 +57,10 @@ export const ChatInput = ({
   controller,
 }: Props) => {
   const { t } = useTranslation('chat');
+  const { user } = useAuth();
 
   const {
-    state: { selectedConversation, messageIsStreaming, loading, enableIntermediateSteps },
+    state: { selectedConversation, messageIsStreaming, loading, enableIntermediateSteps, conversations },
     dispatch: homeDispatch,
   } = useContext(HomeContext);
 
@@ -63,17 +69,18 @@ export const ChatInput = ({
 
   const [content, setContent] = useState<string>('');
   const [isTyping, setIsTyping] = useState<boolean>(false);
-  const fileInputRef = useRef(null);
-  const photoInputRef = useRef(null);
-  const [inputFile, setInputFile] = useState(null)
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const photoInputRef = useRef<HTMLInputElement>(null);
+  const [inputFile, setInputFile] = useState<string | null>(null)
   const [inputFileExtension, setInputFileExtension] = useState('')
   const [inputFileContent, setInputFileContent] = useState('')
   const [inputFileContentCompressed, setInputFileContentCompressed] = useState('')
   const [imageRef, setImageRef] = useState<ImageReference | null>(null);
+  const [pdfRef, setPdfRef] = useState<{ pdfId: string; sessionId: string } | null>(null);
   const [isUploadingImage, setIsUploadingImage] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [useDeepThinker, setUseDeepThinker] = useState(false);
-  const recognitionRef = useRef(null);
+  const recognitionRef = useRef<any>(null);
 
   const triggerFileUpload = () => {
     if (fileInputRef.current) {
@@ -93,19 +100,20 @@ export const ChatInput = ({
     setInputFileContent('');
     setInputFileContentCompressed('');
     setImageRef(null);
+    setPdfRef(null);
   };
 
-  const handleFileChange = (e: { target: { files: any[]; value: null; }; }) => {
-    const file = e.target.files[0]
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
     if (file) {
       // Reset the input value so the same file can be selected again if needed
-      e.target.value = null
-      const reader = new FileReader()
+      e.target.value = '';
+      const reader = new FileReader();
       reader.onload = (loadEvent) => {
         const fullBase64String = loadEvent.target?.result;
-        processFile({ fullBase64String, file })
+        processFile({ fullBase64String, file });
       };
-      reader.readAsDataURL(file)
+      reader.readAsDataURL(file);
     }
   };
 
@@ -115,7 +123,87 @@ export const ChatInput = ({
     setContent(value);
   };
 
-  const handleSend = () => {
+  const processPDFInBackground = async (pdfRefData: any, filename: string) => {
+    try {
+      const response = await fetch('/api/pdf/process', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          pdfRef: pdfRefData,
+          filename: filename
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        console.error('Failed to process PDF:', result);
+        toast.error('Failed to process PDF. Please try again.');
+        return false;
+      }
+
+      console.log('PDF processed successfully:', result);
+      toast.success('PDF processed successfully!');
+
+      // Add an assistant message to the conversation to provide context
+      if (selectedConversation) {
+        let contentMessage = `I've successfully processed and indexed the PDF file "${filename}".`;
+
+        // Add metadata details if available
+        if (result.metadata) {
+          if (result.metadata.extractedPages > 0) {
+            contentMessage += ` I extracted ${result.metadata.extractedPages} page${result.metadata.extractedPages > 1 ? 's' : ''} from the document.`;
+          }
+          if (result.metadata.documentsIndexed > 0) {
+            contentMessage += ` ${result.metadata.documentsIndexed} document${result.metadata.documentsIndexed > 1 ? 's' : ''} ${result.metadata.documentsIndexed > 1 ? 'were' : 'was'} indexed.`;
+          }
+        }
+
+        contentMessage += ` The document is now searchable and I can answer questions about its content. What would you like to know about this document?`;
+
+        const assistantMessage: Message = {
+          id: uuidv4(),
+          role: 'assistant',
+          content: contentMessage
+        };
+
+        const updatedConversation = {
+          ...selectedConversation,
+          messages: [...selectedConversation.messages, assistantMessage]
+        };
+
+        homeDispatch({
+          field: 'selectedConversation',
+          value: updatedConversation
+        });
+
+        // Save conversation
+        saveConversation(updatedConversation);
+
+        // Update conversations list
+        const updatedConversations = conversations.map((conv: Conversation) =>
+          conv.id === selectedConversation.id ? updatedConversation : conv
+        );
+
+        homeDispatch({
+          field: 'conversations',
+          value: updatedConversations
+        });
+
+        saveConversations(updatedConversations);
+      }
+
+      return true;
+    } catch (error) {
+      console.error('Error processing PDF:', error);
+      toast.error('Error processing PDF. Please try again.');
+      return false;
+    }
+  };
+
+  const handleSend = async () => {
     if (messageIsStreaming || isUploadingImage) {
       return;
     }
@@ -126,24 +214,56 @@ export const ChatInput = ({
       setIsRecording(false);
     }
 
-    if (!content && !inputFile && !imageRef) {
-      alert(t('Please enter a message or attach an image'));
+    if (!content && !inputFile && !imageRef && !pdfRef) {
+      alert(t('Please enter a message or attach a file'));
       return;
     }
 
+    // Process PDF first if there is one
+    if (pdfRef) {
+      // Show processing message
+      toast.loading('Processing PDF...', { id: 'pdf-processing' });
+
+      const success = await processPDFInBackground(pdfRef, inputFile || 'document.pdf');
+
+      // Dismiss loading toast
+      toast.dismiss('pdf-processing');
+
+      if (!success) {
+        // Don't send the message if PDF processing failed
+        return;
+      }
+    }
+
     // Store deep thinker mode in metadata instead of appending to content
-    if (inputFile || imageRef) {
-      onSend({
-        role: 'user',
-        content: content,
-        metadata: {
-          useDeepThinker: useDeepThinker
-        },
-        attachments: [{
+    if (inputFile || imageRef || pdfRef) {
+      const attachments = [];
+
+      if (imageRef) {
+        attachments.push({
           content: '', // Don't send base64 in the message
           type: 'image',
           imageRef: imageRef
-        }]
+        });
+      }
+
+      // Don't include PDF in attachments since it's already processed
+      // if (pdfRef) {
+      //   attachments.push({
+      //     content: '', // Don't send base64 in the message
+      //     type: 'pdf',
+      //     pdfRef: pdfRef
+      //   });
+      // }
+
+      // Send message with only image attachments (if any)
+      onSend({
+        role: 'user',
+        content: content || (pdfRef ? `I've uploaded and processed a PDF file "${inputFile}". What would you like to know about it?` : content),
+        metadata: {
+          useDeepThinker: useDeepThinker
+        },
+        attachments: attachments.length > 0 ? attachments : undefined
       })
       setContent('');
       setInputFile(null)
@@ -151,6 +271,7 @@ export const ChatInput = ({
       setInputFileContent('')
       setInputFileContentCompressed('');
       setImageRef(null);
+      setPdfRef(null);
     }
 
     else {
@@ -167,6 +288,7 @@ export const ChatInput = ({
       setInputFileContent('')
       setInputFileContentCompressed('');
       setImageRef(null);
+      setPdfRef(null);
     }
 
 
@@ -187,7 +309,7 @@ export const ChatInput = ({
 
   const handleStopConversation = () => {
     try {
-      controller?.current?.abort('aborted');
+      controller.current?.abort('aborted');
       setTimeout(() => {
         controller.current = new AbortController(); // Reset the controller
       }, 100);
@@ -204,46 +326,62 @@ export const ChatInput = ({
     return window.matchMedia('(pointer: coarse)').matches;
   };
 
-  const processFile = async ({ fullBase64String, file }: { fullBase64String: string, file: File }) => {
+  const processFile = async ({ fullBase64String, file }: { fullBase64String: string | ArrayBuffer | null, file: File }) => {
+    if (!fullBase64String || typeof fullBase64String !== 'string') {
+      alert('Invalid file data');
+      return;
+    }
     const [fileType] = file && file.type.split('/');
-    if (!["image"].includes(fileType)) {
-      alert(`Only supported file types are : ${["image"].join(', ')}`);
+    const isPDF = file.type === 'application/pdf';
+
+    if (!isPDF && !["image"].includes(fileType)) {
+      alert(`Only supported file types are : images and PDFs`);
       return;
     }
 
-    if (file && file.size > 5 * 1024 * 1024) {
-      alert(`File size should not exceed : 5 MB`);
+    const maxSize = isPDF ? 10 * 1024 * 1024 : 5 * 1024 * 1024; // 10MB for PDFs, 5MB for images
+    if (file && file.size > maxSize) {
+      alert(`File size should not exceed : ${isPDF ? '10 MB' : '5 MB'}`);
       return;
     }
 
     setIsUploadingImage(true);
 
     try {
-      let imageToUpload = fullBase64String;
-
-      // Check if compression is needed
-      const base64WithoutPrefix = imageToUpload.replace(/^data:image\/[a-z]+;base64,/, '');
-      const sizeInKB = (base64WithoutPrefix.length * 3 / 4) / 1024;
-      const shouldCompress = sizeInKB > 200;
-
-      if (shouldCompress) {
-        await new Promise<void>((resolve) => {
-          compressImage(imageToUpload, file.type, true, (compressedBase64: string) => {
-            imageToUpload = compressedBase64;
-            setInputFileContentCompressed(compressedBase64);
-            resolve();
-          });
-        });
+      if (isPDF) {
+        // Handle PDF upload
+        const pdfReference = await uploadPDF(fullBase64String, file.name, file.type);
+        setPdfRef(pdfReference);
+        setInputFile(file.name);
+        setInputFileExtension('pdf');
       } else {
-        setInputFileContentCompressed(imageToUpload);
-      }
+        // Handle image upload
+        let imageToUpload = fullBase64String;
 
-      // Upload image to Redis and get reference
-      const imgRef = await uploadImage(imageToUpload, file.type);
-      setImageRef(imgRef);
-      setInputFile(file.name);
-      const extension = file.name.split('.').pop() ?? 'jpg';
-      setInputFileExtension(extension.toLowerCase());
+        // Check if compression is needed
+        const base64WithoutPrefix = imageToUpload.replace(/^data:image\/[a-z]+;base64,/, '');
+        const sizeInKB = (base64WithoutPrefix.length * 3 / 4) / 1024;
+        const shouldCompress = sizeInKB > 200;
+
+        if (shouldCompress) {
+          await new Promise<void>((resolve) => {
+            compressImage(imageToUpload, file.type, true, (compressedBase64: string) => {
+              imageToUpload = compressedBase64;
+              setInputFileContentCompressed(compressedBase64);
+              resolve();
+            });
+          });
+        } else {
+          setInputFileContentCompressed(imageToUpload);
+        }
+
+        // Upload image to Redis and get reference
+        const imgRef = await uploadImage(imageToUpload, file.type);
+        setImageRef(imgRef);
+        setInputFile(file.name);
+        const extension = file.name.split('.').pop() ?? 'jpg';
+        setInputFileExtension(extension.toLowerCase());
+      }
 
       // Clear the base64 content to save memory
       setInputFileContent('');
@@ -257,20 +395,6 @@ export const ChatInput = ({
   }
 
 
-  const handleInitModal = () => {
-    const selectedPrompt = filteredPrompts[activePromptIndex];
-    if (selectedPrompt) {
-      setContent((prevContent) => {
-        const newContent = prevContent?.replace(
-          /\/\w*$/,
-          selectedPrompt.content,
-        );
-        return newContent;
-      });
-      handlePromptSelect(selectedPrompt);
-    }
-    setShowPromptList(false);
-  };
 
   const parseVariables = (content: string) => {
     const regex = /{{(.*?)}}/g;
@@ -452,7 +576,9 @@ export const ChatInput = ({
           )}
         </div>
 
-        <div className="relative mx-auto flex w-full max-w-5xl flex-grow flex-col rounded-3xl border border-neutral-200/70 bg-bg-primary/95 px-4 py-3 shadow-[0_10px_40px_rgba(15,23,42,0.08)] backdrop-blur supports-[backdrop-filter]:bg-bg-primary/80 dark:border-neutral-700 dark:bg-dark-bg-tertiary/90 dark:text-white">
+        <div
+          className={`relative mx-auto flex w-full max-w-5xl flex-grow flex-col rounded-3xl border border-neutral-200/70 bg-bg-primary/95 px-4 pt-3 shadow-[0_10px_40px_rgba(15,23,42,0.08)] backdrop-blur supports-[backdrop-filter]:bg-bg-primary/80 dark:border-neutral-700 dark:bg-dark-bg-tertiary/90 dark:text-white ${inputFile && (imageRef || pdfRef || inputFileContentCompressed) ? 'pb-14' : 'pb-3'}`}
+        >
           <textarea
             ref={textareaRef}
             className="m-0 w-full resize-none border-0 bg-transparent py-4 pr-12 pl-12 text-[15px] leading-relaxed text-neutral-900 outline-none placeholder:text-neutral-400 focus:outline-none dark:bg-transparent dark:text-white"
@@ -476,34 +602,43 @@ export const ChatInput = ({
               onPaste: handlePaste,
             })}
           />
-          {inputFile && (imageRef || inputFileContentCompressed) &&
-            <div>
-              <div className="relative right-0 top-0 flex flex-col gap-2 rounded-2xl border border-neutral-200 bg-neutral-50 p-3 text-black shadow-sm dark:border-neutral-600 dark:bg-dark-bg-primary dark:text-white">
+          {inputFile && (imageRef || pdfRef || inputFileContentCompressed) && (
+            <div className="mt-3">
+              <div className="flex flex-col gap-3 rounded-2xl border border-neutral-200 bg-neutral-50 p-3 text-black shadow-sm dark:border-neutral-600 dark:bg-dark-bg-primary dark:text-white">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <IconPhoto className="ml-2 text-neutral-600 dark:text-neutral-200" size={16} />
-                    <span className="text-sm font-medium text-neutral-700 dark:text-neutral-50">{inputFile}</span>
-                    {isUploadingImage && <span className="text-xs text-neutral-500">Uploading…</span>}
+                    <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-neutral-200 text-neutral-600 dark:bg-neutral-700 dark:text-neutral-100">
+                      {pdfRef ? <IconPaperclip size={16} /> : <IconPhoto size={16} />}
+                    </span>
+                    <div className="flex flex-col">
+                      <span className="text-sm font-medium text-neutral-700 dark:text-neutral-50">{inputFile}</span>
+                      {isUploadingImage && <span className="text-xs text-neutral-500">Uploading…</span>}
+                    </div>
                   </div>
-                  <IconTrash
-                    className="cursor-pointer text-neutral-400 transition-colors duration-150 hover:text-red-500"
-                    size={18}
+                  <button
+                    type="button"
+                    className="rounded-full p-2 text-neutral-400 transition-colors duration-150 hover:bg-neutral-200/60 hover:text-red-500 dark:hover:bg-neutral-700/60"
                     onClick={handleInputFileDelete as unknown as any}
-                  />
+                    aria-label="Remove attachment"
+                  >
+                    <IconTrash size={16} />
+                  </button>
                 </div>
-                {/* Show preview using OptimizedImage */}
+
                 {imageRef && (
-                  <div className="mx-auto max-w-[220px]">
-                    <OptimizedImage
-                      imageRef={imageRef}
-                      alt={inputFile}
-                      className="rounded-xl"
-                    />
+                  <div className="mx-auto w-full max-w-[240px] overflow-hidden rounded-xl">
+                    <OptimizedImage imageRef={imageRef} alt={inputFile} className="rounded-xl" />
+                  </div>
+                )}
+
+                {pdfRef && (
+                  <div className="rounded-lg bg-neutral-100 px-3 py-2 text-center text-xs text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300">
+                    PDF ready to process
                   </div>
                 )}
               </div>
             </div>
-          }
+          )}
           {
             appConfig?.fileUploadEnabled && !inputFile &&
             <>
@@ -538,6 +673,7 @@ export const ChatInput = ({
               <input
                 type="file"
                 ref={fileInputRef}
+                accept=".pdf,application/pdf"
                 style={{ display: 'none' }}
                 onChange={handleFileChange}
               />

@@ -19,12 +19,17 @@ import {
 } from '@/utils/app/conversation';
 import {
   fetchLastMessage,
-  processIntermediateMessage,
-  trimIntermediateSteps,
 } from '@/utils/app/helper';
 import { throttle } from '@/utils/data/throttle';
 import { getUserSessionItem } from '@/utils/app/storage';
 import { ChatBody, Conversation, Message } from '@/types/chat';
+import {
+  IntermediateStep,
+  IntermediateStepState,
+  IntermediateStepType,
+  getEventState,
+} from '@/types/intermediateSteps';
+import { SSEClient, createSSEUrl } from '@/services/sse';
 import HomeContext from '@/pages/api/home/home.context';
 import { ChatInput } from './ChatInput';
 import { ChatLoader } from './ChatLoader';
@@ -75,6 +80,57 @@ export const Chat = () => {
   useEffect(() => {
     selectedConversationRef.current = selectedConversation;
   }, [selectedConversation]);
+
+  const mergeIntermediateSteps = useCallback(
+    (
+      existingSteps: IntermediateStep[] = [],
+      incomingSteps: IntermediateStep[] = [],
+    ): IntermediateStep[] => {
+      if (!incomingSteps.length) {
+        return existingSteps;
+      }
+
+      const stepsById = new Map<string, IntermediateStep>();
+
+      existingSteps.forEach((step) => {
+        if (step?.payload?.UUID) {
+          stepsById.set(step.payload.UUID, step);
+        }
+      });
+
+      incomingSteps.forEach((step) => {
+        const uuid = step?.payload?.UUID;
+        if (!uuid) {
+          return;
+        }
+
+        const current = stepsById.get(uuid);
+        if (current) {
+          stepsById.set(uuid, {
+            ...current,
+            ...step,
+            function_ancestry: step.function_ancestry || current.function_ancestry,
+            payload: {
+              ...current.payload,
+              ...step.payload,
+              span_event_timestamp:
+                step.payload.span_event_timestamp ?? current.payload.span_event_timestamp,
+              metadata: step.payload.metadata ?? current.payload.metadata,
+              data: step.payload.data ?? current.payload.data,
+              usage_info: step.payload.usage_info ?? current.payload.usage_info,
+            },
+          });
+        } else {
+          stepsById.set(uuid, step);
+        }
+      });
+
+      return Array.from(stepsById.values()).sort(
+        (a, b) => a.payload.event_timestamp - b.payload.event_timestamp,
+      );
+    },
+    [],
+  );
 
   const handleSend = useCallback(
     async (message: Message, deleteCount = 0, retry = false) => {
@@ -159,8 +215,27 @@ export const Chat = () => {
           }
         }
 
+        const systemContextMessages: Message[] = [];
+
+        if (user?.username) {
+          systemContextMessages.push({
+            role: 'system',
+            content:
+              `The authenticated user's username is "${user.username}".` +
+              ' When you need a collection name for Milvus or any storage-related tool, use this exact username.' +
+              ' Do not ask the user to provide their username or collection name because you already have it.',
+          });
+        } else {
+          systemContextMessages.push({
+            role: 'system',
+
+            content:
+              'The user is authenticated as "anon". If a tool requires a collection name, use "anon" and do not ask the user for credentials.',
+          });
+        }
+
         const chatBody: ChatBody = {
-          messages: messagesCleaned,
+          messages: [...systemContextMessages, ...messagesCleaned],
           // Use user-specific storage key to prevent data leakage between users
           chatCompletionURL: getUserSessionItem('chatCompletionURL') || chatCompletionURL,
           additionalProps: {
@@ -226,72 +301,63 @@ export const Chat = () => {
             let isFirst = true;
             let text = '';
             let counter = 1;
-            let partialIntermediateStep = ''; // Add this to store partial chunks
-            let partialToolCall = '';
-            let partialTagBuffer = ''; // Buffer for partial tag names
+            let intermediateStepBuffer = ''; // Buffer for accumulating partial intermediate steps
             while (!done) {
               const { value, done: doneReading } = await reader.read();
               done = doneReading;
               let chunkValue = decoder.decode(value);
               counter++;
 
-              // First, handle any partial chunk from previous iteration
-              if (partialIntermediateStep) {
-                chunkValue = partialIntermediateStep + chunkValue;
-                partialIntermediateStep = "";
-              }
+              // Add current chunk to any buffered content
+              chunkValue = intermediateStepBuffer + chunkValue;
+              intermediateStepBuffer = '';
 
-              // Handle partial tag names from previous chunk
-              if (partialTagBuffer) {
-                chunkValue = partialTagBuffer + chunkValue;
-                partialTagBuffer = "";
-              }
+              // Check if we have an incomplete intermediate step at the end
+              const lastOpenTag = chunkValue.lastIndexOf('<intermediatestep>');
+              const lastCloseTag = chunkValue.lastIndexOf('</intermediatestep>');
 
-              // Check for partial tags at the END of chunk more aggressively
-              // Match any trailing partial opening/closing tag: <, <i, <in, <int, <inte, etc.
-              // Also match partial closing tags: </, </i, </in, etc.
-              const tagPrefixes = [
-                '</intermediatestep', '</intermediateste', '</intermediateste', '</intermediates',
-                '</intermediate', '</intermediat', '</intermedia', '</intermedi', '</intermed',
-                '</interm', '</inter', '</inte', '</int', '</in', '</i', '</',
-                '<intermediatestep', '<intermediateste', '<intermediateste', '<intermediates',
-                '<intermediate', '<intermediat', '<intermedia', '<intermedi', '<intermed',
-                '<interm', '<inter', '<inte', '<int', '<in', '<i', '<'
-              ];
-
-              for (const prefix of tagPrefixes) {
-                if (chunkValue.endsWith(prefix)) {
-                  partialTagBuffer = prefix;
-                  chunkValue = chunkValue.substring(0, chunkValue.length - prefix.length);
-                  break;
-                }
-              }
-
-              // Remove any malformed tag fragments that slipped through (anywhere in the chunk)
-              chunkValue = chunkValue.replace(/<\/?i?n?t?e?r?m?e?d?i?a?t?e?s?t?e?p?(?![>])/g, '');
-
-              // Check for incomplete tags
-              const openingTagIndex = chunkValue.lastIndexOf("<intermediatestep>");
-              const closingTagIndex = chunkValue.lastIndexOf("</intermediatestep>");
-
-              // If we have an opening tag without a closing tag (or closing tag comes before opening)
-              if (openingTagIndex > closingTagIndex) {
-                // Store the partial chunk for the next iteration
-                partialIntermediateStep = chunkValue.substring(openingTagIndex);
-                // Remove the partial chunk from current processing
-                chunkValue = chunkValue.substring(0, openingTagIndex);
+              if (lastOpenTag > lastCloseTag) {
+                // We have an incomplete tag, buffer it for next iteration
+                intermediateStepBuffer = chunkValue.substring(lastOpenTag);
+                chunkValue = chunkValue.substring(0, lastOpenTag);
               }
 
               // Process complete intermediate steps
-              let rawIntermediateSteps = [];
+              let rawIntermediateSteps: IntermediateStep[] = [];
               let messages = chunkValue.match(/<intermediatestep>[\s\S]*?<\/intermediatestep>/g) || [];
               for (const message of messages) {
                 try {
                   const jsonString = message.replace('<intermediatestep>', '').replace('</intermediatestep>', '').trim();
                   let rawIntermediateMessage = JSON.parse(jsonString);
-                  // handle intermediate data
-                  if (rawIntermediateMessage?.type === 'system_intermediate') {
-                    rawIntermediateSteps.push(rawIntermediateMessage);
+                  // Check if it's already in new format
+                  if (rawIntermediateMessage?.payload?.event_type) {
+                    rawIntermediateSteps.push(rawIntermediateMessage as IntermediateStep);
+                  }
+                  // Handle old format (for backward compatibility)
+                  else if (rawIntermediateMessage?.type === 'system_intermediate') {
+                    // Transform old format to new format
+                    const newFormatStep: IntermediateStep = {
+                      parent_id: rawIntermediateMessage.parent_id || 'root',
+                      function_ancestry: {
+                        node_id: rawIntermediateMessage.id || `step-${Date.now()}`,
+                        parent_id: rawIntermediateMessage.parent_id || null,
+                        function_name: rawIntermediateMessage.content?.name || 'Unknown',
+                        depth: 0
+                      },
+                      payload: {
+                        event_type: rawIntermediateMessage.status === 'completed' ? IntermediateStepType.CUSTOM_END : IntermediateStepType.CUSTOM_START,
+                        event_timestamp: rawIntermediateMessage.time_stamp || Date.now() / 1000,
+                        name: rawIntermediateMessage.content?.name || 'Step',
+                        metadata: {
+                          original_data: rawIntermediateMessage
+                        },
+                        data: {
+                          output: rawIntermediateMessage.content?.payload || ''
+                        },
+                        UUID: rawIntermediateMessage.id || `${Date.now()}-${Math.random()}`
+                      }
+                    };
+                    rawIntermediateSteps.push(newFormatStep);
                   }
                 } catch (error) {
                   console.error('Failed to parse intermediate step JSON:', error);
@@ -299,240 +365,123 @@ export const Chat = () => {
                 }
               }
 
+              rawIntermediateSteps = rawIntermediateSteps.filter((step) => {
+                if (!step?.payload?.event_type) {
+                  return false;
+                }
+                return getEventState(step.payload.event_type) !== IntermediateStepState.CHUNK;
+              });
+
               // ALWAYS remove intermediate step tags from visible content, even if parsing failed
               // This prevents raw JSON from being displayed to users
               chunkValue = chunkValue.replace(/<intermediatestep>[\s\S]*?<\/intermediatestep>/g, '');
 
-              // Handle react_agent tool-call artifacts: accumulate partial <TOOLCALL> blocks across chunks
-              const toolOpenIdx = chunkValue.lastIndexOf('<TOOLCALL>');
-              const toolCloseIdx = chunkValue.lastIndexOf('</TOOLCALL>');
-              if (toolOpenIdx > toolCloseIdx) {
-                partialToolCall = chunkValue.substring(toolOpenIdx);
-                chunkValue = chunkValue.substring(0, toolOpenIdx);
-              }
-              if (partialToolCall) {
-                const maybeCloseIdx = chunkValue.indexOf('</TOOLCALL>');
-                if (maybeCloseIdx !== -1) {
-                  // Complete the partial
-                  const completed = partialToolCall + chunkValue.substring(0, maybeCloseIdx + '</TOOLCALL>'.length);
-                  chunkValue = chunkValue.substring(maybeCloseIdx + '</TOOLCALL>'.length);
-                  partialToolCall = '';
-                  // Prepend for parsing below
-                  chunkValue = completed + chunkValue;
-                }
-              }
+              // LEGACY: React agent tool-call artifacts (commented out - verify if still needed)
+              // const toolOpenIdx = chunkValue.lastIndexOf('<TOOLCALL>');
+              // const toolCloseIdx = chunkValue.lastIndexOf('</TOOLCALL>');
+              // if (toolOpenIdx > toolCloseIdx) {
+              //   partialToolCall = chunkValue.substring(toolOpenIdx);
+              //   chunkValue = chunkValue.substring(0, toolOpenIdx);
+              // }
+              // if (partialToolCall) {
+              //   const maybeCloseIdx = chunkValue.indexOf('</TOOLCALL>');
+              //   if (maybeCloseIdx !== -1) {
+              //     // Complete the partial
+              //     const completed = partialToolCall + chunkValue.substring(0, maybeCloseIdx + '</TOOLCALL>'.length);
+              //     chunkValue = chunkValue.substring(maybeCloseIdx + '</TOOLCALL>'.length);
+              //     partialToolCall = '';
+              //     // Prepend for parsing below
+              //     chunkValue = completed + chunkValue;
+              //   }
+              // }
 
-              // Extract complete <TOOLCALL> blocks and convert them to intermediate steps
-              const toolCallMatches = chunkValue.match(/<TOOLCALL>[\s\S]*?<\/TOOLCALL>/g) || [];
-              if (toolCallMatches.length > 0) {
-                for (const m of toolCallMatches) {
-                  try {
-                    const inner = m.replace('<TOOLCALL>', '').replace('</TOOLCALL>', '').trim();
-                    let pretty = inner;
-                    try {
-                      const obj = JSON.parse(inner);
-                      pretty = JSON.stringify(obj, null, 2);
-                    } catch (_) {
-                      // keep raw inner if not valid JSON
-                    }
-                    const intermediate_message = {
-                      id: `toolcall-${Date.now()}-${Math.floor(Math.random() * 1e6)}`,
-                      status: 'completed',
-                      error: '',
-                      type: 'system_intermediate',
-                      parent_id: 'agent_tool',
-                      content: {
-                        name: 'Tool Call',
-                        payload: pretty,
-                      },
-                      time_stamp: Date.now(),
-                      index: -1,
-                    };
-                    rawIntermediateSteps.push(intermediate_message);
-                  } catch (_) {
-                    // ignore malformed blocks
-                  }
-                }
-                // Remove all TOOLCALL blocks from visible content
-                chunkValue = chunkValue.replace(/<TOOLCALL>[\s\S]*?<\/TOOLCALL>/g, '');
-              }
+              // // Extract complete <TOOLCALL> blocks and convert them to intermediate steps
+              // const toolCallMatches = chunkValue.match(/<TOOLCALL>[\s\S]*?<\/TOOLCALL>/g) || [];
+              // if (toolCallMatches.length > 0) {
+              //   for (const m of toolCallMatches) {
+              //     try {
+              //       const inner = m.replace('<TOOLCALL>', '').replace('</TOOLCALL>', '').trim();
+              //       let pretty = inner;
+              //       try {
+              //         const obj = JSON.parse(inner);
+              //         pretty = JSON.stringify(obj, null, 2);
+              //       } catch (_) {
+              //         // keep raw inner if not valid JSON
+              //       }
+              //       const intermediate_message: IntermediateStep = {
+              //         parent_id: 'agent_tool',
+              //         function_ancestry: {
+              //           node_id: `toolcall-${Date.now()}-${Math.floor(Math.random() * 1e6)}`,
+              //           parent_id: 'agent_tool',
+              //           function_name: 'Tool Call',
+              //           depth: 0
+              //         },
+              //         payload: {
+              //           event_type: IntermediateStepType.TOOL_END,
+              //           event_timestamp: Date.now() / 1000,
+              //           name: 'Tool Call',
+              //           metadata: {
+              //             tool_output: pretty
+              //           },
+              //           data: {
+              //             output: pretty
+              //           },
+              //           UUID: `toolcall-${Date.now()}-${Math.floor(Math.random() * 1e6)}`
+              //         }
+              //       };
+              //       rawIntermediateSteps.push(intermediate_message);
+              //     } catch (_) {
+              //       // ignore malformed blocks
+              //     }
+              //   }
+              //   // Remove all TOOLCALL blocks from visible content
+              //   chunkValue = chunkValue.replace(/<TOOLCALL>[\s\S]*?<\/TOOLCALL>/g, '');
+              // }
 
-              // Hide orchestration scaffolding from react_agent outputs
-              // Remove Thought/Action/Action Input/Observation lines; keep Final Answer content
-              chunkValue = chunkValue.replace(/^(Thought:|Action:|Action Input:|Observation:).*$/gm, '');
-              chunkValue = chunkValue.replace(/\bFinal Answer:\s*/g, '');
-
-              // AGGRESSIVE PRE-FILTER: Remove verbose intermediate step patterns before JSON parsing
-              // This catches system prompts and verbose payloads that shouldn't be displayed
-              const verbosePatterns = [
-                'You are an expert reasoning model',
-                'Given the following input and a list of available tools',
-                'Answer the following questions as best you can',
-                'HumanMessage(content=',
-                'SystemMessage(content=',
-                'FieldInfo(annotation=',
-                'Arguments must be provided as a valid JSON object',
-                'Please provide a detailed step-by-step plan',
-                'Determining the most suitable tools for each task',
-                'IMPORTANT — Real-time and Dates Policy'
-              ];
-
-              // If chunk contains verbose patterns, it's likely a system intermediate step - filter it out
-              let shouldFilterChunk = false;
-              for (const pattern of verbosePatterns) {
-                if (chunkValue.includes(pattern)) {
-                  shouldFilterChunk = true;
-                  console.log('Filtering verbose chunk containing pattern:', pattern.substring(0, 50));
-                  break;
-                }
-              }
-
-              // Skip this entire chunk if it's verbose
-              if (shouldFilterChunk) {
-                chunkValue = '';
-              } else {
-                // Filter out any raw JSON objects that look like intermediate steps
-                // This catches intermediate steps that aren't wrapped in tags
-                try {
-                  // Find potential JSON objects with system_intermediate type
-                  let filtered = chunkValue;
-                  let startIdx = 0;
-
-                  while (true) {
-                    const jsonStart = filtered.indexOf('{"id":"', startIdx);
-                    if (jsonStart === -1) break;
-
-                    // Try to find the matching closing brace by counting braces
-                    let braceCount = 0;
-                    let jsonEnd = -1;
-                    let inString = false;
-                    let escapeNext = false;
-
-                    for (let i = jsonStart; i < filtered.length; i++) {
-                      const char = filtered[i];
-
-                      if (escapeNext) {
-                        escapeNext = false;
-                        continue;
-                      }
-
-                      if (char === '\\') {
-                        escapeNext = true;
-                        continue;
-                      }
-
-                      if (char === '"') {
-                        inString = !inString;
-                        continue;
-                      }
-
-                      if (!inString) {
-                        if (char === '{') braceCount++;
-                        else if (char === '}') {
-                          braceCount--;
-                          if (braceCount === 0) {
-                            jsonEnd = i + 1;
-                            break;
-                          }
-                        }
-                      }
-                    }
-
-                    if (jsonEnd !== -1) {
-                      const potentialJson = filtered.substring(jsonStart, jsonEnd);
-                      try {
-                        const parsed = JSON.parse(potentialJson);
-                        if (parsed.type === 'system_intermediate') {
-                          // Remove this JSON object from the output
-                          console.log('Filtered system_intermediate JSON from chunk');
-                          filtered = filtered.substring(0, jsonStart) + filtered.substring(jsonEnd);
-                          startIdx = jsonStart; // Continue searching from same position
-                          continue;
-                        }
-                      } catch (e) {
-                        // Not valid JSON, skip past it
-                      }
-                    }
-
-                    startIdx = jsonStart + 1;
-                  }
-
-                  chunkValue = filtered;
-                } catch (e) {
-                  console.error('Error filtering intermediate steps:', e);
-                }
-              }
+              // LEGACY: Hide orchestration scaffolding from react_agent outputs (commented out - verify if still needed)
+              // chunkValue = chunkValue.replace(/^(Thought:|Action:|Action Input:|Observation:).*$/gm, '');
+              // chunkValue = chunkValue.replace(/\bFinal Answer:\s*/g, '');
 
               text = text + chunkValue;
 
               homeDispatch({ field: 'loading', value: false });
-              if (isFirst) {
-                isFirst = false;
-
-                // loop through rawIntermediateSteps and add them to the processedIntermediateSteps
-                let processedIntermediateSteps: any[] = []
-                rawIntermediateSteps.forEach((step) => {
-                  // Use user-specific storage key to prevent data leakage between users
-                  processedIntermediateSteps = processIntermediateMessage(processedIntermediateSteps, step, getUserSessionItem('intermediateStepOverride') === 'false' ? false : intermediateStepOverride)
-                })
-
-                // Trim intermediate steps to prevent memory bloat
-                processedIntermediateSteps = trimIntermediateSteps(processedIntermediateSteps);
-
-                // update the message
-                const updatedMessages: Message[] = [
-                  ...updatedConversation.messages,
-                  {
-                    role: 'assistant',
-                    content: text, // main response content without intermediate steps
-                    intermediateSteps: [...processedIntermediateSteps], // intermediate steps
-                  },
-                ];
-
-                updatedConversation = {
-                  ...updatedConversation,
-                  messages: updatedMessages,
-                };
-
-                homeDispatch({
-                  field: 'selectedConversation',
-                  value: updatedConversation,
-                });
-              } else {
-
-                const updatedMessages: Message[] =
-                  updatedConversation.messages.map((message, index) => {
+              const updatedMessages: Message[] = isFirst
+                ? [
+                    ...updatedConversation.messages,
+                    {
+                      role: 'assistant',
+                      content: text,
+                      intermediateSteps: mergeIntermediateSteps(
+                        [],
+                        rawIntermediateSteps,
+                      ),
+                    },
+                  ]
+                : updatedConversation.messages.map((message, index) => {
                     if (index === updatedConversation.messages.length - 1) {
-                      // process intermediate steps
-                      // need to loop through raw rawIntermediateSteps and add them to the updatedIntermediateSteps
-                      let updatedIntermediateSteps: any[] = [...(message?.intermediateSteps || [])]
-                      rawIntermediateSteps.forEach((step) => {
-                        // Use user-specific storage key to prevent data leakage between users
-                        updatedIntermediateSteps = processIntermediateMessage(updatedIntermediateSteps, step, getUserSessionItem('intermediateStepOverride') === 'false' ? false : intermediateStepOverride)
-                      })
-
-                      // Trim intermediate steps to prevent memory bloat
-                      updatedIntermediateSteps = trimIntermediateSteps(updatedIntermediateSteps);
-
-                      // update the message
-                      const msg = {
+                      return {
                         ...message,
-                        content: text, // main response content
-                        intermediateSteps: updatedIntermediateSteps // intermediate steps
+                        content: text,
+                        intermediateSteps: mergeIntermediateSteps(
+                          message?.intermediateSteps,
+                          rawIntermediateSteps,
+                        ),
                       };
-                      return msg
                     }
                     return message;
                   });
-                updatedConversation = {
-                  ...updatedConversation,
-                  messages: updatedMessages,
-                };
-                homeDispatch({
-                  field: 'selectedConversation',
-                  value: updatedConversation,
-                });
-              }
+
+              isFirst = false;
+
+              updatedConversation = {
+                ...updatedConversation,
+                messages: updatedMessages,
+              };
+
+              homeDispatch({
+                field: 'selectedConversation',
+                value: updatedConversation,
+              });
             }
 
             // Process any base64 images in the assistant's message content

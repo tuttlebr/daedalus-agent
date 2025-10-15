@@ -1,6 +1,7 @@
 import { delay } from '@/utils/app/helper';
 
 import { ChatBody } from '@/types/chat';
+import { IntermediateStepType } from '@/types/intermediateSteps';
 
 export const config = {
   runtime: 'edge',
@@ -196,19 +197,26 @@ const handler = async (req: Request): Promise<Response> => {
       cleanedMessage.attachments = cleanedMessage.attachments
         .filter(Boolean)
         .map((attachment: any) => {
-          if (!attachment?.imageRef) {
-            return null;
+          if (attachment?.imageRef) {
+            return {
+              content: '', // Keep content empty to avoid base64 in prompt
+              type: attachment.type || 'image',
+              imageRef: attachment.imageRef,
+              mimeType: attachment.mimeType,
+            };
+          } else if (attachment?.pdfRef) {
+            return {
+              content: '', // Keep content empty to avoid base64 in prompt
+              type: attachment.type || 'pdf',
+              pdfRef: attachment.pdfRef,
+              mimeType: attachment.mimeType,
+            };
           }
-
-          return {
-            type: attachment.type,
-            imageRef: attachment.imageRef,
-            mimeType: attachment.mimeType,
-          };
+          return null;
         })
-        .filter(Boolean);
+        .filter((att): att is NonNullable<typeof att> => att !== null);
 
-      if (!cleanedMessage.attachments.length) {
+      if (cleanedMessage.attachments.length === 0) {
         delete cleanedMessage.attachments;
       }
     }
@@ -235,6 +243,9 @@ const handler = async (req: Request): Promise<Response> => {
 
     return cleanedMessage;
   }));
+
+  // Note: PDF processing is now handled separately via /api/pdf/process
+  // The frontend processes PDFs before sending the chat message
 
   console.log(
     'aiq - /api/chat received messages count:',
@@ -495,35 +506,33 @@ const handler = async (req: Request): Promise<Response> => {
                     }
                     try {
                       const payload = JSON.parse(data);
-                      let details = payload?.payload || 'No details';
-                      let name = payload?.name || 'Step';
-                      let id = payload?.id || '';
-                      let status = payload?.status || 'in_progress';
-                      let error = payload?.error || '';
-                      let type = 'system_intermediate';
-                      let parent_id = payload?.parent_id || 'default';
-                      let intermediate_parent_id =
-                        payload?.intermediate_parent_id || 'default';
-                      let time_stamp = payload?.time_stamp || 'default';
 
-                      const intermediate_message = {
-                        id,
-                        status,
-                        error,
-                        type,
-                        parent_id,
-                        intermediate_parent_id,
-                        content: {
-                          name: name,
-                          payload: details,
+                      // Transform to new intermediate step format
+                      const intermediateStep = {
+                        parent_id: payload?.parent_id || 'root',
+                        function_ancestry: {
+                          node_id: payload?.id || `step-${Date.now()}`,
+                          parent_id: payload?.parent_id || null,
+                          function_name: payload?.name || 'Unknown',
+                          depth: 0
                         },
-                        time_stamp,
-                        index: counter++,
+                        payload: {
+                          event_type: payload?.status === 'completed' ? IntermediateStepType.CUSTOM_END : IntermediateStepType.CUSTOM_START,
+                          event_timestamp: payload?.time_stamp || Date.now() / 1000,
+                          name: payload?.name || 'Step',
+                          metadata: {
+                            original_payload: payload
+                          },
+                          data: {
+                            output: payload?.payload || 'No details'
+                          },
+                          UUID: payload?.id || `${Date.now()}-${Math.random()}`
+                        }
                       };
+
                       const messageString = `<intermediatestep>${JSON.stringify(
-                        intermediate_message,
+                        intermediateStep,
                       )}</intermediatestep>`;
-                      // console.log('intermediate step counter', counter ++ , messageString.length)
                       controller.enqueue(encoder.encode(messageString));
                       // await delay(1000)
                     } catch (error) {

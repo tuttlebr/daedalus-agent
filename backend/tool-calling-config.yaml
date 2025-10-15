@@ -235,6 +235,18 @@ functions:
     description: Retrieves evidence-based mental health information and support resources. Use when users ask about understanding mental health conditions, coping strategies, stress management, emotional wellness, recognizing symptoms, or finding help. Appropriate for educational questions about anxiety, depression, trauma, relationships, and self-care. Always emphasize that this is informational content, not therapy or crisis support. For emergencies, direct users to crisis hotlines.
     retriever: mentalhealth_retriever
     topic: Mental health and psychological wellness
+  nv_ingest_tool:
+    _type: nat_nv_ingest
+    chunk_overlap: 150
+    chunk_size: 1024
+    description: Processes PDF documents that users have uploaded. Use this tool when a user uploads a PDF file. The tool requires pdfRef (containing pdfId and sessionId) and username parameters. Do not ask users for these parameters - they are provided by the system.
+    milvus_uri: http://milvus.milvus.svc.cluster.local:19530
+    minio_access_key: minioadmin
+    minio_endpoint: 192.168.1.239:9000
+    minio_secret_key: minioadmin
+    nv_ingest_host: 192.168.1.239
+    nv_ingest_port: 7670
+    redis_url: redis://daedalus-redis.daedalus.svc.cluster.local:6379
   nvidia_retriever_tool:
     _type: nat_retriever
     description: Retrieves authoritative information from NVIDIA knowledge base including GPU specifications, CUDA programming, AI frameworks (NeMo, TensorRT), product comparisons (A100 vs H100), platform capabilities (DGX, Jetson), and corporate announcements. Combines engineering-level technical detail with business context from official NVIDIA sources. Use when queries require NVIDIA-specific expertise or product information.
@@ -312,6 +324,11 @@ functions:
       If the user explicitly asks for a solution, respond with a guiding question that leads them toward the answer themselves.
 
       '
+  user_uploaded_files_retriever_tool:
+    _type: nat_retriever
+    description: Retrieves technical information about user uploaded file. Should be used if the user just uploaded a PDF file. The name of the collection is the username of the user.
+    retriever: user_uploaded_files_retriever
+    topic: User uploaded files from PDF
   veterinarian_retriever_tool:
     _type: nat_retriever
     description: Retrieves expert veterinary medical knowledge from VetPartner covering pet symptoms, animal diseases, treatment protocols, medication side effects, preventive care, and nutrition for multiple species (dogs, cats, horses, birds, exotic animals). Use for animal health questions requiring authoritative veterinary expertise. Always include disclaimer that this is educational information requiring veterinary consultation for diagnosis and treatment.
@@ -342,12 +359,24 @@ functions:
     _type: wiki_search
     max_results: 3
     verbose: true
+general:
+  front_end:
+    _type: fastapi
+    step_adaptor:
+      custom_event_types:
+      - WORKFLOW_START
+      - LLM_END
+      - LLM_START
+      - TOOL_START
+      - TOOL_END
+      mode: custom
 llms:
   fast_llm:
     _type: nim
     base_url: https://5183a11a-633e-4945-b882-de86ce85125e.invocation.api.nvcf.nvidia.com/v1
     max_tokens: 2048
     model_name: nvidia/nvidia-nemotron-nano-9b-v2
+    stream: false
     temperature: 0.2
     thinking: false
     top_p: 0.7
@@ -356,11 +385,13 @@ llms:
     base_url: https://9adef108-3097-4540-ba5f-873a9da8e54f.invocation.api.nvcf.nvidia.com/v1
     max_tokens: 32000
     model_name: openai/gpt-oss-120b
+    stream: false
   tool_calling_llm:
     _type: nim
     base_url: https://5eb560ed-7ab8-4985-ab2a-dd1f7ea5eb66.invocation.api.nvcf.nvidia.com/v1
     max_tokens: 32000
     model_name: nvidia/llama-3-3-nemotron-super-49b-v1-5
+    stream: false
     temperature: 0
     thinking: false
 retrievers:
@@ -443,6 +474,22 @@ retrievers:
     use_reranker: true
     vector_field: vector
     verbose: true
+  user_uploaded_files_retriever:
+    _type: smart_milvus
+    collection_name: null
+    content_field: text
+    database_name: default
+    description: Retrieves technical information about user uploaded file. Should be used if the user just uploaded a PDF file. The name of the collection is the username of the user.
+    embedding_model: milvus_embedder
+    reranker_endpoint: https://c5b64ba3-16fd-4c3c-a2b8-cd9526f9d34b.invocation.api.nvcf.nvidia.com/v1/ranking
+    reranker_model: nvidia/llama-3.2-nv-rerankqa-1b-v2
+    reranker_top_n: 10
+    return_as_string: false
+    top_k: 20
+    uri: http://milvus.milvus.svc.cluster.local:19530
+    use_reranker: true
+    vector_field: vector
+    verbose: true
   veterinarian_retriever:
     _type: smart_milvus
     collection_name: vetpartner
@@ -476,13 +523,16 @@ workflow:
   - kubernetes_retriever_tool
   - mentalhealth_retriever_tool
   - nvidia_retriever_tool
+  - nv_ingest_tool
   - realtime_serpapi_ai_tool
   - realtime_serpapi_news_tool
   - realtime_serpapi_search_tool
   - semianalysis_retriever_tool
   - socratic_method_tool
+  - user_uploaded_files_retriever_tool
   - veterinarian_retriever_tool
   - weather_tool
   - webscrape_tool
   - wikipedia_search
+  use_openai_api: true
   verbose: true

@@ -3,6 +3,7 @@ import {
   IconBrain,
   IconCheck,
   IconCopy,
+  IconPaperclip,
   IconPlayerPause,
   IconUser,
   IconVolume2,
@@ -18,8 +19,9 @@ import { BotAvatar } from '@/components/Avatar/BotAvatar';
 import ReactMarkdown from 'react-markdown';
 import rehypeRaw from 'rehype-raw';
 import { getReactMarkDownCustomComponents } from '../Markdown/CustomComponents';
-import { fixMalformedHtml, generateContentIntermediate } from '@/utils/app/helper';
+import { fixMalformedHtml } from '@/utils/app/helper';
 import { OptimizedImage } from './OptimizedImage';
+import { IntermediateSteps } from '../IntermediateSteps/IntermediateSteps';
 
 export interface Props {
   message: Message;
@@ -63,12 +65,9 @@ export const ChatMessage: FC<Props> = memo(({ message, messageIndex }) => {
     if (role === 'user') return content.trim();
 
     let result = '';
-    if (intermediateStepsContent) {
-      result += generateContentIntermediate(intermediateSteps);
-    }
-
+    // Intermediate steps are now handled by the IntermediateSteps component
     if (responseContent) {
-      result += result ? `\n\n${content}` : content;
+      result = content;
     }
 
     // fixing malformed html and removing extra spaces to avoid markdown issues
@@ -80,10 +79,12 @@ export const ChatMessage: FC<Props> = memo(({ message, messageIndex }) => {
       return prepareContent({ message, role: 'user' });
     }
 
+    // For assistant messages, we now only copy the main content
+    // Intermediate steps are too complex to copy as plain text
     return prepareContent({
       message,
       role: 'assistant',
-      intermediateStepsContent: true,
+      intermediateStepsContent: false,
       responseContent: true,
     });
   }, [message]);
@@ -214,6 +215,15 @@ export const ChatMessage: FC<Props> = memo(({ message, messageIndex }) => {
                             />
                           </div>
                         );
+                      } else if (attachment.type === 'pdf' && attachment.pdfRef) {
+                        return (
+                          <div key={idx} className="inline-flex items-center gap-2 rounded-lg bg-gray-100 px-3 py-2 dark:bg-gray-800">
+                            <IconPaperclip size={16} className="text-gray-600 dark:text-gray-400" />
+                            <span className="text-sm text-gray-700 dark:text-gray-300">
+                              PDF: {attachment.pdfRef.filename || 'Document'}
+                            </span>
+                          </div>
+                        );
                       }
                       return null;
                     })}
@@ -222,29 +232,12 @@ export const ChatMessage: FC<Props> = memo(({ message, messageIndex }) => {
               </div>
             ) : (
               <div className="flex w-full flex-col gap-4">
-                {prepareContent({
-                  message,
-                  role: 'assistant',
-                  intermediateStepsContent: true,
-                  responseContent: false,
-                }) && (
-                  <MemoizedReactMarkdown
-                    className={markdownBaseClasses}
-                    rehypePlugins={[rehypeRaw] as any}
-                    remarkPlugins={[
-                      remarkGfm,
-                      [remarkMath, { singleDollarTextMath: false }],
-                    ]}
-                    linkTarget="_blank"
-                    components={getReactMarkDownCustomComponents(messageIndex, message?.id)}
-                  >
-                    {prepareContent({
-                      message,
-                      role: 'assistant',
-                      intermediateStepsContent: true,
-                      responseContent: false,
-                    })}
-                  </MemoizedReactMarkdown>
+                {/* Render intermediate steps using the new component */}
+                {message.intermediateSteps && message.intermediateSteps.length > 0 && (
+                  <IntermediateSteps
+                    steps={message.intermediateSteps}
+                    className="mb-2"
+                  />
                 )}
 
                 <MemoizedReactMarkdown

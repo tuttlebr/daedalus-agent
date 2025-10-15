@@ -1,5 +1,6 @@
 import { Conversation, Message } from '@/types/chat';
 import { FolderInterface } from '@/types/folder';
+import { IntermediateStepCategory } from '@/types/intermediateSteps';
 import { t } from 'i18next';
 
 export interface HomeInitialState {
@@ -21,6 +22,8 @@ export interface HomeInitialState {
   intermediateStepOverride?: boolean;
   autoScroll?: boolean;
   additionalConfig: any;
+  intermediateStepsView: 'timeline' | 'category';
+  intermediateStepsFilter: IntermediateStepCategory[];
 }
 
 export const initialState: HomeInitialState = {
@@ -36,10 +39,12 @@ export const initialState: HomeInitialState = {
   messageError: false,
   searchTerm: '',
   chatHistory: process?.env?.NEXT_PUBLIC_CHAT_HISTORY_DEFAULT_ON === 'false' ? false : true,
-  chatCompletionURL: process?.env?.NEXT_PUBLIC_HTTP_CHAT_COMPLETION_URL || 'http://daedalus-backend-default.daedalus.svc.cluster.local:8000/chat/stream',
+  chatCompletionURL: process?.env?.NEXT_PUBLIC_HTTP_CHAT_COMPLETION_URL || 'http://daedalus-backend-default.daedalus.svc.cluster.local:8000/chat',
   enableIntermediateSteps: false,
   expandIntermediateSteps: false,
   intermediateStepOverride: true,
   autoScroll: true,
   additionalConfig: {},
+  intermediateStepsView: 'timeline',
+  intermediateStepsFilter: [],
 };
