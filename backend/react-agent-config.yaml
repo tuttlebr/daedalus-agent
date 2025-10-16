@@ -769,8 +769,9 @@ llms:
   reasoning_llm:
     _type: nim
     base_url: https://9adef108-3097-4540-ba5f-873a9da8e54f.invocation.api.nvcf.nvidia.com/v1
+    max_tokens: 16000
     model_name: openai/gpt-oss-120b
-    temperature: 1
+    temperature: 0.6
   tool_calling_llm:
     _type: openai
     model_name: gpt-4o-mini

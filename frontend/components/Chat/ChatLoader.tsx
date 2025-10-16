@@ -29,12 +29,12 @@ export const ChatLoader: FC<Props> = ({ statusUpdateText = '' }) => {
 
   return (
     <div
-      className="group border-b border-black/10 bg-gray-900/0 text-gray-800 dark:border-gray-900/50 dark:bg-transparent dark:text-gray-100 px-4 sm:px-0"
+      className="group px-3 sm:px-4 md:px-6"
       style={{ overflowWrap: 'anywhere' }}
     >
-      <div className="relative m-auto flex p-4 text-base sm:w-[95%] md:w-[92%] lg:w-[93%] 2xl:w-[59%] md:gap-6 md:py-6 lg:px-0">
+      <div className="relative mx-auto flex w-full max-w-5xl py-4 text-base gap-3 sm:gap-4 md:gap-5">
         <div className="min-w-[40px] items-end">
-          <BotAvatar src={'favicon.png'} size={30} />
+          <BotAvatar src={'favicon.png'} height={30} width={30} />
         </div>
         <div className="flex items-center">
           {/* Status Update Text with Green Blinking Caret */}
