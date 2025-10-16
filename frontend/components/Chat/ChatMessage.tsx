@@ -138,7 +138,7 @@ export const ChatMessage: FC<Props> = memo(({ message, messageIndex }) => {
   const wrapperClasses = cx('group px-3 sm:px-4 md:px-6');
 
   const rowClasses = cx(
-    'mx-auto flex w-full max-w-3xl gap-3 sm:gap-4 md:gap-5 py-4',
+    'mx-auto flex w-full max-w-5xl gap-3 sm:gap-4 md:gap-5 py-4',
     message.role === 'user' ? 'flex-row-reverse' : 'flex-row'
   );
 
