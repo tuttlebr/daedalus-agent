@@ -363,37 +363,38 @@ general:
   front_end:
     _type: fastapi
     step_adaptor:
-      custom_event_types:
-      - WORKFLOW_START
-      - LLM_END
-      - LLM_START
-      - TOOL_START
-      - TOOL_END
-      mode: custom
+      event_category:
+      - LLM
+      - TOOL
+      - WORKFLOW
+      - FUNCTION
+      mode: default
 llms:
   fast_llm:
     _type: nim
     base_url: https://5183a11a-633e-4945-b882-de86ce85125e.invocation.api.nvcf.nvidia.com/v1
     max_tokens: 2048
     model_name: nvidia/nvidia-nemotron-nano-9b-v2
-    stream: false
+    stream: true
     temperature: 0.2
     thinking: false
     top_p: 0.7
   reasoning_llm:
-    _type: nim
+    _type: openai
     base_url: https://9adef108-3097-4540-ba5f-873a9da8e54f.invocation.api.nvcf.nvidia.com/v1
     max_tokens: 32000
     model_name: openai/gpt-oss-120b
-    stream: false
+    stream: true
+    temperature: 1.0
   tool_calling_llm:
     _type: nim
     base_url: https://5eb560ed-7ab8-4985-ab2a-dd1f7ea5eb66.invocation.api.nvcf.nvidia.com/v1
     max_tokens: 32000
     model_name: nvidia/llama-3-3-nemotron-super-49b-v1-5
-    stream: false
+    stream: true
     temperature: 0
     thinking: false
+    tool_choice: required
 retrievers:
   geolocation_retriever:
     _type: smart_milvus
@@ -513,10 +514,8 @@ workflow:
   - image_generation_tool
   - image_augmentation_tool
   tool_names:
-  - bang_for_buck_tool
   - code_generation
   - current_datetime_tool
-  - first_principles_tool
   - geolocation_retriever_tool
   - image_augmentation_tool
   - image_generation_tool
@@ -528,7 +527,6 @@ workflow:
   - realtime_serpapi_news_tool
   - realtime_serpapi_search_tool
   - semianalysis_retriever_tool
-  - socratic_method_tool
   - user_uploaded_files_retriever_tool
   - veterinarian_retriever_tool
   - weather_tool
@@ -536,3 +534,4 @@ workflow:
   - wikipedia_search
   use_openai_api: true
   verbose: true
+  workflow_alias: Daedalus

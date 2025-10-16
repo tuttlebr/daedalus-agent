@@ -32,7 +32,7 @@ export const StepDetails: React.FC<StepDetailsProps> = ({ step, onClose }) => {
     return (
       <div className="mb-4">
         <h4 className="text-sm font-semibold mb-2 text-gray-700 dark:text-gray-200">{title}</h4>
-        <pre className="bg-gradient-to-br from-slate-100 via-white to-slate-100 dark:from-[#952fc6] dark:via-slate-800 dark:to-[#952fc6] p-3 rounded-lg text-xs overflow-x-auto border border-gray-200 dark:border-gray-700/70 shadow-inner">
+        <pre className="bg-gray-50 dark:bg-[#952fc6]/10 backdrop-blur p-3 rounded-lg text-xs overflow-x-auto border border-gray-200 dark:border-gray-600 shadow-inner">
           {JSON.stringify(data, null, 2)}
         </pre>
       </div>
@@ -78,9 +78,9 @@ export const StepDetails: React.FC<StepDetailsProps> = ({ step, onClose }) => {
         </button>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-gradient-to-b from-white via-gray-50 to-white dark:from-slate-950 dark:via-[#952fc6] dark:to-slate-950">
+      <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-gradient-to-b from-gray-50 to-gray-50 dark:from-gray-900 dark:to-gray-900">
         {/* Basic Information */}
-        <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white/90 dark:bg-[#952fc6]/50 p-4 shadow-sm">
+        <div className="rounded-xl border border-gray-200 dark:border-gray-600 bg-white/90 dark:bg-[#952fc6]/20 backdrop-blur supports-[backdrop-filter]:bg-white/90 p-4 shadow-sm">
           <h4 className="text-sm font-semibold mb-3 uppercase tracking-[0.15em] text-gray-500 dark:text-gray-400">Basic Information</h4>
           <div className="space-y-2 text-sm text-gray-700 dark:text-gray-200">
             <div className="flex justify-between gap-4">
@@ -113,7 +113,7 @@ export const StepDetails: React.FC<StepDetailsProps> = ({ step, onClose }) => {
         </div>
 
         {/* Function Ancestry */}
-        <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white/90 dark:bg-[#952fc6]/50 p-4 shadow-sm">
+        <div className="rounded-xl border border-gray-200 dark:border-gray-600 bg-white/90 dark:bg-[#952fc6]/20 backdrop-blur supports-[backdrop-filter]:bg-white/90 p-4 shadow-sm">
           <h4 className="text-sm font-semibold mb-3 uppercase tracking-[0.15em] text-gray-500 dark:text-gray-400">Function Ancestry</h4>
           <div className="space-y-2 text-sm text-gray-700 dark:text-gray-200">
             <div className="flex items-center justify-between">
@@ -139,7 +139,7 @@ export const StepDetails: React.FC<StepDetailsProps> = ({ step, onClose }) => {
 
         {/* Tags */}
         {step.payload.tags && step.payload.tags.length > 0 && (
-          <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white/90 dark:bg-[#952fc6]/50 p-4 shadow-sm">
+          <div className="rounded-xl border border-gray-200 dark:border-gray-600 bg-white/90 dark:bg-[#952fc6]/20 backdrop-blur supports-[backdrop-filter]:bg-white/90 p-4 shadow-sm">
             <h4 className="text-sm font-semibold mb-3 uppercase tracking-[0.15em] text-gray-500 dark:text-gray-400">Tags</h4>
             <div className="flex flex-wrap gap-1.5">
               {step.payload.tags.map((tag, index) => (
@@ -156,7 +156,7 @@ export const StepDetails: React.FC<StepDetailsProps> = ({ step, onClose }) => {
 
         {/* Usage Info */}
         {step.payload.usage_info && (
-          <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white/90 dark:bg-[#952fc6]/50 p-4 shadow-sm">
+          <div className="rounded-xl border border-gray-200 dark:border-gray-600 bg-white/90 dark:bg-[#952fc6]/20 backdrop-blur supports-[backdrop-filter]:bg-white/90 p-4 shadow-sm">
             <h4 className="text-sm font-semibold mb-3 uppercase tracking-[0.15em] text-gray-500 dark:text-gray-400">Usage Information</h4>
             <div className="space-y-2 text-sm text-gray-700 dark:text-gray-200">
               {step.payload.usage_info.token_usage && (
@@ -191,7 +191,7 @@ export const StepDetails: React.FC<StepDetailsProps> = ({ step, onClose }) => {
 
         {/* Event Data */}
         {step.payload.data && (
-          <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white/90 dark:bg-[#952fc6]/50 p-4 shadow-sm">
+          <div className="rounded-xl border border-gray-200 dark:border-gray-600 bg-white/90 dark:bg-[#952fc6]/20 backdrop-blur supports-[backdrop-filter]:bg-white/90 p-4 shadow-sm">
             <h4 className="text-sm font-semibold mb-3 uppercase tracking-[0.15em] text-gray-500 dark:text-gray-400">Event Data</h4>
             {step.payload.data.input && renderJSON(step.payload.data.input, 'Input')}
             {step.payload.data.output && renderJSON(step.payload.data.output, 'Output')}
@@ -201,7 +201,7 @@ export const StepDetails: React.FC<StepDetailsProps> = ({ step, onClose }) => {
 
         {/* Metadata */}
         {step.payload.metadata && (
-          <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white/90 dark:bg-[#952fc6]/50 p-4 shadow-sm">
+          <div className="rounded-xl border border-gray-200 dark:border-gray-600 bg-white/90 dark:bg-[#952fc6]/20 backdrop-blur supports-[backdrop-filter]:bg-white/90 p-4 shadow-sm">
             <h4 className="text-sm font-semibold mb-3 uppercase tracking-[0.15em] text-gray-500 dark:text-gray-400">Metadata</h4>
             {renderMetadata(step.payload.metadata)}
           </div>
