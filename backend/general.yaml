@@ -1,0 +1,10 @@
+general:
+  front_end:
+    _type: fastapi
+    step_adaptor:
+      event_category:
+        - LLM
+        - TOOL
+        - WORKFLOW
+        - FUNCTION
+      mode: default
