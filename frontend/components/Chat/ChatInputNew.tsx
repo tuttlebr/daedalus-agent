@@ -367,18 +367,18 @@ export const ChatInputNew = ({
                   </div>
 
                   {/* Textarea container */}
-                  <div className="flex-1">
+                  <div className="flex-1 flex items-center">
                     <textarea
                       ref={textareaRef}
                       className={`
-                        w-full resize-none overflow-hidden bg-transparent px-4 py-3 text-[16px]
+                        w-full resize-none overflow-hidden bg-transparent px-4 py-4 text-[16px]
                         text-white outline-none transition-all duration-200 placeholder:text-white/40
                         focus:placeholder:text-white/60
                       `}
                       style={{
-                        minHeight: '24px',
+                        minHeight: '32px',
                         maxHeight: '200px',
-                        lineHeight: '1.4',
+                        lineHeight: '1.5',
                       }}
                       placeholder={messageIsStreaming ? 'Reasoning...' : 'Message'}
                       value={content}
