@@ -15,9 +15,51 @@ module.exports = {
     fontWeight: {
       normal: '400',
       medium: '500',
+      semibold: '600',
       bold: '700',
     },
     extend: {
+      // Fluid typography from design system
+      fontSize: {
+        'fluid-xs': 'var(--font-size-xs)',
+        'fluid-sm': 'var(--font-size-sm)',
+        'fluid-base': 'var(--font-size-base)',
+        'fluid-lg': 'var(--font-size-lg)',
+        'fluid-xl': 'var(--font-size-xl)',
+        'fluid-2xl': 'var(--font-size-2xl)',
+        'fluid-3xl': 'var(--font-size-3xl)',
+        'fluid-4xl': 'var(--font-size-4xl)',
+      },
+      // Touch-friendly spacing
+      spacing: {
+        'safe-top': 'var(--safe-area-inset-top)',
+        'safe-bottom': 'var(--safe-area-inset-bottom)',
+        'safe-left': 'var(--safe-area-inset-left)',
+        'safe-right': 'var(--safe-area-inset-right)',
+        'touch-min': 'var(--touch-target-min)',
+        'touch': 'var(--touch-target-comfortable)',
+        'touch-lg': 'var(--touch-target-large)',
+        'space-1': 'var(--space-1)',
+        'space-2': 'var(--space-2)',
+        'space-3': 'var(--space-3)',
+        'space-4': 'var(--space-4)',
+        'space-5': 'var(--space-5)',
+        'space-6': 'var(--space-6)',
+        'space-7': 'var(--space-7)',
+        'space-8': 'var(--space-8)',
+        'space-9': 'var(--space-9)',
+        'space-10': 'var(--space-10)',
+      },
+      minHeight: {
+        'touch-min': 'var(--touch-target-min)',
+        'touch': 'var(--touch-target-comfortable)',
+        'touch-lg': 'var(--touch-target-large)',
+      },
+      minWidth: {
+        'touch-min': 'var(--touch-target-min)',
+        'touch': 'var(--touch-target-comfortable)',
+        'touch-lg': 'var(--touch-target-large)',
+      },
       fontFamily: {
         'heading': ['NVIDIA Sans', 'system-ui', '-apple-system', 'sans-serif'],
         'display': ['NVIDIA Sans', 'system-ui', '-apple-system', 'sans-serif'],

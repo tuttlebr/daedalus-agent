@@ -4,7 +4,7 @@ import {
   IconChevronDown,
   IconBrain,
   IconTool,
-  IconWorkflow,
+  IconGitBranch,
   IconCheckbox,
   IconFunction,
   IconSettings,
@@ -119,7 +119,7 @@ export const StepTimeline: React.FC<StepTimelineProps> = ({
       case IntermediateStepCategory.TOOL:
         return <IconTool size={16} />;
       case IntermediateStepCategory.WORKFLOW:
-        return <IconWorkflow size={16} />;
+        return <IconGitBranch size={16} />;
       case IntermediateStepCategory.TASK:
         return <IconCheckbox size={16} />;
       case IntermediateStepCategory.FUNCTION:
@@ -188,9 +188,11 @@ export const StepTimeline: React.FC<StepTimelineProps> = ({
       <div key={step.payload.UUID} className="mb-1">
         <div
           className={`
-            group flex items-center gap-2 px-2 py-1 rounded-lg cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800
-            transition-all duration-200 border-l-2 border-transparent shadow-sm
-            ${selectedStep?.payload.UUID === step.payload.UUID ? 'bg-gray-100 dark:bg-gray-800 border-nvidia-green ring-1 ring-nvidia-green/40' : 'hover:border-nvidia-green/40'}
+            group flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer
+            transition-all duration-200 border-l-2 backdrop-blur-sm
+            ${selectedStep?.payload.UUID === step.payload.UUID
+              ? 'bg-white/20 border-nvidia-green shadow-[0_0_8px_rgba(118,185,0,0.2)]'
+              : 'bg-white/5 border-white/10 hover:bg-white/10 hover:border-white/20'}
           `}
           style={{ marginLeft: `${depth * 20}px` }}
           onClick={() => setSelectedStep(step)}
@@ -201,9 +203,9 @@ export const StepTimeline: React.FC<StepTimelineProps> = ({
                 event.stopPropagation();
                 toggleNode(step.payload.UUID);
               }}
-              className="p-0.5 hover:bg-gray-200 dark:hover:bg-gray-700 rounded transition-transform duration-150 ease-out group-hover:translate-x-0.5"
+              className="p-0.5 hover:bg-white/20 rounded transition-all"
             >
-              {isExpanded ? <IconChevronDown size={14} /> : <IconChevronRight size={14} />}
+              {isExpanded ? <IconChevronDown size={14} className="text-white/60" /> : <IconChevronRight size={14} className="text-white/60" />}
             </button>
           )}
           {!hasChildren && <div className="w-5" />}
@@ -222,16 +224,16 @@ export const StepTimeline: React.FC<StepTimelineProps> = ({
             )}
           </span>
 
-          <span className="text-sm font-medium">
+          <span className="text-sm font-medium text-white/90">
             {step.payload.name || step.payload.event_type}
           </span>
 
-          <span className="text-xs text-gray-500 dark:text-gray-400">
+          <span className="text-xs text-white/40">
             {state}
           </span>
 
           {node.duration && (
-            <span className="text-xs text-gray-500 dark:text-gray-400 ml-auto">
+            <span className="text-xs text-white/40 ml-auto">
               {formatDuration(node.duration)}
             </span>
           )}
@@ -254,7 +256,7 @@ export const StepTimeline: React.FC<StepTimelineProps> = ({
             {[...Array(4)].map((_, index) => (
               <div
                 key={index}
-                className="h-20 rounded-lg bg-gray-100 dark:bg-gray-800/60 animate-pulse"
+                className="h-20 rounded-lg bg-white/5 backdrop-blur-sm animate-pulse"
               />
             ))}
           </div>
@@ -263,7 +265,7 @@ export const StepTimeline: React.FC<StepTimelineProps> = ({
 
       if (showEmptyState) {
         return (
-          <div className="flex h-full items-center justify-center rounded-lg border border-dashed border-gray-300 dark:border-gray-700 p-6 text-sm text-gray-500 dark:text-gray-400">
+          <div className="flex h-full items-center justify-center rounded-lg border border-dashed border-white/20 p-6 text-sm text-white/40">
             No intermediate steps recorded yet.
           </div>
         );
@@ -275,7 +277,7 @@ export const StepTimeline: React.FC<StepTimelineProps> = ({
         {Array.from(stepsByCategory.entries()).map(([category, categorySteps]) => (
           <div
             key={category}
-            className="border border-gray-200 dark:border-gray-700 rounded-xl p-3 shadow-sm transition-shadow hover:shadow-lg hover:border-nvidia-green/50"
+            className="apple-glass-subtle rounded-xl p-4 transition-all hover:bg-white/10 hover:shadow-[0_0_20px_rgba(118,185,0,0.1)]"
           >
             <div className="flex items-center gap-2 mb-3">
               <span
@@ -299,7 +301,7 @@ export const StepTimeline: React.FC<StepTimelineProps> = ({
               </span>
               <button
                 type="button"
-                className="ml-auto text-xs text-gray-500 hover:text-nvidia-green transition-colors"
+                className="ml-auto text-xs text-white/40 hover:text-nvidia-green transition-colors"
                 onClick={(event) => {
                   event.stopPropagation();
                   if (filter.includes(category)) {
@@ -317,19 +319,21 @@ export const StepTimeline: React.FC<StepTimelineProps> = ({
                 <div
                   key={step.payload.UUID}
                   className={`
-                    group flex items-center gap-2 px-2 py-1 rounded-md cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800
-                    transition-all
-                    ${selectedStep?.payload.UUID === step.payload.UUID ? 'bg-gray-100 dark:bg-gray-800 ring-1 ring-nvidia-green/30' : ''}
+                    group flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer
+                    transition-all backdrop-blur-sm
+                    ${selectedStep?.payload.UUID === step.payload.UUID
+                      ? 'bg-white/15 ring-1 ring-nvidia-green/40'
+                      : 'bg-white/5 hover:bg-white/10'}
                   `}
                   onClick={() => setSelectedStep(step)}
                 >
-                  <span className="text-sm font-medium">
+                  <span className="text-sm font-medium text-white/90">
                     {step.payload.name || step.payload.event_type}
                   </span>
-                  <span className="text-xs text-gray-500 dark:text-gray-400">
+                  <span className="text-xs text-white/40">
                     {getEventState(step.payload.event_type)}
                   </span>
-                  <span className="ml-auto text-[11px] text-gray-400 group-hover:text-gray-500 dark:group-hover:text-gray-300">
+                  <span className="ml-auto text-[11px] text-white/30 group-hover:text-white/50">
                     {new Date(step.payload.event_timestamp * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
                   </span>
                 </div>
@@ -353,12 +357,12 @@ export const StepTimeline: React.FC<StepTimelineProps> = ({
                 {[...Array(4)].map((_, index) => (
                   <div
                     key={index}
-                    className="h-10 rounded bg-gray-100 dark:bg-gray-800/60 animate-pulse"
+                    className="h-10 rounded-lg bg-white/5 backdrop-blur-sm animate-pulse"
                   />
                 ))}
               </div>
             ) : showEmptyState ? (
-              <div className="flex h-full items-center justify-center rounded-lg border border-dashed border-gray-300 dark:border-gray-700 p-6 text-sm text-gray-500 dark:text-gray-400">
+              <div className="flex h-full items-center justify-center rounded-lg border border-dashed border-white/20 p-6 text-sm text-white/40">
                 No intermediate steps recorded yet.
               </div>
             ) : null}
@@ -369,7 +373,7 @@ export const StepTimeline: React.FC<StepTimelineProps> = ({
       </div>
 
       {selectedStep && (
-        <div className="w-96 border-l border-gray-200 dark:border-gray-700 overflow-y-auto">
+        <div className="w-full md:w-96 lg:w-[28rem] xl:w-[32rem] 2xl:w-[36rem] max-w-[40rem] border-l border-white/10 overflow-y-auto apple-glass-subtle">
           <StepDetails
             step={selectedStep}
             onClose={() => setSelectedStep(null)}

@@ -31,8 +31,8 @@ export const StepDetails: React.FC<StepDetailsProps> = ({ step, onClose }) => {
 
     return (
       <div className="mb-4">
-        <h4 className="text-sm font-semibold mb-2 text-gray-700 dark:text-gray-200">{title}</h4>
-        <pre className="bg-gray-50 dark:bg-[#952fc6]/10 backdrop-blur p-3 rounded-lg text-xs overflow-x-auto border border-gray-200 dark:border-gray-600 shadow-inner">
+        <h4 className="text-sm font-semibold mb-2 text-white/70">{title}</h4>
+        <pre className="bg-black/20 backdrop-blur p-3 rounded-lg text-xs overflow-x-auto border border-white/10 text-white/80 font-mono">
           {JSON.stringify(data, null, 2)}
         </pre>
       </div>
@@ -68,84 +68,84 @@ export const StepDetails: React.FC<StepDetailsProps> = ({ step, onClose }) => {
 
   return (
     <div className="h-full flex flex-col">
-      <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700 bg-gray-50/70 dark:bg-gray-900/40 backdrop-blur">
-        <h3 className="text-lg font-semibold tracking-tight">Step Details</h3>
+      <div className="flex items-center justify-between p-4 border-b border-white/10 backdrop-blur-sm">
+        <h3 className="text-lg font-semibold tracking-tight text-white/90">Step Details</h3>
         <button
           onClick={onClose}
-          className="p-1 hover:bg-gray-100 dark:hover:bg-gray-800 rounded transition-colors"
+          className="p-1 hover:bg-white/10 rounded transition-all text-white/60 hover:text-white"
         >
           <IconX size={20} />
         </button>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-gradient-to-b from-gray-50 to-gray-50 dark:from-gray-900 dark:to-gray-900">
+      <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {/* Basic Information */}
-        <div className="rounded-xl border border-gray-200 dark:border-gray-600 bg-white/90 dark:bg-[#952fc6]/20 backdrop-blur supports-[backdrop-filter]:bg-white/90 p-4 shadow-sm">
-          <h4 className="text-sm font-semibold mb-3 uppercase tracking-[0.15em] text-gray-500 dark:text-gray-400">Basic Information</h4>
-          <div className="space-y-2 text-sm text-gray-700 dark:text-gray-200">
+        <div className="apple-glass-subtle rounded-xl p-4">
+          <h4 className="text-sm font-semibold mb-3 uppercase tracking-[0.15em] text-white/40">Basic Information</h4>
+          <div className="space-y-2 text-sm text-white/80">
             <div className="flex justify-between gap-4">
-              <span className="text-gray-500 dark:text-gray-400">Name</span>
-              <span className="font-medium text-right">{step.payload.name || 'N/A'}</span>
+              <span className="text-white/40">Name</span>
+              <span className="font-medium text-right text-white/90">{step.payload.name || 'N/A'}</span>
             </div>
             <div className="flex justify-between gap-4">
-              <span className="text-gray-500 dark:text-gray-400">Event Type</span>
-              <span className="font-medium text-right">{step.payload.event_type}</span>
+              <span className="text-white/40">Event Type</span>
+              <span className="font-medium text-right text-white/90">{step.payload.event_type}</span>
             </div>
             <div className="flex justify-between gap-4">
-              <span className="text-gray-500 dark:text-gray-400">Category</span>
-              <span className="font-medium text-right">{category}</span>
+              <span className="text-white/40">Category</span>
+              <span className="font-medium text-right text-white/90">{category}</span>
             </div>
             <div className="flex justify-between gap-4">
-              <span className="text-gray-500 dark:text-gray-400">State</span>
-              <span className="font-medium text-right">{state}</span>
+              <span className="text-white/40">State</span>
+              <span className="font-medium text-right text-white/90">{state}</span>
             </div>
             <div className="flex justify-between gap-4">
-              <span className="text-gray-500 dark:text-gray-400">Timestamp</span>
-              <span className="font-medium text-right">{formatTimestamp(step.payload.event_timestamp)}</span>
+              <span className="text-white/40">Timestamp</span>
+              <span className="font-medium text-right text-white/90">{formatTimestamp(step.payload.event_timestamp)}</span>
             </div>
             {step.payload.framework && (
               <div className="flex justify-between gap-4">
-                <span className="text-gray-500 dark:text-gray-400">Framework</span>
-                <span className="font-medium text-right">{step.payload.framework}</span>
+                <span className="text-white/40">Framework</span>
+                <span className="font-medium text-right text-white/90">{step.payload.framework}</span>
               </div>
             )}
           </div>
         </div>
 
         {/* Function Ancestry */}
-        <div className="rounded-xl border border-gray-200 dark:border-gray-600 bg-white/90 dark:bg-[#952fc6]/20 backdrop-blur supports-[backdrop-filter]:bg-white/90 p-4 shadow-sm">
-          <h4 className="text-sm font-semibold mb-3 uppercase tracking-[0.15em] text-gray-500 dark:text-gray-400">Function Ancestry</h4>
-          <div className="space-y-2 text-sm text-gray-700 dark:text-gray-200">
+        <div className="apple-glass-subtle rounded-xl p-4">
+          <h4 className="text-sm font-semibold mb-3 uppercase tracking-[0.15em] text-white/40">Function Ancestry</h4>
+          <div className="space-y-2 text-sm text-white/80">
             <div className="flex items-center justify-between">
-              <span className="text-gray-500 dark:text-gray-400">Function</span>
-              <span className="font-medium">{step.function_ancestry.function_name}</span>
+              <span className="text-white/40">Function</span>
+              <span className="font-medium text-white/90">{step.function_ancestry.function_name}</span>
             </div>
-            <div className="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400">
+            <div className="flex items-center justify-between text-xs text-white/40">
               <span>Node ID</span>
-              <span>{step.function_ancestry.node_id}</span>
+              <span className="text-white/60">{step.function_ancestry.node_id}</span>
             </div>
             {step.function_ancestry.parent_id && (
-              <div className="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400">
+              <div className="flex items-center justify-between text-xs text-white/40">
                 <span>Parent ID</span>
-                <span>{step.function_ancestry.parent_id}</span>
+                <span className="text-white/60">{step.function_ancestry.parent_id}</span>
               </div>
             )}
-            <div className="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400">
+            <div className="flex items-center justify-between text-xs text-white/40">
               <span>Depth</span>
-              <span>{step.function_ancestry.depth}</span>
+              <span className="text-white/60">{step.function_ancestry.depth}</span>
             </div>
           </div>
         </div>
 
         {/* Tags */}
         {step.payload.tags && step.payload.tags.length > 0 && (
-          <div className="rounded-xl border border-gray-200 dark:border-gray-600 bg-white/90 dark:bg-[#952fc6]/20 backdrop-blur supports-[backdrop-filter]:bg-white/90 p-4 shadow-sm">
-            <h4 className="text-sm font-semibold mb-3 uppercase tracking-[0.15em] text-gray-500 dark:text-gray-400">Tags</h4>
+          <div className="apple-glass-subtle rounded-xl p-4">
+            <h4 className="text-sm font-semibold mb-3 uppercase tracking-[0.15em] text-white/40">Tags</h4>
             <div className="flex flex-wrap gap-1.5">
               {step.payload.tags.map((tag, index) => (
                 <span
                   key={index}
-                  className="px-2.5 py-1 text-xs bg-gray-200/70 dark:bg-gray-700/70 rounded-full text-gray-700 dark:text-gray-200"
+                  className="px-2.5 py-1 text-xs bg-white/10 backdrop-blur-sm rounded-full text-white/80 border border-white/10"
                 >
                   {tag}
                 </span>
@@ -156,34 +156,34 @@ export const StepDetails: React.FC<StepDetailsProps> = ({ step, onClose }) => {
 
         {/* Usage Info */}
         {step.payload.usage_info && (
-          <div className="rounded-xl border border-gray-200 dark:border-gray-600 bg-white/90 dark:bg-[#952fc6]/20 backdrop-blur supports-[backdrop-filter]:bg-white/90 p-4 shadow-sm">
-            <h4 className="text-sm font-semibold mb-3 uppercase tracking-[0.15em] text-gray-500 dark:text-gray-400">Usage Information</h4>
-            <div className="space-y-2 text-sm text-gray-700 dark:text-gray-200">
+          <div className="apple-glass-subtle rounded-xl p-4">
+            <h4 className="text-sm font-semibold mb-3 uppercase tracking-[0.15em] text-white/40">Usage Information</h4>
+            <div className="space-y-2 text-sm text-white/80">
               {step.payload.usage_info.token_usage && (
                 <>
                   {step.payload.usage_info.token_usage.prompt_tokens && (
                     <div className="flex justify-between">
-                      <span className="text-gray-500 dark:text-gray-400">Prompt Tokens</span>
-                      <span className="font-medium">{step.payload.usage_info.token_usage.prompt_tokens}</span>
+                      <span className="text-white/40">Prompt Tokens</span>
+                      <span className="font-medium text-white/90">{step.payload.usage_info.token_usage.prompt_tokens}</span>
                     </div>
                   )}
                   {step.payload.usage_info.token_usage.completion_tokens && (
                     <div className="flex justify-between">
-                      <span className="text-gray-500 dark:text-gray-400">Completion Tokens</span>
-                      <span className="font-medium">{step.payload.usage_info.token_usage.completion_tokens}</span>
+                      <span className="text-white/40">Completion Tokens</span>
+                      <span className="font-medium text-white/90">{step.payload.usage_info.token_usage.completion_tokens}</span>
                     </div>
                   )}
                   {step.payload.usage_info.token_usage.total_tokens && (
                     <div className="flex justify-between">
-                      <span className="text-gray-500 dark:text-gray-400">Total Tokens</span>
-                      <span className="font-medium">{step.payload.usage_info.token_usage.total_tokens}</span>
+                      <span className="text-white/40">Total Tokens</span>
+                      <span className="font-medium text-white/90">{step.payload.usage_info.token_usage.total_tokens}</span>
                     </div>
                   )}
                 </>
               )}
               <div className="flex justify-between">
-                <span className="text-gray-500 dark:text-gray-400">LLM Calls</span>
-                <span className="font-medium">{step.payload.usage_info.num_llm_calls}</span>
+                <span className="text-white/40">LLM Calls</span>
+                <span className="font-medium text-white/90">{step.payload.usage_info.num_llm_calls}</span>
               </div>
             </div>
           </div>
@@ -191,8 +191,8 @@ export const StepDetails: React.FC<StepDetailsProps> = ({ step, onClose }) => {
 
         {/* Event Data */}
         {step.payload.data && (
-          <div className="rounded-xl border border-gray-200 dark:border-gray-600 bg-white/90 dark:bg-[#952fc6]/20 backdrop-blur supports-[backdrop-filter]:bg-white/90 p-4 shadow-sm">
-            <h4 className="text-sm font-semibold mb-3 uppercase tracking-[0.15em] text-gray-500 dark:text-gray-400">Event Data</h4>
+          <div className="apple-glass-subtle rounded-xl p-4">
+            <h4 className="text-sm font-semibold mb-3 uppercase tracking-[0.15em] text-white/40">Event Data</h4>
             {step.payload.data.input && renderJSON(step.payload.data.input, 'Input')}
             {step.payload.data.output && renderJSON(step.payload.data.output, 'Output')}
             {step.payload.data.chunk && renderJSON(step.payload.data.chunk, 'Chunk')}
@@ -201,8 +201,8 @@ export const StepDetails: React.FC<StepDetailsProps> = ({ step, onClose }) => {
 
         {/* Metadata */}
         {step.payload.metadata && (
-          <div className="rounded-xl border border-gray-200 dark:border-gray-600 bg-white/90 dark:bg-[#952fc6]/20 backdrop-blur supports-[backdrop-filter]:bg-white/90 p-4 shadow-sm">
-            <h4 className="text-sm font-semibold mb-3 uppercase tracking-[0.15em] text-gray-500 dark:text-gray-400">Metadata</h4>
+          <div className="apple-glass-subtle rounded-xl p-4">
+            <h4 className="text-sm font-semibold mb-3 uppercase tracking-[0.15em] text-white/40">Metadata</h4>
             {renderMetadata(step.payload.metadata)}
           </div>
         )}

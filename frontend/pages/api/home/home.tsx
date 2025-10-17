@@ -31,6 +31,8 @@ import { FolderInterface, FolderType } from '@/types/folder';
 import { Chat } from '@/components/Chat/Chat';
 import { Chatbar } from '@/components/Chatbar/Chatbar';
 import { Navbar } from '@/components/Mobile/Navbar';
+import { BottomNav } from '@/components/Mobile/BottomNav';
+import { SwipeableConversations } from '@/components/Mobile/SwipeableConversations';
 import { ProtectedRoute } from '@/components/Auth/ProtectedRoute';
 
 import HomeContext from './home.context';
@@ -55,11 +57,19 @@ const Home = (props: any) => {
       conversations,
       selectedConversation,
       showChatbar,
+      useDeepThinker,
+      showVoiceRecorder,
     },
     dispatch,
   } = contextValue;
 
   const stopConversationRef = useRef<boolean>(false);
+  const quickActionHandlersRef = useRef<{
+    onAttachFile?: () => void;
+    onTakePhoto?: () => void;
+    onStartVoice?: () => void;
+    onSelectPrompt?: (prompt: string) => void;
+  }>({});
 
   const handleSelectConversation = (conversation: Conversation) => {
     dispatch({
@@ -276,6 +286,18 @@ const Home = (props: any) => {
           handleUpdateFolder,
           handleSelectConversation,
           handleUpdateConversation,
+          quickActionHandlers: {
+            onAttachFile: () => quickActionHandlersRef.current.onAttachFile?.(),
+            onTakePhoto: () => quickActionHandlersRef.current.onTakePhoto?.(),
+            onStartVoice: () => quickActionHandlersRef.current.onStartVoice?.(),
+            onToggleDeepThought: () => {
+              dispatch({ field: 'useDeepThinker', value: !useDeepThinker });
+            },
+            onSelectPrompt: (prompt: string) => quickActionHandlersRef.current.onSelectPrompt?.(prompt),
+            __setHandlers: (handlers: any) => {
+              quickActionHandlersRef.current = handlers;
+            },
+          } as any,
         }}
       >
         <Head>
@@ -294,17 +316,57 @@ const Home = (props: any) => {
           <main
             className={`flex h-screen w-screen flex-col text-sm text-white dark:text-white ${lightMode}`}
           >
-            <div className="fixed top-0 w-full sm:hidden">
-              <Navbar
-                selectedConversation={selectedConversation}
-                onNewConversation={handleNewConversation}
+            {/* Mobile Layout */}
+            <div className="flex flex-col h-full md:hidden">
+              {/* Top safe area */}
+              <div className="safe-top" />
+
+              {/* Swipeable conversations container */}
+              <div className="flex-1 overflow-hidden">
+                <SwipeableConversations
+                  conversations={conversations}
+                  currentConversation={selectedConversation}
+                  onSelectConversation={handleSelectConversation}
+                >
+                  <Chat />
+                </SwipeableConversations>
+              </div>
+
+              {/* Bottom Navigation */}
+              <BottomNav
+                onAttachFile={() => quickActionHandlersRef.current.onAttachFile?.()}
+                onTakePhoto={() => quickActionHandlersRef.current.onTakePhoto?.()}
+                onStartVoice={() => quickActionHandlersRef.current.onStartVoice?.()}
+                onToggleDeepThought={() => dispatch({ field: 'useDeepThinker', value: !useDeepThinker })}
+                isDeepThoughtEnabled={useDeepThinker}
               />
+
+              {/* Slide-over chatbar for mobile */}
+              <div
+                className={`
+                  fixed inset-0 z-50 transform transition-transform duration-300 ease-in-out
+                  ${showChatbar ? 'translate-x-0' : '-translate-x-full'}
+                `}
+              >
+                <div
+                  className="absolute inset-0 bg-black/50"
+                  onClick={() => dispatch({ field: 'showChatbar', value: false })}
+                />
+                <div className="relative w-4/5 max-w-sm h-full bg-dark-bg-secondary safe-top safe-bottom">
+                  <Chatbar />
+                </div>
+              </div>
             </div>
 
-            <div className="flex h-full">
-              <Chatbar />
-
-              <div className={`flex flex-1 transition-all duration-300 ${showChatbar ? 'sm:ml-[260px]' : 'ml-0'}`}>
+            {/* Desktop Layout */}
+            <div className="hidden md:flex h-full overflow-hidden">
+              <div
+                className={`transition-all duration-300 flex-shrink-0 overflow-visible ${showChatbar ? 'w-[260px]' : 'w-[56px]'}`}
+                data-sidebar-desktop={showChatbar ? 'open' : 'collapsed'}
+              >
+                <Chatbar />
+              </div>
+              <div className="flex flex-1 min-w-0 overflow-hidden">
                 <Chat />
               </div>
             </div>

@@ -20,6 +20,14 @@ export interface HomeContextProps {
     conversation: Conversation,
     data: KeyValuePair,
   ) => void;
+  // Quick action handlers
+  quickActionHandlers?: {
+    onAttachFile: () => void;
+    onTakePhoto: () => void;
+    onStartVoice: () => void;
+    onToggleDeepThought: () => void;
+    onSelectPrompt: (prompt: string) => void;
+  };
 }
 
 const HomeContext = createContext<HomeContextProps>(undefined!);

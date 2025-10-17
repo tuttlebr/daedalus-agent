@@ -24,6 +24,8 @@ export interface HomeInitialState {
   additionalConfig: any;
   intermediateStepsView: 'timeline' | 'category';
   intermediateStepsFilter: IntermediateStepCategory[];
+  useDeepThinker: boolean;
+  showVoiceRecorder: boolean;
 }
 
 export const initialState: HomeInitialState = {
@@ -47,4 +49,6 @@ export const initialState: HomeInitialState = {
   additionalConfig: {},
   intermediateStepsView: 'timeline',
   intermediateStepsFilter: [],
+  useDeepThinker: false,
+  showVoiceRecorder: false,
 };
