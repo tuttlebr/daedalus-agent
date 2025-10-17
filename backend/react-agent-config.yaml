@@ -768,14 +768,14 @@ llms:
     top_p: 0.95
   reasoning_llm:
     _type: nim
-    base_url: https://9adef108-3097-4540-ba5f-873a9da8e54f.invocation.api.nvcf.nvidia.com/v1
-    max_tokens: 16000
-    model_name: openai/gpt-oss-120b
-    temperature: 0.6
+    api_key: ${NEBIUS_API_KEY}
+    base_url: https://api.studio.nebius.com/v1
+    model_name: Qwen/Qwen3-235B-A22B-Thinking-2507
   tool_calling_llm:
-    _type: openai
-    model_name: gpt-4o-mini
-    temperature: 0.0
+    _type: nim
+    api_key: ${NEBIUS_API_KEY}
+    base_url: https://api.studio.nebius.com/v1
+    model_name: moonshotai/Kimi-K2-Instruct
 retrievers:
   geolocation_retriever:
     _type: smart_milvus

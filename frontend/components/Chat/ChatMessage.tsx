@@ -7,6 +7,7 @@ import {
   IconPlayerPause,
   IconUser,
   IconVolume2,
+  IconClock,
 } from '@tabler/icons-react';
 import classNames from 'classnames';
 import { FC, memo, useContext, useEffect, useMemo, useRef, useState } from 'react';
@@ -138,22 +139,27 @@ export const ChatMessage: FC<Props> = memo(({ message, messageIndex }) => {
   const wrapperClasses = cx('group px-3 sm:px-4 md:px-6');
 
   const rowClasses = cx(
-    'mx-auto flex w-full max-w-5xl gap-3 sm:gap-4 md:gap-5 py-4',
+    'mx-auto flex w-full gap-2 sm:gap-3 py-1.5 sm:py-2',
+    hasIntermediateSteps && message.role === 'assistant' ? 'max-w-7xl' : 'max-w-5xl',
     message.role === 'user' ? 'flex-row-reverse' : 'flex-row'
   );
 
   const avatarWrapperClasses = cx(
-    'flex-shrink-0 pt-1',
-    message.role === 'assistant' ? 'text-right' : 'text-left'
+    'flex-shrink-0',
+    message.role === 'assistant' ? 'self-end mb-1' : 'self-end mb-1',
+    'hidden sm:block' // Hide avatars on mobile for more space
   );
 
   const bubbleClasses = cx(
-    'relative w-full max-w-full rounded-2xl border px-4 py-3 text-[15px] leading-relaxed shadow-sm transition-colors duration-200',
-    'backdrop-blur supports-[backdrop-filter]:bg-white/90',
-    'overflow-hidden',
+    'relative',
+    hasIntermediateSteps && isAssistantMessage ? 'max-w-full' : 'max-w-[85%] sm:max-w-[75%] md:max-w-[65%]',
+    'px-3 py-2 sm:px-4 sm:py-3',
+    'text-[14px] sm:text-[15px] leading-relaxed',
+    'break-words transition-all duration-200 animate-scale-in',
     isAssistantMessage
-      ? 'self-start border-[var(--chat-bubble-assistant-border)] bg-[var(--chat-bubble-assistant-bg)] text-gray-900 dark:border-[var(--chat-bubble-assistant-border-dark)] dark:bg-[var(--chat-bubble-assistant-bg-dark)] dark:text-gray-100'
-      : 'self-end border-[var(--chat-bubble-user-border)] bg-[var(--chat-bubble-user-bg)] text-gray-900 dark:border-[var(--chat-bubble-user-border-dark)] dark:bg-[var(--chat-bubble-user-bg-dark)] dark:text-gray-50'
+      ? 'rounded-2xl rounded-bl-md glass text-gray-900 dark:text-gray-100 shadow-sm'
+      : 'rounded-2xl rounded-br-md bg-nvidia-green-dark backdrop-blur-sm text-white shadow-md hover:shadow-glow-green hover:bg-nvidia-green',
+    'hover:shadow-lg transform hover:scale-[1.02] active:scale-[0.98]'
   );
 
   const markdownBaseClasses = cx(
@@ -165,9 +171,10 @@ export const ChatMessage: FC<Props> = memo(({ message, messageIndex }) => {
   );
 
   const actionBarClasses = cx(
-    'flex items-center gap-2 text-xs font-medium text-neutral-500 transition-opacity duration-150 dark:text-neutral-300',
-    'mt-3',
-    isAssistantMessage ? 'justify-end' : 'justify-start sm:justify-end'
+    'flex items-center gap-1 sm:gap-2 text-[10px] sm:text-xs font-medium',
+    'mt-1 opacity-0 group-hover:opacity-100 transition-opacity duration-200',
+    'text-gray-500 dark:text-gray-400',
+    message.role === 'user' ? 'justify-end pr-2' : 'justify-start pl-2'
   );
 
   const attachmentWrapperClasses = cx(
@@ -175,11 +182,17 @@ export const ChatMessage: FC<Props> = memo(({ message, messageIndex }) => {
     message.role === 'assistant' ? 'justify-start' : 'justify-end'
   );
 
+  // Add timestamp formatting
+  const formatTime = () => {
+    const date = new Date();
+    return date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+  };
+
   return (
     <div className={wrapperClasses}>
       <div className={rowClasses} style={{ overflowWrap: 'anywhere' }}>
         <div className={avatarWrapperClasses}>
-          {isAssistantMessage ? <BotAvatar src={'favicon.png'} /> : <IconUser size={30} />}
+          {isAssistantMessage ? <BotAvatar src={'favicon.png'} height={24} width={24} /> : <IconUser size={24} className="text-gray-600 dark:text-gray-400" />}
         </div>
 
         <div className={cx('flex min-w-0 flex-1 flex-col', isAssistantMessage ? 'items-start' : 'items-end')}>
@@ -191,6 +204,17 @@ export const ChatMessage: FC<Props> = memo(({ message, messageIndex }) => {
             </div>
           )}
           <div className={bubbleClasses}>
+            {/* Message time and status */}
+            {message.role === 'user' && (
+              <div className="flex items-center gap-1 justify-end mt-1 text-[10px] text-white/70">
+                <span>{formatTime()}</span>
+                <span className="flex gap-0.5">
+                  {/* Message status indicators */}
+                  <IconCheck size={12} className="text-white/70" />
+                  <IconCheck size={12} className="text-white/70 -ml-2" />
+                </span>
+              </div>
+            )}
             {message.role === 'user' ? (
               <div className={markdownBaseClasses}>
                 <ReactMarkdown
@@ -234,10 +258,12 @@ export const ChatMessage: FC<Props> = memo(({ message, messageIndex }) => {
               <div className="flex w-full flex-col gap-4">
                 {/* Render intermediate steps using the new component */}
                 {message.intermediateSteps && message.intermediateSteps.length > 0 && (
-                  <IntermediateSteps
-                    steps={message.intermediateSteps}
-                    className="mb-2"
-                  />
+                  <div className="-mx-3 sm:-mx-4 -my-2 sm:-my-3">
+                    <IntermediateSteps
+                      steps={message.intermediateSteps}
+                      className="mb-2 mx-0 max-w-none"
+                    />
+                  </div>
                 )}
 
                 <MemoizedReactMarkdown

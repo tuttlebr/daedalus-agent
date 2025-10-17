@@ -1,0 +1,437 @@
+/* ================================================================
+   DAEDALUS DESIGN SYSTEM - Mobile-First Foundation
+   ================================================================ */
+
+/* ================================================================
+   1. FLUID TYPOGRAPHY SYSTEM
+   ================================================================ */
+:root {
+  /* Fluid font sizes using clamp() for seamless scaling */
+  --font-size-xs: clamp(0.75rem, 0.7rem + 0.25vw, 0.875rem);
+  --font-size-sm: clamp(0.875rem, 0.8rem + 0.375vw, 1rem);
+  --font-size-base: clamp(1rem, 0.925rem + 0.375vw, 1.125rem);
+  --font-size-lg: clamp(1.125rem, 1rem + 0.625vw, 1.25rem);
+  --font-size-xl: clamp(1.25rem, 1.1rem + 0.75vw, 1.5rem);
+  --font-size-2xl: clamp(1.5rem, 1.3rem + 1vw, 1.875rem);
+  --font-size-3xl: clamp(1.875rem, 1.5rem + 1.875vw, 2.25rem);
+  --font-size-4xl: clamp(2.25rem, 1.75rem + 2.5vw, 3rem);
+
+  /* Line heights optimized for readability */
+  --line-height-tight: 1.2;
+  --line-height-snug: 1.375;
+  --line-height-normal: 1.5;
+  --line-height-relaxed: 1.625;
+  --line-height-loose: 1.75;
+}
+
+/* ================================================================
+   2. RESPONSIVE SPACING SCALE
+   ================================================================ */
+:root {
+  /* Base spacing unit that scales with viewport */
+  --space-unit: clamp(0.25rem, 0.2rem + 0.25vw, 0.375rem);
+
+  /* Spacing scale */
+  --space-1: calc(var(--space-unit) * 1);    /* 4-6px */
+  --space-2: calc(var(--space-unit) * 2);    /* 8-12px */
+  --space-3: calc(var(--space-unit) * 3);    /* 12-18px */
+  --space-4: calc(var(--space-unit) * 4);    /* 16-24px */
+  --space-5: calc(var(--space-unit) * 5);    /* 20-30px */
+  --space-6: calc(var(--space-unit) * 6);    /* 24-36px */
+  --space-7: calc(var(--space-unit) * 8);    /* 32-48px */
+  --space-8: calc(var(--space-unit) * 10);   /* 40-60px */
+  --space-9: calc(var(--space-unit) * 12);   /* 48-72px */
+  --space-10: calc(var(--space-unit) * 16);  /* 64-96px */
+
+  /* Safe area insets for mobile devices */
+  --safe-area-inset-top: env(safe-area-inset-top);
+  --safe-area-inset-right: env(safe-area-inset-right);
+  --safe-area-inset-bottom: env(safe-area-inset-bottom);
+  --safe-area-inset-left: env(safe-area-inset-left);
+}
+
+/* ================================================================
+   3. TOUCH-FRIENDLY DIMENSIONS
+   ================================================================ */
+:root {
+  /* Minimum touch target sizes (WCAG 2.1 AA: 44px) */
+  --touch-target-min: 44px;
+  --touch-target-comfortable: 48px;
+  --touch-target-large: 56px;
+
+  /* Interactive element sizes */
+  --button-height-sm: var(--touch-target-min);
+  --button-height-md: var(--touch-target-comfortable);
+  --button-height-lg: var(--touch-target-large);
+
+  /* Input sizes */
+  --input-height-sm: 40px;
+  --input-height-md: var(--touch-target-comfortable);
+  --input-height-lg: var(--touch-target-large);
+
+  /* Icon button sizes */
+  --icon-button-sm: 40px;
+  --icon-button-md: var(--touch-target-min);
+  --icon-button-lg: var(--touch-target-comfortable);
+}
+
+/* ================================================================
+   4. RESPONSIVE BREAKPOINTS & CONTAINERS
+   ================================================================ */
+:root {
+  /* Mobile-first breakpoints */
+  --breakpoint-xs: 475px;
+  --breakpoint-sm: 640px;
+  --breakpoint-md: 768px;
+  --breakpoint-lg: 1024px;
+  --breakpoint-xl: 1280px;
+  --breakpoint-2xl: 1536px;
+
+  /* Container widths */
+  --container-xs: 100%;
+  --container-sm: 640px;
+  --container-md: 768px;
+  --container-lg: 1024px;
+  --container-xl: 1280px;
+  --container-2xl: 1536px;
+
+  /* Content widths */
+  --content-width-narrow: 65ch;
+  --content-width-medium: 80ch;
+  --content-width-wide: 100ch;
+}
+
+/* ================================================================
+   5. LAYOUT GRID SYSTEM
+   ================================================================ */
+.container {
+  width: 100%;
+  margin-inline: auto;
+  padding-inline: var(--space-4);
+}
+
+/* Responsive container sizing */
+@media (min-width: 640px) {
+  .container {
+    max-width: var(--container-sm);
+    padding-inline: var(--space-5);
+  }
+}
+
+@media (min-width: 768px) {
+  .container {
+    max-width: var(--container-md);
+    padding-inline: var(--space-6);
+  }
+}
+
+@media (min-width: 1024px) {
+  .container {
+    max-width: var(--container-lg);
+  }
+}
+
+@media (min-width: 1280px) {
+  .container {
+    max-width: var(--container-xl);
+  }
+}
+
+/* Flexible grid system */
+.grid {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.grid-cols-1 { grid-template-columns: repeat(1, minmax(0, 1fr)); }
+.grid-cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.grid-cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.grid-cols-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+
+/* Responsive grid */
+@media (min-width: 640px) {
+  .sm\:grid-cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .sm\:grid-cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .sm\:grid-cols-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+
+@media (min-width: 768px) {
+  .md\:grid-cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .md\:grid-cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .md\:grid-cols-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+
+/* ================================================================
+   6. COMPONENT SIZING UTILITIES
+   ================================================================ */
+
+/* Touch-friendly buttons */
+.btn {
+  min-height: var(--button-height-md);
+  padding-inline: var(--space-4);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.btn-sm {
+  min-height: var(--button-height-sm);
+  padding-inline: var(--space-3);
+  font-size: var(--font-size-sm);
+}
+
+.btn-lg {
+  min-height: var(--button-height-lg);
+  padding-inline: var(--space-5);
+  font-size: var(--font-size-lg);
+}
+
+/* Touch-friendly inputs */
+.input {
+  min-height: var(--input-height-md);
+  padding-inline: var(--space-3);
+  font-size: var(--font-size-base);
+  touch-action: manipulation;
+}
+
+.input-sm {
+  min-height: var(--input-height-sm);
+  padding-inline: var(--space-2);
+  font-size: var(--font-size-sm);
+}
+
+.input-lg {
+  min-height: var(--input-height-lg);
+  padding-inline: var(--space-4);
+  font-size: var(--font-size-lg);
+}
+
+/* Icon buttons */
+.icon-btn {
+  width: var(--icon-button-md);
+  height: var(--icon-button-md);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.icon-btn-sm {
+  width: var(--icon-button-sm);
+  height: var(--icon-button-sm);
+}
+
+.icon-btn-lg {
+  width: var(--icon-button-lg);
+  height: var(--icon-button-lg);
+}
+
+/* ================================================================
+   7. MOBILE-FIRST UTILITIES
+   ================================================================ */
+
+/* Hide scrollbars on mobile for cleaner look */
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
+/* Show scrollbar */
+.scrollbar-show {
+  -ms-overflow-style: auto;
+  scrollbar-width: auto;
+}
+
+.scrollbar-show::-webkit-scrollbar {
+  display: block;
+}
+
+/* Smooth momentum scrolling on iOS */
+.momentum-scroll {
+  -webkit-overflow-scrolling: touch;
+  overflow-y: auto;
+}
+
+/* Prevent text selection on interactive elements */
+.no-select {
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  user-select: none;
+}
+
+/* Safe area padding utilities */
+.safe-top {
+  padding-top: var(--safe-area-inset-top);
+}
+
+.safe-bottom {
+  padding-bottom: var(--safe-area-inset-bottom);
+}
+
+.safe-left {
+  padding-left: var(--safe-area-inset-left);
+}
+
+.safe-right {
+  padding-right: var(--safe-area-inset-right);
+}
+
+.safe-x {
+  padding-left: var(--safe-area-inset-left);
+  padding-right: var(--safe-area-inset-right);
+}
+
+.safe-y {
+  padding-top: var(--safe-area-inset-top);
+  padding-bottom: var(--safe-area-inset-bottom);
+}
+
+/* ================================================================
+   8. CONTAINER QUERIES (Progressive Enhancement)
+   ================================================================ */
+@supports (container-type: inline-size) {
+  .container-query {
+    container-type: inline-size;
+  }
+
+  /* Component-level responsive styles */
+  @container (min-width: 320px) {
+    .cq\:text-base {
+      font-size: var(--font-size-base);
+    }
+  }
+
+  @container (min-width: 480px) {
+    .cq\:text-lg {
+      font-size: var(--font-size-lg);
+    }
+  }
+}
+
+/* ================================================================
+   9. MOTION & ANIMATION PREFERENCES
+   ================================================================ */
+@media (prefers-reduced-motion: no-preference) {
+  .transition-smooth {
+    transition-property: all;
+    transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+    transition-duration: 200ms;
+  }
+
+  .animate-slide-up {
+    animation: slideUp 0.3s ease-out;
+  }
+
+  .animate-slide-down {
+    animation: slideDown 0.3s ease-out;
+  }
+
+  .animate-fade-in {
+    animation: fadeIn 0.2s ease-out;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Animation keyframes */
+@keyframes slideUp {
+  from {
+    transform: translateY(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes slideDown {
+  from {
+    transform: translateY(-100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* ================================================================
+   10. FOCUS STATES & ACCESSIBILITY
+   ================================================================ */
+/* Enhanced focus indicators for better visibility */
+:focus-visible {
+  outline: 2px solid var(--color-focus, #76b900);
+  outline-offset: 2px;
+}
+
+/* Skip to main content link */
+.skip-link {
+  position: absolute;
+  top: -40px;
+  left: 0;
+  background: var(--color-bg-primary);
+  color: var(--color-text-primary);
+  padding: var(--space-2) var(--space-4);
+  z-index: 100;
+  text-decoration: none;
+}
+
+.skip-link:focus {
+  top: 0;
+}
+
+/* Screen reader only content */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}
+
+/* High contrast mode support */
+@media (prefers-contrast: high) {
+  :root {
+    --color-border: #000;
+    --color-text-primary: #000;
+    --color-bg-primary: #fff;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --color-border: #fff;
+      --color-text-primary: #fff;
+      --color-bg-primary: #000;
+    }
+  }
+}

@@ -41,17 +41,17 @@ export const ViewToggle: React.FC<ViewToggleProps> = ({
   };
 
   return (
-    <div className="flex items-center justify-between p-3 border-b border-gray-200 dark:border-gray-700">
+    <div className="flex items-center justify-between p-3">
       <div className="flex items-center gap-2">
         {/* View Toggle */}
-        <div className="flex bg-gray-100 dark:bg-gray-800 rounded-lg p-1">
+        <div className="flex bg-white/10 backdrop-blur-sm rounded-lg p-1">
           <button
             onClick={() => onViewChange('timeline')}
             className={`
-              flex items-center gap-1 px-3 py-1 rounded text-sm transition-colors
+              flex items-center gap-1 px-3 py-1 rounded text-sm transition-all
               ${view === 'timeline'
-                ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow'
-                : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
+                ? 'bg-white/20 text-white shadow-sm'
+                : 'text-white/60 hover:text-white/80 hover:bg-white/10'
               }
             `}
           >
@@ -61,10 +61,10 @@ export const ViewToggle: React.FC<ViewToggleProps> = ({
           <button
             onClick={() => onViewChange('category')}
             className={`
-              flex items-center gap-1 px-3 py-1 rounded text-sm transition-colors
+              flex items-center gap-1 px-3 py-1 rounded text-sm transition-all
               ${view === 'category'
-                ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow'
-                : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
+                ? 'bg-white/20 text-white shadow-sm'
+                : 'text-white/60 hover:text-white/80 hover:bg-white/10'
               }
             `}
           >
@@ -78,49 +78,49 @@ export const ViewToggle: React.FC<ViewToggleProps> = ({
           <button
             onClick={() => setShowFilterDropdown(!showFilterDropdown)}
             className={`
-              flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm border transition-colors
+              flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm border transition-all
               ${filter.length > 0
-                ? 'border-nvidia-green text-nvidia-green dark:border-nvidia-green dark:text-nvidia-green'
-                : 'border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300'
+                ? 'border-nvidia-green/40 text-nvidia-green bg-nvidia-green/10'
+                : 'border-white/20 text-white/60 hover:text-white/80'
               }
-              hover:bg-gray-100 dark:hover:bg-gray-800
+              hover:bg-white/10
             `}
           >
             <IconFilter size={16} />
             Filter
             {filter.length > 0 && (
-              <span className="ml-1 px-1.5 py-0.5 text-xs bg-nvidia-green text-white rounded-full">
+              <span className="ml-1 px-1.5 py-0.5 text-xs bg-nvidia-green text-black rounded-full font-medium">
                 {filter.length}
               </span>
             )}
           </button>
 
           {showFilterDropdown && (
-            <div className="absolute top-full left-0 mt-1 w-48 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 z-50">
+            <div className="absolute top-full left-0 mt-1 w-48 apple-glass rounded-lg shadow-xl z-50">
               <div className="p-2">
-                <div className="text-xs font-semibold text-gray-500 dark:text-gray-400 mb-2 px-2">
+                <div className="text-xs font-semibold text-white/40 mb-2 px-2 uppercase tracking-wider">
                   Event Categories
                 </div>
                 {allCategories.map(category => (
                   <label
                     key={category}
-                    className="flex items-center gap-2 px-2 py-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded cursor-pointer"
+                    className="flex items-center gap-2 px-2 py-1.5 hover:bg-white/10 rounded cursor-pointer transition-colors"
                   >
                     <input
                       type="checkbox"
                       checked={filter.includes(category)}
                       onChange={() => toggleCategory(category)}
-                      className="rounded border-gray-300 dark:border-gray-600 text-nvidia-green focus:ring-nvidia-green"
+                      className="rounded border-white/20 bg-white/10 text-nvidia-green focus:ring-nvidia-green focus:ring-offset-0"
                     />
-                    <span className="text-sm">
+                    <span className="text-sm text-white/80">
                       {getCategoryDisplayName(category)}
                     </span>
                   </label>
                 ))}
-                <div className="border-t border-gray-200 dark:border-gray-700 mt-2 pt-2">
+                <div className="border-t border-white/10 mt-2 pt-2">
                   <button
                     onClick={() => onFilterChange([])}
-                    className="w-full text-center text-xs text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+                    className="w-full text-center text-xs text-white/40 hover:text-white/60 transition-colors"
                   >
                     Clear all
                   </button>
@@ -133,19 +133,18 @@ export const ViewToggle: React.FC<ViewToggleProps> = ({
 
       {/* Search Input */}
       <div className="relative">
-        <IconSearch size={16} className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
+        <IconSearch size={16} className="absolute left-3 top-1/2 transform -translate-y-1/2 text-white/40" />
         <input
           type="text"
           value={searchTerm}
           onChange={(e) => onSearchChange(e.target.value)}
           placeholder="Search steps..."
           className="
-            pl-9 pr-3 py-1.5 text-sm rounded-lg border
-            border-gray-300 dark:border-gray-600
-            bg-white dark:bg-gray-800
-            text-gray-900 dark:text-white
-            placeholder-gray-400 dark:placeholder-gray-500
-            focus:outline-none focus:ring-2 focus:ring-nvidia-green focus:border-transparent
+            pl-9 pr-3 py-1.5 text-sm rounded-lg
+            bg-white/10 backdrop-blur-sm border border-white/20
+            text-white placeholder-white/40
+            focus:outline-none focus:bg-white/15 focus:border-nvidia-green/40
+            transition-all
           "
         />
       </div>

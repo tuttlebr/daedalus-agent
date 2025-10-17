@@ -54,70 +54,73 @@ const Sidebar = <T,>({
     e.target.style.background = 'none';
   };
 
-  return isOpen ? (
-    <div>
-      <div
-        className={`fixed top-0 ${side}-0 z-40 flex h-full w-[260px] flex-none flex-col space-y-2 bg-dark-bg-secondary p-2 text-[14px] transition-all`}
-      >
-        <div className="flex items-center gap-2">
-          <button
-            className="text-sidebar flex flex-1 cursor-pointer select-none items-center gap-3 rounded-md border border-white/20 p-3 text-white transition-colors duration-200 hover:bg-gray-500/10"
-            onClick={() => {
-              handleCreateItem();
-              handleSearchTerm('');
-            }}
-          >
-            <IconPlus size={20} className="flex-shrink-0" />
-            <span className="truncate">{addItemButtonTitle}</span>
-          </button>
-
-          <button
-            className="flex items-center justify-center rounded-md border border-white/20 p-3 text-sm text-white transition-colors duration-200 hover:bg-gray-500/10 flex-shrink-0"
-            onClick={handleCreateFolder}
-            aria-label="Create folder"
-          >
-            <IconFolderPlus size={20} />
-          </button>
-
-          <CloseSidebarButton onClick={toggleOpen} side={side} />
-        </div>
-        <Search
-          placeholder={t('Search...') || ''}
-          searchTerm={searchTerm}
-          onSearch={handleSearchTerm}
-        />
-
-        <div className="flex-grow overflow-auto">
-          {items?.length > 0 && (
-            <div className="flex border-b border-white/20 pb-2">
-              {folderComponent}
-            </div>
-          )}
-
-          {items?.length > 0 ? (
-            <div
-              className="pt-2"
-              onDrop={handleDrop}
-              onDragOver={allowDrop}
-              onDragEnter={highlightDrop}
-              onDragLeave={removeHighlight}
+  return (
+    <div className="relative h-full">
+      {isOpen ? (
+        <div
+          className={`fixed md:relative top-0 ${side}-0 z-50 flex h-full w-[240px] lg:w-[260px] flex-none flex-col space-y-2 bg-dark-bg-secondary p-2 text-[14px] transition-all`}
+          data-sidebar-desktop="open"
+        >
+          <div className="flex items-center gap-2">
+            <button
+              className="text-sidebar flex flex-1 cursor-pointer select-none items-center gap-3 rounded-md border border-white/20 p-3 text-white transition-colors duration-200 hover:bg-gray-500/10"
+              onClick={() => {
+                handleCreateItem();
+                handleSearchTerm('');
+              }}
             >
-              {itemComponent}
-            </div>
-          ) : (
-            <div className="mt-8 select-none text-center text-white opacity-50 p-4">
-              <IconMistOff className="mx-auto mb-3" size={32} />
-              <span className="text-[14px] leading-normal">
-                {t('No data.')}
-              </span>
-            </div>
-          )}
+              <IconPlus size={20} className="flex-shrink-0" />
+              <span className="truncate">{addItemButtonTitle}</span>
+            </button>
+
+            <button
+              className="flex items-center justify-center rounded-md border border-white/20 p-3 text-sm text-white transition-colors duration-200 hover:bg-gray-500/10 flex-shrink-0"
+              onClick={handleCreateFolder}
+              aria-label="Create folder"
+            >
+              <IconFolderPlus size={20} />
+            </button>
+
+            <CloseSidebarButton onClick={toggleOpen} side={side} />
+          </div>
+          <Search
+            placeholder={t('Search...') || ''}
+            searchTerm={searchTerm}
+            onSearch={handleSearchTerm}
+          />
+
+          <div className="flex-grow overflow-auto">
+            {items?.length > 0 && (
+              <div className="flex border-b border-white/20 pb-2">
+                {folderComponent}
+              </div>
+            )}
+
+            {items?.length > 0 ? (
+              <div
+                className="pt-2"
+                onDrop={handleDrop}
+                onDragOver={allowDrop}
+                onDragEnter={highlightDrop}
+                onDragLeave={removeHighlight}
+              >
+                {itemComponent}
+              </div>
+            ) : (
+              <div className="mt-8 select-none text-center text-white opacity-50 p-4">
+                <IconMistOff className="mx-auto mb-3" size={32} />
+                <span className="text-[14px] leading-normal">
+                  {t('No data.')}
+                </span>
+              </div>
+            )}
+          </div>
+          {footerComponent}
         </div>
-        {footerComponent}
-      </div>
+      ) : (
+        <OpenSidebarButton onClick={toggleOpen} side={side} />
+      )}
     </div>
-  ) : (
-    <OpenSidebarButton onClick={toggleOpen} side={side} />
   );
 };
 

@@ -73,33 +73,33 @@ export const IntermediateSteps: React.FC<IntermediateStepsProps> = ({ steps, cla
 
   return (
     <div
-      className={`border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden flex flex-col ${className}`}
+      className={`apple-glass rounded-2xl overflow-hidden flex flex-col ${className}`}
     >
-      <div className="bg-gray-50 dark:bg-gray-800 sticky top-0 z-10">
+      <div className="sticky top-0 z-10">
         <button
           onClick={() => setIsExpanded(!isExpanded)}
-          className="group w-full px-4 py-2 text-left text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors flex items-center justify-between"
+          className="group w-full px-4 py-3 text-left text-sm font-medium text-white/90 hover:bg-white/5 transition-all flex items-center justify-between backdrop-blur-sm"
         >
           <span className="flex items-center gap-3">
             <span className="text-sm font-semibold tracking-tight">Intermediate Steps</span>
             <span
-              className={`inline-flex items-center gap-2 rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors ${
+              className={`inline-flex items-center gap-2 rounded-full px-2.5 py-0.5 text-xs font-semibold transition-all ${
                 messageIsStreaming
-                  ? 'border-emerald-200 bg-emerald-50 text-emerald-600 dark:border-emerald-500/40 dark:bg-emerald-500/10 dark:text-emerald-300'
-                  : 'border-gray-200 bg-white text-gray-600 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300'
+                  ? 'bg-nvidia-green/20 text-nvidia-green border border-nvidia-green/30 shadow-[0_0_8px_rgba(118,185,0,0.3)]'
+                  : 'bg-white/10 text-white/80 border border-white/20'
               }`}
             >
               {messageIsStreaming && (
                 <span className="relative flex h-2 w-2">
-                  <span className="absolute inline-flex h-full w-full rounded-full bg-emerald-400/70 opacity-75 animate-ping" aria-hidden />
-                  <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
+                  <span className="absolute inline-flex h-full w-full rounded-full bg-nvidia-green opacity-75 animate-ping" aria-hidden />
+                  <span className="relative inline-flex h-2 w-2 rounded-full bg-nvidia-green" />
                 </span>
               )}
               <span>{visibleCount}</span>
             </span>
           </span>
           <svg
-            className={`w-5 h-5 transition-transform duration-200 ease-out ${isExpanded ? 'rotate-180' : 'group-hover:translate-x-0.5'}`}
+            className={`w-5 h-5 transition-transform duration-200 ease-out text-white/60 ${isExpanded ? 'rotate-180' : ''}`}
             fill="currentColor"
             viewBox="0 0 20 20"
           >
@@ -111,13 +111,13 @@ export const IntermediateSteps: React.FC<IntermediateStepsProps> = ({ steps, cla
           </svg>
         </button>
         {messageIsStreaming && (
-          <div className="h-1 bg-gradient-to-r from-nvidia-green via-emerald-400 to-nvidia-green animate-pulse" />
+          <div className="h-0.5 bg-gradient-to-r from-transparent via-nvidia-green to-transparent animate-pulse" />
         )}
       </div>
 
       {isExpanded && (
-        <div className="flex-1 flex flex-col min-h-0">
-          <div className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
+        <div className="flex-1 flex flex-col min-h-0 animate-slide-in">
+          <div className="sticky top-0 z-10 apple-glass-subtle border-b border-white/10">
             <ViewToggle
               view={intermediateStepsView}
               onViewChange={handleViewChange}

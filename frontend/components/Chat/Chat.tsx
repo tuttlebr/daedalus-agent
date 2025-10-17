@@ -31,7 +31,7 @@ import {
 } from '@/types/intermediateSteps';
 import { SSEClient, createSSEUrl } from '@/services/sse';
 import HomeContext from '@/pages/api/home/home.context';
-import { ChatInput } from './ChatInput';
+import { ChatInputNew as ChatInput } from './ChatInputNew';
 import { ChatLoader } from './ChatLoader';
 import { MemoizedChatMessage } from './MemoizedChatMessage';
 import { cleanMessagesForLLM, processMessageImages } from '@/utils/app/imageHandler';
@@ -58,6 +58,7 @@ export const Chat = () => {
     },
     handleUpdateConversation,
     dispatch: homeDispatch,
+    quickActionHandlers,
   } = useContext(HomeContext);
 
   const [currentMessage, setCurrentMessage] = useState<Message>();
@@ -74,9 +75,6 @@ export const Chat = () => {
   const lastScrollTop = useRef(0); // Store last known scroll position
 
   // Add these variables near the top of your component
-  const isUserInitiatedScroll = useRef(false);
-  const scrollTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
-
   useEffect(() => {
     selectedConversationRef.current = selectedConversation;
   }, [selectedConversation]);
@@ -610,62 +608,30 @@ export const Chat = () => {
   }, [messageIsStreaming]);
 
   // Add an effect to set up wheel and touchmove event listeners
-  useEffect(() => {
-    const container = chatContainerRef.current;
-    if (!container) return;
-
-    // Function to handle user input events (mouse wheel, touch)
-    const handleUserInput = () => {
-      // Mark this as user-initiated scrolling
-      isUserInitiatedScroll.current = true;
-
-      // Reset the flag after a short delay
-      if (scrollTimeout.current) {
-        clearTimeout(scrollTimeout.current);
-      }
-      scrollTimeout.current = setTimeout(() => {
-        isUserInitiatedScroll.current = false;
-      }, 200);
-    };
-
-    // Add event listeners for user interactions
-    container.addEventListener('wheel', handleUserInput, { passive: true });
-    container.addEventListener('touchmove', handleUserInput, { passive: true });
-
-    return () => {
-      // Clean up
-      container.removeEventListener('wheel', handleUserInput);
-      container.removeEventListener('touchmove', handleUserInput);
-      if (scrollTimeout.current) {
-        clearTimeout(scrollTimeout.current);
-      }
-    };
-  }, [chatContainerRef.current]); // Only re-run if the container ref changes
-
-  // Now modify your handleScroll function to use this flag
   const handleScroll = useCallback(() => {
-    if (!chatContainerRef.current || !isUserInitiatedScroll.current) return;
-
+    if (!chatContainerRef.current) return;
     const { scrollTop, scrollHeight, clientHeight } = chatContainerRef.current;
-    const isScrollingUp = scrollTop < lastScrollTop.current;
-    const isAtBottom = scrollHeight - scrollTop - clientHeight < 20;
-
-    // Only disable auto-scroll if it's a user-initiated upward scroll
-    if (isScrollingUp && autoScrollEnabled && messageIsStreaming) {
-      setAutoScrollEnabled(false);
-      homeDispatch({ field: 'autoScroll', value: false });
-      setShowScrollDownButton(true);
+    const threshold = Math.max(24, clientHeight * 0.02);
+    const isAtBottom = scrollHeight - scrollTop - clientHeight <= threshold;
+    if (!isAtBottom) {
+      if (autoScrollEnabled) {
+        setAutoScrollEnabled(false);
+        homeDispatch({ field: 'autoScroll', value: false });
+      }
+      if (!showScrollDownButton) {
+        setShowScrollDownButton(true);
+      }
+    } else {
+      if (!autoScrollEnabled) {
+        setAutoScrollEnabled(true);
+        homeDispatch({ field: 'autoScroll', value: true });
+      }
+      if (showScrollDownButton) {
+        setShowScrollDownButton(false);
+      }
     }
-
-    // Re-enable auto-scroll if user scrolls to bottom
-    if (isAtBottom && !autoScrollEnabled) {
-      setAutoScrollEnabled(true);
-      homeDispatch({ field: 'autoScroll', value: true });
-      setShowScrollDownButton(false);
-    }
-
     lastScrollTop.current = scrollTop;
-  }, [autoScrollEnabled, messageIsStreaming]);
+  }, [autoScrollEnabled, homeDispatch, showScrollDownButton]);
 
   const handleScrollDown = () => {
     chatContainerRef.current?.scrollTo({
@@ -727,24 +693,24 @@ export const Chat = () => {
 
   return (
     <div
-      className="relative flex min-h-0 flex-1 flex-col bg-bg-secondary transition-colors duration-300 ease-in-out dark:bg-dark-bg-primary"
+      className="relative flex h-full min-h-0 flex-1 flex-col bg-bg-secondary transition-colors duration-300 ease-in-out dark:bg-dark-bg-primary"
       style={{
         paddingTop: 'env(safe-area-inset-top)',
-        paddingBottom: 'env(safe-area-inset-bottom)',
         paddingLeft: 'env(safe-area-inset-left)',
         paddingRight: 'env(safe-area-inset-right)',
+        height: '100dvh',
       }}
     >
       <ChatHeader />
-      <div className="relative flex flex-1 flex-col">
+      <div className="relative flex flex-1 flex-col overflow-hidden">
         <div
-          className="flex-1 overflow-y-auto"
+          className="flex-1 overflow-y-auto overscroll-none -webkit-overflow-scrolling-touch scrollbar-hide sm:scrollbar-show relative"
           ref={chatContainerRef}
           onScroll={handleScroll}
         >
-          <div className="mx-auto flex h-full w-full max-w-5xl flex-col px-4 pb-8 pt-6 sm:px-6 lg:px-8">
+          <div className="mx-auto flex h-full w-full max-w-5xl flex-col px-3 sm:px-4 md:px-6 pb-0 pt-3 sm:pt-6">
             {hasMessages ? (
-              <div className="flex flex-col space-y-4 sm:space-y-5 min-w-0">
+              <div className="flex flex-col space-y-1 sm:space-y-2 min-w-0">
                 {selectedConversation?.messages.map((message, index) => (
                   <MemoizedChatMessage
                     key={message.id || index}
@@ -755,29 +721,29 @@ export const Chat = () => {
               </div>
             ) : (
               <div className="flex flex-1 items-center justify-center py-8">
-                <div className="flex items-center justify-center">
-                  <GalaxyAnimation containerSize={220} />
+                <div className="animate-fade-in">
+                  <GalaxyAnimation containerSize={180} />
                 </div>
               </div>
             )}
 
             {loading && <ChatLoader statusUpdateText={`Thinking...`} />}
 
-            <div className="h-16 shrink-0" ref={messagesEndRef} />
+            {/* Spacer to prevent content from being hidden behind the input area */}
+            {/* Mobile: ChatInput (~120px) + BottomNav (64px) + safe area + buffer = ~320px */}
+            {/* Desktop: ChatInput (~100px) + Deep Thinker button (~50px) + buffer = ~180px */}
+            <div className="h-[320px] md:h-[180px] shrink-0" ref={messagesEndRef} />
           </div>
         </div>
 
         {showScrollDownButton && (
           <button
             type="button"
-            className="pointer-events-auto absolute bottom-[7.5rem] right-5 z-20 flex h-11 w-11 items-center justify-center rounded-full border border-neutral-200 bg-bg-primary text-text-primary shadow-md transition-colors duration-150 hover:border-neutral-300 hover:text-neutral-900 dark:border-neutral-700 dark:bg-dark-bg-tertiary dark:text-neutral-200 dark:hover:border-neutral-600"
+            className="pointer-events-auto absolute bottom-[22rem] md:bottom-[12rem] right-3 sm:right-5 z-10 flex h-10 w-10 sm:h-11 sm:w-11 items-center justify-center rounded-full bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 shadow-lg transition-all duration-200 hover:scale-110 active:scale-95 border border-gray-200 dark:border-gray-700"
             onClick={handleScrollDown}
-            style={{
-              marginBottom: 'env(safe-area-inset-bottom)'
-            }}
             aria-label={t('Scroll to bottom') as unknown as string}
           >
-            <IconArrowDown size={20} />
+            <IconArrowDown size={18} className="sm:w-5 sm:h-5" />
           </button>
         )}
 
@@ -801,6 +767,12 @@ export const Chat = () => {
           showScrollDownButton={showScrollDownButton}
           onScrollDownClick={handleScrollDown}
           controller={controllerRef}
+          onQuickActionsRegister={(handlers) => {
+            // Pass handlers up to the parent component through context
+            if (quickActionHandlers && '__setHandlers' in quickActionHandlers) {
+              (quickActionHandlers as any).__setHandlers(handlers);
+            }
+          }}
         />
       </div>
     </div>

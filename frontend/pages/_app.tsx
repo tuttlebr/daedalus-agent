@@ -9,6 +9,8 @@ import { useEffect } from 'react';
 import '@/styles/globals.css';
 import { AuthProvider } from '@/components/Auth/AuthProvider';
 import { getSettings } from '@/utils/app/settings';
+import { registerServiceWorker, setupOfflineDetection, setupInstallPrompt } from '@/utils/app/pwa';
+import toast from 'react-hot-toast';
 
 const inter = Inter({ subsets: ['latin'] });
 
@@ -27,6 +29,18 @@ function App({ Component, pageProps }: AppProps<{}>) {
     } else {
       document.documentElement.classList.remove('dark');
     }
+
+    // Register PWA
+    registerServiceWorker();
+    setupInstallPrompt();
+    setupOfflineDetection(
+      () => {
+        toast.error('You are offline. Some features may be limited.');
+      },
+      () => {
+        toast.success('Back online!');
+      }
+    );
   }, []);
 
   return (

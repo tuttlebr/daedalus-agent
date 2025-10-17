@@ -37,6 +37,8 @@ import { setUserSessionItem } from '@/utils/app/storage';
 import { saveConversation, saveConversations } from '@/utils/app/conversation';
 import { OptimizedImage } from './OptimizedImage';
 import { useAuth } from '@/components/Auth/AuthProvider';
+import { VoiceRecorder } from './VoiceRecorder';
+import { QuickActions } from './QuickActions';
 
 
 interface Props {
@@ -80,6 +82,7 @@ export const ChatInput = ({
   const [isUploadingImage, setIsUploadingImage] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [useDeepThinker, setUseDeepThinker] = useState(false);
+  const [showVoiceRecorder, setShowVoiceRecorder] = useState(false);
   const recognitionRef = useRef<any>(null);
 
   const triggerFileUpload = () => {
@@ -525,60 +528,61 @@ export const ChatInput = ({
     };
   }, []);
 
-  return (
-    <div
-      className="sticky bottom-0 left-0 right-0 z-30 border-transparent bg-gradient-to-t from-bg-secondary via-bg-secondary/95 to-bg-secondary/0 pb-6 pt-6 dark:from-dark-bg-primary dark:via-dark-bg-primary/95 dark:to-dark-bg-primary/0"
-      style={{
-        paddingBottom: `calc(24px + env(safe-area-inset-bottom))`,
-      }}
-    >
-      <div className="stretch mx-auto flex w-full max-w-5xl flex-col gap-4 px-4 sm:px-6">
-        <div className="-mt-6 flex justify-center items-center gap-3">
-          {messageIsStreaming ? (
-            <button
-              className="inline-flex items-center gap-2 rounded-full bg-neutral-900 px-4 py-2 text-sm font-medium text-white shadow-sm transition-colors duration-150 hover:bg-neutral-800 dark:bg-nvidia-green dark:text-neutral-900"
-              onClick={handleStopConversation}
-            >
-              <IconPlayerStop size={14} /> {t('Stop Generating')}
-            </button>
-          ) : (
-            selectedConversation &&
-            selectedConversation.messages.length > 1 && (
-              <button
-                className="inline-flex items-center gap-2 rounded-full border border-neutral-200 bg-bg-primary px-4 py-2 text-sm font-medium text-text-primary shadow-sm transition-colors duration-150 hover:border-neutral-300 hover:text-neutral-900 dark:border-neutral-700 dark:bg-dark-bg-tertiary dark:text-neutral-100 dark:hover:border-neutral-600"
-                onClick={onRegenerate}
-              >
-                <IconRepeat size={14} /> {t('Regenerate response')}
-              </button>
-            )
-          )}
-          {!messageIsStreaming && (
-            <button
-              className={`inline-flex items-center gap-2 rounded-full border px-4 py-2 text-sm font-medium shadow-sm transition-colors duration-150 ${
-                useDeepThinker
-                  ? 'border-nvidia-green bg-bg-primary text-nvidia-green hover:border-nvidia-green/80 dark:border-nvidia-green dark:bg-dark-bg-tertiary dark:text-nvidia-green'
-                  : 'border-neutral-200 bg-bg-primary text-text-primary hover:border-neutral-300 hover:text-neutral-900 dark:border-neutral-700 dark:bg-dark-bg-tertiary dark:text-neutral-100 dark:hover:border-neutral-600'
-              }`}
-              onClick={() => {
-                const newDeepThinkerState = !useDeepThinker;
-                setUseDeepThinker(newDeepThinkerState);
+  const handleVoiceRecordingComplete = (audioBlob: Blob, transcript?: string) => {
+    // Handle voice recording
+    if (transcript) {
+      setContent(transcript);
+    }
+    setShowVoiceRecorder(false);
+    // You can also handle the audio blob here if needed
+  };
 
-                // If turning ON deep thinker, also enable intermediate steps
-                if (newDeepThinkerState && !enableIntermediateSteps) {
-                  homeDispatch({ field: 'enableIntermediateSteps', value: true });
-                  setUserSessionItem('enableIntermediateSteps', 'true');
-                }
-              }}
-              title="Enable deep philosophical analysis with first-principles reasoning"
-            >
-              <IconBrain size={14} /> Deep Thinker {useDeepThinker ? 'ON' : 'OFF'}
-            </button>
-          )}
+  const handleSelectPrompt = (prompt: string) => {
+    setContent(content + (content ? ' ' : '') + prompt + ' ');
+    textareaRef.current?.focus();
+  };
+
+  return (
+    <>
+      {/* Voice Recorder Modal */}
+      {showVoiceRecorder && (
+        <VoiceRecorder
+          onRecordingComplete={handleVoiceRecordingComplete}
+          onCancel={() => setShowVoiceRecorder(false)}
+        />
+      )}
+
+      <div
+        className="sticky bottom-0 left-0 right-0 z-30 bg-white/95 dark:bg-dark-bg-primary/95 backdrop-blur-lg border-t border-gray-200 dark:border-gray-700"
+        style={{
+          paddingBottom: `env(safe-area-inset-bottom)`,
+        }}
+      >
+        <div className="mx-auto flex w-full max-w-5xl flex-col">
+        {/* Quick Actions Bar - Mobile */}
+        <div className="md:hidden px-3 py-2">
+          <QuickActions
+            onAttachFile={triggerFileUpload}
+            onTakePhoto={triggerPhotoUpload}
+            onStartVoice={() => setShowVoiceRecorder(true)}
+            onSelectPrompt={handleSelectPrompt}
+            onToggleDeepThought={() => {
+              const newDeepThinkerState = !useDeepThinker;
+              setUseDeepThinker(newDeepThinkerState);
+              if (newDeepThinkerState && !enableIntermediateSteps) {
+                homeDispatch({ field: 'enableIntermediateSteps', value: true });
+                setUserSessionItem('enableIntermediateSteps', 'true');
+              }
+            }}
+            isDeepThoughtEnabled={useDeepThinker}
+          />
         </div>
 
-        <div
-          className={`relative mx-auto flex w-full max-w-5xl flex-grow flex-col gap-3 rounded-3xl border border-neutral-200/70 bg-bg-primary/95 px-4 pt-3 shadow-[0_10px_40px_rgba(15,23,42,0.08)] backdrop-blur supports-[backdrop-filter]:bg-bg-primary/80 dark:border-neutral-700 dark:bg-dark-bg-tertiary/90 dark:text-white ${inputFile && (imageRef || pdfRef || inputFileContentCompressed) ? 'pb-14' : 'pb-3'}`}
-        >
+        {/* Input Container */}
+        <div className="px-3 sm:px-4 md:px-6 py-3">
+          <div
+            className={`relative flex w-full flex-grow flex-col gap-2 sm:gap-3 rounded-2xl sm:rounded-3xl bg-gray-100 dark:bg-gray-800 ${inputFile && (imageRef || pdfRef || inputFileContentCompressed) ? 'pb-12' : ''}`}
+          >
           <textarea
             ref={textareaRef}
             className="m-0 w-full resize-none border-0 bg-transparent py-4 pr-12 pl-12 text-[15px] leading-relaxed text-neutral-900 outline-none placeholder:text-neutral-400 focus:outline-none dark:bg-transparent dark:text-white"
@@ -681,7 +685,6 @@ export const ChatInput = ({
                 type="file"
                 ref={photoInputRef}
                 accept="image/*"
-                capture="environment"
                 style={{ display: 'none' }}
                 onChange={handleFileChange}
               />

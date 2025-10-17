@@ -380,21 +380,15 @@ llms:
     thinking: false
     top_p: 0.7
   reasoning_llm:
-    _type: openai
-    base_url: https://9adef108-3097-4540-ba5f-873a9da8e54f.invocation.api.nvcf.nvidia.com/v1
-    max_tokens: 16000
-    model_name: openai/gpt-oss-120b
-    stream: true
-    temperature: 1.0
+    _type: nim
+    api_key: ${NEBIUS_API_KEY}
+    base_url: https://api.studio.nebius.com/v1
+    model_name: deepseek-ai/DeepSeek-R1-0528
   tool_calling_llm:
     _type: nim
-    base_url: https://5eb560ed-7ab8-4985-ab2a-dd1f7ea5eb66.invocation.api.nvcf.nvidia.com/v1
-    max_tokens: 16000
-    model_name: nvidia/llama-3-3-nemotron-super-49b-v1-5
-    stream: true
-    temperature: 0
-    thinking: false
-    tool_choice: required
+    api_key: ${NEBIUS_API_KEY}
+    base_url: https://api.studio.nebius.com/v1
+    model_name: moonshotai/Kimi-K2-Instruct
 retrievers:
   geolocation_retriever:
     _type: smart_milvus
