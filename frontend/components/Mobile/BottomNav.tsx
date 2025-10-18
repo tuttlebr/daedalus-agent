@@ -70,7 +70,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({
     }] : []),
     ...(onToggleDeepThought ? [{
       id: 'deep-thought',
-      icon: <IconBrain size={20} className={isDeepThoughtEnabled ? 'text-nvidia-green' : ''} />,
+      icon: <IconBrain size={20} />,
       label: 'Think',
       action: onToggleDeepThought,
     }] : []),
@@ -99,10 +99,10 @@ export const BottomNav: React.FC<BottomNavProps> = ({
               text-gray-600 dark:text-gray-400
               hover:text-nvidia-green dark:hover:text-nvidia-green
               hover:bg-white/10 dark:hover:bg-white/5
-              transition-all duration-200 transform hover:scale-105 active:scale-95
+              transition-all duration-200 transform active:scale-95
               focus:outline-none focus-visible:ring-2 focus-visible:ring-nvidia-green focus-visible:ring-inset
               ${item.id === 'new' ? 'text-nvidia-green dark:text-nvidia-green' : ''}
-              ${item.id === 'deep-thought' && isDeepThoughtEnabled ? 'text-nvidia-green dark:text-nvidia-green bg-white/10 dark:bg-white/5' : ''}
+              ${item.id === 'deep-thought' ? (isDeepThoughtEnabled ? 'text-nvidia-green dark:text-nvidia-green bg-nvidia-green/10 dark:bg-nvidia-green/20' : '') : ''}
             `}
             aria-label={item.label}
           >
@@ -112,6 +112,9 @@ export const BottomNav: React.FC<BottomNavProps> = ({
                 <span className="absolute -top-1 -right-1 flex items-center justify-center w-4 h-4 text-xs font-bold text-white bg-nvidia-green rounded-full">
                   {item.badge > 9 ? '9+' : item.badge}
                 </span>
+              )}
+              {item.id === 'deep-thought' && isDeepThoughtEnabled && (
+                <span className="absolute -top-1 -right-1 flex items-center justify-center w-2 h-2 bg-nvidia-green rounded-full animate-pulse" />
               )}
             </div>
             <span className="text-xs mt-1">{item.label}</span>

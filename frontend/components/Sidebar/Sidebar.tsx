@@ -47,23 +47,23 @@ const Sidebar = <T,>({
   };
 
   const highlightDrop = (e: any) => {
-    e.target.style.background = 'var(--color-dark-bg-primary)';
+    e.target.style.background = 'rgba(118, 185, 0, 0.1)';
   };
 
   const removeHighlight = (e: any) => {
-    e.target.style.background = 'none';
+    e.target.style.background = 'transparent';
   };
 
   return (
     <div className="relative h-full">
       {isOpen ? (
         <div
-          className={`fixed md:relative top-0 ${side}-0 z-50 flex h-full w-[240px] lg:w-[260px] flex-none flex-col space-y-2 bg-dark-bg-secondary p-2 text-[14px] transition-all`}
+          className={`fixed md:relative top-0 ${side}-0 z-50 flex h-full w-[240px] lg:w-[260px] flex-none flex-col space-y-2 apple-glass-subtle p-2 text-[14px] transition-all duration-300 ease-out border-r border-white/10 animate-slide-in`}
           data-sidebar-desktop="open"
         >
           <div className="flex items-center gap-2">
             <button
-              className="text-sidebar flex flex-1 cursor-pointer select-none items-center gap-3 rounded-md border border-white/20 p-3 text-white transition-colors duration-200 hover:bg-gray-500/10"
+              className="text-sidebar flex flex-1 cursor-pointer select-none items-center gap-3 rounded-xl apple-glass p-3 text-white transition-all duration-200 hover:bg-white/10 hover:shadow-[0_0_15px_rgba(118,185,0,0.2)] border border-white/10"
               onClick={() => {
                 handleCreateItem();
                 handleSearchTerm('');
@@ -74,7 +74,7 @@ const Sidebar = <T,>({
             </button>
 
             <button
-              className="flex items-center justify-center rounded-md border border-white/20 p-3 text-sm text-white transition-colors duration-200 hover:bg-gray-500/10 flex-shrink-0"
+              className="flex items-center justify-center rounded-xl apple-glass p-3 text-sm text-white transition-all duration-200 hover:bg-white/10 hover:shadow-[0_0_15px_rgba(118,185,0,0.2)] flex-shrink-0 border border-white/10"
               onClick={handleCreateFolder}
               aria-label="Create folder"
             >
@@ -91,7 +91,7 @@ const Sidebar = <T,>({
 
           <div className="flex-grow overflow-auto">
             {items?.length > 0 && (
-              <div className="flex border-b border-white/20 pb-2">
+              <div className="flex border-b border-white/10 pb-2">
                 {folderComponent}
               </div>
             )}
@@ -107,11 +107,13 @@ const Sidebar = <T,>({
                 {itemComponent}
               </div>
             ) : (
-              <div className="mt-8 select-none text-center text-white opacity-50 p-4">
-                <IconMistOff className="mx-auto mb-3" size={32} />
-                <span className="text-[14px] leading-normal">
-                  {t('No data.')}
-                </span>
+              <div className="mt-8 select-none text-center p-4">
+                <div className="apple-glass-subtle rounded-2xl p-6 mx-2">
+                  <IconMistOff className="mx-auto mb-3 text-white/40" size={32} />
+                  <span className="text-[14px] leading-normal text-white/60">
+                    {t('No data.')}
+                  </span>
+                </div>
               </div>
             )}
           </div>

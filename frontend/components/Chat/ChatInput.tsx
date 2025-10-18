@@ -705,7 +705,7 @@ export const ChatInput = ({
             )}
           </button>
           <button
-            className="absolute right-3 bottom-3 rounded-full bg-neutral-900 p-2 text-white transition-transform duration-150 hover:scale-105 dark:bg-nvidia-green"
+            className="absolute right-3 bottom-3 rounded-full bg-neutral-900 p-2 text-white transition-transform duration-150 dark:bg-nvidia-green"
             onClick={handleSend}
           >
             {messageIsStreaming ? (

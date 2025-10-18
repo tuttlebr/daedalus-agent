@@ -31,7 +31,7 @@ export const ChatbarSettings = () => {
   } = useContext(ChatbarContext);
 
   return (
-    <div className="flex flex-col items-center space-y-1 border-t border-white/20 pt-1 text-sm">
+    <div className="flex flex-col items-center space-y-1 border-t border-white/10 pt-1 text-sm">
       {conversations.length > 0 ? (
         <ClearConversations onClearConversations={handleClearConversations} />
       ) : null}
@@ -50,9 +50,9 @@ export const ChatbarSettings = () => {
 
       {user && (
         <>
-          <div className="w-full border-t border-white/20 pt-1">
-            <div className="px-3 py-2 text-xs text-gray-400">
-              Logged in as: <span className="text-white">{user.name}</span>
+          <div className="w-full border-t border-white/10 pt-1">
+            <div className="px-3 py-2 text-xs text-white/40">
+              Logged in as: <span className="text-white/80 font-medium">{user.name}</span>
             </div>
           </div>
           <SidebarButton

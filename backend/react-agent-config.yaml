@@ -186,7 +186,7 @@ functions:
   code_generation:
     _type: code_generation
     description: Useful to generate Python code. For any questions about code generation, you must only use this tool!
-    llm_name: reasoning_llm
+    llm_name: coding_llm
     programming_language: Python
     verbose: true
   current_datetime_tool:
@@ -752,11 +752,21 @@ functions:
     max_results: 3
     verbose: true
 general:
-  front_end:
-    _type: fastapi
-    step_adaptor:
-      mode: default
+  telemetry:
+    tracing:
+      phoenix:
+        _type: phoenix
+        endpoint: ${DAEDALUS_PHOENIX_ENDPOINT}
+        project: daedalus-deep-thinker
 llms:
+  coding_llm:
+    _type: openai
+    api_key: ${NEBIUS_API_KEY}
+    base_url: https://api.studio.nebius.com/v1
+    max_tokens: 32768
+    model_name: Qwen/Qwen3-Coder-480B-A35B-Instruct
+    temperature: 0.2
+    top_p: 0.7
   fast_llm:
     _type: nim
     base_url: https://5183a11a-633e-4945-b882-de86ce85125e.invocation.api.nvcf.nvidia.com/v1
@@ -767,15 +777,19 @@ llms:
     thinking: false
     top_p: 0.95
   reasoning_llm:
-    _type: nim
-    api_key: ${NEBIUS_API_KEY}
-    base_url: https://api.studio.nebius.com/v1
-    model_name: Qwen/Qwen3-235B-A22B-Thinking-2507
+    _type: openai
+    api_key: ${OPENAI_API_KEY}
+    base_url: https://api.openai.com/v1
+    max_tokens: 32768
+    model_name: o4-mini
+    temperature: 1
   tool_calling_llm:
-    _type: nim
-    api_key: ${NEBIUS_API_KEY}
-    base_url: https://api.studio.nebius.com/v1
-    model_name: moonshotai/Kimi-K2-Instruct
+    _type: openai
+    api_key: ${NVIDIA_API_KEY}
+    base_url: https://5eb560ed-7ab8-4985-ab2a-dd1f7ea5eb66.invocation.api.nvcf.nvidia.com/v1
+    max_tokens: 32768
+    model_name: nvidia/llama-3-3-nemotron-super-49b-v1-5
+    thinking: false
 retrievers:
   geolocation_retriever:
     _type: smart_milvus

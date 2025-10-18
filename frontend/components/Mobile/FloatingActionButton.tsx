@@ -101,7 +101,7 @@ export const FloatingActionButton: React.FC<FloatingActionButtonProps> = ({
                   w-12 h-12 rounded-full shadow-lg glass
                   flex items-center justify-center
                   text-white transition-all duration-200
-                  hover:scale-110 active:scale-95
+                  active:scale-95
                   hover:shadow-glow-green
                   focus:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2
                   ${action.color || 'bg-nvidia-green'}
@@ -121,7 +121,7 @@ export const FloatingActionButton: React.FC<FloatingActionButtonProps> = ({
             relative w-14 h-14 rounded-full shadow-xl
             flex items-center justify-center
             text-white transition-all duration-300
-            hover:scale-110 active:scale-95
+            active:scale-95
             focus:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2
             ${isExpanded
               ? 'bg-gray-700 rotate-45'

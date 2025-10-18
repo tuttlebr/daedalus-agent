@@ -7,7 +7,7 @@ interface Props {
 export const CloseSidebarButton = ({ onClick, side }: Props) => {
   return (
     <button
-      className="flex items-center justify-center rounded-md border border-white/20 p-3 text-white transition-colors duration-200 hover:bg-gray-500/10 flex-shrink-0"
+      className="flex items-center justify-center rounded-xl apple-glass p-3 text-white/60 transition-all duration-200 hover:bg-white/10 hover:text-white hover:shadow-[0_0_15px_rgba(118,185,0,0.2)] flex-shrink-0 border border-white/10"
       onClick={onClick}
       aria-label="Close sidebar"
     >
@@ -31,7 +31,7 @@ export const OpenSidebarButton = ({ onClick, side }: Props) => {
   return (
     <button
       className={`absolute top-2.5 ${side === 'right' ? 'right-2' : 'left-2'}
-      z-50 p-1.5 rounded bg-black/40 text-white hover:bg-black/60 transition-colors duration-200 shadow-lg`}
+      z-50 p-2 rounded-xl apple-glass text-white/80 hover:text-white hover:shadow-[0_0_20px_rgba(118,185,0,0.3)] transition-all duration-200`}
       onClick={onClick}
       aria-label="Open sidebar"
       style={safeAreaStyles}

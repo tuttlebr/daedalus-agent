@@ -739,7 +739,7 @@ export const Chat = () => {
         {showScrollDownButton && (
           <button
             type="button"
-            className="pointer-events-auto absolute bottom-[22rem] md:bottom-[12rem] right-3 sm:right-5 z-10 flex h-10 w-10 sm:h-11 sm:w-11 items-center justify-center rounded-full bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 shadow-lg transition-all duration-200 hover:scale-110 active:scale-95 border border-gray-200 dark:border-gray-700"
+            className="pointer-events-auto absolute bottom-[22rem] md:bottom-[12rem] right-3 sm:right-5 z-10 flex h-10 w-10 sm:h-11 sm:w-11 items-center justify-center rounded-full bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 shadow-lg transition-all duration-200 active:scale-95 border border-gray-200 dark:border-gray-700"
             onClick={handleScrollDown}
             aria-label={t('Scroll to bottom') as unknown as string}
           >
