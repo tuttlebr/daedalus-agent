@@ -103,10 +103,10 @@ export const ConversationComponent = ({ conversation }: Props) => {
   return (
     <div className="relative flex items-center">
       {isRenaming && selectedConversation?.id === conversation.id ? (
-        <div className="flex w-full items-center gap-3 rounded-lg bg-dark-bg-primary/90 p-3">
-          <IconMessage size={18} />
+        <div className="flex w-full items-center gap-3 rounded-xl apple-glass p-3">
+          <IconMessage size={18} className="text-white/80" />
           <input
-            className="mr-12 flex-1 overflow-hidden overflow-ellipsis border-neutral-400 bg-transparent text-left text-[12.5px] leading-3 text-white outline-none focus:border-neutral-100"
+            className="mr-12 flex-1 overflow-hidden overflow-ellipsis bg-transparent text-left text-[12.5px] leading-3 text-white outline-none placeholder-white/40"
             type="text"
             value={renameValue}
             onChange={(e) => setRenameValue(e.target.value)}
@@ -116,21 +116,21 @@ export const ConversationComponent = ({ conversation }: Props) => {
         </div>
       ) : (
         <button
-          className={`flex w-full cursor-pointer items-center gap-3 rounded-lg p-3 text-sm transition-colors duration-200 hover:bg-dark-bg-primary/90 ${
+          className={`flex w-full cursor-pointer items-center gap-3 rounded-xl p-3 text-sm transition-all duration-200 ${
             messageIsStreaming ? 'disabled:cursor-not-allowed' : ''
           } ${
             selectedConversation?.id === conversation.id
-              ? 'bg-dark-bg-primary/90'
-              : ''
+              ? 'apple-glass bg-white/10 shadow-[0_0_15px_rgba(118,185,0,0.2)]'
+              : 'hover:bg-white/5'
           }`}
           onClick={() => handleSelectConversation(conversation)}
           disabled={messageIsStreaming}
           draggable="true"
           onDragStart={(e) => handleDragStart(e, conversation)}
         >
-            <IconMessage size={18} />
+            <IconMessage size={18} className="text-white/80" />
           <div
-            className={`relative max-h-5 flex-1 overflow-hidden text-ellipsis whitespace-nowrap break-all text-left text-[12.5px] leading-3 ${
+            className={`relative max-h-5 flex-1 overflow-hidden text-ellipsis whitespace-nowrap break-all text-left text-[12.5px] leading-3 text-white/90 ${
               selectedConversation?.id === conversation.id ? 'pr-12' : 'pr-1'
             }`}
           >
@@ -141,7 +141,7 @@ export const ConversationComponent = ({ conversation }: Props) => {
 
       {(isDeleting || isRenaming) &&
         selectedConversation?.id === conversation.id && (
-          <div className="absolute right-1 z-10 flex text-gray-300 gap-1">
+          <div className="absolute right-1 z-10 flex text-white/60 gap-1">
             <SidebarActionButton handleClick={handleConfirm}>
               <IconCheck size={20} />
             </SidebarActionButton>
@@ -154,7 +154,7 @@ export const ConversationComponent = ({ conversation }: Props) => {
       {selectedConversation?.id === conversation.id &&
         !isDeleting &&
         !isRenaming && (
-          <div className="absolute right-1 z-10 flex text-gray-300 gap-1">
+          <div className="absolute right-1 z-10 flex text-white/60 gap-1">
             <SidebarActionButton handleClick={handleOpenRenameModal}>
               <IconPencil size={20} />
             </SidebarActionButton>

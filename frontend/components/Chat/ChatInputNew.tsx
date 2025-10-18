@@ -86,17 +86,40 @@ export const ChatInputNew = ({
   // Moved to context - const [showVoiceRecorder, setShowVoiceRecorder] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
 
+  // Define trigger functions before useEffect
+  const triggerFileUpload = useCallback(() => {
+    if (!fileInputRef.current) {
+      console.error('fileInputRef.current is null!');
+      return;
+    }
+    fileInputRef.current.click();
+  }, []);
+
+  const triggerPhotoUpload = useCallback(() => {
+    if (!photoInputRef.current) {
+      console.error('photoInputRef.current is null!');
+      return;
+    }
+    photoInputRef.current.click();
+  }, []);
+
+  const handleSelectPrompt = useCallback((prompt: string) => {
+    setContent(prev => prev + (prev ? ' ' : '') + prompt + ' ');
+    textareaRef.current?.focus();
+  }, []);
+
   // Register quick action handlers with parent context
   useEffect(() => {
     if (onQuickActionsRegister) {
-      onQuickActionsRegister({
+      const handlers = {
         onAttachFile: triggerFileUpload,
         onTakePhoto: triggerPhotoUpload,
         onStartVoice: () => homeDispatch({ field: 'showVoiceRecorder', value: true }),
         onSelectPrompt: handleSelectPrompt,
-      });
+      };
+      onQuickActionsRegister(handlers);
     }
-  }, [onQuickActionsRegister, homeDispatch]);
+  }, [onQuickActionsRegister, homeDispatch, triggerFileUpload, triggerPhotoUpload, handleSelectPrompt]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -161,27 +184,44 @@ export const ChatInputNew = ({
 
   const handleSend = async () => {
     if (messageIsStreaming || isUploadingFile) return;
-    if (!content.trim() && !inputFile) {
+    if (!content.trim() && !inputFile && !imageRef && !pdfRef) {
       toast.error('Please enter a message or attach a file');
       return;
     }
 
-    // Process PDFs in background
+    // Process PDF first if there is one
     if (pdfRef) {
+      // Show processing message
       toast.loading('Processing PDF...', { id: 'pdf-processing' });
-      await processPDFInBackground(pdfRef, inputFile || 'document.pdf');
+
+      const success = await processPDFInBackground(pdfRef, inputFile || 'document.pdf');
+
+      // Dismiss loading toast
       toast.dismiss('pdf-processing');
+
+      if (!success) {
+        // Don't send the message if PDF processing failed
+        return;
+      }
     }
 
-    const message: Message = {
-      role: 'user',
-      content: content || (pdfRef ? `Processing PDF: ${inputFile}` : ''),
-      metadata: { useDeepThinker },
-      attachments: imageRef ? [{
-        content: '',
+    // Prepare attachments
+    const attachments = [];
+
+    if (imageRef) {
+      attachments.push({
+        content: '', // Don't send base64 in the message
         type: 'image',
         imageRef: imageRef
-      }] : undefined
+      });
+    }
+
+    // Send message with appropriate content
+    const message: Message = {
+      role: 'user',
+      content: content || (pdfRef ? `Upload and process this PDF file "${inputFile}".` : content),
+      metadata: { useDeepThinker },
+      attachments: attachments.length > 0 ? attachments : undefined
     };
 
     onSend(message);
@@ -206,17 +246,21 @@ export const ChatInputNew = ({
     }, 100);
   };
 
-  const triggerFileUpload = () => {
-    fileInputRef.current?.click();
-  };
-
-  const triggerPhotoUpload = () => {
-    photoInputRef.current?.click();
-  };
-
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file) return;
+    if (!file) {
+      return;
+    }
+
+    // Validate file size
+    const isPDF = file.type === 'application/pdf';
+    const maxSize = isPDF ? 10 * 1024 * 1024 : 5 * 1024 * 1024; // 10MB for PDFs, 5MB for images
+
+    if (file.size > maxSize) {
+      toast.error(`File size should not exceed ${isPDF ? '10 MB' : '5 MB'}`);
+      e.target.value = '';
+      return;
+    }
 
     e.target.value = '';
     setIsUploadingFile(true);
@@ -225,7 +269,10 @@ export const ChatInputNew = ({
       const reader = new FileReader();
       reader.onload = async (event) => {
         const base64String = event.target?.result;
-        if (typeof base64String !== 'string') return;
+        if (typeof base64String !== 'string') {
+          setIsUploadingFile(false);
+          return;
+        }
 
         if (file.type === 'application/pdf') {
           const pdfReference = await uploadPDF(base64String, file.name, file.type);
@@ -236,6 +283,7 @@ export const ChatInputNew = ({
 
           // Compress if needed
           const sizeInKB = (base64String.length * 3 / 4) / 1024;
+
           if (sizeInKB > 200) {
             await new Promise<void>((resolve) => {
               compressImage(base64String, file.type, true, (compressed: string) => {
@@ -246,16 +294,31 @@ export const ChatInputNew = ({
           }
 
           const imgRef = await uploadImage(imageToUpload, file.type);
+          console.log('Image uploaded:', imgRef);
           setImageRef(imgRef);
           setInputFile(file.name);
+        } else {
+          throw new Error(`Unsupported file type: ${file.type}`);
         }
+
+        // Successfully uploaded
+        setIsUploadingFile(false);
       };
+      reader.onerror = () => {
+        console.error('Failed to read file');
+        toast.error('Failed to read file');
+        setIsUploadingFile(false);
+      };
+
       reader.readAsDataURL(file);
     } catch (error) {
       console.error('File upload error:', error);
-      toast.error('Failed to upload file');
-    } finally {
+      toast.error(`Failed to upload file: ${error instanceof Error ? error.message : 'Unknown error'}`);
       setIsUploadingFile(false);
+      // Reset file inputs
+      setInputFile(null);
+      setImageRef(null);
+      setPdfRef(null);
     }
   };
 
@@ -266,14 +329,83 @@ export const ChatInputNew = ({
     homeDispatch({ field: 'showVoiceRecorder', value: false });
   };
 
-  const handleSelectPrompt = (prompt: string) => {
-    setContent(content + (content ? ' ' : '') + prompt + ' ');
-    textareaRef.current?.focus();
-  };
+  const processPDFInBackground = async (pdfRefData: PDFReference, filename: string) => {
+    try {
+      const response = await fetch('/api/pdf/process', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          pdfRef: pdfRefData,
+          filename: filename
+        }),
+      });
 
-  const processPDFInBackground = async (pdfRef: PDFReference, filename: string) => {
-    // PDF processing logic here
-    return true;
+      const result = await response.json();
+
+      if (!response.ok) {
+        console.error('Failed to process PDF:', result);
+        toast.error('Failed to process PDF. Please try again.');
+        return false;
+      }
+
+      toast.success('PDF processed successfully!');
+
+      // Add an assistant message to the conversation to provide context
+      if (selectedConversation) {
+        let contentMessage = `I've successfully processed and indexed the PDF file "${filename}".`;
+
+        // Add metadata details if available
+        if (result.metadata) {
+          if (result.metadata.extractedPages > 0) {
+            contentMessage += ` I extracted ${result.metadata.extractedPages} page${result.metadata.extractedPages > 1 ? 's' : ''} from the document.`;
+          }
+          if (result.metadata.documentsIndexed > 0) {
+            contentMessage += ` ${result.metadata.documentsIndexed} document${result.metadata.documentsIndexed > 1 ? 's' : ''} ${result.metadata.documentsIndexed > 1 ? 'were' : 'was'} indexed.`;
+          }
+        }
+
+        contentMessage += ` The document is now searchable and I can answer questions about its content. What would you like to know about this document?`;
+
+        const assistantMessage: Message = {
+          id: uuidv4(),
+          role: 'assistant',
+          content: contentMessage
+        };
+
+        const updatedConversation = {
+          ...selectedConversation,
+          messages: [...selectedConversation.messages, assistantMessage]
+        };
+
+        homeDispatch({
+          field: 'selectedConversation',
+          value: updatedConversation
+        });
+
+        // Save conversation
+        saveConversation(updatedConversation);
+
+        // Update conversations list
+        const updatedConversations = conversations.map((conv: Conversation) =>
+          conv.id === selectedConversation.id ? updatedConversation : conv
+        );
+
+        homeDispatch({
+          field: 'conversations',
+          value: updatedConversations
+        });
+
+        saveConversations(updatedConversations);
+      }
+
+      return true;
+    } catch (error) {
+      console.error('Error processing PDF:', error);
+      toast.error('Error processing PDF. Please try again.');
+      return false;
+    }
   };
 
   return (
@@ -284,6 +416,7 @@ export const ChatInputNew = ({
           onCancel={() => homeDispatch({ field: 'showVoiceRecorder', value: false })}
         />
       )}
+
 
       <div
         className="pointer-events-none fixed bottom-0 right-0 z-40 w-full"
@@ -320,10 +453,21 @@ export const ChatInputNew = ({
                 <div className="apple-glass rounded-2xl p-3 animate-slide-in">
                   <div className="flex items-center gap-3">
                     <div className="flex items-center gap-2 flex-1">
-                      <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/10">
+                      <div className={`flex h-8 w-8 items-center justify-center rounded-lg ${isUploadingFile ? 'bg-nvidia-green/20' : 'bg-white/10'} transition-colors`}>
                         {pdfRef ? <IconPaperclip size={18} className="text-white/80" /> : <IconPhoto size={18} className="text-white/80" />}
                       </div>
-                      <span className="text-sm font-medium text-white/90 truncate">{inputFile}</span>
+                      <div className="flex-1 min-w-0">
+                        <span className="text-sm font-medium text-white/90 truncate block">{inputFile}</span>
+                        {isUploadingFile && (
+                          <span className="text-xs text-white/60 mt-0.5 block">Uploading...</span>
+                        )}
+                        {!isUploadingFile && pdfRef && (
+                          <span className="text-xs text-nvidia-green mt-0.5 block">Ready to process</span>
+                        )}
+                        {!isUploadingFile && imageRef && (
+                          <span className="text-xs text-nvidia-green mt-0.5 block">Ready to send</span>
+                        )}
+                      </div>
                     </div>
                     <button
                       onClick={() => {
@@ -333,10 +477,21 @@ export const ChatInputNew = ({
                       }}
                       className="rounded-lg p-1.5 text-white/60 transition-all hover:bg-white/10 hover:text-white active:scale-95"
                       aria-label="Remove attachment"
+                      disabled={isUploadingFile}
                     >
-                      <IconTrash size={16} />
+                      {isUploadingFile ? (
+                        <div className="w-4 h-4 border-2 border-white/30 border-t-white/80 rounded-full animate-spin" />
+                      ) : (
+                        <IconTrash size={16} />
+                      )}
                     </button>
                   </div>
+                  {/* Upload progress indicator */}
+                  {isUploadingFile && (
+                    <div className="mt-2 w-full h-1 bg-white/10 rounded-full overflow-hidden">
+                      <div className="h-full bg-nvidia-green rounded-full animate-pulse" style={{ width: '60%' }} />
+                    </div>
+                  )}
                 </div>
               )}
 

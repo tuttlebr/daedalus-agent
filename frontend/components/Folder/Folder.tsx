@@ -68,11 +68,11 @@ const Folder = ({
   };
 
   const highlightDrop = (e: any) => {
-    e.target.style.background = 'var(--color-dark-bg-tertiary)';
+    e.target.style.background = 'rgba(118, 185, 0, 0.1)';
   };
 
   const removeHighlight = (e: any) => {
-    e.target.style.background = 'none';
+    e.target.style.background = 'transparent';
   };
 
   useEffect(() => {
@@ -95,14 +95,14 @@ const Folder = ({
     <>
       <div className="relative flex items-center">
         {isRenaming ? (
-          <div className="flex w-full items-center gap-3 bg-dark-bg-tertiary/90 p-3">
+          <div className="flex w-full items-center gap-3 rounded-xl apple-glass p-3">
             {isOpen ? (
-              <IconCaretDown size={18} />
+              <IconCaretDown size={18} className="text-white/80" />
             ) : (
-              <IconCaretRight size={18} />
+              <IconCaretRight size={18} className="text-white/80" />
             )}
             <input
-              className="mr-12 flex-1 overflow-hidden overflow-ellipsis border-neutral-400 bg-transparent text-left text-[12.5px] leading-3 text-white outline-none focus:border-neutral-100"
+              className="mr-12 flex-1 overflow-hidden overflow-ellipsis bg-transparent text-left text-[12.5px] leading-3 text-white outline-none placeholder-white/40"
               type="text"
               value={renameValue}
               onChange={(e) => setRenameValue(e.target.value)}
@@ -112,7 +112,7 @@ const Folder = ({
           </div>
         ) : (
           <button
-            className={`flex w-full cursor-pointer items-center gap-3 rounded-lg p-3 text-sm transition-colors duration-200 hover:bg-dark-bg-tertiary/90`}
+            className={`flex w-full cursor-pointer items-center gap-3 rounded-xl p-3 text-sm transition-all duration-200 hover:bg-white/5`}
             onClick={() => setIsOpen(!isOpen)}
             onDrop={(e) => dropHandler(e)}
             onDragOver={allowDrop}
@@ -120,19 +120,19 @@ const Folder = ({
             onDragLeave={removeHighlight}
           >
             {isOpen ? (
-              <IconCaretDown size={18} />
+              <IconCaretDown size={18} className="text-white/60" />
             ) : (
-              <IconCaretRight size={18} />
+              <IconCaretRight size={18} className="text-white/60" />
             )}
 
-            <div className="relative max-h-5 flex-1 overflow-hidden text-ellipsis whitespace-nowrap break-all text-left text-[12.5px] leading-3">
+            <div className="relative max-h-5 flex-1 overflow-hidden text-ellipsis whitespace-nowrap break-all text-left text-[12.5px] leading-3 text-white/90">
               {currentFolder.name}
             </div>
           </button>
         )}
 
         {(isDeleting || isRenaming) && (
-          <div className="absolute right-1 z-10 flex text-gray-300">
+          <div className="absolute right-1 z-10 flex text-white/60">
             <SidebarActionButton
               handleClick={(e) => {
                 e.stopPropagation();
@@ -162,7 +162,7 @@ const Folder = ({
         )}
 
         {!isDeleting && !isRenaming && (
-          <div className="absolute right-1 z-10 flex text-gray-300">
+          <div className="absolute right-1 z-10 flex text-white/60">
             <SidebarActionButton
               handleClick={(e) => {
                 e.stopPropagation();

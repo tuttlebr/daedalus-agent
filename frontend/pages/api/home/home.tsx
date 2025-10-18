@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import { GetServerSideProps } from 'next';
 import { useTranslation } from 'next-i18next';
@@ -64,7 +64,7 @@ const Home = (props: any) => {
   } = contextValue;
 
   const stopConversationRef = useRef<boolean>(false);
-  const quickActionHandlersRef = useRef<{
+  const [quickActionHandlers, setQuickActionHandlers] = useState<{
     onAttachFile?: () => void;
     onTakePhoto?: () => void;
     onStartVoice?: () => void;
@@ -287,15 +287,39 @@ const Home = (props: any) => {
           handleSelectConversation,
           handleUpdateConversation,
           quickActionHandlers: {
-            onAttachFile: () => quickActionHandlersRef.current.onAttachFile?.(),
-            onTakePhoto: () => quickActionHandlersRef.current.onTakePhoto?.(),
-            onStartVoice: () => quickActionHandlersRef.current.onStartVoice?.(),
+            onAttachFile: () => {
+              if (quickActionHandlers.onAttachFile) {
+                quickActionHandlers.onAttachFile();
+              } else {
+                console.warn('Attach file handler not available');
+              }
+            },
+            onTakePhoto: () => {
+              if (quickActionHandlers.onTakePhoto) {
+                quickActionHandlers.onTakePhoto();
+              } else {
+                console.warn('Take photo handler not available');
+              }
+            },
+            onStartVoice: () => {
+              if (quickActionHandlers.onStartVoice) {
+                quickActionHandlers.onStartVoice();
+              } else {
+                console.warn('Start voice handler not available');
+              }
+            },
             onToggleDeepThought: () => {
               dispatch({ field: 'useDeepThinker', value: !useDeepThinker });
             },
-            onSelectPrompt: (prompt: string) => quickActionHandlersRef.current.onSelectPrompt?.(prompt),
+            onSelectPrompt: (prompt: string) => {
+              if (quickActionHandlers.onSelectPrompt) {
+                quickActionHandlers.onSelectPrompt(prompt);
+              } else {
+                console.warn('Select prompt handler not available');
+              }
+            },
             __setHandlers: (handlers: any) => {
-              quickActionHandlersRef.current = handlers;
+              setQuickActionHandlers((prevHandlers: any) => ({ ...prevHandlers, ...handlers }));
             },
           } as any,
         }}
@@ -334,10 +358,30 @@ const Home = (props: any) => {
 
               {/* Bottom Navigation */}
               <BottomNav
-                onAttachFile={() => quickActionHandlersRef.current.onAttachFile?.()}
-                onTakePhoto={() => quickActionHandlersRef.current.onTakePhoto?.()}
-                onStartVoice={() => quickActionHandlersRef.current.onStartVoice?.()}
-                onToggleDeepThought={() => dispatch({ field: 'useDeepThinker', value: !useDeepThinker })}
+                onAttachFile={() => {
+                  if (quickActionHandlers.onAttachFile) {
+                    quickActionHandlers.onAttachFile();
+                  } else {
+                    console.warn('File attachment handler not ready yet');
+                  }
+                }}
+                onTakePhoto={() => {
+                  if (quickActionHandlers.onTakePhoto) {
+                    quickActionHandlers.onTakePhoto();
+                  } else {
+                    console.warn('Photo handler not ready yet');
+                  }
+                }}
+                onStartVoice={() => {
+                  if (quickActionHandlers.onStartVoice) {
+                    quickActionHandlers.onStartVoice();
+                  } else {
+                    console.warn('Voice handler not ready yet');
+                  }
+                }}
+                onToggleDeepThought={() => {
+                  dispatch({ field: 'useDeepThinker', value: !useDeepThinker });
+                }}
                 isDeepThoughtEnabled={useDeepThinker}
               />
 
