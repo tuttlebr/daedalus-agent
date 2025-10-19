@@ -634,7 +634,17 @@ export const ChatInput: React.FC<Props> = ({
                     // IMPORTANT: Disable chat auto-scroll to prevent it from fighting with input scroll
                     homeDispatch({ field: 'autoScroll', value: false });
                     
-                    // Use multiple techniques for best compatibility
+                    // In PWA standalone mode, visualViewport handles keyboard positioning
+                    // Don't use scrollIntoView as it conflicts with the viewport adjustments
+                    const isPWA = window.matchMedia('(display-mode: standalone)').matches || 
+                                  (window.navigator as any).standalone === true;
+                    
+                    if (isPWA) {
+                      // In PWA mode, rely on visualViewport adjustments instead of scrollIntoView
+                      return;
+                    }
+                    
+                    // Use multiple techniques for best compatibility (browser mode only)
                     
                     // Technique 1: ScrollIntoView (most reliable)
                     setTimeout(() => {

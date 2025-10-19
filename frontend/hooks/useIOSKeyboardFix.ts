@@ -57,12 +57,16 @@ export const useIOSKeyboardFix = (): UseIOSKeyboardFixReturn => {
     const handleFocusIn = (e: FocusEvent) => {
       const target = e.target as HTMLElement;
       if (target.tagName === 'TEXTAREA' || target.tagName === 'INPUT') {
+        // In PWA mode, don't use scrollTo - let visualViewport handle positioning
+        const isPWA = window.matchMedia('(display-mode: standalone)').matches || 
+                      (window.navigator as any).standalone === true;
+        
         // Delay to let keyboard animation start
         setTimeout(() => {
           handleViewportChange();
 
-          // Ensure input is visible
-          if (window.visualViewport && window.visualViewport.offsetTop > 0) {
+          // Ensure input is visible (browser mode only)
+          if (!isPWA && window.visualViewport && window.visualViewport.offsetTop > 0) {
             window.scrollTo(0, 0);
           }
         }, 300);

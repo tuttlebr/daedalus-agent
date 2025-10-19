@@ -680,8 +680,15 @@ export const Chat = () => {
         setShowScrollDownButton(false);
 
         // Delay auto-scroll re-enabling to prevent accidental triggers
-        if (!autoScrollEnabled && !autoScrollTimeoutRef.current) {
+        // Skip if keyboard is visible in PWA mode
+        if (!autoScrollEnabled && !autoScrollTimeoutRef.current && !(isPWA && keyboardOffset > 0)) {
           autoScrollTimeoutRef.current = setTimeout(() => {
+            // Double-check keyboard isn't visible when timeout fires
+            if (isPWA && keyboardOffset > 0) {
+              autoScrollTimeoutRef.current = null;
+              return;
+            }
+            
             if (chatContainerRef.current) {
               const { scrollTop: currentScrollTop, scrollHeight: currentScrollHeight, clientHeight: currentClientHeight } = chatContainerRef.current;
               const currentDistanceFromBottom = currentScrollHeight - currentScrollTop - currentClientHeight;
@@ -698,9 +705,14 @@ export const Chat = () => {
 
       lastScrollTop.current = scrollTop;
     }, 100); // 100ms debounce
-  }, [autoScrollEnabled, homeDispatch, messageIsStreaming]);
+  }, [autoScrollEnabled, homeDispatch, messageIsStreaming, isPWA, keyboardOffset]);
 
   const handleScrollDown = () => {
+    // In PWA mode, don't scroll when keyboard is visible
+    if (isPWA && keyboardOffset > 0) {
+      return;
+    }
+    
     // Clear any pending timeouts
     if (scrollTimeoutRef.current) {
       clearTimeout(scrollTimeoutRef.current);
@@ -759,6 +771,11 @@ export const Chat = () => {
       selectedConversationRef.current = selectedConversation;
     } else if (selectedConversation && autoScrollEnabled) {
       // Same conversation, new message - only scroll if auto-scroll is enabled
+      // Skip if keyboard is visible in PWA mode
+      if (isPWA && keyboardOffset > 0) {
+        return;
+      }
+      
       const currentMessageCount = selectedConversation.messages.length;
       const previousMessageCount = selectedConversationRef.current?.messages.length || 0;
 
@@ -771,7 +788,7 @@ export const Chat = () => {
       setCurrentMessage(
         selectedConversation.messages[selectedConversation.messages.length - 2],
       );
-  }, [selectedConversation, throttledScrollDown, autoScrollEnabled]);
+  }, [selectedConversation, throttledScrollDown, autoScrollEnabled, isPWA, keyboardOffset]);
 
   // Remove the intersection observer - it's causing unwanted scrolls
   // Instead, rely on explicit scroll triggers from new messages
