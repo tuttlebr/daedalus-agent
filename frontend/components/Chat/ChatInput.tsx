@@ -1,15 +1,14 @@
 import {
   IconArrowDown,
   IconMicrophone,
-  IconPaperclip,
   IconPhoto,
-  IconCamera,
   IconPlayerStop,
   IconPlayerStopFilled,
   IconRepeat,
   IconSend,
   IconTrash,
-  IconBrain,
+  IconCamera,
+  IconPaperclip,
 } from '@tabler/icons-react';
 import {
   KeyboardEvent,
@@ -22,8 +21,11 @@ import {
   useState,
 } from 'react';
 
+import type React from 'react';
+
 import { useTranslation } from 'next-i18next';
 import toast from 'react-hot-toast';
+import { useKeyboardVisibility } from '@/hooks/useKeyboardVisibility';
 
 import { Message, Conversation } from '@/types/chat';
 import { v4 as uuidv4 } from 'uuid';
@@ -36,9 +38,9 @@ import { uploadPDF, PDFReference } from '@/utils/app/pdfHandler';
 import { setUserSessionItem } from '@/utils/app/storage';
 import { saveConversation, saveConversations } from '@/utils/app/conversation';
 import { OptimizedImage } from './OptimizedImage';
-import { useAuth } from '@/components/Auth/AuthProvider';
 import { VoiceRecorder } from './VoiceRecorder';
 import { QuickActions } from './QuickActions';
+import { QuickActionsPopup } from './QuickActionsPopup';
 
 
 interface Props {
@@ -47,57 +49,68 @@ interface Props {
   onScrollDownClick: () => void;
   textareaRef: MutableRefObject<HTMLTextAreaElement | null>;
   showScrollDownButton: boolean;
-  controller: MutableRefObject<AbortController>
+  controller: MutableRefObject<AbortController>;
+  onQuickActionsRegister?: (handlers: {
+    onAttachFile: () => void;
+    onTakePhoto: () => void;
+    onStartVoice: () => void;
+    onToggleDeepThought: () => void;
+  }) => void;
 }
 
-export const ChatInput = ({
+export const ChatInput: React.FC<Props> = ({
   onSend,
-  onRegenerate,
   onScrollDownClick,
   textareaRef,
   showScrollDownButton,
   controller,
-}: Props) => {
+  onQuickActionsRegister,
+}) => {
   const { t } = useTranslation('chat');
-  const { user } = useAuth();
+  const { isKeyboardVisible, keyboardHeight, viewportHeight } = useKeyboardVisibility();
 
   const {
-    state: { selectedConversation, messageIsStreaming, loading, enableIntermediateSteps, conversations },
+    state: { selectedConversation, messageIsStreaming, enableIntermediateSteps, conversations, useDeepThinker },
     dispatch: homeDispatch,
   } = useContext(HomeContext);
 
   // todo add the audio file
-  const recordingStartSound = new Audio('audio/recording.wav');
+  const recordingStartSound = useRef<HTMLAudioElement | null>(null);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      recordingStartSound.current = new Audio('audio/recording.wav');
+    }
+  }, []);
 
   const [content, setContent] = useState<string>('');
   const [isTyping, setIsTyping] = useState<boolean>(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const photoInputRef = useRef<HTMLInputElement>(null);
-  const [inputFile, setInputFile] = useState<string | null>(null)
-  const [inputFileExtension, setInputFileExtension] = useState('')
-  const [inputFileContent, setInputFileContent] = useState('')
-  const [inputFileContentCompressed, setInputFileContentCompressed] = useState('')
+  const [inputFile, setInputFile] = useState<string | null>(null);
+  const [inputFileExtension, setInputFileExtension] = useState('');
+  const [inputFileContent, setInputFileContent] = useState('');
+  const [inputFileContentCompressed, setInputFileContentCompressed] = useState('');
   const [imageRef, setImageRef] = useState<ImageReference | null>(null);
   const [pdfRef, setPdfRef] = useState<{ pdfId: string; sessionId: string } | null>(null);
   const [isUploadingImage, setIsUploadingImage] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
-  const [useDeepThinker, setUseDeepThinker] = useState(false);
   const [showVoiceRecorder, setShowVoiceRecorder] = useState(false);
   const recognitionRef = useRef<any>(null);
 
-  const triggerFileUpload = () => {
+  const triggerFileUpload = useCallback(() => {
     if (fileInputRef.current) {
       fileInputRef.current.click();
     }
-  };
+  }, []);
 
-  const triggerPhotoUpload = () => {
+  const triggerPhotoUpload = useCallback(() => {
     if (photoInputRef.current) {
       photoInputRef.current.click();
     }
-  };
+  }, []);
 
-  const handleInputFileDelete = (e: React.ChangeEvent<HTMLTextAreaElement> | null) => {
+  const handleInputFileDelete = () => {
     setInputFile(null);
     setInputFileExtension('');
     setInputFileContent('');
@@ -106,6 +119,15 @@ export const ChatInput = ({
     setPdfRef(null);
   };
 
+  const handleToggleDeepThinker = useCallback(() => {
+    const nextValue = !useDeepThinker;
+    homeDispatch({ field: 'useDeepThinker', value: nextValue });
+    if (nextValue && !enableIntermediateSteps) {
+      homeDispatch({ field: 'enableIntermediateSteps', value: true });
+      setUserSessionItem('enableIntermediateSteps', 'true');
+    }
+  }, [homeDispatch, useDeepThinker, enableIntermediateSteps]);
+
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
@@ -113,7 +135,7 @@ export const ChatInput = ({
       e.target.value = '';
       const reader = new FileReader();
       reader.onload = (loadEvent) => {
-        const fullBase64String = loadEvent.target?.result;
+        const fullBase64String = (loadEvent.target?.result ?? null) as string | ArrayBuffer | null;
         processFile({ fullBase64String, file });
       };
       reader.readAsDataURL(file);
@@ -148,23 +170,11 @@ export const ChatInput = ({
       }
 
       console.log('PDF processed successfully:', result);
-      toast.success('PDF processed successfully!');
+      toast.success('PDF uploaded successfully.');
 
       // Add an assistant message to the conversation to provide context
       if (selectedConversation) {
-        let contentMessage = `I've successfully processed and indexed the PDF file "${filename}".`;
-
-        // Add metadata details if available
-        if (result.metadata) {
-          if (result.metadata.extractedPages > 0) {
-            contentMessage += ` I extracted ${result.metadata.extractedPages} page${result.metadata.extractedPages > 1 ? 's' : ''} from the document.`;
-          }
-          if (result.metadata.documentsIndexed > 0) {
-            contentMessage += ` ${result.metadata.documentsIndexed} document${result.metadata.documentsIndexed > 1 ? 's' : ''} ${result.metadata.documentsIndexed > 1 ? 'were' : 'was'} indexed.`;
-          }
-        }
-
-        contentMessage += ` The document is now searchable and I can answer questions about its content. What would you like to know about this document?`;
+        const contentMessage = `Your PDF was uploaded successfully.`;
 
         const assistantMessage: Message = {
           id: uuidv4(),
@@ -212,7 +222,7 @@ export const ChatInput = ({
     }
 
     // stop recognition if it's running
-    if (isRecording) {
+    if (isRecording && recognitionRef.current) {
       recognitionRef.current.stop();
       setIsRecording(false);
     }
@@ -234,6 +244,22 @@ export const ChatInput = ({
 
       if (!success) {
         // Don't send the message if PDF processing failed
+        return;
+      }
+
+      // If there is no additional user text, do not send a follow-up chat message.
+      // The background processor already injected a simple confirmation.
+      if (!content && !imageRef) {
+        setContent('');
+        setInputFile(null);
+        setInputFileExtension('');
+        setInputFileContent('');
+        setInputFileContentCompressed('');
+        setImageRef(null);
+        setPdfRef(null);
+        if (window.innerWidth < 640 && textareaRef && textareaRef.current) {
+          textareaRef.current.blur();
+        }
         return;
       }
     }
@@ -262,16 +288,16 @@ export const ChatInput = ({
       // Send message with only image attachments (if any)
       onSend({
         role: 'user',
-        content: content || (pdfRef ? `Upload and process this PDF file "${inputFile}".` : content),
+        content: content,
         metadata: {
           useDeepThinker: useDeepThinker
         },
         attachments: attachments.length > 0 ? attachments : undefined
-      })
+      });
       setContent('');
-      setInputFile(null)
-      setInputFileExtension('')
-      setInputFileContent('')
+      setInputFile(null);
+      setInputFileExtension('');
+      setInputFileContent('');
       setInputFileContentCompressed('');
       setImageRef(null);
       setPdfRef(null);
@@ -284,11 +310,11 @@ export const ChatInput = ({
         metadata: {
           useDeepThinker: useDeepThinker
         }
-      })
+      });
       setContent('');
-      setInputFile(null)
-      setInputFileExtension('')
-      setInputFileContent('')
+      setInputFile(null);
+      setInputFileExtension('');
+      setInputFileContent('');
       setInputFileContentCompressed('');
       setImageRef(null);
       setPdfRef(null);
@@ -310,16 +336,6 @@ export const ChatInput = ({
   };
 
 
-  const handleStopConversation = () => {
-    try {
-      controller.current?.abort('aborted');
-      setTimeout(() => {
-        controller.current = new AbortController(); // Reset the controller
-      }, 100);
-    } catch (error) {
-      console.log('error aborting - ', error);
-    }
-  };
 
   const isMobile = () => {
     if (typeof window === 'undefined') {
@@ -391,7 +407,7 @@ export const ChatInput = ({
     } catch (error) {
       console.error('Error processing image:', error);
       alert('Failed to upload image. Please try again.');
-      handleInputFileDelete(null);
+      handleInputFileDelete();
     } finally {
       setIsUploadingImage(false);
     }
@@ -411,18 +427,6 @@ export const ChatInput = ({
     return foundVariables;
   };
 
-  const handleSubmit = (updatedVariables: string[]) => {
-    const newContent = content?.replace(/{{(.*?)}}/g, (match, variable) => {
-      const index = variables.indexOf(variable);
-      return updatedVariables[index];
-    });
-
-    setContent(newContent);
-
-    if (textareaRef && textareaRef.current) {
-      textareaRef.current.focus();
-    }
-  };
 
   // Additional handlers for drag and drop
   const handleDragOver = (e: React.DragEvent<HTMLTextAreaElement>) => {
@@ -436,31 +440,34 @@ export const ChatInput = ({
       const file = files[0];
       const reader = new FileReader();
       reader.onload = (loadEvent) => {
-        const fullBase64String = loadEvent.target?.result;
-        processFile({ fullBase64String, file })
+        const fullBase64String = (loadEvent.target?.result ?? null) as string | ArrayBuffer | null;
+        processFile({ fullBase64String, file });
       };
       reader.readAsDataURL(file);
 
     }
   };
 
-  const handlePaste = (event: { clipboardData: any; originalEvent: { clipboardData: any; }; }) => {
-    const clipboardData = event.clipboardData || event.originalEvent.clipboardData;
+  const handlePaste = (event: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const clipboardData = event.clipboardData;
     let items = clipboardData.items;
     let isImagePasted = false;
 
     if (items) {
-      for (const item of items) {
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
         if (item.type.indexOf("image") === 0) {
           isImagePasted = true;
           const file = item.getAsFile();
-          // Reading the image as Data URL (base64)
-          const reader = new FileReader();
-          reader.onload = (loadEvent) => {
-            const fullBase64String = loadEvent.target?.result;
-            processFile({ fullBase64String, file })
-          };
-          reader.readAsDataURL(file);
+          if (file) {
+            // Reading the image as Data URL (base64)
+            const reader = new FileReader();
+            reader.onload = (loadEvent) => {
+              const fullBase64String = (loadEvent.target?.result ?? null) as string | ArrayBuffer | null;
+              processFile({ fullBase64String, file });
+            };
+            reader.readAsDataURL(file);
+          }
           break; // Stop checking after finding image, preventing any text setting
         }
       }
@@ -479,22 +486,21 @@ export const ChatInput = ({
     if (textareaRef && textareaRef.current) {
       textareaRef.current.style.height = 'inherit';
       textareaRef.current.style.height = `${textareaRef.current?.scrollHeight}px`;
-      textareaRef.current.style.overflow = `${textareaRef?.current?.scrollHeight > 400 ? 'auto' : 'hidden'
-        }`;
+      textareaRef.current.style.overflow = `${textareaRef?.current?.scrollHeight > 400 ? 'auto' : 'hidden'}`;
     }
   }, [content, textareaRef]);
 
   const handleSpeechToText = useCallback(() => {
     if (!recognitionRef.current) {
       const SpeechRecognition =
-        window?.SpeechRecognition || window?.webkitSpeechRecognition;
+        (window as any)?.SpeechRecognition || (window as any)?.webkitSpeechRecognition;
 
       recognitionRef.current = new SpeechRecognition();
       recognitionRef.current.lang = 'en-US';
       recognitionRef.current.interimResults = true;
       recognitionRef.current.continuous = true;
 
-      recognitionRef.current.onresult = (event) => {
+      recognitionRef.current.onresult = (event: any) => {
         let currentTranscript = '';
         for (let i = 0; i < event.results.length; i++) {
           currentTranscript += event.results[i][0].transcript;
@@ -511,7 +517,9 @@ export const ChatInput = ({
 
     if (!isRecording) {
       // Play sound when recording starts
-      recordingStartSound.play();
+      if (recordingStartSound.current) {
+        recordingStartSound.current.play();
+      }
       recognitionRef.current.start();
       setIsRecording(true);
     } else {
@@ -537,10 +545,49 @@ export const ChatInput = ({
     // You can also handle the audio blob here if needed
   };
 
-  const handleSelectPrompt = (prompt: string) => {
-    setContent(content + (content ? ' ' : '') + prompt + ' ');
-    textareaRef.current?.focus();
-  };
+  // Register quick action handlers with parent if requested
+  useEffect(() => {
+    if (!onQuickActionsRegister) return;
+    onQuickActionsRegister({
+      onAttachFile: triggerFileUpload,
+      onTakePhoto: triggerPhotoUpload,
+      onStartVoice: () => setShowVoiceRecorder(true),
+      onToggleDeepThought: handleToggleDeepThinker,
+    });
+  }, [onQuickActionsRegister, triggerFileUpload, triggerPhotoUpload, handleToggleDeepThinker]);
+
+  // Use a ref to maintain stable positioning
+  const inputContainerRef = useRef<HTMLDivElement>(null);
+
+  // Prevent input sinking when keyboard is visible
+  useEffect(() => {
+    if (!isMobile()) return;
+
+    const handleFocus = (e: FocusEvent) => {
+      const target = e.target as HTMLElement;
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') {
+        // Prevent default scrolling behavior
+        setTimeout(() => {
+          if (inputContainerRef.current) {
+            // Force the input to stay at bottom
+            inputContainerRef.current.scrollIntoView({
+              behavior: 'instant',
+              block: 'end',
+              inline: 'nearest'
+            });
+            // Prevent any further adjustments
+            window.scrollTo(0, 0);
+          }
+        }, 0);
+      }
+    };
+
+    document.addEventListener('focusin', handleFocus);
+
+    return () => {
+      document.removeEventListener('focusin', handleFocus);
+    };
+  }, []);
 
   return (
     <>
@@ -553,181 +600,149 @@ export const ChatInput = ({
       )}
 
       <div
-        className="sticky bottom-0 left-0 right-0 z-30 bg-white/95 dark:bg-dark-bg-primary/95 backdrop-blur-lg border-t border-gray-200 dark:border-gray-700"
+        ref={inputContainerRef}
+        className={`${
+          isMobile() ? 'fixed' : 'sticky'
+        } bottom-0 left-0 right-0 z-30 bg-bg-secondary dark:bg-dark-bg-primary transition-colors duration-300`}
+        data-keyboard-visible={isKeyboardVisible}
         style={{
           paddingBottom: `env(safe-area-inset-bottom)`,
+          // Use transform to lock position
+          transform: 'translate3d(0, 0, 0)',
+          WebkitTransform: 'translate3d(0, 0, 0)',
+          // Prevent reflow
+          backfaceVisibility: 'hidden',
+          WebkitBackfaceVisibility: 'hidden',
+          // Lock position
+          position: isMobile() ? 'fixed' : 'sticky',
+          bottom: 0,
         }}
       >
         <div className="mx-auto flex w-full max-w-5xl flex-col">
-        {/* Quick Actions Bar - Mobile */}
-        <div className="md:hidden px-3 py-2">
-          <QuickActions
-            onAttachFile={triggerFileUpload}
-            onTakePhoto={triggerPhotoUpload}
-            onStartVoice={() => setShowVoiceRecorder(true)}
-            onSelectPrompt={handleSelectPrompt}
-            onToggleDeepThought={() => {
-              const newDeepThinkerState = !useDeepThinker;
-              setUseDeepThinker(newDeepThinkerState);
-              if (newDeepThinkerState && !enableIntermediateSteps) {
-                homeDispatch({ field: 'enableIntermediateSteps', value: true });
-                setUserSessionItem('enableIntermediateSteps', 'true');
-              }
-            }}
-            isDeepThoughtEnabled={useDeepThinker}
-          />
-        </div>
-
-        {/* Input Container */}
-        <div className="px-3 sm:px-4 md:px-6 py-3">
-          <div
-            className={`relative flex w-full flex-grow flex-col gap-2 sm:gap-3 rounded-2xl sm:rounded-3xl bg-gray-100 dark:bg-gray-800 ${inputFile && (imageRef || pdfRef || inputFileContentCompressed) ? 'pb-12' : ''}`}
-          >
-          <textarea
-            ref={textareaRef}
-            className="m-0 w-full resize-none border-0 bg-transparent py-4 pr-12 pl-12 text-[15px] leading-relaxed text-neutral-900 outline-none placeholder:text-neutral-400 focus:outline-none dark:bg-transparent dark:text-white"
-            style={{
-              resize: 'none',
-              bottom: `${textareaRef?.current?.scrollHeight}px`,
-              minHeight: '54px',
-              maxHeight: '320px',
-              overflow: `${textareaRef.current && textareaRef.current.scrollHeight > 400 ? 'auto' : 'hidden'}`,
-            }}
-            placeholder={isRecording ? 'Listening…' : t('Send a message')}
-            value={content}
-            rows={1}
-            onCompositionStart={() => setIsTyping(true)}
-            onCompositionEnd={() => setIsTyping(false)}
-            onChange={handleChange}
-            onKeyDown={handleKeyDown}
-            {...(appConfig?.fileUploadEnabled && {
-              onDragOver: handleDragOver,
-              onDrop: handleDrop,
-              onPaste: handlePaste,
-            })}
-          />
-          {inputFile && (imageRef || pdfRef || inputFileContentCompressed) && (
-            <div className="flex flex-wrap gap-3">
-              <div className="flex w-full flex-col gap-3 rounded-2xl border border-neutral-200 bg-neutral-50 p-3 text-black shadow-sm dark:border-neutral-600 dark:bg-dark-bg-primary dark:text-white">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-neutral-200 text-neutral-600 dark:bg-neutral-700 dark:text-neutral-100">
-                      {pdfRef ? <IconPaperclip size={16} /> : <IconPhoto size={16} />}
-                    </span>
-                    <div className="flex flex-col">
-                      <span className="text-sm font-medium text-neutral-700 dark:text-neutral-50">{inputFile}</span>
-                      {isUploadingImage && <span className="text-xs text-neutral-500">Uploading…</span>}
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    className="rounded-full p-2 text-neutral-400 transition-colors duration-150 hover:bg-neutral-200/60 hover:text-red-500 dark:hover:bg-neutral-700/60"
-                    onClick={handleInputFileDelete as unknown as any}
-                    aria-label="Remove attachment"
-                  >
-                    <IconTrash size={16} />
-                  </button>
+          {/* Input Container */}
+          <div className="px-3 sm:px-4 md:px-6 py-3">
+            <div className="relative">
+              {/* Main input wrapper with glass effect */}
+              <div
+                className={`relative flex items-center w-full rounded-2xl apple-glass backdrop-blur-xl border border-white/10 dark:border-white/5 shadow-[0_8px_32px_rgba(0,0,0,0.12)] dark:shadow-[0_8px_32px_rgba(0,0,0,0.24)] ${inputFile && (imageRef || pdfRef || inputFileContentCompressed) ? 'flex-col items-stretch' : ''}`}
+              >
+                {/* Quick Actions Button - centered with textarea */}
+                <div className="absolute left-3 top-1/2 -translate-y-1/2 z-20">
+                  <QuickActionsPopup
+                  onAttachFile={triggerFileUpload}
+                  onTakePhoto={triggerPhotoUpload}
+                  onStartVoice={() => setShowVoiceRecorder(true)}
+                  onToggleDeepThought={handleToggleDeepThinker}
+                    isDeepThoughtEnabled={useDeepThinker}
+                  />
                 </div>
-
-                {imageRef && (
-                  <div className="mx-auto w-full max-w-[240px] overflow-hidden rounded-xl">
-                    <OptimizedImage imageRef={imageRef} alt={inputFile} className="rounded-xl" />
-                  </div>
-                )}
-
-                {pdfRef && (
-                  <div className="rounded-lg bg-neutral-100 px-3 py-2 text-center text-xs text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300">
-                    PDF ready to process
-                  </div>
-                )}
+                <textarea
+                  ref={textareaRef}
+                  className="m-0 w-full resize-none bg-transparent py-4 pr-14 md:pr-20 pl-16 text-[15px] leading-relaxed text-neutral-800 outline-none placeholder:text-neutral-500 focus:outline-none dark:text-white dark:placeholder:text-white/40 transition-colors"
+                style={{
+                  resize: 'none',
+                  bottom: `${textareaRef?.current?.scrollHeight}px`,
+                  minHeight: '54px',
+                  maxHeight: '320px',
+                  overflow: `${textareaRef.current && textareaRef.current.scrollHeight > 400 ? 'auto' : 'hidden'}`,
+                }}
+                placeholder={isRecording ? 'Listening…' : (t('Send a message') as unknown as string)}
+                value={content}
+                rows={1}
+                onCompositionStart={() => setIsTyping(true)}
+                onCompositionEnd={() => setIsTyping(false)}
+                onChange={handleChange}
+                onKeyDown={handleKeyDown}
+                {...(appConfig?.fileUploadEnabled && {
+                  onDragOver: handleDragOver,
+                  onDrop: handleDrop,
+                    onPaste: handlePaste,
+                  })}
+                />
+                {/* Send Button - centered with textarea */}
+                <button
+                  className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full bg-neutral-900/90 p-2.5 text-white shadow-lg transition-transform duration-150 hover:bg-neutral-800 dark:bg-nvidia-green dark:hover:bg-nvidia-green/90 active:scale-95"
+                  onClick={handleSend}
+                >
+                  {messageIsStreaming ? (
+                    <div className="h-4 w-4 animate-spin rounded-full border-t-2 border-neutral-800 opacity-60 dark:border-neutral-100"></div>
+                  ) : (
+                    <IconSend size={18} />
+                  )}
+                </button>
               </div>
-            </div>
-          )}
-          {
-            appConfig?.fileUploadEnabled && !inputFile &&
-            <>
-              <button
-                className="absolute right-20 bottom-3 rounded-full p-2 text-neutral-500 transition-colors duration-150 hover:bg-neutral-100 hover:text-neutral-900 dark:text-neutral-300 dark:hover:bg-dark-bg-primary/60"
-                onClick={triggerPhotoUpload}
-                disabled={isUploadingImage}
-                title="Upload or take a photo"
-              >
-                {messageIsStreaming || isUploadingImage ? (
-                  <></>
-                ) : (
-                  <>
-                    <IconCamera size={18} />
-                  </>
-                )}
-              </button>
-              <button
-                className="absolute right-12 bottom-3 rounded-full p-2 text-neutral-500 transition-colors duration-150 hover:bg-neutral-100 hover:text-neutral-900 dark:text-neutral-300 dark:hover:bg-dark-bg-primary/60"
-                onClick={triggerFileUpload}
-                disabled={isUploadingImage}
-                title="Upload a file"
-              >
-                {messageIsStreaming || isUploadingImage ? (
-                  <></>
-                ) : (
-                  <>
-                    <IconPaperclip size={18} />
-                  </>
-                )}
-              </button>
-              <input
-                type="file"
-                ref={fileInputRef}
-                accept=".pdf,application/pdf"
-                style={{ display: 'none' }}
-                onChange={handleFileChange}
-              />
-              <input
-                type="file"
-                ref={photoInputRef}
-                accept="image/*"
-                style={{ display: 'none' }}
-                onChange={handleFileChange}
-              />
-            </>
-          }
-          <button
-            onClick={handleSpeechToText}
-            className={`absolute left-3 bottom-3 rounded-full p-2 text-neutral-500 transition-colors duration-150 dark:text-neutral-300 ${messageIsStreaming
-              ? 'text-neutral-400'
-              : 'hover:bg-neutral-100 hover:text-neutral-900 dark:hover:bg-dark-bg-primary/60'
-              }`}
-            disabled={messageIsStreaming}
-          >
-            {isRecording ? (
-              <IconPlayerStopFilled size={18} className="text-red-500 animate-blink" />
-            ) : (
-              <IconMicrophone size={18} />
-            )}
-          </button>
-          <button
-            className="absolute right-3 bottom-3 rounded-full bg-neutral-900 p-2 text-white transition-transform duration-150 dark:bg-nvidia-green"
-            onClick={handleSend}
-          >
-            {messageIsStreaming ? (
-              <div className="h-4 w-4 animate-spin rounded-full border-t-2 border-neutral-800 opacity-60 dark:border-neutral-100"></div>
-            ) : (
-              <IconSend size={18} />
-            )}
-          </button>
+              {inputFile && (imageRef || pdfRef || inputFileContentCompressed) && (
+                <div className="w-full border-t border-white/10 dark:border-white/5 mt-2">
+                  <div className="flex w-full flex-col gap-3 p-3 text-neutral-800 dark:text-white">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-white/20 text-neutral-600 dark:bg-white/10 dark:text-neutral-100">
+                          {pdfRef ? <IconPaperclip size={16} /> : <IconPhoto size={16} />}
+                        </span>
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium text-neutral-700 dark:text-neutral-50">{inputFile}</span>
+                          {isUploadingImage && <span className="text-xs text-neutral-500">Uploading…</span>}
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        className="rounded-full p-2 text-neutral-400 transition-colors duration-150 hover:bg-white/20 hover:text-red-500 dark:hover:bg-white/10"
+                        onClick={handleInputFileDelete}
+                        aria-label="Remove attachment"
+                      >
+                        <IconTrash size={16} />
+                      </button>
+                    </div>
 
-          {showScrollDownButton && (
-            <div className="pointer-events-none absolute -top-14 right-0 flex items-center justify-end">
-              <button
-                className="pointer-events-auto flex h-10 w-10 items-center justify-center rounded-full border border-neutral-200 bg-bg-primary text-text-primary shadow-md transition-colors duration-150 hover:border-neutral-300 hover:text-neutral-900 dark:border-neutral-700 dark:bg-dark-bg-tertiary dark:text-neutral-200 dark:hover:border-neutral-600"
-                onClick={onScrollDownClick}
-                aria-label={t('Scroll to bottom')}
-              >
-                <IconArrowDown size={18} />
-              </button>
+                    {imageRef && (
+                      <div className="mx-auto w-full max-w-[240px] overflow-hidden rounded-xl">
+                        <OptimizedImage imageRef={imageRef} alt={inputFile} className="rounded-xl" />
+                      </div>
+                    )}
+
+                    {pdfRef && (
+                      <div className="px-3 py-2 text-center text-xs text-neutral-600 dark:text-neutral-200">
+                        PDF ready to process
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+              {
+                appConfig?.fileUploadEnabled && !inputFile &&
+                <>
+                  <input
+                    type="file"
+                    ref={fileInputRef}
+                    accept=".pdf,application/pdf"
+                    style={{ display: 'none' }}
+                    onChange={handleFileChange}
+                  />
+                  <input
+                    type="file"
+                    ref={photoInputRef}
+                    accept="image/*"
+                    style={{ display: 'none' }}
+                    onChange={handleFileChange}
+                  />
+                </>
+              }
             </div>
-          )}
+
+            {showScrollDownButton && (
+              <div className="pointer-events-none absolute -top-14 right-0 flex items-center justify-end">
+                <button
+                  className="pointer-events-auto flex h-10 w-10 items-center justify-center rounded-full border border-neutral-200 bg-bg-primary text-text-primary shadow-md transition-colors duration-150 hover:border-neutral-300 hover:text-neutral-900 dark:border-neutral-700 dark:bg-dark-bg-tertiary dark:text-neutral-200 dark:hover:border-neutral-600"
+                  onClick={onScrollDownClick}
+                  aria-label={t('Scroll to bottom') as unknown as string}
+                >
+                  <IconArrowDown size={18} />
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </div>
-    </div>
+    </>
   );
 };

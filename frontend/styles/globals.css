@@ -376,6 +376,50 @@
   background-color: transparent;
 }
 
+/* Mobile scrolling improvements */
+@supports (-webkit-touch-callout: none) {
+  /* iOS specific fixes */
+  html, body {
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-y: contain;
+  }
+
+  /* Better momentum scrolling on iOS */
+  .momentum-scroll {
+    -webkit-overflow-scrolling: touch;
+    overflow-y: scroll;
+    will-change: scroll-position;
+  }
+
+  /* Prevent input sinking on iOS */
+  input:focus,
+  textarea:focus {
+    transform: translateZ(0);
+    -webkit-transform: translateZ(0);
+  }
+
+  /* Stabilize fixed positioning during keyboard */
+  .fixed {
+    -webkit-backface-visibility: hidden;
+    backface-visibility: hidden;
+    transform: translateZ(0);
+    -webkit-transform: translateZ(0);
+  }
+
+  /* Prevent viewport bouncing */
+  body {
+    position: relative;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* Lock input container during keyboard */
+  .fixed[data-keyboard-visible="true"] {
+    position: absolute !important;
+    bottom: 0 !important;
+  }
+}
+
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
@@ -1025,6 +1069,17 @@ details div {
     inset 0 0 0 1px rgba(255, 255, 255, 0.04);
 }
 
+/* Refined glass for sidebars - more subtle to avoid dark blocks */
+.apple-glass-sidebar {
+  background: rgba(25, 25, 25, 0.60);
+  backdrop-filter: blur(30px) saturate(160%);
+  -webkit-backdrop-filter: blur(30px) saturate(160%);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  box-shadow:
+    0 6px 24px 0 rgba(0, 0, 0, 0.25),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.03);
+}
+
 /* Light mode adjustments */
 @media (prefers-color-scheme: light) {
   .apple-glass {
@@ -1041,6 +1096,14 @@ details div {
     box-shadow:
       0 4px 16px 0 rgba(0, 0, 0, 0.06),
       inset 0 0 0 1px rgba(255, 255, 255, 0.5);
+  }
+
+  .apple-glass-sidebar {
+    background: rgba(255, 255, 255, 0.60);
+    border: 1px solid rgba(0, 0, 0, 0.04);
+    box-shadow:
+      0 6px 24px 0 rgba(0, 0, 0, 0.08),
+      inset 0 0 0 1px rgba(255, 255, 255, 0.4);
   }
 }
 
@@ -1068,6 +1131,17 @@ details div {
   }
 }
 
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 @keyframes shimmer {
   0% {
     background-position: -1000px 0;
@@ -1079,6 +1153,10 @@ details div {
 
 .animate-slide-in {
   animation: slideIn 0.3s ease-out;
+}
+
+.animate-slide-up {
+  animation: slideUp 0.3s ease-out;
 }
 
 .animate-scale-in {

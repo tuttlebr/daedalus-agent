@@ -16,7 +16,7 @@ services:
       dockerfile: Dockerfile
       target: base
       args:
-        NAT_VERSION: develop
+        NAT_VERSION: v1.3.0-rc5
     image: daedalus.ddns.me:5050/btuttle/daedalus:builder-${DAEDALUS_VERSION:-latest}
     working_dir: /builder
     volumes:
