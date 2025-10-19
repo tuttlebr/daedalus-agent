@@ -330,6 +330,9 @@ export const ChatInput: React.FC<Props> = ({
     if (window.innerWidth < 640 && textareaRef && textareaRef.current) {
       textareaRef.current.blur();
     }
+    
+    // Re-enable auto-scroll after sending message so user sees the response
+    homeDispatch({ field: 'autoScroll', value: true });
   };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -628,6 +631,9 @@ export const ChatInput: React.FC<Props> = ({
                 onFocus={(e) => {
                   // Mobile keyboard handling for all devices
                   if (isMobile()) {
+                    // IMPORTANT: Disable chat auto-scroll to prevent it from fighting with input scroll
+                    homeDispatch({ field: 'autoScroll', value: false });
+                    
                     // Use multiple techniques for best compatibility
                     
                     // Technique 1: ScrollIntoView (most reliable)
