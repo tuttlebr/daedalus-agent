@@ -18,6 +18,10 @@ author = "agent"
 task = "workflow.run"
 args = "Next.js App"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Redis"
+
 [[workflows.workflow]]
 name = "Next.js App"
 author = "agent"
@@ -30,6 +34,17 @@ waitForPort = 5000
 [workflows.workflow.metadata]
 outputType = "webview"
 
+[[workflows.workflow]]
+name = "Redis"
+author = "agent"
+
+[workflows.workflow.metadata]
+outputType = "console"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "./start-redis.sh"
+
 [[ports]]
 localPort = 5000
 externalPort = 5000
@@ -39,5 +54,5 @@ localPort = 6379
 externalPort = 80
 
 [[ports]]
-localPort = 38051
+localPort = 43579
 externalPort = 3000

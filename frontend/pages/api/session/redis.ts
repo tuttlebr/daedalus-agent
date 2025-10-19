@@ -35,38 +35,41 @@ export function sessionKey(parts: Array<string | undefined | null>): string {
   return parts.filter(Boolean).join(':');
 }
 
-// JSON operation helpers
+// JSON operation helpers (using regular Redis STRING commands)
 export async function jsonSet(key: string, path: string, value: any, options?: { NX?: boolean; XX?: boolean }): Promise<string | null> {
   const client = getRedis();
-  const args: any[] = [key, path, JSON.stringify(value)];
-
-  if (options?.NX) args.push('NX');
-  if (options?.XX) args.push('XX');
-
-  return await client.call('JSON.SET', ...args);
+  const serialized = JSON.stringify(value);
+  
+  if (options?.NX) {
+    const result = await client.set(key, serialized, 'NX');
+    return result;
+  } else if (options?.XX) {
+    const result = await client.set(key, serialized, 'XX');
+    return result;
+  }
+  
+  return await client.set(key, serialized);
 }
 
 export async function jsonGet(key: string, path: string = '.'): Promise<any> {
   const client = getRedis();
-  const result = await client.call('JSON.GET', key, path);
-  return result ? JSON.parse(result as string) : null;
+  const result = await client.get(key);
+  return result ? JSON.parse(result) : null;
 }
 
 export async function jsonDel(key: string, path: string = '.'): Promise<number> {
   const client = getRedis();
-  return await client.call('JSON.DEL', key, path) as number;
+  return await client.del(key);
 }
 
 export async function jsonSetWithExpiry(key: string, value: any, ttl: number): Promise<void> {
   const client = getRedis();
-  const pipeline = client.pipeline();
-  pipeline.call('JSON.SET', key, '.', JSON.stringify(value));
-  pipeline.expire(key, ttl);
-  await pipeline.exec();
+  const serialized = JSON.stringify(value);
+  await client.setex(key, ttl, serialized);
 }
 
 export async function jsonMGet(keys: string[], path: string = '.'): Promise<any[]> {
   const client = getRedis();
-  const result = await client.call('JSON.MGET', ...keys, path);
-  return (result as string[]).map(item => item ? JSON.parse(item) : null);
+  const results = await client.mget(...keys);
+  return results.map(item => item ? JSON.parse(item) : null);
 }
