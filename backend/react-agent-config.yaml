@@ -1132,10 +1132,7 @@ functions:
     user_agent: daedalus-webscraper/1.0
   wikipedia_search:
     _type: wiki_search
-    description: 'ACTION: Search Wikipedia for encyclopedic knowledge. REASONING: Quick access to structured, general knowledge. Good for definitions, historical facts, concepts. WHEN: User needs factual overview, definitions, historical context, general knowledge. RETURNS: Top 3 Wikipedia article summaries. BETTER FOR: Established facts vs current events (use serpapi for recent). EXAMPLES: "What is quantum computing", "History of Rome", "Einstein biography". NEXT: Can follow with serpapi for current developments on same topic. LIMITS: At most 1 call per run; avoid if query requests "latest" or news.
-
-      '
-    max_results: 3
+    max_results: 2
     verbose: true
 general:
   telemetry:

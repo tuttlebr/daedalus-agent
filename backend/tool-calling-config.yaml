@@ -357,7 +357,7 @@ functions:
     user_agent: daedalus-webscraper/1.0
   wikipedia_search:
     _type: wiki_search
-    max_results: 3
+    max_results: 2
     verbose: true
 general:
   telemetry:
