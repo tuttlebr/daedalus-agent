@@ -198,10 +198,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 }
 
 // Configure API route to handle larger payloads
+// Note: Set to 30mb to support 20MB PDFs (base64 encoding adds ~33% overhead)
 export const config = {
   api: {
     bodyParser: {
-      sizeLimit: '10mb',
+      sizeLimit: '30mb',
     },
   },
 };
