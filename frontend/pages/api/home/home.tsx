@@ -332,7 +332,8 @@ const Home = (props: any) => {
           >
             {/* Mobile Layout */}
             <div className="relative flex flex-col h-full md:hidden">
-              <div className="absolute top-4 left-4 z-50">
+              {/* Menu button - positioned absolutely over chat */}
+              <div className="absolute top-4 left-4 z-50 safe-top">
                 <button
                   type="button"
                   onClick={() => dispatch({ field: 'showChatbar', value: !showChatbar })}
@@ -343,25 +344,28 @@ const Home = (props: any) => {
                 </button>
               </div>
 
-              {/* Top safe area */}
-              <div className="safe-top" />
-
-              {/* Main chat container */}
+              {/* Main chat container - full height with proper spacing */}
               <div className="flex-1 overflow-hidden">
                 <Chat />
               </div>
 
               {/* Slide-over chatbar for mobile */}
               {showChatbar && (
-                <div
-                  className={`
-                    fixed left-0 top-0 bottom-0 w-4/5 max-w-sm z-50 transform transition-transform duration-300 ease-in-out translate-x-0
-                  `}
-                >
-                  <div className="relative h-full bg-dark-bg-secondary safe-top safe-bottom">
-                    <Chatbar />
+                <>
+                  {/* Backdrop overlay */}
+                  <div 
+                    className="fixed inset-0 bg-black/50 z-40 md:hidden"
+                    onClick={() => dispatch({ field: 'showChatbar', value: false })}
+                  />
+                  {/* Sidebar panel */}
+                  <div
+                    className="fixed left-0 top-0 bottom-0 w-4/5 max-w-sm z-50 transform transition-transform duration-300 ease-in-out translate-x-0"
+                  >
+                    <div className="relative h-full bg-dark-bg-secondary safe-top safe-bottom">
+                      <Chatbar />
+                    </div>
                   </div>
-                </div>
+                </>
               )}
             </div>
 
