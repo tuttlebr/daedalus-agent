@@ -626,21 +626,42 @@ export const ChatInput: React.FC<Props> = ({
                 onChange={handleChange}
                 onKeyDown={handleKeyDown}
                 onFocus={(e) => {
-                  // iOS-specific handling
-                  if (isMobile() && /iPad|iPhone|iPod/.test(navigator.userAgent)) {
-                    // Don't prevent default - let iOS handle focus naturally
-                    // Just ensure the viewport doesn't jump
+                  // Mobile keyboard handling for all devices
+                  if (isMobile()) {
+                    // Use multiple techniques for best compatibility
+                    
+                    // Technique 1: ScrollIntoView (most reliable)
                     setTimeout(() => {
-                      // Ensure input is in view without jarring movement
-                      const inputRect = e.target.getBoundingClientRect();
-                      const viewportHeight = window.visualViewport?.height || window.innerHeight;
+                      e.target.scrollIntoView({ 
+                        behavior: 'smooth', 
+                        block: 'center',
+                        inline: 'nearest'
+                      });
+                    }, 300); // Wait for keyboard animation
 
-                      // Only scroll if input is not visible
-                      if (inputRect.bottom > viewportHeight) {
-                        const scrollAmount = inputRect.bottom - viewportHeight + 20; // 20px padding
-                        window.scrollBy({ top: scrollAmount, behavior: 'smooth' });
-                      }
-                    }, 100);
+                    // Technique 2: Visual Viewport API (for modern browsers)
+                    if (window.visualViewport) {
+                      const handleResize = () => {
+                        const inputRect = e.target.getBoundingClientRect();
+                        const viewportHeight = window.visualViewport!.height;
+                        
+                        // If input is covered by keyboard, scroll it into view
+                        if (inputRect.bottom > viewportHeight - 20) {
+                          e.target.scrollIntoView({ 
+                            behavior: 'smooth', 
+                            block: 'center'
+                          });
+                        }
+                      };
+                      
+                      // Listen for viewport resize (keyboard appearing)
+                      window.visualViewport.addEventListener('resize', handleResize);
+                      
+                      // Clean up listener after keyboard is shown
+                      setTimeout(() => {
+                        window.visualViewport?.removeEventListener('resize', handleResize);
+                      }, 1000);
+                    }
                   }
                 }}
                 {...(appConfig?.fileUploadEnabled && {
