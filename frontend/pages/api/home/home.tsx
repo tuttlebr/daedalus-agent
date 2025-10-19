@@ -46,7 +46,7 @@ const Home = (props: any) => {
     initialState,
   });
 
-  let workflow =  'Daedalus';
+  let workflow = 'Daedalus';
 
   const {
     state: {
@@ -352,26 +352,23 @@ const Home = (props: any) => {
               </div>
 
               {/* Slide-over chatbar for mobile */}
-              <div
-                className={`
-                  fixed inset-0 z-50 transform transition-transform duration-300 ease-in-out
-                  ${showChatbar ? 'translate-x-0' : '-translate-x-full'}
-                `}
-              >
+              {showChatbar && (
                 <div
-                  className="absolute inset-0 bg-black/50"
-                  onClick={() => dispatch({ field: 'showChatbar', value: false })}
-                />
-                <div className="relative w-4/5 max-w-sm h-full bg-dark-bg-secondary safe-top safe-bottom">
-                  <Chatbar />
+                  className={`
+                    fixed left-0 top-0 bottom-0 w-4/5 max-w-sm z-50 transform transition-transform duration-300 ease-in-out translate-x-0
+                  `}
+                >
+                  <div className="relative h-full bg-dark-bg-secondary safe-top safe-bottom">
+                    <Chatbar />
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
 
             {/* Desktop Layout */}
             <div className="hidden md:flex h-full overflow-hidden">
               <div
-                className={`transition-all duration-300 flex-shrink-0 overflow-visible ${showChatbar ? 'w-[260px]' : 'w-[56px]'}`}
+                className={`transition-all duration-300 flex-shrink-0 ${showChatbar ? 'w-[260px]' : 'w-0'}`}
                 data-sidebar-desktop={showChatbar ? 'open' : 'collapsed'}
               >
                 <Chatbar />
@@ -390,7 +387,7 @@ export default Home;
 
 export const getServerSideProps: GetServerSideProps = async ({ locale }) => {
   const defaultModelId =
-  process.env.DEFAULT_MODEL || '';
+    process.env.DEFAULT_MODEL || '';
 
   return {
     props: {
