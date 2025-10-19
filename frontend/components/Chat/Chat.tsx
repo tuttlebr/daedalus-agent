@@ -77,6 +77,8 @@ export const Chat = () => {
   const lastScrollTop = useRef(0); // Store last known scroll position
   const lastTouchY = useRef(0); // Track touch position for mobile
   const isUserScrolling = useRef(false); // Track if user is actively scrolling
+  const scrollTimeoutRef = useRef<NodeJS.Timeout | null>(null); // Debounce scroll events
+  const autoScrollTimeoutRef = useRef<NodeJS.Timeout | null>(null); // Delay auto-scroll re-enabling
 
   // Add these variables near the top of your component
   useEffect(() => {
@@ -607,19 +609,20 @@ export const Chat = () => {
   // Add a new effect to handle streaming state changes
   useEffect(() => {
     if (messageIsStreaming) {
-      // Only enable auto-scroll if user is already at bottom
-      if (chatContainerRef.current) {
+      // Only enable auto-scroll if user was already at bottom before streaming started
+      // Don't force auto-scroll on users who are reading previous messages
+      if (chatContainerRef.current && autoScrollEnabled) {
         const { scrollTop, scrollHeight, clientHeight } = chatContainerRef.current;
         const threshold = Math.max(100, clientHeight * 0.1); // Larger threshold for mobile
         const isAtBottom = scrollHeight - scrollTop - clientHeight <= threshold;
-        if (isAtBottom) {
-          setAutoScrollEnabled(true);
-          setShowScrollDownButton(false);
-          homeDispatch({ field: 'autoScroll', value: true });
+        if (!isAtBottom) {
+          // User has scrolled up, respect their choice
+          setAutoScrollEnabled(false);
+          homeDispatch({ field: 'autoScroll', value: false });
         }
       }
     }
-  }, [messageIsStreaming, homeDispatch]);
+  }, [messageIsStreaming, homeDispatch, autoScrollEnabled]);
 
   // Detect if we're on a mobile device
   const isMobile = () => {
@@ -627,51 +630,97 @@ export const Chat = () => {
     return window.matchMedia('(pointer: coarse)').matches || window.innerWidth <= 768;
   };
 
-  // Add an effect to set up wheel and touchmove event listeners
+  // Improved handleScroll with debouncing and better logic
   const handleScroll = useCallback(() => {
-    if (!chatContainerRef.current) return;
-    const { scrollTop, scrollHeight, clientHeight } = chatContainerRef.current;
-    // Use larger threshold on mobile to prevent accidental re-enabling
-    const threshold = isMobile() ? Math.max(100, clientHeight * 0.1) : Math.max(24, clientHeight * 0.02);
-    const isAtBottom = scrollHeight - scrollTop - clientHeight <= threshold;
+    if (!chatContainerRef.current || isUserScrolling.current) return;
 
-    // Track scroll direction
-    const isScrollingUp = scrollTop < lastScrollTop.current;
-
-    if (!isAtBottom) {
-      if (autoScrollEnabled) {
-        setAutoScrollEnabled(false);
-        homeDispatch({ field: 'autoScroll', value: false });
-      }
-      if (!showScrollDownButton) {
-        setShowScrollDownButton(true);
-      }
-    } else {
-      // Only re-enable auto-scroll if not actively scrolling up and not on mobile
-      if (!autoScrollEnabled && !isScrollingUp && !isMobile()) {
-        setAutoScrollEnabled(true);
-        homeDispatch({ field: 'autoScroll', value: true });
-      }
-      if (showScrollDownButton && !isScrollingUp) {
-        setShowScrollDownButton(false);
-      }
+    // Clear existing timeout
+    if (scrollTimeoutRef.current) {
+      clearTimeout(scrollTimeoutRef.current);
     }
-    lastScrollTop.current = scrollTop;
-  }, [autoScrollEnabled, homeDispatch, showScrollDownButton]);
+
+    // Debounce scroll handling
+    scrollTimeoutRef.current = setTimeout(() => {
+      if (!chatContainerRef.current) return;
+
+      const { scrollTop, scrollHeight, clientHeight } = chatContainerRef.current;
+      const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
+      // Increased threshold for better UX
+      const threshold = isMobile() ? 150 : 50;
+      const isAtBottom = distanceFromBottom <= threshold;
+
+      // Track scroll direction
+      const isScrollingUp = scrollTop < lastScrollTop.current - 5; // Add 5px deadzone
+      const isScrollingDown = scrollTop > lastScrollTop.current + 5;
+
+      // User scrolled up - disable auto-scroll
+      if (isScrollingUp && distanceFromBottom > threshold) {
+        if (autoScrollEnabled) {
+          setAutoScrollEnabled(false);
+          homeDispatch({ field: 'autoScroll', value: false });
+        }
+        setShowScrollDownButton(true);
+
+        // Clear any pending auto-scroll re-enable
+        if (autoScrollTimeoutRef.current) {
+          clearTimeout(autoScrollTimeoutRef.current);
+          autoScrollTimeoutRef.current = null;
+        }
+      }
+      // User scrolled to bottom - show button but don't auto-enable yet
+      else if (isAtBottom && !messageIsStreaming) {
+        setShowScrollDownButton(false);
+
+        // Delay auto-scroll re-enabling to prevent accidental triggers
+        if (!autoScrollEnabled && !autoScrollTimeoutRef.current) {
+          autoScrollTimeoutRef.current = setTimeout(() => {
+            if (chatContainerRef.current) {
+              const { scrollTop: currentScrollTop, scrollHeight: currentScrollHeight, clientHeight: currentClientHeight } = chatContainerRef.current;
+              const currentDistanceFromBottom = currentScrollHeight - currentScrollTop - currentClientHeight;
+              // Double-check user is still at bottom
+              if (currentDistanceFromBottom <= threshold) {
+                setAutoScrollEnabled(true);
+                homeDispatch({ field: 'autoScroll', value: true });
+              }
+            }
+            autoScrollTimeoutRef.current = null;
+          }, 1000); // Wait 1 second before re-enabling
+        }
+      }
+
+      lastScrollTop.current = scrollTop;
+    }, 100); // 100ms debounce
+  }, [autoScrollEnabled, homeDispatch, messageIsStreaming]);
 
   const handleScrollDown = () => {
+    // Clear any pending timeouts
+    if (scrollTimeoutRef.current) {
+      clearTimeout(scrollTimeoutRef.current);
+      scrollTimeoutRef.current = null;
+    }
+    if (autoScrollTimeoutRef.current) {
+      clearTimeout(autoScrollTimeoutRef.current);
+      autoScrollTimeoutRef.current = null;
+    }
+
     chatContainerRef.current?.scrollTo({
       top: chatContainerRef.current.scrollHeight,
       behavior: 'smooth',
     });
     setAutoScrollEnabled(true);
+    setShowScrollDownButton(false);
     homeDispatch({ field: 'autoScroll', value: true });
   };
 
   const scrollDown = () => {
-    // Don't scroll if user is actively scrolling on mobile
-    if (autoScrollEnabled && !isUserScrolling.current) {
-      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+    // Only scroll if auto-scroll is enabled and not manually scrolling
+    if (autoScrollEnabled && !isUserScrolling.current && chatContainerRef.current) {
+      // Use requestAnimationFrame for smoother scrolling
+      requestAnimationFrame(() => {
+        if (messagesEndRef.current && autoScrollEnabled) {
+          messagesEndRef.current.scrollIntoView({ behavior: 'smooth', block: 'end' });
+        }
+      });
     }
   }
 
@@ -687,51 +736,43 @@ export const Chat = () => {
   const throttledScrollDown = throttle(scrollDown, 250);
 
   useEffect(() => {
-    // Only auto-scroll on conversation change if auto-scroll is enabled
-    if (autoScrollEnabled) {
-      throttledScrollDown();
+    // Only auto-scroll for new messages, not conversation switches
+    if (selectedConversation && selectedConversationRef.current?.id !== selectedConversation.id) {
+      // Conversation changed - don't force scroll, let user decide
+      setAutoScrollEnabled(false);
+      setShowScrollDownButton(false);
+
+      // Update the ref
+      selectedConversationRef.current = selectedConversation;
+    } else if (selectedConversation && autoScrollEnabled) {
+      // Same conversation, new message - only scroll if auto-scroll is enabled
+      const currentMessageCount = selectedConversation.messages.length;
+      const previousMessageCount = selectedConversationRef.current?.messages.length || 0;
+
+      if (currentMessageCount > previousMessageCount) {
+        throttledScrollDown();
+      }
     }
+
     selectedConversation &&
       setCurrentMessage(
         selectedConversation.messages[selectedConversation.messages.length - 2],
       );
   }, [selectedConversation, throttledScrollDown, autoScrollEnabled]);
 
+  // Remove the intersection observer - it's causing unwanted scrolls
+  // Instead, rely on explicit scroll triggers from new messages
   useEffect(() => {
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        // Only auto-scroll if enabled AND user hasn't manually scrolled up
-        if (autoScrollEnabled && messageIsStreaming && entry.isIntersecting) {
-          // Check if user is actively interacting
-          const now = Date.now();
-          const timeSinceLastScroll = now - (lastScrollTop.current || 0);
-          // Don't auto-scroll if user scrolled in the last 2 seconds
-          if (timeSinceLastScroll > 2000) {
-            requestAnimationFrame(() => {
-              messagesEndRef.current?.scrollIntoView({
-                behavior: 'smooth',
-                block: 'end',
-              });
-            });
-          }
-        }
-      },
-      {
-        root: null,
-        threshold: 0.5,
-      }
-    );
-
-    const messagesEndElement = messagesEndRef.current;
-    if (messagesEndElement) {
-      observer.observe(messagesEndElement);
-    }
+    // Clean up timeouts on unmount
     return () => {
-      if (messagesEndElement) {
-        observer.unobserve(messagesEndElement);
+      if (scrollTimeoutRef.current) {
+        clearTimeout(scrollTimeoutRef.current);
+      }
+      if (autoScrollTimeoutRef.current) {
+        clearTimeout(autoScrollTimeoutRef.current);
       }
     };
-  }, [autoScrollEnabled, messageIsStreaming]);
+  }, []);
 
   const hasMessages = Boolean(selectedConversation?.messages?.length);
 
@@ -766,20 +807,30 @@ export const Chat = () => {
           onTouchStart={(e) => {
             lastTouchY.current = e.touches[0].clientY;
             isUserScrolling.current = true;
+
+            // Clear any pending auto-scroll timeouts when user starts touching
+            if (autoScrollTimeoutRef.current) {
+              clearTimeout(autoScrollTimeoutRef.current);
+              autoScrollTimeoutRef.current = null;
+            }
           }}
           onTouchMove={(e) => {
             const touchY = e.touches[0].clientY;
             const deltaY = lastTouchY.current - touchY;
 
-            // If scrolling up, disable auto-scroll
-            if (deltaY < 0 && autoScrollEnabled) {
+            // If scrolling up significantly (more than 10px), disable auto-scroll
+            if (deltaY > 10 && autoScrollEnabled) {
               setAutoScrollEnabled(false);
               homeDispatch({ field: 'autoScroll', value: false });
+              setShowScrollDownButton(true);
             }
             lastTouchY.current = touchY;
           }}
           onTouchEnd={() => {
-            isUserScrolling.current = false;
+            // Delay marking as not scrolling to prevent race conditions
+            setTimeout(() => {
+              isUserScrolling.current = false;
+            }, 150);
           }}
           style={{
             // Prevent overscroll bounce that can cause input issues
@@ -816,9 +867,14 @@ export const Chat = () => {
           </div>
         </div>
 
-        {/* Scroll down button */}
+        {/* Scroll down button with auto-scroll indicator */}
         {showScrollDownButton && (
-          <div className="absolute bottom-4 right-4">
+          <div className="absolute bottom-4 right-4 flex items-center gap-2">
+            {!autoScrollEnabled && (
+              <div className="px-3 py-1.5 rounded-full apple-glass backdrop-blur-xl border border-white/20 dark:border-white/10 shadow-[0_8px_32px_rgba(0,0,0,0.12)] dark:shadow-[0_8px_32px_rgba(0,0,0,0.24)] text-xs text-neutral-600 dark:text-white/60">
+                Auto-scroll paused
+              </div>
+            )}
             <button
               className="flex h-10 w-10 items-center justify-center rounded-full apple-glass backdrop-blur-xl border border-white/20 dark:border-white/10 shadow-[0_8px_32px_rgba(0,0,0,0.12)] dark:shadow-[0_8px_32px_rgba(0,0,0,0.24)] text-neutral-700 dark:text-white/80 transition-all duration-200 hover:bg-white/20 hover:border-nvidia-green/40"
               onClick={handleScrollDown}
