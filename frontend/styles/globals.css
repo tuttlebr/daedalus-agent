@@ -381,7 +381,7 @@
   /* iOS specific fixes */
   html, body {
     -webkit-overflow-scrolling: touch;
-    overscroll-behavior-y: contain;
+    overscroll-behavior-y: none; /* Prevent pull-to-refresh and bounce */
   }
 
   /* Better momentum scrolling on iOS */
@@ -389,6 +389,8 @@
     -webkit-overflow-scrolling: touch;
     overflow-y: scroll;
     will-change: scroll-position;
+    -webkit-transform: translateZ(0); /* Hardware acceleration */
+    transform: translateZ(0);
   }
 
   /* Prevent input sinking on iOS */
@@ -1209,5 +1211,44 @@ details div {
   /* iOS Safari specific fixes */
   .overscroll-none {
     -webkit-overflow-scrolling: touch;
+  }
+}
+
+/* iOS Keyboard Fixes for Chat Input */
+@supports (-webkit-touch-callout: none) {
+  /* iOS only */
+
+  /* Prevent input zoom on iOS */
+  textarea,
+  input[type="text"],
+  input[type="email"],
+  input[type="password"],
+  input[type="search"],
+  input[type="tel"],
+  input[type="url"] {
+    font-size: 16px !important;
+  }
+
+  /* Fix for iOS keyboard push behavior */
+  .fixed {
+    -webkit-backface-visibility: hidden;
+    backface-visibility: hidden;
+    -webkit-transform: translateZ(0);
+    transform: translateZ(0);
+  }
+
+  /* Ensure proper viewport behavior when keyboard is open */
+  html.keyboard-open {
+    position: fixed;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+  }
+
+  /* Chat input specific fixes */
+  [data-chat-input] {
+    position: relative;
+    -webkit-transform: translateZ(0);
+    transform: translateZ(0);
   }
 }

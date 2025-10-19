@@ -93,7 +93,7 @@ export const QuickActionsPopup: React.FC<QuickActionsPopupProps> = ({
           border border-white/20 bg-white/20 backdrop-blur-xl
           text-neutral-700 transition-all duration-200
           hover:border-nvidia-green/50 hover:bg-white/30 hover:text-nvidia-green
-          active:scale-95 dark:border-white/10 dark:bg-white/10 dark:text-white/80
+          dark:border-white/10 dark:bg-white/10 dark:text-white/80
           dark:hover:border-nvidia-green/60 dark:hover:text-nvidia-green
           ${isOpen ? 'rotate-45' : ''}
           ${className}
@@ -136,7 +136,6 @@ export const QuickActionsPopup: React.FC<QuickActionsPopupProps> = ({
                   relative flex items-center justify-center rounded-xl p-2
                   transition-all duration-150
                   hover:bg-white/20 dark:hover:bg-white/10
-                  active:scale-[0.98]
                   ${action.isActive ? 'bg-nvidia-green/20 dark:bg-nvidia-green/15' : ''}
                 `}
                 role="menuitem"

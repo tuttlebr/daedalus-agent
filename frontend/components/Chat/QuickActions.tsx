@@ -49,7 +49,7 @@ export const QuickActions: React.FC<QuickActionsProps> = ({
             <button
               key={action.id}
               onClick={action.onClick}
-              className="rounded-xl border border-white/10 bg-white/10 p-2.5 text-neutral-700 transition-all hover:border-nvidia-green/40 hover:bg-white/20 hover:text-nvidia-green active:scale-95 dark:border-white/5 dark:bg-white/10 dark:text-white/70 dark:hover:border-nvidia-green/50 dark:hover:text-nvidia-green"
+              className="rounded-xl border border-white/10 bg-white/10 p-2.5 text-neutral-700 transition-all hover:border-nvidia-green/40 hover:bg-white/20 hover:text-nvidia-green dark:border-white/5 dark:bg-white/10 dark:text-white/70 dark:hover:border-nvidia-green/50 dark:hover:text-nvidia-green"
               aria-label={action.label}
               title={action.label}
             >

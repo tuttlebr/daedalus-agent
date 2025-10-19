@@ -25,7 +25,6 @@ import type React from 'react';
 
 import { useTranslation } from 'next-i18next';
 import toast from 'react-hot-toast';
-import { useKeyboardVisibility } from '@/hooks/useKeyboardVisibility';
 
 import { Message, Conversation } from '@/types/chat';
 import { v4 as uuidv4 } from 'uuid';
@@ -67,7 +66,6 @@ export const ChatInput: React.FC<Props> = ({
   onQuickActionsRegister,
 }) => {
   const { t } = useTranslation('chat');
-  const { isKeyboardVisible, keyboardHeight, viewportHeight } = useKeyboardVisibility();
 
   const {
     state: { selectedConversation, messageIsStreaming, enableIntermediateSteps, conversations, useDeepThinker },
@@ -559,36 +557,6 @@ export const ChatInput: React.FC<Props> = ({
   // Use a ref to maintain stable positioning
   const inputContainerRef = useRef<HTMLDivElement>(null);
 
-  // Prevent input sinking when keyboard is visible
-  useEffect(() => {
-    if (!isMobile()) return;
-
-    const handleFocus = (e: FocusEvent) => {
-      const target = e.target as HTMLElement;
-      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') {
-        // Prevent default scrolling behavior
-        setTimeout(() => {
-          if (inputContainerRef.current) {
-            // Force the input to stay at bottom
-            inputContainerRef.current.scrollIntoView({
-              behavior: 'instant',
-              block: 'end',
-              inline: 'nearest'
-            });
-            // Prevent any further adjustments
-            window.scrollTo(0, 0);
-          }
-        }, 0);
-      }
-    };
-
-    document.addEventListener('focusin', handleFocus);
-
-    return () => {
-      document.removeEventListener('focusin', handleFocus);
-    };
-  }, []);
-
   return (
     <>
       {/* Voice Recorder Modal */}
@@ -601,26 +569,18 @@ export const ChatInput: React.FC<Props> = ({
 
       <div
         ref={inputContainerRef}
-        className={`${
-          isMobile() ? 'fixed' : 'sticky'
-        } bottom-0 left-0 right-0 z-30 bg-bg-secondary dark:bg-dark-bg-primary transition-colors duration-300`}
-        data-keyboard-visible={isKeyboardVisible}
+        className="w-full"
+        data-chat-input
         style={{
-          paddingBottom: `env(safe-area-inset-bottom)`,
-          // Use transform to lock position
-          transform: 'translate3d(0, 0, 0)',
-          WebkitTransform: 'translate3d(0, 0, 0)',
-          // Prevent reflow
-          backfaceVisibility: 'hidden',
-          WebkitBackfaceVisibility: 'hidden',
-          // Lock position
-          position: isMobile() ? 'fixed' : 'sticky',
-          bottom: 0,
+          paddingBottom: `env(safe-area-inset-bottom, 0px)`,
+          // Prevent iOS keyboard push behavior
+          WebkitTransform: 'translateZ(0)',
+          transform: 'translateZ(0)',
         }}
       >
-        <div className="mx-auto flex w-full max-w-5xl flex-col">
+        <div className="flex w-full flex-col">
           {/* Input Container */}
-          <div className="px-3 sm:px-4 md:px-6 py-3">
+          <div className="w-full">
             <div className="relative">
               {/* Main input wrapper with glass effect */}
               <div
@@ -645,6 +605,10 @@ export const ChatInput: React.FC<Props> = ({
                   minHeight: '54px',
                   maxHeight: '320px',
                   overflow: `${textareaRef.current && textareaRef.current.scrollHeight > 400 ? 'auto' : 'hidden'}`,
+                  // iOS-specific fixes
+                  WebkitAppearance: 'none',
+                  WebkitTransform: 'translateZ(0)',
+                  fontSize: '16px', // Prevents iOS zoom on focus
                 }}
                 placeholder={isRecording ? 'Listening…' : (t('Send a message') as unknown as string)}
                 value={content}
@@ -653,6 +617,24 @@ export const ChatInput: React.FC<Props> = ({
                 onCompositionEnd={() => setIsTyping(false)}
                 onChange={handleChange}
                 onKeyDown={handleKeyDown}
+                onFocus={(e) => {
+                  // iOS-specific handling
+                  if (isMobile() && /iPad|iPhone|iPod/.test(navigator.userAgent)) {
+                    // Don't prevent default - let iOS handle focus naturally
+                    // Just ensure the viewport doesn't jump
+                    setTimeout(() => {
+                      // Ensure input is in view without jarring movement
+                      const inputRect = e.target.getBoundingClientRect();
+                      const viewportHeight = window.visualViewport?.height || window.innerHeight;
+
+                      // Only scroll if input is not visible
+                      if (inputRect.bottom > viewportHeight) {
+                        const scrollAmount = inputRect.bottom - viewportHeight + 20; // 20px padding
+                        window.scrollBy({ top: scrollAmount, behavior: 'smooth' });
+                      }
+                    }, 100);
+                  }
+                }}
                 {...(appConfig?.fileUploadEnabled && {
                   onDragOver: handleDragOver,
                   onDrop: handleDrop,
@@ -661,7 +643,7 @@ export const ChatInput: React.FC<Props> = ({
                 />
                 {/* Send Button - centered with textarea */}
                 <button
-                  className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full bg-neutral-900/90 p-2.5 text-white shadow-lg transition-transform duration-150 hover:bg-neutral-800 dark:bg-nvidia-green dark:hover:bg-nvidia-green/90 active:scale-95"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full bg-neutral-900/90 p-2.5 text-white shadow-lg transition-colors duration-150 hover:bg-neutral-800 dark:bg-nvidia-green dark:hover:bg-nvidia-green/90"
                   onClick={handleSend}
                 >
                   {messageIsStreaming ? (
@@ -729,17 +711,6 @@ export const ChatInput: React.FC<Props> = ({
               }
             </div>
 
-            {showScrollDownButton && (
-              <div className="pointer-events-none absolute -top-14 right-0 flex items-center justify-end">
-                <button
-                  className="pointer-events-auto flex h-10 w-10 items-center justify-center rounded-full border border-neutral-200 bg-bg-primary text-text-primary shadow-md transition-colors duration-150 hover:border-neutral-300 hover:text-neutral-900 dark:border-neutral-700 dark:bg-dark-bg-tertiary dark:text-neutral-200 dark:hover:border-neutral-600"
-                  onClick={onScrollDownClick}
-                  aria-label={t('Scroll to bottom') as unknown as string}
-                >
-                  <IconArrowDown size={18} />
-                </button>
-              </div>
-            )}
           </div>
         </div>
       </div>
