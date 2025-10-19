@@ -582,6 +582,8 @@ export const Chat = () => {
           homeDispatch({ field: 'loading', value: false });
           homeDispatch({ field: 'messageIsStreaming', value: false });
           if (error === 'aborted' || error?.name === 'AbortError') {
+            // Reset the controller after abortion
+            controllerRef.current = new AbortController();
             return;
           } else {
             console.log('error during chat completion - ', error);
