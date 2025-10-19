@@ -841,9 +841,9 @@ export const Chat = () => {
             WebkitOverflowScrolling: 'touch' as any,
           }}
         >
-          <div className="mx-auto flex h-full w-full max-w-5xl flex-col px-3 sm:px-4 md:px-6 pb-0 pt-3 sm:pt-6">
+          <div className="mx-auto flex h-full w-full max-w-5xl flex-col responsive-px pb-0 pt-4 sm:pt-6">
             {hasMessages ? (
-              <div className="flex flex-col space-y-1 sm:space-y-2 min-w-0">
+              <div className="flex flex-col space-y-3 sm:space-y-4 min-w-0">
                 {selectedConversation?.messages.map((message, index) => (
                   <MemoizedChatMessage
                     key={message.id || index}
@@ -863,7 +863,8 @@ export const Chat = () => {
             {loading && <ChatLoader statusUpdateText={`Thinking...`} />}
 
             {/* Spacer to prevent content from being hidden behind the input area */}
-            <div className="h-32 shrink-0" ref={messagesEndRef} />
+            {/* Responsive: 80px on mobile (accounts for input), 64px on desktop */}
+            <div className="h-20 md:h-16 shrink-0" ref={messagesEndRef} />
           </div>
         </div>
 
@@ -901,10 +902,10 @@ export const Chat = () => {
           transform: 'translateZ(0)',
           WebkitTransform: 'translateZ(0)',
         }}>
-        <div className="mx-auto max-w-5xl px-3 pb-6 pt-3 sm:px-4 md:px-6"
+        <div className="mx-auto max-w-5xl responsive-px pb-6 pt-3 md:pb-6 md:pt-3"
           style={{
             // Additional padding when keyboard is visible
-            paddingBottom: isKeyboardVisible ? 'max(24px, env(safe-area-inset-bottom))' : '24px',
+            paddingBottom: isKeyboardVisible ? 'max(24px, env(safe-area-inset-bottom))' : 'max(24px, env(safe-area-inset-bottom))',
           }}>
           <ChatInput
             textareaRef={textareaRef}

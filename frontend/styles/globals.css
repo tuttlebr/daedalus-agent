@@ -1252,3 +1252,62 @@ details div {
     transform: translateZ(0);
   }
 }
+
+/* =================================================================
+   SAFE AREA UTILITIES
+   Proper spacing for notched devices (iPhone, Android with notch/punch-hole)
+   ================================================================= */
+.safe-top {
+  padding-top: env(safe-area-inset-top, 0px);
+}
+
+.safe-bottom {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+.safe-left {
+  padding-left: env(safe-area-inset-left, 0px);
+}
+
+.safe-right {
+  padding-right: env(safe-area-inset-right, 0px);
+}
+
+/* Mobile-specific safe areas with minimum padding */
+@media (max-width: 768px) {
+  .safe-bottom {
+    /* Ensure at least 16px padding on mobile, even without notch */
+    padding-bottom: max(env(safe-area-inset-bottom, 0px), 16px);
+  }
+  
+  .safe-top {
+    /* Ensure at least 12px padding on mobile */
+    padding-top: max(env(safe-area-inset-top, 0px), 12px);
+  }
+}
+
+/* Mobile bottom navigation safe area - accounts for fixed nav */
+.mobile-content-bottom-padding {
+  /* 64px (h-16 bottom nav) + safe area */
+  padding-bottom: calc(64px + env(safe-area-inset-bottom, 0px));
+}
+
+/* Responsive padding utilities for consistent spacing */
+.responsive-px {
+  padding-left: 0.75rem;
+  padding-right: 0.75rem;
+}
+
+@media (min-width: 640px) {
+  .responsive-px {
+    padding-left: 1rem;
+    padding-right: 1rem;
+  }
+}
+
+@media (min-width: 768px) {
+  .responsive-px {
+    padding-left: 1.5rem;
+    padding-right: 1.5rem;
+  }
+}
