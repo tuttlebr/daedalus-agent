@@ -30,9 +30,7 @@ import { FolderInterface, FolderType } from '@/types/folder';
 
 import { Chat } from '@/components/Chat/Chat';
 import { Chatbar } from '@/components/Chatbar/Chatbar';
-import { Navbar } from '@/components/Mobile/Navbar';
-import { BottomNav } from '@/components/Mobile/BottomNav';
-import { SwipeableConversations } from '@/components/Mobile/SwipeableConversations';
+import { IconMenu2, IconX } from '@tabler/icons-react';
 import { ProtectedRoute } from '@/components/Auth/ProtectedRoute';
 
 import HomeContext from './home.context';
@@ -68,7 +66,6 @@ const Home = (props: any) => {
     onAttachFile?: () => void;
     onTakePhoto?: () => void;
     onStartVoice?: () => void;
-    onSelectPrompt?: (prompt: string) => void;
   }>({});
 
   const handleSelectConversation = (conversation: Conversation) => {
@@ -311,13 +308,6 @@ const Home = (props: any) => {
             onToggleDeepThought: () => {
               dispatch({ field: 'useDeepThinker', value: !useDeepThinker });
             },
-            onSelectPrompt: (prompt: string) => {
-              if (quickActionHandlers.onSelectPrompt) {
-                quickActionHandlers.onSelectPrompt(prompt);
-              } else {
-                console.warn('Select prompt handler not available');
-              }
-            },
             __setHandlers: (handlers: any) => {
               setQuickActionHandlers((prevHandlers: any) => ({ ...prevHandlers, ...handlers }));
             },
@@ -341,49 +331,25 @@ const Home = (props: any) => {
             className={`flex h-screen w-screen flex-col text-sm text-white dark:text-white ${lightMode}`}
           >
             {/* Mobile Layout */}
-            <div className="flex flex-col h-full md:hidden">
+            <div className="relative flex flex-col h-full md:hidden">
+              <div className="absolute top-4 left-4 z-50">
+                <button
+                  type="button"
+                  onClick={() => dispatch({ field: 'showChatbar', value: !showChatbar })}
+                  className="flex h-11 w-11 items-center justify-center rounded-full bg-black/60 text-white shadow-md backdrop-blur transition-colors duration-200 hover:bg-black/70 focus:outline-none focus-visible:ring-2 focus-visible:ring-nvidia-green"
+                  aria-label={showChatbar ? 'Close menu' : 'Open menu'}
+                >
+                  {showChatbar ? <IconX size={22} /> : <IconMenu2 size={22} />}
+                </button>
+              </div>
+
               {/* Top safe area */}
               <div className="safe-top" />
 
-              {/* Swipeable conversations container */}
+              {/* Main chat container */}
               <div className="flex-1 overflow-hidden">
-                <SwipeableConversations
-                  conversations={conversations}
-                  currentConversation={selectedConversation}
-                  onSelectConversation={handleSelectConversation}
-                >
-                  <Chat />
-                </SwipeableConversations>
+                <Chat />
               </div>
-
-              {/* Bottom Navigation */}
-              <BottomNav
-                onAttachFile={() => {
-                  if (quickActionHandlers.onAttachFile) {
-                    quickActionHandlers.onAttachFile();
-                  } else {
-                    console.warn('File attachment handler not ready yet');
-                  }
-                }}
-                onTakePhoto={() => {
-                  if (quickActionHandlers.onTakePhoto) {
-                    quickActionHandlers.onTakePhoto();
-                  } else {
-                    console.warn('Photo handler not ready yet');
-                  }
-                }}
-                onStartVoice={() => {
-                  if (quickActionHandlers.onStartVoice) {
-                    quickActionHandlers.onStartVoice();
-                  } else {
-                    console.warn('Voice handler not ready yet');
-                  }
-                }}
-                onToggleDeepThought={() => {
-                  dispatch({ field: 'useDeepThinker', value: !useDeepThinker });
-                }}
-                isDeepThoughtEnabled={useDeepThinker}
-              />
 
               {/* Slide-over chatbar for mobile */}
               <div

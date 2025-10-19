@@ -40,7 +40,7 @@ WORKDIR /workspace
 RUN --mount=type=cache,id=uv_cache,target=/root/.cache/uv,sharing=locked \
     uv venv --python ${PYTHON_VERSION} /workspace/.venv && \
     . /workspace/.venv/bin/activate && \
-    uv pip install "git+https://github.com/NVIDIA/NeMo-Agent-Toolkit.git@${NAT_VERSION}"
+    uv pip install "git+https://github.com/NVIDIA/NeMo-Agent-Toolkit.git@${NAT_VERSION}" langchain==0.3.27
 
 ENV PATH="/workspace/.venv/bin:$PATH"
 

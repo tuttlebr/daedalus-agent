@@ -7,7 +7,7 @@ interface Props {
 export const CloseSidebarButton = ({ onClick, side }: Props) => {
   return (
     <button
-      className="flex items-center justify-center rounded-xl apple-glass p-3 text-white/60 transition-all duration-200 hover:bg-white/10 hover:text-white hover:shadow-[0_0_15px_rgba(118,185,0,0.2)] flex-shrink-0 border border-white/10"
+      className="flex items-center justify-center rounded-xl p-2 text-white/60 transition-all duration-200 hover:bg-white/10 hover:text-white hover:shadow-[0_0_15px_rgba(118,185,0,0.2)] flex-shrink-0"
       onClick={onClick}
       aria-label="Close sidebar"
     >

@@ -1,5 +1,5 @@
 'use client';
-import { IconArrowDown } from '@tabler/icons-react';
+import { IconArrowDown, IconBrain } from '@tabler/icons-react';
 import {
   useCallback,
   useContext,
@@ -31,7 +31,7 @@ import {
 } from '@/types/intermediateSteps';
 import { SSEClient, createSSEUrl } from '@/services/sse';
 import HomeContext from '@/pages/api/home/home.context';
-import { ChatInputNew as ChatInput } from './ChatInputNew';
+import { ChatInput } from './ChatInput';
 import { ChatLoader } from './ChatLoader';
 import { MemoizedChatMessage } from './MemoizedChatMessage';
 import { cleanMessagesForLLM, processMessageImages } from '@/utils/app/imageHandler';
@@ -54,7 +54,8 @@ export const Chat = () => {
       chatCompletionURL,
       expandIntermediateSteps,
       intermediateStepOverride,
-      enableIntermediateSteps
+      enableIntermediateSteps,
+      useDeepThinker
     },
     handleUpdateConversation,
     dispatch: homeDispatch,
@@ -648,6 +649,15 @@ export const Chat = () => {
     }
   }
 
+  const handleToggleDeepThinker = useCallback(() => {
+    if (quickActionHandlers && typeof (quickActionHandlers as any).onToggleDeepThought === 'function') {
+      (quickActionHandlers as any).onToggleDeepThought();
+    } else {
+      homeDispatch({ field: 'useDeepThinker', value: !useDeepThinker });
+      toast.success(!useDeepThinker ? 'Deep Thinker enabled' : 'Deep Thinker disabled');
+    }
+  }, [quickActionHandlers, homeDispatch, useDeepThinker]);
+
   const throttledScrollDown = throttle(scrollDown, 250);
 
   useEffect(() => {
@@ -704,9 +714,13 @@ export const Chat = () => {
       <ChatHeader />
       <div className="relative flex flex-1 flex-col overflow-hidden">
         <div
-          className="flex-1 overflow-y-auto overscroll-none -webkit-overflow-scrolling-touch scrollbar-hide sm:scrollbar-show relative"
+          className="flex-1 overflow-y-auto -webkit-overflow-scrolling-touch scrollbar-hide sm:scrollbar-show relative"
           ref={chatContainerRef}
           onScroll={handleScroll}
+          style={{
+            WebkitOverflowScrolling: 'touch',
+            overscrollBehavior: 'contain'
+          }}
         >
           <div className="mx-auto flex h-full w-full max-w-5xl flex-col px-3 sm:px-4 md:px-6 pb-0 pt-3 sm:pt-6">
             {hasMessages ? (
@@ -730,16 +744,16 @@ export const Chat = () => {
             {loading && <ChatLoader statusUpdateText={`Thinking...`} />}
 
             {/* Spacer to prevent content from being hidden behind the input area */}
-            {/* Mobile: ChatInput (~120px) + BottomNav (64px) + safe area + buffer = ~320px */}
-            {/* Desktop: ChatInput (~100px) + Deep Thinker button (~50px) + buffer = ~180px */}
-            <div className="h-[320px] md:h-[180px] shrink-0" ref={messagesEndRef} />
+            {/* Mobile: ChatInput + safe area */}
+            {/* Desktop: ChatInput + buffer */}
+            <div className="h-[140px] md:h-[160px] shrink-0" ref={messagesEndRef} />
           </div>
         </div>
 
         {showScrollDownButton && (
           <button
             type="button"
-            className="pointer-events-auto absolute bottom-[22rem] md:bottom-[12rem] right-3 sm:right-5 z-10 flex h-10 w-10 sm:h-11 sm:w-11 items-center justify-center rounded-full bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 shadow-lg transition-all duration-200 active:scale-95 border border-gray-200 dark:border-gray-700"
+            className="pointer-events-auto fixed md:absolute bottom-[10rem] md:bottom-[12rem] right-3 sm:right-5 z-10 flex h-10 w-10 sm:h-11 sm:w-11 items-center justify-center rounded-full bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 shadow-lg transition-all duration-200 active:scale-95 border border-gray-200 dark:border-gray-700"
             onClick={handleScrollDown}
             aria-label={t('Scroll to bottom') as unknown as string}
           >
@@ -747,33 +761,37 @@ export const Chat = () => {
           </button>
         )}
 
-        <ChatInput
-          textareaRef={textareaRef}
-          onSend={(message) => {
-            setCurrentMessage(message);
-            handleSend(message, 0);
-          }}
-          onRegenerate={() => {
-            if (currentMessage && currentMessage?.role === 'user') {
-              handleSend(currentMessage, 0);
-            } else {
-              const lastUserMessage = fetchLastMessage({
-                messages: (selectedConversation?.messages as any[]) || [],
-                role: 'user',
-              });
-              lastUserMessage && handleSend(lastUserMessage, 1);
-            }
-          }}
-          showScrollDownButton={showScrollDownButton}
-          onScrollDownClick={handleScrollDown}
-          controller={controllerRef}
-          onQuickActionsRegister={(handlers) => {
-            // Pass handlers up to the parent component through context
-            if (quickActionHandlers && '__setHandlers' in quickActionHandlers) {
-              (quickActionHandlers as any).__setHandlers(handlers);
-            }
-          }}
-        />
+        <div className="flex w-full items-center justify-center px-3 pb-6 sm:px-4 md:px-6">
+          <div className="w-full max-w-5xl">
+            <ChatInput
+              textareaRef={textareaRef}
+              onSend={(message) => {
+                setCurrentMessage(message);
+                handleSend(message, 0);
+              }}
+              onRegenerate={() => {
+                if (currentMessage && currentMessage?.role === 'user') {
+                  handleSend(currentMessage, 0);
+                } else {
+                  const lastUserMessage = fetchLastMessage({
+                    messages: (selectedConversation?.messages as any[]) || [],
+                    role: 'user',
+                  });
+                  lastUserMessage && handleSend(lastUserMessage, 1);
+                }
+              }}
+              showScrollDownButton={showScrollDownButton}
+              onScrollDownClick={handleScrollDown}
+              controller={controllerRef}
+              onQuickActionsRegister={(handlers) => {
+                // Pass handlers up to the parent component through context
+                if (quickActionHandlers && '__setHandlers' in quickActionHandlers) {
+                  (quickActionHandlers as any).__setHandlers(handlers);
+                }
+              }}
+            />
+          </div>
+        </div>
       </div>
     </div>
   );

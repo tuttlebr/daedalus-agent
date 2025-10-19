@@ -58,30 +58,37 @@ const Sidebar = <T,>({
     <div className="relative h-full">
       {isOpen ? (
         <div
-          className={`fixed md:relative top-0 ${side}-0 z-50 flex h-full w-[240px] lg:w-[260px] flex-none flex-col space-y-2 apple-glass-subtle p-2 text-[14px] transition-all duration-300 ease-out border-r border-white/10 animate-slide-in`}
+          className={`fixed md:relative top-0 ${side}-0 z-50 flex h-full w-[240px] lg:w-[260px] flex-none flex-col space-y-2 apple-glass-sidebar p-2 text-[14px] transition-all duration-300 ease-out animate-slide-in`}
           data-sidebar-desktop="open"
         >
-          <div className="flex items-center gap-2">
-            <button
-              className="text-sidebar flex flex-1 cursor-pointer select-none items-center gap-3 rounded-xl apple-glass p-3 text-white transition-all duration-200 hover:bg-white/10 hover:shadow-[0_0_15px_rgba(118,185,0,0.2)] border border-white/10"
-              onClick={() => {
-                handleCreateItem();
-                handleSearchTerm('');
-              }}
-            >
-              <IconPlus size={20} className="flex-shrink-0" />
-              <span className="truncate">{addItemButtonTitle}</span>
-            </button>
+          {/* Header with actions */}
+          <div className="relative">
+            {/* Close button positioned absolutely to prevent overhang */}
+            <div className="absolute -right-1 -top-1 z-10">
+              <CloseSidebarButton onClick={toggleOpen} side={side} />
+            </div>
 
-            <button
-              className="flex items-center justify-center rounded-xl apple-glass p-3 text-sm text-white transition-all duration-200 hover:bg-white/10 hover:shadow-[0_0_15px_rgba(118,185,0,0.2)] flex-shrink-0 border border-white/10"
-              onClick={handleCreateFolder}
-              aria-label="Create folder"
-            >
-              <IconFolderPlus size={20} />
-            </button>
+            {/* Main action buttons */}
+            <div className="flex items-center gap-2 pr-12">
+              <button
+                className="text-sidebar flex flex-1 cursor-pointer select-none items-center gap-3 rounded-xl p-3 text-white transition-all duration-200 hover:bg-white/10 hover:shadow-[0_0_15px_rgba(118,185,0,0.2)] border border-white/5"
+                onClick={() => {
+                  handleCreateItem();
+                  handleSearchTerm('');
+                }}
+              >
+                <IconPlus size={20} className="flex-shrink-0" />
+                <span className="truncate">{addItemButtonTitle}</span>
+              </button>
 
-            <CloseSidebarButton onClick={toggleOpen} side={side} />
+              <button
+                className="flex items-center justify-center rounded-xl p-3 text-sm text-white transition-all duration-200 hover:bg-white/10 hover:shadow-[0_0_15px_rgba(118,185,0,0.2)] flex-shrink-0 border border-white/5"
+                onClick={handleCreateFolder}
+                aria-label="Create folder"
+              >
+                <IconFolderPlus size={20} />
+              </button>
+            </div>
           </div>
           <Search
             placeholder={t('Search...') || ''}
@@ -108,7 +115,7 @@ const Sidebar = <T,>({
               </div>
             ) : (
               <div className="mt-8 select-none text-center p-4">
-                <div className="apple-glass-subtle rounded-2xl p-6 mx-2">
+                <div className="rounded-2xl p-6 mx-2 bg-white/5 border border-white/10">
                   <IconMistOff className="mx-auto mb-3 text-white/40" size={32} />
                   <span className="text-[14px] leading-normal text-white/60">
                     {t('No data.')}
