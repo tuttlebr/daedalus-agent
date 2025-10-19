@@ -6,7 +6,10 @@
   "display": "standalone",
   "background_color": "#000000",
   "theme_color": "#76b900",
-  "orientation": "portrait-primary",
+  "orientation": "any",
+  "scope": "/",
+  "categories": ["productivity", "utilities"],
+  "prefer_related_applications": false,
   "icons": [
     {
       "src": "/favicon.png",

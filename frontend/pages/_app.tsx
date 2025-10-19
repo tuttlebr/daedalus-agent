@@ -8,6 +8,7 @@ import { useEffect } from 'react';
 
 import '@/styles/globals.css';
 import { AuthProvider } from '@/components/Auth/AuthProvider';
+import { OfflineIndicator } from '@/components/PWA/OfflineIndicator';
 import { getSettings } from '@/utils/app/settings';
 import { registerServiceWorker, setupOfflineDetection, setupInstallPrompt } from '@/utils/app/pwa';
 import toast from 'react-hot-toast';
@@ -53,6 +54,7 @@ function App({ Component, pageProps }: AppProps<{}>) {
           },
         }}
       />
+      <OfflineIndicator />
       <QueryClientProvider client={queryClient}>
         <AuthProvider>
           <Component {...pageProps} />
