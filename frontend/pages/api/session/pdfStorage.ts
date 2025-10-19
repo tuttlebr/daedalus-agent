@@ -4,7 +4,7 @@ import { getUserId, getOrSetSessionId } from './_utils';
 import crypto from 'crypto';
 
 const PDF_EXPIRY_SECONDS = 60 * 60 * 24 * 7; // 7 days
-const MAX_PDF_SIZE = 10 * 1024 * 1024; // 10MB limit
+const MAX_PDF_SIZE = 20 * 1024 * 1024; // 20MB limit
 
 export interface StoredPDF {
   id: string;

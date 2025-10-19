@@ -330,7 +330,7 @@ export const ChatInput: React.FC<Props> = ({
     if (window.innerWidth < 640 && textareaRef && textareaRef.current) {
       textareaRef.current.blur();
     }
-    
+
     // Re-enable auto-scroll after sending message so user sees the response
     homeDispatch({ field: 'autoScroll', value: true });
   };
@@ -367,9 +367,9 @@ export const ChatInput: React.FC<Props> = ({
       return;
     }
 
-    const maxSize = isPDF ? 10 * 1024 * 1024 : 5 * 1024 * 1024; // 10MB for PDFs, 5MB for images
+    const maxSize = isPDF ? 20 * 1024 * 1024 : 5 * 1024 * 1024; // 20MB for PDFs, 5MB for images
     if (file && file.size > maxSize) {
-      alert(`File size should not exceed : ${isPDF ? '10 MB' : '5 MB'}`);
+      alert(`File size should not exceed : ${isPDF ? '20 MB' : '5 MB'}`);
       return;
     }
 
@@ -633,23 +633,23 @@ export const ChatInput: React.FC<Props> = ({
                   if (isMobile()) {
                     // IMPORTANT: Disable chat auto-scroll to prevent it from fighting with input scroll
                     homeDispatch({ field: 'autoScroll', value: false });
-                    
+
                     // In PWA standalone mode, visualViewport handles keyboard positioning
                     // Don't use scrollIntoView as it conflicts with the viewport adjustments
-                    const isPWA = window.matchMedia('(display-mode: standalone)').matches || 
+                    const isPWA = window.matchMedia('(display-mode: standalone)').matches ||
                                   (window.navigator as any).standalone === true;
-                    
+
                     if (isPWA) {
                       // In PWA mode, rely on visualViewport adjustments instead of scrollIntoView
                       return;
                     }
-                    
+
                     // Use multiple techniques for best compatibility (browser mode only)
-                    
+
                     // Technique 1: ScrollIntoView (most reliable)
                     setTimeout(() => {
-                      e.target.scrollIntoView({ 
-                        behavior: 'smooth', 
+                      e.target.scrollIntoView({
+                        behavior: 'smooth',
                         block: 'center',
                         inline: 'nearest'
                       });
@@ -660,19 +660,19 @@ export const ChatInput: React.FC<Props> = ({
                       const handleResize = () => {
                         const inputRect = e.target.getBoundingClientRect();
                         const viewportHeight = window.visualViewport!.height;
-                        
+
                         // If input is covered by keyboard, scroll it into view
                         if (inputRect.bottom > viewportHeight - 20) {
-                          e.target.scrollIntoView({ 
-                            behavior: 'smooth', 
+                          e.target.scrollIntoView({
+                            behavior: 'smooth',
                             block: 'center'
                           });
                         }
                       };
-                      
+
                       // Listen for viewport resize (keyboard appearing)
                       window.visualViewport.addEventListener('resize', handleResize);
-                      
+
                       // Clean up listener after keyboard is shown
                       setTimeout(() => {
                         window.visualViewport?.removeEventListener('resize', handleResize);
