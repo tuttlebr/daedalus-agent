@@ -1,5 +1,5 @@
 'use client';
-import { IconArrowDown, IconBrain } from '@tabler/icons-react';
+import { IconBrain, IconArrowDown } from '@tabler/icons-react';
 import {
   useCallback,
   useContext,
@@ -40,6 +40,7 @@ import { GalaxyAnimation } from '@/components/GalaxyAnimation';
 import { v4 as uuidv4 } from 'uuid';
 import { ChatHeader } from './ChatHeader';
 import { useAuth } from '@/components/Auth/AuthProvider';
+import { useIOSKeyboardFix } from '@/hooks/useIOSKeyboardFix';
 
 export const Chat = () => {
   const { t } = useTranslation('chat');
@@ -74,6 +75,8 @@ export const Chat = () => {
   const selectedConversationRef = useRef(selectedConversation);
 
   const lastScrollTop = useRef(0); // Store last known scroll position
+  const lastTouchY = useRef(0); // Track touch position for mobile
+  const isUserScrolling = useRef(false); // Track if user is actively scrolling
 
   // Add these variables near the top of your component
   useEffect(() => {
@@ -602,18 +605,37 @@ export const Chat = () => {
   // Add a new effect to handle streaming state changes
   useEffect(() => {
     if (messageIsStreaming) {
-      setAutoScrollEnabled(true);
-      setShowScrollDownButton(false);
-      homeDispatch({ field: 'autoScroll', value: true });
+      // Only enable auto-scroll if user is already at bottom
+      if (chatContainerRef.current) {
+        const { scrollTop, scrollHeight, clientHeight } = chatContainerRef.current;
+        const threshold = Math.max(100, clientHeight * 0.1); // Larger threshold for mobile
+        const isAtBottom = scrollHeight - scrollTop - clientHeight <= threshold;
+        if (isAtBottom) {
+          setAutoScrollEnabled(true);
+          setShowScrollDownButton(false);
+          homeDispatch({ field: 'autoScroll', value: true });
+        }
+      }
     }
-  }, [messageIsStreaming]);
+  }, [messageIsStreaming, homeDispatch]);
+
+  // Detect if we're on a mobile device
+  const isMobile = () => {
+    if (typeof window === 'undefined') return false;
+    return window.matchMedia('(pointer: coarse)').matches || window.innerWidth <= 768;
+  };
 
   // Add an effect to set up wheel and touchmove event listeners
   const handleScroll = useCallback(() => {
     if (!chatContainerRef.current) return;
     const { scrollTop, scrollHeight, clientHeight } = chatContainerRef.current;
-    const threshold = Math.max(24, clientHeight * 0.02);
+    // Use larger threshold on mobile to prevent accidental re-enabling
+    const threshold = isMobile() ? Math.max(100, clientHeight * 0.1) : Math.max(24, clientHeight * 0.02);
     const isAtBottom = scrollHeight - scrollTop - clientHeight <= threshold;
+
+    // Track scroll direction
+    const isScrollingUp = scrollTop < lastScrollTop.current;
+
     if (!isAtBottom) {
       if (autoScrollEnabled) {
         setAutoScrollEnabled(false);
@@ -623,11 +645,12 @@ export const Chat = () => {
         setShowScrollDownButton(true);
       }
     } else {
-      if (!autoScrollEnabled) {
+      // Only re-enable auto-scroll if not actively scrolling up and not on mobile
+      if (!autoScrollEnabled && !isScrollingUp && !isMobile()) {
         setAutoScrollEnabled(true);
         homeDispatch({ field: 'autoScroll', value: true });
       }
-      if (showScrollDownButton) {
+      if (showScrollDownButton && !isScrollingUp) {
         setShowScrollDownButton(false);
       }
     }
@@ -644,7 +667,8 @@ export const Chat = () => {
   };
 
   const scrollDown = () => {
-    if (autoScrollEnabled) {
+    // Don't scroll if user is actively scrolling on mobile
+    if (autoScrollEnabled && !isUserScrolling.current) {
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
     }
   }
@@ -661,18 +685,26 @@ export const Chat = () => {
   const throttledScrollDown = throttle(scrollDown, 250);
 
   useEffect(() => {
-    throttledScrollDown();
+    // Only auto-scroll on conversation change if auto-scroll is enabled
+    if (autoScrollEnabled) {
+      throttledScrollDown();
+    }
     selectedConversation &&
       setCurrentMessage(
         selectedConversation.messages[selectedConversation.messages.length - 2],
       );
-  }, [selectedConversation, throttledScrollDown]);
+  }, [selectedConversation, throttledScrollDown, autoScrollEnabled]);
 
   useEffect(() => {
     const observer = new IntersectionObserver(
       ([entry]) => {
-        if (autoScrollEnabled && messageIsStreaming) {
-          if (entry.isIntersecting) {
+        // Only auto-scroll if enabled AND user hasn't manually scrolled up
+        if (autoScrollEnabled && messageIsStreaming && entry.isIntersecting) {
+          // Check if user is actively interacting
+          const now = Date.now();
+          const timeSinceLastScroll = now - (lastScrollTop.current || 0);
+          // Don't auto-scroll if user scrolled in the last 2 seconds
+          if (timeSinceLastScroll > 2000) {
             requestAnimationFrame(() => {
               messagesEndRef.current?.scrollIntoView({
                 behavior: 'smooth',
@@ -701,25 +733,59 @@ export const Chat = () => {
 
   const hasMessages = Boolean(selectedConversation?.messages?.length);
 
+  // Use iOS keyboard fix hook
+  const { isKeyboardVisible, keyboardHeight, viewportHeight } = useIOSKeyboardFix();
+
   return (
     <div
-      className="relative flex h-full min-h-0 flex-1 flex-col bg-bg-secondary transition-colors duration-300 ease-in-out dark:bg-dark-bg-primary"
+      className="relative flex h-screen flex-col bg-bg-secondary transition-colors duration-300 ease-in-out dark:bg-dark-bg-primary"
       style={{
         paddingTop: 'env(safe-area-inset-top)',
         paddingLeft: 'env(safe-area-inset-left)',
         paddingRight: 'env(safe-area-inset-right)',
-        height: '100dvh',
+        height: viewportHeight > 0 ? `${viewportHeight}px` : '100vh',
+        // Use fixed positioning but adjust for iOS keyboard
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        // Prevent iOS bounce and ensure proper keyboard handling
+        WebkitOverflowScrolling: 'touch' as any,
+        overscrollBehavior: 'none',
       }}
     >
       <ChatHeader />
-      <div className="relative flex flex-1 flex-col overflow-hidden">
+      <div className="relative flex flex-1 flex-col overflow-hidden" style={{ minHeight: '0', isolation: 'isolate' }}>
         <div
-          className="flex-1 overflow-y-auto -webkit-overflow-scrolling-touch scrollbar-hide sm:scrollbar-show relative"
+          className="flex-1 overflow-y-auto relative momentum-scroll"
           ref={chatContainerRef}
           onScroll={handleScroll}
+          onTouchStart={(e) => {
+            lastTouchY.current = e.touches[0].clientY;
+            isUserScrolling.current = true;
+          }}
+          onTouchMove={(e) => {
+            const touchY = e.touches[0].clientY;
+            const deltaY = lastTouchY.current - touchY;
+
+            // If scrolling up, disable auto-scroll
+            if (deltaY < 0 && autoScrollEnabled) {
+              setAutoScrollEnabled(false);
+              homeDispatch({ field: 'autoScroll', value: false });
+            }
+            lastTouchY.current = touchY;
+          }}
+          onTouchEnd={() => {
+            isUserScrolling.current = false;
+          }}
           style={{
-            WebkitOverflowScrolling: 'touch',
-            overscrollBehavior: 'contain'
+            // Prevent overscroll bounce that can cause input issues
+            overscrollBehaviorY: 'contain',
+            position: 'relative',
+            height: '100%',
+            // Improve mobile scrolling
+            WebkitOverflowScrolling: 'touch' as any,
           }}
         >
           <div className="mx-auto flex h-full w-full max-w-5xl flex-col px-3 sm:px-4 md:px-6 pb-0 pt-3 sm:pt-6">
@@ -744,53 +810,71 @@ export const Chat = () => {
             {loading && <ChatLoader statusUpdateText={`Thinking...`} />}
 
             {/* Spacer to prevent content from being hidden behind the input area */}
-            {/* Mobile: ChatInput + safe area */}
-            {/* Desktop: ChatInput + buffer */}
-            <div className="h-[140px] md:h-[160px] shrink-0" ref={messagesEndRef} />
+            <div className="h-32 shrink-0" ref={messagesEndRef} />
           </div>
         </div>
 
+        {/* Scroll down button */}
         {showScrollDownButton && (
-          <button
-            type="button"
-            className="pointer-events-auto fixed md:absolute bottom-[10rem] md:bottom-[12rem] right-3 sm:right-5 z-10 flex h-10 w-10 sm:h-11 sm:w-11 items-center justify-center rounded-full bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 shadow-lg transition-all duration-200 active:scale-95 border border-gray-200 dark:border-gray-700"
-            onClick={handleScrollDown}
-            aria-label={t('Scroll to bottom') as unknown as string}
-          >
-            <IconArrowDown size={18} className="sm:w-5 sm:h-5" />
-          </button>
-        )}
-
-        <div className="flex w-full items-center justify-center px-3 pb-6 sm:px-4 md:px-6">
-          <div className="w-full max-w-5xl">
-            <ChatInput
-              textareaRef={textareaRef}
-              onSend={(message) => {
-                setCurrentMessage(message);
-                handleSend(message, 0);
-              }}
-              onRegenerate={() => {
-                if (currentMessage && currentMessage?.role === 'user') {
-                  handleSend(currentMessage, 0);
-                } else {
-                  const lastUserMessage = fetchLastMessage({
-                    messages: (selectedConversation?.messages as any[]) || [],
-                    role: 'user',
-                  });
-                  lastUserMessage && handleSend(lastUserMessage, 1);
-                }
-              }}
-              showScrollDownButton={showScrollDownButton}
-              onScrollDownClick={handleScrollDown}
-              controller={controllerRef}
-              onQuickActionsRegister={(handlers) => {
-                // Pass handlers up to the parent component through context
-                if (quickActionHandlers && '__setHandlers' in quickActionHandlers) {
-                  (quickActionHandlers as any).__setHandlers(handlers);
-                }
-              }}
-            />
+          <div className="absolute bottom-4 right-4">
+            <button
+              className="flex h-10 w-10 items-center justify-center rounded-full apple-glass backdrop-blur-xl border border-white/20 dark:border-white/10 shadow-[0_8px_32px_rgba(0,0,0,0.12)] dark:shadow-[0_8px_32px_rgba(0,0,0,0.24)] text-neutral-700 dark:text-white/80 transition-all duration-200 hover:bg-white/20 hover:border-nvidia-green/40"
+              onClick={handleScrollDown}
+              aria-label={t('Scroll to bottom') as string}
+            >
+              <IconArrowDown size={18} />
+            </button>
           </div>
+        )}
+      </div>
+
+      {/* Chat input - positioned to stay above keyboard */}
+      <div className="w-full border-t border-transparent bg-bg-secondary dark:bg-dark-bg-primary"
+        style={{
+          position: isKeyboardVisible ? 'fixed' : 'relative',
+          bottom: isKeyboardVisible ? 0 : 'auto',
+          left: 0,
+          right: 0,
+          zIndex: 30,
+          // Ensure input stays at the bottom
+          marginTop: isKeyboardVisible ? 0 : 'auto',
+          flexShrink: 0,
+          // Add transform to prevent iOS keyboard push
+          transform: 'translateZ(0)',
+          WebkitTransform: 'translateZ(0)',
+        }}>
+        <div className="mx-auto max-w-5xl px-3 pb-6 pt-3 sm:px-4 md:px-6"
+          style={{
+            // Additional padding when keyboard is visible
+            paddingBottom: isKeyboardVisible ? 'max(24px, env(safe-area-inset-bottom))' : '24px',
+          }}>
+          <ChatInput
+            textareaRef={textareaRef}
+            onSend={(message) => {
+              setCurrentMessage(message);
+              handleSend(message, 0);
+            }}
+            onRegenerate={() => {
+              if (currentMessage && currentMessage?.role === 'user') {
+                handleSend(currentMessage, 0);
+              } else {
+                const lastUserMessage = fetchLastMessage({
+                  messages: (selectedConversation?.messages as any[]) || [],
+                  role: 'user',
+                });
+                lastUserMessage && handleSend(lastUserMessage, 1);
+              }
+            }}
+            showScrollDownButton={showScrollDownButton}
+            onScrollDownClick={handleScrollDown}
+            controller={controllerRef}
+            onQuickActionsRegister={(handlers) => {
+              // Pass handlers up to the parent component through context
+              if (quickActionHandlers && '__setHandlers' in quickActionHandlers) {
+                (quickActionHandlers as any).__setHandlers(handlers);
+              }
+            }}
+          />
         </div>
       </div>
     </div>

@@ -159,7 +159,7 @@ export const ChatMessage: FC<Props> = memo(({ message, messageIndex }) => {
     isAssistantMessage
       ? 'rounded-2xl rounded-bl-md glass text-gray-900 dark:text-gray-100 shadow-sm'
       : 'rounded-2xl rounded-br-md bg-nvidia-green-dark backdrop-blur-sm text-white shadow-md hover:shadow-glow-green hover:bg-nvidia-green',
-    'hover:shadow-lg transform active:scale-[0.98]'
+    'hover:shadow-lg'
   );
 
   const markdownBaseClasses = cx(
