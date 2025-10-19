@@ -41,6 +41,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { ChatHeader } from './ChatHeader';
 import { useAuth } from '@/components/Auth/AuthProvider';
 import { useIOSKeyboardFix } from '@/hooks/useIOSKeyboardFix';
+import { useVisualViewport } from '@/hooks/useVisualViewport';
 
 export const Chat = () => {
   const { t } = useTranslation('chat');
@@ -79,6 +80,13 @@ export const Chat = () => {
   const isUserScrolling = useRef(false); // Track if user is actively scrolling
   const scrollTimeoutRef = useRef<NodeJS.Timeout | null>(null); // Debounce scroll events
   const autoScrollTimeoutRef = useRef<NodeJS.Timeout | null>(null); // Delay auto-scroll re-enabling
+
+  // Use iOS keyboard fix hook and PWA keyboard handling - must be before function definitions
+  const { isKeyboardVisible, keyboardHeight, viewportHeight } = useIOSKeyboardFix();
+  const keyboardOffset = useVisualViewport();
+  const isPWA = typeof window !== 'undefined' && 
+    (window.matchMedia('(display-mode: standalone)').matches || 
+     (window.navigator as any).standalone === true);
 
   // Add these variables near the top of your component
   useEffect(() => {
@@ -713,6 +721,11 @@ export const Chat = () => {
   };
 
   const scrollDown = () => {
+    // In PWA mode, don't auto-scroll when keyboard is appearing to prevent snap-to-bottom
+    if (isPWA && keyboardOffset > 0) {
+      return;
+    }
+    
     // Only scroll if auto-scroll is enabled and not manually scrolling
     if (autoScrollEnabled && !isUserScrolling.current && chatContainerRef.current) {
       // Use requestAnimationFrame for smoother scrolling
@@ -776,9 +789,6 @@ export const Chat = () => {
 
   const hasMessages = Boolean(selectedConversation?.messages?.length);
 
-  // Use iOS keyboard fix hook
-  const { isKeyboardVisible, keyboardHeight, viewportHeight } = useIOSKeyboardFix();
-
   return (
     <div
       className="relative flex h-screen flex-col bg-bg-secondary transition-colors duration-300 ease-in-out dark:bg-dark-bg-primary"
@@ -786,13 +796,15 @@ export const Chat = () => {
         paddingTop: 'env(safe-area-inset-top)',
         paddingLeft: 'env(safe-area-inset-left)',
         paddingRight: 'env(safe-area-inset-right)',
-        height: viewportHeight > 0 ? `${viewportHeight}px` : '100vh',
+        height: isPWA && keyboardOffset > 0 
+          ? `calc(100vh - ${keyboardOffset}px)` 
+          : viewportHeight > 0 ? `${viewportHeight}px` : '100vh',
         // Use fixed positioning but adjust for iOS keyboard
         position: 'fixed',
         top: 0,
         left: 0,
         right: 0,
-        bottom: 0,
+        bottom: isPWA ? `${keyboardOffset}px` : 0,
         // Prevent iOS bounce and ensure proper keyboard handling
         WebkitOverflowScrolling: 'touch' as any,
         overscrollBehavior: 'none',
@@ -864,7 +876,16 @@ export const Chat = () => {
 
             {/* Spacer to prevent content from being hidden behind the input area */}
             {/* Responsive: 80px on mobile (accounts for input), 64px on desktop */}
-            <div className="h-20 md:h-16 shrink-0" ref={messagesEndRef} />
+            {/* In PWA mode, add extra space for keyboard offset */}
+            <div 
+              className="shrink-0" 
+              ref={messagesEndRef}
+              style={{
+                height: isPWA && keyboardOffset > 0 
+                  ? `calc(5rem + ${keyboardOffset}px)` 
+                  : isMobile() ? '5rem' : '4rem'
+              }}
+            />
           </div>
         </div>
 
