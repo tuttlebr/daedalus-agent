@@ -55,10 +55,10 @@ const Sidebar = <T,>({
   };
 
   return (
-    <div className="relative h-full">
+    <>
       {isOpen ? (
         <div
-          className={`fixed md:relative top-0 ${side}-0 z-50 flex h-full w-[240px] lg:w-[260px] flex-none flex-col space-y-2 apple-glass-sidebar p-2 text-[14px] transition-all duration-300 ease-out animate-slide-in`}
+          className={`fixed md:relative top-0 ${side}-0 z-50 flex h-full w-full md:w-[260px] flex-none flex-col space-y-2 apple-glass-sidebar p-2 text-[14px] transition-all duration-300 ease-out animate-slide-in`}
           data-sidebar-desktop="open"
         >
           {/* Header with actions */}
@@ -129,7 +129,7 @@ const Sidebar = <T,>({
       ) : (
         <OpenSidebarButton onClick={toggleOpen} side={side} />
       )}
-    </div>
+    </>
   );
 };
 
