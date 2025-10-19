@@ -9,6 +9,7 @@ import {
   IconTrash,
   IconCamera,
   IconPaperclip,
+  IconX,
 } from '@tabler/icons-react';
 import {
   KeyboardEvent,
@@ -211,6 +212,13 @@ export const ChatInput: React.FC<Props> = ({
       console.error('Error processing PDF:', error);
       toast.error('Error processing PDF. Please try again.');
       return false;
+    }
+  };
+
+  const handleStop = () => {
+    if (controller.current) {
+      controller.current.abort();
+      controller.current = new AbortController();
     }
   };
 
@@ -641,13 +649,18 @@ export const ChatInput: React.FC<Props> = ({
                     onPaste: handlePaste,
                   })}
                 />
-                {/* Send Button - centered with textarea */}
+                {/* Send/Stop Button - centered with textarea */}
                 <button
-                  className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full bg-neutral-900/90 p-2.5 text-white shadow-lg transition-colors duration-150 hover:bg-neutral-800 dark:bg-nvidia-green dark:hover:bg-nvidia-green/90"
-                  onClick={handleSend}
+                  className={`absolute right-3 top-1/2 -translate-y-1/2 rounded-full p-2.5 text-white shadow-lg transition-colors duration-150 ${
+                    messageIsStreaming
+                      ? 'bg-red-500 hover:bg-red-600 dark:bg-red-500 dark:hover:bg-red-600'
+                      : 'bg-neutral-900/90 hover:bg-neutral-800 dark:bg-nvidia-green dark:hover:bg-nvidia-green/90'
+                  }`}
+                  onClick={messageIsStreaming ? handleStop : handleSend}
+                  title={messageIsStreaming ? 'Stop generating' : 'Send message'}
                 >
                   {messageIsStreaming ? (
-                    <div className="h-4 w-4 animate-spin rounded-full border-t-2 border-neutral-800 opacity-60 dark:border-neutral-100"></div>
+                    <IconPlayerStopFilled size={18} />
                   ) : (
                     <IconSend size={18} />
                   )}
