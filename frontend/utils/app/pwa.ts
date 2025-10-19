@@ -1,7 +1,8 @@
 // PWA Registration and utilities
 
 export const registerServiceWorker = async () => {
-  if ('serviceWorker' in navigator && typeof window !== 'undefined' && window.location.hostname !== 'localhost') {
+  // Register on all environments including localhost for testing
+  if ('serviceWorker' in navigator && typeof window !== 'undefined') {
     try {
       const registration = await navigator.serviceWorker.register('/sw.js', {
         scope: '/'

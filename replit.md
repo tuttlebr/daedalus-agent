@@ -19,7 +19,7 @@ Preferred communication style: Simple, everyday language.
 - React 18.2.0 for UI components
 - Tailwind CSS with custom design system for styling
 - next-i18next for internationalization (22+ locales supported)
-- Progressive Web App (PWA) capabilities with service worker
+- Full Progressive Web App (PWA) support with offline capabilities
 
 **Authentication & Authorization:**
 - Custom JWT-based authentication using jsonwebtoken and bcryptjs
@@ -51,6 +51,20 @@ Preferred communication style: Simple, everyday language.
 - Optimized lazy-loading images with OptimizedImage component
 - Voice recording with browser MediaRecorder API
 - Image augmentation requests via imageRef references
+
+**Progressive Web App (PWA) Features:**
+- **Installable:** Full support for "Add to Home Screen" on iOS, Android, and desktop
+- **Offline Support:** Service worker caching with cache-first strategy for static assets
+- **Auto-Updates:** Automatic service worker updates with user notification
+- **Offline Indicator:** Real-time network status indicator with smooth animations
+- **App-like Experience:** Standalone display mode with custom theme colors
+- **Mobile Optimization:** 
+  - Safe-area support for notched devices (iPhone X+, modern Android)
+  - Responsive padding utilities that adapt to screen size
+  - Smart keyboard handling - input stays visible when typing on mobile
+  - Auto-scroll management prevents chat from covering input field
+- **Platform-Specific Meta Tags:** iOS splash screens, Windows tiles, and Android theming
+- **Background Sync:** Queued message sync when connection is restored (future enhancement)
 
 ### Backend Architecture (NeMo Agent Toolkit)
 

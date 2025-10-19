@@ -24,11 +24,21 @@ export default function Document(props: Props) {
         {/* Web App Manifest */}
         <link rel="manifest" href="/manifest.json" />
 
-        {/* Web App Meta Tags */}
+        {/* PWA Meta Tags */}
+        <meta name="application-name" content="Daedalus" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
         <meta name="apple-mobile-web-app-title" content="Daedalus" />
         <meta name="mobile-web-app-capable" content="yes" />
+        <meta name="theme-color" content="#76b900" />
+        <meta name="description" content="Daedalus - AI Agent Interface" />
+        
+        {/* iOS Splash Screens */}
+        <link rel="apple-touch-startup-image" href="/favicon.png" />
+        
+        {/* Edge/Windows */}
+        <meta name="msapplication-TileColor" content="#76b900" />
+        <meta name="msapplication-TileImage" content="/favicon.png" />
       </Head>
       <body>
         <Main />
