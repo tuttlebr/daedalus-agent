@@ -9,7 +9,7 @@ const nextConfig = {
   },
   experimental: {
     serverActions: {
-      bodySizeLimit: "5mb",
+      bodySizeLimit: "30mb", // Support large file uploads (PDFs up to 20MB + base64 overhead)
     },
   },
   webpack(config, { isServer, dev }) {

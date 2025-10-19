@@ -31,7 +31,7 @@ function stripBase64FromObject(obj: any): any {
 export const config = {
   api: {
     bodyParser: {
-      sizeLimit: '10mb',
+      sizeLimit: '30mb', // Match global limit for consistency
     },
   },
 };
