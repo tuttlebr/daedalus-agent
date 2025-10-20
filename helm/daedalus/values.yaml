@@ -21,8 +21,8 @@ images:
     tag: alpine
     pullPolicy: Always
   redis:
-    repository: redis
-    tag: "8.0.3"
+    repository: redis/redis-stack
+    tag: "7.4.0-v7"
     pullPolicy: Always
   redisinsight:
     repository: redis/redisinsight

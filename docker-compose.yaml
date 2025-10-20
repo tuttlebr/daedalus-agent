@@ -83,11 +83,14 @@ services:
         condition: service_started
 
   redis:
-    image: redis:8.0.3
-    command: [ "redis-server", "--save", "60", "1", "--appendonly", "yes" ]
+    image: redis/redis-stack:latest
+    command: [ "redis-server", "--save", "60", "1", "--appendonly", "yes", "--protected-mode", "no", "--loadmodule", "/opt/redis-stack/lib/rejson.so" ]
     restart: unless-stopped
     volumes:
       - ${DOCKER_VOLUME_DIRECTORY:-.}/redis/data:/data
+    ports:
+      - "6379:6379"
+      - "8001:8001"  # RedisInsight web UI (optional, remove in production)
     networks:
       - ${NETWORK_NAME:-daedalus-network}
 

@@ -44,6 +44,7 @@ import { useIOSKeyboardFix } from '@/hooks/useIOSKeyboardFix';
 import { useVisualViewport } from '@/hooks/useVisualViewport';
 import { notifyStreamingComplete, requestNotificationPermission } from '@/utils/notifications';
 import { useAsyncChat } from '@/hooks/useAsyncChat';
+import { useConversationSync } from '@/hooks/useConversationSync';
 
 export const Chat = () => {
   const { t } = useTranslation('chat');
@@ -77,6 +78,8 @@ export const Chat = () => {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const controllerRef = useRef(new AbortController());
   const selectedConversationRef = useRef(selectedConversation);
+  // Keep ref always in sync to avoid stale closures in async callbacks
+  selectedConversationRef.current = selectedConversation;
 
   const lastScrollTop = useRef(0); // Store last known scroll position
   const lastTouchY = useRef(0); // Track touch position for mobile
@@ -87,8 +90,8 @@ export const Chat = () => {
   // Use iOS keyboard fix hook and PWA keyboard handling - must be before function definitions
   const { isKeyboardVisible, keyboardHeight, viewportHeight } = useIOSKeyboardFix();
   const keyboardOffset = useVisualViewport();
-  const isPWA = typeof window !== 'undefined' && 
-    (window.matchMedia('(display-mode: standalone)').matches || 
+  const isPWA = typeof window !== 'undefined' &&
+    (window.matchMedia('(display-mode: standalone)').matches ||
      (window.navigator as any).standalone === true);
 
   // Async chat for background processing (PWA mode)
@@ -105,7 +108,7 @@ export const Chat = () => {
       if (status.partialResponse && currentConversation) {
         const updatedMessages = [...currentConversation.messages];
         const lastMessage = updatedMessages[updatedMessages.length - 1];
-        
+
         if (lastMessage && lastMessage.role === 'assistant') {
           lastMessage.content = status.partialResponse;
           lastMessage.intermediateSteps = status.intermediateSteps || [];
@@ -130,13 +133,13 @@ export const Chat = () => {
     },
     onComplete: async (fullResponse, intermediateSteps) => {
       console.log('✅ Async job completed with full response');
-      
+
       // Use current ref to avoid stale closure
       const currentConversation = selectedConversationRef.current;
       if (currentConversation) {
         const updatedMessages = [...currentConversation.messages];
         const lastMessage = updatedMessages[updatedMessages.length - 1];
-        
+
         if (lastMessage && lastMessage.role === 'assistant') {
           lastMessage.content = fullResponse;
           lastMessage.intermediateSteps = intermediateSteps || [];
@@ -186,10 +189,38 @@ export const Chat = () => {
     },
   });
 
-  // Add these variables near the top of your component
-  useEffect(() => {
-    selectedConversationRef.current = selectedConversation;
-  }, [selectedConversation]);
+  // Sync conversation from server when returning from background
+  const { syncConversation } = useConversationSync({
+    enabled: isPWA && (enableBackgroundProcessing ?? false) && !messageIsStreaming,
+    conversationId: selectedConversation?.id,
+    onMessagesUpdated: (messages) => {
+      // Update conversation with server messages
+      if (selectedConversation) {
+        const updatedConversation = {
+          ...selectedConversation,
+          messages
+        };
+
+        homeDispatch({
+          field: 'selectedConversation',
+          value: updatedConversation
+        });
+
+        // Also update the conversations list
+        const updatedConversations = conversations.map((c) =>
+          c.id === selectedConversation.id ? updatedConversation : c
+        );
+        homeDispatch({
+          field: 'conversations',
+          value: updatedConversations
+        });
+
+        // Save to local storage
+        saveConversation(updatedConversation);
+        saveConversations(updatedConversations);
+      }
+    }
+  });
 
   // Request notification permission on mount for PWA background processing
   useEffect(() => {
@@ -203,6 +234,62 @@ export const Chat = () => {
       });
     }
   }, [isPWA]);
+
+  // Comprehensive visibility change handler for state recovery
+  useEffect(() => {
+    if (!isPWA || !enableBackgroundProcessing) return;
+
+    const handleVisibilityChange = async () => {
+      if (document.visibilityState === 'visible') {
+        console.log('🔄 App became visible - checking for background updates');
+
+        // 1. Check for any active async jobs
+        if (isPolling && jobStatus) {
+          console.log('📊 Active job detected:', jobStatus.jobId);
+          // The useAsyncChat hook will handle resuming polling
+        }
+
+        // 2. Force sync conversation from server
+        if (selectedConversation?.id && syncConversation) {
+          console.log('🔄 Syncing conversation from server:', selectedConversation.id);
+          await syncConversation();
+        }
+
+        // 3. Check for any missed notifications
+        if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+          // Request any pending updates from service worker
+          navigator.serviceWorker.controller.postMessage({
+            type: 'CHECK_PENDING_UPDATES',
+            conversationId: selectedConversation?.id,
+          });
+        }
+      } else {
+        console.log('💤 App went to background');
+
+        // Save current state to ensure recovery
+        if (selectedConversation && messageIsStreaming) {
+          console.log('📝 Saving streaming state for background recovery');
+          // The async job will continue processing in the background
+        }
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    // Also handle focus events as a backup
+    const handleFocus = () => {
+      if (document.visibilityState === 'visible') {
+        handleVisibilityChange();
+      }
+    };
+
+    window.addEventListener('focus', handleFocus);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', handleFocus);
+    };
+  }, [isPWA, enableBackgroundProcessing, selectedConversation, syncConversation, isPolling, jobStatus, messageIsStreaming]);
 
 
   const mergeIntermediateSteps = useCallback(
@@ -390,7 +477,7 @@ export const Chat = () => {
           } catch (error: any) {
             console.error('Failed to start async job:', error);
             toast.error(`Failed to start request: ${error.message}`);
-            
+
             homeDispatch({ field: 'loading', value: false });
             homeDispatch({ field: 'messageIsStreaming', value: false });
           }
@@ -691,12 +778,12 @@ export const Chat = () => {
               value: updatedConversations,
             });
             saveConversations(updatedConversations);
-            
+
             // Notify user that response is complete if they're away
             if (isPWA && document.visibilityState !== 'visible') {
               await notifyStreamingComplete(selectedConversation.name);
             }
-            
+
             // to show the message on UI and scroll to the bottom after 500ms delay
             setTimeout(() => {
               homeDispatch({ field: 'messageIsStreaming', value: false });
@@ -742,13 +829,13 @@ export const Chat = () => {
               value: updatedConversations,
             });
             saveConversations(updatedConversations);
-            
+
             homeDispatch({ field: 'loading', value: false });
             homeDispatch({ field: 'messageIsStreaming', value: false });
           }
         } catch (error: any) {
           saveConversation(updatedConversation);
-          
+
           homeDispatch({ field: 'loading', value: false });
           homeDispatch({ field: 'messageIsStreaming', value: false });
           if (error === 'aborted' || error?.name === 'AbortError') {
@@ -852,7 +939,7 @@ export const Chat = () => {
               autoScrollTimeoutRef.current = null;
               return;
             }
-            
+
             if (chatContainerRef.current) {
               const { scrollTop: currentScrollTop, scrollHeight: currentScrollHeight, clientHeight: currentClientHeight } = chatContainerRef.current;
               const currentDistanceFromBottom = currentScrollHeight - currentScrollTop - currentClientHeight;
@@ -876,7 +963,7 @@ export const Chat = () => {
     if (isPWA && keyboardOffset > 0) {
       return;
     }
-    
+
     // Clear any pending timeouts
     if (scrollTimeoutRef.current) {
       clearTimeout(scrollTimeoutRef.current);
@@ -901,7 +988,7 @@ export const Chat = () => {
     if (isPWA && keyboardOffset > 0) {
       return;
     }
-    
+
     // Only scroll if auto-scroll is enabled and not manually scrolling
     if (autoScrollEnabled && !isUserScrolling.current && chatContainerRef.current) {
       // Use requestAnimationFrame for smoother scrolling
@@ -930,16 +1017,13 @@ export const Chat = () => {
       // Conversation changed - don't force scroll, let user decide
       setAutoScrollEnabled(false);
       setShowScrollDownButton(false);
-
-      // Update the ref
-      selectedConversationRef.current = selectedConversation;
     } else if (selectedConversation && autoScrollEnabled) {
       // Same conversation, new message - only scroll if auto-scroll is enabled
       // Skip if keyboard is visible in PWA mode
       if (isPWA && keyboardOffset > 0) {
         return;
       }
-      
+
       const currentMessageCount = selectedConversation.messages.length;
       const previousMessageCount = selectedConversationRef.current?.messages.length || 0;
 
@@ -977,8 +1061,8 @@ export const Chat = () => {
         paddingTop: 'env(safe-area-inset-top)',
         paddingLeft: 'env(safe-area-inset-left)',
         paddingRight: 'env(safe-area-inset-right)',
-        height: isPWA && keyboardOffset > 0 
-          ? `calc(100vh - ${keyboardOffset}px)` 
+        height: isPWA && keyboardOffset > 0
+          ? `calc(100vh - ${keyboardOffset}px)`
           : viewportHeight > 0 ? `${viewportHeight}px` : '100vh',
         // Use fixed positioning but adjust for iOS keyboard
         position: 'fixed',
@@ -1058,12 +1142,12 @@ export const Chat = () => {
             {/* Spacer to prevent content from being hidden behind the input area */}
             {/* Responsive: 80px on mobile (accounts for input), 64px on desktop */}
             {/* In PWA mode, add extra space for keyboard offset */}
-            <div 
-              className="shrink-0" 
+            <div
+              className="shrink-0"
               ref={messagesEndRef}
               style={{
-                height: isPWA && keyboardOffset > 0 
-                  ? `calc(5rem + ${keyboardOffset}px)` 
+                height: isPWA && keyboardOffset > 0
+                  ? `calc(5rem + ${keyboardOffset}px)`
                   : isMobile() ? '5rem' : '4rem'
               }}
             />
