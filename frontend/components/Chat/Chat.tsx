@@ -60,7 +60,8 @@ export const Chat = () => {
       expandIntermediateSteps,
       intermediateStepOverride,
       enableIntermediateSteps,
-      useDeepThinker
+      useDeepThinker,
+      enableBackgroundProcessing
     },
     handleUpdateConversation,
     dispatch: homeDispatch,
@@ -407,10 +408,8 @@ export const Chat = () => {
           }
         };
 
-        // DISABLED: Async mode temporarily disabled - needs more testing
-        // Use standard streaming mode for all users
-        const useAsyncModeDisabled = false;
-        if (useAsyncModeDisabled && useAsyncMode) {
+        // Use async mode if enabled in settings and user is in PWA
+        if (useAsyncMode && enableBackgroundProcessing) {
           console.log('Using async mode for background processing');
           try {
             await startAsyncJob(
