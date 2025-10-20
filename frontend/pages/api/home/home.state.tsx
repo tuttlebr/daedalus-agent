@@ -24,6 +24,7 @@ export interface HomeInitialState {
   additionalConfig: any;
   intermediateStepsView: 'timeline' | 'category';
   intermediateStepsFilter: IntermediateStepCategory[];
+  enableBackgroundProcessing?: boolean;
   useDeepThinker: boolean;
   showVoiceRecorder: boolean;
 }
@@ -51,4 +52,5 @@ export const initialState: HomeInitialState = {
   intermediateStepsFilter: [],
   useDeepThinker: false,
   showVoiceRecorder: false,
+  enableBackgroundProcessing: false,
 };

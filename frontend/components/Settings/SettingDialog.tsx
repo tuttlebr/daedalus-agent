@@ -13,7 +13,7 @@ export const SettingDialog: FC<Props> = ({ open, onClose }) => {
   const { t } = useTranslation('settings');
   const modalRef = useRef<HTMLDivElement>(null);
   const {
-    state: { lightMode, chatCompletionURL, expandIntermediateSteps, intermediateStepOverride, enableIntermediateSteps, chatHistory },
+    state: { lightMode, chatCompletionURL, expandIntermediateSteps, intermediateStepOverride, enableIntermediateSteps, chatHistory, enableBackgroundProcessing },
     dispatch: homeDispatch,
   } = useContext(HomeContext);
 
@@ -24,6 +24,7 @@ export const SettingDialog: FC<Props> = ({ open, onClose }) => {
   const [detailsToggle, setDetailsToggle] = useState( getUserSessionItem('expandIntermediateSteps') === 'true' ? true : expandIntermediateSteps);
   const [intermediateStepOverrideToggle, setIntermediateStepOverrideToggle] = useState( getUserSessionItem('intermediateStepOverride') === 'false' ? false : intermediateStepOverride);
   const [chatHistoryEnabled, setChatHistoryEnabled] = useState(getUserSessionItem('chatHistory') ? getUserSessionItem('chatHistory') === 'true' : chatHistory);
+  const [backgroundProcessingEnabled, setBackgroundProcessingEnabled] = useState(getUserSessionItem('enableBackgroundProcessing') ? getUserSessionItem('enableBackgroundProcessing') === 'true' : enableBackgroundProcessing);
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -51,6 +52,7 @@ export const SettingDialog: FC<Props> = ({ open, onClose }) => {
     homeDispatch({ field: 'intermediateStepOverride', value: intermediateStepOverrideToggle });
     homeDispatch({ field: 'enableIntermediateSteps', value: isIntermediateStepsEnabled });
     homeDispatch({ field: 'chatHistory', value: chatHistoryEnabled });
+    homeDispatch({ field: 'enableBackgroundProcessing', value: backgroundProcessingEnabled });
 
     // Use user-specific storage keys to prevent data leakage between users
     setUserSessionItem('chatCompletionURL', chatCompletionEndPoint);
@@ -58,6 +60,7 @@ export const SettingDialog: FC<Props> = ({ open, onClose }) => {
     setUserSessionItem('intermediateStepOverride', String(intermediateStepOverrideToggle));
     setUserSessionItem('enableIntermediateSteps', String(isIntermediateStepsEnabled));
     setUserSessionItem('chatHistory', String(chatHistoryEnabled));
+    setUserSessionItem('enableBackgroundProcessing', String(backgroundProcessingEnabled));
 
     toast.success('Settings saved successfully');
     onClose();
@@ -162,6 +165,24 @@ export const SettingDialog: FC<Props> = ({ open, onClose }) => {
             className="text-sm font-medium text-gray-700 dark:text-gray-300"
           >
             {t('Enable Chat History')} (Send full conversation context)
+          </label>
+        </div>
+
+        <div className="flex align-middle text-sm font-medium text-gray-700 dark:text-gray-300 mt-4">
+          <input
+            type="checkbox"
+            id="backgroundProcessingEnabled"
+            checked={backgroundProcessingEnabled}
+            onChange={ () => {
+              setBackgroundProcessingEnabled(!backgroundProcessingEnabled)
+            }}
+            className="mr-2"
+          />
+          <label
+            htmlFor="backgroundProcessingEnabled"
+            className="text-sm font-medium text-gray-700 dark:text-gray-300"
+          >
+            Enable Background Processing (PWA - Continue work when screen is locked)
           </label>
         </div>
 
