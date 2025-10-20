@@ -197,44 +197,96 @@ async function processJobAsync(jobId: string): Promise<void> {
     const decoder = new TextDecoder();
     let fullText = '';
     let intermediateSteps: any[] = [];
-    let done = false;
+    let buffer = '';
     let chunkCount = 0;
 
-    while (!done) {
-      const { value, done: doneReading } = await reader.read();
-      done = doneReading;
+    try {
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
 
-      if (value) {
-        let chunkValue = decoder.decode(value);
-        chunkCount++;
+        // Decode chunk and add to buffer
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || ''; // Keep incomplete line in buffer
 
-        // Extract intermediate steps
-        const stepMatches = chunkValue.match(/<intermediatestep>[\s\S]*?<\/intermediatestep>/g) || [];
-        for (const match of stepMatches) {
-          try {
-            const jsonString = match.replace('<intermediatestep>', '').replace('</intermediatestep>', '').trim();
-            const step = JSON.parse(jsonString);
-            intermediateSteps.push(step);
-          } catch (err) {
-            console.error('Failed to parse intermediate step:', err);
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const data = line.slice(6).trim(); // Remove "data: " prefix
+            
+            if (data === '[DONE]') {
+              console.log(`Async job ${jobId}: Streaming complete`);
+              break;
+            }
+
+            try {
+              const parsed = JSON.parse(data);
+              
+              // Extract content from OpenAI-compatible response
+              const content = 
+                parsed.choices?.[0]?.message?.content ||
+                parsed.choices?.[0]?.delta?.content ||
+                '';
+
+              if (content) {
+                fullText += content;
+                chunkCount++;
+
+                // Update status every 10 chunks
+                if (chunkCount % 10 === 0) {
+                  await updateJobStatus(jobId, {
+                    status: 'streaming',
+                    partialResponse: fullText,
+                    intermediateSteps,
+                    progress: Math.min(90, chunkCount * 2),
+                    updatedAt: Date.now(),
+                  });
+                }
+              }
+            } catch (err) {
+              console.error(`Async job ${jobId}: Error parsing JSON chunk:`, err);
+            }
+          } else if (line.startsWith('intermediate_data: ')) {
+            // Handle intermediate steps
+            const data = line.slice(19).trim(); // Remove "intermediate_data: " prefix
+            
+            if (data !== '[DONE]') {
+              try {
+                const payload = JSON.parse(data);
+                
+                // Transform to intermediate step format
+                const intermediateStep = {
+                  parent_id: payload?.parent_id || 'root',
+                  function_ancestry: {
+                    node_id: payload?.id || `step-${Date.now()}`,
+                    parent_id: payload?.parent_id || null,
+                    function_name: payload?.name || 'Unknown',
+                    depth: 0
+                  },
+                  payload: {
+                    event_type: payload?.status === 'completed' ? 'CUSTOM_END' : 'CUSTOM_START',
+                    event_timestamp: payload?.time_stamp || Date.now() / 1000,
+                    name: payload?.name || 'Step',
+                    metadata: {
+                      original_payload: payload
+                    },
+                    data: {
+                      output: payload?.payload || 'No details'
+                    },
+                  }
+                };
+                
+                intermediateSteps.push(intermediateStep);
+              } catch (err) {
+                console.error(`Async job ${jobId}: Error parsing intermediate step:`, err);
+              }
+            }
           }
         }
-
-        // Remove intermediate step tags from text
-        chunkValue = chunkValue.replace(/<intermediatestep>[\s\S]*?<\/intermediatestep>/g, '');
-        fullText += chunkValue;
-
-        // Update status every 10 chunks
-        if (chunkCount % 10 === 0) {
-          await updateJobStatus(jobId, {
-            status: 'streaming',
-            partialResponse: fullText,
-            intermediateSteps,
-            progress: Math.min(90, chunkCount * 2), // Estimate progress
-            updatedAt: Date.now(),
-          });
-        }
       }
+    } catch (readError) {
+      console.error(`Async job ${jobId}: Error reading stream:`, readError);
+      throw readError;
     }
 
     // Mark as completed
