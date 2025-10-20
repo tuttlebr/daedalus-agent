@@ -203,6 +203,15 @@ const Home = (props: any) => {
       setUserSessionItem('chatHistory', 'true');
     }
 
+    const enableBackgroundProcessing = getUserSessionItem('enableBackgroundProcessing');
+    if (enableBackgroundProcessing !== null) {
+      dispatch({ field: 'enableBackgroundProcessing', value: enableBackgroundProcessing === 'true' });
+    } else {
+      // Default to false for safety
+      dispatch({ field: 'enableBackgroundProcessing', value: false });
+      setUserSessionItem('enableBackgroundProcessing', 'false');
+    }
+
     const folders = getUserSessionItem('folders');
     if (folders) {
       dispatch({ field: 'folders', value: JSON.parse(folders) });
