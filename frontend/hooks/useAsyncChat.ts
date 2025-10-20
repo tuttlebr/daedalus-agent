@@ -12,19 +12,61 @@ interface AsyncJobStatus {
   updatedAt: number;
 }
 
+interface PersistedJob {
+  jobId: string;
+  conversationId: string;
+  userId: string;
+  timestamp: number;
+}
+
 interface UseAsyncChatOptions {
   pollingInterval?: number;
   onProgress?: (status: AsyncJobStatus) => void;
   onComplete?: (response: string, intermediateSteps?: any[]) => void;
   onError?: (error: string) => void;
+  userId?: string; // Add userId for localStorage key scoping
 }
 
 interface UseAsyncChatReturn {
-  startAsyncJob: (messages: any[], chatCompletionURL: string, additionalProps: any, userId: string) => Promise<string>;
+  startAsyncJob: (messages: any[], chatCompletionURL: string, additionalProps: any, userId: string, conversationId: string) => Promise<string>;
   jobStatus: AsyncJobStatus | null;
   isPolling: boolean;
   cancelJob: () => Promise<void>;
 }
+
+// Helper functions for job persistence
+const getStorageKey = (userId: string) => `asyncJob_${userId}`;
+
+const persistJob = (job: PersistedJob, userId: string) => {
+  try {
+    localStorage.setItem(getStorageKey(userId), JSON.stringify(job));
+    console.log('📦 Persisted async job:', job.jobId, 'for conversation:', job.conversationId);
+  } catch (error) {
+    console.error('Failed to persist job:', error);
+  }
+};
+
+const getPersistedJob = (userId: string): PersistedJob | null => {
+  try {
+    const stored = localStorage.getItem(getStorageKey(userId));
+    if (!stored) return null;
+    const job = JSON.parse(stored) as PersistedJob;
+    console.log('📥 Retrieved persisted job:', job.jobId);
+    return job;
+  } catch (error) {
+    console.error('Failed to retrieve persisted job:', error);
+    return null;
+  }
+};
+
+const clearPersistedJob = (userId: string) => {
+  try {
+    localStorage.removeItem(getStorageKey(userId));
+    console.log('🗑️ Cleared persisted job for user:', userId);
+  } catch (error) {
+    console.error('Failed to clear persisted job:', error);
+  }
+};
 
 export const useAsyncChat = (options: UseAsyncChatOptions = {}): UseAsyncChatReturn => {
   const {
@@ -32,12 +74,14 @@ export const useAsyncChat = (options: UseAsyncChatOptions = {}): UseAsyncChatRet
     onProgress,
     onComplete,
     onError,
+    userId = 'anon',
   } = options;
 
   const [jobStatus, setJobStatus] = useState<AsyncJobStatus | null>(null);
   const [isPolling, setIsPolling] = useState(false);
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const currentJobIdRef = useRef<string | null>(null);
+  const hasResumedRef = useRef(false); // Prevent double-resume
 
   // Poll for job status
   const pollJobStatus = useCallback(async (jobId: string) => {
@@ -67,21 +111,27 @@ export const useAsyncChat = (options: UseAsyncChatOptions = {}): UseAsyncChatRet
         if (onComplete && status.fullResponse) {
           onComplete(status.fullResponse, status.intermediateSteps);
         }
-        // Clear polling
+        // Clear polling and persisted job
         if (pollingIntervalRef.current) {
           clearInterval(pollingIntervalRef.current);
           pollingIntervalRef.current = null;
         }
+        clearPersistedJob(userId);
+        currentJobIdRef.current = null;
+        console.log('✅ Job completed - cleared persisted state');
       } else if (status.status === 'error') {
         setIsPolling(false);
         if (onError) {
           onError(status.error || 'Unknown error');
         }
-        // Clear polling
+        // Clear polling and persisted job
         if (pollingIntervalRef.current) {
           clearInterval(pollingIntervalRef.current);
           pollingIntervalRef.current = null;
         }
+        clearPersistedJob(userId);
+        currentJobIdRef.current = null;
+        console.log('❌ Job errored - cleared persisted state');
       }
 
       return status;
@@ -100,7 +150,8 @@ export const useAsyncChat = (options: UseAsyncChatOptions = {}): UseAsyncChatRet
     messages: any[],
     chatCompletionURL: string,
     additionalProps: any,
-    userId: string
+    jobUserId: string,
+    conversationId: string
   ): Promise<string> => {
     try {
       // Cancel any existing job
@@ -117,7 +168,7 @@ export const useAsyncChat = (options: UseAsyncChatOptions = {}): UseAsyncChatRet
           messages,
           chatCompletionURL,
           additionalProps,
-          userId,
+          userId: jobUserId,
         }),
       });
 
@@ -127,6 +178,14 @@ export const useAsyncChat = (options: UseAsyncChatOptions = {}): UseAsyncChatRet
 
       const { jobId } = await response.json();
       currentJobIdRef.current = jobId;
+
+      // Persist job metadata for resume after backgrounding
+      persistJob({
+        jobId,
+        conversationId,
+        userId: jobUserId,
+        timestamp: Date.now(),
+      }, userId);
 
       // Start polling
       setIsPolling(true);
@@ -147,7 +206,7 @@ export const useAsyncChat = (options: UseAsyncChatOptions = {}): UseAsyncChatRet
       }
       throw error;
     }
-  }, [pollJobStatus, pollingInterval, onError]);
+  }, [pollJobStatus, pollingInterval, onError, userId]);
 
   // Cancel current job
   const cancelJob = useCallback(async () => {
@@ -171,23 +230,63 @@ export const useAsyncChat = (options: UseAsyncChatOptions = {}): UseAsyncChatRet
 
       currentJobIdRef.current = null;
       setJobStatus(null);
+      clearPersistedJob(userId);
     } catch (error) {
       console.error('Error canceling job:', error);
     }
-  }, []);
+  }, [userId]);
+
+  // Resume polling for persisted job (called on mount and visibility change)
+  const resumePollingIfNeeded = useCallback(async () => {
+    const persistedJob = getPersistedJob(userId);
+    
+    if (!persistedJob) {
+      return; // No persisted job to resume
+    }
+
+    // If we already have this job polling, skip
+    if (currentJobIdRef.current === persistedJob.jobId) {
+      return;
+    }
+
+    console.log('🔄 Resuming polling for persisted job:', persistedJob.jobId);
+    currentJobIdRef.current = persistedJob.jobId;
+    setIsPolling(true);
+
+    // Immediately fetch status
+    const status = await pollJobStatus(persistedJob.jobId);
+
+    // If job is still running, set up interval polling
+    if (status && status.status !== 'completed' && status.status !== 'error') {
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current);
+      }
+      pollingIntervalRef.current = setInterval(async () => {
+        await pollJobStatus(persistedJob.jobId);
+      }, pollingInterval);
+    }
+  }, [userId, pollJobStatus, pollingInterval]);
+
+  // On mount: resume any persisted job
+  useEffect(() => {
+    if (!hasResumedRef.current) {
+      hasResumedRef.current = true;
+      resumePollingIfNeeded();
+    }
+  }, [resumePollingIfNeeded]);
 
   // Immediately refetch when app becomes visible (user returns from background)
   useEffect(() => {
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible' && currentJobIdRef.current) {
-        console.log('App became visible - immediately fetching job status');
-        pollJobStatus(currentJobIdRef.current);
+    const handleVisibilityChange = async () => {
+      if (document.visibilityState === 'visible') {
+        console.log('👁️ App became visible - resuming polling if needed');
+        await resumePollingIfNeeded();
       }
     };
 
     document.addEventListener('visibilitychange', handleVisibilityChange);
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
-  }, [pollJobStatus]);
+  }, [resumePollingIfNeeded]);
 
   // Cleanup on unmount
   useEffect(() => {
