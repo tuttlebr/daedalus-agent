@@ -44,6 +44,7 @@ import { useIOSKeyboardFix } from '@/hooks/useIOSKeyboardFix';
 import { useVisualViewport } from '@/hooks/useVisualViewport';
 import { useBackgroundProcessing } from '@/hooks/useBackgroundProcessing';
 import { notifyStreamingComplete, notifyStreamingInterrupted, requestNotificationPermission } from '@/utils/notifications';
+import { useAsyncChat } from '@/hooks/useAsyncChat';
 
 export const Chat = () => {
   const { t } = useTranslation('chat');
@@ -100,6 +101,104 @@ export const Chat = () => {
     getStreamingState,
     clearStreamingState,
   } = useBackgroundProcessing();
+
+  // Async chat for background processing (PWA mode)
+  const {
+    startAsyncJob,
+    jobStatus,
+    isPolling,
+    cancelJob,
+  } = useAsyncChat({
+    onProgress: (status) => {
+      // Update UI with partial response
+      if (status.partialResponse && selectedConversation) {
+        const updatedMessages = [...selectedConversation.messages];
+        const lastMessage = updatedMessages[updatedMessages.length - 1];
+        
+        if (lastMessage && lastMessage.role === 'assistant') {
+          lastMessage.content = status.partialResponse;
+          lastMessage.intermediateSteps = status.intermediateSteps || [];
+        } else {
+          updatedMessages.push({
+            role: 'assistant',
+            content: status.partialResponse,
+            intermediateSteps: status.intermediateSteps || [],
+          });
+        }
+
+        const updatedConversation = {
+          ...selectedConversation,
+          messages: updatedMessages,
+        };
+
+        homeDispatch({
+          field: 'selectedConversation',
+          value: updatedConversation,
+        });
+      }
+    },
+    onComplete: async (fullResponse, intermediateSteps) => {
+      console.log('Async job completed with full response');
+      
+      if (selectedConversation) {
+        const updatedMessages = [...selectedConversation.messages];
+        const lastMessage = updatedMessages[updatedMessages.length - 1];
+        
+        if (lastMessage && lastMessage.role === 'assistant') {
+          lastMessage.content = fullResponse;
+          lastMessage.intermediateSteps = intermediateSteps || [];
+        } else {
+          updatedMessages.push({
+            role: 'assistant',
+            content: fullResponse,
+            intermediateSteps: intermediateSteps || [],
+          });
+        }
+
+        const updatedConversation = {
+          ...selectedConversation,
+          messages: updatedMessages,
+        };
+
+        homeDispatch({
+          field: 'selectedConversation',
+          value: updatedConversation,
+        });
+
+        saveConversation(updatedConversation);
+        const updatedConversations = conversations.map((c) =>
+          c.id === selectedConversation.id ? updatedConversation : c
+        );
+        homeDispatch({
+          field: 'conversations',
+          value: updatedConversations,
+        });
+        saveConversations(updatedConversations);
+      }
+
+      // Release wake lock and notify
+      if (isPWA) {
+        await releaseWakeLock();
+        await clearStreamingState();
+        await notifyStreamingComplete(selectedConversation?.name);
+      }
+
+      homeDispatch({ field: 'messageIsStreaming', value: false });
+      homeDispatch({ field: 'loading', value: false });
+    },
+    onError: async (error) => {
+      console.error('Async job error:', error);
+      toast.error(`Error: ${error}`);
+
+      if (isPWA) {
+        await releaseWakeLock();
+        await clearStreamingState();
+      }
+
+      homeDispatch({ field: 'messageIsStreaming', value: false });
+      homeDispatch({ field: 'loading', value: false });
+    },
+  });
 
   // Add these variables near the top of your component
   useEffect(() => {
@@ -195,6 +294,8 @@ export const Chat = () => {
       message.id = uuidv4();
       // chat with bot
       if (selectedConversation) {
+        // Check if we should use async mode (PWA for background processing)
+        const useAsyncMode = isPWA;
         let updatedConversation: Conversation;
         if (deleteCount) {
           const updatedMessages = [...selectedConversation.messages];
@@ -301,10 +402,37 @@ export const Chat = () => {
             enableIntermediateSteps: getUserSessionItem('enableIntermediateSteps')
               ? getUserSessionItem('enableIntermediateSteps') === 'true'
               : enableIntermediateSteps,
-            username: user?.username || 'anon'
+            username: user?.username || 'anon',
+            useDeepThinker: useDeepThinker
           }
         };
 
+        // Use async mode for PWA to support background processing
+        if (useAsyncMode) {
+          console.log('Using async mode for background processing');
+          try {
+            await startAsyncJob(
+              chatBody.messages || [],
+              chatBody.chatCompletionURL || '',
+              chatBody.additionalProps || {},
+              user?.username || 'anon'
+            );
+            console.log('Async job started successfully');
+          } catch (error: any) {
+            console.error('Failed to start async job:', error);
+            toast.error(`Failed to start request: ${error.message}`);
+            
+            homeDispatch({ field: 'loading', value: false });
+            homeDispatch({ field: 'messageIsStreaming', value: false });
+            
+            if (isPWA) {
+              await releaseWakeLock();
+            }
+          }
+          return; // Exit early for async mode
+        }
+
+        // Standard streaming mode (browser/non-PWA)
         const endpoint = getEndpoint({ service: 'chat' });
         let body;
         body = JSON.stringify({
@@ -703,6 +831,9 @@ export const Chat = () => {
       releaseWakeLock,
       saveStreamingState,
       clearStreamingState,
+      startAsyncJob,
+      user,
+      useDeepThinker,
     ],
   );
 
