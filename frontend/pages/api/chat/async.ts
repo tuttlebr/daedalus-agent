@@ -232,8 +232,8 @@ async function processJobAsync(jobId: string): Promise<void> {
                 fullText += content;
                 chunkCount++;
 
-                // Update status every 10 chunks
-                if (chunkCount % 10 === 0) {
+                // Update status every 5 chunks for more responsive UI
+                if (chunkCount % 5 === 0) {
                   await updateJobStatus(jobId, {
                     status: 'streaming',
                     partialResponse: fullText,
@@ -277,6 +277,16 @@ async function processJobAsync(jobId: string): Promise<void> {
                 };
                 
                 intermediateSteps.push(intermediateStep);
+                
+                // Immediately update status when intermediate step arrives for instant UI feedback
+                console.log(`Async job ${jobId}: Intermediate step received - ${intermediateStep.payload.name}`);
+                await updateJobStatus(jobId, {
+                  status: 'streaming',
+                  partialResponse: fullText,
+                  intermediateSteps: [...intermediateSteps], // Clone array for reactivity
+                  progress: Math.min(90, chunkCount * 2),
+                  updatedAt: Date.now(),
+                });
               } catch (err) {
                 console.error(`Async job ${jobId}: Error parsing intermediate step:`, err);
               }
