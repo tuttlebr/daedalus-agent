@@ -150,27 +150,39 @@ async function processJobAsync(jobId: string): Promise<void> {
 
     const { messages, chatCompletionURL, additionalProps } = jobRequest;
 
-    // Determine backend URL
-    const backendHost = process.env.BACKEND_HOST || 'http://backend:8000';
+    // Determine backend URL - must match the logic from /api/chat.ts for Kubernetes
     const useDeepThinker = additionalProps?.useDeepThinker || false;
-    const endpoint = useDeepThinker 
-      ? `${backendHost}/chat_completions_deep_thinker`
-      : `${backendHost}/chat_completions`;
+    const baseBackendHost = process.env.BACKEND_HOST || 'daedalus-backend';
+    const backendSuffix = useDeepThinker ? '-deep-thinker' : '-default';
+    const backendHost = baseBackendHost + backendSuffix + '.daedalus.svc.cluster.local';
+    const endpoint = `http://${backendHost}:8000/chat`;
+
+    // Construct payload matching the regular chat endpoint format
+    const payload = {
+      messages,
+      model: 'string',
+      temperature: 0,
+      max_tokens: 0,
+      top_p: 0,
+      use_knowledge_base: true,
+      top_k: 0,
+      collection_name: 'string',
+      stop: true,
+      additionalProp1: {},
+      stream_options: {
+        include_usage: true,
+      },
+    };
 
     // Make request to backend
     const response = await fetch(endpoint, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'x-user-id': additionalProps?.username || 'anon',
+        'X-Backend-Type': useDeepThinker ? 'deep-thinker' : 'default',
       },
-      body: JSON.stringify({
-        messages,
-        stream: true,
-        stream_options: {
-          include_usage: true,
-        },
-        enable_intermediate_steps: additionalProps?.enableIntermediateSteps || false,
-      }),
+      body: JSON.stringify(payload),
     });
 
     if (!response.ok) {
