@@ -65,13 +65,14 @@ Preferred communication style: Simple, everyday language.
   - Auto-scroll management prevents chat from covering input field
 - **Platform-Specific Meta Tags:** iOS splash screens, Windows tiles, and Android theming
 - **Background Processing:** 
-  - **Async Request Pattern**: PWA uses job-based polling instead of streaming to continue work server-side when screen is locked
-  - **Wake Lock API**: Prevents screen sleep during LLM streaming in browser mode
-  - **IndexedDB Persistence**: Stores partial responses for recovery
-  - **Push Notifications**: Alerts when responses complete or are interrupted
-  - **Visibility API**: Tracks app background/foreground state
+  - **Async Job Pattern**: PWA uses job-based polling with Redis persistence to allow LLM responses to complete server-side when screen is locked
+  - **Job Persistence**: Active jobId + conversationId stored in localStorage to survive component unmounts and JS context freezes
+  - **Automatic Resume**: On app visibility or mount, checks localStorage for persisted jobs and resumes polling immediately
+  - **Push Notifications**: Alerts when responses complete (only if user is away from app)
+  - **Visibility API**: Triggers immediate job status refetch when app becomes visible
   - **Server-Side Processing**: Backend continues generating responses even if client disconnects
-  - **Polling-Based Updates**: Client polls every 2 seconds for progress (works when backgrounded)
+  - **Polling Strategy**: Client polls every 2 seconds, with immediate refetch on visibility change
+  - **Completion Reconciliation**: Completed jobs are fetched from Redis and reconciled into conversation state with full intermediate steps
 
 ### Backend Architecture (NeMo Agent Toolkit)
 

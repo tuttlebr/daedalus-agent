@@ -98,6 +98,7 @@ export const Chat = () => {
     isPolling,
     cancelJob,
   } = useAsyncChat({
+    userId: user?.username || 'anon',
     onProgress: (status) => {
       // Update UI with partial response using current ref
       const currentConversation = selectedConversationRef.current;
@@ -382,7 +383,8 @@ export const Chat = () => {
               chatBody.messages || [],
               chatBody.chatCompletionURL || '',
               chatBody.additionalProps || {},
-              user?.username || 'anon'
+              user?.username || 'anon',
+              selectedConversation.id
             );
             console.log('Async job started - will poll for results');
           } catch (error: any) {
