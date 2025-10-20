@@ -297,6 +297,13 @@ export const Chat = () => {
       if (selectedConversation) {
         // Check if we should use async mode (PWA for background processing)
         const useAsyncMode = isPWA;
+        console.log('🔍 Mode Check:', {
+          isPWA,
+          enableBackgroundProcessing,
+          willUseAsync: isPWA && enableBackgroundProcessing,
+          displayMode: window.matchMedia('(display-mode: standalone)').matches ? 'standalone' : 'browser',
+          navigatorStandalone: (window.navigator as any).standalone
+        });
         let updatedConversation: Conversation;
         if (deleteCount) {
           const updatedMessages = [...selectedConversation.messages];
@@ -410,7 +417,7 @@ export const Chat = () => {
 
         // Use async mode if enabled in settings and user is in PWA
         if (useAsyncMode && enableBackgroundProcessing) {
-          console.log('Using async mode for background processing');
+          console.log('✅ Using ASYNC mode for background processing (job-based)');
           try {
             await startAsyncJob(
               chatBody.messages || [],
@@ -434,6 +441,12 @@ export const Chat = () => {
         }
 
         // Standard streaming mode (browser/non-PWA)
+        console.log('⚡ Using STREAMING mode (SSE - requires active connection)');
+        if (!useAsyncMode) {
+          console.log('  ℹ️ Reason: Not installed as PWA - use "Add to Home Screen"');
+        } else if (!enableBackgroundProcessing) {
+          console.log('  ℹ️ Reason: Background processing disabled - enable in Settings');
+        }
         const endpoint = getEndpoint({ service: 'chat' });
         let body;
         body = JSON.stringify({
