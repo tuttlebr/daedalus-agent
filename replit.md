@@ -64,7 +64,12 @@ Preferred communication style: Simple, everyday language.
   - Smart keyboard handling - input stays visible when typing on mobile
   - Auto-scroll management prevents chat from covering input field
 - **Platform-Specific Meta Tags:** iOS splash screens, Windows tiles, and Android theming
-- **Background Sync:** Queued message sync when connection is restored (future enhancement)
+- **Background Processing:** 
+  - Wake Lock API prevents screen sleep during LLM streaming
+  - IndexedDB persistence for partial response recovery
+  - Push notifications when responses complete in background
+  - Visibility API tracking for background interruption detection
+  - Automatic state management with cleanup on completion/error
 
 ### Backend Architecture (NeMo Agent Toolkit)
 
