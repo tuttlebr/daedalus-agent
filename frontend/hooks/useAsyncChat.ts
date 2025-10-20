@@ -176,6 +176,19 @@ export const useAsyncChat = (options: UseAsyncChatOptions = {}): UseAsyncChatRet
     }
   }, []);
 
+  // Immediately refetch when app becomes visible (user returns from background)
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && currentJobIdRef.current) {
+        console.log('App became visible - immediately fetching job status');
+        pollJobStatus(currentJobIdRef.current);
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, [pollJobStatus]);
+
   // Cleanup on unmount
   useEffect(() => {
     return () => {

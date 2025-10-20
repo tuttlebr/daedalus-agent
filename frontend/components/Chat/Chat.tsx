@@ -42,8 +42,7 @@ import { ChatHeader } from './ChatHeader';
 import { useAuth } from '@/components/Auth/AuthProvider';
 import { useIOSKeyboardFix } from '@/hooks/useIOSKeyboardFix';
 import { useVisualViewport } from '@/hooks/useVisualViewport';
-import { useBackgroundProcessing } from '@/hooks/useBackgroundProcessing';
-import { notifyStreamingComplete, notifyStreamingInterrupted, requestNotificationPermission } from '@/utils/notifications';
+import { notifyStreamingComplete, requestNotificationPermission } from '@/utils/notifications';
 import { useAsyncChat } from '@/hooks/useAsyncChat';
 
 export const Chat = () => {
@@ -91,17 +90,6 @@ export const Chat = () => {
   const isPWA = typeof window !== 'undefined' && 
     (window.matchMedia('(display-mode: standalone)').matches || 
      (window.navigator as any).standalone === true);
-
-  // Background processing support for PWA
-  const {
-    wakeLockActive,
-    isVisible,
-    requestWakeLock,
-    releaseWakeLock,
-    saveStreamingState,
-    getStreamingState,
-    clearStreamingState,
-  } = useBackgroundProcessing();
 
   // Async chat for background processing (PWA mode)
   const {
@@ -180,10 +168,8 @@ export const Chat = () => {
         saveConversations(updatedConversations);
       }
 
-      // Release wake lock and notify
-      if (isPWA) {
-        await releaseWakeLock();
-        await clearStreamingState();
+      // Notify completion if user is away
+      if (isPWA && document.visibilityState !== 'visible') {
         await notifyStreamingComplete(selectedConversationRef.current?.name);
       }
 
@@ -193,11 +179,6 @@ export const Chat = () => {
     onError: async (error) => {
       console.error('Async job error:', error);
       toast.error(`Error: ${error}`);
-
-      if (isPWA) {
-        await releaseWakeLock();
-        await clearStreamingState();
-      }
 
       homeDispatch({ field: 'messageIsStreaming', value: false });
       homeDispatch({ field: 'loading', value: false });
@@ -222,33 +203,6 @@ export const Chat = () => {
     }
   }, [isPWA]);
 
-  // Monitor visibility changes to notify user when app is backgrounded during streaming
-  // NOTE: Only notify for streaming mode, NOT async mode (async jobs continue in background)
-  useEffect(() => {
-    if (!isPWA || !messageIsStreaming) return;
-
-    const handleVisibilityChange = async () => {
-      if (document.visibilityState === 'hidden') {
-        // Only notify if using streaming mode (not async mode)
-        // In async mode, jobs continue server-side, so they're NOT interrupted
-        const usingAsyncMode = enableBackgroundProcessing && isPWA;
-        if (!usingAsyncMode) {
-          console.log('App went to background while streaming - notifying user (streaming mode)');
-          await notifyStreamingInterrupted();
-        } else {
-          console.log('App went to background - async job continues server-side (no interruption)');
-        }
-      } else {
-        console.log('App returned to foreground - resuming normal operation');
-      }
-    };
-
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-
-    return () => {
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-    };
-  }, [isPWA, messageIsStreaming]);
 
   const mergeIntermediateSteps = useCallback(
     (
@@ -344,12 +298,6 @@ export const Chat = () => {
         homeDispatch({ field: 'loading', value: true });
         homeDispatch({ field: 'messageIsStreaming', value: true });
 
-        // Request wake lock to keep screen on during streaming
-        if (isPWA) {
-          await requestWakeLock();
-          console.log('Wake lock requested for background processing');
-        }
-
         // Store processed conversation
         saveConversation(updatedConversation);
         const updatedConversations: Conversation[] = conversations.map(
@@ -436,17 +384,13 @@ export const Chat = () => {
               chatBody.additionalProps || {},
               user?.username || 'anon'
             );
-            console.log('Async job started successfully');
+            console.log('Async job started - will poll for results');
           } catch (error: any) {
             console.error('Failed to start async job:', error);
             toast.error(`Failed to start request: ${error.message}`);
             
             homeDispatch({ field: 'loading', value: false });
             homeDispatch({ field: 'messageIsStreaming', value: false });
-            
-            if (isPWA) {
-              await releaseWakeLock();
-            }
           }
           return; // Exit early for async mode
         }
@@ -656,15 +600,6 @@ export const Chat = () => {
 
               text = text + chunkValue;
 
-              // Save streaming state periodically for recovery (every 10 chunks)
-              if (isPWA && counter % 10 === 0) {
-                await saveStreamingState({
-                  isStreaming: true,
-                  conversationId: selectedConversation.id,
-                  partialResponse: text,
-                  timestamp: Date.now(),
-                });
-              }
 
               homeDispatch({ field: 'loading', value: false });
               const updatedMessages: Message[] = isFirst
@@ -755,13 +690,8 @@ export const Chat = () => {
             });
             saveConversations(updatedConversations);
             
-            // Release wake lock and clear streaming state
-            if (isPWA) {
-              await releaseWakeLock();
-              await clearStreamingState();
-              console.log('Wake lock released and streaming state cleared');
-              
-              // Notify user that response is complete
+            // Notify user that response is complete if they're away
+            if (isPWA && document.visibilityState !== 'visible') {
               await notifyStreamingComplete(selectedConversation.name);
             }
             
@@ -811,23 +741,11 @@ export const Chat = () => {
             });
             saveConversations(updatedConversations);
             
-            // Release wake lock and clear streaming state (non-streaming path)
-            if (isPWA) {
-              await releaseWakeLock();
-              await clearStreamingState();
-            }
-            
             homeDispatch({ field: 'loading', value: false });
             homeDispatch({ field: 'messageIsStreaming', value: false });
           }
         } catch (error: any) {
           saveConversation(updatedConversation);
-          
-          // Release wake lock on error
-          if (isPWA) {
-            await releaseWakeLock();
-            await clearStreamingState();
-          }
           
           homeDispatch({ field: 'loading', value: false });
           homeDispatch({ field: 'messageIsStreaming', value: false });
@@ -852,10 +770,6 @@ export const Chat = () => {
       intermediateStepOverride,
       enableIntermediateSteps,
       isPWA,
-      requestWakeLock,
-      releaseWakeLock,
-      saveStreamingState,
-      clearStreamingState,
       startAsyncJob,
       user,
       useDeepThinker,

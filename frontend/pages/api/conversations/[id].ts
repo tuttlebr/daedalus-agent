@@ -1,0 +1,46 @@
+import type { NextApiRequest, NextApiResponse } from 'next';
+import { getRedis, sessionKey, jsonGet } from '../session/redis';
+
+/**
+ * Simple endpoint: Get latest conversation state including any async job results.
+ * This allows the frontend to fetch completed responses after returning from background.
+ */
+export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  if (req.method !== 'GET') {
+    res.setHeader('Allow', ['GET']);
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+
+  const { id } = req.query;
+
+  if (!id || typeof id !== 'string') {
+    return res.status(400).json({ error: 'Invalid conversation ID' });
+  }
+
+  try {
+    const redis = getRedis();
+    
+    // Check for any pending/completed async jobs for this conversation
+    const jobKey = sessionKey(['conversation-job', id]);
+    const jobData = await jsonGet(jobKey);
+
+    if (jobData && typeof jobData === 'object' && 'messages' in jobData) {
+      // Return the full conversation state from the job
+      return res.status(200).json({
+        conversationId: id,
+        messages: jobData.messages,
+        status: (jobData as any).status || 'completed',
+      });
+    }
+
+    // No async job found, return empty state
+    return res.status(200).json({
+      conversationId: id,
+      messages: [],
+      status: 'idle',
+    });
+  } catch (error) {
+    console.error('Error fetching conversation:', error);
+    return res.status(500).json({ error: 'Failed to fetch conversation' });
+  }
+}
