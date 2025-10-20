@@ -111,9 +111,10 @@ export const Chat = () => {
     cancelJob,
   } = useAsyncChat({
     onProgress: (status) => {
-      // Update UI with partial response
-      if (status.partialResponse && selectedConversation) {
-        const updatedMessages = [...selectedConversation.messages];
+      // Update UI with partial response using current ref
+      const currentConversation = selectedConversationRef.current;
+      if (status.partialResponse && currentConversation) {
+        const updatedMessages = [...currentConversation.messages];
         const lastMessage = updatedMessages[updatedMessages.length - 1];
         
         if (lastMessage && lastMessage.role === 'assistant') {
@@ -128,7 +129,7 @@ export const Chat = () => {
         }
 
         const updatedConversation = {
-          ...selectedConversation,
+          ...currentConversation,
           messages: updatedMessages,
         };
 
@@ -139,10 +140,12 @@ export const Chat = () => {
       }
     },
     onComplete: async (fullResponse, intermediateSteps) => {
-      console.log('Async job completed with full response');
+      console.log('✅ Async job completed with full response');
       
-      if (selectedConversation) {
-        const updatedMessages = [...selectedConversation.messages];
+      // Use current ref to avoid stale closure
+      const currentConversation = selectedConversationRef.current;
+      if (currentConversation) {
+        const updatedMessages = [...currentConversation.messages];
         const lastMessage = updatedMessages[updatedMessages.length - 1];
         
         if (lastMessage && lastMessage.role === 'assistant') {
@@ -157,7 +160,7 @@ export const Chat = () => {
         }
 
         const updatedConversation = {
-          ...selectedConversation,
+          ...currentConversation,
           messages: updatedMessages,
         };
 
@@ -168,7 +171,7 @@ export const Chat = () => {
 
         saveConversation(updatedConversation);
         const updatedConversations = conversations.map((c) =>
-          c.id === selectedConversation.id ? updatedConversation : c
+          c.id === currentConversation.id ? updatedConversation : c
         );
         homeDispatch({
           field: 'conversations',
@@ -181,7 +184,7 @@ export const Chat = () => {
       if (isPWA) {
         await releaseWakeLock();
         await clearStreamingState();
-        await notifyStreamingComplete(selectedConversation?.name);
+        await notifyStreamingComplete(selectedConversationRef.current?.name);
       }
 
       homeDispatch({ field: 'messageIsStreaming', value: false });
@@ -220,13 +223,21 @@ export const Chat = () => {
   }, [isPWA]);
 
   // Monitor visibility changes to notify user when app is backgrounded during streaming
+  // NOTE: Only notify for streaming mode, NOT async mode (async jobs continue in background)
   useEffect(() => {
     if (!isPWA || !messageIsStreaming) return;
 
     const handleVisibilityChange = async () => {
       if (document.visibilityState === 'hidden') {
-        console.log('App went to background while streaming - notifying user');
-        await notifyStreamingInterrupted();
+        // Only notify if using streaming mode (not async mode)
+        // In async mode, jobs continue server-side, so they're NOT interrupted
+        const usingAsyncMode = enableBackgroundProcessing && isPWA;
+        if (!usingAsyncMode) {
+          console.log('App went to background while streaming - notifying user (streaming mode)');
+          await notifyStreamingInterrupted();
+        } else {
+          console.log('App went to background - async job continues server-side (no interruption)');
+        }
       } else {
         console.log('App returned to foreground - resuming normal operation');
       }
