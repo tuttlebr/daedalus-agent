@@ -65,11 +65,13 @@ Preferred communication style: Simple, everyday language.
   - Auto-scroll management prevents chat from covering input field
 - **Platform-Specific Meta Tags:** iOS splash screens, Windows tiles, and Android theming
 - **Background Processing:** 
-  - Wake Lock API prevents screen sleep during LLM streaming
-  - IndexedDB persistence for partial response recovery
-  - Push notifications when responses complete in background
-  - Visibility API tracking for background interruption detection
-  - Automatic state management with cleanup on completion/error
+  - **Async Request Pattern**: PWA uses job-based polling instead of streaming to continue work server-side when screen is locked
+  - **Wake Lock API**: Prevents screen sleep during LLM streaming in browser mode
+  - **IndexedDB Persistence**: Stores partial responses for recovery
+  - **Push Notifications**: Alerts when responses complete or are interrupted
+  - **Visibility API**: Tracks app background/foreground state
+  - **Server-Side Processing**: Backend continues generating responses even if client disconnects
+  - **Polling-Based Updates**: Client polls every 2 seconds for progress (works when backgrounded)
 
 ### Backend Architecture (NeMo Agent Toolkit)
 
@@ -138,9 +140,10 @@ Preferred communication style: Simple, everyday language.
 - `/api/auth/login` - POST - User authentication
 - `/api/auth/logout` - POST - Session termination
 - `/api/auth/me` - GET - Current user info
-- `/api/chat` - POST - Send chat messages, stream responses via SSE
-- `/api/session/imageStorage` - GET/POST - Image upload/retrieval
-- `/api/session/pdfStorage` - GET/POST - PDF upload/retrieval
+- `/api/chat` - POST - Send chat messages, stream responses via SSE (browser mode)
+- `/api/chat/async` - POST/GET/DELETE - Async job management for background processing (PWA mode)
+- `/api/session/imageStorage` - GET/POST - Image upload/retrieval (max 5MB)
+- `/api/session/pdfStorage` - GET/POST - PDF upload/retrieval (max 20MB)
 
 **Backend Endpoints:**
 - Chat completion endpoint (configurable via chatCompletionURL)
