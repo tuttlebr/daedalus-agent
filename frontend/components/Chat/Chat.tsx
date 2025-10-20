@@ -407,8 +407,10 @@ export const Chat = () => {
           }
         };
 
-        // Use async mode for PWA to support background processing
-        if (useAsyncMode) {
+        // DISABLED: Async mode temporarily disabled - needs more testing
+        // Use standard streaming mode for all users
+        const useAsyncModeDisabled = false;
+        if (useAsyncModeDisabled && useAsyncMode) {
           console.log('Using async mode for background processing');
           try {
             await startAsyncJob(
