@@ -28,14 +28,30 @@ export const requestNotificationPermission = async (): Promise<NotificationPermi
   return Notification.permission;
 };
 
-// Show notification
-export const showNotification = async (options: NotificationOptions): Promise<void> => {
+// Check if the app is currently visible to the user
+const isAppVisible = (): boolean => {
+  if (typeof document === 'undefined') {
+    return true; // Server-side, assume visible
+  }
+  return document.visibilityState === 'visible';
+};
+
+// Show notification (only when app is backgrounded)
+export const showNotification = async (options: NotificationOptions, forceShow = false): Promise<void> => {
+  // Don't show notifications if user is actively using the app (unless forced)
+  if (!forceShow && isAppVisible()) {
+    console.log('Skipping notification - user is actively in the app');
+    return;
+  }
+
   const permission = await requestNotificationPermission();
 
   if (permission !== 'granted') {
     console.warn('Notification permission denied');
     return;
   }
+
+  console.log('Sending notification - user is away from app');
 
   // Check if service worker is available for better notifications
   if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
@@ -70,7 +86,7 @@ export const showNotification = async (options: NotificationOptions): Promise<vo
   }
 };
 
-// Show streaming completion notification
+// Show streaming completion notification (only if user is away from app)
 export const notifyStreamingComplete = async (conversationTitle?: string): Promise<void> => {
   await showNotification({
     title: 'Response Complete',
@@ -82,7 +98,7 @@ export const notifyStreamingComplete = async (conversationTitle?: string): Promi
   });
 };
 
-// Show streaming interrupted notification
+// Show streaming interrupted notification (only if user is away from app)
 export const notifyStreamingInterrupted = async (): Promise<void> => {
   await showNotification({
     title: 'Streaming Interrupted',
