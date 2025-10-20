@@ -19,7 +19,21 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   try {
     const redis = getRedis();
-    
+
+    // First check for saved conversation data
+    const conversationKey = sessionKey(['conversation', id]);
+    const conversationData = await jsonGet(conversationKey);
+
+    if (conversationData && conversationData.messages) {
+      // Return the saved conversation messages
+      return res.status(200).json({
+        conversationId: id,
+        messages: conversationData.messages,
+        status: 'completed',
+        updatedAt: conversationData.updatedAt,
+      });
+    }
+
     // Check for any pending/completed async jobs for this conversation
     const jobKey = sessionKey(['conversation-job', id]);
     const jobData = await jsonGet(jobKey);
@@ -33,7 +47,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       });
     }
 
-    // No async job found, return empty state
+    // No conversation found, return empty state
     return res.status(200).json({
       conversationId: id,
       messages: [],

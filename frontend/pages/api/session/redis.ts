@@ -35,41 +35,92 @@ export function sessionKey(parts: Array<string | undefined | null>): string {
   return parts.filter(Boolean).join(':');
 }
 
-// JSON operation helpers (using regular Redis STRING commands)
+// JSON operation helpers using RedisJSON commands
 export async function jsonSet(key: string, path: string, value: any, options?: { NX?: boolean; XX?: boolean }): Promise<string | null> {
   const client = getRedis();
-  const serialized = JSON.stringify(value);
-  
-  if (options?.NX) {
-    const result = await client.set(key, serialized, 'NX');
+
+  try {
+    // Use RedisJSON JSON.SET command
+    const args = [key, path, JSON.stringify(value)];
+
+    if (options?.NX) {
+      args.push('NX');
+    } else if (options?.XX) {
+      args.push('XX');
+    }
+
+    const result = await client.call('JSON.SET', ...args) as string | null;
     return result;
-  } else if (options?.XX) {
-    const result = await client.set(key, serialized, 'XX');
-    return result;
+  } catch (error) {
+    console.error('Error in jsonSet:', error);
+    throw error;
   }
-  
-  return await client.set(key, serialized);
 }
 
-export async function jsonGet(key: string, path: string = '.'): Promise<any> {
+export async function jsonGet(key: string, path: string = '$'): Promise<any> {
   const client = getRedis();
-  const result = await client.get(key);
-  return result ? JSON.parse(result) : null;
+
+  try {
+    // Use RedisJSON JSON.GET command
+    const result = await client.call('JSON.GET', key, path) as string | null;
+
+    if (!result) return null;
+
+    // RedisJSON returns an array when using $ path
+    const parsed = JSON.parse(result);
+    return path.startsWith('$') && Array.isArray(parsed) ? parsed[0] : parsed;
+  } catch (error) {
+    console.error('Error in jsonGet:', error);
+    return null;
+  }
 }
 
-export async function jsonDel(key: string, path: string = '.'): Promise<number> {
+export async function jsonDel(key: string, path: string = '$'): Promise<number> {
   const client = getRedis();
-  return await client.del(key);
+
+  try {
+    if (path === '$') {
+      // Delete the entire key
+      return await client.del(key);
+    } else {
+      // Delete a specific path
+      const result = await client.call('JSON.DEL', key, path) as number;
+      return result;
+    }
+  } catch (error) {
+    console.error('Error in jsonDel:', error);
+    return 0;
+  }
 }
 
 export async function jsonSetWithExpiry(key: string, value: any, ttl: number): Promise<void> {
   const client = getRedis();
-  const serialized = JSON.stringify(value);
-  await client.setex(key, ttl, serialized);
+
+  try {
+    // Set the JSON value
+    await client.call('JSON.SET', key, '$', JSON.stringify(value));
+    // Set expiry
+    await client.expire(key, ttl);
+  } catch (error) {
+    console.error('Error in jsonSetWithExpiry:', error);
+    throw error;
+  }
 }
 
-export async function jsonMGet(keys: string[], path: string = '.'): Promise<any[]> {
+export async function jsonMGet(keys: string[], path: string = '$'): Promise<any[]> {
   const client = getRedis();
-  const results = await client.mget(...keys);
-  return results.map(item => item ? JSON.parse(item) : null);
+
+  try {
+    // Use RedisJSON JSON.MGET command
+    const result = await client.call('JSON.MGET', ...keys, path) as (string | null)[];
+
+    return result.map(item => {
+      if (!item) return null;
+      const parsed = JSON.parse(item);
+      return path.startsWith('$') && Array.isArray(parsed) ? parsed[0] : parsed;
+    });
+  } catch (error) {
+    console.error('Error in jsonMGet:', error);
+    return keys.map(() => null);
+  }
 }

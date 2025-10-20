@@ -22,16 +22,32 @@ export const useConversationSync = ({
 
   // Fetch latest conversation state from server
   const syncConversation = async () => {
-    if (!enabled || !conversationId) return;
+    if (!enabled || !conversationId) {
+      console.log('Sync skipped - enabled:', enabled, 'conversationId:', conversationId);
+      return;
+    }
+
+    console.log(`🔄 Syncing conversation ${conversationId} from server...`);
 
     try {
       const response = await fetch(`/api/conversations/${conversationId}`);
       if (response.ok) {
         const data = await response.json();
+        console.log(`📥 Received conversation data:`, {
+          conversationId: data.conversationId,
+          messageCount: data.messages?.length || 0,
+          status: data.status,
+          updatedAt: data.updatedAt,
+          isPartial: data.isPartial,
+        });
+
         if (data.messages && onMessagesUpdated) {
+          console.log(`✅ Updating UI with ${data.messages.length} messages`);
           onMessagesUpdated(data.messages);
         }
         lastSyncRef.current = Date.now();
+      } else {
+        console.error(`Failed to sync conversation - status: ${response.status}`);
       }
     } catch (error) {
       console.error('Failed to sync conversation:', error);

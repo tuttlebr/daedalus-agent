@@ -388,11 +388,12 @@ llms:
   reasoning_llm:
     _type: openai
     api_key: ${NVIDIA_API_KEY}
-    base_url: https://9adef108-3097-4540-ba5f-873a9da8e54f.invocation.api.nvcf.nvidia.com/v1
+    base_url: https://5eb560ed-7ab8-4985-ab2a-dd1f7ea5eb66.invocation.api.nvcf.nvidia.com/v1
     max_tokens: 32768
-    model_name: openai/gpt-oss-120b
-    temperature: 1
-    top_p: 1
+    model_name: nvidia/llama-3-3-nemotron-super-49b-v1-5
+    temperature: 0.6
+    thinking: true
+    top_p: 0.95
   tool_calling_llm:
     _type: openai
     api_key: ${NVIDIA_API_KEY}

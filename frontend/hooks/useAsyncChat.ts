@@ -10,6 +10,7 @@ interface AsyncJobStatus {
   progress?: number;
   createdAt: number;
   updatedAt: number;
+  conversationId?: string;
 }
 
 interface PersistedJob {
@@ -169,6 +170,7 @@ export const useAsyncChat = (options: UseAsyncChatOptions = {}): UseAsyncChatRet
           chatCompletionURL,
           additionalProps,
           userId: jobUserId,
+          conversationId,
         }),
       });
 
@@ -189,7 +191,7 @@ export const useAsyncChat = (options: UseAsyncChatOptions = {}): UseAsyncChatRet
 
       // Start polling
       setIsPolling(true);
-      
+
       // Initial poll
       await pollJobStatus(jobId);
 
@@ -239,7 +241,7 @@ export const useAsyncChat = (options: UseAsyncChatOptions = {}): UseAsyncChatRet
   // Resume polling for persisted job (called on mount and visibility change)
   const resumePollingIfNeeded = useCallback(async () => {
     const persistedJob = getPersistedJob(userId);
-    
+
     if (!persistedJob) {
       return; // No persisted job to resume
     }
