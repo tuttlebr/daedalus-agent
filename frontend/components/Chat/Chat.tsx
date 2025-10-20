@@ -42,6 +42,8 @@ import { ChatHeader } from './ChatHeader';
 import { useAuth } from '@/components/Auth/AuthProvider';
 import { useIOSKeyboardFix } from '@/hooks/useIOSKeyboardFix';
 import { useVisualViewport } from '@/hooks/useVisualViewport';
+import { useBackgroundProcessing } from '@/hooks/useBackgroundProcessing';
+import { notifyStreamingComplete, notifyStreamingInterrupted, requestNotificationPermission } from '@/utils/notifications';
 
 export const Chat = () => {
   const { t } = useTranslation('chat');
@@ -88,10 +90,54 @@ export const Chat = () => {
     (window.matchMedia('(display-mode: standalone)').matches || 
      (window.navigator as any).standalone === true);
 
+  // Background processing support for PWA
+  const {
+    wakeLockActive,
+    isVisible,
+    requestWakeLock,
+    releaseWakeLock,
+    saveStreamingState,
+    getStreamingState,
+    clearStreamingState,
+  } = useBackgroundProcessing();
+
   // Add these variables near the top of your component
   useEffect(() => {
     selectedConversationRef.current = selectedConversation;
   }, [selectedConversation]);
+
+  // Request notification permission on mount for PWA background processing
+  useEffect(() => {
+    if (isPWA) {
+      requestNotificationPermission().then(permission => {
+        if (permission === 'granted') {
+          console.log('Notification permission granted for background processing');
+        } else {
+          console.log('Notification permission denied - user will not receive completion alerts');
+        }
+      });
+    }
+  }, [isPWA]);
+
+  // Monitor visibility changes to notify user when app is backgrounded during streaming
+  useEffect(() => {
+    if (!isPWA || !messageIsStreaming) return;
+
+    const handleVisibilityChange = async () => {
+      if (document.visibilityState === 'hidden') {
+        console.log('App went to background while streaming - notifying user');
+        await notifyStreamingInterrupted();
+      } else {
+        console.log('App returned to foreground - resuming normal operation');
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [isPWA, messageIsStreaming]);
 
   const mergeIntermediateSteps = useCallback(
     (
@@ -177,6 +223,12 @@ export const Chat = () => {
 
         homeDispatch({ field: 'loading', value: true });
         homeDispatch({ field: 'messageIsStreaming', value: true });
+
+        // Request wake lock to keep screen on during streaming
+        if (isPWA) {
+          await requestWakeLock();
+          console.log('Wake lock requested for background processing');
+        }
 
         // Store processed conversation
         saveConversation(updatedConversation);
@@ -451,6 +503,16 @@ export const Chat = () => {
 
               text = text + chunkValue;
 
+              // Save streaming state periodically for recovery (every 10 chunks)
+              if (isPWA && counter % 10 === 0) {
+                await saveStreamingState({
+                  isStreaming: true,
+                  conversationId: selectedConversation.id,
+                  partialResponse: text,
+                  timestamp: Date.now(),
+                });
+              }
+
               homeDispatch({ field: 'loading', value: false });
               const updatedMessages: Message[] = isFirst
                 ? [
@@ -539,6 +601,17 @@ export const Chat = () => {
               value: updatedConversations,
             });
             saveConversations(updatedConversations);
+            
+            // Release wake lock and clear streaming state
+            if (isPWA) {
+              await releaseWakeLock();
+              await clearStreamingState();
+              console.log('Wake lock released and streaming state cleared');
+              
+              // Notify user that response is complete
+              await notifyStreamingComplete(selectedConversation.name);
+            }
+            
             // to show the message on UI and scroll to the bottom after 500ms delay
             setTimeout(() => {
               homeDispatch({ field: 'messageIsStreaming', value: false });
@@ -584,11 +657,25 @@ export const Chat = () => {
               value: updatedConversations,
             });
             saveConversations(updatedConversations);
+            
+            // Release wake lock and clear streaming state (non-streaming path)
+            if (isPWA) {
+              await releaseWakeLock();
+              await clearStreamingState();
+            }
+            
             homeDispatch({ field: 'loading', value: false });
             homeDispatch({ field: 'messageIsStreaming', value: false });
           }
         } catch (error: any) {
           saveConversation(updatedConversation);
+          
+          // Release wake lock on error
+          if (isPWA) {
+            await releaseWakeLock();
+            await clearStreamingState();
+          }
+          
           homeDispatch({ field: 'loading', value: false });
           homeDispatch({ field: 'messageIsStreaming', value: false });
           if (error === 'aborted' || error?.name === 'AbortError') {
@@ -610,7 +697,12 @@ export const Chat = () => {
       chatCompletionURL,
       expandIntermediateSteps,
       intermediateStepOverride,
-      enableIntermediateSteps
+      enableIntermediateSteps,
+      isPWA,
+      requestWakeLock,
+      releaseWakeLock,
+      saveStreamingState,
+      clearStreamingState,
     ],
   );
 
