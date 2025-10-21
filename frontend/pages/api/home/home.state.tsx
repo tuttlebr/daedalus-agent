@@ -52,5 +52,5 @@ export const initialState: HomeInitialState = {
   intermediateStepsFilter: [],
   useDeepThinker: false,
   showVoiceRecorder: false,
-  enableBackgroundProcessing: false,
+  enableBackgroundProcessing: true,
 };

@@ -23,16 +23,22 @@ spec:
         - name: redis
           image: "{{ .Values.images.redis.repository }}:{{ .Values.images.redis.tag }}"
           imagePullPolicy: {{ .Values.images.redis.pullPolicy }}
-          args: ["redis-server", "--save", "60", "1", "--appendonly", "yes", "--protected-mode", "no", "--loadmodule", "/opt/redis-stack/lib/rejson.so"]
+          command: ["/bin/bash", "/scripts/init-redis.sh"]
           ports:
             - containerPort: 6379
               name: redis
           volumeMounts:
+            - name: init-script
+              mountPath: /scripts
             {{- if .Values.redis.persistence.enabled }}
             - name: redis-data
               mountPath: /data
             {{- end }}
       volumes:
+        - name: init-script
+          configMap:
+            name: {{ include "daedalus.fullname" . }}-redis-init
+            defaultMode: 0755
         {{- if .Values.redis.persistence.enabled }}
         - name: redis-data
           {{- if and .Values.redis.persistence.create (not .Values.redis.persistence.existingClaimName) }}

@@ -39,7 +39,20 @@ export const IntermediateSteps: React.FC<IntermediateStepsProps> = ({ steps, cla
       normalizedSteps = migrated;
     }
 
-    return normalizedSteps
+    // Deduplicate steps by UUID - when background processing is enabled,
+    // the same steps might be sent multiple times
+    const deduplicatedMap = new Map<string, IntermediateStep>();
+    normalizedSteps.forEach((step) => {
+      if (step?.payload?.UUID) {
+        // If we already have this UUID, keep the one with the latest timestamp
+        const existing = deduplicatedMap.get(step.payload.UUID);
+        if (!existing || step.payload.event_timestamp > existing.payload.event_timestamp) {
+          deduplicatedMap.set(step.payload.UUID, step);
+        }
+      }
+    });
+
+    return Array.from(deduplicatedMap.values())
       .filter((step) => {
         if (!step?.payload?.event_type) {
           return false;

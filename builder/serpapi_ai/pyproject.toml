@@ -6,7 +6,7 @@ requires = ["setuptools>=64.0.0", "wheel"]
 name = "serpapi_ai"
 dynamic = ["version"]
 dependencies = [
-  "nvidia-nat[all]@git+https://github.com/NVIDIA/NeMo-Agent-Toolkit.git@v1.3.0-rc5",
+  "nvidia-nat[all]@git+https://github.com/NVIDIA/NeMo-Agent-Toolkit.git@develop",
   "serpapi>=0.1.5",
 ]
 requires-python = ">=3.11,<3.14"

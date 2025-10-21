@@ -30,10 +30,25 @@ export interface Message {
 
 export type Role = 'assistant' | 'user' | 'agent' | 'system';
 
+export interface UserContext {
+  id: string | null;
+  username: string;
+  name: string | null;
+  conversationId?: string;
+  sessionTimestamp: number;
+  // Add any other user metadata fields as needed
+}
+
 export interface ChatBody {
   chatCompletionURL?: string,
   messages?: Message[],
-  additionalProps?: any
+  additionalProps?: {
+    enableIntermediateSteps?: boolean;
+    username?: string;
+    useDeepThinker?: boolean;
+    userContext?: UserContext;
+    [key: string]: any;
+  }
 }
 
 export interface Conversation {

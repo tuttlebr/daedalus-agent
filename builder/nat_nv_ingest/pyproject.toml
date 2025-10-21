@@ -6,7 +6,7 @@ requires = ["setuptools>=64.0.0", "wheel"]
 name = "nat_nv_ingest"
 dynamic = ["version"]
 dependencies = [
-  "nvidia-nat[all]@git+https://github.com/NVIDIA/NeMo-Agent-Toolkit.git@v1.3.0-rc5",
+  "nvidia-nat[all]@git+https://github.com/NVIDIA/NeMo-Agent-Toolkit.git@develop",
   "nv-ingest-api",
   "nv-ingest-client",
   "milvus-lite",
