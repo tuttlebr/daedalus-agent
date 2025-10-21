@@ -11,6 +11,7 @@ interface AsyncJobStatus {
   createdAt: number;
   updatedAt: number;
   conversationId?: string;
+  finalizedAt?: number;  // Timestamp when all backend operations are complete
 }
 
 interface PersistedJob {
@@ -23,7 +24,7 @@ interface PersistedJob {
 interface UseAsyncChatOptions {
   pollingInterval?: number;
   onProgress?: (status: AsyncJobStatus) => void;
-  onComplete?: (response: string, intermediateSteps?: any[]) => void;
+  onComplete?: (response: string, intermediateSteps?: any[], finalizedAt?: number) => void;
   onError?: (error: string) => void;
   userId?: string; // Add userId for localStorage key scoping
 }
@@ -106,11 +107,12 @@ export const useAsyncChat = (options: UseAsyncChatOptions = {}): UseAsyncChatRet
         onProgress(status);
       }
 
-      // Check if job is complete
-      if (status.status === 'completed') {
+      // Check if job is complete AND finalized
+      if (status.status === 'completed' && status.finalizedAt) {
+        // Only consider job truly complete when finalizedAt is set
         setIsPolling(false);
         if (onComplete && status.fullResponse) {
-          onComplete(status.fullResponse, status.intermediateSteps);
+          onComplete(status.fullResponse, status.intermediateSteps, status.finalizedAt);
         }
         // Clear polling and persisted job
         if (pollingIntervalRef.current) {
@@ -119,7 +121,10 @@ export const useAsyncChat = (options: UseAsyncChatOptions = {}): UseAsyncChatRet
         }
         clearPersistedJob(userId);
         currentJobIdRef.current = null;
-        console.log('✅ Job completed - cleared persisted state');
+        console.log('✅ Job completed and finalized - cleared persisted state');
+      } else if (status.status === 'completed' && !status.finalizedAt) {
+        // Job marked complete but still finalizing - keep polling
+        console.log('⏳ Job completed but not finalized yet, continuing to poll...');
       } else if (status.status === 'error') {
         setIsPolling(false);
         if (onError) {

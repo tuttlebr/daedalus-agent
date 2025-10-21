@@ -128,7 +128,8 @@ export const Chat = () => {
             // Merge intermediate steps to avoid duplicates
             lastMessage.intermediateSteps = mergeIntermediateSteps(
               lastMessage.intermediateSteps || [],
-              status.intermediateSteps || []
+              status.intermediateSteps || [],
+              status.status === 'completed' && status.finalizedAt ? status.finalizedAt : undefined
             );
           } else {
             updatedMessages.push({
@@ -162,8 +163,8 @@ export const Chat = () => {
         debouncedSaveConversations(currentConversations);
       }
     },
-    onComplete: async (fullResponse, intermediateSteps) => {
-      console.log('✅ Async job completed with full response');
+    onComplete: async (fullResponse, intermediateSteps, finalizedAt) => {
+      console.log('✅ Async job completed with full response', { finalizedAt });
 
       // Use current ref to avoid stale closure
       const currentConversation = selectedConversationRef.current;
@@ -176,7 +177,8 @@ export const Chat = () => {
             // Merge intermediate steps to avoid duplicates
             lastMessage.intermediateSteps = mergeIntermediateSteps(
               lastMessage.intermediateSteps || [],
-              intermediateSteps || []
+              intermediateSteps || [],
+              finalizedAt  // Pass completion timestamp to filter stale steps
             );
           } else {
             updatedMessages.push({
@@ -292,7 +294,8 @@ export const Chat = () => {
                 ...serverMsg,
                 intermediateSteps: mergeIntermediateSteps(
                   localMsg.intermediateSteps || [],
-                  serverMsg.intermediateSteps || []
+                  serverMsg.intermediateSteps || [],
+                  Date.now()  // Use current time as cutoff for server sync
                 )
               };
             }
@@ -401,6 +404,7 @@ export const Chat = () => {
     (
       existingSteps: IntermediateStep[] = [],
       incomingSteps: IntermediateStep[] = [],
+      completionTimestamp?: number,  // Optional timestamp when job was finalized
     ): IntermediateStep[] => {
       if (!incomingSteps.length) {
         return existingSteps;
@@ -420,22 +424,44 @@ export const Chat = () => {
           return;
         }
 
+        // Filter out steps that were created after job completion
+        // This prevents stale steps from appearing after the response is done
+        if (completionTimestamp && step.payload.event_timestamp) {
+          // Convert completion timestamp from milliseconds to seconds to match event_timestamp
+          const completionTimestampSeconds = completionTimestamp / 1000;
+          if (step.payload.event_timestamp > completionTimestampSeconds) {
+            console.warn(`Filtering out stale intermediate step created after completion:`, {
+              stepName: step.payload.name,
+              stepTimestamp: step.payload.event_timestamp,
+              completionTimestamp: completionTimestampSeconds,
+            });
+            return;  // Skip this step
+          }
+        }
+
         const current = stepsById.get(uuid);
         if (current) {
-          stepsById.set(uuid, {
-            ...current,
-            ...step,
-            function_ancestry: step.function_ancestry || current.function_ancestry,
-            payload: {
-              ...current.payload,
-              ...step.payload,
-              span_event_timestamp:
-                step.payload.span_event_timestamp ?? current.payload.span_event_timestamp,
-              metadata: step.payload.metadata ?? current.payload.metadata,
-              data: step.payload.data ?? current.payload.data,
-              usage_info: step.payload.usage_info ?? current.payload.usage_info,
-            },
-          });
+          // More aggressive deduplication - only update if the incoming step has newer data
+          const shouldUpdate = !current.payload.event_timestamp ||
+                             (step.payload.event_timestamp &&
+                              step.payload.event_timestamp >= current.payload.event_timestamp);
+
+          if (shouldUpdate) {
+            stepsById.set(uuid, {
+              ...current,
+              ...step,
+              function_ancestry: step.function_ancestry || current.function_ancestry,
+              payload: {
+                ...current.payload,
+                ...step.payload,
+                span_event_timestamp:
+                  step.payload.span_event_timestamp ?? current.payload.span_event_timestamp,
+                metadata: step.payload.metadata ?? current.payload.metadata,
+                data: step.payload.data ?? current.payload.data,
+                usage_info: step.payload.usage_info ?? current.payload.usage_info,
+              },
+            });
+          }
         } else {
           stepsById.set(uuid, step);
         }
@@ -854,6 +880,7 @@ export const Chat = () => {
                       intermediateSteps: mergeIntermediateSteps(
                         [],
                         rawIntermediateSteps,
+                        undefined  // No completion timestamp during streaming
                       ),
                     },
                   ]
@@ -865,6 +892,7 @@ export const Chat = () => {
                         intermediateSteps: mergeIntermediateSteps(
                           message?.intermediateSteps,
                           rawIntermediateSteps,
+                          undefined  // No completion timestamp during streaming
                         ),
                       };
                     }
