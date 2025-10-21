@@ -21,6 +21,7 @@ import {
   fetchLastMessage,
 } from '@/utils/app/helper';
 import { throttle } from '@/utils/data/throttle';
+import { debounce } from 'lodash';
 import { getUserSessionItem } from '@/utils/app/storage';
 import { ChatBody, Conversation, Message } from '@/types/chat';
 import {
@@ -94,6 +95,19 @@ export const Chat = () => {
     (window.matchMedia('(display-mode: standalone)').matches ||
      (window.navigator as any).standalone === true);
 
+  // Create a debounced save function for async updates
+  const debouncedSaveConversation = useRef(
+    debounce((conversation: Conversation) => {
+      saveConversation(conversation);
+    }, 1000) // Save at most once per second
+  ).current;
+
+  const debouncedSaveConversations = useRef(
+    debounce((conversations: Conversation[]) => {
+      saveConversations(conversations);
+    }, 1000) // Save at most once per second
+  ).current;
+
   // Async chat for background processing (PWA mode)
   const {
     startAsyncJob,
@@ -109,16 +123,20 @@ export const Chat = () => {
         const updatedMessages = [...currentConversation.messages];
         const lastMessage = updatedMessages[updatedMessages.length - 1];
 
-        if (lastMessage && lastMessage.role === 'assistant') {
-          lastMessage.content = status.partialResponse;
-          lastMessage.intermediateSteps = status.intermediateSteps || [];
-        } else {
-          updatedMessages.push({
-            role: 'assistant',
-            content: status.partialResponse,
-            intermediateSteps: status.intermediateSteps || [],
-          });
-        }
+          if (lastMessage && lastMessage.role === 'assistant') {
+            lastMessage.content = status.partialResponse;
+            // Merge intermediate steps to avoid duplicates
+            lastMessage.intermediateSteps = mergeIntermediateSteps(
+              lastMessage.intermediateSteps || [],
+              status.intermediateSteps || []
+            );
+          } else {
+            updatedMessages.push({
+              role: 'assistant',
+              content: status.partialResponse,
+              intermediateSteps: status.intermediateSteps || [],
+            });
+          }
 
         const updatedConversation = {
           ...currentConversation,
@@ -129,6 +147,19 @@ export const Chat = () => {
           field: 'selectedConversation',
           value: updatedConversation,
         });
+
+        // Also update the conversations list to keep sidebar in sync
+        const currentConversations = conversations.map((c) =>
+          c.id === currentConversation.id ? updatedConversation : c
+        );
+        homeDispatch({
+          field: 'conversations',
+          value: currentConversations,
+        });
+
+        // Save conversation state using debounced function
+        debouncedSaveConversation(updatedConversation);
+        debouncedSaveConversations(currentConversations);
       }
     },
     onComplete: async (fullResponse, intermediateSteps) => {
@@ -140,16 +171,20 @@ export const Chat = () => {
         const updatedMessages = [...currentConversation.messages];
         const lastMessage = updatedMessages[updatedMessages.length - 1];
 
-        if (lastMessage && lastMessage.role === 'assistant') {
-          lastMessage.content = fullResponse;
-          lastMessage.intermediateSteps = intermediateSteps || [];
-        } else {
-          updatedMessages.push({
-            role: 'assistant',
-            content: fullResponse,
-            intermediateSteps: intermediateSteps || [],
-          });
-        }
+          if (lastMessage && lastMessage.role === 'assistant') {
+            lastMessage.content = fullResponse;
+            // Merge intermediate steps to avoid duplicates
+            lastMessage.intermediateSteps = mergeIntermediateSteps(
+              lastMessage.intermediateSteps || [],
+              intermediateSteps || []
+            );
+          } else {
+            updatedMessages.push({
+              role: 'assistant',
+              content: fullResponse,
+              intermediateSteps: intermediateSteps || [],
+            });
+          }
 
         const updatedConversation = {
           ...currentConversation,
@@ -161,15 +196,64 @@ export const Chat = () => {
           value: updatedConversation,
         });
 
-        saveConversation(updatedConversation);
-        const updatedConversations = conversations.map((c) =>
+        // Cancel any pending debounced saves
+        debouncedSaveConversation.cancel();
+        debouncedSaveConversations.cancel();
+
+        // Immediately save the final state with error recovery
+        try {
+          await saveConversation(updatedConversation);
+        } catch (error) {
+          console.error('Failed to save conversation:', error);
+          // Retry once after a short delay
+          setTimeout(async () => {
+            try {
+              await saveConversation(updatedConversation);
+            } catch (retryError) {
+              console.error('Retry failed for conversation save:', retryError);
+              toast.error('Failed to save conversation. Please check your connection.');
+            }
+          }, 1000);
+        }
+
+        // Get the latest conversations from the current state to avoid stale data
+        const latestConversations = conversations.map((c) =>
           c.id === currentConversation.id ? updatedConversation : c
         );
+
         homeDispatch({
           field: 'conversations',
-          value: updatedConversations,
+          value: latestConversations,
         });
-        saveConversations(updatedConversations);
+
+        try {
+          await saveConversations(latestConversations);
+        } catch (error) {
+          console.error('Failed to save conversations:', error);
+          // Retry once after a short delay
+          setTimeout(async () => {
+            try {
+              await saveConversations(latestConversations);
+            } catch (retryError) {
+              console.error('Retry failed for conversations save:', retryError);
+              // Don't show error toast here as one was already shown above
+            }
+          }, 1000);
+        }
+
+        // Also save conversation state to the conversations API for better sync
+        try {
+          await fetch(`/api/conversations/${currentConversation.id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              messages: updatedConversation.messages,
+              updatedAt: Date.now(),
+            }),
+          });
+        } catch (error) {
+          console.error('Failed to save conversation to API:', error);
+        }
       }
 
       // Notify completion if user is away
@@ -196,9 +280,30 @@ export const Chat = () => {
     onMessagesUpdated: (messages) => {
       // Update conversation with server messages
       if (selectedConversation) {
+        // Merge server messages with local messages to avoid losing local state
+        const mergedMessages = messages.map((serverMsg, index) => {
+          const localMsg = selectedConversation.messages[index];
+
+          // If we have a local message at this index and it's the same role
+          if (localMsg && localMsg.role === serverMsg.role) {
+            // For assistant messages, merge intermediate steps to avoid duplicates
+            if (serverMsg.role === 'assistant' && serverMsg.intermediateSteps && localMsg.intermediateSteps) {
+              return {
+                ...serverMsg,
+                intermediateSteps: mergeIntermediateSteps(
+                  localMsg.intermediateSteps || [],
+                  serverMsg.intermediateSteps || []
+                )
+              };
+            }
+          }
+
+          return serverMsg;
+        });
+
         const updatedConversation = {
           ...selectedConversation,
-          messages
+          messages: mergedMessages
         };
 
         homeDispatch({
@@ -388,16 +493,25 @@ export const Chat = () => {
 
         // Store processed conversation
         saveConversation(updatedConversation);
-        const updatedConversations: Conversation[] = conversations.map(
-          (conversation) => {
-            if (conversation.id === selectedConversation.id) {
-              return updatedConversation;
-            }
-            return conversation;
-          },
+        // Check if the conversation exists in the list
+        const conversationExists = conversations.some(
+          (conversation) => conversation.id === selectedConversation.id
         );
-        if (updatedConversations.length === 0) {
-          updatedConversations.push(updatedConversation);
+
+        let updatedConversations: Conversation[];
+        if (conversationExists) {
+          // Update existing conversation
+          updatedConversations = conversations.map(
+            (conversation) => {
+              if (conversation.id === selectedConversation.id) {
+                return updatedConversation;
+              }
+              return conversation;
+            },
+          );
+        } else {
+          // Add new conversation to the list
+          updatedConversations = [...conversations, updatedConversation];
         }
         homeDispatch({
           field: 'conversations',
@@ -437,15 +551,16 @@ export const Chat = () => {
 
         const systemContextMessages: Message[] = [];
 
+        // Add system message to provide username context for memory tools
         if (user?.username) {
           systemContextMessages.push({
             role: 'system',
-            content: `The authenticated user's username is "${user.username}".`
+            content: `The authenticated user's username is "${user.username}". Always use this username when calling memory tools (get_memory and memory_add).`
           });
         } else {
           systemContextMessages.push({
             role: 'system',
-            content: 'The user is authenticated as "anon".'
+            content: 'The user is authenticated as "anon". Always use "anon" as the username when calling memory tools (get_memory and memory_add).'
           });
         }
 
@@ -458,13 +573,52 @@ export const Chat = () => {
               ? getUserSessionItem('enableIntermediateSteps') === 'true'
               : enableIntermediateSteps,
             username: user?.username || 'anon',
-            useDeepThinker: useDeepThinker
+            useDeepThinker: useDeepThinker,
+            // Enhanced user context for Redis memory
+            userContext: {
+              id: user?.id || null,
+              username: user?.username || 'anon',
+              name: user?.name || null,
+              conversationId: selectedConversation?.id,
+              sessionTimestamp: Date.now(),
+              // Add any other user metadata you want to track
+            }
           }
         };
 
         // Use async mode if enabled in settings and user is in PWA
         if (useAsyncMode && enableBackgroundProcessing) {
           console.log('✅ Using ASYNC mode for background processing (job-based)');
+
+          // Set conversation name based on first message (same as streaming mode)
+          if (updatedConversation.messages.length === 1) {
+            const { content } = message;
+            const customName =
+              content.length > 30
+                ? content.substring(0, 30) + '...'
+                : content;
+            updatedConversation = {
+              ...updatedConversation,
+              name: customName,
+            };
+
+            // Update the conversation with the new name
+            homeDispatch({
+              field: 'selectedConversation',
+              value: updatedConversation,
+            });
+
+            // Also update in the conversations list
+            const namedConversations = updatedConversations.map((conv) =>
+              conv.id === updatedConversation.id ? updatedConversation : conv
+            );
+            homeDispatch({
+              field: 'conversations',
+              value: namedConversations,
+            });
+            saveConversations(namedConversations);
+          }
+
           try {
             await startAsyncJob(
               chatBody.messages || [],
@@ -762,16 +916,25 @@ export const Chat = () => {
             }
 
             saveConversation(updatedConversation);
-            const updatedConversations: Conversation[] = conversations.map(
-              (conversation) => {
-                if (conversation.id === selectedConversation.id) {
-                  return updatedConversation;
-                }
-                return conversation;
-              },
+            // Check if the conversation exists in the list
+            const conversationExists = conversations.some(
+              (conversation) => conversation.id === selectedConversation.id
             );
-            if (updatedConversations.length === 0) {
-              updatedConversations.push(updatedConversation);
+
+            let updatedConversations: Conversation[];
+            if (conversationExists) {
+              // Update existing conversation
+              updatedConversations = conversations.map(
+                (conversation) => {
+                  if (conversation.id === selectedConversation.id) {
+                    return updatedConversation;
+                  }
+                  return conversation;
+                },
+              );
+            } else {
+              // Add new conversation to the list
+              updatedConversations = [...conversations, updatedConversation];
             }
             homeDispatch({
               field: 'conversations',
@@ -813,16 +976,25 @@ export const Chat = () => {
               value: updatedConversation,
             });
             saveConversation(updatedConversation);
-            const updatedConversations: Conversation[] = conversations.map(
-              (conversation) => {
-                if (conversation.id === selectedConversation.id) {
-                  return updatedConversation;
-                }
-                return conversation;
-              },
+            // Check if the conversation exists in the list
+            const conversationExists = conversations.some(
+              (conversation) => conversation.id === selectedConversation.id
             );
-            if (updatedConversations.length === 0) {
-              updatedConversations.push(updatedConversation);
+
+            let updatedConversations: Conversation[];
+            if (conversationExists) {
+              // Update existing conversation
+              updatedConversations = conversations.map(
+                (conversation) => {
+                  if (conversation.id === selectedConversation.id) {
+                    return updatedConversation;
+                  }
+                  return conversation;
+                },
+              );
+            } else {
+              // Add new conversation to the list
+              updatedConversations = [...conversations, updatedConversation];
             }
             homeDispatch({
               field: 'conversations',

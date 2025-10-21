@@ -57,7 +57,7 @@ class HourlyWeather(BaseModel):
 class WeatherResponseModel(BaseModel):
     """Structured response returned to callers."""
 
-    location: str = Field(description="Location name")
+    canonical_name: str = Field(description="Canonical name of the location")
     latitude: float = Field(description="Latitude coordinate")
     longitude: float = Field(description="Longitude coordinate")
     timezone: str = Field(description="Timezone")
@@ -158,9 +158,11 @@ class WeatherAPIClient:
     async def close(self) -> None:
         await self._client.aclose()
 
-    async def geocode_location(self, location: str, timeout: float) -> LocationResult:
+    async def geocode_location(
+        self, canonical_name: str, timeout: float
+    ) -> LocationResult:
         params = {
-            "name": location,
+            "name": canonical_name,
             "count": 10,
             "language": "en",
             "format": "json",
@@ -180,9 +182,9 @@ class WeatherAPIClient:
             logger.error("Geocoding request error: %s", exc)
             raise ConnectionError(f"Failed to geocode location: {exc}") from exc
 
-        result = self._extract_best_result(location, data)
+        result = self._extract_best_result(canonical_name, data)
         if result is None:
-            raise ValueError(f"Location '{location}' not found")
+            raise ValueError(f"Location '{canonical_name}' not found")
         return result
 
     async def fetch_weather(
@@ -238,7 +240,7 @@ class WeatherAPIClient:
 
     @staticmethod
     def _extract_best_result(
-        location: str, geocoding_data: dict
+        canonical_name: str, geocoding_data: dict
     ) -> LocationResult | None:
         results = geocoding_data.get("results") or []
         if not results:
@@ -246,7 +248,7 @@ class WeatherAPIClient:
 
         best = results[0]
         return LocationResult(
-            name=best.get("name", location),
+            name=best.get("name", canonical_name),
             latitude=best["latitude"],
             longitude=best["longitude"],
             country=best.get("country", ""),
@@ -299,24 +301,24 @@ def _parse_hourly_weather(data: dict) -> HourlyWeather | None:
 async def _geocode_step(
     *,
     client: WeatherAPIClient,
-    location: str,
+    canonical_name: str,
     timeout: float,
 ) -> LocationResult:
-    logger.debug("Geocoding location '%s'", location)
-    return await client.geocode_location(location, timeout)
+    logger.debug("Geocoding location '%s'", canonical_name)
+    return await client.geocode_location(canonical_name, timeout)
 
 
 async def _geocode_with_retriever(
     *,
     geolocation_fn: object,
-    location: str,
+    canonical_name: str,
 ) -> LocationResult:
     """
     Geocode using the geolocation_retriever.
 
     Args:
         geolocation_fn: The geolocation retriever function
-        location: Location string to geocode
+        canonical_name: Location string to geocode
 
     Returns:
         LocationResult with parsed data
@@ -324,14 +326,14 @@ async def _geocode_with_retriever(
     Raises:
         ValueError: If geocoding fails or returns invalid data
     """
-    logger.debug("Geocoding location '%s' using geolocation_retriever", location)
+    logger.debug("Geocoding location '%s' using geolocation_retriever", canonical_name)
 
     try:
         # Call the retriever function - try .ainvoke() first, then direct call
         if hasattr(geolocation_fn, "ainvoke"):
-            result = await geolocation_fn.ainvoke(location)
+            result = await geolocation_fn.ainvoke(canonical_name)
         else:
-            result = await geolocation_fn(location)
+            result = await geolocation_fn(canonical_name)
 
         logger.debug("Geolocation retriever raw result: %s", result)
 
@@ -342,7 +344,7 @@ async def _geocode_with_retriever(
 
         logger.info(
             "Successfully geocoded '%s' to '%s' (%.4f, %.4f)",
-            location,
+            canonical_name,
             geoloc_result.display_name,
             geoloc_result.latitude,
             geoloc_result.longitude,
@@ -358,7 +360,9 @@ async def _geocode_with_retriever(
         )
 
     except Exception as exc:
-        logger.exception("Geolocation retriever failed for '%s': %s", location, exc)
+        logger.exception(
+            "Geolocation retriever failed for '%s': %s", canonical_name, exc
+        )
         raise ValueError(f"Geolocation retriever failed: {exc}") from exc
 
 
@@ -382,7 +386,7 @@ async def _weather_step(
     hourly = _parse_hourly_weather(raw_weather) if include_hourly else None
 
     response = WeatherResponseModel(
-        location=location_result.display_name,
+        canonical_name=location_result.display_name,
         latitude=location_result.latitude,
         longitude=location_result.longitude,
         timezone=raw_weather.get("timezone", "UTC"),
@@ -391,7 +395,7 @@ async def _weather_step(
         fallback_applied=fallback_applied,
         geocoding_error=geocoding_error,
     )
-    logger.debug("Weather response assembled for '%s'", response.location)
+    logger.debug("Weather response assembled for '%s'", response.canonical_name)
     return response
 
 
@@ -419,81 +423,116 @@ async def weather_function(
     )
 
     async def _weather_workflow(request: dict) -> dict:
-        location = _extract_location(request)
+        canonical_name = _extract_canonical_name(request)
+        coordinates = _extract_coordinates(request)
         include_hourly = _extract_include_hourly(request, config.include_hourly)
 
         fallback_used = False
         geocoding_error: str | None = None
 
-        try:
-            # Get geolocation retriever lazily (only when needed, after all tools are registered)
-            if config.use_geolocation_retriever and config.geolocation_retriever_name:
-                logger.warning(
-                    "🔍 ATTEMPTING to get geolocation_retriever: '%s'",
-                    config.geolocation_retriever_name,
+        # If coordinates are provided directly, skip geocoding
+        if coordinates is not None:
+            latitude, longitude = coordinates
+            # Use coordinates with a generic name if no location name provided
+            display_name = (
+                canonical_name or f"Location ({latitude:.4f}, {longitude:.4f})"
+            )
+            location_result = LocationResult(
+                name=display_name,
+                latitude=latitude,
+                longitude=longitude,
+                country="",
+                admin1=None,
+            )
+            logger.info(
+                "Using provided coordinates: %s (%.4f, %.4f)",
+                display_name,
+                latitude,
+                longitude,
+            )
+        else:
+            # No coordinates provided, must have a location name
+            if canonical_name is None:
+                raise ValueError(
+                    "Missing required location field in request "
+                    "(expected one of: location, query, city, input, prompt, message) "
+                    "or latitude/longitude coordinates"
                 )
-                try:
-                    geolocation_fn = await builder.get_function(
-                        config.geolocation_retriever_name
-                    )
+
+            try:
+                # Get geolocation retriever lazily (only when needed, after all tools are registered)
+                if (
+                    config.use_geolocation_retriever
+                    and config.geolocation_retriever_name
+                ):
                     logger.warning(
-                        "✅ WEATHER: Successfully got geolocation_retriever '%s' (type: %s)",
+                        "🔍 ATTEMPTING to get geolocation_retriever: '%s'",
                         config.geolocation_retriever_name,
-                        type(geolocation_fn).__name__,
                     )
-                    logger.info("Using geolocation_retriever for geocoding")
-                    location_result = await _geocode_with_retriever(
-                        geolocation_fn=geolocation_fn,
-                        location=location,
+                    try:
+                        geolocation_fn = await builder.get_function(
+                            config.geolocation_retriever_name
+                        )
+                        logger.warning(
+                            "✅ WEATHER: Successfully got geolocation_retriever '%s' (type: %s)",
+                            config.geolocation_retriever_name,
+                            type(geolocation_fn).__name__,
+                        )
+                        logger.info("Using geolocation_retriever for geocoding")
+                        location_result = await _geocode_with_retriever(
+                            geolocation_fn=geolocation_fn,
+                            canonical_name=canonical_name,
+                        )
+                    except Exception as exc:
+                        logger.error(
+                            "❌ WEATHER: Failed to get/use geolocation_retriever '%s': %s. "
+                            "Falling back to Open-Meteo geocoding.",
+                            config.geolocation_retriever_name,
+                            exc,
+                            exc_info=True,
+                        )
+                        # Fall back to Open-Meteo
+                        logger.info("Using Open-Meteo geocoding (fallback)")
+                        location_result = await _geocode_step(
+                            client=client,
+                            canonical_name=canonical_name,
+                            timeout=config.geocoding_timeout,
+                        )
+                else:
+                    logger.warning(
+                        "🔍 WEATHER: Geolocation retriever NOT configured, using Open-Meteo geocoding"
                     )
-                except Exception as exc:
-                    logger.error(
-                        "❌ WEATHER: Failed to get/use geolocation_retriever '%s': %s. "
-                        "Falling back to Open-Meteo geocoding.",
-                        config.geolocation_retriever_name,
-                        exc,
-                        exc_info=True,
-                    )
-                    # Fall back to Open-Meteo
-                    logger.info("Using Open-Meteo geocoding (fallback)")
+                    logger.info("Using Open-Meteo geocoding")
                     location_result = await _geocode_step(
                         client=client,
-                        location=location,
+                        canonical_name=canonical_name,
                         timeout=config.geocoding_timeout,
                     )
-            else:
-                logger.warning(
-                    "🔍 WEATHER: Geolocation retriever NOT configured, using Open-Meteo geocoding"
+            except Exception as exc:  # noqa: BLE001
+                geocoding_error = str(exc)
+                logger.error(
+                    "Geocoding failed for '%s': %s", canonical_name, geocoding_error
                 )
-                logger.info("Using Open-Meteo geocoding")
-                location_result = await _geocode_step(
-                    client=client,
-                    location=location,
-                    timeout=config.geocoding_timeout,
+                fallback_location = _build_fallback_location(config)
+                if fallback_location is None:
+                    logger.exception(
+                        "No fallback configured; weather workflow aborting for '%s'",
+                        canonical_name,
+                    )
+                    return {
+                        "success": False,
+                        "error": geocoding_error,
+                        "error_type": exc.__class__.__name__,
+                    }
+                fallback_used = True
+                location_result = fallback_location
+                logger.info(
+                    "Using fallback location '%s' (%s, %s) for request '%s'",
+                    location_result.display_name,
+                    location_result.latitude,
+                    location_result.longitude,
+                    canonical_name,
                 )
-        except Exception as exc:  # noqa: BLE001
-            geocoding_error = str(exc)
-            logger.error("Geocoding failed for '%s': %s", location, geocoding_error)
-            fallback_location = _build_fallback_location(config)
-            if fallback_location is None:
-                logger.exception(
-                    "No fallback configured; weather workflow aborting for '%s'",
-                    location,
-                )
-                return {
-                    "success": False,
-                    "error": geocoding_error,
-                    "error_type": exc.__class__.__name__,
-                }
-            fallback_used = True
-            location_result = fallback_location
-            logger.info(
-                "Using fallback location '%s' (%s, %s) for request '%s'",
-                location_result.display_name,
-                location_result.latitude,
-                location_result.longitude,
-                location,
-            )
 
         try:
             weather_response = await _weather_step(
@@ -533,8 +572,19 @@ async def weather_function(
         await client.close()
 
 
-def _extract_location(request: dict) -> str:
+def _extract_canonical_name(request: dict) -> str | None:
+    """Extract location name from request. Returns None if coordinates are provided instead."""
     if isinstance(request, dict):
+        # Check if coordinates are provided directly
+        if "latitude" in request and "longitude" in request:
+            return None
+
+        # Check nested request
+        nested = request.get("request")
+        if isinstance(nested, dict) and "latitude" in nested and "longitude" in nested:
+            return None
+
+        # Look for location name in various fields
         candidate_keys = [
             "location",
             "query",
@@ -547,12 +597,35 @@ def _extract_location(request: dict) -> str:
             value = request.get(key)
             if isinstance(value, str) and value.strip():
                 return value.strip()
-        nested = request.get("request")
+
+        # Check nested request for location name
         if isinstance(nested, dict):
-            return _extract_location(nested)
+            return _extract_canonical_name(nested)
+
     if isinstance(request, str) and request.strip():
         return request.strip()
-    raise ValueError("Missing required 'location' field in request")
+
+    return None
+
+
+def _extract_coordinates(request: dict) -> tuple[float, float] | None:
+    """Extract latitude and longitude from request. Returns None if not found."""
+    if isinstance(request, dict):
+        # Check top level
+        lat = request.get("latitude")
+        lon = request.get("longitude")
+        if lat is not None and lon is not None:
+            try:
+                return float(lat), float(lon)
+            except (ValueError, TypeError):
+                pass
+
+        # Check nested request
+        nested = request.get("request")
+        if isinstance(nested, dict):
+            return _extract_coordinates(nested)
+
+    return None
 
 
 def _extract_include_hourly(request: dict, default: bool) -> bool:

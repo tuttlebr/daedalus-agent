@@ -158,12 +158,12 @@ async function processJobAsync(jobId: string): Promise<void> {
 
     // Add system context message for username (matching regular chat endpoint)
     const systemMessages: Message[] = [];
-    if (additionalProps?.username) {
-      systemMessages.push({
-        role: 'system',
-        content: `The authenticated user's username is "${additionalProps.username}".`
-      });
-    }
+    // if (additionalProps?.username) {
+    //   systemMessages.push({
+    //     role: 'system',
+    //     content: `The authenticated user's username is "${additionalProps.username}".`
+    //   });
+    // }
 
     // Combine system messages with user messages
     const messagesWithContext = [...systemMessages, ...(messages || [])];
@@ -612,6 +612,7 @@ async function processJobAsync(jobId: string): Promise<void> {
       try {
         // Build the complete conversation with the assistant's response
         const assistantMessage: Message = {
+          id: uuidv4(),
           role: 'assistant',
           content: fullText,
           intermediateSteps: intermediateSteps || [],
@@ -630,8 +631,57 @@ async function processJobAsync(jobId: string): Promise<void> {
           completedAt: Date.now(),
         };
 
-        // Use $ path to set the entire object
-        await jsonSet(conversationKey, '$', conversationData);
+        // Save the conversation with expiry (7 days to match other conversation saves)
+        await jsonSetWithExpiry(conversationKey, conversationData, 60 * 60 * 24 * 7);
+
+        // Also update the user's conversation history and selected conversation
+        const userId = jobRequest.userId || 'anon';
+
+        // Update selected conversation
+        const selectedConvKey = sessionKey(['user', userId, 'selectedConversation']);
+        const selectedConv = await jsonGet(selectedConvKey) as any;
+
+        if (selectedConv && selectedConv.id === jobRequest.conversationId) {
+          // Update the selected conversation with the new messages
+          const updatedSelectedConv = {
+            ...selectedConv,
+            messages: allMessages,
+            updatedAt: Date.now(),
+          };
+          await jsonSetWithExpiry(selectedConvKey, updatedSelectedConv, 60 * 60 * 24 * 7);
+          console.log(`Async job ${jobId}: Updated selected conversation for user ${userId}`);
+        }
+
+        // Update conversation history
+        const historyKey = sessionKey(['user', userId, 'conversationHistory']);
+        const history = await jsonGet(historyKey) || [];
+
+        // Find and update the conversation in history
+        let found = false;
+        const updatedHistory = history.map((conv: any) => {
+          if (conv.id === jobRequest.conversationId) {
+            found = true;
+            return {
+              ...conv,
+              messages: allMessages,
+              updatedAt: Date.now(),
+            };
+          }
+          return conv;
+        });
+
+        // If not found in history, add it (shouldn't happen but just in case)
+        if (!found && selectedConv) {
+          updatedHistory.push({
+            ...selectedConv,
+            messages: allMessages,
+          });
+        }
+
+        if (found || selectedConv) {
+          await jsonSetWithExpiry(historyKey, updatedHistory, 60 * 60 * 24 * 7);
+          console.log(`Async job ${jobId}: Updated conversation history for user ${userId}, found=${found}, historyLength=${updatedHistory.length}`);
+        }
 
         console.log(`Async job ${jobId}: Saved COMPLETE conversation ${jobRequest.conversationId} to Redis with ${allMessages.length} messages`);
       } catch (error) {

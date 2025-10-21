@@ -10,7 +10,7 @@ functions:
     description: 'ACTION: Calculate infrastructure project ROI using !/$ methodology. REASONING: Quantifies value vs cost for data-driven prioritization decisions. WHEN: "Should we build X?", "Is Y worth it?", "How to prioritize projects?", resource allocation questions. FORMULA: Bang = (% time saved) × (people affected) × (project duration); Buck = implementation + transition costs. THRESHOLDS: >10 = high priority, 4-10 = consider, <4 = deprioritize. OUTPUT: Detailed calculations, assumptions, recommendations. USE CASES: Infrastructure investments, tool decisions, process changes. NEXT: Use analysis for go/no-go decisions or scope refinement.
 
       '
-    llm_name: tool_calling_llm
+    llm_name: medium_llm
     system_prompt: '# Infrastructure Prioritization Assistant - System Prompt
 
 
@@ -258,6 +258,7 @@ functions:
       ''
 
       '
+    verbose: true
   code_generation:
     _type: code_generation
     description: 'ACTION: Generate Python code for any programming task. REASONING: Specialized LLM for code generation with proper syntax, best practices. MANDATORY for all code requests. WHEN: User needs Python code, scripts, functions, classes, algorithms, data processing. OUTPUT: Complete, runnable Python code. CAPABILITIES: Any Python task - data analysis, automation, algorithms, API integration, ML models. TEMPERATURE: 0.2 for consistency. NEXT: Can test/refine based on requirements. CRITICAL: Use ONLY this tool for code generation, not general LLM.
@@ -271,18 +272,22 @@ functions:
     description: 'ACTION: Get current datetime when temporal context is needed. REASONING: Use when user mentions ''today'', ''now'', ''current'', time-sensitive queries, or when establishing temporal context for research. RETURNS: Current date, time, day of week, and timezone. NEXT: Use this information to contextualize searches or time-sensitive queries. LIMITS: Call at most once per run; cache within a single request.
 
       '
+    verbose: true
   daedalus_react_agent:
     _type: react_agent
     description: 'The Daedalus React Agent is a specialized agent that is used to interact with the Daedalus platform. It is used to create and manage Daedalus projects, and to interact with the Daedalus platform.
 
       '
     llm_name: tool_calling_llm
-    max_tool_calls: 8
-    parse_agent_response_max_retries: 3
+    max_tool_calls: 15
+    parse_agent_response_max_retries: 5
     pass_tool_call_errors_to_agent: true
-    tool_call_max_retries: 2
+    system_prompt: "Answer the following questions as best you can. You may ask the human to use the following tools:\n\n{tools}\n\nIMPORTANT MEMORY TOOL REQUIREMENTS:\n1. You MUST use get_memory tool with the exact JSON format below\n2. You MUST include ALL required parameters (query, top_k, user_id)\n3. The input MUST be a valid JSON object with no extra text or formatting\n4. ALWAYS use the authenticated user's username as the user_id (it will be provided in the context)\n\nFor get_memory tool, you MUST use this exact format (replace <username> with the actual authenticated username):\n{{\n    \"query\": \"your search query here\",\n    \"top_k\": 5,\n    \"user_id\": \"<username>\"\n}}\n\nFor memory_add tool, you MUST use this exact format (replace <username> with the actual authenticated username):\n{{\n    \"conversation\": [\n        {{\n            \"role\": \"user\",\n            \"content\": \"Hi, I'm Alex. I'm looking for a trip to New York\"\n        }},\n        {{\n            \"role\": \"assistant\",\n            \"content\": \"Hello Alex! I've noted you are looking for a trip to New York.\"\n        }}\n    ],\n    \"user_id\": \"<username>\",\n    \"metadata\": {{\n        \"key_value_pairs\": {{\n            \"type\": \"travel\",\n            \"relevance\": \"high\"\n        }}\n    }},\n    \"memory\": \"User is looking for a trip to New York.\"\n}}\n\nYou may respond in one of two formats.\nUse the following format exactly to ask the human to use a tool:\n\nQuestion: the input question you must answer\nThought: you should always think about what to do\nAction: the action to take, should be one of [{tool_names}]\nAction Input: the input to the action in the exact JSON format shown above\nObservation: wait for the human to respond with the result from the tool\n\n... (this Thought/Action/Action Input/Observation can repeat N times)\nUse the following format once you have the final answer:\n\nThought: I now know the final answer\nFinal Answer: the final answer to the original input question\n"
+    tool_call_max_retries: 3
     tool_names:
     - current_datetime_tool
+    - get_memory
+    - memory_add
     - geolocation_retriever_tool
     - kubernetes_retriever_tool
     - code_generation
@@ -311,7 +316,7 @@ functions:
     description: 'ACTION: Polish draft into publication-ready final report. REASONING: TERMINAL step ensuring professional output quality. Transforms good content into excellent presentation. WHEN: After all research/extension/reflection complete. INPUT: Latest report from summarizer or report_extender tags. OUTPUT: Polished report with citations, NO commentary. WORKFLOW END: [All research done] → [THIS finalizes] → [Delivered to user]. FOCUS: Editorial polish, formatting, flow, citations section. CRITICAL: This is the LAST step, output goes directly to user.
 
       '
-    llm_name: tool_calling_llm
+    llm_name: medium_llm
     system_prompt: 'You are the FINAL tool in the sequential report generation workflow. You transform comprehensive drafts into publication-ready deliverables.
 
 
@@ -448,13 +453,15 @@ functions:
       Remember: You are the guardian of quality. The user receives exactly what you produce.
 
       '
+    verbose: true
   first_principles_tool:
     _type: chat_completion
     description: 'ACTION: Break down problems to fundamental axioms and rebuild solutions. REASONING: Strips away assumptions to find innovative solutions based on core truths. WHEN: "Why does X work?", "What are the fundamentals?", "Challenge assumptions about Y", complex problem-solving. PROCESS: 1) Identify axioms 2) Audit assumptions 3) Decompose to basics 4) Reconstruct from validated premises 5) Explore alternatives. OUTPUT: Fundamental premises, assumption audit, decomposition tree, reconstructed solution, innovations. POWER: Overcomes conventional thinking limits. NEXT: Implement novel solutions or challenge status quo.
 
       '
-    llm_name: tool_calling_llm
+    llm_name: medium_llm
     system_prompt: "You are an advanced reasoning engine that operates strictly from first‑principles thinking. Your task is to approach every query by:\n1. **Identifying Indemonstrable Foundations**  \n  - Seek the most basic, self‑evident truths or axioms that cannot be further reduced.  \n  - Explicitly label these as \"Fundamental Premise\" and note any underlying physical, mathematical, or logical laws.\n\n2. **Challenging Assumptions**  \n  - List every implicit or explicit assumption in the problem statement.  \n  - For each, ask: \"Is this truly necessary? Can it be proven, or is it merely a convention?\"  \n  - Discard or replace assumptions that lack justification.\n\n3. **Decomposing the Problem**  \n  - Break the problem into its smallest constituent components, tracing each back to the identified fundamental premises.  \n  - Represent the decomposition as a hierarchy or step‑by‑step logical flow.\n\n4. **Reconstructing Solutions from the Ground Up**  \n  - Using only the validated fundamental premises, rebuild a solution path.  \n  - Ensure each step follows directly from a premise or a previously proven intermediate result.  \n  - Highlight any novel connections or insights that emerge during reconstruction.\n\n5. **Fostering Innovation**  \n  - Actively explore alternative configurations of the fundamental premises that could lead to more efficient, elegant, or previously unseen solutions.  \n  - Propose \"What‑if\" scenarios that relax or modify premises, and evaluate their impact.\n\n**Output Format**  \n- **Fundamental Premises:** bullet list of core truths.  \n- **Assumptions Audit:** table of assumptions with justification status.  \n- **Decomposition Tree:** concise outline of sub‑problems linked to premises.  \n- **Reconstructed Solution:** stepwise reasoning that culminates in the final answer, referencing only validated premises.  \n- **Innovative Extensions (optional):** brief suggestions for further exploration or improvement.\n\nAlways prioritize logical rigor, clarity, and minimal reliance on unproven beliefs. Your goal is to illuminate the problem’s essence and craft solutions that stand on indisputable foundations.\n"
+    verbose: true
   geolocation_retriever_tool:
     _type: nat_retriever
     content_field: canonical_name
@@ -463,6 +470,19 @@ functions:
       '
     retriever: geolocation_retriever
     topic: Canonical geolocation normalization and lookup
+    verbose: true
+  get_memory:
+    _type: get_memory
+    description: 'Always call this tool before calling any other tools, even if the user does not mention to use it.
+
+      The question should be about user preferences which will help you format your response.
+
+      For example: "How would you prefer I format my responses?".
+
+      IMPORTANT: Always use the authenticated username as the user_id parameter.
+
+      '
+    memory: redis_memory
   image_generation_tool:
     _type: image_generation
     api_endpoint: https://407754b4-d173-45c9-8d6e-5368726fed70.invocation.api.nvcf.nvidia.com
@@ -478,6 +498,7 @@ functions:
       max_tokens: 256
       temperature: 0.9
     timeout: 300.0
+    verbose: true
   kubernetes_retriever_tool:
     _type: nat_retriever
     description: 'ACTION: Query specialized Kubernetes knowledge base. REASONING: Use for K8s-specific technical depth beyond general web search. Contains curated docs, best practices, troubleshooting. WHEN: User asks about Kubernetes, K8s, container orchestration, pods, services, deployments. COVERAGE: Config patterns, networking, storage, security, YAML examples, Helm, operators. RETURNS: Technical documentation chunks. NEXT: Combine with code_generation for YAML/configs or synthesize for explanations. BETTER THAN: General search for K8s expertise.
@@ -485,6 +506,17 @@ functions:
       '
     retriever: kubernetes_retriever
     topic: Kubernetes and container orchestration
+    verbose: true
+  memory_add:
+    _type: add_memory
+    description: 'Add any facts about user preferences to long term memory. Always use this if users mention a preference.
+
+      The input to this tool should be a string that describes the user''s preference, not the question or answer.
+
+      IMPORTANT: Always use the authenticated username as the user_id parameter. Be sure to include any relevant tags for the memory as a list of strings. Also include key value pairs for metadata
+
+      '
+    memory: redis_memory
   mentalhealth_retriever_tool:
     _type: nat_retriever
     description: 'ACTION: Retrieve evidence-based mental health educational content. REASONING: Specialized knowledge base for mental wellness topics, more reliable than general web. WHEN: Questions about mental health conditions, coping strategies, stress, emotional wellness, symptoms. APPROPRIATE FOR: Educational info only. OUTPUT: Evidence-based content + support resources. CRITICAL: Always add disclaimer - informational only, not therapy. For crisis: direct to hotlines. TOPICS: Anxiety, depression, trauma, relationships, self-care. NEXT: Present with appropriate context and disclaimers.
@@ -492,6 +524,7 @@ functions:
       '
     retriever: mentalhealth_retriever
     topic: Mental health and psychological wellness
+    verbose: true
   nv_ingest_tool:
     _type: nat_nv_ingest
     chunk_overlap: 150
@@ -506,6 +539,7 @@ functions:
     nv_ingest_host: 192.168.1.239
     nv_ingest_port: 7670
     redis_url: redis://daedalus-redis.daedalus.svc.cluster.local:6379
+    verbose: true
   nvidia_retriever_tool:
     _type: nat_retriever
     description: 'ACTION: Access NVIDIA-specific technical and product knowledge. REASONING: Authoritative source for GPU specs, CUDA, AI frameworks, product details. Better than web search for NVIDIA expertise. WHEN: Questions about NVIDIA GPUs, CUDA, TensorRT, NeMo, DGX, Jetson, or comparing NVIDIA products. RETURNS: Technical specs + business context from official sources. EXAMPLES: "H100 vs B100", "CUDA optimization", "DGX architecture". NEXT: Synthesize for comparisons or combine with code_generation for CUDA examples.
@@ -513,12 +547,13 @@ functions:
       '
     retriever: nvidia_retriever
     topic: NVIDIA technology, products, and corporate information
+    verbose: true
   query_writer_researcher:
     _type: chat_completion
     description: 'ACTION: Generate optimized search queries to start deep research. REASONING: FIRST tool in research workflow when user needs comprehensive report, not quick answer. Creates 2-3 diverse queries for breadth. WHEN: User asks for "research on", "comprehensive report", "deep dive", "analysis of", complex topics. OUTPUT: Tagged queries for search tools. WORKFLOW: [1.THIS] → [2.Search tools execute] → [3.summarizer_researcher] → [4.Optional: extend/refine] → [5.finalize_report]. CRITICAL: Triggers full research pipeline. LIMITS: Single invocation per run; produce EXACTLY 2-3 non-duplicative queries; no commentary.
 
       '
-    llm_name: tool_calling_llm
+    llm_name: medium_llm
     system_prompt: 'You are the FIRST tool in a sequential report generation workflow. Your job is to create 2-3 well-crafted search queries that will help gather comprehensive information about the research topic.
 
 
@@ -592,6 +627,7 @@ functions:
       Remember: Your queries are the foundation of the entire research process. Craft them to maximize information retrieval quality and diversity.
 
       '
+    verbose: true
   realtime_serpapi_ai_tool:
     _type: serpapi_ai
     default_location: Detroit,Michigan,United States
@@ -600,6 +636,7 @@ functions:
       '
     geolocation_retriever_name: geolocation_retriever_tool
     use_geolocation_retriever: true
+    verbose: true
   realtime_serpapi_news_tool:
     _type: serpapi_news
     default_location: Detroit,Michigan,United States
@@ -608,6 +645,7 @@ functions:
       '
     geolocation_retriever_name: geolocation_retriever_tool
     use_geolocation_retriever: true
+    verbose: true
   realtime_serpapi_search_tool:
     _type: serpapi_search
     default_location: Detroit,Michigan,United States
@@ -617,12 +655,13 @@ functions:
       '
     geolocation_retriever_name: geolocation_retriever_tool
     use_geolocation_retriever: true
+    verbose: true
   reflection_researcher:
     _type: chat_completion
     description: 'ACTION: Analyze report completeness and identify gaps. REASONING: OPTIONAL quality check after initial report or extensions. Finds missing critical information. WHEN: Need to ensure comprehensive coverage before finalizing. INPUT: Report from summarizer or report_extender tags. OUTPUT: Either specific gap-filling queries OR "NO_GAPS". WORKFLOW: Single pass gap check before finalize. DECISION: NO_GAPS proceeds to finalize; if gaps, produce <=2 targeted queries only.
 
       '
-    llm_name: tool_calling_llm
+    llm_name: medium_llm
     system_prompt: 'You are the FOURTH tool in a sequential report generation workflow. You ensure research completeness through systematic gap analysis.
 
 
@@ -732,12 +771,13 @@ functions:
       Remember: Only flag gaps that materially affect the report''s value. Minor details can be overlooked.
 
       '
+    verbose: true
   relevancy_checker_researcher:
     _type: chat_completion
     description: 'ACTION: Validate source relevance before synthesis. REASONING: UTILITY filter ensuring quality inputs for report generation. Prevents irrelevant data in reports. WHEN: Between search results and synthesis steps. INPUT: Query + retrieved context. OUTPUT: Binary "yes"/"no" + explanation. IMPACT: "yes" → proceeds to synthesis, "no" → filtered out. WORKFLOW POSITION: [Search returns results] → [THIS filters each] → [Only relevant to summarizer]. QUALITY GATE: Strict but fair assessment.
 
       '
-    llm_name: tool_calling_llm
+    llm_name: medium_llm
     system_prompt: 'You are a UTILITY tool in the sequential report generation workflow. You can be called at any point during research to validate source quality.
 
 
@@ -806,12 +846,13 @@ functions:
       </relevancy_checker_researcher>
 
       '
+    verbose: true
   report_extender_researcher:
     _type: chat_completion
     description: 'ACTION: Integrate new research into existing report seamlessly. REASONING: OPTIONAL enhancement when reflection_researcher finds gaps. Preserves structure while adding depth. WHEN: After gap-filling searches return new information. INPUT: Base report + new research results. OUTPUT: Enhanced report maintaining original structure. WORKFLOW: Single integration pass following reflection. PRESERVES: Title, sections, flow. LIMITS: Integrate once per cycle; keep total length increase <=20%.
 
       '
-    llm_name: tool_calling_llm
+    llm_name: medium_llm
     system_prompt: 'You are the THIRD tool in a sequential report generation workflow. You enhance existing reports by seamlessly integrating new research findings.
 
 
@@ -910,6 +951,7 @@ functions:
       Remember: Your goal is enhancement, not replacement. The reader shouldn''t notice where original ends and new begins.
 
       '
+    verbose: true
   semianalysis_retriever_tool:
     _type: nat_retriever
     description: 'ACTION: Access expert semiconductor industry analysis. REASONING: Deep technical + business intelligence on chip industry, superior to general search for semiconductor expertise. WHEN: Questions about chip manufacturing, foundries (TSMC, Samsung, Intel), process nodes, AI chips, supply chain. COVERAGE: Technical (transistor density, yield, packaging) + Business (economics, market share, roadmaps). RETURNS: Industry analysis from Semianalysis experts. EXAMPLES: "7nm vs 5nm economics", "AI accelerator comparison", "foundry capacity". NEXT: Synthesize for insights or trends.
@@ -917,12 +959,13 @@ functions:
       '
     retriever: semianalysis_retriever
     topic: Semiconductor industry analysis and market intelligence
+    verbose: true
   socratic_method_tool:
     _type: chat_completion
     description: 'ACTION: Guide users to discover answers through strategic questioning. REASONING: Deeper learning through self-discovery vs direct answers. Builds critical thinking. WHEN: User wants to "understand deeply", "explore concepts", "learn by thinking", educational contexts. METHOD: Ask open-ended questions, challenge premises, request evidence, guide to insights. NEVER: Give direct answers. ALWAYS: Lead with "What/How/Why do you think...?". OUTPUT: Series of thought-provoking questions. GOAL: User generates own understanding. BEST FOR: Complex concepts, philosophical questions, problem-solving skills. AVOID: Time-critical or factual queries.
 
       '
-    llm_name: tool_calling_llm
+    llm_name: medium_llm
     system_prompt: 'You are an AI tutor who engages users through the Socratic method. Your role is to facilitate collaborative dialogue, not to provide direct answers. Follow these principles in every interaction:
 
 
@@ -967,12 +1010,13 @@ functions:
       If the user explicitly asks for a solution, respond with a guiding question that leads them toward the answer themselves.
 
       '
+    verbose: true
   summarizer_researcher:
     _type: chat_completion
     description: 'ACTION: Synthesize search results into structured initial report. REASONING: SECOND tool in research workflow, transforms raw search data into coherent narrative. WHEN: After search tools return results from query_writer queries. INPUT: Research results from searches. OUTPUT: Markdown report with sections, wrapped in tags. FOCUS: Synthesis over listing, insights over facts. WORKFLOW POSITION: [Query writer] → [Searches] → [THIS] → [Optional: extend/reflect] → [Finalize]. NEXT: report_extender if gaps, or finalize_report if complete. LIMITS: Single call per cycle; do not request new searches; no tool calls.
 
       '
-    llm_name: tool_calling_llm
+    llm_name: medium_llm
     system_prompt: 'You are the SECOND tool in a sequential report generation workflow. You transform raw research results into a structured, comprehensive initial report.
 
 
@@ -1091,6 +1135,7 @@ functions:
       Remember: You''re not just organizing facts—you''re creating understanding through synthesis and narrative.
 
       '
+    verbose: true
   user_uploaded_files_retriever_tool:
     _type: nat_retriever
     description: 'ACTION: Search within user-uploaded PDF content. REASONING: After nv_ingest_tool processes PDF, use this to query the indexed content. WHEN: User has uploaded PDF and asks questions about its content. PREREQUISITE: nv_ingest_tool must process PDF first. INPUT: Query about PDF content. RETURNS: Relevant chunks from uploaded document. WORKFLOW: [User uploads PDF] → [nv_ingest processes] → [THIS queries content]. DYNAMIC: Collection name = username. NEXT: Synthesize findings or extract specific information. LIMITS: Single invocation per run; request <=5 most relevant chunks.
@@ -1098,6 +1143,7 @@ functions:
       '
     retriever: user_uploaded_files_retriever
     topic: User uploaded files from PDF
+    verbose: true
   veterinarian_retriever_tool:
     _type: nat_retriever
     description: 'ACTION: Query veterinary medical knowledge base. REASONING: Authoritative vet expertise from VetPartner, more reliable than general web for animal health. WHEN: Pet health questions, animal symptoms, diseases, medications, nutrition. SPECIES: Dogs, cats, horses, birds, exotics. RETURNS: Treatment protocols, medication info, care guidelines. CRITICAL: Always add disclaimer - educational only, see vet for diagnosis/treatment. EXAMPLES: "dog vomiting causes", "cat kidney disease", "horse colic symptoms". NEXT: Present with veterinary consultation disclaimer.
@@ -1105,6 +1151,7 @@ functions:
       '
     retriever: veterinarian_retriever
     topic: Veterinary medicine and animal care
+    verbose: true
   weather_tool:
     _type: weather
     description: 'ACTION: Get current weather and forecasts for any location. REASONING: Real-time weather data with hourly/daily forecasts. Auto-uses geolocation_retriever for accuracy. WHEN: User asks about weather, temperature, rain, forecast, conditions. INPUT: Location name (auto-normalized). RETURNS: Current conditions + hourly + daily forecasts with temp, humidity, wind, precipitation. PRESENTATION: Specify timeframe (current, today, this week). EXAMPLES: "weather in Paris", "will it rain tomorrow", "temperature this week". GLOBAL: Supports worldwide locations.
@@ -1117,6 +1164,7 @@ functions:
     geolocation_retriever_name: geolocation_retriever_tool
     include_hourly: true
     use_geolocation_retriever: true
+    verbose: true
     weather_timeout: 30.0
   webscrape_tool:
     _type: webscrape
@@ -1130,6 +1178,7 @@ functions:
     respect_robots_txt: true
     timeout: 30.0
     user_agent: daedalus-webscraper/1.0
+    verbose: true
   wikipedia_search:
     _type: wiki_search
     max_results: 2
@@ -1151,20 +1200,22 @@ llms:
     temperature: 0.2
     top_p: 0.7
   fast_llm:
-    _type: nim
+    _type: openai
     api_key: ${NVIDIA_API_KEY}
-    base_url: https://5183a11a-633e-4945-b882-de86ce85125e.invocation.api.nvcf.nvidia.com/v1
+    base_url: https://f4ca1242-1bb8-47c4-96c8-f55507f70296.invocation.api.nvcf.nvidia.com/v1
     max_tokens: 2048
-    model_name: nvidia/nvidia-nemotron-nano-9b-v2
-    stream: true
-    temperature: 0.6
-    thinking: false
-    top_p: 0.95
+    model_name: openai/gpt-oss-20b
+  medium_llm:
+    _type: openai
+    api_key: ${NVIDIA_API_KEY}
+    base_url: https://9adef108-3097-4540-ba5f-873a9da8e54f.invocation.api.nvcf.nvidia.com/v1
+    max_tokens: 32768
+    model_name: openai/gpt-oss-120b
   reasoning_llm:
     _type: openai
     api_key: ${NVIDIA_API_KEY}
     base_url: https://5eb560ed-7ab8-4985-ab2a-dd1f7ea5eb66.invocation.api.nvcf.nvidia.com/v1
-    max_tokens: 32768
+    max_tokens: 2048
     model_name: nvidia/llama-3-3-nemotron-super-49b-v1-5
     temperature: 0.6
     thinking: true
@@ -1173,10 +1224,18 @@ llms:
     _type: openai
     api_key: ${NVIDIA_API_KEY}
     base_url: https://5eb560ed-7ab8-4985-ab2a-dd1f7ea5eb66.invocation.api.nvcf.nvidia.com/v1
-    max_tokens: 32768
+    max_tokens: 2048
     model_name: nvidia/llama-3-3-nemotron-super-49b-v1-5
     temperature: 0.0
     thinking: false
+memory:
+  redis_memory:
+    _type: nat.plugins.redis/redis_memory
+    db: 0
+    embedder: milvus_embedder
+    host: daedalus-redis.daedalus.svc.cluster.local
+    key_prefix: nat
+    port: 6379
 retrievers:
   geolocation_retriever:
     _type: smart_milvus
@@ -1295,4 +1354,4 @@ workflow:
   llm_name: reasoning_llm
   use_openai_api: true
   verbose: true
-  workflow_alias: Daedalus-Deep-Thinker
+  workflow_alias: daedalus-deep-thinker

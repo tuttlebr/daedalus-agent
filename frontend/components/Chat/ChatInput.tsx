@@ -598,7 +598,7 @@ export const ChatInput: React.FC<Props> = ({
                 className={`relative flex items-center w-full rounded-2xl apple-glass backdrop-blur-xl border border-white/10 dark:border-white/5 shadow-[0_8px_32px_rgba(0,0,0,0.12)] dark:shadow-[0_8px_32px_rgba(0,0,0,0.24)] ${inputFile && (imageRef || pdfRef || inputFileContentCompressed) ? 'flex-col items-stretch' : ''}`}
               >
                 {/* Quick Actions Button - centered with textarea */}
-                <div className="absolute left-3 top-1/2 -translate-y-1/2 z-20">
+                <div className="absolute left-3 top-1/2 -translate-y-1/2 z-20 w-10 h-10">
                   <QuickActionsPopup
                   onAttachFile={triggerFileUpload}
                   onTakePhoto={triggerPhotoUpload}

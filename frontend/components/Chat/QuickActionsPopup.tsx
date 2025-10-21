@@ -90,15 +90,14 @@ export const QuickActionsPopup: React.FC<QuickActionsPopupProps> = ({
         onClick={() => setIsOpen(!isOpen)}
         className={`
           relative flex h-10 w-10 items-center justify-center rounded-full
-          border border-white/20 bg-white/20 backdrop-blur-xl
-          text-neutral-700 transition-all duration-200
-          hover:border-nvidia-green/50 hover:bg-white/30 hover:text-nvidia-green
-          dark:border-white/10 dark:bg-white/10 dark:text-white/80
-          dark:hover:border-nvidia-green/60 dark:hover:text-nvidia-green
-          ${isOpen ? 'rotate-45' : ''}
+          border transition-all duration-200 isolate
+          ${isOpen
+            ? 'rotate-45 border-white/30 bg-transparent text-white hover:border-white/40 hover:bg-white/10 dark:border-white/30 dark:text-white z-50'
+            : 'border-white/20 bg-white/20 backdrop-blur-xl text-neutral-700 hover:border-nvidia-green/50 hover:bg-white/30 hover:text-nvidia-green dark:border-white/10 dark:bg-white/10 dark:text-white/80 dark:hover:border-nvidia-green/60 dark:hover:text-nvidia-green'
+          }
           ${className}
         `}
-        aria-label="Quick actions"
+        aria-label={isOpen ? "Close quick actions" : "Quick actions"}
         aria-expanded={isOpen}
       >
         <IconPlus size={24} className="transition-transform duration-200" />

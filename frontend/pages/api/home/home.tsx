@@ -207,9 +207,9 @@ const Home = (props: any) => {
     if (enableBackgroundProcessing !== null) {
       dispatch({ field: 'enableBackgroundProcessing', value: enableBackgroundProcessing === 'true' });
     } else {
-      // Default to false for safety
-      dispatch({ field: 'enableBackgroundProcessing', value: false });
-      setUserSessionItem('enableBackgroundProcessing', 'false');
+      // Default to true to enable background processing by default
+      dispatch({ field: 'enableBackgroundProcessing', value: true });
+      setUserSessionItem('enableBackgroundProcessing', 'true');
     }
 
     const folders = getUserSessionItem('folders');
@@ -260,11 +260,41 @@ const Home = (props: any) => {
           loadConversation(),
         ]);
 
+        // Get existing local conversations
+        const localConversationHistory = getUserSessionItem('conversationHistory');
+        const localConversations = localConversationHistory
+          ? JSON.parse(localConversationHistory)
+          : [];
+
         if (Array.isArray(serverConversations) && serverConversations.length > 0) {
-          const cleanedConversationHistory = cleanConversationHistory(serverConversations);
-          dispatch({ field: 'conversations', value: cleanedConversationHistory });
+          const cleanedServerConversations = cleanConversationHistory(serverConversations);
+
+          // Merge server and local conversations, prioritizing server data for duplicates
+          const conversationMap = new Map();
+
+          // First add local conversations
+          localConversations.forEach((conv: Conversation) => {
+            conversationMap.set(conv.id, conv);
+          });
+
+          // Then add/update with server conversations (server data takes precedence)
+          cleanedServerConversations.forEach((conv: Conversation) => {
+            conversationMap.set(conv.id, conv);
+          });
+
+          // Convert back to array and sort by last update time or creation
+          const mergedConversations = Array.from(conversationMap.values()).sort((a, b) => {
+            const aTime = a.messages.length > 0 ? a.messages[a.messages.length - 1].id : a.id;
+            const bTime = b.messages.length > 0 ? b.messages[b.messages.length - 1].id : b.id;
+            return aTime < bTime ? -1 : 1;
+          });
+
+          dispatch({ field: 'conversations', value: mergedConversations });
           // Use user-specific storage key to prevent data leakage between users
-          setUserSessionItem('conversationHistory', JSON.stringify(cleanedConversationHistory));
+          setUserSessionItem('conversationHistory', JSON.stringify(mergedConversations));
+        } else if (localConversations.length > 0) {
+          // If no server conversations but we have local ones, keep them
+          dispatch({ field: 'conversations', value: localConversations });
         }
 
         if (serverSelectedConversation) {
@@ -362,7 +392,7 @@ const Home = (props: any) => {
               {showChatbar && (
                 <>
                   {/* Backdrop overlay */}
-                  <div 
+                  <div
                     className="fixed inset-0 bg-black/50 z-40 md:hidden"
                     onClick={() => dispatch({ field: 'showChatbar', value: false })}
                   />

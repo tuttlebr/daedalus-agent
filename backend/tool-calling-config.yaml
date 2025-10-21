@@ -183,6 +183,7 @@ functions:
       Remember: The goal is to maximize company-wide benefit through objective, auditable prioritization that enables management to resolve resource allocation across teams and projects.
 
       '
+    verbose: true
   code_generation:
     _type: code_generation
     description: Useful to generate Python code. For any questions about code generation, you must only use this tool!
@@ -192,17 +193,64 @@ functions:
   current_datetime_tool:
     _type: current_datetime
     description: Returns the current date, time, day of week, and timezone. Usueful for ALL conversations.
+    verbose: true
+  daedalus_react_agent:
+    _type: react_agent
+    description: 'The Daedalus React Agent is a specialized agent that is used to interact with the Daedalus platform. It is used to create and manage Daedalus projects, and to interact with the Daedalus platform.
+
+      '
+    llm_name: tool_calling_llm
+    max_tool_calls: 15
+    parse_agent_response_max_retries: 5
+    pass_tool_call_errors_to_agent: true
+    system_prompt: "Answer the following questions as best you can. You may ask the human to use the following tools:\n\n{tools}\n\nIMPORTANT MEMORY TOOL REQUIREMENTS:\n1. You MUST use get_memory tool with the exact JSON format below\n2. You MUST include ALL required parameters (query, top_k, user_id)\n3. The input MUST be a valid JSON object with no extra text or formatting\n4. ALWAYS use the authenticated user's username as the user_id (it will be provided in the context)\n\nFor get_memory tool, you MUST use this exact format (replace <username> with the actual authenticated username):\n{{\n    \"query\": \"your search query here\",\n    \"top_k\": 5,\n    \"user_id\": \"<username>\"\n}}\n\nFor memory_add tool, you MUST use this exact format (replace <username> with the actual authenticated username):\n{{\n    \"conversation\": [\n        {{\n            \"role\": \"user\",\n            \"content\": \"Hi, I'm Alex. I'm looking for a trip to New York\"\n        }},\n        {{\n            \"role\": \"assistant\",\n            \"content\": \"Hello Alex! I've noted you are looking for a trip to New York.\"\n        }}\n    ],\n    \"user_id\": \"<username>\",\n    \"metadata\": {{\n        \"key_value_pairs\": {{\n            \"type\": \"travel\",\n            \"relevance\": \"high\"\n        }}\n    }},\n    \"memory\": \"User is looking for a trip to New York.\"\n}}\n\nYou may respond in one of two formats.\nUse the following format exactly to ask the human to use a tool:\n\nQuestion: the input question you must answer\nThought: you should always think about what to do\nAction: the action to take, should be one of [{tool_names}]\nAction Input: the input to the action in the exact JSON format shown above\nObservation: wait for the human to respond with the result from the tool\n\n... (this Thought/Action/Action Input/Observation can repeat N times)\nUse the following format once you have the final answer:\n\nThought: I now know the final answer\nFinal Answer: the final answer to the original input question\n"
+    tool_call_max_retries: 3
+    tool_names:
+    - current_datetime_tool
+    - get_memory
+    - memory_add
+    - geolocation_retriever_tool
+    - kubernetes_retriever_tool
+    - code_generation
+    - mentalhealth_retriever_tool
+    - nvidia_retriever_tool
+    - nv_ingest_tool
+    - realtime_serpapi_ai_tool
+    - realtime_serpapi_news_tool
+    - realtime_serpapi_search_tool
+    - semianalysis_retriever_tool
+    - veterinarian_retriever_tool
+    - weather_tool
+    - webscrape_tool
+    - user_uploaded_files_retriever_tool
+    - wikipedia_search
+    verbose: true
+    workflow_alias: Daedalus
   first_principles_tool:
     _type: chat_completion
     description: Analyzes problems using first-principles thinking by breaking down to fundamental axioms and rebuilding solutions from the ground up. Use when users need deep logical analysis, want to challenge assumptions, or seek innovative approaches to complex problems. Identifies foundational truths, audits assumptions, decomposes problems hierarchically, and reconstructs solutions based only on validated premises. Best for "why does this work," "what are the fundamentals," or "how can we approach this differently" questions. Returns structured analysis with premises, decomposition, and reconstructed solutions.
     llm_name: reasoning_llm
     system_prompt: "You are an advanced reasoning engine that operates strictly from first‑principles thinking. Your task is to approach every query by:\n1. **Identifying Indemonstrable Foundations**  \n  - Seek the most basic, self‑evident truths or axioms that cannot be further reduced.  \n  - Explicitly label these as \"Fundamental Premise\" and note any underlying physical, mathematical, or logical laws.\n\n2. **Challenging Assumptions**  \n  - List every implicit or explicit assumption in the problem statement.  \n  - For each, ask: \"Is this truly necessary? Can it be proven, or is it merely a convention?\"  \n  - Discard or replace assumptions that lack justification.\n\n3. **Decomposing the Problem**  \n  - Break the problem into its smallest constituent components, tracing each back to the identified fundamental premises.  \n  - Represent the decomposition as a hierarchy or step‑by‑step logical flow.\n\n4. **Reconstructing Solutions from the Ground Up**  \n  - Using only the validated fundamental premises, rebuild a solution path.  \n  - Ensure each step follows directly from a premise or a previously proven intermediate result.  \n  - Highlight any novel connections or insights that emerge during reconstruction.\n\n5. **Fostering Innovation**  \n  - Actively explore alternative configurations of the fundamental premises that could lead to more efficient, elegant, or previously unseen solutions.  \n  - Propose \"What‑if\" scenarios that relax or modify premises, and evaluate their impact.\n\n**Output Format**  \n- **Fundamental Premises:** bullet list of core truths.  \n- **Assumptions Audit:** table of assumptions with justification status.  \n- **Decomposition Tree:** concise outline of sub‑problems linked to premises.  \n- **Reconstructed Solution:** stepwise reasoning that culminates in the final answer, referencing only validated premises.  \n- **Innovative Extensions (optional):** brief suggestions for further exploration or improvement.\n\nAlways prioritize logical rigor, clarity, and minimal reliance on unproven beliefs. Your goal is to illuminate the problem’s essence and craft solutions that stand on indisputable foundations.\n"
+    verbose: true
   geolocation_retriever_tool:
     _type: nat_retriever
     content_field: canonical_name
     description: Resolves and normalizes location names to canonical forms with coordinates. Use when processing user-provided location names before passing them to weather, search, or other location-aware tools. Essential for disambiguating locations and ensuring consistent geographic references. Returns structured geolocation data including canonical names, regions, and coordinates.
     retriever: geolocation_retriever
     topic: Canonical geolocation normalization and lookup
+    verbose: true
+  get_memory:
+    _type: get_memory
+    description: 'Always call this tool before calling any other tools, even if the user does not mention to use it.
+
+      The question should be about user preferences which will help you format your response.
+
+      For example: "How would you prefer I format my responses?".
+
+      IMPORTANT: Always use the authenticated username as the user_id parameter.
+
+      '
+    memory: redis_memory
   image_augmentation_tool:
     _type: image_augmentation
     api_endpoint: https://fde8d464-c30b-4a51-ad04-ee3200156352.invocation.api.nvcf.nvidia.com
@@ -225,16 +273,29 @@ functions:
       max_tokens: 256
       temperature: 0.9
     timeout: 300.0
+    verbose: true
   kubernetes_retriever_tool:
     _type: nat_retriever
     description: Retrieves technical Kubernetes documentation and best practices covering K8s configuration, deployment strategies, troubleshooting, networking (Ingress, Services, CNI), storage (PV, PVC, StorageClass), workload management (Deployments, StatefulSets), security policies, and YAML examples. Covers core Kubernetes and ecosystem tools (Helm, operators). Use for Kubernetes architecture, operations, or configuration questions.
     retriever: kubernetes_retriever
     topic: Kubernetes and container orchestration
+    verbose: true
+  memory_add:
+    _type: add_memory
+    description: 'Add any facts about user preferences to long term memory. Always use this if users mention a preference.
+
+      The input to this tool should be a string that describes the user''s preference, not the question or answer.
+
+      IMPORTANT: Always use the authenticated username as the user_id parameter. Be sure to include any relevant tags for the memory as a list of strings. Also include key value pairs for metadata
+
+      '
+    memory: redis_memory
   mentalhealth_retriever_tool:
     _type: nat_retriever
     description: Retrieves evidence-based mental health information and support resources. Use when users ask about understanding mental health conditions, coping strategies, stress management, emotional wellness, recognizing symptoms, or finding help. Appropriate for educational questions about anxiety, depression, trauma, relationships, and self-care. Always emphasize that this is informational content, not therapy or crisis support. For emergencies, direct users to crisis hotlines.
     retriever: mentalhealth_retriever
     topic: Mental health and psychological wellness
+    verbose: true
   nv_ingest_tool:
     _type: nat_nv_ingest
     chunk_overlap: 150
@@ -247,35 +308,41 @@ functions:
     nv_ingest_host: 192.168.1.239
     nv_ingest_port: 7670
     redis_url: redis://daedalus-redis.daedalus.svc.cluster.local:6379
+    verbose: true
   nvidia_retriever_tool:
     _type: nat_retriever
     description: Retrieves authoritative information from NVIDIA knowledge base including GPU specifications, CUDA programming, AI frameworks (NeMo, TensorRT), product comparisons (A100 vs H100), platform capabilities (DGX, Jetson), and corporate announcements. Combines engineering-level technical detail with business context from official NVIDIA sources. Use when queries require NVIDIA-specific expertise or product information.
     retriever: nvidia_retriever
     topic: NVIDIA technology, products, and corporate information
+    verbose: true
   realtime_serpapi_ai_tool:
     _type: serpapi_ai
     default_location: Detroit,Michigan,United States
-    description: 'CRITICAL: This tool provides REAL-TIME access to Google search for ANY current information including LIVE SPORTS SCORES, game results, team standings, player stats, and ongoing games. Also covers: business hours, store/restaurant information, stock prices, current events, breaking news, weather updates, celebrity news, product releases, company info, local information, and general knowledge. Use this for ANY question about current/live/recent information that would be searchable on Google right now. Examples: ''What''s the score of the Lions game?'', ''Who won the Lakers game?'', ''Is Target open?'', ''What time does the movie start?'', ''What''s the stock price of NVIDIA?''. Returns quick AI-generated summaries with source references. This is your PRIMARY tool for real-time factual information.'
+    description: A search engine which provides instant answers to a vast array of real-time information, educational resources, product details, entertainment content, and more. It allows users to find websites, images, videos, and other digital content relevant to their queries, often organized by relevance, date, or popularity. Useful for instant distillation of online information.
     geolocation_retriever_name: geolocation_retriever_tool
     use_geolocation_retriever: true
+    verbose: true
   realtime_serpapi_news_tool:
     _type: serpapi_news
     default_location: Detroit,Michigan,United States
-    description: 'CRITICAL: This tool provides REAL-TIME access to Google News for breaking news including LIVE SPORTS COVERAGE, game recaps, player news, and team updates from major news outlets worldwide. Also covers: breaking news, political developments, entertainment news, technology announcements, business updates, local news, weather events, and all time-sensitive information. Use this when you need detailed news articles about current/recent events. Examples: ''Latest Lions game recap'', ''Breaking news about [team/player]'', ''Recent developments in [topic]''. Returns current headlines with publication timestamps, sources, article snippets, and automatically scrapes up to 3 full article contents. Essential when queries contain ''latest,'' ''recent,'' ''today,'' ''this week,'' ''breaking,'' ''just happened,'' ''current,'' ''news about''.'
+    description: A news aggregator that collects and curates the latest headlines and articles from a wide range of sources, providing users with comprehensive coverage of current events, breaking news, financial news, and trending topics. It offers real-time updates, article summaries, and links to the original sources, helping users stay informed about the most important news stories.
     geolocation_retriever_name: geolocation_retriever_tool
     use_geolocation_retriever: true
+    verbose: true
   realtime_serpapi_search_tool:
     _type: serpapi_search
     default_location: Detroit,Michigan,United States
     default_num_results: 10
-    description: 'CRITICAL: This tool provides REAL-TIME access to comprehensive Google web search results for ANY current information including LIVE SPORTS SCORES, game schedules, team rosters, player statistics, league standings, and sports news. Also covers: local business details (hours, phone numbers, addresses), restaurant menus, store locations, movie showtimes, flight information, stock prices, product availability, service providers, reviews, technical documentation, tutorials, how-to guides, comparison shopping, and any topic requiring breadth and depth. Use when you need multiple diverse sources with full context rather than a quick summary. Examples: ''Detroit Lions score'', ''NBA standings'', ''Premier League results'', ''nearest pizza place'', ''flights to NYC''. Returns ranked organic results with titles, URLs, snippets, plus related questions and top stories. Automatically enriches top results with full page content via web scraping.'
+    description: A search engine which provides access to a vast array of real-time information, educational resources, product details, entertainment content, financial data, and more. It allows users to find websites, images, videos, and other digital content relevant to their queries, often organized by relevance, date, or popularity. You can find anything you'd usually use Google for.
     geolocation_retriever_name: geolocation_retriever_tool
     use_geolocation_retriever: true
+    verbose: true
   semianalysis_retriever_tool:
     _type: nat_retriever
     description: Retrieves expert semiconductor industry analysis from Semianalysis covering chip manufacturing trends, foundry capabilities (TSMC, Samsung, Intel), process node economics, AI accelerator architectures, supply chain dynamics, technology roadmaps, competitive positioning, transistor density, yield, packaging, and market share. Use for semiconductor industry business and technical questions.
     retriever: semianalysis_retriever
     topic: Semiconductor industry analysis and market intelligence
+    verbose: true
   socratic_method_tool:
     _type: chat_completion
     description: Engages users through Socratic dialogue using guided inquiry to facilitate self-discovery and critical thinking. Use when users want to explore concepts deeply through questioning, learn through collaborative dialogue, or develop their own understanding rather than receiving direct answers. Employs open-ended questions, challenges assumptions, promotes evidence-based reasoning, and encourages users to generate their own solutions. Best for educational contexts, complex problem exploration, or when fostering deeper understanding is more valuable than quick answers.
@@ -324,16 +391,19 @@ functions:
       If the user explicitly asks for a solution, respond with a guiding question that leads them toward the answer themselves.
 
       '
+    verbose: true
   user_uploaded_files_retriever_tool:
     _type: nat_retriever
     description: Retrieves technical information about user uploaded file.
     retriever: user_uploaded_files_retriever
     topic: User uploaded files from PDF
+    verbose: true
   veterinarian_retriever_tool:
     _type: nat_retriever
     description: Retrieves expert veterinary medical knowledge from VetPartner covering pet symptoms, animal diseases, treatment protocols, medication side effects, preventive care, and nutrition for multiple species (dogs, cats, horses, birds, exotic animals). Use for animal health questions requiring authoritative veterinary expertise. Always include disclaimer that this is educational information requiring veterinary consultation for diagnosis and treatment.
     retriever: veterinarian_retriever
     topic: Veterinary medicine and animal care
+    verbose: true
   weather_tool:
     _type: weather
     description: Retrieves current weather conditions and forecasts for specified locations. Use when users ask about temperature, precipitation, weather conditions, forecasts, or climate. Returns current conditions plus hourly and daily forecasts including temperature, humidity, wind, precipitation probability, and conditions. Automatically normalizes location names using geolocation retriever for accuracy. Supports worldwide locations. Include relevant forecast period when presenting results (current, today, week ahead).
@@ -344,6 +414,7 @@ functions:
     geolocation_retriever_name: geolocation_retriever_tool
     include_hourly: true
     use_geolocation_retriever: true
+    verbose: true
     weather_timeout: 30.0
   webscrape_tool:
     _type: webscrape
@@ -355,6 +426,7 @@ functions:
     respect_robots_txt: true
     timeout: 30.0
     user_agent: daedalus-webscraper/1.0
+    verbose: true
   wikipedia_search:
     _type: wiki_search
     max_results: 2
@@ -376,15 +448,17 @@ llms:
     temperature: 0.2
     top_p: 0.7
   fast_llm:
-    _type: nim
+    _type: openai
     api_key: ${NVIDIA_API_KEY}
-    base_url: https://5183a11a-633e-4945-b882-de86ce85125e.invocation.api.nvcf.nvidia.com/v1
+    base_url: https://f4ca1242-1bb8-47c4-96c8-f55507f70296.invocation.api.nvcf.nvidia.com/v1
     max_tokens: 2048
-    model_name: nvidia/nvidia-nemotron-nano-9b-v2
-    stream: true
-    temperature: 0.6
-    thinking: false
-    top_p: 0.95
+    model_name: openai/gpt-oss-20b
+  medium_llm:
+    _type: openai
+    api_key: ${NVIDIA_API_KEY}
+    base_url: https://9adef108-3097-4540-ba5f-873a9da8e54f.invocation.api.nvcf.nvidia.com/v1
+    max_tokens: 32768
+    model_name: openai/gpt-oss-120b
   reasoning_llm:
     _type: openai
     api_key: ${NVIDIA_API_KEY}
@@ -398,10 +472,18 @@ llms:
     _type: openai
     api_key: ${NVIDIA_API_KEY}
     base_url: https://5eb560ed-7ab8-4985-ab2a-dd1f7ea5eb66.invocation.api.nvcf.nvidia.com/v1
-    max_tokens: 32768
+    max_tokens: 2048
     model_name: nvidia/llama-3-3-nemotron-super-49b-v1-5
     temperature: 0.0
     thinking: false
+memory:
+  redis_memory:
+    _type: nat.plugins.redis/redis_memory
+    db: 0
+    embedder: milvus_embedder
+    host: ${RI_REDIS_HOST_DAEDALUS}
+    port: 6379
+    verbose: true
 retrievers:
   geolocation_retriever:
     _type: smart_milvus
@@ -521,6 +603,8 @@ workflow:
   - image_generation_tool
   - image_augmentation_tool
   tool_names:
+  - get_memory
+  - memory_add
   - code_generation
   - current_datetime_tool
   - geolocation_retriever_tool
@@ -541,4 +625,4 @@ workflow:
   - wikipedia_search
   use_openai_api: true
   verbose: true
-  workflow_alias: Daedalus
+  workflow_alias: daedalus

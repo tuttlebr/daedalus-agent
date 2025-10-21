@@ -21,12 +21,12 @@ images:
     tag: alpine
     pullPolicy: Always
   redis:
-    repository: redis/redis-stack
-    tag: "7.4.0-v7"
+    repository: redis/redis-stack-server
+    tag: "7.2.0-v19"
     pullPolicy: Always
   redisinsight:
     repository: redis/redisinsight
-    tag: "latest"
+    tag: "2.70"
     pullPolicy: Always
 
 backend:

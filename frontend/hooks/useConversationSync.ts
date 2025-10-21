@@ -69,15 +69,18 @@ export const useConversationSync = ({
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
   }, [enabled, conversationId]);
 
-  // Poll every 3 seconds when visible
+  // Only poll when actively needed (disabled for now to prevent unnecessary syncs)
+  // Syncing on visibility change should be sufficient
   useEffect(() => {
     if (!enabled) return;
 
-    syncIntervalRef.current = setInterval(() => {
-      if (document.visibilityState === 'visible') {
-        syncConversation();
-      }
-    }, 3000);
+    // Disabled automatic polling - rely on visibility change events
+    // If polling is needed in the future, increase interval to reduce load
+    // syncIntervalRef.current = setInterval(() => {
+    //   if (document.visibilityState === 'visible') {
+    //     syncConversation();
+    //   }
+    // }, 10000); // 10 seconds instead of 3
 
     return () => {
       if (syncIntervalRef.current) {
