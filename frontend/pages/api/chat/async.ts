@@ -33,6 +33,7 @@ interface AsyncJobStatus {
   createdAt: number;
   updatedAt: number;
   conversationId?: string;
+  finalizedAt?: number;  // Timestamp when all operations are complete
 }
 
 const JOB_EXPIRY_SECONDS = 60 * 60; // 1 hour
@@ -133,6 +134,42 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   res.setHeader('Allow', ['POST', 'GET', 'DELETE']);
   return res.status(405).json({ error: 'Method not allowed' });
+}
+
+// Helper function to add intermediate steps with deduplication
+function addIntermediateSteps(existingSteps: any[], newSteps: any[], jobId: string): any[] {
+  const stepsMap = new Map<string, any>();
+
+  // Add existing steps to map
+  existingSteps.forEach(step => {
+    if (step?.payload?.UUID) {
+      stepsMap.set(step.payload.UUID, step);
+    }
+  });
+
+  // Add or update with new steps
+  let addedCount = 0;
+  let updatedCount = 0;
+
+  newSteps.forEach(step => {
+    if (step?.payload?.UUID) {
+      if (stepsMap.has(step.payload.UUID)) {
+        updatedCount++;
+      } else {
+        addedCount++;
+      }
+      stepsMap.set(step.payload.UUID, step);
+    }
+  });
+
+  if (addedCount > 0 || updatedCount > 0) {
+    console.log(`Async job ${jobId}: Added ${addedCount} new steps, updated ${updatedCount} existing steps. Total: ${stepsMap.size}`);
+  }
+
+  // Return array sorted by timestamp
+  return Array.from(stepsMap.values()).sort((a, b) =>
+    (a.payload?.event_timestamp || 0) - (b.payload?.event_timestamp || 0)
+  );
 }
 
 // Process job asynchronously
@@ -252,6 +289,8 @@ async function processJobAsync(jobId: string): Promise<void> {
     let buffer = '';
     let chunkCount = 0;
     let totalBytesReceived = 0;
+    let lastConversationSaveTime = 0;
+    const CONVERSATION_SAVE_INTERVAL = 5000; // Save at most once every 5 seconds
 
     console.log(`Async job ${jobId}: Starting to read response stream...`);
 
@@ -324,7 +363,7 @@ async function processJobAsync(jobId: string): Promise<void> {
               const steps = parsed.intermediate_steps || parsed.intermediateSteps;
               if (Array.isArray(steps)) {
                 console.log(`Async job ${jobId}: Found ${steps.length} intermediate steps in non-SSE format`);
-                intermediateSteps.push(...steps);
+                intermediateSteps = addIntermediateSteps(intermediateSteps, steps, jobId);
               }
             }
 
@@ -336,8 +375,7 @@ async function processJobAsync(jobId: string): Promise<void> {
                   const jsonString = match.replace('<intermediatestep>', '').replace('</intermediatestep>', '').trim();
                   const step = JSON.parse(jsonString);
                   if (step?.payload?.event_type) {
-                    intermediateSteps.push(step);
-                    console.log(`Async job ${jobId}: Found intermediate step in tag format`);
+                    intermediateSteps = addIntermediateSteps(intermediateSteps, [step], jobId);
                   }
                 } catch (err) {
                   console.error(`Async job ${jobId}: Failed to parse intermediate step:`, err);
@@ -378,8 +416,8 @@ async function processJobAsync(jobId: string): Promise<void> {
                 console.log(`Async job ${jobId}: Found intermediate steps in data: event`, parsed.intermediate_steps || parsed.intermediateSteps);
                 const steps = parsed.intermediate_steps || parsed.intermediateSteps;
                 if (Array.isArray(steps)) {
-                  console.log(`Async job ${jobId}: Adding ${steps.length} intermediate steps from data chunk`);
-                  intermediateSteps.push(...steps);
+                  console.log(`Async job ${jobId}: Processing ${steps.length} intermediate steps from data chunk`);
+                  intermediateSteps = addIntermediateSteps(intermediateSteps, steps, jobId);
                 }
               }
 
@@ -387,8 +425,8 @@ async function processJobAsync(jobId: string): Promise<void> {
               if (parsed.choices?.[0]?.message?.intermediateSteps || parsed.choices?.[0]?.message?.intermediate_steps) {
                 const choiceSteps = parsed.choices[0].message.intermediateSteps || parsed.choices[0].message.intermediate_steps;
                 if (Array.isArray(choiceSteps)) {
-                  console.log(`Async job ${jobId}: Found ${choiceSteps.length} intermediate steps in message`);
-                  intermediateSteps.push(...choiceSteps);
+                  console.log(`Async job ${jobId}: Processing ${choiceSteps.length} intermediate steps in message`);
+                  intermediateSteps = addIntermediateSteps(intermediateSteps, choiceSteps, jobId);
                 }
               }
 
@@ -407,8 +445,7 @@ async function processJobAsync(jobId: string): Promise<void> {
                       const jsonString = match.replace('<intermediatestep>', '').replace('</intermediatestep>', '').trim();
                       const step = JSON.parse(jsonString);
                       if (step?.payload?.event_type) {
-                        intermediateSteps.push(step);
-                        console.log(`Async job ${jobId}: Found intermediate step in SSE content`);
+                        intermediateSteps = addIntermediateSteps(intermediateSteps, [step], jobId);
                       }
                     } catch (err) {
                       console.error(`Async job ${jobId}: Failed to parse intermediate step from SSE:`, err);
@@ -421,7 +458,7 @@ async function processJobAsync(jobId: string): Promise<void> {
                 fullText += content;
                 chunkCount++;
 
-                // Update status every 5 chunks for more responsive UI
+                // Update job status every 5 chunks for responsive UI
                 if (chunkCount % 5 === 0) {
                   await updateJobStatus(jobId, {
                     status: 'streaming',
@@ -431,8 +468,9 @@ async function processJobAsync(jobId: string): Promise<void> {
                     updatedAt: Date.now(),
                   });
 
-                  // Also save partial conversation to Redis for recovery
-                  if (jobRequest.conversationId) {
+                  // Save partial conversation to Redis for recovery, but throttle to prevent excessive writes
+                  const now = Date.now();
+                  if (jobRequest.conversationId && (now - lastConversationSaveTime) > CONVERSATION_SAVE_INTERVAL) {
                     try {
                       const partialMessage: Message = {
                         role: 'assistant',
@@ -447,6 +485,8 @@ async function processJobAsync(jobId: string): Promise<void> {
                       };
                       const conversationKey = sessionKey(['conversation', jobRequest.conversationId]);
                       await jsonSet(conversationKey, '$', partialConversation);
+                      lastConversationSaveTime = now;
+                      console.log(`Async job ${jobId}: Saved partial conversation (throttled)`);
                     } catch (err) {
                       console.error(`Failed to save partial conversation:`, err);
                     }
@@ -496,9 +536,10 @@ async function processJobAsync(jobId: string): Promise<void> {
                   console.log(`Async job ${jobId}: Transformed intermediate step:`, intermediateStep.payload.name);
                 }
 
-                intermediateSteps.push(intermediateStep);
+                // Add step with deduplication
+                intermediateSteps = addIntermediateSteps(intermediateSteps, [intermediateStep], jobId);
 
-                // Immediately update status when intermediate step arrives for instant UI feedback
+                // Update job status with new intermediate step for UI feedback
                 console.log(`Async job ${jobId}: Total intermediate steps: ${intermediateSteps.length}`);
                 await updateJobStatus(jobId, {
                   status: 'streaming',
@@ -508,27 +549,11 @@ async function processJobAsync(jobId: string): Promise<void> {
                   updatedAt: Date.now(),
                 });
 
-                // Save conversation with intermediate steps
-                if (jobRequest.conversationId) {
-                  try {
-                    const intermediateMessage: Message = {
-                      role: 'assistant',
-                      content: fullText || '',
-                      intermediateSteps: [...intermediateSteps],
-                    };
-                    const intermediateConversation = {
-                      id: jobRequest.conversationId,
-                      messages: [...(jobRequest.messages || []), intermediateMessage],
-                      updatedAt: Date.now(),
-                      isPartial: true,
-                    };
-                    const conversationKey = sessionKey(['conversation', jobRequest.conversationId]);
-                    await jsonSet(conversationKey, '$', intermediateConversation);
-                    console.log(`Saved intermediate conversation state with ${intermediateSteps.length} steps`);
-                  } catch (err) {
-                    console.error(`Failed to save intermediate conversation:`, err);
-                  }
-                }
+                // REMOVED: Don't save conversation on every intermediate step!
+                // This was causing excessive Redis writes. The conversation will be saved:
+                // 1. Every 5 chunks for content updates
+                // 2. Once at the very end when complete
+                // The job status already has the intermediate steps for UI updates
               } catch (err) {
                 console.error(`Async job ${jobId}: Error parsing intermediate step:`, err);
               }
@@ -559,16 +584,16 @@ async function processJobAsync(jobId: string): Promise<void> {
         if (parsed.intermediate_steps || parsed.intermediateSteps) {
           const steps = parsed.intermediate_steps || parsed.intermediateSteps;
           if (Array.isArray(steps)) {
-            console.log(`Async job ${jobId}: Found ${steps.length} intermediate steps in final buffer`);
-            intermediateSteps.push(...steps);
+                console.log(`Async job ${jobId}: Processing ${steps.length} intermediate steps in final buffer`);
+            intermediateSteps = addIntermediateSteps(intermediateSteps, steps, jobId);
           }
         }
 
         if (parsed.choices?.[0]?.message?.intermediateSteps || parsed.choices?.[0]?.message?.intermediate_steps) {
           const choiceSteps = parsed.choices[0].message.intermediateSteps || parsed.choices[0].message.intermediate_steps;
           if (Array.isArray(choiceSteps)) {
-            console.log(`Async job ${jobId}: Found ${choiceSteps.length} intermediate steps in message (final buffer)`);
-            intermediateSteps.push(...choiceSteps);
+            console.log(`Async job ${jobId}: Processing ${choiceSteps.length} intermediate steps in message (final buffer)`);
+            intermediateSteps = addIntermediateSteps(intermediateSteps, choiceSteps, jobId);
           }
         }
 
@@ -597,15 +622,8 @@ async function processJobAsync(jobId: string): Promise<void> {
       totalBytesReceived,
     });
 
-    // Mark as completed
-    await updateJobStatus(jobId, {
-      status: 'completed',
-      fullResponse: fullText,
-      partialResponse: undefined, // Clear partial
-      intermediateSteps,
-      progress: 100,
-      updatedAt: Date.now(),
-    });
+    // Important: Do NOT mark as completed yet - we need to save all data first
+    // This prevents the frontend from seeing "completed" while we're still writing data
 
     // Save the conversation to Redis if conversationId is provided
     if (jobRequest.conversationId) {
@@ -627,7 +645,7 @@ async function processJobAsync(jobId: string): Promise<void> {
           id: jobRequest.conversationId,
           messages: allMessages,
           updatedAt: Date.now(),
-          isPartial: false,
+          isPartial: false,  // Explicitly mark as final
           completedAt: Date.now(),
         };
 
@@ -688,6 +706,17 @@ async function processJobAsync(jobId: string): Promise<void> {
         console.error(`Async job ${jobId}: Failed to save conversation to Redis:`, error);
       }
     }
+
+    // NOW mark as completed after all Redis operations are done
+    await updateJobStatus(jobId, {
+      status: 'completed',
+      fullResponse: fullText,
+      partialResponse: undefined, // Clear partial
+      intermediateSteps,
+      progress: 100,
+      updatedAt: Date.now(),
+      finalizedAt: Date.now(),  // Signal that ALL operations are complete
+    });
 
     console.log(`Async job ${jobId} completed successfully`);
   } catch (error: any) {
