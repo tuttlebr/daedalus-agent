@@ -38,7 +38,7 @@ export const saveConversation = async (conversation: Conversation) => {
 
     // Use user-specific storage key to prevent data leakage between users
     setUserSessionItem('selectedConversation', JSON.stringify(cleanedConversation));
-    await apiPut('/api/session/selectedConversation', cleanedConversation);
+    await apiPut(`/api/conversations/${conversation.id}`, cleanedConversation);
   } catch (error) {
     console.log('Failed to persist conversation to server', error);
     toast.error('Failed to save conversation.');

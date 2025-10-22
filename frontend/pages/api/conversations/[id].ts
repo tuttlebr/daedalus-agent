@@ -1,89 +1,105 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { getRedis, sessionKey, jsonGet, jsonSetWithExpiry } from '../session/redis';
+import { getRedis, sessionKey, jsonGet, jsonSetWithExpiry, jsonDel } from '../session/redis';
+import { getSession } from '@/utils/auth/session';
 
 /**
- * Simple endpoint: Get latest conversation state including any async job results.
- * This allows the frontend to fetch completed responses after returning from background.
+ * Endpoint for conversation operations:
+ * GET: Get latest conversation state including any async job results.
+ * PUT: Save conversation state.
+ * DELETE: Delete a conversation.
  */
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  const session = await getSession(req, res);
+  if (!session) {
+    return res.status(401).json({ error: 'Not authenticated' });
+  }
+
+  const { id } = req.query;
+  if (!id || typeof id !== 'string') {
+    return res.status(400).json({ error: 'Invalid conversation ID' });
+  }
+
+  const redis = getRedis();
+  const conversationKey = sessionKey(['conversation', id]);
+  const userConversationsKey = sessionKey(['user', session.username, 'conversations']);
+
   if (req.method === 'PUT') {
-    const { id } = req.query;
-    const { messages, updatedAt } = req.body;
-
-    if (!id || typeof id !== 'string') {
-      return res.status(400).json({ error: 'Invalid conversation ID' });
-    }
-
-    if (!messages || !Array.isArray(messages)) {
-      return res.status(400).json({ error: 'Invalid messages' });
-    }
+    const updatedData = req.body;
 
     try {
-      const redis = getRedis();
-      const conversationKey = sessionKey(['conversation', id]);
+      // Fetch existing conversation to merge with
+      const existingData = await jsonGet(conversationKey) || {};
 
-      // Save the conversation state (expire after 7 days)
-      await jsonSetWithExpiry(conversationKey, {
-        messages,
-        updatedAt: updatedAt || Date.now(),
-      }, 60 * 60 * 24 * 7);
+      const dataToSave = {
+        ...existingData,
+        ...updatedData,
+        updatedAt: updatedData.updatedAt || Date.now(),
+      };
+
+      // Save the merged conversation state (expire after 7 days)
+      await jsonSetWithExpiry(conversationKey, dataToSave, 60 * 60 * 24 * 7);
+
+      // Add conversation to user's set of conversations
+      await redis.sadd(userConversationsKey, id);
 
       return res.status(200).json({ success: true });
     } catch (error) {
       console.error('Error saving conversation:', error);
       return res.status(500).json({ error: 'Failed to save conversation' });
     }
-  }
+  } else if (req.method === 'DELETE') {
+    try {
+      // Delete the conversation key
+      await jsonDel(conversationKey);
 
-  if (req.method !== 'GET') {
-    res.setHeader('Allow', ['GET', 'PUT']);
+      // Remove the conversation ID from the user's set
+      await redis.srem(userConversationsKey, id);
+
+      return res.status(200).json({ success: true });
+    } catch (error) {
+      console.error('Error deleting conversation:', error);
+      return res.status(500).json({ error: 'Failed to delete conversation' });
+    }
+  } else if (req.method === 'GET') {
+    try {
+      // First check for saved conversation data
+      const conversationData = await jsonGet(conversationKey);
+
+      if (conversationData && conversationData.messages) {
+        // Return the saved conversation messages
+        return res.status(200).json({
+          conversationId: id,
+          messages: conversationData.messages,
+          status: 'completed',
+          updatedAt: conversationData.updatedAt,
+        });
+      }
+
+      // Check for any pending/completed async jobs for this conversation
+      const jobKey = sessionKey(['conversation-job', id]);
+      const jobData = await jsonGet(jobKey);
+
+      if (jobData && typeof jobData === 'object' && 'messages' in jobData) {
+        // Return the full conversation state from the job
+        return res.status(200).json({
+          conversationId: id,
+          messages: jobData.messages,
+          status: (jobData as any).status || 'completed',
+        });
+      }
+
+      // No conversation found, return empty state
+      return res.status(200).json({
+        conversationId: id,
+        messages: [],
+        status: 'idle',
+      });
+    } catch (error) {
+      console.error('Error fetching conversation:', error);
+      return res.status(500).json({ error: 'Failed to fetch conversation' });
+    }
+  } else {
+    res.setHeader('Allow', ['GET', 'PUT', 'DELETE']);
     return res.status(405).json({ error: 'Method not allowed' });
-  }
-
-  const { id } = req.query;
-
-  if (!id || typeof id !== 'string') {
-    return res.status(400).json({ error: 'Invalid conversation ID' });
-  }
-
-  try {
-    const redis = getRedis();
-
-    // First check for saved conversation data
-    const conversationKey = sessionKey(['conversation', id]);
-    const conversationData = await jsonGet(conversationKey);
-
-    if (conversationData && conversationData.messages) {
-      // Return the saved conversation messages
-      return res.status(200).json({
-        conversationId: id,
-        messages: conversationData.messages,
-        status: 'completed',
-        updatedAt: conversationData.updatedAt,
-      });
-    }
-
-    // Check for any pending/completed async jobs for this conversation
-    const jobKey = sessionKey(['conversation-job', id]);
-    const jobData = await jsonGet(jobKey);
-
-    if (jobData && typeof jobData === 'object' && 'messages' in jobData) {
-      // Return the full conversation state from the job
-      return res.status(200).json({
-        conversationId: id,
-        messages: jobData.messages,
-        status: (jobData as any).status || 'completed',
-      });
-    }
-
-    // No conversation found, return empty state
-    return res.status(200).json({
-      conversationId: id,
-      messages: [],
-      status: 'idle',
-    });
-  } catch (error) {
-    console.error('Error fetching conversation:', error);
-    return res.status(500).json({ error: 'Failed to fetch conversation' });
   }
 }
