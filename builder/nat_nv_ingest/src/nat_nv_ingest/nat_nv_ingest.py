@@ -180,9 +180,9 @@ async def nv_ingest_function(
                         extract_text=True,
                         extract_tables=True,
                         extract_charts=True,
-                        extract_images=True,
+                        extract_images=False,
                         table_output_format="markdown",
-                        extract_infographics=True,
+                        extract_infographics=False,
                         text_depth="page",
                     )
                     .split(chunk_size=chunk_size, chunk_overlap=chunk_overlap)

@@ -311,7 +311,7 @@ functions:
     verbose: true
   nvidia_retriever_tool:
     _type: nat_retriever
-    description: Retrieves authoritative information from NVIDIA knowledge base including GPU specifications, CUDA programming, AI frameworks (NeMo, TensorRT), product comparisons (A100 vs H100), platform capabilities (DGX, Jetson), and corporate announcements. Combines engineering-level technical detail with business context from official NVIDIA sources. Use when queries require NVIDIA-specific expertise or product information.
+    description: Retrieves authoritative information from NVIDIA knowledge base including GPU specifications, CUDA programming, AI frameworks (NeMo, TensorRT), robotics, product comparisons (A100 vs H100), platform capabilities (DGX, Jetson), and corporate announcements. Combines engineering-level technical detail with business context from official NVIDIA sources. Use when queries require NVIDIA-specific expertise or product information.
     retriever: nvidia_retriever
     topic: NVIDIA technology, products, and corporate information
     verbose: true
@@ -432,6 +432,15 @@ functions:
     max_results: 2
     verbose: true
 general:
+  front_end:
+    _type: fastapi
+    step_adaptor:
+      event_category:
+      - LLM
+      - TOOL
+      - WORKFLOW
+      - FUNCTION
+      mode: custom
   telemetry:
     tracing:
       phoenix:

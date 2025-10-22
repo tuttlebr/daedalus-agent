@@ -7,7 +7,7 @@ general:
         - TOOL
         - WORKFLOW
         - FUNCTION
-      mode: default
+      mode: custom
   telemetry:
     tracing:
       phoenix:

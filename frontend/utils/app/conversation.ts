@@ -41,11 +41,11 @@ export const saveConversation = async (conversation: Conversation) => {
     await apiPut(`/api/conversations/${conversation.id}`, cleanedConversation);
   } catch (error) {
     console.log('Failed to persist conversation to server', error);
-    toast.error('Failed to save conversation.');
+    // toast.error('Failed to save conversation.');
   }
 };
 
-export const saveConversations = async (conversations: Conversation[]) => {
+export const saveConversations = (conversations: Conversation[]) => {
   try {
     // Clean all conversations to remove base64 content before storing
     let cleanedConversations = conversations.map(conversation => ({
@@ -58,10 +58,9 @@ export const saveConversations = async (conversations: Conversation[]) => {
 
     // Use user-specific storage key to prevent data leakage between users
     setUserSessionItem('conversationHistory', JSON.stringify(cleanedConversations));
-    await apiPut('/api/session/conversationHistory', cleanedConversations);
   } catch (error) {
     console.log('Failed to persist conversations to server', error);
-    toast.error('Failed to save conversations.');
+    // toast.error('Failed to save conversations.');
   }
 };
 

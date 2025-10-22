@@ -542,7 +542,7 @@ functions:
     verbose: true
   nvidia_retriever_tool:
     _type: nat_retriever
-    description: 'ACTION: Access NVIDIA-specific technical and product knowledge. REASONING: Authoritative source for GPU specs, CUDA, AI frameworks, product details. Better than web search for NVIDIA expertise. WHEN: Questions about NVIDIA GPUs, CUDA, TensorRT, NeMo, DGX, Jetson, or comparing NVIDIA products. RETURNS: Technical specs + business context from official sources. EXAMPLES: "H100 vs B100", "CUDA optimization", "DGX architecture". NEXT: Synthesize for comparisons or combine with code_generation for CUDA examples.
+    description: 'ACTION: Access NVIDIA-specific technical and product knowledge. REASONING: Authoritative source for GPU specs, CUDA, AI frameworks, product details. Better than web search for NVIDIA expertise. WHEN: Questions about NVIDIA GPUs, CUDA, TensorRT, NeMo, DGX, Jetson, robotics, or comparing NVIDIA products. RETURNS: Technical specs + business context from official sources. EXAMPLES: "H100 vs B100", "CUDA optimization", "DGX architecture". NEXT: Synthesize for comparisons or combine with code_generation for CUDA examples.
 
       '
     retriever: nvidia_retriever
@@ -1184,6 +1184,15 @@ functions:
     max_results: 2
     verbose: true
 general:
+  front_end:
+    _type: fastapi
+    step_adaptor:
+      event_category:
+      - LLM
+      - TOOL
+      - WORKFLOW
+      - FUNCTION
+      mode: custom
   telemetry:
     tracing:
       phoenix:
