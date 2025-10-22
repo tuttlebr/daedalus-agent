@@ -30,3 +30,14 @@ export async function apiPut<TBody extends object, TResp = void>(path: string, b
   if (res.status === 204) return undefined as unknown as TResp;
   return res.json() as Promise<TResp>;
 }
+
+export async function apiDelete<TResp = void>(path: string): Promise<TResp> {
+    const res = await fetch(`${apiBase()}${path}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+    });
+    if (!res.ok) throw new Error(`DELETE ${path} failed: ${res.statusText}`);
+    if (res.status === 204) return undefined as unknown as TResp;
+    return res.json() as Promise<TResp>;
+}

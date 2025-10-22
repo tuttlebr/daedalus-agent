@@ -1,6 +1,7 @@
 import { useCallback, useContext, useEffect } from 'react';
 
 import { useTranslation } from 'next-i18next';
+import toast from 'react-hot-toast';
 
 import { useCreateReducer } from '@/hooks/useCreateReducer';
 
@@ -93,35 +94,31 @@ export const Chatbar = () => {
   };
 
   const handleDeleteConversation = async (conversation: Conversation) => {
-    await apiDelete(`/api/conversations/${conversation.id}`);
-    const updatedConversations = conversations.filter(
-      (c) => c.id !== conversation.id,
-    );
+    try {
+      await apiDelete(`/api/conversations/${conversation.id}`);
 
-    homeDispatch({ field: 'conversations', value: updatedConversations });
-    chatDispatch({ field: 'searchTerm', value: '' });
-    saveConversations(updatedConversations);
+      const updatedConversations = conversations.filter(
+          (c) => c.id !== conversation.id,
+      );
 
-    if (updatedConversations.length > 0) {
-      homeDispatch({
-        field: 'selectedConversation',
-        value: updatedConversations[updatedConversations.length - 1],
-      });
+      homeDispatch({ field: 'conversations', value: updatedConversations });
+      chatDispatch({ field: 'searchTerm', value: '' });
+      saveConversations(updatedConversations);
 
-      saveConversation(updatedConversations[updatedConversations.length - 1]);
-    } else {
+      if (updatedConversations.length > 0) {
         homeDispatch({
           field: 'selectedConversation',
-          value: {
-            id: uuidv4(),
-            name: t('New Conversation'),
-            messages: [],
-            folderId: null,
-          },
+          value: updatedConversations[updatedConversations.length - 1],
         });
 
-        // Use user-specific storage key to prevent data leakage between users
-        removeUserSessionItem('selectedConversation');
+        saveConversation(updatedConversations[updatedConversations.length - 1]);
+      } else {
+        handleNewConversation();
+      }
+      toast.success('Conversation deleted successfully');
+    } catch (error) {
+      console.error('Failed to delete conversation:', error);
+      toast.error('Failed to delete conversation.');
     }
   };
 
