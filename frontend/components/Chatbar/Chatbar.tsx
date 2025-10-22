@@ -23,6 +23,7 @@ import ChatbarContext from './Chatbar.context';
 import { ChatbarInitialState, initialState } from './Chatbar.state';
 
 import { v4 as uuidv4 } from 'uuid';
+import { apiDelete } from '@/utils/app/api';
 
 export const Chatbar = () => {
   const { t } = useTranslation('sidebar');
@@ -91,7 +92,8 @@ export const Chatbar = () => {
     }
   };
 
-  const handleDeleteConversation = (conversation: Conversation) => {
+  const handleDeleteConversation = async (conversation: Conversation) => {
+    await apiDelete(`/api/conversations/${conversation.id}`);
     const updatedConversations = conversations.filter(
       (c) => c.id !== conversation.id,
     );

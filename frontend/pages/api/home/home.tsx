@@ -15,8 +15,6 @@ import {
   cleanSelectedConversation,
 } from '@/utils/app/clean';
 import {
-  loadConversation,
-  loadConversations,
   saveConversation,
   saveConversations,
   updateConversation,
@@ -38,6 +36,7 @@ import { HomeInitialState, initialState } from './home.state';
 
 import { v4 as uuidv4 } from 'uuid';
 import { getWorkflowName } from '@/utils/app/helper';
+import { apiGet } from '@/utils/app/api';
 
 const Home = (props: any) => {
   const { t } = useTranslation('chat');
@@ -217,16 +216,48 @@ const Home = (props: any) => {
       dispatch({ field: 'folders', value: JSON.parse(folders) });
     }
 
-    const conversationHistory = getUserSessionItem('conversationHistory');
-    if (conversationHistory) {
-      const parsedConversationHistory: Conversation[] =
-        JSON.parse(conversationHistory);
-      const cleanedConversationHistory = cleanConversationHistory(
-        parsedConversationHistory,
-      );
+    const fetchConversations = async () => {
+      try {
+        const serverConversations = await apiGet('/api/conversations');
+        const localConversationHistory = getUserSessionItem('conversationHistory');
+        const localConversations = localConversationHistory
+          ? JSON.parse(localConversationHistory)
+          : [];
 
-      dispatch({ field: 'conversations', value: cleanedConversationHistory });
-    }
+        if (Array.isArray(serverConversations) && serverConversations.length > 0) {
+          const cleanedServerConversations = cleanConversationHistory(serverConversations);
+          const conversationMap = new Map();
+
+          localConversations.forEach((conv: Conversation) => {
+            conversationMap.set(conv.id, conv);
+          });
+
+          cleanedServerConversations.forEach((conv: Conversation) => {
+            conversationMap.set(conv.id, conv);
+          });
+
+          const mergedConversations = Array.from(conversationMap.values()).sort((a, b) => {
+            const aTime = a.messages.length > 0 ? a.messages[a.messages.length - 1].id : a.id;
+            const bTime = b.messages.length > 0 ? b.messages[b.messages.length - 1].id : b.id;
+            return aTime < bTime ? -1 : 1;
+          });
+
+          dispatch({ field: 'conversations', value: mergedConversations });
+          setUserSessionItem('conversationHistory', JSON.stringify(mergedConversations));
+        } else if (localConversations.length > 0) {
+          dispatch({ field: 'conversations', value: localConversations });
+        }
+      } catch (error) {
+        console.error('Error fetching conversations:', error);
+        // Fallback to local conversations if server fetch fails
+        const localConversationHistory = getUserSessionItem('conversationHistory');
+        if (localConversationHistory) {
+          dispatch({ field: 'conversations', value: JSON.parse(localConversationHistory) });
+        }
+      }
+    };
+
+    fetchConversations();
 
     const selectedConversation = getUserSessionItem('selectedConversation');
     if (selectedConversation) {
@@ -252,63 +283,6 @@ const Home = (props: any) => {
         },
       });
     }
-
-    const hydrateFromServer = async () => {
-      try {
-        const [serverConversations, serverSelectedConversation] = await Promise.all([
-          loadConversations(),
-          loadConversation(),
-        ]);
-
-        // Get existing local conversations
-        const localConversationHistory = getUserSessionItem('conversationHistory');
-        const localConversations = localConversationHistory
-          ? JSON.parse(localConversationHistory)
-          : [];
-
-        if (Array.isArray(serverConversations) && serverConversations.length > 0) {
-          const cleanedServerConversations = cleanConversationHistory(serverConversations);
-
-          // Merge server and local conversations, prioritizing server data for duplicates
-          const conversationMap = new Map();
-
-          // First add local conversations
-          localConversations.forEach((conv: Conversation) => {
-            conversationMap.set(conv.id, conv);
-          });
-
-          // Then add/update with server conversations (server data takes precedence)
-          cleanedServerConversations.forEach((conv: Conversation) => {
-            conversationMap.set(conv.id, conv);
-          });
-
-          // Convert back to array and sort by last update time or creation
-          const mergedConversations = Array.from(conversationMap.values()).sort((a, b) => {
-            const aTime = a.messages.length > 0 ? a.messages[a.messages.length - 1].id : a.id;
-            const bTime = b.messages.length > 0 ? b.messages[b.messages.length - 1].id : b.id;
-            return aTime < bTime ? -1 : 1;
-          });
-
-          dispatch({ field: 'conversations', value: mergedConversations });
-          // Use user-specific storage key to prevent data leakage between users
-          setUserSessionItem('conversationHistory', JSON.stringify(mergedConversations));
-        } else if (localConversations.length > 0) {
-          // If no server conversations but we have local ones, keep them
-          dispatch({ field: 'conversations', value: localConversations });
-        }
-
-        if (serverSelectedConversation) {
-          const cleanedSelectedConversation = cleanSelectedConversation(serverSelectedConversation);
-          dispatch({ field: 'selectedConversation', value: cleanedSelectedConversation });
-          // Use user-specific storage key to prevent data leakage between users
-          setUserSessionItem('selectedConversation', JSON.stringify(cleanedSelectedConversation));
-        }
-      } catch (error) {
-        console.log('error hydrating conversations from server', error);
-      }
-    };
-
-    hydrateFromServer();
   }, [dispatch, t]);
 
   return (
