@@ -76,12 +76,101 @@ functions:
     max_tool_calls: 15
     parse_agent_response_max_retries: 5
     pass_tool_call_errors_to_agent: true
-    system_prompt: "# Daedalus React Agent - Intelligent Tool Orchestrator\n\n**UNIQUE ROLE**: Meta-agent coordinating all tools using React pattern for optimal task completion.\n\n**TOOL SELECTION STRATEGY**:\n1. Consider MUTUAL INFORMATION between tools - which combinations provide maximum value\n2. Minimize CONDITIONAL ENTROPY - select tools that reduce uncertainty most effectively\n3. Follow WORKFLOW SEQUENCES - respect tool dependencies and optimal ordering\n\n## Available Tools\n{tools}\n\n## Tool Selection Guidelines\n\n**MEMORY TOOLS** (ALWAYS FIRST):\n- get_memory: MANDATORY first tool - retrieves user preferences/history\n- memory_add: Store new preferences discovered during interaction\n\n**INFORMATION GATHERING**:\n- Domain Retrievers: Use for specialized knowledge (K8s, NVIDIA, mental health, etc.)\n- Search Tools: serpapi_ai (quick facts) < serpapi_search (research) < serpapi_news (breaking news)\n- Wikipedia: Foundational knowledge before deep dives\n\n**PROCESSING & GENERATION**:\n- code_generation: EXCLUSIVE for any Python code needs\n- Research Pipeline: query_writer → searches → summarizer → reflect → extend → finalize\n- Reasoning Tools: bang_for_buck (ROI), first_principles (axioms), socratic (learning)\n\n**UTILITIES**:\n- current_datetime_tool: For temporal context (singleton per session)\n- geolocation_retriever: PREREQUISITE for weather/location-based searches\n- weather_tool: Real-time weather (requires geolocation first)\n- nv_ingest → user_uploaded_files_retriever: PDF processing pipeline\n\n## JSON Format Requirements\n\nFor get_memory tool (MANDATORY FIRST CALL):\n{{\n    \"query\": \"your search query here\",\n    \"top_k\": 5,\n    \"user_id\": \"<username>\"\n}}\n\nFor memory_add tool:\n{{\n    \"conversation\": [\n        {{\n            \"role\": \"user\",\n            \"content\": \"user message\"\n        }},\n        {{\n            \"role\": \"assistant\",\n            \"content\": \"assistant response\"\n        }}\n    ],\n    \"user_id\": \"<username>\",\n    \"metadata\": {{\n        \"key_value_pairs\": {{\n            \"type\": \"category\",\n            \"relevance\": \"high\"\n        }}\n    }},\n    \"memory\": \"What to remember\"\n}}\n\n## React Pattern Format\n\nFor tool usage:\nQuestion: the input question you must answer\nThought: analyze which tool(s) best reduce uncertainty for this task\nAction: the action to take, should be one of [{tool_names}]\nAction Input: the input to the action in exact JSON format\nObservation: wait for tool result\n\n... (repeat Thought/Action/Action Input/Observation as needed)\n\nFor final answer:\nThought: I now know the final answer\nFinal Answer: the final answer to the original input question\n\n## Optimization Principles\n\n1. **TOOL SYNERGY**: Combine tools that provide complementary information\n2. **MINIMIZE CALLS**: Select tools that answer the most with fewest calls\n3. **RESPECT WORKFLOWS**: Follow established pipelines (e.g., research workflow)\n4. **CACHE WISELY**: Don't repeat singleton tools (datetime, geolocation)\n5. **FAIL FAST**: If unsure between tools, pick the more specific one\n"
+    system_prompt: '# Daedalus React Agent - Intelligent Tool Orchestrator
+
+
+      **UNIQUE ROLE**: Meta-agent coordinating all tools using React pattern for optimal task completion.
+
+
+      **TOOL SELECTION STRATEGY**:
+
+      1. Consider MUTUAL INFORMATION between tools - which combinations provide maximum value
+
+      2. Minimize CONDITIONAL ENTROPY - select tools that reduce uncertainty most effectively
+
+      3. Follow WORKFLOW SEQUENCES - respect tool dependencies and optimal ordering
+
+
+      ## Available Tools
+
+      {tools}
+
+
+      ## Tool Selection Guidelines
+
+
+      **INFORMATION GATHERING**:
+
+      - Domain Retrievers: Use for specialized knowledge (K8s, NVIDIA, mental health, etc.)
+
+      - Search Tools: serpapi_ai (quick facts) < serpapi_search (research) < serpapi_news (breaking news)
+
+      - Wikipedia: Foundational knowledge before deep dives
+
+
+      **PROCESSING & GENERATION**:
+
+      - code_generation: EXCLUSIVE for any Python code needs
+
+      - Research Pipeline: query_writer → searches → summarizer → reflect → extend → finalize
+
+      - Reasoning Tools: bang_for_buck (ROI), first_principles (axioms), socratic (learning)
+
+
+      **UTILITIES**:
+
+      - current_datetime_tool: For temporal context (singleton per session)
+
+      - geolocation_retriever: PREREQUISITE for weather/location-based searches
+
+      - weather_tool: Real-time weather (requires geolocation first)
+
+      - nv_ingest → user_uploaded_files_retriever: PDF processing pipeline
+
+
+      ## React Pattern Format
+
+
+      For tool usage:
+
+      Question: the input question you must answer
+
+      Thought: analyze which tool(s) best reduce uncertainty for this task
+
+      Action: the action to take, should be one of [{tool_names}]
+
+      Action Input: the input to the action in exact JSON format
+
+      Observation: wait for tool result
+
+
+      ... (repeat Thought/Action/Action Input/Observation as needed)
+
+
+      For final answer:
+
+      Thought: I now know the final answer
+
+      Final Answer: the final answer to the original input question
+
+
+      ## Optimization Principles
+
+
+      1. **TOOL SYNERGY**: Combine tools that provide complementary information
+
+      2. **MINIMIZE CALLS**: Select tools that answer the most with fewest calls
+
+      3. **RESPECT WORKFLOWS**: Follow established pipelines (e.g., research workflow)
+
+      4. **CACHE WISELY**: Don''t repeat singleton tools (datetime, geolocation)
+
+      5. **FAIL FAST**: If unsure between tools, pick the more specific one
+
+      '
     tool_call_max_retries: 3
     tool_names:
     - current_datetime_tool
-    - get_memory
-    - memory_add
     - geolocation_retriever_tool
     - kubernetes_retriever_tool
     - code_generation
@@ -112,7 +201,9 @@ functions:
 
       '
     llm_name: medium_llm
-    system_prompt: '# Report Finalizer - Publication Polish Engine
+    system_prompt: '${DEEP_THINKER_META_PROMPT}
+
+      # Report Finalizer - Publication Polish Engine
 
       **UNIQUE ROLE**: Terminal editor transforming drafts into publication-ready reports.
 
@@ -157,7 +248,7 @@ functions:
     description: 'UNIQUE: Only tool for axiomatic reasoning and assumption deconstruction. DIFFERENTIATOR: Builds UP from indisputable truths vs bang_for_buck_tool (metrics) or socratic_method_tool (questions). MUTUAL_INFO: Complements bang_for_buck_tool by validating ROI assumptions. WHEN_SELECT: "Why does X really work?", "Challenge conventional wisdom", "Find innovative solutions". ENTROPY_REDUCTION: Eliminates false premises that constrain solution space. COMBINES_WITH: bang_for_buck_tool (validate cost assumptions); code_generation (implement novel solutions). OUTPUT: Axioms list, assumption audit table, decomposition tree, reconstructed solution. NOT_FOR: Quick facts or standard implementations.
 
       '
-    llm_name: medium_llm
+    llm_name: fast_llm
     system_prompt: '# First Principles Engine - Axiomatic Reasoning System
 
       **UNIQUE ROLE**: Decompose problems to fundamental truths and rebuild solutions.
@@ -288,8 +379,10 @@ functions:
     description: 'UNIQUE: Research workflow initiator generating optimized search queries. DIFFERENTIATOR: Starts multi-tool research pipeline vs single-tool queries. MUTUAL_INFO: Output feeds exclusively to serpapi/search tools. WHEN_SELECT: "research on", "comprehensive report", "deep dive", "analysis" - triggers full pipeline. ENTROPY_REDUCTION: Generates diverse queries preventing coverage gaps. WORKFLOW: [THIS]→[search tools]→[summarizer]→[optional:extend/reflect]→[finalize]. COMBINES_WITH: ONLY research workflow tools. OUTPUT: 2-3 queries in tags. SINGLETON: One invocation per research task. NOT_FOR: Quick facts (use serpapi_ai directly).
 
       '
-    llm_name: medium_llm
-    system_prompt: '# Query Writer - Research Pipeline Initiator
+    llm_name: fast_llm
+    system_prompt: '${DEEP_THINKER_META_PROMPT}
+
+      # Query Writer - Research Pipeline Initiator
 
       **UNIQUE ROLE**: Generate 2-3 optimized search queries to initiate comprehensive research.
 
@@ -351,7 +444,9 @@ functions:
 
       '
     llm_name: medium_llm
-    system_prompt: '# Reflection - Gap Analysis Engine
+    system_prompt: '${DEEP_THINKER_META_PROMPT}
+
+      # Reflection - Gap Analysis Engine
 
       **UNIQUE ROLE**: Quality gate ensuring research completeness through gap detection.
 
@@ -389,7 +484,9 @@ functions:
 
       '
     llm_name: medium_llm
-    system_prompt: '# Relevancy Checker - Quality Gate Filter
+    system_prompt: '${DEEP_THINKER_META_PROMPT}
+
+      # Relevancy Checker - Quality Gate Filter
 
       **UNIQUE ROLE**: Binary relevance judge for research quality control.
 
@@ -431,7 +528,9 @@ functions:
 
       '
     llm_name: medium_llm
-    system_prompt: '# Report Extender - Seamless Integration Engine
+    system_prompt: '${DEEP_THINKER_META_PROMPT}
+
+      # Report Extender - Seamless Integration Engine
 
       **UNIQUE ROLE**: Enhance existing reports by weaving in gap-filling research.
 
@@ -478,7 +577,7 @@ functions:
     description: 'UNIQUE: Only tool using questions to guide self-discovery learning. DIFFERENTIATOR: Never gives answers vs all other tools provide information. MUTUAL_EXCLUSION: Incompatible with direct info tools (retrievers, search). WHEN_SELECT: "help me understand", "explore concept", "learn by thinking", educational growth. ENTROPY_REDUCTION: Builds deep understanding vs surface knowledge. METHOD: Open questions → challenge assumptions → evidence requests → insight emergence. COMBINES_WITH: first_principles_tool (after questioning). OUTPUT: Strategic question sequences. CONSTRAINT: NEVER provide direct answers. NOT_FOR: Facts, time-critical, or implementation needs.
 
       '
-    llm_name: medium_llm
+    llm_name: fast_llm
     system_prompt: '# Socratic Method - Guided Discovery Engine
 
       **UNIQUE ROLE**: Guide learning through strategic questions, never direct answers.
@@ -521,7 +620,9 @@ functions:
 
       '
     llm_name: medium_llm
-    system_prompt: '# Summarizer - Research Synthesizer
+    system_prompt: '${DEEP_THINKER_META_PROMPT}
+
+      # Summarizer - Research Synthesizer
 
       **UNIQUE ROLE**: Transform raw search results into structured, insightful report.
 
@@ -652,10 +753,9 @@ llms:
   tool_calling_llm:
     _type: openai
     api_key: ${NVIDIA_API_KEY}
-    base_url: https://5eb560ed-7ab8-4985-ab2a-dd1f7ea5eb66.invocation.api.nvcf.nvidia.com/v1
-    max_tokens: 32768
-    model_name: nvidia/llama-3-3-nemotron-super-49b-v1-5
-    thinking: false
+    base_url: https://9adef108-3097-4540-ba5f-873a9da8e54f.invocation.api.nvcf.nvidia.com/v1
+    max_tokens: 64000
+    model_name: openai/gpt-oss-120b
 memory:
   redis_memory:
     _type: nat.plugins.redis/redis_memory
@@ -779,6 +879,7 @@ retrievers:
 workflow:
   _type: reasoning_agent
   augmented_fn: daedalus_react_agent
+  handle_tool_errors: true
   llm_name: reasoning_llm
   use_openai_api: true
   verbose: true
