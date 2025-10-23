@@ -1,5 +1,5 @@
 import { NextApiRequest, NextApiResponse } from 'next';
-import { getOrSetSessionId } from './_utils';
+import { getOrSetSessionId, getUserId } from './_utils';
 import { cleanupSessionImages } from './imageStorage';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -10,12 +10,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   try {
     const sessionId = getOrSetSessionId(req, res);
+    const userId = await getUserId(req, res);
 
-    // Cleanup all images associated with this session
-    const deletedCount = await cleanupSessionImages(sessionId);
+    // Cleanup all images associated with this session and user
+    const deletedCount = await cleanupSessionImages(sessionId, userId);
 
     // Clear session storage
-    req.session = null;
+    // Note: Session cleanup is handled by the auth system
 
     return res.status(200).json({
       message: 'Session cleaned up successfully',

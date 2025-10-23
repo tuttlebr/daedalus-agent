@@ -1,9 +1,3 @@
-embedders:
-  milvus_embedder:
-    _type: nim
-    base_url: https://84105d6a-bb7e-4fc3-b401-f82cb3707a28.invocation.api.nvcf.nvidia.com/v1
-    model_name: nvidia/llama-3.2-nv-embedqa-1b-v2
-    truncate: END
 functions:
   bang_for_buck_tool:
     _type: chat_completion
@@ -271,13 +265,15 @@ functions:
     verbose: true
   nvidia_retriever_tool:
     _type: nat_retriever
-    description: 'UNIQUE: Authoritative NVIDIA technical/product knowledge base. DIFFERENTIATOR: Official NVIDIA content vs nvidia_rss_feed_tool (news) or general search. MUTUAL_EXCLUSION: Use over web search for ANY NVIDIA topic. WHEN_SELECT: GPUs (H100/B200), CUDA, TensorRT, NeMo, DGX, Jetson, NVIDIA software/hardware. ENTROPY_REDUCTION: Accurate specs and architecture details vs outdated web info. COMBINES_WITH: semianalysis_retriever (market analysis); nvidia_rss_feed_tool (latest news). OUTPUT: Technical specs, architecture docs, API details. NOT_FOR: Latest NVIDIA news (use nvidia_rss_feed_tool). Competitor products (use web search). '
+    description: 'UNIQUE: Authoritative NVIDIA technical/product knowledge base. DIFFERENTIATOR: Official NVIDIA content vs nvidia_rss_feed_tool (news) or general search. MUTUAL_EXCLUSION: Use over web search for ANY NVIDIA topic. WHEN_SELECT: GPUs (H100/A100), CUDA, TensorRT, NeMo, DGX, Jetson, NVIDIA software/hardware. ENTROPY_REDUCTION: Accurate specs and architecture details vs outdated web info. COMBINES_WITH: code_generation (CUDA examples); semianalysis_retriever (market analysis); nvidia_rss_feed_tool (latest news). OUTPUT: Technical specs, architecture docs, API details. NOT_FOR: Competitor products (use web search).
+
+      '
     retriever: nvidia_retriever
     topic: NVIDIA technology, products, and corporate information
     verbose: true
   nvidia_rss_feed_tool:
     _type: rss_feed
-    description: 'UNIQUE: Real-time NVIDIA developer blog feed with auto-scraping of full article content. DIFFERENTIATOR: Developer focused NVIDIA blog with complete articles vs nvidia_retriever_tool (established docs). MUTUAL_INFO: Complements nvidia_retriever with current developments. WHEN_SELECT: "Latest NVIDIA developer blog posts", "new GPU announcement", "recent NVIDIA updates". ENTROPY_REDUCTION: Captures news not yet in knowledge bases with full article text. COMBINES_WITH: nvidia_retriever_tool (context for news); current_datetime_tool (temporal relevance). OUTPUT: Full scraped content of single most relevant article (not just RSS metadata). WORKFLOW: RSS fetch→AI rerank→auto-scrape top result→return full text. NOT_FOR: Historical NVIDIA info (use nvidia_retriever_tool).'
+    description: 'UNIQUE: Real-time NVIDIA developer blog feed with auto-scraping of full article content. DIFFERENTIATOR: Breaking NVIDIA news with complete articles vs nvidia_retriever_tool (established docs). MUTUAL_INFO: Complements nvidia_retriever with current developments. WHEN_SELECT: "Latest NVIDIA blog posts", "new GPU announcement", "recent CUDA updates". ENTROPY_REDUCTION: Captures news not yet in knowledge bases with full article text. COMBINES_WITH: nvidia_retriever_tool (context for news); current_datetime_tool (temporal relevance). OUTPUT: Full scraped content of single most relevant article (not just RSS metadata). WORKFLOW: RSS fetch→AI rerank→auto-scrape top result→return full text. NOT_FOR: Historical NVIDIA info (use nvidia_retriever_tool).'
     feed_url: https://developer.nvidia.com/blog/feed
     reranker_api_key: ${NVIDIA_API_KEY}
     reranker_endpoint: https://c5b64ba3-16fd-4c3c-a2b8-cd9526f9d34b.invocation.api.nvcf.nvidia.com/v1/ranking
@@ -607,179 +603,3 @@ functions:
     description: 'UNIQUE: Direct Wikipedia article search and retrieval. DIFFERENTIATOR: Authoritative encyclopedic content vs web search variability. MUTUAL_EXCLUSION: Use for established topics over general web search. WHEN_SELECT: Need encyclopedic overview, historical facts, scientific concepts, biographies. ENTROPY_REDUCTION: Structured, verified content vs unstructured web results. COMBINES_WITH: domain retrievers (for specialized depth after overview). OUTPUT: Max 2 full Wikipedia articles. BEST_FOR: Foundational knowledge before deep dives. NOT_FOR: Recent events (use news tools) or technical implementation (use retrievers).'
     max_results: 2
     verbose: true
-general:
-  front_end:
-    _type: fastapi
-    step_adaptor:
-      event_category:
-      - LLM
-      - TOOL
-      mode: default
-  telemetry:
-    tracing:
-      phoenix:
-        _type: phoenix
-        endpoint: ${DAEDALUS_PHOENIX_ENDPOINT}
-        project: daedalus-deep-thinker
-llms:
-  coding_llm:
-    _type: openai
-    api_key: ${NVIDIA_API_KEY}
-    base_url: https://9adef108-3097-4540-ba5f-873a9da8e54f.invocation.api.nvcf.nvidia.com/v1
-    max_tokens: 32768
-    model_name: openai/gpt-oss-120b
-  fast_llm:
-    _type: openai
-    api_key: ${NVIDIA_API_KEY}
-    base_url: https://f4ca1242-1bb8-47c4-96c8-f55507f70296.invocation.api.nvcf.nvidia.com/v1
-    max_tokens: 32768
-    model_name: openai/gpt-oss-20b
-  medium_llm:
-    _type: openai
-    api_key: ${NVIDIA_API_KEY}
-    base_url: https://9adef108-3097-4540-ba5f-873a9da8e54f.invocation.api.nvcf.nvidia.com/v1
-    max_tokens: 32768
-    model_name: openai/gpt-oss-120b
-  reasoning_llm:
-    _type: openai
-    api_key: ${NVIDIA_API_KEY}
-    base_url: https://5eb560ed-7ab8-4985-ab2a-dd1f7ea5eb66.invocation.api.nvcf.nvidia.com/v1
-    max_tokens: 32768
-    model_name: nvidia/llama-3-3-nemotron-super-49b-v1-5
-    temperature: 0.6
-    thinking: true
-    top_p: 0.95
-  tool_calling_llm:
-    _type: openai
-    api_key: ${NVIDIA_API_KEY}
-    base_url: https://5eb560ed-7ab8-4985-ab2a-dd1f7ea5eb66.invocation.api.nvcf.nvidia.com/v1
-    max_tokens: 32768
-    model_name: nvidia/llama-3-3-nemotron-super-49b-v1-5
-    thinking: false
-memory:
-  redis_memory:
-    _type: nat.plugins.redis/redis_memory
-    db: 0
-    embedder: milvus_embedder
-    host: daedalus-redis.daedalus.svc.cluster.local
-    key_prefix: nat
-    port: 6379
-retrievers:
-  geolocation_retriever:
-    _type: smart_milvus
-    collection_name: geolocation
-    content_field: canonical_name
-    database_name: default
-    description: 'UNIQUE: Canonical geolocation database for location normalization. DIFFERENTIATOR: Resolves ambiguous locations with authoritative data vs guessing. MUTUAL_INFO: Essential for location-based tools needing precise coordinates. WHEN_SELECT: Any ambiguous location name before using weather/search tools. ENTROPY_REDUCTION: Eliminates location ambiguity errors. COMBINES_WITH: weather_tool, serpapi tools with location params. OUTPUT: Canonical name, lat/lon, region. USE_CASE: "Paris" → "Paris, France" or "Paris, Texas". NOT_FOR: Already precise locations.'
-    embedding_model: milvus_embedder
-    reranker_endpoint: https://c5b64ba3-16fd-4c3c-a2b8-cd9526f9d34b.invocation.api.nvcf.nvidia.com/v1/ranking
-    reranker_model: nvidia/llama-3.2-nv-rerankqa-1b-v2
-    reranker_top_n: 1
-    return_as_string: false
-    top_k: 5
-    uri: http://milvus.milvus.svc.cluster.local:19530
-    use_reranker: true
-    vector_field: embedding
-  kubernetes_retriever:
-    _type: smart_milvus
-    collection_name: kubernetes
-    content_field: text
-    database_name: default
-    description: 'UNIQUE: Curated Kubernetes technical documentation and best practices - not updated regularly. DIFFERENTIATOR: K8s-specific expertise vs general web search results. MUTUAL_EXCLUSION: Use instead of web search for Kubernetes topics. WHEN_SELECT: Pod scheduling, service mesh, K8s networking, storage, security policies. ENTROPY_REDUCTION: Authoritative K8s patterns vs varying blog quality. COMBINES_WITH: code_generation (YAML manifests). OUTPUT: Config patterns, troubleshooting guides, architecture concepts. COVERAGE: Official docs + expert technical blogs. NOT_FOR: Generic container questions.'
-    embedding_model: milvus_embedder
-    reranker_endpoint: https://c5b64ba3-16fd-4c3c-a2b8-cd9526f9d34b.invocation.api.nvcf.nvidia.com/v1/ranking
-    reranker_model: nvidia/llama-3.2-nv-rerankqa-1b-v2
-    reranker_top_n: 10
-    return_as_string: false
-    top_k: 20
-    uri: http://milvus.milvus.svc.cluster.local:19530
-    use_reranker: true
-    vector_field: vector
-    verbose: true
-  mentalhealth_retriever:
-    _type: smart_milvus
-    collection_name: mentalhealth
-    content_field: text
-    database_name: default
-    description: 'UNIQUE: Evidence-based mental health content from Mental Health Foundation - not updated regularly. DIFFERENTIATOR: Validated mental wellness info vs potentially harmful web content. MUTUAL_EXCLUSION: Use over general search for mental health topics. WHEN_SELECT: Anxiety, depression, stress, trauma, coping strategies, wellness practices. ENTROPY_REDUCTION: Trusted source vs unverified online advice. MANDATORY: Include educational disclaimer, not therapy. COMBINES_WITH: current_datetime_tool (crisis resources). OUTPUT: Condition guides, coping strategies, support resources. CRITICAL: Educational only; direct crises to hotlines.'
-    embedding_model: milvus_embedder
-    reranker_endpoint: https://c5b64ba3-16fd-4c3c-a2b8-cd9526f9d34b.invocation.api.nvcf.nvidia.com/v1/ranking
-    reranker_model: nvidia/llama-3.2-nv-rerankqa-1b-v2
-    reranker_top_n: 10
-    return_as_string: false
-    top_k: 20
-    uri: http://milvus.milvus.svc.cluster.local:19530
-    use_reranker: true
-    vector_field: vector
-    verbose: true
-  nvidia_retriever:
-    _type: smart_milvus
-    collection_name: nvidia
-    content_field: text
-    database_name: default
-    description: 'UNIQUE: Comprehensive NVIDIA knowledge base spanning products to research - not updated regularly. DIFFERENTIATOR: Official NVIDIA content vs nvidia_rss_feed (news) or web search. MUTUAL_EXCLUSION: Primary source for ANY NVIDIA technical topic. WHEN_SELECT: GPU architectures (H100/A100), CUDA, TensorRT, DGX, Jetson, NeMo. ENTROPY_REDUCTION: Accurate specs vs outdated web info. COMBINES_WITH: nvidia_rss_feed_tool (latest updates); code_generation (CUDA code). OUTPUT: Technical docs, product specs, research papers. COVERAGE: Hardware, software, corporate strategy. NOT_FOR: Competitor GPUs.'
-    embedding_model: milvus_embedder
-    reranker_endpoint: https://c5b64ba3-16fd-4c3c-a2b8-cd9526f9d34b.invocation.api.nvcf.nvidia.com/v1/ranking
-    reranker_model: nvidia/llama-3.2-nv-rerankqa-1b-v2
-    reranker_top_n: 10
-    return_as_string: false
-    top_k: 20
-    uri: http://milvus.milvus.svc.cluster.local:19530
-    use_reranker: true
-    vector_field: vector
-    verbose: true
-  semianalysis_retriever:
-    _type: smart_milvus
-    collection_name: semianalysis
-    content_field: text
-    database_name: default
-    description: 'UNIQUE: Expert semiconductor industry analysis from Semianalysis - not updated regularly. DIFFERENTIATOR: Deep chip industry intelligence vs general tech news. MUTUAL_EXCLUSION: Use over web search for semiconductor economics/manufacturing. WHEN_SELECT: Foundries (TSMC/Samsung/Intel), process nodes, chip economics, fab capacity. ENTROPY_REDUCTION: Industry expert analysis vs fragmented news. COMBINES_WITH: nvidia_retriever (for GPU context); code_generation (chip design). OUTPUT: Market analysis, technical insights, supply chain dynamics. COVERAGE: Manufacturing, economics, competitive intelligence. EXPERTISE: Technical + business perspectives.'
-    embedding_model: milvus_embedder
-    reranker_endpoint: https://c5b64ba3-16fd-4c3c-a2b8-cd9526f9d34b.invocation.api.nvcf.nvidia.com/v1/ranking
-    reranker_model: nvidia/llama-3.2-nv-rerankqa-1b-v2
-    reranker_top_n: 10
-    return_as_string: false
-    top_k: 20
-    uri: http://milvus.milvus.svc.cluster.local:19530
-    use_reranker: true
-    vector_field: vector
-    verbose: true
-  user_uploaded_files_retriever:
-    _type: smart_milvus
-    collection_name: nvidia
-    content_field: text
-    database_name: default
-    description: 'UNIQUE: Dynamic retriever for user-uploaded PDF content - use whenever the user has uploaded a PDF file in current session. DIFFERENTIATOR: Searches personal uploads vs all other retrievers (public data). MUTUAL_INFO: REQUIRES nv_ingest_tool to process PDF first. WHEN_SELECT: After PDF upload when querying its content. ENTROPY_REDUCTION: Extracts specific info from user documents. WORKFLOW: [nv_ingest]→[THIS queries]. DYNAMIC: Collection name = authenticated username. OUTPUT: Relevant chunks from user PDF. COMBINES_WITH: ONLY nv_ingest_tool. NOT_FOR: Public knowledge queries.'
-    embedding_model: milvus_embedder
-    reranker_endpoint: https://c5b64ba3-16fd-4c3c-a2b8-cd9526f9d34b.invocation.api.nvcf.nvidia.com/v1/ranking
-    reranker_model: nvidia/llama-3.2-nv-rerankqa-1b-v2
-    reranker_top_n: 10
-    return_as_string: false
-    top_k: 20
-    uri: http://milvus.milvus.svc.cluster.local:19530
-    use_reranker: true
-    vector_field: vector
-    verbose: true
-  veterinarian_retriever:
-    _type: smart_milvus
-    collection_name: vetpartner
-    content_field: text
-    database_name: default
-    description: 'UNIQUE: Expert veterinary knowledge from VetPartner database - not updated regularly. DIFFERENTIATOR: Animal health expertise vs mentalhealth_retriever (human) or web. MUTUAL_EXCLUSION: Primary source for ANY pet health topic. WHEN_SELECT: Animal symptoms, diseases, medications, nutrition, veterinary care. ENTROPY_REDUCTION: Trusted vet info vs dangerous web advice. MANDATORY: Include "consult veterinarian" disclaimer. COMBINES_WITH: current_datetime_tool (emergency vet hours). OUTPUT: Treatment protocols, drug info, care guidelines. SPECIES: Dogs, cats, horses, birds, exotics. NOT_FOR: Human health questions.'
-    embedding_model: milvus_embedder
-    reranker_endpoint: https://c5b64ba3-16fd-4c3c-a2b8-cd9526f9d34b.invocation.api.nvcf.nvidia.com/v1/ranking
-    reranker_model: nvidia/llama-3.2-nv-rerankqa-1b-v2
-    reranker_top_n: 10
-    return_as_string: false
-    top_k: 20
-    uri: http://milvus.milvus.svc.cluster.local:19530
-    use_reranker: true
-    vector_field: vector
-    verbose: true
-workflow:
-  _type: reasoning_agent
-  augmented_fn: daedalus_react_agent
-  llm_name: reasoning_llm
-  use_openai_api: true
-  verbose: true
-  workflow_alias: daedalus-deep-thinker

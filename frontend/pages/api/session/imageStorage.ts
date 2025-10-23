@@ -49,13 +49,25 @@ export async function storeImage(
     userId
   };
 
-  const key = sessionKey(['image', sessionId, imageId]);
+  // Use user-specific key for authenticated users, session-specific for anonymous
+  const key = userId
+    ? sessionKey(['user', userId, 'image', imageId])
+    : sessionKey(['image', sessionId, imageId]);
+
   await jsonSetWithExpiry(key, imageData, IMAGE_EXPIRY_SECONDS);
 
-  // Also store a reference in a session-specific set for easy cleanup
-  const sessionImagesKey = sessionKey(['session-images', sessionId]);
-  await redis.sadd(sessionImagesKey, imageId);
-  await redis.expire(sessionImagesKey, IMAGE_EXPIRY_SECONDS);
+  // Also store a reference for easy cleanup
+  if (userId) {
+    // For authenticated users, store in user-specific set
+    const userImagesKey = sessionKey(['user', userId, 'images']);
+    await redis.sadd(userImagesKey, imageId);
+    await redis.expire(userImagesKey, IMAGE_EXPIRY_SECONDS);
+  } else {
+    // For anonymous users, store in session-specific set
+    const sessionImagesKey = sessionKey(['session-images', sessionId]);
+    await redis.sadd(sessionImagesKey, imageId);
+    await redis.expire(sessionImagesKey, IMAGE_EXPIRY_SECONDS);
+  }
 
   return imageId;
 }
@@ -63,8 +75,19 @@ export async function storeImage(
 // Retrieve image from Redis
 export async function getImage(
   sessionId: string,
-  imageId: string
+  imageId: string,
+  userId?: string
 ): Promise<StoredImage | null> {
+  // Try user-specific key first if userId is provided
+  if (userId) {
+    const userKey = sessionKey(['user', userId, 'image', imageId]);
+    const userImage = await jsonGet(userKey) as StoredImage | null;
+    if (userImage) {
+      return userImage;
+    }
+  }
+
+  // Fall back to session-specific key (for backward compatibility)
   const key = sessionKey(['image', sessionId, imageId]);
   return await jsonGet(key) as StoredImage | null;
 }
@@ -72,16 +95,33 @@ export async function getImage(
 // Delete image from Redis
 export async function deleteImage(
   sessionId: string,
-  imageId: string
+  imageId: string,
+  userId?: string
 ): Promise<boolean> {
   const redis = getRedis();
-  const key = sessionKey(['image', sessionId, imageId]);
+  let result = 0;
 
-  const result = await jsonDel(key);
+  // Try to delete from user-specific key if userId is provided
+  if (userId) {
+    const userKey = sessionKey(['user', userId, 'image', imageId]);
+    result = await jsonDel(userKey);
 
-  // Remove from session images set
-  const sessionImagesKey = sessionKey(['session-images', sessionId]);
-  await redis.srem(sessionImagesKey, imageId);
+    // Also remove from user images set
+    if (result > 0) {
+      const userImagesKey = sessionKey(['user', userId, 'images']);
+      await redis.srem(userImagesKey, imageId);
+    }
+  }
+
+  // Also try session-specific key (for backward compatibility)
+  if (result === 0) {
+    const key = sessionKey(['image', sessionId, imageId]);
+    result = await jsonDel(key);
+
+    // Also remove from session images set
+    const sessionImagesKey = sessionKey(['session-images', sessionId]);
+    await redis.srem(sessionImagesKey, imageId);
+  }
 
   return result > 0;
 }
@@ -94,16 +134,40 @@ export async function getSessionImages(sessionId: string): Promise<string[]> {
   return await redis.smembers(sessionImagesKey);
 }
 
-// Clean up all images for a session
-export async function cleanupSessionImages(sessionId: string): Promise<number> {
+// Get all images for a user
+export async function getUserImages(userId: string): Promise<string[]> {
   const redis = getRedis();
-  const imageIds = await getSessionImages(sessionId);
+  const userImagesKey = sessionKey(['user', userId, 'images']);
 
+  return await redis.smembers(userImagesKey);
+}
+
+// Clean up all images for a session
+export async function cleanupSessionImages(sessionId: string, userId?: string): Promise<number> {
+  const redis = getRedis();
   let deletedCount = 0;
-  for (const imageId of imageIds) {
-    const deleted = await deleteImage(sessionId, imageId);
-    if (deleted) deletedCount++;
+
+  // Clean up user images if userId is provided
+  if (userId) {
+    const userImageIds = await getUserImages(userId);
+    for (const imageId of userImageIds) {
+      const key = sessionKey(['user', userId, 'image', imageId]);
+      const result = await redis.del(key);
+      if (result > 0) {
+        deletedCount++;
+      }
+    }
+    // Clean up the user images set
+    const userImagesKey = sessionKey(['user', userId, 'images']);
+    await redis.del(userImagesKey);
   }
+
+  // Also clean up session images (for anonymous users or backward compatibility)
+  const imageIds = await getSessionImages(sessionId);
+  for (const imageId of imageIds) {
+      const deleted = await deleteImage(sessionId, imageId, userId);
+      if (deleted) deletedCount++;
+    }
 
   // Delete the session images set
   const sessionImagesKey = sessionKey(['session-images', sessionId]);
@@ -127,7 +191,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
       const imageId = await storeImage(sessionId, userId, base64Data, mimeType);
 
-      return res.status(200).json({ imageId, sessionId });
+      return res.status(200).json({ imageId, sessionId, userId });
     } catch (error) {
       console.error('Error storing image:', error);
       return res.status(500).json({ error: 'Failed to store image' });
@@ -147,7 +211,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       : sessionId;
 
     try {
-      const image = await getImage(targetSessionId, imageId);
+      const image = await getImage(targetSessionId, imageId, userId);
 
       if (!image) {
         return res.status(404).json({ error: 'Image not found' });
@@ -172,7 +236,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     try {
-      const deleted = await deleteImage(sessionId, imageId);
+      const deleted = await deleteImage(sessionId, imageId, userId);
 
       if (!deleted) {
         return res.status(404).json({ error: 'Image not found' });

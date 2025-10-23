@@ -11,9 +11,12 @@ export const MemoizedChatMessage: FC<Props> = memo(
         // Debug: log when content changes (especially for images)
         if (!shouldRender && prevProps.message.content !== nextProps.message.content) {
             console.log('MemoizedChatMessage: Content changed, will re-render', {
+                messageId: nextProps.message.id,
                 prevContentLength: prevProps.message.content?.length,
                 nextContentLength: nextProps.message.content?.length,
-                hasImages: nextProps.message.content?.includes('/api/session/imageStorage')
+                hasBase64Images: nextProps.message.content?.includes('data:image'),
+                hasStoredImages: nextProps.message.content?.includes('/api/session/imageStorage'),
+                contentPreview: nextProps.message.content?.substring(0, 100)
             });
         }
 
