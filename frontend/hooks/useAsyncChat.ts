@@ -84,24 +84,7 @@ export const useAsyncChat = (options: UseAsyncChatOptions = {}): UseAsyncChatRet
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const currentJobIdRef = useRef<string | null>(null);
   const hasResumedRef = useRef(false); // Prevent double-resume
-  const pollCountRef = useRef(0);
-  const lastUpdateTimeRef = useRef<number>(0);
-  const currentPollingIntervalRef = useRef(pollingInterval);
   const isComponentMountedRef = useRef(true);
-
-  // Create a ref for the polling function to avoid circular dependencies
-  const pollAndScheduleRef = useRef<(jobId: string) => void>();
-
-  // Schedule next poll with dynamic interval
-  const scheduleNextPoll = useCallback((jobId: string) => {
-    if (!isComponentMountedRef.current || !currentJobIdRef.current) return;
-
-    pollingIntervalRef.current = setTimeout(() => {
-      if (pollAndScheduleRef.current) {
-        pollAndScheduleRef.current(jobId);
-      }
-    }, currentPollingIntervalRef.current);
-  }, []);
 
   // Poll for job status
   const pollJobStatus = useCallback(async (jobId: string) => {
@@ -120,27 +103,6 @@ export const useAsyncChat = (options: UseAsyncChatOptions = {}): UseAsyncChatRet
       const status: AsyncJobStatus = await response.json();
       setJobStatus(status);
 
-      // Intelligent polling: Adjust interval based on activity
-      const now = Date.now();
-      const hasUpdate = status.updatedAt > lastUpdateTimeRef.current;
-
-      if (hasUpdate) {
-        // Activity detected, reset to fast polling
-        lastUpdateTimeRef.current = status.updatedAt;
-        currentPollingIntervalRef.current = pollingInterval;
-        pollCountRef.current = 0;
-      } else {
-        // No updates, gradually increase polling interval
-        pollCountRef.current++;
-        if (pollCountRef.current > 5) {
-          // After 5 polls with no updates, slow down
-          currentPollingIntervalRef.current = Math.min(
-            currentPollingIntervalRef.current * 1.5,
-            10000 // Max 10 seconds
-          );
-        }
-      }
-
       // Call progress callback
       if (onProgress) {
         onProgress(status);
@@ -155,7 +117,7 @@ export const useAsyncChat = (options: UseAsyncChatOptions = {}): UseAsyncChatRet
         }
         // Clear polling and persisted job
         if (pollingIntervalRef.current) {
-          clearTimeout(pollingIntervalRef.current);
+          clearInterval(pollingIntervalRef.current);
           pollingIntervalRef.current = null;
         }
         clearPersistedJob(userId);
@@ -171,7 +133,7 @@ export const useAsyncChat = (options: UseAsyncChatOptions = {}): UseAsyncChatRet
         }
         // Clear polling and persisted job
         if (pollingIntervalRef.current) {
-          clearTimeout(pollingIntervalRef.current);
+          clearInterval(pollingIntervalRef.current);
           pollingIntervalRef.current = null;
         }
         clearPersistedJob(userId);
@@ -189,22 +151,6 @@ export const useAsyncChat = (options: UseAsyncChatOptions = {}): UseAsyncChatRet
       return null;
     }
   }, [onProgress, onComplete, onError, userId]);
-
-  // Set up the poll and schedule function
-  useEffect(() => {
-    pollAndScheduleRef.current = async (jobId: string) => {
-      if (!isComponentMountedRef.current || !currentJobIdRef.current || currentJobIdRef.current !== jobId) {
-        return;
-      }
-
-      await pollJobStatus(jobId);
-
-      // Schedule next poll if still polling
-      if (isPolling && currentJobIdRef.current === jobId) {
-        scheduleNextPoll(jobId);
-      }
-    };
-  }, [pollJobStatus, scheduleNextPoll, isPolling]);
 
   // Start async job
   const startAsyncJob = useCallback(async (
@@ -252,18 +198,15 @@ export const useAsyncChat = (options: UseAsyncChatOptions = {}): UseAsyncChatRet
       // Start polling
       setIsPolling(true);
 
-      // Reset polling parameters
-      pollCountRef.current = 0;
-      lastUpdateTimeRef.current = Date.now();
-      currentPollingIntervalRef.current = pollingInterval;
-
       // Initial poll
       await pollJobStatus(jobId);
 
-      // Schedule next poll with dynamic interval
-      if (isPolling && currentJobIdRef.current === jobId) {
-        scheduleNextPoll(jobId);
-      }
+      // Set up interval polling
+      pollingIntervalRef.current = setInterval(async () => {
+        if (currentJobIdRef.current === jobId && isComponentMountedRef.current) {
+          await pollJobStatus(jobId);
+        }
+      }, pollingInterval);
 
       return jobId;
     } catch (error: any) {
@@ -281,7 +224,7 @@ export const useAsyncChat = (options: UseAsyncChatOptions = {}): UseAsyncChatRet
     return () => {
       isComponentMountedRef.current = false;
       if (pollingIntervalRef.current) {
-        clearTimeout(pollingIntervalRef.current);
+        clearInterval(pollingIntervalRef.current);
       }
     };
   }, []);
@@ -294,7 +237,7 @@ export const useAsyncChat = (options: UseAsyncChatOptions = {}): UseAsyncChatRet
     try {
       // Stop polling
       if (pollingIntervalRef.current) {
-        clearTimeout(pollingIntervalRef.current);
+        clearInterval(pollingIntervalRef.current);
         pollingIntervalRef.current = null;
       }
 
@@ -336,15 +279,14 @@ export const useAsyncChat = (options: UseAsyncChatOptions = {}): UseAsyncChatRet
     // If job is still running, set up polling
     if (status && status.status !== 'completed' && status.status !== 'error') {
       if (pollingIntervalRef.current) {
-        clearTimeout(pollingIntervalRef.current);
+        clearInterval(pollingIntervalRef.current);
       }
-      // Reset polling parameters for resumed job
-      pollCountRef.current = 0;
-      lastUpdateTimeRef.current = Date.now();
-      currentPollingIntervalRef.current = pollingInterval;
-
-      // Schedule next poll
-      scheduleNextPoll(persistedJob.jobId);
+      // Set up interval polling
+      pollingIntervalRef.current = setInterval(async () => {
+        if (currentJobIdRef.current === persistedJob.jobId && isComponentMountedRef.current) {
+          await pollJobStatus(persistedJob.jobId);
+        }
+      }, pollingInterval);
     }
   }, [userId, pollJobStatus, pollingInterval]);
 
@@ -373,7 +315,7 @@ export const useAsyncChat = (options: UseAsyncChatOptions = {}): UseAsyncChatRet
   useEffect(() => {
     return () => {
       if (pollingIntervalRef.current) {
-        clearTimeout(pollingIntervalRef.current);
+        clearInterval(pollingIntervalRef.current);
       }
     };
   }, []);

@@ -166,6 +166,14 @@ export const Chat = () => {
     onComplete: async (fullResponse, intermediateSteps, finalizedAt) => {
       console.log('✅ Async job completed with full response', { finalizedAt });
 
+      // Process any base64 images in the response
+      const { processMarkdownImages } = await import('@/utils/app/imageHandler');
+      const processedResponse = await processMarkdownImages(fullResponse);
+
+      if (processedResponse !== fullResponse) {
+        console.log('Async job: Replaced base64 images with Redis references');
+      }
+
       // Use current ref to avoid stale closure
       const currentConversation = selectedConversationRef.current;
       if (currentConversation) {
@@ -173,7 +181,7 @@ export const Chat = () => {
         const lastMessage = updatedMessages[updatedMessages.length - 1];
 
           if (lastMessage && lastMessage.role === 'assistant') {
-            lastMessage.content = fullResponse;
+            lastMessage.content = processedResponse;  // Use processed response
             // Merge intermediate steps to avoid duplicates
             lastMessage.intermediateSteps = mergeIntermediateSteps(
               lastMessage.intermediateSteps || [],
@@ -183,7 +191,7 @@ export const Chat = () => {
           } else {
             updatedMessages.push({
               role: 'assistant',
-              content: fullResponse,
+              content: processedResponse,  // Use processed response
               intermediateSteps: intermediateSteps || [],
             });
           }
@@ -198,9 +206,9 @@ export const Chat = () => {
           value: updatedConversation,
         });
 
-        // Cancel any pending debounced saves
-        debouncedSaveConversation.cancel();
-        debouncedSaveConversations.cancel();
+        // Flush any pending debounced saves immediately
+        debouncedSaveConversation.flush();
+        debouncedSaveConversations.flush();
 
         // Immediately save the final state with error recovery
         try {
@@ -343,6 +351,27 @@ export const Chat = () => {
     }
   }, [isPWA]);
 
+  // Ensure saves are flushed when the window is about to unload
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      // Flush any pending saves
+      debouncedSaveConversation.flush();
+      debouncedSaveConversations.flush();
+
+      // If there are unsaved changes and streaming is active, warn the user
+      if (messageIsStreaming) {
+        e.preventDefault();
+        e.returnValue = 'You have an active conversation. Are you sure you want to leave?';
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, [messageIsStreaming, debouncedSaveConversation, debouncedSaveConversations]);
+
   // Comprehensive visibility change handler for state recovery
   useEffect(() => {
     if (!isPWA || !enableBackgroundProcessing) return;
@@ -397,9 +426,7 @@ export const Chat = () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       window.removeEventListener('focus', handleFocus);
       // Cancel any pending syncs
-      if (syncConversation) {
-        // syncConversation might return a promise with abort capability
-      }
+      // syncConversation might return a promise with abort capability in the future
     };
   }, [isPWA, enableBackgroundProcessing, selectedConversation, syncConversation, isPolling, jobStatus, messageIsStreaming]);
 
@@ -926,6 +953,9 @@ export const Chat = () => {
               // Update the message with processed content (base64 replaced with references)
               if (processedContent !== lastMessage.content) {
                 console.log('Image processing: Replaced base64 images with Redis references');
+                console.log('Original content length:', lastMessage.content.length);
+                console.log('Processed content length:', processedContent.length);
+                console.log('Processed content preview:', processedContent.substring(0, 200));
 
                 // Create NEW message and conversation objects to trigger React re-render
                 const updatedMessage = { ...lastMessage, content: processedContent };
@@ -944,10 +974,16 @@ export const Chat = () => {
                   field: 'selectedConversation',
                   value: updatedConversation,
                 });
+
+                console.log('Updated conversation with processed images');
+              } else {
+                console.log('No base64 images found to process in response');
               }
             }
 
+            // Save conversation AFTER image processing
             saveConversation(updatedConversation);
+
             // Check if the conversation exists in the list
             const conversationExists = conversations.some(
               (conversation) => conversation.id === selectedConversation.id
@@ -955,11 +991,11 @@ export const Chat = () => {
 
             let updatedConversations: Conversation[];
             if (conversationExists) {
-              // Update existing conversation
+              // Update existing conversation with the PROCESSED version
               updatedConversations = conversations.map(
                 (conversation) => {
                   if (conversation.id === selectedConversation.id) {
-                    return updatedConversation;
+                    return updatedConversation; // This now includes processed images
                   }
                   return conversation;
                 },
@@ -968,6 +1004,7 @@ export const Chat = () => {
               // Add new conversation to the list
               updatedConversations = [...conversations, updatedConversation];
             }
+
             homeDispatch({
               field: 'conversations',
               value: updatedConversations,
@@ -1253,16 +1290,18 @@ export const Chat = () => {
       if (autoScrollTimeoutRef.current) {
         clearTimeout(autoScrollTimeoutRef.current);
       }
-      // Clean up debounced functions
+      // Flush any pending saves before cancelling
+      debouncedSaveConversation.flush();
+      debouncedSaveConversations.flush();
+      // Then cancel to prevent any new calls
       debouncedSaveConversation.cancel();
       debouncedSaveConversations.cancel();
-      throttledScrollDown.cancel();
       // Abort any pending fetch requests
       if (controllerRef.current) {
         controllerRef.current.abort();
       }
     };
-  }, []);
+  }, [debouncedSaveConversation, debouncedSaveConversations]);
 
   const hasMessages = Boolean(selectedConversation?.messages?.length);
 

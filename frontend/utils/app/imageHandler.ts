@@ -4,6 +4,7 @@ import { apiBase } from './api';
 export interface ImageReference {
   imageId: string;
   sessionId: string;
+  userId?: string; // Added to support user-specific image storage
   mimeType?: string;
   url?: string;
 }
@@ -31,8 +32,8 @@ export async function uploadImage(base64Data: string, mimeType: string = 'image/
       throw new Error('Failed to upload image');
     }
 
-    const { imageId, sessionId } = await response.json();
-    return { imageId, sessionId, mimeType };
+    const { imageId, sessionId, userId } = await response.json();
+    return { imageId, sessionId, userId, mimeType };
   } catch (error) {
     console.error('Error uploading image:', error);
     throw error;
@@ -41,7 +42,15 @@ export async function uploadImage(base64Data: string, mimeType: string = 'image/
 
 // Get image URL from reference
 export function getImageUrl(imageRef: ImageReference): string {
-  return `/api/session/imageStorage?imageId=${imageRef.imageId}&sessionId=${imageRef.sessionId}`;
+  // Include both sessionId and userId in the URL for maximum compatibility
+  let url = `/api/session/imageStorage?imageId=${imageRef.imageId}`;
+
+  if (imageRef.sessionId) {
+    url += `&sessionId=${imageRef.sessionId}`;
+  }
+
+  // Note: userId is handled server-side through authentication, not passed in URL
+  return url;
 }
 
 // Process message to replace base64 images with references
