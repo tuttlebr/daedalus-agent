@@ -1,0 +1,28 @@
+general:
+  logging:
+    console:
+      _type: console
+      level: INFO
+
+  front_end:
+    _type: console
+
+workflow:
+  _type: rss_feed
+
+  # RSS Feed URL (required)
+  feed_url: null  # e.g., "https://feeds.arstechnica.com/arstechnica/technology-lab"
+
+  # Reranker configuration (required)
+  reranker_endpoint: null  # e.g., "https://ai.api.nvidia.com/v1/ranking"
+  reranker_model: null     # e.g., "nvidia/nv-rerankqa-mistral-4b-v3"
+  reranker_api_key: null   # Or set via NVIDIA_API_KEY env var
+
+  # Cache configuration
+  cache_ttl_hours: 4.0
+  cache_backend: "memory"  # Currently only memory is supported
+
+  # Request configuration
+  timeout: 30.0
+  user_agent: "daedalus-rss-reader/1.0"
+  max_entries: 20  # Maximum RSS entries to process

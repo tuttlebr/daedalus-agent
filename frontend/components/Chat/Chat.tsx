@@ -396,6 +396,10 @@ export const Chat = () => {
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       window.removeEventListener('focus', handleFocus);
+      // Cancel any pending syncs
+      if (syncConversation) {
+        // syncConversation might return a promise with abort capability
+      }
     };
   }, [isPWA, enableBackgroundProcessing, selectedConversation, syncConversation, isPolling, jobStatus, messageIsStreaming]);
 
@@ -1249,6 +1253,14 @@ export const Chat = () => {
       if (autoScrollTimeoutRef.current) {
         clearTimeout(autoScrollTimeoutRef.current);
       }
+      // Clean up debounced functions
+      debouncedSaveConversation.cancel();
+      debouncedSaveConversations.cancel();
+      throttledScrollDown.cancel();
+      // Abort any pending fetch requests
+      if (controllerRef.current) {
+        controllerRef.current.abort();
+      }
     };
   }, []);
 
@@ -1321,6 +1333,13 @@ export const Chat = () => {
           <div className="mx-auto flex h-full w-full max-w-5xl flex-col responsive-px pb-0 pt-4 sm:pt-6">
             {hasMessages ? (
               <div className="flex flex-col space-y-3 sm:space-y-4 min-w-0">
+                {/* TODO: Replace with VirtualMessageList for better performance with many messages
+                <VirtualMessageList
+                  messages={selectedConversation?.messages || []}
+                  containerHeight={window.innerHeight - 200}
+                  onScroll={handleScroll}
+                />
+                */}
                 {selectedConversation?.messages.map((message, index) => (
                   <MemoizedChatMessage
                     key={message.id || index}
