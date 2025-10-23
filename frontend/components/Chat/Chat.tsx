@@ -602,7 +602,7 @@ export const Chat = () => {
 
           // Append Deep Thinker workflow instructions only if the metadata flag is set
           if ((lastMessage as any).metadata?.useDeepThinker) {
-            lastMessage.content = `${lastMessage.content}\n\nToday is ${formattedDate}.\n\nDEEP RESEARCH NEEDED: You must follow the researcher workflow: query_writer_researcher → execute research → summarizer_researcher → (optional) reflection_researcher/report_extender_researcher → finalize_report_researcher.`;
+            lastMessage.content = `${lastMessage.content}\n\nToday is ${formattedDate}.\n\nDEEP RESEARCH NEEDED: You must follow the researcher workflow: query_writer_researcher → execute research with available tools → summarizer_researcher → report_extender_researcher → reflection_researcher → finalize_report_researcher.`;
           }
         }
 
@@ -1395,7 +1395,7 @@ export const Chat = () => {
               </div>
             )}
 
-            {loading && <ChatLoader statusUpdateText={`Thinking...`} />}
+            {loading && <ChatLoader statusUpdateText={useDeepThinker ? `Conducting deep analysis...` : `Thinking...`} />}
 
             {/* Spacer to prevent content from being hidden behind the input area */}
             {/* Responsive: 80px on mobile (accounts for input), 64px on desktop */}

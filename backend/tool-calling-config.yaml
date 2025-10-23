@@ -652,10 +652,9 @@ llms:
   tool_calling_llm:
     _type: openai
     api_key: ${NVIDIA_API_KEY}
-    base_url: https://5eb560ed-7ab8-4985-ab2a-dd1f7ea5eb66.invocation.api.nvcf.nvidia.com/v1
-    max_tokens: 32768
-    model_name: nvidia/llama-3-3-nemotron-super-49b-v1-5
-    thinking: false
+    base_url: https://9adef108-3097-4540-ba5f-873a9da8e54f.invocation.api.nvcf.nvidia.com/v1
+    max_tokens: 64000
+    model_name: openai/gpt-oss-120b
 memory:
   redis_memory:
     _type: nat.plugins.redis/redis_memory
