@@ -31,6 +31,53 @@ export const GalaxyAnimation: React.FC<GalaxyAnimationProps> = ({
   animationDuration = 12,
   className = '',
 }) => {
+  const [isPaused, setIsPaused] = React.useState(false);
+  const containerRef = React.useRef<HTMLDivElement>(null);
+
+  // Check if user prefers reduced motion
+  const prefersReducedMotion = React.useMemo(() => {
+    if (typeof window === 'undefined') return false;
+    return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  }, []);
+
+  // Pause animation when tab is not visible or when scrolled out of view
+  React.useEffect(() => {
+    const handleVisibilityChange = () => {
+      setIsPaused(document.hidden);
+    };
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (!entry.isIntersecting) {
+          setIsPaused(true);
+        } else if (!document.hidden) {
+          setIsPaused(false);
+        }
+      },
+      { threshold: 0.1 }
+    );
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    if (containerRef.current) {
+      observer.observe(containerRef.current);
+    }
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      observer.disconnect();
+    };
+  }, []);
+
+  // If user prefers reduced motion, show static version
+  if (prefersReducedMotion) {
+    return (
+      <div ref={containerRef} className={`relative ${className}`} style={{ width: containerSize, height: containerSize }}>
+        <img src="/favicon.png" alt="Logo" className="w-full h-full object-contain" />
+      </div>
+    );
+  }
+
   // Define network nodes with triangles at specific positions
   const nodesConfig: NodeConfig[] = [
     // Inner ring nodes
@@ -138,6 +185,7 @@ export const GalaxyAnimation: React.FC<GalaxyAnimationProps> = ({
             transform: `translate(calc(${pos.x}px - ${node.size / 2}px), calc(${pos.y}px - ${node.size / 2}px))`,
             filter: 'drop-shadow(0 0 3px var(--galaxy-glow, var(--color-nvidia-green)))',
             animation: `node-expand-${index} 4s ease-in-out infinite ${delay}s, triangle-glow 2s ease-in-out infinite ${delay}s`,
+            animationPlayState: isPaused ? 'paused' : 'running',
           }}
         />
       );
@@ -156,6 +204,7 @@ export const GalaxyAnimation: React.FC<GalaxyAnimationProps> = ({
             transform: `translate(calc(${pos.x}px - ${node.size / 2}px), calc(${pos.y}px - ${node.size / 2}px))`,
             boxShadow: '0 0 4px color-mix(in srgb, var(--galaxy-glow, var(--color-nvidia-green)), transparent 20%)',
             animation: `node-expand-${index} 4s ease-in-out infinite ${delay}s, node-pulse 2.5s ease-in-out infinite ${delay}s`,
+            animationPlayState: isPaused ? 'paused' : 'running',
           }}
         />
       );
@@ -238,6 +287,7 @@ export const GalaxyAnimation: React.FC<GalaxyAnimationProps> = ({
       }} />
 
       <div
+        ref={containerRef}
         className={`galaxy-container relative mx-auto ${className}`}
         style={{
           width: `${containerSize}px`,
@@ -248,6 +298,7 @@ export const GalaxyAnimation: React.FC<GalaxyAnimationProps> = ({
           className="network-container absolute w-full h-full"
           style={{
             animation: `galaxy-rotate ${animationDuration}s linear infinite, network-breathe 6s ease-in-out infinite`,
+            animationPlayState: isPaused ? 'paused' : 'running',
           }}
         >
           {/* Render connections */}

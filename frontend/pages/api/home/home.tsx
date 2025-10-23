@@ -189,8 +189,12 @@ const Home = (props: any) => {
 
     // Use user-specific storage keys to prevent data leakage between users
     const showChatbar = getUserSessionItem('showChatbar');
-    if (showChatbar) {
+    if (showChatbar !== null) {
       dispatch({ field: 'showChatbar', value: showChatbar === 'true' });
+    } else {
+      // If no sessionStorage value, use the default from initialState (false)
+      dispatch({ field: 'showChatbar', value: false });
+      setUserSessionItem('showChatbar', 'false');
     }
 
     const chatHistory = getUserSessionItem('chatHistory');

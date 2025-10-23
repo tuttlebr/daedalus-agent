@@ -192,7 +192,7 @@ functions:
     verbose: true
   current_datetime_tool:
     _type: current_datetime
-    description: Returns the current date, time, day of week, and timezone. Usueful for ALL conversations.
+    description: Returns the current date, time, day of week, and timezone. Usueful for ALL conversations. Use this tool first whenever any other tools are used. It is required to use this tool before using any other tools.
     verbose: true
   daedalus_react_agent:
     _type: react_agent
@@ -314,6 +314,14 @@ functions:
     description: Retrieves authoritative information from NVIDIA knowledge base including GPU specifications, CUDA programming, AI frameworks (NeMo, TensorRT), robotics, product comparisons (A100 vs H100), platform capabilities (DGX, Jetson), and corporate announcements. Combines engineering-level technical detail with business context from official NVIDIA sources. Use when queries require NVIDIA-specific expertise or product information.
     retriever: nvidia_retriever
     topic: NVIDIA technology, products, and corporate information
+    verbose: true
+  nvidia_rss_feed_tool:
+    _type: rss_feed
+    description: RSS feed tool for NVIDIA Developer Blog.
+    feed_url: https://developer.nvidia.com/blog/feed
+    reranker_api_key: ${NVIDIA_API_KEY}
+    reranker_endpoint: https://c5b64ba3-16fd-4c3c-a2b8-cd9526f9d34b.invocation.api.nvcf.nvidia.com/v1/ranking
+    reranker_model: nvidia/llama-3.2-nv-rerankqa-1b-v2
     verbose: true
   realtime_serpapi_ai_tool:
     _type: serpapi_ai
@@ -438,9 +446,7 @@ general:
       event_category:
       - LLM
       - TOOL
-      - WORKFLOW
-      - FUNCTION
-      mode: custom
+      mode: default
   telemetry:
     tracing:
       phoenix:
@@ -623,6 +629,7 @@ workflow:
   - mentalhealth_retriever_tool
   - nvidia_retriever_tool
   - nv_ingest_tool
+  - nvidia_rss_feed_tool
   - realtime_serpapi_ai_tool
   - realtime_serpapi_news_tool
   - realtime_serpapi_search_tool

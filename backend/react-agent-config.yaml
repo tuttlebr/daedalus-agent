@@ -1190,9 +1190,7 @@ general:
       event_category:
       - LLM
       - TOOL
-      - WORKFLOW
-      - FUNCTION
-      mode: custom
+      mode: default
   telemetry:
     tracing:
       phoenix:

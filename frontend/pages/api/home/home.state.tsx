@@ -27,6 +27,7 @@ export interface HomeInitialState {
   enableBackgroundProcessing?: boolean;
   useDeepThinker: boolean;
   showVoiceRecorder: boolean;
+  energySavingMode?: boolean;
 }
 
 export const initialState: HomeInitialState = {
@@ -37,7 +38,7 @@ export const initialState: HomeInitialState = {
   conversations: [],
   selectedConversation: undefined,
   currentMessage: undefined,
-  showChatbar: true,
+  showChatbar: false,
   currentFolder: undefined,
   messageError: false,
   searchTerm: '',
@@ -53,4 +54,5 @@ export const initialState: HomeInitialState = {
   useDeepThinker: false,
   showVoiceRecorder: false,
   enableBackgroundProcessing: true,
+  energySavingMode: false,
 };
