@@ -718,37 +718,45 @@ general:
         project: daedalus-deep-thinker
 llms:
   coding_llm:
-    _type: openai
+    _type: nim
     api_key: ${NVIDIA_API_KEY}
-    base_url: https://9adef108-3097-4540-ba5f-873a9da8e54f.invocation.api.nvcf.nvidia.com/v1
-    max_tokens: 32768
-    model_name: openai/gpt-oss-120b
+    base_url: https://27c0f207-e2a5-46c4-bad5-b39468c3a75e.invocation.api.nvcf.nvidia.com/v1
+    max_tokens: 65536
+    model_name: qwen/qwen2.5-coder-32b-instruct
   fast_llm:
-    _type: openai
+    _type: nim
     api_key: ${NVIDIA_API_KEY}
     base_url: https://f4ca1242-1bb8-47c4-96c8-f55507f70296.invocation.api.nvcf.nvidia.com/v1
-    max_tokens: 32768
+    max_tokens: 65536
     model_name: openai/gpt-oss-20b
+    temperature: 1
+    top_p: 1
   medium_llm:
-    _type: openai
+    _type: nim
     api_key: ${NVIDIA_API_KEY}
     base_url: https://9adef108-3097-4540-ba5f-873a9da8e54f.invocation.api.nvcf.nvidia.com/v1
-    max_tokens: 32768
+    max_tokens: 65536
     model_name: openai/gpt-oss-120b
+    temperature: 1
+    top_p: 1
   reasoning_llm:
-    _type: openai
-    api_key: ${NEBIUS_API_KEY}
-    base_url: https://api.studio.nebius.com/v1
-    max_tokens: 32768
-    model_name: deepseek-ai/DeepSeek-R1-0528-fast
+    _type: nim
+    api_key: ${NVIDIA_API_KEY}
+    base_url: https://5eb560ed-7ab8-4985-ab2a-dd1f7ea5eb66.invocation.api.nvcf.nvidia.com/v1
+    frequency_penalty: 0.0
+    max_tokens: 65536
+    model_name: nvidia/llama-3-3-nemotron-super-49b-v1-5
+    presence_penalty: 0.0
     temperature: 0.6
     top_p: 0.95
   tool_calling_llm:
-    _type: openai
+    _type: nim
     api_key: ${NVIDIA_API_KEY}
     base_url: https://9adef108-3097-4540-ba5f-873a9da8e54f.invocation.api.nvcf.nvidia.com/v1
-    max_tokens: 64000
+    max_tokens: 65536
     model_name: openai/gpt-oss-120b
+    temperature: 1
+    top_p: 1
 memory:
   redis_memory:
     _type: nat.plugins.redis/redis_memory

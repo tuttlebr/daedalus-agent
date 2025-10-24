@@ -293,6 +293,8 @@ async function processJobAsync(jobId: string): Promise<void> {
     let totalBytesReceived = 0;
     let lastConversationSaveTime = 0;
     const CONVERSATION_SAVE_INTERVAL = 5000; // Save at most once every 5 seconds
+    const MAX_MEMORY_BUFFER = 10 * 1024 * 1024; // 10MB max buffer size
+    const CHUNK_FLUSH_SIZE = 1024 * 1024; // Flush to Redis every 1MB
 
     console.log(`Async job ${jobId}: Starting to read response stream...`);
 

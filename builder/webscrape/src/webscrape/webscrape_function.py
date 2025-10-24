@@ -210,7 +210,6 @@ def _validate_url(
 async def webscrape_function(config: WebscrapeFunctionConfig, builder: Builder):
     # Create client only for robots.txt checking
     headers = {"User-Agent": config.user_agent}
-    client = httpx.AsyncClient(headers=headers, follow_redirects=True)
 
     async def _response_fn(input_message: str) -> str:
         """
@@ -235,12 +234,15 @@ async def webscrape_function(config: WebscrapeFunctionConfig, builder: Builder):
 
         if config.respect_robots_txt:
             try:
-                await _check_robots(
-                    url=url,
-                    parsed_url=parsed_url,
-                    client=client,
-                    user_agent=config.user_agent,
-                )
+                async with httpx.AsyncClient(
+                    headers=headers, follow_redirects=True
+                ) as client:
+                    await _check_robots(
+                        url=url,
+                        parsed_url=parsed_url,
+                        client=client,
+                        user_agent=config.user_agent,
+                    )
             except PermissionError as exc:
                 logger.info("robots.txt disallowed scraping for %s: %s", url, exc)
                 return _format_error(str(exc))
@@ -272,5 +274,4 @@ async def webscrape_function(config: WebscrapeFunctionConfig, builder: Builder):
     except GeneratorExit:
         logger.warning("Function exited early!")
     finally:
-        await client.aclose()
         logger.info("Cleaning up webscrape workflow.")

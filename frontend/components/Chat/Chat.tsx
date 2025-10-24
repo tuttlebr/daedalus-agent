@@ -35,6 +35,7 @@ import HomeContext from '@/pages/api/home/home.context';
 import { ChatInput } from './ChatInput';
 import { ChatLoader } from './ChatLoader';
 import { MemoizedChatMessage } from './MemoizedChatMessage';
+import { VirtualMessageList } from './VirtualMessageList';
 import { cleanMessagesForLLM, processMessageImages } from '@/utils/app/imageHandler';
 import { GalaxyAnimation } from '@/components/GalaxyAnimation';
 
@@ -271,44 +272,17 @@ export const Chat = () => {
   const { syncConversation } = useConversationSync({
     enabled: isPWA && (enableBackgroundProcessing ?? false) && !messageIsStreaming && !isPolling,
     conversationId: selectedConversation?.id,
-    onMessagesUpdated: (messages) => {
+    onConversationUpdated: (serverConversation) => {
       // Update conversation with server messages
       if (selectedConversation) {
-        // Merge server messages with local messages to avoid losing local state
-        const mergedMessages = messages.map((serverMsg, index) => {
-          const localMsg = selectedConversation.messages[index];
-
-          // If we have a local message at this index and it's the same role
-          if (localMsg && localMsg.role === serverMsg.role) {
-            // For assistant messages, merge intermediate steps to avoid duplicates
-            if (serverMsg.role === 'assistant' && serverMsg.intermediateSteps && localMsg.intermediateSteps) {
-              return {
-                ...serverMsg,
-                intermediateSteps: mergeIntermediateSteps(
-                  localMsg.intermediateSteps || [],
-                  serverMsg.intermediateSteps || [],
-                  Date.now()  // Use current time as cutoff for server sync
-                )
-              };
-            }
-          }
-
-          return serverMsg;
-        });
-
-        const updatedConversation = {
-          ...selectedConversation,
-          messages: mergedMessages
-        };
-
         homeDispatch({
           field: 'selectedConversation',
-          value: updatedConversation
+          value: serverConversation
         });
 
         // Also update the conversations list
         const updatedConversations = conversations.map((c) =>
-          c.id === selectedConversation.id ? updatedConversation : c
+          c.id === selectedConversation.id ? serverConversation : c
         );
         homeDispatch({
           field: 'conversations',
@@ -316,7 +290,7 @@ export const Chat = () => {
         });
 
         // Save to local storage
-        saveConversation(updatedConversation);
+        saveConversation(serverConversation);
         saveConversations(updatedConversations);
       }
     }
@@ -667,7 +641,7 @@ export const Chat = () => {
               chatBody.additionalProps || {},
               user?.username || 'anon',
               selectedConversation.id,
-              updatedConversation.name,
+              updatedConversation.name
             );
             console.log('Async job started - will poll for results');
           } catch (error: any) {
@@ -1356,22 +1330,16 @@ export const Chat = () => {
         >
           <div className="mx-auto flex h-full w-full max-w-5xl flex-col responsive-px pb-0 pt-4 sm:pt-6">
             {hasMessages ? (
-              <div className="flex flex-col space-y-3 sm:space-y-4 min-w-0">
-                {/* TODO: Replace with VirtualMessageList for better performance with many messages
-                <VirtualMessageList
-                  messages={selectedConversation?.messages || []}
-                  containerHeight={window.innerHeight - 200}
-                  onScroll={handleScroll}
-                />
-                */}
-                {selectedConversation?.messages.map((message, index) => (
-                  <MemoizedChatMessage
-                    key={message.id || index}
-                    message={message}
-                    messageIndex={index}
-                  />
-                ))}
-              </div>
+              <VirtualMessageList
+                messages={selectedConversation?.messages || []}
+                containerHeight={window.innerHeight - 200}
+                onScroll={(scrollTop) => {
+                  // Update scroll state if needed
+                  if (chatContainerRef.current) {
+                    lastScrollTop.current = scrollTop;
+                  }
+                }}
+              />
             ) : (
               <div className="flex flex-1 items-center justify-center py-8">
                 <div className="animate-fade-in">

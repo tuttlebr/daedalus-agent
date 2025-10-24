@@ -30,6 +30,7 @@ import { Chat } from '@/components/Chat/Chat';
 import { Chatbar } from '@/components/Chatbar/Chatbar';
 import { IconMenu2, IconX } from '@tabler/icons-react';
 import { ProtectedRoute } from '@/components/Auth/ProtectedRoute';
+import { MemoryWarning } from '@/components/MemoryWarning';
 
 import HomeContext from './home.context';
 import { HomeInitialState, initialState } from './home.state';
@@ -384,6 +385,7 @@ const Home = (props: any) => {
             </div>
           </main>
         )}
+        <MemoryWarning />
       </HomeContext.Provider>
     </ProtectedRoute>
   );

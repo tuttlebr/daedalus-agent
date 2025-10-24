@@ -1,25 +1,48 @@
-import { FC, memo } from 'react';
-import isEqual from 'lodash/isEqual';
+import { FC, memo, useMemo } from 'react';
 import { ChatMessage, Props } from './ChatMessage';
+
+// Create a simple hash function for content comparison
+const hashContent = (content: string): number => {
+    if (!content) return 0;
+    let hash = 0;
+    const len = Math.min(content.length, 1000); // Only hash first 1000 chars for performance
+    for (let i = 0; i < len; i++) {
+        const char = content.charCodeAt(i);
+        hash = ((hash << 5) - hash) + char;
+        hash = hash & hash; // Convert to 32-bit integer
+    }
+    return hash;
+};
 
 export const MemoizedChatMessage: FC<Props> = memo(
     ChatMessage,
     (prevProps, nextProps) => {
-        // componenent will render if new props are only different than previous props (to prevent unnecessary re-rendering)
-        const shouldRender = isEqual(prevProps.message, nextProps.message);
+        // Quick shallow comparison for most common changes
+        if (prevProps.messageIndex !== nextProps.messageIndex) return false;
 
-        // Debug: log when content changes (especially for images)
-        if (!shouldRender && prevProps.message.content !== nextProps.message.content) {
-            console.log('MemoizedChatMessage: Content changed, will re-render', {
-                messageId: nextProps.message.id,
-                prevContentLength: prevProps.message.content?.length,
-                nextContentLength: nextProps.message.content?.length,
-                hasBase64Images: nextProps.message.content?.includes('data:image'),
-                hasStoredImages: nextProps.message.content?.includes('/api/session/imageStorage'),
-                contentPreview: nextProps.message.content?.substring(0, 100)
-            });
-        }
+        const prevMsg = prevProps.message;
+        const nextMsg = nextProps.message;
 
-        return shouldRender;
+        // Check basic properties first (fastest)
+        if (prevMsg.id !== nextMsg.id) return false;
+        if (prevMsg.role !== nextMsg.role) return false;
+
+        // Compare content using hash for performance
+        const prevContentHash = hashContent(prevMsg.content);
+        const nextContentHash = hashContent(nextMsg.content);
+        if (prevContentHash !== nextContentHash) return false;
+
+        // Compare intermediate steps count (avoid deep comparison)
+        const prevStepsCount = prevMsg.intermediateSteps?.length || 0;
+        const nextStepsCount = nextMsg.intermediateSteps?.length || 0;
+        if (prevStepsCount !== nextStepsCount) return false;
+
+        // Compare attachments count
+        const prevAttachmentsCount = prevMsg.attachments?.length || 0;
+        const nextAttachmentsCount = nextMsg.attachments?.length || 0;
+        if (prevAttachmentsCount !== nextAttachmentsCount) return false;
+
+        // If all shallow checks pass, consider them equal
+        return true;
     }
 );

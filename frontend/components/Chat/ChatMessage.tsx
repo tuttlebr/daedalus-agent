@@ -10,7 +10,7 @@ import {
   IconClock,
 } from '@tabler/icons-react';
 import classNames from 'classnames';
-import { FC, memo, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { FC, memo, useContext, useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { Message } from '@/types/chat';
 import HomeContext from '@/pages/api/home/home.context';
 import { MemoizedReactMarkdown } from '../Markdown/MemoizedReactMarkdown';
@@ -90,7 +90,7 @@ export const ChatMessage: FC<Props> = memo(({ message, messageIndex }) => {
     });
   }, [message]);
 
-  const copyOnClick = () => {
+  const copyOnClick = useCallback(() => {
     if (!navigator.clipboard || !copyText) return;
 
     navigator.clipboard.writeText(copyText).then(() => {
@@ -99,15 +99,15 @@ export const ChatMessage: FC<Props> = memo(({ message, messageIndex }) => {
         setMessageCopied(false);
       }, 2000);
     });
-  };
+  }, [copyText]);
 
-  const removeLinks = (text: string) => {
+  const removeLinks = useCallback((text: string) => {
     // This regex matches http/https URLs
     const urlRegex = /(https?:\/\/[^\s]+)/g;
     return text.replace(urlRegex, '');
-  };
+  }, []);
 
-  const handleTextToSpeech = () => {
+  const handleTextToSpeech = useCallback(() => {
     if (!copyText) return;
 
     if ('speechSynthesis' in window) {
@@ -126,7 +126,7 @@ export const ChatMessage: FC<Props> = memo(({ message, messageIndex }) => {
     } else {
       console.log('Text-to-speech is not supported in your browser.');
     }
-  };
+  }, [copyText, isPlaying, removeLinks]);
 
   useEffect(() => {
     return () => {
@@ -183,10 +183,10 @@ export const ChatMessage: FC<Props> = memo(({ message, messageIndex }) => {
   );
 
   // Add timestamp formatting
-  const formatTime = () => {
+  const formatTime = useCallback(() => {
     const date = new Date();
     return date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
-  };
+  }, []);
 
   return (
     <div className={wrapperClasses}>

@@ -65,14 +65,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       // First check for saved conversation data
       const conversationData = await jsonGet(conversationKey);
 
-      if (conversationData && conversationData.messages) {
-        // Return the saved conversation messages
-        return res.status(200).json({
-          conversationId: id,
-          messages: conversationData.messages,
-          status: 'completed',
-          updatedAt: conversationData.updatedAt,
-        });
+      if (conversationData) {
+        return res.status(200).json(conversationData);
       }
 
       // Check for any pending/completed async jobs for this conversation
@@ -89,11 +83,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       }
 
       // No conversation found, return empty state
-      return res.status(200).json({
-        conversationId: id,
-        messages: [],
-        status: 'idle',
-      });
+      return res.status(404).json({ error: 'Conversation not found' });
     } catch (error) {
       console.error('Error fetching conversation:', error);
       return res.status(500).json({ error: 'Failed to fetch conversation' });
