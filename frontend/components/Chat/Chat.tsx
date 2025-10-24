@@ -114,6 +114,7 @@ export const Chat = () => {
     jobStatus,
     isPolling,
     cancelJob,
+    clearPersistedJob,
   } = useAsyncChat({
     userId: user?.username || 'anon',
     onProgress: (status) => {
@@ -159,8 +160,8 @@ export const Chat = () => {
         });
 
         // Save conversation state using debounced function
-        debouncedSaveConversation(updatedConversation);
-        debouncedSaveConversations(currentConversations);
+        // debouncedSaveConversation(updatedConversation);
+        // debouncedSaveConversations(currentConversations);
       }
     },
     onComplete: async (fullResponse, intermediateSteps, finalizedAt) => {
@@ -206,10 +207,6 @@ export const Chat = () => {
           value: updatedConversation,
         });
 
-        // Flush any pending debounced saves immediately
-        debouncedSaveConversation.flush();
-        debouncedSaveConversations.flush();
-
         // Immediately save the final state with error recovery
         try {
           await saveConversation(updatedConversation);
@@ -236,21 +233,6 @@ export const Chat = () => {
           value: latestConversations,
         });
 
-        try {
-          await saveConversations(latestConversations);
-        } catch (error) {
-          console.error('Failed to save conversations:', error);
-          // Retry once after a short delay
-          setTimeout(async () => {
-            try {
-              await saveConversations(latestConversations);
-            } catch (retryError) {
-              console.error('Retry failed for conversations save:', retryError);
-              // Don't show error toast here as one was already shown above
-            }
-          }, 1000);
-        }
-
         // Also save conversation state to the conversations API for better sync
         try {
           await fetch(`/api/conversations/${currentConversation.id}`, {
@@ -273,6 +255,7 @@ export const Chat = () => {
 
       homeDispatch({ field: 'messageIsStreaming', value: false });
       homeDispatch({ field: 'loading', value: false });
+      clearPersistedJob();
     },
     onError: async (error) => {
       console.error('Async job error:', error);
@@ -280,12 +263,13 @@ export const Chat = () => {
 
       homeDispatch({ field: 'messageIsStreaming', value: false });
       homeDispatch({ field: 'loading', value: false });
+      clearPersistedJob();
     },
   });
 
   // Sync conversation from server when returning from background
   const { syncConversation } = useConversationSync({
-    enabled: isPWA && (enableBackgroundProcessing ?? false) && !messageIsStreaming,
+    enabled: isPWA && (enableBackgroundProcessing ?? false) && !messageIsStreaming && !isPolling,
     conversationId: selectedConversation?.id,
     onMessagesUpdated: (messages) => {
       // Update conversation with server messages
@@ -682,7 +666,8 @@ export const Chat = () => {
               chatBody.chatCompletionURL || '',
               chatBody.additionalProps || {},
               user?.username || 'anon',
-              selectedConversation.id
+              selectedConversation.id,
+              updatedConversation.name,
             );
             console.log('Async job started - will poll for results');
           } catch (error: any) {

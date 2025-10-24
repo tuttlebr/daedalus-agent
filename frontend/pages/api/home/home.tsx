@@ -223,36 +223,20 @@ const Home = (props: any) => {
     const fetchConversations = async () => {
       try {
         const serverConversations = await apiGet('/api/conversations');
-        const localConversationHistory = getUserSessionItem('conversationHistory');
-        const localConversations = localConversationHistory
-          ? JSON.parse(localConversationHistory)
-          : [];
-
-        if (Array.isArray(serverConversations) && serverConversations.length > 0) {
+        if (Array.isArray(serverConversations)) {
           const cleanedServerConversations = cleanConversationHistory(serverConversations);
-          const conversationMap = new Map();
-
-          localConversations.forEach((conv: Conversation) => {
-            conversationMap.set(conv.id, conv);
-          });
-
-          cleanedServerConversations.forEach((conv: Conversation) => {
-            conversationMap.set(conv.id, conv);
-          });
-
-          const mergedConversations = Array.from(conversationMap.values()).sort((a, b) => {
-            const aTime = a.messages.length > 0 ? a.messages[a.messages.length - 1].id : a.id;
-            const bTime = b.messages.length > 0 ? b.messages[b.messages.length - 1].id : b.id;
-            return aTime < bTime ? -1 : 1;
-          });
-
-          dispatch({ field: 'conversations', value: mergedConversations });
-          setUserSessionItem('conversationHistory', JSON.stringify(mergedConversations));
-        } else if (localConversations.length > 0) {
-          dispatch({ field: 'conversations', value: localConversations });
+          dispatch({ field: 'conversations', value: cleanedServerConversations });
+          setUserSessionItem('conversationHistory', JSON.stringify(cleanedServerConversations));
+        } else {
+            // This case might happen if server returns something other than an array, but not an error.
+            // Fallback to local.
+            const localConversationHistory = getUserSessionItem('conversationHistory');
+            if (localConversationHistory) {
+              dispatch({ field: 'conversations', value: JSON.parse(localConversationHistory) });
+            }
         }
       } catch (error) {
-        console.error('Error fetching conversations:', error);
+        console.error('Error fetching conversations, falling back to local storage:', error);
         // Fallback to local conversations if server fetch fails
         const localConversationHistory = getUserSessionItem('conversationHistory');
         if (localConversationHistory) {

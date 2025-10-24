@@ -30,10 +30,11 @@ interface UseAsyncChatOptions {
 }
 
 interface UseAsyncChatReturn {
-  startAsyncJob: (messages: any[], chatCompletionURL: string, additionalProps: any, userId: string, conversationId: string) => Promise<string>;
+  startAsyncJob: (messages: any[], chatCompletionURL: string, additionalProps: any, userId: string, conversationId: string, conversationName: string) => Promise<string>;
   jobStatus: AsyncJobStatus | null;
   isPolling: boolean;
   cancelJob: () => Promise<void>;
+  clearPersistedJob: () => void;
 }
 
 // Helper functions for job persistence
@@ -158,7 +159,8 @@ export const useAsyncChat = (options: UseAsyncChatOptions = {}): UseAsyncChatRet
     chatCompletionURL: string,
     additionalProps: any,
     jobUserId: string,
-    conversationId: string
+    conversationId: string,
+    conversationName: string
   ): Promise<string> => {
     try {
       // Cancel any existing job
@@ -177,6 +179,7 @@ export const useAsyncChat = (options: UseAsyncChatOptions = {}): UseAsyncChatRet
           additionalProps,
           userId: jobUserId,
           conversationId,
+          conversationName,
         }),
       });
 
@@ -325,5 +328,6 @@ export const useAsyncChat = (options: UseAsyncChatOptions = {}): UseAsyncChatRet
     jobStatus,
     isPolling,
     cancelJob,
+    clearPersistedJob: () => clearPersistedJob(userId),
   };
 };

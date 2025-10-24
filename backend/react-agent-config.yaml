@@ -192,9 +192,17 @@ functions:
     - report_extender_researcher
     - user_uploaded_files_retriever_tool
     - summarizer_researcher
-    - wikipedia_search
+    - deepwiki_mcp
     verbose: true
     workflow_alias: Daedalus-Deep-Thinker
+  deepwiki_mcp:
+    _type: mcp_tool_wrapper
+    description: 'DeepWiki is an AI-powered tool that automatically generates documentation and an interactive Q&A interface for open-source codebases, making it easier for developers to understand complex projects. By analyzing a GitHub repository''s code, structure, and files, it creates a summary, technical documentation, and visual diagrams, and allows users to ask questions directly to the codebase.
+
+      '
+    mcp_tool_name: read_wiki_contents
+    url: https://mcp.deepwiki.com/mcp
+    verbose: true
   finalize_report_researcher:
     _type: chat_completion
     description: 'UNIQUE: Terminal report polisher - only tool that formats for final delivery. DIFFERENTIATOR: Pure editorial focus vs content generation (other researcher tools). MUTUAL_EXCLUSION: Never runs before summarizer_researcher completes initial report. WHEN_SELECT: Automatically triggered as FINAL step after all research iterations. ENTROPY_REDUCTION: Guarantees consistent professional output format. PRECONDITIONS: Requires <summarizer_researcher> or <report_extender_researcher> tags. WORKFLOW_POSITION: [research]→[summarize]→[extend?]→[reflect?]→[THIS]→[user]. OUTPUT: Publication-ready report with citations. TERMINAL: No tools run after this.
@@ -703,11 +711,6 @@ functions:
     timeout: 30.0
     user_agent: daedalus-webscraper/1.0
     verbose: true
-  wikipedia_search:
-    _type: wiki_search
-    description: 'UNIQUE: Direct Wikipedia article search and retrieval. DIFFERENTIATOR: Authoritative encyclopedic content vs web search variability. MUTUAL_EXCLUSION: Use for established topics over general web search. WHEN_SELECT: Need encyclopedic overview, historical facts, scientific concepts, biographies. ENTROPY_REDUCTION: Structured, verified content vs unstructured web results. COMBINES_WITH: domain retrievers (for specialized depth after overview). OUTPUT: Max 2 full Wikipedia articles. BEST_FOR: Foundational knowledge before deep dives. NOT_FOR: Recent events (use news tools) or technical implementation (use retrievers).'
-    max_results: 2
-    verbose: true
 general:
   front_end:
     _type: fastapi
@@ -743,12 +746,11 @@ llms:
     model_name: openai/gpt-oss-120b
   reasoning_llm:
     _type: openai
-    api_key: ${NVIDIA_API_KEY}
-    base_url: https://5eb560ed-7ab8-4985-ab2a-dd1f7ea5eb66.invocation.api.nvcf.nvidia.com/v1
+    api_key: ${NEBIUS_API_KEY}
+    base_url: https://api.studio.nebius.com/v1
     max_tokens: 32768
-    model_name: nvidia/llama-3-3-nemotron-super-49b-v1-5
+    model_name: deepseek-ai/DeepSeek-R1-0528-fast
     temperature: 0.6
-    thinking: true
     top_p: 0.95
   tool_calling_llm:
     _type: openai
@@ -761,9 +763,9 @@ memory:
     _type: nat.plugins.redis/redis_memory
     db: 0
     embedder: milvus_embedder
-    host: daedalus-redis.daedalus.svc.cluster.local
+    host: ${RI_REDIS_HOST_DAEDALUS}
     key_prefix: nat
-    port: 6379
+    port: ${REDIS_PORT}
 retrievers:
   geolocation_retriever:
     _type: smart_milvus

@@ -20,6 +20,7 @@ interface AsyncJobRequest {
   additionalProps: any;
   userId: string;
   conversationId?: string;
+  conversationName?: string;
 }
 
 interface AsyncJobStatus {
@@ -44,7 +45,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   if (req.method === 'POST') {
     // Create new async job
     try {
-      const { messages, chatCompletionURL, additionalProps, userId, conversationId } = req.body;
+      const { messages, chatCompletionURL, additionalProps, userId, conversationId, conversationName } = req.body;
 
       if (!messages || !Array.isArray(messages)) {
         return res.status(400).json({ error: 'Invalid messages' });
@@ -60,6 +61,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         additionalProps,
         userId: userId || 'anon',
         conversationId,
+        conversationName,
       };
 
       const requestKey = sessionKey(['async-job-request', jobId]);
@@ -479,6 +481,7 @@ async function processJobAsync(jobId: string): Promise<void> {
                       };
                       const partialConversation = {
                         id: jobRequest.conversationId,
+                        name: jobRequest.conversationName,
                         messages: [...(jobRequest.messages || []), partialMessage],
                         updatedAt: Date.now(),
                         isPartial: true,
@@ -643,6 +646,7 @@ async function processJobAsync(jobId: string): Promise<void> {
         const conversationKey = sessionKey(['conversation', jobRequest.conversationId]);
         const conversationData = {
           id: jobRequest.conversationId,
+          name: jobRequest.conversationName,
           messages: allMessages,
           updatedAt: Date.now(),
           isPartial: false,  // Explicitly mark as final
@@ -664,41 +668,11 @@ async function processJobAsync(jobId: string): Promise<void> {
           const updatedSelectedConv = {
             ...selectedConv,
             messages: allMessages,
+            name: jobRequest.conversationName,
             updatedAt: Date.now(),
           };
           await jsonSetWithExpiry(selectedConvKey, updatedSelectedConv, 60 * 60 * 24 * 7);
           console.log(`Async job ${jobId}: Updated selected conversation for user ${userId}`);
-        }
-
-        // Update conversation history
-        const historyKey = sessionKey(['user', userId, 'conversationHistory']);
-        const history = await jsonGet(historyKey) || [];
-
-        // Find and update the conversation in history
-        let found = false;
-        const updatedHistory = history.map((conv: any) => {
-          if (conv.id === jobRequest.conversationId) {
-            found = true;
-            return {
-              ...conv,
-              messages: allMessages,
-              updatedAt: Date.now(),
-            };
-          }
-          return conv;
-        });
-
-        // If not found in history, add it (shouldn't happen but just in case)
-        if (!found && selectedConv) {
-          updatedHistory.push({
-            ...selectedConv,
-            messages: allMessages,
-          });
-        }
-
-        if (found || selectedConv) {
-          await jsonSetWithExpiry(historyKey, updatedHistory, 60 * 60 * 24 * 7);
-          console.log(`Async job ${jobId}: Updated conversation history for user ${userId}, found=${found}, historyLength=${updatedHistory.length}`);
         }
 
         console.log(`Async job ${jobId}: Saved COMPLETE conversation ${jobRequest.conversationId} to Redis with ${allMessages.length} messages`);

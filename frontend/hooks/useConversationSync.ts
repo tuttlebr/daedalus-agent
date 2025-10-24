@@ -23,7 +23,6 @@ export const useConversationSync = ({
   // Fetch latest conversation state from server
   const syncConversation = async () => {
     if (!enabled || !conversationId) {
-      console.log('Sync skipped - enabled:', enabled, 'conversationId:', conversationId);
       return;
     }
 
