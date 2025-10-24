@@ -103,17 +103,8 @@ functions:
     - report_extender_researcher
     - user_uploaded_files_retriever_tool
     - summarizer_researcher
-    - deepwiki_mcp
     verbose: true
     workflow_alias: Daedalus-Deep-Thinker
-  deepwiki_mcp:
-    _type: mcp_tool_wrapper
-    description: 'DeepWiki is an AI-powered tool that automatically generates documentation and an interactive Q&A interface for open-source codebases, making it easier for developers to understand complex projects. By analyzing a GitHub repository''s code, structure, and files, it creates a summary, technical documentation, and visual diagrams, and allows users to ask questions directly to the codebase.
-
-      '
-    mcp_tool_name: read_wiki_contents
-    url: https://mcp.deepwiki.com/mcp
-    verbose: true
   finalize_report_researcher:
     _type: chat_completion
     description: 'UNIQUE: Terminal report polisher - only tool that formats for final delivery. DIFFERENTIATOR: Pure editorial focus vs content generation (other researcher tools). MUTUAL_EXCLUSION: Never runs before summarizer_researcher completes initial report. WHEN_SELECT: Automatically triggered as FINAL step after all research iterations. ENTROPY_REDUCTION: Guarantees consistent professional output format. PRECONDITIONS: Requires <summarizer_researcher> or <report_extender_researcher> tags. WORKFLOW_POSITION: [research]→[summarize]→[extend?]→[reflect?]→[THIS]→[user]. OUTPUT: Publication-ready report with citations. TERMINAL: No tools run after this.
@@ -240,6 +231,66 @@ functions:
       temperature: 0.9
     timeout: 300.0
     verbose: true
+  k8s_mcp_describe_resource:
+    _type: mcp_tool_wrapper
+    description: Use this tool to describe a resource in the Kubernetes cluster, similar to `kubectl describe`.
+    mcp_tool_name: describeResource
+    url: ${KUBERNETES_MCP_SERVER}
+  k8s_mcp_get_api_resources:
+    _type: mcp_tool_wrapper
+    description: Use this tool when the user want's to know the current status of their Daedalus Kubernetes cluster.
+    mcp_tool_name: getAPIResources
+    url: ${KUBERNETES_MCP_SERVER}
+  k8s_mcp_get_events:
+    _type: mcp_tool_wrapper
+    description: Use this tool to retrieve events for a specific namespace or resource in the Kubernetes cluster.
+    mcp_tool_name: getEvents
+    url: ${KUBERNETES_MCP_SERVER}
+  k8s_mcp_get_ingresses:
+    _type: mcp_tool_wrapper
+    description: Use this tool to retrieve ingress resources from the Kubernetes cluster, optionally filtering by host.
+    mcp_tool_name: getIngresses
+    url: ${KUBERNETES_MCP_SERVER}
+  k8s_mcp_get_node_metrics:
+    _type: mcp_tool_wrapper
+    description: Use this tool to retrieve resource usage metrics for a specific node in the Kubernetes cluster.
+    mcp_tool_name: getNodeMetrics
+    url: ${KUBERNETES_MCP_SERVER}
+  k8s_mcp_get_pod_metrics:
+    _type: mcp_tool_wrapper
+    description: Use this tool to retrieve CPU and Memory metrics for a specific pod in the Kubernetes cluster.
+    mcp_tool_name: getPodMetrics
+    url: ${KUBERNETES_MCP_SERVER}
+  k8s_mcp_get_pods_logs:
+    _type: mcp_tool_wrapper
+    description: Use this tool to retrieve the logs of a specific pod in the Kubernetes cluster.
+    mcp_tool_name: getPodsLogs
+    url: ${KUBERNETES_MCP_SERVER}
+  k8s_mcp_get_resource:
+    _type: mcp_tool_wrapper
+    description: Use this tool to retrieve detailed information about a specific resource in the Kubernetes cluster.
+    mcp_tool_name: getResource
+    url: ${KUBERNETES_MCP_SERVER}
+  k8s_mcp_helm_get:
+    _type: mcp_tool_wrapper
+    description: Use this tool to get details of a specific Helm release.
+    mcp_tool_name: helmGet
+    url: ${KUBERNETES_MCP_SERVER}
+  k8s_mcp_helm_history:
+    _type: mcp_tool_wrapper
+    description: Use this tool to get the history of a Helm release.
+    mcp_tool_name: helmHistory
+    url: ${KUBERNETES_MCP_SERVER}
+  k8s_mcp_helm_list:
+    _type: mcp_tool_wrapper
+    description: Use this tool to list all Helm releases in the cluster or a specific namespace.
+    mcp_tool_name: helmList
+    url: ${KUBERNETES_MCP_SERVER}
+  k8s_mcp_list_resources:
+    _type: mcp_tool_wrapper
+    description: Use this tool to list all instances of a specific resource type in the Kubernetes cluster.
+    mcp_tool_name: listResources
+    url: ${KUBERNETES_MCP_SERVER}
   kubernetes_retriever_tool:
     _type: nat_retriever
     description: 'UNIQUE: Specialized K8s knowledge base with curated technical documentation. DIFFERENTIATOR: Deep K8s expertise vs general web search or other retrievers. MUTUAL_EXCLUSION: Use instead of serpapi for Kubernetes topics. WHEN_SELECT: Any mention of Kubernetes/K8s/pods/containers/orchestration/Helm. ENTROPY_REDUCTION: Provides authoritative K8s patterns vs varying web quality. COMBINES_WITH: code_generation (for YAML manifests); nvidia_retriever_tool (for GPU scheduling). OUTPUT: Config examples, troubleshooting guides, best practices. COVERAGE: Networking, storage, security, operators. NOT_FOR: Docker-only questions (use web search).
@@ -780,6 +831,7 @@ retrievers:
 workflow:
   _type: tool_calling_agent
   llm_name: tool_calling_llm
+  parse_agent_response_max_retries: 3
   return_direct:
   - image_generation_tool
   - image_augmentation_tool
@@ -791,6 +843,18 @@ workflow:
   - geolocation_retriever_tool
   - image_augmentation_tool
   - image_generation_tool
+  - k8s_mcp_get_api_resources
+  - k8s_mcp_list_resources
+  - k8s_mcp_get_resource
+  - k8s_mcp_describe_resource
+  - k8s_mcp_get_pods_logs
+  - k8s_mcp_get_node_metrics
+  - k8s_mcp_get_pod_metrics
+  - k8s_mcp_get_events
+  - k8s_mcp_get_ingresses
+  - k8s_mcp_helm_list
+  - k8s_mcp_helm_get
+  - k8s_mcp_helm_history
   - kubernetes_retriever_tool
   - mentalhealth_retriever_tool
   - nvidia_retriever_tool
@@ -804,7 +868,6 @@ workflow:
   - veterinarian_retriever_tool
   - weather_tool
   - webscrape_tool
-  - deepwiki_mcp
   use_openai_api: true
   verbose: true
   workflow_alias: daedalus

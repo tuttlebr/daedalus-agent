@@ -10,10 +10,9 @@ from nat.builder.builder import Builder
 from nat.builder.function_info import FunctionInfo
 from nat.cli.register_workflow import register_function
 from nat.data_models.function import FunctionBaseConfig
+from nat_helpers.geolocation import GeolocationResult
+from nat_helpers.result_scraper import SerpLinkScraperSettings, scrape_serp_links
 from pydantic import BaseModel, Field
-
-from .geolocation_helper import GeolocationResult
-from .result_scraper import SerpLinkScraperSettings, scrape_serp_links
 
 
 class WorkflowMapping(TypedDict, total=False):
