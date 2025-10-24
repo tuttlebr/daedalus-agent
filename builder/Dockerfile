@@ -64,6 +64,10 @@ RUN --mount=type=cache,id=uv_cache,target=/root/.cache/uv,sharing=locked \
     NAT_VERSION= nat workflow reinstall nat_nv_ingest && \
     uv pip install -e nat_nv_ingest --prerelease=allow
 
+COPY nat_helpers /workspace/nat_helpers
+RUN --mount=type=cache,id=uv_cache,target=/root/.cache/uv,sharing=locked \
+    uv pip install -e nat_helpers --prerelease=allow
+
 COPY serpapi_ai /workspace/serpapi_ai
 RUN --mount=type=cache,id=uv_cache,target=/root/.cache/uv,sharing=locked \
     NAT_VERSION= nat workflow reinstall serpapi_ai && \
