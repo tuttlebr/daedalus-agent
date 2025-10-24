@@ -11,6 +11,7 @@ import { AuthProvider } from '@/components/Auth/AuthProvider';
 import { OfflineIndicator } from '@/components/PWA/OfflineIndicator';
 import { getSettings } from '@/utils/app/settings';
 import { registerServiceWorker, setupOfflineDetection, setupInstallPrompt } from '@/utils/app/pwa';
+import { startMemoryMonitoring } from '@/utils/app/memoryMonitor';
 import toast from 'react-hot-toast';
 
 const inter = Inter({ subsets: ['latin'] });
@@ -42,6 +43,13 @@ function App({ Component, pageProps }: AppProps<{}>) {
         toast.success('Back online!');
       }
     );
+
+    // Start memory monitoring
+    startMemoryMonitoring({
+      warningThreshold: 80,
+      criticalThreshold: 90,
+      checkInterval: 10000, // Check every 10 seconds
+    });
   }, []);
 
   return (

@@ -17,6 +17,102 @@ export interface ProcessedMessage extends Message {
   }>;
 }
 
+// Blob cache for memory optimization
+interface BlobCacheEntry {
+  url: string;
+  size: number;
+  lastAccessed: number;
+}
+
+class ImageBlobCache {
+  private cache = new Map<string, BlobCacheEntry>();
+  private totalSize = 0;
+  private readonly maxSize = 10 * 1024 * 1024; // 10MB max cache size
+
+  async fetchAsBlob(imageRef: ImageReference): Promise<string> {
+    const cacheKey = imageRef.imageId;
+
+    // Check if already cached
+    const cached = this.cache.get(cacheKey);
+    if (cached) {
+      cached.lastAccessed = Date.now();
+      return cached.url;
+    }
+
+    // Fetch from Redis
+    const response = await fetch(getImageUrl(imageRef));
+    if (!response.ok) {
+      throw new Error(`Failed to fetch image: ${response.statusText}`);
+    }
+
+    const blob = await response.blob();
+    const blobUrl = URL.createObjectURL(blob);
+
+    // Add to cache with LRU eviction
+    this.addToCache(cacheKey, blobUrl, blob.size);
+
+    return blobUrl;
+  }
+
+  private addToCache(key: string, url: string, size: number) {
+    // Evict entries if needed
+    while (this.totalSize + size > this.maxSize && this.cache.size > 0) {
+      this.evictOldest();
+    }
+
+    this.cache.set(key, {
+      url,
+      size,
+      lastAccessed: Date.now()
+    });
+    this.totalSize += size;
+  }
+
+  private evictOldest() {
+    let oldestKey: string | null = null;
+    let oldestTime = Infinity;
+
+    // Convert to array to avoid iterator issues
+    const entries = Array.from(this.cache.entries());
+    for (const [key, entry] of entries) {
+      if (entry.lastAccessed < oldestTime) {
+        oldestTime = entry.lastAccessed;
+        oldestKey = key;
+      }
+    }
+
+    if (oldestKey) {
+      const entry = this.cache.get(oldestKey)!;
+      URL.revokeObjectURL(entry.url);
+      this.totalSize -= entry.size;
+      this.cache.delete(oldestKey);
+      console.log(`Evicted image ${oldestKey} from blob cache`);
+    }
+  }
+
+  revoke(imageId: string) {
+    const entry = this.cache.get(imageId);
+    if (entry) {
+      URL.revokeObjectURL(entry.url);
+      this.totalSize -= entry.size;
+      this.cache.delete(imageId);
+    }
+  }
+
+  clearAll() {
+    // Convert to array to avoid iterator issues
+    const values = Array.from(this.cache.values());
+    for (const entry of values) {
+      URL.revokeObjectURL(entry.url);
+    }
+    this.cache.clear();
+    this.totalSize = 0;
+  }
+}
+
+// Global blob cache instance
+const blobCache = new ImageBlobCache();
+
 // Upload image to Redis and return reference
 export async function uploadImage(base64Data: string, mimeType: string = 'image/jpeg'): Promise<ImageReference> {
   try {
@@ -51,6 +147,19 @@ export function getImageUrl(imageRef: ImageReference): string {
 
   // Note: userId is handled server-side through authentication, not passed in URL
   return url;
+}
+
+// Export blob cache functions for use in components
+export async function fetchImageAsBlob(imageRef: ImageReference): Promise<string> {
+  return blobCache.fetchAsBlob(imageRef);
+}
+
+export function revokeImageBlob(imageId: string): void {
+  blobCache.revoke(imageId);
+}
+
+export function clearAllImageBlobs(): void {
+  blobCache.clearAll();
 }
 
 // Process message to replace base64 images with references

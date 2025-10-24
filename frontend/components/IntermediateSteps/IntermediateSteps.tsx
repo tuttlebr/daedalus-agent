@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useContext } from 'react';
+import React, { useState, useMemo, useContext, useEffect } from 'react';
 import {
   IntermediateStep,
   IntermediateStepCategory,
@@ -8,21 +8,30 @@ import {
 import { StepTimeline } from './StepTimeline';
 import { ViewToggle } from './ViewToggle';
 import { searchSteps, migrateOldStepFormat } from '@/utils/app/intermediateSteps';
+import { loadIntermediateSteps, saveIntermediateSteps, getIntermediateStepCount } from '@/utils/app/intermediateStepsDB';
 import HomeContext from '@/pages/api/home/home.context';
 
 interface IntermediateStepsProps {
   steps: any[]; // Accept any[] to handle old format as well
   className?: string;
+  conversationId?: string;
 }
 
-export const IntermediateSteps: React.FC<IntermediateStepsProps> = ({ steps, className = '' }) => {
+const INITIAL_STEPS_TO_SHOW = 5;
+const STEPS_TO_LOAD_MORE = 10;
+
+export const IntermediateSteps: React.FC<IntermediateStepsProps> = ({ steps, className = '', conversationId }) => {
   const {
-    state: { intermediateStepsView, intermediateStepsFilter, messageIsStreaming },
+    state: { intermediateStepsView, intermediateStepsFilter, messageIsStreaming, selectedConversation },
     dispatch: homeDispatch,
   } = useContext(HomeContext);
 
   const [searchTerm, setSearchTerm] = useState('');
   const [isExpanded, setIsExpanded] = useState(false);
+  const [displayedSteps, setDisplayedSteps] = useState<IntermediateStep[]>([]);
+  const [totalStepsCount, setTotalStepsCount] = useState(0);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [loadedCount, setLoadedCount] = useState(INITIAL_STEPS_TO_SHOW);
 
   // Migrate old steps to new format if needed
   const migratedSteps = useMemo(() => {
@@ -62,11 +71,50 @@ export const IntermediateSteps: React.FC<IntermediateStepsProps> = ({ steps, cla
       .sort((a, b) => a.payload.event_timestamp - b.payload.event_timestamp);
   }, [steps]);
 
+  // Save steps to IndexedDB when they change
+  useEffect(() => {
+    if (conversationId || selectedConversation?.id) {
+      const convId = conversationId || selectedConversation?.id;
+      if (convId && migratedSteps.length > 0) {
+        saveIntermediateSteps(convId, migratedSteps).catch(console.error);
+        setTotalStepsCount(migratedSteps.length);
+      }
+    }
+  }, [migratedSteps, conversationId, selectedConversation?.id]);
+
+  // Load initial steps
+  useEffect(() => {
+    const loadInitialSteps = async () => {
+      if (!conversationId && !selectedConversation?.id) return;
+
+      const convId = conversationId || selectedConversation?.id;
+      if (!convId) return;
+
+      try {
+        const count = await getIntermediateStepCount(convId);
+        setTotalStepsCount(count);
+
+        // Show recent steps from props first, then load from DB if needed
+        if (migratedSteps.length > 0) {
+          setDisplayedSteps(migratedSteps.slice(-INITIAL_STEPS_TO_SHOW));
+        } else if (count > 0) {
+          const loaded = await loadIntermediateSteps(convId, 0, INITIAL_STEPS_TO_SHOW);
+          setDisplayedSteps(loaded);
+        }
+      } catch (error) {
+        console.error('Failed to load initial steps:', error);
+      }
+    };
+
+    loadInitialSteps();
+  }, [conversationId, selectedConversation?.id, migratedSteps]);
+
   // Apply search filter
   const filteredSteps = useMemo(() => {
-    if (!searchTerm) return migratedSteps;
-    return searchSteps(migratedSteps, searchTerm);
-  }, [migratedSteps, searchTerm]);
+    const stepsToFilter = displayedSteps.length > 0 ? displayedSteps : migratedSteps.slice(-INITIAL_STEPS_TO_SHOW);
+    if (!searchTerm) return stepsToFilter;
+    return searchSteps(stepsToFilter, searchTerm);
+  }, [displayedSteps, migratedSteps, searchTerm]);
 
   const handleViewChange = (view: 'timeline' | 'category') => {
     homeDispatch({ field: 'intermediateStepsView', value: view });
@@ -76,7 +124,26 @@ export const IntermediateSteps: React.FC<IntermediateStepsProps> = ({ steps, cla
     homeDispatch({ field: 'intermediateStepsFilter', value: filter });
   };
 
+  const handleLoadMore = async () => {
+    if (isLoadingMore) return;
+
+    const convId = conversationId || selectedConversation?.id;
+    if (!convId) return;
+
+    setIsLoadingMore(true);
+    try {
+      const moreSteps = await loadIntermediateSteps(convId, loadedCount, STEPS_TO_LOAD_MORE);
+      setDisplayedSteps(prev => [...prev, ...moreSteps]);
+      setLoadedCount(prev => prev + moreSteps.length);
+    } catch (error) {
+      console.error('Failed to load more steps:', error);
+    } finally {
+      setIsLoadingMore(false);
+    }
+  };
+
   const hasSteps = migratedSteps && migratedSteps.length > 0;
+  const hasMoreSteps = loadedCount < totalStepsCount;
 
   if (!hasSteps && !messageIsStreaming) {
     return null;
@@ -149,6 +216,23 @@ export const IntermediateSteps: React.FC<IntermediateStepsProps> = ({ steps, cla
               onFilterChange={handleFilterChange}
               isStreaming={Boolean(messageIsStreaming)}
             />
+
+            {hasMoreSteps && !isLoadingMore && (
+              <div className="p-4 flex justify-center">
+                <button
+                  onClick={handleLoadMore}
+                  className="px-4 py-2 text-sm font-medium text-white/80 bg-white/10 hover:bg-white/20 rounded-lg transition-colors border border-white/10"
+                >
+                  Load {Math.min(STEPS_TO_LOAD_MORE, totalStepsCount - loadedCount)} More Steps
+                </button>
+              </div>
+            )}
+
+            {isLoadingMore && (
+              <div className="p-4 flex justify-center">
+                <div className="text-sm text-white/60">Loading more steps...</div>
+              </div>
+            )}
           </div>
         </div>
       )}

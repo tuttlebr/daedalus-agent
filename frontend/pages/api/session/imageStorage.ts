@@ -2,9 +2,11 @@ import { NextApiRequest, NextApiResponse } from 'next';
 import { getRedis, sessionKey, jsonGet, jsonDel, jsonSetWithExpiry } from './redis';
 import { getUserId, getOrSetSessionId } from './_utils';
 import crypto from 'crypto';
+import sharp from 'sharp';
 
 const IMAGE_EXPIRY_SECONDS = 60 * 60 * 24 * 7; // 7 days
 const MAX_IMAGE_SIZE = 5 * 1024 * 1024; // 5MB limit
+const COMPRESS_QUALITY = 80; // JPEG quality for compression
 
 export interface StoredImage {
   id: string;
@@ -21,6 +23,50 @@ function generateImageId(): string {
   return crypto.randomBytes(16).toString('hex');
 }
 
+// Compress image using sharp
+async function compressImage(base64Data: string, mimeType: string): Promise<{ data: string; mimeType: string; size: number }> {
+  // Remove data URL prefix if present
+  const cleanBase64 = base64Data.replace(/^data:image\/[a-z]+;base64,/, '');
+  const buffer = Buffer.from(cleanBase64, 'base64');
+
+  try {
+    // Use sharp to compress the image
+    let sharpInstance = sharp(buffer);
+
+    // Convert to progressive JPEG/WebP based on original type
+    if (mimeType.includes('webp')) {
+      const compressed = await sharpInstance
+        .webp({ quality: COMPRESS_QUALITY, effort: 4 })
+        .toBuffer();
+
+      return {
+        data: compressed.toString('base64'),
+        mimeType: 'image/webp',
+        size: compressed.length
+      };
+    } else {
+      // Default to JPEG for all other formats
+      const compressed = await sharpInstance
+        .jpeg({ quality: COMPRESS_QUALITY, progressive: true })
+        .toBuffer();
+
+      return {
+        data: compressed.toString('base64'),
+        mimeType: 'image/jpeg',
+        size: compressed.length
+      };
+    }
+  } catch (error) {
+    console.error('Image compression failed, using original:', error);
+    // Return original if compression fails
+    return {
+      data: cleanBase64,
+      mimeType,
+      size: buffer.length
+    };
+  }
+}
+
 // Store image in Redis
 export async function storeImage(
   sessionId: string,
@@ -31,19 +77,18 @@ export async function storeImage(
   const redis = getRedis();
   const imageId = generateImageId();
 
-  // Remove data URL prefix if present
-  const cleanBase64 = base64Data.replace(/^data:image\/[a-z]+;base64,/, '');
-  const size = Buffer.from(cleanBase64, 'base64').length;
+  // Compress the image before storing
+  const compressed = await compressImage(base64Data, mimeType);
 
-  if (size > MAX_IMAGE_SIZE) {
-    throw new Error('Image size exceeds maximum allowed size');
+  if (compressed.size > MAX_IMAGE_SIZE) {
+    throw new Error('Image size exceeds maximum allowed size even after compression');
   }
 
   const imageData: StoredImage = {
     id: imageId,
-    data: cleanBase64,
-    mimeType,
-    size,
+    data: compressed.data,
+    mimeType: compressed.mimeType,
+    size: compressed.size,
     createdAt: Date.now(),
     sessionId,
     userId
@@ -217,9 +262,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         return res.status(404).json({ error: 'Image not found' });
       }
 
-      // Return image data
+      // Return image data with aggressive caching
       res.setHeader('Content-Type', image.mimeType);
-      res.setHeader('Cache-Control', 'private, max-age=3600');
+      res.setHeader('Cache-Control', 'private, max-age=86400, immutable'); // 24 hours
+      res.setHeader('ETag', `"${imageId}"`);
+      res.setHeader('X-Content-Type-Options', 'nosniff');
 
       const buffer = Buffer.from(image.data, 'base64');
       return res.status(200).send(buffer);

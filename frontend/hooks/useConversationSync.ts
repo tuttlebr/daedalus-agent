@@ -4,7 +4,7 @@ import { Conversation, Message } from '@/types/chat';
 interface ConversationSyncOptions {
   enabled: boolean;
   conversationId?: string;
-  onMessagesUpdated?: (messages: Message[]) => void;
+  onConversationUpdated?: (conversation: Conversation) => void;
 }
 
 /**
@@ -15,7 +15,7 @@ interface ConversationSyncOptions {
 export const useConversationSync = ({
   enabled,
   conversationId,
-  onMessagesUpdated,
+  onConversationUpdated,
 }: ConversationSyncOptions) => {
   const lastSyncRef = useRef<number>(0);
   const syncIntervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -40,9 +40,9 @@ export const useConversationSync = ({
           isPartial: data.isPartial,
         });
 
-        if (data.messages && onMessagesUpdated) {
+        if (data.messages && onConversationUpdated) {
           console.log(`✅ Updating UI with ${data.messages.length} messages`);
-          onMessagesUpdated(data.messages);
+          onConversationUpdated(data);
         }
         lastSyncRef.current = Date.now();
       } else {

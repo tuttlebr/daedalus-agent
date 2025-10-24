@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, memo } from 'react';
 import { IconPhoto, IconMaximize, IconX, IconExclamationCircle, IconDownload } from '@tabler/icons-react';
-import { ImageReference, getImageUrl } from '@/utils/app/imageHandler';
+import { ImageReference, getImageUrl, fetchImageAsBlob, revokeImageBlob } from '@/utils/app/imageHandler';
 
 interface OptimizedImageProps {
   imageRef?: ImageReference;
@@ -19,31 +19,82 @@ export const OptimizedImage = memo(({
 }: OptimizedImageProps) => {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(false);
-  // Start as visible for chat messages (they're always at bottom and visible)
-  const [isVisible, setIsVisible] = useState(true);
+  const [isVisible, setIsVisible] = useState(false); // Start as not visible for lazy loading
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [blobUrl, setBlobUrl] = useState<string | null>(null);
   const imgRef = useRef<HTMLImageElement>(null);
   const observerRef = useRef<IntersectionObserver | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // Get the image source
-  const imageSrc = imageRef ? getImageUrl(imageRef) : base64Data || '';
+  // Get the image source - use blob URL if available, otherwise fallback
+  const imageSrc = blobUrl || (imageRef ? getImageUrl(imageRef) : base64Data || '');
 
-  // Debug logging
+  // Set up Intersection Observer for lazy loading
   useEffect(() => {
-    if (imageRef) {
-      console.log('OptimizedImage: imageRef received', { imageId: imageRef.imageId, imageSrc });
-    }
-  }, [imageRef, imageSrc]);
+    if (!containerRef.current) return;
 
-  // Reset loading state when image source changes
+    const options = {
+      root: null,
+      rootMargin: '50px', // Start loading 50px before visible
+      threshold: 0.01
+    };
+
+    observerRef.current = new IntersectionObserver((entries) => {
+      entries.forEach((entry) => {
+        if (entry.isIntersecting && !isVisible) {
+          setIsVisible(true);
+          observerRef.current?.disconnect();
+        }
+      });
+    }, options);
+
+    observerRef.current.observe(containerRef.current);
+
+    return () => {
+      observerRef.current?.disconnect();
+    };
+  }, [isVisible]);
+
+  // Fetch image as blob when visible
   useEffect(() => {
-    if (imageSrc) {
-      console.log('OptimizedImage: Image source changed, resetting loading state', imageSrc);
-      setIsLoading(true);
-      setError(false);
-    }
-  }, [imageSrc]);
+    if (!isVisible || !imageRef || blobUrl) return;
+
+    let cancelled = false;
+
+    const loadImageAsBlob = async () => {
+      try {
+        setIsLoading(true);
+        setError(false);
+
+        const url = await fetchImageAsBlob(imageRef);
+
+        if (!cancelled) {
+          setBlobUrl(url);
+        }
+      } catch (err) {
+        console.error('Failed to load image as blob:', err);
+        if (!cancelled) {
+          setError(true);
+          setIsLoading(false);
+        }
+      }
+    };
+
+    loadImageAsBlob();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isVisible, imageRef, blobUrl]);
+
+  // Cleanup blob URL on unmount
+  useEffect(() => {
+    return () => {
+      if (blobUrl && imageRef) {
+        revokeImageBlob(imageRef.imageId);
+      }
+    };
+  }, [blobUrl, imageRef]);
 
   const handleImageLoad = () => {
     console.log('OptimizedImage: Image loaded successfully', imageSrc);
@@ -65,9 +116,17 @@ export const OptimizedImage = memo(({
   const handleDownload = async (e: React.MouseEvent) => {
     e.stopPropagation();
     try {
-      // Fetch the image as a blob
-      const response = await fetch(imageSrc);
-      const blob = await response.blob();
+      let blob: Blob;
+
+      // Use existing blob if available
+      if (blobUrl) {
+        const response = await fetch(blobUrl);
+        blob = await response.blob();
+      } else {
+        // Fetch the image as a blob
+        const response = await fetch(imageSrc);
+        blob = await response.blob();
+      }
 
       const fileName = alt ? `${alt}.png` : `image-${imageRef?.imageId || Date.now()}.png`;
 

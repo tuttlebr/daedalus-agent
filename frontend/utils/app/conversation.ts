@@ -1,26 +1,39 @@
-import { Conversation } from '@/types/chat';
+import { Conversation, Message } from '@/types/chat';
 import toast from 'react-hot-toast';
 import { apiGet, apiPut } from '@/utils/app/api';
 import { restoreMessageImages, cleanMessagesForStorage, stripBase64Content } from './imageHandler';
 import { getUserSessionItem, setUserSessionItem, removeUserSessionItem } from './storage';
 
+// Memory optimization constants
+const MAX_MESSAGES_IN_MEMORY = 50; // Keep only last 50 messages in memory
+const MAX_CONVERSATIONS_IN_MEMORY = 5; // Keep only 5 most recent conversations
+const MESSAGE_BATCH_SIZE = 20; // Load messages in batches of 20
+
+// WeakMap for temporary data to allow garbage collection
+const conversationCache = new WeakMap<Conversation, any>();
+
 export const updateConversation = (
   updatedConversation: Conversation,
   allConversations: Conversation[],
 ) => {
-  const updatedConversations = allConversations.map((c) => {
-    if (c.id === updatedConversation.id) {
-      return updatedConversation;
-    }
+  // Limit messages in the conversation
+  const limitedConversation = {
+    ...updatedConversation,
+    messages: updatedConversation.messages.slice(-MAX_MESSAGES_IN_MEMORY)
+  };
 
+  const updatedConversations = allConversations.map((c) => {
+    if (c.id === limitedConversation.id) {
+      return limitedConversation;
+    }
     return c;
   });
 
-  saveConversation(updatedConversation);
+  saveConversation(limitedConversation);
   saveConversations(updatedConversations);
 
   return {
-    single: updatedConversation,
+    single: limitedConversation,
     all: updatedConversations,
   };
 };
@@ -47,10 +60,20 @@ export const saveConversation = async (conversation: Conversation) => {
 
 export const saveConversations = (conversations: Conversation[]) => {
   try {
+    // Sort by most recent and limit number of conversations
+    const recentConversations = conversations
+      .sort((a, b) => {
+        // Sort by last message timestamp or conversation id
+        const aTime = a.messages[a.messages.length - 1]?.id || a.id;
+        const bTime = b.messages[b.messages.length - 1]?.id || b.id;
+        return bTime.localeCompare(aTime);
+      })
+      .slice(0, MAX_CONVERSATIONS_IN_MEMORY);
+
     // Clean all conversations to remove base64 content before storing
-    let cleanedConversations = conversations.map(conversation => ({
+    let cleanedConversations = recentConversations.map(conversation => ({
       ...conversation,
-      messages: cleanMessagesForStorage(conversation.messages),
+      messages: cleanMessagesForStorage(conversation.messages.slice(-MAX_MESSAGES_IN_MEMORY)),
     }));
 
     // Aggressively strip any remaining base64 content as a safety measure
@@ -94,6 +117,38 @@ export const loadConversations = async (): Promise<Conversation[]> => {
       return conv;
     });
   } catch (e) {
+    return [];
+  }
+};
+
+// Cleanup function for old messages and conversations
+export const cleanupOldConversations = (conversations: Conversation[]): Conversation[] => {
+  return conversations
+    .sort((a, b) => {
+      const aTime = a.messages[a.messages.length - 1]?.id || a.id;
+      const bTime = b.messages[b.messages.length - 1]?.id || b.id;
+      return bTime.localeCompare(aTime);
+    })
+    .slice(0, MAX_CONVERSATIONS_IN_MEMORY)
+    .map(conversation => ({
+      ...conversation,
+      messages: conversation.messages.slice(-MAX_MESSAGES_IN_MEMORY)
+    }));
+};
+
+// Function to load messages in batches (for pagination)
+export const loadMessageBatch = async (
+  conversationId: string,
+  offset: number = 0,
+  limit: number = MESSAGE_BATCH_SIZE
+): Promise<Message[]> => {
+  try {
+    // This would require a backend endpoint to support pagination
+    // For now, return empty array as placeholder
+    console.log(`Loading messages for conversation ${conversationId}, offset: ${offset}, limit: ${limit}`);
+    return [];
+  } catch (error) {
+    console.error('Failed to load message batch:', error);
     return [];
   }
 };

@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useState, useCallback } from 'react';
+import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react';
 import { Message } from '@/types/chat';
 import { MemoizedChatMessage } from './MemoizedChatMessage';
 
@@ -14,7 +14,7 @@ interface VirtualItem {
   height: number;
 }
 
-export const VirtualMessageList: React.FC<VirtualMessageListProps> = ({
+export const VirtualMessageList: React.FC<VirtualMessageListProps> = React.memo(({
   messages,
   containerHeight,
   onScroll,
@@ -24,10 +24,11 @@ export const VirtualMessageList: React.FC<VirtualMessageListProps> = ({
   const [scrollTop, setScrollTop] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
   const itemRefs = useRef<Map<number, HTMLDivElement>>(new Map());
+  const scrollTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Default estimated height for messages
-  const estimatedItemHeight = 120;
-  const overscan = 3; // Number of items to render outside visible area
+  // Default estimated height for messages - larger for mobile
+  const estimatedItemHeight = window.innerWidth <= 768 ? 150 : 120;
+  const overscan = window.innerWidth <= 768 ? 2 : 3; // Less overscan on mobile for memory
 
   // Calculate total height
   const getTotalHeight = useCallback(() => {
@@ -105,21 +106,43 @@ export const VirtualMessageList: React.FC<VirtualMessageListProps> = ({
 
   const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
     const newScrollTop = e.currentTarget.scrollTop;
-    setScrollTop(newScrollTop);
-    onScroll?.(newScrollTop);
+
+    // Debounce scroll updates for better performance
+    if (scrollTimeoutRef.current) {
+      clearTimeout(scrollTimeoutRef.current);
+    }
+
+    scrollTimeoutRef.current = setTimeout(() => {
+      setScrollTop(newScrollTop);
+      onScroll?.(newScrollTop);
+    }, 16); // ~60fps
   }, [onScroll]);
 
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (scrollTimeoutRef.current) {
+        clearTimeout(scrollTimeoutRef.current);
+      }
+      // Clear item refs to prevent memory leaks
+      itemRefs.current.clear();
+    };
+  }, []);
+
   // Render only visible items
-  const visibleItems: VirtualItem[] = [];
-  for (let i = visibleRange.start; i <= visibleRange.end; i++) {
-    if (messages[i]) {
-      visibleItems.push({
-        index: i,
-        offset: getItemOffset(i),
-        height: itemHeights.get(i) || estimatedItemHeight,
-      });
+  const visibleItems = useMemo(() => {
+    const items: VirtualItem[] = [];
+    for (let i = visibleRange.start; i <= visibleRange.end; i++) {
+      if (messages[i]) {
+        items.push({
+          index: i,
+          offset: getItemOffset(i),
+          height: itemHeights.get(i) || estimatedItemHeight,
+        });
+      }
     }
-  }
+    return items;
+  }, [visibleRange, messages, getItemOffset, itemHeights, estimatedItemHeight]);
 
   return (
     <div
@@ -155,4 +178,6 @@ export const VirtualMessageList: React.FC<VirtualMessageListProps> = ({
       </div>
     </div>
   );
-};
+});
+
+VirtualMessageList.displayName = 'VirtualMessageList';
