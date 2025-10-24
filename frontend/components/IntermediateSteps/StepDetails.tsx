@@ -189,7 +189,7 @@ export const StepDetails: React.FC<StepDetailsProps> = ({ step, onClose }) => {
           </div>
         )}
 
-        {/* Event Data */}
+        {/* Event Data
         {step.payload.data && (
           <div className="apple-glass-subtle rounded-xl p-4">
             <h4 className="text-sm font-semibold mb-3 uppercase tracking-[0.15em] text-white/40">Event Data</h4>
@@ -197,15 +197,15 @@ export const StepDetails: React.FC<StepDetailsProps> = ({ step, onClose }) => {
             {step.payload.data.output && renderJSON(step.payload.data.output, 'Output')}
             {step.payload.data.chunk && renderJSON(step.payload.data.chunk, 'Chunk')}
           </div>
-        )}
+        )} */}
 
-        {/* Metadata */}
+        {/* Metadata
         {step.payload.metadata && (
           <div className="apple-glass-subtle rounded-xl p-4">
             <h4 className="text-sm font-semibold mb-3 uppercase tracking-[0.15em] text-white/40">Metadata</h4>
             {renderMetadata(step.payload.metadata)}
           </div>
-        )}
+        )} */}
       </div>
     </div>
   );
