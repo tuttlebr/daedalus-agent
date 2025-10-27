@@ -156,7 +156,7 @@ def truncate_text(text: str, max_tokens: int = 1000) -> str:
 
             return encoder.decode(tokens[:max_tokens])
         except Exception as e:
-            # Log the error and fall through to character-based truncation
+            # Fallback to character-based truncation for any errors
             logger.debug("Failed to use tiktoken for truncation: %s", str(e))
 
     # Fallback to character-based truncation
