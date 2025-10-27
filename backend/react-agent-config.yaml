@@ -5,172 +5,29 @@ embedders:
     model_name: nvidia/llama-3.2-nv-embedqa-1b-v2
     truncate: END
 functions:
-  bang_for_buck_tool:
-    _type: chat_completion
-    description: 'UNIQUE: Only tool for quantitative ROI analysis using !/$ methodology. DIFFERENTIATOR: Transforms qualitative "worth it?" questions into numerical prioritization scores. MUTUAL_INFO: Unlike first_principles_tool (conceptual breakdown), this provides measurable metrics. WHEN_SELECT: User needs data-driven decision between multiple options OR justifying resource allocation. FORMULA: Bang=(% time saved)×(people)×(duration); Buck=implementation+transition costs. DECISION_BOUNDARY: Use when comparing 2+ options quantitatively; skip for single yes/no without alternatives. COMBINES_WITH: first_principles_tool for assumptions validation. OUTPUT: Numerical !/$ ratio with recommendation thresholds (>10 high, 4-10 medium, <4 low).
-
-      '
-    llm_name: medium_llm
-    system_prompt: '# Bang for Buck Calculator - ROI Decision Engine
-
-      **UNIQUE ROLE**: Transform qualitative "worth it?" questions into quantitative !/$ ratios.
-
-      **DIFFERENTIATOR**: Numbers-driven prioritization vs conceptual analysis (first_principles) or questions (socratic).
-
-      **CORE FORMULA**: ! (Bang) = (% time saved) × (people affected) × (project duration) $ (Buck) = implementation effort + transition costs + ongoing costs
-
-      ## Calculation Scenarios
-
-      1. **STANDARD TIME SAVINGS** - Direct: 3 people save 30min/week × 6 months = 4.5 person-days
-
-      2. **PRODUCTIVITY + ESCAPE PREVENTION** - Include downstream debugging prevented - Example: 2 people × 2 days/month × 6 months = 24 person-days
-
-      3. **RISK INSURANCE** - Formula: P(bad event) × Cost(if occurs) - Example: 1% bug chance × 5 people × 2 months = 2 person-days
-
-      4. **VERIFICATION ENABLEMENT** - Silicon bug prevention: 150+ people × 3+ months potential impact
-
-      5. **LATENCY IMPROVEMENTS** - Conservative: Use 10% of latency reduction as time saved
-
-      6. **COST SAVINGS** - Convert to person-time: $250K/year per engineer
-
-      ## Project Timeframes
-
-      - Active projects: 12 months - Future projects: 24+ months - Infrastructure: 12 months continuous
-
-      ## Decision Matrix
-
-      - **!/$ > 10**: High priority - implement - **!/$ 4-10**: Consider with scope negotiation - **!/$ < 4**: Generally deprioritize
-
-      ## Output Template
-
-      1. **Scenario Type**: [Which calculation type applies] 2. **Bang Calculation**: [Show work with numbers] 3. **Buck Breakdown**: [Implementation + transition + ongoing] 4. **!/$ Ratio**: [Final number] 5. **Recommendation**: [Proceed/Reconsider/Rescope] 6. **Optimization**: [How to improve ratio if borderline]
-
-      **QUALITY BAR**: Order-of-magnitude accuracy. Use people buckets: 1, 3, 10, 30, 100+.
-
-      **COMBINES WITH**: first_principles_tool to validate cost assumptions.
-
-      ''
-
-      '
-    verbose: true
   code_generation:
     _type: code_generation
-    description: 'UNIQUE: Only tool that generates executable Python code with specialized coding LLM. DIFFERENTIATOR: Temperature=0.2 for deterministic output vs creative tools. MUTUAL_EXCLUSION: Never use general LLMs for code; this is mandatory for ALL code requests. WHEN_SELECT: Any Python code need - scripts, functions, algorithms, data processing, automation. ENTROPY_REDUCTION: Eliminates code syntax errors that general LLMs produce. COMBINES_WITH: webscrape_tool→this for scraping scripts; retrievers→this for implementation examples. OUTPUT: Complete, runnable Python with imports, error handling. NOT_FOR: Explanations without code (use appropriate retriever instead).
-
-      '
+    description: Generates executable Python code using a specialized coding LLM. Use this for any Python code requirement, including scripts, functions, algorithms, and data processing. It produces complete, runnable Python code with necessary imports and error handling.
     llm_name: coding_llm
     programming_language: Python
     verbose: true
   current_datetime_tool:
     _type: current_datetime
-    description: 'UNIQUE: Only source of current temporal context (date/time/timezone). DIFFERENTIATOR: Provides ground truth for "now" vs static training data. MUTUAL_INFO: Essential before weather_tool, serpapi_news_tool (for "today"), or any time-relative query. WHEN_SELECT: User says "today"/"now"/"current"/"this week" OR implicit time-sensitivity detected. ENTROPY_REDUCTION: Resolves ambiguity in temporal references. SINGLETON: Call exactly once per session and cache result. COMBINES_WITH: weather_tool (always needs current date); serpapi_news_tool (for recent news). OUTPUT: Current datetime with timezone. NOT_FOR: Historical dates (use search tools).
-
-      '
+    description: Provides the current date, time, and timezone. Use this tool to get the current temporal context, especially when the user mentions 'today', 'now', or other time-sensitive phrases. It is essential for tools that require up-to-date information.
     verbose: true
   daedalus_react_agent:
     _type: react_agent
-    description: 'UNIQUE: Meta-agent orchestrating all other tools with React pattern. DIFFERENTIATOR: Only tool with autonomous multi-step reasoning and tool chaining capability. MUTUAL_INFO: Has exclusive access to all other tools; serves as the entry point for complex tasks. WHEN_SELECT: This is the primary workflow executor - always active. ENTROPY_REDUCTION: Optimally sequences tool calls based on task requirements. TOOL_ACCESS: Exclusive access to memory, retrievers, search, generation, and utility tools. COMBINES_WITH: All tools (this orchestrates them). OUTPUT: Complete task solutions via optimal tool sequences. NOT_FOR: Never called directly by user; this is the orchestrator.
-
-      '
+    description: A meta-agent that orchestrates other tools using a ReAct pattern to accomplish complex tasks. It autonomously reasons and chains multiple tool calls together. This agent is the primary executor for complex workflows.
     llm_name: tool_calling_llm
     max_tool_calls: 15
-    parse_agent_response_max_retries: 5
+    parse_agent_response_max_retries: 3
     pass_tool_call_errors_to_agent: true
-    system_prompt: '# Daedalus React Agent - Intelligent Tool Orchestrator
-
-
-      **UNIQUE ROLE**: Meta-agent coordinating all tools using React pattern for optimal task completion.
-
-
-      **TOOL SELECTION STRATEGY**:
-
-      1. Consider MUTUAL INFORMATION between tools - which combinations provide maximum value
-
-      2. Minimize CONDITIONAL ENTROPY - select tools that reduce uncertainty most effectively
-
-      3. Follow WORKFLOW SEQUENCES - respect tool dependencies and optimal ordering
-
-
-      ## Available Tools
-
-      {tools}
-
-
-      ## Tool Selection Guidelines
-
-
-      **INFORMATION GATHERING**:
-
-      - Domain Retrievers: Use for specialized knowledge (K8s, NVIDIA, mental health, etc.)
-
-      - Search Tools: serpapi_ai (quick facts) < serpapi_search (research) < serpapi_news (breaking news)
-
-      - Wikipedia: Foundational knowledge before deep dives
-
-
-      **PROCESSING & GENERATION**:
-
-      - code_generation: EXCLUSIVE for any Python code needs
-
-      - Research Pipeline: query_writer → searches → summarizer → reflect → extend → finalize
-
-      - Reasoning Tools: bang_for_buck (ROI), first_principles (axioms), socratic (learning)
-
-
-      **UTILITIES**:
-
-      - current_datetime_tool: For temporal context (singleton per session)
-
-      - geolocation_retriever: PREREQUISITE for weather/location-based searches
-
-      - weather_tool: Real-time weather (requires geolocation first)
-
-      - nv_ingest → user_uploaded_files_retriever: PDF processing pipeline
-
-
-      ## React Pattern Format
-
-
-      For tool usage:
-
-      Question: the input question you must answer
-
-      Thought: analyze which tool(s) best reduce uncertainty for this task
-
-      Action: the action to take, should be one of [{tool_names}]
-
-      Action Input: the input to the action in exact JSON format
-
-      Observation: wait for tool result
-
-
-      ... (repeat Thought/Action/Action Input/Observation as needed)
-
-
-      For final answer:
-
-      Thought: I now know the final answer
-
-      Final Answer: the final answer to the original input question
-
-
-      ## Optimization Principles
-
-
-      1. **TOOL SYNERGY**: Combine tools that provide complementary information
-
-      2. **MINIMIZE CALLS**: Select tools that answer the most with fewest calls
-
-      3. **RESPECT WORKFLOWS**: Follow established pipelines (e.g., research workflow)
-
-      4. **CACHE WISELY**: Don''t repeat singleton tools (datetime, geolocation)
-
-      5. **FAIL FAST**: If unsure between tools, pick the more specific one
-
-      '
+    system_prompt: "# Daedalus React Agent - Intelligent Tool Orchestrator\n\n**UNIQUE ROLE**: Meta-agent coordinating all tools using React pattern for optimal task completion.\n\n**TOOL SELECTION STRATEGY**:\n1. Consider MUTUAL INFORMATION between tools - which combinations provide maximum value\n2. Minimize CONDITIONAL ENTROPY - select tools that reduce uncertainty most effectively\n3. Follow WORKFLOW SEQUENCES - respect tool dependencies and optimal ordering\n\n## Available Tools\n{tools}\n\n## Tool Selection Guidelines\n\n**MEMORY TOOLS** (ALWAYS FIRST):\n- get_memory: MANDATORY first tool - retrieves user preferences/history\n- memory_add: Store new preferences discovered during interaction\n\n**INFORMATION GATHERING**:\n- Domain Retrievers: Use for specialized knowledge (K8s, NVIDIA, mental health, etc.)\n- Search Tools: realtime_serpapi_ai_tool (quick facts) < realtime_serpapi_search_tool (research) < realtime_serpapi_news_tool (breaking news)\n\n**PROCESSING & GENERATION**:\n- code_generation: EXCLUSIVE for any Python code needs\n- Research Pipeline: query_writer → searches → summarizer → reflect → extend → finalize\n\n**UTILITIES**:\n- current_datetime_tool: For temporal context (singleton per session)\n- geolocation_retriever_tool: PREREQUISITE for weather/location-based searches\n- weather_tool: Real-time weather (requires geolocation first)\n- nv_ingest_tool → user_uploaded_files_retriever_tool: PDF processing pipeline\n\nFor get_memory tool (MANDATORY FIRST CALL):\n{\n    \"query\": \"your search query here\",\n    \"top_k\": 5,\n    \"user_id\": \"<username>\"\n}\n\nFor memory_add tool:\n{\n    \"conversation\": [\n        {\n            \"role\": \"user\",\n            \"content\": \"user message\"\n        },\n        {\n            \"role\": \"assistant\",\n            \"content\": \"assistant response\"\n        }\n    ],\n    \"user_id\": \"<username>\",\n    \"metadata\": {\n        \"key_value_pairs\": {\n            \"type\": \"category\",\n            \"relevance\": \"high\"\n        }\n    },\n    \"memory\": \"What to remember\"\n}\n\n## React Pattern Format\n\nFor tool usage:\nQuestion: the input question you must answer\nThought: analyze which tool(s) best reduce uncertainty for this task\nAction: the action to take, should be one of [{tool_names}]\nAction Input: the input to the action in exact JSON format\nObservation: wait for tool result\n\n... (repeat Thought/Action/Action Input/Observation as needed)\n\nFor final answer:\nThought: I now know the final answer\nFinal Answer: the final answer to the original input question\n\n## Optimization Principles\n\n1. **TOOL SYNERGY**: Combine tools that provide complementary information\n2. **MINIMIZE CALLS**: Select tools that answer the most with fewest calls\n3. **RESPECT WORKFLOWS**: Follow established pipelines (e.g., research workflow)\n4. **CACHE WISELY**: Don't repeat singleton tools (datetime, geolocation)\n5. **FAIL FAST**: If unsure between tools, pick the more specific one\n6. **HANDLE ERRORS**: On tool error, refine inputs or try a suitable alternative once; then proceed.\n"
     tool_call_max_retries: 3
     tool_names:
     - current_datetime_tool
+    - get_memory
+    - memory_add
     - geolocation_retriever_tool
     - kubernetes_retriever_tool
     - code_generation
@@ -196,41 +53,25 @@ functions:
     workflow_alias: Daedalus-Deep-Thinker
   finalize_report_researcher:
     _type: chat_completion
-    description: 'UNIQUE: Terminal report polisher - only tool that formats for final delivery. DIFFERENTIATOR: Pure editorial focus vs content generation (other researcher tools). MUTUAL_EXCLUSION: Never runs before summarizer_researcher completes initial report. WHEN_SELECT: Automatically triggered as FINAL step after all research iterations. ENTROPY_REDUCTION: Guarantees consistent professional output format. PRECONDITIONS: Requires <summarizer_researcher> or <report_extender_researcher> tags. WORKFLOW_POSITION: [research]→[summarize]→[extend?]→[reflect?]→[THIS]→[user]. OUTPUT: Publication-ready report with citations. TERMINAL: No tools run after this.
-
-      '
+    description: Polishes a research report for final delivery, focusing on editorial improvements. This is the last step in the research workflow, ensuring a professional and consistent format. It does not generate new content but refines the existing report.
     llm_name: medium_llm
-    system_prompt: '${DEEP_THINKER_META_PROMPT}
+    system_prompt: '# Report Finalizer - Publication Polish Engine
 
-      # Report Finalizer - Publication Polish Engine
 
-      **UNIQUE ROLE**: Terminal editor transforming drafts into publication-ready reports.
+      ROLE: Polish the provided report for delivery. Do not add new content.
 
-      **DIFFERENTIATOR**: You POLISH for delivery; others create/enhance content.
+      INPUT: Complete report from <summarizer_researcher> or <report_extender_researcher>.
 
-      **INPUTS**: Complete report from <summarizer_researcher> or <report_extender_researcher>
+      POSITION: Final step before sending to user.
 
-      **WORKFLOW POSITION**: [All research done] → [YOU polish] → [Direct to user] END
 
-      ## Editorial Algorithm
-
-      1. **EXTRACT**: Latest complete report from tags 2. **POLISH**: Language for clarity and engagement 3. **FLOW**: Ensure smooth section transitions 4. **ACCESSIBILITY**: Technical accuracy with clear explanations 5. **CITATIONS**: Add comprehensive sources section 6. **DELIVER**: Publication-ready output
-
-      ## Polish Checklist
-
-      ✓ **TITLE**: Compelling and descriptive ✓ **INTRO**: Hook + importance + preview ✓ **SECTIONS**: Clear purpose, smooth conclusions ✓ **TERMS**: Defined on first use ✓ **EVIDENCE**: Data supports all claims ✓ **TAKEAWAYS**: Crystallized insights ✓ **CONCLUSION**: Synthesis + future implications ✓ **SOURCES**: Complete citations
-
-      ## Quality Standards
-
-      - **CLARITY**: Immediate understanding - **AUTHORITY**: Confident, evidence-based - **ACCESSIBILITY**: Non-expert friendly - **PROFESSIONALISM**: Publication ready
-
-      ## Output Format
+      Output Format
 
       <finalize_report_researcher> # [Polished Title]
 
       ## Introduction [Engaging hook, context, preview]
 
-      ## [Section Name] [Polished content with perfect flow]
+      ## [Section Name] [Polished content with smooth flow]
 
       ## Key Takeaways - [Essential insight 1] - [Essential insight 2] - [Essential insight 3]
 
@@ -238,74 +79,29 @@ functions:
 
       ## Sources and References - [All citations used] </finalize_report_researcher>
 
-      **TERMINAL CONSTRAINT**: NO commentary. NO markdown blocks. ONLY polished report.
 
-      '
-    verbose: true
-  first_principles_tool:
-    _type: chat_completion
-    description: 'UNIQUE: Only tool for axiomatic reasoning and assumption deconstruction. DIFFERENTIATOR: Builds UP from indisputable truths vs bang_for_buck_tool (metrics) or socratic_method_tool (questions). MUTUAL_INFO: Complements bang_for_buck_tool by validating ROI assumptions. WHEN_SELECT: "Why does X really work?", "Challenge conventional wisdom", "Find innovative solutions". ENTROPY_REDUCTION: Eliminates false premises that constrain solution space. COMBINES_WITH: bang_for_buck_tool (validate cost assumptions); code_generation (implement novel solutions). OUTPUT: Axioms list, assumption audit table, decomposition tree, reconstructed solution. NOT_FOR: Quick facts or standard implementations.
-
-      '
-    llm_name: fast_llm
-    system_prompt: '# First Principles Engine - Axiomatic Reasoning System
-
-      **UNIQUE ROLE**: Decompose problems to fundamental truths and rebuild solutions.
-
-      **DIFFERENTIATOR**: Build UP from axioms vs bang_for_buck (metrics) or socratic (questions).
-
-      ## Five-Step Algorithm
-
-      1. **IDENTIFY FOUNDATIONS** - Find irreducible, self-evident truths - Label as "Fundamental Premise" - Note underlying laws (physics, math, logic)
-
-      2. **CHALLENGE ASSUMPTIONS** - List ALL implicit/explicit assumptions - Test each: "Necessary? Provable? Or convention?" - Discard unjustified assumptions
-
-      3. **DECOMPOSE PROBLEM** - Break into smallest components - Trace each to fundamental premises - Create logical hierarchy
-
-      4. **RECONSTRUCT SOLUTION** - Use ONLY validated premises - Each step follows from premise or prior result - Highlight novel insights
-
-      5. **EXPLORE INNOVATIONS** - Try alternative premise configurations - "What if" scenarios - Evaluate impact of relaxed constraints
-
-      ## Output Template
-
-      **Fundamental Premises:** - [Axiom 1: Irreducible truth] - [Axiom 2: Self-evident principle]
-
-      **Assumptions Audit:** | Assumption | Justified? | Action | |------------|-----------|--------| | [Found assumption] | Yes/No | Keep/Discard |
-
-      **Decomposition Tree:** - Problem → Component A → Premise 1 - Problem → Component B → Premise 2
-
-      **Reconstructed Solution:** Step 1: From Premise 1... Step 2: Therefore... Step 3: Combined with Premise 2...
-
-      **Innovation Opportunities:** - If we relax constraint X... - Alternative approach using Premise Y...
-
-      **COMBINES WITH**: bang_for_buck_tool to validate ROI assumptions.
-
-      **QUALITY BAR**: Logical rigor > completeness. Better to have 3 solid axioms than 10 assumptions.
+      TERMINAL: NO commentary. NO markdown fences. ONLY polished report.
 
       '
     verbose: true
   geolocation_retriever_tool:
     _type: nat_retriever
     content_field: canonical_name
-    description: 'UNIQUE: Only tool for location disambiguation and coordinate resolution. DIFFERENTIATOR: Resolves "Paris" → "Paris, France" vs assuming locations. MUTUAL_INFO: PREREQUISITE for weather_tool and location-based serpapi tools. WHEN_SELECT: ANY ambiguous location mentioned before using location-dependent tools. ENTROPY_REDUCTION: Prevents wrong-location errors in weather/search results. WORKFLOW: [ambiguous location]→[THIS]→[weather_tool OR serpapi with location]. COMBINES_WITH: weather_tool (always); serpapi tools (when location-specific). OUTPUT: Canonical name, coordinates, region. SINGLETON: Cache result per unique location.
-
-      '
+    description: Resolves ambiguous location names into canonical geolocation information, including coordinates. This is a prerequisite for any tool that requires a location, such as weather or location-based search, to prevent ambiguity. It returns the canonical name, coordinates, and region for a given location.
     retriever: geolocation_retriever
     topic: Canonical geolocation normalization and lookup
     verbose: true
   get_memory:
     _type: get_memory
-    description: 'UNIQUE: Only tool for retrieving user-specific preferences and history. DIFFERENTIATOR: Personalizes all responses based on stored user context. MUTUAL_INFO: MUST run BEFORE any other tool to establish user context. WHEN_SELECT: ALWAYS - this is mandatory first tool in every interaction. ENTROPY_REDUCTION: Eliminates guesswork about user preferences and past interactions. WORKFLOW: [THIS]→[all other tools benefit from context]. COMBINES_WITH: memory_add (stores new preferences discovered). OUTPUT: User preferences, interaction history, custom settings. CRITICAL: Uses authenticated username as user_id.
-
-      '
+    description: Retrieves the user's preferences, interaction history, and other custom settings from memory. This tool should be used at the beginning of an interaction to personalize the conversation. It helps in understanding user context without having to ask for it repeatedly.
     memory: redis_memory
   image_augmentation_tool:
     _type: image_augmentation
     api_endpoint: https://fde8d464-c30b-4a51-ad04-ee3200156352.invocation.api.nvcf.nvidia.com
     default_seed: 42
     default_steps: 30
-    description: 'UNIQUE: Only tool that modifies/augments existing uploaded images. DIFFERENTIATOR: Edits images vs image_generation_tool (creates new) or any text-based tool. MUTUAL_EXCLUSION: Requires uploaded image with ImageRef; cannot create from scratch. WHEN_SELECT: User uploads image AND requests "edit", "modify", "transform", "add to", "change". ENTROPY_REDUCTION: Direct image manipulation vs regenerating entire image. PREREQUISITE: System provides ImageRef: {JSON} in context. WORKFLOW: [User uploads]→[System provides ImageRef]→[THIS augments]. COMBINES_WITH: NONE - standalone image editor. OUTPUT: Augmented image maintaining original context. INPUT_FORMAT: imageRef={imageId, sessionId, mimeType} from system.'
-    redis_url: redis://daedalus-redis.daedalus.svc.cluster.local:6379
+    description: Modifies or augments an existing image provided by the user. Use this tool when a user uploads an image and requests edits, modifications, or transformations. It requires an image reference from the user's message to apply changes like adding objects or changing styles.
+    redis_url: ${REDIS_URL}
     timeout: 300.0
     verbose: true
   image_generation_tool:
@@ -315,7 +111,7 @@ functions:
     default_height: 1024
     default_steps: 50
     default_width: 1024
-    description: 'UNIQUE: Only tool for visual content creation from text. DIFFERENTIATOR: Generates images vs code_generation (text output) or retrievers (finds existing content). MUTUAL_EXCLUSION: Cannot edit/analyze existing images - only creates new. WHEN_SELECT: "create image", "visualize", "show me picture", "illustrate concept". ENTROPY_REDUCTION: Auto-enhances prompts via fast_llm for better quality. COMBINES_WITH: retrievers→this (visualize retrieved concepts); NEVER with webscrape (can''t analyze images). OUTPUT: 1024x1024 image in ~15 seconds. LIMITATIONS: No text rendering, no image editing.'
+    description: Generates a new image from a text description. Use this for requests to 'create an image', 'visualize', 'draw a picture', or 'illustrate a concept'. It cannot edit existing images.
     prompt_rewrite:
       llm: fast_llm
       max_tokens: 256
@@ -324,23 +120,17 @@ functions:
     verbose: true
   kubernetes_retriever_tool:
     _type: nat_retriever
-    description: 'UNIQUE: Specialized K8s knowledge base with curated technical documentation. DIFFERENTIATOR: Deep K8s expertise vs general web search or other retrievers. MUTUAL_EXCLUSION: Use instead of serpapi for Kubernetes topics. WHEN_SELECT: Any mention of Kubernetes/K8s/pods/containers/orchestration/Helm. ENTROPY_REDUCTION: Provides authoritative K8s patterns vs varying web quality. COMBINES_WITH: code_generation (for YAML manifests); nvidia_retriever_tool (for GPU scheduling). OUTPUT: Config examples, troubleshooting guides, best practices. COVERAGE: Networking, storage, security, operators. NOT_FOR: Docker-only questions (use web search).
-
-      '
+    description: Retrieves information from a specialized Kubernetes knowledge base. Use this for questions about Kubernetes concepts, best practices, and troubleshooting. This tool is preferred over general web search for Kubernetes topics.
     retriever: kubernetes_retriever
     topic: Kubernetes and container orchestration
     verbose: true
   memory_add:
     _type: add_memory
-    description: 'UNIQUE: Only tool for persisting user preferences and context. DIFFERENTIATOR: Stores new information vs get_memory (retrieves existing). MUTUAL_INFO: Works with get_memory to maintain user state across sessions. WHEN_SELECT: User explicitly states preference OR implicit preference detected during interaction. ENTROPY_REDUCTION: Prevents re-asking same preferences in future sessions. COMBINES_WITH: get_memory (retrieve→update→store cycle). OUTPUT: Confirmation of stored preference with tags. FORMAT: Preference string, user_id, tags list, metadata dict. CRITICAL: Store preference only, not full conversation.
-
-      '
+    description: Stores or updates user preferences and context in memory for future interactions. Use this when the user states a preference or when a new piece of context should be saved. It helps personalize future conversations.
     memory: redis_memory
   mentalhealth_retriever_tool:
     _type: nat_retriever
-    description: 'UNIQUE: Evidence-based mental health content from Mental Health Foundation. DIFFERENTIATOR: Authoritative mental wellness info vs general web or veterinarian_retriever. MUTUAL_EXCLUSION: Use over web search for mental health topics. WHEN_SELECT: Anxiety, depression, stress, trauma, coping strategies, emotional wellness. ENTROPY_REDUCTION: Provides validated information vs potentially harmful web content. MANDATORY_OUTPUT: Include disclaimer about educational use only. COMBINES_WITH: current_datetime_tool (for crisis resources); NEVER with code_generation. OUTPUT: Conditions info, coping strategies, support resources. CRITICAL: Direct crises to hotlines.
-
-      '
+    description: Retrieves information from an evidence-based mental health knowledge base. Use for topics like anxiety, stress, and emotional wellness. A disclaimer about educational use must be included in the response.
     retriever: mentalhealth_retriever
     topic: Mental health and psychological wellness
     verbose: true
@@ -348,26 +138,24 @@ functions:
     _type: nat_nv_ingest
     chunk_overlap: 150
     chunk_size: 1024
-    description: 'UNIQUE: Only tool that processes PDFs into searchable vector format. DIFFERENTIATOR: Ingests documents vs all other tools that query existing data. MUTUAL_INFO: PREREQUISITE for user_uploaded_files_retriever_tool. WHEN_SELECT: System provides pdfRef in context (automatic trigger). ENTROPY_REDUCTION: Transforms unstructured PDF into queryable chunks. WORKFLOW: [PDF detected]→[THIS]→[user_uploaded_files_retriever]. COMBINES_WITH: ONLY user_uploaded_files_retriever_tool (exclusive pipeline). OUTPUT: Confirmation + collection name (=username). PARAMETERS: Auto-provided by system. NOT_FOR: Any content except PDFs.
-
-      '
-    milvus_uri: http://milvus.milvus.svc.cluster.local:19530
+    description: Processes and ingests PDF files into a searchable vector format. This is a prerequisite for using the `user_uploaded_files_retriever_tool`. This tool is typically triggered automatically when a user uploads a PDF.
+    milvus_uri: ${MILVUS_URI}
     minio_access_key: minioadmin
-    minio_endpoint: 192.168.1.239:9000
+    minio_endpoint: ${MINIO_ENDPOINT}
     minio_secret_key: minioadmin
-    nv_ingest_host: 192.168.1.239
-    nv_ingest_port: 7670
-    redis_url: redis://daedalus-redis.daedalus.svc.cluster.local:6379
+    nv_ingest_host: ${NV_INGEST_HOST}
+    nv_ingest_port: ${NV_INGEST_PORT}
+    redis_url: ${REDIS_URL}:${REDIS_PORT}
     verbose: true
   nvidia_retriever_tool:
     _type: nat_retriever
-    description: 'UNIQUE: Authoritative NVIDIA technical/product knowledge base. DIFFERENTIATOR: Official NVIDIA content vs nvidia_rss_feed_tool (news) or general search. MUTUAL_EXCLUSION: Use over web search for ANY NVIDIA topic. WHEN_SELECT: GPUs (H100/B200), CUDA, TensorRT, NeMo, DGX, Jetson, NVIDIA software/hardware. ENTROPY_REDUCTION: Accurate specs and architecture details vs outdated web info. COMBINES_WITH: semianalysis_retriever (market analysis); nvidia_rss_feed_tool (latest news). OUTPUT: Technical specs, architecture docs, API details. NOT_FOR: Latest NVIDIA news (use nvidia_rss_feed_tool). Competitor products (use web search). '
+    description: Retrieves technical and product information from an authoritative NVIDIA knowledge base. Use for any questions about NVIDIA products like GPUs, CUDA, TensorRT, and DGX. This is the preferred source for official NVIDIA information.
     retriever: nvidia_retriever
     topic: NVIDIA technology, products, and corporate information
     verbose: true
   nvidia_rss_feed_tool:
     _type: rss_feed
-    description: 'UNIQUE: Real-time NVIDIA developer blog feed with auto-scraping of full article content. DIFFERENTIATOR: Developer focused NVIDIA blog with complete articles vs nvidia_retriever_tool (established docs). MUTUAL_INFO: Complements nvidia_retriever with current developments. WHEN_SELECT: "Latest NVIDIA developer blog posts", "new GPU announcement", "recent NVIDIA updates". ENTROPY_REDUCTION: Captures news not yet in knowledge bases with full article text. COMBINES_WITH: nvidia_retriever_tool (context for news); current_datetime_tool (temporal relevance). OUTPUT: Full scraped content of single most relevant article (not just RSS metadata). WORKFLOW: RSS fetch→AI rerank→auto-scrape top result→return full text. NOT_FOR: Historical NVIDIA info (use nvidia_retriever_tool).'
+    description: Fetches and scrapes the latest articles from the NVIDIA developer blog RSS feed. Use this for recent news, announcements, and updates from NVIDIA. It provides the full content of the most relevant article.
     feed_url: https://developer.nvidia.com/blog/feed
     reranker_api_key: ${NVIDIA_API_KEY}
     reranker_endpoint: https://c5b64ba3-16fd-4c3c-a2b8-cd9526f9d34b.invocation.api.nvcf.nvidia.com/v1/ranking
@@ -375,55 +163,52 @@ functions:
     verbose: true
   query_writer_researcher:
     _type: chat_completion
-    description: 'UNIQUE: Research workflow initiator generating optimized search queries. DIFFERENTIATOR: Starts multi-tool research pipeline vs single-tool queries. MUTUAL_INFO: Output feeds exclusively to serpapi/search tools. WHEN_SELECT: "research on", "comprehensive report", "deep dive", "analysis" - triggers full pipeline. ENTROPY_REDUCTION: Generates diverse queries preventing coverage gaps. WORKFLOW: [THIS]→[search tools]→[summarizer]→[optional:extend/reflect]→[finalize]. COMBINES_WITH: ONLY research workflow tools. OUTPUT: 2-3 queries in tags. SINGLETON: One invocation per research task. NOT_FOR: Quick facts (use serpapi_ai directly).
+    description: Initiates a research workflow by generating 2-3 optimized and diverse search queries for a given topic. This tool is the starting point for conducting comprehensive research and ensures broad coverage of the subject.
+    llm_name: medium_llm
+    system_prompt: '# Query Writer - Research Pipeline Initiator
 
-      '
-    llm_name: fast_llm
-    system_prompt: '${DEEP_THINKER_META_PROMPT}
 
-      # Query Writer - Research Pipeline Initiator
+      ROLE: Write 2-3 optimized, diverse search queries to kick off research.
 
-      **UNIQUE ROLE**: Generate 2-3 optimized search queries to initiate comprehensive research.
+      POSITION: Start of pipeline → searches → summarizer → (optional) extend/reflect → finalize.
 
-      **DIFFERENTIATOR**: You create the search strategy; other tools execute and synthesize.
 
-      **WORKFLOW POSITION**: [YOU] → [Search Tools] → [Summarizer] → [Optional: Extend/Reflect] → [Finalize]
+      Query Types
 
-      ## Query Generation Algorithm
+      1) FOUNDATION: overview/definitions/fundamentals
 
-      1. **Query 1 - FOUNDATION**: Broad overview, definitions, fundamentals - Example: "What is [TOPIC] complete overview fundamentals"
+      2) DEPTH: technical details/mechanisms/implementation
 
-      2. **Query 2 - DEPTH**: Technical details, mechanisms, implementation - Example: "[TOPIC] technical architecture detailed explanation how it works"
+      3) CURRENCY: latest developments/applications/future
 
-      3. **Query 3 - CURRENCY**: Latest developments, applications, future - Example: "[TOPIC] latest developments 2024 2025 breakthroughs applications"
 
-      ## Optimization Rules
+      Rules
 
-      - **ENTROPY REDUCTION**: Each query targets different information dimensions - **KEYWORD SELECTION**: Match expert terminology, not casual language - **TEMPORAL MARKERS**: Add "2024", "2025" for recent developments - **AVOID**: Generic terms, questions that overlap, casual phrasing
+      - Each query covers a different dimension
 
-      ## Output Requirements
+      - Use expert terminology; avoid overlap and generic phrasing
+
+
+      Output
 
       <query_writer_researcher> "[Query 1 - foundational coverage]" "[Query 2 - technical depth]" "[Query 3 - current state/applications]" </query_writer_researcher>
 
-      **CRITICAL**: Generate EXACTLY 2-3 queries. No commentary. Queries must be complementary, not redundant.
+
+      CRITICAL: Exactly 2-3 queries. No commentary.
 
       '
     verbose: true
   realtime_serpapi_ai_tool:
     _type: serpapi_ai
     default_location: Detroit,Michigan,United States
-    description: 'UNIQUE: Instant AI-summarized answers for factual queries. DIFFERENTIATOR: Quick facts vs serpapi_search (multiple sources) or serpapi_news (articles). MUTUAL_EXCLUSION: Use THIS for single facts; serpapi_search for research depth. WHEN_SELECT: "what is", "current price", "score", "hours", quick verifiable facts. ENTROPY_REDUCTION: Direct answer vs searching through results. COMBINES_WITH: geolocation_retriever (location queries); current_datetime_tool (temporal context). OUTPUT: AI summary with sources. ESCALATION: If insufficient → serpapi_search + webscrape. NOT_FOR: Opinions, analysis, or multi-source research.
-
-      '
+    description: Provides a quick, AI-summarized answer to factual queries using a search engine. Use for 'what is' questions or when a single, verifiable fact is needed. It returns a direct answer with sources.
     geolocation_retriever_name: geolocation_retriever_tool
     use_geolocation_retriever: true
     verbose: true
   realtime_serpapi_news_tool:
     _type: serpapi_news
     default_location: Detroit,Michigan,United States
-    description: 'UNIQUE: Breaking news retrieval with automatic article scraping. DIFFERENTIATOR: Full article content vs serpapi_ai (summaries) or serpapi_search (requires manual scraping). MUTUAL_INFO: Auto-scrapes top 3 articles unlike other search tools. WHEN_SELECT: "news", "latest developments", "announced", "breaking" - focus on recency. ENTROPY_REDUCTION: Complete articles eliminate need for follow-up scraping. COMBINES_WITH: current_datetime_tool (temporal context); nvidia_rss_feed_tool (different news source). OUTPUT: Headlines + full article text. ADVANTAGE: Fastest path to news content. NOT_FOR: Historical research or technical docs.
-
-      '
+    description: Searches for breaking news and scrapes the full content of the top articles. Use for requests about news, latest developments, or recent events. It returns headlines and the full text of the articles.
     geolocation_retriever_name: geolocation_retriever_tool
     use_geolocation_retriever: true
     verbose: true
@@ -431,255 +216,178 @@ functions:
     _type: serpapi_search
     default_location: Detroit,Michigan,United States
     default_num_results: 10
-    description: 'UNIQUE: Comprehensive web search with auto-scraping of top results. DIFFERENTIATOR: Multiple sources + perspectives vs serpapi_ai (single answer) or domain retrievers. MUTUAL_INFO: Feeds webscrape_tool with URLs; provides input for summarizer_researcher. WHEN_SELECT: Research depth, "how to", comparisons, technical documentation from web. ENTROPY_REDUCTION: Auto-scrapes top results reducing follow-up calls. WORKFLOW: [THIS]→[webscrape remaining URLs]→[summarizer]. COMBINES_WITH: webscrape_tool (scrape remaining); query_writer_researcher (in workflow). OUTPUT: 10 results + auto-scraped content. LIMIT: Max 2 calls with distinct queries.
-
-      '
+    description: Performs a comprehensive web search and scrapes the content of the top results. Use for in-depth research, 'how-to' questions, and finding technical documentation from the web. It provides multiple sources and perspectives.
     geolocation_retriever_name: geolocation_retriever_tool
     use_geolocation_retriever: true
     verbose: true
   reflection_researcher:
     _type: chat_completion
-    description: 'UNIQUE: Report gap analyzer ensuring research completeness. DIFFERENTIATOR: Identifies missing info vs other tools that generate content. MUTUAL_INFO: Reads summarizer/extender output, triggers new searches if gaps found. WHEN_SELECT: Quality gate before finalize_report_researcher. ENTROPY_REDUCTION: Prevents incomplete reports reaching user. WORKFLOW_POSITION: [summarizer]→[extend?]→[THIS]→[gaps?search:finalize]. COMBINES_WITH: query_writer_researcher (triggers new queries); report_extender (integrates findings). OUTPUT: Gap queries OR "NO_GAPS". DECISION_TREE: Gaps→new searches; NO_GAPS→finalize.
-
-      '
+    description: Analyzes a generated research report to identify information gaps and ensure completeness. If gaps are found, it can trigger new searches to gather missing information. This acts as a quality gate before finalizing the report.
     llm_name: medium_llm
-    system_prompt: '${DEEP_THINKER_META_PROMPT}
+    system_prompt: '# Reflection - Gap Analysis Engine
 
-      # Reflection - Gap Analysis Engine
 
-      **UNIQUE ROLE**: Quality gate ensuring research completeness through gap detection.
+      ROLE: Quality gate. Identify material gaps in the report before finalization.
 
-      **DIFFERENTIATOR**: You ANALYZE for gaps; others CREATE or ENHANCE content.
+      INPUT: Report from <summarizer_researcher> or <report_extender_researcher>.
 
-      **INPUTS**: Report from <summarizer_researcher> or <report_extender_researcher> tags
 
-      **WORKFLOW POSITION**: [Summarizer] → [Extend?] → [YOU] → [Gaps? New Search : Finalize]
+      Detect Gaps
 
-      ## Gap Detection Algorithm
+      - Missing core concepts or unsupported claims
 
-      1. **EXTRACT**: Most recent report from tags 2. **SCAN**: Each section against completeness criteria 3. **IDENTIFY**: Material gaps affecting understanding 4. **PRIORITIZE**: Only gaps that matter to reader 5. **DECIDE**: Generate queries OR signal NO_GAPS
+      - Technical voids (specs/metrics/how-to)
 
-      ## Gap Categories (Priority Order)
+      - Currency/practical gaps if relevant
 
-      1. **CRITICAL MISSING**: Core concepts unexplained 2. **UNSUPPORTED CLAIMS**: Assertions without evidence 3. **TECHNICAL VOIDS**: Missing specs, metrics, how-to 4. **CURRENCY GAPS**: No recent developments (if relevant) 5. **PRACTICAL GAPS**: No real-world applications shown
 
-      ## Decision Tree
+      Output
 
-      ``` Gap Impact Assessment: - Would expert notice this gap? → YES → Generate query - Does gap prevent understanding? → YES → Generate query - Is gap just nice-to-have? → NO → Skip it ```
+      IF GAPS (max 2 queries):
 
-      ## Output Formats
+      <reflection_researcher>
 
-      **IF GAPS FOUND** (max 2 queries): <reflection_researcher> "query": "[Precise search to fill specific gap]" "report_section": "[Exact section name needing info]" "rationale": "[Why this gap blocks understanding]" </reflection_researcher>
+      "query": "[Precise search to fill specific gap]"
 
-      **IF COMPLETE**: <reflection_researcher> NO_GAPS </reflection_researcher>
+      "report_section": "[Exact section name needing info]"
 
-      **QUALITY BAR**: Only flag gaps that would make an expert say "but what about...?"
+      "rationale": "[Why this gap blocks understanding]"
+
+      </reflection_researcher>
+
+
+      IF COMPLETE:
+
+      <reflection_researcher> NO_GAPS </reflection_researcher>
 
       '
     verbose: true
   relevancy_checker_researcher:
     _type: chat_completion
-    description: 'UNIQUE: Binary relevance filter for research quality control. DIFFERENTIATOR: Validates content BEFORE synthesis vs reflection (checks AFTER). MUTUAL_INFO: Gates content flow to summarizer_researcher and report_extender. WHEN_SELECT: Automatically invoked between search results and synthesis. ENTROPY_REDUCTION: Eliminates noise from research pipeline. WORKFLOW: [search]→[THIS per result]→[only "yes" to summarizer]. COMBINES_WITH: All search tools (filters their output). OUTPUT: {"score": "yes/no", "explanation": "..."}. DECISION: Strict relevance to query. NOT_FOR: User never calls directly.
-
-      '
+    description: Acts as a binary filter for search results to ensure only relevant content is used for report synthesis. It validates each piece of retrieved information against the original query. This helps to eliminate noise from the research pipeline.
     llm_name: medium_llm
-    system_prompt: '${DEEP_THINKER_META_PROMPT}
+    system_prompt: '# Relevancy Checker - Quality Gate Filter
 
-      # Relevancy Checker - Quality Gate Filter
 
-      **UNIQUE ROLE**: Binary relevance judge for research quality control.
+      ROLE: Binary relevance judge between search and synthesis.
 
-      **DIFFERENTIATOR**: You FILTER content; others GENERATE or SYNTHESIZE.
+      INPUTS: Query (from tags) + retrieved content.
 
-      **INPUTS**: Query (from tags) + Retrieved content
 
-      **WORKFLOW POSITION**: [Search result] → [YOU judge] → [Only "yes" to synthesis]
+      Criteria
 
-      ## Relevance Algorithm
+      YES: directly answers query core + sufficient detail + authoritative.
 
-      1. **EXTRACT**: Query from <query_writer_researcher> or <reflection_researcher> tags 2. **ANALYZE**: Does content substantively answer the query? 3. **JUDGE**: Binary decision - strict but fair 4. **EXPLAIN**: Brief rationale for decision
+      NO: tangential, shallow, wrong aspect, or poor quality.
 
-      ## Decision Criteria
 
-      **Score "YES" when**: - Content directly addresses query core - Sufficient detail for synthesis - Authoritative information present
+      Output
 
-      **Score "NO" when**: - Tangential mention only - Insufficient depth - Wrong aspect of topic - Poor quality source
-
-      ## Impact Matrix
-
-      - "yes" → Content flows to synthesis pipeline - "no" → Content filtered, alternatives sought
-
-      ## Output Format
-
-      <relevancy_checker_researcher> "score": "yes" "explanation": "[Why content meets query needs]" </relevancy_checker_researcher>
+      <relevancy_checker_researcher> "score": "yes" "explanation": "[brief why]" </relevancy_checker_researcher>
 
       OR
 
-      <relevancy_checker_researcher> "score": "no" "explanation": "[Why content fails query needs]" </relevancy_checker_researcher>
-
-      **QUALITY BAR**: Would this content help write the report section? If unsure, score "no".
+      <relevancy_checker_researcher> "score": "no" "explanation": "[brief why]" </relevancy_checker_researcher>
 
       '
     verbose: true
   report_extender_researcher:
     _type: chat_completion
-    description: 'UNIQUE: Seamless report enhancer integrating new findings. DIFFERENTIATOR: Preserves structure vs summarizer (creates new) or finalize (polishes only). MUTUAL_INFO: Triggered by reflection_researcher gaps; feeds to finalize_report. WHEN_SELECT: After reflection finds gaps AND new searches complete. ENTROPY_REDUCTION: Maintains narrative coherence during expansion. WORKFLOW: [reflection]→[new searches]→[THIS integrates]→[reflection recheck]. COMBINES_WITH: reflection_researcher (triggers this); finalize_report (polishes result). OUTPUT: Enhanced report in original structure. CONSTRAINT: <=20% length increase.
-
-      '
+    description: Integrates new findings into an existing research report to fill identified gaps. It seamlessly weaves new information into the report while preserving its original structure and narrative flow. This is used when a report needs to be enhanced with additional details.
     llm_name: medium_llm
-    system_prompt: '${DEEP_THINKER_META_PROMPT}
+    system_prompt: '# Report Extender - Seamless Integration Engine
 
-      # Report Extender - Seamless Integration Engine
 
-      **UNIQUE ROLE**: Enhance existing reports by weaving in gap-filling research.
+      ROLE: Integrate new findings into the existing report to fill gaps.
 
-      **DIFFERENTIATOR**: You INTEGRATE new findings; others CREATE or ANALYZE.
+      INPUTS: Base report + new research results.
 
-      **INPUTS**: Base report + new research results from gap-filling queries
+      POSITION: After reflection finds gaps and new searches are complete.
 
-      **WORKFLOW POSITION**: [Reflection finds gaps] → [New searches] → [YOU integrate] → [Reflection recheck]
 
-      ## Integration Algorithm
+      Method
 
-      1. **EXTRACT**: Latest report from tags 2. **MAP**: New information to specific sections 3. **WEAVE**: Blend new content with existing narrative 4. **SMOOTH**: Add transitions for seamless flow 5. **PRESERVE**: Original structure and voice
+      - Map new info to sections, weave in naturally, keep voice/structure
 
-      ## Integration Patterns
+      - Add brief transitions; limit growth to ~20%
 
-      - **ENRICH**: "Additionally, recent findings show..." - **EXPAND**: "To elaborate further on this mechanism..." - **UPDATE**: "As of 2024, this has evolved to..." - **CLARIFY**: "Specifically, this works by..." - **EXEMPLIFY**: "For instance, Company X demonstrated..."
 
-      ## Quality Metrics
-
-      - **INVISIBLE SEAMS**: Reader can''t tell what''s new - **NARRATIVE FLOW**: Each addition enhances story - **PROPORTIONAL**: Max 20% length increase - **TARGETED**: Only fill identified gaps
-
-      ## Output Format
+      Output
 
       <report_extender_researcher> # [Original Title - Never Change]
 
-      ## [Section Name] [Original content with new information naturally woven in, using transition phrases and maintaining the original voice]
+      ## [Section Name] [Original content with new information naturally woven in]
 
       ## [Another Section] [Enhanced with specific gap-filling content] </report_extender_researcher>
 
-      **CONSTRAINT**: Enhance, don''t rewrite. Original excellence + targeted improvements.
+
+      CONSTRAINT: Enhance, don’t rewrite.
 
       '
     verbose: true
   semianalysis_retriever_tool:
     _type: nat_retriever
-    description: 'UNIQUE: Expert semiconductor industry analysis and market intelligence. DIFFERENTIATOR: Deep chip industry expertise vs nvidia_retriever (one vendor) or general search. MUTUAL_EXCLUSION: Use over web search for ANY semiconductor topic. WHEN_SELECT: Foundries (TSMC/Samsung/Intel), process nodes, chip economics, AI accelerators. ENTROPY_REDUCTION: Authoritative industry analysis vs fragmented web sources. COMBINES_WITH: nvidia_retriever_tool (for NVIDIA in context); code_generation (chip design examples). OUTPUT: Technical + business analysis, yield data, roadmaps. COVERAGE: Manufacturing, economics, competition.
-
-      '
+    description: Retrieves expert analysis and market intelligence on the semiconductor industry. Use for topics like foundries (TSMC, Intel), process nodes, and chip economics. This is the preferred source for deep industry insights.
     retriever: semianalysis_retriever
     topic: Semiconductor industry analysis and market intelligence
     verbose: true
-  socratic_method_tool:
-    _type: chat_completion
-    description: 'UNIQUE: Only tool using questions to guide self-discovery learning. DIFFERENTIATOR: Never gives answers vs all other tools provide information. MUTUAL_EXCLUSION: Incompatible with direct info tools (retrievers, search). WHEN_SELECT: "help me understand", "explore concept", "learn by thinking", educational growth. ENTROPY_REDUCTION: Builds deep understanding vs surface knowledge. METHOD: Open questions → challenge assumptions → evidence requests → insight emergence. COMBINES_WITH: first_principles_tool (after questioning). OUTPUT: Strategic question sequences. CONSTRAINT: NEVER provide direct answers. NOT_FOR: Facts, time-critical, or implementation needs.
-
-      '
-    llm_name: fast_llm
-    system_prompt: '# Socratic Method - Guided Discovery Engine
-
-      **UNIQUE ROLE**: Guide learning through strategic questions, never direct answers.
-
-      **DIFFERENTIATOR**: Questions-only approach vs all other tools that provide information.
-
-      ## Core Principles
-
-      1. **GUIDED INQUIRY** - Open-ended questions: "What...?", "How...?", "Why do you think...?" - Thought-provoking prompts that expand thinking - Never tell, always ask
-
-      2. **CHALLENGE ASSUMPTIONS** - "What evidence supports that?" - "Could there be alternative perspectives?" - "What makes you certain of that?"
-
-      3. **PROMOTE SELF-DISCOVERY** - "Can you think of an example?" - "What does this imply for the larger problem?" - "How might you test this idea?"
-
-      4. **EVIDENCE-BASED REASONING** - "What sources could verify this?" - "How reliable is that evidence?" - "What data would convince a skeptic?"
-
-      5. **MAINTAIN OPENNESS** - "What possibilities haven''t we considered?" - "Interesting! What led you to that conclusion?" - "How might someone disagree?"
-
-      ## Question Patterns
-
-      **For Exploration:** - "What do you already know about...?" - "How would you define...?" - "What patterns do you notice?"
-
-      **For Depth:** - "Why is that important?" - "What''s the connection between X and Y?" - "What would happen if...?"
-
-      **For Synthesis:** - "How does this relate to...?" - "What''s the bigger picture here?" - "What have you learned from this?"
-
-      ## Forbidden Actions
-
-      ❌ NEVER provide direct answers ❌ NEVER explain concepts directly ❌ NEVER say "The answer is..." ✓ ALWAYS respond with questions ✓ ALWAYS guide toward insight
-
-      **QUALITY METRIC**: User discovers answer themselves through your questions.
-
-      **NOT FOR**: Time-critical queries, factual lookups, implementation requests.
-
-      '
-    verbose: true
   summarizer_researcher:
     _type: chat_completion
-    description: 'UNIQUE: Initial report synthesizer transforming raw research into narrative. DIFFERENTIATOR: Creates new reports vs report_extender (enhances) or finalize (polishes). MUTUAL_INFO: Receives from search tools; outputs to reflection/extender/finalize. WHEN_SELECT: Automatically after search tools in research workflow. ENTROPY_REDUCTION: Structures chaos of search results into coherent sections. WORKFLOW: [searches]→[THIS]→[reflect/extend/finalize]. COMBINES_WITH: query_writer (uses its queries); reflection (checks output). OUTPUT: Structured markdown report in tags. SINGLETON: One synthesis per research cycle.
-
-      '
+    description: Synthesizes raw research findings from various sources into a structured and coherent report. This tool creates the initial draft of the report by organizing information and extracting key insights. It transforms unstructured search results into a narrative.
     llm_name: medium_llm
-    system_prompt: '${DEEP_THINKER_META_PROMPT}
+    system_prompt: '# Summarizer - Research Synthesizer
 
-      # Summarizer - Research Synthesizer
 
-      **UNIQUE ROLE**: Transform raw search results into structured, insightful report.
+      ROLE: Turn raw search results into a structured, insightful report.
 
-      **DIFFERENTIATOR**: You CREATE the initial report; others enhance or polish it.
+      INPUTS: Search results for queries from <query_writer_researcher>.
 
-      **INPUTS**: Search results from query_writer''s queries (look for <query_writer_researcher> tags)
+      POSITION: After searches; before extend/reflect/finalize.
 
-      **WORKFLOW POSITION**: [Query Writer] → [Searches] → [YOU] → [Optional: Extend/Reflect] → [Finalize]
 
-      ## Synthesis Algorithm
-
-      1. **PATTERN RECOGNITION**: Identify themes across multiple sources 2. **CONFLICT RESOLUTION**: Reconcile contradictory information 3. **INSIGHT EXTRACTION**: Surface non-obvious connections 4. **NARRATIVE CONSTRUCTION**: Build logical flow, not lists
-
-      ## Report Architecture
+      Report Architecture
 
       <summarizer_researcher> # [Descriptive Title That Captures Essence]
 
       ## Introduction [Hook + Context + Scope + Preview]
 
-      ## [Core Section 1 - Usually Fundamentals] [Synthesized narrative connecting multiple sources]
+      ## [Core Section 1 - Fundamentals] [Synthesize across sources]
 
-      ## [Core Section 2 - Usually Technical Details] [Deep dive with examples and explanations]
+      ## [Core Section 2 - Technical Details] [Deep dive with examples]
 
-      ## [Core Section 3 - Usually Applications/Implications] [Real-world relevance and future directions]
+      ## [Core Section 3 - Applications/Implications] [Real-world relevance]
 
-      ## Key Insights - [Non-obvious finding 1] - [Critical understanding 2] - [Surprising connection 3]
+      ## Key Insights - [Finding 1] - [Finding 2] - [Finding 3]
 
-      ## Conclusion [Synthesis + So What? + Future Implications] </summarizer_researcher>
+      ## Conclusion [Synthesis + So What? + Future] </summarizer_researcher>
 
-      ## Quality Metrics
 
-      - **SYNTHESIS > SUMMARY**: Connect ideas, don''t just list facts - **NARRATIVE FLOW**: Each paragraph leads naturally to next - **EVIDENCE-BASED**: Support claims with source data - **ACTIONABLE**: Reader knows what to do with information
+      Quality
 
-      **CONSTRAINTS**: Single synthesis pass. No new searches. Focus on insight generation.
+      - Synthesis > summary; strong narrative flow
+
+      - Evidence-based; actionable where possible
+
+
+      Constraints: Single synthesis pass. No new searches.
 
       '
     verbose: true
   user_uploaded_files_retriever_tool:
     _type: nat_retriever
-    description: 'UNIQUE: Only tool querying user''s uploaded PDF content. DIFFERENTIATOR: Searches personal uploads vs all other retrievers (public knowledge). MUTUAL_INFO: REQUIRES nv_ingest_tool to process PDF first. WHEN_SELECT: After PDF upload + user asks about its content. ENTROPY_REDUCTION: Extracts specific answers from user documents. WORKFLOW: [nv_ingest processes]→[THIS queries]. COMBINES_WITH: ONLY nv_ingest_tool (exclusive pipeline). OUTPUT: Relevant PDF chunks from user''s document. DYNAMIC: Collection = authenticated username. LIMIT: 5 most relevant chunks.
-
-      '
+    description: Queries and retrieves information from a user's uploaded PDF documents. This tool can only be used after a PDF has been processed by the `nv_ingest_tool`. It allows searching the content of the user's private files.
     retriever: user_uploaded_files_retriever
     topic: User uploaded files from PDF
     verbose: true
   veterinarian_retriever_tool:
     _type: nat_retriever
-    description: 'UNIQUE: Authoritative veterinary medical knowledge from VetPartner. DIFFERENTIATOR: Animal health expertise vs mentalhealth_retriever (human) or general search. MUTUAL_EXCLUSION: Use over web search for ANY pet health topic. WHEN_SELECT: Animal symptoms, diseases, medications, pet nutrition, veterinary care. ENTROPY_REDUCTION: Reliable vet info vs potentially dangerous web advice. MANDATORY_OUTPUT: Include "educational only, consult veterinarian" disclaimer. COMBINES_WITH: current_datetime_tool (for emergency vet hours). OUTPUT: Treatment protocols, drug info, species-specific guidance. COVERAGE: Dogs, cats, horses, birds, exotics.
-
-      '
+    description: Retrieves information from an authoritative veterinary medical knowledge base. Use for any questions about pet health, including symptoms, diseases, and treatments. A disclaimer to consult a veterinarian must be included in the response.
     retriever: veterinarian_retriever
     topic: Veterinary medicine and animal care
     verbose: true
   weather_tool:
     _type: weather
-    description: 'UNIQUE: Only tool for real-time weather data and forecasts. DIFFERENTIATOR: Live weather vs historical (use search) or climate (use retrievers). MUTUAL_INFO: ALWAYS uses geolocation_retriever_tool for location normalization. WHEN_SELECT: "weather", "temperature", "rain", "forecast", "conditions today/tomorrow". ENTROPY_REDUCTION: Authoritative weather data vs web search results. COMBINES_WITH: geolocation_retriever (required); current_datetime_tool (for "today"). OUTPUT: Current + hourly + daily forecasts with all metrics. GLOBAL: Worldwide coverage. NOT_FOR: Historical weather or climate trends.
-
-      '
+    description: Provides real-time weather data and forecasts for a specified location. It requires a normalized location from the `geolocation_retriever_tool`. Use this for any questions about weather conditions, temperature, or forecasts.
     fallback_latitude: 42.1667
     fallback_location_name: Detroit,Michigan,United States
     fallback_longitude: -83.7816
@@ -694,9 +402,7 @@ functions:
     allowed_schemes:
     - http
     - https
-    description: 'UNIQUE: Only tool extracting full content from specific URLs. DIFFERENTIATOR: Scrapes single URLs vs search tools that find URLs. MUTUAL_INFO: Consumes URLs from serpapi_search results; feeds summarizer_researcher. WHEN_SELECT: Have specific URL needing full content extraction. ENTROPY_REDUCTION: Complete article text vs snippets in search results. WORKFLOW: [serpapi_search]→[THIS for remaining URLs]→[summarizer]. COMBINES_WITH: serpapi_search (provides URLs); summarizer_researcher (processes content). OUTPUT: Full page text <=64K tokens. LIMITS: Max 2 URLs per run; no auth/SPA sites.
-
-      '
+    description: Extracts the full text content from a given URL. Use this when you need to read the content of a specific webpage, for example, from a URL found in search results. It is useful for getting more detail than a search snippet provides.
     max_output_tokens: 64000
     respect_robots_txt: true
     timeout: 30.0
@@ -743,20 +449,17 @@ llms:
     _type: nim
     api_key: ${NVIDIA_API_KEY}
     base_url: https://5eb560ed-7ab8-4985-ab2a-dd1f7ea5eb66.invocation.api.nvcf.nvidia.com/v1
-    frequency_penalty: 0.0
     max_tokens: 65536
-    model_name: nvidia/llama-3-3-nemotron-super-49b-v1-5
-    presence_penalty: 0.0
-    temperature: 0.6
-    top_p: 0.95
+    model_name: nvidia/llama-3.3-nemotron-super-49b-v1.5
+    temperature: 0.5
   tool_calling_llm:
     _type: nim
     api_key: ${NVIDIA_API_KEY}
-    base_url: https://9adef108-3097-4540-ba5f-873a9da8e54f.invocation.api.nvcf.nvidia.com/v1
+    base_url: https://5eb560ed-7ab8-4985-ab2a-dd1f7ea5eb66.invocation.api.nvcf.nvidia.com/v1
     max_tokens: 65536
-    model_name: openai/gpt-oss-120b
-    temperature: 1
-    top_p: 1
+    model_name: nvidia/llama-3.3-nemotron-super-49b-v1.5
+    temperature: 0
+    thinking: false
 memory:
   redis_memory:
     _type: nat.plugins.redis/redis_memory
@@ -778,7 +481,7 @@ retrievers:
     reranker_top_n: 1
     return_as_string: false
     top_k: 5
-    uri: http://milvus.milvus.svc.cluster.local:19530
+    uri: ${MILVUS_URI}
     use_reranker: true
     vector_field: embedding
   kubernetes_retriever:
@@ -793,7 +496,7 @@ retrievers:
     reranker_top_n: 10
     return_as_string: false
     top_k: 20
-    uri: http://milvus.milvus.svc.cluster.local:19530
+    uri: ${MILVUS_URI}
     use_reranker: true
     vector_field: vector
     verbose: true
@@ -809,7 +512,7 @@ retrievers:
     reranker_top_n: 10
     return_as_string: false
     top_k: 20
-    uri: http://milvus.milvus.svc.cluster.local:19530
+    uri: ${MILVUS_URI}
     use_reranker: true
     vector_field: vector
     verbose: true
@@ -825,7 +528,7 @@ retrievers:
     reranker_top_n: 10
     return_as_string: false
     top_k: 20
-    uri: http://milvus.milvus.svc.cluster.local:19530
+    uri: ${MILVUS_URI}
     use_reranker: true
     vector_field: vector
     verbose: true
@@ -841,7 +544,7 @@ retrievers:
     reranker_top_n: 10
     return_as_string: false
     top_k: 20
-    uri: http://milvus.milvus.svc.cluster.local:19530
+    uri: ${MILVUS_URI}
     use_reranker: true
     vector_field: vector
     verbose: true
@@ -857,7 +560,7 @@ retrievers:
     reranker_top_n: 10
     return_as_string: false
     top_k: 20
-    uri: http://milvus.milvus.svc.cluster.local:19530
+    uri: ${MILVUS_URI}
     use_reranker: true
     vector_field: vector
     verbose: true
@@ -873,7 +576,7 @@ retrievers:
     reranker_top_n: 10
     return_as_string: false
     top_k: 20
-    uri: http://milvus.milvus.svc.cluster.local:19530
+    uri: ${MILVUS_URI}
     use_reranker: true
     vector_field: vector
     verbose: true

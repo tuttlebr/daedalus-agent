@@ -234,12 +234,22 @@ async def image_augmentation_function(
                 return "Error: No augmentation prompt provided."
 
             if not imageRef or not isinstance(imageRef, dict):
-                return "Error: Invalid or missing image reference."
+                logger.error(
+                    "Invalid imageRef received. Type: %s, Value: %s",
+                    type(imageRef),
+                    imageRef,
+                )
+                return (
+                    "Error: Invalid or missing image reference. "
+                    "Expected a dictionary with imageId, sessionId, and optionally mimeType. "
+                    f"Received: {type(imageRef).__name__} = {repr(imageRef)}"
+                )
 
             image_id = imageRef.get("imageId")
             session_id = imageRef.get("sessionId")
+            user_id = imageRef.get("userId")  # Extract userId if present
 
-            if not image_id or not session_id:
+            if not image_id:
                 return (
                     f"I understand you want to: **{prompt}**\n\n"
                     "However, I couldn't find a valid image reference. "
@@ -247,31 +257,61 @@ async def image_augmentation_function(
                 )
 
             logger.info(
-                "Fetching image %s from session %s via Redis", image_id, session_id
+                "augment_image_simple called with prompt='%s', imageRef=%s",
+                prompt,
+                imageRef,
+            )
+            logger.info(
+                "Fetching image %s from session %s (user: %s) via Redis",
+                image_id,
+                session_id,
+                user_id or "anonymous",
             )
 
-            # Construct Redis key (same pattern as frontend)
-            # Frontend uses: sessionKey(['image', sessionId, imageId])
-            # which joins with ':' => 'image:{sessionId}:{imageId}'
-            redis_key = f"image:{session_id}:{image_id}"
+            # Construct Redis key based on whether user is authenticated
+            # Frontend stores images differently for authenticated vs anonymous users:
+            # - Authenticated: user:{userId}:image:{imageId}
+            # - Anonymous: image:{sessionId}:{imageId}
+            redis_keys = []
 
-            # Fetch image data from Redis
+            # If we have a userId, try the user-specific key first
+            if user_id:
+                redis_keys.append(f"user:{user_id}:image:{image_id}")
+
+            # Also try the session-based key as fallback
+            if session_id:
+                redis_keys.append(f"image:{session_id}:{image_id}")
+
+            # Try to fetch image data from Redis using multiple possible keys
+            image_data_json = None
+
+            for redis_key in redis_keys:
+                try:
+                    logger.info("Trying Redis key: %s", redis_key)
+                    image_data_json = redis_client.execute_command(
+                        "JSON.GET", redis_key
+                    )
+                    if image_data_json:
+                        logger.info("Successfully found image with key: %s", redis_key)
+                        break
+                except redis.RedisError as e:
+                    logger.debug("Failed to fetch with key %s: %s", redis_key, str(e))
+                    continue
+
+            if not image_data_json:
+                logger.error(
+                    "Image %s not found in Redis. Tried keys: %s",
+                    image_id,
+                    ", ".join(redis_keys),
+                )
+                return (
+                    f"I understand you want to: **{prompt}**\n\n"
+                    "However, I couldn't retrieve the image. "
+                    "The image may have expired or the session may be "
+                    "invalid. Please try uploading the image again."
+                )
+
             try:
-                image_data_json = redis_client.execute_command("JSON.GET", redis_key)
-
-                if not image_data_json:
-                    logger.error(
-                        "Image %s not found in Redis (key: %s)",
-                        image_id,
-                        redis_key,
-                    )
-                    return (
-                        f"I understand you want to: **{prompt}**\n\n"
-                        "However, I couldn't retrieve the image. "
-                        "The image may have expired or the session may be "
-                        "invalid. Please try uploading the image again."
-                    )
-
                 # Parse the JSON data
                 image_record = json.loads(image_data_json)
 

@@ -252,10 +252,23 @@ export function cleanMessagesForLLM(messages: any[]): Message[] {
 
           // Add structured imageRef data for the LLM to extract
           if (imageRefs.length > 0) {
-            const imageRefData = imageRefs.map((ref: any) =>
-              `ImageRef: {"imageId": "${ref.imageId}", "sessionId": "${ref.sessionId}", "mimeType": "${ref.mimeType || 'image/png'}"}`
-            ).join('\n');
-            cleanedMessage.content = `${message.content}${message.content ? '\n\n' : ''}${imageText}\n${imageRefData}`;
+            // Format the imageRef in a way that's easier for the LLM to parse
+            // Include both human-readable and structured formats
+            const structuredRefs = imageRefs.map((ref: any, index: number) => {
+              const refObj = {
+                imageId: ref.imageId,
+                sessionId: ref.sessionId,
+                mimeType: ref.mimeType || 'image/png'
+              };
+              return `[IMAGE_REFERENCE_${index + 1}]: ${JSON.stringify(refObj)}`;
+            }).join('\n');
+
+            // Also add a clear instruction for the LLM
+            const imageInstructions = imageRefs.length === 1
+              ? `\n\n**Image Reference for Tools:**\nUse this imageRef parameter: ${JSON.stringify(imageRefs[0])}`
+              : `\n\n**Image References for Tools:**\n${imageRefs.map((ref: any, i: number) => `Image ${i + 1}: ${JSON.stringify(ref)}`).join('\n')}`;
+
+            cleanedMessage.content = `${message.content}${message.content ? '\n' : ''}${imageText}\n${structuredRefs}${imageInstructions}`;
           } else {
             cleanedMessage.content = `${message.content}${message.content ? '\n' : ''}${imageText}`;
           }
@@ -279,7 +292,19 @@ export function cleanMessagesForLLM(messages: any[]): Message[] {
   });
 
   // Log the cleaning operation for debugging
-  console.log('cleanMessagesForLLM: Cleaned', messages.length, 'messages for LLM, removed attachments');
+  console.log('cleanMessagesForLLM: Cleaned', messages.length, 'messages for LLM');
+
+  // Debug: Log messages with image references
+  const messagesWithImages = cleaned.filter(msg =>
+    msg.content && msg.content.includes('[IMAGE_REFERENCE')
+  );
+  if (messagesWithImages.length > 0) {
+    console.log('Messages with image references:', messagesWithImages.map(msg => ({
+      role: msg.role,
+      contentPreview: msg.content.substring(0, 200) + '...',
+      attachments: msg.attachments
+    })));
+  }
 
   return cleaned;
 }
