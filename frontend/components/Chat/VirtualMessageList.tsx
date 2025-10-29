@@ -1,6 +1,7 @@
 import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react';
 import { Message } from '@/types/chat';
 import { MemoizedChatMessage } from './MemoizedChatMessage';
+import { revokeImageBlob } from '@/utils/app/imageHandler';
 
 interface VirtualMessageListProps {
   messages: Message[];
@@ -14,6 +15,9 @@ interface VirtualItem {
   height: number;
 }
 
+// Height cache with WeakMap for better memory management
+const globalHeightCache = new WeakMap<Message, number>();
+
 export const VirtualMessageList: React.FC<VirtualMessageListProps> = React.memo(({
   messages,
   containerHeight,
@@ -25,10 +29,52 @@ export const VirtualMessageList: React.FC<VirtualMessageListProps> = React.memo(
   const containerRef = useRef<HTMLDivElement>(null);
   const itemRefs = useRef<Map<number, HTMLDivElement>>(new Map());
   const scrollTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const rafRef = useRef<number | null>(null);
+  const resizeObserverRef = useRef<ResizeObserver | null>(null);
+  const imageObserverRef = useRef<IntersectionObserver | null>(null);
+  const trackedImages = useRef<Map<string, string[]>>(new Map()); // messageId -> imageIds
+
+  // Use WeakMap for caching heights by message object
+  const messageHeightCache = useRef(globalHeightCache);
 
   // Default estimated height for messages - larger for mobile
   const estimatedItemHeight = window.innerWidth <= 768 ? 150 : 120;
-  const overscan = window.innerWidth <= 768 ? 2 : 3; // Less overscan on mobile for memory
+  const overscan = window.innerWidth <= 768 ? 1 : 2; // Reduced overscan for better memory management
+  const isMobile = window.innerWidth <= 768;
+
+  // Clear height cache when messages change significantly
+  useEffect(() => {
+    // Clear the WeakMap cache for new messages
+    messages.forEach((message, index) => {
+      if (index >= messages.length - 2) {
+        // Clear cache for last few messages as they might be new/updated
+        messageHeightCache.current.delete(message);
+      }
+    });
+  }, [messages.length]);
+
+  // Extract image references from messages
+  const extractImageReferences = useCallback((message: Message): string[] => {
+    const imageIds: string[] = [];
+
+    // Check attachments
+    if (message.attachments) {
+      message.attachments.forEach(att => {
+        if (att.type === 'image' && att.imageRef?.imageId) {
+          imageIds.push(att.imageRef.imageId);
+        }
+      });
+    }
+
+    // Check content for image references (Redis storage URLs)
+    const imageRegex = /\/api\/session\/imageStorage\?imageId=([^&\s"']+)/g;
+    let match;
+    while ((match = imageRegex.exec(message.content)) !== null) {
+      imageIds.push(match[1]);
+    }
+
+    return imageIds;
+  }, []);
 
   // Calculate total height
   const getTotalHeight = useCallback(() => {
@@ -75,25 +121,41 @@ export const VirtualMessageList: React.FC<VirtualMessageListProps> = React.memo(
     setVisibleRange(newRange);
   }, [calculateVisibleRange]);
 
-  // Measure item heights after render
+  // Measure item heights after render with WeakMap caching
   useEffect(() => {
-    const newHeights = new Map(itemHeights);
-    let hasChanges = false;
+    // Use a small delay to ensure content is rendered (especially images)
+    const measureTimeout = setTimeout(() => {
+      const newHeights = new Map(itemHeights);
+      let hasChanges = false;
 
-    itemRefs.current.forEach((element, index) => {
-      if (element) {
-        const height = element.getBoundingClientRect().height;
-        if (height !== itemHeights.get(index)) {
-          newHeights.set(index, height);
-          hasChanges = true;
+      itemRefs.current.forEach((element, index) => {
+        if (element && messages[index]) {
+          const message = messages[index];
+
+          // Always measure actual height to handle dynamic content
+          const height = element.getBoundingClientRect().height;
+
+          // Add a minimum height to prevent zero-height items
+          const actualHeight = Math.max(height, 60); // At least 60px
+
+          if (actualHeight !== itemHeights.get(index)) {
+            newHeights.set(index, actualHeight);
+            // Update cache only if height is reasonable
+            if (actualHeight > 60) {
+              messageHeightCache.current.set(message, actualHeight);
+            }
+            hasChanges = true;
+          }
         }
-      }
-    });
+      });
 
-    if (hasChanges) {
-      setItemHeights(newHeights);
-    }
-  }, [visibleRange, messages]);
+      if (hasChanges) {
+        setItemHeights(newHeights);
+      }
+    }, 100); // Small delay to allow content to render
+
+    return () => clearTimeout(measureTimeout);
+  }, [visibleRange, messages, itemHeights]);
 
   // Calculate offset for each visible item
   const getItemOffset = useCallback((index: number) => {
@@ -107,16 +169,97 @@ export const VirtualMessageList: React.FC<VirtualMessageListProps> = React.memo(
   const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
     const newScrollTop = e.currentTarget.scrollTop;
 
-    // Debounce scroll updates for better performance
-    if (scrollTimeoutRef.current) {
-      clearTimeout(scrollTimeoutRef.current);
+    // Cancel pending updates
+    if (rafRef.current) {
+      cancelAnimationFrame(rafRef.current);
     }
 
-    scrollTimeoutRef.current = setTimeout(() => {
+    // Use requestAnimationFrame for smooth updates
+    rafRef.current = requestAnimationFrame(() => {
       setScrollTop(newScrollTop);
       onScroll?.(newScrollTop);
-    }, 16); // ~60fps
+      rafRef.current = null;
+    });
   }, [onScroll]);
+
+  // Setup ResizeObserver to handle dynamic content changes
+  useEffect(() => {
+    if (!resizeObserverRef.current) {
+      resizeObserverRef.current = new ResizeObserver((entries) => {
+        const newHeights = new Map(itemHeights);
+        let hasChanges = false;
+
+        entries.forEach((entry) => {
+          const element = entry.target as HTMLDivElement;
+          const index = Array.from(itemRefs.current.entries())
+            .find(([_, el]) => el === element)?.[0];
+
+          if (index !== undefined) {
+            const height = entry.contentRect.height;
+            const actualHeight = Math.max(height, 60);
+
+            if (actualHeight !== itemHeights.get(index)) {
+              newHeights.set(index, actualHeight);
+              hasChanges = true;
+            }
+          }
+        });
+
+        if (hasChanges) {
+          setItemHeights(newHeights);
+        }
+      });
+    }
+
+    // Observe all visible items
+    itemRefs.current.forEach((element) => {
+      resizeObserverRef.current?.observe(element);
+    });
+
+    return () => {
+      resizeObserverRef.current?.disconnect();
+    };
+  }, [visibleRange, itemHeights]);
+
+  // Set up IntersectionObserver for image tracking
+  useEffect(() => {
+    if (!imageObserverRef.current) {
+      imageObserverRef.current = new IntersectionObserver((entries) => {
+        entries.forEach((entry) => {
+          const element = entry.target as HTMLDivElement;
+          const messageId = element.getAttribute('data-message-id');
+
+          if (messageId) {
+            if (!entry.isIntersecting) {
+              // Message is no longer visible - schedule image blob revocation
+              // Use a delay to avoid race conditions with image loading
+              setTimeout(() => {
+                // Double-check if still not intersecting (user might have scrolled back)
+                if (!element.isConnected || !imageObserverRef.current) return;
+
+                const imageIds = trackedImages.current.get(messageId);
+                if (imageIds && imageIds.length > 0) {
+                  console.log(`Revoking ${imageIds.length} image blobs for message ${messageId}`);
+                  imageIds.forEach(imageId => {
+                    revokeImageBlob(imageId);
+                  });
+                  trackedImages.current.delete(messageId);
+                }
+              }, 1000); // 1 second delay to ensure images have time to load
+            }
+          }
+        });
+      }, {
+        root: containerRef.current,
+        rootMargin: isMobile ? '200px' : '400px', // Larger buffer to keep images loaded longer
+        threshold: 0
+      });
+    }
+
+    return () => {
+      imageObserverRef.current?.disconnect();
+    };
+  }, [isMobile]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -124,6 +267,24 @@ export const VirtualMessageList: React.FC<VirtualMessageListProps> = React.memo(
       if (scrollTimeoutRef.current) {
         clearTimeout(scrollTimeoutRef.current);
       }
+      if (rafRef.current) {
+        cancelAnimationFrame(rafRef.current);
+      }
+      if (resizeObserverRef.current) {
+        resizeObserverRef.current.disconnect();
+        resizeObserverRef.current = null;
+      }
+      if (imageObserverRef.current) {
+        imageObserverRef.current.disconnect();
+        imageObserverRef.current = null;
+      }
+      // Clear all tracked image blobs
+      trackedImages.current.forEach((imageIds) => {
+        imageIds.forEach(imageId => {
+          revokeImageBlob(imageId);
+        });
+      });
+      trackedImages.current.clear();
       // Clear item refs to prevent memory leaks
       itemRefs.current.clear();
     };
@@ -154,27 +315,56 @@ export const VirtualMessageList: React.FC<VirtualMessageListProps> = React.memo(
       {/* Total height container */}
       <div style={{ height: getTotalHeight() }}>
         {/* Rendered items */}
-        {visibleItems.map((item) => (
-          <div
-            key={messages[item.index].id || item.index}
-            ref={(el) => {
-              if (el) itemRefs.current.set(item.index, el);
-              else itemRefs.current.delete(item.index);
-            }}
-            style={{
-              position: 'absolute',
-              top: item.offset,
-              left: 0,
-              right: 0,
-              minHeight: estimatedItemHeight,
-            }}
-          >
-            <MemoizedChatMessage
-              message={messages[item.index]}
-              messageIndex={item.index}
-            />
-          </div>
-        ))}
+        {visibleItems.map((item) => {
+          const message = messages[item.index];
+          const messageId = message.id || `msg-${item.index}`;
+          const imageIds = extractImageReferences(message);
+
+          return (
+            <div
+              key={messageId}
+              ref={(el) => {
+                if (el) {
+                  itemRefs.current.set(item.index, el);
+
+                  // Track and observe messages with images
+                  if (imageIds.length > 0) {
+                    trackedImages.current.set(messageId, imageIds);
+                    imageObserverRef.current?.observe(el);
+                  }
+                } else {
+                  const existingEl = itemRefs.current.get(item.index);
+                  if (existingEl && imageObserverRef.current) {
+                    imageObserverRef.current.unobserve(existingEl);
+                  }
+                  itemRefs.current.delete(item.index);
+
+                  // Cleanup tracked images when unmounting
+                  const trackedIds = trackedImages.current.get(messageId);
+                  if (trackedIds) {
+                    trackedIds.forEach(id => revokeImageBlob(id));
+                    trackedImages.current.delete(messageId);
+                  }
+                }
+              }}
+              data-message-id={messageId}
+              style={{
+                position: 'absolute',
+                top: item.offset,
+                left: 0,
+                right: 0,
+                minHeight: estimatedItemHeight,
+                contain: 'layout style paint',
+                willChange: visibleRange.start <= item.index && item.index <= visibleRange.start + 2 ? 'transform' : 'auto',
+              }}
+            >
+              <MemoizedChatMessage
+                message={message}
+                messageIndex={item.index}
+              />
+            </div>
+          );
+        })}
       </div>
     </div>
   );

@@ -1,5 +1,5 @@
 import React from 'react';
-import { IconPaperclip, IconCamera, IconMicrophone, IconBrain } from '@tabler/icons-react';
+import { IconPaperclip, IconCamera, /* IconMicrophone, */ IconBrain } from '@tabler/icons-react'; // Microphone icon commented out - Voice recording disabled
 
 interface QuickActionsProps {
   onAttachFile: () => void;
@@ -31,12 +31,13 @@ export const QuickActions: React.FC<QuickActionsProps> = ({
       label: 'Take photo',
       onClick: onTakePhoto,
     },
-    {
-      id: 'voice',
-      icon: <IconMicrophone size={20} />,
-      label: 'Voice message',
-      onClick: onStartVoice,
-    },
+    // COMMENTED OUT - Voice recording disabled
+    // {
+    //   id: 'voice',
+    //   icon: <IconMicrophone size={20} />,
+    //   label: 'Voice message',
+    //   onClick: onStartVoice,
+    // },
   ];
 
   return (

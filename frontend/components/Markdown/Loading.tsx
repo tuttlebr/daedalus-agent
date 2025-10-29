@@ -1,11 +1,37 @@
 import { IconLoader } from '@tabler/icons-react';
 import React from 'react';
 
-const Loading = ({ message = "Loading", type = 'text' }) => {
+interface LoadingProps {
+  message?: string;
+  type?: 'text' | 'code' | 'chart';
+}
+
+const Loading: React.FC<LoadingProps> = ({ message = "Loading", type = 'text' }) => {
   return (
     <>
-      { type === 'text'
-        ?
+      { type === 'code' ? (
+        <div className="codeblock relative text-[16px] animate-pulse">
+          <div className="flex items-center justify-between py-1.5 px-4 bg-gray-800">
+            <span className="w-16 h-4 bg-gray-600 rounded"></span>
+            <div className="flex items-center gap-2">
+              <span className="w-20 h-4 bg-gray-600 rounded"></span>
+              <span className="w-6 h-4 bg-gray-600 rounded"></span>
+            </div>
+          </div>
+          <div className="p-4 bg-gray-900 space-y-2">
+            <div className="w-3/4 h-4 bg-gray-700 rounded"></div>
+            <div className="w-1/2 h-4 bg-gray-700 rounded"></div>
+            <div className="w-5/6 h-4 bg-gray-700 rounded"></div>
+          </div>
+        </div>
+      ) : type === 'chart' ? (
+        <div className="relative w-full max-w-[600px] h-[300px] sm:h-[400px] bg-gray-100 dark:bg-gray-800 flex items-center justify-center rounded-md shadow-md animate-pulse">
+          <div className="text-center">
+            <IconLoader className="w-8 h-8 text-gray-400 dark:text-gray-600 animate-spin mx-auto" />
+            <p className="mt-2 text-gray-500 dark:text-gray-400 text-sm">{message}</p>
+          </div>
+        </div>
+      ) : type === 'text' ? (
         <div className="flex justify-center items-center h-screen">
           <div role="status" className="text-center">
             <svg
@@ -28,7 +54,7 @@ const Loading = ({ message = "Loading", type = 'text' }) => {
             <p className="mt-2 text-gray-500 dark:text-gray-400">{message}</p>
           </div>
         </div>
-      :
+      ) : (
         <div className="relative w-full max-w-[600px] h-[300px] sm:h-[400px] bg-gray-100 flex items-center justify-center rounded-md shadow-md animate-none">
           <span className={`font-medium focus:outline-none transition-colors duration-300 dark:text-white text-center`}>
           Loading
@@ -39,7 +65,7 @@ const Loading = ({ message = "Loading", type = 'text' }) => {
             </div>
           </span>
         </div>
-      }
+      )}
     </>
   );
 };

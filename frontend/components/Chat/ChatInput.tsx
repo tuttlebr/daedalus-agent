@@ -38,9 +38,11 @@ import { uploadPDF, PDFReference } from '@/utils/app/pdfHandler';
 import { setUserSessionItem } from '@/utils/app/storage';
 import { saveConversation, saveConversations } from '@/utils/app/conversation';
 import { OptimizedImage } from './OptimizedImage';
-import { VoiceRecorder } from './VoiceRecorder';
+// import { VoiceRecorder } from './VoiceRecorder'; // COMMENTED OUT - Voice recording disabled
 import { QuickActions } from './QuickActions';
 import { QuickActionsPopup } from './QuickActionsPopup';
+import { CollectionSelector } from './CollectionSelector';
+import { useAuth } from '@/components/Auth/AuthProvider';
 
 
 interface Props {
@@ -67,20 +69,21 @@ export const ChatInput: React.FC<Props> = ({
   onQuickActionsRegister,
 }) => {
   const { t } = useTranslation('chat');
+  const { user } = useAuth();
 
   const {
     state: { selectedConversation, messageIsStreaming, enableIntermediateSteps, conversations, useDeepThinker },
     dispatch: homeDispatch,
   } = useContext(HomeContext);
 
-  // todo add the audio file
-  const recordingStartSound = useRef<HTMLAudioElement | null>(null);
+  // COMMENTED OUT - Audio file loading disabled
+  // const recordingStartSound = useRef<HTMLAudioElement | null>(null);
 
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      recordingStartSound.current = new Audio('audio/recording.wav');
-    }
-  }, []);
+  // useEffect(() => {
+  //   if (typeof window !== 'undefined') {
+  //     recordingStartSound.current = new Audio('audio/recording.wav');
+  //   }
+  // }, []);
 
   const [content, setContent] = useState<string>('');
   const [isTyping, setIsTyping] = useState<boolean>(false);
@@ -93,9 +96,10 @@ export const ChatInput: React.FC<Props> = ({
   const [imageRef, setImageRef] = useState<ImageReference | null>(null);
   const [pdfRef, setPdfRef] = useState<{ pdfId: string; sessionId: string } | null>(null);
   const [isUploadingImage, setIsUploadingImage] = useState(false);
-  const [isRecording, setIsRecording] = useState(false);
-  const [showVoiceRecorder, setShowVoiceRecorder] = useState(false);
-  const recognitionRef = useRef<any>(null);
+  // const [isRecording, setIsRecording] = useState(false); // COMMENTED OUT - Voice recording disabled
+  // const [showVoiceRecorder, setShowVoiceRecorder] = useState(false); // COMMENTED OUT - Voice recording disabled
+  const [selectedCollection, setSelectedCollection] = useState<string>('');
+  // const recognitionRef = useRef<any>(null); // COMMENTED OUT - Voice recording disabled
 
   const triggerFileUpload = useCallback(() => {
     if (fileInputRef.current) {
@@ -116,6 +120,7 @@ export const ChatInput: React.FC<Props> = ({
     setInputFileContentCompressed('');
     setImageRef(null);
     setPdfRef(null);
+    setSelectedCollection('');
   };
 
   const handleToggleDeepThinker = useCallback(() => {
@@ -156,7 +161,8 @@ export const ChatInput: React.FC<Props> = ({
         },
         body: JSON.stringify({
           pdfRef: pdfRefData,
-          filename: filename
+          filename: filename,
+          collection: selectedCollection || user?.username || 'default'
         }),
       });
 
@@ -169,11 +175,12 @@ export const ChatInput: React.FC<Props> = ({
       }
 
       console.log('PDF processed successfully:', result);
-      toast.success('PDF uploaded successfully.');
+      const collectionUsed = result.metadata?.collection || selectedCollection || user?.username || 'default';
+      toast.success(`PDF uploaded to collection "${collectionUsed}"`);
 
       // Add an assistant message to the conversation to provide context
       if (selectedConversation) {
-        const contentMessage = `Your PDF was uploaded successfully.`;
+        const contentMessage = `Your PDF was uploaded successfully to the "${collectionUsed}" collection. The document has been processed and indexed for future search and retrieval.`;
 
         const assistantMessage: Message = {
           id: uuidv4(),
@@ -227,11 +234,11 @@ export const ChatInput: React.FC<Props> = ({
       return;
     }
 
-    // stop recognition if it's running
-    if (isRecording && recognitionRef.current) {
-      recognitionRef.current.stop();
-      setIsRecording(false);
-    }
+    // COMMENTED OUT - Voice recognition disabled
+    // if (isRecording && recognitionRef.current) {
+    //   recognitionRef.current.stop();
+    //   setIsRecording(false);
+    // }
 
     if (!content && !inputFile && !imageRef && !pdfRef) {
       alert(t('Please enter a message or attach a file'));
@@ -263,6 +270,7 @@ export const ChatInput: React.FC<Props> = ({
         setInputFileContentCompressed('');
         setImageRef(null);
         setPdfRef(null);
+        setSelectedCollection('');
         if (window.innerWidth < 640 && textareaRef && textareaRef.current) {
           textareaRef.current.blur();
         }
@@ -307,6 +315,7 @@ export const ChatInput: React.FC<Props> = ({
       setInputFileContentCompressed('');
       setImageRef(null);
       setPdfRef(null);
+      setSelectedCollection('');
     }
 
     else {
@@ -324,6 +333,7 @@ export const ChatInput: React.FC<Props> = ({
       setInputFileContentCompressed('');
       setImageRef(null);
       setPdfRef(null);
+      setSelectedCollection('');
     }
 
 
@@ -499,60 +509,61 @@ export const ChatInput: React.FC<Props> = ({
     }
   }, [content, textareaRef]);
 
-  const handleSpeechToText = useCallback(() => {
-    if (!recognitionRef.current) {
-      const SpeechRecognition =
-        (window as any)?.SpeechRecognition || (window as any)?.webkitSpeechRecognition;
+  // COMMENTED OUT - Speech-to-text functionality disabled
+  // const handleSpeechToText = useCallback(() => {
+  //   if (!recognitionRef.current) {
+  //     const SpeechRecognition =
+  //       (window as any)?.SpeechRecognition || (window as any)?.webkitSpeechRecognition;
 
-      recognitionRef.current = new SpeechRecognition();
-      recognitionRef.current.lang = 'en-US';
-      recognitionRef.current.interimResults = true;
-      recognitionRef.current.continuous = true;
+  //     recognitionRef.current = new SpeechRecognition();
+  //     recognitionRef.current.lang = 'en-US';
+  //     recognitionRef.current.interimResults = true;
+  //     recognitionRef.current.continuous = true;
 
-      recognitionRef.current.onresult = (event: any) => {
-        let currentTranscript = '';
-        for (let i = 0; i < event.results.length; i++) {
-          currentTranscript += event.results[i][0].transcript;
-        }
-        setContent(currentTranscript);
-      };
+  //     recognitionRef.current.onresult = (event: any) => {
+  //       let currentTranscript = '';
+  //       for (let i = 0; i < event.results.length; i++) {
+  //         currentTranscript += event.results[i][0].transcript;
+  //       }
+  //       setContent(currentTranscript);
+  //     };
 
-      recognitionRef.current.onend = () => {
-        if (isRecording) {
-          recognitionRef.current.start();
-        }
-      };
-    }
+  //     recognitionRef.current.onend = () => {
+  //       if (isRecording) {
+  //         recognitionRef.current.start();
+  //       }
+  //     };
+  //   }
 
-    if (!isRecording) {
-      // Play sound when recording starts
-      if (recordingStartSound.current) {
-        recordingStartSound.current.play();
-      }
-      recognitionRef.current.start();
-      setIsRecording(true);
-    } else {
-      recognitionRef.current.stop();
-      setIsRecording(false);
-    }
-  }, [isRecording]);
+  //   if (!isRecording) {
+  //     // Play sound when recording starts
+  //     if (recordingStartSound.current) {
+  //       recordingStartSound.current.play();
+  //     }
+  //     recognitionRef.current.start();
+  //     setIsRecording(true);
+  //   } else {
+  //     recognitionRef.current.stop();
+  //     setIsRecording(false);
+  //   }
+  // }, [isRecording]);
 
-  useEffect(() => {
-    return () => {
-      if (recognitionRef.current) {
-        recognitionRef.current.stop();
-      }
-    };
-  }, []);
+  // useEffect(() => {
+  //   return () => {
+  //     if (recognitionRef.current) {
+  //       recognitionRef.current.stop();
+  //     }
+  //   };
+  // }, []);
 
-  const handleVoiceRecordingComplete = (audioBlob: Blob, transcript?: string) => {
-    // Handle voice recording
-    if (transcript) {
-      setContent(transcript);
-    }
-    setShowVoiceRecorder(false);
-    // You can also handle the audio blob here if needed
-  };
+  // const handleVoiceRecordingComplete = (audioBlob: Blob, transcript?: string) => {
+  //   // Handle voice recording
+  //   if (transcript) {
+  //     setContent(transcript);
+  //   }
+  //   setShowVoiceRecorder(false);
+  //   // You can also handle the audio blob here if needed
+  // };
 
   // Register quick action handlers with parent if requested
   useEffect(() => {
@@ -560,7 +571,8 @@ export const ChatInput: React.FC<Props> = ({
     onQuickActionsRegister({
       onAttachFile: triggerFileUpload,
       onTakePhoto: triggerPhotoUpload,
-      onStartVoice: () => setShowVoiceRecorder(true),
+      // onStartVoice: () => setShowVoiceRecorder(true), // COMMENTED OUT - Voice recording disabled
+      onStartVoice: () => {}, // No-op function for compatibility
       onToggleDeepThought: handleToggleDeepThinker,
     });
   }, [onQuickActionsRegister, triggerFileUpload, triggerPhotoUpload, handleToggleDeepThinker]);
@@ -570,13 +582,13 @@ export const ChatInput: React.FC<Props> = ({
 
   return (
     <>
-      {/* Voice Recorder Modal */}
-      {showVoiceRecorder && (
+      {/* Voice Recorder Modal - COMMENTED OUT - Voice recording disabled */}
+      {/* {showVoiceRecorder && (
         <VoiceRecorder
           onRecordingComplete={handleVoiceRecordingComplete}
           onCancel={() => setShowVoiceRecorder(false)}
         />
-      )}
+      )} */}
 
       <div
         ref={inputContainerRef}
@@ -596,13 +608,15 @@ export const ChatInput: React.FC<Props> = ({
               {/* Main input wrapper with glass effect */}
               <div
                 className={`relative flex items-center w-full rounded-2xl apple-glass backdrop-blur-xl border border-white/10 dark:border-white/5 shadow-[0_8px_32px_rgba(0,0,0,0.12)] dark:shadow-[0_8px_32px_rgba(0,0,0,0.24)] ${inputFile && (imageRef || pdfRef || inputFileContentCompressed) ? 'flex-col items-stretch' : ''}`}
+                style={{ position: 'relative', zIndex: 1 }}
               >
                 {/* Quick Actions Button - centered with textarea */}
                 <div className="absolute left-3 top-1/2 -translate-y-1/2 z-20 w-10 h-10">
                   <QuickActionsPopup
                   onAttachFile={triggerFileUpload}
                   onTakePhoto={triggerPhotoUpload}
-                  onStartVoice={() => setShowVoiceRecorder(true)}
+                  // onStartVoice={() => setShowVoiceRecorder(true)} // COMMENTED OUT - Voice recording disabled
+                  onStartVoice={() => {}} // No-op function for compatibility
                   onToggleDeepThought={handleToggleDeepThinker}
                     isDeepThoughtEnabled={useDeepThinker}
                   />
@@ -621,7 +635,7 @@ export const ChatInput: React.FC<Props> = ({
                   WebkitTransform: 'translateZ(0)',
                   fontSize: '16px', // Prevents iOS zoom on focus
                 }}
-                placeholder={isRecording ? 'Listening…' : (t('Send a message') as unknown as string)}
+                placeholder={t('Send a message') as unknown as string}
                 value={content}
                 rows={1}
                 onCompositionStart={() => setIsTyping(true)}
@@ -733,9 +747,23 @@ export const ChatInput: React.FC<Props> = ({
                     )}
 
                     {pdfRef && (
-                      <div className="px-3 py-2 text-center text-xs text-neutral-600 dark:text-neutral-200">
-                        PDF ready to process
-                      </div>
+                      <>
+                        <div className="px-3 py-2 space-y-1">
+                          <div className="text-center text-xs text-neutral-600 dark:text-neutral-200">
+                            PDF ready to process
+                          </div>
+                          <div className="text-center text-xs text-neutral-500 dark:text-neutral-400">
+                            Choose where to store this document for future search
+                          </div>
+                        </div>
+                        <div className="px-3 pb-3" style={{ position: 'relative', zIndex: 10 }}>
+                          <CollectionSelector
+                            onSelect={setSelectedCollection}
+                            selectedCollection={selectedCollection}
+                            defaultCollection={user?.username || 'default'}
+                          />
+                        </div>
+                      </>
                     )}
                   </div>
                 </div>

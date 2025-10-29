@@ -14,15 +14,26 @@ export const MemoryWarning: React.FC<MemoryWarningProps> = ({ className = '' }) 
   const [isClearing, setIsClearing] = React.useState(false);
 
   const { memoryInfo, isHighMemory } = useMemoryMonitor({
-    warningThreshold: 80,
-    criticalThreshold: 90,
-    checkInterval: 10000, // Check every 10 seconds
+    warningThreshold: 70, // Lowered from 80%
+    criticalThreshold: 80, // Lowered from 90%
+    checkInterval: 5000, // Check every 5 seconds (more frequent)
     onWarning: () => {
       setIsVisible(true);
+      // Auto-clear caches at warning level
+      clearAllImageBlobs();
+      if ('caches' in window) {
+        caches.keys().then(cacheNames => {
+          cacheNames.forEach(name => {
+            if (name.includes('runtime')) {
+              caches.delete(name);
+            }
+          });
+        });
+      }
     },
     onCritical: () => {
       setIsVisible(true);
-      // Auto-clear some memory on critical
+      // Auto-clear more aggressively on critical
       handleClearMemory();
     }
   });
@@ -31,31 +42,49 @@ export const MemoryWarning: React.FC<MemoryWarningProps> = ({ className = '' }) 
     setIsClearing(true);
 
     try {
-      // Clear image blob cache
+      let totalCleaned = 0;
+
+      // Level 1: Clear image blob cache
       clearAllImageBlobs();
+      console.log('Cleared image blob cache');
 
-      // Clean up old intermediate steps
-      const deletedCount = await cleanupOldIntermediateSteps();
+      // Level 2: Clean up intermediate steps (more aggressive - 6 hours)
+      const deletedSteps = await cleanupOldIntermediateSteps();
+      totalCleaned += deletedSteps;
 
-      // Clear any other caches
+      // Level 3: Clear service worker caches
       if ('caches' in window) {
         const cacheNames = await caches.keys();
+        let cachesCleared = 0;
         for (const name of cacheNames) {
-          if (name.includes('runtime')) {
-            await caches.delete(name);
+          await caches.delete(name);
+          cachesCleared++;
+        }
+        console.log(`Cleared ${cachesCleared} caches`);
+      }
+
+      // Level 4: Clear sessionStorage for non-essential items
+      if (memoryInfo && memoryInfo.percentUsed > 85) {
+        const keysToRemove = [];
+        for (let i = 0; i < sessionStorage.length; i++) {
+          const key = sessionStorage.key(i);
+          if (key && !key.includes('auth') && !key.includes('selectedConversation')) {
+            keysToRemove.push(key);
           }
         }
+        keysToRemove.forEach(key => sessionStorage.removeItem(key));
+        console.log(`Cleared ${keysToRemove.length} sessionStorage items`);
       }
 
       // Try to trigger garbage collection
       memoryMonitor.forceGarbageCollection();
 
-      toast.success(`Memory cleaned up! ${deletedCount} old items removed.`);
+      toast.success(`Memory cleaned up! Removed ${totalCleaned} items.`);
 
       // Check memory again after cleanup
       setTimeout(() => {
         const stats = memoryMonitor.getStats();
-        if (stats.current && stats.current.percentUsed < 80) {
+        if (stats.current && stats.current.percentUsed < 70) {
           setIsVisible(false);
         }
       }, 1000);
@@ -66,7 +95,7 @@ export const MemoryWarning: React.FC<MemoryWarningProps> = ({ className = '' }) 
     } finally {
       setIsClearing(false);
     }
-  }, []);
+  }, [memoryInfo]);
 
   const formatMemoryInfo = () => {
     if (!memoryInfo) return '';
@@ -81,7 +110,8 @@ export const MemoryWarning: React.FC<MemoryWarningProps> = ({ className = '' }) 
     return null;
   }
 
-  const isCritical = memoryInfo.percentUsed >= 90;
+  const isCritical = memoryInfo.percentUsed >= 80; // Lowered threshold
+  const isWarning = memoryInfo.percentUsed >= 70 && memoryInfo.percentUsed < 80;
 
   return (
     <div

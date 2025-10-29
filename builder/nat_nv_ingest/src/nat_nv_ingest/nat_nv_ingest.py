@@ -11,6 +11,7 @@ from nat.cli.register_workflow import register_function
 from nat.data_models.function import FunctionBaseConfig
 from nv_ingest_client.client import Ingestor, NvIngestClient
 from pydantic import Field
+from pymilvus import MilvusClient
 
 import redis
 
@@ -76,9 +77,31 @@ async def nv_ingest_function(
         message_client_hostname=config.nv_ingest_host,
     )
 
+    # Initialize Milvus client
+    milvus_client = MilvusClient(uri=config.milvus_uri)
+
+    async def list_collections(request: dict[str, Any] | None = None) -> list[str]:
+        """
+        Lists all available Milvus collections.
+
+        Args:
+            request: Optional dictionary with filter parameters (currently unused)
+
+        Returns:
+            list[str]: List of collection names
+        """
+        try:
+            collections = milvus_client.list_collections()
+            logger.info("Found %d collections in Milvus", len(collections))
+            return collections
+        except Exception as e:
+            logger.error("Error listing Milvus collections: %s", e)
+            return []
+
     async def process_pdf(
         pdfRef: dict[str, Any],
         username: str,
+        collection_name: str | None = None,
         chunk_size: int | None = None,
         chunk_overlap: int | None = None,
     ) -> str:
@@ -87,7 +110,8 @@ async def nv_ingest_function(
 
         Args:
             pdfRef: Reference to PDF in Redis containing pdfId and sessionId
-            username: Username from session context (used as collection name)
+            username: Username from session context
+            collection_name: Name of the Milvus collection to upload to (optional)
             chunk_size: Optional override for chunk size
             chunk_overlap: Optional override for chunk overlap
 
@@ -98,6 +122,10 @@ async def nv_ingest_function(
         # Use config defaults if not provided
         chunk_size = chunk_size or config.chunk_size
         chunk_overlap = chunk_overlap or config.chunk_overlap
+
+        # Default collection name to username if not provided
+        if not collection_name:
+            collection_name = username
 
         try:
             # Validate inputs
@@ -110,10 +138,18 @@ async def nv_ingest_function(
             if not pdf_id or not session_id:
                 return "Error: PDF reference must contain pdfId and sessionId."
 
-            if not username or username == "nvidia":
+            if not username:
                 return "Error: Valid username required for PDF processing."
 
-            logger.info("Processing PDF %s for user %s", pdf_id, username)
+            if not collection_name:
+                return "Error: Collection name must be specified."
+
+            logger.info(
+                "Processing PDF %s for user %s into collection %s",
+                pdf_id,
+                username,
+                collection_name,
+            )
 
             # Construct Redis key following the pattern from imageStorage
             redis_key = f"pdf:{session_id}:{pdf_id}"
@@ -188,7 +224,7 @@ async def nv_ingest_function(
                     .split(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
                     .embed()
                     .vdb_upload(
-                        collection_name="nvidia",  # Use username as collection
+                        collection_name=collection_name,  # Use specified collection
                         milvus_uri=config.milvus_uri,
                         gpu_index=False,
                         gpu_search=False,
@@ -232,7 +268,7 @@ async def nv_ingest_function(
                 return (
                     f"✅ Successfully processed PDF '{filename}'\n\n"
                     f"- Extracted and indexed {success_count} text chunks\n"
-                    f"- Stored in your personal collection 'nvidia'\n"
+                    f"- Stored in collection '{collection_name}'\n"
                     f"- Chunk size: {chunk_size} characters with "
                     f"{chunk_overlap} overlap\n\n"
                     "The document is now searchable in your knowledge base!"
@@ -242,7 +278,7 @@ async def nv_ingest_function(
                     f"⚠️ Partially processed PDF '{filename}'\n\n"
                     f"- Successfully indexed {success_count} chunks\n"
                     f"- Failed to process {failure_count} chunks\n"
-                    f"- Stored in collection 'nvidia'\n\n"
+                    f"- Stored in collection '{collection_name}'\n\n"
                     "Some content may be missing from the search index."
                 )
 
@@ -250,5 +286,6 @@ async def nv_ingest_function(
             logger.error("Unexpected error in process_pdf: %s", e, exc_info=True)
             return f"An unexpected error occurred: {str(e)}"
 
-    # The callable is wrapped in a FunctionInfo object
+    # The callables are wrapped in FunctionInfo objects
+    yield FunctionInfo.from_fn(list_collections, description=list_collections.__doc__)
     yield FunctionInfo.from_fn(process_pdf, description=process_pdf.__doc__)

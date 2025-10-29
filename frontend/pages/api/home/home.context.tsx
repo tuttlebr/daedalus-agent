@@ -24,7 +24,8 @@ export interface HomeContextProps {
   quickActionHandlers?: {
     onAttachFile: () => void;
     onTakePhoto: () => void;
-    onStartVoice: () => void;
+    // onStartVoice: () => void; // COMMENTED OUT - Voice recording disabled
+    onStartVoice: () => void; // Kept for type compatibility but will be no-op
     onToggleDeepThought: () => void;
     onSelectPrompt: (prompt: string) => void;
   };

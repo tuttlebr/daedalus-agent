@@ -1,3 +1,5 @@
+import { getAdaptiveMemoryManager, DeviceCapabilities } from './mobileOptimizations';
+
 interface MemoryInfo {
   usedJSHeapSize: number;
   totalJSHeapSize: number;
@@ -29,6 +31,17 @@ class MemoryMonitor {
       checkInterval: 5000, // Check every 5 seconds
       ...config
     };
+
+    // Adjust thresholds based on device capabilities
+    getAdaptiveMemoryManager((settings: DeviceCapabilities) => {
+      if (settings.isLowMemoryDevice) {
+        this.config.warningThreshold = 60;
+        this.config.criticalThreshold = 70;
+      } else if (settings.isMobile) {
+        this.config.warningThreshold = 70;
+        this.config.criticalThreshold = 80;
+      }
+    });
   }
 
   private getMemoryInfo(): MemoryInfo | null {

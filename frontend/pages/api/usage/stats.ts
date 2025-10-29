@@ -1,6 +1,6 @@
 import { NextApiRequest, NextApiResponse } from 'next';
 import { getUserUsageStats, getAllUsageStats } from '@/utils/usage/tracking';
-import { verifySession } from '@/utils/auth/session';
+import { getSession } from '@/utils/auth/session';
 
 /**
  * API endpoint to retrieve user usage statistics
@@ -16,7 +16,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   try {
     // Verify session
-    const session = await verifySession(req);
+    const session = await getSession(req, res);
 
     if (!session) {
       return res.status(401).json({ error: 'Unauthorized' });

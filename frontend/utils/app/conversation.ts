@@ -3,6 +3,14 @@ import toast from 'react-hot-toast';
 import { apiGet, apiPut } from '@/utils/app/api';
 import { restoreMessageImages, cleanMessagesForStorage, stripBase64Content } from './imageHandler';
 import { getUserSessionItem, setUserSessionItem, removeUserSessionItem } from './storage';
+import {
+  paginateConversation,
+  loadConversationMessages,
+  enforceConversationSizeLimit,
+  cleanupOldConversations as cleanupOldConversationChunks,
+  MESSAGES_IN_MEMORY,
+  MAX_CONVERSATION_MESSAGES
+} from './conversationPagination';
 
 // Memory optimization constants
 const MAX_MESSAGES_IN_MEMORY = 50; // Keep only last 50 messages in memory
@@ -40,10 +48,16 @@ export const updateConversation = (
 
 export const saveConversation = async (conversation: Conversation) => {
   try {
+    // Enforce conversation size limit
+    await enforceConversationSizeLimit(conversation.id);
+
+    // Paginate conversation to store older messages in IndexedDB
+    const paginatedConversation = await paginateConversation(conversation);
+
     // Clean messages to remove base64 content before storing
     let cleanedConversation = {
-      ...conversation,
-      messages: cleanMessagesForStorage(conversation.messages),
+      ...paginatedConversation,
+      messages: cleanMessagesForStorage(paginatedConversation.messages),
     };
 
     // Aggressively strip any remaining base64 content as a safety measure
@@ -87,16 +101,31 @@ export const saveConversations = (conversations: Conversation[]) => {
   }
 };
 
-export const loadConversation = async (): Promise<Conversation | null> => {
+export const loadConversation = async (loadAllMessages: boolean = false): Promise<Conversation | null> => {
   try {
     let conversation = await apiGet<Conversation | null>('/api/session/selectedConversation');
     if (conversation) {
       // Strip any base64 content that might have been stored
       const cleanedConversation = stripBase64Content(conversation);
+
       if (cleanedConversation && cleanedConversation.messages) {
         // Restore image references in loaded messages
         cleanedConversation.messages = restoreMessageImages(cleanedConversation.messages);
+
+        // If requested, load all messages from IndexedDB
+        if (loadAllMessages && cleanedConversation.messages.length === MESSAGES_IN_MEMORY) {
+          try {
+            const allMessages = await loadConversationMessages(cleanedConversation.id, 0, MAX_CONVERSATION_MESSAGES);
+            if (allMessages.length > 0) {
+              // Combine stored messages with recent messages
+              cleanedConversation.messages = [...allMessages, ...cleanedConversation.messages];
+            }
+          } catch (error) {
+            console.error('Failed to load paginated messages:', error);
+          }
+        }
       }
+
       return cleanedConversation;
     }
     return conversation;
@@ -152,3 +181,21 @@ export const loadMessageBatch = async (
     return [];
   }
 };
+
+// Add periodic cleanup of old conversations
+if (typeof window !== 'undefined') {
+  // Run cleanup on page load
+  cleanupOldConversationChunks().then(deletedCount => {
+    if (deletedCount > 0) {
+      console.log(`Cleaned up ${deletedCount} old conversation chunks`);
+    }
+  });
+
+  // Run cleanup every 12 hours
+  setInterval(async () => {
+    const deletedCount = await cleanupOldConversationChunks();
+    if (deletedCount > 0) {
+      console.log(`Periodic cleanup: removed ${deletedCount} old conversation chunks`);
+    }
+  }, 12 * 60 * 60 * 1000);
+}

@@ -4,7 +4,7 @@ import {
   IconMenu2,
   IconPaperclip,
   IconCamera,
-  IconMicrophone,
+  // IconMicrophone, // COMMENTED OUT - Voice recording disabled
   IconBrain,
 } from '@tabler/icons-react';
 import HomeContext from '@/pages/api/home/home.context';
@@ -62,12 +62,13 @@ export const BottomNav: React.FC<BottomNavProps> = ({
       label: 'Camera',
       action: onTakePhoto,
     }] : []),
-    ...(onStartVoice ? [{
-      id: 'voice',
-      icon: <IconMicrophone size={20} />,
-      label: 'Voice',
-      action: onStartVoice,
-    }] : []),
+    // COMMENTED OUT - Voice recording disabled
+    // ...(onStartVoice ? [{
+    //   id: 'voice',
+    //   icon: <IconMicrophone size={20} />,
+    //   label: 'Voice',
+    //   action: onStartVoice,
+    // }] : []),
     ...(onToggleDeepThought ? [{
       id: 'deep-thought',
       icon: <IconBrain size={20} />,

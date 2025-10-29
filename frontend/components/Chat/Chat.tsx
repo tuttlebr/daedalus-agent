@@ -47,6 +47,7 @@ import { useVisualViewport } from '@/hooks/useVisualViewport';
 import { notifyStreamingComplete, requestNotificationPermission } from '@/utils/notifications';
 import { useAsyncChat } from '@/hooks/useAsyncChat';
 import { useConversationSync } from '@/hooks/useConversationSync';
+import { useBackgroundProcessing } from '@/hooks/useBackgroundProcessing';
 
 export const Chat = () => {
   const { t } = useTranslation('chat');
@@ -94,7 +95,14 @@ export const Chat = () => {
   const keyboardOffset = useVisualViewport();
   const isPWA = typeof window !== 'undefined' &&
     (window.matchMedia('(display-mode: standalone)').matches ||
-     (window.navigator as any).standalone === true);
+      (window.navigator as any).standalone === true);
+
+  // Background processing and wake lock management
+  const {
+    wakeLockActive,
+    requestWakeLock,
+    releaseWakeLock
+  } = useBackgroundProcessing();
 
   // Create a debounced save function for async updates
   const debouncedSaveConversation = useRef(
@@ -125,21 +133,21 @@ export const Chat = () => {
         const updatedMessages = [...currentConversation.messages];
         const lastMessage = updatedMessages[updatedMessages.length - 1];
 
-          if (lastMessage && lastMessage.role === 'assistant') {
-            lastMessage.content = status.partialResponse;
-            // Merge intermediate steps to avoid duplicates
-            lastMessage.intermediateSteps = mergeIntermediateSteps(
-              lastMessage.intermediateSteps || [],
-              status.intermediateSteps || [],
-              status.status === 'completed' && status.finalizedAt ? status.finalizedAt : undefined
-            );
-          } else {
-            updatedMessages.push({
-              role: 'assistant',
-              content: status.partialResponse,
-              intermediateSteps: status.intermediateSteps || [],
-            });
-          }
+        if (lastMessage && lastMessage.role === 'assistant') {
+          lastMessage.content = status.partialResponse;
+          // Merge intermediate steps to avoid duplicates
+          lastMessage.intermediateSteps = mergeIntermediateSteps(
+            lastMessage.intermediateSteps || [],
+            status.intermediateSteps || [],
+            status.status === 'completed' && status.finalizedAt ? status.finalizedAt : undefined
+          );
+        } else {
+          updatedMessages.push({
+            role: 'assistant',
+            content: status.partialResponse,
+            intermediateSteps: status.intermediateSteps || [],
+          });
+        }
 
         const updatedConversation = {
           ...currentConversation,
@@ -182,21 +190,21 @@ export const Chat = () => {
         const updatedMessages = [...currentConversation.messages];
         const lastMessage = updatedMessages[updatedMessages.length - 1];
 
-          if (lastMessage && lastMessage.role === 'assistant') {
-            lastMessage.content = processedResponse;  // Use processed response
-            // Merge intermediate steps to avoid duplicates
-            lastMessage.intermediateSteps = mergeIntermediateSteps(
-              lastMessage.intermediateSteps || [],
-              intermediateSteps || [],
-              finalizedAt  // Pass completion timestamp to filter stale steps
-            );
-          } else {
-            updatedMessages.push({
-              role: 'assistant',
-              content: processedResponse,  // Use processed response
-              intermediateSteps: intermediateSteps || [],
-            });
-          }
+        if (lastMessage && lastMessage.role === 'assistant') {
+          lastMessage.content = processedResponse;  // Use processed response
+          // Merge intermediate steps to avoid duplicates
+          lastMessage.intermediateSteps = mergeIntermediateSteps(
+            lastMessage.intermediateSteps || [],
+            intermediateSteps || [],
+            finalizedAt  // Pass completion timestamp to filter stale steps
+          );
+        } else {
+          updatedMessages.push({
+            role: 'assistant',
+            content: processedResponse,  // Use processed response
+            intermediateSteps: intermediateSteps || [],
+          });
+        }
 
         const updatedConversation = {
           ...currentConversation,
@@ -257,6 +265,9 @@ export const Chat = () => {
       homeDispatch({ field: 'messageIsStreaming', value: false });
       homeDispatch({ field: 'loading', value: false });
       clearPersistedJob();
+
+      // Release wake lock
+      releaseWakeLock();
     },
     onError: async (error) => {
       console.error('Async job error:', error);
@@ -265,6 +276,9 @@ export const Chat = () => {
       homeDispatch({ field: 'messageIsStreaming', value: false });
       homeDispatch({ field: 'loading', value: false });
       clearPersistedJob();
+
+      // Release wake lock on error
+      releaseWakeLock();
     },
   });
 
@@ -432,8 +446,8 @@ export const Chat = () => {
         if (current) {
           // More aggressive deduplication - only update if the incoming step has newer data
           const shouldUpdate = !current.payload.event_timestamp ||
-                             (step.payload.event_timestamp &&
-                              step.payload.event_timestamp >= current.payload.event_timestamp);
+            (step.payload.event_timestamp &&
+              step.payload.event_timestamp >= current.payload.event_timestamp);
 
           if (shouldUpdate) {
             stepsById.set(uuid, {
@@ -505,6 +519,11 @@ export const Chat = () => {
 
         homeDispatch({ field: 'loading', value: true });
         homeDispatch({ field: 'messageIsStreaming', value: true });
+
+        // Request wake lock for streaming (only if enabled and not in async mode)
+        if (enableBackgroundProcessing && !isPWA) {
+          requestWakeLock();
+        }
 
         // Store processed conversation
         saveConversation(updatedConversation);
@@ -863,31 +882,31 @@ export const Chat = () => {
               homeDispatch({ field: 'loading', value: false });
               const updatedMessages: Message[] = isFirst
                 ? [
-                    ...updatedConversation.messages,
-                    {
-                      role: 'assistant',
+                  ...updatedConversation.messages,
+                  {
+                    role: 'assistant',
+                    content: text,
+                    intermediateSteps: mergeIntermediateSteps(
+                      [],
+                      rawIntermediateSteps,
+                      undefined  // No completion timestamp during streaming
+                    ),
+                  },
+                ]
+                : updatedConversation.messages.map((message, index) => {
+                  if (index === updatedConversation.messages.length - 1) {
+                    return {
+                      ...message,
                       content: text,
                       intermediateSteps: mergeIntermediateSteps(
-                        [],
+                        message?.intermediateSteps,
                         rawIntermediateSteps,
                         undefined  // No completion timestamp during streaming
                       ),
-                    },
-                  ]
-                : updatedConversation.messages.map((message, index) => {
-                    if (index === updatedConversation.messages.length - 1) {
-                      return {
-                        ...message,
-                        content: text,
-                        intermediateSteps: mergeIntermediateSteps(
-                          message?.intermediateSteps,
-                          rawIntermediateSteps,
-                          undefined  // No completion timestamp during streaming
-                        ),
-                      };
-                    }
-                    return message;
-                  });
+                    };
+                  }
+                  return message;
+                });
 
               isFirst = false;
 
@@ -979,6 +998,9 @@ export const Chat = () => {
             setTimeout(() => {
               homeDispatch({ field: 'messageIsStreaming', value: false });
               homeDispatch({ field: 'loading', value: false });
+
+              // Release wake lock after streaming completes
+              releaseWakeLock();
             }, 200);
           } else {
             const { answer } = await response?.json();
@@ -1032,12 +1054,19 @@ export const Chat = () => {
 
             homeDispatch({ field: 'loading', value: false });
             homeDispatch({ field: 'messageIsStreaming', value: false });
+
+            // Release wake lock for non-streaming response
+            releaseWakeLock();
           }
         } catch (error: any) {
           saveConversation(updatedConversation);
 
           homeDispatch({ field: 'loading', value: false });
           homeDispatch({ field: 'messageIsStreaming', value: false });
+
+          // Release wake lock on error
+          releaseWakeLock();
+
           if (error === 'aborted' || error?.name === 'AbortError') {
             // Reset the controller after abortion
             controllerRef.current = new AbortController();
@@ -1286,7 +1315,7 @@ export const Chat = () => {
       }}
     >
       <ChatHeader />
-      <div className="relative flex flex-1 flex-col overflow-hidden" style={{ minHeight: '0', isolation: 'isolate' }}>
+      <div className="relative flex flex-1 flex-col" style={{ minHeight: '0', isolation: 'isolate', overflow: 'hidden' }}>
         <div
           className="flex-1 overflow-y-auto relative momentum-scroll"
           ref={chatContainerRef}
@@ -1330,20 +1359,26 @@ export const Chat = () => {
         >
           <div className="mx-auto flex h-full w-full max-w-5xl flex-col responsive-px pb-0 pt-4 sm:pt-6">
             {hasMessages ? (
-              <VirtualMessageList
-                messages={selectedConversation?.messages || []}
-                containerHeight={window.innerHeight - 200}
-                onScroll={(scrollTop) => {
-                  // Update scroll state if needed
-                  if (chatContainerRef.current) {
-                    lastScrollTop.current = scrollTop;
+              <div className="flex-1 min-h-0">
+                <VirtualMessageList
+                  messages={selectedConversation?.messages || []}
+                  containerHeight={
+                    chatContainerRef.current
+                      ? chatContainerRef.current.offsetHeight - 100 // Dynamic height with padding
+                      : window.innerHeight - 250
                   }
-                }}
-              />
+                  onScroll={(scrollTop) => {
+                    // Update scroll state if needed
+                    if (chatContainerRef.current) {
+                      lastScrollTop.current = scrollTop;
+                    }
+                  }}
+                />
+              </div>
             ) : (
               <div className="flex flex-1 items-center justify-center py-8">
                 <div className="animate-fade-in">
-                  <GalaxyAnimation containerSize={180} />
+                  <GalaxyAnimation />
                 </div>
               </div>
             )}
@@ -1398,6 +1433,8 @@ export const Chat = () => {
           // Add transform to prevent iOS keyboard push
           transform: 'translateZ(0)',
           WebkitTransform: 'translateZ(0)',
+          // Allow overflow for dropdown
+          overflow: 'visible',
         }}>
         <div className="mx-auto max-w-5xl responsive-px pb-6 pt-3 md:pb-6 md:pt-3"
           style={{

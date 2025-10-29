@@ -13,6 +13,7 @@ export const ChatLoader: FC<Props> = ({ statusUpdateText = '' }) => {
   };
 
   const [currentMessage, setCurrentMessage] = useState(''); // Initialize with empty string
+  const [isVisible, setIsVisible] = useState(false);
 
   useEffect(() => {
     const timers = config.statusMessages.map((message, index) => {
@@ -22,8 +23,17 @@ export const ChatLoader: FC<Props> = ({ statusUpdateText = '' }) => {
       }, delay);
     });
 
+    // Detect visibility for power saving
+    const handleVisibilityChange = () => {
+      setIsVisible(!document.hidden);
+    };
+
+    setIsVisible(!document.hidden);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
     return () => {
       timers.forEach((timer) => clearTimeout(timer));
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, []);
 
@@ -37,8 +47,19 @@ export const ChatLoader: FC<Props> = ({ statusUpdateText = '' }) => {
           <BotAvatar src={'favicon.png'} height={30} width={30} />
         </div>
         <div className="flex items-center">
-          {/* Status Update Text with Green Blinking Caret */}
-          <span className="cursor-default">{currentMessage}<span className="text-nvidia-green animate-blink">▍</span></span>
+          {/* Status Update Text with efficient CSS-only blinking caret */}
+          <span className="cursor-default">
+            {currentMessage}
+            <span
+              className="text-nvidia-green inline-block"
+              style={{
+                animation: isVisible ? 'blink 1s ease-in-out infinite' : 'none',
+                animationPlayState: isVisible ? 'running' : 'paused',
+              }}
+            >
+              ▍
+            </span>
+          </span>
         </div>
       </div>
     </div>

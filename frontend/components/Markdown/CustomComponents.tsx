@@ -1,10 +1,17 @@
 
 import { Children, memo, useMemo } from 'react';
 import { isEqual } from 'lodash';
-import { CodeBlock } from '@/components/Markdown/CodeBlock';
-import Chart from '@/components/Markdown/Chart';
+import { LazyCodeBlock } from '@/components/Markdown/LazyCodeBlock';
+import { LazyChart } from '@/components/Markdown/LazyChart';
 import { Video } from '@/components/Markdown/Video';
 import { Image } from '@/components/Markdown/Image';
+
+// Type definitions for markdown components
+type MarkdownComponentProps = {
+  children?: React.ReactNode;
+  href?: string;
+  [key: string]: any;
+};
 
 
 export const getReactMarkDownCustomComponents = (messageIndex = 0, messageId = '') => {
@@ -37,7 +44,7 @@ export const getReactMarkDownCustomComponents = (messageIndex = 0, messageId = '
         }
 
         // Handle code blocks
-        return <CodeBlock
+        return <LazyCodeBlock
             key={Math.random()}
             language={(match && match.length > 1 && match[1]) || ''}
             value={textContent.replace(/\n$/, '')}
@@ -49,7 +56,7 @@ export const getReactMarkDownCustomComponents = (messageIndex = 0, messageId = '
       }
     ),
 
-    chart: memo(({ children }) => {
+    chart: memo(({ children }: MarkdownComponentProps) => {
       try {
         const childArray = Children.toArray(children);
         const payloadString = childArray
@@ -62,44 +69,44 @@ export const getReactMarkDownCustomComponents = (messageIndex = 0, messageId = '
         }
 
         const payload = JSON.parse(payloadString);
-        return payload ? <Chart payload={payload} /> : null;
+        return payload ? <LazyChart payload={payload} /> : null;
       } catch (error) {
         console.error(error);
         return null;
       }
-    }, (prevProps, nextProps) => isEqual(prevProps.children, nextProps.children)),
+    }, (prevProps: MarkdownComponentProps, nextProps: MarkdownComponentProps) => isEqual(prevProps.children, nextProps.children)),
 
-    table: memo(({ children }) => (
+    table: memo(({ children }: MarkdownComponentProps) => (
       <table className="border-collapse border border-black dark:border-white w-full table-fixed my-3">
         {children}
       </table>
-    ), (prevProps, nextProps) => isEqual(prevProps.children, nextProps.children)),
+    ), (prevProps: MarkdownComponentProps, nextProps: MarkdownComponentProps) => isEqual(prevProps.children, nextProps.children)),
 
-    th: memo(({ children }) => (
+    th: memo(({ children }: MarkdownComponentProps) => (
       <th className="border border-black bg-gray-500 px-3 py-1 text-white dark:border-white align-top" style={{ wordBreak: 'break-word', overflowWrap: 'anywhere', whiteSpace: 'normal' }}>
         {children}
       </th>
-    ), (prevProps, nextProps) => isEqual(prevProps.children, nextProps.children)),
+    ), (prevProps: MarkdownComponentProps, nextProps: MarkdownComponentProps) => isEqual(prevProps.children, nextProps.children)),
 
-    td: memo(({ children }) => (
+    td: memo(({ children }: MarkdownComponentProps) => (
       <td className="border border-black px-3 py-1 dark:border-white align-top" style={{ wordBreak: 'break-word', overflowWrap: 'anywhere', whiteSpace: 'normal' }}>
         {children}
       </td>
-    ), (prevProps, nextProps) => isEqual(prevProps.children, nextProps.children)),
+    ), (prevProps: MarkdownComponentProps, nextProps: MarkdownComponentProps) => isEqual(prevProps.children, nextProps.children)),
 
-    a: memo(({ href, children, ...props }) => (
+    a: memo(({ href, children, ...props }: MarkdownComponentProps) => (
       <a href={href} className="text-[#76b900] no-underline hover:underline" {...props}>
         {children}
       </a>
-    ), (prevProps, nextProps) => isEqual(prevProps.children, nextProps.children)),
+    ), (prevProps: MarkdownComponentProps, nextProps: MarkdownComponentProps) => isEqual(prevProps.children, nextProps.children)),
 
-    li: memo(({ children, ...props }) => (
+    li: memo(({ children, ...props }: MarkdownComponentProps) => (
       <li className="leading-[1.35rem] mb-1 list-disc" {...props}>
         {children}
       </li>
-    ), (prevProps, nextProps) => isEqual(prevProps.children, nextProps.children)),
+    ), (prevProps: MarkdownComponentProps, nextProps: MarkdownComponentProps) => isEqual(prevProps.children, nextProps.children)),
 
-    sup: memo(({ children, ...props }) => {
+    sup: memo(({ children, ...props }: MarkdownComponentProps) => {
       const validContent = Array.isArray(children)
         ? children.filter(child => typeof child === 'string' && child.trim() && child.trim() !== ",").join("")
         : typeof children === 'string' && children.trim() && children.trim() !== "," ? children : null;
