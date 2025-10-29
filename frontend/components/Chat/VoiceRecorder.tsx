@@ -1,3 +1,4 @@
+/* COMMENTED OUT - Voice recording functionality disabled to reduce memory usage
 import React, { useState, useRef, useEffect } from 'react';
 import { IconMicrophone, IconPlayerStop, IconX, IconSend } from '@tabler/icons-react';
 
@@ -216,3 +217,4 @@ export const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
     </div>
   );
 };
+*/

@@ -11,19 +11,27 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const userId = await getUserId(req, res);
     const username = userId || 'anon';
 
-    const { pdfRef, filename } = req.body;
+    const { pdfRef, filename, collection } = req.body;
 
     if (!pdfRef || !pdfRef.pdfId || !pdfRef.sessionId) {
       return res.status(400).json({ error: 'Invalid PDF reference' });
     }
 
-    console.log('Processing PDF:', { pdfId: pdfRef.pdfId, sessionId: pdfRef.sessionId, username });
+    // Use provided collection or default to username
+    const targetCollection = collection || username;
+
+    console.log('Processing PDF:', {
+      pdfId: pdfRef.pdfId,
+      sessionId: pdfRef.sessionId,
+      username,
+      collection: targetCollection
+    });
 
     // Send a message to the chat endpoint that will trigger PDF processing
     const chatMessage = {
       messages: [{
         role: 'user',
-        content: `Process the PDF "${filename || 'document'}" using nv_ingest_tool with pdfRef=${JSON.stringify(pdfRef)} and username="${username}".`
+        content: `Process the PDF "${filename || 'document'}" using nat_nv_ingest with pdfRef=${JSON.stringify(pdfRef)}, username="${username}", and collection_name="${targetCollection}".`
       }],
       additionalProps: {
         username: username,
@@ -95,7 +103,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         success: true,
         message: 'PDF processed successfully',
         details: fullResponse,
-        metadata: metadata
+        metadata: {
+          ...metadata,
+          collection: targetCollection
+        }
       });
     } else if (fullResponse.includes('Error') || fullResponse.includes('Failed')) {
       return res.status(400).json({
@@ -108,7 +119,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       success: true,
       message: 'PDF processing request sent',
       details: fullResponse,
-      metadata: metadata
+      metadata: {
+        ...metadata,
+        collection: targetCollection
+      }
     });
 
   } catch (error) {

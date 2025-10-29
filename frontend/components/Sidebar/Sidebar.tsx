@@ -1,5 +1,5 @@
 import { IconFolderPlus, IconMistOff, IconPlus } from '@tabler/icons-react';
-import { ReactNode } from 'react';
+import { ReactNode, memo, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import {
@@ -25,7 +25,7 @@ interface Props<T> {
   handleDrop: (e: any) => void;
 }
 
-const Sidebar = <T,>({
+const SidebarComponent = <T,>({
   isOpen,
   addItemButtonTitle,
   side,
@@ -42,17 +42,17 @@ const Sidebar = <T,>({
 }: Props<T>) => {
   const { t } = useTranslation('promptbar');
 
-  const allowDrop = (e: any) => {
+  const allowDrop = useCallback((e: any) => {
     e.preventDefault();
-  };
+  }, []);
 
-  const highlightDrop = (e: any) => {
+  const highlightDrop = useCallback((e: any) => {
     e.target.style.background = 'rgba(118, 185, 0, 0.1)';
-  };
+  }, []);
 
-  const removeHighlight = (e: any) => {
+  const removeHighlight = useCallback((e: any) => {
     e.target.style.background = 'transparent';
-  };
+  }, []);
 
   return (
     <>
@@ -132,5 +132,8 @@ const Sidebar = <T,>({
     </>
   );
 };
+
+// Create a type-safe memo wrapper for the generic component
+const Sidebar = memo(SidebarComponent) as typeof SidebarComponent;
 
 export default Sidebar;

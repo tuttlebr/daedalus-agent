@@ -6,7 +6,7 @@ requires = ["setuptools>=64.0.0", "wheel"]
 name = "weather"
 dynamic = ["version"]
 dependencies = [
-  "nvidia-nat[all]@git+https://github.com/NVIDIA/NeMo-Agent-Toolkit.git@develop",
+  "nvidia-nat[all]@git+https://github.com/NVIDIA/NeMo-Agent-Toolkit.git@v1.3.0",
   "httpx>=0.27",
   "nat_helpers",
 ]

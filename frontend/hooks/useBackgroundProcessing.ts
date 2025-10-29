@@ -22,6 +22,7 @@ export const useBackgroundProcessing = (): UseBackgroundProcessingReturn => {
   const [isVisible, setIsVisible] = useState(true);
   const wakeLockRef = useRef<WakeLockSentinel | null>(null);
   const dbRef = useRef<IDBDatabase | null>(null);
+  const requestCountRef = useRef(0); // Track wake lock requests
 
   // Initialize IndexedDB for persistent state
   useEffect(() => {
@@ -78,37 +79,75 @@ export const useBackgroundProcessing = (): UseBackgroundProcessingReturn => {
     };
   }, [wakeLockActive]);
 
-  // Request screen wake lock to prevent sleep during streaming
+  // Smart wake lock request with battery level detection
   const requestWakeLock = async () => {
     if (!('wakeLock' in navigator)) {
       console.warn('Wake Lock API not supported');
       return;
     }
 
-    try {
-      wakeLockRef.current = await navigator.wakeLock.request('screen');
-      setWakeLockActive(true);
-      console.log('Wake lock acquired - screen will stay on during streaming');
+    // Check battery level before requesting wake lock
+    if ('getBattery' in navigator) {
+      try {
+        const battery = await (navigator as any).getBattery();
+        const batteryLevel = battery.level * 100;
 
-      wakeLockRef.current.addEventListener('release', () => {
-        console.log('Wake lock released');
-        setWakeLockActive(false);
-      });
-    } catch (err) {
-      console.error('Failed to acquire wake lock:', err);
+        // Don't request wake lock if battery is low
+        if (batteryLevel < 20) {
+          console.log('Battery low, skipping wake lock request');
+          return;
+        }
+
+        // If charging, we can be more aggressive with wake lock
+        if (!battery.charging && batteryLevel < 50) {
+          console.log('Battery not charging and below 50%, limiting wake lock');
+          // Only request if no existing lock
+          if (wakeLockRef.current) return;
+        }
+      } catch (err) {
+        console.log('Battery API not available');
+      }
+    }
+
+    // Increment request count
+    requestCountRef.current += 1;
+
+    // Only request if we don't already have a lock
+    if (!wakeLockRef.current) {
+      try {
+        wakeLockRef.current = await navigator.wakeLock.request('screen');
+        setWakeLockActive(true);
+        console.log('Wake lock acquired - screen will stay on during streaming');
+
+        wakeLockRef.current.addEventListener('release', () => {
+          console.log('Wake lock released');
+          setWakeLockActive(false);
+          wakeLockRef.current = null;
+          requestCountRef.current = 0;
+        });
+      } catch (err) {
+        console.error('Failed to acquire wake lock:', err);
+      }
     }
   };
 
-  // Release wake lock when streaming completes
+  // Release wake lock when streaming completes (with reference counting)
   const releaseWakeLock = async () => {
-    if (wakeLockRef.current) {
+    // Decrement request count
+    requestCountRef.current = Math.max(0, requestCountRef.current - 1);
+
+    // Only release if no more requests
+    if (requestCountRef.current === 0 && wakeLockRef.current) {
       try {
         await wakeLockRef.current.release();
         wakeLockRef.current = null;
         setWakeLockActive(false);
+        console.log('Wake lock released - no more active requests');
       } catch (err) {
         console.error('Failed to release wake lock:', err);
       }
+    } else if (requestCountRef.current > 0) {
+      console.log(`Wake lock retained - ${requestCountRef.current} active requests`);
     }
   };
 

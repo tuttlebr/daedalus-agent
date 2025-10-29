@@ -26,8 +26,29 @@ interface BlobCacheEntry {
 
 class ImageBlobCache {
   private cache = new Map<string, BlobCacheEntry>();
+  private weakCache = new WeakMap<object, string>(); // WeakMap for automatic GC
   private totalSize = 0;
-  private readonly maxSize = 10 * 1024 * 1024; // 10MB max cache size
+  private readonly maxSize = this.isMobile() ? 2 * 1024 * 1024 : 3 * 1024 * 1024; // 2MB mobile, 3MB desktop
+  private cleanupInterval: NodeJS.Timeout | null = null;
+  private referenceCount = new Map<string, number>(); // Track active references
+  private memoryPressureThreshold = 0.7; // 70% memory usage triggers cleanup
+
+  constructor() {
+    // Periodic cleanup of stale entries - more frequent on mobile
+    const cleanupInterval = this.isMobile() ? 30000 : 60000; // 30s mobile, 60s desktop
+    this.cleanupInterval = setInterval(() => {
+      this.cleanupStaleEntries();
+    }, cleanupInterval);
+
+    // Monitor memory pressure
+    if (typeof window !== 'undefined') {
+      setInterval(() => this.checkMemoryPressure(), 10000); // Check every 10s
+    }
+  }
+
+  private isMobile(): boolean {
+    return typeof window !== 'undefined' && window.innerWidth <= 768;
+  }
 
   async fetchAsBlob(imageRef: ImageReference): Promise<string> {
     const cacheKey = imageRef.imageId;
@@ -36,6 +57,9 @@ class ImageBlobCache {
     const cached = this.cache.get(cacheKey);
     if (cached) {
       cached.lastAccessed = Date.now();
+      // Increment reference count
+      const refCount = this.referenceCount.get(cacheKey) || 0;
+      this.referenceCount.set(cacheKey, refCount + 1);
       return cached.url;
     }
 
@@ -50,6 +74,12 @@ class ImageBlobCache {
 
     // Add to cache with LRU eviction
     this.addToCache(cacheKey, blobUrl, blob.size);
+
+    // Also store in WeakMap for automatic cleanup
+    this.weakCache.set(imageRef as any, blobUrl);
+
+    // Initialize reference count
+    this.referenceCount.set(cacheKey, 1);
 
     return blobUrl;
   }
@@ -75,6 +105,10 @@ class ImageBlobCache {
     // Convert to array to avoid iterator issues
     const entries = Array.from(this.cache.entries());
     for (const [key, entry] of entries) {
+      // Skip items that are still referenced
+      const refCount = this.referenceCount.get(key) || 0;
+      if (refCount > 0) continue;
+
       if (entry.lastAccessed < oldestTime) {
         oldestTime = entry.lastAccessed;
         oldestKey = key;
@@ -86,17 +120,42 @@ class ImageBlobCache {
       URL.revokeObjectURL(entry.url);
       this.totalSize -= entry.size;
       this.cache.delete(oldestKey);
+      this.referenceCount.delete(oldestKey);
       console.log(`Evicted image ${oldestKey} from blob cache`);
     }
   }
 
   revoke(imageId: string) {
-    const entry = this.cache.get(imageId);
-    if (entry) {
-      URL.revokeObjectURL(entry.url);
-      this.totalSize -= entry.size;
-      this.cache.delete(imageId);
+    // Decrement reference count
+    const refCount = this.referenceCount.get(imageId) || 0;
+    if (refCount > 1) {
+      this.referenceCount.set(imageId, refCount - 1);
+      console.log(`Decremented ref count for image ${imageId} to ${refCount - 1}`);
+      return; // Don't actually revoke if still referenced
     }
+
+    // Small delay to handle race conditions where image might still be loading
+    setTimeout(() => {
+      // Double-check reference count after delay
+      const currentRefCount = this.referenceCount.get(imageId) || 0;
+      if (currentRefCount > 0) {
+        console.log(`Image ${imageId} acquired new reference during delay, skipping revocation`);
+        return;
+      }
+
+      const entry = this.cache.get(imageId);
+      if (entry) {
+        try {
+          URL.revokeObjectURL(entry.url);
+          this.totalSize -= entry.size;
+          this.cache.delete(imageId);
+          this.referenceCount.delete(imageId);
+          console.log(`Revoked blob URL for image ${imageId}`);
+        } catch (e) {
+          console.error(`Error revoking blob URL for image ${imageId}:`, e);
+        }
+      }
+    }, 100); // 100ms delay to allow for race conditions
   }
 
   clearAll() {
@@ -106,12 +165,98 @@ class ImageBlobCache {
       URL.revokeObjectURL(entry.url);
     }
     this.cache.clear();
+    this.referenceCount.clear();
     this.totalSize = 0;
+
+    // Clear interval on destroy
+    if (this.cleanupInterval) {
+      clearInterval(this.cleanupInterval);
+      this.cleanupInterval = null;
+    }
+  }
+
+  private checkMemoryPressure() {
+    if (typeof performance === 'undefined' || !(performance as any).memory) return;
+
+    const memInfo = (performance as any).memory;
+    const percentUsed = (memInfo.usedJSHeapSize / memInfo.jsHeapSizeLimit) * 100;
+
+    if (percentUsed >= this.memoryPressureThreshold) {
+      console.warn(`Memory pressure detected: ${percentUsed.toFixed(1)}%`);
+
+      // Aggressive cleanup - remove all unreferenced entries
+      const entriesToRemove: string[] = [];
+      this.cache.forEach((entry, key) => {
+        const refCount = this.referenceCount.get(key) || 0;
+        if (refCount === 0) {
+          entriesToRemove.push(key);
+        }
+      });
+
+      entriesToRemove.forEach(key => {
+        const entry = this.cache.get(key);
+        if (entry) {
+          URL.revokeObjectURL(entry.url);
+          this.totalSize -= entry.size;
+          this.cache.delete(key);
+          this.referenceCount.delete(key);
+        }
+      });
+
+      if (entriesToRemove.length > 0) {
+        console.log(`Emergency cleanup: removed ${entriesToRemove.length} image blobs`);
+      }
+    }
+  }
+
+  private cleanupStaleEntries() {
+    const now = Date.now();
+    const staleTime = this.isMobile() ? 2 * 60 * 1000 : 5 * 60 * 1000; // 2 minutes mobile, 5 minutes desktop
+    const entriesToRemove: string[] = [];
+
+    this.cache.forEach((entry, key) => {
+      // Don't remove if still referenced
+      const refCount = this.referenceCount.get(key) || 0;
+      if (refCount > 0) return;
+
+      if (now - entry.lastAccessed > staleTime) {
+        entriesToRemove.push(key);
+      }
+    });
+
+    entriesToRemove.forEach(key => {
+      const entry = this.cache.get(key);
+      if (entry) {
+        URL.revokeObjectURL(entry.url);
+        this.totalSize -= entry.size;
+        this.cache.delete(key);
+        this.referenceCount.delete(key);
+      }
+    });
+
+    if (entriesToRemove.length > 0) {
+      console.log(`Cleaned up ${entriesToRemove.length} stale image blobs`);
+    }
   }
 }
 
 // Global blob cache instance
 const blobCache = new ImageBlobCache();
+
+// Clean up on page unload
+if (typeof window !== 'undefined') {
+  window.addEventListener('beforeunload', () => {
+    blobCache.clearAll();
+  });
+
+  // Clean up on visibility change
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+      // When page is hidden, clean up old entries more aggressively
+      blobCache.clearAll();
+    }
+  });
+}
 
 // Upload image to Redis and return reference
 export async function uploadImage(base64Data: string, mimeType: string = 'image/jpeg'): Promise<ImageReference> {

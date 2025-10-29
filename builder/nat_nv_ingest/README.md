@@ -8,7 +8,8 @@ This NAT tool integrates PDF document processing capabilities into your chatbot 
 - **Redis Storage**: PDFs are temporarily stored in Redis for processing
 - **NvIngest Integration**: Uses NVIDIA's NvIngest service to extract text from PDFs
 - **Milvus Vector Storage**: Processed text is chunked, embedded, and stored in Milvus for retrieval
-- **User-Specific Collections**: Each user's documents are stored in their own Milvus collection
+- **Collection Selection**: Users can choose which Milvus collection to store their documents in
+- **Collection Listing**: View all available Milvus collections before uploading
 
 ## Configuration
 
@@ -32,8 +33,9 @@ functions:
 ## Usage
 
 1. **Upload a PDF**: Click the attachment icon in the chat interface and select a PDF file
-2. **Process the PDF**: The assistant will automatically detect the PDF and can process it using the `process_pdf` function
-3. **Query your documents**: Once processed, the PDF content is searchable in your personal knowledge base
+2. **Choose a Collection**: The assistant can list available collections and let you choose where to store the document
+3. **Process the PDF**: The assistant will process it using the `process_pdf` function with your chosen collection
+4. **Query your documents**: Once processed, the PDF content is searchable in the specified collection
 
 ### Example Interaction
 
@@ -41,21 +43,32 @@ functions:
 User: [Uploads technical_manual.pdf]
 Assistant: I see you've uploaded a PDF file. Would you like me to process and index this document?
 
-User: Yes, please process it
+User: What collections are available?
+Assistant: Here are the available Milvus collections:
+- john_doe (your personal collection)
+- shared_docs
+- engineering_team
+- product_specs
+
+User: Please process it and store it in the engineering_team collection
 Assistant: ✅ Successfully processed PDF 'technical_manual.pdf'
 - Extracted and indexed 45 text chunks
-- Stored in your personal collection 'john_doe'
+- Stored in collection 'engineering_team'
 - Chunk size: 1024 characters with 150 overlap
 
-The document is now searchable in your knowledge base!
+The document is now searchable in the engineering_team knowledge base!
 ```
 
 ## Technical Details
 
 - **Max PDF Size**: 10MB
 - **Storage Duration**: PDFs are stored in Redis for 7 days
-- **Processing**: Text extraction only (tables, charts, and images are not extracted)
+- **Processing**: Text extraction with support for tables and charts (images are not extracted)
 - **Chunking**: Documents are split into overlapping chunks for better retrieval
+- **Collection Management**:
+  - Default collection name is the user's username if not specified
+  - The `list_collections` function shows all available Milvus collections
+  - Users can specify any existing collection for document storage
 
 ## Dependencies
 

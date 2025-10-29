@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { IconPlus, IconX, IconPaperclip, IconCamera, IconMicrophone, IconBrain } from '@tabler/icons-react';
+import { IconPlus, IconX, IconPaperclip, IconCamera, /* IconMicrophone, */ IconBrain } from '@tabler/icons-react'; // Microphone icon commented out - Voice recording disabled
 
 interface QuickActionsPopupProps {
   onAttachFile: () => void;
@@ -37,14 +37,15 @@ export const QuickActionsPopup: React.FC<QuickActionsPopupProps> = ({
         setIsOpen(false);
       },
     },
-    {
-      id: 'voice',
-      icon: <IconMicrophone size={24} />,
-      onClick: () => {
-        onStartVoice();
-        setIsOpen(false);
-      },
-    },
+    // COMMENTED OUT - Voice recording disabled
+    // {
+    //   id: 'voice',
+    //   icon: <IconMicrophone size={24} />,
+    //   onClick: () => {
+    //     onStartVoice();
+    //     setIsOpen(false);
+    //   },
+    // },
     {
       id: 'deep-thought',
       icon: <IconBrain size={24} />,
@@ -90,23 +91,24 @@ export const QuickActionsPopup: React.FC<QuickActionsPopupProps> = ({
         onClick={() => setIsOpen(!isOpen)}
         className={`
           relative flex h-10 w-10 items-center justify-center rounded-full
-          border transition-all duration-200 isolate
-          ${isOpen
-            ? 'rotate-45 border-white/30 bg-transparent text-white hover:border-white/40 hover:bg-white/10 dark:border-white/30 dark:text-white z-50'
-            : 'border-white/20 bg-white/20 backdrop-blur-xl text-neutral-700 hover:border-nvidia-green/50 hover:bg-white/30 hover:text-nvidia-green dark:border-white/10 dark:bg-white/10 dark:text-white/80 dark:hover:border-nvidia-green/60 dark:hover:text-nvidia-green'
-          }
+          border transition-all duration-200 isolate backdrop-blur-xl
+          border-white/20 bg-white/20 text-neutral-700
+          hover:border-nvidia-green/50 hover:bg-white/30 hover:text-nvidia-green
+          dark:border-white/10 dark:bg-white/10 dark:text-white/80
+          dark:hover:border-nvidia-green/60 dark:hover:text-nvidia-green
+          ${isOpen ? 'z-50' : ''}
           ${className}
         `}
         aria-label={isOpen ? "Close quick actions" : "Quick actions"}
         aria-expanded={isOpen}
       >
-        <IconPlus size={24} className="transition-transform duration-200" />
+        <IconPlus size={24} className={`transition-transform duration-200 ${isOpen ? 'rotate-45' : ''}`} />
       </button>
 
       {/* Overlay */}
       {isOpen && (
         <div
-          className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm animate-fade-in"
+          className="fixed inset-0 z-40 backdrop-blur-sm animate-fade-in"
           onClick={() => setIsOpen(false)}
           aria-hidden="true"
         />
@@ -117,9 +119,10 @@ export const QuickActionsPopup: React.FC<QuickActionsPopupProps> = ({
         <div
           className={`
             absolute bottom-full left-0 z-50 mb-3
-            rounded-2xl apple-glass backdrop-blur-xl
+            rounded-2xl backdrop-blur-xl
+            bg-white/80 dark:bg-white/10
             border border-white/20 dark:border-white/10
-            shadow-[0_14px_32px_rgba(6,15,11,0.35)] dark:shadow-[0_14px_38px_rgba(3,8,6,0.45)]
+            shadow-[0_8px_24px_rgba(0,0,0,0.1)] dark:shadow-[0_8px_24px_rgba(0,0,0,0.2)]
             animate-slide-up origin-bottom-left
             min-w-[240px]
           `}

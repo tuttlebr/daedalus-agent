@@ -48,7 +48,7 @@ export const LoginPage: React.FC = () => {
       <div className="max-w-md w-full space-y-8">
         <div className="text-center">
           <div className="flex justify-center mb-4">
-            <GalaxyAnimation containerSize={150} />
+            <GalaxyAnimation />
           </div>
         </div>
 

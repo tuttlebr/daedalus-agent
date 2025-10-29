@@ -25,6 +25,8 @@ export const OptimizedImage = memo(({
   const imgRef = useRef<HTMLImageElement>(null);
   const observerRef = useRef<IntersectionObserver | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const loadedRef = useRef(false); // Track if image has been loaded
+  const unmountingRef = useRef(false); // Track if component is unmounting
 
   // Get the image source - use blob URL if available, otherwise fallback
   const imageSrc = blobUrl || (imageRef ? getImageUrl(imageRef) : base64Data || '');
@@ -60,6 +62,7 @@ export const OptimizedImage = memo(({
     if (!isVisible || !imageRef || blobUrl) return;
 
     let cancelled = false;
+    loadedRef.current = false; // Reset loaded state for new image
 
     const loadImageAsBlob = async () => {
       try {
@@ -76,6 +79,7 @@ export const OptimizedImage = memo(({
         if (!cancelled) {
           setError(true);
           setIsLoading(false);
+          loadedRef.current = true; // Mark as "loaded" even on error
         }
       }
     };
@@ -87,19 +91,42 @@ export const OptimizedImage = memo(({
     };
   }, [isVisible, imageRef, blobUrl]);
 
-  // Cleanup blob URL on unmount
+  // Enhanced cleanup blob URL on unmount or when imageRef changes
   useEffect(() => {
+    const currentBlobUrl = blobUrl;
+    const currentImageRef = imageRef;
+
     return () => {
-      if (blobUrl && imageRef) {
-        revokeImageBlob(imageRef.imageId);
+      unmountingRef.current = true;
+
+      if (currentBlobUrl && currentImageRef) {
+        // Only revoke if image has loaded or failed to load
+        // This prevents revoking while the image is still loading
+        if (loadedRef.current || error) {
+          revokeImageBlob(currentImageRef.imageId);
+        } else {
+          // Image is still loading - defer revocation
+          // Set a timeout to ensure cleanup happens eventually
+          setTimeout(() => {
+            if (currentBlobUrl && currentImageRef) {
+              revokeImageBlob(currentImageRef.imageId);
+            }
+          }, 5000); // Give image 5 seconds to load
+        }
       }
     };
-  }, [blobUrl, imageRef]);
+  }, [blobUrl, imageRef, error]);
 
   const handleImageLoad = () => {
     console.log('OptimizedImage: Image loaded successfully', imageSrc);
     setIsLoading(false);
     setError(false);
+    loadedRef.current = true;
+
+    // If component is unmounting and image just loaded, revoke now
+    if (unmountingRef.current && blobUrl && imageRef) {
+      revokeImageBlob(imageRef.imageId);
+    }
   };
 
   const handleImageError = () => {

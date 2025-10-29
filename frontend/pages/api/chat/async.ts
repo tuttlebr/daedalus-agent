@@ -633,11 +633,24 @@ async function processJobAsync(jobId: string): Promise<void> {
     // Save the conversation to Redis if conversationId is provided
     if (jobRequest.conversationId) {
       try {
+        // Process any base64 images in the response BEFORE saving
+        let processedContent = fullText;
+        try {
+          const { processMarkdownImages } = await import('@/utils/app/imageHandler');
+          processedContent = await processMarkdownImages(fullText);
+          if (processedContent !== fullText) {
+            console.log(`Async job ${jobId}: Replaced base64 images with Redis references`);
+          }
+        } catch (error) {
+          console.error(`Async job ${jobId}: Failed to process images:`, error);
+          // Continue with original content if processing fails
+        }
+
         // Build the complete conversation with the assistant's response
         const assistantMessage: Message = {
           id: uuidv4(),
           role: 'assistant',
-          content: fullText,
+          content: processedContent,  // Use processed content with image references
           intermediateSteps: intermediateSteps || [],
         };
 
@@ -678,21 +691,53 @@ async function processJobAsync(jobId: string): Promise<void> {
         }
 
         console.log(`Async job ${jobId}: Saved COMPLETE conversation ${jobRequest.conversationId} to Redis with ${allMessages.length} messages`);
+
+        // Update job status with processed content (images replaced with references)
+        await updateJobStatus(jobId, {
+          status: 'completed',
+          fullResponse: processedContent,  // Use processed content instead of raw fullText
+          partialResponse: undefined, // Clear partial
+          intermediateSteps,
+          progress: 100,
+          updatedAt: Date.now(),
+          finalizedAt: Date.now(),  // Signal that ALL operations are complete
+        });
       } catch (error) {
         console.error(`Async job ${jobId}: Failed to save conversation to Redis:`, error);
+        // Still mark as completed even if save fails, using original content
+        await updateJobStatus(jobId, {
+          status: 'completed',
+          fullResponse: fullText,  // Fallback to original content
+          partialResponse: undefined,
+          intermediateSteps,
+          progress: 100,
+          updatedAt: Date.now(),
+          finalizedAt: Date.now(),
+        });
       }
-    }
+    } else {
+      // No conversationId provided - just update job status with processed content
+      let processedContent = fullText;
+      try {
+        const { processMarkdownImages } = await import('@/utils/app/imageHandler');
+        processedContent = await processMarkdownImages(fullText);
+        if (processedContent !== fullText) {
+          console.log(`Async job ${jobId}: Replaced base64 images with Redis references (no conversation)`);
+        }
+      } catch (error) {
+        console.error(`Async job ${jobId}: Failed to process images:`, error);
+      }
 
-    // NOW mark as completed after all Redis operations are done
-    await updateJobStatus(jobId, {
-      status: 'completed',
-      fullResponse: fullText,
-      partialResponse: undefined, // Clear partial
-      intermediateSteps,
-      progress: 100,
-      updatedAt: Date.now(),
-      finalizedAt: Date.now(),  // Signal that ALL operations are complete
-    });
+      await updateJobStatus(jobId, {
+        status: 'completed',
+        fullResponse: processedContent,
+        partialResponse: undefined,
+        intermediateSteps,
+        progress: 100,
+        updatedAt: Date.now(),
+        finalizedAt: Date.now(),
+      });
+    }
 
     console.log(`Async job ${jobId} completed successfully`);
   } catch (error: any) {

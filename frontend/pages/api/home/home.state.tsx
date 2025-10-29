@@ -26,7 +26,7 @@ export interface HomeInitialState {
   intermediateStepsFilter: IntermediateStepCategory[];
   enableBackgroundProcessing?: boolean;
   useDeepThinker: boolean;
-  showVoiceRecorder: boolean;
+  // showVoiceRecorder: boolean; // COMMENTED OUT - Voice recording disabled
   energySavingMode?: boolean;
 }
 
@@ -52,7 +52,7 @@ export const initialState: HomeInitialState = {
   intermediateStepsView: 'timeline',
   intermediateStepsFilter: [],
   useDeepThinker: false,
-  showVoiceRecorder: false,
+  // showVoiceRecorder: false, // COMMENTED OUT - Voice recording disabled
   enableBackgroundProcessing: true,
   energySavingMode: false,
 };

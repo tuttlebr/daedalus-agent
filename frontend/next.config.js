@@ -11,12 +11,63 @@ const nextConfig = {
     serverActions: {
       bodySizeLimit: "30mb", // Support large file uploads (PDFs up to 20MB + base64 overhead)
     },
+    optimizeCss: true, // Enable CSS optimization
+  },
+  // Optimize bundle splitting
+  modularizeImports: {
+    '@tabler/icons-react': {
+      transform: '@tabler/icons-react/dist/esm/icons/{{member}}',
+    },
+    'lucide-react': {
+      transform: 'lucide-react/dist/esm/icons/{{kebabCase member}}',
+    },
+    'lodash': {
+      transform: 'lodash/{{member}}',
+    },
   },
   webpack(config, { isServer, dev }) {
     config.experiments = {
       asyncWebAssembly: true,
       layers: true,
     };
+
+    // Split chunks optimization
+    if (!isServer) {
+      config.optimization = {
+        ...config.optimization,
+        splitChunks: {
+          chunks: 'all',
+          cacheGroups: {
+            default: false,
+            vendors: false,
+            framework: {
+              name: 'framework',
+              chunks: 'all',
+              test: /[\\/]node_modules[\\/](react|react-dom|scheduler|next)[\\/]/,
+              priority: 50,
+              enforce: true,
+            },
+            lib: {
+              test: /[\\/]node_modules[\\/]/,
+              name(module) {
+                const packageName = module.context.match(
+                  /[\\/]node_modules[\\/](.*?)([[\\/]|$)/
+                )[1];
+                return `npm.${packageName.replace('@', '')}`;
+              },
+              priority: 10,
+              minChunks: 2,
+              reuseExistingChunk: true,
+            },
+            commons: {
+              name: 'commons',
+              minChunks: 2,
+              priority: 5,
+            },
+          },
+        },
+      };
+    }
 
     return config;
   },

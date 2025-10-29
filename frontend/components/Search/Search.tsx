@@ -1,5 +1,5 @@
 import { IconX, IconSearch } from '@tabler/icons-react';
-import { FC } from 'react';
+import { FC, memo, useCallback } from 'react';
 
 import { useTranslation } from 'next-i18next';
 
@@ -8,16 +8,16 @@ interface Props {
   searchTerm: string;
   onSearch: (searchTerm: string) => void;
 }
-const Search: FC<Props> = ({ placeholder, searchTerm, onSearch }) => {
+const Search: FC<Props> = memo(({ placeholder, searchTerm, onSearch }) => {
   const { t } = useTranslation('sidebar');
 
-  const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleSearchChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     onSearch(e.target.value);
-  };
+  }, [onSearch]);
 
-  const clearSearch = () => {
+  const clearSearch = useCallback(() => {
     onSearch('');
-  };
+  }, [onSearch]);
 
   return (
     <div className="relative flex items-center">
@@ -39,6 +39,8 @@ const Search: FC<Props> = ({ placeholder, searchTerm, onSearch }) => {
       )}
     </div>
   );
-};
+});
+
+Search.displayName = 'Search';
 
 export default Search;

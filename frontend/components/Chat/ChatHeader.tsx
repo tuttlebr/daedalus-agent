@@ -1,10 +1,10 @@
 'use client'
 
-import React, { useContext } from 'react';
+import React, { useContext, memo } from 'react';
 import HomeContext from '@/pages/api/home/home.context';
 import { getWorkflowName } from '@/utils/app/helper';
 
-export const ChatHeader = () => {
+export const ChatHeader = memo(() => {
   const workflow = getWorkflowName();
 
   const {
@@ -29,4 +29,6 @@ export const ChatHeader = () => {
       )}
     </header>
   );
-};
+});
+
+ChatHeader.displayName = 'ChatHeader';

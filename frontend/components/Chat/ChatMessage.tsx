@@ -6,7 +6,7 @@ import {
   IconPaperclip,
   IconPlayerPause,
   IconUser,
-  IconVolume2,
+  // IconVolume2, // COMMENTED OUT - Text-to-speech disabled
   IconClock,
 } from '@tabler/icons-react';
 import classNames from 'classnames';
@@ -42,8 +42,8 @@ export const ChatMessage: FC<Props> = memo(({ message, messageIndex }) => {
   } = useContext(HomeContext);
 
   const [messagedCopied, setMessageCopied] = useState(false);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const speechSynthesisRef = useRef<SpeechSynthesisUtterance | null>(null);
+  // const [isPlaying, setIsPlaying] = useState(false); // COMMENTED OUT - Text-to-speech disabled
+  // const speechSynthesisRef = useRef<SpeechSynthesisUtterance | null>(null); // COMMENTED OUT - Text-to-speech disabled
 
   const isAssistantMessage = message.role === 'assistant';
 
@@ -107,36 +107,37 @@ export const ChatMessage: FC<Props> = memo(({ message, messageIndex }) => {
     return text.replace(urlRegex, '');
   }, []);
 
-  const handleTextToSpeech = useCallback(() => {
-    if (!copyText) return;
+  // COMMENTED OUT - Text-to-speech functionality disabled
+  // const handleTextToSpeech = useCallback(() => {
+  //   if (!copyText) return;
 
-    if ('speechSynthesis' in window) {
-      if (isPlaying) {
-        window.speechSynthesis.cancel();
-        setIsPlaying(false);
-      } else {
-        const textWithoutLinks = removeLinks(copyText);
-        const utterance = new SpeechSynthesisUtterance(textWithoutLinks);
-        utterance.onend = () => setIsPlaying(false);
-        utterance.onerror = () => setIsPlaying(false);
-        speechSynthesisRef.current = utterance;
-        setIsPlaying(true);
-        window.speechSynthesis.speak(utterance);
-      }
-    } else {
-      console.log('Text-to-speech is not supported in your browser.');
-    }
-  }, [copyText, isPlaying, removeLinks]);
+  //   if ('speechSynthesis' in window) {
+  //     if (isPlaying) {
+  //       window.speechSynthesis.cancel();
+  //       setIsPlaying(false);
+  //     } else {
+  //       const textWithoutLinks = removeLinks(copyText);
+  //       const utterance = new SpeechSynthesisUtterance(textWithoutLinks);
+  //       utterance.onend = () => setIsPlaying(false);
+  //       utterance.onerror = () => setIsPlaying(false);
+  //       speechSynthesisRef.current = utterance;
+  //       setIsPlaying(true);
+  //       window.speechSynthesis.speak(utterance);
+  //     }
+  //   } else {
+  //     console.log('Text-to-speech is not supported in your browser.');
+  //   }
+  // }, [copyText, isPlaying, removeLinks]);
 
-  useEffect(() => {
-    return () => {
-      if (speechSynthesisRef.current) {
-        window.speechSynthesis.cancel();
-      }
-    };
-  }, []);
+  // useEffect(() => {
+  //   return () => {
+  //     if (speechSynthesisRef.current) {
+  //       window.speechSynthesis.cancel();
+  //     }
+  //   };
+  // }, []);
 
-  const wrapperClasses = cx('group px-3 sm:px-4 md:px-6');
+  const wrapperClasses = cx('group px-3 sm:px-4 md:px-6 py-2 sm:py-3');
 
   const rowClasses = cx(
     'mx-auto flex w-full gap-2 sm:gap-3 py-1.5 sm:py-2',
@@ -309,6 +310,7 @@ export const ChatMessage: FC<Props> = memo(({ message, messageIndex }) => {
                 <span className="hidden sm:inline">Copy</span>
               </button>
 
+              {/* COMMENTED OUT - Text-to-speech Listen button disabled
               {isAssistantMessage && hasPrimaryContent && (
                 <button
                   className={classNames(
@@ -327,7 +329,7 @@ export const ChatMessage: FC<Props> = memo(({ message, messageIndex }) => {
                   )}
                   <span className="hidden sm:inline">Listen</span>
                 </button>
-              )}
+              )} */}
             </div>
           )}
         </div>

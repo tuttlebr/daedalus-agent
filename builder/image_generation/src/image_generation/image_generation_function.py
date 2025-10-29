@@ -145,7 +145,7 @@ class ImageGenerationInput(BaseModel):
 async def image_generation_function(
     config: ImageGenerationFunctionConfig, builder: Builder
 ):  # noqa: ARG001
-    # Initialize HTTP client
+    # Prepare headers for HTTP client
     headers = {}
     if config.api_key:
         headers["Authorization"] = f"Bearer {config.api_key}"
@@ -154,116 +154,118 @@ async def image_generation_function(
     else:
         raise ValueError("API key is required")
 
-    async with httpx.AsyncClient(
-        base_url=config.api_endpoint, headers=headers, timeout=config.timeout
-    ) as client:
-
-        async def rewrite_prompt_if_needed(original_prompt: str) -> str:
-            if not config.prompt_rewrite:
-                return original_prompt
-
-            llm_name = config.prompt_rewrite.get("llm")
-            if not llm_name:
-                logger.warning("Prompt rewrite requested but no LLM provided")
-                return original_prompt
-
-            llm_kwargs: dict = {}
-            if "max_tokens" in config.prompt_rewrite:
-                llm_kwargs["max_tokens"] = config.prompt_rewrite["max_tokens"]
-            if "temperature" in config.prompt_rewrite:
-                llm_kwargs["temperature"] = config.prompt_rewrite["temperature"]
-
-            system_prompt = config.prompt_rewrite.get(
-                "system_prompt",
-                (
-                    "You are an expert creative assistant. Improve the given prompt "
-                    "for high quality image generation while keeping the user's intent intact."
-                ),
-            )
-
-            wrapper_type_value = config.prompt_rewrite.get("wrapper_type")
-            if isinstance(wrapper_type_value, LLMFrameworkEnum):
-                llm_wrapper = wrapper_type_value
-            else:
-                try:
-                    llm_wrapper = (
-                        LLMFrameworkEnum(wrapper_type_value)
-                        if wrapper_type_value is not None
-                        else LLMFrameworkEnum.LANGCHAIN
-                    )
-                except ValueError:
-                    logger.warning(
-                        "Invalid wrapper_type '%s' for prompt rewrite; defaulting to LANGCHAIN",
-                        wrapper_type_value,
-                    )
-                    llm_wrapper = LLMFrameworkEnum.LANGCHAIN
-
-            try:
-                llm_callable = await builder.get_llm(llm_name, wrapper_type=llm_wrapper)
-
-                if llm_wrapper == LLMFrameworkEnum.LANGCHAIN:
-                    from langchain_core.messages import HumanMessage, SystemMessage
-
-                    langchain_llm = (
-                        llm_callable.bind(**llm_kwargs) if llm_kwargs else llm_callable
-                    )
-
-                    messages_sequence = []
-                    if system_prompt:
-                        messages_sequence.append(SystemMessage(content=system_prompt))
-                    messages_sequence.append(
-                        HumanMessage(
-                            content=f"Rewrite the following prompt into a succint text-to-image generation prompt. Remaining true to the user's request and intent but with greater detail and creativity.\n\nOriginal prompt: {original_prompt}"
-                        )
-                    )
-
-                    rewritten = await langchain_llm.ainvoke(messages_sequence)
-                else:
-                    rewritten = await llm_callable.invoke(
-                        messages=[
-                            {"role": "system", "content": system_prompt},
-                            {
-                                "role": "user",
-                                "content": f"Rewrite the following prompt into a succint text-to-image generation prompt. Remaining true to the user's request and intent but with greater detail and creativity.\n\nOriginal prompt: {original_prompt}",
-                            },
-                        ],
-                        **llm_kwargs,
-                    )
-                logger.info("System prompt: %s", system_prompt)
-                logger.info(
-                    "Prompt rewrite successful using LLM '%s': %s", llm_name, rewritten
-                )
-            except Exception as exc:  # noqa: BLE001
-                logger.error("Prompt rewrite failed using LLM '%s': %s", llm_name, exc)
-                return original_prompt
-
-            if isinstance(rewritten, dict):
-                content = rewritten.get("content")
-                if isinstance(content, str) and content.strip():
-                    return content.strip()
-            if isinstance(rewritten, str) and rewritten.strip():
-                return rewritten.strip()
-
-            logger.warning(
-                "Prompt rewrite returned unexpected result type=%s; using original",
-                type(rewritten),
-            )
+    async def rewrite_prompt_if_needed(
+        original_prompt: str, client: httpx.AsyncClient
+    ) -> str:
+        if not config.prompt_rewrite:
             return original_prompt
 
-        # Using only simple string-based function for UI display
+        llm_name = config.prompt_rewrite.get("llm")
+        if not llm_name:
+            logger.warning("Prompt rewrite requested but no LLM provided")
+            return original_prompt
 
-        async def generate_image_simple(prompt: str) -> str:
-            """
-            Simple image generation function for UI display.
+        llm_kwargs: dict = {}
+        if "max_tokens" in config.prompt_rewrite:
+            llm_kwargs["max_tokens"] = config.prompt_rewrite["max_tokens"]
+        if "temperature" in config.prompt_rewrite:
+            llm_kwargs["temperature"] = config.prompt_rewrite["temperature"]
 
-            Args:
-                prompt: Text prompt for image generation
+        system_prompt = config.prompt_rewrite.get(
+            "system_prompt",
+            (
+                "You are an expert creative assistant. Improve the given prompt "
+                "for high quality image generation while keeping the user's intent intact."
+            ),
+        )
 
-            Returns:
-                Markdown-formatted image ready for display
-            """
+        wrapper_type_value = config.prompt_rewrite.get("wrapper_type")
+        if isinstance(wrapper_type_value, LLMFrameworkEnum):
+            llm_wrapper = wrapper_type_value
+        else:
             try:
-                effective_prompt = await rewrite_prompt_if_needed(prompt)
+                llm_wrapper = (
+                    LLMFrameworkEnum(wrapper_type_value)
+                    if wrapper_type_value is not None
+                    else LLMFrameworkEnum.LANGCHAIN
+                )
+            except ValueError:
+                logger.warning(
+                    "Invalid wrapper_type '%s' for prompt rewrite; defaulting to LANGCHAIN",
+                    wrapper_type_value,
+                )
+                llm_wrapper = LLMFrameworkEnum.LANGCHAIN
+
+        try:
+            llm_callable = await builder.get_llm(llm_name, wrapper_type=llm_wrapper)
+
+            if llm_wrapper == LLMFrameworkEnum.LANGCHAIN:
+                from langchain_core.messages import HumanMessage, SystemMessage
+
+                langchain_llm = (
+                    llm_callable.bind(**llm_kwargs) if llm_kwargs else llm_callable
+                )
+
+                messages_sequence = []
+                if system_prompt:
+                    messages_sequence.append(SystemMessage(content=system_prompt))
+                messages_sequence.append(
+                    HumanMessage(
+                        content=f"Rewrite the following prompt into a succint text-to-image generation prompt. Remaining true to the user's request and intent but with greater detail and creativity.\n\nOriginal prompt: {original_prompt}"
+                    )
+                )
+
+                rewritten = await langchain_llm.ainvoke(messages_sequence)
+            else:
+                rewritten = await llm_callable.invoke(
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {
+                            "role": "user",
+                            "content": f"Rewrite the following prompt into a succint text-to-image generation prompt. Remaining true to the user's request and intent but with greater detail and creativity.\n\nOriginal prompt: {original_prompt}",
+                        },
+                    ],
+                    **llm_kwargs,
+                )
+            logger.info("System prompt: %s", system_prompt)
+            logger.info(
+                "Prompt rewrite successful using LLM '%s': %s", llm_name, rewritten
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.error("Prompt rewrite failed using LLM '%s': %s", llm_name, exc)
+            return original_prompt
+
+        if isinstance(rewritten, dict):
+            content = rewritten.get("content")
+            if isinstance(content, str) and content.strip():
+                return content.strip()
+        if isinstance(rewritten, str) and rewritten.strip():
+            return rewritten.strip()
+
+        logger.warning(
+            "Prompt rewrite returned unexpected result type=%s; using original",
+            type(rewritten),
+        )
+        return original_prompt
+
+    # Using only simple string-based function for UI display
+
+    async def generate_image_simple(prompt: str) -> str:
+        """
+        Simple image generation function for UI display.
+
+        Args:
+            prompt: Text prompt for image generation
+
+        Returns:
+            Markdown-formatted image ready for display
+        """
+        # Create HTTP client inside the function to avoid closed client issues
+        async with httpx.AsyncClient(
+            base_url=config.api_endpoint, headers=headers, timeout=config.timeout
+        ) as client:
+            try:
+                effective_prompt = await rewrite_prompt_if_needed(prompt, client)
 
                 # Build the request directly
                 request_data = ImageRequest(
@@ -313,17 +315,17 @@ async def image_generation_function(
                 logger.error("Error generating image: %s", str(e))
                 return f"Error generating image: {str(e)}"
 
-        try:
-            # Register only the simple function
-            logger.info("Registering function generate_image_simple")
-            function_info = FunctionInfo.from_fn(
-                generate_image_simple,
-                description=(
-                    "Generate images using Stable Diffusion 3.5 Large model. Please provide a creative interpretation of the user's generation request so the image is as close as possible to the user's request but also achieves a high quality image."
-                ),
-            )
-            yield function_info
-        except GeneratorExit:
-            logger.warning("Function exited early!")
-        finally:
-            logger.info("Cleaning up image_generation workflow.")
+    try:
+        # Register only the simple function
+        logger.info("Registering function generate_image_simple")
+        function_info = FunctionInfo.from_fn(
+            generate_image_simple,
+            description=(
+                "Generate images using Stable Diffusion 3.5 Large model. Please provide a creative interpretation of the user's generation request so the image is as close as possible to the user's request but also achieves a high quality image."
+            ),
+        )
+        yield function_info
+    except GeneratorExit:
+        logger.warning("Function exited early!")
+    finally:
+        logger.info("Cleaning up image_generation workflow.")

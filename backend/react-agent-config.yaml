@@ -432,11 +432,11 @@ llms:
   fast_llm:
     _type: nim
     api_key: ${NVIDIA_API_KEY}
-    base_url: https://f4ca1242-1bb8-47c4-96c8-f55507f70296.invocation.api.nvcf.nvidia.com/v1
-    max_tokens: 65536
-    model_name: openai/gpt-oss-20b
-    temperature: 1
-    top_p: 1
+    base_url: https://5183a11a-633e-4945-b882-de86ce85125e.invocation.api.nvcf.nvidia.com/v1
+    max_tokens: 2048
+    model_name: nvidia/nvidia-nemotron-nano-9b-v2
+    temperature: 0.6
+    thinking: false
   medium_llm:
     _type: nim
     api_key: ${NVIDIA_API_KEY}
@@ -448,17 +448,18 @@ llms:
   reasoning_llm:
     _type: nim
     api_key: ${NVIDIA_API_KEY}
-    base_url: https://5eb560ed-7ab8-4985-ab2a-dd1f7ea5eb66.invocation.api.nvcf.nvidia.com/v1
+    base_url: https://0fc21779-145c-4e2a-9237-ec8599e8e4c8.invocation.api.nvcf.nvidia.com/v1
     max_tokens: 65536
-    model_name: nvidia/llama-3.3-nemotron-super-49b-v1.5
-    temperature: 0.5
+    model_name: Qwen/Qwen3-Next-80B-A3B-Thinking
+    temperature: 0.6
+    top_p: 0.7
   tool_calling_llm:
     _type: nim
     api_key: ${NVIDIA_API_KEY}
     base_url: https://5eb560ed-7ab8-4985-ab2a-dd1f7ea5eb66.invocation.api.nvcf.nvidia.com/v1
     max_tokens: 65536
     model_name: nvidia/llama-3.3-nemotron-super-49b-v1.5
-    temperature: 0
+    temperature: 0.6
     thinking: false
 memory:
   redis_memory:

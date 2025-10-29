@@ -49,6 +49,10 @@ SHELL ["/bin/bash", "-c"]
 WORKDIR /workspace
 RUN source /workspace/.venv/bin/activate
 
+COPY nat_helpers /workspace/nat_helpers
+RUN --mount=type=cache,id=uv_cache,target=/root/.cache/uv,sharing=locked \
+    uv pip install -e nat_helpers --prerelease=allow
+
 COPY image_generation /workspace/image_generation
 RUN --mount=type=cache,id=uv_cache,target=/root/.cache/uv,sharing=locked \
     NAT_VERSION= nat workflow reinstall image_generation && \
@@ -63,10 +67,6 @@ COPY nat_nv_ingest /workspace/nat_nv_ingest
 RUN --mount=type=cache,id=uv_cache,target=/root/.cache/uv,sharing=locked \
     NAT_VERSION= nat workflow reinstall nat_nv_ingest && \
     uv pip install -e nat_nv_ingest --prerelease=allow
-
-COPY nat_helpers /workspace/nat_helpers
-RUN --mount=type=cache,id=uv_cache,target=/root/.cache/uv,sharing=locked \
-    uv pip install -e nat_helpers --prerelease=allow
 
 COPY serpapi_ai /workspace/serpapi_ai
 RUN --mount=type=cache,id=uv_cache,target=/root/.cache/uv,sharing=locked \
