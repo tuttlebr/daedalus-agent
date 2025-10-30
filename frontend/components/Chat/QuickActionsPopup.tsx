@@ -4,7 +4,6 @@ import { IconPlus, IconX, IconPaperclip, IconCamera, /* IconMicrophone, */ IconB
 interface QuickActionsPopupProps {
   onAttachFile: () => void;
   onTakePhoto: () => void;
-  onStartVoice: () => void;
   onToggleDeepThought: () => void;
   isDeepThoughtEnabled: boolean;
   className?: string;
@@ -13,7 +12,6 @@ interface QuickActionsPopupProps {
 export const QuickActionsPopup: React.FC<QuickActionsPopupProps> = ({
   onAttachFile,
   onTakePhoto,
-  onStartVoice,
   onToggleDeepThought,
   isDeepThoughtEnabled,
   className = '',
@@ -37,15 +35,6 @@ export const QuickActionsPopup: React.FC<QuickActionsPopupProps> = ({
         setIsOpen(false);
       },
     },
-    // COMMENTED OUT - Voice recording disabled
-    // {
-    //   id: 'voice',
-    //   icon: <IconMicrophone size={24} />,
-    //   onClick: () => {
-    //     onStartVoice();
-    //     setIsOpen(false);
-    //   },
-    // },
     {
       id: 'deep-thought',
       icon: <IconBrain size={24} />,

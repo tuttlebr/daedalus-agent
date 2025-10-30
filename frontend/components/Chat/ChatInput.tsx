@@ -55,7 +55,6 @@ interface Props {
   onQuickActionsRegister?: (handlers: {
     onAttachFile: () => void;
     onTakePhoto: () => void;
-    onStartVoice: () => void;
     onToggleDeepThought: () => void;
   }) => void;
 }
@@ -571,8 +570,6 @@ export const ChatInput: React.FC<Props> = ({
     onQuickActionsRegister({
       onAttachFile: triggerFileUpload,
       onTakePhoto: triggerPhotoUpload,
-      // onStartVoice: () => setShowVoiceRecorder(true), // COMMENTED OUT - Voice recording disabled
-      onStartVoice: () => {}, // No-op function for compatibility
       onToggleDeepThought: handleToggleDeepThinker,
     });
   }, [onQuickActionsRegister, triggerFileUpload, triggerPhotoUpload, handleToggleDeepThinker]);
@@ -615,8 +612,6 @@ export const ChatInput: React.FC<Props> = ({
                   <QuickActionsPopup
                   onAttachFile={triggerFileUpload}
                   onTakePhoto={triggerPhotoUpload}
-                  // onStartVoice={() => setShowVoiceRecorder(true)} // COMMENTED OUT - Voice recording disabled
-                  onStartVoice={() => {}} // No-op function for compatibility
                   onToggleDeepThought={handleToggleDeepThinker}
                     isDeepThoughtEnabled={useDeepThinker}
                   />

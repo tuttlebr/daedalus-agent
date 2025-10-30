@@ -297,13 +297,11 @@ llms:
     temperature: 0.6
     top_p: 0.7
   tool_calling_llm:
-    _type: nim
-    api_key: ${NVIDIA_API_KEY}
-    base_url: https://5eb560ed-7ab8-4985-ab2a-dd1f7ea5eb66.invocation.api.nvcf.nvidia.com/v1
-    max_tokens: 65536
-    model_name: nvidia/llama-3.3-nemotron-super-49b-v1.5
-    temperature: 0.6
-    thinking: false
+    _type: openai
+    api_key: ${NEBIUS_API_KEY}
+    base_url: https://api.studio.nebius.com/v1
+    max_tokens: 4096
+    model_name: zai-org/GLM-4.5
 memory:
   redis_memory:
     _type: nat.plugins.redis/redis_memory

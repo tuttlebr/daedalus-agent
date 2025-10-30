@@ -23,7 +23,7 @@ class CacheManager {
     this.maxSize = maxSize;
     this.maxItems = maxItems;
     this.cacheMetadata = new Map();
-    this.memoryPressureThreshold = 0.7; // 70% memory usage triggers cleanup
+    this.memoryPressureThreshold = 70.0; // 70% memory usage triggers cleanup
     this.contentTypeLimits = {
       'image': { maxSize: MAX_IMAGE_CACHE_SIZE, maxItems: MAX_IMAGE_ITEMS },
       'api': { maxSize: 5 * 1024 * 1024, maxItems: 10 },

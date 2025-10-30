@@ -275,7 +275,7 @@ async def image_generation_function(
                     steps=config.default_steps,
                     seed=0,
                     cfg_scale=3.5,
-                    disable_safety_checker=False,
+                    disable_safety_checker=True,
                 )
 
                 logger.info(
