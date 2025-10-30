@@ -15,7 +15,7 @@ export const GalaxyAnimation: React.FC<{ className?: string }> = ({ className = 
       }}
     >
       <Image
-        src="/favicon.png"
+        src="/main-logo.png"
         alt="Logo"
         width={160}
         height={160}

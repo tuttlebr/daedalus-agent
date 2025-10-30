@@ -31,7 +31,7 @@ class ImageBlobCache {
   private readonly maxSize = this.isMobile() ? 2 * 1024 * 1024 : 3 * 1024 * 1024; // 2MB mobile, 3MB desktop
   private cleanupInterval: NodeJS.Timeout | null = null;
   private referenceCount = new Map<string, number>(); // Track active references
-  private memoryPressureThreshold = 0.7; // 70% memory usage triggers cleanup
+  private memoryPressureThreshold = 70.0; // 70% memory usage triggers cleanup
 
   constructor() {
     // Periodic cleanup of stale entries - more frequent on mobile

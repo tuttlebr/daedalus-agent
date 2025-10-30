@@ -65,7 +65,6 @@ const Home = (props: any) => {
   const [quickActionHandlers, setQuickActionHandlers] = useState<{
     onAttachFile?: () => void;
     onTakePhoto?: () => void;
-    // onStartVoice?: () => void; // COMMENTED OUT - Voice recording disabled
   }>({});
 
   const handleSelectConversation = (conversation: Conversation) => {
@@ -299,14 +298,6 @@ const Home = (props: any) => {
               } else {
                 console.warn('Take photo handler not available');
               }
-            },
-            // COMMENTED OUT - Voice recording disabled
-            onStartVoice: () => {
-              // if (quickActionHandlers.onStartVoice) {
-              //   quickActionHandlers.onStartVoice();
-              // } else {
-              //   console.warn('Start voice handler not available');
-              // }
             },
             onToggleDeepThought: () => {
               dispatch({ field: 'useDeepThinker', value: !useDeepThinker });

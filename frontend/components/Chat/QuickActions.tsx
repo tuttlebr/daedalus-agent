@@ -4,7 +4,6 @@ import { IconPaperclip, IconCamera, /* IconMicrophone, */ IconBrain } from '@tab
 interface QuickActionsProps {
   onAttachFile: () => void;
   onTakePhoto: () => void;
-  onStartVoice: () => void;
   onToggleDeepThought?: () => void;
   isDeepThoughtEnabled?: boolean;
   className?: string;
@@ -13,7 +12,6 @@ interface QuickActionsProps {
 export const QuickActions: React.FC<QuickActionsProps> = ({
   onAttachFile,
   onTakePhoto,
-  onStartVoice,
   onToggleDeepThought,
   isDeepThoughtEnabled = false,
   className = '',
@@ -31,13 +29,6 @@ export const QuickActions: React.FC<QuickActionsProps> = ({
       label: 'Take photo',
       onClick: onTakePhoto,
     },
-    // COMMENTED OUT - Voice recording disabled
-    // {
-    //   id: 'voice',
-    //   icon: <IconMicrophone size={20} />,
-    //   label: 'Voice message',
-    //   onClick: onStartVoice,
-    // },
   ];
 
   return (

@@ -20,7 +20,6 @@ interface NavItem {
 interface BottomNavProps {
   onAttachFile?: () => void;
   onTakePhoto?: () => void;
-  onStartVoice?: () => void;
   onToggleDeepThought?: () => void;
   isDeepThoughtEnabled?: boolean;
 }
@@ -28,7 +27,6 @@ interface BottomNavProps {
 export const BottomNav: React.FC<BottomNavProps> = ({
   onAttachFile,
   onTakePhoto,
-  onStartVoice,
   onToggleDeepThought,
   isDeepThoughtEnabled = false,
 }) => {
@@ -62,13 +60,6 @@ export const BottomNav: React.FC<BottomNavProps> = ({
       label: 'Camera',
       action: onTakePhoto,
     }] : []),
-    // COMMENTED OUT - Voice recording disabled
-    // ...(onStartVoice ? [{
-    //   id: 'voice',
-    //   icon: <IconMicrophone size={20} />,
-    //   label: 'Voice',
-    //   action: onStartVoice,
-    // }] : []),
     ...(onToggleDeepThought ? [{
       id: 'deep-thought',
       icon: <IconBrain size={20} />,
