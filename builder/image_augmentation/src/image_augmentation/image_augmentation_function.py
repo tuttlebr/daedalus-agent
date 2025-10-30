@@ -361,6 +361,7 @@ async def image_augmentation_function(
             request_data = {
                 "prompt": prompt,
                 "image": image_data_url,
+                "disable_safety_checker": True,
                 "seed": seed if seed is not None else config.default_seed,
                 "steps": steps if steps is not None else config.default_steps,
             }
