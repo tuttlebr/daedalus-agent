@@ -291,16 +291,16 @@ llms:
   reasoning_llm:
     _type: nim
     api_key: ${NVIDIA_API_KEY}
-    base_url: https://0fc21779-145c-4e2a-9237-ec8599e8e4c8.invocation.api.nvcf.nvidia.com/v1
+    base_url: https://5eb560ed-7ab8-4985-ab2a-dd1f7ea5eb66.invocation.api.nvcf.nvidia.com/v1
     max_tokens: 65536
-    model_name: Qwen/Qwen3-Next-80B-A3B-Thinking
+    model_name: nvidia/llama-3.3-nemotron-super-49b-v1.5
     temperature: 0.6
     top_p: 0.7
   tool_calling_llm:
     _type: openai
     api_key: ${NEBIUS_API_KEY}
     base_url: https://api.studio.nebius.com/v1
-    max_tokens: 4096
+    max_tokens: 65536
     model_name: zai-org/GLM-4.5
 memory:
   redis_memory:
