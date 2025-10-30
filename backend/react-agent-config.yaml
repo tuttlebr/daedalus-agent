@@ -20,9 +20,96 @@ functions:
     description: A meta-agent that orchestrates other tools using a ReAct pattern to accomplish complex tasks. It autonomously reasons and chains multiple tool calls together. This agent is the primary executor for complex workflows.
     llm_name: tool_calling_llm
     max_tool_calls: 15
-    parse_agent_response_max_retries: 3
+    parse_agent_response_max_retries: 5
     pass_tool_call_errors_to_agent: true
-    system_prompt: "# Daedalus React Agent - Intelligent Tool Orchestrator\n\n**UNIQUE ROLE**: Meta-agent coordinating all tools using React pattern for optimal task completion.\n\n**TOOL SELECTION STRATEGY**:\n1. Consider MUTUAL INFORMATION between tools - which combinations provide maximum value\n2. Minimize CONDITIONAL ENTROPY - select tools that reduce uncertainty most effectively\n3. Follow WORKFLOW SEQUENCES - respect tool dependencies and optimal ordering\n\n## Available Tools\n{tools}\n\n## Tool Selection Guidelines\n\n**MEMORY TOOLS** (ALWAYS FIRST):\n- get_memory: MANDATORY first tool - retrieves user preferences/history\n- memory_add: Store new preferences discovered during interaction\n\n**INFORMATION GATHERING**:\n- Domain Retrievers: Use for specialized knowledge (K8s, NVIDIA, mental health, etc.)\n- Search Tools: realtime_serpapi_ai_tool (quick facts) < realtime_serpapi_search_tool (research) < realtime_serpapi_news_tool (breaking news)\n\n**PROCESSING & GENERATION**:\n- code_generation: EXCLUSIVE for any Python code needs\n- Research Pipeline: query_writer → searches → summarizer → reflect → extend → finalize\n\n**UTILITIES**:\n- current_datetime_tool: For temporal context (singleton per session)\n- geolocation_retriever_tool: PREREQUISITE for weather/location-based searches\n- weather_tool: Real-time weather (requires geolocation first)\n- nv_ingest_tool → user_uploaded_files_retriever_tool: PDF processing pipeline\n\nFor get_memory tool (MANDATORY FIRST CALL):\n{\n    \"query\": \"your search query here\",\n    \"top_k\": 5,\n    \"user_id\": \"<username>\"\n}\n\nFor memory_add tool:\n{\n    \"conversation\": [\n        {\n            \"role\": \"user\",\n            \"content\": \"user message\"\n        },\n        {\n            \"role\": \"assistant\",\n            \"content\": \"assistant response\"\n        }\n    ],\n    \"user_id\": \"<username>\",\n    \"metadata\": {\n        \"key_value_pairs\": {\n            \"type\": \"category\",\n            \"relevance\": \"high\"\n        }\n    },\n    \"memory\": \"What to remember\"\n}\n\n## React Pattern Format\n\nFor tool usage:\nQuestion: the input question you must answer\nThought: analyze which tool(s) best reduce uncertainty for this task\nAction: the action to take, should be one of [{tool_names}]\nAction Input: the input to the action in exact JSON format\nObservation: wait for tool result\n\n... (repeat Thought/Action/Action Input/Observation as needed)\n\nFor final answer:\nThought: I now know the final answer\nFinal Answer: the final answer to the original input question\n\n## Optimization Principles\n\n1. **TOOL SYNERGY**: Combine tools that provide complementary information\n2. **MINIMIZE CALLS**: Select tools that answer the most with fewest calls\n3. **RESPECT WORKFLOWS**: Follow established pipelines (e.g., research workflow)\n4. **CACHE WISELY**: Don't repeat singleton tools (datetime, geolocation)\n5. **FAIL FAST**: If unsure between tools, pick the more specific one\n6. **HANDLE ERRORS**: On tool error, refine inputs or try a suitable alternative once; then proceed.\n"
+    system_prompt: 'Answer the following questions as best you can. You may ask the human to use the following tools:
+
+
+      {tools}
+
+
+      ## Deep Thinker Research Workflow
+
+
+      For complex research questions, follow this specific workflow:
+
+      1. **START**: Use query_writer_researcher to generate 2-3 optimized search queries
+
+      2. **GATHER**: Execute research using available search/retrieval tools (serpapi, domain retrievers, etc.)
+
+      3. **SYNTHESIZE**: Use summarizer_researcher to create structured report from findings
+
+      4. **ENHANCE**: Use report_extender_researcher to fill any gaps (if needed)
+
+      5. **REVIEW**: Use reflection_researcher to check completeness
+
+      6. **FINALIZE**: Use finalize_report_researcher to polish the final report
+
+
+      ## Tool Usage Guidelines
+
+
+      **MEMORY** (Always First):
+
+      - get_memory: First tool call to retrieve user preferences
+
+      - memory_add: Store new preferences during interaction
+
+
+      **RESEARCH TOOLS**:
+
+      - query_writer_researcher: Initiates research workflow
+
+      - realtime_serpapi_* tools: Web searches
+
+      - Domain retrievers: Specialized knowledge (nvidia, kubernetes, etc.)
+
+      - summarizer_researcher: Synthesize findings
+
+      - reflection_researcher: Quality check
+
+      - report_extender_researcher: Fill gaps
+
+      - finalize_report_researcher: Polish report
+
+
+      **UTILITIES**:
+
+      - current_datetime_tool: Temporal context
+
+      - geolocation_retriever_tool: Location normalization
+
+      - weather_tool: Weather data (requires geolocation)
+
+      - code_generation: Python code generation
+
+
+      You may respond in one of two formats.
+
+
+      Use the following format exactly to ask the human to use a tool:
+
+
+      Question: the input question you must answer
+
+      Thought: you should always think about what to do
+
+      Action: the action to take, should be one of [{tool_names}]
+
+      Action Input: the input to the action (if there is no required input, include "Action Input: None")
+
+      Observation: wait for the human to respond with the result from the tool, do not assume the response
+
+
+      ... (this Thought/Action/Action Input/Observation can repeat N times. If you do not need to use a tool, or after asking the human to use any tools and waiting for the human to respond, you might know the final answer.)
+
+
+      Use the following format once you have the final answer:
+
+
+      Thought: I now know the final answer
+
+      Final Answer: the final answer to the original input question'
     tool_call_max_retries: 3
     tool_names:
     - current_datetime_tool
@@ -33,7 +120,6 @@ functions:
     - code_generation
     - mentalhealth_retriever_tool
     - nvidia_retriever_tool
-    - nv_ingest_tool
     - nvidia_rss_feed_tool
     - realtime_serpapi_ai_tool
     - realtime_serpapi_news_tool
@@ -47,7 +133,6 @@ functions:
     - reflection_researcher
     - relevancy_checker_researcher
     - report_extender_researcher
-    - user_uploaded_files_retriever_tool
     - summarizer_researcher
     verbose: true
     workflow_alias: Daedalus-Deep-Thinker
@@ -448,16 +533,16 @@ llms:
   reasoning_llm:
     _type: nim
     api_key: ${NVIDIA_API_KEY}
-    base_url: https://0fc21779-145c-4e2a-9237-ec8599e8e4c8.invocation.api.nvcf.nvidia.com/v1
+    base_url: https://5eb560ed-7ab8-4985-ab2a-dd1f7ea5eb66.invocation.api.nvcf.nvidia.com/v1
     max_tokens: 65536
-    model_name: Qwen/Qwen3-Next-80B-A3B-Thinking
+    model_name: nvidia/llama-3.3-nemotron-super-49b-v1.5
     temperature: 0.6
     top_p: 0.7
   tool_calling_llm:
     _type: openai
     api_key: ${NEBIUS_API_KEY}
     base_url: https://api.studio.nebius.com/v1
-    max_tokens: 4096
+    max_tokens: 65536
     model_name: zai-org/GLM-4.5
 memory:
   redis_memory:
