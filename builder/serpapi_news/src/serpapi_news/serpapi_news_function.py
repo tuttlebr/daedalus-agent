@@ -166,9 +166,7 @@ async def serpapi_news_function(
 
         try:
             # Get retriever lazily during execution
-            geolocation_fn = await builder.get_function(
-                config.geolocation_retriever_name
-            )
+            geolocation_fn = builder.get_function(config.geolocation_retriever_name)
 
             # Call the retriever function - try .ainvoke() first, then direct call
             if hasattr(geolocation_fn, "ainvoke"):
