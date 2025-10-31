@@ -104,4 +104,4 @@ RUN --mount=type=cache,id=uv_cache,target=/root/.cache/uv,sharing=locked \
     uv pip install -e rss_feed --prerelease=allow
 
 WORKDIR /workspace
-ENTRYPOINT nat serve --config_file=/workspace/config.yaml --host=0.0.0.0 --port=8000 --workers=4
+ENTRYPOINT nat serve --config_file=/workspace/config.yaml --host=0.0.0.0 --port=8000 --workers=$(nproc)

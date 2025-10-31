@@ -4,12 +4,46 @@ embedders:
     base_url: https://84105d6a-bb7e-4fc3-b401-f82cb3707a28.invocation.api.nvcf.nvidia.com/v1
     model_name: nvidia/llama-3.2-nv-embedqa-1b-v2
     truncate: END
+function_groups:
+  k8s_mcp_server:
+    _type: mcp_client
+    include:
+    - describeResource
+    - getAPIResources
+    - getEvents
+    - getIngresses
+    - getNodeMetrics
+    - getPodMetrics
+    - getPodsLogs
+    - getResource
+    - helmGet
+    - helmHistory
+    - helmList
+    - listResources
+    - getResourceYAML
+    - getResourceDiff
+    - getNamespaceResources
+    - getResourceOwners
+    - getClusterHealth
+    - getResourceQuotas
+    - getLimitRanges
+    - getTopPods
+    - getTopNodes
+    - getPodDebugInfo
+    - getServiceEndpoints
+    - getNetworkPolicies
+    - getSecurityContext
+    - getResourceHistory
+    - validateManifest
+    server:
+      transport: streamable-http
+      url: ${KUBERNETES_MCP_SERVER}
 functions:
   code_generation:
     _type: code_generation
-    description: Generates executable Python code using a specialized coding LLM. Use this for any Python code requirement, including scripts, functions, algorithms, and data processing. It produces complete, runnable Python code with necessary imports and error handling.
+    description: Generates executable code using a specialized coding LLM. Use this for any code requirement, including scripts, functions, algorithms, and data processing. It produces complete, runnable code with necessary imports and error handling.
     llm_name: coding_llm
-    programming_language: Python
+    programming_language: Python, C++, Java, PHP, TS, C#, Bash, JS , Rust, Go, Perl, Ruby, Swift, Kotlin, and more
     verbose: true
   current_datetime_tool:
     _type: current_datetime
@@ -49,141 +83,6 @@ functions:
       temperature: 0.9
     timeout: 300.0
     verbose: true
-  k8s_mcp_describe_resource:
-    _type: mcp_tool_wrapper
-    description: Provides detailed information about a specific Kubernetes resource, similar to `kubectl describe`. Use this to get a comprehensive description of a resource like a pod, service, or deployment. All string inputs must be lowercased.
-    mcp_tool_name: describeResource
-    url: ${KUBERNETES_MCP_SERVER}
-  k8s_mcp_get_api_resources:
-    _type: mcp_tool_wrapper
-    description: Lists the available API resources in the Kubernetes cluster, similar to `kubectl api-resources`. Use this to discover what resources are available in the cluster. All string inputs must be lowercased.
-    mcp_tool_name: getAPIResources
-    url: ${KUBERNETES_MCP_SERVER}
-  k8s_mcp_get_cluster_health:
-    _type: mcp_tool_wrapper
-    description: Gets overall cluster health including nodes, control plane components, and critical pods. Use this for a quick cluster health check. All string inputs must be lowercased.
-    mcp_tool_name: getClusterHealth
-    url: ${KUBERNETES_MCP_SERVER}
-  k8s_mcp_get_events:
-    _type: mcp_tool_wrapper
-    description: Retrieves events for a specific namespace or resource in the Kubernetes cluster, similar to `kubectl get events`. Use this to troubleshoot issues or monitor resource activity. All string inputs must be lowercased.
-    mcp_tool_name: getEvents
-    url: ${KUBERNETES_MCP_SERVER}
-  k8s_mcp_get_ingresses:
-    _type: mcp_tool_wrapper
-    description: Retrieves Ingress resources from the Kubernetes cluster, similar to `kubectl get ingress`. It can be used to find information about how external traffic is routed to services. All string inputs must be lowercased.
-    mcp_tool_name: getIngresses
-    url: ${KUBERNETES_MCP_SERVER}
-  k8s_mcp_get_limit_ranges:
-    _type: mcp_tool_wrapper
-    description: Gets limit ranges defined in namespaces. Use this to see resource limits and defaults for pods and containers. All string inputs must be lowercased.
-    mcp_tool_name: getLimitRanges
-    url: ${KUBERNETES_MCP_SERVER}
-  k8s_mcp_get_namespace_resources:
-    _type: mcp_tool_wrapper
-    description: Gets all resources within a namespace with optional type filtering. Use this to get an overview of everything in a namespace. All string inputs must be lowercased.
-    mcp_tool_name: getNamespaceResources
-    url: ${KUBERNETES_MCP_SERVER}
-  k8s_mcp_get_network_policies:
-    _type: mcp_tool_wrapper
-    description: Lists network policies affecting a pod or namespace. Use this to understand network access rules. All string inputs must be lowercased.
-    mcp_tool_name: getNetworkPolicies
-    url: ${KUBERNETES_MCP_SERVER}
-  k8s_mcp_get_node_metrics:
-    _type: mcp_tool_wrapper
-    description: Retrieves resource usage metrics (CPU, memory) for nodes in the Kubernetes cluster, similar to `kubectl top node`. Use this to check the resource consumption of cluster nodes. All string inputs must be lowercased.
-    mcp_tool_name: getNodeMetrics
-    url: ${KUBERNETES_MCP_SERVER}
-  k8s_mcp_get_pod_debug_info:
-    _type: mcp_tool_wrapper
-    description: Gets comprehensive debugging information for a pod including events, conditions, container statuses, and recent logs. Use this for deep pod troubleshooting. All string inputs must be lowercased.
-    mcp_tool_name: getPodDebugInfo
-    url: ${KUBERNETES_MCP_SERVER}
-  k8s_mcp_get_pod_metrics:
-    _type: mcp_tool_wrapper
-    description: Retrieves resource usage metrics (CPU, memory) for pods in the Kubernetes cluster, similar to `kubectl top pod`. Use this to check the resource consumption of specific pods. All string inputs must be lowercased.
-    mcp_tool_name: getPodMetrics
-    url: ${KUBERNETES_MCP_SERVER}
-  k8s_mcp_get_pods_logs:
-    _type: mcp_tool_wrapper
-    description: Retrieves logs from a specific pod in the Kubernetes cluster, similar to `kubectl logs`. Use this for debugging and monitoring pod activity. All string inputs must be lowercased.
-    mcp_tool_name: getPodsLogs
-    url: ${KUBERNETES_MCP_SERVER}
-  k8s_mcp_get_resource:
-    _type: mcp_tool_wrapper
-    description: Retrieves detailed information about a specific resource in the Kubernetes cluster, similar to `kubectl get`. Use this to get the YAML definition and status of a resource. All string inputs must be lowercased.
-    mcp_tool_name: getResource
-    url: ${KUBERNETES_MCP_SERVER}
-  k8s_mcp_get_resource_diff:
-    _type: mcp_tool_wrapper
-    description: Compares current resource state with a previous version or another resource. Use this to see what changed in a resource. All string inputs must be lowercased.
-    mcp_tool_name: getResourceDiff
-    url: ${KUBERNETES_MCP_SERVER}
-  k8s_mcp_get_resource_history:
-    _type: mcp_tool_wrapper
-    description: Gets recent changes and events for a resource. Use this to see what happened to a resource over time. All string inputs must be lowercased.
-    mcp_tool_name: getResourceHistory
-    url: ${KUBERNETES_MCP_SERVER}
-  k8s_mcp_get_resource_owners:
-    _type: mcp_tool_wrapper
-    description: Traces the ownership chain of a resource to understand dependencies. Use this to see what owns a resource and what it owns. All string inputs must be lowercased.
-    mcp_tool_name: getResourceOwners
-    url: ${KUBERNETES_MCP_SERVER}
-  k8s_mcp_get_resource_quotas:
-    _type: mcp_tool_wrapper
-    description: Lists resource quotas and current usage across namespaces. Use this to monitor resource quota consumption. All string inputs must be lowercased.
-    mcp_tool_name: getResourceQuotas
-    url: ${KUBERNETES_MCP_SERVER}
-  k8s_mcp_get_resource_yaml:
-    _type: mcp_tool_wrapper
-    description: Exports a Kubernetes resource as YAML format for easy inspection and backup. Use this to get a clean YAML representation of any resource. All string inputs must be lowercased.
-    mcp_tool_name: getResourceYAML
-    url: ${KUBERNETES_MCP_SERVER}
-  k8s_mcp_get_security_context:
-    _type: mcp_tool_wrapper
-    description: Gets security contexts for pods and their containers. Use this to review security settings and permissions. All string inputs must be lowercased.
-    mcp_tool_name: getSecurityContext
-    url: ${KUBERNETES_MCP_SERVER}
-  k8s_mcp_get_service_endpoints:
-    _type: mcp_tool_wrapper
-    description: Lists all endpoints for a service with their health status and readiness. Use this to debug service connectivity issues. All string inputs must be lowercased.
-    mcp_tool_name: getServiceEndpoints
-    url: ${KUBERNETES_MCP_SERVER}
-  k8s_mcp_get_top_nodes:
-    _type: mcp_tool_wrapper
-    description: Gets top nodes by resource utilization. Use this to identify nodes with high CPU, memory, or pod usage. All string inputs must be lowercased.
-    mcp_tool_name: getTopNodes
-    url: ${KUBERNETES_MCP_SERVER}
-  k8s_mcp_get_top_pods:
-    _type: mcp_tool_wrapper
-    description: Gets top pods by CPU or memory usage. Similar to `kubectl top pods` but with more flexibility. Use this to find resource-hungry pods. All string inputs must be lowercased.
-    mcp_tool_name: getTopPods
-    url: ${KUBERNETES_MCP_SERVER}
-  k8s_mcp_helm_get:
-    _type: mcp_tool_wrapper
-    description: Retrieves detailed information about a specific Helm release, similar to `helm get`. Use this to inspect the values, hooks, or manifest of a release. All string inputs must be lowercased.
-    mcp_tool_name: helmGet
-    url: ${KUBERNETES_MCP_SERVER}
-  k8s_mcp_helm_history:
-    _type: mcp_tool_wrapper
-    description: Retrieves the deployment history of a specific Helm release, similar to `helm history`. Use this to see the revision history of a release. All string inputs must be lowercased.
-    mcp_tool_name: helmHistory
-    url: ${KUBERNETES_MCP_SERVER}
-  k8s_mcp_helm_list:
-    _type: mcp_tool_wrapper
-    description: Lists all Helm releases in the cluster or a specific namespace, similar to `helm list`. Use this to get an overview of deployed Helm charts. All string inputs must be lowercased.
-    mcp_tool_name: helmList
-    url: ${KUBERNETES_MCP_SERVER}
-  k8s_mcp_list_resources:
-    _type: mcp_tool_wrapper
-    description: Lists all instances of a specific resource type (e.g., pods, services) in the Kubernetes cluster. This is useful for getting an overview of all resources of a certain kind. All string inputs must be lowercased.
-    mcp_tool_name: listResources
-    url: ${KUBERNETES_MCP_SERVER}
-  k8s_mcp_validate_manifest:
-    _type: mcp_tool_wrapper
-    description: Validates a YAML or JSON manifest without applying it (dry-run). Use this to check if a manifest is valid before applying. All string inputs must be lowercased.
-    mcp_tool_name: validateManifest
-    url: ${KUBERNETES_MCP_SERVER}
   kubernetes_retriever_tool:
     _type: nat_retriever
     description: Retrieves information from a specialized Kubernetes knowledge base. Use this for questions about Kubernetes concepts, best practices, and troubleshooting. This tool is preferred over general web search for Kubernetes topics.
@@ -345,13 +244,13 @@ llms:
     _type: nim
     api_key: ${NVIDIA_API_KEY}
     base_url: https://27c0f207-e2a5-46c4-bad5-b39468c3a75e.invocation.api.nvcf.nvidia.com/v1
-    max_tokens: 65536
+    max_tokens: 16000
     model_name: qwen/qwen2.5-coder-32b-instruct
   fast_llm:
     _type: nim
     api_key: ${NVIDIA_API_KEY}
     base_url: https://5183a11a-633e-4945-b882-de86ce85125e.invocation.api.nvcf.nvidia.com/v1
-    max_tokens: 2048
+    max_tokens: 1024
     model_name: nvidia/nvidia-nemotron-nano-9b-v2
     temperature: 0.6
     thinking: false
@@ -359,7 +258,7 @@ llms:
     _type: nim
     api_key: ${NVIDIA_API_KEY}
     base_url: https://9adef108-3097-4540-ba5f-873a9da8e54f.invocation.api.nvcf.nvidia.com/v1
-    max_tokens: 65536
+    max_tokens: 16000
     model_name: openai/gpt-oss-120b
     temperature: 1
     top_p: 1
@@ -367,7 +266,7 @@ llms:
     _type: nim
     api_key: ${NVIDIA_API_KEY}
     base_url: https://9adef108-3097-4540-ba5f-873a9da8e54f.invocation.api.nvcf.nvidia.com/v1
-    max_tokens: 65536
+    max_tokens: 16000
     model_name: openai/gpt-oss-120b
     temperature: 1
     top_p: 1
@@ -375,7 +274,7 @@ llms:
     _type: openai
     api_key: ${NEBIUS_API_KEY}
     base_url: https://api.studio.nebius.com/v1
-    max_tokens: 65536
+    max_tokens: 16000
     model_name: zai-org/GLM-4.5
 memory:
   redis_memory:
@@ -514,33 +413,7 @@ workflow:
   - geolocation_retriever_tool
   - image_augmentation_tool
   - image_generation_tool
-  - k8s_mcp_describe_resource
-  - k8s_mcp_get_api_resources
-  - k8s_mcp_get_events
-  - k8s_mcp_get_ingresses
-  - k8s_mcp_get_node_metrics
-  - k8s_mcp_get_pod_metrics
-  - k8s_mcp_get_pods_logs
-  - k8s_mcp_get_resource
-  - k8s_mcp_helm_get
-  - k8s_mcp_helm_history
-  - k8s_mcp_helm_list
-  - k8s_mcp_list_resources
-  - k8s_mcp_get_resource_yaml
-  - k8s_mcp_get_resource_diff
-  - k8s_mcp_get_namespace_resources
-  - k8s_mcp_get_resource_owners
-  - k8s_mcp_get_cluster_health
-  - k8s_mcp_get_resource_quotas
-  - k8s_mcp_get_limit_ranges
-  - k8s_mcp_get_top_pods
-  - k8s_mcp_get_top_nodes
-  - k8s_mcp_get_pod_debug_info
-  - k8s_mcp_get_service_endpoints
-  - k8s_mcp_get_network_policies
-  - k8s_mcp_get_security_context
-  - k8s_mcp_get_resource_history
-  - k8s_mcp_validate_manifest
+  - k8s_mcp_server
   - kubernetes_retriever_tool
   - mentalhealth_retriever_tool
   - nvidia_retriever_tool
