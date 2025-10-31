@@ -512,13 +512,13 @@ llms:
     _type: nim
     api_key: ${NVIDIA_API_KEY}
     base_url: https://27c0f207-e2a5-46c4-bad5-b39468c3a75e.invocation.api.nvcf.nvidia.com/v1
-    max_tokens: 65536
+    max_tokens: 16000
     model_name: qwen/qwen2.5-coder-32b-instruct
   fast_llm:
     _type: nim
     api_key: ${NVIDIA_API_KEY}
     base_url: https://5183a11a-633e-4945-b882-de86ce85125e.invocation.api.nvcf.nvidia.com/v1
-    max_tokens: 2048
+    max_tokens: 1024
     model_name: nvidia/nvidia-nemotron-nano-9b-v2
     temperature: 0.6
     thinking: false
@@ -526,7 +526,7 @@ llms:
     _type: nim
     api_key: ${NVIDIA_API_KEY}
     base_url: https://9adef108-3097-4540-ba5f-873a9da8e54f.invocation.api.nvcf.nvidia.com/v1
-    max_tokens: 65536
+    max_tokens: 16000
     model_name: openai/gpt-oss-120b
     temperature: 1
     top_p: 1
@@ -534,7 +534,7 @@ llms:
     _type: nim
     api_key: ${NVIDIA_API_KEY}
     base_url: https://9adef108-3097-4540-ba5f-873a9da8e54f.invocation.api.nvcf.nvidia.com/v1
-    max_tokens: 65536
+    max_tokens: 16000
     model_name: openai/gpt-oss-120b
     temperature: 1
     top_p: 1
@@ -542,7 +542,7 @@ llms:
     _type: openai
     api_key: ${NEBIUS_API_KEY}
     base_url: https://api.studio.nebius.com/v1
-    max_tokens: 65536
+    max_tokens: 16000
     model_name: zai-org/GLM-4.5
 memory:
   redis_memory:
