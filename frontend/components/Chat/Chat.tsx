@@ -283,9 +283,10 @@ export const Chat = () => {
   });
 
   // Sync conversation from server when returning from background
-  const { syncConversation } = useConversationSync({
+  const { syncConversation, syncAfterSend, debouncedSync } = useConversationSync({
     enabled: isPWA && (enableBackgroundProcessing ?? false) && !messageIsStreaming && !isPolling,
     conversationId: selectedConversation?.id,
+    minSyncInterval: 5000, // Minimum 5 seconds between syncs
     onConversationUpdated: (serverConversation) => {
       // Update conversation with server messages
       if (selectedConversation) {
@@ -663,6 +664,9 @@ export const Chat = () => {
               updatedConversation.name
             );
             console.log('Async job started - will poll for results');
+
+            // Trigger sync after sending message to catch the response
+            syncAfterSend();
           } catch (error: any) {
             console.error('Failed to start async job:', error);
             toast.error(`Failed to start request: ${error.message}`);
