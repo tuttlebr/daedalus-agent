@@ -93,7 +93,7 @@ export const ChatInput: React.FC<Props> = ({
   const [inputFileContent, setInputFileContent] = useState('');
   const [inputFileContentCompressed, setInputFileContentCompressed] = useState('');
   const [imageRef, setImageRef] = useState<ImageReference | null>(null);
-  const [pdfRef, setPdfRef] = useState<{ pdfId: string; sessionId: string } | null>(null);
+  const [pdfRefs, setPdfRefs] = useState<Array<{ pdfId: string; sessionId: string; filename?: string }>>([])
   const [isUploadingImage, setIsUploadingImage] = useState(false);
   // const [isRecording, setIsRecording] = useState(false); // COMMENTED OUT - Voice recording disabled
   // const [showVoiceRecorder, setShowVoiceRecorder] = useState(false); // COMMENTED OUT - Voice recording disabled
@@ -118,7 +118,7 @@ export const ChatInput: React.FC<Props> = ({
     setInputFileContent('');
     setInputFileContentCompressed('');
     setImageRef(null);
-    setPdfRef(null);
+    setPdfRefs([]);
     setSelectedCollection('');
   };
 
@@ -132,16 +132,47 @@ export const ChatInput: React.FC<Props> = ({
   }, [homeDispatch, useDeepThinker, enableIntermediateSteps]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      // Reset the input value so the same file can be selected again if needed
+    const files = e.target.files;
+
+    if (files && files.length > 0) {
+      // Check if all files are PDFs or all are images (don't mix)
+      const fileArray = Array.from(files);
+      const fileTypes = fileArray.map((f: File) => {
+        const isPDF = f.type === 'application/pdf' || f.name.toLowerCase().endsWith('.pdf');
+        return isPDF ? 'pdf' : 'image';
+      });
+      const allPDFs = fileTypes.every(type => type === 'pdf');
+      const allImages = fileTypes.every(type => type === 'image');
+
+      if (!allPDFs && !allImages) {
+        alert('Please select either PDFs or images, but not both.');
+        e.target.value = ''; // Reset after error
+        return;
+      }
+
+      if (allPDFs) {
+        // Check if too many PDFs are selected
+        const MAX_PDFS_PER_BATCH = 20;
+        if (fileArray.length > MAX_PDFS_PER_BATCH) {
+          alert(`Too many PDFs selected (${fileArray.length}). Please select no more than ${MAX_PDFS_PER_BATCH} PDFs at a time to avoid processing timeouts.`);
+          e.target.value = ''; // Reset after error
+          return;
+        }
+        // Process multiple PDFs
+        processMultipleFiles(fileArray);
+      } else {
+        // For images, still process single file (existing behavior)
+        const file = files[0];
+        const reader = new FileReader();
+        reader.onload = (loadEvent) => {
+          const fullBase64String = (loadEvent.target?.result ?? null) as string | ArrayBuffer | null;
+          processFile({ fullBase64String, file });
+        };
+        reader.readAsDataURL(file);
+      }
+
+      // Reset the input value after processing so the same file can be selected again if needed
       e.target.value = '';
-      const reader = new FileReader();
-      reader.onload = (loadEvent) => {
-        const fullBase64String = (loadEvent.target?.result ?? null) as string | ArrayBuffer | null;
-        processFile({ fullBase64String, file });
-      };
-      reader.readAsDataURL(file);
     }
   };
 
@@ -151,7 +182,48 @@ export const ChatInput: React.FC<Props> = ({
     setContent(value);
   };
 
-  const processPDFInBackground = async (pdfRefData: any, filename: string) => {
+  const processMultipleFiles = async (files: File[]) => {
+    const newPdfRefs: Array<{ pdfId: string; sessionId: string; filename?: string }> = [];
+    setIsUploadingImage(true);
+
+    try {
+      // Upload all PDFs
+      for (const file of files) {
+        if (file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')) {
+          const reader = new FileReader();
+          const base64String = await new Promise<string>((resolve, reject) => {
+            reader.onload = (e: ProgressEvent<FileReader>) => {
+              const result = e.target?.result;
+              if (typeof result === 'string') {
+                resolve(result);
+              } else {
+                reject(new Error('Failed to read file'));
+              }
+            };
+            reader.onerror = reject;
+            reader.readAsDataURL(file);
+          });
+
+          const pdfReference = await uploadPDF(base64String, file.name, file.type);
+          newPdfRefs.push({ ...pdfReference, filename: file.name });
+        }
+      }
+
+      if (newPdfRefs.length > 0) {
+        setPdfRefs(newPdfRefs);
+        setInputFile(newPdfRefs.length === 1 ? newPdfRefs[0].filename || 'document.pdf' : `${newPdfRefs.length} PDFs selected`);
+        setInputFileExtension('pdf');
+      }
+    } catch (error) {
+      console.error('Error uploading PDFs:', error);
+      alert('Failed to upload PDFs. Please try again.');
+      handleInputFileDelete();
+    } finally {
+      setIsUploadingImage(false);
+    }
+  };
+
+  const processPDFInBackground = async (pdfRefsData: Array<{ pdfId: string; sessionId: string; filename?: string }>, filenameDisplay: string) => {
     try {
       const response = await fetch('/api/pdf/process', {
         method: 'POST',
@@ -159,8 +231,8 @@ export const ChatInput: React.FC<Props> = ({
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          pdfRef: pdfRefData,
-          filename: filename,
+          pdfRefs: pdfRefsData,
+          filename: filenameDisplay,
           collection: selectedCollection || user?.username || 'default'
         }),
       });
@@ -173,13 +245,19 @@ export const ChatInput: React.FC<Props> = ({
         return false;
       }
 
-      console.log('PDF processed successfully:', result);
+      console.log('PDFs processed successfully:', result);
       const collectionUsed = result.metadata?.collection || selectedCollection || user?.username || 'default';
-      toast.success(`PDF uploaded to collection "${collectionUsed}"`);
+      const pdfCount = pdfRefsData.length;
+      const successMsg = pdfCount === 1
+        ? `PDF uploaded to collection "${collectionUsed}"`
+        : `${pdfCount} PDFs uploaded to collection "${collectionUsed}"`;
+      toast.success(successMsg);
 
       // Add an assistant message to the conversation to provide context
       if (selectedConversation) {
-        const contentMessage = `Your PDF was uploaded successfully to the "${collectionUsed}" collection. The document has been processed and indexed for future search and retrieval.`;
+        const contentMessage = pdfCount === 1
+          ? `Your PDF was uploaded successfully to the "${collectionUsed}" collection. The document has been processed and indexed for future search and retrieval.`
+          : `Your ${pdfCount} PDFs were uploaded successfully to the "${collectionUsed}" collection. All documents have been processed and indexed for future search and retrieval.`;
 
         const assistantMessage: Message = {
           id: uuidv4(),
@@ -239,17 +317,18 @@ export const ChatInput: React.FC<Props> = ({
     //   setIsRecording(false);
     // }
 
-    if (!content && !inputFile && !imageRef && !pdfRef) {
+    if (!content && !inputFile && !imageRef && pdfRefs.length === 0) {
       alert(t('Please enter a message or attach a file'));
       return;
     }
 
-    // Process PDF first if there is one
-    if (pdfRef) {
+    // Process PDFs first if there are any
+    if (pdfRefs.length > 0) {
       // Show processing message
-      toast.loading('Processing PDF...', { id: 'pdf-processing' });
+      const toastMsg = pdfRefs.length === 1 ? 'Processing PDF...' : `Processing ${pdfRefs.length} PDFs...`;
+      toast.loading(toastMsg, { id: 'pdf-processing' });
 
-      const success = await processPDFInBackground(pdfRef, inputFile || 'document.pdf');
+      const success = await processPDFInBackground(pdfRefs, inputFile || 'documents');
 
       // Dismiss loading toast
       toast.dismiss('pdf-processing');
@@ -268,7 +347,7 @@ export const ChatInput: React.FC<Props> = ({
         setInputFileContent('');
         setInputFileContentCompressed('');
         setImageRef(null);
-        setPdfRef(null);
+        setPdfRefs([]);
         setSelectedCollection('');
         if (window.innerWidth < 640 && textareaRef && textareaRef.current) {
           textareaRef.current.blur();
@@ -278,7 +357,7 @@ export const ChatInput: React.FC<Props> = ({
     }
 
     // Store deep thinker mode in metadata instead of appending to content
-    if (inputFile || imageRef || pdfRef) {
+    if (inputFile || imageRef || pdfRefs.length > 0) {
       const attachments = [];
 
       if (imageRef) {
@@ -313,7 +392,7 @@ export const ChatInput: React.FC<Props> = ({
       setInputFileContent('');
       setInputFileContentCompressed('');
       setImageRef(null);
-      setPdfRef(null);
+      setPdfRefs([]);
       setSelectedCollection('');
     }
 
@@ -331,7 +410,7 @@ export const ChatInput: React.FC<Props> = ({
       setInputFileContent('');
       setInputFileContentCompressed('');
       setImageRef(null);
-      setPdfRef(null);
+      setPdfRefs([]);
       setSelectedCollection('');
     }
 
@@ -369,7 +448,7 @@ export const ChatInput: React.FC<Props> = ({
       return;
     }
     const [fileType] = file && file.type.split('/');
-    const isPDF = file.type === 'application/pdf';
+    const isPDF = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
 
     if (!isPDF && !["image"].includes(fileType)) {
       alert(`Only supported file types are : images and PDFs`);
@@ -388,7 +467,7 @@ export const ChatInput: React.FC<Props> = ({
       if (isPDF) {
         // Handle PDF upload
         const pdfReference = await uploadPDF(fullBase64String, file.name, file.type);
-        setPdfRef(pdfReference);
+        setPdfRefs([{ ...pdfReference, filename: file.name }]);
         setInputFile(file.name);
         setInputFileExtension('pdf');
       } else {
@@ -455,14 +534,35 @@ export const ChatInput: React.FC<Props> = ({
     e.preventDefault();
     const files = e.dataTransfer.files;
     if (files.length > 0) {
-      const file = files[0];
-      const reader = new FileReader();
-      reader.onload = (loadEvent) => {
-        const fullBase64String = (loadEvent.target?.result ?? null) as string | ArrayBuffer | null;
-        processFile({ fullBase64String, file });
-      };
-      reader.readAsDataURL(file);
+      // Check if all files are PDFs or all are images (don't mix)
+      const fileTypes = Array.from(files).map((f: File) => f.type.startsWith('image/') ? 'image' : 'pdf');
+      const allPDFs = fileTypes.every(type => type === 'pdf');
+      const allImages = fileTypes.every(type => type === 'image');
 
+      if (!allPDFs && !allImages) {
+        alert('Please select either PDFs or images, but not both.');
+        return;
+      }
+
+      if (allPDFs && files.length > 1) {
+        // Check if too many PDFs are selected
+        const MAX_PDFS_PER_BATCH = 20;
+        if (files.length > MAX_PDFS_PER_BATCH) {
+          alert(`Too many PDFs selected (${files.length}). Please select no more than ${MAX_PDFS_PER_BATCH} PDFs at a time to avoid processing timeouts.`);
+          return;
+        }
+        // Process multiple PDFs
+        processMultipleFiles(Array.from(files));
+      } else {
+        // For single file or images, use existing logic
+        const file = files[0];
+        const reader = new FileReader();
+        reader.onload = (loadEvent) => {
+          const fullBase64String = (loadEvent.target?.result ?? null) as string | ArrayBuffer | null;
+          processFile({ fullBase64String, file });
+        };
+        reader.readAsDataURL(file);
+      }
     }
   };
 
@@ -604,7 +704,7 @@ export const ChatInput: React.FC<Props> = ({
             <div className="relative">
               {/* Main input wrapper with glass effect */}
               <div
-                className={`relative flex items-center w-full rounded-2xl apple-glass backdrop-blur-xl border border-white/10 dark:border-white/5 shadow-[0_8px_32px_rgba(0,0,0,0.12)] dark:shadow-[0_8px_32px_rgba(0,0,0,0.24)] ${inputFile && (imageRef || pdfRef || inputFileContentCompressed) ? 'flex-col items-stretch' : ''}`}
+                className={`relative flex items-center w-full rounded-2xl apple-glass backdrop-blur-xl border border-white/10 dark:border-white/5 shadow-[0_8px_32px_rgba(0,0,0,0.12)] dark:shadow-[0_8px_32px_rgba(0,0,0,0.24)] ${inputFile && (imageRef || pdfRefs.length > 0 || inputFileContentCompressed) ? 'flex-col items-stretch' : ''}`}
                 style={{ position: 'relative', zIndex: 1 }}
               >
                 {/* Quick Actions Button - centered with textarea */}
@@ -712,13 +812,13 @@ export const ChatInput: React.FC<Props> = ({
                   )}
                 </button>
               </div>
-              {inputFile && (imageRef || pdfRef || inputFileContentCompressed) && (
+              {inputFile && (imageRef || pdfRefs.length > 0 || inputFileContentCompressed) && (
                 <div className="w-full border-t border-white/10 dark:border-white/5 mt-2">
                   <div className="flex w-full flex-col gap-3 p-3 text-neutral-800 dark:text-white">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
                         <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-white/20 text-neutral-600 dark:bg-white/10 dark:text-neutral-100">
-                          {pdfRef ? <IconPaperclip size={16} /> : <IconPhoto size={16} />}
+                          {pdfRefs.length > 0 ? <IconPaperclip size={16} /> : <IconPhoto size={16} />}
                         </span>
                         <div className="flex flex-col">
                           <span className="text-sm font-medium text-neutral-700 dark:text-neutral-50">{inputFile}</span>
@@ -741,16 +841,28 @@ export const ChatInput: React.FC<Props> = ({
                       </div>
                     )}
 
-                    {pdfRef && (
+                    {pdfRefs.length > 0 && (
                       <>
                         <div className="px-3 py-2 space-y-1">
                           <div className="text-center text-xs text-neutral-600 dark:text-neutral-200">
-                            PDF ready to process
+                            {pdfRefs.length === 1 ? 'PDF ready to process' : `${pdfRefs.length} PDFs ready to process`}
                           </div>
                           <div className="text-center text-xs text-neutral-500 dark:text-neutral-400">
-                            Choose where to store this document for future search
+                            Choose where to store {pdfRefs.length === 1 ? 'this document' : 'these documents'} for future search
                           </div>
                         </div>
+                        {pdfRefs.length > 1 && (
+                          <div className="px-3 py-1">
+                            <div className="text-xs text-neutral-600 dark:text-neutral-300">
+                              <div className="font-medium mb-1">Files selected:</div>
+                              <ul className="max-h-24 overflow-y-auto space-y-0.5">
+                                {pdfRefs.map((pdf: { pdfId: string; sessionId: string; filename?: string }, idx: number) => (
+                                  <li key={idx} className="truncate">• {pdf.filename || `PDF ${idx + 1}`}</li>
+                                ))}
+                              </ul>
+                            </div>
+                          </div>
+                        )}
                         <div className="px-3 pb-3" style={{ position: 'relative', zIndex: 10 }}>
                           <CollectionSelector
                             onSelect={setSelectedCollection}
@@ -764,16 +876,19 @@ export const ChatInput: React.FC<Props> = ({
                 </div>
               )}
               {
-                appConfig?.fileUploadEnabled && !inputFile &&
+                appConfig?.fileUploadEnabled &&
                 <>
                   <input
+                    key="pdf-file-input"
                     type="file"
                     ref={fileInputRef}
-                    accept=".pdf,application/pdf"
+                    accept="application/pdf,.pdf"
+                    multiple={true}
                     style={{ display: 'none' }}
                     onChange={handleFileChange}
                   />
                   <input
+                    key="photo-file-input"
                     type="file"
                     ref={photoInputRef}
                     accept="image/*"

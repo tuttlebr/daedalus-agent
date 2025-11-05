@@ -1,10 +1,11 @@
 # NvIngest PDF Processing Tool
 
-This NAT tool integrates PDF document processing capabilities into your chatbot workflow, allowing users to upload PDFs that are automatically processed and indexed for retrieval.
+This NAT tool integrates PDF document processing capabilities into your chatbot workflow, allowing users to upload single or multiple PDFs that are automatically processed and indexed for retrieval.
 
 ## Features
 
-- **PDF Upload Support**: Users can upload PDF documents via the attachment icon in the chat interface
+- **Single & Multiple PDF Support**: Users can upload one or multiple PDF documents via the attachment icon
+- **Batch Processing**: Process multiple PDFs in a single operation, all stored in the same collection
 - **Redis Storage**: PDFs are temporarily stored in Redis for processing
 - **NvIngest Integration**: Uses NVIDIA's NvIngest service to extract text from PDFs
 - **Milvus Vector Storage**: Processed text is chunked, embedded, and stored in Milvus for retrieval
@@ -32,13 +33,21 @@ functions:
 
 ## Usage
 
+### Single PDF Upload
 1. **Upload a PDF**: Click the attachment icon in the chat interface and select a PDF file
 2. **Choose a Collection**: The assistant can list available collections and let you choose where to store the document
 3. **Process the PDF**: The assistant will process it using the `process_pdf` function with your chosen collection
 4. **Query your documents**: Once processed, the PDF content is searchable in the specified collection
 
-### Example Interaction
+### Multiple PDF Upload
+1. **Upload Multiple PDFs**: Click the attachment icon and select multiple PDF files at once
+2. **Choose a Collection**: Select one collection where all PDFs will be stored
+3. **Batch Processing**: The assistant will process all PDFs in sequence
+4. **Summary Report**: Receive a detailed summary of the batch processing results
 
+### Example Interactions
+
+#### Single PDF
 ```
 User: [Uploads technical_manual.pdf]
 Assistant: I see you've uploaded a PDF file. Would you like me to process and index this document?
@@ -59,9 +68,34 @@ Assistant: ✅ Successfully processed PDF 'technical_manual.pdf'
 The document is now searchable in the engineering_team knowledge base!
 ```
 
+#### Multiple PDFs
+```
+User: [Uploads design_spec.pdf, user_guide.pdf, api_reference.pdf]
+Assistant: I see you've uploaded 3 PDF files. Would you like me to process and index all these documents?
+
+User: Yes, please store them all in the engineering_team collection
+Assistant: ✅ Successfully processed all 3 PDFs
+
+📄 Summary:
+- Total PDFs: 3
+- Total chunks indexed: 142
+- Collection: 'engineering_team'
+- Chunk size: 1024 with 150 overlap
+
+📋 Processed files:
+- design_spec.pdf (35 chunks)
+- user_guide.pdf (62 chunks)
+- api_reference.pdf (45 chunks)
+
+All documents are now searchable in your knowledge base!
+```
+
 ## Technical Details
 
-- **Max PDF Size**: 10MB
+- **Max PDF Size**: 10MB per file
+- **Batch Processing**: Support for processing multiple PDFs in a single operation
+  - **Batch Size Limit**: Maximum 5 PDFs per batch to avoid processing timeouts
+  - For larger sets of documents, process them in multiple batches
 - **Storage Duration**: PDFs are stored in Redis for 7 days
 - **Processing**: Text extraction with support for tables and charts (images are not extracted)
 - **Chunking**: Documents are split into overlapping chunks for better retrieval
@@ -69,6 +103,7 @@ The document is now searchable in the engineering_team knowledge base!
   - Default collection name is the user's username if not specified
   - The `list_collections` function shows all available Milvus collections
   - Users can specify any existing collection for document storage
+  - When processing multiple PDFs, all documents are stored in the same collection
 
 ## Dependencies
 
