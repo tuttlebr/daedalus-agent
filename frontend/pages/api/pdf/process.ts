@@ -11,27 +11,36 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const userId = await getUserId(req, res);
     const username = userId || 'anon';
 
-    const { pdfRef, filename, collection } = req.body;
+    const { pdfRef, pdfRefs, filename, collection } = req.body;
 
-    if (!pdfRef || !pdfRef.pdfId || !pdfRef.sessionId) {
-      return res.status(400).json({ error: 'Invalid PDF reference' });
+    // Support both single pdfRef and multiple pdfRefs
+    let pdfsToProcess;
+    if (pdfRefs && Array.isArray(pdfRefs)) {
+      pdfsToProcess = pdfRefs;
+    } else if (pdfRef && pdfRef.pdfId && pdfRef.sessionId) {
+      pdfsToProcess = [pdfRef];
+    } else {
+      return res.status(400).json({ error: 'Invalid PDF reference(s)' });
     }
 
     // Use provided collection or default to username
     const targetCollection = collection || username;
 
-    console.log('Processing PDF:', {
-      pdfId: pdfRef.pdfId,
-      sessionId: pdfRef.sessionId,
+    console.log('Processing PDFs:', {
+      pdfCount: pdfsToProcess.length,
       username,
       collection: targetCollection
     });
 
     // Send a message to the chat endpoint that will trigger PDF processing
+    const messageContent = pdfsToProcess.length === 1
+      ? `Process the PDF "${filename || 'document'}" using nv_ingest_tool with pdfRef=${JSON.stringify(pdfsToProcess[0])}, username="${username}", and collection_name="${targetCollection}".`
+      : `Process ${pdfsToProcess.length} PDFs using nv_ingest_tool with pdfRefs=${JSON.stringify(pdfsToProcess)}, username="${username}", and collection_name="${targetCollection}".`;
+
     const chatMessage = {
       messages: [{
         role: 'user',
-        content: `Process the PDF "${filename || 'document'}" using nat_nv_ingest with pdfRef=${JSON.stringify(pdfRef)}, username="${username}", and collection_name="${targetCollection}".`
+        content: messageContent
       }],
       additionalProps: {
         username: username,

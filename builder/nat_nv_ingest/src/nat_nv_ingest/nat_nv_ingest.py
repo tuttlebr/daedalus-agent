@@ -80,12 +80,70 @@ async def nv_ingest_function(
     # Initialize Milvus client
     milvus_client = MilvusClient(uri=config.milvus_uri)
 
-    async def list_collections(request: dict[str, Any] | None = None) -> list[str]:
+    async def nv_ingest_router(request: dict[str, Any]) -> Any:
         """
-        Lists all available Milvus collections.
+        Routes NV Ingest requests to the appropriate function.
+        If the request contains pdfRef or pdfRefs, it processes the PDF(s).
+        Otherwise, it lists available collections.
 
         Args:
-            request: Optional dictionary with filter parameters (currently unused)
+            request: Request dictionary that may contain:
+                - request: Inner request object with PDF processing parameters
+                - pdfRef: Reference to single PDF for processing
+                - pdfRefs: Array of references to multiple PDFs for processing
+                - username: Username for the request
+                - collection_name: Target collection name
+                - chunk_size: Optional chunk size override
+                - chunk_overlap: Optional chunk overlap override
+
+        Returns:
+            Either a list of collections or a processing result message
+        """
+        logger.info("nv_ingest_router called with request: %s", str(request)[:500])
+
+        # Handle nested request structure from the agent
+        if request and isinstance(request, dict):
+            # Check if parameters are nested under 'request' key
+            if "request" in request and isinstance(request["request"], dict):
+                inner_request = request["request"]
+            else:
+                inner_request = request
+
+            logger.info("Inner request structure: %s", str(inner_request)[:500])
+
+            # Check if this is a multiple PDF processing request
+            if "pdfRefs" in inner_request:
+                pdfRefs = inner_request.get("pdfRefs")
+                logger.info(
+                    "Processing multiple PDFs: %d files",
+                    len(pdfRefs) if isinstance(pdfRefs, list) else 0,
+                )
+                # Extract parameters for multiple PDF processing
+                return await process_multiple_pdfs(
+                    pdfRefs=pdfRefs,
+                    username=inner_request.get("username", ""),
+                    collection_name=inner_request.get("collection_name"),
+                    chunk_size=inner_request.get("chunk_size"),
+                    chunk_overlap=inner_request.get("chunk_overlap"),
+                )
+
+            # Check if this is a single PDF processing request
+            elif "pdfRef" in inner_request:
+                # Extract parameters for PDF processing
+                return await process_pdf(
+                    pdfRef=inner_request.get("pdfRef"),
+                    username=inner_request.get("username", ""),
+                    collection_name=inner_request.get("collection_name"),
+                    chunk_size=inner_request.get("chunk_size"),
+                    chunk_overlap=inner_request.get("chunk_overlap"),
+                )
+
+        # Default to listing collections
+        return await list_collections()
+
+    async def list_collections() -> list[str]:
+        """
+        Lists all available Milvus collections.
 
         Returns:
             list[str]: List of collection names
@@ -97,6 +155,217 @@ async def nv_ingest_function(
         except Exception as e:
             logger.error("Error listing Milvus collections: %s", e)
             return []
+
+    async def process_multiple_pdfs(
+        pdfRefs: list[dict[str, Any]],
+        username: str,
+        collection_name: str | None = None,
+        chunk_size: int | None = None,
+        chunk_overlap: int | None = None,
+    ) -> str:
+        """
+        Processes multiple PDF documents from Redis and ingests them into Milvus.
+
+        Args:
+            pdfRefs: List of PDF references in Redis containing pdfId and sessionId
+            username: Username from session context
+            collection_name: Name of the Milvus collection to upload to (optional)
+            chunk_size: Optional override for chunk size
+            chunk_overlap: Optional override for chunk overlap
+
+        Returns:
+            str: Summary message with processing details for all PDFs
+        """
+        logger.info(
+            "process_multiple_pdfs called with: pdfRefs=%s, username=%s, collection_name=%s",
+            str(pdfRefs)[:500] if pdfRefs else "None",
+            username,
+            collection_name,
+        )
+
+        # Validate inputs
+        if not pdfRefs or not isinstance(pdfRefs, list):
+            logger.error("Invalid PDF references: %s", type(pdfRefs))
+            return "Error: Invalid PDF references provided. Expected a list of PDF references."
+
+        if not username:
+            logger.error("No username provided")
+            return "Error: Valid username required for PDF processing."
+
+        # Limit the number of PDFs to process at once to avoid timeouts
+        MAX_PDFS_PER_BATCH = 20
+        if len(pdfRefs) > MAX_PDFS_PER_BATCH:
+            logger.warning(
+                "Too many PDFs to process at once: %d. Maximum allowed is %d",
+                len(pdfRefs),
+                MAX_PDFS_PER_BATCH,
+            )
+            return (
+                f"⚠️ Too many PDFs selected ({len(pdfRefs)})\n\n"
+                f"For optimal processing and to avoid timeouts, please select no more than {MAX_PDFS_PER_BATCH} PDFs at a time.\n\n"
+                f"You can process your {len(pdfRefs)} PDFs in {(len(pdfRefs) + MAX_PDFS_PER_BATCH - 1) // MAX_PDFS_PER_BATCH} batches."
+            )
+
+        # Default collection name to username if not provided
+        if not collection_name:
+            collection_name = username
+
+        # Process results tracking
+        total_pdfs = len(pdfRefs)
+        successful_pdfs = []
+        failed_pdfs = []
+        total_chunks = 0
+
+        logger.info(
+            "Starting batch processing of %d PDFs for user %s into collection %s",
+            total_pdfs,
+            username,
+            collection_name,
+        )
+
+        # Process each PDF
+        import time
+
+        start_time = time.time()
+
+        for idx, pdfRef in enumerate(pdfRefs, 1):
+            pdf_start_time = time.time()
+            logger.info(
+                "Processing PDF %d of %d: %s",
+                idx,
+                total_pdfs,
+                pdfRef.get("filename", pdfRef.get("pdfId")),
+            )
+
+            try:
+                # Process individual PDF
+                result = await process_pdf(
+                    pdfRef=pdfRef,
+                    username=username,
+                    collection_name=collection_name,
+                    chunk_size=chunk_size,
+                    chunk_overlap=chunk_overlap,
+                )
+
+                pdf_time = time.time() - pdf_start_time
+                logger.info(
+                    "PDF %d processing completed in %.2f seconds. Result: %s",
+                    idx,
+                    pdf_time,
+                    result[:200],
+                )
+
+                # Extract filename from pdfRef or use pdfId
+                pdf_id = pdfRef.get("pdfId", f"PDF_{idx}")
+                filename = pdfRef.get("filename", pdf_id)
+
+                # Check if processing was successful
+                if (
+                    "Successfully processed" in result
+                    or "Partially processed" in result
+                ):
+                    # Extract chunk count from result message
+                    import re
+
+                    chunk_match = re.search(r"indexed (\d+)", result)
+                    if chunk_match:
+                        chunks = int(chunk_match.group(1))
+                        total_chunks += chunks
+                        successful_pdfs.append({"id": filename, "chunks": chunks})
+                    else:
+                        successful_pdfs.append({"id": filename, "chunks": "unknown"})
+                else:
+                    failed_pdfs.append({"id": filename, "error": result})
+                    logger.warning("PDF %s failed: %s", filename, result)
+
+            except Exception as e:
+                logger.error(
+                    "Error processing PDF %s: %s",
+                    pdfRef.get("pdfId", "unknown"),
+                    e,
+                    exc_info=True,
+                )
+                filename = pdfRef.get("filename", pdfRef.get("pdfId", f"PDF_{idx}"))
+                failed_pdfs.append({"id": filename, "error": str(e)})
+
+        # Prepare summary message
+        success_count = len(successful_pdfs)
+        failure_count = len(failed_pdfs)
+
+        if failure_count == 0:
+            # All PDFs processed successfully
+            result_message = (
+                f"✅ Successfully processed all {total_pdfs} PDFs\n\n"
+                f"📄 **Summary:**\n"
+                f"- Total PDFs: {total_pdfs}\n"
+                f"- Total chunks indexed: {total_chunks}\n"
+                f"- Collection: '{collection_name}'\n"
+                f"- Chunk size: {chunk_size or config.chunk_size} with "
+                f"{chunk_overlap or config.chunk_overlap} overlap\n\n"
+            )
+
+            if len(successful_pdfs) <= 10:
+                result_message += "📋 **Processed files:**\n"
+                for pdf in successful_pdfs:
+                    result_message += f"- {pdf['id']} ({pdf['chunks']} chunks)\n"
+
+            result_message += (
+                "\nAll documents are now searchable in your knowledge base!"
+            )
+
+        elif success_count > 0:
+            # Some PDFs processed successfully
+            result_message = (
+                f"⚠️ Partially completed batch processing\n\n"
+                f"📄 **Summary:**\n"
+                f"- Successfully processed: {success_count}/{total_pdfs} PDFs\n"
+                f"- Failed: {failure_count} PDFs\n"
+                f"- Total chunks indexed: {total_chunks}\n"
+                f"- Collection: '{collection_name}'\n\n"
+            )
+
+            if success_count <= 10:
+                result_message += "✅ **Successfully processed:**\n"
+                for pdf in successful_pdfs:
+                    result_message += f"- {pdf['id']} ({pdf['chunks']} chunks)\n"
+                result_message += "\n"
+
+            if failure_count <= 10:
+                result_message += "❌ **Failed PDFs:**\n"
+                for pdf in failed_pdfs:
+                    result_message += f"- {pdf['id']}: {pdf['error'][:100]}...\n"
+
+            result_message += "\nSuccessfully processed documents are searchable in your knowledge base."
+
+        else:
+            # All PDFs failed
+            result_message = (
+                f"❌ Failed to process any PDFs\n\n"
+                f"📄 **Summary:**\n"
+                f"- Attempted: {total_pdfs} PDFs\n"
+                f"- All failed\n\n"
+            )
+
+            if failure_count <= 10:
+                result_message += "**Errors:**\n"
+                for pdf in failed_pdfs:
+                    result_message += f"- {pdf['id']}: {pdf['error'][:100]}...\n"
+
+            result_message += "\nPlease check the PDFs and try again."
+
+        total_time = time.time() - start_time
+        logger.info(
+            "Batch processing completed in %.2f seconds. Success: %d, Failed: %d",
+            total_time,
+            success_count,
+            failure_count,
+        )
+        logger.info(
+            "Returning result message (length=%d): %s",
+            len(result_message),
+            result_message[:500],
+        )
+        return result_message
 
     async def process_pdf(
         pdfRef: dict[str, Any],
@@ -118,6 +387,12 @@ async def nv_ingest_function(
         Returns:
             str: Success message with processing details
         """
+        logger.info(
+            "process_pdf called with: pdfRef=%s, username=%s, collection_name=%s",
+            pdfRef,
+            username,
+            collection_name,
+        )
 
         # Use config defaults if not provided
         chunk_size = chunk_size or config.chunk_size
@@ -163,7 +438,7 @@ async def nv_ingest_function(
                         "PDF %s not found in Redis (key: %s)", pdf_id, redis_key
                     )
                     return (
-                        "I couldn't retrieve the PDF document. "
+                        "Error: PDF not found in storage. "
                         "The file may have expired or the session may be "
                         "invalid. Please try uploading the PDF again."
                     )
@@ -214,10 +489,9 @@ async def nv_ingest_function(
                     .files([str(pdf_path)])
                     .extract(
                         extract_text=True,
-                        extract_tables=True,
-                        extract_charts=True,
+                        extract_tables=False,
+                        extract_charts=False,
                         extract_images=False,
-                        table_output_format="markdown",
                         extract_infographics=False,
                         text_depth="page",
                     )
@@ -286,6 +560,8 @@ async def nv_ingest_function(
             logger.error("Unexpected error in process_pdf: %s", e, exc_info=True)
             return f"An unexpected error occurred: {str(e)}"
 
-    # The callables are wrapped in FunctionInfo objects
-    yield FunctionInfo.from_fn(list_collections, description=list_collections.__doc__)
-    yield FunctionInfo.from_fn(process_pdf, description=process_pdf.__doc__)
+    # Yield the router function as the main entry point
+    yield FunctionInfo.from_fn(
+        nv_ingest_router,
+        description="Process single or multiple PDF files for ingestion into vector database or list available collections. Accepts a request object that may contain pdfRef (single PDF) or pdfRefs (array of PDFs), username, and collection_name for PDF processing. All PDFs in a batch will be uploaded to the same collection.",
+    )

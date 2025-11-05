@@ -103,7 +103,7 @@ functions:
     _type: nat_nv_ingest
     chunk_overlap: 150
     chunk_size: 1024
-    description: Processes and ingests PDF files into a searchable vector format. This is a prerequisite for using the `user_uploaded_files_retriever_tool`. This tool is typically triggered automatically when a user uploads a PDF.
+    description: Processes and ingests PDF files into a searchable vector format. Call with request object containing pdfRef, username, and collection_name to process a PDF. Without parameters, lists available collections. This is a prerequisite for using the `user_uploaded_files_retriever_tool`. This tool is typically triggered automatically when a user uploads a PDF.
     milvus_uri: ${MILVUS_URI}
     minio_access_key: minioadmin
     minio_endpoint: ${MINIO_ENDPOINT}
@@ -273,7 +273,7 @@ llms:
   tool_calling_llm:
     _type: openai
     api_key: ${NEBIUS_API_KEY}
-    base_url: https://api.studio.nebius.com/v1
+    base_url: https://api.tokenfactory.nebius.com/v1
     max_tokens: 16000
     model_name: zai-org/GLM-4.5
 memory:
@@ -399,7 +399,7 @@ retrievers:
 workflow:
   _type: tool_calling_agent
   llm_name: tool_calling_llm
-  parallel_tool_calls: false
+  parallel_tool_calls: true
   parse_agent_response_max_retries: 3
   return_direct:
   - image_generation_tool
