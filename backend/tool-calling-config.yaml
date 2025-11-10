@@ -39,6 +39,16 @@ function_groups:
       transport: streamable-http
       url: ${KUBERNETES_MCP_SERVER}
 functions:
+  add_memory:
+    _type: add_memory
+    description: 'Add any facts about user preferences to long term memory. Always use this if users mention a preference.
+
+      The input to this tool should be a string that describes the user''s preference, not the question or answer.
+
+      Use the authenticated user''s user ID for the user_id. Be sure to include any relevant tags for the memory as a list of strings. Also include key value pairs for metadata
+
+      '
+    memory: redis_memory
   code_generation:
     _type: code_generation
     description: Generates executable code using a specialized coding LLM. Use this for any code requirement, including scripts, functions, algorithms, and data processing. It produces complete, runnable code with necessary imports and error handling.
@@ -58,7 +68,13 @@ functions:
     verbose: true
   get_memory:
     _type: get_memory
-    description: Retrieves the user's preferences, interaction history, and other custom settings from memory. This tool should be used at the beginning of an interaction to personalize the conversation. It helps in understanding user context without having to ask for it repeatedly.
+    description: 'Always call this tool before calling any other tools, even if the user does not mention to use it.
+
+      The question should be about user preferences which will help you format your response.
+
+      For example: "How does the user like responses formatted?".
+
+      Use the authenticated user''s user ID for the user_id.'
     memory: redis_memory
   image_augmentation_tool:
     _type: image_augmentation
@@ -89,10 +105,6 @@ functions:
     retriever: kubernetes_retriever
     topic: Kubernetes and container orchestration
     verbose: true
-  memory_add:
-    _type: add_memory
-    description: Stores or updates user preferences and context in memory for future interactions. Use this when the user states a preference or when a new piece of context should be saved. It helps personalize future conversations.
-    memory: redis_memory
   mentalhealth_retriever_tool:
     _type: nat_retriever
     description: Retrieves information from an evidence-based mental health knowledge base. Use for topics like anxiety, stress, and emotional wellness. A disclaimer about educational use must be included in the response.
@@ -238,7 +250,7 @@ general:
       phoenix:
         _type: phoenix
         endpoint: ${DAEDALUS_PHOENIX_ENDPOINT}
-        project: daedalus-deep-thinker
+        project: daedalus
 llms:
   coding_llm:
     _type: nim
@@ -265,17 +277,18 @@ llms:
   reasoning_llm:
     _type: nim
     api_key: ${NVIDIA_API_KEY}
-    base_url: https://9adef108-3097-4540-ba5f-873a9da8e54f.invocation.api.nvcf.nvidia.com/v1
+    base_url: https://0fc21779-145c-4e2a-9237-ec8599e8e4c8.invocation.api.nvcf.nvidia.com/v1
     max_tokens: 16000
-    model_name: openai/gpt-oss-120b
-    temperature: 1
-    top_p: 1
+    model_name: Qwen/Qwen3-Next-80B-A3B-Thinking
+    temperature: 0.6
+    top_p: 0.7
   tool_calling_llm:
-    _type: openai
-    api_key: ${NEBIUS_API_KEY}
-    base_url: https://api.tokenfactory.nebius.com/v1
+    _type: nim
+    api_key: ${NVIDIA_API_KEY}
+    base_url: https://5eb560ed-7ab8-4985-ab2a-dd1f7ea5eb66.invocation.api.nvcf.nvidia.com/v1
     max_tokens: 16000
-    model_name: zai-org/GLM-4.5
+    model_name: nvidia/llama-3.3-nemotron-super-49b-v1.5
+    thinking: false
 memory:
   redis_memory:
     _type: nat.plugins.redis/redis_memory
@@ -284,6 +297,7 @@ memory:
     host: ${RI_REDIS_HOST_DAEDALUS}
     key_prefix: nat
     port: ${REDIS_PORT}
+    verbose: true
 retrievers:
   geolocation_retriever:
     _type: smart_milvus
@@ -407,7 +421,7 @@ workflow:
   - nv_ingest_tool
   tool_names:
   - get_memory
-  - memory_add
+  - add_memory
   - code_generation
   - current_datetime_tool
   - geolocation_retriever_tool

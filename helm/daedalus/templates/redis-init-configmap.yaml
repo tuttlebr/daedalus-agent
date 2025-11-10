@@ -54,16 +54,13 @@ data:
       echo "Attempt $((RETRY_COUNT + 1)) of $MAX_RETRIES..."
 
       if redis-cli FT.CREATE memory_idx \
-        ON HASH \
+        ON JSON \
         PREFIX 1 "nat:" \
         SCHEMA \
-          embedding VECTOR FLAT 6 \
-            TYPE FLOAT32 \
-            DIM 1024 \
-            DISTANCE_METRIC COSINE \
-          content TEXT \
-          metadata TEXT \
-          timestamp NUMERIC SORTABLE 2>&1; then
+          "$.user_id" AS user_id TEXT \
+          "$.tags[*]" AS tags TAG \
+          "$.memory" AS memory TEXT \
+          "$.embedding" AS embedding VECTOR HNSW 12 TYPE FLOAT32 DIM 2048 DISTANCE_METRIC L2 INITIAL_CAP 100 M 16 EF_CONSTRUCTION 200 2>&1; then
 
         echo "Successfully created memory_idx index"
 
@@ -90,16 +87,13 @@ data:
       echo "ERROR: Failed to create memory_idx index after $MAX_RETRIES attempts!"
       echo "Attempting one more time with verbose output..."
       redis-cli --verbose FT.CREATE memory_idx \
-        ON HASH \
+        ON JSON \
         PREFIX 1 "nat:" \
         SCHEMA \
-          embedding VECTOR FLAT 6 \
-            TYPE FLOAT32 \
-            DIM 1024 \
-            DISTANCE_METRIC COSINE \
-          content TEXT \
-          metadata TEXT \
-          timestamp NUMERIC SORTABLE 2>&1
+          "$.user_id" AS user_id TEXT \
+          "$.tags[*]" AS tags TAG \
+          "$.memory" AS memory TEXT \
+          "$.embedding" AS embedding VECTOR HNSW 12 TYPE FLOAT32 DIM 2048 DISTANCE_METRIC L2 INITIAL_CAP 100 M 16 EF_CONSTRUCTION 200 2>&1
     fi
 
     # List all indexes to confirm

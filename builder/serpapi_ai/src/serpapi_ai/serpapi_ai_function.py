@@ -140,7 +140,9 @@ async def serpapi_ai_function(
     geolocation_fn = None
     if config.use_geolocation_retriever and config.geolocation_retriever_name:
         try:
-            geolocation_fn = builder.get_function(config.geolocation_retriever_name)
+            geolocation_fn = await builder.get_function(
+                config.geolocation_retriever_name
+            )
             logger.info(
                 "SerpAPI AI Mode configured to use geolocation_retriever: %s",
                 config.geolocation_retriever_name,
