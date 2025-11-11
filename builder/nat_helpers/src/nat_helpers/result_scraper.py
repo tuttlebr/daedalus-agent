@@ -129,13 +129,26 @@ async def _scrape_group(
     attempts = 0
     for entry in entries:
         if attempts >= config.max_attempts_per_group:
+            logger.debug(
+                "Reached max attempts (%d) for %s group, stopping",
+                config.max_attempts_per_group,
+                source_type,
+            )
             break
 
         link, title = _extract_link_and_title(entry)
         if not link:
+            logger.debug("Skipping %s entry (no link found)", source_type)
             continue
 
         attempts += 1
+        logger.debug(
+            "Attempting to scrape %s entry %d/%d: %s",
+            source_type,
+            attempts,
+            config.max_attempts_per_group,
+            link,
+        )
 
         try:
             normalized_link, parsed_link = _validate_url(link, config.allowed_schemes)
@@ -163,14 +176,30 @@ async def _scrape_group(
                 truncation_msg=config.truncation_message,
             )
         except PermissionError as exc:
-            logger.info("Robots.txt disallows scraping %s: %s", normalized_link, exc)
+            logger.info(
+                "Robots.txt disallows scraping %s: %s. Trying next %s entry...",
+                normalized_link,
+                exc,
+                source_type,
+            )
             outcome.error = str(exc)
             continue
         except Exception as exc:  # noqa: BLE001 - defensive catch
-            logger.warning("Failed to scrape %s: %s", normalized_link, exc)
+            logger.warning(
+                "Failed to scrape %s: %s. Trying next %s entry...",
+                normalized_link,
+                exc,
+                source_type,
+            )
             outcome.error = str(exc)
             continue
 
+        logger.info(
+            "Successfully scraped %s entry %d: %s",
+            source_type,
+            attempts,
+            normalized_link,
+        )
         outcome.link = normalized_link
         outcome.title = title
         outcome.content = content
@@ -259,13 +288,22 @@ async def _check_robots(
     if response.status_code == 404:
         return
 
-    robots_parser = RobotFileParser()
-    robots_parser.parse(response.text.splitlines())
+    try:
+        robots_parser = RobotFileParser()
+        robots_parser.parse(response.text.splitlines())
 
-    if not robots_parser.can_fetch(user_agent, url):
-        raise PermissionError(
-            "robots.txt disallows accessing this URL with the configured user agent."
+        if not robots_parser.can_fetch(user_agent, url):
+            raise PermissionError(
+                "robots.txt disallows accessing this URL with the configured user agent."
+            )
+    except Exception as exc:  # noqa: BLE001 - defensive catch for parsing errors
+        # If robots.txt parsing fails, log and proceed optimistically
+        logger.warning(
+            "Failed to parse robots.txt from %s: %s. Proceeding optimistically.",
+            robots_url,
+            exc,
         )
+        return
 
 
 def _count_tokens(text: str, encoding_name: str = "cl100k_base") -> int:

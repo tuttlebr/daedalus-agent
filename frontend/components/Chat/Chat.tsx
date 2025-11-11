@@ -80,6 +80,7 @@ export const Chat = () => {
   const chatContainerRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const controllerRef = useRef(new AbortController());
+  const streamReaderRef = useRef<ReadableStreamDefaultReader<Uint8Array> | null>(null);
   const selectedConversationRef = useRef(selectedConversation);
   // Keep ref always in sync to avoid stale closures in async callbacks
   selectedConversationRef.current = selectedConversation;
@@ -734,6 +735,7 @@ export const Chat = () => {
             }
             homeDispatch({ field: 'loading', value: false });
             const reader = data.getReader();
+            streamReaderRef.current = reader; // Store reader reference for cancellation
             const decoder = new TextDecoder();
             let done = false;
             let isFirst = true;
@@ -741,8 +743,33 @@ export const Chat = () => {
             let counter = 1;
             let intermediateStepBuffer = ''; // Buffer for accumulating partial intermediate steps
             while (!done) {
-              const { value, done: doneReading } = await reader.read();
+              // Check if the request was aborted before reading
+              if (controllerRef.current.signal.aborted) {
+                reader.cancel();
+                done = true;
+                break;
+              }
+
+              let readResult;
+              try {
+                readResult = await reader.read();
+              } catch (readError: any) {
+                // If reader was cancelled or aborted, break the loop
+                if (readError?.name === 'AbortError' || controllerRef.current.signal.aborted) {
+                  done = true;
+                  break;
+                }
+                throw readError; // Re-throw if it's a different error
+              }
+
+              const { value, done: doneReading } = readResult;
               done = doneReading;
+
+              // If stream is done or value is undefined, break
+              if (done || !value) {
+                break;
+              }
+
               let chunkValue = decoder.decode(value);
               counter++;
 
@@ -998,6 +1025,9 @@ export const Chat = () => {
               await notifyStreamingComplete(selectedConversation.name);
             }
 
+            // Clear reader reference after streaming completes
+            streamReaderRef.current = null;
+
             // to show the message on UI and scroll to the bottom after 500ms delay
             setTimeout(() => {
               homeDispatch({ field: 'messageIsStreaming', value: false });
@@ -1072,6 +1102,15 @@ export const Chat = () => {
           releaseWakeLock();
 
           if (error === 'aborted' || error?.name === 'AbortError') {
+            // Cancel the stream reader if it exists
+            if (streamReaderRef.current) {
+              try {
+                streamReaderRef.current.cancel();
+              } catch (e) {
+                // Reader may already be cancelled, ignore
+              }
+              streamReaderRef.current = null;
+            }
             // Reset the controller after abortion
             controllerRef.current = new AbortController();
             return;
@@ -1244,6 +1283,34 @@ export const Chat = () => {
 
   const throttledScrollDown = throttle(scrollDown, 250);
 
+  // Unified stop handler for both streaming and async modes
+  const handleStop = useCallback(() => {
+    // Cancel async job if in async mode and polling
+    if (isPolling) {
+      cancelJob();
+    }
+
+    // Abort streaming request
+    if (controllerRef.current) {
+      controllerRef.current.abort();
+      controllerRef.current = new AbortController();
+    }
+
+    // Cancel stream reader if it exists
+    if (streamReaderRef.current) {
+      try {
+        streamReaderRef.current.cancel();
+      } catch (e) {
+        // Reader may already be cancelled, ignore
+      }
+      streamReaderRef.current = null;
+    }
+
+    // Reset streaming state immediately for better UX
+    homeDispatch({ field: 'messageIsStreaming', value: false });
+    homeDispatch({ field: 'loading', value: false });
+  }, [isPolling, cancelJob, homeDispatch]);
+
   useEffect(() => {
     // Only auto-scroll for new messages, not conversation switches
     if (selectedConversation && selectedConversationRef.current?.id !== selectedConversation.id) {
@@ -1291,6 +1358,15 @@ export const Chat = () => {
       // Abort any pending fetch requests
       if (controllerRef.current) {
         controllerRef.current.abort();
+      }
+      // Cancel any active stream readers
+      if (streamReaderRef.current) {
+        try {
+          streamReaderRef.current.cancel();
+        } catch (e) {
+          // Reader may already be cancelled, ignore
+        }
+        streamReaderRef.current = null;
       }
     };
   }, [debouncedSaveConversation, debouncedSaveConversations]);
@@ -1465,6 +1541,7 @@ export const Chat = () => {
             showScrollDownButton={showScrollDownButton}
             onScrollDownClick={handleScrollDown}
             controller={controllerRef}
+            onStop={handleStop}
             onQuickActionsRegister={(handlers) => {
               // Pass handlers up to the parent component through context
               if (quickActionHandlers && '__setHandlers' in quickActionHandlers) {

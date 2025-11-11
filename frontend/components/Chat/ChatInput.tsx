@@ -52,6 +52,7 @@ interface Props {
   textareaRef: MutableRefObject<HTMLTextAreaElement | null>;
   showScrollDownButton: boolean;
   controller: MutableRefObject<AbortController>;
+  onStop?: () => void;
   onQuickActionsRegister?: (handlers: {
     onAttachFile: () => void;
     onTakePhoto: () => void;
@@ -65,6 +66,7 @@ export const ChatInput: React.FC<Props> = ({
   textareaRef,
   showScrollDownButton,
   controller,
+  onStop,
   onQuickActionsRegister,
 }) => {
   const { t } = useTranslation('chat');
@@ -300,9 +302,18 @@ export const ChatInput: React.FC<Props> = ({
   };
 
   const handleStop = () => {
-    if (controller.current) {
-      controller.current.abort();
-      controller.current = new AbortController();
+    // Call the parent's stop handler if provided (handles both streaming and async modes)
+    if (onStop) {
+      onStop();
+    } else {
+      // Fallback to direct controller abort for streaming mode
+      if (controller.current) {
+        controller.current.abort();
+        controller.current = new AbortController();
+        // Reset streaming state immediately for better UX
+        homeDispatch({ field: 'messageIsStreaming', value: false });
+        homeDispatch({ field: 'loading', value: false });
+      }
     }
   };
 
@@ -704,7 +715,7 @@ export const ChatInput: React.FC<Props> = ({
             <div className="relative">
               {/* Main input wrapper with glass effect */}
               <div
-                className={`relative flex items-center w-full rounded-2xl apple-glass backdrop-blur-xl border border-white/10 dark:border-white/5 shadow-[0_8px_32px_rgba(0,0,0,0.12)] dark:shadow-[0_8px_32px_rgba(0,0,0,0.24)] ${inputFile && (imageRef || pdfRefs.length > 0 || inputFileContentCompressed) ? 'flex-col items-stretch' : ''}`}
+                className={`relative flex items-center w-full rounded-2xl apple-glass backdrop-blur-xl border ${useDeepThinker ? 'border-nvidia-green/60 shadow-[0_0_20px_rgba(118,185,0,0.4),0_8px_32px_rgba(0,0,0,0.12)] dark:shadow-[0_0_20px_rgba(118,185,0,0.4),0_8px_32px_rgba(0,0,0,0.24)]' : 'border-white/10 dark:border-white/5 shadow-[0_8px_32px_rgba(0,0,0,0.12)] dark:shadow-[0_8px_32px_rgba(0,0,0,0.24)]'} ${inputFile && (imageRef || pdfRefs.length > 0 || inputFileContentCompressed) ? 'flex-col items-stretch' : ''}`}
                 style={{ position: 'relative', zIndex: 1 }}
               >
                 {/* Quick Actions Button - centered with textarea */}
