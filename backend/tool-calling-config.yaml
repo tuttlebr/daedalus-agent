@@ -5,59 +5,228 @@ embedders:
     model_name: nvidia/llama-3.2-nv-embedqa-1b-v2
     truncate: END
 function_groups:
+  deepwiki_mcp_server:
+    _type: mcp_client
+    include:
+      - read_wiki_structure
+    server:
+      transport: streamable-http
+      url: https://mcp.deepwiki.com/mcp
   k8s_mcp_server:
     _type: mcp_client
     include:
-    - describeResource
-    - getAPIResources
-    - getEvents
-    - getIngresses
-    - getNodeMetrics
-    - getPodMetrics
-    - getPodsLogs
-    - getResource
-    - helmGet
-    - helmHistory
-    - helmList
-    - listResources
-    - getResourceYAML
-    - getResourceDiff
-    - getNamespaceResources
-    - getResourceOwners
-    - getClusterHealth
-    - getResourceQuotas
-    - getLimitRanges
-    - getTopPods
-    - getTopNodes
-    - getPodDebugInfo
-    - getServiceEndpoints
-    - getNetworkPolicies
-    - getSecurityContext
-    - getResourceHistory
-    - validateManifest
+      - describeResource
+      - getAPIResources
+      - getEvents
+      - getIngresses
+      - getNodeMetrics
+      - getPodMetrics
+      - getPodsLogs
+      - getResource
+      - helmGet
+      - helmHistory
+      - helmList
+      - listResources
+      - getResourceYAML
+      - getResourceDiff
+      - getNamespaceResources
+      - getResourceOwners
+      - getClusterHealth
+      - getResourceQuotas
+      - getLimitRanges
+      - getTopPods
+      - getTopNodes
+      - getPodDebugInfo
+      - getServiceEndpoints
+      - getNetworkPolicies
+      - getSecurityContext
+      - getResourceHistory
+      - validateManifest
     server:
       transport: streamable-http
       url: ${KUBERNETES_MCP_SERVER}
 functions:
   add_memory:
     _type: add_memory
-    description: 'Add any facts about user preferences to long term memory. Always use this if users mention a preference.
+    description:
+      "Add any facts about user preferences to long term memory. Always use this if users mention a preference.
 
-      The input to this tool should be a string that describes the user''s preference, not the question or answer.
+      The input to this tool should be a string that describes the user's preference, not the question or answer.
 
-      Use the authenticated user''s user ID for the user_id. Be sure to include any relevant tags for the memory as a list of strings. Also include key value pairs for metadata
+      Use the authenticated user's user ID for the user_id. Be sure to include any relevant tags for the memory as a list of strings. Also include key value pairs for metadata
 
-      '
+      "
     memory: redis_memory
+    verbose: true
   code_generation:
     _type: code_generation
-    description: Generates executable code using a specialized coding LLM. Use this for any code requirement, including scripts, functions, algorithms, and data processing. It produces complete, runnable code with necessary imports and error handling.
+    description: Generates executable Python code using a specialized coding LLM. Use this for any Python code requirement, including scripts, functions, algorithms, and data processing. It produces complete, runnable Python code with necessary imports and error handling.
     llm_name: coding_llm
-    programming_language: Python, C++, Java, PHP, TS, C#, Bash, JS , Rust, Go, Perl, Ruby, Swift, Kotlin, and more
+    programming_language: Python
     verbose: true
   current_datetime_tool:
     _type: current_datetime
     description: Provides the current date, time, and timezone. Use this tool to get the current temporal context, especially when the user mentions 'today', 'now', or other time-sensitive phrases. It is essential for tools that require up-to-date information.
+    verbose: true
+  daedalus_react_agent:
+    _type: react_agent
+    description: A meta-agent that orchestrates other tools using a ReAct pattern to accomplish complex tasks. It autonomously reasons and chains multiple tool calls together. This agent is the primary executor for complex workflows.
+    llm_name: tool_calling_llm
+    max_tool_calls: 10
+    parse_agent_response_max_retries: 3
+    pass_tool_call_errors_to_agent: true
+    system_prompt:
+      'Answer the following questions as best you can. You may ask the human to use the following tools:
+
+
+      {tools}
+
+
+      ## Deep Thinker Research Workflow
+
+
+      For complex research questions, follow this specific workflow:
+
+      1. **START**: Use query_writer_researcher to generate 2-3 optimized search queries
+
+      2. **GATHER**: Execute research using available search/retrieval tools (serpapi, domain retrievers, etc.)
+
+      3. **SYNTHESIZE**: Use summarizer_researcher to create structured report from findings
+
+      4. **ENHANCE**: Use report_extender_researcher to fill any gaps (if needed)
+
+      5. **REVIEW**: Use reflection_researcher to check completeness
+
+      6. **FINALIZE**: Use finalize_report_researcher to polish the final report
+
+
+      ## Tool Usage Guidelines
+
+
+      **MEMORY** (Always First):
+
+      - get_memory: First tool call to retrieve user preferences
+
+      - add_memory: Store new preferences during interaction
+
+
+      **RESEARCH TOOLS**:
+
+      - query_writer_researcher: Initiates research workflow
+
+      - realtime_serpapi_* tools: Web searches
+
+      - Domain retrievers: Specialized knowledge (nvidia, kubernetes, etc.)
+
+      - summarizer_researcher: Synthesize findings
+
+      - reflection_researcher: Quality check
+
+      - report_extender_researcher: Fill gaps
+
+      - finalize_report_researcher: Polish report
+
+
+      **UTILITIES**:
+
+      - current_datetime_tool: Temporal context
+
+      - geolocation_retriever_tool: Location normalization
+
+      - weather_tool: Weather data (requires geolocation)
+
+      - code_generation: Python code generation
+
+
+      You may respond in one of two formats.
+
+
+      Use the following format exactly to ask the human to use a tool:
+
+
+      Question: the input question you must answer
+
+      Thought: you should always think about what to do
+
+      Action: the action to take, should be one of [{tool_names}]
+
+      Action Input: the input to the action (if there is no required input, include "Action Input: None")
+
+      Observation: wait for the human to respond with the result from the tool, do not assume the response
+
+
+      ... (this Thought/Action/Action Input/Observation can repeat N times. If you do not need to use a tool, or after asking the human to use any tools and waiting for the human to respond, you might know the final answer.)
+
+
+      Use the following format once you have the final answer:
+
+
+      Thought: I now know the final answer
+
+      Final Answer: the final answer to the original input question'
+    tool_call_max_retries: 3
+    tool_names:
+      - current_datetime_tool
+      - get_memory
+      - add_memory
+      - geolocation_retriever_tool
+      - kubernetes_retriever_tool
+      - code_generation
+      - mentalhealth_retriever_tool
+      - nvidia_retriever_tool
+      - nvidia_rss_feed_tool
+      - realtime_serpapi_ai_tool
+      - realtime_serpapi_news_tool
+      - realtime_serpapi_search_tool
+      - semianalysis_retriever_tool
+      - veterinarian_retriever_tool
+      - weather_tool
+      - webscrape_tool
+      - finalize_report_researcher
+      - query_writer_researcher
+      - reflection_researcher
+      - relevancy_checker_researcher
+      - report_extender_researcher
+      - summarizer_researcher
+    verbose: true
+    workflow_alias: Daedalus-Deep-Thinker
+  delete_memory:
+    _type: delete_memory
+    description: Deletes a specific memory from the user's memory. Use this when the user states a preference or when a new piece of context should be saved. It helps personalize future conversations.
+    memory: redis_memory
+    verbose: true
+  finalize_report_researcher:
+    _type: chat_completion
+    description: Polishes a research report for final delivery, focusing on editorial improvements. This is the last step in the research workflow, ensuring a professional and consistent format. It does not generate new content but refines the existing report.
+    llm_name: medium_llm
+    system_prompt: "# Report Finalizer - Publication Polish Engine
+
+
+      ROLE: Polish the provided report for delivery. Do not add new content.
+
+      INPUT: Complete report from <summarizer_researcher> or <report_extender_researcher>.
+
+      POSITION: Final step before sending to user.
+
+
+      Output Format
+
+      <finalize_report_researcher> # [Polished Title]
+
+      ## Introduction [Engaging hook, context, preview]
+
+      ## [Section Name] [Polished content with smooth flow]
+
+      ## Key Takeaways - [Essential insight 1] - [Essential insight 2] - [Essential insight 3]
+
+      ## Conclusion [Synthesis, significance, future]
+
+      ## Sources and References - [All citations used] </finalize_report_researcher>
+
+
+      TERMINAL: NO commentary. NO markdown fences. ONLY polished report.
+
+      "
     verbose: true
   geolocation_retriever_tool:
     _type: nat_retriever
@@ -68,14 +237,9 @@ functions:
     verbose: true
   get_memory:
     _type: get_memory
-    description: 'Always call this tool before calling any other tools, even if the user does not mention to use it.
-
-      The question should be about user preferences which will help you format your response.
-
-      For example: "How does the user like responses formatted?".
-
-      Use the authenticated user''s user ID for the user_id.'
+    description: Retrieves the user's preferences, interaction history, and other custom settings from memory. This tool should be used at the beginning of an interaction to personalize the conversation. It helps in understanding user context without having to ask for it repeatedly.
     memory: redis_memory
+    verbose: true
   image_augmentation_tool:
     _type: image_augmentation
     api_endpoint: https://fde8d464-c30b-4a51-ad04-ee3200156352.invocation.api.nvcf.nvidia.com
@@ -115,13 +279,13 @@ functions:
     _type: nat_nv_ingest
     chunk_overlap: 150
     chunk_size: 1024
-    description: Processes and ingests PDF files into a searchable vector format. Call with request object containing pdfRef, username, and collection_name to process a PDF. Without parameters, lists available collections. This is a prerequisite for using the `user_uploaded_files_retriever_tool`. This tool is typically triggered automatically when a user uploads a PDF.
+    description: Processes and ingests PDF files into a searchable vector format. This is a prerequisite for using the `user_uploaded_files_retriever_tool`. This tool is typically triggered automatically when a user uploads a PDF.
     milvus_uri: ${MILVUS_URI}
     minio_access_key: minioadmin
     minio_endpoint: ${MINIO_ENDPOINT}
     minio_secret_key: minioadmin
     nv_ingest_host: ${NV_INGEST_HOST}
-    nv_ingest_port: 7670
+    nv_ingest_port: ${NV_INGEST_PORT}
     redis_url: ${REDIS_URL}:${REDIS_PORT}
     verbose: true
   nvidia_retriever_tool:
@@ -137,6 +301,43 @@ functions:
     reranker_api_key: ${NVIDIA_API_KEY}
     reranker_endpoint: https://c5b64ba3-16fd-4c3c-a2b8-cd9526f9d34b.invocation.api.nvcf.nvidia.com/v1/ranking
     reranker_model: nvidia/llama-3.2-nv-rerankqa-1b-v2
+    verbose: true
+  query_writer_researcher:
+    _type: chat_completion
+    description: Initiates a research workflow by generating 2-3 optimized and diverse search queries for a given topic. This tool is the starting point for conducting comprehensive research and ensures broad coverage of the subject.
+    llm_name: medium_llm
+    system_prompt: '# Query Writer - Research Pipeline Initiator
+
+
+      ROLE: Write 2-3 optimized, diverse search queries to kick off research.
+
+      POSITION: Start of pipeline → searches → summarizer → (optional) extend/reflect → finalize.
+
+
+      Query Types
+
+      1) FOUNDATION: overview/definitions/fundamentals
+
+      2) DEPTH: technical details/mechanisms/implementation
+
+      3) CURRENCY: latest developments/applications/future
+
+
+      Rules
+
+      - Each query covers a different dimension
+
+      - Use expert terminology; avoid overlap and generic phrasing
+
+
+      Output
+
+      <query_writer_researcher> "[Query 1 - foundational coverage]" "[Query 2 - technical depth]" "[Query 3 - current state/applications]" </query_writer_researcher>
+
+
+      CRITICAL: Exactly 2-3 queries. No commentary.
+
+      '
     verbose: true
   realtime_serpapi_ai_tool:
     _type: serpapi_ai
@@ -160,47 +361,158 @@ functions:
     geolocation_retriever_name: geolocation_retriever_tool
     use_geolocation_retriever: true
     verbose: true
+  reflection_researcher:
+    _type: chat_completion
+    description: Analyzes a generated research report to identify information gaps and ensure completeness. If gaps are found, it can trigger new searches to gather missing information. This acts as a quality gate before finalizing the report.
+    llm_name: medium_llm
+    system_prompt: '# Reflection - Gap Analysis Engine
+
+
+      ROLE: Quality gate. Identify material gaps in the report before finalization.
+
+      INPUT: Report from <summarizer_researcher> or <report_extender_researcher>.
+
+
+      Detect Gaps
+
+      - Missing core concepts or unsupported claims
+
+      - Technical voids (specs/metrics/how-to)
+
+      - Currency/practical gaps if relevant
+
+
+      Output
+
+      IF GAPS (max 2 queries):
+
+      <reflection_researcher>
+
+      "query": "[Precise search to fill specific gap]"
+
+      "report_section": "[Exact section name needing info]"
+
+      "rationale": "[Why this gap blocks understanding]"
+
+      </reflection_researcher>
+
+
+      IF COMPLETE:
+
+      <reflection_researcher> NO_GAPS </reflection_researcher>
+
+      '
+    verbose: true
+  relevancy_checker_researcher:
+    _type: chat_completion
+    description: Acts as a binary filter for search results to ensure only relevant content is used for report synthesis. It validates each piece of retrieved information against the original query. This helps to eliminate noise from the research pipeline.
+    llm_name: medium_llm
+    system_prompt: '# Relevancy Checker - Quality Gate Filter
+
+
+      ROLE: Binary relevance judge between search and synthesis.
+
+      INPUTS: Query (from tags) + retrieved content.
+
+
+      Criteria
+
+      YES: directly answers query core + sufficient detail + authoritative.
+
+      NO: tangential, shallow, wrong aspect, or poor quality.
+
+
+      Output
+
+      <relevancy_checker_researcher> "score": "yes" "explanation": "[brief why]" </relevancy_checker_researcher>
+
+      OR
+
+      <relevancy_checker_researcher> "score": "no" "explanation": "[brief why]" </relevancy_checker_researcher>
+
+      '
+    verbose: true
+  report_extender_researcher:
+    _type: chat_completion
+    description: Integrates new findings into an existing research report to fill identified gaps. It seamlessly weaves new information into the report while preserving its original structure and narrative flow. This is used when a report needs to be enhanced with additional details.
+    llm_name: medium_llm
+    system_prompt: "# Report Extender - Seamless Integration Engine
+
+
+      ROLE: Integrate new findings into the existing report to fill gaps.
+
+      INPUTS: Base report + new research results.
+
+      POSITION: After reflection finds gaps and new searches are complete.
+
+
+      Method
+
+      - Map new info to sections, weave in naturally, keep voice/structure
+
+      - Add brief transitions; limit growth to ~20%
+
+
+      Output
+
+      <report_extender_researcher> # [Original Title - Never Change]
+
+      ## [Section Name] [Original content with new information naturally woven in]
+
+      ## [Another Section] [Enhanced with specific gap-filling content] </report_extender_researcher>
+
+
+      CONSTRAINT: Enhance, don’t rewrite.
+
+      "
+    verbose: true
   semianalysis_retriever_tool:
     _type: nat_retriever
     description: Retrieves expert analysis and market intelligence on the semiconductor industry. Use for topics like foundries (TSMC, Intel), process nodes, and chip economics. This is the preferred source for deep industry insights.
     retriever: semianalysis_retriever
     topic: Semiconductor industry analysis and market intelligence
     verbose: true
-  socratic_method_tool:
+  summarizer_researcher:
     _type: chat_completion
-    description: Guides a user to learn and explore concepts by asking a series of Socratic questions. Instead of providing direct answers, it encourages the user to think critically and arrive at their own conclusions. Use this for educational purposes or to facilitate deeper understanding.
+    description: Synthesizes raw research findings from various sources into a structured and coherent report. This tool creates the initial draft of the report by organizing information and extracting key insights. It transforms unstructured search results into a narrative.
     llm_name: medium_llm
-    system_prompt: '# Socratic Method - Guided Discovery Engine
+    system_prompt: "# Summarizer - Research Synthesizer
 
 
-      ROLE: Teach through questions only. Never provide answers.
+      ROLE: Turn raw search results into a structured, insightful report.
+
+      INPUTS: Search results for queries from <query_writer_researcher>.
+
+      POSITION: After searches; before extend/reflect/finalize.
 
 
-      Rules
+      Report Architecture
 
-      - Ask 4–6 concise, open-ended questions per response
+      <summarizer_researcher> # [Descriptive Title That Captures Essence]
 
-      - Tie each question to the user''s last message and prior context
+      ## Introduction [Hook + Context + Scope + Preview]
 
-      - Probe assumptions, evidence, implications, and alternatives
+      ## [Core Section 1 - Fundamentals] [Synthesize across sources]
 
-      - No statements, hints, or facts; questions only
+      ## [Core Section 2 - Technical Details] [Deep dive with examples]
 
-      - If the user asks for an answer, remind the role and continue questioning
+      ## [Core Section 3 - Applications/Implications] [Real-world relevance]
 
+      ## Key Insights - [Finding 1] - [Finding 2] - [Finding 3]
 
-      Output
-
-      - Bullet list of questions
-
-      - No preamble or commentary
-
-      - Do not include answers
+      ## Conclusion [Synthesis + So What? + Future] </summarizer_researcher>
 
 
-      Not for: time-critical, factual lookup, or implementation requests.
+      Quality
 
-      '
+      - Synthesis > summary; strong narrative flow
+
+      - Evidence-based; actionable where possible
+
+
+      Constraints: Single synthesis pass. No new searches.
+
+      "
     verbose: true
   user_uploaded_files_retriever_tool:
     _type: nat_retriever
@@ -229,8 +541,8 @@ functions:
   webscrape_tool:
     _type: webscrape
     allowed_schemes:
-    - http
-    - https
+      - http
+      - https
     description: Extracts the full text content from a given URL. Use this when you need to read the content of a specific webpage, for example, from a URL found in search results. It is useful for getting more detail than a search snippet provides.
     max_output_tokens: 64000
     respect_robots_txt: true
@@ -242,15 +554,15 @@ general:
     _type: fastapi
     step_adaptor:
       event_category:
-      - LLM
-      - TOOL
+        - LLM
+        - TOOL
       mode: default
   telemetry:
     tracing:
       phoenix:
         _type: phoenix
         endpoint: ${DAEDALUS_PHOENIX_ENDPOINT}
-        project: daedalus
+        project: daedalus-deep-thinker
 llms:
   coding_llm:
     _type: nim
@@ -266,8 +578,15 @@ llms:
     model_name: nvidia/nvidia-nemotron-nano-9b-v2
     temperature: 0.6
     thinking: false
+  harmony_llm:
+    _type: openai
+    api_key: ${OPENAI_API_KEY}
+    api_type: responses
+    base_url: https://api.openai.com/v1
+    max_tokens: 24000
+    model_name: gpt-5
   medium_llm:
-    _type: nim
+    _type: openai
     api_key: ${NVIDIA_API_KEY}
     base_url: https://9adef108-3097-4540-ba5f-873a9da8e54f.invocation.api.nvcf.nvidia.com/v1
     max_tokens: 16000
@@ -277,17 +596,16 @@ llms:
   reasoning_llm:
     _type: nim
     api_key: ${NVIDIA_API_KEY}
-    base_url: https://0fc21779-145c-4e2a-9237-ec8599e8e4c8.invocation.api.nvcf.nvidia.com/v1
+    base_url: https://5eb560ed-7ab8-4985-ab2a-dd1f7ea5eb66.invocation.api.nvcf.nvidia.com/v1
     max_tokens: 16000
-    model_name: Qwen/Qwen3-Next-80B-A3B-Thinking
-    temperature: 0.6
-    top_p: 0.7
+    model_name: nvidia/llama-3.3-nemotron-super-49b-v1.5
   tool_calling_llm:
     _type: nim
     api_key: ${NVIDIA_API_KEY}
     base_url: https://5eb560ed-7ab8-4985-ab2a-dd1f7ea5eb66.invocation.api.nvcf.nvidia.com/v1
     max_tokens: 16000
     model_name: nvidia/llama-3.3-nemotron-super-49b-v1.5
+    temperature: 0
     thinking: false
 memory:
   redis_memory:
@@ -311,7 +629,7 @@ retrievers:
     reranker_top_n: 1
     return_as_string: false
     top_k: 5
-    uri: http://milvus.milvus.svc.cluster.local:19530
+    uri: ${MILVUS_URI}
     use_reranker: true
     vector_field: embedding
   kubernetes_retriever:
@@ -319,14 +637,14 @@ retrievers:
     collection_name: kubernetes
     content_field: text
     database_name: default
-    description: 'UNIQUE: Curated Kubernetes technical documentation and best practices - not updated regularly. DIFFERENTIATOR: K8s-specific expertise vs general web search results. MUTUAL_EXCLUSION: Use instead of web search for Kubernetes topics. WHEN_SELECT: Pod scheduling, service mesh, K8s networking, storage, security policies. ENTROPY_REDUCTION: Authoritative K8s patterns vs varying blog quality. COMBINES_WITH: code_generation (YAML manifests). OUTPUT: Config patterns, troubleshooting guides, architecture concepts. COVERAGE: Official docs + expert technical blogs. NOT_FOR: Generic container questions.'
+    description: "UNIQUE: Curated Kubernetes technical documentation and best practices - not updated regularly. DIFFERENTIATOR: K8s-specific expertise vs general web search results. MUTUAL_EXCLUSION: Use instead of web search for Kubernetes topics. WHEN_SELECT: Pod scheduling, service mesh, K8s networking, storage, security policies. ENTROPY_REDUCTION: Authoritative K8s patterns vs varying blog quality. COMBINES_WITH: code_generation (YAML manifests). OUTPUT: Config patterns, troubleshooting guides, architecture concepts. COVERAGE: Official docs + expert technical blogs. NOT_FOR: Generic container questions."
     embedding_model: milvus_embedder
     reranker_endpoint: https://c5b64ba3-16fd-4c3c-a2b8-cd9526f9d34b.invocation.api.nvcf.nvidia.com/v1/ranking
     reranker_model: nvidia/llama-3.2-nv-rerankqa-1b-v2
     reranker_top_n: 10
     return_as_string: false
     top_k: 20
-    uri: http://milvus.milvus.svc.cluster.local:19530
+    uri: ${MILVUS_URI}
     use_reranker: true
     vector_field: vector
     verbose: true
@@ -335,14 +653,14 @@ retrievers:
     collection_name: mentalhealth
     content_field: text
     database_name: default
-    description: 'UNIQUE: Evidence-based mental health content from Mental Health Foundation - not updated regularly. DIFFERENTIATOR: Validated mental wellness info vs potentially harmful web content. MUTUAL_EXCLUSION: Use over general search for mental health topics. WHEN_SELECT: Anxiety, depression, stress, trauma, coping strategies, wellness practices. ENTROPY_REDUCTION: Trusted source vs unverified online advice. MANDATORY: Include educational disclaimer, not therapy. COMBINES_WITH: current_datetime_tool (crisis resources). OUTPUT: Condition guides, coping strategies, support resources. CRITICAL: Educational only; direct crises to hotlines.'
+    description: "UNIQUE: Evidence-based mental health content from Mental Health Foundation - not updated regularly. DIFFERENTIATOR: Validated mental wellness info vs potentially harmful web content. MUTUAL_EXCLUSION: Use over general search for mental health topics. WHEN_SELECT: Anxiety, depression, stress, trauma, coping strategies, wellness practices. ENTROPY_REDUCTION: Trusted source vs unverified online advice. MANDATORY: Include educational disclaimer, not therapy. COMBINES_WITH: current_datetime_tool (crisis resources). OUTPUT: Condition guides, coping strategies, support resources. CRITICAL: Educational only; direct crises to hotlines."
     embedding_model: milvus_embedder
     reranker_endpoint: https://c5b64ba3-16fd-4c3c-a2b8-cd9526f9d34b.invocation.api.nvcf.nvidia.com/v1/ranking
     reranker_model: nvidia/llama-3.2-nv-rerankqa-1b-v2
     reranker_top_n: 10
     return_as_string: false
     top_k: 20
-    uri: http://milvus.milvus.svc.cluster.local:19530
+    uri: ${MILVUS_URI}
     use_reranker: true
     vector_field: vector
     verbose: true
@@ -351,14 +669,14 @@ retrievers:
     collection_name: nvidia
     content_field: text
     database_name: default
-    description: 'UNIQUE: Comprehensive NVIDIA knowledge base spanning products to research - not updated regularly. DIFFERENTIATOR: Official NVIDIA content vs nvidia_rss_feed (news) or web search. MUTUAL_EXCLUSION: Primary source for ANY NVIDIA technical topic. WHEN_SELECT: GPU architectures (H100/A100), CUDA, TensorRT, DGX, Jetson, NeMo. ENTROPY_REDUCTION: Accurate specs vs outdated web info. COMBINES_WITH: nvidia_rss_feed_tool (latest updates); code_generation (CUDA code). OUTPUT: Technical docs, product specs, research papers. COVERAGE: Hardware, software, corporate strategy. NOT_FOR: Competitor GPUs.'
+    description: "UNIQUE: Comprehensive NVIDIA knowledge base spanning products to research - not updated regularly. DIFFERENTIATOR: Official NVIDIA content vs nvidia_rss_feed (news) or web search. MUTUAL_EXCLUSION: Primary source for ANY NVIDIA technical topic. WHEN_SELECT: GPU architectures (H100/A100), CUDA, TensorRT, DGX, Jetson, NeMo. ENTROPY_REDUCTION: Accurate specs vs outdated web info. COMBINES_WITH: nvidia_rss_feed_tool (latest updates); code_generation (CUDA code). OUTPUT: Technical docs, product specs, research papers. COVERAGE: Hardware, software, corporate strategy. NOT_FOR: Competitor GPUs."
     embedding_model: milvus_embedder
     reranker_endpoint: https://c5b64ba3-16fd-4c3c-a2b8-cd9526f9d34b.invocation.api.nvcf.nvidia.com/v1/ranking
     reranker_model: nvidia/llama-3.2-nv-rerankqa-1b-v2
     reranker_top_n: 10
     return_as_string: false
     top_k: 20
-    uri: http://milvus.milvus.svc.cluster.local:19530
+    uri: ${MILVUS_URI}
     use_reranker: true
     vector_field: vector
     verbose: true
@@ -367,14 +685,14 @@ retrievers:
     collection_name: semianalysis
     content_field: text
     database_name: default
-    description: 'UNIQUE: Expert semiconductor industry analysis from Semianalysis - not updated regularly. DIFFERENTIATOR: Deep chip industry intelligence vs general tech news. MUTUAL_EXCLUSION: Use over web search for semiconductor economics/manufacturing. WHEN_SELECT: Foundries (TSMC/Samsung/Intel), process nodes, chip economics, fab capacity. ENTROPY_REDUCTION: Industry expert analysis vs fragmented news. COMBINES_WITH: nvidia_retriever (for GPU context); code_generation (chip design). OUTPUT: Market analysis, technical insights, supply chain dynamics. COVERAGE: Manufacturing, economics, competitive intelligence. EXPERTISE: Technical + business perspectives.'
+    description: "UNIQUE: Expert semiconductor industry analysis from Semianalysis - not updated regularly. DIFFERENTIATOR: Deep chip industry intelligence vs general tech news. MUTUAL_EXCLUSION: Use over web search for semiconductor economics/manufacturing. WHEN_SELECT: Foundries (TSMC/Samsung/Intel), process nodes, chip economics, fab capacity. ENTROPY_REDUCTION: Industry expert analysis vs fragmented news. COMBINES_WITH: nvidia_retriever (for GPU context); code_generation (chip design). OUTPUT: Market analysis, technical insights, supply chain dynamics. COVERAGE: Manufacturing, economics, competitive intelligence. EXPERTISE: Technical + business perspectives."
     embedding_model: milvus_embedder
     reranker_endpoint: https://c5b64ba3-16fd-4c3c-a2b8-cd9526f9d34b.invocation.api.nvcf.nvidia.com/v1/ranking
     reranker_model: nvidia/llama-3.2-nv-rerankqa-1b-v2
     reranker_top_n: 10
     return_as_string: false
     top_k: 20
-    uri: http://milvus.milvus.svc.cluster.local:19530
+    uri: ${MILVUS_URI}
     use_reranker: true
     vector_field: vector
     verbose: true
@@ -383,14 +701,14 @@ retrievers:
     collection_name: nvidia
     content_field: text
     database_name: default
-    description: 'UNIQUE: Dynamic retriever for user-uploaded PDF content - use whenever the user has uploaded a PDF file in current session. DIFFERENTIATOR: Searches personal uploads vs all other retrievers (public data). MUTUAL_INFO: REQUIRES nv_ingest_tool to process PDF first. WHEN_SELECT: After PDF upload when querying its content. ENTROPY_REDUCTION: Extracts specific info from user documents. WORKFLOW: [nv_ingest]→[THIS queries]. DYNAMIC: Collection name = authenticated username. OUTPUT: Relevant chunks from user PDF. COMBINES_WITH: ONLY nv_ingest_tool. NOT_FOR: Public knowledge queries.'
+    description: "UNIQUE: Dynamic retriever for user-uploaded PDF content - use whenever the user has uploaded a PDF file in current session. DIFFERENTIATOR: Searches personal uploads vs all other retrievers (public data). MUTUAL_INFO: REQUIRES nv_ingest_tool to process PDF first. WHEN_SELECT: After PDF upload when querying its content. ENTROPY_REDUCTION: Extracts specific info from user documents. WORKFLOW: [nv_ingest]→[THIS queries]. DYNAMIC: Collection name = authenticated username. OUTPUT: Relevant chunks from user PDF. COMBINES_WITH: ONLY nv_ingest_tool. NOT_FOR: Public knowledge queries."
     embedding_model: milvus_embedder
     reranker_endpoint: https://c5b64ba3-16fd-4c3c-a2b8-cd9526f9d34b.invocation.api.nvcf.nvidia.com/v1/ranking
     reranker_model: nvidia/llama-3.2-nv-rerankqa-1b-v2
     reranker_top_n: 10
     return_as_string: false
     top_k: 20
-    uri: http://milvus.milvus.svc.cluster.local:19530
+    uri: ${MILVUS_URI}
     use_reranker: true
     vector_field: vector
     verbose: true
@@ -406,7 +724,7 @@ retrievers:
     reranker_top_n: 10
     return_as_string: false
     top_k: 20
-    uri: http://milvus.milvus.svc.cluster.local:19530
+    uri: ${MILVUS_URI}
     use_reranker: true
     vector_field: vector
     verbose: true
@@ -416,31 +734,33 @@ workflow:
   parallel_tool_calls: true
   parse_agent_response_max_retries: 3
   return_direct:
-  - image_generation_tool
-  - image_augmentation_tool
-  - nv_ingest_tool
+    - image_generation_tool
+    - image_augmentation_tool
+    - nv_ingest_tool
   tool_names:
-  - get_memory
-  - add_memory
-  - code_generation
-  - current_datetime_tool
-  - geolocation_retriever_tool
-  - image_augmentation_tool
-  - image_generation_tool
-  - k8s_mcp_server
-  - kubernetes_retriever_tool
-  - mentalhealth_retriever_tool
-  - nvidia_retriever_tool
-  - nv_ingest_tool
-  - nvidia_rss_feed_tool
-  - realtime_serpapi_ai_tool
-  - realtime_serpapi_news_tool
-  - realtime_serpapi_search_tool
-  - semianalysis_retriever_tool
-  - user_uploaded_files_retriever_tool
-  - veterinarian_retriever_tool
-  - weather_tool
-  - webscrape_tool
+    - get_memory
+    - add_memory
+    - delete_memory
+    - code_generation
+    - current_datetime_tool
+    - geolocation_retriever_tool
+    - image_augmentation_tool
+    - image_generation_tool
+    - k8s_mcp_server
+    - deepwiki_mcp_server
+    - kubernetes_retriever_tool
+    - mentalhealth_retriever_tool
+    - nvidia_retriever_tool
+    - nv_ingest_tool
+    - nvidia_rss_feed_tool
+    - realtime_serpapi_ai_tool
+    - realtime_serpapi_news_tool
+    - realtime_serpapi_search_tool
+    - semianalysis_retriever_tool
+    - user_uploaded_files_retriever_tool
+    - veterinarian_retriever_tool
+    - weather_tool
+    - webscrape_tool
   use_openai_api: true
   verbose: true
   workflow_alias: daedalus
