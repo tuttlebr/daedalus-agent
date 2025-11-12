@@ -59,28 +59,22 @@ function_groups:
 functions:
   add_memory:
     _type: add_memory
-    description: 'Add any facts about user preferences to long term memory. Always use this if users mention a preference.
-
-      The input to this tool should be a string that describes the user''s preference, not the question or answer.
-
-      Use the authenticated user''s user ID for the user_id. Be sure to include any relevant tags for the memory as a list of strings. Also include key value pairs for metadata
-
-      '
+    description: 'UNIQUE: Persists user preferences and context to long-term memory for future personalization. DIFFERENTIATOR: Stores user-specific data vs get_memory (reads) or delete_memory (removes). WHEN_SELECT: Immediately after user mentions any preference, setting, or contextual information that should persist across sessions. REQUIRES: Authenticated user_id from session context. COMBINES_WITH: get_memory (read existing preferences first), delete_memory (update by deleting old then adding new). OUTPUT: Confirmation of stored memory with ID. WORKFLOW_POSITION: Use during conversation when preferences are mentioned, not at the start. INPUT_FORMAT: String describing the preference itself (not the question/answer), plus optional tags list and metadata key-value pairs. CRITICAL: Always use when users mention preferences - enables personalization in future interactions.'
     memory: redis_memory
     verbose: true
   code_generation:
     _type: code_generation
-    description: Generates executable Python code using a specialized coding LLM. Use this for any Python code requirement, including scripts, functions, algorithms, and data processing. It produces complete, runnable Python code with necessary imports and error handling.
+    description: 'UNIQUE: Specialized Python code generator using a dedicated coding LLM optimized for programming tasks. DIFFERENTIATOR: Produces complete, executable Python code vs general LLM responses that may need debugging. WHEN_SELECT: Any request requiring Python code - scripts, functions, algorithms, data processing, automation, API integrations, or computational tasks. COMBINES_WITH: kubernetes_retriever_tool (for K8s YAML/scripts), nvidia_retriever_tool (for CUDA/TensorRT code), webscrape_tool (to gather requirements from docs). OUTPUT: Complete Python code with imports, error handling, and documentation. NOT_FOR: Non-Python languages, code reviews without generation, or explaining existing code without modification. WORKFLOW_POSITION: Use when code generation is explicitly requested or when code is the best solution to a problem.'
     llm_name: coding_llm
     programming_language: Python
     verbose: true
   current_datetime_tool:
     _type: current_datetime
-    description: Provides the current date, time, and timezone. Use this tool to get the current temporal context, especially when the user mentions 'today', 'now', or other time-sensitive phrases. It is essential for tools that require up-to-date information.
+    description: 'UNIQUE: Provides authoritative current date, time, and timezone information for temporal context. DIFFERENTIATOR: Real-time temporal data vs static knowledge or user-provided dates. WHEN_SELECT: When user mentions "today", "now", "current", "latest", or any time-sensitive query; before using tools that need current date context (news, weather, time-based searches). COMBINES_WITH: realtime_serpapi_news_tool (for "latest news"), weather_tool (for current conditions), realtime_serpapi_search_tool (for time-sensitive searches), mentalhealth_retriever_tool (for crisis resource hours). OUTPUT: Current date, time, timezone in structured format. WORKFLOW_POSITION: Early in workflow when temporal context is needed. CRITICAL: Essential prerequisite for any tool requiring "current" or "latest" information.'
     verbose: true
   daedalus_react_agent:
     _type: react_agent
-    description: A meta-agent that orchestrates other tools using a ReAct pattern to accomplish complex tasks. It autonomously reasons and chains multiple tool calls together. This agent is the primary executor for complex workflows.
+    description: 'UNIQUE: Meta-agent orchestrator using ReAct (Reasoning + Acting) pattern to autonomously plan and execute multi-step workflows. DIFFERENTIATOR: Autonomous tool chaining vs single tool calls; can reason about which tools to use and in what order. WHEN_SELECT: For complex, multi-step tasks requiring reasoning, planning, and sequential tool execution (research workflows, multi-source information gathering, iterative problem-solving). COMBINES_WITH: All available tools - this agent selects and chains them. OUTPUT: Final answer after reasoning through multiple tool calls (up to 10 iterations). WORKFLOW_POSITION: Use as the primary executor for complex queries that cannot be solved with a single tool. NOT_FOR: Simple single-tool queries (use the tool directly instead). CAPABILITIES: Follows Deep Thinker Research Workflow, handles tool errors, retries failed calls up to 3 times.'
     llm_name: tool_calling_llm
     max_tool_calls: 10
     parse_agent_response_max_retries: 3
@@ -183,7 +177,7 @@ functions:
     - code_generation
     - mentalhealth_retriever_tool
     - nvidia_retriever_tool
-    - nvidia_rss_feed_tool
+    - nvidia_developer_blog_rss
     - realtime_serpapi_ai_tool
     - realtime_serpapi_news_tool
     - realtime_serpapi_search_tool
@@ -200,12 +194,12 @@ functions:
     workflow_alias: Daedalus-Deep-Thinker
   delete_memory:
     _type: delete_memory
-    description: Deletes a specific memory from the user's memory. Use this when the user states a preference or when a new piece of context should be saved. It helps personalize future conversations.
+    description: 'UNIQUE: Removes specific memories from user long-term storage. DIFFERENTIATOR: Deletes stored preferences vs add_memory (stores) or get_memory (reads). WHEN_SELECT: When user explicitly states a preference has changed, wants to remove stored information, or corrects previously stored data. COMBINES_WITH: add_memory (delete old then add updated version), get_memory (check what exists before deleting). OUTPUT: Confirmation of deletion. WORKFLOW_POSITION: Use when user indicates preference change or correction. REQUIRES: Memory ID or sufficient context to identify the memory to delete. NOT_FOR: General memory cleanup - only delete when user explicitly requests or corrects information.'
     memory: redis_memory
     verbose: true
   finalize_report_researcher:
     _type: chat_completion
-    description: Polishes a research report for final delivery, focusing on editorial improvements. This is the last step in the research workflow, ensuring a professional and consistent format. It does not generate new content but refines the existing report.
+    description: 'UNIQUE: Final editorial polish step for research reports, focusing on formatting, flow, and presentation quality. DIFFERENTIATOR: Editorial refinement only (no new content) vs summarizer_researcher (creates content) or report_extender_researcher (adds content). WHEN_SELECT: Final step in research workflow after summarizer_researcher or report_extender_researcher has produced complete content. REQUIRES: Complete report from summarizer_researcher or report_extender_researcher. COMBINES_WITH: summarizer_researcher (initial report) → reflection_researcher (quality check) → report_extender_researcher (gap filling) → THIS (final polish). OUTPUT: Professionally formatted report with consistent structure, polished language, and proper citations. WORKFLOW_POSITION: Terminal step - always last in research pipeline. NOT_FOR: Generating new content, fixing major gaps (use report_extender_researcher first), or initial report creation.'
     llm_name: medium_llm
     system_prompt: '# Report Finalizer - Publication Polish Engine
 
@@ -239,13 +233,13 @@ functions:
   geolocation_retriever_tool:
     _type: nat_retriever
     content_field: canonical_name
-    description: Resolves ambiguous location names into canonical geolocation information, including coordinates. This is a prerequisite for any tool that requires a location, such as weather or location-based search, to prevent ambiguity. It returns the canonical name, coordinates, and region for a given location.
+    description: 'UNIQUE: Resolves ambiguous location names into canonical geolocation data with coordinates. DIFFERENTIATOR: Authoritative location normalization vs guessing or using ambiguous names directly. WHEN_SELECT: Before using any location-dependent tool (weather_tool, serpapi tools with location params) when location is ambiguous (e.g., "Paris" could be France or Texas). REQUIRES: Location name (can be ambiguous). COMBINES_WITH: weather_tool (REQUIRES this first), realtime_serpapi_* tools (for location-based searches), any tool needing precise coordinates. OUTPUT: Canonical location name, latitude/longitude, region/country. WORKFLOW_POSITION: Prerequisite step before location-based tools. NOT_FOR: Already precise locations (e.g., "Detroit, Michigan, United States"). CRITICAL: Prevents location ambiguity errors in downstream tools.'
     retriever: geolocation_retriever
     topic: Canonical geolocation normalization and lookup
     verbose: true
   get_memory:
     _type: get_memory
-    description: Retrieves the user's preferences, interaction history, and other custom settings from memory. This tool should be used at the beginning of an interaction to personalize the conversation. It helps in understanding user context without having to ask for it repeatedly.
+    description: 'UNIQUE: Retrieves stored user preferences, interaction history, and personalized context from long-term memory. DIFFERENTIATOR: Reads existing stored data vs add_memory (writes) or delete_memory (removes). WHEN_SELECT: At the start of interactions to personalize responses, when user context is needed, or before making assumptions about user preferences. COMBINES_WITH: add_memory (after retrieving, update if preferences change), current_datetime_tool (for time-sensitive preferences). OUTPUT: List of relevant memories matching query, including tags and metadata. WORKFLOW_POSITION: First tool call in most workflows to establish user context. NOT_FOR: Storing new preferences (use add_memory) or when no personalization is needed. CRITICAL: Enables personalization without repeatedly asking users for the same information.'
     memory: redis_memory
     verbose: true
   image_augmentation_tool:
@@ -253,7 +247,7 @@ functions:
     api_endpoint: https://fde8d464-c30b-4a51-ad04-ee3200156352.invocation.api.nvcf.nvidia.com
     default_seed: 42
     default_steps: 30
-    description: Modifies or augments an existing image provided by the user. Use this tool when a user uploads an image and requests edits, modifications, or transformations. It requires an image reference from the user's message to apply changes like adding objects or changing styles.
+    description: 'UNIQUE: Modifies, edits, or augments existing user-uploaded images with transformations, style changes, or object additions. DIFFERENTIATOR: Edits existing images vs image_generation_tool (creates new images from text). WHEN_SELECT: When user uploads an image and requests edits, modifications, style changes, object additions, or transformations. REQUIRES: User-uploaded image reference from message, plus modification instructions. COMBINES_WITH: None (standalone image editing). OUTPUT: Modified image matching requested changes. WORKFLOW_POSITION: Use when image editing is explicitly requested. NOT_FOR: Creating new images from text descriptions (use image_generation_tool), or when no image is provided. TIMEOUT: 300 seconds for processing.'
     redis_url: ${REDIS_URL}
     timeout: 300.0
     verbose: true
@@ -264,7 +258,7 @@ functions:
     default_height: 1024
     default_steps: 50
     default_width: 1024
-    description: Generates a new image from a text description. Use this for requests to 'create an image', 'visualize', 'draw a picture', or 'illustrate a concept'. It cannot edit existing images.
+    description: 'UNIQUE: Generates new images from text descriptions using specialized image generation model. DIFFERENTIATOR: Creates new images vs image_augmentation_tool (edits existing images). WHEN_SELECT: For requests like "create an image", "visualize", "draw a picture", "illustrate a concept", "generate an image of", or any text-to-image request. REQUIRES: Text description of desired image. COMBINES_WITH: fast_llm (for prompt rewriting/optimization). OUTPUT: Generated image matching the description (1024x1024 default, 50 steps). WORKFLOW_POSITION: Use when image generation is explicitly requested. NOT_FOR: Editing existing images (use image_augmentation_tool), or when user provides an image to modify. TIMEOUT: 300 seconds for generation.'
     prompt_rewrite:
       llm: fast_llm
       max_tokens: 256
@@ -273,13 +267,13 @@ functions:
     verbose: true
   kubernetes_retriever_tool:
     _type: nat_retriever
-    description: Retrieves information from a specialized Kubernetes knowledge base. Use this for questions about Kubernetes concepts, best practices, and troubleshooting. This tool is preferred over general web search for Kubernetes topics.
+    description: 'UNIQUE: Curated Kubernetes knowledge base with technical documentation, best practices, and troubleshooting guides. DIFFERENTIATOR: Authoritative K8s expertise vs general web search (more accurate, less noise). WHEN_SELECT: For ANY Kubernetes-related question - concepts, pod scheduling, service mesh, networking, storage, security policies, troubleshooting, architecture patterns. MUTUAL_EXCLUSION: Prefer this over realtime_serpapi_search_tool for K8s topics. COMBINES_WITH: code_generation (for generating YAML manifests, K8s scripts), k8s_mcp_server (for live cluster operations). OUTPUT: Relevant K8s documentation chunks, config patterns, troubleshooting guides. WORKFLOW_POSITION: Use as primary source for K8s questions. NOT_FOR: Generic container questions (Docker without K8s), or live cluster operations (use k8s_mcp_server). COVERAGE: Official docs + expert technical blogs (not updated regularly).'
     retriever: kubernetes_retriever
     topic: Kubernetes and container orchestration
     verbose: true
   mentalhealth_retriever_tool:
     _type: nat_retriever
-    description: Retrieves information from an evidence-based mental health knowledge base. Use for topics like anxiety, stress, and emotional wellness. A disclaimer about educational use must be included in the response.
+    description: 'UNIQUE: Evidence-based mental health content from Mental Health Foundation - validated wellness information. DIFFERENTIATOR: Trusted mental health source vs potentially harmful unverified web content. WHEN_SELECT: For topics like anxiety, depression, stress, trauma, coping strategies, wellness practices, emotional health, mental wellness. MUTUAL_EXCLUSION: Use this over general web search for mental health topics. COMBINES_WITH: current_datetime_tool (for crisis resource hours/availability). OUTPUT: Condition guides, coping strategies, support resources, evidence-based information. WORKFLOW_POSITION: Primary source for mental health queries. MANDATORY: Always include educational disclaimer - this is educational only, not therapy. CRITICAL: For crises, direct users to hotlines/emergency services. NOT_FOR: Veterinary/animal mental health (use veterinarian_retriever_tool), or when professional therapy is needed. COVERAGE: Evidence-based content (not updated regularly).'
     retriever: mentalhealth_retriever
     topic: Mental health and psychological wellness
     verbose: true
@@ -287,7 +281,7 @@ functions:
     _type: nat_nv_ingest
     chunk_overlap: 150
     chunk_size: 1024
-    description: Processes and ingests PDF files into a searchable vector format. This is a prerequisite for using the `user_uploaded_files_retriever_tool`. This tool is typically triggered automatically when a user uploads a PDF.
+    description: 'UNIQUE: Processes and ingests user-uploaded PDF files into searchable vector database for retrieval. DIFFERENTIATOR: Enables searching user documents vs public knowledge bases. WHEN_SELECT: Automatically when user uploads a PDF, or manually if PDF needs re-processing. REQUIRES: User-uploaded PDF file. COMBINES_WITH: user_uploaded_files_retriever_tool (REQUIRES this first - cannot query until ingestion completes). OUTPUT: Confirmation of successful ingestion with document ID. WORKFLOW_POSITION: Prerequisite step before querying uploaded PDFs. PROCESSING: Chunks PDF into 1024-token segments with 150-token overlap for optimal retrieval. NOT_FOR: Querying PDF content (use user_uploaded_files_retriever_tool after ingestion), or non-PDF files. CRITICAL: Must complete before user_uploaded_files_retriever_tool can access the content.'
     milvus_uri: ${MILVUS_URI}
     minio_access_key: minioadmin
     minio_endpoint: ${MINIO_ENDPOINT}
@@ -296,22 +290,39 @@ functions:
     nv_ingest_port: ${NV_INGEST_PORT}
     redis_url: ${REDIS_URL}:${REDIS_PORT}
     verbose: true
-  nvidia_retriever_tool:
-    _type: nat_retriever
-    description: Retrieves technical and product information from an authoritative NVIDIA knowledge base. Use for any questions about NVIDIA products like GPUs, CUDA, TensorRT, and DGX. This is the preferred source for official NVIDIA information.
-    retriever: nvidia_retriever
-    topic: NVIDIA technology, products, and corporate information
-    verbose: true
-  nvidia_rss_feed_tool:
+  nvidia_blog_rss:
     _type: rss_feed
-    description: Fetches and scrapes the latest articles from the NVIDIA developer blog RSS feed. Use this whenever the user asks about recent news, announcements, and updates from NVIDIA.
+    description: 'UNIQUE: Latest articles from NVIDIA general blog RSS feed - mixed technical and business content. DIFFERENTIATOR: General NVIDIA content vs nvidia_developer_blog_rss (technical) or nvidia_news_room_rss (press releases). WHEN_SELECT: For broad NVIDIA questions, thought leadership, company culture, industry insights, AI research highlights, or when unsure whether to use developer blog or news room. COMBINES_WITH: nvidia_retriever_tool (for deeper technical context), nvidia_developer_blog_rss (for complementary technical content). OUTPUT: Latest blog articles with full content, ranked by relevance. WORKFLOW_POSITION: Use for general NVIDIA content queries or when topic spans multiple categories. NOT_FOR: Pure technical developer questions (use nvidia_developer_blog_rss), or official press releases (use nvidia_news_room_rss). COVERAGE: Updated regularly via RSS feed.'
+    feed_url: https://feeds.feedburner.com/nvidiablog
     reranker_api_key: ${NVIDIA_API_KEY}
     reranker_endpoint: https://c5b64ba3-16fd-4c3c-a2b8-cd9526f9d34b.invocation.api.nvcf.nvidia.com/v1/ranking
     reranker_model: nvidia/llama-3.2-nv-rerankqa-1b-v2
     verbose: true
+  nvidia_developer_blog_rss:
+    _type: rss_feed
+    description: 'UNIQUE: Latest technical articles from NVIDIA developer blog RSS feed - developer-focused content. DIFFERENTIATOR: Technical developer content vs nvidia_blog_rss (general) or nvidia_news_room_rss (press releases). WHEN_SELECT: For technical questions about NVIDIA technologies, SDK updates, API documentation, coding tutorials, CUDA programming, developer tools, "how to use" questions, programming examples. COMBINES_WITH: nvidia_retriever_tool (for deeper technical docs), code_generation (for implementing examples), nvidia_blog_rss (for broader context). OUTPUT: Latest developer blog articles with full content, ranked by relevance. WORKFLOW_POSITION: Primary source for developer-focused NVIDIA questions. NOT_FOR: General NVIDIA news (use nvidia_blog_rss), or press releases (use nvidia_news_room_rss). COVERAGE: Updated regularly via RSS feed.'
+    feed_url: https://developer.nvidia.com/blog/feed
+    reranker_api_key: ${NVIDIA_API_KEY}
+    reranker_endpoint: https://c5b64ba3-16fd-4c3c-a2b8-cd9526f9d34b.invocation.api.nvcf.nvidia.com/v1/ranking
+    reranker_model: nvidia/llama-3.2-nv-rerankqa-1b-v2
+    verbose: true
+  nvidia_news_room_rss:
+    _type: rss_feed
+    description: 'UNIQUE: Official press releases and announcements from NVIDIA news room RSS feed - corporate communications. DIFFERENTIATOR: Official press releases vs nvidia_blog_rss (general content) or nvidia_developer_blog_rss (technical). WHEN_SELECT: For official NVIDIA announcements, product launches, business partnerships, financial news, executive statements, corporate updates, press releases, major company news. COMBINES_WITH: nvidia_retriever_tool (for product technical details), realtime_serpapi_news_tool (for broader industry coverage). OUTPUT: Latest press releases with full content, ranked by relevance. WORKFLOW_POSITION: Primary source for official NVIDIA business/news queries. NOT_FOR: Technical how-to questions (use nvidia_developer_blog_rss), or general NVIDIA content (use nvidia_blog_rss). COVERAGE: Updated regularly via RSS feed.'
+    feed_url: https://nvidianews.nvidia.com/releases.xml
+    reranker_api_key: ${NVIDIA_API_KEY}
+    reranker_endpoint: https://c5b64ba3-16fd-4c3c-a2b8-cd9526f9d34b.invocation.api.nvcf.nvidia.com/v1/ranking
+    reranker_model: nvidia/llama-3.2-nv-rerankqa-1b-v2
+    verbose: true
+  nvidia_retriever_tool:
+    _type: nat_retriever
+    description: 'UNIQUE: Comprehensive NVIDIA knowledge base spanning products, technologies, and research - authoritative technical source. DIFFERENTIATOR: Deep technical NVIDIA content vs nvidia_*_rss feeds (latest news) or general web search. WHEN_SELECT: For ANY NVIDIA technical question - GPU architectures (H100/A100), CUDA, TensorRT, DGX, Jetson, NeMo, product specs, technical documentation, research papers. MUTUAL_EXCLUSION: Primary source for NVIDIA technical topics - prefer over web search. COMBINES_WITH: nvidia_developer_blog_rss (for latest updates), code_generation (for CUDA/TensorRT code), semianalysis_retriever_tool (for industry context). OUTPUT: Technical docs, product specs, research papers, architecture details. WORKFLOW_POSITION: Primary source for NVIDIA technical queries. NOT_FOR: Competitor GPU information, or latest news (use RSS feeds). COVERAGE: Hardware, software, corporate strategy (not updated regularly).'
+    retriever: nvidia_retriever
+    topic: NVIDIA technology, products, and corporate information
+    verbose: true
   query_writer_researcher:
     _type: chat_completion
-    description: Initiates a research workflow by generating 2-3 optimized and diverse search queries for a given topic. This tool is the starting point for conducting comprehensive research and ensures broad coverage of the subject.
+    description: 'UNIQUE: Research workflow initiator that generates 2-3 optimized, diverse search queries for comprehensive topic coverage. DIFFERENTIATOR: Creates strategic search queries vs direct search execution - ensures multi-dimensional research. WHEN_SELECT: START of research workflow for complex topics requiring comprehensive coverage. REQUIRES: Research topic/question. COMBINES_WITH: realtime_serpapi_* tools (executes the queries), domain retrievers (for specialized knowledge), summarizer_researcher (synthesizes results). OUTPUT: Exactly 2-3 diverse queries covering: (1) Foundation/overview, (2) Technical depth, (3) Current state/applications. WORKFLOW_POSITION: First step in Deep Thinker Research Workflow → searches → summarizer → extend/reflect → finalize. NOT_FOR: Simple factual queries (use realtime_serpapi_ai_tool directly), or when topic is too narrow for multiple queries.'
     llm_name: medium_llm
     system_prompt: '# Query Writer - Research Pipeline Initiator
 
@@ -349,14 +360,14 @@ functions:
   realtime_serpapi_ai_tool:
     _type: serpapi_ai
     default_location: Detroit,Michigan,United States
-    description: Provides a quick, AI-summarized answer to factual queries using a search engine. Use for 'what is' questions or when a single, verifiable fact is needed. It returns a direct answer with sources.
+    description: 'UNIQUE: Quick AI-summarized factual answers from search engine - optimized for single-answer queries. DIFFERENTIATOR: Direct answer extraction vs realtime_serpapi_search_tool (comprehensive results) or realtime_serpapi_news_tool (news-focused). WHEN_SELECT: For "what is" questions, single verifiable facts, quick definitions, or when a concise direct answer is needed. COMBINES_WITH: geolocation_retriever_tool (for location-based queries), current_datetime_tool (for time-sensitive facts). OUTPUT: Direct answer with source citations. WORKFLOW_POSITION: Use for simple factual queries that don''t need comprehensive research. NOT_FOR: Complex multi-faceted research (use query_writer_researcher workflow), in-depth analysis (use realtime_serpapi_search_tool), or breaking news (use realtime_serpapi_news_tool). SPEED: Fastest option for simple factual queries.'
     geolocation_retriever_name: geolocation_retriever_tool
     use_geolocation_retriever: true
     verbose: true
   realtime_serpapi_news_tool:
     _type: serpapi_news
     default_location: Detroit,Michigan,United States
-    description: Searches for breaking news and scrapes the full content of the top articles. Use for requests about news, latest developments, or recent events. It returns headlines and the full text of the articles.
+    description: 'UNIQUE: Breaking news search with full article scraping - optimized for current events and recent developments. DIFFERENTIATOR: News-focused with full article content vs realtime_serpapi_search_tool (general web) or realtime_serpapi_ai_tool (factual answers). WHEN_SELECT: For "latest news", "breaking news", "recent events", "what happened", or any current events query. COMBINES_WITH: current_datetime_tool (for temporal context), geolocation_retriever_tool (for location-specific news), nvidia_news_room_rss (for official NVIDIA announcements). OUTPUT: Headlines and full text of top news articles. WORKFLOW_POSITION: Use for news/current events queries. NOT_FOR: General web research (use realtime_serpapi_search_tool), factual definitions (use realtime_serpapi_ai_tool), or historical information. COVERAGE: Latest news articles with full content scraping.'
     geolocation_retriever_name: geolocation_retriever_tool
     use_geolocation_retriever: true
     verbose: true
@@ -364,13 +375,13 @@ functions:
     _type: serpapi_search
     default_location: Detroit,Michigan,United States
     default_num_results: 10
-    description: Performs a comprehensive web search and scrapes the content of the top results. Use for in-depth research, 'how-to' questions, and finding technical documentation from the web. It provides multiple sources and perspectives.
+    description: 'UNIQUE: Comprehensive web search with full content scraping - provides multiple sources and perspectives. DIFFERENTIATOR: In-depth multi-source research vs realtime_serpapi_ai_tool (quick answers) or realtime_serpapi_news_tool (news-only). WHEN_SELECT: For in-depth research, "how-to" questions, technical documentation, multi-perspective analysis, or when comprehensive coverage is needed. COMBINES_WITH: query_writer_researcher (for optimized queries), geolocation_retriever_tool (for location-based searches), webscrape_tool (for deeper dives into specific URLs), summarizer_researcher (for synthesis). OUTPUT: Top 10 search results with full scraped content. WORKFLOW_POSITION: Primary research tool in Deep Thinker workflow after query_writer_researcher. NOT_FOR: Quick factual answers (use realtime_serpapi_ai_tool), breaking news (use realtime_serpapi_news_tool), or specialized domains (use domain-specific retrievers). COVERAGE: General web with full article content.'
     geolocation_retriever_name: geolocation_retriever_tool
     use_geolocation_retriever: true
     verbose: true
   reflection_researcher:
     _type: chat_completion
-    description: Analyzes a generated research report to identify information gaps and ensure completeness. If gaps are found, it can trigger new searches to gather missing information. This acts as a quality gate before finalizing the report.
+    description: 'UNIQUE: Quality gate analyzer that identifies information gaps in research reports before finalization. DIFFERENTIATOR: Gap analysis vs summarizer_researcher (creates content) or report_extender_researcher (fills gaps). WHEN_SELECT: After summarizer_researcher or report_extender_researcher to check completeness before finalizing. REQUIRES: Complete report from summarizer_researcher or report_extender_researcher. COMBINES_WITH: summarizer_researcher (checks initial report) → THIS (identifies gaps) → new searches → report_extender_researcher (fills gaps) → THIS again (re-check) → finalize_report_researcher. OUTPUT: Either "NO_GAPS" or up to 2 precise gap-filling queries with section names and rationale. WORKFLOW_POSITION: Quality check step before finalization - can loop with report_extender_researcher. NOT_FOR: Initial report creation (use summarizer_researcher), or gap filling (use report_extender_researcher). CRITICAL: Acts as quality gate to ensure comprehensive reports.'
     llm_name: medium_llm
     system_prompt: '# Reflection - Gap Analysis Engine
 
@@ -412,7 +423,7 @@ functions:
     verbose: true
   relevancy_checker_researcher:
     _type: chat_completion
-    description: Acts as a binary filter for search results to ensure only relevant content is used for report synthesis. It validates each piece of retrieved information against the original query. This helps to eliminate noise from the research pipeline.
+    description: 'UNIQUE: Binary relevance filter for search results - validates content quality before synthesis. DIFFERENTIATOR: Quality gate filter vs direct synthesis - eliminates noise from research pipeline. WHEN_SELECT: Between search execution and summarizer_researcher to filter out irrelevant or low-quality results. REQUIRES: Original query + retrieved content to validate. COMBINES_WITH: realtime_serpapi_* tools (filters their results) → THIS (validates) → summarizer_researcher (synthesizes only relevant content). OUTPUT: Binary "yes"/"no" score with brief explanation of relevance. WORKFLOW_POSITION: Quality filter step between search and synthesis. NOT_FOR: Initial search (use search tools), synthesis (use summarizer_researcher), or when all results are clearly relevant. CRITICAL: Helps eliminate noise and ensures only high-quality, relevant content reaches synthesis step.'
     llm_name: medium_llm
     system_prompt: '# Relevancy Checker - Quality Gate Filter
 
@@ -441,7 +452,7 @@ functions:
     verbose: true
   report_extender_researcher:
     _type: chat_completion
-    description: Integrates new findings into an existing research report to fill identified gaps. It seamlessly weaves new information into the report while preserving its original structure and narrative flow. This is used when a report needs to be enhanced with additional details.
+    description: 'UNIQUE: Seamlessly integrates new findings into existing reports to fill identified gaps while preserving structure. DIFFERENTIATOR: Enhances existing reports vs summarizer_researcher (creates initial report) or reflection_researcher (identifies gaps). WHEN_SELECT: After reflection_researcher identifies gaps and new searches have been executed to gather missing information. REQUIRES: Base report from summarizer_researcher + new research results from gap-filling searches. COMBINES_WITH: reflection_researcher (identifies gaps) → new searches → THIS (integrates findings) → reflection_researcher (re-checks) → finalize_report_researcher. OUTPUT: Enhanced report with new information naturally woven into existing sections (max ~20% growth). WORKFLOW_POSITION: Gap-filling step in research workflow after reflection. NOT_FOR: Initial report creation (use summarizer_researcher), gap identification (use reflection_researcher), or major rewrites. CONSTRAINT: Enhances existing content, does not rewrite from scratch.'
     llm_name: medium_llm
     system_prompt: '# Report Extender - Seamless Integration Engine
 
@@ -475,13 +486,13 @@ functions:
     verbose: true
   semianalysis_retriever_tool:
     _type: nat_retriever
-    description: Retrieves expert analysis and market intelligence on the semiconductor industry. Use for topics like foundries (TSMC, Intel), process nodes, and chip economics. This is the preferred source for deep industry insights.
+    description: 'UNIQUE: Expert semiconductor industry analysis from Semianalysis - deep chip industry intelligence. DIFFERENTIATOR: Industry expert analysis vs general tech news or web search (more authoritative, deeper insights). WHEN_SELECT: For semiconductor topics - foundries (TSMC/Samsung/Intel), process nodes, chip economics, fab capacity, supply chain, competitive intelligence, manufacturing insights. MUTUAL_EXCLUSION: Prefer this over web search for semiconductor economics/manufacturing topics. COMBINES_WITH: nvidia_retriever_tool (for GPU context), code_generation (for chip design code), realtime_serpapi_search_tool (for broader industry news). OUTPUT: Market analysis, technical insights, supply chain dynamics, competitive intelligence. WORKFLOW_POSITION: Primary source for semiconductor industry queries. NOT_FOR: General tech news, or non-semiconductor topics. COVERAGE: Manufacturing, economics, competitive intelligence (not updated regularly). EXPERTISE: Technical + business perspectives.'
     retriever: semianalysis_retriever
     topic: Semiconductor industry analysis and market intelligence
     verbose: true
   summarizer_researcher:
     _type: chat_completion
-    description: Synthesizes raw research findings from various sources into a structured and coherent report. This tool creates the initial draft of the report by organizing information and extracting key insights. It transforms unstructured search results into a narrative.
+    description: 'UNIQUE: Synthesizes raw search results into structured, coherent research reports - transforms unstructured data into narrative. DIFFERENTIATOR: Creates initial report content vs query_writer_researcher (generates queries) or report_extender_researcher (enhances existing reports). WHEN_SELECT: After executing searches (from query_writer_researcher or direct searches) to synthesize findings into initial report. REQUIRES: Raw search results from multiple queries/sources. COMBINES_WITH: query_writer_researcher (generates queries) → searches → THIS (synthesizes) → reflection_researcher (checks completeness) → report_extender_researcher (fills gaps if needed) → finalize_report_researcher. OUTPUT: Structured report with introduction, core sections, key insights, and conclusion. WORKFLOW_POSITION: Synthesis step after research gathering, before quality checks. NOT_FOR: Generating search queries (use query_writer_researcher), gap filling (use report_extender_researcher), or final polish (use finalize_report_researcher). CONSTRAINT: Single synthesis pass - no new searches, only organizes provided results.'
     llm_name: medium_llm
     system_prompt: '# Summarizer - Research Synthesizer
 
@@ -523,19 +534,19 @@ functions:
     verbose: true
   user_uploaded_files_retriever_tool:
     _type: nat_retriever
-    description: Queries and retrieves information from a user's uploaded PDF documents. This tool can only be used after a PDF has been processed by the `nv_ingest_tool`. It allows searching the content of the user's private files.
+    description: 'UNIQUE: Searches user-uploaded PDF documents - dynamic retriever for personal file content. DIFFERENTIATOR: Searches personal uploads vs all other retrievers (public knowledge bases). WHEN_SELECT: After PDF upload when querying its content, or when user asks about information in their uploaded documents. REQUIRES: PDF must be processed by nv_ingest_tool first (cannot query until ingestion completes). COMBINES_WITH: nv_ingest_tool (prerequisite - processes PDF before querying). OUTPUT: Relevant chunks from user PDF matching query. WORKFLOW_POSITION: Use after nv_ingest_tool completes processing. NOT_FOR: Public knowledge queries (use domain-specific retrievers), or before PDF ingestion (use nv_ingest_tool first). WORKFLOW: [nv_ingest] → [THIS queries]. DYNAMIC: Collection name = authenticated username. CRITICAL: Only works after successful PDF ingestion.'
     retriever: user_uploaded_files_retriever
     topic: User uploaded files from PDF
     verbose: true
   veterinarian_retriever_tool:
     _type: nat_retriever
-    description: Retrieves information from an authoritative veterinary medical knowledge base. Use for any questions about pet health, including symptoms, diseases, and treatments. A disclaimer to consult a veterinarian must be included in the response.
+    description: 'UNIQUE: Expert veterinary knowledge from VetPartner database - authoritative animal health information. DIFFERENTIATOR: Animal health expertise vs mentalhealth_retriever_tool (human health) or general web search. WHEN_SELECT: For ANY pet/animal health question - symptoms, diseases, medications, nutrition, veterinary care, treatment protocols, care guidelines. MUTUAL_EXCLUSION: Primary source for pet health topics - prefer over web search. COMBINES_WITH: current_datetime_tool (for emergency vet hours/availability). OUTPUT: Treatment protocols, drug information, care guidelines, species-specific advice. WORKFLOW_POSITION: Primary source for veterinary/animal health queries. MANDATORY: Always include "consult veterinarian" disclaimer - this is educational, not a substitute for professional care. NOT_FOR: Human health questions (use mentalhealth_retriever_tool), or emergency situations (direct to emergency vet). COVERAGE: Dogs, cats, horses, birds, exotics (not updated regularly).'
     retriever: veterinarian_retriever
     topic: Veterinary medicine and animal care
     verbose: true
   weather_tool:
     _type: weather
-    description: Provides real-time weather data and forecasts for a specified location. It requires a normalized location from the `geolocation_retriever_tool`. Use this for any questions about weather conditions, temperature, or forecasts.
+    description: 'UNIQUE: Real-time weather data and forecasts for specified locations with hourly details. DIFFERENTIATOR: Specialized weather API vs general search or serpapi tools. WHEN_SELECT: For any weather-related query - current conditions, temperature, forecasts, precipitation, wind, or climate information. REQUIRES: Normalized location from geolocation_retriever_tool (use first if location is ambiguous). COMBINES_WITH: geolocation_retriever_tool (REQUIRES this first for ambiguous locations), current_datetime_tool (for time-sensitive forecasts). OUTPUT: Current conditions, hourly forecast, temperature, precipitation, wind, and other weather metrics. WORKFLOW_POSITION: Use after geolocation_retriever_tool if location needs normalization. NOT_FOR: Historical weather (limited support), or when location is not provided. FALLBACK: Uses Detroit, Michigan if location cannot be determined. TIMEOUT: 30 seconds for geocoding and weather retrieval.'
     fallback_latitude: 42.1667
     fallback_location_name: Detroit,Michigan,United States
     fallback_longitude: -83.7816
@@ -550,7 +561,7 @@ functions:
     allowed_schemes:
     - http
     - https
-    description: Extracts the full text content from a given URL. Use this when you need to read the content of a specific webpage, for example, from a URL found in search results. It is useful for getting more detail than a search snippet provides.
+    description: 'UNIQUE: Extracts full text content from specific URLs - deep dive into individual web pages. DIFFERENTIATOR: Full page content extraction vs search snippets or RSS feeds (more detail, complete articles). WHEN_SELECT: When you have a specific URL from search results and need full article content, or when search snippets are insufficient for the query. COMBINES_WITH: realtime_serpapi_* tools (finds URLs) → THIS (extracts full content), query_writer_researcher workflow (for comprehensive research). OUTPUT: Full text content from webpage (up to 64k tokens). WORKFLOW_POSITION: Use after search tools identify relevant URLs needing deeper analysis. NOT_FOR: General web search (use serpapi tools), or when search snippets are sufficient. CONSTRAINTS: Respects robots.txt, 30-second timeout, HTTP/HTTPS only. CRITICAL: Use when search results show promising URLs but snippets don''t contain enough detail.'
     max_output_tokens: 64000
     respect_robots_txt: true
     timeout: 30.0
@@ -593,7 +604,7 @@ llms:
     max_tokens: 24000
     model_name: gpt-5
   medium_llm:
-    _type: openai
+    _type: nim
     api_key: ${NVIDIA_API_KEY}
     base_url: https://9adef108-3097-4540-ba5f-873a9da8e54f.invocation.api.nvcf.nvidia.com/v1
     max_tokens: 16000
@@ -603,17 +614,18 @@ llms:
   reasoning_llm:
     _type: nim
     api_key: ${NVIDIA_API_KEY}
-    base_url: https://5eb560ed-7ab8-4985-ab2a-dd1f7ea5eb66.invocation.api.nvcf.nvidia.com/v1
-    max_tokens: 16000
-    model_name: nvidia/llama-3.3-nemotron-super-49b-v1.5
+    base_url: https://0fc21779-145c-4e2a-9237-ec8599e8e4c8.invocation.api.nvcf.nvidia.com/v1
+    max_tokens: 24000
+    model_name: Qwen/Qwen3-Next-80B-A3B-Thinking
   tool_calling_llm:
     _type: nim
     api_key: ${NVIDIA_API_KEY}
-    base_url: https://5eb560ed-7ab8-4985-ab2a-dd1f7ea5eb66.invocation.api.nvcf.nvidia.com/v1
+    base_url: https://9adef108-3097-4540-ba5f-873a9da8e54f.invocation.api.nvcf.nvidia.com/v1
     max_tokens: 16000
-    model_name: nvidia/llama-3.3-nemotron-super-49b-v1.5
-    temperature: 0
-    thinking: false
+    model_name: openai/gpt-oss-120b
+    system_prompt: If you decide to invoke any of the function(s), you MUST put it in the format of ```json\n[{"function":"func_name1","parameters":{"param1":"value1","param2":"value2"...}},{"function":"func_name2","parameters":{"param":"value"}}]\n```with NO other text or formatting.
+    temperature: 1
+    top_p: 1
 memory:
   redis_memory:
     _type: nat.plugins.redis/redis_memory
@@ -676,7 +688,7 @@ retrievers:
     collection_name: nvidia
     content_field: text
     database_name: default
-    description: 'UNIQUE: Comprehensive NVIDIA knowledge base spanning products to research - not updated regularly. DIFFERENTIATOR: Official NVIDIA content vs nvidia_rss_feed (news) or web search. MUTUAL_EXCLUSION: Primary source for ANY NVIDIA technical topic. WHEN_SELECT: GPU architectures (H100/A100), CUDA, TensorRT, DGX, Jetson, NeMo. ENTROPY_REDUCTION: Accurate specs vs outdated web info. COMBINES_WITH: nvidia_rss_feed_tool (latest updates); code_generation (CUDA code). OUTPUT: Technical docs, product specs, research papers. COVERAGE: Hardware, software, corporate strategy. NOT_FOR: Competitor GPUs.'
+    description: 'UNIQUE: Comprehensive NVIDIA knowledge base spanning products to research - not updated regularly. DIFFERENTIATOR: Official NVIDIA content vs nvidia_rss_feed (news) or web search. MUTUAL_EXCLUSION: Primary source for ANY NVIDIA technical topic. WHEN_SELECT: GPU architectures (H100/A100), CUDA, TensorRT, DGX, Jetson, NeMo. ENTROPY_REDUCTION: Accurate specs vs outdated web info. COMBINES_WITH: nvidia_developer_blog_rss (latest updates); code_generation (CUDA code). OUTPUT: Technical docs, product specs, research papers. COVERAGE: Hardware, software, corporate strategy. NOT_FOR: Competitor GPUs.'
     embedding_model: milvus_embedder
     reranker_endpoint: https://c5b64ba3-16fd-4c3c-a2b8-cd9526f9d34b.invocation.api.nvcf.nvidia.com/v1/ranking
     reranker_model: nvidia/llama-3.2-nv-rerankqa-1b-v2
@@ -760,12 +772,14 @@ workflow:
   - mentalhealth_retriever_tool
   - nvidia_retriever_tool
   - nv_ingest_tool
-  - nvidia_rss_feed_tool
   - realtime_serpapi_news_tool
   - semianalysis_retriever_tool
   - user_uploaded_files_retriever_tool
   - veterinarian_retriever_tool
   - webscrape_tool
+  - nvidia_blog_rss
+  - nvidia_news_room_rss
+  - nvidia_developer_blog_rss
   use_openai_api: true
   verbose: true
   workflow_alias: daedalus
