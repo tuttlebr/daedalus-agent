@@ -8,54 +8,64 @@ function_groups:
   deepwiki_mcp_server:
     _type: mcp_client
     include:
-      - read_wiki_structure
+    - read_wiki_structure
+    - ask_question
     server:
       transport: streamable-http
       url: https://mcp.deepwiki.com/mcp
   k8s_mcp_server:
     _type: mcp_client
     include:
-      - describeResource
-      - getAPIResources
-      - getEvents
-      - getIngresses
-      - getNodeMetrics
-      - getPodMetrics
-      - getPodsLogs
-      - getResource
-      - helmGet
-      - helmHistory
-      - helmList
-      - listResources
-      - getResourceYAML
-      - getResourceDiff
-      - getNamespaceResources
-      - getResourceOwners
-      - getClusterHealth
-      - getResourceQuotas
-      - getLimitRanges
-      - getTopPods
-      - getTopNodes
-      - getPodDebugInfo
-      - getServiceEndpoints
-      - getNetworkPolicies
-      - getSecurityContext
-      - getResourceHistory
-      - validateManifest
+    - describeResource
+    - getAPIResources
+    - getEvents
+    - getIngresses
+    - getNodeMetrics
+    - getPodMetrics
+    - getPodsLogs
+    - getResource
+    - helmGet
+    - helmHistory
+    - helmList
+    - listResources
+    - getResourceYAML
+    - getResourceDiff
+    - getNamespaceResources
+    - getResourceOwners
+    - getClusterHealth
+    - getResourceQuotas
+    - getLimitRanges
+    - getTopPods
+    - getTopNodes
+    - getPodDebugInfo
+    - getServiceEndpoints
+    - getNetworkPolicies
+    - getSecurityContext
+    - getResourceHistory
+    - validateManifest
     server:
       transport: streamable-http
       url: ${KUBERNETES_MCP_SERVER}
+  serpapi_mcp_server:
+    _type: mcp_client
+    include:
+    - get_stock_market_preview
+    - ai_search
+    - get_weather
+    - search
+    server:
+      transport: streamable-http
+      url: http://192.168.1.234:8000/mcp
 functions:
   add_memory:
     _type: add_memory
-    description:
-      "Add any facts about user preferences to long term memory. Always use this if users mention a preference.
+    description: 'Add any facts about user preferences to long term memory. Always use this if users mention a preference.
 
-      The input to this tool should be a string that describes the user's preference, not the question or answer.
+      The input to this tool should be a string that describes the user''s preference, not the question or answer.
 
-      Use the authenticated user's user ID for the user_id. Be sure to include any relevant tags for the memory as a list of strings. Also include key value pairs for metadata
+      Use the authenticated user''s user ID for the user_id. Be sure to include any relevant tags for the memory as a list of strings. Also include key value pairs for metadata
 
-      "
+      '
     memory: redis_memory
     verbose: true
   code_generation:
@@ -75,8 +85,7 @@ functions:
     max_tool_calls: 10
     parse_agent_response_max_retries: 3
     pass_tool_call_errors_to_agent: true
-    system_prompt:
-      'Answer the following questions as best you can. You may ask the human to use the following tools:
+    system_prompt: 'Answer the following questions as best you can. You may ask the human to use the following tools:
 
 
       {tools}
@@ -166,28 +175,27 @@ functions:
       Final Answer: the final answer to the original input question'
     tool_call_max_retries: 3
     tool_names:
-      - current_datetime_tool
-      - get_memory
-      - add_memory
-      - geolocation_retriever_tool
-      - kubernetes_retriever_tool
-      - code_generation
-      - mentalhealth_retriever_tool
-      - nvidia_retriever_tool
-      - nvidia_rss_feed_tool
-      - realtime_serpapi_ai_tool
-      - realtime_serpapi_news_tool
-      - realtime_serpapi_search_tool
-      - semianalysis_retriever_tool
-      - veterinarian_retriever_tool
-      - weather_tool
-      - webscrape_tool
-      - finalize_report_researcher
-      - query_writer_researcher
-      - reflection_researcher
-      - relevancy_checker_researcher
-      - report_extender_researcher
-      - summarizer_researcher
+    - current_datetime_tool
+    - get_memory
+    - add_memory
+    - geolocation_retriever_tool
+    - kubernetes_retriever_tool
+    - code_generation
+    - mentalhealth_retriever_tool
+    - nvidia_retriever_tool
+    - nvidia_rss_feed_tool
+    - realtime_serpapi_ai_tool
+    - realtime_serpapi_news_tool
+    - realtime_serpapi_search_tool
+    - semianalysis_retriever_tool
+    - veterinarian_retriever_tool
+    - webscrape_tool
+    - finalize_report_researcher
+    - query_writer_researcher
+    - reflection_researcher
+    - relevancy_checker_researcher
+    - report_extender_researcher
+    - summarizer_researcher
     verbose: true
     workflow_alias: Daedalus-Deep-Thinker
   delete_memory:
@@ -199,7 +207,7 @@ functions:
     _type: chat_completion
     description: Polishes a research report for final delivery, focusing on editorial improvements. This is the last step in the research workflow, ensuring a professional and consistent format. It does not generate new content but refines the existing report.
     llm_name: medium_llm
-    system_prompt: "# Report Finalizer - Publication Polish Engine
+    system_prompt: '# Report Finalizer - Publication Polish Engine
 
 
       ROLE: Polish the provided report for delivery. Do not add new content.
@@ -226,7 +234,7 @@ functions:
 
       TERMINAL: NO commentary. NO markdown fences. ONLY polished report.
 
-      "
+      '
     verbose: true
   geolocation_retriever_tool:
     _type: nat_retriever
@@ -296,8 +304,7 @@ functions:
     verbose: true
   nvidia_rss_feed_tool:
     _type: rss_feed
-    description: Fetches and scrapes the latest articles from the NVIDIA developer blog RSS feed. Use this for recent news, announcements, and updates from NVIDIA. It provides the full content of the most relevant article.
-    feed_url: https://developer.nvidia.com/blog/feed
+    description: Fetches and scrapes the latest articles from the NVIDIA developer blog RSS feed. Use this whenever the user asks about recent news, announcements, and updates from NVIDIA.
     reranker_api_key: ${NVIDIA_API_KEY}
     reranker_endpoint: https://c5b64ba3-16fd-4c3c-a2b8-cd9526f9d34b.invocation.api.nvcf.nvidia.com/v1/ranking
     reranker_model: nvidia/llama-3.2-nv-rerankqa-1b-v2
@@ -436,7 +443,7 @@ functions:
     _type: chat_completion
     description: Integrates new findings into an existing research report to fill identified gaps. It seamlessly weaves new information into the report while preserving its original structure and narrative flow. This is used when a report needs to be enhanced with additional details.
     llm_name: medium_llm
-    system_prompt: "# Report Extender - Seamless Integration Engine
+    system_prompt: '# Report Extender - Seamless Integration Engine
 
 
       ROLE: Integrate new findings into the existing report to fill gaps.
@@ -464,7 +471,7 @@ functions:
 
       CONSTRAINT: Enhance, don’t rewrite.
 
-      "
+      '
     verbose: true
   semianalysis_retriever_tool:
     _type: nat_retriever
@@ -476,7 +483,7 @@ functions:
     _type: chat_completion
     description: Synthesizes raw research findings from various sources into a structured and coherent report. This tool creates the initial draft of the report by organizing information and extracting key insights. It transforms unstructured search results into a narrative.
     llm_name: medium_llm
-    system_prompt: "# Summarizer - Research Synthesizer
+    system_prompt: '# Summarizer - Research Synthesizer
 
 
       ROLE: Turn raw search results into a structured, insightful report.
@@ -512,7 +519,7 @@ functions:
 
       Constraints: Single synthesis pass. No new searches.
 
-      "
+      '
     verbose: true
   user_uploaded_files_retriever_tool:
     _type: nat_retriever
@@ -541,8 +548,8 @@ functions:
   webscrape_tool:
     _type: webscrape
     allowed_schemes:
-      - http
-      - https
+    - http
+    - https
     description: Extracts the full text content from a given URL. Use this when you need to read the content of a specific webpage, for example, from a URL found in search results. It is useful for getting more detail than a search snippet provides.
     max_output_tokens: 64000
     respect_robots_txt: true
@@ -554,8 +561,8 @@ general:
     _type: fastapi
     step_adaptor:
       event_category:
-        - LLM
-        - TOOL
+      - LLM
+      - TOOL
       mode: default
   telemetry:
     tracing:
@@ -637,7 +644,7 @@ retrievers:
     collection_name: kubernetes
     content_field: text
     database_name: default
-    description: "UNIQUE: Curated Kubernetes technical documentation and best practices - not updated regularly. DIFFERENTIATOR: K8s-specific expertise vs general web search results. MUTUAL_EXCLUSION: Use instead of web search for Kubernetes topics. WHEN_SELECT: Pod scheduling, service mesh, K8s networking, storage, security policies. ENTROPY_REDUCTION: Authoritative K8s patterns vs varying blog quality. COMBINES_WITH: code_generation (YAML manifests). OUTPUT: Config patterns, troubleshooting guides, architecture concepts. COVERAGE: Official docs + expert technical blogs. NOT_FOR: Generic container questions."
+    description: 'UNIQUE: Curated Kubernetes technical documentation and best practices - not updated regularly. DIFFERENTIATOR: K8s-specific expertise vs general web search results. MUTUAL_EXCLUSION: Use instead of web search for Kubernetes topics. WHEN_SELECT: Pod scheduling, service mesh, K8s networking, storage, security policies. ENTROPY_REDUCTION: Authoritative K8s patterns vs varying blog quality. COMBINES_WITH: code_generation (YAML manifests). OUTPUT: Config patterns, troubleshooting guides, architecture concepts. COVERAGE: Official docs + expert technical blogs. NOT_FOR: Generic container questions.'
     embedding_model: milvus_embedder
     reranker_endpoint: https://c5b64ba3-16fd-4c3c-a2b8-cd9526f9d34b.invocation.api.nvcf.nvidia.com/v1/ranking
     reranker_model: nvidia/llama-3.2-nv-rerankqa-1b-v2
@@ -653,7 +660,7 @@ retrievers:
     collection_name: mentalhealth
     content_field: text
     database_name: default
-    description: "UNIQUE: Evidence-based mental health content from Mental Health Foundation - not updated regularly. DIFFERENTIATOR: Validated mental wellness info vs potentially harmful web content. MUTUAL_EXCLUSION: Use over general search for mental health topics. WHEN_SELECT: Anxiety, depression, stress, trauma, coping strategies, wellness practices. ENTROPY_REDUCTION: Trusted source vs unverified online advice. MANDATORY: Include educational disclaimer, not therapy. COMBINES_WITH: current_datetime_tool (crisis resources). OUTPUT: Condition guides, coping strategies, support resources. CRITICAL: Educational only; direct crises to hotlines."
+    description: 'UNIQUE: Evidence-based mental health content from Mental Health Foundation - not updated regularly. DIFFERENTIATOR: Validated mental wellness info vs potentially harmful web content. MUTUAL_EXCLUSION: Use over general search for mental health topics. WHEN_SELECT: Anxiety, depression, stress, trauma, coping strategies, wellness practices. ENTROPY_REDUCTION: Trusted source vs unverified online advice. MANDATORY: Include educational disclaimer, not therapy. COMBINES_WITH: current_datetime_tool (crisis resources). OUTPUT: Condition guides, coping strategies, support resources. CRITICAL: Educational only; direct crises to hotlines.'
     embedding_model: milvus_embedder
     reranker_endpoint: https://c5b64ba3-16fd-4c3c-a2b8-cd9526f9d34b.invocation.api.nvcf.nvidia.com/v1/ranking
     reranker_model: nvidia/llama-3.2-nv-rerankqa-1b-v2
@@ -669,7 +676,7 @@ retrievers:
     collection_name: nvidia
     content_field: text
     database_name: default
-    description: "UNIQUE: Comprehensive NVIDIA knowledge base spanning products to research - not updated regularly. DIFFERENTIATOR: Official NVIDIA content vs nvidia_rss_feed (news) or web search. MUTUAL_EXCLUSION: Primary source for ANY NVIDIA technical topic. WHEN_SELECT: GPU architectures (H100/A100), CUDA, TensorRT, DGX, Jetson, NeMo. ENTROPY_REDUCTION: Accurate specs vs outdated web info. COMBINES_WITH: nvidia_rss_feed_tool (latest updates); code_generation (CUDA code). OUTPUT: Technical docs, product specs, research papers. COVERAGE: Hardware, software, corporate strategy. NOT_FOR: Competitor GPUs."
+    description: 'UNIQUE: Comprehensive NVIDIA knowledge base spanning products to research - not updated regularly. DIFFERENTIATOR: Official NVIDIA content vs nvidia_rss_feed (news) or web search. MUTUAL_EXCLUSION: Primary source for ANY NVIDIA technical topic. WHEN_SELECT: GPU architectures (H100/A100), CUDA, TensorRT, DGX, Jetson, NeMo. ENTROPY_REDUCTION: Accurate specs vs outdated web info. COMBINES_WITH: nvidia_rss_feed_tool (latest updates); code_generation (CUDA code). OUTPUT: Technical docs, product specs, research papers. COVERAGE: Hardware, software, corporate strategy. NOT_FOR: Competitor GPUs.'
     embedding_model: milvus_embedder
     reranker_endpoint: https://c5b64ba3-16fd-4c3c-a2b8-cd9526f9d34b.invocation.api.nvcf.nvidia.com/v1/ranking
     reranker_model: nvidia/llama-3.2-nv-rerankqa-1b-v2
@@ -685,7 +692,7 @@ retrievers:
     collection_name: semianalysis
     content_field: text
     database_name: default
-    description: "UNIQUE: Expert semiconductor industry analysis from Semianalysis - not updated regularly. DIFFERENTIATOR: Deep chip industry intelligence vs general tech news. MUTUAL_EXCLUSION: Use over web search for semiconductor economics/manufacturing. WHEN_SELECT: Foundries (TSMC/Samsung/Intel), process nodes, chip economics, fab capacity. ENTROPY_REDUCTION: Industry expert analysis vs fragmented news. COMBINES_WITH: nvidia_retriever (for GPU context); code_generation (chip design). OUTPUT: Market analysis, technical insights, supply chain dynamics. COVERAGE: Manufacturing, economics, competitive intelligence. EXPERTISE: Technical + business perspectives."
+    description: 'UNIQUE: Expert semiconductor industry analysis from Semianalysis - not updated regularly. DIFFERENTIATOR: Deep chip industry intelligence vs general tech news. MUTUAL_EXCLUSION: Use over web search for semiconductor economics/manufacturing. WHEN_SELECT: Foundries (TSMC/Samsung/Intel), process nodes, chip economics, fab capacity. ENTROPY_REDUCTION: Industry expert analysis vs fragmented news. COMBINES_WITH: nvidia_retriever (for GPU context); code_generation (chip design). OUTPUT: Market analysis, technical insights, supply chain dynamics. COVERAGE: Manufacturing, economics, competitive intelligence. EXPERTISE: Technical + business perspectives.'
     embedding_model: milvus_embedder
     reranker_endpoint: https://c5b64ba3-16fd-4c3c-a2b8-cd9526f9d34b.invocation.api.nvcf.nvidia.com/v1/ranking
     reranker_model: nvidia/llama-3.2-nv-rerankqa-1b-v2
@@ -701,7 +708,7 @@ retrievers:
     collection_name: nvidia
     content_field: text
     database_name: default
-    description: "UNIQUE: Dynamic retriever for user-uploaded PDF content - use whenever the user has uploaded a PDF file in current session. DIFFERENTIATOR: Searches personal uploads vs all other retrievers (public data). MUTUAL_INFO: REQUIRES nv_ingest_tool to process PDF first. WHEN_SELECT: After PDF upload when querying its content. ENTROPY_REDUCTION: Extracts specific info from user documents. WORKFLOW: [nv_ingest]→[THIS queries]. DYNAMIC: Collection name = authenticated username. OUTPUT: Relevant chunks from user PDF. COMBINES_WITH: ONLY nv_ingest_tool. NOT_FOR: Public knowledge queries."
+    description: 'UNIQUE: Dynamic retriever for user-uploaded PDF content - use whenever the user has uploaded a PDF file in current session. DIFFERENTIATOR: Searches personal uploads vs all other retrievers (public data). MUTUAL_INFO: REQUIRES nv_ingest_tool to process PDF first. WHEN_SELECT: After PDF upload when querying its content. ENTROPY_REDUCTION: Extracts specific info from user documents. WORKFLOW: [nv_ingest]→[THIS queries]. DYNAMIC: Collection name = authenticated username. OUTPUT: Relevant chunks from user PDF. COMBINES_WITH: ONLY nv_ingest_tool. NOT_FOR: Public knowledge queries.'
     embedding_model: milvus_embedder
     reranker_endpoint: https://c5b64ba3-16fd-4c3c-a2b8-cd9526f9d34b.invocation.api.nvcf.nvidia.com/v1/ranking
     reranker_model: nvidia/llama-3.2-nv-rerankqa-1b-v2
@@ -734,33 +741,31 @@ workflow:
   parallel_tool_calls: true
   parse_agent_response_max_retries: 3
   return_direct:
-    - image_generation_tool
-    - image_augmentation_tool
-    - nv_ingest_tool
+  - image_generation_tool
+  - image_augmentation_tool
+  - nv_ingest_tool
   tool_names:
-    - get_memory
-    - add_memory
-    - delete_memory
-    - code_generation
-    - current_datetime_tool
-    - geolocation_retriever_tool
-    - image_augmentation_tool
-    - image_generation_tool
-    - k8s_mcp_server
-    - deepwiki_mcp_server
-    - kubernetes_retriever_tool
-    - mentalhealth_retriever_tool
-    - nvidia_retriever_tool
-    - nv_ingest_tool
-    - nvidia_rss_feed_tool
-    - realtime_serpapi_ai_tool
-    - realtime_serpapi_news_tool
-    - realtime_serpapi_search_tool
-    - semianalysis_retriever_tool
-    - user_uploaded_files_retriever_tool
-    - veterinarian_retriever_tool
-    - weather_tool
-    - webscrape_tool
+  - get_memory
+  - add_memory
+  - delete_memory
+  - code_generation
+  - current_datetime_tool
+  - geolocation_retriever_tool
+  - image_augmentation_tool
+  - image_generation_tool
+  - k8s_mcp_server
+  - serpapi_mcp_server
+  - deepwiki_mcp_server
+  - kubernetes_retriever_tool
+  - mentalhealth_retriever_tool
+  - nvidia_retriever_tool
+  - nv_ingest_tool
+  - nvidia_rss_feed_tool
+  - realtime_serpapi_news_tool
+  - semianalysis_retriever_tool
+  - user_uploaded_files_retriever_tool
+  - veterinarian_retriever_tool
+  - webscrape_tool
   use_openai_api: true
   verbose: true
   workflow_alias: daedalus
