@@ -611,6 +611,9 @@ html {
   transition: background-color 0.3s ease, color 0.3s ease;
   -webkit-tap-highlight-color: transparent;
   scroll-behavior: smooth;
+  overflow-x: hidden; /* Prevent horizontal scrolling */
+  width: 100%;
+  max-width: 100vw; /* Ensure it never exceeds viewport width */
 }
 
 /* Ensure dark background when any descendant has the .dark class (app sets it on <main>) */
@@ -636,6 +639,10 @@ body {
   min-height: 100vh;
   margin: 0;
   padding: 0;
+  overflow-x: hidden; /* Prevent horizontal scrolling */
+  width: 100%;
+  max-width: 100vw; /* Ensure it never exceeds viewport width */
+  position: relative; /* Contain absolutely positioned children */
 }
 
 .dark body {
@@ -648,6 +655,10 @@ body {
   min-height: 100vh;
   display: flex;
   flex-direction: column;
+  width: 100%;
+  max-width: 100vw;
+  overflow-x: hidden; /* Prevent horizontal scrolling */
+  position: relative;
 }
 
 .safari-safe-area {
@@ -1291,7 +1302,7 @@ details div {
     /* Ensure at least 16px padding on mobile, even without notch */
     padding-bottom: max(env(safe-area-inset-bottom, 0px), 16px);
   }
-  
+
   .safe-top {
     /* Ensure at least 12px padding on mobile */
     padding-top: max(env(safe-area-inset-top, 0px), 12px);

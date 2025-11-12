@@ -137,12 +137,14 @@ export const ChatMessage: FC<Props> = memo(({ message, messageIndex }) => {
   //   };
   // }, []);
 
-  const wrapperClasses = cx('group px-3 sm:px-4 md:px-6 py-2 sm:py-3');
+  const wrapperClasses = cx('group px-3 sm:px-4 md:px-6 py-2 sm:py-3', 'min-w-0', 'max-w-full', 'overflow-hidden');
 
   const rowClasses = cx(
     'mx-auto flex w-full gap-2 sm:gap-3 py-1.5 sm:py-2',
     hasIntermediateSteps && message.role === 'assistant' ? 'max-w-7xl' : 'max-w-5xl',
-    message.role === 'user' ? 'flex-row-reverse' : 'flex-row'
+    message.role === 'user' ? 'flex-row-reverse' : 'flex-row',
+    'min-w-0', // Prevent flex overflow
+    'max-w-full' // Ensure it doesn't exceed container
   );
 
   const avatarWrapperClasses = cx(
@@ -156,7 +158,10 @@ export const ChatMessage: FC<Props> = memo(({ message, messageIndex }) => {
     hasIntermediateSteps && isAssistantMessage ? 'max-w-full' : 'max-w-[85%] sm:max-w-[75%] md:max-w-[65%]',
     'px-3 py-2 sm:px-4 sm:py-3',
     'text-[14px] sm:text-[15px] leading-relaxed',
-    'break-words transition-all duration-200 animate-scale-in',
+    'break-words break-all', // Ensure long words break
+    'overflow-wrap-anywhere', // Break long words if needed
+    'transition-all duration-200 animate-scale-in',
+    'min-w-0', // Prevent flex overflow
     isAssistantMessage
       ? 'rounded-2xl rounded-bl-md glass text-gray-900 dark:text-gray-100 shadow-sm'
       : 'rounded-2xl rounded-br-md bg-nvidia-green-dark backdrop-blur-sm text-white shadow-md hover:shadow-glow-green hover:bg-nvidia-green',
@@ -164,11 +169,13 @@ export const ChatMessage: FC<Props> = memo(({ message, messageIndex }) => {
   );
 
   const markdownBaseClasses = cx(
-    'prose prose-neutral max-w-none break-words text-[15px] leading-relaxed dark:prose-invert',
-    '[&>*]:max-w-full [&_*]:break-words',
-    '[&_pre]:max-w-full [&_pre]:overflow-x-auto',
-    '[&_code]:break-words [&_code]:whitespace-pre-wrap',
-    '[&_table]:w-full [&_table]:table-fixed'
+    'prose prose-neutral max-w-none break-words break-all text-[15px] leading-relaxed dark:prose-invert',
+    '[&>*]:max-w-full [&_*]:break-words [&_*]:break-all',
+    '[&_pre]:max-w-full [&_pre]:overflow-x-auto [&_pre]:break-words',
+    '[&_code]:break-words [&_code]:break-all [&_code]:whitespace-pre-wrap',
+    '[&_table]:w-full [&_table]:max-w-full [&_table]:table-fixed [&_table]:overflow-hidden',
+    '[&_img]:max-w-full [&_img]:h-auto',
+    'overflow-wrap-anywhere'
   );
 
   const actionBarClasses = cx(
