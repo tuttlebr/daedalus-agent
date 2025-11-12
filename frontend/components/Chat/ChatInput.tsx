@@ -704,22 +704,26 @@ export const ChatInput: React.FC<Props> = ({
         data-chat-input
         style={{
           paddingBottom: `env(safe-area-inset-bottom, 0px)`,
+          width: '100%',
+          maxWidth: '100%',
+          minWidth: 0,
+          overflowX: 'hidden',
           // Prevent iOS keyboard push behavior
           WebkitTransform: 'translateZ(0)',
           transform: 'translateZ(0)',
         }}
       >
-        <div className="flex w-full flex-col">
+        <div className="flex w-full flex-col" style={{ width: '100%', maxWidth: '100%', minWidth: 0 }}>
           {/* Input Container */}
-          <div className="w-full">
-            <div className="relative">
+          <div className="w-full" style={{ width: '100%', maxWidth: '100%', minWidth: 0 }}>
+            <div className="relative" style={{ width: '100%', maxWidth: '100%', minWidth: 0 }}>
               {/* Main input wrapper with glass effect */}
               <div
                 className={`relative flex items-center w-full rounded-2xl apple-glass backdrop-blur-xl border ${useDeepThinker ? 'border-nvidia-green/60 shadow-[0_0_20px_rgba(118,185,0,0.4),0_8px_32px_rgba(0,0,0,0.12)] dark:shadow-[0_0_20px_rgba(118,185,0,0.4),0_8px_32px_rgba(0,0,0,0.24)]' : 'border-white/10 dark:border-white/5 shadow-[0_8px_32px_rgba(0,0,0,0.12)] dark:shadow-[0_8px_32px_rgba(0,0,0,0.24)]'} ${inputFile && (imageRef || pdfRefs.length > 0 || inputFileContentCompressed) ? 'flex-col items-stretch' : ''}`}
-                style={{ position: 'relative', zIndex: 1 }}
+                style={{ position: 'relative', zIndex: 1, width: '100%', maxWidth: '100%', minWidth: 0 }}
               >
                 {/* Quick Actions Button - centered with textarea */}
-                <div className="absolute left-3 top-1/2 -translate-y-1/2 z-20 w-10 h-10">
+                <div className="absolute left-2 sm:left-3 top-1/2 -translate-y-1/2 z-20 w-9 h-9 sm:w-10 sm:h-10">
                   <QuickActionsPopup
                   onAttachFile={triggerFileUpload}
                   onTakePhoto={triggerPhotoUpload}
@@ -729,13 +733,17 @@ export const ChatInput: React.FC<Props> = ({
                 </div>
                 <textarea
                   ref={textareaRef}
-                  className="m-0 w-full resize-none bg-transparent py-4 pr-14 md:pr-20 pl-16 text-[15px] leading-relaxed text-neutral-800 outline-none placeholder:text-neutral-500 focus:outline-none dark:text-white dark:placeholder:text-white/40 transition-colors"
+                  className="m-0 w-full resize-none bg-transparent py-4 pr-12 sm:pr-14 md:pr-20 pl-12 sm:pl-16 text-[15px] leading-relaxed text-neutral-800 outline-none placeholder:text-neutral-500 focus:outline-none dark:text-white dark:placeholder:text-white/40 transition-colors"
                 style={{
                   resize: 'none',
                   bottom: `${textareaRef?.current?.scrollHeight}px`,
                   minHeight: '54px',
                   maxHeight: '320px',
+                  width: '100%',
+                  maxWidth: '100%',
+                  minWidth: 0,
                   overflow: `${textareaRef.current && textareaRef.current.scrollHeight > 400 ? 'auto' : 'hidden'}`,
+                  overflowX: 'hidden', // Prevent horizontal scrolling in textarea
                   // iOS-specific fixes
                   WebkitAppearance: 'none',
                   WebkitTransform: 'translateZ(0)',
@@ -764,28 +772,20 @@ export const ChatInput: React.FC<Props> = ({
                       return;
                     }
 
-                    // Use multiple techniques for best compatibility (browser mode only)
-
-                    // Technique 1: ScrollIntoView (most reliable)
-                    setTimeout(() => {
-                      e.target.scrollIntoView({
-                        behavior: 'smooth',
-                        block: 'center',
-                        inline: 'nearest'
-                      });
-                    }, 300); // Wait for keyboard animation
-
-                    // Technique 2: Visual Viewport API (for modern browsers)
+                    // Use Visual Viewport API for modern browsers (browser mode only)
+                    // This keeps the input visible without jumping to the top
                     if (window.visualViewport) {
                       const handleResize = () => {
                         const inputRect = e.target.getBoundingClientRect();
                         const viewportHeight = window.visualViewport!.height;
 
-                        // If input is covered by keyboard, scroll it into view
+                        // If input is covered by keyboard, scroll it into view at the bottom
+                        // Use 'end' instead of 'center' to prevent jumping to top
                         if (inputRect.bottom > viewportHeight - 20) {
                           e.target.scrollIntoView({
                             behavior: 'smooth',
-                            block: 'center'
+                            block: 'end',
+                            inline: 'nearest'
                           });
                         }
                       };
@@ -797,6 +797,16 @@ export const ChatInput: React.FC<Props> = ({
                       setTimeout(() => {
                         window.visualViewport?.removeEventListener('resize', handleResize);
                       }, 1000);
+                    } else {
+                      // Fallback for browsers without visualViewport API
+                      // Use 'end' to keep input at bottom instead of jumping to center/top
+                      setTimeout(() => {
+                        e.target.scrollIntoView({
+                          behavior: 'smooth',
+                          block: 'end',
+                          inline: 'nearest'
+                        });
+                      }, 300); // Wait for keyboard animation
                     }
                   }
                 }}

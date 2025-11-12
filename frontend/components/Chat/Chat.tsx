@@ -405,6 +405,34 @@ export const Chat = () => {
   }, [isPWA, enableBackgroundProcessing, selectedConversation, syncConversation, isPolling, jobStatus, messageIsStreaming]);
 
 
+  // Helper function to extract first few words from user's message for conversation name
+  const getConversationNameFromMessage = useCallback((content: string, maxWords: number = 6): string => {
+    if (!content || typeof content !== 'string') {
+      return 'New Conversation';
+    }
+
+    // Remove markdown formatting, extra whitespace, and newlines
+    const cleaned = content
+      .replace(/[#*_`\[\]()]/g, '') // Remove markdown characters
+      .replace(/\n+/g, ' ') // Replace newlines with spaces
+      .replace(/\s+/g, ' ') // Normalize whitespace
+      .trim();
+
+    // Split into words and take first few words
+    const words = cleaned.split(/\s+/).filter(word => word.length > 0);
+
+    if (words.length === 0) {
+      return 'New Conversation';
+    }
+
+    // Take first maxWords words, or all words if less than maxWords
+    const selectedWords = words.slice(0, maxWords);
+    const name = selectedWords.join(' ');
+
+    // Add ellipsis if we truncated
+    return words.length > maxWords ? name + '...' : name;
+  }, []);
+
   const mergeIntermediateSteps = useCallback(
     (
       existingSteps: IntermediateStep[] = [],
@@ -514,6 +542,23 @@ export const Chat = () => {
             ],
           };
         }
+
+        // Set conversation name based on first few words from user's message
+        // Only update if name is still the default "New Conversation" or if this is the first user message
+        const isDefaultName = !updatedConversation.name ||
+          updatedConversation.name === 'New Conversation' ||
+          updatedConversation.name === t('New Conversation');
+        const isFirstUserMessage = updatedConversation.messages.filter(m => m.role === 'user').length === 1;
+
+        if (isDefaultName && isFirstUserMessage) {
+          const { content } = message;
+          const customName = getConversationNameFromMessage(content);
+          updatedConversation = {
+            ...updatedConversation,
+            name: customName,
+          };
+        }
+
         homeDispatch({
           field: 'selectedConversation',
           value: updatedConversation,
@@ -626,35 +671,6 @@ export const Chat = () => {
         if (useAsyncMode && enableBackgroundProcessing) {
           console.log('✅ Using ASYNC mode for background processing (job-based)');
 
-          // Set conversation name based on first message (same as streaming mode)
-          if (updatedConversation.messages.length === 1) {
-            const { content } = message;
-            const customName =
-              content.length > 30
-                ? content.substring(0, 30) + '...'
-                : content;
-            updatedConversation = {
-              ...updatedConversation,
-              name: customName,
-            };
-
-            // Update the conversation with the new name
-            homeDispatch({
-              field: 'selectedConversation',
-              value: updatedConversation,
-            });
-
-            // Also update in the conversations list
-            const namedConversations = updatedConversations.map((conv) =>
-              conv.id === updatedConversation.id ? updatedConversation : conv
-            );
-            homeDispatch({
-              field: 'conversations',
-              value: namedConversations,
-            });
-            saveConversations(namedConversations);
-          }
-
           try {
             await startAsyncJob(
               chatBody.messages || [],
@@ -722,17 +738,6 @@ export const Chat = () => {
             return;
           }
           if (!false) {
-            if (updatedConversation.messages.length === 1) {
-              const { content } = message;
-              const customName =
-                content.length > 30
-                  ? content.substring(0, 30) + '...'
-                  : content;
-              updatedConversation = {
-                ...updatedConversation,
-                name: customName,
-              };
-            }
             homeDispatch({ field: 'loading', value: false });
             const reader = data.getReader();
             streamReaderRef.current = reader; // Store reader reference for cancellation
@@ -1134,6 +1139,8 @@ export const Chat = () => {
       startAsyncJob,
       user,
       useDeepThinker,
+      t,
+      getConversationNameFromMessage,
     ],
   );
 
@@ -1375,27 +1382,34 @@ export const Chat = () => {
 
   return (
     <div
-      className="relative flex h-screen flex-col bg-bg-secondary transition-colors duration-300 ease-in-out dark:bg-dark-bg-primary"
+      className="relative flex h-full flex-col bg-bg-secondary transition-colors duration-300 ease-in-out dark:bg-dark-bg-primary"
       style={{
         paddingTop: 'env(safe-area-inset-top)',
         paddingLeft: 'env(safe-area-inset-left)',
         paddingRight: 'env(safe-area-inset-right)',
-        height: isPWA && keyboardOffset > 0
-          ? `calc(100vh - ${keyboardOffset}px)`
-          : viewportHeight > 0 ? `${viewportHeight}px` : '100vh',
-        // Use fixed positioning but adjust for iOS keyboard
-        position: 'fixed',
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: isPWA ? `${keyboardOffset}px` : 0,
+        // Use flexbox layout instead of fixed positioning to respond to window height changes
+        minHeight: 0,
+        minWidth: 0, // Prevent flex items from overflowing
+        width: '100%',
+        maxWidth: '100vw', // Ensure it never exceeds viewport width
+        overflowX: 'hidden', // Prevent horizontal scrolling
         // Prevent iOS bounce and ensure proper keyboard handling
         WebkitOverflowScrolling: 'touch' as any,
         overscrollBehavior: 'none',
       }}
     >
       <ChatHeader />
-      <div className="relative flex flex-1 flex-col" style={{ minHeight: '0', isolation: 'isolate', overflow: 'hidden' }}>
+      <div
+        className="relative flex flex-1 flex-col"
+        style={{
+          minHeight: '0',
+          minWidth: 0, // Prevent flex overflow
+          isolation: 'isolate',
+          overflow: 'hidden',
+          width: '100%',
+          maxWidth: '100%',
+        }}
+      >
         <div
           className="flex-1 overflow-y-auto relative momentum-scroll"
           ref={chatContainerRef}
@@ -1431,13 +1445,18 @@ export const Chat = () => {
           style={{
             // Prevent overscroll bounce that can cause input issues
             overscrollBehaviorY: 'contain',
+            overscrollBehaviorX: 'none', // Prevent horizontal overscroll
             position: 'relative',
             height: '100%',
+            width: '100%',
+            maxWidth: '100%',
+            minWidth: 0, // Prevent flex overflow
+            overflowX: 'hidden', // Prevent horizontal scrolling
             // Improve mobile scrolling
             WebkitOverflowScrolling: 'touch' as any,
           }}
         >
-          <div className="mx-auto flex h-full w-full max-w-5xl flex-col responsive-px pb-0 pt-4 sm:pt-6">
+          <div className="mx-auto flex h-full w-full max-w-5xl flex-col responsive-px pb-0 pt-4 sm:pt-6" style={{ minWidth: 0, maxWidth: '100%' }}>
             {hasMessages ? (
               <div className="flex-1 min-h-0">
                 <VirtualMessageList
@@ -1482,46 +1501,56 @@ export const Chat = () => {
 
         {/* Scroll down button with auto-scroll indicator */}
         {showScrollDownButton && (
-          <div className="absolute bottom-4 right-4 flex items-center gap-2">
+          <div
+            className="absolute bottom-4 right-2 sm:right-4 flex items-center gap-1.5 sm:gap-2 z-10"
+            style={{
+              maxWidth: 'calc(100% - 1rem)', // Prevent overflow on small screens
+              right: 'max(0.5rem, env(safe-area-inset-right, 0.5rem))',
+            }}
+          >
             {!autoScrollEnabled && (
-              <div className="px-3 py-1.5 rounded-full apple-glass backdrop-blur-xl border border-white/20 dark:border-white/10 shadow-[0_8px_32px_rgba(0,0,0,0.12)] dark:shadow-[0_8px_32px_rgba(0,0,0,0.24)] text-xs text-neutral-600 dark:text-white/60">
+              <div className="hidden xs:block px-2 sm:px-3 py-1.5 rounded-full apple-glass backdrop-blur-xl border border-white/20 dark:border-white/10 shadow-[0_8px_32px_rgba(0,0,0,0.12)] dark:shadow-[0_8px_32px_rgba(0,0,0,0.24)] text-[10px] sm:text-xs text-neutral-600 dark:text-white/60 whitespace-nowrap">
                 Auto-scroll paused
               </div>
             )}
             <button
-              className="flex h-10 w-10 items-center justify-center rounded-full apple-glass backdrop-blur-xl border border-white/20 dark:border-white/10 shadow-[0_8px_32px_rgba(0,0,0,0.12)] dark:shadow-[0_8px_32px_rgba(0,0,0,0.24)] text-neutral-700 dark:text-white/80 transition-all duration-200 hover:bg-white/20 hover:border-nvidia-green/40"
+              className="flex h-9 w-9 sm:h-10 sm:w-10 items-center justify-center rounded-full apple-glass backdrop-blur-xl border border-white/20 dark:border-white/10 shadow-[0_8px_32px_rgba(0,0,0,0.12)] dark:shadow-[0_8px_32px_rgba(0,0,0,0.24)] text-neutral-700 dark:text-white/80 transition-all duration-200 hover:bg-white/20 hover:border-nvidia-green/40 flex-shrink-0"
               onClick={handleScrollDown}
               aria-label={t('Scroll to bottom') as string}
             >
-              <IconArrowDown size={18} />
+              <IconArrowDown size={16} className="sm:w-[18px] sm:h-[18px]" />
             </button>
           </div>
         )}
       </div>
 
       {/* Chat input - positioned to stay above keyboard */}
-      <div className="w-full border-t border-transparent bg-bg-secondary dark:bg-dark-bg-primary"
+      <div
+        className="w-full border-t border-transparent bg-bg-secondary dark:bg-dark-bg-primary flex-shrink-0"
         style={{
-          position: 'fixed',
-          bottom: 0,
-          left: 0,
-          right: 0,
+          position: 'relative',
           zIndex: 30,
-          flexShrink: 0,
+          width: '100%',
+          maxWidth: '100%',
+          minWidth: 0,
+          overflowX: 'hidden', // Prevent horizontal overflow
           // Add transform to prevent iOS keyboard push
           transform: 'translateZ(0)',
           WebkitTransform: 'translateZ(0)',
-          // Allow overflow for dropdown
-          overflow: 'visible',
-          // Adjust for safe area insets
-          paddingLeft: 'env(safe-area-inset-left, 0px)',
-          paddingRight: 'env(safe-area-inset-right, 0px)',
-        }}>
-        <div className="mx-auto max-w-5xl responsive-px pb-6 pt-3 md:pb-6 md:pt-3"
+          // Allow overflow for dropdown (vertical only)
+          overflowY: 'visible',
+        }}
+      >
+        <div
+          className="mx-auto w-full responsive-px pb-6 pt-3 md:pb-6 md:pt-3"
           style={{
+            width: '100%',
+            maxWidth: '100%',
+            minWidth: 0,
             // Additional padding when keyboard is visible
             paddingBottom: isKeyboardVisible ? 'max(24px, env(safe-area-inset-bottom))' : 'max(24px, env(safe-area-inset-bottom))',
-          }}>
+          }}
+        >
           <ChatInput
             textareaRef={textareaRef}
             onSend={(message) => {
