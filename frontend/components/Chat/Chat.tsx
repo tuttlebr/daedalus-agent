@@ -1502,19 +1502,20 @@ export const Chat = () => {
       {/* Chat input - positioned to stay above keyboard */}
       <div className="w-full border-t border-transparent bg-bg-secondary dark:bg-dark-bg-primary"
         style={{
-          position: isKeyboardVisible ? 'fixed' : 'relative',
-          bottom: isKeyboardVisible ? 0 : 'auto',
+          position: 'fixed',
+          bottom: 0,
           left: 0,
           right: 0,
           zIndex: 30,
-          // Ensure input stays at the bottom
-          marginTop: isKeyboardVisible ? 0 : 'auto',
           flexShrink: 0,
           // Add transform to prevent iOS keyboard push
           transform: 'translateZ(0)',
           WebkitTransform: 'translateZ(0)',
           // Allow overflow for dropdown
           overflow: 'visible',
+          // Adjust for safe area insets
+          paddingLeft: 'env(safe-area-inset-left, 0px)',
+          paddingRight: 'env(safe-area-inset-right, 0px)',
         }}>
         <div className="mx-auto max-w-5xl responsive-px pb-6 pt-3 md:pb-6 md:pt-3"
           style={{
