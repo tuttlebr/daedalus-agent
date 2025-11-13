@@ -602,15 +602,18 @@ llms:
     api_type: responses
     base_url: https://api.openai.com/v1
     max_tokens: 24000
-    model_name: gpt-5
+    model_name: gpt-5.1
+    reasoning:
+      effort: high
+      summary: auto
+    text:
+      verbosity: low
   medium_llm:
     _type: nim
     api_key: ${NVIDIA_API_KEY}
     base_url: https://9adef108-3097-4540-ba5f-873a9da8e54f.invocation.api.nvcf.nvidia.com/v1
     max_tokens: 16000
     model_name: openai/gpt-oss-120b
-    temperature: 1
-    top_p: 1
   reasoning_llm:
     _type: nim
     api_key: ${NVIDIA_API_KEY}
