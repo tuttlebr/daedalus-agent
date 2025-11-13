@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { IconPlus, IconX, IconPaperclip, IconCamera, /* IconMicrophone, */ IconBrain } from '@tabler/icons-react'; // Microphone icon commented out - Voice recording disabled
 
 interface QuickActionsPopupProps {
@@ -17,6 +18,9 @@ export const QuickActionsPopup: React.FC<QuickActionsPopupProps> = ({
   className = '',
 }) => {
   const [isOpen, setIsOpen] = useState(false);
+  const [popupPosition, setPopupPosition] = useState({ top: 0, left: 0, positionAbove: true });
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const [mounted, setMounted] = useState(false);
 
   const actions = [
     {
@@ -73,10 +77,47 @@ export const QuickActionsPopup: React.FC<QuickActionsPopupProps> = ({
     };
   }, [isOpen]);
 
+  // Mount check for portal
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  // Calculate popup position when opened
+  useEffect(() => {
+    if (isOpen && buttonRef.current) {
+      const rect = buttonRef.current.getBoundingClientRect();
+      const popupHeight = 100; // Approximate height of popup
+      const spacing = 12;
+      const viewportHeight = window.innerHeight;
+
+      // Check if there's enough space above the button
+      const spaceAbove = rect.top;
+      const spaceBelow = viewportHeight - rect.bottom;
+      const positionAbove = spaceAbove >= popupHeight || spaceAbove >= spaceBelow;
+
+      if (positionAbove) {
+        // Position above the button
+        setPopupPosition({
+          top: rect.top - spacing,
+          left: rect.left,
+          positionAbove: true,
+        });
+      } else {
+        // Position below the button
+        setPopupPosition({
+          top: rect.bottom + spacing,
+          left: rect.left,
+          positionAbove: false,
+        });
+      }
+    }
+  }, [isOpen]);
+
   return (
     <>
       {/* Main + Button */}
       <button
+        ref={buttonRef}
         onClick={() => setIsOpen(!isOpen)}
         className={`
           relative flex h-10 w-10 items-center justify-center rounded-full
@@ -85,7 +126,7 @@ export const QuickActionsPopup: React.FC<QuickActionsPopupProps> = ({
           hover:border-nvidia-green/50 hover:bg-white/30 hover:text-nvidia-green
           dark:border-white/10 dark:bg-white/10 dark:text-white/80
           dark:hover:border-nvidia-green/60 dark:hover:text-nvidia-green
-          ${isOpen ? 'z-50' : ''}
+          ${isOpen ? 'z-[60]' : 'z-20'}
           ${className}
         `}
         aria-label={isOpen ? "Close quick actions" : "Quick actions"}
@@ -94,67 +135,75 @@ export const QuickActionsPopup: React.FC<QuickActionsPopupProps> = ({
         <IconPlus size={24} className={`transition-transform duration-200 ${isOpen ? 'rotate-45' : ''}`} />
       </button>
 
-      {/* Overlay */}
-      {isOpen && (
-        <div
-          className="fixed inset-0 z-40 backdrop-blur-sm animate-fade-in"
-          onClick={() => setIsOpen(false)}
-          aria-hidden="true"
-        />
-      )}
+      {/* Overlay and Popup Menu - rendered via portal */}
+      {mounted && isOpen && createPortal(
+        <>
+          {/* Overlay */}
+          <div
+            className="fixed inset-0 z-[9998] backdrop-blur-sm animate-fade-in"
+            onClick={() => setIsOpen(false)}
+            aria-hidden="true"
+          />
 
-      {/* Popup Menu */}
-      {isOpen && (
-        <div
-          className={`
-            absolute bottom-full left-0 z-50 mb-3
-            rounded-2xl backdrop-blur-xl
-            bg-white/80 dark:bg-white/10
-            border border-white/20 dark:border-white/10
-            shadow-[0_8px_24px_rgba(0,0,0,0.1)] dark:shadow-[0_8px_24px_rgba(0,0,0,0.2)]
-            animate-slide-up origin-bottom-left
-            min-w-[240px]
-          `}
-          role="menu"
-          aria-orientation="horizontal"
-        >
-          <div className="grid grid-cols-4 gap-2 p-3">
-            {actions.map((action, index) => (
-              <button
-                key={action.id}
-                onClick={action.onClick}
-                className={`
-                  relative flex items-center justify-center rounded-xl p-2
-                  transition-all duration-150
-                  hover:bg-white/20 dark:hover:bg-white/10
-                  ${action.isActive ? 'bg-nvidia-green/20 dark:bg-nvidia-green/15' : ''}
-                `}
-                role="menuitem"
-              >
-                <div
+          {/* Popup Menu */}
+          <div
+            className={`
+              fixed z-[9999]
+              rounded-2xl backdrop-blur-xl
+              bg-white/80 dark:bg-white/10
+              border border-white/20 dark:border-white/10
+              shadow-[0_8px_24px_rgba(0,0,0,0.1)] dark:shadow-[0_8px_24px_rgba(0,0,0,0.2)]
+              ${popupPosition.positionAbove ? 'animate-slide-up origin-bottom-left' : 'animate-slide-down origin-top-left'}
+              min-w-[240px]
+            `}
+            style={{
+              top: `${popupPosition.top}px`,
+              left: `${popupPosition.left}px`,
+              transform: popupPosition.positionAbove ? 'translateY(-100%)' : 'translateY(0)',
+            }}
+            role="menu"
+            aria-orientation="horizontal"
+            onClick={(e: React.MouseEvent) => e.stopPropagation()}
+          >
+            <div className="grid grid-cols-3 gap-2 p-3">
+              {actions.map((action, index) => (
+                <button
+                  key={action.id}
+                  onClick={action.onClick}
                   className={`
-                    flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full
+                    relative flex items-center justify-center rounded-xl p-2
                     transition-all duration-150
-                    ${action.isActive
-                      ? 'bg-nvidia-green text-white shadow-[0_0_15px_rgba(118,185,0,0.5)]'
-                      : 'bg-white/20 text-neutral-700 dark:bg-white/10 dark:text-white/90 hover:bg-white/30 dark:hover:bg-white/20'
-                    }
+                    hover:bg-white/20 dark:hover:bg-white/10
+                    ${action.isActive ? 'bg-nvidia-green/20 dark:bg-nvidia-green/15' : ''}
                   `}
+                  role="menuitem"
                 >
-                  {action.icon}
-                </div>
-                {action.isToggle && (
                   <div
                     className={`
-                      absolute top-0 right-0 h-2.5 w-2.5 rounded-full transition-colors
-                      ${action.isActive ? 'bg-nvidia-green shadow-[0_0_8px_rgba(118,185,0,0.8)]' : 'bg-white/40 dark:bg-white/30'}
+                      flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full
+                      transition-all duration-150
+                      ${action.isActive
+                        ? 'bg-nvidia-green text-white shadow-[0_0_15px_rgba(118,185,0,0.5)]'
+                        : 'bg-white/20 text-neutral-700 dark:bg-white/10 dark:text-white/90 hover:bg-white/30 dark:hover:bg-white/20'
+                      }
                     `}
-                  />
-                )}
-              </button>
-            ))}
+                  >
+                    {action.icon}
+                  </div>
+                  {action.isToggle && (
+                    <div
+                      className={`
+                        absolute top-0 right-0 h-2.5 w-2.5 rounded-full transition-colors
+                        ${action.isActive ? 'bg-nvidia-green shadow-[0_0_8px_rgba(118,185,0,0.8)]' : 'bg-white/40 dark:bg-white/30'}
+                      `}
+                    />
+                  )}
+                </button>
+              ))}
+            </div>
           </div>
-        </div>
+        </>,
+        document.body
       )}
     </>
   );

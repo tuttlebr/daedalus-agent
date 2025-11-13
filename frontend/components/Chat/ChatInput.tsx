@@ -708,6 +708,7 @@ export const ChatInput: React.FC<Props> = ({
           maxWidth: '100%',
           minWidth: 0,
           overflowX: 'hidden',
+          overflowY: 'visible',
           // Prevent iOS keyboard push behavior
           WebkitTransform: 'translateZ(0)',
           transform: 'translateZ(0)',
@@ -715,15 +716,15 @@ export const ChatInput: React.FC<Props> = ({
       >
         <div className="flex w-full flex-col" style={{ width: '100%', maxWidth: '100%', minWidth: 0 }}>
           {/* Input Container */}
-          <div className="w-full" style={{ width: '100%', maxWidth: '100%', minWidth: 0 }}>
-            <div className="relative" style={{ width: '100%', maxWidth: '100%', minWidth: 0 }}>
+          <div className="w-full" style={{ width: '100%', maxWidth: '100%', minWidth: 0, padding: '12px', overflow: 'visible' }}>
+            <div className="relative" style={{ width: '100%', maxWidth: '100%', minWidth: 0, overflow: 'visible' }}>
               {/* Main input wrapper with glass effect */}
               <div
                 className={`relative flex items-center w-full rounded-2xl apple-glass backdrop-blur-xl border ${useDeepThinker ? 'border-nvidia-green/60 shadow-[0_0_20px_rgba(118,185,0,0.4),0_8px_32px_rgba(0,0,0,0.12)] dark:shadow-[0_0_20px_rgba(118,185,0,0.4),0_8px_32px_rgba(0,0,0,0.24)]' : 'border-white/10 dark:border-white/5 shadow-[0_8px_32px_rgba(0,0,0,0.12)] dark:shadow-[0_8px_32px_rgba(0,0,0,0.24)]'} ${inputFile && (imageRef || pdfRefs.length > 0 || inputFileContentCompressed) ? 'flex-col items-stretch' : ''}`}
                 style={{ position: 'relative', zIndex: 1, width: '100%', maxWidth: '100%', minWidth: 0 }}
               >
                 {/* Quick Actions Button - centered with textarea */}
-                <div className="absolute left-2 sm:left-3 top-1/2 -translate-y-1/2 z-20 w-9 h-9 sm:w-10 sm:h-10">
+                <div className="absolute left-2 sm:left-3 top-1/2 -translate-y-1/2 z-20" style={{ overflow: 'visible' }}>
                   <QuickActionsPopup
                   onAttachFile={triggerFileUpload}
                   onTakePhoto={triggerPhotoUpload}
