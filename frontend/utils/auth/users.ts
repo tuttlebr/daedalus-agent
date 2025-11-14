@@ -55,17 +55,21 @@ function loadAuthConfig(): AuthConfig {
     return { users: envUsers };
   }
 
-  // Otherwise, try to load from file
+  // Otherwise, try to load from file (DEPRECATED: Use environment variables instead)
   try {
     const configPath = path.join(process.cwd(), 'frontend', 'auth-passwords.json');
     const configData = fs.readFileSync(configPath, 'utf-8');
+    console.warn('WARNING: Loading authentication from auth-passwords.json is deprecated.');
+    console.warn('WARNING: This file contains plaintext passwords and should not be committed to source control.');
+    console.warn('WARNING: Please migrate to environment variables (AUTH_USERNAME, AUTH_PASSWORD, etc.)');
     console.log('Loaded authentication configuration from auth-passwords.json');
     return JSON.parse(configData) as AuthConfig;
   } catch (error) {
     console.error('No authentication configuration found.');
-    console.error('Please either:');
-    console.error('1. Set AUTH_USERNAME and AUTH_PASSWORD environment variables, or');
-    console.error('2. Create frontend/auth-passwords.json from the template file');
+    console.error('Please configure authentication using environment variables:');
+    console.error('  - Single user: AUTH_USERNAME, AUTH_PASSWORD, AUTH_NAME');
+    console.error('  - Multiple users: AUTH_USER_1_USERNAME, AUTH_USER_1_PASSWORD, etc.');
+    console.error('See env.example for configuration examples.');
     // Return empty configuration if no auth is configured
     return { users: [] };
   }
