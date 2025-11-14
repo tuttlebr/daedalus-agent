@@ -602,9 +602,9 @@ llms:
     api_type: responses
     base_url: https://api.openai.com/v1
     max_tokens: 24000
-    model_name: gpt-5.1
+    model_name: gpt-5
     reasoning:
-      effort: high
+      effort: medium
       summary: auto
     text:
       verbosity: low

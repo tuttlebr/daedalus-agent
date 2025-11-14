@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { IconUser, IconLock, IconLoader, IconAlertCircle } from '@tabler/icons-react';
 import { useRouter } from 'next/router';
 import toast from 'react-hot-toast';
@@ -10,6 +10,32 @@ export const LoginPage: React.FC = () => {
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
+
+  // SECURITY: Detect and clear credential query parameters to prevent exposure
+  useEffect(() => {
+    const { query } = router;
+    if (query.username || query.password) {
+      // Log security warning (client-side only, no sensitive data sent)
+      console.warn('[SECURITY] Credentials detected in URL query parameters. Clearing for security.');
+
+      // Show warning to user
+      toast.error('Security: Credentials should not be in the URL. Please use the login form.');
+
+      // Clear query parameters by redirecting to clean URL
+      const cleanQuery = { ...query };
+      delete cleanQuery.username;
+      delete cleanQuery.password;
+
+      router.replace(
+        {
+          pathname: router.pathname,
+          query: cleanQuery,
+        },
+        undefined,
+        { shallow: true }
+      );
+    }
+  }, [router]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

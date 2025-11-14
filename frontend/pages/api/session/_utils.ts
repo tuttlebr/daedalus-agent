@@ -10,16 +10,19 @@ export function getOrSetSessionId(req: NextApiRequest, res: NextApiResponse): st
   let sid = cookies[COOKIE_NAME];
   if (!sid) {
     sid = randomUUID();
-    // Only use secure cookies if explicitly running on HTTPS
+    // SECURITY: Ensure secure cookies in production/HTTPS environments
     // Check for HTTPS via x-forwarded-proto header (common in proxies) or protocol
     const isSecure = req.headers['x-forwarded-proto'] === 'https' ||
                      (req.connection as any)?.encrypted ||
-                     process.env.FORCE_SECURE_COOKIES === 'true';
+                     process.env.FORCE_SECURE_COOKIES === 'true' ||
+                     process.env.NODE_ENV === 'production';
 
+    // SECURITY: Use strict SameSite for better CSRF protection
+    // HttpOnly prevents XSS attacks, Secure ensures HTTPS-only transmission
     res.setHeader('Set-Cookie', cookie.serialize(COOKIE_NAME, sid, {
-      httpOnly: true,
-      sameSite: 'lax',
-      secure: isSecure,
+      httpOnly: true, // Prevent JavaScript access to cookie
+      sameSite: 'strict', // Enhanced CSRF protection (changed from 'lax')
+      secure: isSecure, // Only send over HTTPS
       path: '/',
       maxAge: 60 * 60 * 24 * 7, // 7 days
     }));

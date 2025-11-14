@@ -32,3 +32,6 @@ yarn.lock
 
 # PyCharm build files
 .idea/
+
+# Security: Plaintext passwords should not be committed
+auth-passwords.json

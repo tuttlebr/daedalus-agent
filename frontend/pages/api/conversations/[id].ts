@@ -3,6 +3,16 @@ import { getRedis, sessionKey, jsonGet, jsonSetWithExpiry, jsonDel } from '../se
 import { getSession } from '@/utils/auth/session';
 
 /**
+ * Verify that a user owns a conversation by checking if the conversation ID
+ * exists in the user's conversations set in Redis.
+ */
+async function verifyConversationOwnership(username: string, conversationId: string): Promise<boolean> {
+  const redis = getRedis();
+  const userConversationsKey = sessionKey(['user', username, 'conversations']);
+  return await redis.sismember(userConversationsKey, conversationId) === 1;
+}
+
+/**
  * Endpoint for conversation operations:
  * GET: Get latest conversation state including any async job results.
  * PUT: Save conversation state.
@@ -28,7 +38,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     try {
       // Fetch existing conversation to merge with
-      const existingData = await jsonGet(conversationKey) || {};
+      const existingData = await jsonGet(conversationKey);
+
+      // If conversation exists, verify ownership before allowing updates
+      if (existingData) {
+        const ownsConversation = await verifyConversationOwnership(session.username, id);
+        if (!ownsConversation) {
+          return res.status(403).json({ error: 'Forbidden: You do not have access to this conversation' });
+        }
+      }
 
       const dataToSave = {
         ...existingData,
@@ -39,7 +57,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       // Save the merged conversation state (expire after 7 days)
       await jsonSetWithExpiry(conversationKey, dataToSave, 60 * 60 * 24 * 7);
 
-      // Add conversation to user's set of conversations
+      // Add conversation to user's set of conversations (if not already present)
       await redis.sadd(userConversationsKey, id);
 
       return res.status(200).json({ success: true });
@@ -49,6 +67,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
   } else if (req.method === 'DELETE') {
     try {
+      // Verify ownership before allowing deletion
+      const ownsConversation = await verifyConversationOwnership(session.username, id);
+      if (!ownsConversation) {
+        return res.status(403).json({ error: 'Forbidden: You do not have access to this conversation' });
+      }
+
       // Delete the conversation key
       await jsonDel(conversationKey);
 
@@ -62,6 +86,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
   } else if (req.method === 'GET') {
     try {
+      // Verify ownership before allowing access
+      const ownsConversation = await verifyConversationOwnership(session.username, id);
+      if (!ownsConversation) {
+        return res.status(403).json({ error: 'Forbidden: You do not have access to this conversation' });
+      }
+
       // First check for saved conversation data
       const conversationData = await jsonGet(conversationKey);
 

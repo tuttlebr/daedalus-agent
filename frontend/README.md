@@ -52,13 +52,24 @@ docker run --env-file .env -p 3000:3000 daedalus-ui
 ## Configuration
 
 ### Environment Variables
+**IMPORTANT:** Authentication credentials should be configured using environment variables only. Do not commit plaintext passwords to source control.
+
 Configure the application using environment variables or a `.env` file:
 
 ```bash
-# Authentication
+# Authentication (REQUIRED - Use environment variables, not auth-passwords.json)
+# Single user setup:
 AUTH_USERNAME=admin
 AUTH_PASSWORD=your-secure-password
 AUTH_NAME=Administrator
+
+# Multiple users setup:
+# AUTH_USER_1_USERNAME=user1
+# AUTH_USER_1_PASSWORD=secure-password-1
+# AUTH_USER_1_NAME=User One
+# AUTH_USER_2_USERNAME=user2
+# AUTH_USER_2_PASSWORD=secure-password-2
+# AUTH_USER_2_NAME=User Two
 
 # Redis Configuration
 REDIS_HOST=localhost
@@ -67,6 +78,8 @@ REDIS_PORT=6379
 # Backend API
 API_URL=http://localhost:8000
 ```
+
+**Security Note:** The `auth-passwords.json` file is deprecated and should not be used in production. Always use environment variables for authentication credentials. See `env.example` for complete configuration examples.
 
 ### HTTP API Connection
 Settings can be configured by selecting the `Settings` icon located on the bottom left corner of the home page.
