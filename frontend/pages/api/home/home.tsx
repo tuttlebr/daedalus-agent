@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { GetServerSideProps } from 'next';
 import { useTranslation } from 'next-i18next';
@@ -28,9 +28,10 @@ import { FolderInterface, FolderType } from '@/types/folder';
 
 import { Chat } from '@/components/Chat/Chat';
 import { Chatbar } from '@/components/Chatbar/Chatbar';
-import { IconMenu2, IconX } from '@tabler/icons-react';
 import { ProtectedRoute } from '@/components/Auth/ProtectedRoute';
 import { MemoryWarning } from '@/components/MemoryWarning';
+import { AdaptiveNav } from '@/components/UI/AdaptiveNav';
+import { GlassPanel } from '@/components/UI/GlassPanel';
 
 import HomeContext from './home.context';
 import { HomeInitialState, initialState } from './home.state';
@@ -56,6 +57,7 @@ const Home = (props: any) => {
       selectedConversation,
       showChatbar,
       useDeepThinker,
+      enableBackgroundProcessing,
       // showVoiceRecorder, // COMMENTED OUT - Voice recording disabled
     },
     dispatch,
@@ -66,6 +68,55 @@ const Home = (props: any) => {
     onAttachFile?: () => void;
     onTakePhoto?: () => void;
   }>({});
+
+  const toggleSidebarVisibility = () => {
+    const nextValue = !showChatbar;
+    dispatch({
+      field: 'showChatbar',
+      value: nextValue,
+    });
+    setUserSessionItem('showChatbar', nextValue ? 'true' : 'false');
+  };
+
+  const toggleBackgroundProcessing = () => {
+    const nextValue = !enableBackgroundProcessing;
+    dispatch({
+      field: 'enableBackgroundProcessing',
+      value: nextValue,
+    });
+    setUserSessionItem('enableBackgroundProcessing', nextValue ? 'true' : 'false');
+  };
+
+  const toggleDeepThinker = () => {
+    dispatch({ field: 'useDeepThinker', value: !useDeepThinker });
+  };
+
+  const navigationItems = useMemo(
+    () => [
+      {
+        id: 'navigator',
+        label: 'Navigator',
+        hint: showChatbar ? 'Visible' : 'Hidden',
+        active: showChatbar,
+        onSelect: toggleSidebarVisibility,
+      },
+      {
+        id: 'deep-thinker',
+        label: 'Deep Thinker',
+        hint: useDeepThinker ? 'Engaged' : 'Idle',
+        active: useDeepThinker,
+        onSelect: toggleDeepThinker,
+      },
+      {
+        id: 'background-processing',
+        label: 'Background',
+        hint: enableBackgroundProcessing ? 'Active' : 'Paused',
+        active: !!enableBackgroundProcessing,
+        onSelect: toggleBackgroundProcessing,
+      },
+    ],
+    [enableBackgroundProcessing, showChatbar, useDeepThinker],
+  );
 
   const handleSelectConversation = (conversation: Conversation) => {
     dispatch({
@@ -172,12 +223,6 @@ const Home = (props: any) => {
   // EFFECTS  --------------------------------------------
 
   useEffect(() => {
-    if (window.innerWidth < 640) {
-      dispatch({ field: 'showChatbar', value: false });
-    }
-  }, [selectedConversation, dispatch]);
-
-  useEffect(() => {
     workflow = getWorkflowName()
     const settings = getSettings();
     if (settings.theme) {
@@ -192,9 +237,11 @@ const Home = (props: any) => {
     if (showChatbar !== null) {
       dispatch({ field: 'showChatbar', value: showChatbar === 'true' });
     } else {
-      // If no sessionStorage value, use the default from initialState (false)
-      dispatch({ field: 'showChatbar', value: false });
-      setUserSessionItem('showChatbar', 'false');
+      const prefersSidebar = typeof window !== 'undefined'
+        ? window.matchMedia('(min-width: 768px)').matches
+        : false;
+      dispatch({ field: 'showChatbar', value: prefersSidebar });
+      setUserSessionItem('showChatbar', prefersSidebar ? 'true' : 'false');
     }
 
     const chatHistory = getUserSessionItem('chatHistory');
@@ -322,57 +369,87 @@ const Home = (props: any) => {
         </Head>
         {selectedConversation && (
           <main
-            className={`flex h-screen w-screen flex-col text-sm text-white dark:text-white ${lightMode}`}
+            className={`relative flex min-h-[100dvh] w-full flex-col overflow-hidden text-sm text-neutral-900 transition-colors dark:text-white ${lightMode}`}
+            style={{
+              height: '100dvh',
+            }}
           >
-            {/* Mobile Layout */}
-            <div className="relative flex flex-col h-full md:hidden">
-              {/* Menu button - positioned absolutely over chat */}
-              <div className="absolute top-4 left-4 z-50 safe-top">
-                <button
-                  type="button"
-                  onClick={() => dispatch({ field: 'showChatbar', value: !showChatbar })}
-                  className="flex h-11 w-11 items-center justify-center rounded-full bg-black/60 text-white shadow-md backdrop-blur transition-colors duration-200 hover:bg-black/70 focus:outline-none focus-visible:ring-2 focus-visible:ring-nvidia-green"
-                  aria-label={showChatbar ? 'Close menu' : 'Open menu'}
-                >
-                  {showChatbar ? <IconX size={22} /> : <IconMenu2 size={22} />}
-                </button>
-              </div>
-
-              {/* Main chat container - full height with proper spacing */}
-              <div className="flex-1 overflow-hidden">
-                <Chat />
-              </div>
-
-              {/* Slide-over chatbar for mobile */}
-              {showChatbar && (
-                <>
-                  {/* Backdrop overlay */}
-                  <div
-                    className="fixed inset-0 bg-black/50 z-40 md:hidden"
-                    onClick={() => dispatch({ field: 'showChatbar', value: false })}
-                  />
-                  {/* Sidebar panel */}
-                  <div
-                    className="fixed left-0 top-0 bottom-0 w-4/5 max-w-sm z-50 transform transition-transform duration-300 ease-in-out translate-x-0"
-                  >
-                    <div className="relative h-full bg-dark-bg-secondary safe-top safe-bottom">
-                      <Chatbar />
-                    </div>
-                  </div>
-                </>
-              )}
+            <div className="pointer-events-none absolute inset-0 z-0 overflow-hidden">
+              <div className="lg-ambient-orb left-[4%] top-[8%]" />
+              <div className="lg-ambient-orb right-[10%] top-[20%]" />
+              <div className="lg-ambient-orb bottom-[12%] left-1/3" />
             </div>
-
-            {/* Desktop Layout */}
-            <div className="hidden md:flex h-full overflow-hidden">
-              <div
-                className={`transition-all duration-300 flex-shrink-0 ${showChatbar ? 'w-[260px]' : 'w-0'}`}
-                data-sidebar-desktop={showChatbar ? 'open' : 'collapsed'}
-              >
-                <Chatbar />
+            <div className="relative z-10 flex flex-1 flex-col">
+              <div className="px-4 pt-6 md:px-10">
+                <AdaptiveNav
+                  items={navigationItems}
+                  orientation="horizontal"
+                  floating
+                  aria-label="Global system controls"
+                  className="mx-auto max-w-4xl"
+                />
               </div>
-              <div className="flex flex-1 min-w-0 overflow-hidden">
-                <Chat />
+
+              {/* Mobile Layout */}
+              <div className="relative flex flex-1 flex-col gap-4 overflow-hidden p-3 md:hidden">
+                <GlassPanel depth="raised" className="flex min-h-0 flex-1 flex-col">
+                  <Chat />
+                </GlassPanel>
+
+                {/* Slide-over chatbar for mobile */}
+                {showChatbar && (
+                  <>
+                    <div
+                      className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm transition-opacity md:hidden"
+                      role="presentation"
+                      onClick={toggleSidebarVisibility}
+                    />
+
+                    <aside
+                      className="fixed inset-y-0 left-0 z-50 flex w-4/5 max-w-sm flex-col p-3 text-white md:hidden"
+                      role="dialog"
+                      aria-modal="true"
+                      aria-label="Conversation menu"
+                    >
+                      <GlassPanel
+                        depth="floating"
+                        glow="soft"
+                        className="flex h-full flex-col overflow-hidden"
+                      >
+                        <Chatbar />
+                      </GlassPanel>
+                    </aside>
+                  </>
+                )}
+              </div>
+
+              {/* Desktop Layout */}
+              <div className="hidden h-full min-h-0 gap-6 px-6 pb-8 pt-4 md:grid md:flex-1 md:grid-cols-[clamp(16rem,22vw,22rem),1fr] md:px-10 md:pb-12 md:pt-6">
+                <aside
+                  className={`relative h-full overflow-visible transition-[max-width,opacity] duration-300 ease-out ${showChatbar ? 'opacity-100' : 'pointer-events-none opacity-0'}`}
+                  style={{
+                    maxWidth: showChatbar ? 'clamp(16rem, 22vw, 22rem)' : 0,
+                    width: showChatbar ? 'clamp(16rem, 22vw, 22rem)' : 0,
+                  }}
+                  aria-hidden={!showChatbar}
+                >
+                  <GlassPanel
+                    depth="floating"
+                    glow="soft"
+                    className="flex h-full flex-col overflow-hidden"
+                  >
+                    <Chatbar />
+                  </GlassPanel>
+                </aside>
+                <section className="flex min-w-0 flex-col">
+                  <GlassPanel
+                    depth="raised"
+                    glow="soft"
+                    className="flex h-full min-h-0 flex-col overflow-hidden"
+                  >
+                    <Chat />
+                  </GlassPanel>
+                </section>
               </div>
             </div>
           </main>

@@ -54,6 +54,10 @@ function App({ Component, pageProps }: AppProps<{}>) {
 
   return (
     <div className={inter.className}>
+      {/* Skip to main content link for accessibility */}
+      <a href="#main-content" className="skip-link">
+        Skip to main content
+      </a>
       <Toaster
         toastOptions={{
           style: {
