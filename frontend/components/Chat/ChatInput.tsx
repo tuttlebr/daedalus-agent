@@ -20,6 +20,7 @@ import {
   useEffect,
   useRef,
   useState,
+  useId,
 } from 'react';
 
 import type React from 'react';
@@ -101,6 +102,8 @@ export const ChatInput: React.FC<Props> = ({
   // const [showVoiceRecorder, setShowVoiceRecorder] = useState(false); // COMMENTED OUT - Voice recording disabled
   const [selectedCollection, setSelectedCollection] = useState<string>('');
   // const recognitionRef = useRef<any>(null); // COMMENTED OUT - Voice recording disabled
+  const composerStatusId = useId();
+  const composerTextareaId = `${composerStatusId}-textarea`;
 
   const triggerFileUpload = useCallback(() => {
     if (fileInputRef.current) {
@@ -435,10 +438,23 @@ export const ChatInput: React.FC<Props> = ({
   };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    // Enter to send (desktop), Shift+Enter for new line
     if (e.key === 'Enter' && !isTyping && !isMobile() && !e.shiftKey) {
       e.preventDefault();
-      handleSend();
-    } else if (e.key === '/' && e.metaKey) {
+      if (content.trim() || inputFile || imageRef || pdfRefs.length > 0) {
+        handleSend();
+      }
+    } 
+    // Escape to clear or cancel
+    else if (e.key === 'Escape') {
+      if (inputFile || imageRef || pdfRefs.length > 0) {
+        handleInputFileDelete();
+      } else if (content) {
+        setContent('');
+      }
+    }
+    // Command/Ctrl + / for shortcuts (prevent default)
+    else if (e.key === '/' && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
     }
   };
@@ -611,11 +627,21 @@ export const ChatInput: React.FC<Props> = ({
     }
   };
 
+  // Auto-grow textarea with smooth transitions
   useEffect(() => {
     if (textareaRef && textareaRef.current) {
-      textareaRef.current.style.height = 'inherit';
-      textareaRef.current.style.height = `${textareaRef.current?.scrollHeight}px`;
-      textareaRef.current.style.overflow = `${textareaRef?.current?.scrollHeight > 400 ? 'auto' : 'hidden'}`;
+      // Reset height to get accurate scrollHeight
+      textareaRef.current.style.height = 'auto';
+      const scrollHeight = textareaRef.current.scrollHeight;
+      const minHeight = 54; // min-h-[54px]
+      const maxHeight = 320; // max-h-[320px]
+      
+      // Set height within bounds
+      const newHeight = Math.min(Math.max(scrollHeight, minHeight), maxHeight);
+      textareaRef.current.style.height = `${newHeight}px`;
+      
+      // Enable scrolling if content exceeds max height
+      textareaRef.current.style.overflowY = scrollHeight > maxHeight ? 'auto' : 'hidden';
     }
   }, [content, textareaRef]);
 
@@ -688,6 +714,9 @@ export const ChatInput: React.FC<Props> = ({
   // Use a ref to maintain stable positioning
   const inputContainerRef = useRef<HTMLDivElement>(null);
 
+  const canSend = Boolean(content.trim()) || Boolean(inputFile) || Boolean(imageRef) || pdfRefs.length > 0;
+  const sendButtonDisabled = !messageIsStreaming && !canSend;
+
   return (
     <>
       {/* Voice Recorder Modal - COMMENTED OUT - Voice recording disabled */}
@@ -715,13 +744,15 @@ export const ChatInput: React.FC<Props> = ({
         }}
       >
         <div className="flex w-full flex-col" style={{ width: '100%', maxWidth: '100%', minWidth: 0 }}>
-          {/* Input Container */}
-          <div className="w-full" style={{ width: '100%', maxWidth: '100%', minWidth: 0, padding: '12px', overflow: 'visible' }}>
+          {/* Input Container - 8-12px padding (Apple design) */}
+          <div className="w-full px-2 sm:px-3" style={{ width: '100%', maxWidth: '100%', minWidth: 0, paddingTop: '12px', paddingBottom: '12px', overflow: 'visible' }}>
             <div className="relative" style={{ width: '100%', maxWidth: '100%', minWidth: 0, overflow: 'visible' }}>
-              {/* Main input wrapper with glass effect */}
+              {/* Main input wrapper with liquid glass effect */}
               <div
-                className={`relative flex items-center w-full rounded-2xl apple-glass backdrop-blur-xl border ${useDeepThinker ? 'border-nvidia-green/60 shadow-[0_0_20px_rgba(118,185,0,0.4),0_8px_32px_rgba(0,0,0,0.12)] dark:shadow-[0_0_20px_rgba(118,185,0,0.4),0_8px_32px_rgba(0,0,0,0.24)]' : 'border-white/10 dark:border-white/5 shadow-[0_8px_32px_rgba(0,0,0,0.12)] dark:shadow-[0_8px_32px_rgba(0,0,0,0.24)]'} ${inputFile && (imageRef || pdfRefs.length > 0 || inputFileContentCompressed) ? 'flex-col items-stretch' : ''}`}
+                className={`relative flex items-center w-full liquid-glass liquid-glass-medium focus-ring-glass ${useDeepThinker ? 'border-nvidia-green/60 shadow-[0_0_20px_rgba(118,185,0,0.4),0_8px_32px_rgba(0,0,0,0.12)] dark:shadow-[0_0_20px_rgba(118,185,0,0.4),0_8px_32px_rgba(0,0,0,0.24)]' : ''} ${inputFile && (imageRef || pdfRefs.length > 0 || inputFileContentCompressed) ? 'flex-col items-stretch' : ''}`}
                 style={{ position: 'relative', zIndex: 1, width: '100%', maxWidth: '100%', minWidth: 0 }}
+                aria-live="polite"
+                aria-busy={isUploadingImage}
               >
                 {/* Quick Actions Button - centered with textarea */}
                 <div className="absolute left-2 sm:left-3 top-1/2 -translate-y-1/2 z-20" style={{ overflow: 'visible' }}>
@@ -734,7 +765,13 @@ export const ChatInput: React.FC<Props> = ({
                 </div>
                 <textarea
                   ref={textareaRef}
-                  className="m-0 w-full resize-none bg-transparent py-4 pr-12 sm:pr-14 md:pr-20 pl-12 sm:pl-16 text-[15px] leading-relaxed text-neutral-800 outline-none placeholder:text-neutral-500 focus:outline-none dark:text-white dark:placeholder:text-white/40 transition-colors"
+                  id={composerTextareaId}
+                  className="m-0 w-full resize-none bg-transparent py-4 pr-12 sm:pr-14 md:pr-20 pl-12 sm:pl-16 text-[15px] leading-relaxed text-neutral-800 outline-none placeholder:text-neutral-500 focus:outline-none dark:text-white dark:placeholder:text-white/40 transition-all duration-300"
+                  role="textbox"
+                  aria-label="Message input"
+                  aria-multiline="true"
+                  aria-required="false"
+                  aria-describedby={composerStatusId}
                 style={{
                   resize: 'none',
                   bottom: `${textareaRef?.current?.scrollHeight}px`,
@@ -748,9 +785,10 @@ export const ChatInput: React.FC<Props> = ({
                   // iOS-specific fixes
                   WebkitAppearance: 'none',
                   WebkitTransform: 'translateZ(0)',
-                  fontSize: '16px', // Prevents iOS zoom on focus
+                  fontSize: 'clamp(1rem, 0.95rem + 0.2vw, 1.1rem)',
+                  lineHeight: 1.5,
                 }}
-                placeholder={t('Send a message') as unknown as string}
+                  placeholder={t('Send a message') as unknown as string}
                 value={content}
                 rows={1}
                 onCompositionStart={() => setIsTyping(true)}
@@ -817,25 +855,59 @@ export const ChatInput: React.FC<Props> = ({
                     onPaste: handlePaste,
                   })}
                 />
-                {/* Send/Stop Button - centered with textarea */}
+                {/* Send/Stop Button - centered with textarea - ≥44×44px touch target with liquid glass */}
                 <button
-                  className={`absolute right-3 top-1/2 -translate-y-1/2 rounded-full p-2.5 text-white shadow-lg transition-colors duration-150 ${
+                  type="button"
+                  className={`absolute right-3 top-1/2 -translate-y-1/2 rounded-full text-white shadow-lg transition-all duration-300 min-h-[44px] min-w-[44px] flex items-center justify-center ${
                     messageIsStreaming
-                      ? 'bg-red-500 hover:bg-red-600 dark:bg-red-500 dark:hover:bg-red-600'
-                      : 'bg-neutral-900/90 hover:bg-neutral-800 dark:bg-nvidia-green dark:hover:bg-nvidia-green/90'
+                      ? 'bg-red-500 hover:bg-red-600 active:scale-90 dark:bg-red-500 dark:hover:bg-red-600 animate-pulse liquid-glass-subtle'
+                      : sendButtonDisabled
+                      ? 'bg-neutral-400/50 cursor-not-allowed opacity-50 dark:bg-neutral-600/50'
+                      : 'liquid-glass liquid-glass-medium dark:bg-nvidia-green/90 dark:hover:bg-nvidia-green active:scale-95'
                   }`}
-                  onClick={messageIsStreaming ? handleStop : handleSend}
-                  title={messageIsStreaming ? 'Stop generating' : 'Send message'}
+                  onClick={(e) => {
+                    // Disable send if no content
+                    if (!messageIsStreaming && sendButtonDisabled) {
+                      return;
+                    }
+                    // Haptic feedback (if supported)
+                    if ('vibrate' in navigator) {
+                      navigator.vibrate(10);
+                    }
+                    // Scale animation on click
+                    e.currentTarget.style.transform = 'scale(0.9)';
+                    setTimeout(() => {
+                      e.currentTarget.style.transform = '';
+                    }, 150);
+                    if (messageIsStreaming) {
+                      handleStop();
+                    } else {
+                      handleSend();
+                    }
+                  }}
+                  disabled={sendButtonDisabled}
+                  aria-disabled={sendButtonDisabled}
+                  aria-busy={messageIsStreaming || isUploadingImage}
+                  title={messageIsStreaming ? 'Stop generating' : sendButtonDisabled ? 'Enter a message to send' : 'Send message'}
+                  aria-label={messageIsStreaming ? 'Stop generating' : sendButtonDisabled ? 'Enter a message to send' : 'Send message'}
+                  aria-controls={composerTextareaId}
                 >
                   {messageIsStreaming ? (
-                    <IconPlayerStopFilled size={18} />
+                    <IconPlayerStopFilled size={18} className="animate-pulse" />
                   ) : (
                     <IconSend size={18} />
                   )}
                 </button>
+                <span id={composerStatusId} className="sr-only" aria-live="polite">
+                  {messageIsStreaming
+                    ? 'Assistant is responding. Press the button to stop.'
+                    : sendButtonDisabled
+                      ? 'Type a message or attach a file to enable the send button.'
+                      : 'Send button ready.'}
+                </span>
               </div>
               {inputFile && (imageRef || pdfRefs.length > 0 || inputFileContentCompressed) && (
-                <div className="w-full border-t border-white/10 dark:border-white/5 mt-2">
+                <div className="w-full border-t border-white/10 dark:border-white/5 mt-2 animate-slide-up-glass">
                   <div className="flex w-full flex-col gap-3 p-3 text-neutral-800 dark:text-white">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
@@ -844,13 +916,23 @@ export const ChatInput: React.FC<Props> = ({
                         </span>
                         <div className="flex flex-col">
                           <span className="text-sm font-medium text-neutral-700 dark:text-neutral-50">{inputFile}</span>
-                          {isUploadingImage && <span className="text-xs text-neutral-500">Uploading…</span>}
+                          {isUploadingImage && (
+                            <span className="text-xs text-neutral-500" aria-live="polite">
+                              Uploading…
+                            </span>
+                          )}
                         </div>
                       </div>
                       <button
                         type="button"
-                        className="rounded-full p-2 text-neutral-400 transition-colors duration-150 hover:bg-white/20 hover:text-red-500 dark:hover:bg-white/10"
-                        onClick={handleInputFileDelete}
+                        className="rounded-full min-h-[44px] min-w-[44px] flex items-center justify-center text-neutral-400 transition-all duration-300 liquid-glass-subtle hover:bg-white/20 hover:text-red-500 active:scale-95 dark:hover:bg-white/10"
+                        onClick={(e) => {
+                          // Haptic feedback (if supported)
+                          if ('vibrate' in navigator) {
+                            navigator.vibrate(10);
+                          }
+                          handleInputFileDelete();
+                        }}
                         aria-label="Remove attachment"
                       >
                         <IconTrash size={16} />

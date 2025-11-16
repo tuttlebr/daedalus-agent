@@ -10,7 +10,7 @@ import {
   IconClock,
 } from '@tabler/icons-react';
 import classNames from 'classnames';
-import { FC, memo, useContext, useEffect, useMemo, useRef, useState, useCallback } from 'react';
+import { FC, memo, useContext, useEffect, useMemo, useRef, useState, useCallback, CSSProperties } from 'react';
 import { Message } from '@/types/chat';
 import HomeContext from '@/pages/api/home/home.context';
 import { MemoizedReactMarkdown } from '../Markdown/MemoizedReactMarkdown';
@@ -137,7 +137,12 @@ export const ChatMessage: FC<Props> = memo(({ message, messageIndex }) => {
   //   };
   // }, []);
 
-  const wrapperClasses = cx('group px-3 sm:px-4 md:px-6 py-2 sm:py-3', 'min-w-0', 'max-w-full', 'overflow-hidden');
+  const wrapperClasses = cx(
+    'group px-4 sm:px-6 lg:px-8 py-2 sm:py-3',
+    'min-w-0',
+    'max-w-full',
+    'overflow-hidden'
+  );
 
   const rowClasses = cx(
     'mx-auto flex w-full gap-2 sm:gap-3 py-1.5 sm:py-2',
@@ -154,22 +159,27 @@ export const ChatMessage: FC<Props> = memo(({ message, messageIndex }) => {
   );
 
   const bubbleClasses = cx(
-    'relative',
-    hasIntermediateSteps && isAssistantMessage ? 'max-w-full' : 'max-w-[85%] sm:max-w-[75%] md:max-w-[65%]',
-    'px-3 py-2 sm:px-4 sm:py-3',
-    'text-[14px] sm:text-[15px] leading-relaxed',
-    'break-words break-all', // Ensure long words break
-    'overflow-wrap-anywhere', // Break long words if needed
-    'transition-all duration-200 animate-scale-in',
-    'min-w-0', // Prevent flex overflow
+    'relative isolate',
+    hasIntermediateSteps && isAssistantMessage ? 'max-w-full' : 'max-w-[88%] sm:max-w-[75%] md:max-w-[65%]',
+    'break-words break-all',
+    'overflow-wrap-anywhere',
+    'transition-all duration-300 ease-out',
+    'min-w-0',
     isAssistantMessage
-      ? 'rounded-2xl rounded-bl-md glass text-gray-900 dark:text-gray-100 shadow-sm'
-      : 'rounded-2xl rounded-br-md bg-nvidia-green-dark backdrop-blur-sm text-white shadow-md hover:shadow-glow-green hover:bg-nvidia-green',
-    'hover:shadow-lg'
+      ? 'rounded-[18px] rounded-bl-[10px] bg-[var(--chat-bubble-assistant-bg)] text-[var(--chat-bubble-assistant-text)] shadow-[0_10px_30px_rgba(15,15,15,0.12)] dark:bg-[var(--chat-bubble-assistant-bg-dark)] dark:text-[var(--chat-bubble-assistant-text-dark)] dark:shadow-[0_10px_35px_rgba(0,0,0,0.45)] liquid-glass liquid-glass-subtle'
+      : 'rounded-[18px] rounded-br-[10px] bg-[var(--chat-bubble-user-bg)] text-[var(--chat-bubble-user-text)] shadow-[0_14px_32px_rgba(118,185,0,0.35)] hover:shadow-[0_18px_40px_rgba(118,185,0,0.45)] dark:bg-[var(--chat-bubble-user-bg-dark)] dark:text-[var(--chat-bubble-user-text-dark)]',
+    'will-change-transform',
+    'animate-scale-in-glass'
   );
 
+  const bubbleStyle: CSSProperties = {
+    padding: 'clamp(0.85rem, 0.6rem + 0.4vw, 1.1rem) clamp(1rem, 0.8rem + 0.6vw, 1.5rem)',
+    fontSize: 'clamp(0.95rem, 0.92rem + 0.12vw, 1.05rem)',
+    lineHeight: 1.5,
+  };
+
   const markdownBaseClasses = cx(
-    'prose prose-neutral max-w-none break-words break-all text-[15px] leading-relaxed dark:prose-invert',
+    'prose prose-neutral max-w-none break-words break-all text-[clamp(0.95rem,0.9rem+0.15vw,1.05rem)] leading-relaxed dark:prose-invert',
     '[&>*]:max-w-full [&_*]:break-words [&_*]:break-all',
     '[&_pre]:max-w-full [&_pre]:overflow-x-auto [&_pre]:break-words',
     '[&_code]:break-words [&_code]:break-all [&_code]:whitespace-pre-wrap',
@@ -211,7 +221,7 @@ export const ChatMessage: FC<Props> = memo(({ message, messageIndex }) => {
               <span className="font-medium">Deep Thinker</span>
             </div>
           )}
-          <div className={bubbleClasses}>
+          <div className={bubbleClasses} style={bubbleStyle} role="group" aria-label={message.role === 'assistant' ? 'Assistant message' : 'Your message'}>
             {/* Message time and status */}
             {message.role === 'user' && (
               <div className="flex items-center gap-1 justify-end mt-1 text-[10px] text-white/70">
@@ -300,12 +310,19 @@ export const ChatMessage: FC<Props> = memo(({ message, messageIndex }) => {
             <div className={actionBarClasses}>
               <button
                 className={classNames(
-                  'inline-flex items-center gap-1 rounded-full border border-transparent px-3 py-1 text-xs transition-colors duration-150',
-                  'bg-[var(--action-button-bg)] text-[var(--action-button-text)] hover:bg-[var(--action-button-hover-bg)]',
+                  'inline-flex items-center gap-1 rounded-full border border-transparent px-3 py-1 text-xs transition-all duration-300 min-h-[44px]',
+                  'liquid-glass liquid-glass-subtle focus-ring-glass',
+                  'bg-[var(--action-button-bg)] text-[var(--action-button-text)] hover:bg-[var(--action-button-hover-bg)] active:scale-95',
                   'dark:bg-[var(--action-button-bg-dark)] dark:text-[var(--action-button-text-dark)] dark:hover:bg-[var(--action-button-hover-bg-dark)]',
-                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-neutral-400'
+                  'focus-visible:outline-none'
                 )}
-                onClick={copyOnClick}
+                onClick={(e) => {
+                  // Haptic feedback (if supported)
+                  if ('vibrate' in navigator) {
+                    navigator.vibrate(10);
+                  }
+                  copyOnClick();
+                }}
                 aria-label="Copy message"
                 id={message?.id}
               >

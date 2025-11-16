@@ -23,7 +23,7 @@ const Search: FC<Props> = memo(({ placeholder, searchTerm, onSearch }) => {
     <div className="relative flex items-center">
       <IconSearch className="absolute left-4 text-white/40 z-10" size={18} />
       <input
-        className="w-full flex-1 rounded-xl apple-glass px-4 py-3 pl-10 pr-10 text-[14px] leading-3 text-white placeholder-white/40 focus:border-nvidia-green/40 focus:outline-none focus:ring-1 focus:ring-nvidia-green/40 transition-all duration-200"
+        className="w-full flex-1 rounded-xl liquid-glass liquid-glass-subtle px-4 py-3 pl-10 pr-10 text-[14px] leading-3 text-white placeholder-white/40 focus:border-nvidia-green/40 focus:outline-none focus:ring-1 focus:ring-nvidia-green/40 focus-ring-glass transition-all duration-300"
         type="text"
         placeholder={t(placeholder) || ''}
         value={searchTerm}

@@ -75,6 +75,7 @@ export const Chat = () => {
   const [autoScrollEnabled, setAutoScrollEnabled] = useState<boolean>(true);
   const [showScrollDownButton, setShowScrollDownButton] =
     useState<boolean>(false);
+  const [prefersReducedMotion, setPrefersReducedMotion] = useState<boolean>(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const chatContainerRef = useRef<HTMLDivElement>(null);
@@ -117,6 +118,26 @@ export const Chat = () => {
       saveConversations(conversations);
     }, 1000) // Save at most once per second
   ).current;
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return;
+
+    const mediaQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const updatePreference = (event: MediaQueryListEvent | MediaQueryList) => {
+      setPrefersReducedMotion(event.matches);
+    };
+
+    updatePreference(mediaQuery);
+
+    const listener = (event: MediaQueryListEvent) => updatePreference(event);
+
+    if (typeof mediaQuery.addEventListener === 'function') {
+      mediaQuery.addEventListener('change', listener);
+      return () => mediaQuery.removeEventListener('change', listener);
+    }
+
+    mediaQuery.addListener(listener);
+    return () => mediaQuery.removeListener(listener);
+  }, []);
 
   // Async chat for background processing (PWA mode)
   const {
@@ -1253,10 +1274,14 @@ export const Chat = () => {
       autoScrollTimeoutRef.current = null;
     }
 
-    chatContainerRef.current?.scrollTo({
-      top: chatContainerRef.current.scrollHeight,
-      behavior: 'smooth',
-    });
+    // Smooth scroll to bottom with proper behavior
+    if (chatContainerRef.current) {
+      const scrollBehavior: ScrollBehavior = prefersReducedMotion ? 'auto' : 'smooth';
+      chatContainerRef.current.scrollTo({
+        top: chatContainerRef.current.scrollHeight,
+        behavior: scrollBehavior,
+      });
+    }
     setAutoScrollEnabled(true);
     setShowScrollDownButton(false);
     homeDispatch({ field: 'autoScroll', value: true });
@@ -1270,10 +1295,21 @@ export const Chat = () => {
 
     // Only scroll if auto-scroll is enabled and not manually scrolling
     if (autoScrollEnabled && !isUserScrolling.current && chatContainerRef.current) {
-      // Use requestAnimationFrame for smoother scrolling
+      const scrollBehavior: ScrollBehavior = prefersReducedMotion ? 'auto' : 'smooth';
+      if (prefersReducedMotion) {
+        chatContainerRef.current.scrollTo({
+          top: chatContainerRef.current.scrollHeight,
+          behavior: scrollBehavior,
+        });
+        return;
+      }
+
       requestAnimationFrame(() => {
-        if (messagesEndRef.current && autoScrollEnabled) {
-          messagesEndRef.current.scrollIntoView({ behavior: 'smooth', block: 'end' });
+        if (messagesEndRef.current && autoScrollEnabled && chatContainerRef.current) {
+          chatContainerRef.current.scrollTo({
+            top: chatContainerRef.current.scrollHeight,
+            behavior: scrollBehavior
+          });
         }
       });
     }
@@ -1382,6 +1418,7 @@ export const Chat = () => {
 
   return (
     <div
+      id="main-content"
       className="relative flex h-full flex-col bg-bg-secondary transition-colors duration-300 ease-in-out dark:bg-dark-bg-primary"
       style={{
         paddingTop: 'env(safe-area-inset-top)',
@@ -1411,8 +1448,11 @@ export const Chat = () => {
         }}
       >
         <div
+          id="chat-scroll-region"
           className="flex-1 overflow-y-auto relative momentum-scroll"
           ref={chatContainerRef}
+          role="region"
+          aria-label="Conversation transcript"
           onScroll={handleScroll}
           onTouchStart={(e) => {
             lastTouchY.current = e.touches[0].clientY;
@@ -1456,9 +1496,15 @@ export const Chat = () => {
             WebkitOverflowScrolling: 'touch' as any,
           }}
         >
-          <div className="mx-auto flex h-full w-full max-w-5xl flex-col responsive-px pb-0 pt-4 sm:pt-6" style={{ minWidth: 0, maxWidth: '100%' }}>
+          <div className="mx-auto flex h-full w-full max-w-5xl flex-col pb-0 pt-4 sm:pt-6" style={{ minWidth: 0, maxWidth: '100%', paddingLeft: 'clamp(0rem, 0rem + 0.5vw, 1.5rem)', paddingRight: 'clamp(0rem, 0rem + 0.5vw, 1.5rem)' }}>
             {hasMessages ? (
-              <div className="flex-1 min-h-0">
+              <div 
+                className="flex-1 min-h-0"
+                role="log"
+                aria-live="polite"
+                aria-label="Chat messages"
+                aria-atomic="false"
+              >
                 <VirtualMessageList
                   messages={selectedConversation?.messages || []}
                   containerHeight={
@@ -1492,20 +1538,24 @@ export const Chat = () => {
               ref={messagesEndRef}
               style={{
                 height: isPWA && keyboardOffset > 0
-                  ? `calc(5rem + ${keyboardOffset}px)`
-                  : isMobile() ? '5rem' : '4rem'
+                  ? `calc(3rem + ${keyboardOffset}px)`
+                  : isMobile() ? '3.5rem' : '2.5rem'
               }}
             />
           </div>
         </div>
 
-        {/* Scroll down button with auto-scroll indicator */}
+        {/* Scroll down button with auto-scroll indicator - positioned above keyboard */}
         {showScrollDownButton && (
           <div
-            className="absolute bottom-4 right-2 sm:right-4 flex items-center gap-1.5 sm:gap-2 z-10"
+            className="absolute flex items-center gap-1.5 sm:gap-2 z-10 transition-all duration-200"
             style={{
               maxWidth: 'calc(100% - 1rem)', // Prevent overflow on small screens
               right: 'max(0.5rem, env(safe-area-inset-right, 0.5rem))',
+              // Position above keyboard when visible, otherwise above input
+              bottom: isPWA && keyboardOffset > 0
+                ? `calc(5rem + ${keyboardOffset}px + 1rem)`
+                : isMobile() ? '5.5rem' : '5rem',
             }}
           >
             {!autoScrollEnabled && (
@@ -1514,9 +1564,17 @@ export const Chat = () => {
               </div>
             )}
             <button
-              className="flex h-9 w-9 sm:h-10 sm:w-10 items-center justify-center rounded-full apple-glass backdrop-blur-xl border border-white/20 dark:border-white/10 shadow-[0_8px_32px_rgba(0,0,0,0.12)] dark:shadow-[0_8px_32px_rgba(0,0,0,0.24)] text-neutral-700 dark:text-white/80 transition-all duration-200 hover:bg-white/20 hover:border-nvidia-green/40 flex-shrink-0"
-              onClick={handleScrollDown}
+              type="button"
+              className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-full apple-glass backdrop-blur-xl border border-white/20 dark:border-white/10 shadow-[0_8px_32px_rgba(0,0,0,0.12)] dark:shadow-[0_8px_32px_rgba(0,0,0,0.24)] text-neutral-700 dark:text-white/80 transition-all duration-200 hover:bg-white/20 hover:border-nvidia-green/40 active:scale-95 flex-shrink-0"
+              onClick={(e) => {
+                // Haptic feedback (if supported)
+                if ('vibrate' in navigator) {
+                  navigator.vibrate(10);
+                }
+                handleScrollDown();
+              }}
               aria-label={t('Scroll to bottom') as string}
+              aria-controls="chat-scroll-region"
             >
               <IconArrowDown size={16} className="sm:w-[18px] sm:h-[18px]" />
             </button>

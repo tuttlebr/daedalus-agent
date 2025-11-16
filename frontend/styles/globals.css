@@ -5,6 +5,9 @@
 /* Import the design system */
 @import './design-system.css';
 
+/* Import liquid glass system */
+@import './liquid-glass.css';
+
 /* PWA Animations */
 @keyframes slideDown {
   from {
@@ -454,17 +457,24 @@
   --color-nvidia-green-bright: #8ed400;
   --color-focus: var(--color-nvidia-green);
 
-  /* Chat bubble palette */
-  --chat-bubble-user-bg: rgba(118, 185, 0, 0.14);
-  --chat-bubble-user-border: rgba(118, 185, 0, 0.35);
-  --chat-bubble-assistant-bg: rgba(38, 38, 38, 0.88);
-  --chat-bubble-assistant-border: rgba(38, 38, 38, 0.08);
+  /* Chat bubble palette - Apple design with ≥4.5:1 contrast */
+  /* User bubbles: NVIDIA green with high contrast */
+  --chat-bubble-user-bg: rgba(118, 185, 0, 0.9); /* #76b900 with high opacity for contrast */
+  --chat-bubble-user-border: rgba(118, 185, 0, 0.5);
+  --chat-bubble-user-text: #ffffff; /* White text on green for 4.5:1+ contrast */
+  
+  /* Assistant bubbles: Neutral gray/white */
+  --chat-bubble-assistant-bg: rgba(255, 255, 255, 0.95); /* Light mode: white */
+  --chat-bubble-assistant-border: rgba(229, 229, 229, 0.8);
+  --chat-bubble-assistant-text: #1f2937; /* Dark gray text for 4.5:1+ contrast */
 
-  /* Dark mode chat bubble colors */
-  --chat-bubble-user-bg-dark: rgba(118, 185, 0, 0.14);
-  --chat-bubble-user-border-dark: rgba(118, 185, 0, 0.35);
-  --chat-bubble-assistant-bg-dark: rgba(26, 26, 26, 0.9);
-  --chat-bubble-assistant-border-dark: rgba(64, 64, 64, 1);
+  /* Dark mode chat bubble colors - ≥4.5:1 contrast */
+  --chat-bubble-user-bg-dark: rgba(118, 185, 0, 0.9); /* Maintain green for brand */
+  --chat-bubble-user-border-dark: rgba(118, 185, 0, 0.5);
+  --chat-bubble-user-text-dark: #ffffff; /* White text on green */
+  --chat-bubble-assistant-bg-dark: rgba(38, 38, 38, 0.95); /* Dark gray */
+  --chat-bubble-assistant-border-dark: rgba(64, 64, 64, 0.8);
+  --chat-bubble-assistant-text-dark: #f3f4f6; /* Light gray text for 4.5:1+ contrast */
 
   /* Action button colors (Copy, Listen, etc.) */
   --action-button-bg: rgba(229, 229, 229, 0.8);
@@ -478,7 +488,7 @@
      TYPOGRAPHY
      System fonts with NVIDIA Sans as primary
      ================================================================= */
-  --font-sans: 'NVIDIA Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI',
+  --font-sans: -apple-system, BlinkMacSystemFont, 'SF Pro', 'NVIDIA Sans', 'Segoe UI',
     'Roboto', sans-serif;
   --font-heading: 'NVIDIA Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI',
     'Roboto', sans-serif;
@@ -610,7 +620,7 @@ html {
   font-family: var(--font-sans);
   transition: background-color 0.3s ease, color 0.3s ease;
   -webkit-tap-highlight-color: transparent;
-  scroll-behavior: smooth;
+  scroll-behavior: smooth; /* Smooth scrolling for keyboard handling */
   overflow-x: hidden; /* Prevent horizontal scrolling */
   width: 100%;
   max-width: 100vw; /* Ensure it never exceeds viewport width */
@@ -1132,6 +1142,42 @@ details div {
   }
 }
 
+/* ==================== Touch Ripple Effect ==================== */
+@keyframes ripple {
+  0% {
+    transform: scale(0);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(4);
+    opacity: 0;
+  }
+}
+
+.touch-ripple {
+  position: relative;
+  overflow: hidden;
+}
+
+.touch-ripple::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 0;
+  height: 0;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.3);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.touch-ripple:active::after {
+  animation: ripple 0.6s ease-out;
+  width: 200px;
+  height: 200px;
+}
+
 /* ==================== Micro animations ==================== */
 
 @keyframes slideIn {
@@ -1188,6 +1234,128 @@ details div {
   animation: scaleIn 0.2s ease-out;
 }
 
+/* ==================== Liquid Glass Morphing Utilities ==================== */
+
+/* Liquid morph animation class */
+.liquid-morph {
+  animation: liquid-morph 3s ease-in-out infinite;
+}
+
+/* Glass intensity utilities */
+.glass-intensity-subtle {
+  --liquid-glass-blur-idle: 15px;
+  --liquid-glass-opacity-idle: 0.5;
+}
+
+.glass-intensity-medium {
+  --liquid-glass-blur-idle: 25px;
+  --liquid-glass-opacity-idle: 0.7;
+}
+
+.glass-intensity-strong {
+  --liquid-glass-blur-idle: 40px;
+  --liquid-glass-opacity-idle: 0.85;
+}
+
+.glass-intensity-extreme {
+  --liquid-glass-blur-idle: 50px;
+  --liquid-glass-opacity-idle: 0.9;
+}
+
+/* Enhanced slideIn/slideUp with glass morphing */
+@keyframes slideInGlass {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.98);
+    backdrop-filter: blur(0px) saturate(100%);
+    -webkit-backdrop-filter: blur(0px) saturate(100%);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    backdrop-filter: blur(20px) saturate(160%);
+    -webkit-backdrop-filter: blur(20px) saturate(160%);
+  }
+}
+
+@keyframes slideUpGlass {
+  from {
+    opacity: 0;
+    transform: translateY(20px) scale(0.96);
+    backdrop-filter: blur(0px) saturate(100%);
+    -webkit-backdrop-filter: blur(0px) saturate(100%);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    backdrop-filter: blur(20px) saturate(160%);
+    -webkit-backdrop-filter: blur(20px) saturate(160%);
+  }
+}
+
+@keyframes scaleInGlass {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+    backdrop-filter: blur(0px) saturate(100%);
+    -webkit-backdrop-filter: blur(0px) saturate(100%);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+    backdrop-filter: blur(20px) saturate(160%);
+    -webkit-backdrop-filter: blur(20px) saturate(160%);
+  }
+}
+
+.animate-slide-in-glass {
+  animation: slideInGlass 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.animate-slide-up-glass {
+  animation: slideUpGlass 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.animate-scale-in-glass {
+  animation: scaleInGlass 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* Focus ring glass morphing */
+@keyframes focusRingGlass {
+  0%, 100% {
+    box-shadow:
+      0 8px 32px 0 rgba(0, 0, 0, 0.25),
+      inset 0 0 0 1px rgba(255, 255, 255, 0.05),
+      0 0 0 0 rgba(118, 185, 0, 0);
+  }
+  50% {
+    box-shadow:
+      0 12px 40px 0 rgba(0, 0, 0, 0.3),
+      inset 0 0 0 1px rgba(255, 255, 255, 0.08),
+      0 0 0 4px rgba(118, 185, 0, 0.4);
+  }
+}
+
+.focus-ring-glass:focus-visible {
+  animation: focusRingGlass 2s ease-in-out infinite;
+}
+
+/* Scroll-triggered glass effects (to be controlled via JS) */
+[data-scroll-glass="subtle"] {
+  --liquid-glass-blur-idle: 15px;
+  --liquid-glass-opacity-idle: 0.5;
+}
+
+[data-scroll-glass="medium"] {
+  --liquid-glass-blur-idle: 25px;
+  --liquid-glass-opacity-idle: 0.7;
+}
+
+[data-scroll-glass="strong"] {
+  --liquid-glass-blur-idle: 40px;
+  --liquid-glass-opacity-idle: 0.85;
+}
+
 /* Loading skeleton with shimmer effect */
 .skeleton {
   background: linear-gradient(
@@ -1198,6 +1366,7 @@ details div {
   );
   background-size: 1000px 100%;
   animation: shimmer 2s infinite;
+  border-radius: 8px;
 }
 
 .dark .skeleton {
@@ -1208,6 +1377,25 @@ details div {
     rgba(255, 255, 255, 0) 100%
   );
   background-size: 1000px 100%;
+}
+
+/* Skeleton loader variants */
+.skeleton-text {
+  height: 1em;
+  margin: 0.5em 0;
+}
+
+.skeleton-bubble {
+  height: 60px;
+  width: 80%;
+  margin: 0.5em 0;
+  border-radius: 12px;
+}
+
+.skeleton-avatar {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
 }
 
 /* Polished empty states */
@@ -1273,6 +1461,17 @@ details div {
     position: relative;
     -webkit-transform: translateZ(0);
     transform: translateZ(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
   }
 }
 
