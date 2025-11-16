@@ -103,7 +103,7 @@ export const ConversationComponent = ({ conversation }: Props) => {
   return (
     <div className="relative flex items-center">
       {isRenaming && selectedConversation?.id === conversation.id ? (
-        <div className="flex w-full items-center gap-3 rounded-xl apple-glass p-3">
+        <div className="flex w-full items-center gap-3 rounded-xl liquid-glass liquid-glass-medium p-3 animate-scale-in-glass">
           <IconMessage size={18} className="text-white/80" />
           <input
             className="mr-12 flex-1 overflow-hidden overflow-ellipsis bg-transparent text-left text-[12.5px] leading-3 text-white outline-none placeholder-white/40"
@@ -116,12 +116,12 @@ export const ConversationComponent = ({ conversation }: Props) => {
         </div>
       ) : (
         <button
-          className={`flex w-full cursor-pointer items-center gap-3 rounded-xl p-3 text-sm transition-all duration-200 ${
+          className={`flex w-full cursor-pointer items-center gap-3 rounded-xl p-3 text-sm transition-all duration-300 ${
             messageIsStreaming ? 'disabled:cursor-not-allowed' : ''
           } ${
             selectedConversation?.id === conversation.id
-              ? 'apple-glass bg-white/10 shadow-[0_0_15px_rgba(118,185,0,0.2)]'
-              : 'hover:bg-white/5'
+              ? 'liquid-glass liquid-glass-medium shadow-[0_0_15px_rgba(118,185,0,0.2)]'
+              : 'liquid-glass liquid-glass-subtle'
           }`}
           onClick={() => handleSelectConversation(conversation)}
           disabled={messageIsStreaming}

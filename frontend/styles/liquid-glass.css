@@ -1,0 +1,349 @@
+/* ================================================================
+   LIQUID GLASS DESIGN SYSTEM
+   Dynamic glass morphism with fluid animations
+   ================================================================ */
+
+:root {
+  /* ================================================================
+     LIQUID GLASS STATE VARIABLES
+     Dynamic properties that adapt to context
+     ================================================================ */
+  
+  /* Idle state - default glass appearance */
+  --liquid-glass-bg-idle: rgba(30, 30, 30, 0.65);
+  --liquid-glass-blur-idle: 20px;
+  --liquid-glass-saturate-idle: 160%;
+  --liquid-glass-border-idle: rgba(255, 255, 255, 0.08);
+  --liquid-glass-opacity-idle: 0.65;
+  --liquid-glass-radius-idle: 16px;
+  
+  /* Hover state - enhanced glass */
+  --liquid-glass-bg-hover: rgba(35, 35, 35, 0.75);
+  --liquid-glass-blur-hover: 30px;
+  --liquid-glass-saturate-hover: 180%;
+  --liquid-glass-border-hover: rgba(255, 255, 255, 0.12);
+  --liquid-glass-opacity-hover: 0.75;
+  --liquid-glass-radius-hover: 20px;
+  
+  /* Active/Focus state - strongest glass */
+  --liquid-glass-bg-active: rgba(40, 40, 40, 0.85);
+  --liquid-glass-blur-active: 40px;
+  --liquid-glass-saturate-active: 200%;
+  --liquid-glass-border-active: rgba(255, 255, 255, 0.16);
+  --liquid-glass-opacity-active: 0.85;
+  --liquid-glass-radius-active: 24px;
+  
+  /* Focus ring with glass effect */
+  --liquid-glass-focus-ring: rgba(118, 185, 0, 0.4);
+  --liquid-glass-focus-ring-blur: 8px;
+  
+  /* Light mode variants */
+  --liquid-glass-bg-idle-light: rgba(245, 245, 245, 0.65);
+  --liquid-glass-bg-hover-light: rgba(250, 250, 250, 0.75);
+  --liquid-glass-bg-active-light: rgba(255, 255, 255, 0.85);
+  --liquid-glass-border-idle-light: rgba(0, 0, 0, 0.06);
+  --liquid-glass-border-hover-light: rgba(0, 0, 0, 0.08);
+  --liquid-glass-border-active-light: rgba(0, 0, 0, 0.12);
+}
+
+/* ================================================================
+   LIQUID GLASS BASE CLASS
+   Foundation for all liquid glass elements
+   ================================================================ */
+.liquid-glass {
+  position: relative;
+  background: var(--liquid-glass-bg-idle);
+  backdrop-filter: blur(var(--liquid-glass-blur-idle)) saturate(var(--liquid-glass-saturate-idle));
+  -webkit-backdrop-filter: blur(var(--liquid-glass-blur-idle)) saturate(var(--liquid-glass-saturate-idle));
+  border: 1px solid var(--liquid-glass-border-idle);
+  border-radius: var(--liquid-glass-radius-idle);
+  box-shadow:
+    0 8px 32px 0 rgba(0, 0, 0, 0.25),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.05);
+  
+  /* Smooth morphing transitions */
+  transition:
+    background 350ms cubic-bezier(0.4, 0, 0.2, 1),
+    backdrop-filter 350ms cubic-bezier(0.4, 0, 0.2, 1),
+    -webkit-backdrop-filter 350ms cubic-bezier(0.4, 0, 0.2, 1),
+    border-color 350ms cubic-bezier(0.4, 0, 0.2, 1),
+    border-radius 400ms cubic-bezier(0.34, 1.56, 0.64, 1),
+    box-shadow 350ms cubic-bezier(0.4, 0, 0.2, 1),
+    transform 300ms cubic-bezier(0.4, 0, 0.2, 1);
+  
+  /* Performance optimizations */
+  will-change: background, backdrop-filter, border-radius, transform;
+  transform: translateZ(0);
+  -webkit-transform: translateZ(0);
+  contain: layout style paint;
+}
+
+/* Light mode */
+@media (prefers-color-scheme: light) {
+  .liquid-glass {
+    background: var(--liquid-glass-bg-idle-light);
+    border-color: var(--liquid-glass-border-idle-light);
+    box-shadow:
+      0 8px 32px 0 rgba(0, 0, 0, 0.08),
+      inset 0 0 0 1px rgba(255, 255, 255, 0.6);
+  }
+}
+
+/* Hover state morphing */
+.liquid-glass:hover {
+  background: var(--liquid-glass-bg-hover);
+  backdrop-filter: blur(var(--liquid-glass-blur-hover)) saturate(var(--liquid-glass-saturate-hover));
+  -webkit-backdrop-filter: blur(var(--liquid-glass-blur-hover)) saturate(var(--liquid-glass-saturate-hover));
+  border-color: var(--liquid-glass-border-hover);
+  border-radius: var(--liquid-glass-radius-hover);
+  box-shadow:
+    0 12px 40px 0 rgba(0, 0, 0, 0.3),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+  transform: translateY(-1px);
+}
+
+@media (prefers-color-scheme: light) {
+  .liquid-glass:hover {
+    background: var(--liquid-glass-bg-hover-light);
+    border-color: var(--liquid-glass-border-hover-light);
+  }
+}
+
+/* Active/Focus state morphing */
+.liquid-glass:active,
+.liquid-glass:focus,
+.liquid-glass:focus-visible {
+  background: var(--liquid-glass-bg-active);
+  backdrop-filter: blur(var(--liquid-glass-blur-active)) saturate(var(--liquid-glass-saturate-active));
+  -webkit-backdrop-filter: blur(var(--liquid-glass-blur-active)) saturate(var(--liquid-glass-saturate-active));
+  border-color: var(--liquid-glass-border-active);
+  border-radius: var(--liquid-glass-radius-active);
+  box-shadow:
+    0 16px 48px 0 rgba(0, 0, 0, 0.35),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.12),
+    0 0 0 3px var(--liquid-glass-focus-ring);
+  transform: translateY(0) scale(0.98);
+}
+
+@media (prefers-color-scheme: light) {
+  .liquid-glass:active,
+  .liquid-glass:focus,
+  .liquid-glass:focus-visible {
+    background: var(--liquid-glass-bg-active-light);
+    border-color: var(--liquid-glass-border-active-light);
+  }
+}
+
+/* ================================================================
+   LIQUID GLASS INTENSITY VARIANTS
+   Different levels of glass effect
+   ================================================================ */
+
+/* Subtle - minimal glass effect */
+.liquid-glass-subtle {
+  --liquid-glass-bg-idle: rgba(30, 30, 30, 0.45);
+  --liquid-glass-blur-idle: 12px;
+  --liquid-glass-saturate-idle: 140%;
+  --liquid-glass-border-idle: rgba(255, 255, 255, 0.04);
+  --liquid-glass-opacity-idle: 0.45;
+  --liquid-glass-radius-idle: 12px;
+  
+  --liquid-glass-bg-hover: rgba(35, 35, 35, 0.55);
+  --liquid-glass-blur-hover: 18px;
+  --liquid-glass-border-hover: rgba(255, 255, 255, 0.06);
+  --liquid-glass-opacity-hover: 0.55;
+  --liquid-glass-radius-hover: 16px;
+  
+  --liquid-glass-bg-active: rgba(40, 40, 40, 0.65);
+  --liquid-glass-blur-active: 24px;
+  --liquid-glass-border-active: rgba(255, 255, 255, 0.1);
+  --liquid-glass-opacity-active: 0.65;
+  --liquid-glass-radius-active: 20px;
+}
+
+@media (prefers-color-scheme: light) {
+  .liquid-glass-subtle {
+    --liquid-glass-bg-idle-light: rgba(250, 250, 250, 0.45);
+    --liquid-glass-bg-hover-light: rgba(252, 252, 252, 0.55);
+    --liquid-glass-bg-active-light: rgba(255, 255, 255, 0.65);
+    --liquid-glass-border-idle-light: rgba(0, 0, 0, 0.03);
+    --liquid-glass-border-hover-light: rgba(0, 0, 0, 0.04);
+    --liquid-glass-border-active-light: rgba(0, 0, 0, 0.06);
+  }
+}
+
+/* Medium - balanced glass effect (default) */
+.liquid-glass-medium {
+  /* Uses default root variables */
+}
+
+/* Strong - prominent glass effect */
+.liquid-glass-strong {
+  --liquid-glass-bg-idle: rgba(30, 30, 30, 0.80);
+  --liquid-glass-blur-idle: 35px;
+  --liquid-glass-saturate-idle: 180%;
+  --liquid-glass-border-idle: rgba(255, 255, 255, 0.12);
+  --liquid-glass-opacity-idle: 0.80;
+  --liquid-glass-radius-idle: 20px;
+  
+  --liquid-glass-bg-hover: rgba(35, 35, 35, 0.88);
+  --liquid-glass-blur-hover: 45px;
+  --liquid-glass-border-hover: rgba(255, 255, 255, 0.16);
+  --liquid-glass-opacity-hover: 0.88;
+  --liquid-glass-radius-hover: 24px;
+  
+  --liquid-glass-bg-active: rgba(40, 40, 40, 0.95);
+  --liquid-glass-blur-active: 55px;
+  --liquid-glass-border-active: rgba(255, 255, 255, 0.20);
+  --liquid-glass-opacity-active: 0.95;
+  --liquid-glass-radius-active: 28px;
+}
+
+@media (prefers-color-scheme: light) {
+  .liquid-glass-strong {
+    --liquid-glass-bg-idle-light: rgba(240, 240, 240, 0.80);
+    --liquid-glass-bg-hover-light: rgba(245, 245, 245, 0.88);
+    --liquid-glass-bg-active-light: rgba(255, 255, 255, 0.95);
+    --liquid-glass-border-idle-light: rgba(0, 0, 0, 0.08);
+    --liquid-glass-border-hover-light: rgba(0, 0, 0, 0.10);
+    --liquid-glass-border-active-light: rgba(0, 0, 0, 0.14);
+  }
+}
+
+/* Extreme - maximum glass effect for navigation/headers */
+.liquid-glass-extreme {
+  --liquid-glass-bg-idle: rgba(25, 25, 25, 0.85);
+  --liquid-glass-blur-idle: 50px;
+  --liquid-glass-saturate-idle: 200%;
+  --liquid-glass-border-idle: rgba(255, 255, 255, 0.15);
+  --liquid-glass-opacity-idle: 0.85;
+  --liquid-glass-radius-idle: 24px;
+  
+  --liquid-glass-bg-hover: rgba(30, 30, 30, 0.92);
+  --liquid-glass-blur-hover: 60px;
+  --liquid-glass-border-hover: rgba(255, 255, 255, 0.20);
+  --liquid-glass-opacity-hover: 0.92;
+  --liquid-glass-radius-hover: 28px;
+  
+  --liquid-glass-bg-active: rgba(35, 35, 35, 0.98);
+  --liquid-glass-blur-active: 70px;
+  --liquid-glass-border-active: rgba(255, 255, 255, 0.25);
+  --liquid-glass-opacity-active: 0.98;
+  --liquid-glass-radius-active: 32px;
+}
+
+@media (prefers-color-scheme: light) {
+  .liquid-glass-extreme {
+    --liquid-glass-bg-idle-light: rgba(235, 235, 235, 0.85);
+    --liquid-glass-bg-hover-light: rgba(245, 245, 245, 0.92);
+    --liquid-glass-bg-active-light: rgba(255, 255, 255, 0.98);
+    --liquid-glass-border-idle-light: rgba(0, 0, 0, 0.10);
+    --liquid-glass-border-hover-light: rgba(0, 0, 0, 0.12);
+    --liquid-glass-border-active-light: rgba(0, 0, 0, 0.16);
+  }
+}
+
+/* ================================================================
+   MORPHING ANIMATION KEYFRAMES
+   Fluid shape and property transitions
+   ================================================================ */
+
+@keyframes liquid-morph {
+  0% {
+    border-radius: var(--liquid-glass-radius-idle);
+    backdrop-filter: blur(var(--liquid-glass-blur-idle)) saturate(var(--liquid-glass-saturate-idle));
+    -webkit-backdrop-filter: blur(var(--liquid-glass-blur-idle)) saturate(var(--liquid-glass-saturate-idle));
+  }
+  50% {
+    border-radius: calc(var(--liquid-glass-radius-idle) * 1.15);
+    backdrop-filter: blur(calc(var(--liquid-glass-blur-idle) * 1.2)) saturate(calc(var(--liquid-glass-saturate-idle) * 1.1));
+    -webkit-backdrop-filter: blur(calc(var(--liquid-glass-blur-idle) * 1.2)) saturate(calc(var(--liquid-glass-saturate-idle) * 1.1));
+  }
+  100% {
+    border-radius: var(--liquid-glass-radius-idle);
+    backdrop-filter: blur(var(--liquid-glass-blur-idle)) saturate(var(--liquid-glass-saturate-idle));
+    -webkit-backdrop-filter: blur(var(--liquid-glass-blur-idle)) saturate(var(--liquid-glass-saturate-idle));
+  }
+}
+
+@keyframes liquid-focus-pulse {
+  0%, 100% {
+    box-shadow:
+      0 8px 32px 0 rgba(0, 0, 0, 0.25),
+      inset 0 0 0 1px rgba(255, 255, 255, 0.05),
+      0 0 0 0 var(--liquid-glass-focus-ring);
+  }
+  50% {
+    box-shadow:
+      0 12px 40px 0 rgba(0, 0, 0, 0.3),
+      inset 0 0 0 1px rgba(255, 255, 255, 0.08),
+      0 0 0 4px var(--liquid-glass-focus-ring);
+  }
+}
+
+@keyframes liquid-entrance {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.95);
+    backdrop-filter: blur(0px) saturate(100%);
+    -webkit-backdrop-filter: blur(0px) saturate(100%);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    backdrop-filter: blur(var(--liquid-glass-blur-idle)) saturate(var(--liquid-glass-saturate-idle));
+    -webkit-backdrop-filter: blur(var(--liquid-glass-blur-idle)) saturate(var(--liquid-glass-saturate-idle));
+  }
+}
+
+/* ================================================================
+   LIQUID GLASS UTILITY CLASSES
+   ================================================================ */
+
+/* Morphing animation class */
+.liquid-morph {
+  animation: liquid-morph 3s ease-in-out infinite;
+}
+
+/* Focus pulse animation */
+.liquid-focus-pulse:focus-visible {
+  animation: liquid-focus-pulse 2s ease-in-out infinite;
+}
+
+/* Entrance animation */
+.liquid-entrance {
+  animation: liquid-entrance 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+/* Scroll-based glass intensity (to be controlled via JS/data attributes) */
+.liquid-glass-scroll-subtle {
+  --liquid-glass-blur-idle: 15px;
+  --liquid-glass-opacity-idle: 0.5;
+}
+
+.liquid-glass-scroll-medium {
+  --liquid-glass-blur-idle: 25px;
+  --liquid-glass-opacity-idle: 0.7;
+}
+
+.liquid-glass-scroll-strong {
+  --liquid-glass-blur-idle: 40px;
+  --liquid-glass-opacity-idle: 0.85;
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+  .liquid-glass,
+  .liquid-glass:hover,
+  .liquid-glass:active,
+  .liquid-glass:focus {
+    transition-duration: 0.01ms !important;
+    animation: none !important;
+  }
+  
+  .liquid-morph,
+  .liquid-focus-pulse,
+  .liquid-entrance {
+    animation: none !important;
+  }
+}

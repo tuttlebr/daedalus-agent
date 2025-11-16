@@ -58,7 +58,7 @@ const SidebarComponent = <T,>({
     <>
       {isOpen ? (
         <div
-          className={`fixed md:relative top-0 ${side}-0 z-50 flex h-full w-full md:w-[260px] flex-none flex-col space-y-2 apple-glass-sidebar p-2 text-[14px] transition-all duration-300 ease-out animate-slide-in`}
+          className={`fixed md:relative top-0 ${side}-0 z-50 flex h-full w-full md:w-[260px] flex-none flex-col space-y-2 liquid-glass liquid-glass-strong p-2 text-[14px] transition-all duration-300 ease-out animate-slide-in-glass`}
           data-sidebar-desktop="open"
         >
           {/* Header with actions */}
@@ -71,7 +71,7 @@ const SidebarComponent = <T,>({
             {/* Main action buttons */}
             <div className="flex items-center gap-2 pr-12">
               <button
-                className="text-sidebar flex flex-1 cursor-pointer select-none items-center gap-3 rounded-xl p-3 text-white transition-all duration-200 hover:bg-white/10 hover:shadow-[0_0_15px_rgba(118,185,0,0.2)] border border-white/5"
+                className="text-sidebar flex flex-1 cursor-pointer select-none items-center gap-3 rounded-xl p-3 text-white transition-all duration-300 liquid-glass liquid-glass-subtle hover:shadow-[0_0_15px_rgba(118,185,0,0.2)] focus-ring-glass"
                 onClick={() => {
                   handleCreateItem();
                   handleSearchTerm('');
@@ -82,7 +82,7 @@ const SidebarComponent = <T,>({
               </button>
 
               <button
-                className="flex items-center justify-center rounded-xl p-3 text-sm text-white transition-all duration-200 hover:bg-white/10 hover:shadow-[0_0_15px_rgba(118,185,0,0.2)] flex-shrink-0 border border-white/5"
+                className="flex items-center justify-center rounded-xl p-3 text-sm text-white transition-all duration-300 liquid-glass liquid-glass-subtle hover:shadow-[0_0_15px_rgba(118,185,0,0.2)] flex-shrink-0 focus-ring-glass"
                 onClick={handleCreateFolder}
                 aria-label="Create folder"
               >
@@ -115,7 +115,7 @@ const SidebarComponent = <T,>({
               </div>
             ) : (
               <div className="mt-8 select-none text-center p-4">
-                <div className="rounded-2xl p-6 mx-2 bg-white/5 border border-white/10">
+                <div className="rounded-2xl p-6 mx-2 liquid-glass liquid-glass-subtle">
                   <IconMistOff className="mx-auto mb-3 text-white/40" size={32} />
                   <span className="text-[14px] leading-normal text-white/60">
                     {t('No data.')}

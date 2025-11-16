@@ -115,18 +115,22 @@ export const QuickActionsPopup: React.FC<QuickActionsPopupProps> = ({
 
   return (
     <>
-      {/* Main + Button */}
+      {/* Main + Button - ≥44×44px touch target */}
       <button
         ref={buttonRef}
-        onClick={() => setIsOpen(!isOpen)}
+        onClick={(e) => {
+          // Haptic feedback (if supported)
+          if ('vibrate' in navigator) {
+            navigator.vibrate(10);
+          }
+          setIsOpen(!isOpen);
+        }}
         className={`
-          relative flex h-10 w-10 items-center justify-center rounded-full
-          border transition-all duration-200 isolate backdrop-blur-xl
-          border-white/20 bg-white/20 text-neutral-700
-          hover:border-nvidia-green/50 hover:bg-white/30 hover:text-nvidia-green
-          dark:border-white/10 dark:bg-white/10 dark:text-white/80
-          dark:hover:border-nvidia-green/60 dark:hover:text-nvidia-green
-          ${isOpen ? 'z-[60]' : 'z-20'}
+          relative flex min-h-[44px] min-w-[44px] items-center justify-center rounded-full
+          liquid-glass liquid-glass-subtle transition-all duration-300 active:scale-95
+          text-neutral-700 hover:text-nvidia-green
+          dark:text-white/80 dark:hover:text-nvidia-green
+          ${isOpen ? 'z-[60] liquid-glass-medium' : 'z-20'}
           ${className}
         `}
         aria-label={isOpen ? "Close quick actions" : "Quick actions"}
@@ -149,11 +153,8 @@ export const QuickActionsPopup: React.FC<QuickActionsPopupProps> = ({
           <div
             className={`
               fixed z-[9999]
-              rounded-2xl backdrop-blur-xl
-              bg-white/80 dark:bg-white/10
-              border border-white/20 dark:border-white/10
-              shadow-[0_8px_24px_rgba(0,0,0,0.1)] dark:shadow-[0_8px_24px_rgba(0,0,0,0.2)]
-              ${popupPosition.positionAbove ? 'animate-slide-up origin-bottom-left' : 'animate-slide-down origin-top-left'}
+              rounded-2xl liquid-glass liquid-glass-strong
+              ${popupPosition.positionAbove ? 'animate-slide-up-glass origin-bottom-left' : 'animate-slide-down origin-top-left'}
               min-w-[240px]
             `}
             style={{
@@ -169,19 +170,25 @@ export const QuickActionsPopup: React.FC<QuickActionsPopupProps> = ({
               {actions.map((action, index) => (
                 <button
                   key={action.id}
-                  onClick={action.onClick}
+                  onClick={(e) => {
+                    // Haptic feedback (if supported)
+                    if ('vibrate' in navigator) {
+                      navigator.vibrate(10);
+                    }
+                    action.onClick();
+                  }}
                   className={`
-                    relative flex items-center justify-center rounded-xl p-2
-                    transition-all duration-150
-                    hover:bg-white/20 dark:hover:bg-white/10
-                    ${action.isActive ? 'bg-nvidia-green/20 dark:bg-nvidia-green/15' : ''}
+                    relative flex items-center justify-center rounded-xl p-2 min-h-[44px] min-w-[44px]
+                    liquid-glass liquid-glass-subtle transition-all duration-300 active:scale-95
+                    ${action.isActive ? 'liquid-glass-medium' : ''}
                   `}
                   role="menuitem"
+                  aria-label={action.id === 'attach' ? 'Attach file' : action.id === 'camera' ? 'Take photo' : 'Toggle deep thought'}
                 >
                   <div
                     className={`
                       flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full
-                      transition-all duration-150
+                      transition-all duration-200
                       ${action.isActive
                         ? 'bg-nvidia-green text-white shadow-[0_0_15px_rgba(118,185,0,0.5)]'
                         : 'bg-white/20 text-neutral-700 dark:bg-white/10 dark:text-white/90 hover:bg-white/30 dark:hover:bg-white/20'

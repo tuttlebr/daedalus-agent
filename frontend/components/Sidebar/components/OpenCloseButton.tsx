@@ -30,8 +30,9 @@ export const OpenSidebarButton = ({ onClick, side }: Props) => {
 
   return (
     <button
-      className={`absolute top-2.5 ${side === 'right' ? 'right-2' : 'left-2'}
-      z-50 p-2 rounded-xl apple-glass text-white/80 hover:text-white hover:shadow-[0_0_20px_rgba(118,185,0,0.3)] transition-all duration-200`}
+      className={`hidden md:flex absolute top-2.5 ${
+        side === 'right' ? 'right-2' : 'left-2'
+      } z-50 p-2 rounded-xl apple-glass text-white/80 hover:text-white hover:shadow-[0_0_20px_rgba(118,185,0,0.3)] transition-all duration-200`}
       onClick={onClick}
       aria-label="Open sidebar"
       style={safeAreaStyles}

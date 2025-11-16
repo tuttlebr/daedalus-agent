@@ -116,6 +116,8 @@ export const Image = memo(({ src, alt, ...props }: ImageProps) => {
                 alt={alt || "image"}
                 onError={handleImageError}
                 className="object-cover rounded-lg border border-slate-100 dark:border-gray-700 shadow-xs max-w-full h-auto"
+                loading="lazy"
+                decoding="async"
                 {...props}
               />
               {/* Download button overlay */}

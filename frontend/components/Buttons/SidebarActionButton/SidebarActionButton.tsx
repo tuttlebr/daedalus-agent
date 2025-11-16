@@ -7,7 +7,7 @@ interface Props {
 
 const SidebarActionButton = memo<Props>(({ handleClick, children }) => (
   <button
-    className="min-w-[20px] p-1.5 rounded-lg text-white/40 hover:text-white hover:bg-white/10 transition-all duration-200"
+    className="min-w-[20px] p-1.5 rounded-lg liquid-glass liquid-glass-subtle text-white/40 hover:text-white transition-all duration-300"
     onClick={handleClick}
   >
     {children}
