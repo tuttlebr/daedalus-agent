@@ -1,13 +1,18 @@
 import { IconMenu2 } from '@tabler/icons-react';
-interface Props {
-  onClick: any;
+
+interface ButtonBaseProps {
+  onClick: () => void;
+}
+
+interface OpenButtonProps extends ButtonBaseProps {
   side: 'left' | 'right';
 }
 
-export const CloseSidebarButton = ({ onClick, side }: Props) => {
+export const CloseSidebarButton = ({ onClick }: ButtonBaseProps) => {
   return (
     <button
-      className="flex items-center justify-center rounded-xl p-2 text-white/60 transition-all duration-200 hover:bg-white/10 hover:text-white hover:shadow-[0_0_15px_rgba(118,185,0,0.2)] flex-shrink-0"
+      type="button"
+      className="lg-floating-control !gap-0 !p-2 text-white/80"
       onClick={onClick}
       aria-label="Close sidebar"
     >
@@ -16,7 +21,7 @@ export const CloseSidebarButton = ({ onClick, side }: Props) => {
   );
 };
 
-export const OpenSidebarButton = ({ onClick, side }: Props) => {
+export const OpenSidebarButton = ({ onClick, side }: OpenButtonProps) => {
   const safeAreaStyles =
     side === 'right'
       ? {
@@ -30,13 +35,20 @@ export const OpenSidebarButton = ({ onClick, side }: Props) => {
 
   return (
     <button
-      className={`absolute top-2.5 ${side === 'right' ? 'right-2' : 'left-2'}
-      z-50 p-2 rounded-xl apple-glass text-white/80 hover:text-white hover:shadow-[0_0_20px_rgba(118,185,0,0.3)] transition-all duration-200`}
+      type="button"
+      className={`hidden md:flex absolute ${
+        side === 'right' ? 'right-2' : 'left-2'
+      } z-50 rounded-2xl text-white/90 transition-all duration-200`}
       onClick={onClick}
       aria-label="Open sidebar"
       style={safeAreaStyles}
     >
-      <IconMenu2 size={20} />
+      <span className="lg-floating-control !gap-2 text-white/90">
+        <IconMenu2 size={20} />
+        <span className="text-[0.65rem] uppercase tracking-[0.25em]">
+          Panel
+        </span>
+      </span>
     </button>
   );
 };

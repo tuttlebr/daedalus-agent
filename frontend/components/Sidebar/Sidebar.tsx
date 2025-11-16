@@ -47,7 +47,7 @@ const SidebarComponent = <T,>({
   }, []);
 
   const highlightDrop = useCallback((e: any) => {
-    e.target.style.background = 'rgba(118, 185, 0, 0.1)';
+    e.target.style.background = 'rgba(78, 243, 255, 0.12)';
   }, []);
 
   const removeHighlight = useCallback((e: any) => {
@@ -58,31 +58,31 @@ const SidebarComponent = <T,>({
     <>
       {isOpen ? (
         <div
-          className={`fixed md:relative top-0 ${side}-0 z-50 flex h-full w-full md:w-[260px] flex-none flex-col space-y-2 apple-glass-sidebar p-2 text-[14px] transition-all duration-300 ease-out animate-slide-in`}
+          className={`fixed md:relative top-0 ${side}-0 z-50 flex h-full w-full md:w-[280px] flex-none flex-col gap-4 rounded-[28px] p-4 text-[0.85rem] text-white/90 transition-all duration-300 ease-out`}
           data-sidebar-desktop="open"
         >
           {/* Header with actions */}
-          <div className="relative">
-            {/* Close button positioned absolutely to prevent overhang */}
-            <div className="absolute -right-1 -top-1 z-10">
+          <div className="relative rounded-2xl border border-white/10 bg-gradient-to-br from-white/10 via-white/5 to-transparent p-4 backdrop-blur-md">
+            <div className="absolute -right-2 -top-2 z-10">
               <CloseSidebarButton onClick={toggleOpen} side={side} />
             </div>
 
-            {/* Main action buttons */}
-            <div className="flex items-center gap-2 pr-12">
+            <div className="flex items-center gap-3 pr-10">
               <button
-                className="text-sidebar flex flex-1 cursor-pointer select-none items-center gap-3 rounded-xl p-3 text-white transition-all duration-200 hover:bg-white/10 hover:shadow-[0_0_15px_rgba(118,185,0,0.2)] border border-white/5"
+                className="group flex flex-1 cursor-pointer select-none items-center gap-3 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-[0.85rem] font-medium text-white transition-all duration-200 hover:border-white/30 hover:bg-white/15 hover:shadow-[0_18px_50px_-28px_rgba(4,9,27,0.95)]"
                 onClick={() => {
                   handleCreateItem();
                   handleSearchTerm('');
                 }}
               >
                 <IconPlus size={20} className="flex-shrink-0" />
-                <span className="truncate">{addItemButtonTitle}</span>
+                <span className="truncate uppercase tracking-[0.15em]">
+                  {addItemButtonTitle}
+                </span>
               </button>
 
               <button
-                className="flex items-center justify-center rounded-xl p-3 text-sm text-white transition-all duration-200 hover:bg-white/10 hover:shadow-[0_0_15px_rgba(118,185,0,0.2)] flex-shrink-0 border border-white/5"
+                className="flex items-center justify-center rounded-2xl border border-white/10 bg-white/5 p-3 text-sm text-white transition-all duration-200 hover:border-white/25 hover:bg-white/15 hover:shadow-[0_18px_50px_-28px_rgba(4,9,27,0.95)]"
                 onClick={handleCreateFolder}
                 aria-label="Create folder"
               >
@@ -95,6 +95,8 @@ const SidebarComponent = <T,>({
             searchTerm={searchTerm}
             onSearch={handleSearchTerm}
           />
+
+          <div className="lg-liquid-divider" />
 
           <div className="flex-grow overflow-auto">
             {items?.length > 0 && (
@@ -114,10 +116,10 @@ const SidebarComponent = <T,>({
                 {itemComponent}
               </div>
             ) : (
-              <div className="mt-8 select-none text-center p-4">
-                <div className="rounded-2xl p-6 mx-2 bg-white/5 border border-white/10">
-                  <IconMistOff className="mx-auto mb-3 text-white/40" size={32} />
-                  <span className="text-[14px] leading-normal text-white/60">
+              <div className="mt-8 select-none p-4 text-center">
+                <div className="mx-2 rounded-3xl border border-dashed border-white/15 bg-white/5 p-6">
+                  <IconMistOff className="mx-auto mb-3 text-white/50" size={32} />
+                  <span className="text-[0.8rem] leading-normal text-white/70">
                     {t('No data.')}
                   </span>
                 </div>

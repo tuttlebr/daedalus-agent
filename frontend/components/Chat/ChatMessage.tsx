@@ -10,7 +10,7 @@ import {
   IconClock,
 } from '@tabler/icons-react';
 import classNames from 'classnames';
-import { FC, memo, useContext, useEffect, useMemo, useRef, useState, useCallback } from 'react';
+import { FC, memo, useContext, useEffect, useMemo, useRef, useState, useCallback, CSSProperties } from 'react';
 import { Message } from '@/types/chat';
 import HomeContext from '@/pages/api/home/home.context';
 import { MemoizedReactMarkdown } from '../Markdown/MemoizedReactMarkdown';
@@ -137,39 +137,44 @@ export const ChatMessage: FC<Props> = memo(({ message, messageIndex }) => {
   //   };
   // }, []);
 
-  const wrapperClasses = cx('group px-3 sm:px-4 md:px-6 py-2 sm:py-3', 'min-w-0', 'max-w-full', 'overflow-hidden');
+  const wrapperClasses = cx(
+    'group px-3 sm:px-6 lg:px-8 py-3',
+    'min-w-0',
+    'max-w-full',
+    'overflow-hidden'
+  );
 
   const rowClasses = cx(
-    'mx-auto flex w-full gap-2 sm:gap-3 py-1.5 sm:py-2',
-    hasIntermediateSteps && message.role === 'assistant' ? 'max-w-7xl' : 'max-w-5xl',
+    'mx-auto flex w-full gap-3 py-1.5 sm:gap-4 sm:py-2',
+    hasIntermediateSteps && message.role === 'assistant' ? 'max-w-6xl' : 'max-w-5xl',
     message.role === 'user' ? 'flex-row-reverse' : 'flex-row',
-    'min-w-0', // Prevent flex overflow
-    'max-w-full' // Ensure it doesn't exceed container
+    'min-w-0',
+    'max-w-full'
   );
 
   const avatarWrapperClasses = cx(
-    'flex-shrink-0',
-    message.role === 'assistant' ? 'self-end mb-1' : 'self-end mb-1',
-    'hidden sm:block' // Hide avatars on mobile for more space
+    'flex-shrink-0 opacity-80',
+    'hidden sm:block',
+    'self-end'
   );
 
   const bubbleClasses = cx(
-    'relative',
-    hasIntermediateSteps && isAssistantMessage ? 'max-w-full' : 'max-w-[85%] sm:max-w-[75%] md:max-w-[65%]',
-    'px-3 py-2 sm:px-4 sm:py-3',
-    'text-[14px] sm:text-[15px] leading-relaxed',
-    'break-words break-all', // Ensure long words break
-    'overflow-wrap-anywhere', // Break long words if needed
-    'transition-all duration-200 animate-scale-in',
-    'min-w-0', // Prevent flex overflow
+    'relative isolate w-full break-words overflow-hidden rounded-[22px] border px-0 py-0 lg-message-bubble',
+    'transition-transform duration-300 ease-out will-change-transform',
+    hasIntermediateSteps && isAssistantMessage ? 'max-w-full' : 'max-w-[90%] sm:max-w-[78%] md:max-w-[68%]',
     isAssistantMessage
-      ? 'rounded-2xl rounded-bl-md glass text-gray-900 dark:text-gray-100 shadow-sm'
-      : 'rounded-2xl rounded-br-md bg-nvidia-green-dark backdrop-blur-sm text-white shadow-md hover:shadow-glow-green hover:bg-nvidia-green',
-    'hover:shadow-lg'
+      ? 'border-white/15 bg-white/5 text-white shadow-[0_30px_90px_-40px_rgba(4,9,27,0.95)] backdrop-blur-2xl'
+      : 'border-transparent bg-gradient-to-br from-cyan-300/90 via-sky-300/90 to-emerald-300/90 text-[#03121f] shadow-[0_25px_45px_-30px_rgba(78,243,255,0.85)]'
   );
 
+  const bubbleStyle: CSSProperties = {
+    padding: 'clamp(0.95rem, 0.7rem + 0.45vw, 1.35rem)',
+    fontSize: 'clamp(0.95rem, 0.88rem + 0.2vw, 1.1rem)',
+    lineHeight: 1.55,
+  };
+
   const markdownBaseClasses = cx(
-    'prose prose-neutral max-w-none break-words break-all text-[15px] leading-relaxed dark:prose-invert',
+    'prose prose-neutral max-w-none break-words break-all text-[clamp(0.95rem,0.9rem+0.15vw,1.05rem)] leading-relaxed dark:prose-invert',
     '[&>*]:max-w-full [&_*]:break-words [&_*]:break-all',
     '[&_pre]:max-w-full [&_pre]:overflow-x-auto [&_pre]:break-words',
     '[&_code]:break-words [&_code]:break-all [&_code]:whitespace-pre-wrap',
@@ -179,9 +184,9 @@ export const ChatMessage: FC<Props> = memo(({ message, messageIndex }) => {
   );
 
   const actionBarClasses = cx(
-    'flex items-center gap-1 sm:gap-2 text-[10px] sm:text-xs font-medium',
-    'mt-1 opacity-0 group-hover:opacity-100 transition-opacity duration-200',
-    'text-gray-500 dark:text-gray-400',
+    'flex items-center gap-2 text-[0.65rem] font-medium uppercase tracking-[0.3em]',
+    'mt-2 opacity-0 group-hover:opacity-100 transition-opacity duration-200',
+    'text-white/70',
     message.role === 'user' ? 'justify-end pr-2' : 'justify-start pl-2'
   );
 
@@ -211,7 +216,7 @@ export const ChatMessage: FC<Props> = memo(({ message, messageIndex }) => {
               <span className="font-medium">Deep Thinker</span>
             </div>
           )}
-          <div className={bubbleClasses}>
+          <div className={bubbleClasses} style={bubbleStyle} role="group" aria-label={message.role === 'assistant' ? 'Assistant message' : 'Your message'}>
             {/* Message time and status */}
             {message.role === 'user' && (
               <div className="flex items-center gap-1 justify-end mt-1 text-[10px] text-white/70">
@@ -300,12 +305,17 @@ export const ChatMessage: FC<Props> = memo(({ message, messageIndex }) => {
             <div className={actionBarClasses}>
               <button
                 className={classNames(
-                  'inline-flex items-center gap-1 rounded-full border border-transparent px-3 py-1 text-xs transition-colors duration-150',
-                  'bg-[var(--action-button-bg)] text-[var(--action-button-text)] hover:bg-[var(--action-button-hover-bg)]',
-                  'dark:bg-[var(--action-button-bg-dark)] dark:text-[var(--action-button-text-dark)] dark:hover:bg-[var(--action-button-hover-bg-dark)]',
-                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-neutral-400'
+                  'inline-flex min-h-[40px] items-center gap-1 rounded-full border px-4 py-1 text-[0.65rem] uppercase tracking-[0.35em] transition-all duration-200',
+                  'border-white/15 bg-white/10 text-white hover:border-white/30 hover:bg-white/20 active:scale-95',
+                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40'
                 )}
-                onClick={copyOnClick}
+                onClick={(e) => {
+                  // Haptic feedback (if supported)
+                  if ('vibrate' in navigator) {
+                    navigator.vibrate(10);
+                  }
+                  copyOnClick();
+                }}
                 aria-label="Copy message"
                 id={message?.id}
               >
