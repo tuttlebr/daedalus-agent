@@ -1,5 +1,5 @@
 """
-Enhanced OpenAI SDK logging for diagnosing LLM connection errors.
+Enhanced OpenAI SDK logging and resilience for diagnosing LLM connection errors.
 
 Patches the OpenAI Python SDK so that retry and connection-error log messages
 include the base_url, HTTP status code, and retry attempt of the client that
@@ -7,14 +7,25 @@ triggered them. Without this, the default messages only show the path
 (/chat/completions) with no indication of which upstream provider is failing
 or why.
 
+Also enforces timeout and max_retries on every OpenAI client at creation time,
+working around a NAT/LangChain issue where ChatOpenAI passes timeout=None to
+the SDK (see https://github.com/NVIDIA/NeMo-Agent-Toolkit/issues/1617).
+
 Usage: import this module before any OpenAI clients are created.
 """
 
 import functools
 import inspect
 import logging
+import os
+
+import httpx
 
 logger = logging.getLogger("daedalus.llm_diagnostics")
+
+# Defaults (override via environment variables)
+_DEFAULT_MAX_RETRIES = 3
+_DEFAULT_TIMEOUT_SECONDS = 60.0
 
 # Registry: maps id(client._client) -> diagnostic label
 _client_registry: dict[int, str] = {}
@@ -94,19 +105,52 @@ class _OpenAIRetryFilter(logging.Filter):
 
 
 def _wrap_init(original_init, client_kind: str):
-    """Wrap OpenAI client __init__ to log base_url and model at creation time."""
+    """Wrap OpenAI client __init__ to log base_url, enforce timeout and max_retries.
+
+    NAT/LangChain's ChatOpenAI passes timeout=None to the OpenAI SDK, which
+    disables the httpx timeout entirely. This wrapper re-applies a sensible
+    timeout and caps max_retries after the client is constructed, regardless
+    of what the caller passed.
+    """
+
+    max_retries = int(os.environ.get("DAEDALUS_LLM_MAX_RETRIES", _DEFAULT_MAX_RETRIES))
+    timeout_seconds = float(
+        os.environ.get("DAEDALUS_LLM_TIMEOUT", _DEFAULT_TIMEOUT_SECONDS)
+    )
 
     @functools.wraps(original_init)
     def wrapper(self, *args, **kwargs):
         original_init(self, *args, **kwargs)
         base_url = str(getattr(self, "_base_url", kwargs.get("base_url", "?")))
         label = f"{client_kind} base_url={base_url}"
-        logger.info("Initialized OpenAI client: %s", label)
 
-        # Register the internal httpx client for lookup
+        # --- Enforce max_retries ---
+        if hasattr(self, "_max_retries"):
+            old = self._max_retries
+            if old != max_retries:
+                self._max_retries = max_retries
+                logger.info("Patched %s max_retries: %s -> %s", label, old, max_retries)
+
+        # --- Enforce timeout on the inner httpx client ---
         inner = getattr(self, "_client", None)
         if inner is not None:
             _client_registry[id(inner)] = label
+            http_client = getattr(inner, "_client", None)
+            if http_client is not None and isinstance(
+                http_client, (httpx.Client, httpx.AsyncClient)
+            ):
+                desired = httpx.Timeout(timeout_seconds)
+                if http_client.timeout != desired:
+                    old_timeout = http_client.timeout
+                    http_client.timeout = desired
+                    logger.info(
+                        "Patched %s timeout: %s -> %ss",
+                        label,
+                        old_timeout,
+                        timeout_seconds,
+                    )
+
+        logger.info("Initialized OpenAI client: %s", label)
 
     return wrapper
 

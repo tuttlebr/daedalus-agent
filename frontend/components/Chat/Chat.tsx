@@ -992,8 +992,14 @@ export const Chat = () => {
           });
         }
 
+        // Strip any prior system messages so the single context message
+        // injected above is the only one sent to the backend.
+        const nonSystemMessages = messagesCleaned.filter(
+          (m: Message) => m.role !== 'system',
+        );
+
         const chatBody: ChatBody = {
-          messages: [...systemContextMessages, ...messagesCleaned],
+          messages: [...systemContextMessages, ...nonSystemMessages],
           // Use user-specific storage key to prevent data leakage between users
           chatCompletionURL: getUserSessionItem('chatCompletionURL') || chatCompletionURL,
           additionalProps: {
