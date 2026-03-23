@@ -189,3 +189,5 @@ ncp-research.md
 
 # Planning artifacts (Claude Code / GSD)
 .planning/
+custom-backend/
+profile-data.json

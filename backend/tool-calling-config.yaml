@@ -84,12 +84,16 @@ functions:
       worth remembering across sessions. The memory field should describe
       the preference or fact clearly, not the raw question or answer.
 
+      CRITICAL: The memory parameter MUST be a plain text string, never a
+      JSON object or dict. Passing a JSON object will cause a validation
+      error. Always pass memory as a simple string value.
+
       REQUIRED PARAMETERS:
 
       - user_id: string (username)
 
-      - memory: string (clear description of the preference, fact, or
-      detail to store)
+      - memory: string (plain text description of the preference, fact,
+      or detail to store. MUST be a string, not a JSON object.)
 
       OPTIONAL PARAMETERS:
 

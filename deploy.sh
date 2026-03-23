@@ -1,4 +1,5 @@
 #!/bin/bash
+clear && echo "Deploying Daedalus" && echo "================================" && echo ""
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -8,8 +9,8 @@ NAMESPACE="daedalus"
 RELEASE="daedalus"
 ENV_FILE="$SCRIPT_DIR/.env"
 VALUES_FILE="$SCRIPT_DIR/custom-values.yaml"
-BACKEND_CONFIG="$SCRIPT_DIR/backend/tool-calling-config.yaml"
-DEEP_THINKER_CONFIG="$SCRIPT_DIR/backend/react-agent-config.yaml"
+BACKEND_CONFIG="$SCRIPT_DIR/custom-backend/tool-calling-config.yaml"
+DEEP_THINKER_CONFIG="$SCRIPT_DIR/custom-backend/react-agent-config.yaml"
 SKIP_BUILD=false
 SKIP_TLS=false
 DRY_RUN=false
