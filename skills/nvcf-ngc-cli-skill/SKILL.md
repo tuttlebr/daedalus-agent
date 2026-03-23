@@ -52,10 +52,10 @@ If the user needs to operate on a different org than the one configured, use the
 ngc org list
 ```
 
-The `--org` flag accepts the **org ID** (the alphanumeric string shown in parentheses), not the display name. For example, if `ngc org list` shows `sae-sme-nvcf (0530795645140221)`, use:
+The `--org` flag accepts the **org ID** (the alphanumeric string shown in parentheses), not the display name. For example, if `ngc org list` shows `sae-sme-nvcf (011011100111011001101001011001000110100101100001)`, use:
 
 ```bash
-ngc cf gpu quota --org 0530795645140221
+ngc cf gpu quota --org 011011100111011001101001011001000110100101100001
 ```
 
 ### Verify NGC_API_KEY (Required Before Invocation)
@@ -99,7 +99,7 @@ No additional configuration needed.
 ### Staging Environment
 
 ```bash
-export NGC_CLI_API_URL=https://api.stg.ngc.nvidia.com
+export NGC_CLI_API_URL=https://api.ngc.nvidia.com
 export NGC_CLI_API_KEY=<your-staging-api-key>
 ```
 

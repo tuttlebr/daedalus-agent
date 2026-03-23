@@ -2,15 +2,16 @@ import asyncio
 import json
 import logging
 import os
+from typing import Literal
 
+import httpx
+import redis
 from nat.builder.builder import Builder
 from nat.builder.function_info import FunctionInfo
 from nat.cli.register_workflow import register_function
 from nat.data_models.function import FunctionBaseConfig
 from openai import AsyncOpenAI
 from pydantic import BaseModel, Field
-
-import redis
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +25,13 @@ class ImageComprehensionFunctionConfig(
     Uses Vision Language Models (VLM) to answer questions about images and videos.
     """
 
+    api_type: Literal["openai", "custom"] = Field(
+        "openai",
+        description=(
+            "API type to use: 'openai' for any OpenAI-compatible endpoint "
+            "(NVIDIA NIM, vLLM, Ollama, OpenAI), or 'custom' for direct HTTP POST"
+        ),
+    )
     api_endpoint: str = Field(
         "http://localhost:8000",
         description="Base URL for the VLM API endpoint",
@@ -311,6 +319,59 @@ async def image_comprehension_function(
                 return None
         return None
 
+    async def _comprehend_custom(
+        question: str,
+        media_content: dict,
+        max_tokens: int,
+    ) -> str:
+        """
+        Send comprehension request via direct HTTP POST.
+
+        Uses the same chat-completions payload format but bypasses the
+        OpenAI SDK, posting directly to config.api_endpoint. Useful for
+        endpoints that are not fully OpenAI-compatible.
+        """
+        payload = {
+            "model": config.model,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [{"type": "text", "text": question}, media_content],
+                }
+            ],
+            "max_tokens": max_tokens,
+        }
+
+        request_headers = {
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+        }
+        if api_key and api_key != "not-used":
+            request_headers["Authorization"] = f"Bearer {api_key}"
+
+        endpoint = config.api_endpoint.rstrip("/")
+        # Append /chat/completions if not already in the URL
+        if not endpoint.endswith("/chat/completions"):
+            endpoint = f"{endpoint}/chat/completions"
+
+        async with httpx.AsyncClient(timeout=config.timeout) as client:
+            response = await client.post(
+                endpoint,
+                headers=request_headers,
+                json=payload,
+            )
+            response.raise_for_status()
+            result = response.json()
+
+        if result.get("choices"):
+            answer = result["choices"][0].get("message", {}).get("content", "")
+            if answer:
+                logger.info("Successfully received response from custom VLM endpoint")
+                return answer
+
+        logger.error("Unexpected response format: %s", str(result)[:200])
+        return "Error: Unexpected response format from the Vision Language Model."
+
     async def comprehend_media(
         question: str,
         imageRef: str | dict | None = None,
@@ -390,13 +451,23 @@ async def image_comprehension_function(
 
             media_type = "video" if (video_url or parsed_videoRef) else "image"
             logger.info(
-                "Sending %s comprehension request to %s with model %s",
+                "Sending %s comprehension request to %s with model %s (api_type=%s)",
                 media_type,
                 config.api_endpoint,
                 config.model,
+                config.api_type,
             )
 
-            # Make the chat completion request using OpenAI SDK
+            effective_max_tokens = (
+                max_tokens if max_tokens is not None else config.max_tokens
+            )
+
+            if config.api_type == "custom":
+                return await _comprehend_custom(
+                    question, media_content, effective_max_tokens
+                )
+
+            # Default: OpenAI SDK (works with any OpenAI-compatible endpoint)
             response = await openai_client.chat.completions.create(
                 model=config.model,
                 messages=[
@@ -405,7 +476,7 @@ async def image_comprehension_function(
                         "content": [{"type": "text", "text": question}, media_content],
                     }
                 ],
-                max_tokens=max_tokens if max_tokens is not None else config.max_tokens,
+                max_tokens=effective_max_tokens,
             )
 
             # Extract the response content

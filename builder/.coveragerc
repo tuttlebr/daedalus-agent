@@ -1,7 +1,7 @@
 [run]
 source =
     agent_skills/src
-    artificial_analysis/src
+
     image_augmentation/src
     image_comprehension/src
     image_generation/src

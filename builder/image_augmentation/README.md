@@ -1,13 +1,12 @@
 # Image Augmentation Function for NeMo Agent Toolkit
 
-This custom NVIDIA NeMo Agent toolkit function integrates with NVIDIA's Flux Kontext API to modify existing images based on text prompts.
+This custom NVIDIA NeMo Agent toolkit function modifies existing images based on text prompts. It supports multiple backends: NVIDIA API Catalog (custom), NIM self-hosted endpoints, OpenAI, and OpenRouter.
 
 ## Features
 
-The function provides the following features:
-- Image augmentation using text prompts through the NVIDIA NIM API
+- Image augmentation using text prompts
+- Multiple API backends: `custom`, `nim`, `openai`, `openrouter`
 - Automatic image retrieval from Redis session storage
-- Support for uploading images through the UI
 - Configurable augmentation parameters (steps, seed, cfg_scale)
 - Returns markdown-formatted images for seamless UI rendering
 - Follows the same pattern as `image_generation_tool` for consistency
@@ -19,12 +18,35 @@ Update the configuration in `src/image_augmentation/configs/config.yml`:
 ```yaml
 workflow:
   _type: image_augmentation
-  api_endpoint: "https://integrate.api.nvidia.com"
-  redis_url: "redis://redis:6379"  # Redis connection for image retrieval
-  api_key: null  # Set if your API requires authentication or use NVIDIA_API_KEY env var
+  api_type: custom  # custom, nim, openai, or openrouter
+  api_endpoint: "https://ai.api.nvidia.com/v1/genai/black-forest-labs/flux.1-kontext-dev"
+  redis_url: "redis://redis:6379"
+  api_key: null  # Falls back to NVIDIA_API_KEY env var
   timeout: 300.0
   default_steps: 30
   default_seed: 42
+```
+
+### API Types
+
+| Type | Endpoint | Description |
+|------|----------|-------------|
+| `custom` | Full URL to model endpoint | Direct HTTP POST. Works with NVIDIA API Catalog and compatible endpoints. Sends `aspect_ratio: "match_input_image"` so no client-side resizing is needed. |
+| `nim` | Base URL (appends `/v1/infer`) | NVIDIA NIM self-hosted Flux Kontext. Handles dimension validation and automatic resizing to valid pairs. |
+| `openai` | Uses OpenAI SDK | OpenAI `images.edit` endpoint via the SDK. Requires `OPENAI_API_KEY`. |
+| `openrouter` | OpenRouter API | OpenRouter multimodal chat completions. Supports up to 15 images. Requires `OPENROUTER_API_KEY`. |
+
+### Backend YAML Configuration
+
+In the NAT backend YAML (e.g., `backend/tool-calling-config.yaml`):
+
+```yaml
+image_augmentation_tool:
+  _type: image_augmentation
+  api_type: custom
+  api_endpoint: https://ai.api.nvidia.com/v1/genai/black-forest-labs/flux.1-kontext-dev
+  api_key: ${NVIDIA_API_KEY}
+  redis_url: ${REDIS_URL}
 ```
 
 ## Usage
@@ -50,7 +72,6 @@ result = await augment_image_simple(
 
 ### Input Parameters
 
-The function accepts the following parameters:
 - `prompt`: Text describing the desired augmentations (required)
 - `imageRef`: Dictionary with `imageId`, `sessionId`, and optional `mimeType` (required)
 - `steps`: Number of diffusion steps (optional, default: 30)
@@ -59,67 +80,37 @@ The function accepts the following parameters:
 
 ### Response Format
 
-The function returns a markdown-formatted image string:
+The function returns a markdown-formatted image reference:
 
 ```markdown
-![Augmented image](data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD...)
+![Augmented image](/api/generated-image/{image_id})
 ```
 
-This will be automatically rendered as an image in the UI.
+This is automatically rendered as an image in the UI. The augmented image is stored in Redis with a 7-day TTL.
 
 ## Workflow
 
-The image augmentation workflow follows this pattern:
-
-1. **User uploads image** → Frontend uploads image to Redis (with optional compression)
-2. **Image stored in Redis** → Stored as JSON with imageId and sessionId as key
-3. **User requests augmentation** → "make the sky purple" with uploaded image
-4. **Frontend prepares message** → Includes imageRef data in message content
-5. **Backend LLM receives message** → Extracts imageRef from message content
-6. **LLM calls augment_image_simple** → Passes prompt and imageRef parameters
-7. **Function fetches image** → Retrieves directly from Redis using Python redis-py client
-8. **Function resizes image** → Automatically resizes to closest valid dimension pair using Pillow
-9. **API augmentation** → Sends resized image to NVIDIA Flux Kontext endpoint
-10. **Returns markdown** → `![Augmented image](data:image/png;base64,...)`
-11. **UI renders image** → Displays augmented result
-
-### Direct Redis Access
-
-The function connects directly to Redis using the `redis-py` client library. This provides:
-- **Better performance** - No HTTP overhead, direct Redis protocol
-- **More reliable** - No HTTP timeouts or network issues between services
-- **Simpler debugging** - Direct access to Redis keys for troubleshooting
-- **Consistent data model** - Uses same Redis JSON structure as frontend
+1. **User uploads image** -- Frontend stores image in Redis with imageId/sessionId
+2. **User requests augmentation** -- "make the sky purple" with uploaded image
+3. **LLM calls augment_image_simple** -- Passes prompt and imageRef parameters
+4. **Function fetches image** -- Retrieves from Redis using redis-py client
+5. **API augmentation** -- Sends image to configured endpoint
+6. **Store result** -- Augmented image stored in Redis
+7. **Returns markdown** -- `![Augmented image](/api/generated-image/{id})`
+8. **UI renders image** -- Displays augmented result
 
 ## Installation
 
-Make sure to install the required dependencies:
-
 ```bash
-# For editable install (development)
-pip install -e .
-
-# For regular install (production)
-pip install .
+pip install -e .   # development
+pip install .      # production
 ```
 
-This will install the function along with its dependencies including:
-- `httpx` for NVIDIA API requests
-- `redis` (redis-py) for direct Redis access
-- `Pillow` for image processing and resizing
-
-## API Endpoint
-
-This function is designed to work with NVIDIA's Flux Kontext API that accepts:
-- A base64-encoded input image (data URL format)
-- A text prompt describing the desired changes
-- Optional parameters: steps, seed, cfg_scale
-
-The API returns the augmented image in base64 format wrapped in an artifacts array.
+Dependencies: `httpx`, `redis` (redis-py), `Pillow`, `openai` (for OpenAI api_type).
 
 ## Error Handling
 
-The function includes comprehensive error handling for:
+The function includes error handling for:
 - Invalid or missing imageRef parameters
 - Failed image retrieval from Redis storage
 - HTTP connection errors to the augmentation API
@@ -130,24 +121,8 @@ Errors are logged with detailed context and user-friendly error messages are ret
 
 ## Image Format Support
 
-The function supports common image formats:
-- JPEG/JPG
-- PNG
-- WebP
-- GIF
+Supported formats: JPEG/JPG, PNG, WebP, GIF. Images are automatically retrieved from Redis, converted to data URLs for API calls, and stored back as base64 in Redis.
 
-Images are automatically:
-- Uploaded from the frontend and stored in Redis with references
-- Retrieved by the augmentation function from Redis
-- Resized to valid dimension pairs server-side using Pillow
-- Converted to data URLs for API calls
-- Returned as base64-encoded markdown images
+## NIM Dimension Handling
 
-## Supported Dimensions
-
-The Flux Kontext API accepts images with these specific dimension pairs (width x height):
-- 672×1568, 688×1504, 720×1456, 752×1392, 800×1328, 832×1248, 880×1184, 944×1104
-- 1024×1024 (square)
-- 1104×944, 1184×880, 1248×832, 1328×800, 1392×752, 1456×720, 1504×688, 1568×672
-
-The augmentation function automatically resizes images to the closest valid dimension pair based on aspect ratio similarity before sending them to the API. This resizing happens server-side using Pillow for better quality and consistency.
+When using `api_type: nim`, the function automatically resizes images to valid Flux Kontext dimension pairs (e.g., 1024x1024, 832x1248) based on aspect ratio similarity. The `custom` type avoids this by sending `aspect_ratio: "match_input_image"` to the API.

@@ -9,14 +9,13 @@ general:
 
 workflow:
   _type: image_generation
-  api_type: nim  # Use "nim" for NIM API (default) or "openai" for OpenAI API
-  api_endpoint: "http://localhost:8000"  # Only used for NIM API
-  api_key: null  # Set if your API requires authentication (NVIDIA_API_KEY for NIM, OPENAI_API_KEY for OpenAI)
+  api_type: custom  # custom, nim, openai, or openrouter
+  api_endpoint: "https://ai.api.nvidia.com/v1/genai/black-forest-labs/flux.2-klein-4b"
+  api_key: null  # Falls back to NVIDIA_API_KEY env var
   timeout: 60.0
   default_width: 1024
   default_height: 1024
-  default_steps: 50  # Only used for NIM API
-  openai_model: gpt-image-1  # Only used for OpenAI API
+  default_steps: 4
   prompt_rewrite: null  # Example:
   #   llm: balanced_llm
   #   system_prompt: |
@@ -27,15 +26,22 @@ workflow:
   #   max_tokens: 256
   #   temperature: 0.2
 
-  # Example configuration for OpenAI:
+  # Example: NVIDIA API Catalog (custom)
+  # api_type: custom
+  # api_endpoint: "https://ai.api.nvidia.com/v1/genai/black-forest-labs/flux.2-klein-4b"
+  # default_steps: 4
+
+  # Example: OpenAI
   # api_type: openai
-  # api_key: your-openai-api-key-here  # Or set OPENAI_API_KEY env var
+  # api_key: your-openai-api-key  # Or set OPENAI_API_KEY env var
   # openai_model: gpt-image-1
-  # default_width: 1024
-  # default_height: 1024
-  # Example configuration for OpenRouter:
+
+  # Example: OpenRouter
   # api_type: openrouter
-  # api_key: your-openrouter-api-key-here  # Or set OPENROUTER_API_KEY env var
-  # openrouter_model: sourceful/riverflow-v2-pro
-  # default_width: 1024
-  # default_height: 1024
+  # api_key: your-openrouter-api-key  # Or set OPENROUTER_API_KEY env var
+  # openrouter_model: google/gemini-2.5-flash-image-preview
+
+  # Example: NIM self-hosted
+  # api_type: nim
+  # api_endpoint: "http://localhost:8000"
+  # default_steps: 50

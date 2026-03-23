@@ -63,7 +63,6 @@ COPY webscrape /workspace/webscrape
 COPY rss_feed /workspace/rss_feed
 COPY vtt_interpreter /workspace/vtt_interpreter
 COPY agent_skills /workspace/agent_skills
-COPY artificial_analysis /workspace/artificial_analysis
 COPY serpapi_search /workspace/serpapi_search
 COPY json_repair_agent /workspace/json_repair_agent
 COPY --from=skills . /skills
@@ -109,10 +108,6 @@ RUN --mount=type=cache,id=uv_cache,target=/root/.cache/uv,sharing=locked \
 RUN --mount=type=cache,id=uv_cache,target=/root/.cache/uv,sharing=locked \
     NAT_VERSION= nat workflow reinstall agent_skills && \
     uv pip install -e agent_skills --prerelease=allow
-
-RUN --mount=type=cache,id=uv_cache,target=/root/.cache/uv,sharing=locked \
-    NAT_VERSION= nat workflow reinstall artificial_analysis && \
-    uv pip install -e artificial_analysis --prerelease=allow
 
 RUN --mount=type=cache,id=uv_cache,target=/root/.cache/uv,sharing=locked \
     NAT_VERSION= nat workflow reinstall serpapi_search && \

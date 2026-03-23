@@ -5,6 +5,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
+import redis
 from nat.builder.builder import Builder
 from nat.builder.framework_enum import LLMFrameworkEnum
 from nat.builder.function_info import FunctionInfo
@@ -13,8 +14,6 @@ from nat.data_models.function import FunctionBaseConfig
 from nv_ingest_client.client import Ingestor, NvIngestClient
 from pydantic import Field
 from pymilvus import MilvusClient
-
-import redis
 
 logger = logging.getLogger(__name__)
 

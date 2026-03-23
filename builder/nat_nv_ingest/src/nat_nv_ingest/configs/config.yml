@@ -4,10 +4,10 @@ functions:
   list_collections:
     _type: nat_nv_ingest
     redis_url: "redis://daedalus-redis.daedalus.svc.cluster.local:6379"
-    nv_ingest_host: "192.168.1.239"
+    nv_ingest_host: "0.0.0.0"
     nv_ingest_port: 7670
-    milvus_uri: "http://192.168.1.234:32073"
-    minio_endpoint: "192.168.1.239:9000"
+    milvus_uri: "http://0.0.0.0:32073"
+    minio_endpoint: "0.0.0.0:9000"
     minio_access_key: "minioadmin"
     minio_secret_key: "minioadmin"
     chunk_size: 1024
@@ -17,10 +17,10 @@ functions:
   nat_nv_ingest:
     _type: nat_nv_ingest
     redis_url: "redis://daedalus-redis.daedalus.svc.cluster.local:6379"
-    nv_ingest_host: "192.168.1.239"
+    nv_ingest_host: "0.0.0.0"
     nv_ingest_port: 7670
-    milvus_uri: "http://192.168.1.234:32073"
-    minio_endpoint: "192.168.1.239:9000"
+    milvus_uri: "http://0.0.0.0:32073"
+    minio_endpoint: "0.0.0.0:9000"
     minio_access_key: "minioadmin"
     minio_secret_key: "minioadmin"
     chunk_size: 1024

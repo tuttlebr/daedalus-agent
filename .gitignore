@@ -1,3 +1,6 @@
+# Claude Code
+.claude/
+
 # Environment and secrets
 .env
 .env.*
@@ -16,7 +19,7 @@ secrets/
 *.crt
 *.csr
 config.sh
-
+ignore.sh
 # Project-specific
 logs/
 */logs/

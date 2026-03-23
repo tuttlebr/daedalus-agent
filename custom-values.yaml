@@ -1,0 +1,369 @@
+global:
+  nameOverride: ""
+  fullnameOverride: ""
+  networkName: daedalus-network
+  # Restrict pod scheduling to these nodes; leave empty to allow any node
+  nodePlacement:
+    allowedNodes: ["daedalus-02", "daedalus-03"]
+
+images:
+  builder:
+    repository: daedalus.ddns.me:5050/btuttle/daedalus
+    tag: builder-0.1.0
+    pullPolicy: Always
+  backend:
+    repository: daedalus.ddns.me:5050/btuttle/daedalus
+    tag: backend-0.1.0
+    pullPolicy: Always
+  frontend:
+    repository: daedalus.ddns.me:5050/btuttle/daedalus
+    tag: frontend-0.1.0
+    pullPolicy: Always
+  nginx:
+    repository: nginx
+    tag: alpine
+    pullPolicy: Always
+  redis:
+    repository: redis/redis-stack-server
+    tag: "7.4.0-v8"
+    pullPolicy: Always
+  redisinsight:
+    repository: redis/redisinsight
+    tag: "3.2"
+    pullPolicy: Always
+
+backend:
+  # Default backend configuration
+  default:
+    enabled: true
+    port: 8000
+    # securityContext — disabled by default; image must support non-root before enabling.
+    # To enable, rebuild the backend image (chmod is already in Dockerfile), then uncomment:
+    #   runAsNonRoot: true
+    #   runAsUser: 1000
+    #   runAsGroup: 1000
+    #   fsGroup: 1000
+    securityContext: {}
+    env:
+      # Name of an existing Secret to load via envFrom (external secret)
+      fromSecret: "daedalus-backend-env"
+      # If you prefer Helm to create the Secret, set createSecret=true and provide key/value pairs under data
+      createSecret: false
+      data: {}
+      # Explicit env overrides applied in the pod, useful to fix bad values from secrets
+      overrides:
+        SSL_CERT_FILE: /etc/ssl/certs/ca-certificates.crt
+        # Limit Dask workers to 2 (match CPU limit) to prevent OOM
+        DASK_DISTRIBUTED__WORKER__NTHREADS: "1"
+        DASK_DISTRIBUTED__NWORKERS: "2"
+    config:
+      enabled: true
+      # Contents of backend/tool-calling-config.yaml; if empty, configMap mounts {}
+      data: ""
+    resources:
+      requests:
+        cpu: 250m
+        memory: 512Mi
+      limits:
+        cpu: 2000m
+        memory: 8Gi
+    service:
+      type: NodePort
+      port: 8000
+
+  # Deep Thinker backend configuration
+  deepThinker:
+    enabled: true
+    port: 8000
+    # securityContext — disabled by default; image must support non-root before enabling.
+    # To enable, rebuild the backend image (chmod is already in Dockerfile), then uncomment:
+    #   runAsNonRoot: true
+    #   runAsUser: 1000
+    #   runAsGroup: 1000
+    #   fsGroup: 1000
+    securityContext: {}
+    env:
+      # Name of an existing Secret to load via envFrom (external secret)
+      fromSecret: ""
+      # If you prefer Helm to create the Secret, set createSecret=true and provide key/value pairs under data
+      createSecret: false
+      data: {}
+      # Explicit env overrides applied in the pod, useful to fix bad values from secrets
+      overrides:
+        SSL_CERT_FILE: /etc/ssl/certs/ca-certificates.crt
+        # Limit Dask workers to 2 (match CPU limit) to prevent OOM
+        DASK_DISTRIBUTED__WORKER__NTHREADS: "1"
+        DASK_DISTRIBUTED__NWORKERS: "2"
+    config:
+      enabled: true
+      # Contents of backend/react-agent-config.yaml; if empty, configMap mounts {}
+      data: ""
+    resources:
+      requests:
+        cpu: 250m
+        memory: 512Mi
+      limits:
+        cpu: 2000m
+        memory: 8Gi
+    service:
+      type: NodePort
+      port: 8000
+
+  # Shared backend configuration
+  networkPolicy:
+    enabled: true # Set to true to restrict backend access to only frontend and nginx pods
+  persistence:
+    enabled: true
+    size: 6Gi
+    storageClassName: ""
+    create: true
+    existingClaimName: ""
+  # Agent Skills directory — skills are baked into the Docker image at /skills by default.
+  # Set enabled: true to override with a PVC (useful for hot-swapping skills without rebuilding).
+  # When enabled without a pvcName, an emptyDir is used (skills from the image are shadowed).
+  skills:
+    enabled: false
+    mountPath: /skills
+    pvcName: ""
+
+frontend:
+  enabled: true
+  port: 3000
+  # Frontend image already runs as non-root (nextjs:1001), so securityContext is safe here
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1001
+    runAsGroup: 1001
+    fsGroup: 1001
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+  env:
+    fromSecret: "daedalus-frontend-env"
+    createSecret: false
+    data: {}
+    overrides:
+      # Backend API path - controls which NAT API endpoint to use
+      # Supported values: /chat, /chat/stream, /generate, /generate/stream, /v1/chat/completions
+      BACKEND_API_PATH: "/chat/stream"
+  service:
+    type: ClusterIP
+    port: 3000
+
+nginx:
+  enabled: true
+  securityContext: {}
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+  httpPort: 80
+  https:
+    enabled: true
+    tlsSecretName: "daedalus-tls"
+  config:
+    useTemplate: true
+    restrictedMode: true # Set to true to block direct API access through nginx
+    # If useTemplate is false, rawConf is used
+    rawConf: |
+      # Provide nginx conf if not using template
+    # Leave empty to default to the in-cluster FQDN of the backend Service
+    backendHost: ""
+    backendPort: 8000
+  imageVolume:
+    enabled: true
+    size: 1Gi
+    storageClassName: ""
+    create: true
+    existingClaimName: ""
+  service:
+    type: NodePort
+    nodePorts:
+      https: 30443
+
+redis:
+  enabled: true
+  securityContext: {}
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 1000m
+      memory: 2Gi
+  persistence:
+    enabled: true
+    size: 64Gi
+    storageClassName: ""
+    create: true
+    existingClaimName: ""
+  service:
+    type: ClusterIP
+    port: 6379
+
+redisinsight:
+  enabled: true
+  securityContext: {}
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  persistence:
+    enabled: true
+    size: 4Gi
+    storageClassName: ""
+    create: true
+    existingClaimName: ""
+  service:
+    type: NodePort
+    nodePorts:
+      https: 30540
+  env:
+    overrides: {}
+
+jupyterlab:
+  enabled: true
+  image:
+    repository: quay.io/jupyter/scipy-notebook
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  # Authentication token for JupyterLab (leave empty for no token)
+  token: ""
+  # Hashed password for JupyterLab (leave empty for no password)
+  # Generate with: python -c "from jupyter_server.auth import passwd; print(passwd('your-password'))"
+  password: ""
+  # Base URL for JupyterLab (useful for reverse proxy setups)
+  baseUrl: "/"
+  # Security context for the pod (run as jovyan user)
+  securityContext:
+    runAsUser: 1000
+    runAsGroup: 100
+    fsGroup: 100
+  env:
+    # Use backend secret for API keys (NVIDIA_API_KEY, OPENROUTER_API_KEY, etc.)
+    fromSecret: "daedalus-backend-env"
+    # Milvus connection settings
+    milvusUri: "http://milvus.milvus.svc.cluster.local:19530"
+    milvusHost: "milvus.milvus.svc.cluster.local"
+    milvusPort: "19530"
+    milvusNamespace: "milvus" # Namespace where Milvus is deployed (for network policy)
+    # Explicit environment variable overrides
+    overrides: {}
+      # NVIDIA_API_KEY: "your-api-key"
+      # OPENROUTER_API_KEY: "your-api-key"
+      # AA_API_KEY: "your-artificial-analysis-api-key"
+  persistence:
+    enabled: true
+    size: 10Gi
+    storageClassName: ""
+    create: true
+    existingClaimName: ""
+  service:
+    # NodePort for intranet-only access (no external ingress)
+    # Access via: http://<node-ip>:<nodePort>
+    # Or use: kubectl port-forward svc/<release>-daedalus-jupyterlab 8888:8888
+    type: NodePort
+    port: 8888
+    nodePort: 30888
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: 2000m
+      memory: 4Gi
+
+autonomousAgent:
+  # Autonomous background agent that curates memories, monitors news feeds,
+  # and builds knowledge for the configured user without human interaction.
+  # Thoughts are stored as a conversation visible in the frontend sidebar.
+  enabled: true
+  # Set suspend: true to pause scheduling without removing the CronJob
+  suspend: false
+  securityContext: {}
+  schedule: "*/60 * * * *"
+  # Hard deadline per job — pod is killed after this many seconds
+  activeDeadlineSeconds: 600
+  # HTTP timeout for the backend API call (leave buffer before activeDeadlineSeconds)
+  requestTimeout: 240
+  # Which backend API path to use
+  backendApiPath: "/chat/stream"
+  # User whose memory and conversation history the agent operates on
+  userId: "tuttlebr"
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  env:
+    # Load API keys from the same secret as the backend (needed if backend
+    # requires auth headers; usually not needed since the agent calls the
+    # in-cluster backend service directly)
+    fromSecret: "daedalus-backend-env"
+    overrides: {}
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+endpointHealthcheck:
+  enabled: true
+  # No securityContext — the Alpine container needs root to install curl/jq via apk
+  securityContext: {}
+  # Cron schedule for health checks (default: daily at 6:00 AM UTC)
+  schedule: "0 6 * * *"
+  # Container image for running health checks
+  image:
+    repository: alpine
+    tag: "3.20"
+    pullPolicy: IfNotPresent
+  # Number of successful/failed jobs to keep
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  # Secret containing NVIDIA_API_KEY (defaults to backend secret if not specified)
+  secretName: "daedalus-backend-env"
+  # Optional: Slack webhook URL for failure notifications (leave empty to disable)
+  slackWebhookUrl: ""
+  # Resource limits for the health check container
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 100m
+      memory: 128Mi
+
+ingress:
+  enabled: true
+  className: ""
+  annotations:
+    # Nginx Ingress Controller - Increase timeouts for long-running AI requests (comprehensive_research_agent can take up to 15 minutes)
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "900"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "900"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "900"
+    nginx.ingress.kubernetes.io/proxy-body-size: "150m" # Support video uploads up to 100MB (base64 adds ~33% overhead)
+    # Disable buffering for streaming responses
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"
+    nginx.ingress.kubernetes.io/proxy-request-buffering: "off"
+    # Traefik Ingress Controller (alternative)
+    # traefik.ingress.kubernetes.io/timeout: "900s"
+    # HAProxy Ingress Controller (alternative)
+    # haproxy.org/timeout-client: "900s"
+    # haproxy.org/timeout-server: "900s"
+  hosts:
+    - host: daedalus.ddns.me
+      # Additional hosts can be added here
+  tls:
+    - secretName: daedalus-tls
+      hosts:
+        - daedalus.ddns.me

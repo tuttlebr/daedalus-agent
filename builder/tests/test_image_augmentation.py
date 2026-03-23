@@ -102,9 +102,9 @@ class TestImageResponse:
 
 
 class TestImageAugmentationFunctionConfig:
-    def test_default_api_type_nim(self):
+    def test_default_api_type_custom(self):
         config = ImageAugmentationFunctionConfig()
-        assert config.api_type == "nim"
+        assert config.api_type == "custom"
 
     def test_openrouter_type(self):
         config = ImageAugmentationFunctionConfig(api_type="openrouter")

@@ -54,13 +54,13 @@ class TestImageRequest:
         assert req.height == 768
         assert req.width == 1024
 
-    def test_invalid_height_raises(self):
-        with pytest.raises(Exception):
-            ImageRequest(prompt="Test", height=512)  # Not in supported list
+    def test_custom_height_accepted(self):
+        req = ImageRequest(prompt="Test", height=512)
+        assert req.height == 512
 
-    def test_invalid_width_raises(self):
-        with pytest.raises(Exception):
-            ImageRequest(prompt="Test", width=512)  # Not in supported list
+    def test_custom_width_accepted(self):
+        req = ImageRequest(prompt="Test", width=512)
+        assert req.width == 512
 
     def test_model_dump(self):
         req = ImageRequest(prompt="Test")
@@ -143,7 +143,7 @@ class TestOpenAIImageResponse:
 class TestImageGenerationFunctionConfig:
     def test_defaults(self):
         config = ImageGenerationFunctionConfig()
-        assert config.api_type == "nim"
+        assert config.api_type == "custom"
         assert config.default_width == 1024
         assert config.default_height == 1024
         assert config.default_steps == 50

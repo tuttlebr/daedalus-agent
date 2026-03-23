@@ -16,9 +16,8 @@ import re
 import sys
 import time
 
-import requests
-
 import redis as redis_lib
+import requests
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -326,15 +325,23 @@ def trim_messages_to_fit(messages: list[dict]) -> list[dict]:
     if total <= MAX_INPUT_TOKEN_BUDGET:
         return messages
 
-    log(f"Messages exceed token budget ({total} est. tokens vs {MAX_INPUT_TOKEN_BUDGET}), trimming")
+    log(
+        f"Messages exceed token budget ({total} est. tokens vs {MAX_INPUT_TOKEN_BUDGET}), trimming"
+    )
 
     # Always keep the final prompt (last element)
     trimmed = list(messages)
-    while len(trimmed) > 1 and sum(estimate_tokens(m.get("content", "")) for m in trimmed) > MAX_INPUT_TOKEN_BUDGET:
+    while (
+        len(trimmed) > 1
+        and sum(estimate_tokens(m.get("content", "")) for m in trimmed)
+        > MAX_INPUT_TOKEN_BUDGET
+    ):
         trimmed.pop(0)
 
-    log(f"Trimmed from {len(messages)} to {len(trimmed)} messages "
-        f"(~{sum(estimate_tokens(m.get('content', '')) for m in trimmed)} est. tokens)")
+    log(
+        f"Trimmed from {len(messages)} to {len(trimmed)} messages "
+        f"(~{sum(estimate_tokens(m.get('content', '')) for m in trimmed)} est. tokens)"
+    )
     return trimmed
 
 

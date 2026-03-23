@@ -7,8 +7,8 @@ authentication:
 embedders:
   milvus_embedder:
     _type: nim
-    base_url: https://integrate.api.nvidia.com/v1
-    model_name: nvidia/llama-3.2-nv-embedqa-1b-v2
+    base_url: ${NVIDIA_INFERENCE_BASE_URL}
+    model_name: nvidia/nvidia/llama-3.2-nv-embedqa-1b-v2
     truncate: END
 function_groups:
   github_mcp_server:
@@ -75,77 +75,6 @@ functions:
       available, load_skill to read a skill's instructions or resources, and
       run_skill_script to execute a bundled script.
     verbose: true
-  artificial_analysis_api:
-    _type: artificial_analysis
-    api_key: ${AA_API_KEY}
-    description: >-
-      Query the Artificial Analysis API to retrieve benchmark data, pricing,
-      and performance metrics for AI models (LLMs, text-to-image, text-to-video, etc.).
-      Returns interactive charts comparing models. Use chart_type "bar" for
-      ranked comparisons or "quadrant" for two-dimensional scatter analysis
-      (e.g., speed vs intelligence, cost vs quality). Use model_filter to
-      narrow results to a specific model or family.
-  artificial_analysis_scrape:
-    _type: webscrape
-    description: >-
-      Scrape a page from the Artificial Analysis website to get provider-level
-      benchmark data for a specific model. Construct the URL as
-      https://artificialanalysis.ai/models/{model-slug}/providers
-      where model-slug is the model's slug from the API (e.g., "kimi-k2-5",
-      "gpt-4o", "llama-3-1-405b"). Use this when the user asks about
-      providers, hosting options, or per-provider speed/price/latency for
-      a specific model.
-    max_output_tokens: 64000
-    use_browser_fallback: true
-  artificial_analysis_tool:
-    _type: tool_calling_agent
-    tool_names:
-      - artificial_analysis_api
-      - artificial_analysis_scrape
-    llm_name: reasoning_llm
-    verbose: true
-    description: >-
-      Research AI model benchmarks using the Artificial Analysis platform.
-      This agent can make multiple API calls and scrape provider pages to
-      answer complex questions about model performance, pricing, speed, and
-      provider comparisons. Use for multi-step research that requires
-      combining API data with provider page scraping.
-      (1) artificial_analysis_api — queries the structured API for model lists
-      with evaluations, pricing, and speed metrics across all models;
-      (2) artificial_analysis_scrape — scrapes provider-specific pages from
-      artificialanalysis.ai for per-provider breakdowns of a single model
-      (speed, latency, pricing by provider). When the user asks about
-      providers for a specific model, use the API first to find the model
-      slug, then scrape the providers page.
-    handle_tool_errors: true
-    max_iterations: 15
-  aa_render_fn:
-    _type: artificial_analysis_render
-    api_key: ${AA_API_KEY}
-    description: >-
-      Low-level render primitive: fetches Artificial Analysis data and returns
-      an interactive <chart> visualization. Called by artificial_analysis_render
-      agent — do not call directly from the top-level workflow.
-  artificial_analysis_render:
-    _type: tool_calling_agent
-    tool_names:
-      - aa_render_fn
-      - artificial_analysis_api
-    llm_name: reasoning_llm
-    verbose: true
-    description: >-
-      Render or re-render an interactive chart of AI model benchmarks from
-      Artificial Analysis. This agent reasons about the user's request —
-      including any follow-up modifications such as "remove OpenAI models",
-      "limit to top 10", or "show only Anthropic" — and calls the render
-      primitive with the correct parameters.
-      Use model_filter to include only models matching a substring.
-      Use model_exclude to remove providers or families (comma-separated,
-      e.g. "openai" or "openai,google"). Use top_n to limit chart size.
-      Always call this tool when the user asks to see, compare, visualize,
-      or modify AI model benchmark charts.
-    handle_tool_errors: true
-    max_iterations: 5
   add_memory:
     _type: add_memory
     description:
@@ -235,9 +164,10 @@ functions:
     verbose: true
   image_augmentation_tool:
     _type: image_augmentation
-    api_endpoint: https://openrouter.ai/api/v1
-    api_key: ${OPENROUTER_API_KEY}
-    api_type: openrouter
+    api_endpoint: ${IMAGE_AUGMENTATION_BASE_URL}
+    api_key: ${NVIDIA_API_KEY}
+    api_type: openai
+    openai_model: gcp/google/gemini-3-pro-image-preview
     description:
       'Modify an existing user-uploaded image by applying edits, filters,
       transformations, or adding visual elements. The user must have already
@@ -254,14 +184,15 @@ functions:
       "Add a sunset background and increase contrast"}
 
       '
-    openrouter_model: openai/gpt-5-image
     redis_url: ${REDIS_URL}
     timeout: 300.0
     verbose: true
   image_comprehension_tool:
     _type: image_comprehension
-    api_endpoint: https://integrate.api.nvidia.com/v1
+    api_endpoint: ${IMAGE_COMPREHENSION_BASE_URL}
     api_key: ${NVIDIA_API_KEY}
+    api_type: openai
+    openai_model: gcp/google/gemini-3-pro-image-preview
     description: 'Analyze a user-uploaded image and provide descriptions, answer
       questions, extract text (OCR), identify objects, or describe scenes.
       Does not modify the image.
@@ -279,15 +210,15 @@ functions:
       "What text is visible in this image?"}
 
       '
-    model: nvidia/NVIDIA-Nemotron-Nano-12B-v2
     redis_url: ${REDIS_URL}
     timeout: 300.0
     verbose: true
   image_generation_tool:
     _type: image_generation
-    api_endpoint: https://openrouter.ai/api/v1
-    api_key: ${OPENROUTER_API_KEY}
-    api_type: openrouter
+    api_endpoint: ${IMAGE_GENERATION_BASE_URL}
+    api_key: ${NVIDIA_API_KEY}
+    api_type: openai
+    openai_model: gcp/google/gemini-3-pro-image-preview
     description:
       'Generate a new image from a text description. Produces a 1024x1024
       image based on the prompt. Use when the user requests an original
@@ -301,7 +232,6 @@ functions:
       cars and neon lights"}
 
       '
-    openrouter_model: google/gemini-3-pro-image-preview
     redis_url: ${REDIS_URL}
     timeout: 300.0
     verbose: true
@@ -377,8 +307,8 @@ functions:
     feed_url: https://feeds.feedburner.com/nvidiablog
     max_entries: 5
     reranker_api_key: ${NVIDIA_API_KEY}
-    reranker_endpoint: https://integrate.api.nvidia.com/v1/ranking
-    reranker_model: nvidia/llama-3.2-nv-rerankqa-1b-v2
+    reranker_endpoint: ${NVIDIA_INFERENCE_BASE_URL}/ranking
+    reranker_model: nvidia/nvidia/llama-3.2-nv-rerankqa-1b-v2
     verbose: true
   nvidia_developer_blog_rss:
     _type: rss_feed
@@ -392,8 +322,8 @@ functions:
     feed_url: https://developer.nvidia.com/blog/feed
     max_entries: 5
     reranker_api_key: ${NVIDIA_API_KEY}
-    reranker_endpoint: https://integrate.api.nvidia.com/v1/ranking
-    reranker_model: nvidia/llama-3.2-nv-rerankqa-1b-v2
+    reranker_endpoint: ${NVIDIA_INFERENCE_BASE_URL}/ranking
+    reranker_model: nvidia/nvidia/llama-3.2-nv-rerankqa-1b-v2
     verbose: true
   nvidia_news_room_rss:
     _type: rss_feed
@@ -407,8 +337,8 @@ functions:
     feed_url: https://nvidianews.nvidia.com/releases.xml
     max_entries: 5
     reranker_api_key: ${NVIDIA_API_KEY}
-    reranker_endpoint: https://integrate.api.nvidia.com/v1/ranking
-    reranker_model: nvidia/llama-3.2-nv-rerankqa-1b-v2
+    reranker_endpoint: ${NVIDIA_INFERENCE_BASE_URL}/ranking
+    reranker_model: nvidia/nvidia/llama-3.2-nv-rerankqa-1b-v2
     verbose: true
   nvidia_retriever_tool:
     _type: nat_retriever
@@ -448,8 +378,8 @@ functions:
     feed_url: https://newsletter.semianalysis.com/feed
     max_entries: 5
     reranker_api_key: ${NVIDIA_API_KEY}
-    reranker_endpoint: https://integrate.api.nvidia.com/v1/ranking
-    reranker_model: nvidia/llama-3.2-nv-rerankqa-1b-v2
+    reranker_endpoint: ${NVIDIA_INFERENCE_BASE_URL}/ranking
+    reranker_model: nvidia/nvidia/llama-3.2-nv-rerankqa-1b-v2
     verbose: true
   karpathy_bearblog_rss:
     _type: rss_feed
@@ -462,8 +392,8 @@ functions:
     feed_url: https://karpathy.bearblog.dev/feed/
     max_entries: 5
     reranker_api_key: ${NVIDIA_API_KEY}
-    reranker_endpoint: https://integrate.api.nvidia.com/v1/ranking
-    reranker_model: nvidia/llama-3.2-nv-rerankqa-1b-v2
+    reranker_endpoint: ${NVIDIA_INFERENCE_BASE_URL}/ranking
+    reranker_model: nvidia/nvidia/llama-3.2-nv-rerankqa-1b-v2
     verbose: true
   karpathy_github_rss:
     _type: rss_feed
@@ -475,8 +405,8 @@ functions:
     feed_url: https://karpathy.github.io/feed.xml
     max_entries: 5
     reranker_api_key: ${NVIDIA_API_KEY}
-    reranker_endpoint: https://integrate.api.nvidia.com/v1/ranking
-    reranker_model: nvidia/llama-3.2-nv-rerankqa-1b-v2
+    reranker_endpoint: ${NVIDIA_INFERENCE_BASE_URL}/ranking
+    reranker_model: nvidia/nvidia/llama-3.2-nv-rerankqa-1b-v2
     verbose: true
   user_uploaded_files_retriever_tool:
     _type: user_document_retriever
@@ -502,8 +432,8 @@ functions:
     distance_cutoff: 1.2
     embedder_name: milvus_embedder
     milvus_uri: ${MILVUS_URI}
-    reranker_endpoint: https://integrate.api.nvidia.com/v1/ranking
-    reranker_model: nvidia/llama-3.2-nv-rerankqa-1b-v2
+    reranker_endpoint: ${NVIDIA_INFERENCE_BASE_URL}/ranking
+    reranker_model: nvidia/nvidia/llama-3.2-nv-rerankqa-1b-v2
     reranker_top_n: 5
     top_k: 10
     use_reranker: true
@@ -524,9 +454,9 @@ functions:
     verbose: true
   vtt_interpreter_tool:
     _type: vtt_interpreter
-    api_endpoint: https://openrouter.ai/api/v1
-    model: anthropic/claude-sonnet-4.6
-    api_key: ${OPENROUTER_API_KEY}
+    api_endpoint: ${NVIDIA_INFERENCE_BASE_URL}
+    model: nvidia/nvidia/nemotron-3-super-v3
+    api_key: ${NVIDIA_API_KEY}
     description:
       'Convert VTT or SRT transcript text into structured meeting notes
       organized into four sections: Attendees, Business Updates, Technical
@@ -614,10 +544,6 @@ functions:
 general:
   front_end:
     _type: fastapi
-    # step_adaptor:
-    #   mode: custom
-    #   custom_event_types:
-    #     - TOOL_END
     workers: 4
   telemetry:
     tracing:
@@ -629,37 +555,37 @@ llms:
   reasoning_llm:
     _type: openai
     api_key: ${NVIDIA_API_KEY}
-    base_url: https://integrate.api.nvidia.com/v1
-    model_name: nvidia/nemotron-3-super-120b-a12b
+    base_url: ${NVIDIA_INFERENCE_BASE_URL}
+    model_name: nvidia/nvidia/nemotron-3-super-v3
     temperature: 1
     top_p: 0.95
     extra_body:
       chat_template_kwargs:
-        enable_thinking: true 
+        enable_thinking: true
         truncate_history_thinking: false
         low_effort: false
   react_llm:
     _type: openai
     api_key: ${NVIDIA_API_KEY}
-    base_url: https://integrate.api.nvidia.com/v1
-    model_name: nvidia/nemotron-3-super-120b-a12b
+    base_url: ${NVIDIA_INFERENCE_BASE_URL}
+    model_name: nvidia/nvidia/nemotron-3-super-v3
     temperature: 1
     top_p: 0.95
     extra_body:
       chat_template_kwargs:
-        enable_thinking: true 
+        enable_thinking: true
         truncate_history_thinking: false
         low_effort: false
   tool_calling_llm:
     _type: openai
     api_key: ${NVIDIA_API_KEY}
-    base_url: https://integrate.api.nvidia.com/v1
-    model_name: nvidia/nemotron-3-super-120b-a12b
+    base_url: ${NVIDIA_INFERENCE_BASE_URL}
+    model_name: nvidia/nvidia/nemotron-3-super-v3
     temperature: 1
     top_p: 0.95
     extra_body:
       chat_template_kwargs:
-        enable_thinking: true 
+        enable_thinking: true
         truncate_history_thinking: true
         low_effort: false
 memory:
@@ -681,8 +607,8 @@ retrievers:
       Kubernetes documentation and best practices knowledge base. Covers
       official K8s docs, expert technical blogs, and configuration patterns.
     embedding_model: milvus_embedder
-    reranker_endpoint: https://integrate.api.nvidia.com/v1/ranking
-    reranker_model: nvidia/llama-3.2-nv-rerankqa-1b-v2
+    reranker_endpoint: ${NVIDIA_INFERENCE_BASE_URL}/ranking
+    reranker_model: nvidia/nvidia/llama-3.2-nv-rerankqa-1b-v2
     reranker_top_n: 5
     return_as_string: false
     top_k: 10
@@ -700,8 +626,8 @@ retrievers:
       Covers condition guides, coping strategies, and wellness practices.
       Educational content requiring a professional care disclaimer.
     embedding_model: milvus_embedder
-    reranker_endpoint: https://integrate.api.nvidia.com/v1/ranking
-    reranker_model: nvidia/llama-3.2-nv-rerankqa-1b-v2
+    reranker_endpoint: ${NVIDIA_INFERENCE_BASE_URL}/ranking
+    reranker_model: nvidia/nvidia/llama-3.2-nv-rerankqa-1b-v2
     reranker_top_n: 5
     return_as_string: false
     top_k: 10
@@ -718,8 +644,8 @@ retrievers:
       Comprehensive NVIDIA knowledge base covering hardware specifications,
       software documentation, research papers, and corporate information.
     embedding_model: milvus_embedder
-    reranker_endpoint: https://integrate.api.nvidia.com/v1/ranking
-    reranker_model: nvidia/llama-3.2-nv-rerankqa-1b-v2
+    reranker_endpoint: ${NVIDIA_INFERENCE_BASE_URL}/ranking
+    reranker_model: nvidia/nvidia/llama-3.2-nv-rerankqa-1b-v2
     reranker_top_n: 5
     return_as_string: false
     top_k: 10
@@ -736,8 +662,8 @@ retrievers:
       Expert semiconductor industry analysis covering foundries, process
       nodes, chip economics, and competitive intelligence.
     embedding_model: milvus_embedder
-    reranker_endpoint: https://integrate.api.nvidia.com/v1/ranking
-    reranker_model: nvidia/llama-3.2-nv-rerankqa-1b-v2
+    reranker_endpoint: ${NVIDIA_INFERENCE_BASE_URL}/ranking
+    reranker_model: nvidia/nvidia/llama-3.2-nv-rerankqa-1b-v2
     reranker_top_n: 5
     return_as_string: false
     top_k: 10
@@ -754,8 +680,8 @@ retrievers:
       and indexed into the vector knowledge base.
     distance_cutoff: 1.2
     embedding_model: milvus_embedder
-    reranker_endpoint: https://integrate.api.nvidia.com/v1/ranking
-    reranker_model: nvidia/llama-3.2-nv-rerankqa-1b-v2
+    reranker_endpoint: ${NVIDIA_INFERENCE_BASE_URL}/ranking
+    reranker_model: nvidia/nvidia/llama-3.2-nv-rerankqa-1b-v2
     reranker_top_n: 5
     return_as_string: false
     top_k: 10
@@ -772,8 +698,8 @@ retrievers:
       protocols, drug information, and species-specific care. Requires a
       veterinarian consultation disclaimer.
     embedding_model: milvus_embedder
-    reranker_endpoint: https://integrate.api.nvidia.com/v1/ranking
-    reranker_model: nvidia/llama-3.2-nv-rerankqa-1b-v2
+    reranker_endpoint: ${NVIDIA_INFERENCE_BASE_URL}/ranking
+    reranker_model: nvidia/nvidia/llama-3.2-nv-rerankqa-1b-v2
     reranker_top_n: 5
     return_as_string: false
     top_k: 10

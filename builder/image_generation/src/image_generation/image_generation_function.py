@@ -7,14 +7,13 @@ from datetime import datetime, timezone
 from typing import Literal
 
 import httpx
+import redis
 from nat.builder.builder import Builder, LLMFrameworkEnum
 from nat.builder.function_info import FunctionInfo
 from nat.cli.register_workflow import register_function
 from nat.data_models.function import FunctionBaseConfig
 from openai import AsyncOpenAI
-from pydantic import BaseModel, Field, field_validator
-
-import redis
+from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
 
@@ -66,14 +65,10 @@ class ImageRequest(BaseModel):
     height: int | None = Field(
         1024,
         description="The height of the image to generate, in pixels",
-        ge=768,
-        le=1344,
     )
     width: int | None = Field(
         1024,
         description="The width of the image to generate, in pixels",
-        ge=768,
-        le=1344,
     )
     image: str | None = Field(
         None, description="Base64 encoded image for depth/canny mode"
@@ -94,15 +89,6 @@ class ImageRequest(BaseModel):
     text_prompts: list[TextPrompt] | None = Field(
         None, description="Deprecated: Array of text prompts"
     )
-
-    @field_validator("height", "width")
-    @classmethod
-    def validate_dimensions(cls, v):
-        """Validate that dimensions are in supported values."""
-        supported = [768, 832, 896, 960, 1024, 1088, 1152, 1216, 1280, 1344]
-        if v not in supported:
-            raise ValueError(f"Dimension must be one of: {supported}")
-        return v
 
 
 class Artifact(BaseModel):
@@ -145,9 +131,13 @@ class ImageGenerationFunctionConfig(FunctionBaseConfig, name="image_generation")
     Supports both NIM (Stable Diffusion 3.5) and OpenAI APIs.
     """
 
-    api_type: Literal["nim", "openai", "openrouter"] = Field(
-        "nim",
-        description="API type to use: 'nim' for NIM API, 'openai' for OpenAI API, or 'openrouter' for OpenRouter API",
+    api_type: Literal["nim", "openai", "openrouter", "custom"] = Field(
+        "custom",
+        description=(
+            "API type to use: 'custom' for direct HTTP POST (e.g., NVIDIA API Catalog), "
+            "'nim' for NIM /v1/infer, 'openai' for OpenAI SDK, "
+            "or 'openrouter' for OpenRouter multimodal"
+        ),
     )
     openrouter_model: str = Field(
         "google/gemini-2.5-flash-image-preview",
@@ -514,6 +504,73 @@ async def image_generation_function(
                 logger.error("Error generating image: %s", str(e))
                 return f"Error generating image: {str(e)}"
 
+    async def generate_image_custom(prompt: str) -> str:
+        """
+        Generate image via direct HTTP POST to a custom endpoint.
+
+        Works with the NVIDIA API Catalog (e.g., flux.2-klein-4b) and any
+        endpoint that accepts a JSON payload with prompt, width, height,
+        steps, and seed fields. Posts directly to config.api_endpoint with
+        no path suffix.
+
+        Args:
+            prompt: Text prompt for image generation
+
+        Returns:
+            Markdown-formatted image ready for display
+        """
+        try:
+            async with httpx.AsyncClient(timeout=config.timeout) as http_client:
+                effective_prompt = await rewrite_prompt_if_needed(prompt, http_client)
+
+            logger.info(
+                "Generating image with custom endpoint using prompt: %s...",
+                effective_prompt[:50],
+            )
+
+            payload: dict = {
+                "prompt": effective_prompt,
+                "width": config.default_width,
+                "height": config.default_height,
+                "steps": config.default_steps,
+                "seed": 0,
+            }
+
+            api_key = config.api_key or os.getenv("NVIDIA_API_KEY")
+            request_headers = {
+                "Accept": "application/json",
+            }
+            if api_key:
+                request_headers["Authorization"] = f"Bearer {api_key}"
+
+            async with httpx.AsyncClient(timeout=config.timeout) as client:
+                response = await client.post(
+                    config.api_endpoint,
+                    headers=request_headers,
+                    json=payload,
+                )
+                response.raise_for_status()
+
+            # Parse the response (same artifacts format as NIM)
+            response_data = ImageResponse.model_validate(response.json())
+            artifact = response_data.artifacts[0]
+
+            image_id = await store_image_in_redis(
+                artifact.base64, "image/png", effective_prompt
+            )
+            logger.info("Stored custom generated image with ID: %s", image_id)
+
+            markdown_image = f"![Generated image](/api/generated-image/{image_id})"
+            logger.info("Returning markdown image reference: %s", markdown_image)
+            return str(markdown_image)
+
+        except httpx.HTTPStatusError as e:
+            logger.error("HTTP error: %s - %s", e.response.status_code, e.response.text)
+            return f"Error generating image: HTTP {e.response.status_code}"
+        except Exception as e:
+            logger.error("Error generating image: %s", str(e))
+            return f"Error generating image: {str(e)}"
+
     async def generate_image_openrouter(
         prompt: str,
         aspect_ratio: str | None = None,
@@ -690,8 +747,9 @@ async def image_generation_function(
             return await generate_image_openai(prompt)
         if config.api_type == "openrouter":
             return await generate_image_openrouter(prompt, aspect_ratio)
-        else:
-            return await generate_image_nim(prompt)
+        if config.api_type == "custom":
+            return await generate_image_custom(prompt)
+        return await generate_image_nim(prompt)
 
     try:
         # Register only the simple function
@@ -717,6 +775,12 @@ async def image_generation_function(
                 "'9:16' for vertical/phone/story format, "
                 "'21:9' for ultra-wide cinematic shots, "
                 "'4:5' or '5:4' for social media formats."
+            )
+        elif config.api_type == "custom":
+            description = (
+                "Generate images via a custom API endpoint. Please provide a creative interpretation "
+                "of the user's generation request so the image is as close as possible to the user's request "
+                "but also achieves a high quality image."
             )
         else:
             description = (

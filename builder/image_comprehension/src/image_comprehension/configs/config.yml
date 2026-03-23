@@ -9,9 +9,10 @@ general:
 
 workflow:
   _type: image_comprehension
-  api_endpoint: "http://localhost:8000"
+  api_type: openai  # openai (any OpenAI-compatible endpoint) or custom (direct POST)
+  api_endpoint: "https://integrate.api.nvidia.com/v1"
   redis_url: "redis://daedalus-redis.daedalus.svc.cluster.local:6379"
-  api_key: null  # Set if your API requires authentication or use NVIDIA_API_KEY env var
+  api_key: null  # Falls back to NVIDIA_API_KEY env var
   timeout: 120.0
   model: "nvidia/NVIDIA-Nemotron-Nano-12B-v2"
   max_tokens: 1024

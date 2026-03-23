@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from typing import Literal
 
 import httpx
+import redis
 from nat.builder.builder import Builder
 from nat.builder.function_info import FunctionInfo
 from nat.cli.register_workflow import register_function
@@ -16,8 +17,6 @@ from nat.data_models.function import FunctionBaseConfig
 from openai import AsyncOpenAI
 from PIL import Image
 from pydantic import BaseModel, Field
-
-import redis
 
 logger = logging.getLogger(__name__)
 
@@ -171,9 +170,13 @@ class ImageAugmentationFunctionConfig(
     Supports NIM (Flux Kontext), OpenAI, and OpenRouter APIs.
     """
 
-    api_type: Literal["nim", "openai", "openrouter"] = Field(
-        "nim",
-        description="API type to use: 'nim' for NIM/Flux Kontext, 'openai' for OpenAI, or 'openrouter' for OpenRouter",
+    api_type: Literal["nim", "openai", "openrouter", "custom"] = Field(
+        "custom",
+        description=(
+            "API type to use: 'custom' for direct HTTP POST (e.g., NVIDIA API Catalog), "
+            "'nim' for NIM /v1/infer, 'openai' for OpenAI images.edit, "
+            "or 'openrouter' for OpenRouter multimodal"
+        ),
     )
     api_endpoint: str = Field(
         "http://localhost:8000",
@@ -516,6 +519,93 @@ async def image_augmentation_function(
             logger.error("Error augmenting image: %s", str(e), exc_info=True)
             return f"Error augmenting image: {str(e)}"
 
+    async def augment_image_custom(
+        prompt: str,
+        imageRef: dict,
+        steps: int | None = None,
+        seed: int | None = None,
+        cfg_scale: float | None = None,
+    ) -> str:
+        """
+        Augment image via direct HTTP POST to a custom endpoint.
+
+        Works with the NVIDIA API Catalog (e.g., flux.1-kontext-dev) and any
+        endpoint that accepts a JSON payload with prompt, image (data URL),
+        aspect_ratio, steps, cfg_scale, and seed fields. Posts directly to
+        config.api_endpoint with no path suffix.
+
+        Args:
+            prompt: Text prompt describing the desired augmentation
+            imageRef: Image reference object with imageId and sessionId
+            steps: Optional number of diffusion steps
+            seed: Optional random seed
+            cfg_scale: Optional guidance scale
+
+        Returns:
+            Markdown-formatted augmented image ready for display
+        """
+        try:
+            if not prompt or not prompt.strip():
+                return "Error: No augmentation prompt provided."
+
+            # Fetch image from Redis
+            result = await fetch_image_from_redis(imageRef)
+            if result[0] is None:
+                return result[1]
+
+            image_base64, mime_type = result
+            image_data_url = f"data:{mime_type};base64,{image_base64}"
+
+            # Build request payload matching NVIDIA API Catalog format
+            payload: dict = {
+                "prompt": prompt,
+                "image": image_data_url,
+                "aspect_ratio": "match_input_image",
+                "steps": steps if steps is not None else config.default_steps,
+                "seed": seed if seed is not None else config.default_seed,
+            }
+            if cfg_scale is not None:
+                payload["cfg_scale"] = cfg_scale
+
+            api_key = config.api_key or os.getenv("NVIDIA_API_KEY")
+            request_headers = {
+                "Accept": "application/json",
+            }
+            if api_key:
+                request_headers["Authorization"] = f"Bearer {api_key}"
+
+            logger.info("Calling custom endpoint: %s", config.api_endpoint)
+
+            async with httpx.AsyncClient(timeout=config.timeout) as api_client:
+                response = await api_client.post(
+                    config.api_endpoint,
+                    headers=request_headers,
+                    json=payload,
+                )
+
+            if response.status_code != 200:
+                logger.error(
+                    "Custom API error: %s - %s",
+                    response.status_code,
+                    response.text[:200],
+                )
+                return (
+                    f"Error: Image augmentation failed with status "
+                    f"{response.status_code}."
+                )
+
+            return await _nim_parse_response(response, prompt)
+
+        except httpx.HTTPStatusError as e:
+            logger.error(
+                "HTTP error during custom augmentation: %s",
+                e.response.status_code,
+            )
+            return f"Error augmenting image: HTTP {e.response.status_code}"
+        except Exception as e:
+            logger.error("Error augmenting image: %s", str(e), exc_info=True)
+            return f"Error augmenting image: {str(e)}"
+
     async def augment_image_openai(
         prompt: str,
         imageRef: dict,
@@ -809,19 +899,22 @@ async def image_augmentation_function(
                 prompt, images, steps, seed, cfg_scale
             )
 
-        # For OpenAI and NIM, only support single image
+        # For single-image backends, extract the first image
+        single_image = images[0] if isinstance(images, list) else images
+        if single_image is None:
+            return "Error: No image reference provided."
+
         if config.api_type == "openai":
-            single_image = images[0] if isinstance(images, list) else images
-            if single_image is None:
-                return "Error: No image reference provided."
             return await augment_image_openai(
                 prompt, single_image, steps, seed, cfg_scale
             )
 
+        if config.api_type == "custom":
+            return await augment_image_custom(
+                prompt, single_image, steps, seed, cfg_scale
+            )
+
         # Default to NIM
-        single_image = images[0] if isinstance(images, list) else images
-        if single_image is None:
-            return "Error: No image reference provided."
         return await augment_image_nim(prompt, single_image, steps, seed, cfg_scale)
 
     try:
@@ -843,6 +936,13 @@ async def image_augmentation_function(
                 "Use when a user uploads image(s) and requests edits, additions, or transformations. "
                 "Requires prompt (text description of desired changes) and either imageRef (single image or list) "
                 "or imageRefs (list of images with imageId and sessionId). Returns augmented image as markdown."
+            )
+        elif config.api_type == "custom":
+            description = (
+                "Augments or modifies an uploaded image via a custom API endpoint. "
+                "Use when a user uploads an image and requests edits, additions, or transformations. "
+                "Requires prompt (text description of desired changes) and imageRef (object with "
+                "imageId and sessionId). Returns augmented image as markdown."
             )
         else:
             description = (

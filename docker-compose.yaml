@@ -17,7 +17,7 @@ services:
       target: base
       args:
         NAT_VERSION: v1.5.0
-    image: daedalus:builder-${DAEDALUS_VERSION:-latest}
+    image: ${DOCKER_REGISTRY:-docker.io/library}/daedalus:builder-${DAEDALUS_VERSION:-latest}
     working_dir: /builder
     volumes:
       - ${DOCKER_VOLUME_DIRECTORY:-.}/builder:/builder
@@ -32,7 +32,7 @@ services:
         skills: ./skills
       args:
         NAT_VERSION: v1.5.0
-    image: daedalus:backend-${DAEDALUS_VERSION}
+    image: ${DOCKER_REGISTRY:-docker.io/library}/daedalus:backend-${DAEDALUS_VERSION}
     env_file:
       - .env
     environment:
@@ -80,7 +80,7 @@ services:
       - "3000:3000"
     networks:
       - ${NETWORK_NAME:-daedalus-network}
-    image: daedalus:frontend-${DAEDALUS_VERSION:-latest}
+    image: ${DOCKER_REGISTRY:-docker.io/library}/daedalus:frontend-${DAEDALUS_VERSION:-latest}
     depends_on:
       backend:
         condition: service_started
@@ -93,7 +93,7 @@ services:
     build:
       context: marketing
       dockerfile: Dockerfile
-    image: daedalus:marketing-${DAEDALUS_VERSION:-latest}
+    image: ${DOCKER_REGISTRY:-docker.io/library}/daedalus:marketing-${DAEDALUS_VERSION:-latest}
     ports:
       - "${MARKETING_PORT:-8080}:80"
     restart: unless-stopped

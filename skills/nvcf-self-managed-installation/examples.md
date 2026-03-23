@@ -62,10 +62,10 @@ global:
   helm:
     sources:
       registry: nvcr.io
-      repository: 0833294136851237/nvcf-ncp-staging
+      repository: 011011100111011001101001011001000110100101100001/nvcf-org
   image:
     registry: nvcr.io
-    repository: 0833294136851237/nvcf-ncp-staging
+    repository: 011011100111011001101001011001000110100101100001/nvcf-org
 ```
 
 ### Step 2: Authenticate locally (for helmfile chart pulls)
