@@ -10,9 +10,12 @@ This enables JSONPath queries like:
 
 import json
 import os
+import re
 import sys
 
 import redis
+
+_USER_ID_PATTERN = re.compile(r"^[a-zA-Z0-9_.-]+$")
 
 
 def check_redisjson(r: redis.Redis) -> bool:
@@ -36,6 +39,9 @@ def main() -> None:
         profile = json.load(f)
 
     user_id = profile["user_id"]
+    if not _USER_ID_PATTERN.match(user_id):
+        print(f"ERROR: Invalid user_id: {user_id!r}", file=sys.stderr)
+        sys.exit(1)
     sections = profile["sections"]
 
     r = redis.Redis(

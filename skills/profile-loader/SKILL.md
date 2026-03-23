@@ -1,3 +1,8 @@
+---
+name: profile-loader
+description: Load user profile data into Redis as native JSON documents for personalized agent responses
+---
+
 # Profile Loader
 
 Load user profile data into Redis as native JSON documents using `JSON.SET`.
