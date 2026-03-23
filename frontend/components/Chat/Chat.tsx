@@ -2171,7 +2171,8 @@ export const Chat = () => {
               </div>
             )}
 
-            {isSelectedConversationLoading && (
+            {isSelectedConversationLoading &&
+              !(lastVisibleMessage?.role === 'assistant' && lastVisibleMessage?.intermediateSteps?.length) && (
               <ChatLoader
                 statusUpdateText={currentActivityText || (useDeepThinker ? 'Conducting deep analysis...' : '...')}
                 completedStepCategories={completedStepCategories}
