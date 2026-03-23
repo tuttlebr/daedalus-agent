@@ -1,0 +1,25 @@
+[run]
+source =
+    agent_skills/src
+    artificial_analysis/src
+    image_augmentation/src
+    image_comprehension/src
+    image_generation/src
+    json_repair_agent/src
+    nat_helpers/src
+    nat_nv_ingest/src
+    smart_milvus/src
+    vtt_interpreter/src
+    webscrape/src
+    rss_feed/src
+
+omit =
+    */register.py
+    */resilient_agent_register.py
+    */resilient_agent.py
+    */agent_skills_function.py
+    tests/*
+    conftest.py
+
+[report]
+skip_empty = True

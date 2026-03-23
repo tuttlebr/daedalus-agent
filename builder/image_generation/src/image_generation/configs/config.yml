@@ -1,0 +1,41 @@
+general:
+  logging:
+    console:
+      _type: console
+      level: INFO
+
+  front_end:
+    _type: fastapi
+
+workflow:
+  _type: image_generation
+  api_type: nim  # Use "nim" for NIM API (default) or "openai" for OpenAI API
+  api_endpoint: "http://localhost:8000"  # Only used for NIM API
+  api_key: null  # Set if your API requires authentication (NVIDIA_API_KEY for NIM, OPENAI_API_KEY for OpenAI)
+  timeout: 60.0
+  default_width: 1024
+  default_height: 1024
+  default_steps: 50  # Only used for NIM API
+  openai_model: gpt-image-1  # Only used for OpenAI API
+  prompt_rewrite: null  # Example:
+  #   llm: balanced_llm
+  #   system_prompt: |
+  #     You are an expert visual prompt engineer. Rewrite the user's input
+  #     into a vivid, detailed prompt suitable for image generation while
+  #     keeping their intent and required elements intact. Output only the
+  #     improved prompt.
+  #   max_tokens: 256
+  #   temperature: 0.2
+
+  # Example configuration for OpenAI:
+  # api_type: openai
+  # api_key: your-openai-api-key-here  # Or set OPENAI_API_KEY env var
+  # openai_model: gpt-image-1
+  # default_width: 1024
+  # default_height: 1024
+  # Example configuration for OpenRouter:
+  # api_type: openrouter
+  # api_key: your-openrouter-api-key-here  # Or set OPENROUTER_API_KEY env var
+  # openrouter_model: sourceful/riverflow-v2-pro
+  # default_width: 1024
+  # default_height: 1024

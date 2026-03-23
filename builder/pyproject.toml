@@ -1,0 +1,25 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "builder-tests"
+version = "0.1.0"
+requires-python = ">=3.11"
+description = "Test suite for Daedalus builder packages"
+
+[project.optional-dependencies]
+test = [
+    "pytest>=8",
+    "pytest-cov>=5",
+    "pydantic>=2",
+    "httpx>=0.28",
+    "requests>=2",
+    "pyyaml>=6",
+]
+
+[tool.setuptools]
+packages = []

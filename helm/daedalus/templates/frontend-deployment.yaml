@@ -1,0 +1,93 @@
+{{- if .Values.frontend.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "daedalus.fullname" . }}-frontend
+  labels:
+    {{- include "daedalus.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "daedalus.name" . }}
+      app.kubernetes.io/component: frontend
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ include "daedalus.name" . }}
+        app.kubernetes.io/component: frontend
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      {{- include "daedalus.nodePlacement" . | nindent 6 }}
+      {{- with .Values.frontend.securityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: frontend
+          image: "{{ .Values.images.frontend.repository }}:{{ .Values.images.frontend.tag }}"
+          imagePullPolicy: {{ .Values.images.frontend.pullPolicy }}
+          ports:
+            - containerPort: {{ .Values.frontend.port }}
+              name: http
+            - containerPort: 3001
+              name: ws
+          env:
+            - name: REDIS_URL
+              value: {{ (get (.Values.frontend.env.overrides | default dict) "REDIS_URL") | default (printf "redis://%s-redis.%s.svc.cluster.local:6379" (include "daedalus.fullname" .) .Release.Namespace) | quote }}
+            - name: BACKEND_HOST
+              value: {{ (get (.Values.frontend.env.overrides | default dict) "BACKEND_HOST") | default (printf "%s-backend" (include "daedalus.fullname" .)) | quote }}
+            - name: BACKEND_API_PATH
+              value: {{ (get (.Values.frontend.env.overrides | default dict) "BACKEND_API_PATH") | default "/chat/stream" | quote }}
+            {{- $backendApiPath := (get (.Values.frontend.env.overrides | default dict) "BACKEND_API_PATH") | default "/chat/stream" }}
+            - name: NEXT_PUBLIC_HTTP_CHAT_COMPLETION_URL
+              value: {{ (get (.Values.frontend.env.overrides | default dict) "NEXT_PUBLIC_HTTP_CHAT_COMPLETION_URL") | default (printf "http://%s-backend-default.%s.svc.cluster.local:8000%s" (include "daedalus.fullname" .) .Release.Namespace $backendApiPath) | quote }}
+            - name: NEXT_PUBLIC_WEBSOCKET_CHAT_COMPLETION_URL
+              value: {{ (get (.Values.frontend.env.overrides | default dict) "NEXT_PUBLIC_WEBSOCKET_CHAT_COMPLETION_URL") | default (printf "ws://%s-backend-default.%s.svc.cluster.local:8000/websocket" (include "daedalus.fullname" .) .Release.Namespace) | quote }}
+            {{- with .Values.frontend.env.overrides }}
+            {{- range $k, $v := . }}
+            {{- if and (ne $k "REDIS_URL") (ne $k "BACKEND_HOST") (ne $k "BACKEND_API_PATH") (ne $k "NEXT_PUBLIC_HTTP_CHAT_COMPLETION_URL") (ne $k "NEXT_PUBLIC_WEBSOCKET_CHAT_COMPLETION_URL") }}
+            - name: {{ $k }}
+              value: {{ $v | quote }}
+            {{- end }}
+            {{- end }}
+            {{- end }}
+          envFrom:
+            - secretRef:
+                name: {{ .Values.frontend.env.fromSecret | default (printf "%s-frontend-env" (include "daedalus.fullname" .)) }}
+          livenessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 30
+          readinessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          {{- with .Values.frontend.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "daedalus.fullname" . }}-frontend
+  labels:
+    {{- include "daedalus.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.frontend.service.type }}
+  selector:
+    app.kubernetes.io/name: {{ include "daedalus.name" . }}
+    app.kubernetes.io/component: frontend
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+    - port: {{ .Values.frontend.service.port }}
+      targetPort: http
+      name: http
+    - port: 3001
+      targetPort: ws
+      name: ws
+{{- end }}

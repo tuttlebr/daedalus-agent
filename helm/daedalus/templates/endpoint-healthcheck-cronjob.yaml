@@ -1,0 +1,241 @@
+{{- if .Values.endpointHealthcheck.enabled }}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "daedalus.fullname" . }}-endpoint-healthcheck
+  labels:
+    {{- include "daedalus.labels" . | nindent 4 }}
+    app.kubernetes.io/component: endpoint-healthcheck
+spec:
+  schedule: {{ .Values.endpointHealthcheck.schedule | quote }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: {{ .Values.endpointHealthcheck.successfulJobsHistoryLimit }}
+  failedJobsHistoryLimit: {{ .Values.endpointHealthcheck.failedJobsHistoryLimit }}
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      template:
+        metadata:
+          labels:
+            {{- include "daedalus.labels" . | nindent 12 }}
+            app.kubernetes.io/component: endpoint-healthcheck
+        spec:
+          {{- include "daedalus.nodePlacement" . | nindent 10 }}
+          {{- with .Values.endpointHealthcheck.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          restartPolicy: Never
+          containers:
+            - name: healthcheck
+              image: {{ .Values.endpointHealthcheck.image.repository }}:{{ .Values.endpointHealthcheck.image.tag }}
+              imagePullPolicy: {{ .Values.endpointHealthcheck.image.pullPolicy }}
+              command: ["/bin/sh", "-c"]
+              args:
+                - |
+                  apk add --no-cache curl jq > /dev/null 2>&1
+                  /scripts/healthcheck.sh
+              env:
+                - name: NVIDIA_API_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ .Values.endpointHealthcheck.secretName | default (printf "%s-backend-secret" (include "daedalus.fullname" .)) }}
+                      key: NVIDIA_API_KEY
+                {{- if .Values.endpointHealthcheck.slackWebhookUrl }}
+                - name: SLACK_WEBHOOK_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ include "daedalus.fullname" . }}-endpoint-healthcheck-secret
+                      key: SLACK_WEBHOOK_URL
+                {{- end }}
+              volumeMounts:
+                - name: healthcheck-script
+                  mountPath: /scripts
+                  readOnly: true
+              resources:
+                {{- toYaml .Values.endpointHealthcheck.resources | nindent 16 }}
+          volumes:
+            - name: healthcheck-script
+              configMap:
+                name: {{ include "daedalus.fullname" . }}-endpoint-healthcheck-script
+                defaultMode: 0755
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "daedalus.fullname" . }}-endpoint-healthcheck-script
+  labels:
+    {{- include "daedalus.labels" . | nindent 4 }}
+    app.kubernetes.io/component: endpoint-healthcheck
+data:
+  healthcheck.sh: |
+    #!/bin/sh
+
+    echo "=========================================="
+    echo "Daedalus Endpoint Health Check"
+    echo "Started at: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+    echo "=========================================="
+    echo ""
+
+    # Temp files for tracking results (avoids subshell variable issues)
+    RESULTS_FILE=$(mktemp)
+    FAILED_FILE=$(mktemp)
+    echo "0" > "$RESULTS_FILE"
+    echo "" > "$FAILED_FILE"
+
+    increment_passed() {
+        COUNT=$(cat "$RESULTS_FILE")
+        echo "$((COUNT + 1))" > "$RESULTS_FILE"
+    }
+
+    add_failure() {
+        echo "$1" >> "$FAILED_FILE"
+    }
+
+    check_nvidia_endpoint() {
+        FUNCTION_ID="$1"
+        EXPECTED_MODEL="$2"
+        DESCRIPTION="$3"
+
+        printf "Checking %-25s ... " "$DESCRIPTION"
+
+        MODEL=""
+        RESPONSE=""
+
+        # Try /v1/models first
+        RESPONSE=$(curl -s --max-time 10 -X GET \
+            "https://${FUNCTION_ID}.invocation.api.nvcf.nvidia.com/v1/models" \
+            -H "Authorization: Bearer ${NVIDIA_API_KEY}" 2>/dev/null)
+
+        if [ -n "$RESPONSE" ]; then
+            MODEL=$(echo "$RESPONSE" | jq -r '.data[0].id // .data[].id // empty' 2>/dev/null | head -1)
+        fi
+
+        # Fallback to /models if response was empty or had no model data
+        if [ -z "$MODEL" ]; then
+            RESPONSE=$(curl -s --max-time 10 -X GET \
+                "https://${FUNCTION_ID}.invocation.api.nvcf.nvidia.com/models" \
+                -H "Authorization: Bearer ${NVIDIA_API_KEY}" 2>/dev/null)
+
+            if [ -n "$RESPONSE" ]; then
+                MODEL=$(echo "$RESPONSE" | jq -r '.data[0].id // .data[].id // empty' 2>/dev/null | head -1)
+            fi
+        fi
+
+        # Fallback to /v1/metadata if still no model found
+        if [ -z "$MODEL" ]; then
+            RESPONSE=$(curl -s --max-time 10 -X GET \
+                "https://${FUNCTION_ID}.invocation.api.nvcf.nvidia.com/v1/metadata" \
+                -H "Authorization: Bearer ${NVIDIA_API_KEY}" 2>/dev/null)
+
+            if [ -n "$RESPONSE" ]; then
+                MODEL=$(echo "$RESPONSE" | jq -r '.modelInfo[0].shortName // empty' 2>/dev/null | cut -d: -f1)
+                [ "$MODEL" = "null" ] && MODEL=""
+            fi
+        fi
+
+        if [ -z "$MODEL" ]; then
+            ERROR=$(echo "$RESPONSE" | jq -r '.error.message // .detail // empty' 2>/dev/null)
+            if [ -n "$ERROR" ]; then
+                echo "FAILED (${ERROR})"
+                add_failure "• $DESCRIPTION ($EXPECTED_MODEL): $ERROR"
+            else
+                echo "FAILED (no model found)"
+                add_failure "• $DESCRIPTION ($EXPECTED_MODEL): No model in response"
+            fi
+            return 1
+        fi
+
+        if [ "$MODEL" = "$EXPECTED_MODEL" ]; then
+            echo "OK ($MODEL)"
+            increment_passed
+            return 0
+        else
+            echo "WARNING (got: $MODEL, expected: $EXPECTED_MODEL)"
+            increment_passed
+            return 0
+        fi
+    }
+
+    check_external_endpoint() {
+        URL="$1"
+        DESCRIPTION="$2"
+
+        printf "Checking %-25s ... " "$DESCRIPTION"
+
+        HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "$URL" 2>/dev/null || echo "000")
+
+        if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "401" ] || [ "$HTTP_CODE" = "403" ]; then
+            echo "OK (HTTP $HTTP_CODE)"
+            increment_passed
+            return 0
+        elif [ "$HTTP_CODE" = "000" ]; then
+            echo "FAILED (connection error)"
+            add_failure "• $DESCRIPTION: Connection error"
+            return 1
+        else
+            echo "FAILED (HTTP $HTTP_CODE)"
+            add_failure "• $DESCRIPTION: HTTP $HTTP_CODE"
+            return 1
+        fi
+    }
+
+    echo "--- NVIDIA NVCF Endpoints ---"
+    echo ""
+
+    # Check NVIDIA endpoints
+    TOTAL=0
+
+    # Add your NVCF function endpoints below. Example:
+    # check_nvidia_endpoint "<function-id>" "nvidia/model-name" "Description" || true
+    # TOTAL=$((TOTAL + 1))
+    #
+    # To find your function IDs, check your NVIDIA NIM deployment or
+    # the NVIDIA API Catalog at https://build.nvidia.com/explore/discover
+    echo "No NVCF endpoints configured. Edit the healthcheck ConfigMap to add your endpoints."
+
+    echo ""
+    echo "--- External Endpoints ---"
+    echo ""
+
+    check_external_endpoint "https://openrouter.ai/api/v1/models" "OpenRouter API" || true
+    TOTAL=$((TOTAL + 1))
+
+    # Calculate results
+    PASSED=$(cat "$RESULTS_FILE")
+    FAILED=$((TOTAL - PASSED))
+    FAILED_ENDPOINTS=$(cat "$FAILED_FILE")
+
+    # Cleanup temp files
+    rm -f "$RESULTS_FILE" "$FAILED_FILE"
+
+    echo ""
+    echo "=========================================="
+    echo "Health Check Summary"
+    echo "=========================================="
+    echo "Total endpoints checked: $TOTAL"
+    echo "Passed: $PASSED"
+    echo "Failed: $FAILED"
+    echo "Completed at: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+    echo "=========================================="
+
+    # Exit with error if any endpoints failed
+    if [ "$FAILED" -gt 0 ]; then
+        exit 1
+    fi
+
+    exit 0
+{{- if .Values.endpointHealthcheck.slackWebhookUrl }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ include "daedalus.fullname" . }}-endpoint-healthcheck-secret
+  labels:
+    {{- include "daedalus.labels" . | nindent 4 }}
+    app.kubernetes.io/component: endpoint-healthcheck
+type: Opaque
+stringData:
+  SLACK_WEBHOOK_URL: {{ .Values.endpointHealthcheck.slackWebhookUrl | quote }}
+{{- end }}
+{{- end }}

@@ -1,0 +1,41 @@
+general:
+  logging:
+    console:
+      _type: console
+      level: WARN
+
+  front_end:
+    _type: fastapi
+
+workflow:
+  _type: nat.workflows.react
+
+  # Milvus retriever configuration
+  retrievers:
+    - _type: smart_milvus
+      uri: "http://localhost:19530"  # Update with your Milvus URI
+      embedding_model: "milvus_embedder"  # or another embedder
+      database_name: "default"
+      collection_name: null  # Will be set dynamically
+      content_field: null
+      top_k: 5
+      vector_field_name: "vector"
+      description: "Search for relevant documents in Milvus vector database. REQUIRED PARAMETERS: query (the search text) and collection_name (the Milvus collection to search). Example: search(query='What is machine learning?', collection_name='my_collection')"
+      # Optional reranker configuration
+      use_reranker: false  # Set to true to enable reranking
+      reranker_endpoint: "https://ai.api.nvidia.com/v1/ranking"
+      reranker_model: "nvidia/llama-3.2-nv-rerankqa-1b-v2"
+      reranker_top_n: null  # Number of results after reranking (null = all)
+      reranker_api_key: null  # Or set via NVIDIA_API_KEY env var
+
+  # LLM configuration
+  llm:
+    _type: openai
+    model: "gpt-3.5-turbo"
+    temperature: 0.7
+
+  # Agent settings
+  max_steps: 10
+  system_prompt: |
+    You are a helpful AI assistant with access to a Milvus vector database.
+    Use the retriever to search for relevant information when answering questions.

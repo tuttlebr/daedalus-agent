@@ -1,0 +1,91 @@
+# Pre-commit hooks for fast, dependency-light checks
+# One-time setup:
+#   pipx install pre-commit  # or: pip install pre-commit
+#   pre-commit install
+# Run on all files:
+#   pre-commit run --all-files
+
+# Skip typical vendor/build artifacts
+exclude: |
+  (^node_modules/)|
+  (^\.venv/)|
+  (^venv/)|
+  (^\.mypy_cache/)|
+  (^__pycache__/)|
+  (^dist/)|
+  (^build/)|
+  (^\.git/)|
+  (/.terraform/)|
+  (^coverage/)|
+  (^\.cache/)|
+  (^\.pytest_cache/)
+
+repos:
+  - repo: https://github.com/NVIDIA/nv-pre-commit
+    rev: v0.0.5
+    hooks:
+      - id: detect-nv-keys
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: check-yaml
+        exclude: '(^helm/.*/templates/)|(^charts/.*/templates/)'
+      - id: check-json
+      - id: check-toml
+      - id: check-ast  # Python syntax check
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+      - id: mixed-line-ending
+        args: [--fix=auto]
+      - id: check-added-large-files
+        args: ["--maxkb=1024"]
+      - id: check-merge-conflict
+      - id: detect-private-key
+      - id: detect-aws-credentials
+        args: [--allow-missing-credentials]
+      - id: check-case-conflict
+      - id: check-executables-have-shebangs
+      - id: forbid-submodules
+
+  # Lightweight Bash/Shell syntax validation (no external deps)
+  - repo: local
+    hooks:
+      - id: bash-syntax-check
+        name: Bash syntax check
+        entry: bash -n
+        language: system
+        files: \.\(sh|bash\)$
+        types_or: [bash, shell]
+      - id: helm-lint-daedalus
+        name: Helm lint daedalus (if helm installed)
+        entry: "bash -c 'command -v helm >/dev/null 2>&1 || exit 0; helm lint helm/daedalus'"
+        language: system
+        pass_filenames: false
+        files: ^helm/daedalus/
+
+  # Python-specific hooks
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.6.4
+    hooks:
+      - id: ruff
+        args: [--fix, --exit-non-zero-on-fix]
+      - id: ruff-format
+
+  - repo: https://github.com/pycqa/isort
+    rev: 5.13.2
+    hooks:
+      - id: isort
+        args: [--profile, black]
+
+  - repo: https://github.com/asottile/pyupgrade
+    rev: v3.17.0
+    hooks:
+      - id: pyupgrade
+        args: [--py311-plus]  # matches your requires-python
+
+  - repo: https://github.com/PyCQA/bandit
+    rev: 1.7.9
+    hooks:
+      - id: bandit
+        additional_dependencies: ["bandit[toml]"]
+        exclude: ^builder/(.*/)?tests/

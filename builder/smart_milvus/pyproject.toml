@@ -1,0 +1,28 @@
+[build-system]
+build-backend = "setuptools.build_meta"
+requires = ["setuptools>=64.0.0", "wheel"]
+
+[project]
+name = "smart_milvus"
+dynamic = ["version"]
+dependencies = [
+  "nvidia-nat[redis,mcp,langchain,phoenix] @ git+https://github.com/NVIDIA/NeMo-Agent-Toolkit.git@v1.5.0",
+  "pymilvus>=2.5.0",
+  "requests>=2.31.0",
+]
+requires-python = ">=3.11,<3.14"
+description = "Custom NeMo Agent Toolkit Workflow"
+classifiers = ["Programming Language :: Python"]
+
+[project.entry-points.'nat.components']
+smart_milvus = "smart_milvus.register"
+
+[tool.setuptools]
+packages = ["smart_milvus"]
+package-dir = {"" = "src"}
+
+[tool.setuptools.package-data]
+smart_milvus = ["configs/*.yml", "configs/*.yaml"]
+
+[tool.uv]
+config-settings = { editable_mode = "compat" }

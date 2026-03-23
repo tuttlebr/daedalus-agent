@@ -1,0 +1,103 @@
+{{- if .Values.redis.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "daedalus.fullname" . }}-redisinsight
+  labels:
+    {{- include "daedalus.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "daedalus.name" . }}
+      app.kubernetes.io/component: redisinsight
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ include "daedalus.name" . }}
+        app.kubernetes.io/component: redisinsight
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      {{- include "daedalus.nodePlacement" . | nindent 6 }}
+      {{- with .Values.redisinsight.securityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: redisinsight
+          image: "{{ .Values.images.redisinsight.repository }}:{{ .Values.images.redisinsight.tag }}"
+          env:
+            {{- with .Values.redisinsight.env.overrides }}
+            {{- range $k, $v := . }}
+            - name: {{ $k }}
+              value: {{ $v | quote }}
+            {{- end }}
+            {{- end }}
+            - name: RI_REDIS_HOST_DAEDALUS
+              value: {{ (get (.Values.redisinsight.env.overrides | default dict) "RI_REDIS_HOST_DAEDALUS") | default (printf "%s-redis.%s.svc.cluster.local" (include "daedalus.fullname" .) .Release.Namespace) | quote }}
+            - name: RI_REDIS_PORT_DAEDALUS
+              value: {{ (get (.Values.redisinsight.env.overrides | default dict) "RI_REDIS_PORT_DAEDALUS") | default "6379" | quote }}
+            - name: RI_REDIS_ALIAS_DAEDALUS
+              value: {{ (get (.Values.redisinsight.env.overrides | default dict) "RI_REDIS_ALIAS_DAEDALUS") | default (include "daedalus.name" .) | quote }}
+            - name: RI_ACCEPT_TERMS_AND_CONDITIONS
+              value: "true"
+          imagePullPolicy: {{ .Values.images.redisinsight.pullPolicy }}
+          ports:
+            - containerPort: 5540
+              name: redisinsight
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: redisinsight
+            initialDelaySeconds: 15
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: redisinsight
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          {{- with .Values.redisinsight.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            {{- if .Values.redisinsight.persistence.enabled }}
+            - name: redisinsight-data
+              mountPath: /data
+            {{- end }}
+      volumes:
+        {{- if .Values.redisinsight.persistence.enabled }}
+        - name: redisinsight-data
+          {{- if and .Values.redisinsight.persistence.create (not .Values.redisinsight.persistence.existingClaimName) }}
+          persistentVolumeClaim:
+            claimName: {{ include "daedalus.fullname" . }}-redisinsight
+          {{- else }}
+          persistentVolumeClaim:
+            claimName: {{ .Values.redisinsight.persistence.existingClaimName }}
+          {{- end }}
+        {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "daedalus.fullname" . }}-redisinsight
+  labels:
+    {{- include "daedalus.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.redisinsight.service.type }}
+  selector:
+    app.kubernetes.io/name: {{ include "daedalus.name" . }}
+    app.kubernetes.io/component: redisinsight
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+    - port: {{ .Values.redisinsight.service.port }}
+      targetPort: redisinsight
+      name: redisinsight
+      {{- if and (eq .Values.redisinsight.service.type "NodePort") .Values.redisinsight.service.nodePorts }}
+      {{- with .Values.redisinsight.service.nodePorts.https }}
+      nodePort: {{ . }}
+      {{- end }}
+      {{- end }}
+{{- end }}

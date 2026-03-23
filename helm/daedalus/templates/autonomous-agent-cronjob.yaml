@@ -1,0 +1,101 @@
+{{- if .Values.autonomousAgent.enabled }}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "daedalus.fullname" . }}-autonomous-agent
+  labels:
+    {{- include "daedalus.labels" . | nindent 4 }}
+    app.kubernetes.io/component: autonomous-agent
+spec:
+  schedule: {{ .Values.autonomousAgent.schedule | quote }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: {{ .Values.autonomousAgent.successfulJobsHistoryLimit }}
+  failedJobsHistoryLimit: {{ .Values.autonomousAgent.failedJobsHistoryLimit }}
+  {{- if .Values.autonomousAgent.suspend }}
+  suspend: true
+  {{- end }}
+  jobTemplate:
+    spec:
+      activeDeadlineSeconds: {{ .Values.autonomousAgent.activeDeadlineSeconds }}
+      backoffLimit: 0
+      template:
+        metadata:
+          labels:
+            {{- include "daedalus.labels" . | nindent 12 }}
+            app.kubernetes.io/component: autonomous-agent
+        spec:
+          {{- include "daedalus.nodePlacement" . | nindent 10 }}
+          {{- with .Values.autonomousAgent.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          restartPolicy: Never
+          containers:
+            - name: autonomous-agent
+              image: {{ .Values.images.builder.repository }}:{{ .Values.images.builder.tag }}
+              imagePullPolicy: {{ .Values.images.builder.pullPolicy }}
+              command: ["python", "/scripts/runner.py"]
+              {{- if .Values.autonomousAgent.env.fromSecret }}
+              envFrom:
+                - secretRef:
+                    name: {{ .Values.autonomousAgent.env.fromSecret }}
+              {{- end }}
+              env:
+                - name: BACKEND_HOST
+                  value: {{ printf "http://%s-backend-default:%v" (include "daedalus.fullname" .) (.Values.backend.default.port | default 8000) }}
+                - name: BACKEND_API_PATH
+                  value: {{ .Values.autonomousAgent.backendApiPath | default "/chat/stream" | quote }}
+                - name: REDIS_HOST
+                  value: {{ printf "%s-redis" (include "daedalus.fullname" .) }}
+                - name: REDIS_PORT
+                  value: {{ .Values.redis.service.port | default 6379 | quote }}
+                - name: AUTONOMOUS_USER_ID
+                  value: {{ .Values.autonomousAgent.userId | quote }}
+                - name: REQUEST_TIMEOUT
+                  value: {{ .Values.autonomousAgent.requestTimeout | default 240 | quote }}
+                {{- range $key, $val := .Values.autonomousAgent.env.overrides }}
+                - name: {{ $key }}
+                  value: {{ $val | quote }}
+                {{- end }}
+              volumeMounts:
+                - name: runner-script
+                  mountPath: /scripts
+                  readOnly: true
+                - name: seed-config
+                  mountPath: /config
+                  readOnly: true
+              resources:
+                {{- toYaml .Values.autonomousAgent.resources | nindent 16 }}
+          volumes:
+            - name: runner-script
+              configMap:
+                name: {{ include "daedalus.fullname" . }}-autonomous-agent-script
+                defaultMode: 0755
+            - name: seed-config
+              configMap:
+                name: {{ include "daedalus.fullname" . }}-autonomous-agent-seed
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "daedalus.fullname" . }}-autonomous-agent-script
+  labels:
+    {{- include "daedalus.labels" . | nindent 4 }}
+    app.kubernetes.io/component: autonomous-agent
+data:
+  runner.py: |
+{{ .Files.Get "files/autonomous-agent-runner.py" | indent 4 }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "daedalus.fullname" . }}-autonomous-agent-seed
+  labels:
+    {{- include "daedalus.labels" . | nindent 4 }}
+    app.kubernetes.io/component: autonomous-agent
+data:
+  soul.md: |
+{{ .Files.Get "files/autonomous-agent-soul.md" | indent 4 }}
+  heartbeat.md: |
+{{ .Files.Get "files/autonomous-agent-heartbeat.md" | indent 4 }}
+{{- end }}

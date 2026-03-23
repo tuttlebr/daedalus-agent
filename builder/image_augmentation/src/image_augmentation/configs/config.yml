@@ -1,0 +1,17 @@
+general:
+  logging:
+    console:
+      _type: console
+      level: INFO
+
+  front_end:
+    _type: fastapi
+
+workflow:
+  _type: image_augmentation
+  api_endpoint: "https://integrate.api.nvidia.com"
+  redis_url: "redis://daedalus-redis.daedalus.svc.cluster.local:6379"
+  api_key: null  # Set if your API requires authentication or use NVIDIA_API_KEY env var
+  timeout: 300.0
+  default_steps: 30
+  default_seed: 42

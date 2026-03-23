@@ -1,0 +1,113 @@
+{{- if .Values.nginx.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "daedalus.fullname" . }}-nginx
+  labels:
+    {{- include "daedalus.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "daedalus.name" . }}
+      app.kubernetes.io/component: nginx
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ include "daedalus.name" . }}
+        app.kubernetes.io/component: nginx
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      {{- include "daedalus.nodePlacement" . | nindent 6 }}
+      {{- with .Values.nginx.securityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: nginx
+          image: "{{ .Values.images.nginx.repository }}:{{ .Values.images.nginx.tag }}"
+          imagePullPolicy: {{ .Values.images.nginx.pullPolicy }}
+          ports:
+            - containerPort: 80
+              name: http
+            {{- if .Values.nginx.https.enabled }}
+            - containerPort: 443
+              name: https
+            {{- end }}
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          {{- with .Values.nginx.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - name: nginx-conf
+              mountPath: /etc/nginx/conf.d/frontend.conf
+              subPath: frontend.conf
+            {{- if .Values.nginx.imageVolume.enabled }}
+            - name: generated-images
+              mountPath: /tmp/generated_images
+            {{- end }}
+            {{- if and .Values.nginx.https.enabled .Values.nginx.https.tlsSecretName }}
+            - name: tls-secret
+              mountPath: /etc/nginx/ssl
+            {{- end }}
+      volumes:
+        - name: nginx-conf
+          configMap:
+            name: {{ include "daedalus.fullname" . }}-nginx-conf
+        {{- if .Values.nginx.imageVolume.enabled }}
+        - name: generated-images
+          {{- if and .Values.nginx.imageVolume.create (not .Values.nginx.imageVolume.existingClaimName) }}
+          persistentVolumeClaim:
+            claimName: {{ include "daedalus.fullname" . }}-images
+          {{- else }}
+          persistentVolumeClaim:
+            claimName: {{ .Values.nginx.imageVolume.existingClaimName }}
+          {{- end }}
+        {{- end }}
+        {{- if and .Values.nginx.https.enabled .Values.nginx.https.tlsSecretName }}
+        - name: tls-secret
+          secret:
+            secretName: {{ .Values.nginx.https.tlsSecretName }}
+        {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "daedalus.fullname" . }}-nginx
+  labels:
+    {{- include "daedalus.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.nginx.service.type }}
+  selector:
+    app.kubernetes.io/name: {{ include "daedalus.name" . }}
+    app.kubernetes.io/component: nginx
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+    - port: {{ .Values.nginx.httpPort }}
+      targetPort: http
+      name: http
+    {{- if .Values.nginx.https.enabled }}
+    - port: 443
+      targetPort: https
+      name: https
+      # Optional nodePort can be set via values if service.type=NodePort
+      {{- if and (eq .Values.nginx.service.type "NodePort") .Values.nginx.service.nodePorts }}
+      {{- with .Values.nginx.service.nodePorts.https }}
+      nodePort: {{ . }}
+      {{- end }}
+      {{- end }}
+    {{- end }}
+{{- end }}

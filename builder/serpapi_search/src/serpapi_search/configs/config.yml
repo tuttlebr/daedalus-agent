@@ -1,0 +1,9 @@
+functions:
+  serpapi_search:
+    _type: serpapi_search
+    description: >-
+      Search the web using SerpAPI and return structured results with rich
+      visual rendering. Extracts only relevant data from search responses
+      to minimize token usage while providing beautiful UI cards for organic
+      results, knowledge graphs, answer boxes, news, images, videos, and
+      shopping results.

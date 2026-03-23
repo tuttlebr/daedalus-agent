@@ -1,0 +1,88 @@
+{{- if .Values.redis.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "daedalus.fullname" . }}-redis
+  labels:
+    {{- include "daedalus.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "daedalus.name" . }}
+      app.kubernetes.io/component: redis
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ include "daedalus.name" . }}
+        app.kubernetes.io/component: redis
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      {{- include "daedalus.nodePlacement" . | nindent 6 }}
+      {{- with .Values.redis.securityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: redis
+          image: "{{ .Values.images.redis.repository }}:{{ .Values.images.redis.tag }}"
+          imagePullPolicy: {{ .Values.images.redis.pullPolicy }}
+          command: ["/bin/bash", "/scripts/init-redis.sh"]
+          ports:
+            - containerPort: 6379
+              name: redis
+          livenessProbe:
+            exec:
+              command: ["redis-cli", "ping"]
+            initialDelaySeconds: 15
+            periodSeconds: 15
+          readinessProbe:
+            exec:
+              command: ["redis-cli", "ping"]
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          {{- with .Values.redis.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - name: init-script
+              mountPath: /scripts
+            {{- if .Values.redis.persistence.enabled }}
+            - name: redis-data
+              mountPath: /data
+            {{- end }}
+      volumes:
+        - name: init-script
+          configMap:
+            name: {{ include "daedalus.fullname" . }}-redis-init
+            defaultMode: 0755
+        {{- if .Values.redis.persistence.enabled }}
+        - name: redis-data
+          {{- if and .Values.redis.persistence.create (not .Values.redis.persistence.existingClaimName) }}
+          persistentVolumeClaim:
+            claimName: {{ include "daedalus.fullname" . }}-redis
+          {{- else }}
+          persistentVolumeClaim:
+            claimName: {{ .Values.redis.persistence.existingClaimName }}
+          {{- end }}
+        {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "daedalus.fullname" . }}-redis
+  labels:
+    {{- include "daedalus.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.redis.service.type }}
+  selector:
+    app.kubernetes.io/name: {{ include "daedalus.name" . }}
+    app.kubernetes.io/component: redis
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+    - port: {{ .Values.redis.service.port }}
+      targetPort: redis
+      name: redis
+{{- end }}

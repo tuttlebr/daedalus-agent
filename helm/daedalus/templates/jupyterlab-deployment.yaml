@@ -1,0 +1,179 @@
+{{- if .Values.jupyterlab.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "daedalus.fullname" . }}-jupyterlab
+  labels:
+    {{- include "daedalus.labels" . | nindent 4 }}
+    app.kubernetes.io/component: jupyterlab
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "daedalus.name" . }}
+      app.kubernetes.io/component: jupyterlab
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ include "daedalus.name" . }}
+        app.kubernetes.io/component: jupyterlab
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      {{- include "daedalus.nodePlacement" . | nindent 6 }}
+      {{- with .Values.jupyterlab.securityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      initContainers:
+        # Install additional Python packages
+        - name: install-packages
+          image: "{{ .Values.jupyterlab.image.repository }}:{{ .Values.jupyterlab.image.tag }}"
+          command:
+            - /bin/bash
+            - -c
+            - |
+              pip install --user --no-cache-dir \
+                openai \
+                httpx \
+                pymilvus \
+                redis \
+                python-dotenv \
+                langchain \
+                langchain-community \
+                langchain-openai \
+                langchain-milvus \
+                pandas \
+                numpy \
+                matplotlib \
+                seaborn \
+                plotly \
+                ipywidgets \
+                jupyterlab-git \
+                nbformat \
+                rich \
+                pydantic
+          volumeMounts:
+            - name: user-packages
+              mountPath: /home/jovyan/.local
+      containers:
+        - name: jupyterlab
+          image: "{{ .Values.jupyterlab.image.repository }}:{{ .Values.jupyterlab.image.tag }}"
+          imagePullPolicy: {{ .Values.jupyterlab.image.pullPolicy }}
+          args:
+            - start-notebook.sh
+            - --NotebookApp.token={{ .Values.jupyterlab.token | default "" | squote }}
+            - --NotebookApp.password={{ .Values.jupyterlab.password | default "" | squote }}
+            - --NotebookApp.allow_origin=*
+            - --NotebookApp.base_url={{ .Values.jupyterlab.baseUrl | default "/" }}
+          ports:
+            - containerPort: 8888
+              name: jupyter
+          env:
+            # Redis connection
+            - name: REDIS_HOST
+              value: {{ printf "%s-redis.%s.svc.cluster.local" (include "daedalus.fullname" .) .Release.Namespace | quote }}
+            - name: REDIS_PORT
+              value: {{ .Values.redis.service.port | default "6379" | quote }}
+            - name: REDIS_URL
+              value: {{ printf "redis://%s-redis.%s.svc.cluster.local:%d" (include "daedalus.fullname" .) .Release.Namespace (.Values.redis.service.port | int | default 6379) | quote }}
+            # Milvus connection
+            - name: MILVUS_URI
+              value: {{ .Values.jupyterlab.env.milvusUri | default "" | quote }}
+            - name: MILVUS_HOST
+              value: {{ .Values.jupyterlab.env.milvusHost | default "" | quote }}
+            - name: MILVUS_PORT
+              value: {{ .Values.jupyterlab.env.milvusPort | default "19530" | quote }}
+            # Backend endpoints
+            - name: BACKEND_DEFAULT_URL
+              value: {{ printf "http://%s-backend-default.%s.svc.cluster.local:%d" (include "daedalus.fullname" .) .Release.Namespace (.Values.backend.default.port | int | default 8000) | quote }}
+            - name: BACKEND_DEEP_THINKER_URL
+              value: {{ printf "http://%s-backend-deep-thinker.%s.svc.cluster.local:%d" (include "daedalus.fullname" .) .Release.Namespace (.Values.backend.deepThinker.port | int | default 8000) | quote }}
+            # Additional environment variables from secret
+            {{- if or .Values.jupyterlab.env.fromSecret .Values.backend.default.env.fromSecret }}
+            # Note: Secret env vars loaded via envFrom below
+            {{- end }}
+            # Explicit overrides
+            {{- with .Values.jupyterlab.env.overrides }}
+            {{- range $k, $v := . }}
+            - name: {{ $k }}
+              value: {{ $v | quote }}
+            {{- end }}
+            {{- end }}
+            # Ensure user-installed packages are in path
+            - name: PYTHONPATH
+              value: "/home/jovyan/.local/lib/python3.11/site-packages:${PYTHONPATH}"
+            - name: PATH
+              value: "/home/jovyan/.local/bin:/opt/conda/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+          {{- if or .Values.jupyterlab.env.fromSecret .Values.backend.default.env.fromSecret }}
+          envFrom:
+            {{- if .Values.jupyterlab.env.fromSecret }}
+            - secretRef:
+                name: {{ .Values.jupyterlab.env.fromSecret }}
+            {{- else if .Values.backend.default.env.fromSecret }}
+            - secretRef:
+                name: {{ .Values.backend.default.env.fromSecret }}
+            {{- end }}
+          {{- end }}
+          volumeMounts:
+            - name: notebooks
+              mountPath: /home/jovyan/work
+            - name: user-packages
+              mountPath: /home/jovyan/.local
+            - name: starter-notebook
+              mountPath: /home/jovyan/work/examples
+              readOnly: true
+          resources:
+            {{- toYaml .Values.jupyterlab.resources | nindent 12 }}
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.jupyterlab.baseUrl | default "/" }}api
+              port: jupyter
+            initialDelaySeconds: 30
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.jupyterlab.baseUrl | default "/" }}api
+              port: jupyter
+            initialDelaySeconds: 10
+            periodSeconds: 10
+      volumes:
+        - name: notebooks
+          {{- if .Values.jupyterlab.persistence.enabled }}
+          {{- if and .Values.jupyterlab.persistence.create (not .Values.jupyterlab.persistence.existingClaimName) }}
+          persistentVolumeClaim:
+            claimName: {{ include "daedalus.fullname" . }}-jupyterlab
+          {{- else }}
+          persistentVolumeClaim:
+            claimName: {{ .Values.jupyterlab.persistence.existingClaimName }}
+          {{- end }}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        - name: user-packages
+          emptyDir: {}
+        - name: starter-notebook
+          configMap:
+            name: {{ include "daedalus.fullname" . }}-jupyterlab-starter
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "daedalus.fullname" . }}-jupyterlab
+  labels:
+    {{- include "daedalus.labels" . | nindent 4 }}
+    app.kubernetes.io/component: jupyterlab
+spec:
+  type: {{ .Values.jupyterlab.service.type }}
+  selector:
+    app.kubernetes.io/name: {{ include "daedalus.name" . }}
+    app.kubernetes.io/component: jupyterlab
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+    - port: {{ .Values.jupyterlab.service.port }}
+      targetPort: jupyter
+      name: jupyter
+      {{- if and (eq .Values.jupyterlab.service.type "NodePort") .Values.jupyterlab.service.nodePort }}
+      nodePort: {{ .Values.jupyterlab.service.nodePort }}
+      {{- end }}
+{{- end }}

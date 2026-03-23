@@ -1,0 +1,77 @@
+import { IntermediateStep } from './intermediateSteps';
+
+export interface Message {
+  id?: string;
+  role: Role;
+  content: string;
+  intermediateSteps?: IntermediateStep[];
+  humanInteractionMessages?: any;
+  errorMessages?: any;
+  metadata?: {
+    useDeepThinker?: boolean;
+    [key: string]: any;
+  };
+  attachments?: Array<{
+    content: string;
+    type: string;
+    imageRef?: {
+      imageId: string;
+      sessionId: string;
+      mimeType?: string;
+    };
+    imageRefs?: Array<{
+      imageId: string;
+      sessionId: string;
+      mimeType?: string;
+    }>;
+    videoRef?: {
+      videoId: string;
+      sessionId: string;
+      filename?: string;
+      mimeType?: string;
+    };
+    videoRefs?: Array<{
+      videoId: string;
+      sessionId: string;
+      filename?: string;
+      mimeType?: string;
+    }>;
+    documentRef?: {
+      documentId: string;
+      sessionId: string;
+      filename?: string;
+      mimeType?: string;
+    };
+  }>;
+}
+
+export type Role = 'assistant' | 'user' | 'agent' | 'system';
+
+export interface UserContext {
+  id: string | null;
+  username: string;
+  name: string | null;
+  conversationId?: string;
+  sessionTimestamp: number;
+  // Add any other user metadata fields as needed
+}
+
+export interface ChatBody {
+  chatCompletionURL?: string,
+  messages?: Message[],
+  additionalProps?: {
+    enableIntermediateSteps?: boolean;
+    username?: string;
+    useDeepThinker?: boolean;
+    userContext?: UserContext;
+    [key: string]: any;
+  }
+}
+
+export interface Conversation {
+  id: string;
+  name: string;
+  messages: Message[];
+  folderId: string | null;
+  updatedAt?: number;
+}

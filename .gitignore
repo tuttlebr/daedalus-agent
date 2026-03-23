@@ -1,0 +1,188 @@
+# Environment and secrets
+.env
+.env.*
+*.env
+!.env.example
+!env.example
+auth.yaml
+config.yaml
+!config-template.yaml
+frontend/auth-passwords.json
+*/auth-passwords.json
+!auth-passwords.json.template
+secrets/
+*.pem
+*.key
+*.crt
+*.csr
+config.sh
+
+# Project-specific
+logs/
+*/logs/
+*.log
+*.logs
+ssl/
+redis/data/
+nginx/logs/
+test-security.sh
+tool-test.sh
+helm-build-deploy.sh
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+pip-log.txt
+pip-delete-this-directory.txt
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.tox/
+.nox/
+.coverage
+.coverage.*
+htmlcov/
+*.cover
+*.egg-info/
+dist/
+build/
+eggs/
+.eggs/
+*.egg
+MANIFEST
+.venv/
+venv/
+ENV/
+env/
+.python-version
+.pytype/
+.pdm.toml
+.pdm-python
+.pdm-build/
+__pypackages__/
+
+# Node.js / Frontend
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+.npm
+.eslintcache
+.node_repl_history
+.yarn-integrity
+.cache/
+.parcel-cache/
+.next/
+out/
+.nuxt/
+dist/
+.vuepress/dist/
+.temp/
+.cache/
+.turbo/
+*.tsbuildinfo
+next-env.d.ts
+
+# OS files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+Desktop.ini
+*.swp
+*.swo
+*~
+
+# IDEs and editors
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+.project
+.classpath
+.settings/
+*.iml
+.atom/
+.history/
+
+# Testing
+coverage/
+*.lcov
+.nyc_output/
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.backup
+*.old
+tmp/
+temp/
+
+# Build artifacts
+*.o
+*.obj
+*.exe
+*.dll
+*.so
+*.dylib
+target/
+Cargo.lock
+
+# Database
+*.sqlite
+*.sqlite3
+*.db
+dump.rdb
+appendonlydir/
+
+# Jupyter Notebook
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# Docker
+.dockerignore.local
+
+# Monitoring and profiling
+*.prof
+*.lprof
+.dmypy.json
+dmypy.json
+
+# Archives
+*.tar
+*.tar.gz
+*.zip
+*.rar
+*.7z
+
+# macOS
+.AppleDouble
+.LSOverride
+Icon
+._*
+.DocumentRevisions-V100
+.fseventsd
+.TemporaryItems
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+.AppleDB
+.AppleDesktop
+Network Trash Folder
+Temporary Items
+.apdisk
+test*.sh
+
+profile.md
+ncp-research.md
+
+# Planning artifacts (Claude Code / GSD)
+.planning/
