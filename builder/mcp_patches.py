@@ -72,12 +72,13 @@ def patch():
                     exc
                 ):
                     logger.warning(
-                        "MCP session cleanup: suppressed %s "
-                        "error (url=%s). A new session will be established "
-                        "on retry.",
+                        "MCP session cancelled: %s (url=%s). "
+                        "Propagating cancellation so the framework can "
+                        "retry or report the error.",
                         type(exc).__name__,
                         url,
                     )
+                    raise
                 else:
                     logger.error(
                         "MCP connect_to_server failed: url=%s error=%r\n%s",
