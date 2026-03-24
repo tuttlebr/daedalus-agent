@@ -541,7 +541,7 @@ functions:
       '
     max_output_tokens: 20000
     respect_robots_txt: false
-    timeout: 30.0
+    timeout: 60.0
     use_browser_fallback: true
     user_agent: daedalus-webscraper/1.0
     verbose: true
