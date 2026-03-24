@@ -634,9 +634,13 @@ const handler = async (req: Request): Promise<Response> => {
                     }
 
                     // Accept multiple backend response shapes (OpenAI, NAT, custom)
+                    // Prefer delta.content (incremental) over message.content (accumulated)
+                    // to avoid double-accumulation: the frontend also concatenates chunks,
+                    // so forwarding accumulated text causes each response to contain all
+                    // prior content compounded.
                     let content =
-                      parsed.choices?.[0]?.message?.content ??
                       parsed.choices?.[0]?.delta?.content ??
+                      parsed.choices?.[0]?.message?.content ??
                       parsed.output ??
                       parsed.answer ??
                       parsed.value ??
@@ -645,6 +649,14 @@ const handler = async (req: Request): Promise<Response> => {
                       parsed.data?.output ??
                       parsed.data?.content ??
                       '';
+
+                    // Safety net: if only message.content was available (no delta) and
+                    // it contains previously-sent text, extract just the new portion.
+                    if (content && typeof content === 'string' && totalResponseText
+                        && content.length > totalResponseText.length
+                        && content.startsWith(totalResponseText)) {
+                      content = content.slice(totalResponseText.length);
+                    }
 
                     // Some providers return arrays/objects for content; stringify defensively
                     if (!content && Array.isArray(parsed?.outputs)) {

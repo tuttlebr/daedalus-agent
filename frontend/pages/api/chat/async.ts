@@ -384,13 +384,19 @@ async function processJobAsync(jobId: string): Promise<void> {
               const parsed = JSON.parse(line);
 
               // Check for direct content or OpenAI format
-              const content =
+              // Prefer delta.content over message.content to avoid accumulated text
+              let content =
                 parsed.content ||
-                parsed.choices?.[0]?.message?.content ||
                 parsed.choices?.[0]?.delta?.content ||
+                parsed.choices?.[0]?.message?.content ||
                 parsed.response ||
                 parsed.text ||
                 '';
+
+              // Safety net: strip already-accumulated prefix
+              if (content && fullText && content.length > fullText.length && content.startsWith(fullText)) {
+                content = content.slice(fullText.length);
+              }
 
               if (content) {
                 logger.info(`Job ${jobId}: Found content in non-SSE format`);
@@ -472,10 +478,18 @@ async function processJobAsync(jobId: string): Promise<void> {
               }
 
               // Extract content from OpenAI-compatible response
+              // Prefer delta.content (incremental) over message.content (accumulated)
+              // to avoid double-accumulation when fullText += content below.
               let content =
-                parsed.choices?.[0]?.message?.content ||
                 parsed.choices?.[0]?.delta?.content ||
+                parsed.choices?.[0]?.message?.content ||
                 '';
+
+              // Safety net: if only message.content was available (no delta) and
+              // it contains previously-accumulated text, extract just the new portion.
+              if (content && fullText && content.length > fullText.length && content.startsWith(fullText)) {
+                content = content.slice(fullText.length);
+              }
 
               if (content) {
                 // Check if content contains intermediate step tags
