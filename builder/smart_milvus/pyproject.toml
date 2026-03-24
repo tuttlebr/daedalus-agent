@@ -6,7 +6,7 @@ requires = ["setuptools>=64.0.0", "wheel"]
 name = "smart_milvus"
 dynamic = ["version"]
 dependencies = [
-  "nvidia-nat[redis,mcp,langchain,phoenix] @ git+https://github.com/NVIDIA/NeMo-Agent-Toolkit.git@develop",
+  "nvidia-nat[redis,mcp,langchain,phoenix]==1.4.3",
   "pymilvus>=2.5.0",
   "requests>=2.31.0",
 ]

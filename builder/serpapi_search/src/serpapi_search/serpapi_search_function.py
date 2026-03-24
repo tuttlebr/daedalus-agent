@@ -1,7 +1,5 @@
 """Structured SerpAPI search with data extraction and rich UI rendering."""
 
-from __future__ import annotations
-
 import json
 import logging
 import os

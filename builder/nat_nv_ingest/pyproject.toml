@@ -6,7 +6,7 @@ requires = ["setuptools>=64.0.0", "wheel"]
 name = "nat_nv_ingest"
 dynamic = ["version"]
 dependencies = [
-  "nvidia-nat[redis,mcp,langchain,phoenix] @ git+https://github.com/NVIDIA/NeMo-Agent-Toolkit.git@develop",
+  "nvidia-nat[redis,mcp,langchain,phoenix]==1.4.3",
   "azure-storage-blob",
   "nv-ingest-api==26.1.1",
   "nv-ingest-client==26.1.1",
