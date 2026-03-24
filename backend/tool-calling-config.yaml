@@ -272,12 +272,15 @@ functions:
       so it becomes searchable. Use when a user uploads a document and wants
       to ask questions about its contents.
 
-      REQUIRED PARAMETERS:
+      This tool accepts a single input_message string. Pass the full
+      instruction including the documentRef JSON, username, and
+      collection_name as a natural-language sentence inside input_message.
 
-      - documentRef: object (from the user upload message, contains documentId
-      and sessionId)
+      Example input_message: "Process the document with
+      documentRef={\"documentId\": \"abc123\", \"sessionId\": \"xyz\"},
+      username=\"alice\", and collection_name=\"my_docs\"."
 
-      Example: {"documentRef": {"documentId": "abc123", "sessionId": "xyz"}}
+      Do NOT pass documentRef as a separate parameter.
 
       '
     handle_tool_errors: true
