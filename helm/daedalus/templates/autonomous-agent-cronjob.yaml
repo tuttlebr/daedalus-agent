@@ -42,7 +42,11 @@ spec:
               {{- end }}
               env:
                 - name: BACKEND_HOST
+                  {{- if eq (.Values.autonomousAgent.backendType | default "default") "deepThinker" }}
+                  value: {{ printf "http://%s-backend-deep-thinker:%v" (include "daedalus.fullname" .) (.Values.backend.deepThinker.port | default 8000) }}
+                  {{- else }}
                   value: {{ printf "http://%s-backend-default:%v" (include "daedalus.fullname" .) (.Values.backend.default.port | default 8000) }}
+                  {{- end }}
                 - name: BACKEND_API_PATH
                   value: {{ .Values.autonomousAgent.backendApiPath | default "/chat/stream" | quote }}
                 - name: REDIS_HOST

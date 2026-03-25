@@ -1,0 +1,64 @@
+{{- if .Values.backend.networkPolicy.enabled }}
+# Network Policy for Frontend — restricts egress to backend services, Redis, and DNS only
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "daedalus.fullname" . }}-frontend
+  labels:
+    {{- include "daedalus.labels" . | nindent 4 }}
+    app.kubernetes.io/component: frontend
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "daedalus.name" . }}
+      app.kubernetes.io/component: frontend
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  policyTypes:
+    - Egress
+  egress:
+    # Allow DNS resolution
+    - to:
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # Allow access to default backend
+    {{- if .Values.backend.default.enabled }}
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: {{ include "daedalus.name" . }}
+              app.kubernetes.io/component: backend-default
+              app.kubernetes.io/instance: {{ .Release.Name }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.backend.default.port }}
+    {{- end }}
+    # Allow access to deep thinker backend
+    {{- if .Values.backend.deepThinker.enabled }}
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: {{ include "daedalus.name" . }}
+              app.kubernetes.io/component: backend-deep-thinker
+              app.kubernetes.io/instance: {{ .Release.Name }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.backend.deepThinker.port }}
+    {{- end }}
+    # Allow access to Redis (session store, usage tracking)
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: {{ include "daedalus.name" . }}
+              app.kubernetes.io/component: redis
+              app.kubernetes.io/instance: {{ .Release.Name }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.redis.service.port }}
+{{- end }}

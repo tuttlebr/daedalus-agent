@@ -20,12 +20,16 @@ const nextConfig = {
     // Allow images from these domains
     remotePatterns: [
       {
-        protocol: 'https',
-        hostname: '**',
-      },
-      {
         protocol: 'http',
         hostname: 'localhost',
+      },
+      {
+        protocol: 'https',
+        hostname: '*.nvidia.com',
+      },
+      {
+        protocol: 'https',
+        hostname: '*.nvcf.nvidia.com',
       },
     ],
     // Device sizes for responsive images
@@ -126,10 +130,14 @@ const nextConfig = {
           },
         ],
       },
-      // SECURITY: Prevent credential leakage via referer headers
+      // SECURITY: Restrict outbound connections and prevent common web attacks
       {
         source: '/:path*',
         headers: [
+          {
+            key: 'Content-Security-Policy',
+            value: "default-src 'self'; script-src 'self' 'unsafe-eval' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://*.nvidia.com https://*.nvcf.nvidia.com; font-src 'self' data:; connect-src 'self' ws: wss:; frame-ancestors 'none'; base-uri 'self'; form-action 'self';",
+          },
           {
             key: 'Referrer-Policy',
             value: 'strict-origin-when-cross-origin',

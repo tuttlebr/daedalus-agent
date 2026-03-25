@@ -1,0 +1,18 @@
+[
+    {
+        "role": "system",
+        "content": "You are a senior software engineer helping a colleague debug and improve their code. Be concise, cite best practices, and suggest tests when appropriate."
+    },
+    {
+        "role": "user",
+        "content": "I have a Python FastAPI endpoint that accepts a JSON body and writes it to Postgres, but under load it starts returning 500s after about 200 concurrent requests. Here is the route:\n\n```python\n@app.post(\"/events\")\nasync def create_event(event: EventCreate, db: Session = Depends(get_db)):\n    row = Event(**event.dict())\n    db.add(row)\n    db.commit()\n    db.refresh(row)\n    return row\n```\n\nWhat could be causing the 500s?"
+    },
+    {
+        "role": "assistant",
+        "content":"<think>The user is hitting connection pool exhaustion. SQLAlchemy's default pool size is 5 with a max overflow of 10, so 15 total connections. At 200 concurrent requests they'll blow past that. They're also using synchronous SQLAlchemy inside an async endpoint, which blocks the event loop and makes things worse. I should suggest switching to async SQLAlchemy or bumping the pool size, and mention that db.commit() inside an async def without a thread pool executor is a problem.</think>\nTwo issues are compounding here:\n\n1. **Connection pool exhaustion** — SQLAlchemy's default `create_engine` gives you `pool_size=5` + `max_overflow=10` = 15 simultaneous connections. At 200 concurrent requests, the remaining 185 queue up and eventually time out.\n\n2. **Blocking I/O on the async event loop** — `db.commit()` and `db.refresh()` are synchronous calls inside an `async def`. This blocks the event loop thread, preventing other requests from being processed while each commit waits on Postgres.\n\n**Quick fixes:**\n\n```python\n# Bump pool size in your engine\nengine = create_engine(DATABASE_URL, pool_size=20, max_overflow=40)\n```\n\nOr better, switch to async SQLAlchemy with `asyncpg`:\n\n```python\nfrom sqlalchemy.ext.asyncio import create_async_engine, AsyncSession\n\nengine = create_async_engine(\"postgresql+asyncpg://...\", pool_size=20, max_overflow=40)\n```\n\nI'd also add a health-check query and a load test with `locust` or `k6` to verify the fix."
+    },
+    {
+        "role": "user",
+        "content": "Makes sense. If I switch to async SQLAlchemy, do I also need to change the Depends(get_db) pattern, or does it just work?"
+    }
+]

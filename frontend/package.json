@@ -19,7 +19,6 @@
     "@rollup/rollup-linux-x64-gnu": "^4.53.3"
   },
   "dependencies": {
-    "@datadog/browser-rum": "^5.11.0",
     "@dqbd/tiktoken": "^1.0.2",
     "@radix-ui/react-select": "^2.1.2",
     "@tabler/icons-react": "^2.9.0",
