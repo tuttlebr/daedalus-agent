@@ -179,6 +179,29 @@ def save_conversation(r: redis_lib.Redis, messages: list[dict]) -> None:
 
     rj_set(r, key, conversations, ttl=60 * 60 * 24 * 7)
 
+    # Notify the frontend via Redis Pub/Sub so the UI updates in real-time
+    notify_frontend(r)
+
+
+# ---------------------------------------------------------------------------
+# Frontend notification
+# ---------------------------------------------------------------------------
+def notify_frontend(r: redis_lib.Redis) -> None:
+    """Publish an event so the frontend knows to refresh the conversation list."""
+    channel = f"user:{USER_ID}:updates"
+    event = json.dumps(
+        {
+            "type": "conversation_list_changed",
+            "timestamp": int(time.time() * 1000),
+            "data": {},
+        }
+    )
+    try:
+        r.publish(channel, event)
+        log("Published conversation_list_changed notification")
+    except Exception as e:
+        log(f"Warning: failed to publish frontend notification: {e}")
+
 
 # ---------------------------------------------------------------------------
 # Prompt construction
