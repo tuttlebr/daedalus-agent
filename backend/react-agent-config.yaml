@@ -7,8 +7,8 @@ authentication:
 embedders:
   milvus_embedder:
     _type: nim
-    base_url: ${NVIDIA_INFERENCE_BASE_URL}
-    model_name: nvidia/nvidia/llama-3.2-nv-embedqa-1b-v2
+    base_url: ${EMBEDDING_BASE_URL}
+    model_name: ${EMBEDDING_MODEL}
     truncate: END
 function_groups:
   github_mcp_server:
@@ -169,7 +169,7 @@ functions:
   image_augmentation_tool:
     _type: image_augmentation
     api_endpoint: ${IMAGE_AUGMENTATION_BASE_URL}
-    api_key: ${NVIDIA_API_KEY}
+    api_key: ${NVIDIA_INFERENCE_API_KEY}
     api_type: openai
     openai_model: gcp/google/gemini-3-pro-image-preview
     description:
@@ -194,7 +194,7 @@ functions:
   image_comprehension_tool:
     _type: image_comprehension
     api_endpoint: ${IMAGE_COMPREHENSION_BASE_URL}
-    api_key: ${NVIDIA_API_KEY}
+    api_key: ${NVIDIA_INFERENCE_API_KEY}
     api_type: openai
     openai_model: gcp/google/gemini-3-pro-image-preview
     description: 'Analyze a user-uploaded image and provide descriptions, answer
@@ -220,7 +220,7 @@ functions:
   image_generation_tool:
     _type: image_generation
     api_endpoint: ${IMAGE_GENERATION_BASE_URL}
-    api_key: ${NVIDIA_API_KEY}
+    api_key: ${NVIDIA_INFERENCE_API_KEY}
     api_type: openai
     openai_model: gcp/google/gemini-3-pro-image-preview
     description:
@@ -314,8 +314,8 @@ functions:
     feed_url: https://feeds.feedburner.com/nvidiablog
     max_entries: 5
     reranker_api_key: ${NVIDIA_API_KEY}
-    reranker_endpoint: ${NVIDIA_INFERENCE_BASE_URL}/ranking
-    reranker_model: nvidia/nvidia/llama-3.2-nv-rerankqa-1b-v2
+    reranker_endpoint: ${REANKER_BASE_URL}
+    reranker_model: ${REANKER_MODEL}
     verbose: true
   nvidia_developer_blog_rss:
     _type: rss_feed
@@ -329,8 +329,8 @@ functions:
     feed_url: https://developer.nvidia.com/blog/feed
     max_entries: 5
     reranker_api_key: ${NVIDIA_API_KEY}
-    reranker_endpoint: ${NVIDIA_INFERENCE_BASE_URL}/ranking
-    reranker_model: nvidia/nvidia/llama-3.2-nv-rerankqa-1b-v2
+    reranker_endpoint: ${REANKER_BASE_URL}
+    reranker_model: ${REANKER_MODEL}
     verbose: true
   nvidia_news_room_rss:
     _type: rss_feed
@@ -344,8 +344,8 @@ functions:
     feed_url: https://nvidianews.nvidia.com/releases.xml
     max_entries: 5
     reranker_api_key: ${NVIDIA_API_KEY}
-    reranker_endpoint: ${NVIDIA_INFERENCE_BASE_URL}/ranking
-    reranker_model: nvidia/nvidia/llama-3.2-nv-rerankqa-1b-v2
+    reranker_endpoint: ${REANKER_BASE_URL}
+    reranker_model: ${REANKER_MODEL}
     verbose: true
   nvidia_retriever_tool:
     _type: nat_retriever
@@ -385,8 +385,8 @@ functions:
     feed_url: https://newsletter.semianalysis.com/feed
     max_entries: 5
     reranker_api_key: ${NVIDIA_API_KEY}
-    reranker_endpoint: ${NVIDIA_INFERENCE_BASE_URL}/ranking
-    reranker_model: nvidia/nvidia/llama-3.2-nv-rerankqa-1b-v2
+    reranker_endpoint: ${REANKER_BASE_URL}
+    reranker_model: ${REANKER_MODEL}
     verbose: true
   karpathy_bearblog_rss:
     _type: rss_feed
@@ -399,8 +399,8 @@ functions:
     feed_url: https://karpathy.bearblog.dev/feed/
     max_entries: 5
     reranker_api_key: ${NVIDIA_API_KEY}
-    reranker_endpoint: ${NVIDIA_INFERENCE_BASE_URL}/ranking
-    reranker_model: nvidia/nvidia/llama-3.2-nv-rerankqa-1b-v2
+    reranker_endpoint: ${REANKER_BASE_URL}
+    reranker_model: ${REANKER_MODEL}
     verbose: true
   karpathy_github_rss:
     _type: rss_feed
@@ -412,8 +412,8 @@ functions:
     feed_url: https://karpathy.github.io/feed.xml
     max_entries: 5
     reranker_api_key: ${NVIDIA_API_KEY}
-    reranker_endpoint: ${NVIDIA_INFERENCE_BASE_URL}/ranking
-    reranker_model: nvidia/nvidia/llama-3.2-nv-rerankqa-1b-v2
+    reranker_endpoint: ${REANKER_BASE_URL}
+    reranker_model: ${REANKER_MODEL}
     verbose: true
   user_uploaded_files_retriever_tool:
     _type: user_document_retriever
@@ -423,6 +423,10 @@ functions:
       'Search the content of previously ingested user-uploaded documents
       using semantic search. Returns the most relevant passages from documents
       that have been processed and indexed into the knowledge base.
+
+      ONLY use this tool when the user explicitly asks about their uploaded
+      or ingested documents. Do NOT use for daily briefings, general
+      knowledge questions, or real-time information requests.
 
       REQUIRED PARAMETERS:
 
@@ -461,8 +465,8 @@ functions:
     verbose: true
   vtt_interpreter_tool:
     _type: vtt_interpreter
-    api_endpoint: ${NVIDIA_INFERENCE_BASE_URL}
-    model: nvidia/nvidia/nemotron-3-super-v3
+    api_endpoint: ${DEFAULT_LLM_MODEL_BASE_URL}
+    model: ${DEFAULT_LLM_MODEL_MODEL}
     api_key: ${NVIDIA_API_KEY}
     description:
       'Convert VTT or SRT transcript text into structured meeting notes
@@ -558,19 +562,19 @@ general:
 llms:
   reasoning_llm:
     _type: openai
-    api_key: ${NVIDIA_API_KEY}
-    base_url: ${NVIDIA_INFERENCE_BASE_URL}
-    model_name: nvidia/nvidia/nemotron-3-super-v3
+    api_key: ${NVIDIA_INFERENCE_API_KEY}
+    base_url: ${REASONING_LLM_MODEL_BASE_URL}
+    model_name: ${REASONING_LLM_MODEL_MODEL}
   react_llm:
     _type: openai
     api_key: ${NVIDIA_API_KEY}
-    base_url: ${NVIDIA_INFERENCE_BASE_URL}
-    model_name: nvidia/nvidia/nemotron-3-super-v3
+    base_url: ${REACT_LLM_MODEL_BASE_URL}
+    model_name: ${REACT_LLM_MODEL_MODEL}
   tool_calling_llm:
     _type: openai
     api_key: ${NVIDIA_API_KEY}
-    base_url: ${NVIDIA_INFERENCE_BASE_URL}
-    model_name: nvidia/nvidia/nemotron-3-super-v3
+    base_url: ${TOOL_CALLING_LLM_MODEL_BASE_URL}
+    model_name: ${TOOL_CALLING_LLM_MODEL_MODEL}
 memory:
   redis_memory:
     _type: nat.plugins.redis/redis_memory
@@ -590,8 +594,8 @@ retrievers:
       Kubernetes documentation and best practices knowledge base. Covers
       official K8s docs, expert technical blogs, and configuration patterns.
     embedding_model: milvus_embedder
-    reranker_endpoint: ${NVIDIA_INFERENCE_BASE_URL}/ranking
-    reranker_model: nvidia/nvidia/llama-3.2-nv-rerankqa-1b-v2
+    reranker_endpoint: ${REANKER_BASE_URL}
+    reranker_model: ${REANKER_MODEL}
     reranker_top_n: 5
     return_as_string: false
     top_k: 10
@@ -609,8 +613,8 @@ retrievers:
       Covers condition guides, coping strategies, and wellness practices.
       Educational content requiring a professional care disclaimer.
     embedding_model: milvus_embedder
-    reranker_endpoint: ${NVIDIA_INFERENCE_BASE_URL}/ranking
-    reranker_model: nvidia/nvidia/llama-3.2-nv-rerankqa-1b-v2
+    reranker_endpoint: ${REANKER_BASE_URL}
+    reranker_model: ${REANKER_MODEL}
     reranker_top_n: 5
     return_as_string: false
     top_k: 10
@@ -627,8 +631,8 @@ retrievers:
       Comprehensive NVIDIA knowledge base covering hardware specifications,
       software documentation, research papers, and corporate information.
     embedding_model: milvus_embedder
-    reranker_endpoint: ${NVIDIA_INFERENCE_BASE_URL}/ranking
-    reranker_model: nvidia/nvidia/llama-3.2-nv-rerankqa-1b-v2
+    reranker_endpoint: ${REANKER_BASE_URL}
+    reranker_model: ${REANKER_MODEL}
     reranker_top_n: 5
     return_as_string: false
     top_k: 10
@@ -645,8 +649,8 @@ retrievers:
       Expert semiconductor industry analysis covering foundries, process
       nodes, chip economics, and competitive intelligence.
     embedding_model: milvus_embedder
-    reranker_endpoint: ${NVIDIA_INFERENCE_BASE_URL}/ranking
-    reranker_model: nvidia/nvidia/llama-3.2-nv-rerankqa-1b-v2
+    reranker_endpoint: ${REANKER_BASE_URL}
+    reranker_model: ${REANKER_MODEL}
     reranker_top_n: 5
     return_as_string: false
     top_k: 10
@@ -663,8 +667,8 @@ retrievers:
       and indexed into the vector knowledge base.
     distance_cutoff: 1.2
     embedding_model: milvus_embedder
-    reranker_endpoint: ${NVIDIA_INFERENCE_BASE_URL}/ranking
-    reranker_model: nvidia/nvidia/llama-3.2-nv-rerankqa-1b-v2
+    reranker_endpoint: ${REANKER_BASE_URL}
+    reranker_model: ${REANKER_MODEL}
     reranker_top_n: 5
     return_as_string: false
     top_k: 10
@@ -681,8 +685,8 @@ retrievers:
       protocols, drug information, and species-specific care. Requires a
       veterinarian consultation disclaimer.
     embedding_model: milvus_embedder
-    reranker_endpoint: ${NVIDIA_INFERENCE_BASE_URL}/ranking
-    reranker_model: nvidia/nvidia/llama-3.2-nv-rerankqa-1b-v2
+    reranker_endpoint: ${REANKER_BASE_URL}
+    reranker_model: ${REANKER_MODEL}
     reranker_top_n: 5
     return_as_string: false
     top_k: 10
