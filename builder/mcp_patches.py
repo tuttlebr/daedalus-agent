@@ -67,18 +67,25 @@ def patch():
                         await session.initialize()
                         logger.info("MCP session initialized: url=%s", url)
                         yield session
-            except (RuntimeError, asyncio.CancelledError) as exc:
-                if isinstance(exc, asyncio.CancelledError) or "cancel scope" in str(
-                    exc
-                ):
+            except asyncio.CancelledError:
+                logger.warning(
+                    "MCP session cancelled: CancelledError (url=%s). "
+                    "Propagating for framework retry.",
+                    url,
+                )
+                raise
+            except RuntimeError as exc:
+                if "cancel scope" in str(exc):
+                    # anyio cancel-scope mismatch during teardown.  Convert to
+                    # CancelledError so the NAT framework's reconnect logic
+                    # handles it as a clean cancellation rather than an opaque
+                    # RuntimeError (which wastes one reconnect attempt).
                     logger.warning(
-                        "MCP session cancelled: %s (url=%s). "
-                        "Propagating cancellation so the framework can "
-                        "retry or report the error.",
-                        type(exc).__name__,
+                        "MCP cancel scope teardown error (url=%s). "
+                        "Converting to CancelledError for cleaner retry.",
                         url,
                     )
-                    raise
+                    raise asyncio.CancelledError(str(exc)) from exc
                 else:
                     logger.error(
                         "MCP connect_to_server failed: url=%s error=%r\n%s",
