@@ -112,6 +112,12 @@ backend:
   # Shared backend configuration
   networkPolicy:
     enabled: true # Set to true to restrict backend access to only frontend and nginx pods
+    cilium:
+      enabled: true
+      webscrape:
+        enabled: true
+        l7Filtering: false
+      extraFQDNs: []
   persistence:
     enabled: true
     size: 6Gi

@@ -1,0 +1,242 @@
+{{- if .Values.backend.networkPolicy.cilium.enabled }}
+{{- $components := list }}
+{{- if .Values.backend.default.enabled }}
+  {{- $components = append $components "backend-default" }}
+{{- end }}
+{{- if .Values.backend.deepThinker.enabled }}
+  {{- $components = append $components "backend-deep-thinker" }}
+{{- end }}
+{{- range $component := $components }}
+---
+# Cilium L7/FQDN egress policy for {{ $component }}.
+# Replaces the broad 0.0.0.0/0:443 K8s NetworkPolicy rule with explicit
+# domain allowlists so that compromised pods cannot exfiltrate data or
+# phone home to arbitrary endpoints.
+#
+# NOTE: toFQDNs and toCIDRSet MUST live in separate CiliumNetworkPolicy
+# resources — Cilium 1.19+ rejects policies that combine toCIDR (generated
+# internally by toFQDNs) with toCIDRSet.  The webscrape toCIDRSet rule is
+# therefore in its own policy below.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: {{ include "daedalus.fullname" $ }}-{{ $component }}-cilium
+  labels:
+    {{- include "daedalus.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: {{ $component }}
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "daedalus.name" $ }}
+      app.kubernetes.io/component: {{ $component }}
+      app.kubernetes.io/instance: {{ $.Release.Name }}
+  egress:
+    # ── DNS (required for FQDN resolution) ──────────────────────────
+    # Pod-networked CoreDNS
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
+          rules:
+            dns:
+              - matchPattern: "*"
+    # Host-networked CoreDNS (bare-metal / kubeadm clusters)
+    - toEntities:
+        - host
+        - remote-node
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
+          rules:
+            dns:
+              - matchPattern: "*"
+
+    # ── In-cluster services (same namespace) ────────────────────────
+    # Redis
+    - toEndpoints:
+        - matchLabels:
+            app.kubernetes.io/name: {{ include "daedalus.name" $ }}
+            app.kubernetes.io/component: redis
+            app.kubernetes.io/instance: {{ $.Release.Name }}
+      toPorts:
+        - ports:
+            - port: {{ $.Values.redis.service.port | quote }}
+              protocol: TCP
+
+    # ── Cross-namespace cluster services ────────────────────────────
+    # Phoenix tracing
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: phoenix
+      toPorts:
+        - ports:
+            - port: "6006"
+              protocol: TCP
+
+    # Milvus vector database
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: milvus
+      toPorts:
+        - ports:
+            - port: "19530"
+              protocol: TCP
+
+    # MinIO object storage (milvus namespace)
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: milvus
+      toPorts:
+        - ports:
+            - port: "9000"
+              protocol: TCP
+
+    # NV-Ingest document processing
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: nv-ingest
+      toPorts:
+        - ports:
+            - port: "7670"
+              protocol: TCP
+
+    # K8s MCP server
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: k8s-mcp-server
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+
+    # ── External FQDN allowlist (HTTPS only) ────────────────────────
+    # NVIDIA inference & model APIs
+    - toFQDNs:
+        - matchPattern: "*.api.nvidia.com"
+        - matchPattern: "*.api.nvcf.nvidia.com"
+        - matchName: "inference-api.nvidia.com"
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
+
+    # NVCF control plane (coordination, task deployment, invocation)
+    - toFQDNs:
+        - matchName: "connect.pnats.nvcf.nvidia.com"
+        - matchName: "grpc.api.nvcf.nvidia.com"
+        - matchName: "spot.gdn.nvidia.com"
+        - matchName: "ess.ngc.nvidia.com"
+        - matchName: "api.ngc.nvidia.com"
+        - matchPattern: "sqs.*.amazonaws.com"
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
+
+    # MCP servers (SerpAPI, GitHub Copilot, NVIDIA Dynamo docs)
+    - toFQDNs:
+        - matchName: "mcp.serpapi.com"
+        - matchName: "api.githubcopilot.com"
+        - matchName: "api.github.com"
+        - matchName: "github.com"
+        - matchName: "copilot-proxy.githubusercontent.com"
+        - matchName: "docs.dynamo.nvidia.com"
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
+
+    # SerpAPI web search
+    - toFQDNs:
+        - matchName: "serpapi.com"
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
+
+    # RSS feed sources
+    - toFQDNs:
+        - matchName: "feeds.feedburner.com"
+        - matchName: "developer.nvidia.com"
+        - matchName: "nvidianews.nvidia.com"
+        - matchName: "newsletter.semianalysis.com"
+        - matchName: "karpathy.bearblog.dev"
+        - matchName: "karpathy.github.io"
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
+
+    # OpenRouter (health checks + LLM routing)
+    - toFQDNs:
+        - matchName: "openrouter.ai"
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
+
+    {{- with $.Values.backend.networkPolicy.cilium.extraFQDNs }}
+    # ── Additional user-defined FQDNs ───────────────────────────────
+    - toFQDNs:
+        {{- range . }}
+        - matchName: {{ . | quote }}
+        {{- end }}
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
+    {{- end }}
+---
+{{- if $.Values.backend.networkPolicy.cilium.webscrape.enabled }}
+# Webscrape egress for {{ $component }}.
+# Separated from the FQDN policy because Cilium 1.19+ does not allow
+# toCIDRSet and toFQDNs (which generates toCIDR) in the same resource.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: {{ include "daedalus.fullname" $ }}-{{ $component }}-webscrape
+  labels:
+    {{- include "daedalus.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: {{ $component }}
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "daedalus.name" $ }}
+      app.kubernetes.io/component: {{ $component }}
+      app.kubernetes.io/instance: {{ $.Release.Name }}
+  egress:
+    # The webscrape tool fetches arbitrary user-provided URLs.
+    # This rule opens broad egress but ONLY on 80/443, and with
+    # full DNS visibility via the dns-visibility policy.
+    # To tighten further, disable this and route scrape requests
+    # through a dedicated proxy pod with its own policy.
+    - toCIDRSet:
+        - cidr: 0.0.0.0/0
+          except:
+            - 10.0.0.0/8
+            - 172.16.0.0/12
+            - 192.168.0.0/16
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
+            - port: "80"
+              protocol: TCP
+          {{- if $.Values.backend.networkPolicy.cilium.webscrape.l7Filtering }}
+          rules:
+            http:
+              - method: GET
+              - method: HEAD
+          {{- end }}
+{{- end }}
+{{- end }}
+{{- end }}

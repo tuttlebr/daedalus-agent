@@ -112,6 +112,12 @@ backend:
   # Shared backend configuration
   networkPolicy:
     enabled: true # Set to true to restrict backend access to only frontend and nginx pods
+    cilium:
+      enabled: false # Set to true to deploy CiliumNetworkPolicy resources (requires Cilium CNI)
+      webscrape:
+        enabled: true  # Allow backend pods broad HTTP/HTTPS egress for the webscrape tool
+        l7Filtering: false # When true, restrict webscrape egress to GET/HEAD only (blocks POST exfiltration)
+      extraFQDNs: []  # Additional domains to allow, e.g. ["custom-api.example.com"]
   persistence:
     enabled: true
     size: 6Gi

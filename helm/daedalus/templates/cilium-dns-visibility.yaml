@@ -1,0 +1,44 @@
+{{- if .Values.backend.networkPolicy.cilium.enabled }}
+# Cilium DNS visibility policy — logs every DNS lookup per pod via Hubble.
+# Use `hubble observe --type dns` to audit which domains pods resolve.
+# This is the foundation for building and refining FQDN allowlists.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: {{ include "daedalus.fullname" . }}-dns-visibility
+  labels:
+    {{- include "daedalus.labels" . | nindent 4 }}
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "daedalus.name" . }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  egress:
+    # Pod-networked CoreDNS
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
+          rules:
+            dns:
+              - matchPattern: "*"
+    # Host-networked CoreDNS (bare-metal / kubeadm clusters)
+    - toEntities:
+        - host
+        - remote-node
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
+          rules:
+            dns:
+              - matchPattern: "*"
+{{- end }}

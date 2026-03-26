@@ -1,0 +1,87 @@
+{{- if and .Values.nginx.enabled .Values.backend.networkPolicy.cilium.enabled }}
+# Cilium egress policy for nginx — allows DNS and upstream proxy targets.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: {{ include "daedalus.fullname" . }}-nginx-cilium
+  labels:
+    {{- include "daedalus.labels" . | nindent 4 }}
+    app.kubernetes.io/component: nginx
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "daedalus.name" . }}
+      app.kubernetes.io/component: nginx
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  egress:
+    # DNS — pod-networked CoreDNS
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
+          rules:
+            dns:
+              - matchPattern: "*"
+    # DNS — host-networked CoreDNS (bare-metal / kubeadm clusters)
+    - toEntities:
+        - host
+        - remote-node
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
+          rules:
+            dns:
+              - matchPattern: "*"
+
+    # Frontend (HTTP + WebSocket sidecar)
+    {{- if .Values.frontend.enabled }}
+    - toEndpoints:
+        - matchLabels:
+            app.kubernetes.io/name: {{ include "daedalus.name" . }}
+            app.kubernetes.io/component: frontend
+            app.kubernetes.io/instance: {{ .Release.Name }}
+      toPorts:
+        - ports:
+            - port: {{ .Values.frontend.port | quote }}
+              protocol: TCP
+            - port: "3001"
+              protocol: TCP
+    {{- end }}
+
+    {{- if not .Values.nginx.config.restrictedMode }}
+    # Backend default (only in non-restricted mode)
+    {{- if .Values.backend.default.enabled }}
+    - toEndpoints:
+        - matchLabels:
+            app.kubernetes.io/name: {{ include "daedalus.name" . }}
+            app.kubernetes.io/component: backend-default
+            app.kubernetes.io/instance: {{ .Release.Name }}
+      toPorts:
+        - ports:
+            - port: {{ .Values.backend.default.port | quote }}
+              protocol: TCP
+    {{- end }}
+
+    # Backend deep thinker (only in non-restricted mode)
+    {{- if .Values.backend.deepThinker.enabled }}
+    - toEndpoints:
+        - matchLabels:
+            app.kubernetes.io/name: {{ include "daedalus.name" . }}
+            app.kubernetes.io/component: backend-deep-thinker
+            app.kubernetes.io/instance: {{ .Release.Name }}
+      toPorts:
+        - ports:
+            - port: {{ .Values.backend.deepThinker.port | quote }}
+              protocol: TCP
+    {{- end }}
+    {{- end }}
+{{- end }}

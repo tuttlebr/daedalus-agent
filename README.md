@@ -277,16 +277,6 @@ The `userId` must match the username you log in with so the agent's memories and
 - `helm/daedalus/files/autonomous-agent-soul.md` -- identity and areas of curiosity
 - `helm/daedalus/files/autonomous-agent-heartbeat.md` -- per-cycle task checklist
 
-### Endpoint Health Checks
-
-The Helm chart includes an optional CronJob that validates NVIDIA API endpoints are reachable. To configure it, edit the healthcheck ConfigMap in `helm/daedalus/templates/endpoint-healthcheck-cronjob.yaml` and add your endpoint function IDs:
-
-```bash
-check_nvidia_endpoint "<function-id>" "nvidia/model-name" "Description"
-```
-
-You can find function IDs in your NVIDIA NIM deployment or the [NVIDIA API Catalog](https://build.nvidia.com/explore/discover).
-
 ## User Guide
 
 Daedalus includes a built-in **Help** section accessible from the sidebar. Click the Help button to learn about all available features. Below is a summary.
