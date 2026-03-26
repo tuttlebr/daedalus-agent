@@ -23,21 +23,21 @@ A full-stack reference implementation of the [NVIDIA NeMo Agent toolkit](https:/
 ## Architecture
 
 ```mermaid
-graph LR
+flowchart LR
     User -->|HTTPS| NGINX
     NGINX --> Frontend
-    Frontend --> Backend-Default
-    Frontend --> Backend-DeepThinker
-    Backend-Default --> Redis
-    Backend-DeepThinker --> Redis
+    Frontend --> BD[Backend Default]
+    Frontend --> BDT[Backend Deep Thinker]
+    BD --> Redis
+    BDT --> Redis
     Frontend --> Redis
-    Backend-Default -->|FQDN policy| ExternalAPIs["External APIs<br/>(NVIDIA, OpenRouter, GitHub)"]
-    Backend-DeepThinker -->|FQDN policy| ExternalAPIs
-    Backend-Default --> Milvus
-    Backend-Default --> NV-Ingest
-    Backend-Default --> Phoenix["Phoenix Tracing"]
-    Backend-Default --> K8sMCP["K8s MCP Server"]
-    JupyterLab --> Backend-Default
+    BD -->|FQDN policy| ExtAPI[External APIs]
+    BDT -->|FQDN policy| ExtAPI
+    BD --> Milvus
+    BD --> NV-Ingest
+    BD --> Phoenix
+    BD --> K8sMCP[K8s MCP Server]
+    JupyterLab --> BD
     JupyterLab --> Milvus
 ```
 
@@ -245,16 +245,8 @@ The Helm chart deploys two layers of network policy that work together.
 ### Policy Layers
 
 ```mermaid
-graph TB
-    subgraph "Layer 1: Kubernetes NetworkPolicy"
-        direction TB
-        K8s["Coarse L3/L4 filtering<br/>Enforced by any CNI"]
-    end
-    subgraph "Layer 2: CiliumNetworkPolicy"
-        direction TB
-        Cilium["FQDN allowlists + DNS visibility<br/>Requires Cilium CNI"]
-    end
-    K8s --- Cilium
+flowchart TB
+    K8s[Layer 1: Kubernetes NetworkPolicy\nCoarse L3/L4 filtering -- any CNI] --> Cilium[Layer 2: CiliumNetworkPolicy\nFQDN allowlists + DNS visibility -- Cilium CNI]
 ```
 
 **Layer 1 -- Kubernetes NetworkPolicy** (always active, enforced by any CNI):
