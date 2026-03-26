@@ -1,0 +1,82 @@
+{{- if and .Values.backend.networkPolicy.cilium.enabled .Values.autonomousAgent.enabled }}
+# Cilium egress policy for the Autonomous Agent CronJob — allows connection
+# to Redis (conversation state) and the backend API (chat/stream endpoint).
+# Without this, the namespace-wide DNS visibility policy enables egress
+# enforcement on the agent pod but provides no Redis or backend egress rule,
+# causing connection timeouts.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: {{ include "daedalus.fullname" . }}-autonomous-agent-cilium
+  labels:
+    {{- include "daedalus.labels" . | nindent 4 }}
+    app.kubernetes.io/component: autonomous-agent
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "daedalus.name" . }}
+      app.kubernetes.io/component: autonomous-agent
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  egress:
+    # DNS — pod-networked CoreDNS
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
+          rules:
+            dns:
+              - matchPattern: "*"
+    # DNS — host-networked CoreDNS (bare-metal / kubeadm clusters)
+    - toEntities:
+        - host
+        - remote-node
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
+          rules:
+            dns:
+              - matchPattern: "*"
+
+    # Redis
+    - toEndpoints:
+        - matchLabels:
+            app.kubernetes.io/name: {{ include "daedalus.name" . }}
+            app.kubernetes.io/component: redis
+            app.kubernetes.io/instance: {{ .Release.Name }}
+      toPorts:
+        - ports:
+            - port: {{ .Values.redis.service.port | quote }}
+              protocol: TCP
+
+    # Backend API
+    {{- if eq (.Values.autonomousAgent.backendType | default "default") "deepThinker" }}
+    - toEndpoints:
+        - matchLabels:
+            app.kubernetes.io/name: {{ include "daedalus.name" . }}
+            app.kubernetes.io/component: backend-deep-thinker
+            app.kubernetes.io/instance: {{ .Release.Name }}
+      toPorts:
+        - ports:
+            - port: {{ .Values.backend.deepThinker.port | default 8000 | quote }}
+              protocol: TCP
+    {{- else }}
+    - toEndpoints:
+        - matchLabels:
+            app.kubernetes.io/name: {{ include "daedalus.name" . }}
+            app.kubernetes.io/component: backend-default
+            app.kubernetes.io/instance: {{ .Release.Name }}
+      toPorts:
+        - ports:
+            - port: {{ .Values.backend.default.port | default 8000 | quote }}
+              protocol: TCP
+    {{- end }}
+{{- end }}
