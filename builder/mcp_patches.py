@@ -12,11 +12,21 @@ when the remote MCP server is slow.
 Problem 2: NAT's MCPToolClient logs "tool call failed:" but often
 swallows the actual exception details, making debugging impossible.
 
+Problem 3: NAT's MCPBaseClient.get_tool() raises "not initialized"
+when the session drops, but get_tool is called *before* call_tool
+(which is wrapped in _with_reconnect). The reconnect logic never
+fires because the error occurs one step earlier in the call chain.
+
 Fix 1: Monkey-patch connect_to_server() to forward the configured
 tool_call_timeout as the HTTP-level timeout.
 
 Fix 2: Monkey-patch MCPToolClient to add verbose error logging with
 full tracebacks around tool call execution.
+
+Fix 3: Monkey-patch MCPBaseClient.get_tool() to catch the "not
+initialized" RuntimeError and re-enter __aenter__() (which is safe
+when _exit_stack is None) before retrying, so clients with
+reconnect_enabled=true recover transparently.
 """
 
 import asyncio
@@ -114,10 +124,91 @@ def patch():
     except Exception as exc:
         logger.warning("Unexpected error patching MCP client: %s", exc)
 
+    # Patch MCPBaseClient.get_tool to reconnect on session drop
+    _patch_get_tool_reconnect()
+
     # Patch MCPToolClient to add diagnostic logging around tool calls
     _patch_tool_client()
 
     _patched = True
+
+
+def _patch_get_tool_reconnect():
+    """Wrap MCPBaseClient.get_tool with reconnection on 'not initialized' errors.
+
+    NAT's reconnect logic (_with_reconnect) only wraps call_tool, but
+    get_tool is called first and raises RuntimeError when _exit_stack is
+    None after a session drop.  This patch catches that error and
+    re-enters __aenter__() (safe when _exit_stack is None) so the
+    session is re-established before retrying.
+    """
+    try:
+        try:
+            from nat.plugins.mcp.client.client_base import MCPBaseClient
+        except ImportError:
+            from nat.plugins.mcp.client_base import MCPBaseClient
+
+        import functools
+
+        original_get_tool = MCPBaseClient.get_tool
+
+        @functools.wraps(original_get_tool)
+        async def patched_get_tool(self, *args, **kwargs):
+            try:
+                return await original_get_tool(self, *args, **kwargs)
+            except RuntimeError as exc:
+                if "not initialized" not in str(exc):
+                    raise
+                if not getattr(self, "_reconnect_enabled", False):
+                    raise
+
+                url = getattr(self, "_url", "unknown")
+                logger.warning(
+                    "MCP client not initialized during get_tool (url=%s), "
+                    "attempting reconnect",
+                    url,
+                )
+
+                try:
+                    # _exit_stack is None here, so __aenter__ is safe to call
+                    # (it only raises when _exit_stack is already set).
+                    await self.__aenter__()
+                except RuntimeError as init_err:
+                    if "already initialized" in str(init_err):
+                        # Another concurrent coroutine already reconnected
+                        logger.info(
+                            "MCP client already reconnected by concurrent call: url=%s",
+                            url,
+                        )
+                    else:
+                        logger.error(
+                            "MCP reconnect failed in get_tool: url=%s error=%s(%s)\n%s",
+                            url,
+                            type(init_err).__name__,
+                            init_err,
+                            traceback.format_exc(),
+                        )
+                        raise exc from init_err
+                except Exception as reconnect_err:
+                    logger.error(
+                        "MCP reconnect failed in get_tool: url=%s error=%s(%s)\n%s",
+                        url,
+                        type(reconnect_err).__name__,
+                        reconnect_err,
+                        traceback.format_exc(),
+                    )
+                    raise exc from reconnect_err
+
+                logger.info("MCP reconnect succeeded in get_tool: url=%s", url)
+                return await original_get_tool(self, *args, **kwargs)
+
+        MCPBaseClient.get_tool = patched_get_tool
+        logger.info("MCPBaseClient.get_tool reconnect patch applied")
+
+    except ImportError as exc:
+        logger.warning("Could not patch MCPBaseClient.get_tool: %s", exc)
+    except Exception as exc:
+        logger.warning("Unexpected error patching MCPBaseClient.get_tool: %s", exc)
 
 
 def _patch_tool_client():
