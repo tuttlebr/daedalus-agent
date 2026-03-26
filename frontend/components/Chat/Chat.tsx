@@ -977,29 +977,34 @@ export const Chat = () => {
         //   }
         // }
 
-        const systemContextMessages: Message[] = [];
         // SECURITY: Memory/personalization features require authentication
         // If user is not authenticated, username will be empty and memory features will be disabled
         const usernameForMemory = user?.username ?? '';
 
-        // Only add user context if authenticated
-        if (usernameForMemory) {
-          // Single minimal context message - backend system prompts have all instructions
-          // This just provides the username DATA that tools need for user_id and collection_name
-          systemContextMessages.push({
-            role: 'system',
-            content: `Current user: ${usernameForMemory}. PDF collection: ${usernameForMemory}`
-          });
-        }
-
-        // Strip any prior system messages so the single context message
-        // injected above is the only one sent to the backend.
+        // Strip any prior system messages — the backend's NAT agent owns the
+        // system prompt.  Sending a second system-role message causes a 400
+        // from LLMs that only allow one (e.g. Qwen).
         const nonSystemMessages = messagesCleaned.filter(
           (m: Message) => m.role !== 'system',
         );
 
+        // Inject user context into the latest user message instead of as a
+        // separate system message.  This provides the username DATA that tools
+        // need (user_id, collection_name) without conflicting with the
+        // backend's system prompt.
+        const messagesWithContext = [...nonSystemMessages];
+        if (usernameForMemory && messagesWithContext.length > 0) {
+          const lastIdx = messagesWithContext.length - 1;
+          if (messagesWithContext[lastIdx].role === 'user') {
+            messagesWithContext[lastIdx] = {
+              ...messagesWithContext[lastIdx],
+              content: `[Current user: ${usernameForMemory}. PDF collection: ${usernameForMemory}]\n\n${messagesWithContext[lastIdx].content || ''}`
+            };
+          }
+        }
+
         const chatBody: ChatBody = {
-          messages: [...systemContextMessages, ...nonSystemMessages],
+          messages: messagesWithContext,
           // Use user-specific storage key to prevent data leakage between users
           chatCompletionURL: getUserSessionItem('chatCompletionURL') || chatCompletionURL,
           additionalProps: {
@@ -2174,7 +2179,7 @@ export const Chat = () => {
             {isSelectedConversationLoading &&
               !(lastVisibleMessage?.role === 'assistant' && lastVisibleMessage?.intermediateSteps?.length) && (
               <ChatLoader
-                statusUpdateText={currentActivityText || (useDeepThinker ? 'Conducting deep analysis...' : '...')}
+                statusUpdateText={currentActivityText || (useDeepThinker ? '🧠' : '⚡')}
                 completedStepCategories={completedStepCategories}
               />
             )}

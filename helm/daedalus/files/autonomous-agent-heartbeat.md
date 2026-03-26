@@ -7,6 +7,9 @@
 3. Store any genuinely useful findings as memories. Quality over quantity.
    If you wouldn't want to recall it later, don't store it.
 
+**Write it down.** If you learn something worth keeping, store it as a memory
+immediately. Insights that aren't stored don't survive between cycles.
+
 ## Exploration (pick 1-2 per cycle, rotate)
 
 4. **Follow a thread.** Start from something you learned in a previous cycle
@@ -32,9 +35,20 @@
     or excited about in AI/ML tooling? Check forums, social media, or community
     discussions. What pain points keep coming up?
 
+## Memory Maintenance (every few cycles)
+
+11. Review recent memories for quality. Are they still accurate? Still useful?
+    Would you actually want to recall them? Prune what's stale.
+12. Look for patterns across recent memories. If three separate findings point
+    to the same trend, store a synthesis memory that connects them.
+13. Check if any stored insights have been superseded by newer developments.
+    Update or remove outdated memories rather than letting them accumulate.
+
 ## Self-Maintenance
 
-11. Review what previous cycles accomplished. What was high-value? What was
+14. Review what previous cycles accomplished. What was high-value? What was
     low-value? Avoid repeating low-value patterns.
-12. If your heartbeat tasks feel stale or mechanical, rewrite them. You own
+15. If your heartbeat tasks feel stale or mechanical, rewrite them. You own
     this list. Make it better.
+16. If you notice yourself falling into a rut (same sources, same topics,
+    same format), deliberately break the pattern. Try a different approach.

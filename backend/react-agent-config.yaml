@@ -13,7 +13,7 @@ embedders:
 function_groups:
   github_mcp_server:
     _type: mcp_client
-    tool_call_timeout: 30
+    tool_call_timeout: 120
     include:
       - get_file_contents
       - get_label
@@ -41,7 +41,7 @@ function_groups:
       url: https://api.githubcopilot.com/mcp
   dynamo_mcp_server:
     _type: mcp_client
-    tool_call_timeout: 30
+    tool_call_timeout: 120
     include:
       - searchDocs
     server:
@@ -56,7 +56,7 @@ function_groups:
       url: ${KUBERNETES_MCP_SERVER}
   serpapi_mcp_server:
     _type: mcp_client
-    tool_call_timeout: 30
+    tool_call_timeout: 120
     server:
       transport: streamable-http
       url: https://mcp.serpapi.com/${SERPAPI_KEY}/mcp
@@ -68,7 +68,7 @@ functions:
     allowed_script_extensions:
       - .py
       - .sh
-    script_timeout: 30
+    script_timeout: 120
     description: >-
       Discover and use agent skills — specialised instruction sets, workflows,
       and scripts that you can load on demand. Call list_skills to see what is
@@ -189,7 +189,7 @@ functions:
 
       '
     redis_url: ${REDIS_URL}
-    timeout: 300.0
+    timeout: 120
     verbose: true
   image_comprehension_tool:
     _type: image_comprehension
@@ -215,7 +215,7 @@ functions:
 
       '
     redis_url: ${REDIS_URL}
-    timeout: 300.0
+    timeout: 120
     verbose: true
   image_generation_tool:
     _type: image_generation
@@ -237,7 +237,7 @@ functions:
 
       '
     redis_url: ${REDIS_URL}
-    timeout: 300.0
+    timeout: 120
     verbose: true
   kubernetes_retriever_tool:
     _type: nat_retriever
@@ -478,7 +478,7 @@ functions:
       Hello everyone..."}
 
       '
-    timeout: 300.0
+    timeout: 120
     verbose: true
   deep_thinker_tool:
     _type: tool_calling_agent
@@ -527,7 +527,7 @@ functions:
     allowed_schemes:
       - http
       - https
-    browser_timeout: 45.0
+    browser_timeout: 120
     description:
       'Fetch a webpage at a known URL and convert its content to readable
       markdown text. Automatically handles JavaScript-rendered pages and sites
@@ -544,14 +544,11 @@ functions:
       '
     max_output_tokens: 20000
     respect_robots_txt: false
-    timeout: 30.0
+    timeout: 120
     use_browser_fallback: true
     user_agent: daedalus-webscraper/1.0
     verbose: true
 general:
-  front_end:
-    _type: fastapi
-    workers: 4
   telemetry:
     tracing:
       phoenix:
@@ -564,37 +561,16 @@ llms:
     api_key: ${NVIDIA_API_KEY}
     base_url: ${NVIDIA_INFERENCE_BASE_URL}
     model_name: nvidia/nvidia/nemotron-3-super-v3
-    temperature: 1
-    top_p: 0.95
-    extra_body:
-      chat_template_kwargs:
-        enable_thinking: true
-        truncate_history_thinking: false
-
   react_llm:
     _type: openai
     api_key: ${NVIDIA_API_KEY}
     base_url: ${NVIDIA_INFERENCE_BASE_URL}
     model_name: nvidia/nvidia/nemotron-3-super-v3
-    temperature: 1
-    top_p: 0.95
-    extra_body:
-      chat_template_kwargs:
-        enable_thinking: true
-        truncate_history_thinking: false
-
   tool_calling_llm:
     _type: openai
     api_key: ${NVIDIA_API_KEY}
     base_url: ${NVIDIA_INFERENCE_BASE_URL}
     model_name: nvidia/nvidia/nemotron-3-super-v3
-    temperature: 1
-    top_p: 0.95
-    extra_body:
-      chat_template_kwargs:
-        enable_thinking: true
-        truncate_history_thinking: true
-
 memory:
   redis_memory:
     _type: nat.plugins.redis/redis_memory

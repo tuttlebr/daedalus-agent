@@ -13,7 +13,7 @@ embedders:
 function_groups:
   github_mcp_server:
     _type: mcp_client
-    tool_call_timeout: 30
+    tool_call_timeout: 120
     include:
       - get_file_contents
       - get_label
@@ -41,7 +41,7 @@ function_groups:
       url: https://api.githubcopilot.com/mcp
   dynamo_mcp_server:
     _type: mcp_client
-    tool_call_timeout: 30
+    tool_call_timeout: 120
     include:
       - searchDocs
     server:
@@ -56,7 +56,7 @@ function_groups:
       url: ${KUBERNETES_MCP_SERVER}
   serpapi_mcp_server:
     _type: mcp_client
-    tool_call_timeout: 30
+    tool_call_timeout: 120
     server:
       transport: streamable-http
       url: https://mcp.serpapi.com/${SERPAPI_KEY}/mcp
@@ -68,7 +68,7 @@ functions:
     allowed_script_extensions:
       - .py
       - .sh
-    script_timeout: 30
+    script_timeout: 120
     description: >-
       Discover and use agent skills — specialised instruction sets, workflows,
       and scripts that you can load on demand. Call list_skills to see what is
@@ -189,7 +189,7 @@ functions:
 
       '
     redis_url: ${REDIS_URL}
-    timeout: 300.0
+    timeout: 120
     verbose: true
   image_comprehension_tool:
     _type: image_comprehension
@@ -215,7 +215,7 @@ functions:
 
       '
     redis_url: ${REDIS_URL}
-    timeout: 300.0
+    timeout: 120
     verbose: true
   image_generation_tool:
     _type: image_generation
@@ -237,7 +237,7 @@ functions:
 
       '
     redis_url: ${REDIS_URL}
-    timeout: 300.0
+    timeout: 120
     verbose: true
   kubernetes_retriever_tool:
     _type: nat_retriever
@@ -478,7 +478,7 @@ functions:
       Hello everyone..."}
 
       '
-    timeout: 300.0
+    timeout: 120
     verbose: true
   deep_thinker_tool:
     _type: tool_calling_agent
@@ -527,7 +527,7 @@ functions:
     allowed_schemes:
       - http
       - https
-    browser_timeout: 45.0
+    browser_timeout: 120
     description:
       'Fetch a webpage at a known URL and convert its content to readable
       markdown text. Automatically handles JavaScript-rendered pages and sites
@@ -544,14 +544,11 @@ functions:
       '
     max_output_tokens: 20000
     respect_robots_txt: false
-    timeout: 60.0
+    timeout: 120
     use_browser_fallback: true
     user_agent: daedalus-webscraper/1.0
     verbose: true
 general:
-  front_end:
-    _type: fastapi
-    workers: 4
   telemetry:
     tracing:
       phoenix:
@@ -564,37 +561,16 @@ llms:
     api_key: ${NVIDIA_API_KEY}
     base_url: ${NVIDIA_INFERENCE_BASE_URL}
     model_name: nvidia/nvidia/nemotron-3-super-v3
-    temperature: 1
-    top_p: 0.95
-    extra_body:
-      chat_template_kwargs:
-        enable_thinking: true
-        truncate_history_thinking: false
-
   react_llm:
     _type: openai
     api_key: ${NVIDIA_API_KEY}
     base_url: ${NVIDIA_INFERENCE_BASE_URL}
     model_name: nvidia/nvidia/nemotron-3-super-v3
-    temperature: 1
-    top_p: 0.95
-    extra_body:
-      chat_template_kwargs:
-        enable_thinking: true
-        truncate_history_thinking: false
-
   tool_calling_llm:
     _type: openai
     api_key: ${NVIDIA_API_KEY}
     base_url: ${NVIDIA_INFERENCE_BASE_URL}
     model_name: nvidia/nvidia/nemotron-3-super-v3
-    temperature: 1
-    top_p: 0.95
-    extra_body:
-      chat_template_kwargs:
-        enable_thinking: true
-        truncate_history_thinking: true
-
 memory:
   redis_memory:
     _type: nat.plugins.redis/redis_memory
@@ -718,63 +694,42 @@ workflow:
   _type: tool_calling_agent
   max_iterations: 50
   system_prompt: |
-    # Identity
+    You are Daedalus, built on NVIDIA NeMo Agent toolkit. Your audience
+    is senior technology executives and founders. Be precise, direct,
+    and technically deep.
 
-    You are Daedalus, a knowledgeable assistant built on the NVIDIA NeMo
-    Agent toolkit. Your audience is a senior technology executive or founder.
-    Respond with precision, directness, and technical depth.
+    # Startup
 
-    # Mandatory First Action
+    At conversation start, call get_memory(user_id=<username>,
+    query="user preferences, interests, and context", top_k=5).
+    Personalize tone and content based on results. You may issue
+    get_memory in parallel with other tool calls when the user's
+    question also requires retrieval.
 
-    At the start of every new conversation, before responding to the user
-    or calling any other tools, call get_memory with the user's username,
-    query "user preferences, interests, and context", and top_k 5 to
-    retrieve their stored preferences. You MUST include all three
-    parameters: user_id, query, and top_k. Use the results to personalize
-    your response style, tone, and content throughout the conversation.
+    # Memory
 
-    # Memory Guidelines
+    Store noteworthy preferences or details with add_memory as clear
+    declarative statements. Include metadata key_value_pairs when it
+    aids retrieval. Call get_memory mid-conversation with topic-specific
+    queries when prior context would improve your answer.
 
-    When the user shares a preference, interest, or personal detail worth
-    remembering across sessions, store it with add_memory. Write the
-    memory as a clear declarative statement describing the preference or
-    fact, not the raw question or answer. Include metadata key_value_pairs
-    when categorization would improve future retrieval (e.g.,
-    {"key_value_pairs": {"type": "preference", "relevance": "high"}}).
+    # Style
 
-    You may also call get_memory mid-conversation with a topic-specific
-    query when prior context about the user would improve your response
-    (e.g., query "what does the user know about Kubernetes" before
-    answering a K8s question).
+    Brevity and information density are paramount. Every sentence should
+    earn its place. Lead with the answer; add supporting detail only
+    when it changes what the reader would do. Write the way a sharp
+    colleague talks: natural, confident, no filler. If it would sound
+    stilted or awkward spoken aloud, rewrite it. Reserve lists and
+    tables for genuinely comparative content.
 
-    # Response Format
+    Never use em dashes, emojis, or emoticons. Minimize bold/italic.
+    Keep paragraphs short.
 
-    Lead every response with the conclusion, recommendation, or answer first
-    (Bottom Line Up Front). Provide supporting detail only when it adds
-    value.
+    # Tools
 
-    Write in clear, confident prose. Reserve bullet lists, numbered lists,
-    and tables for content that is genuinely comparative or enumerable and
-    cannot be expressed more precisely in sentences. Calibrate length to the
-    question: direct questions warrant direct answers; complex technical or
-    strategic topics justify fuller treatment. Prioritize precision and
-    insight over completeness for its own sake.
-
-    # Formatting Constraints
-
-    Never use em dashes in any response. Use commas, semicolons, colons,
-    parentheses, or separate sentences instead. Never use emojis or
-    emoticons. Avoid excessive bold and italic formatting. Keep paragraphs
-    short and scannable.
-
-    # Tool Usage
-
-    Use the tools available to you to provide accurate, grounded answers.
-    When a question could benefit from retrieval, search, or real-time data,
-    call the appropriate tool rather than relying on prior knowledge alone.
-    If a tool call fails, explain the issue and suggest an alternative
-    approach. Do not speculate about information you have not retrieved. If
-    you are uncertain, say so and offer to investigate further.
+    Prefer retrieval and real-time data over prior knowledge. On tool
+    failure, explain and suggest alternatives. State uncertainty
+    honestly; offer to investigate.
   llm_name: tool_calling_llm
   handle_tool_errors: true
   return_direct:
