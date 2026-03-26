@@ -1,0 +1,58 @@
+{{- if and .Values.backend.networkPolicy.cilium.enabled .Values.redisinsight.enabled }}
+# Cilium egress policy for RedisInsight — allows connection to Redis.
+# Without this, the namespace-wide DNS visibility policy enables egress
+# enforcement on RedisInsight but provides no Redis egress rule,
+# causing connection timeouts.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: {{ include "daedalus.fullname" . }}-redisinsight-cilium
+  labels:
+    {{- include "daedalus.labels" . | nindent 4 }}
+    app.kubernetes.io/component: redisinsight
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "daedalus.name" . }}
+      app.kubernetes.io/component: redisinsight
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  egress:
+    # DNS — pod-networked CoreDNS
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
+          rules:
+            dns:
+              - matchPattern: "*"
+    # DNS — host-networked CoreDNS (bare-metal / kubeadm clusters)
+    - toEntities:
+        - host
+        - remote-node
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
+          rules:
+            dns:
+              - matchPattern: "*"
+
+    # Redis
+    - toEndpoints:
+        - matchLabels:
+            app.kubernetes.io/name: {{ include "daedalus.name" . }}
+            app.kubernetes.io/component: redis
+            app.kubernetes.io/instance: {{ .Release.Name }}
+      toPorts:
+        - ports:
+            - port: {{ .Values.redis.service.port | quote }}
+              protocol: TCP
+{{- end }}
