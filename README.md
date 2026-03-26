@@ -18,22 +18,44 @@ A full-stack reference implementation of the [NVIDIA NeMo Agent toolkit](https:/
 - **Progressive Web App**: Installable on desktop and mobile with offline support and background processing
 - **Cross-Device Sync**: Real-time conversation synchronization across all your devices
 - **Autonomous Agent**: Background CronJob that curates knowledge, monitors feeds, and builds context without human interaction
+- **Network Security**: Layered Kubernetes and Cilium network policies with FQDN-based egress allowlists
 
 ## Architecture
+
+```mermaid
+graph LR
+    User -->|HTTPS| NGINX
+    NGINX --> Frontend
+    Frontend --> Backend-Default
+    Frontend --> Backend-DeepThinker
+    Backend-Default --> Redis
+    Backend-DeepThinker --> Redis
+    Frontend --> Redis
+    Backend-Default -->|FQDN policy| ExternalAPIs["External APIs<br/>(NVIDIA, OpenRouter, GitHub)"]
+    Backend-DeepThinker -->|FQDN policy| ExternalAPIs
+    Backend-Default --> Milvus
+    Backend-Default --> NV-Ingest
+    Backend-Default --> Phoenix["Phoenix Tracing"]
+    Backend-Default --> K8sMCP["K8s MCP Server"]
+    JupyterLab --> Backend-Default
+    JupyterLab --> Milvus
+```
 
 | Service | Description |
 |---------|-------------|
 | Frontend | Next.js 14, React 18, TypeScript, Tailwind CSS (port 3000) |
 | Backend Default | NeMo Agent toolkit with tool-calling agent |
 | Backend Deep Thinker | NeMo Agent toolkit with reasoning agent |
-| NGINX | Reverse proxy with optional restricted mode |
+| NGINX | Reverse proxy with dynamic upstream resolution and optional restricted mode |
 | Redis Stack | Persistence for chat history, sessions, and memory (RedisJSON + RedisSearch) |
+| JupyterLab | Interactive notebook environment with access to backend services and Milvus |
 
 ## Prerequisites
 
 - Docker and Docker Compose v2
 - API keys (see [Configuration](#configuration) below)
 - For Kubernetes deployment: Helm 3, kubectl, and a container registry
+- For FQDN network policies: [Cilium](https://cilium.io/) CNI with DNS proxy and Hubble enabled
 
 ## Quick Start (Docker Compose)
 
@@ -216,6 +238,83 @@ kubectl get pvc -n daedalus
 kubectl logs -f deployment/daedalus-backend-default -n daedalus
 ```
 
+## Network Security
+
+The Helm chart deploys two layers of network policy that work together.
+
+### Policy Layers
+
+```mermaid
+graph TB
+    subgraph "Layer 1: Kubernetes NetworkPolicy"
+        direction TB
+        K8s["Coarse L3/L4 filtering<br/>Enforced by any CNI"]
+    end
+    subgraph "Layer 2: CiliumNetworkPolicy"
+        direction TB
+        Cilium["FQDN allowlists + DNS visibility<br/>Requires Cilium CNI"]
+    end
+    K8s --- Cilium
+```
+
+**Layer 1 -- Kubernetes NetworkPolicy** (always active, enforced by any CNI):
+
+- Restricts backend ingress to frontend, nginx, and jupyterlab pods only
+- Limits backend egress to DNS, Redis, cross-namespace services, and external HTTPS (port 443 to non-private IPs)
+- Frontend and JupyterLab have egress-only policies scoped to required services
+
+**Layer 2 -- CiliumNetworkPolicy** (opt-in via `backend.networkPolicy.cilium.enabled`):
+
+- Replaces the broad `0.0.0.0/0:443` K8s egress rule with explicit FQDN allowlists
+- Logs all DNS lookups via Hubble for auditing (`hubble observe --type dns`)
+- Supports dual CoreDNS topologies (pod-networked and host-networked)
+
+### Per-Component Policies
+
+| Component | K8s NetworkPolicy | CiliumNetworkPolicy |
+|-----------|-------------------|---------------------|
+| Backend (default + deep-thinker) | Ingress from frontend/nginx/jupyterlab; egress to DNS, Redis, Milvus, MinIO, NV-Ingest, Phoenix, K8s MCP, external HTTPS | FQDN allowlist for NVIDIA APIs, NVCF control plane, MCP servers, OpenRouter, RSS feeds; separate webscrape policy for broad HTTP/HTTPS |
+| Frontend | Egress to backends and Redis only | Same as K8s layer (no external access) |
+| JupyterLab | Egress to backends, Redis, Milvus, external HTTP/HTTPS | FQDN allowlist for NVIDIA APIs, NVCF, Python package repos (PyPI, conda) |
+| NGINX | Egress to frontend and backends | Same scope; backend access gated by `restrictedMode` |
+| All daedalus pods | -- | DNS visibility policy (Hubble audit logging) |
+
+### FQDN Allowlist (Backend)
+
+When Cilium policies are enabled, backend pods can only reach these external domains on port 443:
+
+| Category | Domains |
+|----------|---------|
+| NVIDIA Inference | `*.api.nvidia.com`, `*.api.nvcf.nvidia.com`, `inference-api.nvidia.com` |
+| NVCF Control Plane | `connect.pnats.nvcf.nvidia.com`, `grpc.api.nvcf.nvidia.com`, `spot.gdn.nvidia.com`, `ess.ngc.nvidia.com`, `api.ngc.nvidia.com`, `sqs.*.amazonaws.com` |
+| MCP Servers | `mcp.serpapi.com`, `serpapi.com`, `api.github.com`, `github.com`, `api.githubcopilot.com`, `copilot-proxy.githubusercontent.com`, `docs.dynamo.nvidia.com` |
+| LLM Routing | `openrouter.ai` |
+| RSS Feeds | `feeds.feedburner.com`, `developer.nvidia.com`, `nvidianews.nvidia.com`, `newsletter.semianalysis.com`, `karpathy.bearblog.dev`, `karpathy.github.io` |
+
+The webscrape tool requires broader access and is handled by a separate CiliumNetworkPolicy that allows `0.0.0.0/0` on ports 80/443 (excluding private ranges). This policy can optionally enforce L7 filtering to restrict HTTP methods to GET and HEAD.
+
+Additional domains can be added at deploy time:
+
+```yaml
+backend:
+  networkPolicy:
+    cilium:
+      extraFQDNs: ["custom-api.example.com"]
+```
+
+### Cilium Prerequisites
+
+The Cilium DNS proxy must be functional for FQDN policies to work. Required Cilium Helm settings:
+
+```yaml
+dnsProxy:
+  enableTransparentMode: false    # Use L7 proxy redirect (not socket-level interception)
+bpf:
+  tproxy: true                    # Required for DNS proxy redirect via BPF
+hubble:
+  enabled: true                   # Required for DNS visibility auditing
+```
+
 ## Configuration
 
 ### Environment Variables
@@ -243,7 +342,8 @@ See `.env.template` for the full list with descriptions.
 | `.env.template` | Environment variable template (copy to `.env`) |
 | `backend/tool-calling-config.yaml` | Default agent: tools, retrievers, LLMs, MCP servers |
 | `backend/react-agent-config.yaml` | Deep thinker agent: reasoning loop configuration |
-| `helm/daedalus/values.yaml` | Kubernetes deployment: images, resources, ingress, persistence |
+| `helm/daedalus/values.yaml` | Kubernetes deployment: images, resources, ingress, persistence, network policies |
+| `custom-values.yaml` | Production overrides (node placement, Cilium, autonomous agent) |
 | `frontend/env.example` | Frontend-specific settings: auth, Redis, API path |
 
 ### Backend Agent Configuration
