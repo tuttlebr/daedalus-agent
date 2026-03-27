@@ -1,0 +1,27 @@
+[build-system]
+build-backend = "setuptools.build_meta"
+requires = ["setuptools>=64.0.0", "wheel"]
+
+[project]
+name = "elsevier_search"
+dynamic = ["version"]
+dependencies = [
+  "nvidia-nat[redis,mcp,langchain,phoenix]==1.4.3",
+  "httpx>=0.28",
+]
+requires-python = ">=3.11,<3.14"
+description = "NeMo Agent Toolkit function for Elsevier PharmaPendium and Engineering Village search"
+classifiers = ["Programming Language :: Python"]
+
+[project.entry-points.'nat.components']
+elsevier_search = "elsevier_search.register"
+
+[tool.setuptools]
+packages = ["elsevier_search"]
+package-dir = {"" = "src"}
+
+[tool.setuptools.package-data]
+elsevier_search = ["configs/*.yml", "configs/*.yaml"]
+
+[tool.uv]
+config-settings = { editable_mode = "compat" }

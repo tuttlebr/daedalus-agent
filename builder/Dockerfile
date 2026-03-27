@@ -70,6 +70,7 @@ COPY vtt_interpreter /workspace/vtt_interpreter
 COPY agent_skills /workspace/agent_skills
 COPY serpapi_search /workspace/serpapi_search
 COPY json_repair_agent /workspace/json_repair_agent
+COPY elsevier_search /workspace/elsevier_search
 COPY --from=skills . /skills
 
 RUN --mount=type=cache,id=uv_cache,target=/root/.cache/uv,sharing=locked \
@@ -85,7 +86,8 @@ RUN --mount=type=cache,id=uv_cache,target=/root/.cache/uv,sharing=locked \
     -e vtt_interpreter \
     -e agent_skills \
     -e serpapi_search \
-    -e json_repair_agent
+    -e json_repair_agent \
+    -e elsevier_search
 
 RUN --mount=type=cache,id=uv_cache,target=/root/.cache/uv,sharing=locked \
     NAT_VERSION= nat workflow reinstall image_augmentation && \
@@ -98,7 +100,8 @@ RUN --mount=type=cache,id=uv_cache,target=/root/.cache/uv,sharing=locked \
     NAT_VERSION= nat workflow reinstall vtt_interpreter && \
     NAT_VERSION= nat workflow reinstall agent_skills && \
     NAT_VERSION= nat workflow reinstall serpapi_search && \
-    NAT_VERSION= nat workflow reinstall json_repair_agent
+    NAT_VERSION= nat workflow reinstall json_repair_agent && \
+    NAT_VERSION= nat workflow reinstall elsevier_search
 
 ENV PLAYWRIGHT_BROWSERS_PATH=/workspace/.playwright
 RUN playwright install chromium --with-deps

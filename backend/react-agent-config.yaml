@@ -119,6 +119,18 @@ functions:
       time-sensitive questions, calculating deadlines, or when the user asks
       what day or time it is.
     verbose: true
+  elsevier_search_tool:
+    _type: elsevier_search
+    description: >-
+      Search Elsevier's scientific databases — PharmaPendium for pharmaceutical
+      data (drug activity, chemistry, indications, efficacy, adverse events,
+      metabolizing enzymes, pharmacokinetics, safety/toxicology, and full-text
+      documents) and Engineering Village for engineering/scientific/patent
+      literature (Compendex, Inspec, GEOBASE, GeoRef, Knovel, Patents).
+      Provides 9 functions: pharma_search, pharma_lookup, pharma_suggest,
+      pharma_list_fields, pharma_list_taxonomies, pharma_list_facets,
+      pharma_get_units, pharma_faers_report, and engineering_village_search.
+    verbose: true
   delete_memory:
     _type: delete_memory
     description:
@@ -507,6 +519,7 @@ functions:
       - karpathy_bearblog_rss
       - karpathy_github_rss
       - serpapi_search_tool
+      - elsevier_search_tool
       - user_uploaded_files_retriever_tool
       - veterinarian_retriever_tool
       - vtt_interpreter_tool
