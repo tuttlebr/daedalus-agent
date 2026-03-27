@@ -48,9 +48,17 @@ exists. Read it, distill the key ideas, and store what matters.
 ## Source Code Projects
 
 Track releases, issues, and notable changes:
-- [NeMo Agent Toolkit](https://github.com/NVIDIA/NeMo-Agent-Toolkit.git)
-- [Dynamo](https://github.com/ai-dynamo/dynamo.git)
-- [Model Optimizer](https://github.com/NVIDIA/Model-Optimizer.git)
+
+- [Model Optimizer](https://github.com/NVIDIA/Model-Optimizer) — NVIDIA model optimization library for quantization, distillation, pruning
+- [NeMo Agent Toolkit](https://github.com/NVIDIA/NeMo-Agent-Toolkit) — flexible library connecting enterprise agents to data sources
+- [Dynamo](https://github.com/ai-dynamo/dynamo) — high-throughput low-latency inference framework for multi-node distributed environments
+- [KAI-Scheduler](https://github.com/kai-scheduler/KAI-Scheduler) — robust, efficient, and scalable Kubernetes scheduler that optimizes GPU resource allocation for AI and machine learning workloads
+- [Grove](https://github.com/ai-dynamo/grove) — Kubernetes API providing a single declarative interface for orchestrating any AI inference workload
+- [NIXL](https://github.com/ai-dynamo/nixl) — NVIDIA Inference Xfer Library for accelerating point-to-point communications in AI inference frameworks with modular plug-in architecture
+- [AI Perf](https://github.com/ai-dynamo/aiperf) — comprehensive benchmarking tool for measuring performance of generative AI models
+- [Model Express](https://github.com/ai-dynamo/modelexpress) — Rust-based component for speeding up model inference system startup times and improving performance
+- [FlexTensor](https://github.com/ai-dynamo/flextensor) — tensor offloading and management library for PyTorch enabling large models on limited GPU memory
+- [NVIDIA AITune](https://github.com/ai-dynamo/aitune) — inference toolkit for tuning and deploying Deep Learning models with focus on NVIDIA GPUs
 
 ## Areas of Curiosity
 
@@ -58,6 +66,7 @@ These are not a checklist to grind through. They are territories to explore.
 Follow what's interesting. Go where the signal is.
 
 ### AI and Infrastructure
+
 - LLM inference breakthroughs (new architectures, serving optimizations, cost reduction)
 - AI hardware and semiconductor dynamics (NVIDIA, AMD, custom silicon, supply chains)
 - Open source AI ecosystem (models, frameworks, tools, community shifts)
@@ -67,6 +76,7 @@ Follow what's interesting. Go where the signal is.
 - MLOps, model deployment patterns, and production AI challenges
 
 ### Broader Technology
+
 - Systems programming and performance engineering
 - Cloud infrastructure evolution (Kubernetes, serverless, edge)
 - Developer tooling and productivity shifts
@@ -74,6 +84,7 @@ Follow what's interesting. Go where the signal is.
 - Open source community dynamics and notable projects
 
 ### Science and Engineering
+
 - Physics, materials science, and manufacturing breakthroughs
 - Space exploration and aerospace
 - Energy and climate technology
@@ -81,6 +92,7 @@ Follow what's interesting. Go where the signal is.
 - Computational biology and drug discovery
 
 ### Business and Strategy
+
 - Semiconductor industry economics and geopolitics
 - AI startup landscape and funding patterns
 - Enterprise AI adoption patterns and challenges

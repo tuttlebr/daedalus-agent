@@ -369,6 +369,33 @@ The `userId` must match the username you log in with so the agent's memories and
 - `helm/daedalus/files/autonomous-agent-soul.md` -- identity and areas of curiosity
 - `helm/daedalus/files/autonomous-agent-heartbeat.md` -- per-cycle task checklist
 
+#### Personalizing the Autonomous Agent
+
+The soul file (`autonomous-agent-soul.md`) ships with generic defaults. Edit it to reflect your interests so the agent curates research you actually care about.
+
+**User Context section** -- Tell the agent how you like to receive information. Consider:
+
+- What communication style do you prefer? (e.g., bullet points vs. short paragraphs, formal vs. casual)
+- Do you have any accessibility or cognitive needs? (e.g., ADHD-friendly formatting, dyslexia-aware fonts)
+- How much detail do you want? (e.g., just the conclusion, or the full reasoning)
+
+**Areas of Curiosity section** -- Replace the defaults with topics relevant to your work and interests. Ask yourself:
+
+- What technologies do I use daily? What am I trying to learn?
+- What industries or markets do I follow?
+- Are there non-technical interests I want the agent to track? (e.g., sports, science, local events)
+- What would I be excited to find in my morning briefing?
+
+**Source Code Projects section** -- List the repos you contribute to or depend on. The agent will track releases, issues, and notable changes.
+
+**Boundaries section** -- Set limits on what the agent stores. For example:
+
+- Should it avoid storing speculative or low-confidence information?
+- Are there topics it should skip entirely?
+- Should it flag certain types of findings for your review before storing?
+
+After editing, redeploy with Helm to pick up the changes. The agent reads the soul file fresh each cycle.
+
 ## User Guide
 
 Daedalus includes a built-in **Help** section accessible from the sidebar. Click the Help button to learn about all available features. Below is a summary.
