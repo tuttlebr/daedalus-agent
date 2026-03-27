@@ -246,7 +246,7 @@ The Helm chart deploys two layers of network policy that work together.
 
 ```mermaid
 flowchart TB
-    K8s[Layer 1: Kubernetes NetworkPolicy\nCoarse L3/L4 filtering -- any CNI] --> Cilium[Layer 2: CiliumNetworkPolicy\nFQDN allowlists + DNS visibility -- Cilium CNI]
+    K8s["Layer 1: Kubernetes NetworkPolicy<br/>Coarse L3/L4 filtering -- any CNI"] --> Cilium["Layer 2: CiliumNetworkPolicy<br/>FQDN allowlists + DNS visibility -- Cilium CNI"]
 ```
 
 **Layer 1 -- Kubernetes NetworkPolicy** (always active, enforced by any CNI):
