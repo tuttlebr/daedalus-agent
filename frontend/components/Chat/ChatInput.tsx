@@ -1954,9 +1954,9 @@ export const ChatInput: React.FC<Props> = ({
                 <div className="relative flex-1 min-w-0 flex items-center">
                    {/* Deep Thinker Badge Indicator - positioned relative to text area or flex flow */}
                    {useDeepThinker && (
-                    <div className="flex-shrink-0 mr-2 ml-1 hidden sm:flex items-center gap-1.5 px-2 py-1 rounded-full bg-nvidia-green/20 border border-nvidia-green/40 backdrop-blur-sm whitespace-nowrap">
-                      <IconBrain size={14} className="text-nvidia-green" />
-                      <span className="text-[10px] font-medium text-nvidia-green tracking-wide uppercase">Deep Research</span>
+                    <div className="flex-shrink-0 mr-2 ml-1 hidden sm:flex items-center gap-1.5 px-2 py-1 rounded-full bg-nvidia-purple/20 border border-nvidia-purple/40 backdrop-blur-sm whitespace-nowrap">
+                      <IconBrain size={14} className="text-nvidia-purple" />
+                      <span className="text-[10px] font-medium text-nvidia-purple tracking-wide uppercase">Deep Thinker</span>
                     </div>
                   )}
 
