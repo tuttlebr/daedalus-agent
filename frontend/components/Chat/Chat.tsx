@@ -38,6 +38,7 @@ import HomeContext from '@/pages/api/home/home.context';
 import { ChatHeader } from './ChatHeader';
 import { ChatInput } from './ChatInput';
 import { ChatLoader } from './ChatLoader';
+import { AgentHeartbeat } from './AgentHeartbeat';
 import { MemoizedChatMessage } from './MemoizedChatMessage';
 import { VirtualMessageList } from './VirtualMessageList';
 import { cleanMessagesForLLM, processMessageImages } from '@/utils/app/imageHandler';
@@ -2155,31 +2156,30 @@ export const Chat = () => {
               </div>
             )}
 
-            {/* Activity strip: visible during text streaming after ChatLoader dismisses */}
-            {isSelectedConversationStreaming && !isSelectedConversationLoading && (currentActivityText || completedStepCategories.length > 0) && (
-              <div className="px-3 sm:px-4 md:px-6 py-1">
-                <div className="relative mx-auto flex w-full max-w-5xl">
-                  <div className="ml-0 sm:ml-9 flex items-center gap-2">
-                    {completedStepCategories.slice(-6).map((cat, i) => (
-                      <span key={i} className="text-nvidia-green/35 flex items-center">
-                        {cat === IntermediateStepCategory.LLM ? <IconBrain size={11} /> : <IconTool size={11} />}
-                      </span>
-                    ))}
-                    {currentActivityText && (
-                      <span className="text-[12px] text-nvidia-green/50 flex items-center gap-1.5">
-                        <span className="w-1.5 h-1.5 rounded-full bg-nvidia-green/50 animate-pulse flex-shrink-0" />
-                        {currentActivityText}
-                      </span>
-                    )}
-                  </div>
-                </div>
-              </div>
-            )}
+            {/* ChatLoader: bouncing dots for initial wait before first text/steps */}
+            {(() => {
+              const showChatLoader = isSelectedConversationLoading &&
+                !(lastVisibleMessage?.role === 'assistant' && lastVisibleMessage?.intermediateSteps?.length);
+              return (
+                <>
+                  {showChatLoader && (
+                    <ChatLoader useDeepThinker={useDeepThinker} />
+                  )}
 
-            {isSelectedConversationLoading &&
-              !(lastVisibleMessage?.role === 'assistant' && lastVisibleMessage?.intermediateSteps?.length) && (
-              <ChatLoader useDeepThinker={useDeepThinker} />
-            )}
+                  {/* Agent heartbeat: persistent "alive" indicator while streaming.
+                      Shows whenever streaming is active and the ChatLoader isn't visible,
+                      including async/polling mode where `loading` stays true the
+                      entire duration. */}
+                  {isSelectedConversationStreaming && !showChatLoader && (
+                    <AgentHeartbeat
+                      currentActivityText={currentActivityText}
+                      completedStepCategories={completedStepCategories}
+                      useDeepThinker={useDeepThinker}
+                    />
+                  )}
+                </>
+              );
+            })()}
 
           </div>
         </div>
