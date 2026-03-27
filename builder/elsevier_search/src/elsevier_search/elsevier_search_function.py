@@ -80,6 +80,10 @@ class ElsevierSearchConfig(FunctionBaseConfig, name="elsevier_search"):
         default_factory=lambda: os.environ.get("ELSEVIER_API_KEY", ""),
         description="Elsevier API key. Falls back to the ELSEVIER_API_KEY environment variable.",
     )
+    inst_token: str = Field(
+        default_factory=lambda: os.environ.get("ELSEVIER_INST_TOKEN", ""),
+        description="Elsevier institutional token. Falls back to the ELSEVIER_INST_TOKEN environment variable.",
+    )
     timeout: float = Field(
         default=30.0,
         description="HTTP timeout in seconds for API requests.",
@@ -91,12 +95,15 @@ class ElsevierSearchConfig(FunctionBaseConfig, name="elsevier_search"):
 # ---------------------------------------------------------------------------
 
 
-def _headers(api_key: str) -> dict[str, str]:
-    return {
+def _headers(api_key: str, inst_token: str = "") -> dict[str, str]:  # nosec B107
+    h = {
         "X-ELS-APIKey": api_key,
         "Accept": "application/json",
         "Content-Type": "application/json",
     }
+    if inst_token:
+        h["X-ELS-Insttoken"] = inst_token
+    return h
 
 
 async def _get(
@@ -104,9 +111,10 @@ async def _get(
     path: str,
     params: dict | None = None,
     api_key: str = "",
+    inst_token: str = "",
 ) -> dict:
     url = f"{BASE_URL}{path}"
-    resp = await client.get(url, params=params, headers=_headers(api_key))
+    resp = await client.get(url, params=params, headers=_headers(api_key, inst_token))
     resp.raise_for_status()
     return resp.json()
 
@@ -116,9 +124,10 @@ async def _post(
     path: str,
     body: dict,
     api_key: str = "",
+    inst_token: str = "",
 ) -> dict:
     url = f"{BASE_URL}{path}"
-    resp = await client.post(url, json=body, headers=_headers(api_key))
+    resp = await client.post(url, json=body, headers=_headers(api_key, inst_token))
     resp.raise_for_status()
     return resp.json()
 
@@ -270,6 +279,7 @@ def _format_lookup(data: dict | list) -> str:
 @register_function(config_type=ElsevierSearchConfig)
 async def elsevier_search_function(config: ElsevierSearchConfig, builder: Builder):
     api_key = config.api_key or os.environ.get("ELSEVIER_API_KEY", "")
+    inst_token = config.inst_token or os.environ.get("ELSEVIER_INST_TOKEN", "")
 
     # -----------------------------------------------------------------------
     # 1. PharmaPendium Search
@@ -348,7 +358,9 @@ async def elsevier_search_function(config: ElsevierSearchConfig, builder: Builde
 
         try:
             async with httpx.AsyncClient(timeout=config.timeout) as client:
-                data = await _post(client, f"/pharma/{mod}/search", body, api_key)
+                data = await _post(
+                    client, f"/pharma/{mod}/search", body, api_key, inst_token
+                )
         except httpx.HTTPStatusError as exc:
             logger.error(
                 "PharmaPendium %s search returned %d: %s",
@@ -400,6 +412,7 @@ async def elsevier_search_function(config: ElsevierSearchConfig, builder: Builde
                     f"/pharma/{mod}/lookupFuzzy",
                     params={"taxonomy": taxonomy, "query": query},
                     api_key=api_key,
+                    inst_token=inst_token,
                 )
         except httpx.HTTPStatusError as exc:
             logger.error(
@@ -447,6 +460,7 @@ async def elsevier_search_function(config: ElsevierSearchConfig, builder: Builde
                     f"/pharma/{mod}/suggest",
                     params={"taxonomy": taxonomy, "prefix": prefix},
                     api_key=api_key,
+                    inst_token=inst_token,
                 )
         except httpx.HTTPStatusError as exc:
             logger.error(
@@ -485,7 +499,10 @@ async def elsevier_search_function(config: ElsevierSearchConfig, builder: Builde
         try:
             async with httpx.AsyncClient(timeout=config.timeout) as client:
                 data = await _get(
-                    client, f"/pharma/{mod}/listDataFields", api_key=api_key
+                    client,
+                    f"/pharma/{mod}/listDataFields",
+                    api_key=api_key,
+                    inst_token=inst_token,
                 )
         except httpx.HTTPStatusError as exc:
             return f"**Error:** Returned status {exc.response.status_code}."
@@ -519,7 +536,10 @@ async def elsevier_search_function(config: ElsevierSearchConfig, builder: Builde
         try:
             async with httpx.AsyncClient(timeout=config.timeout) as client:
                 data = await _get(
-                    client, f"/pharma/{mod}/listTaxonomies", api_key=api_key
+                    client,
+                    f"/pharma/{mod}/listTaxonomies",
+                    api_key=api_key,
+                    inst_token=inst_token,
                 )
         except httpx.HTTPStatusError as exc:
             return f"**Error:** Returned status {exc.response.status_code}."
@@ -551,7 +571,12 @@ async def elsevier_search_function(config: ElsevierSearchConfig, builder: Builde
 
         try:
             async with httpx.AsyncClient(timeout=config.timeout) as client:
-                data = await _get(client, f"/pharma/{mod}/listFacets", api_key=api_key)
+                data = await _get(
+                    client,
+                    f"/pharma/{mod}/listFacets",
+                    api_key=api_key,
+                    inst_token=inst_token,
+                )
         except httpx.HTTPStatusError as exc:
             return f"**Error:** Returned status {exc.response.status_code}."
         except httpx.RequestError as exc:
@@ -590,6 +615,7 @@ async def elsevier_search_function(config: ElsevierSearchConfig, builder: Builde
                     f"/pharma/{mod}/getUnits",
                     params={"parameter": parameter},
                     api_key=api_key,
+                    inst_token=inst_token,
                 )
         except httpx.HTTPStatusError as exc:
             return f"**Error:** Returned status {exc.response.status_code}."
@@ -614,7 +640,12 @@ async def elsevier_search_function(config: ElsevierSearchConfig, builder: Builde
 
         try:
             async with httpx.AsyncClient(timeout=config.timeout) as client:
-                data = await _get(client, f"/pharma/faers/get/{image}", api_key=api_key)
+                data = await _get(
+                    client,
+                    f"/pharma/faers/get/{image}",
+                    api_key=api_key,
+                    inst_token=inst_token,
+                )
         except httpx.HTTPStatusError as exc:
             return f"**Error:** Returned status {exc.response.status_code}."
         except httpx.RequestError as exc:
@@ -705,7 +736,11 @@ async def elsevier_search_function(config: ElsevierSearchConfig, builder: Builde
         try:
             async with httpx.AsyncClient(timeout=config.timeout) as client:
                 data = await _get(
-                    client, "/content/ev/results", params=params, api_key=api_key
+                    client,
+                    "/content/ev/results",
+                    params=params,
+                    api_key=api_key,
+                    inst_token=inst_token,
                 )
         except httpx.HTTPStatusError as exc:
             logger.error(
