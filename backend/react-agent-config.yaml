@@ -74,7 +74,7 @@ functions:
       and scripts that you can load on demand. Call list_skills to see what is
       available, load_skill to read a skill's instructions or resources, and
       run_skill_script to execute a bundled script.
-    verbose: true
+    verbose: false
   add_memory:
     _type: add_memory
     description:
@@ -112,13 +112,13 @@ functions:
 
       '
     memory: redis_memory
-    verbose: true
+    verbose: false
   current_datetime_tool:
     _type: current_datetime
     description: Get the current date, time, and timezone. Use when answering
       time-sensitive questions, calculating deadlines, or when the user asks
       what day or time it is.
-    verbose: true
+    verbose: false
   elsevier_search_tool:
     _type: elsevier_search
     description: >-
@@ -130,7 +130,7 @@ functions:
       Provides 9 functions: pharma_search, pharma_lookup, pharma_suggest,
       pharma_list_fields, pharma_list_taxonomies, pharma_list_facets,
       pharma_get_units, pharma_faers_report, and engineering_village_search.
-    verbose: true
+    verbose: false
   delete_memory:
     _type: delete_memory
     description:
@@ -146,7 +146,7 @@ functions:
 
       '
     memory: redis_memory
-    verbose: true
+    verbose: false
   get_memory:
     _type: get_memory
     description:
@@ -177,7 +177,7 @@ functions:
       '
     memory: redis_memory
     top_k: 5
-    verbose: true
+    verbose: false
   image_augmentation_tool:
     _type: image_augmentation
     api_endpoint: ${IMAGE_AUGMENTATION_BASE_URL}
@@ -202,7 +202,7 @@ functions:
       '
     redis_url: ${REDIS_URL}
     timeout: 120
-    verbose: true
+    verbose: false
   image_comprehension_tool:
     _type: image_comprehension
     api_endpoint: ${IMAGE_COMPREHENSION_BASE_URL}
@@ -228,7 +228,7 @@ functions:
       '
     redis_url: ${REDIS_URL}
     timeout: 120
-    verbose: true
+    verbose: false
   image_generation_tool:
     _type: image_generation
     api_endpoint: ${IMAGE_GENERATION_BASE_URL}
@@ -250,7 +250,7 @@ functions:
       '
     redis_url: ${REDIS_URL}
     timeout: 120
-    verbose: true
+    verbose: false
   kubernetes_retriever_tool:
     _type: nat_retriever
     description:
@@ -261,7 +261,7 @@ functions:
       storage, RBAC, Helm, operators, and troubleshooting guidance.
     retriever: kubernetes_retriever
     topic: Kubernetes and container orchestration
-    verbose: true
+    verbose: false
   mentalhealth_retriever_tool:
     _type: nat_retriever
     description: Search a curated knowledge base of evidence-based mental health
@@ -272,7 +272,7 @@ functions:
       mental health care.
     retriever: mentalhealth_retriever
     topic: Mental health and psychological wellness
-    verbose: true
+    verbose: false
   nv_ingest_postprocessing_tool:
     _type: tool_calling_agent
     tool_names:
@@ -314,7 +314,7 @@ functions:
     nv_ingest_host: ${NV_INGEST_HOST}
     nv_ingest_port: ${NV_INGEST_PORT}
     redis_url: ${REDIS_URL}:${REDIS_PORT}
-    verbose: true
+    verbose: false
   nvidia_blog_rss:
     _type: rss_feed
     description:
@@ -328,7 +328,7 @@ functions:
     reranker_api_key: ${NVIDIA_API_KEY}
     reranker_endpoint: ${REANKER_BASE_URL}
     reranker_model: ${REANKER_MODEL}
-    verbose: true
+    verbose: false
   nvidia_developer_blog_rss:
     _type: rss_feed
     description:
@@ -343,7 +343,7 @@ functions:
     reranker_api_key: ${NVIDIA_API_KEY}
     reranker_endpoint: ${REANKER_BASE_URL}
     reranker_model: ${REANKER_MODEL}
-    verbose: true
+    verbose: false
   nvidia_news_room_rss:
     _type: rss_feed
     description:
@@ -358,7 +358,7 @@ functions:
     reranker_api_key: ${NVIDIA_API_KEY}
     reranker_endpoint: ${REANKER_BASE_URL}
     reranker_model: ${REANKER_MODEL}
-    verbose: true
+    verbose: false
   nvidia_retriever_tool:
     _type: nat_retriever
     description:
@@ -371,7 +371,7 @@ functions:
       center products, and NVIDIA research.
     retriever: nvidia_retriever
     topic: NVIDIA technology, products, and corporate information
-    verbose: true
+    verbose: false
   semianalysis_retriever_tool:
     _type: nat_retriever
     description:
@@ -384,7 +384,7 @@ functions:
       competitive analysis.
     retriever: semianalysis_retriever
     topic: Semiconductor industry analysis and market intelligence
-    verbose: true
+    verbose: false
   semianalysis_rss:
     _type: rss_feed
     description:
@@ -399,7 +399,7 @@ functions:
     reranker_api_key: ${NVIDIA_API_KEY}
     reranker_endpoint: ${REANKER_BASE_URL}
     reranker_model: ${REANKER_MODEL}
-    verbose: true
+    verbose: false
   karpathy_bearblog_rss:
     _type: rss_feed
     description:
@@ -413,7 +413,7 @@ functions:
     reranker_api_key: ${NVIDIA_API_KEY}
     reranker_endpoint: ${REANKER_BASE_URL}
     reranker_model: ${REANKER_MODEL}
-    verbose: true
+    verbose: false
   karpathy_github_rss:
     _type: rss_feed
     description:
@@ -426,7 +426,7 @@ functions:
     reranker_api_key: ${NVIDIA_API_KEY}
     reranker_endpoint: ${REANKER_BASE_URL}
     reranker_model: ${REANKER_MODEL}
-    verbose: true
+    verbose: false
   user_uploaded_files_retriever_tool:
     _type: user_document_retriever
     content_field: text
@@ -436,9 +436,13 @@ functions:
       using semantic search. Returns the most relevant passages from documents
       that have been processed and indexed into the knowledge base.
 
+      WARNING: This tool is NOT for retrieving user preferences or memories.
+      Use get_memory for that. This tool ONLY searches documents the user
+      has explicitly uploaded via nv_ingest_postprocessing_tool.
+
       ONLY use this tool when the user explicitly asks about their uploaded
       or ingested documents. Do NOT use for daily briefings, general
-      knowledge questions, or real-time information requests.
+      knowledge questions, real-time information, or user personalization.
 
       REQUIRED PARAMETERS:
 
@@ -461,7 +465,7 @@ functions:
     top_k: 10
     use_reranker: true
     vector_field: vector
-    verbose: true
+    verbose: false
   veterinarian_retriever_tool:
     _type: nat_retriever
     description:
@@ -474,7 +478,7 @@ functions:
       veterinarian for specific medical advice.
     retriever: veterinarian_retriever
     topic: Veterinary medicine and animal care
-    verbose: true
+    verbose: false
   vtt_interpreter_tool:
     _type: vtt_interpreter
     api_endpoint: ${DEFAULT_LLM_MODEL_BASE_URL}
@@ -495,9 +499,39 @@ functions:
 
       '
     timeout: 120
-    verbose: true
+    verbose: false
   deep_thinker_tool:
     _type: tool_calling_agent
+    system_prompt: |
+      # Startup
+
+      At conversation start, call get_memory(user_id=<username>,
+      query="user preferences, interests, and context", top_k=5).
+      Personalize tone and content based on results. You may issue
+      get_memory in parallel with other tool calls when the user's
+      question also requires retrieval.
+
+      Exception: when the user requests their daily briefing, call
+      get_memory FIRST and wait for results before calling any other
+      tools. The briefing procedure and its constraints are stored in
+      memory and must be followed exactly.
+
+      # Memory
+
+      Store noteworthy preferences or details with add_memory as clear
+      declarative statements. Include metadata key_value_pairs when it
+      aids retrieval. Call get_memory mid-conversation with topic-specific
+      queries when prior context would improve your answer.
+
+      # Tool selection
+
+      get_memory is for recalling user preferences, interests, and prior
+      conversation context stored in Redis memory. ALWAYS call it first.
+
+      user_uploaded_files_retriever_tool is ONLY for searching the content
+      of documents the user has explicitly uploaded and ingested. NEVER use
+      it as a substitute for get_memory, and NEVER call it unless the user
+      is asking about a specific document they uploaded.
     tool_names:
       - add_memory
       - agent_skills_tool
@@ -525,7 +559,7 @@ functions:
       - vtt_interpreter_tool
       - webscrape_tool
     llm_name: reasoning_llm
-    verbose: true
+    verbose: false
     handle_tool_errors: true
     max_iterations: 25
   serpapi_search_tool:
@@ -564,7 +598,7 @@ functions:
     timeout: 120
     use_browser_fallback: true
     user_agent: daedalus-webscraper/1.0
-    verbose: true
+    verbose: false
 general:
   telemetry:
     tracing:
@@ -596,7 +630,7 @@ memory:
     host: ${RI_REDIS_HOST_DAEDALUS}
     key_prefix: nat
     port: ${REDIS_PORT}
-    verbose: true
+    verbose: false
 retrievers:
   kubernetes_retriever:
     _type: smart_milvus
@@ -615,7 +649,7 @@ retrievers:
     uri: ${MILVUS_URI}
     use_reranker: true
     vector_field: vector
-    verbose: true
+    verbose: false
   mentalhealth_retriever:
     _type: smart_milvus
     collection_name: mentalhealth
@@ -634,7 +668,7 @@ retrievers:
     uri: ${MILVUS_URI}
     use_reranker: true
     vector_field: vector
-    verbose: true
+    verbose: false
   nvidia_retriever:
     _type: smart_milvus
     collection_name: nvidia
@@ -652,7 +686,7 @@ retrievers:
     uri: ${MILVUS_URI}
     use_reranker: true
     vector_field: vector
-    verbose: true
+    verbose: false
   semianalysis_retriever:
     _type: smart_milvus
     collection_name: semianalysis
@@ -670,7 +704,7 @@ retrievers:
     uri: ${MILVUS_URI}
     use_reranker: true
     vector_field: vector
-    verbose: true
+    verbose: false
   user_uploaded_files_retriever:
     _type: smart_milvus
     content_field: text
@@ -688,7 +722,7 @@ retrievers:
     uri: ${MILVUS_URI}
     use_reranker: true
     vector_field: vector
-    verbose: true
+    verbose: false
   veterinarian_retriever:
     _type: smart_milvus
     collection_name: vetpartner
@@ -706,9 +740,9 @@ retrievers:
     uri: ${MILVUS_URI}
     use_reranker: true
     vector_field: vector
-    verbose: true
+    verbose: false
 workflow:
   _type: reasoning_agent
   augmented_fn: deep_thinker_tool
   llm_name: reasoning_llm
-  verbose: true
+  verbose: false
