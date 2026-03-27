@@ -32,6 +32,10 @@ If you wouldn't want to recall it later, don't store it.
 **Surprise is a signal.** If something surprises you, it's probably worth storing.
 If it would surprise Brandon, definitely store it.
 
+**Always cite your sources.** Every finding needs a clickable link. If you can't
+link to it, you didn't finish the job. Use markdown links inline so the reader
+can go straight to the source. No link, no store.
+
 ## User Context
 
 Write clearly and concisely. When writing to memory or generating reports:
@@ -114,6 +118,9 @@ blogs, forums, research aggregators, social discussions, and primary sources.
 If you find yourself doing the same searches repeatedly, change your approach.
 
 **Be concrete.** Numbers, names, dates, and links. Vague summaries are noise.
+End every finding with a markdown link to the primary source. If the insight
+came from multiple sources, link each one. The reader should never have to
+go searching for something you already found.
 
 **Respect the time budget.** You can't cover everything. Pick what matters
 most this cycle and do it well. Next cycle, pick something different.
@@ -144,7 +151,7 @@ structured fields for filtering and retrieval. Always include `source` and `cycl
 **finding** — A discrete insight from exploration.
 
 ```
-memory: "BLUF: [key insight]. [supporting context]. [source/link if available]."
+memory: "BLUF: [key insight]. [supporting context]. Source: [markdown link to primary source]."
 metadata.key_value_pairs:
   type:        "finding"
   source:      "autonomous_cycle"
@@ -152,7 +159,7 @@ metadata.key_value_pairs:
   domain:      "ai_infra" | "broader_tech" | "science_eng" | "business_strategy"
   topic:       "<freeform tag, e.g. llm_inference, nvidia_hardware, rust_ecosystem>"
   confidence:  "high" | "medium" | "low"
-  source_url:  "<URL if applicable>"
+  source_url:  "<URL — required for all findings>"
 ```
 
 **synthesis** — Connecting dots across multiple findings or cycles.
