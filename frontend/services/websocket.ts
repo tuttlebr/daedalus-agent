@@ -120,7 +120,13 @@ export class WebSocketManager {
         this.stopPing();
 
         if (!this.intentionalClose) {
-          this.scheduleReconnect();
+          // Don't retry on authentication failures — the session is invalid
+          // and reconnecting will just fail again until the user re-authenticates.
+          if (event.code === 4001) {
+            logger.warn('WebSocket auth failed (4001) — not reconnecting');
+          } else {
+            this.scheduleReconnect();
+          }
         }
 
         this.emit('disconnected', undefined);

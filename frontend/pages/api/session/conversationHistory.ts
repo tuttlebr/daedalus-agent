@@ -30,11 +30,43 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   if (req.method === 'PUT') {
     try {
-      let body = Array.isArray(req.body) ? req.body : [];
-      // Strip base64 content before clamping
-      body = stripBase64FromObject(body);
-      const clamped = clampConversations(body);
+      let incoming = Array.isArray(req.body) ? req.body : [];
+      // Strip base64 content before processing
+      incoming = stripBase64FromObject(incoming);
+
       try {
+        // Merge with existing history instead of overwriting, so conversations
+        // not held in the frontend's limited in-memory list are preserved.
+        const existing = await jsonGet(key);
+        const existingArray: any[] = Array.isArray(existing) ? existing : [];
+
+        // Build a map of incoming conversations by ID for fast lookup
+        const incomingById = new Map<string, any>();
+        for (const conv of incoming) {
+          if (conv && conv.id) {
+            incomingById.set(conv.id, conv);
+          }
+        }
+
+        // Start with existing conversations, updating any that appear in the incoming set
+        const merged: any[] = [];
+        const seen = new Set<string>();
+
+        for (const conv of existingArray) {
+          if (!conv || !conv.id) continue;
+          const updated = incomingById.get(conv.id);
+          merged.push(updated ?? conv);
+          seen.add(conv.id);
+        }
+
+        // Add any new conversations from incoming that weren't already in the list
+        for (const conv of incoming) {
+          if (conv && conv.id && !seen.has(conv.id)) {
+            merged.push(conv);
+          }
+        }
+
+        const clamped = clampConversations(merged);
         await jsonSetWithExpiry(key, clamped, 60 * 60 * 24 * 7);
       } catch (err) {
         console.error('Failed to save conversationHistory to Redis', err);

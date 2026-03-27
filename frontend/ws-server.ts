@@ -28,7 +28,7 @@ const channels = {
 };
 
 function sessionKey(parts: string[]): string {
-  return `daedalus:${parts.join(':')}`;
+  return parts.filter(Boolean).join(':');
 }
 
 function createRedisClient(label: string): Redis {
