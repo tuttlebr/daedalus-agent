@@ -7,8 +7,8 @@ interface Props {
 
 export const ChatLoader: FC<Props> = ({ useDeepThinker = false }) => {
   const dotClass = useDeepThinker
-    ? 'typing-dot w-2 h-2 rounded-full bg-nvidia-purple/70'
-    : 'typing-dot w-2 h-2 rounded-full bg-nvidia-green/70';
+    ? 'typing-dot w-2 h-2 rounded-full bg-nvidia-purple opacity-70'
+    : 'typing-dot w-2 h-2 rounded-full bg-nvidia-green opacity-70';
 
   return (
     <div
