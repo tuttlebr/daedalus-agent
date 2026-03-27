@@ -511,7 +511,7 @@ functions:
       - veterinarian_retriever_tool
       - vtt_interpreter_tool
       - webscrape_tool
-    llm_name: react_llm
+    llm_name: reasoning_llm
     verbose: true
     handle_tool_errors: true
     max_iterations: 25
