@@ -553,7 +553,6 @@ functions:
       - karpathy_bearblog_rss
       - karpathy_github_rss
       - serpapi_search_tool
-      - elsevier_search_tool
       - user_uploaded_files_retriever_tool
       - veterinarian_retriever_tool
       - vtt_interpreter_tool
