@@ -397,6 +397,11 @@ const handler = async (req: Request): Promise<Response> => {
   // Note: Document processing is now handled separately via /api/document/process
   // The frontend processes documents before sending the chat message
 
+  // Strip system messages — the backend's NAT agent owns the system prompt.
+  // Sending extra system-role messages causes a 400 from LLMs that require
+  // system messages at the beginning (e.g. Qwen, certain NIM endpoints).
+  messages = messages.filter((m: any) => m.role !== 'system');
+
   // Trim message history to fit within the model's context window
   messages = trimMessagesToFit(messages);
 

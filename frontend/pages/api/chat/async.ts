@@ -248,7 +248,8 @@ async function processJobAsync(jobId: string): Promise<void> {
       return cleanedMessage;
     }));
 
-    const messagesWithContext = processedMessages;
+    // Strip system messages — the backend's NAT agent owns the system prompt.
+    const messagesWithContext = processedMessages.filter((m: any) => m.role !== 'system');
 
     // Determine backend URL - uses centralized config from backendApi.ts
     const useDeepThinker = additionalProps?.useDeepThinker || false;
