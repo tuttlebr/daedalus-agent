@@ -40,7 +40,7 @@ interface PersistedJob {
 interface UseAsyncChatOptions {
   pollingInterval?: number;
   onProgress?: (status: AsyncJobStatus) => void;
-  onComplete?: (response: string, intermediateSteps?: any[], finalizedAt?: number) => void;
+  onComplete?: (response: string, intermediateSteps?: any[], finalizedAt?: number, conversationId?: string) => void;
   onError?: (error: string) => void;
   userId?: string; // Add userId for localStorage key scoping
   useWebSocket?: boolean; // Use WebSocket push instead of polling (default: true)
@@ -185,7 +185,7 @@ export const useAsyncChat = (options: UseAsyncChatOptions = {}): UseAsyncChatRet
     if ((status.status === 'completed' && status.finalizedAt) || shouldFinalizeFallback) {
       completedJobsRef.current.add(jobId);
       if (onComplete && status.fullResponse) {
-        onComplete(status.fullResponse, status.intermediateSteps, status.finalizedAt);
+        onComplete(status.fullResponse, status.intermediateSteps, status.finalizedAt, conversationId);
       }
       // Clean up
       if (conversationId) {
@@ -400,7 +400,7 @@ export const useAsyncChat = (options: UseAsyncChatOptions = {}): UseAsyncChatRet
         // Only consider job truly complete when finalizedAt is set
         pollCountByJobRef.current[jobId] = 0;
         if (onComplete && status.fullResponse) {
-          onComplete(status.fullResponse, status.intermediateSteps, status.finalizedAt);
+          onComplete(status.fullResponse, status.intermediateSteps, status.finalizedAt, conversationId);
         }
         // Clear polling and persisted job
         if (conversationId) {
@@ -712,7 +712,7 @@ export const useAsyncChat = (options: UseAsyncChatOptions = {}): UseAsyncChatRet
             if (status.status === 'completed' && status.fullResponse) {
               completedJobsRef.current.add(job.jobId);
               if (onComplete) {
-                onComplete(status.fullResponse, status.intermediateSteps, status.finalizedAt);
+                onComplete(status.fullResponse, status.intermediateSteps, status.finalizedAt, job.conversationId);
               }
               clearPersistedJobs(userId, job.conversationId);
               removeActiveJob(job.jobId, job.conversationId);
@@ -733,7 +733,7 @@ export const useAsyncChat = (options: UseAsyncChatOptions = {}): UseAsyncChatRet
               const lastAssistantMsg = [...convData.messages].reverse().find((m: any) => m.role === 'assistant');
               if (lastAssistantMsg && onComplete) {
                 completedJobsRef.current.add(job.jobId);
-                onComplete(lastAssistantMsg.content, lastAssistantMsg.intermediateSteps, Date.now());
+                onComplete(lastAssistantMsg.content, lastAssistantMsg.intermediateSteps, Date.now(), job.conversationId);
                 logger.info(`Recovered orphaned job ${job.jobId} via conversation data`);
               }
               clearPersistedJobs(userId, job.conversationId);

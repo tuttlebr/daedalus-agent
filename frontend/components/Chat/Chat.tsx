@@ -311,8 +311,8 @@ export const Chat = () => {
         }
       }
     },
-    onComplete: async (fullResponse, intermediateSteps, finalizedAt) => {
-      logger.info('Async job completed with full response', { finalizedAt });
+    onComplete: async (fullResponse, intermediateSteps, finalizedAt, jobConversationId) => {
+      logger.info('Async job completed with full response', { finalizedAt, jobConversationId });
 
       // Clear IndexedDB streaming state on completion
       clearStreamingState().catch(() => {});
@@ -325,8 +325,8 @@ export const Chat = () => {
         logger.info('Async job: Replaced base64 images with Redis references');
       }
 
-      // Use current ref to avoid stale closure
-      const conversationId = asyncConversationIdRef.current || selectedConversationRef.current?.id;
+      // Use the job's conversationId (authoritative), falling back to refs only as last resort
+      const conversationId = jobConversationId || asyncConversationIdRef.current || selectedConversationRef.current?.id;
       const currentConversation = conversationId
         ? conversationsRef.current.find((conversation) => conversation.id === conversationId)
         : selectedConversationRef.current;
@@ -452,26 +452,31 @@ export const Chat = () => {
     conversationId: selectedConversation?.id,
     minSyncInterval: 5000, // Minimum 5 seconds between syncs
     onConversationUpdated: (serverConversation) => {
-      // Update conversation with server messages
-      if (selectedConversation) {
-        homeDispatch({
-          field: 'selectedConversation',
-          value: serverConversation
-        });
-
-        // Also update the conversations list
-        const updatedConversations = conversationsRef.current.map((c) =>
-          c.id === selectedConversation.id ? serverConversation : c
-        );
-        homeDispatch({
-          field: 'conversations',
-          value: updatedConversations
-        });
-
-        // Persist to storage (async, best-effort — errors logged but not fatal)
-        saveConversation(serverConversation).catch(() => {});
-        saveConversations(updatedConversations).catch(() => {});
+      // Guard: only apply if the server conversation still matches the currently selected one.
+      // A stale syncAfterSend timeout can fire after the user switched conversations,
+      // which would overwrite the current conversation with data from the old one.
+      const currentSelectedId = selectedConversationRef.current?.id;
+      if (!currentSelectedId || currentSelectedId !== serverConversation.id) {
+        return;
       }
+
+      homeDispatch({
+        field: 'selectedConversation',
+        value: serverConversation
+      });
+
+      // Also update the conversations list
+      const updatedConversations = conversationsRef.current.map((c) =>
+        c.id === serverConversation.id ? serverConversation : c
+      );
+      homeDispatch({
+        field: 'conversations',
+        value: updatedConversations
+      });
+
+      // Persist to storage (async, best-effort — errors logged but not fatal)
+      saveConversation(serverConversation).catch(() => {});
+      saveConversations(updatedConversations).catch(() => {});
     }
   });
 
