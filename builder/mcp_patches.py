@@ -27,6 +27,15 @@ Fix 3: Monkey-patch MCPBaseClient.get_tool() to catch the "not
 initialized" RuntimeError and re-enter __aenter__() (which is safe
 when _exit_stack is None) before retrying, so clients with
 reconnect_enabled=true recover transparently.
+
+Problem 4: The MCP SDK's terminate_session() catches Exception but not
+CancelledError (a BaseException).  During shutdown, the HTTP DELETE it
+sends raises CancelledError which escapes through __aexit__, producing
+a noisy traceback in the framework's lifespan handler.
+
+Fix 4: Track whether the session yield has returned (teardown phase)
+and suppress CancelledError / cancel-scope RuntimeError that occur
+during cleanup, since the session was already used successfully.
 """
 
 import asyncio
@@ -37,6 +46,81 @@ from contextlib import asynccontextmanager
 logger = logging.getLogger("daedalus.mcp_patches")
 
 _patched = False
+
+
+@asynccontextmanager
+async def _connect_with_graceful_teardown(streamable_ctx, session_cls, url):
+    """Connect to an MCP server with graceful teardown error handling.
+
+    Wraps the streamablehttp_client -> ClientSession lifecycle and tracks
+    whether the session ``yield`` has returned.  Cancellation errors that
+    arrive *after* the yield (during ``__aexit__`` of the transport or
+    session) are logged and suppressed instead of propagating, because:
+
+    * The MCP SDK's ``terminate_session()`` catches ``Exception`` but not
+      ``CancelledError`` (a ``BaseException``).  During shutdown the HTTP
+      DELETE it sends raises ``CancelledError`` which escapes the SDK.
+    * anyio cancel-scope ``RuntimeError`` variants behave the same way.
+
+    Errors during the *operational* phase (before the yield returns) are
+    still propagated so that the NAT framework's retry logic can act on
+    them.
+    """
+    _in_teardown = False
+    try:
+        async with streamable_ctx as (read, write, _):
+            async with session_cls(read, write) as session:
+                await session.initialize()
+                logger.info("MCP session initialized: url=%s", url)
+                yield session
+                # If we reach here the yield returned normally -- we are now
+                # in the teardown phase.  Any CancelledError from this point
+                # is a cleanup artifact (e.g. terminate_session's HTTP DELETE),
+                # not an operational failure.
+                _in_teardown = True
+    except asyncio.CancelledError:
+        if _in_teardown:
+            logger.info("MCP session teardown cancelled (url=%s) -- suppressed.", url)
+        else:
+            logger.warning(
+                "MCP session cancelled: CancelledError (url=%s). "
+                "Propagating for framework retry.",
+                url,
+            )
+            raise
+    except RuntimeError as exc:
+        if "cancel scope" in str(exc):
+            if _in_teardown:
+                logger.info(
+                    "MCP cancel-scope teardown error suppressed (url=%s).",
+                    url,
+                )
+            else:
+                # anyio cancel-scope mismatch during operation.  Convert to
+                # CancelledError so the NAT framework's reconnect logic
+                # handles it cleanly.
+                logger.warning(
+                    "MCP cancel scope teardown error (url=%s). "
+                    "Converting to CancelledError for cleaner retry.",
+                    url,
+                )
+                raise asyncio.CancelledError(str(exc)) from exc
+        else:
+            logger.error(
+                "MCP connect_to_server failed: url=%s error=%r\n%s",
+                url,
+                exc,
+                traceback.format_exc(),
+            )
+            raise
+    except Exception as exc:
+        logger.error(
+            "MCP connect_to_server failed: url=%s error=%r\n%s",
+            url,
+            exc,
+            traceback.format_exc(),
+        )
+        raise
 
 
 def patch():
@@ -57,7 +141,8 @@ def patch():
         async def patched_connect_to_server(self):
             """
             Patched connect_to_server that passes the configured tool_call_timeout
-            as both the HTTP timeout and SSE read timeout to streamablehttp_client.
+            as both the HTTP timeout and SSE read timeout to streamablehttp_client,
+            with graceful teardown error handling.
             """
             timeout_seconds = self._tool_call_timeout.total_seconds()
             url = self._url
@@ -66,52 +151,16 @@ def patch():
                 "MCP connect_to_server: url=%s timeout=%.0fs", url, timeout_seconds
             )
 
-            try:
-                async with streamablehttp_client(
-                    url=url,
-                    auth=self._httpx_auth,
-                    timeout=timeout_seconds,
-                    sse_read_timeout=max(timeout_seconds, 300),
-                ) as (read, write, _):
-                    async with ClientSession(read, write) as session:
-                        await session.initialize()
-                        logger.info("MCP session initialized: url=%s", url)
-                        yield session
-            except asyncio.CancelledError:
-                logger.warning(
-                    "MCP session cancelled: CancelledError (url=%s). "
-                    "Propagating for framework retry.",
-                    url,
-                )
-                raise
-            except RuntimeError as exc:
-                if "cancel scope" in str(exc):
-                    # anyio cancel-scope mismatch during teardown.  Convert to
-                    # CancelledError so the NAT framework's reconnect logic
-                    # handles it as a clean cancellation rather than an opaque
-                    # RuntimeError (which wastes one reconnect attempt).
-                    logger.warning(
-                        "MCP cancel scope teardown error (url=%s). "
-                        "Converting to CancelledError for cleaner retry.",
-                        url,
-                    )
-                    raise asyncio.CancelledError(str(exc)) from exc
-                else:
-                    logger.error(
-                        "MCP connect_to_server failed: url=%s error=%r\n%s",
-                        url,
-                        exc,
-                        traceback.format_exc(),
-                    )
-                    raise
-            except Exception as exc:
-                logger.error(
-                    "MCP connect_to_server failed: url=%s error=%r\n%s",
-                    url,
-                    exc,
-                    traceback.format_exc(),
-                )
-                raise
+            ctx = streamablehttp_client(
+                url=url,
+                auth=self._httpx_auth,
+                timeout=timeout_seconds,
+                sse_read_timeout=max(timeout_seconds, 300),
+            )
+            async with _connect_with_graceful_teardown(
+                ctx, ClientSession, url
+            ) as session:
+                yield session
 
         MCPStreamableHTTPClient.connect_to_server = patched_connect_to_server
         logger.info(

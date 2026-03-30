@@ -1,9 +1,17 @@
-"""Tests for mcp_patches — specifically the get_tool reconnect patch."""
+"""Tests for mcp_patches -- get_tool reconnect and connect_to_server teardown."""
 
 import asyncio
+import sys
+from contextlib import asynccontextmanager
+from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
+
+# Add builder root so we can import mcp_patches directly
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from mcp_patches import _connect_with_graceful_teardown  # noqa: E402
 
 
 def run(coro):
@@ -11,7 +19,7 @@ def run(coro):
 
 
 # ---------------------------------------------------------------------------
-# Helpers to build a fake MCPBaseClient that mirrors NAT's lifecycle checks
+# Helpers: get_tool reconnect tests
 # ---------------------------------------------------------------------------
 
 
@@ -49,7 +57,59 @@ class FakeMCPBaseClient:
 
 
 # ---------------------------------------------------------------------------
-# Tests
+# Helpers: connect_to_server teardown tests
+# ---------------------------------------------------------------------------
+
+
+class MockSession:
+    """Stand-in for mcp.ClientSession."""
+
+    def __init__(self, read=None, write=None):
+        pass
+
+    async def initialize(self):
+        pass
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *args):
+        pass
+
+
+def _mock_streams():
+    return (MagicMock(name="read"), MagicMock(name="write"), MagicMock(name="cb"))
+
+
+@asynccontextmanager
+async def _streamable_ok():
+    """Normal streamablehttp_client -- no errors."""
+    yield _mock_streams()
+
+
+@asynccontextmanager
+async def _streamable_cancel_on_exit():
+    """streamablehttp_client that raises CancelledError during __aexit__."""
+    yield _mock_streams()
+    raise asyncio.CancelledError("terminate_session cancelled")
+
+
+@asynccontextmanager
+async def _streamable_cancel_scope_on_exit():
+    """streamablehttp_client that raises cancel-scope RuntimeError during __aexit__."""
+    yield _mock_streams()
+    raise RuntimeError("Cancelled via cancel scope abc123")
+
+
+@asynccontextmanager
+async def _streamable_conn_error_on_exit():
+    """streamablehttp_client that raises ConnectionError during __aexit__."""
+    yield _mock_streams()
+    raise ConnectionError("server vanished")
+
+
+# ---------------------------------------------------------------------------
+# Tests: get_tool reconnect
 # ---------------------------------------------------------------------------
 
 
@@ -217,3 +277,115 @@ class TestGetToolReconnectPatch:
             run(_run())
         finally:
             FakeMCPBaseClient.get_tool = original
+
+
+# ---------------------------------------------------------------------------
+# Tests: connect_to_server teardown
+# ---------------------------------------------------------------------------
+
+
+class TestConnectToServerTeardown:
+    """Verify _connect_with_graceful_teardown handles teardown errors correctly."""
+
+    def test_clean_lifecycle(self):
+        """Normal use -- enter, use session, exit without errors."""
+
+        async def _run():
+            async with _connect_with_graceful_teardown(
+                _streamable_ok(), MockSession, "http://fake/mcp"
+            ) as session:
+                assert session is not None
+                await asyncio.sleep(0)  # simulate work
+
+        run(_run())
+
+    def test_cancelled_during_use_propagates(self):
+        """CancelledError raised while the session is in active use propagates."""
+
+        async def _run():
+            with pytest.raises(asyncio.CancelledError):
+                async with _connect_with_graceful_teardown(
+                    _streamable_ok(), MockSession, "http://fake/mcp"
+                ) as _session:
+                    raise asyncio.CancelledError("task cancelled")
+
+        run(_run())
+
+    def test_cancelled_during_teardown_suppressed(self):
+        """CancelledError from terminate_session during teardown is suppressed."""
+
+        async def _run():
+            # Should NOT raise -- the CancelledError from __aexit__ is suppressed
+            async with _connect_with_graceful_teardown(
+                _streamable_cancel_on_exit(), MockSession, "http://fake/mcp"
+            ) as _session:
+                await asyncio.sleep(0)
+
+        run(_run())
+
+    def test_cancel_scope_during_teardown_suppressed(self):
+        """RuntimeError('cancel scope') during teardown is suppressed."""
+
+        async def _run():
+            # Should NOT raise
+            async with _connect_with_graceful_teardown(
+                _streamable_cancel_scope_on_exit(), MockSession, "http://fake/mcp"
+            ) as _session:
+                await asyncio.sleep(0)
+
+        run(_run())
+
+    def test_cancel_scope_during_use_converts_to_cancelled(self):
+        """RuntimeError('cancel scope') during active use converts to CancelledError."""
+
+        async def _run():
+            with pytest.raises(asyncio.CancelledError):
+                async with _connect_with_graceful_teardown(
+                    _streamable_ok(), MockSession, "http://fake/mcp"
+                ) as _session:
+                    raise RuntimeError("Cancelled via cancel scope xyz")
+
+        run(_run())
+
+    def test_unrelated_exception_during_teardown_propagates(self):
+        """Non-cancellation exceptions during teardown still propagate."""
+
+        async def _run():
+            with pytest.raises(ConnectionError, match="server vanished"):
+                async with _connect_with_graceful_teardown(
+                    _streamable_conn_error_on_exit(), MockSession, "http://fake/mcp"
+                ) as _session:
+                    await asyncio.sleep(0)
+
+        run(_run())
+
+    def test_unrelated_runtime_error_during_teardown_propagates(self):
+        """Non-cancel-scope RuntimeError during teardown still propagates."""
+
+        @asynccontextmanager
+        async def _streamable_other_runtime_error():
+            yield _mock_streams()
+            raise RuntimeError("something unrelated")
+
+        async def _run():
+            with pytest.raises(RuntimeError, match="something unrelated"):
+                async with _connect_with_graceful_teardown(
+                    _streamable_other_runtime_error(),
+                    MockSession,
+                    "http://fake/mcp",
+                ) as _session:
+                    await asyncio.sleep(0)
+
+        run(_run())
+
+    def test_operational_exception_propagates(self):
+        """Regular exceptions during active session use propagate normally."""
+
+        async def _run():
+            with pytest.raises(ValueError, match="bad input"):
+                async with _connect_with_graceful_teardown(
+                    _streamable_ok(), MockSession, "http://fake/mcp"
+                ) as _session:
+                    raise ValueError("bad input")
+
+        run(_run())

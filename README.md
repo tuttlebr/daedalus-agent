@@ -18,6 +18,7 @@ A full-stack reference implementation of the [NVIDIA NeMo Agent toolkit](https:/
 - **Progressive Web App**: Installable on desktop and mobile with offline support and background processing
 - **Cross-Device Sync**: Real-time conversation synchronization across all your devices
 - **Autonomous Agent**: Background CronJob that curates knowledge, monitors feeds, and builds context without human interaction
+- **MAS Architecture Optimizer**: Task-contingent Multi-Agent vs Single-Agent routing with capability gating, decomposability analysis, and a verifier stage
 - **Network Security**: Layered Kubernetes and Cilium network policies with FQDN-based egress allowlists
 
 ## Architecture
@@ -502,6 +503,7 @@ The `builder/` directory contains custom NeMo Agent toolkit function packages:
 | `rss_feed` | RSS feed fetching with relevance ranking |
 | `webscrape` | Web page content extraction |
 | `vtt_interpreter` | Meeting transcript to structured notes |
+| `mas_optimizer` | MAS architecture optimizer with capability gating, task analysis, and verifier |
 | `nat_helpers` | Geolocation and utility functions |
 
 Install packages in editable mode:
@@ -510,6 +512,84 @@ Install packages in editable mode:
 cd builder
 uv pip install -e <package>
 ```
+
+## MAS Architecture Optimizer
+
+The `mas_optimizer` package implements task-contingent architecture selection based on [Towards a Science of Scaling Agent Systems](https://arxiv.org/abs/2512.08296) (arXiv:2512.08296v2). It decides at runtime whether a request should be handled by a Single-Agent System (SAS) or a centralized Multi-Agent System (MAS) with a verifier stage.
+
+### How It Works
+
+```mermaid
+flowchart TD
+    Request[User Request] --> Evaluate[mas_evaluate]
+    Evaluate -->|SAS recommended| Direct[Direct Response]
+    Evaluate -->|MAS recommended| Orchestrator[mas_orchestrator_tool]
+    Orchestrator --> Intent[Intent Analysis]
+    Orchestrator --> Principles[Architecture Principles]
+    Orchestrator --> Brevity[Style Preferences]
+    Intent --> Synthesize[Synthesize Draft]
+    Principles --> Synthesize
+    Brevity --> Synthesize
+    Synthesize --> Verify[mas_verify]
+    Verify -->|Pass| Deliver[Deliver Response]
+    Verify -->|Fail| Revise[Apply Revision Notes]
+    Revise --> Verify
+    Deliver --> Log[mas_log_outcome]
+    Log --> Memory[add_memory]
+```
+
+### Decision Gates
+
+Two independent gates must both pass before MAS is engaged:
+
+| Gate | Condition | Paper Reference |
+|------|-----------|-----------------|
+| **Capability gate** | Estimated SAS accuracy < 0.45 | Capability coefficient beta = -0.404, p < 0.001 |
+| **Task analysis** | Decomposability D > 0.35 AND tool count T < 12 | Coordination coefficient beta = -0.267 |
+
+If either gate fails, the agent handles the request directly (SAS), avoiding the coordination overhead that would produce negative returns.
+
+### Registered Tools
+
+The package registers three NAT tools:
+
+| Tool | Purpose |
+|------|---------|
+| `mas_evaluate` | Runs both gates and returns a JSON architecture recommendation with confidence scores |
+| `mas_verify` | Verifier sub-agent that checks draft responses for topic drift, missing content, verbosity, and self-reference coherence. Reduces error amplification from 17.2x to 4.4x |
+| `mas_log_outcome` | Logs task outcomes (architecture used, D/T scores, success) for closed-loop capability gate calibration via the memory system |
+
+### Orchestrator Sub-Agent
+
+The `mas_orchestrator_tool` is a `tool_calling_agent` that uses the reasoning LLM to run the centralized MAS protocol:
+
+1. Calls `mas_evaluate` to confirm MAS is appropriate
+2. Executes three analysis roles (Intent, Principles, Brevity), each producing a 5-word abstracted summary to stay at the optimal message density (~0.39 msgs/turn)
+3. Synthesizes a draft response from the summaries
+4. Runs `mas_verify` and applies any revision notes before output
+5. Logs the outcome via `mas_log_outcome` for future calibration
+
+### Configuration
+
+All thresholds are configurable in `backend/tool-calling-config.yaml` under the `mas_optimizer_tool` function entry:
+
+```yaml
+mas_optimizer_tool:
+  _type: mas_optimizer
+  sas_accuracy_threshold: 0.45    # Capability gate threshold
+  decomposability_threshold: 0.35  # Minimum D score for MAS
+  tool_count_threshold: 12         # Maximum T for MAS eligibility
+  drift_keywords:                  # Topic drift detection
+    - vision language
+    - VLM
+  required_keywords:               # Required in meta-architecture responses
+    - MAS
+    - verifier
+    - capability gate
+  verbosity_ceiling: 2000          # Word count limit for verifier
+```
+
+The default thresholds are derived from Tables 4-5 and Section 4.3 of the source paper. Adjust only if re-evaluating on your specific tool configuration.
 
 ## Directory Structure
 

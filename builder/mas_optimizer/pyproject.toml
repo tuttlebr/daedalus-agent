@@ -3,25 +3,24 @@ build-backend = "setuptools.build_meta"
 requires = ["setuptools>=64.0.0", "wheel"]
 
 [project]
-name = "elsevier_search"
+name = "mas_optimizer"
 dynamic = ["version"]
 dependencies = [
   "nvidia-nat[redis,mcp,langchain,phoenix]==1.4.3",
-  "httpx>=0.28",
 ]
 requires-python = ">=3.11,<3.14"
-description = "NeMo Agent Toolkit function for Elsevier PharmaPendium and Engineering Village search"
+description = "MAS-optimized architecture selector for NeMo Agent Toolkit — capability gating, task decomposability analysis, and verifier stage per 'Towards a Science of Scaling Agent Systems' (arXiv:2512.08296v2)."
 classifiers = ["Programming Language :: Python"]
 
 [project.entry-points.'nat.components']
-elsevier_search = "elsevier_search.register"
+mas_optimizer = "mas_optimizer.register"
 
 [tool.setuptools]
-packages = ["elsevier_search"]
+packages = ["mas_optimizer"]
 package-dir = {"" = "src"}
 
 [tool.setuptools.package-data]
-elsevier_search = ["configs/*.yml", "configs/*.yaml"]
+mas_optimizer = ["configs/*.yml", "configs/*.yaml"]
 
 [tool.uv]
 config-settings = { editable_mode = "compat" }

@@ -74,7 +74,7 @@ functions:
       and scripts that you can load on demand. Call list_skills to see what is
       available, load_skill to read a skill's instructions or resources, and
       run_skill_script to execute a bundled script.
-    verbose: true
+    verbose: false
   add_memory:
     _type: add_memory
     description:
@@ -112,13 +112,13 @@ functions:
 
       '
     memory: redis_memory
-    verbose: true
+    verbose: false
   current_datetime_tool:
     _type: current_datetime
     description: Get the current date, time, and timezone. Use when answering
       time-sensitive questions, calculating deadlines, or when the user asks
       what day or time it is.
-    verbose: true
+    verbose: false
   delete_memory:
     _type: delete_memory
     description:
@@ -134,7 +134,7 @@ functions:
 
       '
     memory: redis_memory
-    verbose: true
+    verbose: false
   get_memory:
     _type: get_memory
     description:
@@ -165,7 +165,7 @@ functions:
       '
     memory: redis_memory
     top_k: 5
-    verbose: true
+    verbose: false
   image_augmentation_tool:
     _type: image_augmentation
     api_endpoint: ${IMAGE_AUGMENTATION_BASE_URL}
@@ -190,7 +190,7 @@ functions:
       '
     redis_url: ${REDIS_URL}
     timeout: 120
-    verbose: true
+    verbose: false
   image_comprehension_tool:
     _type: image_comprehension
     api_endpoint: ${IMAGE_COMPREHENSION_BASE_URL}
@@ -216,7 +216,7 @@ functions:
       '
     redis_url: ${REDIS_URL}
     timeout: 120
-    verbose: true
+    verbose: false
   image_generation_tool:
     _type: image_generation
     api_endpoint: ${IMAGE_GENERATION_BASE_URL}
@@ -238,7 +238,7 @@ functions:
       '
     redis_url: ${REDIS_URL}
     timeout: 120
-    verbose: true
+    verbose: false
   kubernetes_retriever_tool:
     _type: nat_retriever
     description:
@@ -249,7 +249,7 @@ functions:
       storage, RBAC, Helm, operators, and troubleshooting guidance.
     retriever: kubernetes_retriever
     topic: Kubernetes and container orchestration
-    verbose: true
+    verbose: false
   mentalhealth_retriever_tool:
     _type: nat_retriever
     description: Search a curated knowledge base of evidence-based mental health
@@ -260,7 +260,7 @@ functions:
       mental health care.
     retriever: mentalhealth_retriever
     topic: Mental health and psychological wellness
-    verbose: true
+    verbose: false
   nv_ingest_postprocessing_tool:
     _type: tool_calling_agent
     tool_names:
@@ -302,7 +302,7 @@ functions:
     nv_ingest_host: ${NV_INGEST_HOST}
     nv_ingest_port: ${NV_INGEST_PORT}
     redis_url: ${REDIS_URL}:${REDIS_PORT}
-    verbose: true
+    verbose: false
   nvidia_blog_rss:
     _type: rss_feed
     description:
@@ -316,7 +316,7 @@ functions:
     reranker_api_key: ${NVIDIA_API_KEY}
     reranker_endpoint: ${REANKER_BASE_URL}
     reranker_model: ${REANKER_MODEL}
-    verbose: true
+    verbose: false
   nvidia_developer_blog_rss:
     _type: rss_feed
     description:
@@ -331,7 +331,7 @@ functions:
     reranker_api_key: ${NVIDIA_API_KEY}
     reranker_endpoint: ${REANKER_BASE_URL}
     reranker_model: ${REANKER_MODEL}
-    verbose: true
+    verbose: false
   nvidia_news_room_rss:
     _type: rss_feed
     description:
@@ -346,7 +346,7 @@ functions:
     reranker_api_key: ${NVIDIA_API_KEY}
     reranker_endpoint: ${REANKER_BASE_URL}
     reranker_model: ${REANKER_MODEL}
-    verbose: true
+    verbose: false
   nvidia_retriever_tool:
     _type: nat_retriever
     description:
@@ -359,7 +359,7 @@ functions:
       center products, and NVIDIA research.
     retriever: nvidia_retriever
     topic: NVIDIA technology, products, and corporate information
-    verbose: true
+    verbose: false
   semianalysis_retriever_tool:
     _type: nat_retriever
     description:
@@ -372,7 +372,7 @@ functions:
       competitive analysis.
     retriever: semianalysis_retriever
     topic: Semiconductor industry analysis and market intelligence
-    verbose: true
+    verbose: false
   semianalysis_rss:
     _type: rss_feed
     description:
@@ -387,7 +387,7 @@ functions:
     reranker_api_key: ${NVIDIA_API_KEY}
     reranker_endpoint: ${REANKER_BASE_URL}
     reranker_model: ${REANKER_MODEL}
-    verbose: true
+    verbose: false
   karpathy_bearblog_rss:
     _type: rss_feed
     description:
@@ -401,7 +401,7 @@ functions:
     reranker_api_key: ${NVIDIA_API_KEY}
     reranker_endpoint: ${REANKER_BASE_URL}
     reranker_model: ${REANKER_MODEL}
-    verbose: true
+    verbose: false
   karpathy_github_rss:
     _type: rss_feed
     description:
@@ -414,7 +414,7 @@ functions:
     reranker_api_key: ${NVIDIA_API_KEY}
     reranker_endpoint: ${REANKER_BASE_URL}
     reranker_model: ${REANKER_MODEL}
-    verbose: true
+    verbose: false
   user_uploaded_files_retriever_tool:
     _type: user_document_retriever
     content_field: text
@@ -449,7 +449,7 @@ functions:
     top_k: 10
     use_reranker: true
     vector_field: vector
-    verbose: true
+    verbose: false
   veterinarian_retriever_tool:
     _type: nat_retriever
     description:
@@ -462,7 +462,7 @@ functions:
       veterinarian for specific medical advice.
     retriever: veterinarian_retriever
     topic: Veterinary medicine and animal care
-    verbose: true
+    verbose: false
   vtt_interpreter_tool:
     _type: vtt_interpreter
     api_endpoint: ${DEFAULT_LLM_MODEL_BASE_URL}
@@ -483,7 +483,89 @@ functions:
 
       '
     timeout: 120
-    verbose: true
+    verbose: false
+  mas_optimizer_tool:
+    _type: mas_optimizer
+    sas_accuracy_threshold: 0.45
+    decomposability_threshold: 0.35
+    tool_count_threshold: 12
+    default_user_id: ${DAEDALUS_DEFAULT_USER:-tuttlebr}
+    drift_keywords:
+      - vision language
+      - VLM
+      - Qwen3-VL
+      - image model
+    required_keywords:
+      - MAS
+      - verifier
+      - capability gate
+      - orchestrat
+      - decomposab
+    verbosity_ceiling: 2000
+    description: >-
+      MAS architecture optimizer — evaluate tasks for Multi-Agent vs
+      Single-Agent routing, verify draft responses for topic drift and
+      missing content, and log outcomes for closed-loop calibration.
+      Based on 'Towards a Science of Scaling Agent Systems'
+      (arXiv:2512.08296v2).
+    verbose: false
+  mas_orchestrator_tool:
+    _type: tool_calling_agent
+    tool_names:
+      - get_memory
+      - mas_optimizer_tool
+      - add_memory
+      - current_datetime_tool
+    llm_name: reasoning_llm
+    description:
+      'Centralized MAS orchestrator with verifier stage. Spawns three
+      parallel analysis roles (Intent, Principles, Brevity) and a verifier
+      that cross-checks the synthesized output. Reduces error amplification
+      from 17.2x to 4.4x via centralized coordination.
+
+      Use for meta-tasks (self-improvement, architecture design) and
+      complex multi-step requests where the MAS evaluate tool recommends
+      centralized_mas_with_verifier architecture.
+
+      Each sub-role returns a 5-word abstracted phrase to hit the optimal
+      message density (c=0.39 msgs/turn, per paper Fig. 4).'
+    handle_tool_errors: true
+    max_iterations: 15
+    verbose: false
+    system_prompt: |
+      You are the MAS Orchestrator for Daedalus, implementing a centralized
+      Multi-Agent System with verifier stage per 'Towards a Science of
+      Scaling Agent Systems' (arXiv:2512.08296v2).
+
+      # Protocol
+
+      1. Call mas_evaluate to assess the task. If recommendation is SAS,
+         respond directly without orchestration overhead.
+
+      2. If MAS is recommended, execute three analysis roles sequentially:
+         - Intent: Call get_memory to find user corrections and preferences.
+           Summarize in exactly 5 words.
+         - Principles: Identify the applicable MAS architecture rules
+           (centralized preferred for error correction, verifier reduces
+           error amplification to 4.4x). Summarize in 5 words.
+         - Brevity: Call get_memory for response style preferences.
+           Summarize in 5 words.
+
+      3. Synthesize a draft response from the three 5-word summaries.
+
+      4. Call mas_verify with the draft, original task, and task type.
+         If verification fails, apply the revision notes and re-verify
+         once.
+
+      5. Call mas_log_outcome with the final metrics, then persist via
+         add_memory using the returned instruction.
+
+      # Constraints
+
+      - Abstracted outputs only (5-word phrases per role) to minimize
+        message density c to the logarithmic saturation point (~0.39).
+      - Never include raw tool results in the final response.
+      - Always apply verifier revision notes before output.
   deep_thinker_tool:
     _type: tool_calling_agent
     tool_names:
@@ -511,8 +593,9 @@ functions:
       - veterinarian_retriever_tool
       - vtt_interpreter_tool
       - webscrape_tool
+      - mas_optimizer_tool
     llm_name: reasoning_llm
-    verbose: true
+    verbose: false
     handle_tool_errors: true
     max_iterations: 25
   serpapi_search_tool:
@@ -551,7 +634,7 @@ functions:
     timeout: 120
     use_browser_fallback: true
     user_agent: daedalus-webscraper/1.0
-    verbose: true
+    verbose: false
 general:
   telemetry:
     tracing:
@@ -583,7 +666,7 @@ memory:
     host: ${RI_REDIS_HOST_DAEDALUS}
     key_prefix: nat
     port: ${REDIS_PORT}
-    verbose: true
+    verbose: false
 retrievers:
   kubernetes_retriever:
     _type: smart_milvus
@@ -602,7 +685,7 @@ retrievers:
     uri: ${MILVUS_URI}
     use_reranker: true
     vector_field: vector
-    verbose: true
+    verbose: false
   mentalhealth_retriever:
     _type: smart_milvus
     collection_name: mentalhealth
@@ -621,7 +704,7 @@ retrievers:
     uri: ${MILVUS_URI}
     use_reranker: true
     vector_field: vector
-    verbose: true
+    verbose: false
   nvidia_retriever:
     _type: smart_milvus
     collection_name: nvidia
@@ -639,7 +722,7 @@ retrievers:
     uri: ${MILVUS_URI}
     use_reranker: true
     vector_field: vector
-    verbose: true
+    verbose: false
   semianalysis_retriever:
     _type: smart_milvus
     collection_name: semianalysis
@@ -657,7 +740,7 @@ retrievers:
     uri: ${MILVUS_URI}
     use_reranker: true
     vector_field: vector
-    verbose: true
+    verbose: false
   user_uploaded_files_retriever:
     _type: smart_milvus
     content_field: text
@@ -675,7 +758,7 @@ retrievers:
     uri: ${MILVUS_URI}
     use_reranker: true
     vector_field: vector
-    verbose: true
+    verbose: false
   veterinarian_retriever:
     _type: smart_milvus
     collection_name: vetpartner
@@ -693,7 +776,7 @@ retrievers:
     uri: ${MILVUS_URI}
     use_reranker: true
     vector_field: vector
-    verbose: true
+    verbose: false
 workflow:
   _type: tool_calling_agent
   max_iterations: 50
@@ -774,5 +857,7 @@ workflow:
     - image_augmentation_tool
     - image_comprehension_tool
     - image_generation_tool
-  verbose: true
+    - mas_optimizer_tool
+    - mas_orchestrator_tool
+  verbose: false
   workflow_alias: Daedalus

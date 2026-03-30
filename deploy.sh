@@ -154,18 +154,18 @@ fi
 # -------------------------------------------------------------------
 # Rollout restart non-Redis deployments
 # -------------------------------------------------------------------
-#DEPLOYMENTS=(
-#  "$RELEASE-backend-deep-thinker"
-#  "$RELEASE-backend-default"
-#  "$RELEASE-frontend"
-#  "$RELEASE-jupyterlab"
-#  "$RELEASE-nginx"
-#)
+DEPLOYMENTS=(
+  "$RELEASE-backend-deep-thinker"
+  "$RELEASE-backend-default"
+  "$RELEASE-frontend"
+  "$RELEASE-jupyterlab"
+  "$RELEASE-nginx"
+)
 
-#log "Restarting deployments"
-#for deploy in "${DEPLOYMENTS[@]}"; do
-#  log "Rolling out restart for $deploy"
-#  run kubectl -n "$NAMESPACE" rollout restart deployment "$deploy"
-#done
+log "Restarting deployments"
+for deploy in "${DEPLOYMENTS[@]}"; do
+  log "Rolling out restart for $deploy"
+  run kubectl -n "$NAMESPACE" rollout restart deployment "$deploy"
+done
 
 log "Done"
