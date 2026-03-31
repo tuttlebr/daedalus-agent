@@ -6,7 +6,7 @@ requires = ["setuptools>=64.0.0", "wheel"]
 name = "image_augmentation"
 dynamic = ["version"]
 dependencies = [
-  "nvidia-nat[redis,mcp,langchain,phoenix]==1.4.3",
+  "nvidia-nat[redis,mcp,langchain,phoenix]==1.6.0-dev",
   "httpx>=0.28",
   "redis~=4.3.6",
   "Pillow>=10.0"

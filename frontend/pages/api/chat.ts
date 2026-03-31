@@ -566,6 +566,7 @@ const handler = async (req: Request): Promise<Response> => {
           let streamClosed = false;
           let receivedDone = false;
           const toolImageRefs: string[] = []; // Track image references from tool outputs
+          let lastToolOutput = ''; // Track last function output from intermediate_data for response recovery
 
           // Keepalive mechanism: Send a space character every 30 seconds to prevent 504 timeouts
           const keepaliveInterval = setInterval(() => {
@@ -600,6 +601,16 @@ const handler = async (req: Request): Promise<Response> => {
                   if (data.trim() === '[DONE]') {
                     receivedDone = true;
                     clearInterval(keepaliveInterval);
+
+                    // NAT v1.6.0+ sends response only in intermediate_data, not in
+                    // data: chunks. Recover the response from the last tool output.
+                    if (!totalResponseText.trim() && lastToolOutput) {
+                      totalResponseText = lastToolOutput;
+                      controller.enqueue(encoder.encode(lastToolOutput));
+                      logger.info('recovered response from intermediate_data function output', {
+                        outputLength: lastToolOutput.length,
+                      });
+                    }
 
                     // Inject image references from tool outputs that weren't included in the LLM response
                     if (toolImageRefs.length > 0) {
@@ -787,10 +798,91 @@ const handler = async (req: Request): Promise<Response> => {
                     logger.error('error parsing JSON', error);
                   }
                 }
-                // Legacy intermediate_data: prefix - log and skip
-                // Intermediate steps are now extracted from data: chunks via system_intermediate JSON objects
+                // NAT v1.6.0+ sends intermediate steps via intermediate_data: prefix
                 if (line.startsWith('intermediate_data: ')) {
-                  logger.debug('received legacy intermediate_data prefix, skipping (handled via data: chunks)');
+                  const intermediateJson = line.slice('intermediate_data: '.length);
+                  try {
+                    const parsedStep = JSON.parse(intermediateJson);
+                    const isComplete = parsedStep.name?.includes('Complete:');
+                    const isWorkflow = parsedStep.name?.includes('<workflow>');
+
+                    // Extract clean tool name: "Function Start: get_memory" → "get_memory"
+                    const cleanName = parsedStep.name
+                      ?.replace(/^Function (Start|Complete): /, '')
+                      .replace(/<|>/g, '') || 'System Step';
+
+                    // Map to proper event types so activity indicator and step
+                    // consolidation work correctly
+                    let eventType: IntermediateStepType;
+                    if (isWorkflow) {
+                      eventType = isComplete
+                        ? IntermediateStepType.WORKFLOW_END
+                        : IntermediateStepType.WORKFLOW_START;
+                    } else {
+                      eventType = isComplete
+                        ? IntermediateStepType.TOOL_END
+                        : IntermediateStepType.TOOL_START;
+                    }
+
+                    // Forward as intermediate step for the UI
+                    if (additionalProps.enableIntermediateSteps === true) {
+                      const intermediateStep = {
+                        parent_id: parsedStep.parent_id || 'root',
+                        function_ancestry: {
+                          node_id: parsedStep.id || `step-${Date.now()}`,
+                          parent_id: parsedStep.parent_id || null,
+                          function_name: cleanName,
+                          depth: 0
+                        },
+                        payload: {
+                          event_type: eventType,
+                          event_timestamp: Date.now() / 1000,
+                          name: cleanName,
+                          metadata: { original_payload: parsedStep },
+                          data: { output: parsedStep.payload || '' },
+                          UUID: parsedStep.id || `${Date.now()}-${Math.random()}`
+                        }
+                      };
+
+                      // Track image references from completed tool steps
+                      if (isComplete && typeof parsedStep.payload === 'string') {
+                        const imageRefPattern = /!\[[^\]]*\]\(\/api\/generated-image\/[a-f0-9-]+\)/g;
+                        const matches = parsedStep.payload.match(imageRefPattern);
+                        if (matches) {
+                          toolImageRefs.push(...matches);
+                          logger.info('captured image reference(s) from intermediate_data', { count: matches.length });
+                        }
+                      }
+
+                      const messageString = `<intermediatestep>${JSON.stringify(intermediateStep)}</intermediatestep>`;
+                      controller.enqueue(encoder.encode(messageString));
+                    }
+
+                    // Extract function output for response recovery (skip workflow wrapper).
+                    // Uses string indexing instead of regex because the response can
+                    // contain triple-backtick code blocks that break non-greedy matching.
+                    if (isComplete && !isWorkflow && typeof parsedStep.payload === 'string') {
+                      const marker = '**Function Output:**\n```';
+                      const markerIdx = parsedStep.payload.lastIndexOf(marker);
+                      if (markerIdx !== -1) {
+                        // Skip past the opening fence line (```python, ```json, etc.)
+                        const contentStart = parsedStep.payload.indexOf('\n', markerIdx + marker.length);
+                        if (contentStart !== -1) {
+                          let output = parsedStep.payload.slice(contentStart + 1);
+                          // Strip the trailing closing fence (always the last ``` in the payload)
+                          const lastFence = output.lastIndexOf('\n```');
+                          if (lastFence !== -1) {
+                            output = output.slice(0, lastFence);
+                          }
+                          if (output.trim() && output.trim() !== '[]') {
+                            lastToolOutput = output.trim();
+                          }
+                        }
+                      }
+                    }
+                  } catch (error) {
+                    logger.error('error parsing intermediate_data JSON', error);
+                  }
                 }
               }
             }

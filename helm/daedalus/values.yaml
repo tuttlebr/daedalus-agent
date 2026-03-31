@@ -297,6 +297,8 @@ autonomousAgent:
   backendType: "default"
   securityContext: {}
   schedule: "0 */12 * * *"
+  # IANA timezone for the cron schedule (requires K8s 1.27+)
+  timeZone: "America/New_York"
   # Hard deadline per job — pod is killed after this many seconds
   activeDeadlineSeconds: 600
   # HTTP timeout for the backend API call (leave buffer before activeDeadlineSeconds)

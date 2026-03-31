@@ -334,6 +334,7 @@ async function processJobAsync(jobId: string): Promise<void> {
 
     logger.info(`Job ${jobId}: Starting to read response stream`);
 
+    let lastToolOutput = ''; // Track last function output from intermediate_data for response recovery
     let streamComplete = false;
     try {
       while (true) {
@@ -607,6 +608,29 @@ async function processJobAsync(jobId: string): Promise<void> {
                 // Add step with deduplication
                 intermediateSteps = addIntermediateSteps(intermediateSteps, [intermediateStep], jobId);
 
+                // Extract function output for response recovery (skip workflow wrapper).
+                // NAT v1.6.0+ sends the final response only inside intermediate_data,
+                // not in data: chunks, so we need to recover it here.
+                const isComplete = payload.name?.includes('Complete:');
+                const isWorkflow = payload.name?.includes('<workflow>');
+                if (isComplete && !isWorkflow && typeof payload.payload === 'string') {
+                  const marker = '**Function Output:**\n```';
+                  const markerIdx = payload.payload.lastIndexOf(marker);
+                  if (markerIdx !== -1) {
+                    const contentStart = payload.payload.indexOf('\n', markerIdx + marker.length);
+                    if (contentStart !== -1) {
+                      let output = payload.payload.slice(contentStart + 1);
+                      const lastFence = output.lastIndexOf('\n```');
+                      if (lastFence !== -1) {
+                        output = output.slice(0, lastFence);
+                      }
+                      if (output.trim() && output.trim() !== '[]') {
+                        lastToolOutput = output.trim();
+                      }
+                    }
+                  }
+                }
+
                 // Publish intermediate step to Redis for WS streaming
                 if (jobRequest.conversationId) {
                   const tokenChannel = `user:${jobRequest.userId}:chat:${jobRequest.conversationId}:tokens`;
@@ -700,6 +724,15 @@ async function processJobAsync(jobId: string): Promise<void> {
           fullText += buffer;
         }
       }
+    }
+
+    // NAT v1.6.0+ sends response only in intermediate_data, not in
+    // data: chunks. Recover the response from the last tool output.
+    if (!fullText.trim() && lastToolOutput) {
+      fullText = lastToolOutput;
+      logger.info(`Job ${jobId}: Recovered response from intermediate_data function output`, {
+        outputLength: lastToolOutput.length,
+      });
     }
 
     logger.info(`Job ${jobId}: Stream processing complete`, {

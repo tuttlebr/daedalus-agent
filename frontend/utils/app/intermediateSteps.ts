@@ -290,6 +290,7 @@ const CATEGORY_LABELS: Record<IntermediateStepCategory, string> = {
   [IntermediateStepCategory.TOOL]: 'Using tool',
   [IntermediateStepCategory.WORKFLOW]: 'Running workflow',
   [IntermediateStepCategory.TASK]: 'Processing',
+  [IntermediateStepCategory.TTC]: 'Evaluating candidates',
   [IntermediateStepCategory.FUNCTION]: 'Running function',
   [IntermediateStepCategory.CUSTOM]: 'Processing',
   [IntermediateStepCategory.SPAN]: 'Processing',

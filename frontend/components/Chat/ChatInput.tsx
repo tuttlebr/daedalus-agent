@@ -150,22 +150,6 @@ export const ChatInput: React.FC<Props> = ({
   const [isUploadingVideo, setIsUploadingVideo] = useState(false);
   const [selectedCollection, setSelectedCollection] = useState<string>('');
 
-  // Streaming elapsed timer
-  const [streamingElapsed, setStreamingElapsed] = useState(0);
-  const streamingStartRef = useRef<number>(0);
-  useEffect(() => {
-    if (resolvedIsStreaming) {
-      streamingStartRef.current = Date.now();
-      setStreamingElapsed(0);
-      const timer = setInterval(() => {
-        setStreamingElapsed(Math.floor((Date.now() - streamingStartRef.current) / 1000));
-      }, 1000);
-      return () => clearInterval(timer);
-    } else {
-      setStreamingElapsed(0);
-    }
-  }, [resolvedIsStreaming]);
-
   // Unified upload tracking system with cancellation support
   interface UploadState {
     id: string;
@@ -1934,40 +1918,6 @@ export const ChatInput: React.FC<Props> = ({
                 >
                   Sign in
                 </a>
-              </div>
-            </div>
-          )}
-          {/* Agent working indicator — fixed above input, always visible during streaming */}
-          {resolvedIsStreaming && (
-            <div className="w-full mb-2 px-4 animate-morph-in">
-              <div className={`flex items-center gap-3 rounded-lg px-3 py-2 ${
-                useDeepThinker
-                  ? 'bg-nvidia-purple/5'
-                  : 'bg-nvidia-green/5'
-              }`}>
-                {/* Sweeping bar */}
-                <div className="agent-heartbeat-bar flex-1 !max-w-none" data-deep-thinker={useDeepThinker} />
-
-                {/* Breathing dot + label */}
-                <div className="flex items-center gap-2 flex-shrink-0">
-                  <span className={`heartbeat-dot w-2 h-2 rounded-full flex-shrink-0 ${
-                    useDeepThinker ? 'bg-nvidia-purple' : 'bg-nvidia-green'
-                  }`} />
-                  <span className={`text-xs font-medium whitespace-nowrap ${
-                    useDeepThinker ? 'text-nvidia-purple/70' : 'text-nvidia-green/70'
-                  }`}>
-                    Agent is working…
-                  </span>
-                </div>
-
-                {/* Elapsed timer */}
-                <span className={`text-[11px] tabular-nums flex-shrink-0 ${
-                  useDeepThinker ? 'text-nvidia-purple/40' : 'text-nvidia-green/40'
-                }`}>
-                  {streamingElapsed < 60
-                    ? `${streamingElapsed}s`
-                    : `${Math.floor(streamingElapsed / 60)}m ${(streamingElapsed % 60).toString().padStart(2, '0')}s`}
-                </span>
               </div>
             </div>
           )}

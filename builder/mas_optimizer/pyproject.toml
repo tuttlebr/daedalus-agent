@@ -6,7 +6,7 @@ requires = ["setuptools>=64.0.0", "wheel"]
 name = "mas_optimizer"
 dynamic = ["version"]
 dependencies = [
-  "nvidia-nat[redis,mcp,langchain,phoenix]==1.4.3",
+  "nvidia-nat[redis,mcp,langchain,phoenix]==1.6.0-dev",
 ]
 requires-python = ">=3.11,<3.14"
 description = "MAS-optimized architecture selector for NeMo Agent Toolkit — capability gating, task decomposability analysis, and verifier stage per 'Towards a Science of Scaling Agent Systems' (arXiv:2512.08296v2)."

@@ -10,6 +10,8 @@ export enum IntermediateStepType {
   WORKFLOW_END = "WORKFLOW_END",
   TASK_START = "TASK_START",
   TASK_END = "TASK_END",
+  TTC_START = "TTC_START",
+  TTC_END = "TTC_END",
   FUNCTION_START = "FUNCTION_START",
   FUNCTION_END = "FUNCTION_END",
   CUSTOM_START = "CUSTOM_START",
@@ -24,6 +26,7 @@ export enum IntermediateStepCategory {
   TOOL = "TOOL",
   WORKFLOW = "WORKFLOW",
   TASK = "TASK",
+  TTC = "TTC",
   FUNCTION = "FUNCTION",
   CUSTOM = "CUSTOM",
   SPAN = "SPAN"
@@ -45,6 +48,7 @@ export interface StreamEventData {
   input?: any;
   output?: any;
   chunk?: any;
+  payload?: any; // Raw generation payload for downstream processing
   result?: any;
   content?: any;
   response?: { content?: string; text?: string; [key: string]: any };
@@ -139,6 +143,9 @@ export function getEventCategory(eventType: IntermediateStepType): IntermediateS
     case IntermediateStepType.TASK_START:
     case IntermediateStepType.TASK_END:
       return IntermediateStepCategory.TASK;
+    case IntermediateStepType.TTC_START:
+    case IntermediateStepType.TTC_END:
+      return IntermediateStepCategory.TTC;
     case IntermediateStepType.FUNCTION_START:
     case IntermediateStepType.FUNCTION_END:
       return IntermediateStepCategory.FUNCTION;
@@ -160,6 +167,7 @@ export function getEventState(eventType: IntermediateStepType): IntermediateStep
     case IntermediateStepType.TOOL_START:
     case IntermediateStepType.WORKFLOW_START:
     case IntermediateStepType.TASK_START:
+    case IntermediateStepType.TTC_START:
     case IntermediateStepType.FUNCTION_START:
     case IntermediateStepType.CUSTOM_START:
     case IntermediateStepType.SPAN_START:
@@ -171,6 +179,7 @@ export function getEventState(eventType: IntermediateStepType): IntermediateStep
     case IntermediateStepType.TOOL_END:
     case IntermediateStepType.WORKFLOW_END:
     case IntermediateStepType.TASK_END:
+    case IntermediateStepType.TTC_END:
     case IntermediateStepType.FUNCTION_END:
     case IntermediateStepType.CUSTOM_END:
     case IntermediateStepType.SPAN_END:

@@ -74,6 +74,7 @@ function stepToActivityText(step: IntermediateStep): string | null {
   if (event_type === IntermediateStepType.LLM_START) return 'Reasoning...';
   if (event_type === IntermediateStepType.WORKFLOW_START) return 'Starting workflow...';
   if (event_type === IntermediateStepType.TASK_START) return name ? `Running ${name}...` : 'Running task...';
+  if (event_type === IntermediateStepType.TTC_START) return 'Evaluating candidates...';
   return null;
 }
 
@@ -246,17 +247,20 @@ export const Chat = () => {
         return;
       }
 
-      // Update UI with partial response using current ref
+      // Update UI with partial response or intermediate steps using current ref
       const currentConversation = conversationId
         ? conversationsRef.current.find((conversation) => conversation.id === conversationId)
         : selectedConversationRef.current;
-      if (status.partialResponse && currentConversation) {
-        const safePartialResponse = sanitizeInlineImagesForDisplay(status.partialResponse);
+      if ((status.partialResponse || status.intermediateSteps?.length) && currentConversation) {
+        const safePartialResponse = sanitizeInlineImagesForDisplay(status.partialResponse || '');
         const updatedMessages = [...currentConversation.messages];
         const lastMessage = updatedMessages[updatedMessages.length - 1];
 
         if (lastMessage && lastMessage.role === 'assistant') {
-          lastMessage.content = safePartialResponse;
+          // Only overwrite content if we have new content (avoid clobbering WS-accumulated tokens)
+          if (safePartialResponse) {
+            lastMessage.content = safePartialResponse;
+          }
           // Merge intermediate steps to avoid duplicates
           lastMessage.intermediateSteps = mergeIntermediateSteps(
             lastMessage.intermediateSteps || [],
@@ -1333,6 +1337,7 @@ export const Chat = () => {
 
                 const endEventTypes = [
                   IntermediateStepType.LLM_END,
+                  IntermediateStepType.TOOL_END,
                   IntermediateStepType.WORKFLOW_END,
                   IntermediateStepType.TASK_END,
                   IntermediateStepType.FUNCTION_END,
@@ -1348,9 +1353,38 @@ export const Chat = () => {
                 for (let i = steps.length - 1; i >= 0; i--) {
                   const step = steps[i];
                   if (endEventTypes.includes(step?.payload?.event_type)) {
-                    // Strategy 1: Check data.output
+                    // Strategy 0 (NAT v1.6.0+): data.output is the full markdown
+                    // payload from intermediate_data. Extract just the function output.
+                    const rawOutput = step?.payload?.data?.output;
+                    if (rawOutput && typeof rawOutput === 'string') {
+                      // Try **Function Output:** (function events) then **Output:** (tool events)
+                      for (const marker of ['**Function Output:**\n```', '**Output:**\n```']) {
+                        const mIdx = rawOutput.lastIndexOf(marker);
+                        if (mIdx !== -1) {
+                          const nlAfterFence = rawOutput.indexOf('\n', mIdx + marker.length);
+                          if (nlAfterFence !== -1) {
+                            let clean = rawOutput.slice(nlAfterFence + 1);
+                            const closeFence = clean.lastIndexOf('\n```');
+                            if (closeFence !== -1) clean = clean.slice(0, closeFence);
+                            if (clean.trim() && clean.trim() !== '[]') {
+                              extractedContent = clean.trim();
+                              extractionSource = 'intermediate_data.function_output';
+                              logger.debug('Extracted function output from intermediate_data payload', {
+                                eventType: step.payload.event_type,
+                                outputLength: extractedContent.length,
+                              });
+                              break;
+                            }
+                          }
+                        }
+                      }
+                      if (extractedContent) break;
+                    }
+
+                    // Strategy 1: Check data.output (plain string, not markdown)
                     const output = step?.payload?.data?.output;
-                    if (output && typeof output === 'string' && output.trim()) {
+                    if (output && typeof output === 'string' && output.trim()
+                        && !output.includes('**Function Input:**') && !output.includes('**Input:**')) {
                       extractedContent = output;
                       extractionSource = 'data.output';
                       logger.debug('Extracted final response from intermediate step data.output', {

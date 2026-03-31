@@ -8,6 +8,7 @@ metadata:
     app.kubernetes.io/component: autonomous-agent
 spec:
   schedule: {{ .Values.autonomousAgent.schedule | quote }}
+  timeZone: {{ .Values.autonomousAgent.timeZone | default "America/New_York" | quote }}
   concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: {{ .Values.autonomousAgent.successfulJobsHistoryLimit }}
   failedJobsHistoryLimit: {{ .Values.autonomousAgent.failedJobsHistoryLimit }}
