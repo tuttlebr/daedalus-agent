@@ -1,0 +1,26 @@
+[build-system]
+build-backend = "setuptools.build_meta"
+requires = ["setuptools>=64.0.0", "wheel"]
+
+[project]
+name = "content_distiller"
+dynamic = ["version"]
+dependencies = [
+  "nvidia-nat[redis,mcp,langchain,phoenix]==1.4.3",
+]
+requires-python = ">=3.11,<3.14"
+description = "Secondary LLM content processing for NeMo Agent Toolkit. Summarizes, extracts structured data from, and synthesizes long-form content."
+classifiers = ["Programming Language :: Python"]
+
+[project.entry-points.'nat.components']
+content_distiller = "content_distiller.register"
+
+[tool.setuptools]
+packages = ["content_distiller"]
+package-dir = {"" = "src"}
+
+[tool.setuptools.package-data]
+content_distiller = ["configs/*.yml", "configs/*.yaml"]
+
+[tool.uv]
+config-settings = { editable_mode = "compat" }

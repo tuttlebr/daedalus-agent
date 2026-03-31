@@ -1,0 +1,26 @@
+[build-system]
+build-backend = "setuptools.build_meta"
+requires = ["setuptools>=64.0.0", "wheel"]
+
+[project]
+name = "user_interaction"
+dynamic = ["version"]
+dependencies = [
+  "nvidia-nat[redis,mcp,langchain,phoenix]==1.4.3",
+]
+requires-python = ">=3.11,<3.14"
+description = "Structured user interaction tools for NeMo Agent Toolkit. Provides frameworks for clarification, confirmation, and preference gathering."
+classifiers = ["Programming Language :: Python"]
+
+[project.entry-points.'nat.components']
+user_interaction = "user_interaction.register"
+
+[tool.setuptools]
+packages = ["user_interaction"]
+package-dir = {"" = "src"}
+
+[tool.setuptools.package-data]
+user_interaction = ["configs/*.yml", "configs/*.yaml"]
+
+[tool.uv]
+config-settings = { editable_mode = "compat" }

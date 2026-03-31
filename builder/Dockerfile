@@ -71,6 +71,9 @@ COPY agent_skills /workspace/agent_skills
 COPY serpapi_search /workspace/serpapi_search
 COPY json_repair_agent /workspace/json_repair_agent
 COPY mas_optimizer /workspace/mas_optimizer
+COPY think_tool /workspace/think_tool
+COPY content_distiller /workspace/content_distiller
+COPY user_interaction /workspace/user_interaction
 COPY --from=skills . /skills
 
 RUN --mount=type=cache,id=uv_cache,target=/root/.cache/uv,sharing=locked \
@@ -87,7 +90,10 @@ RUN --mount=type=cache,id=uv_cache,target=/root/.cache/uv,sharing=locked \
     -e agent_skills \
     -e serpapi_search \
     -e json_repair_agent \
-    -e mas_optimizer
+    -e mas_optimizer \
+    -e think_tool \
+    -e content_distiller \
+    -e user_interaction
 
 RUN --mount=type=cache,id=uv_cache,target=/root/.cache/uv,sharing=locked \
     NAT_VERSION= nat workflow reinstall image_augmentation && \
@@ -101,7 +107,10 @@ RUN --mount=type=cache,id=uv_cache,target=/root/.cache/uv,sharing=locked \
     NAT_VERSION= nat workflow reinstall agent_skills && \
     NAT_VERSION= nat workflow reinstall serpapi_search && \
     NAT_VERSION= nat workflow reinstall json_repair_agent && \
-    NAT_VERSION= nat workflow reinstall mas_optimizer
+    NAT_VERSION= nat workflow reinstall mas_optimizer && \
+    NAT_VERSION= nat workflow reinstall think_tool && \
+    NAT_VERSION= nat workflow reinstall content_distiller && \
+    NAT_VERSION= nat workflow reinstall user_interaction
 
 ENV PLAYWRIGHT_BROWSERS_PATH=/workspace/.playwright
 RUN playwright install chromium --with-deps

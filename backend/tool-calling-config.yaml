@@ -7,6 +7,7 @@ authentication:
 embedders:
   milvus_embedder:
     _type: nim
+    api_key: ${EMBEDDING_API_KEY}
     base_url: ${EMBEDDING_BASE_URL}
     model_name: ${EMBEDDING_MODEL}
     truncate: END
@@ -14,6 +15,7 @@ function_groups:
   github_mcp_server:
     _type: mcp_client
     tool_call_timeout: 120
+    reconnect_enabled: true
     include:
       - get_file_contents
       - get_label
@@ -42,6 +44,7 @@ function_groups:
   dynamo_mcp_server:
     _type: mcp_client
     tool_call_timeout: 120
+    reconnect_enabled: true
     include:
       - searchDocs
     server:
@@ -57,6 +60,7 @@ function_groups:
   serpapi_mcp_server:
     _type: mcp_client
     tool_call_timeout: 120
+    reconnect_enabled: true
     server:
       transport: streamable-http
       url: https://mcp.serpapi.com/${SERPAPI_KEY}/mcp
@@ -169,9 +173,9 @@ functions:
   image_augmentation_tool:
     _type: image_augmentation
     api_endpoint: ${IMAGE_AUGMENTATION_BASE_URL}
-    api_key: ${NVIDIA_INFERENCE_API_KEY}
+    api_key: ${IMAGE_AUGMENTATION_API_KEY}
     api_type: openai
-    openai_model: gcp/google/gemini-3-pro-image-preview
+    openai_model: ${IMAGE_AUGMENTATION_MODEL}
     description:
       'Modify an existing user-uploaded image by applying edits, filters,
       transformations, or adding visual elements. The user must have already
@@ -194,9 +198,9 @@ functions:
   image_comprehension_tool:
     _type: image_comprehension
     api_endpoint: ${IMAGE_COMPREHENSION_BASE_URL}
-    api_key: ${NVIDIA_INFERENCE_API_KEY}
+    api_key: ${IMAGE_COMPREHENSION_API_KEY}
     api_type: openai
-    openai_model: gcp/google/gemini-3-pro-image-preview
+    openai_model: ${IMAGE_COMPREHENSION_MODEL}
     description: 'Analyze a user-uploaded image and provide descriptions, answer
       questions, extract text (OCR), identify objects, or describe scenes.
       Does not modify the image.
@@ -220,9 +224,9 @@ functions:
   image_generation_tool:
     _type: image_generation
     api_endpoint: ${IMAGE_GENERATION_BASE_URL}
-    api_key: ${NVIDIA_INFERENCE_API_KEY}
+    api_key: ${IMAGE_GENERATION_API_KEY}
     api_type: openai
-    openai_model: gcp/google/gemini-3-pro-image-preview
+    openai_model: ${IMAGE_GENERATION_MODEL}
     description:
       'Generate a new image from a text description. Produces a 1024x1024
       image based on the prompt. Use when the user requests an original
@@ -313,7 +317,7 @@ functions:
       commentary, or broad NVIDIA news and viewpoints.
     feed_url: https://feeds.feedburner.com/nvidiablog
     max_entries: 5
-    reranker_api_key: ${NVIDIA_API_KEY}
+    reranker_api_key: ${REANKER_API_KEY}
     reranker_endpoint: ${REANKER_BASE_URL}
     reranker_model: ${REANKER_MODEL}
     verbose: false
@@ -328,7 +332,7 @@ functions:
       release notes, or technical implementation guides.
     feed_url: https://developer.nvidia.com/blog/feed
     max_entries: 5
-    reranker_api_key: ${NVIDIA_API_KEY}
+    reranker_api_key: ${REANKER_API_KEY}
     reranker_endpoint: ${REANKER_BASE_URL}
     reranker_model: ${REANKER_MODEL}
     verbose: false
@@ -343,7 +347,7 @@ functions:
       dates, business partnerships, or corporate news.
     feed_url: https://nvidianews.nvidia.com/releases.xml
     max_entries: 5
-    reranker_api_key: ${NVIDIA_API_KEY}
+    reranker_api_key: ${REANKER_API_KEY}
     reranker_endpoint: ${REANKER_BASE_URL}
     reranker_model: ${REANKER_MODEL}
     verbose: false
@@ -384,7 +388,7 @@ functions:
       conditions.
     feed_url: https://newsletter.semianalysis.com/feed
     max_entries: 5
-    reranker_api_key: ${NVIDIA_API_KEY}
+    reranker_api_key: ${REANKER_API_KEY}
     reranker_endpoint: ${REANKER_BASE_URL}
     reranker_model: ${REANKER_MODEL}
     verbose: false
@@ -398,7 +402,7 @@ functions:
       posts ranked against the query.
     feed_url: https://karpathy.bearblog.dev/feed/
     max_entries: 5
-    reranker_api_key: ${NVIDIA_API_KEY}
+    reranker_api_key: ${REANKER_API_KEY}
     reranker_endpoint: ${REANKER_BASE_URL}
     reranker_model: ${REANKER_MODEL}
     verbose: false
@@ -411,7 +415,7 @@ functions:
       Returns the most relevant recent posts ranked against the query.
     feed_url: https://karpathy.github.io/feed.xml
     max_entries: 5
-    reranker_api_key: ${NVIDIA_API_KEY}
+    reranker_api_key: ${REANKER_API_KEY}
     reranker_endpoint: ${REANKER_BASE_URL}
     reranker_model: ${REANKER_MODEL}
     verbose: false
@@ -443,8 +447,9 @@ functions:
     distance_cutoff: 1.2
     embedder_name: milvus_embedder
     milvus_uri: ${MILVUS_URI}
-    reranker_endpoint: ${NVIDIA_INFERENCE_BASE_URL}/ranking
-    reranker_model: nvidia/nvidia/llama-3.2-nv-rerankqa-1b-v2
+    reranker_api_key: ${REANKER_API_KEY}
+    reranker_endpoint: ${REANKER_BASE_URL}
+    reranker_model: ${REANKER_MODEL}
     reranker_top_n: 5
     top_k: 10
     use_reranker: true
@@ -467,7 +472,7 @@ functions:
     _type: vtt_interpreter
     api_endpoint: ${DEFAULT_LLM_MODEL_BASE_URL}
     model: ${DEFAULT_LLM_MODEL_MODEL}
-    api_key: ${NVIDIA_API_KEY}
+    api_key: ${DEFAULT_LLM_MODEL_API_KEY}
     description:
       'Convert VTT or SRT transcript text into structured meeting notes
       organized into four sections: Attendees, Business Updates, Technical
@@ -484,12 +489,49 @@ functions:
       '
     timeout: 120
     verbose: false
+  think_tool:
+    _type: think_tool
+    max_thought_length: 50000
+    max_chain_steps: 20
+    description: >-
+      Cognitive reasoning scratchpad. Provides think() for single-step
+      private reasoning and sequential_think() for multi-step chains with
+      revision. Zero side effects. Use to process complex requests, plan
+      tool invocations, synthesize multi-source results, or check reasoning
+      before acting. Call think BEFORE acting whenever the path forward is
+      not immediately obvious.
+    verbose: false
+  content_distiller_tool:
+    _type: content_distiller
+    fast_llm_name: distill_llm
+    llm_name: tool_calling_llm
+    max_input_chars: 100000
+    max_output_tokens: 4096
+    temperature: 0.1
+    wrapper_type: LANGCHAIN
+    description: >-
+      Secondary LLM content processing pipeline. Provides three tools:
+      distill_content (summarize/focus long content), extract_structured
+      (pull structured data from unstructured text), and synthesize
+      (combine multiple source fragments into coherent analysis). Use to
+      post-process verbose tool outputs before responding.
+    verbose: false
+  user_interaction_tool:
+    _type: user_interaction
+    max_options: 6
+    description: >-
+      Structured user interaction framework. Provides clarify (ask
+      clarification questions with options), confirm_action (get approval
+      before consequential actions), and present_options (structured
+      comparison of alternatives). Use to reduce ambiguity and prevent
+      wasted effort.
+    verbose: false
   mas_optimizer_tool:
     _type: mas_optimizer
     sas_accuracy_threshold: 0.45
     decomposability_threshold: 0.35
     tool_count_threshold: 12
-    default_user_id: ${DAEDALUS_DEFAULT_USER:-tuttlebr}
+    default_user_id: ${DAEDALUS_DEFAULT_USER:-daedalus}
     drift_keywords:
       - vision language
       - VLM
@@ -512,65 +554,139 @@ functions:
   mas_orchestrator_tool:
     _type: tool_calling_agent
     tool_names:
-      - get_memory
-      - mas_optimizer_tool
       - add_memory
+      - agent_skills_tool
+      - content_distiller_tool
       - current_datetime_tool
+      - delete_memory
+      - dynamo_mcp_server
+      - get_memory
+      - github_mcp_server
+      - k8s_mcp_server
+      - kubernetes_retriever_tool
+      - mentalhealth_retriever_tool
+      - nvidia_blog_rss
+      - nvidia_developer_blog_rss
+      - nvidia_news_room_rss
+      - nvidia_retriever_tool
+      - semianalysis_retriever_tool
+      - semianalysis_rss
+      - karpathy_bearblog_rss
+      - karpathy_github_rss
+      - serpapi_search_tool
+      - think_tool
+      - user_interaction_tool
+      - user_uploaded_files_retriever_tool
+      - veterinarian_retriever_tool
+      - vtt_interpreter_tool
+      - webscrape_tool
+      - mas_optimizer_tool
     llm_name: reasoning_llm
-    description:
-      'Centralized MAS orchestrator with verifier stage. Spawns three
-      parallel analysis roles (Intent, Principles, Brevity) and a verifier
-      that cross-checks the synthesized output. Reduces error amplification
-      from 17.2x to 4.4x via centralized coordination.
-
-      Use for meta-tasks (self-improvement, architecture design) and
-      complex multi-step requests where the MAS evaluate tool recommends
-      centralized_mas_with_verifier architecture.
-
-      Each sub-role returns a 5-word abstracted phrase to hit the optimal
-      message density (c=0.39 msgs/turn, per paper Fig. 4).'
+    description: >-
+      Primary query handler for all non-image requests. Evaluates every
+      task with mas_evaluate to select Single-Agent (SAS) or Multi-Agent
+      (MAS) architecture. For SAS tasks, uses tools directly with no
+      overhead. For MAS tasks, spawns parallel analysis roles with a
+      verifier stage that reduces error amplification from 17.2x to 4.4x.
     handle_tool_errors: true
-    max_iterations: 15
+    max_iterations: 30
     verbose: false
     system_prompt: |
-      You are the MAS Orchestrator for Daedalus, implementing a centralized
-      Multi-Agent System with verifier stage per 'Towards a Science of
-      Scaling Agent Systems' (arXiv:2512.08296v2).
+      You are Daedalus, built on NVIDIA NeMo Agent toolkit and implementing
+      task-contingent architecture selection per 'Towards a Science of
+      Scaling Agent Systems' (arXiv:2512.08296v2). Your audience is senior
+      technology executives and founders.
 
-      # Protocol
+      # Startup
 
-      1. Call mas_evaluate to assess the task. If recommendation is SAS,
-         respond directly without orchestration overhead.
+      On every request, call get_memory(user_id=<username>,
+      query="user preferences, interests, and context", top_k=5) in
+      parallel with mas_evaluate to assess the task.
 
-      2. If MAS is recommended, execute three analysis roles sequentially:
-         - Intent: Call get_memory to find user corrections and preferences.
+      Exception: when the user requests their daily briefing, call
+      get_memory FIRST and wait for results before calling any other
+      tools. The briefing procedure and its constraints are stored in
+      memory and must be followed exactly.
+
+      # Architecture routing
+
+      If mas_evaluate recommends SAS: use your tools directly to answer
+      the query. No orchestration overhead.
+
+      If mas_evaluate recommends MAS (centralized_mas_with_verifier):
+      1. Execute three analysis roles:
+         - Intent: Call get_memory for user corrections and preferences.
            Summarize in exactly 5 words.
-         - Principles: Identify the applicable MAS architecture rules
-           (centralized preferred for error correction, verifier reduces
-           error amplification to 4.4x). Summarize in 5 words.
+         - Principles: Identify applicable architecture rules. Summarize
+           in 5 words.
          - Brevity: Call get_memory for response style preferences.
            Summarize in 5 words.
+      2. Synthesize a draft response from the three summaries, using
+         retrieval and search tools as needed to gather information.
+      3. Call mas_verify with the draft, original task, and task type.
+         If verification fails, apply revision notes and re-verify once.
+      4. Call mas_log_outcome with final metrics, then persist via
+         add_memory.
 
-      3. Synthesize a draft response from the three 5-word summaries.
+      # Memory
 
-      4. Call mas_verify with the draft, original task, and task type.
-         If verification fails, apply the revision notes and re-verify
-         once.
+      Store noteworthy preferences or details with add_memory as clear
+      declarative statements. Include metadata key_value_pairs when it
+      aids retrieval. Call get_memory mid-conversation with topic-specific
+      queries when prior context would improve your answer.
 
-      5. Call mas_log_outcome with the final metrics, then persist via
-         add_memory using the returned instruction.
+      # Style
 
-      # Constraints
+      Brevity and information density are paramount. Every sentence should
+      earn its place. Lead with the answer; add supporting detail only
+      when it changes what the reader would do. Write the way a sharp
+      colleague talks: natural, confident, no filler. If it would sound
+      stilted or awkward spoken aloud, rewrite it. Reserve lists and
+      tables for genuinely comparative content.
 
-      - Abstracted outputs only (5-word phrases per role) to minimize
-        message density c to the logarithmic saturation point (~0.39).
-      - Never include raw tool results in the final response.
-      - Always apply verifier revision notes before output.
+      Never use em dashes, emojis, or emoticons. Minimize bold/italic.
+      Keep paragraphs short.
+
+      # Reasoning
+
+      Use think() before acting whenever the request is complex, ambiguous,
+      or requires synthesizing information from multiple sources. Use
+      sequential_think() for extended multi-step analysis that benefits
+      from tracking and revising reasoning steps.
+
+      # User interaction
+
+      Use clarify when a request has multiple valid interpretations.
+      Use confirm_action before modifying external state (Kubernetes,
+      GitHub, memory deletion). Use present_options when you identify
+      multiple valid approaches and the best choice depends on user
+      preferences.
+
+      # Content processing
+
+      When tool outputs are verbose (web scrapes, long RSS articles,
+      multiple retriever chunks), use content_distiller_tool to process
+      them before incorporating into your response. Use distill_content
+      for summarization, extract_structured for pulling specific data
+      points, and synthesize when combining information from multiple
+      sources.
+
+      # Tool selection
+
+      Prefer retrieval and real-time data over prior knowledge. On tool
+      failure, explain and suggest alternatives. State uncertainty
+      honestly; offer to investigate.
+
+      user_uploaded_files_retriever_tool is ONLY for searching the content
+      of documents the user has explicitly uploaded and ingested. NEVER use
+      it as a substitute for get_memory, and NEVER call it unless the user
+      is asking about a specific document they uploaded.
   deep_thinker_tool:
     _type: tool_calling_agent
     tool_names:
       - add_memory
       - agent_skills_tool
+      - content_distiller_tool
       - current_datetime_tool
       - delete_memory
       - dynamo_mcp_server
@@ -589,6 +705,8 @@ functions:
       - karpathy_bearblog_rss
       - karpathy_github_rss
       - serpapi_search_tool
+      - think_tool
+      - user_interaction_tool
       - user_uploaded_files_retriever_tool
       - veterinarian_retriever_tool
       - vtt_interpreter_tool
@@ -633,7 +751,7 @@ functions:
     respect_robots_txt: false
     timeout: 120
     use_browser_fallback: true
-    user_agent: daedalus-webscraper/1.0
+    user_agent: daedalus-webscraper/0.1.0
     verbose: false
 general:
   telemetry:
@@ -645,19 +763,24 @@ general:
 llms:
   reasoning_llm:
     _type: openai
-    api_key: ${NVIDIA_INFERENCE_API_KEY}
+    api_key: ${REASONING_LLM_MODEL_API_KEY}
     base_url: ${REASONING_LLM_MODEL_BASE_URL}
     model_name: ${REASONING_LLM_MODEL_MODEL}
   react_llm:
     _type: openai
-    api_key: ${NVIDIA_API_KEY}
+    api_key: ${REACT_LLM_MODEL_API_KEY}
     base_url: ${REACT_LLM_MODEL_BASE_URL}
     model_name: ${REACT_LLM_MODEL_MODEL}
   tool_calling_llm:
     _type: openai
-    api_key: ${NVIDIA_API_KEY}
+    api_key: ${TOOL_CALLING_LLM_MODEL_API_KEY}
     base_url: ${TOOL_CALLING_LLM_MODEL_BASE_URL}
     model_name: ${TOOL_CALLING_LLM_MODEL_MODEL}
+  distill_llm:
+    _type: openai
+    api_key: ${DISTILL_LLM_MODEL_API_KEY}
+    base_url: ${DISTILL_LLM_MODEL_BASE_URL}
+    model_name: ${DISTILL_LLM_MODEL_MODEL}
 memory:
   redis_memory:
     _type: nat.plugins.redis/redis_memory
@@ -677,6 +800,7 @@ retrievers:
       Kubernetes documentation and best practices knowledge base. Covers
       official K8s docs, expert technical blogs, and configuration patterns.
     embedding_model: milvus_embedder
+    reranker_api_key: ${REANKER_API_KEY}
     reranker_endpoint: ${REANKER_BASE_URL}
     reranker_model: ${REANKER_MODEL}
     reranker_top_n: 5
@@ -696,6 +820,7 @@ retrievers:
       Covers condition guides, coping strategies, and wellness practices.
       Educational content requiring a professional care disclaimer.
     embedding_model: milvus_embedder
+    reranker_api_key: ${REANKER_API_KEY}
     reranker_endpoint: ${REANKER_BASE_URL}
     reranker_model: ${REANKER_MODEL}
     reranker_top_n: 5
@@ -714,6 +839,7 @@ retrievers:
       Comprehensive NVIDIA knowledge base covering hardware specifications,
       software documentation, research papers, and corporate information.
     embedding_model: milvus_embedder
+    reranker_api_key: ${REANKER_API_KEY}
     reranker_endpoint: ${REANKER_BASE_URL}
     reranker_model: ${REANKER_MODEL}
     reranker_top_n: 5
@@ -732,6 +858,7 @@ retrievers:
       Expert semiconductor industry analysis covering foundries, process
       nodes, chip economics, and competitive intelligence.
     embedding_model: milvus_embedder
+    reranker_api_key: ${REANKER_API_KEY}
     reranker_endpoint: ${REANKER_BASE_URL}
     reranker_model: ${REANKER_MODEL}
     reranker_top_n: 5
@@ -750,6 +877,7 @@ retrievers:
       and indexed into the vector knowledge base.
     distance_cutoff: 1.2
     embedding_model: milvus_embedder
+    reranker_api_key: ${REANKER_API_KEY}
     reranker_endpoint: ${REANKER_BASE_URL}
     reranker_model: ${REANKER_MODEL}
     reranker_top_n: 5
@@ -768,6 +896,7 @@ retrievers:
       protocols, drug information, and species-specific care. Requires a
       veterinarian consultation disclaimer.
     embedding_model: milvus_embedder
+    reranker_api_key: ${REANKER_API_KEY}
     reranker_endpoint: ${REANKER_BASE_URL}
     reranker_model: ${REANKER_MODEL}
     reranker_top_n: 5
@@ -781,47 +910,15 @@ workflow:
   _type: tool_calling_agent
   max_iterations: 50
   system_prompt: |
-    You are Daedalus, built on NVIDIA NeMo Agent toolkit. Your audience
-    is senior technology executives and founders. Be precise, direct,
-    and technically deep.
+    You are Daedalus, built on NVIDIA NeMo Agent toolkit. Route all
+    non-image requests to mas_orchestrator_tool. It handles memory
+    retrieval, architecture evaluation, tool selection, and response
+    generation.
 
-    # Startup
-
-    At conversation start, call get_memory(user_id=<username>,
-    query="user preferences, interests, and context", top_k=5).
-    Personalize tone and content based on results. You may issue
-    get_memory in parallel with other tool calls when the user's
-    question also requires retrieval.
-
-    Exception: when the user requests their daily briefing, call
-    get_memory FIRST and wait for results before calling any other
-    tools. The briefing procedure and its constraints are stored in
-    memory and must be followed exactly.
-
-    # Memory
-
-    Store noteworthy preferences or details with add_memory as clear
-    declarative statements. Include metadata key_value_pairs when it
-    aids retrieval. Call get_memory mid-conversation with topic-specific
-    queries when prior context would improve your answer.
-
-    # Style
-
-    Brevity and information density are paramount. Every sentence should
-    earn its place. Lead with the answer; add supporting detail only
-    when it changes what the reader would do. Write the way a sharp
-    colleague talks: natural, confident, no filler. If it would sound
-    stilted or awkward spoken aloud, rewrite it. Reserve lists and
-    tables for genuinely comparative content.
-
-    Never use em dashes, emojis, or emoticons. Minimize bold/italic.
-    Keep paragraphs short.
-
-    # Tools
-
-    Prefer retrieval and real-time data over prior knowledge. On tool
-    failure, explain and suggest alternatives. State uncertainty
-    honestly; offer to investigate.
+    Only call image_augmentation_tool, image_comprehension_tool,
+    image_generation_tool, or nv_ingest_postprocessing_tool when the
+    request specifically involves images or document ingestion.
+    Everything else goes to mas_orchestrator_tool.
   llm_name: tool_calling_llm
   handle_tool_errors: true
   return_direct:
@@ -830,34 +927,10 @@ workflow:
     - image_generation_tool
     - nv_ingest_postprocessing_tool
   tool_names:
-    - add_memory
-    - agent_skills_tool
-    - current_datetime_tool
-    - delete_memory
-    - dynamo_mcp_server
-    - get_memory
-    - github_mcp_server
-    - k8s_mcp_server
-    - kubernetes_retriever_tool
-    - mentalhealth_retriever_tool
-    - nv_ingest_postprocessing_tool
-    - nvidia_blog_rss
-    - nvidia_developer_blog_rss
-    - nvidia_news_room_rss
-    - nvidia_retriever_tool
-    - semianalysis_retriever_tool
-    - semianalysis_rss
-    - karpathy_bearblog_rss
-    - karpathy_github_rss
-    - serpapi_search_tool
-    - user_uploaded_files_retriever_tool
-    - veterinarian_retriever_tool
-    - vtt_interpreter_tool
-    - webscrape_tool
+    - mas_orchestrator_tool
     - image_augmentation_tool
     - image_comprehension_tool
     - image_generation_tool
-    - mas_optimizer_tool
-    - mas_orchestrator_tool
-  verbose: false
+    - nv_ingest_postprocessing_tool
+  verbose: true
   workflow_alias: Daedalus

@@ -4,7 +4,7 @@
 Runs as a K8s CronJob. Sends a structured prompt to the backend API so the
 agent can use all configured tools (memory, retrieval, search, RSS).  Stores
 the conversation in Redis as a regular conversation visible in the frontend
-sidebar under "Autonomous Thoughts".
+sidebar under "Deep Thoughts by Daedalus".
 
 Inspired by OpenClaw's heartbeat/cron patterns: the agent has a soul (identity),
 a heartbeat (task checklist), and can modify both over time.
@@ -28,7 +28,7 @@ REDIS_HOST = os.environ.get("REDIS_HOST", "redis")
 REDIS_PORT = int(os.environ.get("REDIS_PORT", "6379"))
 USER_ID = os.environ.get("AUTONOMOUS_USER_ID", "default-user")
 CONVERSATION_ID = "autonomous-agent-thoughts"
-CONVERSATION_NAME = "Autonomous Thoughts"
+CONVERSATION_NAME = "Deep Thoughts by Daedalus"
 MAX_HISTORY_CONTEXT = 6  # assistant messages to include as context
 # Token budget for the message payload sent to the backend.  The model's
 # context window is 128K, but NAT adds system prompts, tool schemas, and the

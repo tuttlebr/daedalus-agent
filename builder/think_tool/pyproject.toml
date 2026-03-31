@@ -1,0 +1,26 @@
+[build-system]
+build-backend = "setuptools.build_meta"
+requires = ["setuptools>=64.0.0", "wheel"]
+
+[project]
+name = "think_tool"
+dynamic = ["version"]
+dependencies = [
+  "nvidia-nat[redis,mcp,langchain,phoenix]==1.4.3",
+]
+requires-python = ">=3.11,<3.14"
+description = "Cognitive reasoning scratchpad for NeMo Agent Toolkit. Gives the agent an explicit thinking step to reason through complex problems before acting."
+classifiers = ["Programming Language :: Python"]
+
+[project.entry-points.'nat.components']
+think_tool = "think_tool.register"
+
+[tool.setuptools]
+packages = ["think_tool"]
+package-dir = {"" = "src"}
+
+[tool.setuptools.package-data]
+think_tool = ["configs/*.yml", "configs/*.yaml"]
+
+[tool.uv]
+config-settings = { editable_mode = "compat" }

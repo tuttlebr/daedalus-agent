@@ -365,7 +365,7 @@ autonomousAgent:
   userId: "your-username"            # <-- set to your login username
 ```
 
-The `userId` must match the username you log in with so the agent's memories and conversation history appear in your sidebar under "Autonomous Thoughts". Its personality and task list are defined in:
+The `userId` must match the username you log in with so the agent's memories and conversation history appear in your sidebar under "Deep Thoughts by Daedalus". Its personality and task list are defined in:
 
 - `helm/daedalus/files/autonomous-agent-soul.md` -- identity and areas of curiosity
 - `helm/daedalus/files/autonomous-agent-heartbeat.md` -- per-cycle task checklist
