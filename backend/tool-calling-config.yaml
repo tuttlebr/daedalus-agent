@@ -14,8 +14,7 @@ embedders:
 function_groups:
   github_mcp_server:
     _type: mcp_client
-    tool_call_timeout: 120
-    reconnect_enabled: true
+
     include:
       - get_file_contents
       - get_label
@@ -43,8 +42,7 @@ function_groups:
       url: https://api.githubcopilot.com/mcp
   dynamo_mcp_server:
     _type: mcp_client
-    tool_call_timeout: 120
-    reconnect_enabled: true
+
     include:
       - searchDocs
     server:
@@ -52,15 +50,13 @@ function_groups:
       url: https://docs.dynamo.nvidia.com/dynamo/_mcp/server
   k8s_mcp_server:
     _type: mcp_client
-    tool_call_timeout: 120
-    reconnect_enabled: true
+
     server:
       transport: streamable-http
       url: ${KUBERNETES_MCP_SERVER}
   serpapi_mcp_server:
     _type: mcp_client
-    tool_call_timeout: 120
-    reconnect_enabled: true
+
     server:
       transport: streamable-http
       url: https://mcp.serpapi.com/${SERPAPI_KEY}/mcp
@@ -754,6 +750,35 @@ functions:
     user_agent: daedalus-webscraper/0.1.0
     verbose: false
 general:
+  front_end:
+    _type: fastapi
+    max_running_async_jobs: 8
+    dask_workers: threads
+    dask_threads_per_worker: 1
+    dask_worker_memory_limit: "0"
+    dask_log_level: WARNING
+    step_adaptor:
+      mode: custom
+      custom_event_types:
+        - LLM_START
+        - LLM_END
+        - LLM_NEW_TOKEN
+        - TOOL_START
+        - TOOL_END
+        - WORKFLOW_START
+        - WORKFLOW_END
+        - TASK_START
+        - TASK_END
+        - TTC_START
+        - TTC_END
+        - FUNCTION_START
+        - FUNCTION_END
+        - CUSTOM_START
+        - CUSTOM_END
+        - SPAN_START
+        - SPAN_CHUNK
+        - SPAN_END
+    workers: 4
   telemetry:
     tracing:
       phoenix:

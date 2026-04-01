@@ -3,8 +3,8 @@ global:
   fullnameOverride: ""
   networkName: daedalus-network
   # Restrict pod scheduling to these nodes; leave empty to allow any node
-  nodePlacement:
-    allowedNodes: ["daedalus-02", "daedalus-03"]
+  # nodePlacement:
+  #   allowedNodes: ["daedalus-02", "daedalus-03"]
 
 images:
   builder:
@@ -62,11 +62,11 @@ backend:
       data: ""
     resources:
       requests:
-        cpu: 250m
-        memory: 512Mi
+        cpu: 8
+        memory: 4Gi
       limits:
-        cpu: 2000m
-        memory: 8Gi
+        cpu: 8
+        memory: 16Gi
     service:
       type: NodePort
       port: 8000
@@ -100,11 +100,11 @@ backend:
       data: ""
     resources:
       requests:
-        cpu: 250m
-        memory: 512Mi
+        cpu: 8
+        memory: 4Gi
       limits:
-        cpu: 2000m
-        memory: 8Gi
+        cpu: 8
+        memory: 16Gi
     service:
       type: NodePort
       port: 8000
@@ -143,11 +143,11 @@ frontend:
     fsGroup: 1001
   resources:
     requests:
-      cpu: 100m
-      memory: 256Mi
+      cpu: 2
+      memory: 2Gi
     limits:
-      cpu: 1000m
-      memory: 1Gi
+      cpu: 2
+      memory: 4Gi
   env:
     fromSecret: "daedalus-frontend-env"
     createSecret: false
@@ -165,11 +165,11 @@ nginx:
   securityContext: {}
   resources:
     requests:
-      cpu: 50m
-      memory: 64Mi
+      cpu: 1
+      memory: 1Gi
     limits:
-      cpu: 500m
-      memory: 256Mi
+      cpu: 1
+      memory: 2Gi
   httpPort: 80
   https:
     enabled: true
@@ -199,10 +199,10 @@ redis:
   securityContext: {}
   resources:
     requests:
-      cpu: 100m
-      memory: 256Mi
+      cpu: 2
+      memory: 2Gi
     limits:
-      cpu: 1000m
+      cpu: 2
       memory: 2Gi
   persistence:
     enabled: true
@@ -219,11 +219,11 @@ redisinsight:
   securityContext: {}
   resources:
     requests:
-      cpu: 50m
-      memory: 128Mi
+      cpu: 1
+      memory: 1Gi
     limits:
-      cpu: 500m
-      memory: 512Mi
+      cpu: 1
+      memory: 2Gi
   persistence:
     enabled: true
     size: 4Gi
@@ -283,10 +283,10 @@ jupyterlab:
     nodePort: 30888
   resources:
     requests:
-      cpu: 500m
+      cpu: 2
       memory: 1Gi
     limits:
-      cpu: 2000m
+      cpu: 2
       memory: 4Gi
 
 autonomousAgent:
@@ -320,11 +320,11 @@ autonomousAgent:
     overrides: {}
   resources:
     requests:
-      cpu: 100m
-      memory: 256Mi
+      cpu: 2
+      memory: 2Gi
     limits:
-      cpu: 500m
-      memory: 512Mi
+      cpu: 2
+      memory: 4Gi
 
 endpointHealthcheck:
   enabled: true
@@ -347,11 +347,11 @@ endpointHealthcheck:
   # Resource limits for the health check container
   resources:
     requests:
-      cpu: 50m
-      memory: 64Mi
+      cpu: 1
+      memory: 1Gi
     limits:
-      cpu: 100m
-      memory: 128Mi
+      cpu: 1
+      memory: 2Gi
 
 ingress:
   enabled: true

@@ -97,3 +97,31 @@ export function getDefaultChatCompletionUrl(): string {
   // Build URL using centralized config (default backend)
   return buildBackendUrlForMode(false);
 }
+
+/**
+ * Build the URL for submitting an async workflow job to NAT.
+ * POST /v1/workflow/async
+ *
+ * @param useDeepThinker - Whether to route to the deep-thinker backend
+ * @returns The full URL for the async job submission endpoint
+ */
+export function buildAsyncJobSubmitUrl(useDeepThinker: boolean): string {
+  const backendHost = getBackendHost(useDeepThinker);
+  return buildBackendUrl({ backendHost, pathOverride: '/v1/workflow/async' });
+}
+
+/**
+ * Build the URL for checking async workflow job status from NAT.
+ * GET /v1/workflow/async/job/{jobId}
+ *
+ * @param useDeepThinker - Whether to route to the deep-thinker backend
+ * @param jobId - The job identifier
+ * @returns The full URL for the async job status endpoint
+ */
+export function buildAsyncJobStatusUrl(useDeepThinker: boolean, jobId: string): string {
+  const backendHost = getBackendHost(useDeepThinker);
+  return buildBackendUrl({
+    backendHost,
+    pathOverride: `/v1/workflow/async/job/${encodeURIComponent(jobId)}`,
+  });
+}

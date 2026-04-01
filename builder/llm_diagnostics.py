@@ -25,7 +25,10 @@ logger = logging.getLogger("daedalus.llm_diagnostics")
 
 # Defaults (override via environment variables)
 _DEFAULT_MAX_RETRIES = 3
-_DEFAULT_TIMEOUT_SECONDS = 60.0
+_DEFAULT_TIMEOUT_SECONDS = 120.0
+_CONNECT_TIMEOUT = 10.0
+_WRITE_TIMEOUT = 30.0
+_POOL_TIMEOUT = 10.0
 
 # Registry: maps id(client._client) -> diagnostic label
 _client_registry: dict[int, str] = {}
@@ -131,7 +134,9 @@ def _wrap_init(original_init, client_kind: str):
                 self._max_retries = max_retries
                 logger.info("Patched %s max_retries: %s -> %s", label, old, max_retries)
 
-        # --- Enforce timeout on the inner httpx client ---
+        # --- Enforce split timeout on the inner httpx client ---
+        # Short connect/pool timeouts to fail fast on unreachable servers;
+        # long read timeout for slow inference responses (e.g. 504 retries).
         inner = getattr(self, "_client", None)
         if inner is not None:
             _client_registry[id(inner)] = label
@@ -139,15 +144,20 @@ def _wrap_init(original_init, client_kind: str):
             if http_client is not None and isinstance(
                 http_client, (httpx.Client, httpx.AsyncClient)
             ):
-                desired = httpx.Timeout(timeout_seconds)
+                desired = httpx.Timeout(
+                    connect=_CONNECT_TIMEOUT,
+                    read=timeout_seconds,
+                    write=_WRITE_TIMEOUT,
+                    pool=_POOL_TIMEOUT,
+                )
                 if http_client.timeout != desired:
                     old_timeout = http_client.timeout
                     http_client.timeout = desired
                     logger.info(
-                        "Patched %s timeout: %s -> %ss",
+                        "Patched %s timeout: %s -> %s",
                         label,
                         old_timeout,
-                        timeout_seconds,
+                        desired,
                     )
 
         logger.info("Initialized OpenAI client: %s", label)

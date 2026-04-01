@@ -241,6 +241,14 @@ export const Chat = () => {
         setConversationStreaming(conversationId, shouldStream);
         asyncConversationIdRef.current = conversationId;
       }
+      // Clear the loading flag once the backend is actively processing so the
+      // ChatLoader (bouncing dots) hides and the AgentHeartbeat ("Agent is
+      // working...") indicator becomes visible.  With NAT async there are no
+      // partial text chunks to trigger this transition, so we do it on the
+      // first poll that reports 'streaming' (mapped from NAT's 'running').
+      if (status.status === 'streaming') {
+        homeDispatch({ field: 'loading', value: false });
+      }
       // Skip polling UI updates when WS tokens are actively streaming for this conversation
       // (WS provides real-time updates; polling would overwrite with stale snapshots)
       if (conversationId && wsStreamingConversations.current.has(conversationId)) {
@@ -366,20 +374,22 @@ export const Chat = () => {
           });
         }
 
-        // Immediately save the final state with error recovery
-        try {
-          await saveConversation(updatedConversation);
-        } catch (error) {
-          logger.error('Failed to save conversation', error);
-          // Retry once after a short delay
-          setTimeout(async () => {
-            try {
-              await saveConversation(updatedConversation);
-            } catch (retryError) {
-              logger.error('Retry failed for conversation save', retryError);
-              toast.error('Failed to save conversation. Please check your connection.');
-            }
-          }, 1000);
+        // Save conversation to Redis — skip when the server-side async
+        // handler already persisted it (finalizedAt set) to avoid conflicts.
+        if (!finalizedAt) {
+          try {
+            await saveConversation(updatedConversation);
+          } catch (error) {
+            logger.error('Failed to save conversation', error);
+            setTimeout(async () => {
+              try {
+                await saveConversation(updatedConversation);
+              } catch (retryError) {
+                logger.error('Retry failed for conversation save', retryError);
+                toast.error('Failed to save conversation. Please check your connection.');
+              }
+            }, 1000);
+          }
         }
 
         // Get the latest conversations from the current state to avoid stale data
@@ -397,18 +407,22 @@ export const Chat = () => {
           logger.error('Failed to persist conversation list after async job', error);
         });
 
-        // Also save conversation state to the conversations API for better sync
-        try {
-          await fetch(`/api/conversations/${currentConversation.id}`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              messages: updatedConversation.messages,
-              updatedAt: Date.now(),
-            }),
-          });
-        } catch (error) {
-          logger.error('Failed to save conversation to API', error);
+        // Save conversation state to the conversations API — but skip when
+        // the server-side async handler already saved it (finalizedAt is set),
+        // to avoid 409 conflict from the duplicate write.
+        if (!finalizedAt) {
+          try {
+            await fetch(`/api/conversations/${currentConversation.id}`, {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                messages: updatedConversation.messages,
+                updatedAt: Date.now(),
+              }),
+            });
+          } catch (error) {
+            logger.error('Failed to save conversation to API', error);
+          }
         }
       }
 

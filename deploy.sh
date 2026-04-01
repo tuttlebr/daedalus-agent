@@ -145,27 +145,14 @@ if [[ -f "$DEEP_THINKER_CONFIG" ]]; then
   HELM_CMD+=( --set-file backend.deepThinker.config.data="$DEEP_THINKER_CONFIG" )
 fi
 
+# Force pod recreation by changing the deploy-timestamp annotation
+HELM_CMD+=( --set forceRedeploy="$(date +%s)" )
+
 if [[ "$DRY_RUN" == true ]]; then
   echo "[dry-run]" "${HELM_CMD[@]}"
 else
   "${HELM_CMD[@]}"
 fi
 
-# -------------------------------------------------------------------
-# Rollout restart non-Redis deployments
-# -------------------------------------------------------------------
-DEPLOYMENTS=(
-  "$RELEASE-backend-deep-thinker"
-  "$RELEASE-backend-default"
-  "$RELEASE-frontend"
-  "$RELEASE-jupyterlab"
-  "$RELEASE-nginx"
-)
-
-log "Restarting deployments"
-for deploy in "${DEPLOYMENTS[@]}"; do
-  log "Rolling out restart for $deploy"
-  run kubectl -n "$NAMESPACE" rollout restart deployment "$deploy"
-done
-
 log "Done"
+watch kubectl get all -n "$NAMESPACE"

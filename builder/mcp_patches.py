@@ -36,6 +36,30 @@ a noisy traceback in the framework's lifespan handler.
 Fix 4: Track whether the session yield has returned (teardown phase)
 and suppress CancelledError / cancel-scope RuntimeError that occur
 during cleanup, since the session was already used successfully.
+
+Problem 5: NAT's WorkflowBuilder.populate_builder() treats any component
+initialization failure as fatal.  One unreachable MCP server kills the
+entire startup, blocking all remaining components (LLMs, retrievers,
+memory, functions, workflow) from initializing.
+
+Fix 5: Monkey-patch WorkflowBuilder.add_function_group() to catch
+connection-related errors (including those wrapped in ExceptionGroup by
+anyio's TaskGroup) and log a warning instead of raising.  Tools from the
+unreachable server will be unavailable until the pod restarts, but the
+rest of the system starts normally.
+
+Problem 6: NAT's async_job.run_generation() places the
+update_status(SUCCESS) call AFTER the ``async with load_workflow``
+block.  When WorkflowBuilder cleanup raises (e.g. RuntimeError from
+async generator teardown of MCP connections), the exception prevents
+the SUCCESS update from executing.  The except handler then marks the
+job as FAILURE even though the workflow produced a valid result.
+
+Fix 6: Monkey-patch run_generation() to save the result INSIDE the
+load_workflow context (after generate_single_response completes but
+before cleanup starts).  If cleanup subsequently raises and the result
+was already saved, the error is logged as a warning rather than
+overwriting the SUCCESS status.
 """
 
 import asyncio
@@ -43,9 +67,46 @@ import logging
 import traceback
 from contextlib import asynccontextmanager
 
+import httpx
+
 logger = logging.getLogger("daedalus.mcp_patches")
 
 _patched = False
+
+# Connection error types that indicate an unreachable server (not a logic bug).
+# Kept narrow to avoid masking real configuration or authentication errors.
+_CONNECTION_ERROR_TYPES = (
+    httpx.ConnectTimeout,
+    httpx.ConnectError,
+    ConnectionError,  # includes ConnectionRefusedError, ConnectionResetError
+)
+
+
+def _is_connection_error(exc):
+    """Return True if *exc* (possibly wrapped in ExceptionGroup) is a connection error."""
+    if isinstance(exc, _CONNECTION_ERROR_TYPES):
+        return True
+    # anyio TaskGroup wraps exceptions in ExceptionGroup
+    if isinstance(exc, ExceptionGroup):  # noqa: F821 (builtin in 3.11+)
+        return any(_is_connection_error(e) for e in exc.exceptions)
+    # Check the __cause__ chain (e.g. framework re-raises wrapping the original)
+    if exc.__cause__ is not None:
+        return _is_connection_error(exc.__cause__)
+    return False
+
+
+def _extract_root_connection_error(exc):
+    """Return the innermost connection error from *exc* for concise logging."""
+    if isinstance(exc, _CONNECTION_ERROR_TYPES):
+        return exc
+    if isinstance(exc, ExceptionGroup):  # noqa: F821 (builtin in 3.11+)
+        for e in exc.exceptions:
+            root = _extract_root_connection_error(e)
+            if root is not None:
+                return root
+    if exc.__cause__ is not None:
+        return _extract_root_connection_error(exc.__cause__)
+    return exc
 
 
 @asynccontextmanager
@@ -137,26 +198,63 @@ def patch():
         from mcp import ClientSession
         from mcp.client.streamable_http import streamablehttp_client
 
+        # Split timeouts: short connect to fail fast on unreachable servers,
+        # long read for slow tool responses.
+        _MCP_CONNECT_TIMEOUT = 10.0
+        _MCP_WRITE_TIMEOUT = 30.0
+        _MCP_POOL_TIMEOUT = 10.0
+
+        def _make_split_timeout(read_seconds: float) -> httpx.Timeout:
+            return httpx.Timeout(
+                connect=_MCP_CONNECT_TIMEOUT,
+                read=read_seconds,
+                write=_MCP_WRITE_TIMEOUT,
+                pool=_MCP_POOL_TIMEOUT,
+            )
+
         @asynccontextmanager
         async def patched_connect_to_server(self):
             """
             Patched connect_to_server that passes the configured tool_call_timeout
             as both the HTTP timeout and SSE read timeout to streamablehttp_client,
             with graceful teardown error handling.
+
+            Uses split httpx.Timeout (short connect, long read) so that
+            ConnectTimeout fires quickly when a server is unreachable,
+            rather than waiting the full tool_call_timeout.
             """
             timeout_seconds = self._tool_call_timeout.total_seconds()
             url = self._url
+            split_timeout = _make_split_timeout(timeout_seconds)
 
-            logger.info(
-                "MCP connect_to_server: url=%s timeout=%.0fs", url, timeout_seconds
-            )
+            logger.info("MCP connect_to_server: url=%s timeout=%s", url, split_timeout)
 
-            ctx = streamablehttp_client(
-                url=url,
-                auth=self._httpx_auth,
-                timeout=timeout_seconds,
-                sse_read_timeout=max(timeout_seconds, 300),
-            )
+            # Try httpx_client_factory for split timeouts (MCP SDK >=1.3);
+            # fall back to uniform timeout for older versions.
+            import inspect
+
+            sig = inspect.signature(streamablehttp_client)
+            if "httpx_client_factory" in sig.parameters:
+
+                def _client_factory(**kwargs):
+                    kwargs["timeout"] = split_timeout
+                    return httpx.AsyncClient(**kwargs)
+
+                ctx = streamablehttp_client(
+                    url=url,
+                    auth=self._httpx_auth,
+                    timeout=timeout_seconds,
+                    sse_read_timeout=max(timeout_seconds, 300),
+                    httpx_client_factory=_client_factory,
+                )
+            else:
+                ctx = streamablehttp_client(
+                    url=url,
+                    auth=self._httpx_auth,
+                    timeout=timeout_seconds,
+                    sse_read_timeout=max(timeout_seconds, 300),
+                )
+
             async with _connect_with_graceful_teardown(
                 ctx, ClientSession, url
             ) as session:
@@ -178,6 +276,15 @@ def patch():
 
     # Patch MCPToolClient to add diagnostic logging around tool calls
     _patch_tool_client()
+
+    # Suppress cascade noise from MCP transport cleanup errors
+    _install_mcp_log_filters()
+
+    # Make MCP connection failures non-fatal during startup
+    _patch_startup_resilience()
+
+    # Fix async job result loss when workflow cleanup raises
+    _patch_async_job_result_saving()
 
     _patched = True
 
@@ -340,3 +447,179 @@ def _patch_tool_client():
         logger.warning("Could not patch MCPToolClient: %s", exc)
     except Exception as exc:
         logger.warning("Unexpected error patching MCPToolClient: %s", exc)
+
+
+def _patch_startup_resilience():
+    """Patch WorkflowBuilder.add_function_group to survive MCP connection failures.
+
+    NAT's WorkflowBuilder treats any component initialization failure as fatal,
+    so one unreachable MCP server kills the entire startup — blocking all
+    remaining components (LLMs, retrievers, memory, functions, workflow) from
+    initializing.
+
+    This patch catches connection-related errors in add_function_group and logs
+    a warning instead of raising, allowing the rest of the system to start.
+    Tools from the unreachable MCP server will be unavailable until pod restart.
+    """
+    try:
+        import functools
+
+        from nat.builder.workflow_builder import WorkflowBuilder
+
+        original_add_fg = WorkflowBuilder.add_function_group
+
+        @functools.wraps(original_add_fg)
+        async def resilient_add_function_group(self, name, *args, **kwargs):
+            try:
+                return await original_add_fg(self, name, *args, **kwargs)
+            except Exception as exc:
+                if _is_connection_error(exc):
+                    root = _extract_root_connection_error(exc)
+                    logger.warning(
+                        "Startup resilience: function_group '%s' skipped — "
+                        "%s(%s). Tools from this server will be unavailable "
+                        "until restart.",
+                        name,
+                        type(root).__name__,
+                        root,
+                    )
+                    return None
+                raise
+
+        WorkflowBuilder.add_function_group = resilient_add_function_group
+        logger.info("WorkflowBuilder startup resilience patch applied")
+
+    except ImportError as exc:
+        logger.warning(
+            "Could not patch WorkflowBuilder for startup resilience: %s", exc
+        )
+    except Exception as exc:
+        logger.warning("Unexpected error patching startup resilience: %s", exc)
+
+
+class _MCPCascadeFilter(logging.Filter):
+    """Demote cascade errors that follow MCP ConnectTimeout to DEBUG.
+
+    When an MCP server is temporarily unreachable, the transport logs a
+    ConnectTimeout followed by BrokenResourceError, GeneratorExit
+    RuntimeError, and cancel-scope errors during cleanup.  These are
+    expected consequences of the disconnect, not independent failures.
+    Keeping them at ERROR/WARNING clutters logs and obscures the root cause.
+    """
+
+    _CASCADE_FRAGMENTS = (
+        "BrokenResourceError",
+        "async generator ignored GeneratorExit",
+        "Attempted to exit cancel scope",
+        "Error parsing SSE message",
+    )
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if record.levelno < logging.WARNING:
+            return True
+        msg = record.getMessage()
+        if any(frag in msg for frag in self._CASCADE_FRAGMENTS):
+            record.levelno = logging.DEBUG
+            record.levelname = "DEBUG"
+        return True
+
+
+def _patch_async_job_result_saving():
+    """Fix NAT async job result loss caused by workflow cleanup errors.
+
+    Problem: NAT's run_generation() in async_job.py places
+    update_status(SUCCESS) AFTER the ``async with load_workflow`` block.
+    When the WorkflowBuilder cleanup raises (e.g. RuntimeError from async
+    generator teardown of MCP connections), the exception skips the
+    SUCCESS update and the except handler marks the job as FAILURE — even
+    though the workflow produced a valid result.
+
+    Fix: Monkey-patch run_generation() to save the result INSIDE the
+    load_workflow context, before cleanup runs.  Cleanup errors are then
+    logged as warnings but do not affect job status.
+    """
+    try:
+        import nat.front_ends.fastapi.async_jobs.async_job as async_job_mod
+
+        async def patched_run_generation(
+            configure_logging,
+            log_level,
+            scheduler_address,
+            db_url,
+            config_file_path,
+            job_id,
+            payload,
+        ):
+            from nat.front_ends.fastapi.async_jobs.job_store import JobStatus, JobStore
+            from nat.front_ends.fastapi.response_helpers import generate_single_response
+            from nat.runtime.loader import load_workflow
+
+            _logger = async_job_mod._configure_logging(configure_logging, log_level)
+
+            job_store = None
+            try:
+                job_store = JobStore(scheduler_address=scheduler_address, db_url=db_url)
+                await job_store.update_status(job_id, JobStatus.RUNNING)
+
+                result = None
+                try:
+                    async with load_workflow(config_file_path) as local_session_manager:
+                        async with local_session_manager.session() as session:
+                            result = await generate_single_response(
+                                payload,
+                                session,
+                                result_type=session.workflow.single_output_schema,
+                            )
+                        # Save result INSIDE the context, before cleanup
+                        await job_store.update_status(
+                            job_id, JobStatus.SUCCESS, output=result
+                        )
+                        _logger.info("Async job %s result saved successfully", job_id)
+                except Exception as cleanup_err:
+                    # Check if we already saved the result before the error
+                    if result is not None:
+                        try:
+                            job = await job_store.get_job(job_id)
+                            if job and job.status == JobStatus.SUCCESS:
+                                _logger.warning(
+                                    "Async job %s completed but cleanup failed "
+                                    "(result already saved): %s",
+                                    job_id,
+                                    cleanup_err,
+                                )
+                                return
+                        except Exception:  # nosec B110
+                            pass
+                    raise
+
+            except asyncio.CancelledError:
+                _logger.info("Async job %s cancelled", job_id)
+                if job_store is not None:
+                    await job_store.update_status(
+                        job_id, JobStatus.INTERRUPTED, error="cancelled"
+                    )
+            except Exception as e:
+                _logger.exception("Error in async job %s", job_id)
+                if job_store is not None:
+                    await job_store.update_status(
+                        job_id, JobStatus.FAILURE, error=str(e)
+                    )
+
+        async_job_mod.run_generation = patched_run_generation
+        logger.info(
+            "Async job run_generation patch applied — "
+            "result saved before workflow cleanup"
+        )
+
+    except ImportError as exc:
+        logger.warning("Could not patch async job run_generation: %s", exc)
+    except Exception as exc:
+        logger.warning("Unexpected error patching async job run_generation: %s", exc)
+
+
+def _install_mcp_log_filters():
+    """Attach cascade noise filter to MCP SDK loggers."""
+    cascade_filter = _MCPCascadeFilter()
+    for name in ("mcp", "mcp.client.streamable_http", "root"):
+        logging.getLogger(name).addFilter(cascade_filter)
+    logger.info("MCP cascade log filter installed")

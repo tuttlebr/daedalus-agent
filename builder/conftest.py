@@ -165,7 +165,7 @@ _EXTERNAL_MOCKS = [
     "kubernetes",
     "kubernetes.client",
     "kubernetes.config",
-    "httpx",
+    # httpx handled separately below (needs real exception classes)
     "jsonschema",
     "fastapi",
     "fastapi.responses",
@@ -173,6 +173,46 @@ _EXTERNAL_MOCKS = [
 ]
 for _mod_name in _EXTERNAL_MOCKS:
     sys.modules.setdefault(_mod_name, MagicMock())
+
+
+# ---------------------------------------------------------------------------
+# httpx mock: real exception classes so isinstance() works in mcp_patches
+# ---------------------------------------------------------------------------
+class _FakeHTTPError(Exception):
+    pass
+
+
+class _FakeTimeoutException(_FakeHTTPError):
+    pass
+
+
+class _FakeConnectTimeout(_FakeTimeoutException):
+    pass
+
+
+class _FakeReadTimeout(_FakeTimeoutException):
+    pass
+
+
+class _FakeConnectError(_FakeHTTPError):
+    pass
+
+
+class _FakeHTTPStatusError(_FakeHTTPError):
+    def __init__(self, message="", *, request=None, response=None):
+        super().__init__(message)
+        self.request = request
+        self.response = response
+
+
+_httpx_mod = MagicMock()
+_httpx_mod.ConnectTimeout = _FakeConnectTimeout
+_httpx_mod.ConnectError = _FakeConnectError
+_httpx_mod.ReadTimeout = _FakeReadTimeout
+_httpx_mod.TimeoutException = _FakeTimeoutException
+_httpx_mod.HTTPError = _FakeHTTPError
+_httpx_mod.HTTPStatusError = _FakeHTTPStatusError
+sys.modules.setdefault("httpx", _httpx_mod)
 
 # pymilvus.client.abstract needs a real Hit class for isinstance() checks
 sys.modules.setdefault("pymilvus.client.abstract", _pymilvus_abstract_mod)

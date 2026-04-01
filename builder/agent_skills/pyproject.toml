@@ -6,7 +6,7 @@ requires = ["setuptools>=64.0.0", "wheel"]
 name = "agent_skills"
 dynamic = ["version"]
 dependencies = [
-  "nvidia-nat[redis,mcp,langchain,phoenix]==1.6.0-dev",
+  "nvidia-nat[redis,mcp,langchain,phoenix,async_endpoints]==1.6.0-dev",
   "pyyaml>=6.0",
 ]
 requires-python = ">=3.11,<3.14"

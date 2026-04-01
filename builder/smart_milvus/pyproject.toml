@@ -6,7 +6,7 @@ requires = ["setuptools>=64.0.0", "wheel"]
 name = "smart_milvus"
 dynamic = ["version"]
 dependencies = [
-  "nvidia-nat[redis,mcp,langchain,phoenix]==1.6.0-dev",
+  "nvidia-nat[redis,mcp,langchain,phoenix,async_endpoints]==1.6.0-dev",
   "pymilvus>=2.5.0",
   "requests>=2.31.0",
 ]

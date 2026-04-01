@@ -47,7 +47,7 @@ RUN --mount=type=cache,id=uv_cache,target=/root/.cache/uv,sharing=locked \
     uv venv --python ${PYTHON_VERSION} /workspace/.venv && \
     . /workspace/.venv/bin/activate && \
     uv pip install --prerelease=allow \
-    "nvidia-nat[redis,mcp,langchain,phoenix] @ git+https://github.com/NVIDIA/NeMo-Agent-Toolkit.git@${NAT_VERSION}" \
+    "nvidia-nat[redis,mcp,langchain,phoenix,async_endpoints] @ git+https://github.com/NVIDIA/NeMo-Agent-Toolkit.git@${NAT_VERSION}" \
     "starlette<1.0.0"
 
 ENV PATH="/workspace/.venv/bin:$PATH"

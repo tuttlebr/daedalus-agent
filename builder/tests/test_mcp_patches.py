@@ -1,4 +1,4 @@
-"""Tests for mcp_patches -- get_tool reconnect and connect_to_server teardown."""
+"""Tests for mcp_patches -- get_tool reconnect, connect_to_server teardown, and startup resilience."""
 
 import asyncio
 import sys
@@ -6,12 +6,17 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from unittest.mock import MagicMock
 
+import httpx
 import pytest
 
 # Add builder root so we can import mcp_patches directly
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from mcp_patches import _connect_with_graceful_teardown  # noqa: E402
+from mcp_patches import (  # noqa: E402
+    _connect_with_graceful_teardown,
+    _extract_root_connection_error,
+    _is_connection_error,
+)
 
 
 def run(coro):
@@ -389,3 +394,232 @@ class TestConnectToServerTeardown:
                     raise ValueError("bad input")
 
         run(_run())
+
+
+# ---------------------------------------------------------------------------
+# Tests: _is_connection_error helper
+# ---------------------------------------------------------------------------
+
+
+class TestIsConnectionError:
+    """Verify _is_connection_error detects connection errors in various wrappings."""
+
+    def test_bare_connect_timeout(self):
+        assert _is_connection_error(httpx.ConnectTimeout("timed out"))
+
+    def test_bare_connect_error(self):
+        assert _is_connection_error(httpx.ConnectError("refused"))
+
+    def test_bare_connection_refused(self):
+        assert _is_connection_error(ConnectionRefusedError("refused"))
+
+    def test_bare_connection_reset(self):
+        assert _is_connection_error(ConnectionResetError("reset"))
+
+    def test_wrapped_in_exception_group(self):
+        """ConnectTimeout wrapped in ExceptionGroup (anyio TaskGroup pattern)."""
+        eg = ExceptionGroup(  # noqa: F821
+            "unhandled errors in a TaskGroup",
+            [httpx.ConnectTimeout("timed out")],
+        )
+        assert _is_connection_error(eg)
+
+    def test_nested_exception_group(self):
+        """ConnectTimeout double-wrapped in ExceptionGroups."""
+        inner = ExceptionGroup("inner", [httpx.ConnectTimeout("timed out")])  # noqa: F821
+        outer = ExceptionGroup("outer", [inner])  # noqa: F821
+        assert _is_connection_error(outer)
+
+    def test_in_cause_chain(self):
+        """ConnectTimeout in __cause__ of a wrapper exception."""
+        cause = httpx.ConnectTimeout("timed out")
+        wrapper = RuntimeError("build failed")
+        wrapper.__cause__ = cause
+        assert _is_connection_error(wrapper)
+
+    def test_value_error_not_connection_error(self):
+        assert not _is_connection_error(ValueError("bad input"))
+
+    def test_runtime_error_not_connection_error(self):
+        assert not _is_connection_error(RuntimeError("something else"))
+
+    def test_exception_group_with_non_connection_error(self):
+        eg = ExceptionGroup("group", [ValueError("bad")])  # noqa: F821
+        assert not _is_connection_error(eg)
+
+    def test_read_timeout_not_caught(self):
+        """ReadTimeout is NOT a connection error — it could be a slow but reachable server."""
+        assert not _is_connection_error(httpx.ReadTimeout("slow response"))
+
+
+# ---------------------------------------------------------------------------
+# Tests: _extract_root_connection_error helper
+# ---------------------------------------------------------------------------
+
+
+class TestExtractRootConnectionError:
+    """Verify we extract the innermost connection error for clean log messages."""
+
+    def test_bare_error_returns_itself(self):
+        err = httpx.ConnectTimeout("timed out")
+        assert _extract_root_connection_error(err) is err
+
+    def test_extracts_from_exception_group(self):
+        inner = httpx.ConnectTimeout("timed out")
+        eg = ExceptionGroup("group", [inner])  # noqa: F821
+        assert _extract_root_connection_error(eg) is inner
+
+    def test_extracts_from_cause_chain(self):
+        cause = httpx.ConnectError("refused")
+        wrapper = RuntimeError("build failed")
+        wrapper.__cause__ = cause
+        assert _extract_root_connection_error(wrapper) is cause
+
+    def test_non_connection_returns_original(self):
+        err = ValueError("bad")
+        assert _extract_root_connection_error(err) is err
+
+
+# ---------------------------------------------------------------------------
+# Tests: startup resilience (add_function_group patch)
+# ---------------------------------------------------------------------------
+
+
+class FakeWorkflowBuilder:
+    """Minimal stand-in for nat.builder.workflow_builder.WorkflowBuilder."""
+
+    def __init__(self):
+        self.registered = {}
+
+    async def add_function_group(self, name, *args, **kwargs):
+        """Simulate function group registration; subclass to inject errors."""
+        self.registered[name] = True
+        return {"name": name}
+
+
+class TestStartupResilience:
+    """Verify the add_function_group resilience wrapper."""
+
+    def _apply_patch(self, builder_cls):
+        """Apply the same wrapping logic as _patch_startup_resilience."""
+        import functools
+
+        original = builder_cls.add_function_group
+
+        @functools.wraps(original)
+        async def resilient(self, name, *args, **kwargs):
+            try:
+                return await original(self, name, *args, **kwargs)
+            except Exception as exc:
+                if _is_connection_error(exc):
+                    _extract_root_connection_error(exc)  # for logging
+                    return None
+                raise
+
+        builder_cls.add_function_group = resilient
+        return original
+
+    def test_successful_registration_unchanged(self):
+        """Normal function group registration passes through."""
+        original = self._apply_patch(FakeWorkflowBuilder)
+        try:
+            builder = FakeWorkflowBuilder()
+
+            async def _run():
+                result = await builder.add_function_group("github_mcp")
+                assert result == {"name": "github_mcp"}
+                assert "github_mcp" in builder.registered
+
+            run(_run())
+        finally:
+            FakeWorkflowBuilder.add_function_group = original
+
+    def test_connect_timeout_skipped(self):
+        """ConnectTimeout causes the function group to be skipped, not crash."""
+
+        class FailingBuilder(FakeWorkflowBuilder):
+            async def add_function_group(self, name, *args, **kwargs):
+                if name == "k8s_mcp":
+                    raise ExceptionGroup(  # noqa: F821
+                        "unhandled errors in a TaskGroup",
+                        [httpx.ConnectTimeout("k8s-mcp-server:8080")],
+                    )
+                return await super().add_function_group(name, *args, **kwargs)
+
+        original = self._apply_patch(FailingBuilder)
+        try:
+            builder = FailingBuilder()
+
+            async def _run():
+                # k8s_mcp should be skipped (return None)
+                result = await builder.add_function_group("k8s_mcp")
+                assert result is None
+
+                # Other groups should still work
+                result2 = await builder.add_function_group("github_mcp")
+                assert result2 == {"name": "github_mcp"}
+
+            run(_run())
+        finally:
+            FailingBuilder.add_function_group = original
+
+    def test_connect_error_skipped(self):
+        """ConnectError (DNS/network failure) also causes graceful skip."""
+
+        class FailingBuilder(FakeWorkflowBuilder):
+            async def add_function_group(self, name, *args, **kwargs):
+                raise httpx.ConnectError("DNS resolution failed")
+
+        original = self._apply_patch(FailingBuilder)
+        try:
+            builder = FailingBuilder()
+
+            async def _run():
+                result = await builder.add_function_group("broken_mcp")
+                assert result is None
+
+            run(_run())
+        finally:
+            FailingBuilder.add_function_group = original
+
+    def test_non_connection_error_still_raises(self):
+        """Non-connection errors (e.g. config errors) still propagate."""
+
+        class BadConfigBuilder(FakeWorkflowBuilder):
+            async def add_function_group(self, name, *args, **kwargs):
+                raise ValueError("invalid config: missing 'url' field")
+
+        original = self._apply_patch(BadConfigBuilder)
+        try:
+            builder = BadConfigBuilder()
+
+            async def _run():
+                with pytest.raises(ValueError, match="invalid config"):
+                    await builder.add_function_group("bad_mcp")
+
+            run(_run())
+        finally:
+            BadConfigBuilder.add_function_group = original
+
+    def test_auth_error_still_raises(self):
+        """HTTP 401/403 errors are not connection errors and should still raise."""
+
+        class AuthFailBuilder(FakeWorkflowBuilder):
+            async def add_function_group(self, name, *args, **kwargs):
+                raise httpx.HTTPStatusError(
+                    "401 Unauthorized",
+                    request=httpx.Request("POST", "http://fake/mcp"),
+                    response=httpx.Response(401),
+                )
+
+        original = self._apply_patch(AuthFailBuilder)
+        try:
+            builder = AuthFailBuilder()
+
+            async def _run():
+                with pytest.raises(httpx.HTTPStatusError):
+                    await builder.add_function_group("auth_fail_mcp")
+
+            run(_run())
+        finally:
+            AuthFailBuilder.add_function_group = original

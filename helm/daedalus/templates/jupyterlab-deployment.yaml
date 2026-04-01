@@ -8,6 +8,8 @@ metadata:
     app.kubernetes.io/component: jupyterlab
 spec:
   replicas: 1
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app.kubernetes.io/name: {{ include "daedalus.name" . }}
@@ -19,6 +21,8 @@ spec:
         app.kubernetes.io/name: {{ include "daedalus.name" . }}
         app.kubernetes.io/component: jupyterlab
         app.kubernetes.io/instance: {{ .Release.Name }}
+      annotations:
+        deploy-timestamp: {{ .Values.forceRedeploy | default "" | quote }}
     spec:
       {{- include "daedalus.nodePlacement" . | nindent 6 }}
       {{- with .Values.jupyterlab.securityContext }}
