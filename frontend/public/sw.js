@@ -1,5 +1,5 @@
 // Service Worker for Daedalus PWA
-const CACHE_NAME = 'daedalus-v1';
+const CACHE_NAME = 'daedalus-v2';
 const RUNTIME_CACHE = 'daedalus-runtime';
 const CONVERSATION_CACHE = 'daedalus-conversations-v1';
 
@@ -408,8 +408,19 @@ self.addEventListener('fetch', (event) => {
   const { request } = event;
   const url = new URL(request.url);
 
-  // Skip non-GET requests
+  // Pass non-GET requests (POST, PUT, DELETE, etc.) directly to the network.
+  // IMPORTANT: On iOS Safari in standalone PWA mode, a bare `return` without
+  // `event.respondWith()` can silently swallow the request. Explicitly proxying
+  // through `fetch(request)` ensures the request always reaches the server.
   if (request.method !== 'GET') {
+    event.respondWith(
+      fetch(request).catch(() =>
+        new Response(JSON.stringify({ error: 'Network request failed' }), {
+          status: 503,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      )
+    );
     return;
   }
 
@@ -475,7 +486,12 @@ self.addEventListener('fetch', (event) => {
              if (appShell) return appShell;
           }
 
-          return null;
+          // Return a proper error response instead of null (null is not a valid
+          // Response and causes a TypeError inside respondWith).
+          return new Response('Offline - no cached version available', {
+            status: 503,
+            headers: { 'Content-Type': 'text/plain' },
+          });
         })
     );
     return;
