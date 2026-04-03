@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """
-Enhanced NAT entrypoint that applies runtime patches before starting
-the workflow server. Runs NAT in-process (not via os.execvp) so that
-monkey-patches to the OpenAI SDK and MCP client survive.
+NAT entrypoint with Starlette compatibility shim and LLM diagnostics.
+Runs NAT in-process so that pre-import patches survive.
 
 Replaces: nat serve --config_file=/workspace/config.yaml --host 0.0.0.0 --port 8000
 """
@@ -82,11 +81,12 @@ def main():
     # NAT v1.4.x still calls them.  Patch before any NAT imports.
     _patch_starlette_compat(logging.getLogger("daedalus.starlette_compat"))
 
-    # Apply patches BEFORE nat imports create clients
+    # Apply LLM diagnostic patches before NAT imports create clients
     import llm_diagnostics
 
     llm_diagnostics.patch()
 
+    # Apply MCP StreamableHTTP timeout + resilience patches before NAT imports
     import mcp_patches
 
     mcp_patches.patch()

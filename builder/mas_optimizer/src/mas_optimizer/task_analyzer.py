@@ -1,15 +1,18 @@
-"""Task decomposability and tool-coordination analysis for MAS routing.
+"""Task decomposability, sequential interdependence, and architecture selection.
 
-Computes two signals that determine whether a request benefits from
-Multi-Agent System (MAS) orchestration:
+Computes three signals that determine MAS routing:
 
-  D (decomposability) — how parallelizable the task is.  High D means
-  independent sub-tasks that multiple agents can tackle concurrently.
+  D (decomposability) -- how parallelizable the task is.
+  SI (sequential interdependence) -- how tightly coupled the steps are.
+  Task type -- whether the task is structured analysis or exploratory.
 
-  T (tool count) — number of active tools.  High T increases coordination
-  overhead, which can dominate MAS gains.
+MAS is recommended only when effective_D > threshold AND T < ceiling,
+where effective_D = D * (1 - SI) penalises tasks with illusory
+parallelism (high D but also high sequential coupling).
 
-MAS is recommended only when D > threshold AND T < ceiling.
+Architecture selection follows the paper's domain-specific findings:
+  - Centralized: best for structured analysis (+80.9% Finance Agent)
+  - Decentralized: best for exploratory/web research (+9.2% BrowseComp)
 
 Constants derived from:
   - Tables 4-5, Section 4.3 of 'Towards a Science of Scaling Agent Systems'
@@ -23,6 +26,10 @@ from dataclasses import dataclass
 
 # Paper-derived constant (Table 4)
 COORDINATION_BETA = -0.267
+
+# ---------------------------------------------------------------------------
+# Keyword sets
+# ---------------------------------------------------------------------------
 
 # Indicators of parallel sub-task structure
 PARALLEL_INDICATORS: frozenset[str] = frozenset(
@@ -58,6 +65,85 @@ SEQUENTIAL_INDICATORS: frozenset[str] = frozenset(
     }
 )
 
+# Indicators of tight inter-step coupling (output of step N feeds step N+1).
+# These distinguish genuinely sequential tasks (PlanCraft: -70%) from tasks
+# that merely use ordering words for clarity (Finance Agent: +81%).
+INTERDEPENDENCE_INDICATORS: frozenset[str] = frozenset(
+    {
+        "output of",
+        "result of",
+        "depends on",
+        "based on the previous",
+        "using the result",
+        "feeds into",
+        "requires the",
+        "after completing",
+        "once you have",
+        "from the previous",
+        "with the output",
+        "chain",
+        "pipeline",
+        "step by step",
+        "in order to",
+        "sequentially",
+        "one at a time",
+        "craft",
+        "build upon",
+        "prerequisite",
+    }
+)
+
+# Indicators of exploratory / web-research tasks (decentralized +9.2%)
+EXPLORATION_INDICATORS: frozenset[str] = frozenset(
+    {
+        "search for",
+        "browse",
+        "explore",
+        "look up",
+        "look into",
+        "find out",
+        "discover",
+        "research",
+        "investigate",
+        "gather information",
+        "what is",
+        "who is",
+        "what are",
+        "latest",
+        "recent news",
+        "current status",
+        "news about",
+        "tell me about",
+        "learn about",
+    }
+)
+
+# Indicators of structured analysis tasks (centralized +80.9%)
+ANALYSIS_INDICATORS: frozenset[str] = frozenset(
+    {
+        "analyze",
+        "compare",
+        "evaluate",
+        "assess",
+        "review",
+        "synthesize",
+        "calculate",
+        "estimate",
+        "determine",
+        "diagnose",
+        "recommend",
+        "design",
+        "architect",
+        "plan",
+        "audit",
+        "benchmark",
+        "trade-off",
+        "tradeoff",
+        "pros and cons",
+        "cost-benefit",
+    }
+)
+
 # Action verbs that represent distinct sub-tasks
 _ACTION_VERB_PATTERN = re.compile(
     r"\b("
@@ -75,20 +161,27 @@ class TaskAssessment:
     """Result of task decomposability and tool-count analysis."""
 
     decomposability_score: float
+    sequential_interdependence: float
+    effective_decomposability: float
     tool_count: int
     mas_eligible: bool
+    recommended_architecture: str  # "centralized" | "decentralized"
     reason: str
 
 
 class TaskAnalyzer:
-    """Analyzes a task description to decide MAS eligibility.
+    """Analyzes a task description to decide MAS eligibility and architecture.
 
     MAS is eligible when:
-      - decomposability D > *decomposability_threshold* (default 0.35)
+      - effective D > *decomposability_threshold* (default 0.35)
       - active tool count T < *tool_count_threshold* (default 12)
 
-    The thresholds come from the paper's 180-configuration evaluation
-    (beta = -0.267 for tool-coordination trade-off).
+    Where effective D = D * (1 - SI), penalising tasks with sequential
+    interdependence that makes apparent parallelism illusory.
+
+    Architecture selection:
+      - Exploratory / web research tasks -> decentralized (BrowseComp +9.2%)
+      - Structured analysis tasks -> centralized (Finance Agent +80.9%)
     """
 
     def __init__(
@@ -124,6 +217,55 @@ class TaskAnalyzer:
         return min(1.0, d)
 
     @staticmethod
+    def compute_sequential_interdependence(task_text: str) -> float:
+        """Compute sequential interdependence score SI in [0.0, 1.0].
+
+        High SI means steps are tightly coupled (output of step N feeds
+        step N+1).  This penalises the decomposability score because
+        tasks like PlanCraft (D=0.42, SI high) degrade -70% under MAS,
+        while Finance Agent (D=0.41, SI low) improves +81%.
+        """
+        text_lower = task_text.lower()
+
+        interdep_count = sum(
+            1 for ind in INTERDEPENDENCE_INDICATORS if ind in text_lower
+        )
+        sequential_count = sum(1 for ind in SEQUENTIAL_INDICATORS if ind in text_lower)
+
+        # Denominator: total structural signals (parallel + sequential +
+        # interdependence + action verbs).  Avoid division by zero.
+        parallel_count = sum(1 for ind in PARALLEL_INDICATORS if ind in text_lower)
+        action_verbs = set(_ACTION_VERB_PATTERN.findall(text_lower))
+        total = parallel_count + sequential_count + interdep_count + len(action_verbs)
+        if total == 0:
+            return 0.0
+
+        # SI weights interdependence indicators more heavily than plain
+        # sequential words because "first ... then" can be stylistic,
+        # while "using the result of" signals real coupling.
+        si = (interdep_count * 2 + sequential_count) / (total + 1)
+        return min(1.0, si)
+
+    @staticmethod
+    def classify_task_type(task_text: str) -> str:
+        """Classify task as 'exploratory' or 'structured_analysis'.
+
+        Paper findings (Section 4.2):
+          - Decentralized excels at exploratory tasks (BrowseComp +9.2%)
+          - Centralized excels at structured analysis (Finance +80.9%)
+        """
+        text_lower = task_text.lower()
+
+        exploration_score = sum(
+            1 for ind in EXPLORATION_INDICATORS if ind in text_lower
+        )
+        analysis_score = sum(1 for ind in ANALYSIS_INDICATORS if ind in text_lower)
+
+        if exploration_score > analysis_score:
+            return "exploratory"
+        return "structured_analysis"
+
+    @staticmethod
     def count_tools(active_tool_names: list[str]) -> int:
         """Return the number of active tools."""
         return len(active_tool_names)
@@ -131,24 +273,40 @@ class TaskAnalyzer:
     def evaluate(self, task_text: str, active_tool_names: list[str]) -> TaskAssessment:
         """Run the full task analysis and return an assessment."""
         d = self.compute_decomposability(task_text)
+        si = self.compute_sequential_interdependence(task_text)
         t = self.count_tools(active_tool_names)
+        task_type = self.classify_task_type(task_text)
 
-        d_ok = d > self.decomposability_threshold
+        # Effective decomposability: penalise by sequential interdependence.
+        # Finance Agent (D=0.41, SI~0) -> effective_d ~ 0.41 (passes)
+        # PlanCraft  (D=0.42, SI~0.5) -> effective_d ~ 0.21 (fails)
+        effective_d = d * (1.0 - si)
+
+        d_ok = effective_d > self.decomposability_threshold
         t_ok = t < self.tool_count_threshold
         eligible = d_ok and t_ok
 
+        # Architecture: centralized (default, lowest error amp 4.4x)
+        # or decentralized (better for exploratory, 7.8x error amp)
+        if task_type == "exploratory":
+            arch = "decentralized"
+        else:
+            arch = "centralized"
+
         if eligible:
             reason = (
-                f"D={d:.3f} > {self.decomposability_threshold}, "
+                f"D={d:.3f}, SI={si:.3f}, effective_D={effective_d:.3f} "
+                f"> {self.decomposability_threshold}, "
                 f"T={t} < {self.tool_count_threshold}; "
-                f"task suitable for MAS (beta={COORDINATION_BETA})"
+                f"task suitable for MAS ({arch}, beta={COORDINATION_BETA})"
             )
         else:
             parts: list[str] = []
             if not d_ok:
                 parts.append(
-                    f"D={d:.3f} <= {self.decomposability_threshold} "
-                    f"(low decomposability)"
+                    f"effective_D={effective_d:.3f} <= "
+                    f"{self.decomposability_threshold} "
+                    f"(D={d:.3f}, SI={si:.3f})"
                 )
             if not t_ok:
                 parts.append(
@@ -159,7 +317,10 @@ class TaskAnalyzer:
 
         return TaskAssessment(
             decomposability_score=d,
+            sequential_interdependence=si,
+            effective_decomposability=effective_d,
             tool_count=t,
             mas_eligible=eligible,
+            recommended_architecture=arch,
             reason=reason,
         )

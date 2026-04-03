@@ -418,6 +418,12 @@ server {
 {{`# Nginx configuration for restricted mode - NO direct backend access
 # All API calls must go through the frontend
 
+# Map directive for conditional WebSocket upgrade header
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    ''      close;
+}
+
 server {
     listen 80;
     {{- if .Values.nginx.https.enabled }}
@@ -428,6 +434,7 @@ server {
     # Resolve upstreams at request time (avoids crash if DNS is unavailable at startup)
     resolver {{ ._resolverIP }} valid=10s;
     set $upstream_frontend http://{{ ._frontendHost }}:3000;
+    set $upstream_frontend_ws http://{{ ._frontendHost }}:3001;
 
     # Security headers
     add_header X-Frame-Options "DENY" always;
@@ -449,10 +456,72 @@ server {
 
     # Client settings
     client_max_body_size 150M;  # Support video uploads up to 100MB (base64 adds ~33% overhead)
+    client_body_timeout 900s;
+    client_header_timeout 900s;
 
     # Block direct API access - return 403 Forbidden
     location ~ ^/(v1|generate|chat|evaluate|upload|tools|health|auth)/ {
         return 403 "Direct API access is forbidden. Please use the application interface.";
+    }
+
+    # Frontend API routes - Long-running AI requests
+    location /api/chat {
+        proxy_pass $upstream_frontend;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_cache_bypass $http_upgrade;
+
+        # Disable buffering for streaming responses
+        proxy_buffering off;
+        proxy_request_buffering off;
+        proxy_cache off;
+        proxy_set_header X-Accel-Buffering no;
+
+        # Increase timeouts for long AI requests (10 minutes)
+        proxy_connect_timeout 600s;
+        proxy_send_timeout 600s;
+        proxy_read_timeout 600s;
+
+        # Enable chunked responses
+        chunked_transfer_encoding on;
+    }
+
+    # Other frontend API routes
+    location /api/ {
+        proxy_pass $upstream_frontend;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_cache_bypass $http_upgrade;
+
+        # Standard timeout for other API routes
+        proxy_connect_timeout 120s;
+        proxy_send_timeout 120s;
+        proxy_read_timeout 120s;
+    }
+
+    # WebSocket sidecar - real-time communication
+    location /ws {
+        proxy_pass $upstream_frontend_ws;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
+        proxy_buffering off;
     }
 
     # Main application - Next.js frontend ONLY
@@ -460,7 +529,7 @@ server {
         proxy_pass $upstream_frontend;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection 'upgrade';
+        proxy_set_header Connection $connection_upgrade;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;

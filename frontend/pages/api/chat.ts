@@ -8,6 +8,7 @@ import {
 import { ChatBody } from '@/types/chat';
 import { IntermediateStepType } from '@/types/intermediateSteps';
 import { Logger } from '@/utils/logger';
+import { verifyIdentityCookieEdge } from '@/utils/auth/identity-cookie-edge';
 
 const logger = new Logger('ChatAPI');
 
@@ -247,8 +248,21 @@ const handler = async (req: Request): Promise<Response> => {
     },
   } = (await req.json()) as ChatBody;
 
-  // Extract username from additionalProps
-  const username = additionalProps?.username || 'anon';
+  // SECURITY: Derive user identity from the signed server-side cookie,
+  // not from client-sent additionalProps which can be spoofed.
+  const identity = await verifyIdentityCookieEdge(req.headers.get('cookie'));
+  const username = identity?.username || 'anon';
+
+  // Overwrite client-sent identity fields with verified values so the
+  // backend never sees unverified user claims.
+  if (additionalProps) {
+    additionalProps.username = username;
+    if (additionalProps.userContext) {
+      additionalProps.userContext.username = username;
+      additionalProps.userContext.id = identity?.userId || null;
+      additionalProps.userContext.name = identity?.name || null;
+    }
+  }
 
   // Calculate estimated prompt tokens before sending
   const estimatedPromptTokens = messages.reduce((total, msg) => {

@@ -1,12 +1,20 @@
 import { IntermediateStep } from './intermediateSteps';
 
+export interface MessageError {
+  message: string;
+  category?: 'network' | 'timeout' | 'server' | 'rate_limit' | 'authentication' | 'unknown';
+  details?: string;
+  timestamp: number;
+  recoverable: boolean;
+}
+
 export interface Message {
   id?: string;
   role: Role;
   content: string;
   intermediateSteps?: IntermediateStep[];
   humanInteractionMessages?: any;
-  errorMessages?: any;
+  errorMessages?: MessageError;
   metadata?: {
     useDeepThinker?: boolean;
     [key: string]: any;
@@ -74,4 +82,7 @@ export interface Conversation {
   messages: Message[];
   folderId: string | null;
   updatedAt?: number;
+  isPartial?: boolean;
+  error?: string;
+  completedAt?: number;
 }

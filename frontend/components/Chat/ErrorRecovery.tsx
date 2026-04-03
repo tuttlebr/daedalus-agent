@@ -61,6 +61,8 @@ export interface ErrorRecoveryProps {
   className?: string;
   /** Compact mode (less vertical space) */
   compact?: boolean;
+  /** Whether partial results are displayed above this error */
+  isPartialResult?: boolean;
 }
 
 /**
@@ -92,12 +94,14 @@ export function categorizeError(error: Error | string): ErrorInfo {
   if (
     errorLower.includes('timeout') ||
     errorLower.includes('timed out') ||
-    errorLower.includes('aborted')
+    errorLower.includes('aborted') ||
+    errorLower.includes('deadline') ||
+    errorLower.includes('may have expired')
   ) {
     return {
       error,
       category: 'timeout',
-      message: 'The request took too long. The server might be busy.',
+      message: 'The request took too long. This can happen with complex tasks.',
       details: errorStr,
       recoverable: true,
       retryDelayMs: 3000,
@@ -168,6 +172,38 @@ export function categorizeError(error: Error | string): ErrorInfo {
       details: errorStr,
       recoverable: true,
       retryDelayMs: 1000,
+    };
+  }
+
+  // Agent/backend job errors
+  if (
+    errorLower.includes('job failed') ||
+    errorLower.includes('backend job') ||
+    errorLower.includes('workflow failed')
+  ) {
+    return {
+      error,
+      category: 'server',
+      message: 'The agent encountered an error while processing your request.',
+      details: errorStr,
+      recoverable: true,
+      retryDelayMs: 3000,
+    };
+  }
+
+  // MCP / tool errors
+  if (
+    errorLower.includes('mcp') ||
+    errorLower.includes('tool call') ||
+    errorLower.includes('tool_call')
+  ) {
+    return {
+      error,
+      category: 'server',
+      message: 'One of the agent\'s tools encountered an error.',
+      details: errorStr,
+      recoverable: true,
+      retryDelayMs: 3000,
     };
   }
 
@@ -250,6 +286,7 @@ export const ErrorRecovery: React.FC<ErrorRecoveryProps> = ({
   retryAttempt = 0,
   className = '',
   compact = false,
+  isPartialResult = false,
 }) => {
   const [showDetails, setShowDetails] = useState(false);
   const [countdown, setCountdown] = useState(0);
@@ -301,6 +338,13 @@ export const ErrorRecovery: React.FC<ErrorRecoveryProps> = ({
           <p className={`${compact ? 'text-sm' : 'text-base'} font-medium ${colors.text}`}>
             {error.message}
           </p>
+
+          {/* Partial result indicator */}
+          {isPartialResult && (
+            <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">
+              Partial results are shown above. You can retry or continue from here.
+            </p>
+          )}
 
           {/* Retry info */}
           {retryAttempt > 0 && maxRetries > 0 && (

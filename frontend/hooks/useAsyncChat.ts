@@ -41,7 +41,7 @@ interface UseAsyncChatOptions {
   pollingInterval?: number;
   onProgress?: (status: AsyncJobStatus) => void;
   onComplete?: (response: string, intermediateSteps?: any[], finalizedAt?: number, conversationId?: string) => void;
-  onError?: (error: string) => void;
+  onError?: (error: string, context?: { partialResponse?: string; intermediateSteps?: any[]; jobId?: string; conversationId?: string }) => void;
   userId?: string; // Add userId for localStorage key scoping
   useWebSocket?: boolean; // Use WebSocket push instead of polling (default: true)
 }
@@ -110,6 +110,7 @@ export const useAsyncChat = (options: UseAsyncChatOptions = {}): UseAsyncChatRet
   const pollingTimersRef = useRef<Record<string, ReturnType<typeof setTimeout> | null>>({});
   const activeJobsRef = useRef<Record<string, PersistedJob>>({});
   const pollCountByJobRef = useRef<Record<string, number>>({});
+  const pollErrorCountRef = useRef<Record<string, number>>({});
   const lastStatusHashByJobRef = useRef<Record<string, string>>({});
   const jobStatusByJobIdRef = useRef<Record<string, AsyncJobStatus>>({});
   const hasResumedRef = useRef(false); // Prevent double-resume
@@ -133,6 +134,7 @@ export const useAsyncChat = (options: UseAsyncChatOptions = {}): UseAsyncChatRet
     }
     delete activeJobsRef.current[jobId];
     delete pollCountByJobRef.current[jobId];
+    delete pollErrorCountRef.current[jobId];
     delete lastStatusHashByJobRef.current[jobId];
     delete jobStatusByJobIdRef.current[jobId];
     completedJobsRef.current.delete(jobId);
@@ -203,7 +205,12 @@ export const useAsyncChat = (options: UseAsyncChatOptions = {}): UseAsyncChatRet
       logger.info('Job completed via WebSocket push');
     } else if (status.status === 'error') {
       if (onError) {
-        onError(status.error || 'Unknown error');
+        onError(status.error || 'Unknown error', {
+          partialResponse: status.partialResponse,
+          intermediateSteps: status.intermediateSteps,
+          jobId,
+          conversationId,
+        });
       }
       if (conversationId) {
         clearPersistedJobs(userId, conversationId);
@@ -383,6 +390,8 @@ export const useAsyncChat = (options: UseAsyncChatOptions = {}): UseAsyncChatRet
       if (isReceivingData) {
         pollCountByJobRef.current[jobId] = 0;
       }
+      // Reset consecutive poll error counter on any successful poll
+      pollErrorCountRef.current[jobId] = 0;
 
       const completionGraceMs = 8000;
       const updatedAt = status.updatedAt || status.createdAt || Date.now();
@@ -415,7 +424,12 @@ export const useAsyncChat = (options: UseAsyncChatOptions = {}): UseAsyncChatRet
       } else if (status.status === 'error') {
         pollCountByJobRef.current[jobId] = 0;
         if (onError) {
-          onError(status.error || 'Unknown error');
+          onError(status.error || 'Unknown error', {
+            partialResponse: status.partialResponse,
+            intermediateSteps: status.intermediateSteps,
+            jobId,
+            conversationId,
+          });
         }
         // Clear polling and persisted job
         if (conversationId) {
@@ -432,9 +446,32 @@ export const useAsyncChat = (options: UseAsyncChatOptions = {}): UseAsyncChatRet
     } catch (error: unknown) {
       logger.error('Error polling job status', error);
       const conversationId = activeJobsRef.current[jobId]?.conversationId;
+
+      // Track consecutive poll failures - only fire onError after multiple failures
+      if (!pollErrorCountRef.current[jobId]) {
+        pollErrorCountRef.current[jobId] = 0;
+      }
+      pollErrorCountRef.current[jobId]++;
+
+      if (pollErrorCountRef.current[jobId] < 4) {
+        // Transient failure: log and retry with backoff
+        logger.warn(`Poll failure ${pollErrorCountRef.current[jobId]}/4 for job ${jobId}, retrying with backoff`);
+        scheduleNextPoll(jobId, pollJobStatus);
+        return null;
+      }
+
+      // 4+ consecutive failures: give up with whatever partial data we have
+      logger.error(`Poll failure ${pollErrorCountRef.current[jobId]} for job ${jobId}, giving up`);
+      pollErrorCountRef.current[jobId] = 0;
       pollCountByJobRef.current[jobId] = 0;
+      const lastKnownStatus = jobStatusByConversationId[conversationId || ''];
       if (onError) {
-        onError(error instanceof Error ? error.message : 'Unknown error');
+        onError(error instanceof Error ? error.message : 'Unknown error', {
+          partialResponse: lastKnownStatus?.partialResponse,
+          intermediateSteps: lastKnownStatus?.intermediateSteps,
+          jobId,
+          conversationId,
+        });
       }
       removeActiveJob(jobId, conversationId, false);
       return null;

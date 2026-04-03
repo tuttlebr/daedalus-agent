@@ -7,6 +7,7 @@ metadata:
     {{- include "daedalus.labels" . | nindent 4 }}
 spec:
   replicas: 1
+  revisionHistoryLimit: 3
   selector:
     matchLabels:
       app.kubernetes.io/name: {{ include "daedalus.name" . }}

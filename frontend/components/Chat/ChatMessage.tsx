@@ -29,6 +29,7 @@ import { DocumentBadge } from './DocumentBadge';
 import { ImageGallery } from './ImageGallery';
 import { getVideoUrl } from '@/utils/app/videoHandler';
 import { IntermediateSteps } from '../IntermediateSteps/IntermediateSteps';
+import { ErrorRecovery, categorizeError } from './ErrorRecovery';
 import { normalizeLatexDelimiters } from '@/utils/app/latexNormalizer';
 
 export interface Props {
@@ -41,8 +42,9 @@ export const ChatMessage: FC<Props> = memo(({ message, messageIndex }) => {
   const messageContent = typeof message?.content === 'string' ? message.content : '';
   const hasPrimaryContent = Boolean(messageContent.trim());
   const hasIntermediateSteps = Boolean(message?.intermediateSteps?.length);
+  const hasError = Boolean(message?.errorMessages);
 
-  if (!hasPrimaryContent && !hasIntermediateSteps) {
+  if (!hasPrimaryContent && !hasIntermediateSteps && !hasError) {
     return null;
   }
 
@@ -454,6 +456,17 @@ export const ChatMessage: FC<Props> = memo(({ message, messageIndex }) => {
               </div>
             )}
           </div>
+
+          {/* Inline error display for failed/partial responses */}
+          {isAssistantMessage && hasError && (
+            <div className="mt-2">
+              <ErrorRecovery
+                error={categorizeError(message.errorMessages!.message)}
+                compact={hasPrimaryContent}
+                isPartialResult={hasPrimaryContent}
+              />
+            </div>
+          )}
 
           {!resolvedIsStreaming && copyText && (
             <div className={actionBarClasses}>

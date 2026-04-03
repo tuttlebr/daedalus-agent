@@ -14,7 +14,6 @@ embedders:
 function_groups:
   github_mcp_server:
     _type: mcp_client
-
     include:
       - get_file_contents
       - get_label
@@ -36,27 +35,28 @@ function_groups:
       - search_pull_requests
       - search_repositories
       - search_users
+    tool_call_timeout: 120
     server:
       auth_provider: github_mcp_server
       transport: streamable-http
       url: https://api.githubcopilot.com/mcp
   dynamo_mcp_server:
     _type: mcp_client
-
     include:
       - searchDocs
+    tool_call_timeout: 120
     server:
       transport: streamable-http
       url: https://docs.dynamo.nvidia.com/dynamo/_mcp/server
   k8s_mcp_server:
     _type: mcp_client
-
+    tool_call_timeout: 600
     server:
       transport: streamable-http
       url: ${KUBERNETES_MCP_SERVER}
   serpapi_mcp_server:
     _type: mcp_client
-
+    tool_call_timeout: 120
     server:
       transport: streamable-http
       url: https://mcp.serpapi.com/${SERPAPI_KEY}/mcp
@@ -70,99 +70,107 @@ functions:
       - .sh
     script_timeout: 120
     description: >-
-      Discover and use agent skills — specialised instruction sets, workflows,
-      and scripts that you can load on demand. Call list_skills to see what is
-      available, load_skill to read a skill's instructions or resources, and
-      run_skill_script to execute a bundled script.
+      Discover and execute pre-built agent skills stored in /skills.
+      Skills are specialized instruction sets, workflows, and scripts.
+      Three operations: list_skills (see available skills), load_skill
+      (read a skill's instructions or resources), run_skill_script
+      (execute a bundled .py or .sh script, 120s timeout).
+
+      WHEN TO USE: When the user requests a task that might have a
+      pre-built workflow, or when you want to check if a specialized
+      procedure exists before attempting a task manually. Call
+      list_skills first to discover what is available.
+
+      WHEN NOT TO USE: Do NOT use for general tool calls or queries.
+      Skills are pre-authored procedures, not a replacement for
+      retrievers, search, or other tools.
     verbose: false
   add_memory:
     _type: add_memory
-    description:
-      'Store a user preference, fact, or personal detail for recall in
-      future conversations. Always use this when the user mentions a
-      preference, shares personal information, or when you learn something
-      worth remembering across sessions. The memory field should describe
-      the preference or fact clearly, not the raw question or answer.
+    description: >-
+      Store a user preference, fact, or personal detail for recall in
+      future conversations. The memory field should be a clear declarative
+      statement, not the raw question or answer.
 
-      CRITICAL: The memory parameter MUST be a plain text string, never a
-      JSON object or dict. Passing a JSON object will cause a validation
-      error. Always pass memory as a simple string value.
+      WHEN TO USE: When the user explicitly states a preference, shares
+      personal information, corrects your behavior, or reveals something
+      worth remembering across sessions.
 
-      REQUIRED PARAMETERS:
+      WHEN NOT TO USE: Do not store transient task details, information
+      already in the conversation, or facts the user would not want
+      recalled. Do not store sensitive data like passwords or tokens.
 
-      - user_id: string (username)
+      CRITICAL: The memory parameter MUST be a plain text string, never
+      a JSON object or dict.
 
-      - memory: string (plain text description of the preference, fact,
-      or detail to store. MUST be a string, not a JSON object.)
+      REQUIRED PARAMETERS: user_id (string, username), memory (string,
+      plain text description). OPTIONAL: metadata (object with
+      key_value_pairs for categorization).
 
-      OPTIONAL PARAMETERS:
-
-      - metadata: object with key_value_pairs for categorization (helps
-      future retrieval by tagging the memory with type and relevance)
-
-      Examples:
-
-      Basic: {"user_id": "john", "memory": "Prefers dark mode and concise
-      responses. Timezone: America/New_York"}
-
-      With metadata: {"user_id": "john", "memory": "User is interested in
-      semiconductor supply chain analysis and TSMC process nodes",
+      Examples: {"user_id": "john", "memory": "Prefers dark mode and
+      concise responses."} or with metadata: {"user_id": "john",
+      "memory": "Interested in semiconductor supply chain analysis",
       "metadata": {"key_value_pairs": {"type": "interest",
       "relevance": "high"}}}
-
-      '
     memory: redis_memory
     verbose: false
   current_datetime_tool:
     _type: current_datetime
-    description: Get the current date, time, and timezone. Use when answering
-      time-sensitive questions, calculating deadlines, or when the user asks
-      what day or time it is.
+    description: >-
+      Get the current date, time, and timezone.
+
+      WHEN TO USE: When the user asks what time or date it is, when
+      calculating deadlines or durations, or when any response requires
+      the current timestamp.
+
+      WHEN NOT TO USE: Skip if the current date is already known from
+      context and the exact time is not needed.
     verbose: false
   delete_memory:
     _type: delete_memory
-    description:
-      'Remove ALL stored memories for a user. This is a bulk operation that
-      deletes every memory associated with the given user_id. Individual
-      memories cannot be selectively deleted.
+    description: >-
+      PERMANENTLY remove ALL stored memories for a user. This is a
+      destructive bulk operation that deletes every memory associated
+      with the given user_id. Individual memories cannot be selectively
+      deleted.
 
-      REQUIRED PARAMETERS:
+      WHEN TO USE: Only when the user explicitly requests deletion of
+      all their memories. ALWAYS call confirm_action from
+      user_interaction_tool before executing this tool.
 
-      - user_id: string (username whose memories to delete)
+      WHEN NOT TO USE: Never call to "clean up" or "reset" without
+      explicit user request. If the user wants to correct a single
+      memory, use add_memory to store the correction instead.
+
+      REQUIRED PARAMETERS: user_id (string, username).
 
       Example: {"user_id": "john"}
-
-      '
     memory: redis_memory
     verbose: false
   get_memory:
     _type: get_memory
-    description:
-      'Always call this tool FIRST before calling any other tools, even if
-      the user does not mention it. Retrieve stored user preferences,
-      interests, and personal details via semantic search. The query should
-      focus on preferences that help you tailor your response style, tone,
-      and content for this user.
+    description: >-
+      ALWAYS call this tool FIRST at the start of every conversation
+      turn, before calling any other tools. Retrieves stored user
+      preferences, interests, personal details, and past corrections
+      via semantic search.
 
-      REQUIRED PARAMETERS (ALL THREE ARE MANDATORY):
+      WHEN TO USE: At the start of every turn (mandatory). Also call
+      mid-conversation with a topic-specific query when prior context
+      would improve your answer (e.g., before recommending something,
+      check if the user has stated preferences on that topic).
 
-      - user_id: string (username to retrieve memories for)
+      WHEN NOT TO USE: Never skip this tool. Even if the query seems
+      simple, stored preferences affect response style and content.
 
-      - query: string (semantic search query; use "user preferences,
-      interests, and context" for the initial call, or target a specific
-      topic when relevant, e.g. "what does the user know about Kubernetes")
+      REQUIRED PARAMETERS (ALL THREE MANDATORY): user_id (string,
+      username), query (string, semantic search -- use "user preferences,
+      interests, and context" for initial call or target a specific
+      topic), top_k (integer, use 5).
 
-      - top_k: integer (number of results to return, use 5)
-
-      Examples:
-
-      Initial: {"user_id": "john", "query": "user preferences, interests,
-      and context", "top_k": 5}
-
-      Topic-specific: {"user_id": "john", "query": "semiconductor industry
-      interests and background", "top_k": 5}
-
-      '
+      Examples: Initial: {"user_id": "john", "query": "user preferences,
+      interests, and context", "top_k": 5}. Topic-specific: {"user_id":
+      "john", "query": "semiconductor interests", "top_k": 5}
     memory: redis_memory
     top_k: 5
     verbose: false
@@ -170,24 +178,29 @@ functions:
     _type: image_augmentation
     api_endpoint: ${IMAGE_AUGMENTATION_BASE_URL}
     api_key: ${IMAGE_AUGMENTATION_API_KEY}
-    api_type: openai
-    openai_model: ${IMAGE_AUGMENTATION_MODEL}
-    description:
-      'Modify an existing user-uploaded image by applying edits, filters,
-      transformations, or adding visual elements. The user must have already
-      uploaded an image in the conversation.
+    model: ${IMAGE_AUGMENTATION_MODEL}
+    description: >-
+      AUGMENT, EDIT, or MODIFY an existing user-uploaded image. Produces
+      a NEW version of the image with the requested changes applied.
+      This tool returns an image, not text.
 
-      REQUIRED PARAMETERS:
+      WHEN TO USE: When the user asks to AUGMENT, ENHANCE, EDIT, MODIFY,
+      CHANGE, TRANSFORM, or ALTER an image they uploaded. Trigger
+      phrases: "augment this image", "enhance the image", "edit this
+      image", "add a background", "change the colors", "make it
+      brighter", "remove the background", "apply a filter", "upscale".
 
-      - imageRef: object (from the user''s message, contains imageId and
-      sessionId)
+      WHEN NOT TO USE: Do NOT use to create a brand-new image from
+      scratch with no source image (use image_generation_tool). Do NOT
+      use to describe, analyze, or answer questions about an image
+      without modifying it (use image_comprehension_tool). Do NOT use
+      if the user has not uploaded an image.
 
-      - prompt: string (description of the modifications to apply)
+      REQUIRED PARAMETERS: imageRef (object from user message with
+      imageId and sessionId), prompt (string describing modifications).
 
-      Example: {"imageRef": {"imageId": "abc123", "sessionId": "xyz"}, "prompt":
-      "Add a sunset background and increase contrast"}
-
-      '
+      Example: {"imageRef": {"imageId": "abc123", "sessionId": "xyz"},
+      "prompt": "Add a sunset background and increase contrast"}
     redis_url: ${REDIS_URL}
     timeout: 120
     verbose: false
@@ -195,25 +208,31 @@ functions:
     _type: image_comprehension
     api_endpoint: ${IMAGE_COMPREHENSION_BASE_URL}
     api_key: ${IMAGE_COMPREHENSION_API_KEY}
-    api_type: openai
-    openai_model: ${IMAGE_COMPREHENSION_MODEL}
-    description: 'Analyze a user-uploaded image and provide descriptions, answer
-      questions, extract text (OCR), identify objects, or describe scenes.
-      Does not modify the image.
+    model: ${IMAGE_COMPREHENSION_MODEL}
+    description: >-
+      READ-ONLY analysis of a user-uploaded image. Returns TEXT, never a
+      modified image. Describes scenes, answers questions, extracts text
+      (OCR), identifies objects, reads charts and diagrams, or explains
+      visual content.
 
-      REQUIRED PARAMETERS:
+      WHEN TO USE: When the user asks to DESCRIBE, EXPLAIN, READ,
+      IDENTIFY, or ANALYZE an uploaded image and expects a text answer.
+      Trigger phrases: "what is in this image", "describe this picture",
+      "read the text", "what does this chart show", "identify the
+      objects".
 
-      - imageRef: object (from the user''s message, contains imageId and
-      sessionId)
+      WHEN NOT TO USE: Do NOT use when the user wants a modified or
+      enhanced version of the image — even if they say "augment",
+      "enhance", "improve", "edit", or "upscale" (use
+      image_augmentation_tool for all of these). Do NOT use to create
+      a new image from scratch (use image_generation_tool).
 
-      OPTIONAL PARAMETERS:
+      REQUIRED PARAMETERS: imageRef (object from user message with
+      imageId and sessionId). OPTIONAL: query (string, specific question
+      about the image).
 
-      - query: string (a specific question about the image)
-
-      Example: {"imageRef": {"imageId": "abc123", "sessionId": "xyz"}, "query":
-      "What text is visible in this image?"}
-
-      '
+      Example: {"imageRef": {"imageId": "abc123", "sessionId": "xyz"},
+      "query": "What text is visible in this image?"}
     redis_url: ${REDIS_URL}
     timeout: 120
     verbose: false
@@ -221,43 +240,76 @@ functions:
     _type: image_generation
     api_endpoint: ${IMAGE_GENERATION_BASE_URL}
     api_key: ${IMAGE_GENERATION_API_KEY}
-    api_type: openai
-    openai_model: ${IMAGE_GENERATION_MODEL}
-    description:
-      'Generate a new image from a text description. Produces a 1024x1024
-      image based on the prompt. Use when the user requests an original
-      image, illustration, or visual creation from scratch.
+    model: ${IMAGE_GENERATION_MODEL}
+    description: >-
+      Generate a brand-new image from a text description. Creates an
+      original image from scratch. No existing image is needed or
+      accepted.
 
-      REQUIRED PARAMETERS:
+      WHEN TO USE: When the user asks to CREATE, DRAW, DESIGN, or
+      GENERATE an image that does not yet exist. Trigger phrases:
+      "create an image", "generate a picture", "draw me", "make an
+      illustration".
 
-      - prompt: string (detailed description of the image to generate)
+      WHEN NOT TO USE: Do NOT use to augment, edit, or modify an
+      existing uploaded image (use image_augmentation_tool). Do NOT use
+      to analyze or describe an existing image (use
+      image_comprehension_tool).
 
-      Example: {"prompt": "A futuristic city skyline at sunset with flying
-      cars and neon lights"}
+      REQUIRED PARAMETERS: prompt (string, detailed description of the
+      image to generate).
 
-      '
+      Example: {"prompt": "A futuristic city skyline at sunset with
+      flying cars and neon lights"}
     redis_url: ${REDIS_URL}
     timeout: 120
     verbose: false
   kubernetes_retriever_tool:
     _type: nat_retriever
-    description:
-      Search a curated knowledge base of Kubernetes documentation, best
-      practices, architecture patterns, and configuration guides. Covers
-      official K8s docs, expert technical blogs, and deployment patterns.
-      Use for conceptual questions, YAML configuration help, networking,
-      storage, RBAC, Helm, operators, and troubleshooting guidance.
+    description: >-
+      Search a curated KNOWLEDGE BASE of Kubernetes documentation, best
+      practices, architecture patterns, and configuration guides. Contains
+      pre-indexed reference material from official K8s docs, expert
+      technical blogs, and deployment patterns.
+
+      WHEN TO USE: For conceptual questions, YAML configuration help,
+      networking, storage, RBAC, Helm, operators, and troubleshooting
+      guidance about Kubernetes.
+
+      WHEN NOT TO USE: Do NOT use for live cluster operations. If
+      k8s_mcp_server is in your available tools, use it instead for
+      live operations — it has full kubectl and helm access and can
+      execute any cluster command: install/upgrade/rollback Helm charts,
+      create/delete/patch/scale resources, view logs, exec into pods,
+      manage namespaces, apply manifests, etc. If k8s_mcp_server is
+      NOT in your tool list, provide the best answer from this knowledge
+      base and note that live cluster operations require the K8s MCP
+      server which is currently unavailable.
+
+      COMBINE WITH: When k8s_mcp_server is available, use it alongside
+      this tool for queries needing both reference knowledge AND live
+      cluster data.
     retriever: kubernetes_retriever
     topic: Kubernetes and container orchestration
     verbose: false
   mentalhealth_retriever_tool:
     _type: nat_retriever
-    description: Search a curated knowledge base of evidence-based mental health
-      information from the Mental Health Foundation. Covers condition guides,
-      coping strategies, wellness practices, and psychological well-being
-      topics. Educational content only. Always include a disclaimer that
-      this information is educational and does not replace professional
-      mental health care.
+    description: >-
+      Search a curated KNOWLEDGE BASE of evidence-based mental health
+      information from the Mental Health Foundation. Contains pre-indexed
+      reference material covering condition guides, coping strategies,
+      wellness practices, and psychological well-being.
+
+      WHEN TO USE: When the user asks about mental health conditions,
+      coping strategies, wellness practices, or psychological well-being.
+
+      WHEN NOT TO USE: Do NOT use for crisis situations (direct user to
+      emergency services instead). Do NOT use for general physical health
+      or medical questions unrelated to mental health. Do NOT use for
+      general web search on mental health topics (use serpapi_search_tool).
+
+      IMPORTANT: Always include a disclaimer that this information is
+      educational and does not replace professional mental health care.
     retriever: mentalhealth_retriever
     topic: Mental health and psychological wellness
     verbose: false
@@ -266,23 +318,32 @@ functions:
     tool_names:
       - nv_ingest_tool
     llm_name: tool_calling_llm
-    description:
-      'Ingest a user-uploaded document (PDF, DOCX, etc.) into the vector
-      knowledge base. Processes, chunks, and indexes the document content
-      so it becomes searchable. Use when a user uploads a document and wants
-      to ask questions about its contents.
+    description: >-
+      INGEST a user-uploaded document (PDF, DOCX, etc.) into the vector
+      knowledge base. Processes, chunks, and indexes the document so its
+      content becomes searchable by user_uploaded_files_retriever_tool.
 
-      This tool accepts a single input_message string. Pass the full
-      instruction including the documentRef JSON, username, and
-      collection_name as a natural-language sentence inside input_message.
+      WHEN TO USE: When a user uploads a document and wants to ask
+      questions about its contents. This is the PROCESSING step that must
+      run before user_uploaded_files_retriever_tool can search the
+      document.
 
-      Example input_message: "Process the document with
-      documentRef={\"documentId\": \"abc123\", \"sessionId\": \"xyz\"},
-      username=\"alice\", and collection_name=\"my_docs\"."
+      WHEN NOT TO USE: Do NOT use to search already-ingested documents
+      (use user_uploaded_files_retriever_tool). Do NOT use if the user
+      has not uploaded a document. Do NOT use for images (use
+      image_comprehension_tool).
+
+      PIPELINE: Upload -> this tool (index) ->
+      user_uploaded_files_retriever_tool (search indexed content).
+
+      Pass a single input_message string containing the documentRef JSON,
+      username, and collection_name as a natural-language sentence.
+
+      Example: "Process the document with documentRef={\"documentId\":
+      \"abc123\", \"sessionId\": \"xyz\"}, username=\"alice\", and
+      collection_name=\"my_docs\"."
 
       Do NOT pass documentRef as a separate parameter.
-
-      '
     handle_tool_errors: true
     max_iterations: 1
     return_direct:
@@ -292,9 +353,12 @@ functions:
     chunk_overlap: 150
     chunk_size: 1024
     default_collection_name: user_uploads
-    description:
-      Core document ingestion engine that processes and indexes documents
-      into the vector knowledge base using the NVIDIA NV-Ingest service.
+    description: >-
+      Internal document ingestion engine called by
+      nv_ingest_postprocessing_tool. Processes and indexes documents
+      into the vector knowledge base using NVIDIA NV-Ingest. Do NOT
+      call this tool directly. Use nv_ingest_postprocessing_tool as
+      the entry point for document ingestion.
     milvus_uri: ${MILVUS_URI}
     minio_access_key: ${MINIO_ACCESS_KEY}
     minio_endpoint: ${MINIO_ENDPOINT}
@@ -305,12 +369,20 @@ functions:
     verbose: false
   nvidia_blog_rss:
     _type: rss_feed
-    description:
-      Fetch recent articles from the official NVIDIA Blog covering thought
-      leadership, AI research trends, business strategy, and general company
-      perspectives. Returns the most relevant recent articles ranked against
-      the query. Use for questions about recent NVIDIA blog posts, AI industry
-      commentary, or broad NVIDIA news and viewpoints.
+    description: >-
+      Fetch RECENT articles (past days to weeks) from the official NVIDIA
+      Blog. Covers thought leadership, AI research trends, business
+      strategy, and general company perspectives. Returns up to 5 articles
+      ranked by relevance.
+
+      WHEN TO USE: When the user asks about recent NVIDIA blog posts, AI
+      industry commentary from NVIDIA, or broad recent NVIDIA viewpoints.
+      Good for queries with "latest", "recent", "new" about NVIDIA topics.
+
+      WHEN NOT TO USE: Do NOT use for deep technical documentation or
+      hardware specs (use nvidia_retriever_tool). Do NOT use for official
+      press releases (use nvidia_news_room_rss). Do NOT use for developer
+      tutorials or SDK guides (use nvidia_developer_blog_rss).
     feed_url: https://feeds.feedburner.com/nvidiablog
     max_entries: 5
     reranker_api_key: ${REANKER_API_KEY}
@@ -319,13 +391,21 @@ functions:
     verbose: false
   nvidia_developer_blog_rss:
     _type: rss_feed
-    description:
-      Fetch recent articles from the NVIDIA Developer Blog covering SDK
-      updates, coding tutorials, how-to guides, API announcements, and technical
-      walkthroughs for CUDA, TensorRT, NeMo, and other NVIDIA developer tools.
-      Returns the most relevant recent articles ranked against the query. Use
-      for questions about NVIDIA developer resources, coding examples, SDK
-      release notes, or technical implementation guides.
+    description: >-
+      Fetch RECENT articles (past days to weeks) from the NVIDIA Developer
+      Blog. Covers SDK updates, coding tutorials, how-to guides, API
+      announcements, and technical walkthroughs for CUDA, TensorRT, NeMo,
+      and other NVIDIA developer tools. Returns up to 5 articles ranked
+      by relevance.
+
+      WHEN TO USE: When the user asks about recent NVIDIA developer
+      resources, coding examples, SDK release notes, or new technical
+      implementation guides.
+
+      WHEN NOT TO USE: Do NOT use for deep reference documentation (use
+      nvidia_retriever_tool). Do NOT use for business or strategy content
+      (use nvidia_blog_rss). Do NOT use for press releases (use
+      nvidia_news_room_rss).
     feed_url: https://developer.nvidia.com/blog/feed
     max_entries: 5
     reranker_api_key: ${REANKER_API_KEY}
@@ -334,13 +414,21 @@ functions:
     verbose: false
   nvidia_news_room_rss:
     _type: rss_feed
-    description:
-      Fetch recent official NVIDIA press releases and corporate announcements
-      from the NVIDIA Newsroom. Covers product launches, partnerships, earnings
-      reports, executive statements, and formal corporate communications.
-      Returns the most relevant recent releases ranked against the query.
-      Use for questions about official NVIDIA announcements, product release
-      dates, business partnerships, or corporate news.
+    description: >-
+      Fetch RECENT official NVIDIA press releases and corporate
+      announcements from the NVIDIA Newsroom. Covers product launches,
+      partnerships, earnings reports, executive statements, and formal
+      corporate communications. Returns up to 5 releases ranked by
+      relevance.
+
+      WHEN TO USE: When the user asks about official NVIDIA announcements,
+      product launch dates, business partnerships, earnings, or corporate
+      news.
+
+      WHEN NOT TO USE: Do NOT use for technical documentation (use
+      nvidia_retriever_tool). Do NOT use for thought leadership or AI
+      commentary (use nvidia_blog_rss). Do NOT use for developer tutorials
+      (use nvidia_developer_blog_rss).
     feed_url: https://nvidianews.nvidia.com/releases.xml
     max_entries: 5
     reranker_api_key: ${REANKER_API_KEY}
@@ -349,39 +437,68 @@ functions:
     verbose: false
   nvidia_retriever_tool:
     _type: nat_retriever
-    description:
-      Search a comprehensive NVIDIA technical knowledge base covering GPU
-      hardware specifications, CUDA programming documentation, SDK and
-      framework guides, research papers, and product information. Use for
-      in-depth technical questions about NVIDIA technologies, architecture
-      details, API references, and product capabilities. Scope includes
-      GPUs, CUDA, TensorRT, NeMo, Triton, RAPIDS, Omniverse, DGX, data
-      center products, and NVIDIA research.
+    description: >-
+      Search a comprehensive NVIDIA KNOWLEDGE BASE containing pre-indexed
+      technical documentation, GPU hardware specifications, CUDA
+      programming guides, SDK and framework docs, research papers, and
+      product information. Covers GPUs, CUDA, TensorRT, NeMo, Triton,
+      RAPIDS, Omniverse, DGX, data center products, and NVIDIA research.
+
+      WHEN TO USE: For in-depth technical questions about NVIDIA
+      technologies, architecture details, API references, and product
+      capabilities where established documentation is needed.
+
+      WHEN NOT TO USE: Do NOT use for recent NVIDIA news, blog posts, or
+      announcements from the past few weeks. Use nvidia_blog_rss for
+      thought leadership, nvidia_developer_blog_rss for SDK tutorials, or
+      nvidia_news_room_rss for press releases instead.
+
+      COMBINE WITH: Pair with NVIDIA RSS feeds for comprehensive answers
+      that blend deep technical detail with the latest updates.
     retriever: nvidia_retriever
     topic: NVIDIA technology, products, and corporate information
     verbose: false
   semianalysis_retriever_tool:
     _type: nat_retriever
-    description:
-      Search a curated knowledge base of expert semiconductor industry
-      analysis from SemiAnalysis. Covers foundry economics, process node
-      technology, fabrication capacity, supply chain dynamics, competitive
-      intelligence, and market trends across the chip industry. Use for
-      questions about semiconductor manufacturing, TSMC, Samsung Foundry,
-      Intel Foundry, lithography, EUV, chip market dynamics, and industry
-      competitive analysis.
+    description: >-
+      Search a curated KNOWLEDGE BASE of expert semiconductor industry
+      analysis from SemiAnalysis. Contains pre-indexed deep-dive articles
+      covering foundry economics, process node technology, fabrication
+      capacity, supply chain dynamics, competitive intelligence, and
+      market trends.
+
+      WHEN TO USE: For in-depth questions about semiconductor
+      manufacturing, TSMC, Samsung Foundry, Intel Foundry, lithography,
+      EUV, chip market dynamics, and industry competitive analysis.
+
+      WHEN NOT TO USE: Do NOT use for the latest semiconductor news or
+      recently published articles. Use semianalysis_rss for recent
+      SemiAnalysis content instead.
+
+      COMBINE WITH: Use semianalysis_rss for recent articles alongside
+      this retriever for deep background analysis on the same topic.
     retriever: semianalysis_retriever
     topic: Semiconductor industry analysis and market intelligence
     verbose: false
   semianalysis_rss:
     _type: rss_feed
-    description:
-      Fetch recent articles from the SemiAnalysis newsletter covering timely
-      semiconductor industry analysis, foundry updates, chip market news, and
-      supply chain developments. Returns the most relevant recent articles
-      ranked against the query. Use for questions about the latest semiconductor
+    description: >-
+      Fetch RECENT articles (past days to weeks) from the SemiAnalysis
+      newsletter. Covers timely semiconductor industry analysis, foundry
+      updates, chip market news, and supply chain developments. Returns
+      up to 5 articles ranked by relevance.
+
+      WHEN TO USE: When the user asks about the latest semiconductor
       industry news, recent foundry developments, or current chip market
-      conditions.
+      conditions. Good for queries with "latest", "recent", "new" about
+      semiconductor topics.
+
+      WHEN NOT TO USE: Do NOT use for deep historical analysis or
+      reference material about semiconductors (use
+      semianalysis_retriever_tool instead).
+
+      COMBINE WITH: Use semianalysis_retriever_tool for deep background
+      analysis alongside this feed for the latest updates.
     feed_url: https://newsletter.semianalysis.com/feed
     max_entries: 5
     reranker_api_key: ${REANKER_API_KEY}
@@ -390,12 +507,18 @@ functions:
     verbose: false
   karpathy_bearblog_rss:
     _type: rss_feed
-    description:
-      Fetch recent blog posts from Andrej Karpathy's Bear Blog. Covers AI
-      insights, deep learning perspectives, LLM training and inference, and
-      personal reflections on the AI field from a leading researcher and
-      former OpenAI / Tesla AI director. Returns the most relevant recent
-      posts ranked against the query.
+    description: >-
+      Fetch RECENT blog posts (past days to weeks) from Andrej Karpathy's
+      Bear Blog. Covers AI insights, deep learning perspectives, LLM
+      training and inference, and reflections on the AI field. Returns up
+      to 5 posts ranked by relevance.
+
+      WHEN TO USE: When the user asks about Karpathy's recent writing or
+      wants expert perspectives on AI/ML trends.
+
+      WHEN NOT TO USE: Do NOT use for Karpathy's longer-form technical
+      writing (use karpathy_github_rss). Do NOT use for general AI news
+      (use serpapi_search_tool).
     feed_url: https://karpathy.bearblog.dev/feed/
     max_entries: 5
     reranker_api_key: ${REANKER_API_KEY}
@@ -404,11 +527,19 @@ functions:
     verbose: false
   karpathy_github_rss:
     _type: rss_feed
-    description:
-      Fetch posts from Andrej Karpathy's GitHub Pages blog. Contains longer-form
-      technical writing on neural networks, deep learning research, and AI
-      education from a leading researcher and former OpenAI / Tesla AI director.
-      Returns the most relevant recent posts ranked against the query.
+    description: >-
+      Fetch posts from Andrej Karpathy's GitHub Pages blog. Contains
+      longer-form technical writing on neural networks, deep learning
+      research, and AI education. Returns up to 5 posts ranked by
+      relevance.
+
+      WHEN TO USE: When the user asks about Karpathy's in-depth
+      technical writing, neural network tutorials, or deep learning
+      educational content.
+
+      WHEN NOT TO USE: Do NOT use for Karpathy's shorter recent blog
+      posts (use karpathy_bearblog_rss). Do NOT use for general AI news
+      (use serpapi_search_tool).
     feed_url: https://karpathy.github.io/feed.xml
     max_entries: 5
     reranker_api_key: ${REANKER_API_KEY}
@@ -419,27 +550,30 @@ functions:
     _type: user_document_retriever
     content_field: text
     database_name: default
-    description:
-      'Search the content of previously ingested user-uploaded documents
-      using semantic search. Returns the most relevant passages from documents
-      that have been processed and indexed into the knowledge base.
+    description: >-
+      Search content of documents the user has PREVIOUSLY uploaded and
+      ingested via nv_ingest_postprocessing_tool. Returns the most
+      relevant passages via semantic search.
 
-      ONLY use this tool when the user explicitly asks about their uploaded
-      or ingested documents. Do NOT use for daily briefings, general
-      knowledge questions, or real-time information requests.
+      WHEN TO USE: ONLY when the user explicitly references a document
+      they uploaded. Trigger phrases: "in my document", "in the file I
+      uploaded", "what does my PDF say about", "search my uploads",
+      "from the document I shared".
 
-      REQUIRED PARAMETERS:
+      WHEN NOT TO USE: Do NOT use for daily briefings, general knowledge
+      questions, or real-time information. Do NOT use as a substitute for
+      get_memory. Do NOT use if no document has been ingested. Do NOT
+      confuse with retriever tools (kubernetes, nvidia, semianalysis,
+      etc.) which search pre-built knowledge bases, not user uploads.
 
-      - query: string (semantic search query describing what to find in the
-      documents)
+      PIPELINE: User uploads document -> nv_ingest_postprocessing_tool
+      indexes it -> this tool searches the indexed content.
 
-      - collection_name: string (name of the document collection, typically
-      "user_uploads")
+      REQUIRED PARAMETERS: query (string, what to find), collection_name
+      (string, typically "user_uploads").
 
-      Example: {"query": "What are the main findings?", "collection_name":
-      "user_uploads"}
-
-      '
+      Example: {"query": "What are the main findings?",
+      "collection_name": "user_uploads"}
     distance_cutoff: 1.2
     embedder_name: milvus_embedder
     milvus_uri: ${MILVUS_URI}
@@ -453,14 +587,21 @@ functions:
     verbose: false
   veterinarian_retriever_tool:
     _type: nat_retriever
-    description:
-      Search a curated veterinary knowledge base from VetPartner covering
-      animal health, treatment protocols, medication information, nutrition
-      guidelines, and species-specific care for dogs, cats, horses, birds,
-      reptiles, fish, and exotic pets. Use for questions about pet health,
-      animal symptoms, veterinary medications, and animal care. Always
-      include a disclaimer recommending consultation with a licensed
-      veterinarian for specific medical advice.
+    description: >-
+      Search a curated KNOWLEDGE BASE of veterinary information from
+      VetPartner. Covers animal health, treatment protocols, medication
+      information, nutrition guidelines, and species-specific care for
+      dogs, cats, horses, birds, reptiles, fish, and exotic pets.
+
+      WHEN TO USE: When the user asks about pet health, animal symptoms,
+      veterinary medications, nutrition, or animal care.
+
+      WHEN NOT TO USE: Do NOT use for human health questions (use
+      mentalhealth_retriever_tool for mental health, or serpapi_search_tool
+      for general health). Do NOT use for general web search.
+
+      IMPORTANT: Always include a disclaimer recommending consultation
+      with a licensed veterinarian for specific medical advice.
     retriever: veterinarian_retriever
     topic: Veterinary medicine and animal care
     verbose: false
@@ -469,20 +610,23 @@ functions:
     api_endpoint: ${DEFAULT_LLM_MODEL_BASE_URL}
     model: ${DEFAULT_LLM_MODEL_MODEL}
     api_key: ${DEFAULT_LLM_MODEL_API_KEY}
-    description:
-      'Convert VTT or SRT transcript text into structured meeting notes
-      organized into four sections: Attendees, Business Updates, Technical
-      Updates, and Action Items. Use when a user provides a meeting transcript
-      and wants it summarized or structured.
+    description: >-
+      Convert VTT or SRT meeting transcript text into structured notes
+      with four sections: Attendees, Business Updates, Technical Updates,
+      and Action Items.
 
-      REQUIRED PARAMETERS:
+      WHEN TO USE: When the user provides a meeting transcript in VTT or
+      SRT format and wants it summarized or structured. Trigger phrases:
+      "summarize this meeting", "meeting notes from this transcript",
+      "what happened in this call".
 
-      - vtt_content: string (raw VTT or SRT transcript text)
+      WHEN NOT TO USE: Do NOT use for general text summarization (use
+      content_distiller_tool). Only works with VTT/SRT format input.
 
-      Example: {"vtt_content": "WEBVTT\n\n00:00:00.000 --> 00:00:05.000\nJohn:
-      Hello everyone..."}
+      REQUIRED PARAMETERS: vtt_content (string, raw VTT or SRT text).
 
-      '
+      Example: {"vtt_content": "WEBVTT\n\n00:00:00.000 -->
+      00:00:05.000\nJohn: Hello everyone..."}
     timeout: 120
     verbose: false
   think_tool:
@@ -490,12 +634,22 @@ functions:
     max_thought_length: 50000
     max_chain_steps: 20
     description: >-
-      Cognitive reasoning scratchpad. Provides think() for single-step
-      private reasoning and sequential_think() for multi-step chains with
-      revision. Zero side effects. Use to process complex requests, plan
-      tool invocations, synthesize multi-source results, or check reasoning
-      before acting. Call think BEFORE acting whenever the path forward is
-      not immediately obvious.
+      Private reasoning scratchpad with zero side effects. Provides
+      think() for single-step reflection and sequential_think() for
+      multi-step chains with revision.
+
+      WHEN TO USE: Call think() BEFORE acting whenever the next step is
+      not immediately obvious. Use for: planning which tools to call and
+      in what order, resolving ambiguity in user requests, synthesizing
+      results from multiple tool calls, checking reasoning before giving
+      a final answer, deciding between alternative approaches.
+
+      WHEN NOT TO USE: Skip for simple direct questions needing only one
+      tool call. Do NOT use as a substitute for actually calling tools
+      or for processing content (use content_distiller_tool for that).
+
+      Use sequential_think() when analysis requires more than 3 reasoning
+      steps or when you may need to revise earlier conclusions.
     verbose: false
   content_distiller_tool:
     _type: content_distiller
@@ -506,21 +660,42 @@ functions:
     temperature: 0.1
     wrapper_type: LANGCHAIN
     description: >-
-      Secondary LLM content processing pipeline. Provides three tools:
-      distill_content (summarize/focus long content), extract_structured
-      (pull structured data from unstructured text), and synthesize
-      (combine multiple source fragments into coherent analysis). Use to
-      post-process verbose tool outputs before responding.
+      Post-process and condense verbose tool outputs BEFORE incorporating
+      them into your response. Three operations: distill_content
+      (summarize or focus long text), extract_structured (pull specific
+      data points from unstructured text), synthesize (combine fragments
+      from multiple sources into coherent analysis).
+
+      WHEN TO USE: After calling tools that return long outputs. Use
+      distill_content after webscrape_tool returns a long page. Use
+      extract_structured to pull specific facts from retriever results.
+      Use synthesize when combining information from multiple RSS feeds,
+      retrievers, or search results into a unified answer.
+
+      WHEN NOT TO USE: Skip when tool outputs are already concise. Do
+      NOT use as a substitute for think_tool (which plans your actions,
+      not processes content). Do NOT call before you have content to
+      process.
     verbose: false
   user_interaction_tool:
     _type: user_interaction
     max_options: 6
     description: >-
-      Structured user interaction framework. Provides clarify (ask
-      clarification questions with options), confirm_action (get approval
-      before consequential actions), and present_options (structured
-      comparison of alternatives). Use to reduce ambiguity and prevent
-      wasted effort.
+      Structured user interaction for reducing ambiguity and getting
+      approval. Three operations: clarify (ask a clarification question
+      with selectable options), confirm_action (get explicit approval
+      before a consequential action), present_options (structured
+      comparison of alternatives).
+
+      WHEN TO USE clarify: When the request has multiple valid
+      interpretations and guessing wrong would waste effort. WHEN TO USE
+      confirm_action: Before any destructive or hard-to-reverse action
+      (deleting memories, modifying K8s resources, GitHub changes). WHEN
+      TO USE present_options: When you identify 2+ valid approaches and
+      the best choice depends on user preference.
+
+      WHEN NOT TO USE: Skip for simple answerable questions. Do NOT use
+      confirm_action for read-only operations.
     verbose: false
   mas_optimizer_tool:
     _type: mas_optimizer
@@ -541,11 +716,19 @@ functions:
       - decomposab
     verbosity_ceiling: 2000
     description: >-
-      MAS architecture optimizer — evaluate tasks for Multi-Agent vs
-      Single-Agent routing, verify draft responses for topic drift and
-      missing content, and log outcomes for closed-loop calibration.
-      Based on 'Towards a Science of Scaling Agent Systems'
-      (arXiv:2512.08296v2).
+      Architecture routing engine for Multi-Agent vs Single-Agent task
+      routing. Three operations: mas_evaluate (assess whether a task
+      needs Single-Agent or Multi-Agent handling), mas_verify (check a
+      draft response for topic drift and missing content),
+      mas_log_outcome (record metrics for closed-loop calibration).
+
+      WHEN TO USE: Call mas_evaluate at the start of every request to
+      determine optimal architecture. Call mas_verify after drafting a
+      response for MAS-routed tasks. Call mas_log_outcome after
+      completing MAS tasks.
+
+      WHEN NOT TO USE: Do NOT call mas_verify for simple SAS tasks.
+      Do NOT skip mas_evaluate even for seemingly simple requests.
     verbose: false
   mas_orchestrator_tool:
     _type: tool_calling_agent
@@ -561,6 +744,7 @@ functions:
       - k8s_mcp_server
       - kubernetes_retriever_tool
       - mentalhealth_retriever_tool
+      - nv_ingest_postprocessing_tool
       - nvidia_blog_rss
       - nvidia_developer_blog_rss
       - nvidia_news_room_rss
@@ -577,7 +761,7 @@ functions:
       - vtt_interpreter_tool
       - webscrape_tool
       - mas_optimizer_tool
-    llm_name: reasoning_llm
+    llm_name: tool_calling_llm
     description: >-
       Primary query handler for all non-image requests. Evaluates every
       task with mas_evaluate to select Single-Agent (SAS) or Multi-Agent
@@ -609,20 +793,33 @@ functions:
       If mas_evaluate recommends SAS: use your tools directly to answer
       the query. No orchestration overhead.
 
-      If mas_evaluate recommends MAS (centralized_mas_with_verifier):
-      1. Execute three analysis roles:
-         - Intent: Call get_memory for user corrections and preferences.
-           Summarize in exactly 5 words.
-         - Principles: Identify applicable architecture rules. Summarize
-           in 5 words.
-         - Brevity: Call get_memory for response style preferences.
-           Summarize in 5 words.
-      2. Synthesize a draft response from the three summaries, using
-         retrieval and search tools as needed to gather information.
-      3. Call mas_verify with the draft, original task, and task type.
+      If mas_evaluate recommends MAS, read the architecture.type field:
+
+      For centralized_mas_with_verifier (structured analysis tasks):
+      1. Decompose the task into 2-4 independent information-gathering
+         streams based on the task's natural facets. Each stream should
+         target a distinct data source or analysis angle (e.g., one
+         stream queries retrievers, another searches the web, another
+         checks GitHub or cluster state).
+      2. Execute all streams using appropriate tools. Prioritize breadth:
+         each stream should cover different ground, not repeat the same
+         query across tools.
+      3. Synthesize findings from all streams into a unified response.
+         Resolve contradictions by preferring primary sources.
+      4. Call mas_verify with the draft, original task, and task type.
          If verification fails, apply revision notes and re-verify once.
-      4. Call mas_log_outcome with final metrics, then persist via
-         add_memory.
+      5. Call mas_log_outcome with metrics (include turn_count for
+         coordination tracking), then persist via add_memory.
+
+      For decentralized_mas (exploratory / web research tasks):
+      1. Launch broad parallel exploration: search, retrieve, and scrape
+         across multiple sources simultaneously. Cast a wide net.
+      2. Cross-validate: compare results across sources, flag
+         contradictions, verify key claims through independent paths.
+      3. Synthesize validated findings. Note confidence levels for
+         contested points.
+      4. Call mas_verify with the draft, original task, and task type.
+      5. Call mas_log_outcome with metrics, then persist via add_memory.
 
       # Memory
 
@@ -673,10 +870,67 @@ functions:
       failure, explain and suggest alternatives. State uncertainty
       honestly; offer to investigate.
 
-      user_uploaded_files_retriever_tool is ONLY for searching the content
-      of documents the user has explicitly uploaded and ingested. NEVER use
-      it as a substitute for get_memory, and NEVER call it unless the user
-      is asking about a specific document they uploaded.
+      ACTION BIAS (MANDATORY): You are an agent with real tools that
+      execute real actions. When the user asks you to do something and
+      you have a tool for it, DO IT. Call the tool. Do not explain what
+      you would do, do not list what tools you have, do not offer to
+      generate a script. Act first, report results after.
+
+      NEVER claim you "cannot" perform an action, "do not have access",
+      or "lack the ability" when a tool in your tool list covers it.
+      Your tools are real, live connections to real systems. Use them.
+
+      If an MCP server tool (k8s_mcp_server, github_mcp_server, etc.)
+      is NOT in your actual tool list, it was unreachable at startup.
+      State this once, briefly, and move on. Do not deliberate about it.
+
+      ANTI-PATTERN (never do this): Responding with "I don't have
+      access to a terminal" or "I cannot run commands" when the tool IS
+      in your list. If you catch yourself drafting a response like that,
+      stop and call the tool instead.
+
+      ## Quick routing guide
+
+      NVIDIA questions:
+      - Technical docs, specs, APIs -> nvidia_retriever_tool
+      - Recent blog posts, AI commentary -> nvidia_blog_rss
+      - Recent SDK tutorials, dev guides -> nvidia_developer_blog_rss
+      - Press releases, earnings, launches -> nvidia_news_room_rss
+      - Comprehensive answer -> retriever + relevant RSS feed together
+
+      Semiconductor questions:
+      - Deep analysis, foundry economics -> semianalysis_retriever_tool
+      - Latest news, recent articles -> semianalysis_rss
+      - Comprehensive answer -> retriever + RSS together
+
+      Kubernetes questions:
+      - Docs, best practices, YAML help -> kubernetes_retriever_tool
+      - ANY cluster operation -> k8s_mcp_server (if available; has FULL
+        kubectl and helm access: install/upgrade/rollback charts,
+        create/delete/patch/scale resources, view logs, exec into pods,
+        manage namespaces, etc.)
+      - Both knowledge + live data -> both tools together
+      When k8s_mcp_server is in your tool list, call it immediately for
+      cluster operations. Do not offer scripts or list limitations.
+
+      Image requests:
+      - Image generation, augmentation, and comprehension are handled
+        by the parent agent. If the user requests image operations,
+        complete your current work and return; the parent will route
+        image tasks to the appropriate tools.
+
+      User documents:
+      - Search ingested documents -> user_uploaded_files_retriever_tool
+      - NEVER use user_uploaded_files_retriever_tool as a substitute
+        for get_memory or for general knowledge questions
+
+      Web research:
+      - Topics outside specialized knowledge bases -> serpapi_search_tool
+      - Read a specific URL -> webscrape_tool
+      - Typical flow: serpapi -> webscrape -> content_distiller_tool
+
+      General fallback order: specialized retriever -> RSS feed ->
+      serpapi_search_tool -> webscrape_tool
   deep_thinker_tool:
     _type: tool_calling_agent
     tool_names:
@@ -708,41 +962,69 @@ functions:
       - vtt_interpreter_tool
       - webscrape_tool
       - mas_optimizer_tool
-    llm_name: reasoning_llm
+    llm_name: tool_calling_llm
     verbose: false
     handle_tool_errors: true
     max_iterations: 25
   serpapi_search_tool:
     _type: serpapi_search
     description: >-
-      Search the web using SerpAPI and return structured results with rich
-      visual cards. Results include organic web listings, knowledge graph
-      panels, answer boxes, top stories, news, images, shopping results, and
-      videos. Supports Google Search (default), Google News, Google Images,
-      Google Shopping, and Google Videos via the search_type parameter.
-      Use location for geographically relevant queries.
-      Use time_period for recency filtering: "qdr:h" (hour), "qdr:d" (day),
-      "qdr:w" (week), "qdr:m" (month), "qdr:y" (year).
+      Search the public web via Google and return structured results
+      including organic listings, knowledge panels, answer boxes, news,
+      images, shopping, and videos. Supports Google Search (default),
+      Google News, Google Images, Google Shopping, and Google Videos via
+      search_type parameter.
+
+      WHEN TO USE: When the topic is NOT covered by any specialized
+      retriever or RSS feed, or when those tools return insufficient
+      results. Use for general knowledge, current events, people,
+      companies other than NVIDIA, programming questions, or any topic
+      outside the specialized knowledge bases. Also use for location-
+      specific queries (set location parameter).
+
+      WHEN NOT TO USE: Do NOT use as the first choice when a specialized
+      tool covers the topic. Check these first: nvidia_retriever_tool
+      (NVIDIA tech), kubernetes_retriever_tool (K8s docs),
+      semianalysis_retriever_tool (semiconductors),
+      mentalhealth_retriever_tool (mental health),
+      veterinarian_retriever_tool (animal care). Check RSS feeds for
+      recent news on those same topics. Fall back to serpapi only when
+      specialized sources are insufficient.
+
+      COMBINE WITH: Use webscrape_tool to fetch full content from a URL
+      found in search results.
+
+      Use time_period for recency: "qdr:h" (hour), "qdr:d" (day),
+      "qdr:w" (week), "qdr:m" (month), "qdr:y" (year). Use location
+      for geographically relevant queries.
   webscrape_tool:
     _type: webscrape
     allowed_schemes:
       - http
       - https
     browser_timeout: 120
-    description:
-      'Fetch a webpage at a known URL and convert its content to readable
-      markdown text. Automatically handles JavaScript-rendered pages and sites
-      with bot protection (e.g. Cloudflare) by falling back to a headless browser.
-      Use when the user provides a specific URL to read, or when a URL has been
-      identified that needs to be visited for its content.
+    description: >-
+      Fetch a webpage at a KNOWN URL and convert its content to readable
+      markdown. Handles JavaScript-rendered pages and bot protection
+      (e.g., Cloudflare) via headless browser fallback.
 
-      REQUIRED PARAMETERS:
+      WHEN TO USE: When you have a specific URL to read, either provided
+      by the user or found via serpapi_search_tool. Use to read full
+      articles, documentation pages, or any web content at a known
+      address.
 
-      - url: string (full http or https URL to fetch)
+      WHEN NOT TO USE: Do NOT use for web search or URL discovery. You
+      must already have the URL. Use serpapi_search_tool to find URLs
+      first, then this tool to read page content. Do NOT use for user-
+      uploaded documents (use nv_ingest_postprocessing_tool to ingest,
+      then user_uploaded_files_retriever_tool to search).
+
+      COMBINE WITH: serpapi_search_tool (find URLs) then this tool (read
+      content), then content_distiller_tool (summarize long pages).
+
+      REQUIRED PARAMETERS: url (string, full http or https URL).
 
       Example: {"url": "https://example.com/article"}
-
-      '
     max_output_tokens: 20000
     respect_robots_txt: false
     timeout: 120

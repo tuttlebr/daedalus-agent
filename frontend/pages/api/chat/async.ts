@@ -4,7 +4,9 @@ import { publishStreamingState, publishConversationUpdate } from '@/utils/sync/p
 import { v4 as uuidv4 } from 'uuid';
 import { Message } from '@/types/chat';
 import { Logger } from '@/utils/logger';
-import { buildAsyncJobSubmitUrl, buildAsyncJobStatusUrl } from '@/utils/app/backendApi';
+import { buildAsyncJobSubmitUrl, buildAsyncJobStatusUrl, buildBackendUrlForMode } from '@/utils/app/backendApi';
+import { fetchWithTimeout } from '@/utils/fetchWithTimeout';
+import { getSession } from '@/utils/auth/session';
 
 const logger = new Logger('AsyncJob');
 
@@ -54,6 +56,9 @@ interface NatAsyncJobResponse {
 const JOB_EXPIRY_SECONDS = 60 * 60; // 1 hour
 const NAT_ASYNC_EXPIRY_SECONDS = 3600;
 const NAT_SYNC_TIMEOUT = 0; // Pure async -- return job_id immediately
+const NAT_SUBMIT_TIMEOUT_MS = 45_000; // Per-attempt timeout for NAT submission
+const NAT_SUBMIT_MAX_RETRIES = 3; // Max attempts for NAT submission
+const NAT_CONNECTIVITY_TIMEOUT_MS = 5_000; // Fast pre-check before sending full payload
 
 function mapNatStatus(natStatus: string): AsyncJobStatus['status'] {
   switch (natStatus) {
@@ -92,6 +97,235 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   return res.status(405).json({ error: 'Method not allowed' });
 }
 
+// ── Intermediate step helpers ────────────────────────────────────────
+
+/**
+ * Parse a NAT v1.6.0+ `intermediate_data:` JSON line into the
+ * IntermediateStep shape the frontend expects.
+ */
+function parseIntermediateDataLine(json: string): any | null {
+  try {
+    const parsed = JSON.parse(json);
+    const isComplete = parsed.name?.includes('Complete:');
+    const isWorkflow = parsed.name?.includes('<workflow>');
+
+    const cleanName = parsed.name
+      ?.replace(/^Function (Start|Complete): /, '')
+      .replace(/<|>/g, '') || 'System Step';
+
+    let eventType: string;
+    if (isWorkflow) {
+      eventType = isComplete ? 'WORKFLOW_END' : 'WORKFLOW_START';
+    } else {
+      eventType = isComplete ? 'TOOL_END' : 'TOOL_START';
+    }
+
+    return {
+      parent_id: parsed.parent_id || 'root',
+      function_ancestry: {
+        node_id: parsed.id || `step-${Date.now()}`,
+        parent_id: parsed.parent_id || null,
+        function_name: cleanName,
+        depth: 0,
+      },
+      payload: {
+        event_type: eventType,
+        event_timestamp: Date.now() / 1000,
+        name: cleanName,
+        metadata: { original_payload: parsed },
+        data: { output: parsed.payload || '' },
+        UUID: parsed.id || `${Date.now()}-${Math.random()}`,
+      },
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Open a parallel streaming connection to the backend's /chat/stream
+ * endpoint to capture intermediate steps and content tokens in real time.
+ *
+ * Runs fire-and-forget after the POST handler returns the jobId.  The
+ * accumulated steps are stored in Redis so that handleGet() and
+ * finalizeSuccess() can include them.
+ */
+async function startBackgroundStreamReader(
+  jobId: string,
+  jobRequest: AsyncJobRequest,
+  messagesForNat: any[],
+  verifiedUsername: string,
+): Promise<void> {
+  const streamUrl = buildBackendUrlForMode(jobRequest.useDeepThinker, '/chat/stream');
+  const payload = {
+    messages: messagesForNat,
+    model: 'string',
+    temperature: 0,
+    max_tokens: 0,
+    top_p: 0,
+    use_knowledge_base: true,
+    top_k: 0,
+    collection_name: 'string',
+    stop: true,
+    stream: true,
+    user_id: verifiedUsername,
+    additional_props: {
+      ...(jobRequest.additionalProps || {}),
+      enableIntermediateSteps: true,
+    },
+    stream_options: { include_usage: true },
+  };
+
+  const userId = jobRequest.userId || 'anon';
+  const conversationId = jobRequest.conversationId;
+  const stepsKey = sessionKey(['async-job-steps', jobId]);
+  const accumulatedSteps: any[] = [];
+  let partialResponse = '';
+  let lastToolOutput = '';
+
+  try {
+    logger.info(`Job ${jobId}: Starting background stream reader at ${streamUrl}`);
+    const response = await fetch(streamUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-user-id': verifiedUsername,
+        'X-Backend-Type': jobRequest.useDeepThinker ? 'deep-thinker' : 'default',
+      },
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok || !response.body) {
+      logger.error(`Job ${jobId}: Stream reader got ${response.status}, aborting`);
+      return;
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    const publisher = getPublisher();
+    const tokenChannel = conversationId
+      ? `user:${userId}:chat:${conversationId}:tokens`
+      : null;
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+
+      for (const line of lines) {
+        // ── intermediate_data: lines → parse step, store, publish ──
+        if (line.startsWith('intermediate_data: ')) {
+          const step = parseIntermediateDataLine(
+            line.slice('intermediate_data: '.length),
+          );
+          if (step) {
+            accumulatedSteps.push(step);
+            // Persist incrementally so handleGet() can return live steps
+            await jsonSetWithExpiry(stepsKey, accumulatedSteps, JOB_EXPIRY_SECONDS);
+
+            if (tokenChannel) {
+              publisher.publish(tokenChannel, JSON.stringify({
+                type: 'chat_intermediate_step',
+                conversationId,
+                jobId,
+                step,
+              })).catch(() => {});
+            }
+
+            // Extract function output for partial response tracking
+            const raw = step.payload?.data?.output;
+            if (
+              step.payload?.event_type === 'TOOL_END' &&
+              typeof raw === 'string'
+            ) {
+              const marker = '**Function Output:**\n```';
+              const mIdx = raw.lastIndexOf(marker);
+              if (mIdx !== -1) {
+                const contentStart = raw.indexOf('\n', mIdx + marker.length);
+                if (contentStart !== -1) {
+                  let output = raw.slice(contentStart + 1);
+                  const lastFence = output.lastIndexOf('\n```');
+                  if (lastFence !== -1) output = output.slice(0, lastFence);
+                  if (output.trim() && output.trim() !== '[]') {
+                    lastToolOutput = output.trim();
+                  }
+                }
+              }
+            }
+          }
+        }
+
+        // ── data: lines → extract content tokens ──
+        if (line.startsWith('data: ')) {
+          const data = line.slice(5).trim();
+          if (data === '[DONE]') break;
+          try {
+            const parsed = JSON.parse(data);
+            if (parsed.error) continue;
+            const content =
+              parsed.choices?.[0]?.delta?.content ??
+              parsed.choices?.[0]?.message?.content ??
+              parsed.output ??
+              parsed.content ??
+              '';
+            if (content && typeof content === 'string') {
+              partialResponse += content;
+              // Publish content token for real-time streaming in PWA
+              if (tokenChannel) {
+                publisher.publish(tokenChannel, JSON.stringify({
+                  type: 'chat_token',
+                  conversationId,
+                  jobId,
+                  content,
+                })).catch(() => {});
+              }
+              // Update partial response in job status
+              await updateJobStatus(jobId, {
+                status: 'streaming',
+                partialResponse,
+                intermediateSteps: accumulatedSteps,
+                updatedAt: Date.now(),
+              });
+            }
+          } catch {
+            // Non-JSON data line — skip
+          }
+        }
+      }
+    }
+
+    // If stream produced content but NAT async hasn't finished yet, use
+    // lastToolOutput as recovery (same logic as chat.ts)
+    if (!partialResponse.trim() && lastToolOutput) {
+      partialResponse = lastToolOutput;
+    }
+
+    // Final persist of all accumulated steps
+    await jsonSetWithExpiry(stepsKey, accumulatedSteps, JOB_EXPIRY_SECONDS);
+    // Update job status with partial response and steps
+    await updateJobStatus(jobId, {
+      intermediateSteps: accumulatedSteps,
+      ...(partialResponse ? { partialResponse } : {}),
+      updatedAt: Date.now(),
+    });
+
+    logger.info(`Job ${jobId}: Stream reader finished`, {
+      steps: accumulatedSteps.length,
+      partialResponseLength: partialResponse.length,
+    });
+  } catch (err: any) {
+    logger.error(`Job ${jobId}: Stream reader error: ${err.message}`);
+    // Persist whatever we have so far
+    if (accumulatedSteps.length > 0) {
+      await jsonSetWithExpiry(stepsKey, accumulatedSteps, JOB_EXPIRY_SECONDS).catch(() => {});
+    }
+  }
+}
+
 // ── POST: Submit a new async job to NAT ──────────────────────────────
 
 async function handlePost(req: NextApiRequest, res: NextApiResponse) {
@@ -100,6 +334,21 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
 
     if (!messages || !Array.isArray(messages)) {
       return res.status(400).json({ error: 'Invalid messages' });
+    }
+
+    // SECURITY: Derive user identity from the server-side session,
+    // not from client-sent additionalProps/userId which can be spoofed.
+    const session = await getSession(req, res);
+    const verifiedUsername = session?.username || 'anon';
+
+    // Overwrite client-sent identity fields with verified values
+    if (additionalProps) {
+      additionalProps.username = verifiedUsername;
+      if (additionalProps.userContext) {
+        additionalProps.userContext.username = verifiedUsername;
+        additionalProps.userContext.id = session?.userId || null;
+        additionalProps.userContext.name = session?.name || null;
+      }
     }
 
     const jobId = uuidv4();
@@ -153,23 +402,66 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       useDeepThinker,
     });
 
-    const natResponse = await fetch(submitUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-user-id': additionalProps?.username || userId || 'anon',
-        'X-Backend-Type': useDeepThinker ? 'deep-thinker' : 'default',
-      },
-      body: JSON.stringify(natPayload),
-    });
-
-    if (!natResponse.ok) {
-      const errorText = await natResponse.text();
-      logger.error(`Job ${jobId}: NAT async submit failed: ${natResponse.status}`, errorText);
-      return res.status(502).json({ error: `Backend error: ${natResponse.status} - ${errorText}` });
+    // Fast connectivity pre-check: HEAD request with short timeout to detect
+    // unreachable backends in seconds instead of waiting the full POST timeout.
+    // This catches the common case where the backend pod is not ready or the
+    // event loop is hung (TCP probe passes but HTTP requests hang).
+    try {
+      await fetchWithTimeout(submitUrl, { method: 'HEAD' }, NAT_CONNECTIVITY_TIMEOUT_MS);
+    } catch (connErr: any) {
+      logger.error(`Job ${jobId}: Backend connectivity check failed: ${connErr.message}`);
+      return res.status(503).json({
+        error: `Backend is not reachable (connectivity check failed after ${NAT_CONNECTIVITY_TIMEOUT_MS}ms). The backend may be starting up or temporarily unavailable.`,
+      });
     }
 
-    const natResult = await natResponse.json();
+    const natHeaders = {
+      'Content-Type': 'application/json',
+      'x-user-id': verifiedUsername,
+      'X-Backend-Type': useDeepThinker ? 'deep-thinker' : 'default',
+    };
+    const natBody = JSON.stringify(natPayload);
+
+    let natResult: any;
+    let lastError: string | null = null;
+
+    for (let attempt = 1; attempt <= NAT_SUBMIT_MAX_RETRIES; attempt++) {
+      try {
+        const natResponse = await fetchWithTimeout(submitUrl, {
+          method: 'POST',
+          headers: natHeaders,
+          body: natBody,
+        }, NAT_SUBMIT_TIMEOUT_MS);
+
+        if (!natResponse.ok) {
+          const errorText = await natResponse.text();
+          lastError = `${natResponse.status} - ${errorText}`;
+          // Don't retry client errors (4xx)
+          if (natResponse.status >= 400 && natResponse.status < 500) {
+            logger.error(`Job ${jobId}: NAT async submit rejected (${natResponse.status}), not retrying`, errorText);
+            return res.status(502).json({ error: `Backend error: ${lastError}` });
+          }
+          logger.warn(`Job ${jobId}: NAT async submit failed (attempt ${attempt}/${NAT_SUBMIT_MAX_RETRIES}): ${lastError}`);
+        } else {
+          natResult = await natResponse.json();
+          break;
+        }
+      } catch (err: any) {
+        lastError = err.message || 'Unknown fetch error';
+        logger.warn(`Job ${jobId}: NAT async submit error (attempt ${attempt}/${NAT_SUBMIT_MAX_RETRIES}): ${lastError}`);
+      }
+
+      if (attempt < NAT_SUBMIT_MAX_RETRIES) {
+        const backoffMs = Math.min(2000 * Math.pow(2, attempt - 1), 10_000);
+        logger.info(`Job ${jobId}: Retrying in ${backoffMs}ms...`);
+        await new Promise((resolve) => setTimeout(resolve, backoffMs));
+      }
+    }
+
+    if (!natResult) {
+      logger.error(`Job ${jobId}: NAT async submit failed after ${NAT_SUBMIT_MAX_RETRIES} attempts: ${lastError}`);
+      return res.status(502).json({ error: `Backend unavailable after ${NAT_SUBMIT_MAX_RETRIES} attempts: ${lastError}` });
+    }
     logger.info(`Job ${jobId}: NAT accepted job`, { natStatus: natResult.status });
 
     // Store job metadata in Redis for the GET handler
@@ -201,7 +493,22 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       await publishStreamingState(effectiveUserId, conversationId, true, jobId);
     }
 
-    return res.status(200).json({ jobId, status: 'pending' });
+    // Respond immediately so the client can start polling / WS listening
+    res.status(200).json({ jobId, status: 'pending' });
+
+    // Fire-and-forget: open a parallel streaming connection to capture
+    // intermediate steps and content tokens in real time.  The Node.js
+    // runtime keeps the async work alive after res.json() returns.
+    startBackgroundStreamReader(
+      jobId,
+      jobRequest,
+      messagesForNat,
+      verifiedUsername,
+    ).catch((err) => {
+      logger.error(`Job ${jobId}: Background stream reader failed`, err);
+    });
+
+    return;
   } catch (error) {
     logger.error('Error creating async job', error);
     return res.status(500).json({ error: 'Failed to create job' });
@@ -240,11 +547,11 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
     let natStatus: NatAsyncJobResponse;
 
     try {
-      const natResponse = await fetch(natStatusUrl, {
+      const natResponse = await fetchWithTimeout(natStatusUrl, {
         headers: {
           'X-Backend-Type': jobRequest.useDeepThinker ? 'deep-thinker' : 'default',
         },
-      });
+      }, 30_000);
 
       if (!natResponse.ok) {
         if (natResponse.status === 404) {
@@ -264,11 +571,16 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
 
     const mappedStatus = mapNatStatus(natStatus.status);
 
+    // Merge live intermediate steps from the background stream reader
+    const stepsKey = sessionKey(['async-job-steps', jobId]);
+    const liveSteps = await jsonGet(stepsKey) as any[] | null;
+
     // Still in progress
     if (mappedStatus === 'pending' || mappedStatus === 'streaming') {
       await updateJobStatus(jobId, {
         status: mappedStatus,
         progress: mappedStatus === 'streaming' ? 50 : 0,
+        ...(liveSteps?.length ? { intermediateSteps: liveSteps } : {}),
         updatedAt: Date.now(),
       });
       const updated = await jsonGet(statusKey);
@@ -342,6 +654,10 @@ async function finalizeSuccess(
 ): Promise<void> {
   const userId = jobRequest.userId || 'anon';
 
+  // Retrieve intermediate steps accumulated by the background stream reader
+  const stepsKey = sessionKey(['async-job-steps', jobId]);
+  const accumulatedSteps = (await jsonGet(stepsKey) as any[] | null) || [];
+
   // Process base64 images in the response
   let processedContent = rawOutput;
   try {
@@ -361,7 +677,7 @@ async function finalizeSuccess(
         id: uuidv4(),
         role: 'assistant',
         content: processedContent,
-        intermediateSteps: [],
+        intermediateSteps: accumulatedSteps,
       };
       const allMessages = [...(jobRequest.messages || []), assistantMessage];
       const conversationData = {
@@ -389,7 +705,7 @@ async function finalizeSuccess(
         logger.info(`Job ${jobId}: Updated selected conversation for user ${userId}`);
       }
 
-      logger.info(`Job ${jobId}: Saved conversation ${jobRequest.conversationId} with ${allMessages.length} messages`);
+      logger.info(`Job ${jobId}: Saved conversation ${jobRequest.conversationId} with ${allMessages.length} messages (${accumulatedSteps.length} steps)`);
 
       // Clear streaming state and publish WS events
       await clearStreamingState(userId, jobRequest.conversationId);
@@ -403,7 +719,7 @@ async function finalizeSuccess(
         conversationId: jobRequest.conversationId,
         jobId,
         fullResponse: processedContent,
-        intermediateSteps: [],
+        intermediateSteps: accumulatedSteps,
       })).catch(() => {});
 
     } catch (error) {
@@ -421,13 +737,16 @@ async function finalizeSuccess(
     status: 'completed',
     fullResponse: processedContent,
     partialResponse: undefined,
-    intermediateSteps: [],
+    intermediateSteps: accumulatedSteps,
     progress: 100,
     updatedAt: Date.now(),
     finalizedAt: Date.now(),
   });
 
-  logger.info(`Job ${jobId}: Finalized successfully`);
+  // Clean up steps key
+  await jsonDel(stepsKey).catch(() => {});
+
+  logger.info(`Job ${jobId}: Finalized successfully (${accumulatedSteps.length} steps)`);
 
   // Send push notification
   try {
@@ -463,19 +782,107 @@ async function finalizeError(
 ): Promise<void> {
   const userId = jobRequest.userId || 'anon';
 
+  // Read current job status to preserve any partial progress accumulated during polling
+  const statusKey = sessionKey(['async-job-status', jobId]);
+  const currentStatus = await jsonGet(statusKey) as AsyncJobStatus | null;
+  const partialResponse = currentStatus?.partialResponse || '';
+
+  // Prefer steps from the background stream reader (stored separately),
+  // fall back to whatever the job status already has
+  const stepsKey = sessionKey(['async-job-steps', jobId]);
+  const streamSteps = await jsonGet(stepsKey) as any[] | null;
+  const intermediateSteps = streamSteps?.length
+    ? streamSteps
+    : (currentStatus?.intermediateSteps || []);
+
+  // Save partial conversation to Redis so progress survives page refresh
   if (jobRequest.conversationId) {
-    await clearStreamingState(userId, jobRequest.conversationId).catch(() => {});
-    await publishStreamingState(userId, jobRequest.conversationId, false, jobId).catch(() => {});
+    try {
+      let processedContent = partialResponse;
+      if (partialResponse) {
+        try {
+          const { processMarkdownImages } = await import('@/utils/app/imageHandler');
+          processedContent = await processMarkdownImages(partialResponse);
+        } catch {
+          // Image processing failure is non-critical for error path
+        }
+      }
+
+      const assistantMessage: Message = {
+        id: uuidv4(),
+        role: 'assistant',
+        content: processedContent,
+        intermediateSteps,
+        errorMessages: {
+          message: errorMessage,
+          timestamp: Date.now(),
+          recoverable: true,
+        },
+      };
+      const allMessages = [...(jobRequest.messages || []), assistantMessage];
+      const conversationData = {
+        id: jobRequest.conversationId,
+        name: jobRequest.conversationName,
+        messages: allMessages,
+        updatedAt: Date.now(),
+        isPartial: true,
+        error: errorMessage,
+        completedAt: Date.now(),
+      };
+
+      const conversationKey = sessionKey(['conversation', jobRequest.conversationId]);
+      await jsonSetWithExpiry(conversationKey, conversationData, 60 * 60 * 24 * 7);
+
+      // Update selected conversation if it matches
+      const selectedConvKey = sessionKey(['user', userId, 'selectedConversation']);
+      const selectedConv = await jsonGet(selectedConvKey) as any;
+      if (selectedConv?.id === jobRequest.conversationId) {
+        await jsonSetWithExpiry(selectedConvKey, {
+          ...selectedConv,
+          messages: allMessages,
+          name: jobRequest.conversationName,
+          updatedAt: Date.now(),
+        }, 60 * 60 * 24 * 7);
+      }
+
+      logger.info(`Job ${jobId}: Saved partial conversation ${jobRequest.conversationId} (${partialResponse ? partialResponse.length + ' chars' : 'no content'}, ${intermediateSteps.length} steps) with error`);
+
+      await clearStreamingState(userId, jobRequest.conversationId).catch(() => {});
+      await publishStreamingState(userId, jobRequest.conversationId, false, jobId).catch(() => {});
+      await publishConversationUpdate(userId, conversationData).catch(() => {});
+
+      // Publish chat_complete with error context so WS clients render partial results
+      const tokenChannel = `user:${userId}:chat:${jobRequest.conversationId}:tokens`;
+      getPublisher().publish(tokenChannel, JSON.stringify({
+        type: 'chat_complete',
+        conversationId: jobRequest.conversationId,
+        jobId,
+        fullResponse: processedContent,
+        intermediateSteps,
+        error: errorMessage,
+      })).catch(() => {});
+
+    } catch (saveError) {
+      logger.error(`Job ${jobId}: Failed to save partial conversation on error`, saveError);
+      // Still clear streaming state even if save fails
+      await clearStreamingState(userId, jobRequest.conversationId).catch(() => {});
+      await publishStreamingState(userId, jobRequest.conversationId, false, jobId).catch(() => {});
+    }
   }
 
   await updateJobStatus(jobId, {
     status: 'error',
     error: errorMessage,
+    partialResponse,
+    intermediateSteps,
     updatedAt: Date.now(),
     finalizedAt: Date.now(),
   });
 
-  logger.info(`Job ${jobId}: Finalized with error: ${errorMessage}`);
+  // Clean up steps key
+  await jsonDel(stepsKey).catch(() => {});
+
+  logger.info(`Job ${jobId}: Finalized with error: ${errorMessage} (${intermediateSteps.length} steps preserved)`);
 }
 
 async function updateJobStatus(jobId: string, updates: Partial<AsyncJobStatus>): Promise<void> {

@@ -443,11 +443,95 @@ export const Chat = () => {
       // Release wake lock
       releaseWakeLock();
     },
-    onError: async (error) => {
-      logger.error('Async job error', error);
-      toast.error(`Error: ${error}`);
+    onError: async (error, context) => {
+      logger.error('Async job error', error, context);
 
-      const conversationId = asyncConversationIdRef.current || selectedConversationRef.current?.id;
+      const conversationId = context?.conversationId
+        || asyncConversationIdRef.current
+        || selectedConversationRef.current?.id;
+
+      // Recover partial data: prefer server-side context, fall back to IndexedDB
+      let partialResponse = context?.partialResponse || '';
+      let intermediateSteps = context?.intermediateSteps || [];
+      if (!partialResponse) {
+        try {
+          const saved = await getStreamingState();
+          if (saved?.partialResponse) {
+            partialResponse = saved.partialResponse;
+          }
+          if (saved?.intermediateSteps?.length) {
+            intermediateSteps = saved.intermediateSteps;
+          }
+        } catch {
+          // IndexedDB unavailable - proceed without
+        }
+      }
+
+      // Build error metadata for inline display
+      const errorMessages = {
+        message: error,
+        timestamp: Date.now(),
+        recoverable: true,
+      };
+
+      // Save partial results into the conversation so they're visible to the user
+      const currentConversation = conversationId
+        ? conversationsRef.current.find((c) => c.id === conversationId)
+        : selectedConversationRef.current;
+
+      if (currentConversation) {
+        const updatedMessages = [...currentConversation.messages];
+        const lastMessage = updatedMessages[updatedMessages.length - 1];
+
+        if (lastMessage && lastMessage.role === 'assistant') {
+          // Update existing assistant message with whatever we have
+          if (partialResponse && partialResponse.length > (lastMessage.content?.length || 0)) {
+            lastMessage.content = partialResponse;
+          }
+          if (intermediateSteps.length > (lastMessage.intermediateSteps?.length || 0)) {
+            lastMessage.intermediateSteps = intermediateSteps;
+          }
+          lastMessage.errorMessages = errorMessages;
+        } else {
+          // No assistant message yet - create one with partial data + error
+          updatedMessages.push({
+            role: 'assistant',
+            content: partialResponse,
+            intermediateSteps,
+            errorMessages,
+          });
+        }
+
+        const updatedConversation = {
+          ...currentConversation,
+          messages: updatedMessages,
+        };
+
+        // Update Redux state so UI renders immediately
+        if (selectedConversationRef.current?.id === currentConversation.id) {
+          homeDispatch({
+            field: 'selectedConversation',
+            value: updatedConversation,
+          });
+        }
+        const latestConversations = conversationsRef.current.map((c) =>
+          c.id === currentConversation.id ? updatedConversation : c
+        );
+        homeDispatch({ field: 'conversations', value: latestConversations });
+
+        // Persist locally (server already saved via finalizeError)
+        saveConversation(updatedConversation).catch((saveErr) => {
+          logger.error('Failed to save partial conversation on error', saveErr);
+        });
+        saveConversations(latestConversations).catch(() => {});
+      } else {
+        // No conversation context available - fall back to toast as last resort
+        toast.error(`Error: ${error}`);
+      }
+
+      // Clear streaming state
+      clearStreamingState().catch(() => {});
+
       if (conversationId) {
         setConversationStreaming(conversationId, false);
       }
@@ -1012,23 +1096,8 @@ export const Chat = () => {
           (m: Message) => m.role !== 'system',
         );
 
-        // Inject user context into the latest user message instead of as a
-        // separate system message.  This provides the username DATA that tools
-        // need (user_id, collection_name) without conflicting with the
-        // backend's system prompt.
-        const messagesWithContext = [...nonSystemMessages];
-        if (usernameForMemory && messagesWithContext.length > 0) {
-          const lastIdx = messagesWithContext.length - 1;
-          if (messagesWithContext[lastIdx].role === 'user') {
-            messagesWithContext[lastIdx] = {
-              ...messagesWithContext[lastIdx],
-              content: `[Current user: ${usernameForMemory}. PDF collection: ${usernameForMemory}]\n\n${messagesWithContext[lastIdx].content || ''}`
-            };
-          }
-        }
-
         const chatBody: ChatBody = {
-          messages: messagesWithContext,
+          messages: nonSystemMessages,
           // Use user-specific storage key to prevent data leakage between users
           chatCompletionURL: getUserSessionItem('chatCompletionURL') || chatCompletionURL,
           additionalProps: {
@@ -1075,7 +1144,15 @@ export const Chat = () => {
             syncAfterSend();
           } catch (error: any) {
             logger.error('Failed to start async job', error);
-            toast.error(`Failed to start request: ${error.message}`);
+
+            // Show inline error instead of ephemeral toast
+            const errorMsg = error?.message || 'Failed to start request';
+            const msgs = [...updatedConversation.messages];
+            msgs.push({ role: 'assistant', content: '', errorMessages: { message: errorMsg, timestamp: Date.now(), recoverable: true } });
+            updatedConversation = { ...updatedConversation, messages: msgs };
+            homeDispatch({ field: 'selectedConversation', value: updatedConversation });
+            homeDispatch({ field: 'conversations', value: conversationsRef.current.map((c) => c.id === updatedConversation.id ? updatedConversation : c) });
+            saveConversation(updatedConversation);
 
             homeDispatch({ field: 'loading', value: false });
             setConversationStreaming(conversationId, false);
@@ -1119,7 +1196,14 @@ export const Chat = () => {
           if (!response?.ok) {
             homeDispatch({ field: 'loading', value: false });
             setConversationStreaming(streamConversationId, false);
-            toast.error(response.statusText);
+            // Add inline error to the conversation instead of ephemeral toast
+            const errorMsg = response.statusText || 'Server returned an error';
+            const msgs = [...updatedConversation.messages];
+            msgs.push({ role: 'assistant', content: '', errorMessages: { message: errorMsg, timestamp: Date.now(), recoverable: true } });
+            updatedConversation = { ...updatedConversation, messages: msgs };
+            homeDispatch({ field: 'selectedConversation', value: updatedConversation });
+            homeDispatch({ field: 'conversations', value: conversationsRef.current.map((c) => c.id === updatedConversation.id ? updatedConversation : c) });
+            saveConversation(updatedConversation);
             return;
           }
 
@@ -1127,7 +1211,12 @@ export const Chat = () => {
           if (!data) {
             homeDispatch({ field: 'loading', value: false });
             setConversationStreaming(streamConversationId, false);
-            toast.error('Error: No data received from server');
+            const msgs = [...updatedConversation.messages];
+            msgs.push({ role: 'assistant', content: '', errorMessages: { message: 'No data received from server', timestamp: Date.now(), recoverable: true } });
+            updatedConversation = { ...updatedConversation, messages: msgs };
+            homeDispatch({ field: 'selectedConversation', value: updatedConversation });
+            homeDispatch({ field: 'conversations', value: conversationsRef.current.map((c) => c.id === updatedConversation.id ? updatedConversation : c) });
+            saveConversation(updatedConversation);
             return;
           }
           {
@@ -1681,8 +1770,6 @@ export const Chat = () => {
           // Try to sync with server to recover any partial state
           syncConversation();
 
-          saveConversation(updatedConversation);
-
           homeDispatch({ field: 'loading', value: false });
           setConversationStreaming(streamConversationId, false);
 
@@ -1690,6 +1777,7 @@ export const Chat = () => {
           releaseWakeLock();
 
           if (error === 'aborted' || error?.name === 'AbortError') {
+            saveConversation(updatedConversation);
             // Cancel the stream reader if it exists
             const streamReader = streamReaderByConversationRef.current[streamConversationId];
             if (streamReader) {
@@ -1706,6 +1794,37 @@ export const Chat = () => {
             return;
           } else {
             logger.error('error during chat completion', error);
+
+            // Preserve partial results with inline error instead of losing everything
+            const errorMsg = error?.message || 'Connection lost during streaming';
+            const msgs = [...updatedConversation.messages];
+            const lastMsg = msgs[msgs.length - 1];
+            if (lastMsg && lastMsg.role === 'assistant') {
+              lastMsg.errorMessages = {
+                message: errorMsg,
+                timestamp: Date.now(),
+                recoverable: true,
+              };
+            } else {
+              msgs.push({
+                role: 'assistant',
+                content: '',
+                errorMessages: {
+                  message: errorMsg,
+                  timestamp: Date.now(),
+                  recoverable: true,
+                },
+              });
+            }
+            updatedConversation = { ...updatedConversation, messages: msgs };
+            homeDispatch({ field: 'selectedConversation', value: updatedConversation });
+            const latestConvs = conversationsRef.current.map((c) =>
+              c.id === updatedConversation.id ? updatedConversation : c
+            );
+            homeDispatch({ field: 'conversations', value: latestConvs });
+            saveConversation(updatedConversation);
+            saveConversations(latestConvs).catch(() => {});
+
             asyncConversationIdRef.current = null;
             return;
           }

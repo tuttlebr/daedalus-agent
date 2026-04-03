@@ -44,10 +44,13 @@ class CapabilityGate:
         Each memory dict should contain a ``success`` key with a float
         0.0-1.0.  Missing or unparseable values are treated as 0.0.
 
-        Returns 0.0 when no history exists (conservative: allows MAS).
+        Returns threshold + 0.05 when no history exists, defaulting to
+        SAS.  This avoids the cold-start problem where new users always
+        get MAS overhead.  As outcome memories accumulate, the gate
+        calibrates from real data.
         """
         if not memory_results:
-            return 0.0
+            return self.threshold + 0.05
 
         total = 0.0
         count = 0

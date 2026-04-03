@@ -9,10 +9,9 @@ general:
 
 workflow:
   _type: image_augmentation
-  api_type: custom  # nim, openai, openrouter, or custom (direct POST)
-  api_endpoint: "https://ai.api.nvidia.com/v1/genai/black-forest-labs/flux.1-kontext-dev"
+  api_endpoint: "https://ai.api.nvidia.com/v1"
   redis_url: "redis://daedalus-redis.daedalus.svc.cluster.local:6379"
-  api_key: null  # Set if your API requires authentication or use NVIDIA_API_KEY env var
+  api_key: null  # Set if your API requires authentication or use OPENAI_API_KEY env var
   timeout: 300.0
-  default_steps: 30
-  default_seed: 42
+  model: "gpt-image-1"
+  image_config: null  # Optional: { "aspect_ratio": "16:9", "image_size": "1K" }

@@ -48,6 +48,27 @@ anyio's TaskGroup) and log a warning instead of raising.  Tools from the
 unreachable server will be unavailable until the pod restarts, but the
 rest of the system starts normally.
 
+Problem 8: When a function group is skipped by Fix 5, downstream agent
+configs still reference its tools by name in their tool_names list.
+WorkflowBuilder.get_tools() raises ValueError for any tool whose function
+group was never registered, crashing the entire startup.
+
+Fix 8: Monkey-patch WorkflowBuilder.get_tools() to filter out tools
+belonging to skipped function groups before resolution.  The agent starts
+with a reduced tool set rather than failing entirely.
+
+Problem 10: The get_tools() filter (Fix 8) only covers agents that
+resolve tools via get_tools() (e.g. tool_calling_agent).  The
+reasoning_agent plugin resolves tools individually by calling
+builder.get_function(tool) for each tool name.  When a function group
+was skipped, get_function() raises ValueError, crashing the entire
+startup — even though all other components built successfully.
+
+Fix 10: Monkey-patch WorkflowBuilder.get_function() to return None for
+names in the skipped set instead of raising.  The reasoning_agent
+receives None and skips the unavailable tool, starting with a reduced
+tool set — identical degraded behaviour to Fix 8.
+
 Problem 6: NAT's async_job.run_generation() places the
 update_status(SUCCESS) call AFTER the ``async with load_workflow``
 block.  When WorkflowBuilder cleanup raises (e.g. RuntimeError from
@@ -60,6 +81,35 @@ load_workflow context (after generate_single_response completes but
 before cleanup starts).  If cleanup subsequently raises and the result
 was already saved, the error is logged as a warning rather than
 overwriting the SUCCESS status.
+
+Problem 7: When an active cancel scope injects CancelledError into the
+workflow (e.g. during MCP reconnect backoff), the error handler's own
+``await job_store.update_status()`` is also cancelled by the same scope.
+The job is left permanently in RUNNING status, causing the frontend to
+poll indefinitely.  Additionally, ``except Exception`` in the inner
+cleanup handler misses CancelledError in Python 3.9+ (it became a
+BaseException), so cleanup cancellations bypass the result-saved check.
+
+Fix 7: Schedule error-handler status updates via
+``asyncio.ensure_future()`` (fire-and-forget) so they run as independent
+tasks outside the cancel scope.  ``asyncio.shield()`` alone is
+insufficient because the ``await`` itself is cancelled by the scope.
+Catch CancelledError alongside Exception in the inner cleanup handler
+so the result-saved check runs for all error types.
+
+Problem 9: NAT's MCPBaseClient._with_reconnect() catches ALL exceptions
+from MCP tool calls and attempts session reconnection.  McpError is an
+*application-level* error (e.g. "pod not found", "missing parameter")
+returned by the MCP server — the connection is healthy.  The spurious
+reconnect fails ("generator didn't yield"), triggers cancel-scope
+cascades, and crashes the entire async job instead of returning the
+error to the LLM agent as a normal tool response.
+
+Fix 9: Monkey-patch MCPBaseClient._with_reconnect() so that McpError
+from the inner coro is wrapped in a BaseException sentinel that escapes
+the ``except Exception`` reconnect handler.  The outer wrapper unwraps
+it and re-raises the original McpError, which the LLM framework then
+returns to the agent as a normal tool error response.
 """
 
 import asyncio
@@ -73,11 +123,20 @@ logger = logging.getLogger("daedalus.mcp_patches")
 
 _patched = False
 
+# Function groups that were skipped during startup due to connection errors.
+# Populated by _patch_startup_resilience, read by the get_tools filter.
+_skipped_function_groups: set[str] = set()
+
+# Retry settings for MCP server connections during startup.
+_MCP_STARTUP_MAX_RETRIES = 3
+_MCP_STARTUP_RETRY_DELAY = 5  # seconds between retries
+
 # Connection error types that indicate an unreachable server (not a logic bug).
 # Kept narrow to avoid masking real configuration or authentication errors.
 _CONNECTION_ERROR_TYPES = (
     httpx.ConnectTimeout,
     httpx.ConnectError,
+    httpx.ReadTimeout,  # server accepts TCP but never sends HTTP response
     ConnectionError,  # includes ConnectionRefusedError, ConnectionResetError
 )
 
@@ -110,7 +169,9 @@ def _extract_root_connection_error(exc):
 
 
 @asynccontextmanager
-async def _connect_with_graceful_teardown(streamable_ctx, session_cls, url):
+async def _connect_with_graceful_teardown(
+    streamable_ctx, session_cls, url, read_timeout_seconds=None
+):
     """Connect to an MCP server with graceful teardown error handling.
 
     Wraps the streamablehttp_client -> ClientSession lifecycle and tracks
@@ -126,11 +187,158 @@ async def _connect_with_graceful_teardown(streamable_ctx, session_cls, url):
     Errors during the *operational* phase (before the yield returns) are
     still propagated so that the NAT framework's retry logic can act on
     them.
+
+    Args:
+        read_timeout_seconds: Timeout for individual MCP request-response
+            pairs (ClientSession read_timeout).  Defaults to the MCP SDK
+            default (60s) when None.  Set this to the configured
+            tool_call_timeout so that slow operations like helm install
+            are not killed prematurely.
     """
+    from datetime import timedelta
+
     _in_teardown = False
+    _DEFAULT_SDK_TIMEOUT = timedelta(seconds=60)
+
+    def _build_session(session_cls, read, write, timeout_seconds):
+        """Create a ClientSession context manager, injecting the timeout.
+
+        Strategy:
+          1. Try known constructor kwarg names (varies by SDK version).
+          2. If no kwarg works, construct without and override attributes.
+
+        Returns (context_manager, timeout_set_via_kwargs: bool).
+        """
+        if timeout_seconds is None:
+            return session_cls(read, write), False
+
+        td = timedelta(seconds=timeout_seconds)
+        # Try every known kwarg name + type combination.
+        for kwargs in (
+            {"read_timeout_seconds": td},
+            {"read_timeout_seconds": timeout_seconds},
+            {"read_timeout": td},
+            {"read_timeout": timeout_seconds},
+        ):
+            try:
+                cm = session_cls(read, write, **kwargs)
+                logger.info(
+                    "ClientSession accepts %s (url=%s)",
+                    list(kwargs.keys())[0],
+                    url,
+                )
+                return cm, True
+            except TypeError:
+                continue
+
+        logger.info(
+            "ClientSession constructor rejects timeout kwargs; "
+            "will override instance attributes after construction (url=%s)",
+            url,
+        )
+        return session_cls(read, write), False
+
+    def _force_session_timeout(session, seconds):
+        """Scan the session's instance attributes for the 60 s SDK default
+        and replace it with the configured timeout.
+
+        The MCP SDK's BaseSession stores the timeout as a private
+        attribute (typically ``_read_timeout_seconds``) whose name and
+        type (``timedelta`` vs ``float``) vary across releases.  Rather
+        than guessing names, we scan ``vars(session)`` for any value
+        that equals the well-known 60 s default.
+        """
+        td = timedelta(seconds=seconds)
+        overridden = False
+
+        # Pass 1 -- instance attributes set by __init__
+        for attr_name in list(vars(session)):
+            val = getattr(session, attr_name, None)
+            if isinstance(val, timedelta) and val == _DEFAULT_SDK_TIMEOUT:
+                setattr(session, attr_name, td)
+                logger.info(
+                    "MCP session timeout: %s = %s -> %s (url=%s)",
+                    attr_name,
+                    val,
+                    td,
+                    url,
+                )
+                overridden = True
+            elif isinstance(val, (int, float)) and abs(val - 60.0) < 0.1:
+                setattr(session, attr_name, float(seconds))
+                logger.info(
+                    "MCP session timeout: %s = %s -> %s (url=%s)",
+                    attr_name,
+                    val,
+                    seconds,
+                    url,
+                )
+                overridden = True
+
+        if overridden:
+            return
+
+        # Pass 2 -- inherited / class-level attributes with "timeout" in name
+        for attr_name in dir(session):
+            if attr_name.startswith("__") or "timeout" not in attr_name.lower():
+                continue
+            try:
+                val = getattr(session, attr_name)
+            except Exception:  # nosec B112 - intentional: skip inaccessible attrs
+                continue
+            if callable(val):
+                continue
+            if isinstance(val, timedelta) and val == _DEFAULT_SDK_TIMEOUT:
+                setattr(session, attr_name, td)
+                logger.info(
+                    "MCP session timeout (class): %s = %s -> %s (url=%s)",
+                    attr_name,
+                    val,
+                    td,
+                    url,
+                )
+                overridden = True
+            elif isinstance(val, (int, float)) and abs(val - 60.0) < 0.1:
+                setattr(session, attr_name, float(seconds))
+                logger.info(
+                    "MCP session timeout (class): %s = %s -> %s (url=%s)",
+                    attr_name,
+                    val,
+                    seconds,
+                    url,
+                )
+                overridden = True
+
+        if not overridden:
+            # Dump everything for debugging so the next deploy shows
+            # exactly what the SDK stores.
+            timeout_attrs = {}
+            for a in dir(session):
+                if a.startswith("__"):
+                    continue
+                try:
+                    v = getattr(session, a)
+                except Exception:  # nosec B112 - intentional: skip inaccessible attrs
+                    continue
+                if callable(v):
+                    continue
+                if isinstance(v, (int, float, timedelta)):
+                    timeout_attrs[a] = repr(v)
+            logger.warning(
+                "Could not locate 60 s default to override. "
+                "All numeric/timedelta attrs: %s (url=%s)",
+                timeout_attrs,
+                url,
+            )
+
     try:
         async with streamable_ctx as (read, write, _):
-            async with session_cls(read, write) as session:
+            session_cm, timeout_set = _build_session(
+                session_cls, read, write, read_timeout_seconds
+            )
+            async with session_cm as session:
+                if read_timeout_seconds is not None and not timeout_set:
+                    _force_session_timeout(session, read_timeout_seconds)
                 await session.initialize()
                 logger.info("MCP session initialized: url=%s", url)
                 yield session
@@ -175,13 +383,34 @@ async def _connect_with_graceful_teardown(streamable_ctx, session_cls, url):
             )
             raise
     except Exception as exc:
-        logger.error(
-            "MCP connect_to_server failed: url=%s error=%r\n%s",
-            url,
-            exc,
-            traceback.format_exc(),
-        )
-        raise
+        if _in_teardown and _is_connection_error(exc):
+            logger.info(
+                "MCP transport cleanup error suppressed during teardown "
+                "(url=%s): %s",
+                url,
+                type(_extract_root_connection_error(exc)).__name__,
+            )
+        elif _is_connection_error(exc):
+            # Connection errors are handled gracefully by startup
+            # resilience (the function group is skipped).  Log at
+            # WARNING with a concise message instead of ERROR with a
+            # full traceback to avoid alarming noise for a handled
+            # condition.
+            logger.warning(
+                "MCP connect_to_server failed (connection error, "
+                "handled by startup resilience): url=%s error=%s",
+                url,
+                type(_extract_root_connection_error(exc)).__name__,
+            )
+            raise
+        else:
+            logger.error(
+                "MCP connect_to_server failed: url=%s error=%r\n%s",
+                url,
+                exc,
+                traceback.format_exc(),
+            )
+            raise
 
 
 def patch():
@@ -196,7 +425,26 @@ def patch():
         except ImportError:
             from nat.plugins.mcp.client_base import MCPStreamableHTTPClient
         from mcp import ClientSession
-        from mcp.client.streamable_http import streamablehttp_client
+
+        # Import both streamable_http_client variants:
+        #   streamable_http_client  -- NAT's version, accepts http_client= kwarg
+        #   streamablehttp_client   -- MCP SDK's version, accepts timeout/sse_read_timeout
+        # Prefer NAT's version to preserve custom_headers and session ID tracking.
+        try:
+            from mcp.client.streamable_http import (
+                streamable_http_client as _nat_http_client,
+            )
+
+            _use_nat_client = True
+        except ImportError:
+            _use_nat_client = False
+
+        try:
+            from mcp.client.streamable_http import (
+                streamablehttp_client as _sdk_http_client,
+            )
+        except ImportError:
+            _sdk_http_client = None
 
         # Split timeouts: short connect to fail fast on unreachable servers,
         # long read for slow tool responses.
@@ -216,8 +464,12 @@ def patch():
         async def patched_connect_to_server(self):
             """
             Patched connect_to_server that passes the configured tool_call_timeout
-            as both the HTTP timeout and SSE read timeout to streamablehttp_client,
-            with graceful teardown error handling.
+            as both the HTTP timeout and MCP session read timeout, with graceful
+            teardown error handling.
+
+            Uses NAT's streamable_http_client (with pre-built httpx.AsyncClient)
+            to preserve custom_headers and session ID tracking.  Falls back to
+            the MCP SDK's streamablehttp_client if the NAT variant is unavailable.
 
             Uses split httpx.Timeout (short connect, long read) so that
             ConnectTimeout fires quickly when a server is unreachable,
@@ -229,36 +481,49 @@ def patch():
 
             logger.info("MCP connect_to_server: url=%s timeout=%s", url, split_timeout)
 
-            # Try httpx_client_factory for split timeouts (MCP SDK >=1.3);
-            # fall back to uniform timeout for older versions.
-            import inspect
+            if _use_nat_client:
+                # NAT's streamable_http_client accepts a pre-built httpx client.
+                # Build one with custom headers, auth, and our split timeout.
+                http_client = httpx.AsyncClient(
+                    headers=self._custom_headers if self._custom_headers else None,
+                    auth=self._httpx_auth,
+                    timeout=split_timeout,
+                )
 
-            sig = inspect.signature(streamablehttp_client)
-            if "httpx_client_factory" in sig.parameters:
+                @asynccontextmanager
+                async def _ctx():
+                    async with http_client:
+                        async with _nat_http_client(
+                            url=url,
+                            http_client=http_client,
+                        ) as (read, write, get_session_id):
+                            self._get_mcp_session_id = get_session_id
+                            yield read, write, get_session_id
 
-                def _client_factory(**kwargs):
-                    kwargs["timeout"] = split_timeout
-                    return httpx.AsyncClient(**kwargs)
-
-                ctx = streamablehttp_client(
+                ctx = _ctx()
+            elif _sdk_http_client is not None:
+                ctx = _sdk_http_client(
                     url=url,
                     auth=self._httpx_auth,
                     timeout=timeout_seconds,
                     sse_read_timeout=max(timeout_seconds, 300),
-                    httpx_client_factory=_client_factory,
                 )
             else:
-                ctx = streamablehttp_client(
-                    url=url,
-                    auth=self._httpx_auth,
-                    timeout=timeout_seconds,
-                    sse_read_timeout=max(timeout_seconds, 300),
+                raise ImportError(
+                    "Neither streamable_http_client nor streamablehttp_client available"
                 )
 
-            async with _connect_with_graceful_teardown(
-                ctx, ClientSession, url
-            ) as session:
-                yield session
+            try:
+                async with _connect_with_graceful_teardown(
+                    ctx,
+                    ClientSession,
+                    url,
+                    read_timeout_seconds=timeout_seconds,
+                ) as session:
+                    yield session
+            finally:
+                if _use_nat_client:
+                    self._get_mcp_session_id = None
 
         MCPStreamableHTTPClient.connect_to_server = patched_connect_to_server
         logger.info(
@@ -276,6 +541,9 @@ def patch():
 
     # Patch MCPToolClient to add diagnostic logging around tool calls
     _patch_tool_client()
+
+    # Prevent McpError (application errors) from triggering reconnection
+    _patch_mcp_error_no_reconnect()
 
     # Suppress cascade noise from MCP transport cleanup errors
     _install_mcp_log_filters()
@@ -373,7 +641,10 @@ def _patch_tool_client():
         try:
             from nat.plugins.mcp.client.tool_client import MCPToolClient
         except ImportError:
-            from nat.plugins.mcp.tool_client import MCPToolClient
+            try:
+                from nat.plugins.mcp.client.client_base import MCPToolClient
+            except ImportError:
+                from nat.plugins.mcp.tool_client import MCPToolClient
 
         # Find the method that executes tool calls -- try common names
         original_fn = None
@@ -449,44 +720,203 @@ def _patch_tool_client():
         logger.warning("Unexpected error patching MCPToolClient: %s", exc)
 
 
-def _patch_startup_resilience():
-    """Patch WorkflowBuilder.add_function_group to survive MCP connection failures.
+class _McpAppError(BaseException):
+    """Sentinel wrapper to smuggle McpError past _with_reconnect.
 
+    _with_reconnect catches ``Exception`` and triggers reconnection.
+    We wrap McpError (an application-level error, NOT a connection issue)
+    in this BaseException subclass so it escapes the ``except Exception``
+    block.  The outer wrapper unwraps it immediately.
+    """
+
+    def __init__(self, original):
+        self.original = original
+        super().__init__(str(original))
+
+
+def _patch_mcp_error_no_reconnect():
+    """Prevent McpError from triggering MCP session reconnection.
+
+    NAT's MCPBaseClient._with_reconnect() catches ALL exceptions and
+    attempts reconnection.  McpError is an application-level error from
+    the MCP server (e.g. "resource not found", "missing parameter") —
+    the connection is healthy.  The spurious reconnect fails, triggers
+    cancel-scope cascades, and crashes the job.
+
+    Fix: Patch MCPBaseClient._with_reconnect() so the inner coro wraps
+    McpError in a BaseException sentinel that escapes the ``except
+    Exception`` reconnect handler.  The outer wrapper unwraps it.
+    """
+    try:
+        import functools
+
+        from mcp.shared.exceptions import McpError
+        from nat.plugins.mcp.client.client_base import MCPBaseClient
+
+        original_with_reconnect = MCPBaseClient._with_reconnect
+
+        @functools.wraps(original_with_reconnect)
+        async def patched_with_reconnect(self, coro, *args, **kwargs):
+            # Wrap the coro so McpError escapes _with_reconnect's
+            # ``except Exception`` block.
+            async def coro_with_mcp_bypass():
+                try:
+                    return await coro()
+                except McpError as e:
+                    raise _McpAppError(e) from e
+
+            try:
+                return await original_with_reconnect(
+                    self, coro_with_mcp_bypass, *args, **kwargs
+                )
+            except _McpAppError as wrapper:
+                raise wrapper.original from wrapper.__cause__
+
+        MCPBaseClient._with_reconnect = patched_with_reconnect
+        logger.info("MCPBaseClient._with_reconnect McpError bypass patch applied")
+
+    except ImportError as exc:
+        logger.warning("Could not patch MCPBaseClient._with_reconnect: %s", exc)
+    except Exception as exc:
+        logger.warning(
+            "Unexpected error patching MCPBaseClient._with_reconnect: %s", exc
+        )
+
+
+def _patch_startup_resilience():
+    """Patch WorkflowBuilder to survive MCP connection failures at startup.
+
+    Part 1 — add_function_group resilience:
     NAT's WorkflowBuilder treats any component initialization failure as fatal,
     so one unreachable MCP server kills the entire startup — blocking all
     remaining components (LLMs, retrievers, memory, functions, workflow) from
-    initializing.
+    initializing.  This catches connection-related errors in add_function_group
+    and logs a warning instead of raising.
 
-    This patch catches connection-related errors in add_function_group and logs
-    a warning instead of raising, allowing the rest of the system to start.
-    Tools from the unreachable MCP server will be unavailable until pod restart.
+    Part 2 — get_tools filter:
+    When a function group is skipped, downstream agent configs still reference
+    its tools by name.  WorkflowBuilder.get_tools() raises ValueError for any
+    tool whose function group was never registered.  This patch filters out
+    skipped groups from the tool_names list before resolution, so the agent
+    starts with a reduced (but functional) tool set instead of crashing.
+
+    Part 3 — get_function filter:
+    The reasoning_agent plugin (used by the deep-thinker workflow) resolves
+    tools individually via builder.get_function(tool) instead of get_tools().
+    Without this patch, a skipped function group causes ValueError here too.
+    Returns None for skipped groups so the reasoning_agent can skip the tool.
     """
     try:
         import functools
 
         from nat.builder.workflow_builder import WorkflowBuilder
 
+        # --- Part 1: add_function_group resilience ---
+
         original_add_fg = WorkflowBuilder.add_function_group
 
         @functools.wraps(original_add_fg)
         async def resilient_add_function_group(self, name, *args, **kwargs):
-            try:
-                return await original_add_fg(self, name, *args, **kwargs)
-            except Exception as exc:
-                if _is_connection_error(exc):
-                    root = _extract_root_connection_error(exc)
-                    logger.warning(
-                        "Startup resilience: function_group '%s' skipped — "
-                        "%s(%s). Tools from this server will be unavailable "
-                        "until restart.",
-                        name,
-                        type(root).__name__,
-                        root,
-                    )
-                    return None
-                raise
+            last_exc = None
+            for attempt in range(_MCP_STARTUP_MAX_RETRIES + 1):
+                try:
+                    return await original_add_fg(self, name, *args, **kwargs)
+                except Exception as exc:
+                    if not _is_connection_error(exc):
+                        raise
+                    last_exc = exc
+                    if attempt < _MCP_STARTUP_MAX_RETRIES:
+                        root = _extract_root_connection_error(exc)
+                        logger.warning(
+                            "Startup resilience: function_group '%s' "
+                            "unreachable (attempt %d/%d) — %s(%s). "
+                            "Retrying in %ds...",
+                            name,
+                            attempt + 1,
+                            _MCP_STARTUP_MAX_RETRIES + 1,
+                            type(root).__name__,
+                            root,
+                            _MCP_STARTUP_RETRY_DELAY,
+                        )
+                        await asyncio.sleep(_MCP_STARTUP_RETRY_DELAY)
+            # All retries exhausted
+            root = _extract_root_connection_error(last_exc)
+            _skipped_function_groups.add(name)
+            logger.warning(
+                "Startup resilience: function_group '%s' skipped after "
+                "%d attempts — %s(%s). Tools from this server will be "
+                "unavailable until restart.",
+                name,
+                _MCP_STARTUP_MAX_RETRIES + 1,
+                type(root).__name__,
+                root,
+            )
+            return None
 
         WorkflowBuilder.add_function_group = resilient_add_function_group
+
+        # --- Part 2: get_tools filter for skipped groups ---
+
+        original_get_tools = WorkflowBuilder.get_tools
+
+        @functools.wraps(original_get_tools)
+        async def resilient_get_tools(self, tool_names=None, *args, **kwargs):
+            if tool_names and _skipped_function_groups:
+                skipped = [n for n in tool_names if n in _skipped_function_groups]
+                if skipped:
+                    tool_names = [
+                        n for n in tool_names if n not in _skipped_function_groups
+                    ]
+                    logger.warning(
+                        "Startup resilience: omitting tools %s from agent — "
+                        "their function groups were unreachable at startup.",
+                        skipped,
+                    )
+            result = await original_get_tools(self, tool_names, *args, **kwargs)
+            resolved_names = (
+                [t.name if hasattr(t, "name") else str(t) for t in result]
+                if result
+                else []
+            )
+            logger.info(
+                "Agent resolved %d tools: %s", len(resolved_names), resolved_names
+            )
+            if _skipped_function_groups:
+                logger.warning(
+                    "Skipped function groups (unavailable until restart): %s",
+                    sorted(_skipped_function_groups),
+                )
+            return result
+
+        WorkflowBuilder.get_tools = resilient_get_tools
+
+        # --- Part 3: get_function filter for skipped groups ---
+        #
+        # The reasoning_agent plugin resolves tools by calling
+        # builder.get_function(tool) for each tool name individually,
+        # unlike tool_calling_agent which calls get_tools(tool_names).
+        # Without this patch, a skipped function group raises ValueError
+        # here and crashes the entire startup.
+        #
+        # Returning None lets the reasoning_agent's builder skip the
+        # tool rather than abort.  The agent starts with a reduced tool
+        # set — identical behaviour to the get_tools filter.
+
+        original_get_function = WorkflowBuilder.get_function
+
+        @functools.wraps(original_get_function)
+        async def resilient_get_function(self, name, *args, **kwargs):
+            if name in _skipped_function_groups:
+                logger.warning(
+                    "Startup resilience: get_function('%s') skipped — "
+                    "function group was unreachable at startup.",
+                    name,
+                )
+                return None
+            return await original_get_function(self, name, *args, **kwargs)
+
+        WorkflowBuilder.get_function = resilient_get_function
+
         logger.info("WorkflowBuilder startup resilience patch applied")
 
     except ImportError as exc:
@@ -527,16 +957,30 @@ class _MCPCascadeFilter(logging.Filter):
 def _patch_async_job_result_saving():
     """Fix NAT async job result loss caused by workflow cleanup errors.
 
-    Problem: NAT's run_generation() in async_job.py places
+    Problem A: NAT's run_generation() in async_job.py places
     update_status(SUCCESS) AFTER the ``async with load_workflow`` block.
     When the WorkflowBuilder cleanup raises (e.g. RuntimeError from async
     generator teardown of MCP connections), the exception skips the
     SUCCESS update and the except handler marks the job as FAILURE — even
     though the workflow produced a valid result.
 
-    Fix: Monkey-patch run_generation() to save the result INSIDE the
+    Fix A: Monkey-patch run_generation() to save the result INSIDE the
     load_workflow context, before cleanup runs.  Cleanup errors are then
     logged as warnings but do not affect job status.
+
+    Problem B: When an active cancel scope injects CancelledError into the
+    workflow, the error handler's own ``await job_store.update_status()``
+    is also cancelled by the same scope, leaving the job permanently stuck
+    in RUNNING status.  Additionally, ``except Exception`` misses
+    CancelledError in Python 3.9+ (it became a BaseException), so cleanup
+    cancellations bypass the result-already-saved check entirely.
+
+    Fix B: Schedule error-handler status updates via
+    ``asyncio.ensure_future()`` (fire-and-forget) so they run as
+    independent tasks outside the cancel scope.  ``asyncio.shield()``
+    alone is insufficient because the ``await`` itself is cancelled.
+    Catch CancelledError alongside Exception in the inner cleanup
+    handler.
     """
     try:
         import nat.front_ends.fastapi.async_jobs.async_job as async_job_mod
@@ -575,11 +1019,15 @@ def _patch_async_job_result_saving():
                             job_id, JobStatus.SUCCESS, output=result
                         )
                         _logger.info("Async job %s result saved successfully", job_id)
-                except Exception as cleanup_err:
-                    # Check if we already saved the result before the error
+                except (Exception, asyncio.CancelledError) as cleanup_err:
+                    # Check if we already saved the result before the error.
+                    # Catch CancelledError too: in Python 3.9+ it is a
+                    # BaseException and would bypass ``except Exception``,
+                    # skipping the result-already-saved check and letting the
+                    # outer handler overwrite a SUCCESS status.
                     if result is not None:
                         try:
-                            job = await job_store.get_job(job_id)
+                            job = await asyncio.shield(job_store.get_job(job_id))
                             if job and job.status == JobStatus.SUCCESS:
                                 _logger.warning(
                                     "Async job %s completed but cleanup failed "
@@ -588,21 +1036,46 @@ def _patch_async_job_result_saving():
                                     cleanup_err,
                                 )
                                 return
-                        except Exception:  # nosec B110
+                            # Result exists in memory but was not persisted
+                            # (e.g. update_status(SUCCESS) itself was
+                            # cancelled).  Retry the save.
+                            await asyncio.shield(
+                                job_store.update_status(
+                                    job_id, JobStatus.SUCCESS, output=result
+                                )
+                            )
+                            _logger.info(
+                                "Async job %s result saved on retry "
+                                "after cleanup error",
+                                job_id,
+                            )
+                            return
+                        except (asyncio.CancelledError, Exception):
                             pass
                     raise
 
             except asyncio.CancelledError:
                 _logger.info("Async job %s cancelled", job_id)
                 if job_store is not None:
-                    await job_store.update_status(
-                        job_id, JobStatus.INTERRUPTED, error="cancelled"
+                    # Don't ``await`` — the active cancel scope cancels every
+                    # await point, even through asyncio.shield().  Fire-and-
+                    # forget as an independent task on the event loop instead.
+                    _bg = asyncio.ensure_future(
+                        job_store.update_status(
+                            job_id, JobStatus.INTERRUPTED, error="cancelled"
+                        )
+                    )
+                    _bg.add_done_callback(
+                        lambda t: t.exception() if not t.cancelled() else None
                     )
             except Exception as e:
                 _logger.exception("Error in async job %s", job_id)
                 if job_store is not None:
-                    await job_store.update_status(
-                        job_id, JobStatus.FAILURE, error=str(e)
+                    _bg = asyncio.ensure_future(
+                        job_store.update_status(job_id, JobStatus.FAILURE, error=str(e))
+                    )
+                    _bg.add_done_callback(
+                        lambda t: t.exception() if not t.cancelled() else None
                     )
 
         async_job_mod.run_generation = patched_run_generation
