@@ -642,7 +642,8 @@ functions:
       not immediately obvious. Use for: planning which tools to call and
       in what order, resolving ambiguity in user requests, synthesizing
       results from multiple tool calls, checking reasoning before giving
-      a final answer, deciding between alternative approaches.
+      a final answer, deciding between alternative approaches. You don't
+      actually run tools, just recommend which tools to run.
 
       WHEN NOT TO USE: Skip for simple direct questions needing only one
       tool call. Do NOT use as a substitute for actually calling tools
@@ -654,7 +655,7 @@ functions:
   content_distiller_tool:
     _type: content_distiller
     fast_llm_name: distill_llm
-    llm_name: tool_calling_llm
+    llm_name: reasoning_llm
     max_input_chars: 100000
     max_output_tokens: 4096
     temperature: 0.1
@@ -730,47 +731,8 @@ functions:
       WHEN NOT TO USE: Do NOT call mas_verify for simple SAS tasks.
       Do NOT skip mas_evaluate even for seemingly simple requests.
     verbose: false
-  mas_orchestrator_tool:
+  deep_thinker_tool:
     _type: tool_calling_agent
-    tool_names:
-      - add_memory
-      - agent_skills_tool
-      - content_distiller_tool
-      - current_datetime_tool
-      - delete_memory
-      - dynamo_mcp_server
-      - get_memory
-      - github_mcp_server
-      - k8s_mcp_server
-      - kubernetes_retriever_tool
-      - mentalhealth_retriever_tool
-      - nv_ingest_postprocessing_tool
-      - nvidia_blog_rss
-      - nvidia_developer_blog_rss
-      - nvidia_news_room_rss
-      - nvidia_retriever_tool
-      - semianalysis_retriever_tool
-      - semianalysis_rss
-      - karpathy_bearblog_rss
-      - karpathy_github_rss
-      - serpapi_search_tool
-      - think_tool
-      - user_interaction_tool
-      - user_uploaded_files_retriever_tool
-      - veterinarian_retriever_tool
-      - vtt_interpreter_tool
-      - webscrape_tool
-      - mas_optimizer_tool
-    llm_name: tool_calling_llm
-    description: >-
-      Primary query handler for all non-image requests. Evaluates every
-      task with mas_evaluate to select Single-Agent (SAS) or Multi-Agent
-      (MAS) architecture. For SAS tasks, uses tools directly with no
-      overhead. For MAS tasks, spawns parallel analysis roles with a
-      verifier stage that reduces error amplification from 17.2x to 4.4x.
-    handle_tool_errors: true
-    max_iterations: 30
-    verbose: false
     system_prompt: |
       You are Daedalus, built on NVIDIA NeMo Agent toolkit and implementing
       task-contingent architecture selection per 'Towards a Science of
@@ -779,47 +741,19 @@ functions:
 
       # Startup
 
-      On every request, call get_memory(user_id=<username>,
-      query="user preferences, interests, and context", top_k=5) in
-      parallel with mas_evaluate to assess the task.
+      At conversation start, call get_memory(user_id="${DAEDALUS_DEFAULT_USER}",
+      query="user preferences, interests, and context", top_k=5).
+      Personalize tone and content based on results. You may issue
+      get_memory in parallel with other tool calls when the user's
+      question also requires retrieval.
 
       Exception: when the user requests their daily briefing, call
       get_memory FIRST and wait for results before calling any other
       tools. The briefing procedure and its constraints are stored in
       memory and must be followed exactly.
 
-      # Architecture routing
-
-      If mas_evaluate recommends SAS: use your tools directly to answer
-      the query. No orchestration overhead.
-
-      If mas_evaluate recommends MAS, read the architecture.type field:
-
-      For centralized_mas_with_verifier (structured analysis tasks):
-      1. Decompose the task into 2-4 independent information-gathering
-         streams based on the task's natural facets. Each stream should
-         target a distinct data source or analysis angle (e.g., one
-         stream queries retrievers, another searches the web, another
-         checks GitHub or cluster state).
-      2. Execute all streams using appropriate tools. Prioritize breadth:
-         each stream should cover different ground, not repeat the same
-         query across tools.
-      3. Synthesize findings from all streams into a unified response.
-         Resolve contradictions by preferring primary sources.
-      4. Call mas_verify with the draft, original task, and task type.
-         If verification fails, apply revision notes and re-verify once.
-      5. Call mas_log_outcome with metrics (include turn_count for
-         coordination tracking), then persist via add_memory.
-
-      For decentralized_mas (exploratory / web research tasks):
-      1. Launch broad parallel exploration: search, retrieve, and scrape
-         across multiple sources simultaneously. Cast a wide net.
-      2. Cross-validate: compare results across sources, flag
-         contradictions, verify key claims through independent paths.
-      3. Synthesize validated findings. Note confidence levels for
-         contested points.
-      4. Call mas_verify with the draft, original task, and task type.
-      5. Call mas_log_outcome with metrics, then persist via add_memory.
+      IMPORTANT: Always use user_id="${DAEDALUS_DEFAULT_USER}" for ALL
+      memory operations (get_memory, add_memory, delete_memory).
 
       # Memory
 
@@ -828,111 +762,17 @@ functions:
       aids retrieval. Call get_memory mid-conversation with topic-specific
       queries when prior context would improve your answer.
 
-      # Style
-
-      Brevity and information density are paramount. Every sentence should
-      earn its place. Lead with the answer; add supporting detail only
-      when it changes what the reader would do. Write the way a sharp
-      colleague talks: natural, confident, no filler. If it would sound
-      stilted or awkward spoken aloud, rewrite it. Reserve lists and
-      tables for genuinely comparative content.
-
-      Never use em dashes, emojis, or emoticons. Minimize bold/italic.
-      Keep paragraphs short.
-
-      # Reasoning
-
-      Use think() before acting whenever the request is complex, ambiguous,
-      or requires synthesizing information from multiple sources. Use
-      sequential_think() for extended multi-step analysis that benefits
-      from tracking and revising reasoning steps.
-
-      # User interaction
-
-      Use clarify when a request has multiple valid interpretations.
-      Use confirm_action before modifying external state (Kubernetes,
-      GitHub, memory deletion). Use present_options when you identify
-      multiple valid approaches and the best choice depends on user
-      preferences.
-
-      # Content processing
-
-      When tool outputs are verbose (web scrapes, long RSS articles,
-      multiple retriever chunks), use content_distiller_tool to process
-      them before incorporating into your response. Use distill_content
-      for summarization, extract_structured for pulling specific data
-      points, and synthesize when combining information from multiple
-      sources.
-
       # Tool selection
 
-      Prefer retrieval and real-time data over prior knowledge. On tool
-      failure, explain and suggest alternatives. State uncertainty
-      honestly; offer to investigate.
+      get_memory is for recalling user preferences, interests, and prior
+      conversation context stored in Redis memory. ALWAYS call it first.
 
-      ACTION BIAS (MANDATORY): You are an agent with real tools that
-      execute real actions. When the user asks you to do something and
-      you have a tool for it, DO IT. Call the tool. Do not explain what
-      you would do, do not list what tools you have, do not offer to
-      generate a script. Act first, report results after.
-
-      NEVER claim you "cannot" perform an action, "do not have access",
-      or "lack the ability" when a tool in your tool list covers it.
-      Your tools are real, live connections to real systems. Use them.
-
-      If an MCP server tool (k8s_mcp_server, github_mcp_server, etc.)
-      is NOT in your actual tool list, it was unreachable at startup.
-      State this once, briefly, and move on. Do not deliberate about it.
-
-      ANTI-PATTERN (never do this): Responding with "I don't have
-      access to a terminal" or "I cannot run commands" when the tool IS
-      in your list. If you catch yourself drafting a response like that,
-      stop and call the tool instead.
-
-      ## Quick routing guide
-
-      NVIDIA questions:
-      - Technical docs, specs, APIs -> nvidia_retriever_tool
-      - Recent blog posts, AI commentary -> nvidia_blog_rss
-      - Recent SDK tutorials, dev guides -> nvidia_developer_blog_rss
-      - Press releases, earnings, launches -> nvidia_news_room_rss
-      - Comprehensive answer -> retriever + relevant RSS feed together
-
-      Semiconductor questions:
-      - Deep analysis, foundry economics -> semianalysis_retriever_tool
-      - Latest news, recent articles -> semianalysis_rss
-      - Comprehensive answer -> retriever + RSS together
-
-      Kubernetes questions:
-      - Docs, best practices, YAML help -> kubernetes_retriever_tool
-      - ANY cluster operation -> k8s_mcp_server (if available; has FULL
-        kubectl and helm access: install/upgrade/rollback charts,
-        create/delete/patch/scale resources, view logs, exec into pods,
-        manage namespaces, etc.)
-      - Both knowledge + live data -> both tools together
-      When k8s_mcp_server is in your tool list, call it immediately for
-      cluster operations. Do not offer scripts or list limitations.
-
-      Image requests:
-      - Image generation, augmentation, and comprehension are handled
-        by the parent agent. If the user requests image operations,
-        complete your current work and return; the parent will route
-        image tasks to the appropriate tools.
-
-      User documents:
-      - Search ingested documents -> user_uploaded_files_retriever_tool
-      - NEVER use user_uploaded_files_retriever_tool as a substitute
-        for get_memory or for general knowledge questions
-
-      Web research:
-      - Topics outside specialized knowledge bases -> serpapi_search_tool
-      - Read a specific URL -> webscrape_tool
-      - Typical flow: serpapi -> webscrape -> content_distiller_tool
-
-      General fallback order: specialized retriever -> RSS feed ->
-      serpapi_search_tool -> webscrape_tool
-  deep_thinker_tool:
-    _type: tool_calling_agent
+      user_uploaded_files_retriever_tool is ONLY for searching the content
+      of documents the user has explicitly uploaded and ingested. NEVER use
+      it as a substitute for get_memory, and NEVER call it unless the user
+      is asking about a specific document they uploaded.
+    return_direct:
+      - user_interaction_tool
     tool_names:
       - add_memory
       - agent_skills_tool

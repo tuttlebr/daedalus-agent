@@ -35,65 +35,74 @@ data:
       sleep 1
     done
 
-    # Always try to create the index (idempotent operation)
-    echo "Ensuring memory_idx index exists for NAT..."
+    # Ensure memory_idx index exists (idempotent — never deletes stored data)
+    echo "Checking for existing memory_idx index..."
 
-    # First, drop any existing index to ensure clean state
-    echo "Dropping existing memory_idx if present..."
-    redis-cli FT.DROPINDEX memory_idx DD 2>/dev/null || echo "No existing index to drop"
-
-    # Small delay to ensure cleanup is complete
-    sleep 1
-
-    # Create the index with retry logic
-    echo "Creating memory_idx index..."
-    MAX_RETRIES=3
-    RETRY_COUNT=0
-
-    while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
-      echo "Attempt $((RETRY_COUNT + 1)) of $MAX_RETRIES..."
-
-      if redis-cli FT.CREATE memory_idx \
-        ON JSON \
-        PREFIX 1 "nat:" \
-        SCHEMA \
-          "$.user_id" AS user_id TEXT \
-          "$.tags[*]" AS tags TAG \
-          "$.memory" AS memory TEXT \
-          "$.embedding" AS embedding VECTOR HNSW 12 TYPE FLOAT32 DIM 2048 DISTANCE_METRIC L2 INITIAL_CAP 100 M 16 EF_CONSTRUCTION 200 2>&1; then
-
-        echo "Successfully created memory_idx index"
-
-        # Verify the index was created
-        echo "Verifying index creation..."
-        if redis-cli FT.INFO memory_idx >/dev/null 2>&1; then
-          echo "✓ Index verified successfully"
-          redis-cli FT.INFO memory_idx | head -10
-          break
-        else
-          echo "⚠ Index created but verification failed, retrying..."
-        fi
+    INDEX_READY=false
+    if redis-cli FT.INFO memory_idx >/dev/null 2>&1; then
+      echo "memory_idx index already exists, verifying schema..."
+      INDEX_INFO=$(redis-cli FT.INFO memory_idx 2>&1)
+      if echo "$INDEX_INFO" | grep -q "HNSW" && echo "$INDEX_INFO" | grep -q "2048"; then
+        echo "Index schema is correct, skipping recreation."
+        INDEX_READY=true
       else
-        echo "Failed to create index, will retry..."
+        echo "Index schema is outdated, dropping index (preserving data)..."
+        redis-cli FT.DROPINDEX memory_idx 2>/dev/null || true
+        sleep 1
       fi
+    else
+      echo "No existing index found."
+    fi
 
-      RETRY_COUNT=$((RETRY_COUNT + 1))
-      if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
-        sleep 2
+    if [ "$INDEX_READY" = false ]; then
+      echo "Creating memory_idx index..."
+      MAX_RETRIES=3
+      RETRY_COUNT=0
+
+      while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+        echo "Attempt $((RETRY_COUNT + 1)) of $MAX_RETRIES..."
+
+        if redis-cli FT.CREATE memory_idx \
+          ON JSON \
+          PREFIX 1 "nat:" \
+          SCHEMA \
+            "$.user_id" AS user_id TEXT \
+            "$.tags[*]" AS tags TAG \
+            "$.memory" AS memory TEXT \
+            "$.embedding" AS embedding VECTOR HNSW 12 TYPE FLOAT32 DIM 2048 DISTANCE_METRIC L2 INITIAL_CAP 100 M 16 EF_CONSTRUCTION 200 2>&1; then
+
+          echo "Successfully created memory_idx index"
+
+          echo "Verifying index creation..."
+          if redis-cli FT.INFO memory_idx >/dev/null 2>&1; then
+            echo "Index verified successfully"
+            redis-cli FT.INFO memory_idx | head -10
+            break
+          else
+            echo "Index created but verification failed, retrying..."
+          fi
+        else
+          echo "Failed to create index, will retry..."
+        fi
+
+        RETRY_COUNT=$((RETRY_COUNT + 1))
+        if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
+          sleep 2
+        fi
+      done
+
+      if [ $RETRY_COUNT -eq $MAX_RETRIES ]; then
+        echo "ERROR: Failed to create memory_idx index after $MAX_RETRIES attempts!"
+        echo "Attempting one more time with verbose output..."
+        redis-cli --verbose FT.CREATE memory_idx \
+          ON JSON \
+          PREFIX 1 "nat:" \
+          SCHEMA \
+            "$.user_id" AS user_id TEXT \
+            "$.tags[*]" AS tags TAG \
+            "$.memory" AS memory TEXT \
+            "$.embedding" AS embedding VECTOR HNSW 12 TYPE FLOAT32 DIM 2048 DISTANCE_METRIC L2 INITIAL_CAP 100 M 16 EF_CONSTRUCTION 200 2>&1
       fi
-    done
-
-    if [ $RETRY_COUNT -eq $MAX_RETRIES ]; then
-      echo "ERROR: Failed to create memory_idx index after $MAX_RETRIES attempts!"
-      echo "Attempting one more time with verbose output..."
-      redis-cli --verbose FT.CREATE memory_idx \
-        ON JSON \
-        PREFIX 1 "nat:" \
-        SCHEMA \
-          "$.user_id" AS user_id TEXT \
-          "$.tags[*]" AS tags TAG \
-          "$.memory" AS memory TEXT \
-          "$.embedding" AS embedding VECTOR HNSW 12 TYPE FLOAT32 DIM 2048 DISTANCE_METRIC L2 INITIAL_CAP 100 M 16 EF_CONSTRUCTION 200 2>&1
     fi
 
     # List all indexes to confirm
