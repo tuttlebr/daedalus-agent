@@ -29,6 +29,7 @@ export const MemoizedChatMessage: FC<Props> = memo(
     (prevProps, nextProps) => {
         // Quick shallow comparison for most common changes
         if (prevProps.messageIndex !== nextProps.messageIndex) return false;
+        if (prevProps.onRetry !== nextProps.onRetry) return false;
 
         const prevMsg = prevProps.message;
         const nextMsg = nextProps.message;
@@ -36,6 +37,9 @@ export const MemoizedChatMessage: FC<Props> = memo(
         // Check basic properties first (fastest)
         if (prevMsg.id !== nextMsg.id) return false;
         if (prevMsg.role !== nextMsg.role) return false;
+
+        // Compare error state so retry button gets fresh callback when error appears/clears
+        if (prevMsg.errorMessages !== nextMsg.errorMessages) return false;
 
         // Compare content using hash for performance
         const prevContentHash = hashContent(prevMsg.content);

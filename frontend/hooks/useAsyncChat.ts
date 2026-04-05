@@ -544,7 +544,9 @@ export const useAsyncChat = (options: UseAsyncChatOptions = {}): UseAsyncChatRet
       });
 
       if (!response.ok) {
-        throw new Error(`Failed to start async job: ${response.statusText}`);
+        const body = await response.json().catch(() => ({}));
+        const reason = body?.reason ?? '';
+        throw new Error(`Failed to start async job: ${response.statusText}${reason ? ` (${reason})` : ''}`);
       }
 
       const { jobId } = await response.json();

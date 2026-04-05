@@ -47,15 +47,17 @@ spec:
               path: /docs
               port: http
             initialDelaySeconds: 30
-            periodSeconds: 30
-            timeoutSeconds: 5
+            periodSeconds: 20
+            timeoutSeconds: 10
+            failureThreshold: 6
           readinessProbe:
             httpGet:
               path: /docs
               port: http
             initialDelaySeconds: 10
             periodSeconds: 10
-            timeoutSeconds: 5
+            timeoutSeconds: 10
+            failureThreshold: 3
           {{- with .Values.backend.default.resources }}
           resources:
             {{- toYaml . | nindent 12 }}

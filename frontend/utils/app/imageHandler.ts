@@ -597,7 +597,15 @@ export function cleanMessagesForLLM(messages: any[]): Message[] {
     })));
   }
 
-  return cleaned;
+  // Drop assistant messages with empty/whitespace-only content to prevent
+  // 400 errors from LLMs that reject blank ContentBlock text fields.
+  return cleaned.filter((msg) => {
+    if (msg.role === 'assistant') {
+      const content = typeof msg.content === 'string' ? msg.content.trim() : msg.content;
+      if (!content || content === '') return false;
+    }
+    return true;
+  });
 }
 
 // Clean messages for storage (remove base64 content but keep image/video references for UI)

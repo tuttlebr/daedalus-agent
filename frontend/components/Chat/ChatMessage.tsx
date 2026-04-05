@@ -35,9 +35,10 @@ import { normalizeLatexDelimiters } from '@/utils/app/latexNormalizer';
 export interface Props {
   message: Message;
   messageIndex: number;
+  onRetry?: () => void;
 }
 
-export const ChatMessage: FC<Props> = memo(({ message, messageIndex }) => {
+export const ChatMessage: FC<Props> = memo(({ message, messageIndex, onRetry }) => {
   // Ensure content is always a string to prevent React error #300
   const messageContent = typeof message?.content === 'string' ? message.content : '';
   const hasPrimaryContent = Boolean(messageContent.trim());
@@ -464,6 +465,7 @@ export const ChatMessage: FC<Props> = memo(({ message, messageIndex }) => {
                 error={categorizeError(message.errorMessages!.message)}
                 compact={hasPrimaryContent}
                 isPartialResult={hasPrimaryContent}
+                onRetry={onRetry}
               />
             </div>
           )}

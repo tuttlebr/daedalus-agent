@@ -496,7 +496,7 @@ export const Chat = () => {
           // No assistant message yet - create one with partial data + error
           updatedMessages.push({
             role: 'assistant',
-            content: partialResponse,
+            content: (partialResponse && partialResponse.trim()) || '[Error occurred before response was generated]',
             intermediateSteps,
             errorMessages,
           });
@@ -1893,6 +1893,22 @@ export const Chat = () => {
     [selectedConversation?.messages],
   );
 
+  // Retry handler for errored assistant messages: removes the failed assistant message
+  // and re-submits the last user message that preceded it.
+  const handleRetry = useCallback((erroredMessage: Message) => {
+    const conv = selectedConversationRef.current ?? selectedConversation;
+    if (!conv) return;
+    const msgs = conv.messages;
+    const idx = msgs.indexOf(erroredMessage);
+    if (idx === -1) return;
+    const lastUserMsg = [...msgs].slice(0, idx).reverse().find((m) => m.role === 'user');
+    if (!lastUserMsg) return;
+    const trimmed = { ...conv, messages: msgs.slice(0, idx) };
+    homeDispatch({ field: 'selectedConversation', value: trimmed });
+    // Spread to avoid mutating the stored message when handleSend reassigns id
+    handleSend({ ...lastUserMsg }, 0, true);
+  }, [selectedConversation, homeDispatch, handleSend]);
+
   const lastVisibleMessage = visibleMessages[visibleMessages.length - 1];
   const lastAssistantContentLength = lastVisibleMessage?.role === 'assistant'
     ? (lastVisibleMessage.content?.length || 0)
@@ -2290,6 +2306,7 @@ export const Chat = () => {
                       : window.innerHeight - (isLandscape && isKeyboardVisible ? 100 : 180)
                   }
                   onScroll={handleScroll}
+                  onRetry={handleRetry}
                 />
               </div>
             ) : (

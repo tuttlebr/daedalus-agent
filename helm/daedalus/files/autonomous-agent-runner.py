@@ -15,6 +15,7 @@ import os
 import re
 import sys
 import time
+import uuid
 
 import redis as redis_lib
 import requests
@@ -38,6 +39,14 @@ MAX_INPUT_TOKEN_BUDGET = 40_000
 REQUEST_TIMEOUT = int(os.environ.get("REQUEST_TIMEOUT", "240"))  # seconds
 SOUL_PATH = os.environ.get("SOUL_PATH", "/config/soul.md")
 HEARTBEAT_PATH = os.environ.get("HEARTBEAT_PATH", "/config/heartbeat.md")
+
+# Async workflow settings (used when BACKEND_API_PATH is /v1/workflow/async)
+IS_ASYNC_WORKFLOW = "/v1/workflow/async" in BACKEND_API_PATH
+ASYNC_EXPIRY_SECONDS = int(os.environ.get("ASYNC_EXPIRY_SECONDS", "3600"))
+ASYNC_POLL_INTERVAL = int(os.environ.get("ASYNC_POLL_INTERVAL", "10"))  # seconds
+ASYNC_POLL_TIMEOUT = int(
+    os.environ.get("ASYNC_POLL_TIMEOUT", str(REQUEST_TIMEOUT))
+)  # seconds
 
 
 # ---------------------------------------------------------------------------
@@ -308,7 +317,14 @@ going-through-the-motions cycle? What would make the next one better?"""
 # Backend API call
 # ---------------------------------------------------------------------------
 def call_backend(messages: list[dict]) -> str | None:
-    """Stream the backend response and collect the full text."""
+    """Route to the correct backend call strategy."""
+    if IS_ASYNC_WORKFLOW:
+        return _call_backend_async(messages)
+    return _call_backend_stream(messages)
+
+
+def _call_backend_stream(messages: list[dict]) -> str | None:
+    """Stream the backend response via SSE and collect the full text."""
     url = f"{BACKEND_HOST}{BACKEND_API_PATH}"
     payload = {
         "messages": messages,
@@ -346,6 +362,101 @@ def call_backend(messages: list[dict]) -> str | None:
         return None
 
     return full or None
+
+
+def _extract_async_output(output) -> str:
+    """Extract text from a NAT async job output field."""
+    if not output:
+        return ""
+    if isinstance(output, str):
+        return output
+    if isinstance(output, dict) and "value" in output:
+        return str(output["value"])
+    return json.dumps(output)
+
+
+def _call_backend_async(messages: list[dict]) -> str | None:
+    """Submit a job to /v1/workflow/async and poll for the result."""
+    submit_url = f"{BACKEND_HOST}{BACKEND_API_PATH}"
+    job_id = str(uuid.uuid4())
+
+    payload = {
+        "messages": messages,
+        "job_id": job_id,
+        "sync_timeout": 0,
+        "expiry_seconds": ASYNC_EXPIRY_SECONDS,
+    }
+
+    # --- Submit ---
+    try:
+        resp = requests.post(submit_url, json=payload, timeout=45)
+        resp.raise_for_status()
+        result = resp.json()
+        log(f"Async job submitted: {job_id} (status={result.get('status', '?')})")
+    except requests.exceptions.RequestException as e:
+        log(f"Async job submission failed: {e}")
+        return None
+
+    # --- Poll ---
+    status_url = f"{BACKEND_HOST}/v1/workflow/async/job/{job_id}"
+    deadline = time.monotonic() + ASYNC_POLL_TIMEOUT
+    last_status = "submitted"
+    consecutive_not_found = 0
+    saw_connection_error = False
+
+    while time.monotonic() < deadline:
+        time.sleep(ASYNC_POLL_INTERVAL)
+        try:
+            resp = requests.get(status_url, timeout=30)
+            resp.raise_for_status()
+            job = resp.json()
+        except requests.exceptions.ConnectionError as e:
+            saw_connection_error = True
+            log(f"Poll error (will retry): {e}")
+            continue
+        except requests.exceptions.HTTPError as e:
+            if resp.status_code == 404:
+                consecutive_not_found += 1
+                if saw_connection_error and consecutive_not_found >= 3:
+                    log(
+                        "Backend restarted and job state was lost "
+                        f"({consecutive_not_found} consecutive 404s after connection errors). "
+                        "Aborting poll."
+                    )
+                    return None
+                log(f"Poll error (will retry): {e}")
+                continue
+            log(f"Poll error (will retry): {e}")
+            continue
+        except requests.exceptions.RequestException as e:
+            log(f"Poll error (will retry): {e}")
+            continue
+
+        # Successful response — reset error counters
+        consecutive_not_found = 0
+
+        status = job.get("status", "unknown")
+        if status != last_status:
+            log(f"Job status: {status}")
+            last_status = status
+
+        if status == "success":
+            output = _extract_async_output(job.get("output"))
+            if output:
+                log(f"Async job completed: {len(output)} chars")
+                return output
+            log("Async job succeeded but output was empty")
+            return None
+
+        if status in ("failure", "interrupted"):
+            error = job.get("error") or "unknown error"
+            log(f"Async job failed: {error}")
+            return None
+
+        # submitted / running — keep polling
+
+    log(f"Async job timed out after {ASYNC_POLL_TIMEOUT}s (last status: {last_status})")
+    return None
 
 
 # ---------------------------------------------------------------------------

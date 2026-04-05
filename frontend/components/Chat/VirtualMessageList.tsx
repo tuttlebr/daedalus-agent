@@ -7,6 +7,7 @@ interface VirtualMessageListProps {
   messages: Message[];
   containerHeight: number;
   onScroll?: React.UIEventHandler<HTMLDivElement>;
+  onRetry?: (message: Message) => void;
 }
 
 interface VirtualItem {
@@ -22,6 +23,7 @@ export const VirtualMessageList = forwardRef<HTMLDivElement, VirtualMessageListP
   messages,
   containerHeight,
   onScroll,
+  onRetry,
 }, ref) => {
   const containerRef = useRef<HTMLDivElement>(null);
   useImperativeHandle(ref, () => containerRef.current!);
@@ -434,6 +436,7 @@ export const VirtualMessageList = forwardRef<HTMLDivElement, VirtualMessageListP
               <MemoizedChatMessage
                 message={message}
                 messageIndex={item.index}
+                onRetry={onRetry ? () => onRetry(message) : undefined}
               />
             </div>
           );

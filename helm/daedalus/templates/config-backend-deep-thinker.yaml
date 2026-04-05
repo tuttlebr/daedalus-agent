@@ -10,6 +10,6 @@ data:
 {{- if .Values.backend.deepThinker.config.data }}
 {{ .Values.backend.deepThinker.config.data | indent 4 }}
 {{- else }}
-    {}
+{{ .Files.Get "files/react-agent-config.yaml" | indent 4 }}
 {{- end }}
 {{- end }}

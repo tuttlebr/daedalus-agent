@@ -297,17 +297,17 @@ autonomousAgent:
   # Set suspend: true to pause scheduling without removing the CronJob
   suspend: false
   # Which backend the autonomous agent calls: "default" (tool calling) or "deepThinker" (reasoning)
-  backendType: "deepThinker"
+  backendType: "default"
   securityContext: {}
   schedule: "0 */12 * * *"
   # IANA timezone for the cron schedule (requires K8s 1.27+)
   timeZone: "America/New_York"
   # Hard deadline per job — pod is killed after this many seconds
-  activeDeadlineSeconds: 600
-  # HTTP timeout for the backend API call (leave buffer before activeDeadlineSeconds)
-  requestTimeout: 240
-  # Which backend API path to use
-  backendApiPath: "/chat/stream"
+  activeDeadlineSeconds: 2100
+  # Poll timeout for async workflow completion (leave buffer before activeDeadlineSeconds)
+  requestTimeout: 1800
+  # Which backend API path to use (/v1/workflow/async for submit+poll, /chat/stream for SSE)
+  backendApiPath: "/v1/workflow/async"
   # User whose memory and conversation history the agent operates on
   userId: "tuttlebr"
   successfulJobsHistoryLimit: 3

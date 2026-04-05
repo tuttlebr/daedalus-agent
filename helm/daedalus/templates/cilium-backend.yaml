@@ -147,7 +147,7 @@ spec:
         - matchName: "mcp.serpapi.com"
         - matchName: "api.githubcopilot.com"
         - matchName: "api.github.com"
-        - matchName: "github.com"
+        - matchPattern: "*.github.com"
         - matchName: "copilot-proxy.githubusercontent.com"
         - matchName: "docs.dynamo.nvidia.com"
       toPorts:

@@ -72,6 +72,22 @@ export function categorizeError(error: Error | string): ErrorInfo {
   const errorStr = typeof error === 'string' ? error : error.message;
   const errorLower = errorStr.toLowerCase();
 
+  // Backend unavailable / restarting (must be checked before generic network/server checks)
+  if (
+    errorLower.includes('backend_unavailable') ||
+    errorLower.includes('backend is not reachable') ||
+    /backend.*(?:not reachable|unavailable|starting|restarting)/i.test(errorStr)
+  ) {
+    return {
+      error,
+      category: 'server',
+      message: 'The backend is temporarily unavailable — it may be restarting. Please wait a moment.',
+      details: errorStr,
+      recoverable: true,
+      retryDelayMs: 30_000,
+    };
+  }
+
   // Network errors
   if (
     errorLower.includes('network') ||
@@ -335,7 +351,7 @@ export const ErrorRecovery: React.FC<ErrorRecoveryProps> = ({
         {/* Content */}
         <div className="flex-1 min-w-0">
           {/* Message */}
-          <p className={`${compact ? 'text-sm' : 'text-base'} font-medium ${colors.text}`}>
+          <p className={`${compact ? 'text-sm' : 'text-base'} font-medium ${colors.text} break-words overflow-wrap-anywhere`}>
             {error.message}
           </p>
 
@@ -375,7 +391,7 @@ export const ErrorRecovery: React.FC<ErrorRecoveryProps> = ({
 
           {/* Details content */}
           {showDetails && error.details && (
-            <pre className="mt-2 p-2 text-xs bg-black/5 dark:bg-white/5 rounded overflow-x-auto max-h-32 overflow-y-auto">
+            <pre className="mt-2 p-2 text-xs bg-black/5 dark:bg-white/5 rounded overflow-x-auto max-h-32 overflow-y-auto whitespace-pre-wrap break-words">
               {error.details}
             </pre>
           )}

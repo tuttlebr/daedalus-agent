@@ -304,6 +304,8 @@ autonomousAgent:
   # HTTP timeout for the backend API call (leave buffer before activeDeadlineSeconds)
   requestTimeout: 240
   # Which backend API path to use
+  # "/chat/stream" — SSE streaming (single long-lived connection, subject to REQUEST_TIMEOUT)
+  # "/v1/workflow/async" — submit + poll (tolerates long-running agent cycles)
   backendApiPath: "/chat/stream"
   # User whose memory and conversation history the agent operates on
   userId: "default-user"

@@ -56,9 +56,15 @@ interface NatAsyncJobResponse {
 const JOB_EXPIRY_SECONDS = 60 * 60; // 1 hour
 const NAT_ASYNC_EXPIRY_SECONDS = 3600;
 const NAT_SYNC_TIMEOUT = 0; // Pure async -- return job_id immediately
-const NAT_SUBMIT_TIMEOUT_MS = 45_000; // Per-attempt timeout for NAT submission
+const NAT_SUBMIT_TIMEOUT_MS = 12_000; // Per-attempt timeout — async submit should return immediately with a job_id
 const NAT_SUBMIT_MAX_RETRIES = 3; // Max attempts for NAT submission
+const NAT_RETRY_DELAY_MS = 15_000; // Wait between retries — long enough for readiness probe recovery (~30s pod restart)
 const NAT_CONNECTIVITY_TIMEOUT_MS = 5_000; // Fast pre-check before sending full payload
+
+// Redis key signalling that a job has been finalized (or is finalizing).
+// Set by handleGet before calling finalizeSuccess/finalizeError so the
+// background stream reader stops publishing events and status updates.
+const abortKey = (jobId: string) => sessionKey(['async-job-abort', jobId]);
 
 function mapNatStatus(natStatus: string): AsyncJobStatus['status'] {
   switch (natStatus) {
@@ -185,6 +191,7 @@ async function startBackgroundStreamReader(
 
   try {
     logger.info(`Job ${jobId}: Starting background stream reader at ${streamUrl}`);
+    const abortController = new AbortController();
     const response = await fetch(streamUrl, {
       method: 'POST',
       headers: {
@@ -193,6 +200,7 @@ async function startBackgroundStreamReader(
         'X-Backend-Type': jobRequest.useDeepThinker ? 'deep-thinker' : 'default',
       },
       body: JSON.stringify(payload),
+      signal: abortController.signal,
     });
 
     if (!response.ok || !response.body) {
@@ -208,7 +216,24 @@ async function startBackgroundStreamReader(
       ? `user:${userId}:chat:${conversationId}:tokens`
       : null;
 
+    // Rate-limited abort check: at most once per second to avoid Redis overhead.
+    // handleGet sets abortKey before calling finalizeSuccess so the parallel
+    // stream reader stops publishing events and updating job status.
+    let lastAbortCheckMs = 0;
+
     while (true) {
+      // Check for abort signal from handleGet (job already finalized)
+      const nowMs = Date.now();
+      if (nowMs - lastAbortCheckMs > 1000) {
+        lastAbortCheckMs = nowMs;
+        const shouldAbort = await jsonGet(abortKey(jobId));
+        if (shouldAbort) {
+          logger.info(`Job ${jobId}: Stream reader received abort signal — job finalized, stopping`);
+          abortController.abort();
+          return;
+        }
+      }
+
       const { done, value } = await reader.read();
       if (done) break;
 
@@ -318,8 +343,13 @@ async function startBackgroundStreamReader(
       partialResponseLength: partialResponse.length,
     });
   } catch (err: any) {
-    logger.error(`Job ${jobId}: Stream reader error: ${err.message}`);
-    // Persist whatever we have so far
+    if (err.name === 'AbortError') {
+      // Clean abort — job was finalized by handleGet, not a real error.
+      logger.info(`Job ${jobId}: Stream reader aborted cleanly (job finalized)`);
+    } else {
+      logger.error(`Job ${jobId}: Stream reader error: ${err.message}`);
+    }
+    // Persist whatever we have so far (steps may still be useful)
     if (accumulatedSteps.length > 0) {
       await jsonSetWithExpiry(stepsKey, accumulatedSteps, JOB_EXPIRY_SECONDS).catch(() => {});
     }
@@ -385,8 +415,18 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       return cleanedMessage;
     }));
 
-    // Strip system messages -- the backend's NAT agent owns the system prompt
-    const messagesForNat = processedMessages.filter((m: any) => m.role !== 'system');
+    // Strip system messages -- the backend's NAT agent owns the system prompt.
+    // Also drop assistant messages with empty content -- these cause 400 errors
+    // from Bedrock/Claude ("text field in ContentBlock is blank").
+    const messagesForNat = processedMessages
+      .filter((m: any) => m.role !== 'system')
+      .filter((m: any) => {
+        if (m.role === 'assistant') {
+          const c = typeof m.content === 'string' ? m.content.trim() : m.content;
+          return Boolean(c);
+        }
+        return true;
+      });
 
     // Submit to NAT async endpoint
     const submitUrl = buildAsyncJobSubmitUrl(useDeepThinker);
@@ -412,6 +452,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       logger.error(`Job ${jobId}: Backend connectivity check failed: ${connErr.message}`);
       return res.status(503).json({
         error: `Backend is not reachable (connectivity check failed after ${NAT_CONNECTIVITY_TIMEOUT_MS}ms). The backend may be starting up or temporarily unavailable.`,
+        reason: 'backend_unavailable',
       });
     }
 
@@ -452,15 +493,17 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       }
 
       if (attempt < NAT_SUBMIT_MAX_RETRIES) {
-        const backoffMs = Math.min(2000 * Math.pow(2, attempt - 1), 10_000);
-        logger.info(`Job ${jobId}: Retrying in ${backoffMs}ms...`);
-        await new Promise((resolve) => setTimeout(resolve, backoffMs));
+        logger.info(`Job ${jobId}: Retrying in ${NAT_RETRY_DELAY_MS}ms...`);
+        await new Promise((resolve) => setTimeout(resolve, NAT_RETRY_DELAY_MS));
       }
     }
 
     if (!natResult) {
       logger.error(`Job ${jobId}: NAT async submit failed after ${NAT_SUBMIT_MAX_RETRIES} attempts: ${lastError}`);
-      return res.status(502).json({ error: `Backend unavailable after ${NAT_SUBMIT_MAX_RETRIES} attempts: ${lastError}` });
+      return res.status(502).json({
+        error: `Backend unavailable after ${NAT_SUBMIT_MAX_RETRIES} attempts: ${lastError}`,
+        reason: 'backend_unavailable',
+      });
     }
     logger.info(`Job ${jobId}: NAT accepted job`, { natStatus: natResult.status });
 
@@ -595,10 +638,18 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
     }
 
     // Success -- finalize (with atomicity guard)
+    // Check finalizedAt alone: the stream reader can flip status back to
+    // 'streaming' (before our guard below kicks in) while keeping finalizedAt,
+    // so checking status===completed would cause double-finalization.
     const freshStatus = await jsonGet(statusKey) as AsyncJobStatus | null;
-    if (freshStatus?.status === 'completed' && freshStatus?.finalizedAt) {
+    if (freshStatus?.finalizedAt) {
       return res.status(200).json(freshStatus);
     }
+
+    // Signal the background stream reader to stop BEFORE finalizing.
+    // This prevents it from calling updateJobStatus({ status: 'streaming' })
+    // after we write { status: 'completed', finalizedAt } below.
+    await jsonSetWithExpiry(abortKey(jobId), true, JOB_EXPIRY_SECONDS).catch(() => {});
 
     const rawOutput = extractNatOutput(natStatus.output);
     logger.info(`Job ${jobId}: NAT job completed, finalizing`, { outputLength: rawOutput.length });
@@ -676,7 +727,7 @@ async function finalizeSuccess(
       const assistantMessage: Message = {
         id: uuidv4(),
         role: 'assistant',
-        content: processedContent,
+        content: (processedContent && processedContent.trim()) || '[No response was generated]',
         intermediateSteps: accumulatedSteps,
       };
       const allMessages = [...(jobRequest.messages || []), assistantMessage];
@@ -780,6 +831,10 @@ async function finalizeError(
   jobRequest: AsyncJobRequest,
   errorMessage: string
 ): Promise<void> {
+  // Signal the stream reader to stop (mirrors the abort set in handleGet for
+  // error paths that bypass handleGet's abort logic, e.g. direct calls).
+  await jsonSetWithExpiry(abortKey(jobId), true, JOB_EXPIRY_SECONDS).catch(() => {});
+
   const userId = jobRequest.userId || 'anon';
 
   // Read current job status to preserve any partial progress accumulated during polling
@@ -811,7 +866,7 @@ async function finalizeError(
       const assistantMessage: Message = {
         id: uuidv4(),
         role: 'assistant',
-        content: processedContent,
+        content: (processedContent && processedContent.trim()) || '[Error occurred before response was generated]',
         intermediateSteps,
         errorMessages: {
           message: errorMessage,
@@ -891,6 +946,21 @@ async function updateJobStatus(jobId: string, updates: Partial<AsyncJobStatus>):
 
   if (!currentStatus) {
     logger.error('Job status not found for update', jobId);
+    return;
+  }
+
+  // Finalization guard: prevent the background stream reader from flipping a
+  // completed/errored job back to 'streaming' after finalizeSuccess has run.
+  // Only terminal status writes (completed / error) are allowed through.
+  if (
+    currentStatus.finalizedAt &&
+    updates.status !== undefined &&
+    updates.status !== 'completed' &&
+    updates.status !== 'error'
+  ) {
+    logger.debug(
+      `Job ${jobId}: Ignoring status update (status=${updates.status}) — job already finalized`,
+    );
     return;
   }
 
