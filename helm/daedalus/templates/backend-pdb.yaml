@@ -1,0 +1,37 @@
+{{- if .Values.backend.pdb.enabled }}
+{{- if .Values.backend.default.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "daedalus.fullname" . }}-backend-default
+  labels:
+    {{- include "daedalus.labels" . | nindent 4 }}
+    app.kubernetes.io/component: backend-default
+spec:
+  minAvailable: {{ .Values.backend.pdb.minAvailable | default 1 }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "daedalus.name" . }}
+      app.kubernetes.io/component: backend-default
+      app.kubernetes.io/instance: {{ .Release.Name }}
+{{- end }}
+{{- if and .Values.backend.default.enabled .Values.backend.deepThinker.enabled }}
+---
+{{- end }}
+{{- if .Values.backend.deepThinker.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "daedalus.fullname" . }}-backend-deep-thinker
+  labels:
+    {{- include "daedalus.labels" . | nindent 4 }}
+    app.kubernetes.io/component: backend-deep-thinker
+spec:
+  minAvailable: {{ .Values.backend.pdb.minAvailable | default 1 }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "daedalus.name" . }}
+      app.kubernetes.io/component: backend-deep-thinker
+      app.kubernetes.io/instance: {{ .Release.Name }}
+{{- end }}
+{{- end }}

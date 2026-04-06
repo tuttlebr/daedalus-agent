@@ -36,6 +36,7 @@ backend:
   # Default backend configuration
   default:
     enabled: true
+    replicas: 2
     port: 8000
     # securityContext — disabled by default; image must support non-root before enabling.
     # To enable, rebuild the backend image (chmod is already in Dockerfile), then uncomment:
@@ -75,6 +76,7 @@ backend:
   # Deep Thinker backend configuration
   deepThinker:
     enabled: true
+    replicas: 2
     port: 8000
     # securityContext — disabled by default; image must support non-root before enabling.
     # To enable, rebuild the backend image (chmod is already in Dockerfile), then uncomment:
@@ -112,6 +114,9 @@ backend:
       port: 8000
 
   # Shared backend configuration
+  pdb:
+    enabled: true
+    minAvailable: 1
   networkPolicy:
     enabled: true # Set to true to restrict backend access to only frontend and nginx pods
     cilium:
@@ -125,7 +130,14 @@ backend:
     size: 6Gi
     storageClassName: ""
     create: true
+    # Legacy single-claim override (applies to both backends). Prefer
+    # existingClaimNames.<component> for reliability.
     existingClaimName: ""
+    # Per-backend claim overrides. Leave empty to use chart-managed PVC names:
+    # <release>-daedalus-backend-default and <release>-daedalus-backend-deep-thinker
+    existingClaimNames:
+      default: ""
+      deepThinker: ""
   # Agent Skills directory — skills are baked into the Docker image at /skills by default.
   # Set enabled: true to override with a PVC (useful for hot-swapping skills without rebuilding).
   # When enabled without a pvcName, an emptyDir is used (skills from the image are shadowed).

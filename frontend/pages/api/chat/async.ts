@@ -1,10 +1,16 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { getPublisher, sessionKey, jsonGet, jsonSetWithExpiry, jsonDel, setStreamingState, clearStreamingState } from '../session/redis';
+import { resolve4 } from 'node:dns/promises';
+import { getPublisher, getRedis, sessionKey, jsonGet, jsonSetWithExpiry, jsonDel, setStreamingState, clearStreamingState } from '../session/redis';
 import { publishStreamingState, publishConversationUpdate } from '@/utils/sync/publish';
 import { v4 as uuidv4 } from 'uuid';
 import { Message } from '@/types/chat';
 import { Logger } from '@/utils/logger';
-import { buildAsyncJobSubmitUrl, buildAsyncJobStatusUrl, buildBackendUrlForMode } from '@/utils/app/backendApi';
+import {
+  buildBackendBaseUrl,
+  buildBackendBaseUrlForMode,
+  buildBackendUrlFromBase,
+  getBackendPodDiscoveryHost,
+} from '@/utils/app/backendApi';
 import { fetchWithTimeout } from '@/utils/fetchWithTimeout';
 import { getSession } from '@/utils/auth/session';
 
@@ -21,6 +27,7 @@ export const config = {
 
 interface AsyncJobRequest {
   jobId: string;
+  natBaseUrl: string;
   messages: any[];
   additionalProps: any;
   userId: string;
@@ -60,11 +67,63 @@ const NAT_SUBMIT_TIMEOUT_MS = 12_000; // Per-attempt timeout — async submit sh
 const NAT_SUBMIT_MAX_RETRIES = 3; // Max attempts for NAT submission
 const NAT_RETRY_DELAY_MS = 15_000; // Wait between retries — long enough for readiness probe recovery (~30s pod restart)
 const NAT_CONNECTIVITY_TIMEOUT_MS = 5_000; // Fast pre-check before sending full payload
+const STREAM_STATUS_FLUSH_INTERVAL_MS = 750;
+const STREAM_STEPS_FLUSH_INTERVAL_MS = 750;
+const FINALIZER_POLL_INTERVAL_MS = 5_000;
+const FINALIZER_LOCK_TTL_MS = 30_000;
+const STATUS_UPDATE_LOCK_TTL_MS = 3_000;
+const FINALIZER_MAX_RUNTIME_MS = 60 * 60 * 1000; // match async expiry window
 
 // Redis key signalling that a job has been finalized (or is finalizing).
 // Set by handleGet before calling finalizeSuccess/finalizeError so the
 // background stream reader stops publishing events and status updates.
 const abortKey = (jobId: string) => sessionKey(['async-job-abort', jobId]);
+const finalizerLockKey = (jobId: string) => sessionKey(['async-job-finalizer-lock', jobId]);
+const statusLockKey = (jobId: string) => sessionKey(['async-job-status-lock', jobId]);
+
+const backgroundFinalizers = new Set<string>();
+
+async function sleep(ms: number): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function withRedisLock<T>(
+  key: string,
+  ttlMs: number,
+  fn: () => Promise<T>,
+  options?: { retries?: number; retryDelayMs?: number },
+): Promise<T | null> {
+  const client = getRedis();
+  const token = uuidv4();
+  const retries = options?.retries ?? 0;
+  const retryDelayMs = options?.retryDelayMs ?? 50;
+
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    const acquired = await client.set(key, token, 'PX', ttlMs, 'NX');
+    if (acquired === 'OK') {
+      try {
+        return await fn();
+      } finally {
+        try {
+          await client.eval(
+            "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end",
+            1,
+            key,
+            token,
+          );
+        } catch {
+          // best effort unlock; TTL still prevents deadlock
+        }
+      }
+    }
+
+    if (attempt < retries) {
+      await sleep(retryDelayMs);
+    }
+  }
+
+  return null;
+}
 
 function mapNatStatus(natStatus: string): AsyncJobStatus['status'] {
   switch (natStatus) {
@@ -88,6 +147,141 @@ function extractNatOutput(output: { value: string } | string | null): string {
   if (typeof output === 'string') return output;
   if (typeof output === 'object' && 'value' in output) return String(output.value);
   return JSON.stringify(output);
+}
+
+function isTerminalJobStatus(status: AsyncJobStatus['status']): boolean {
+  return status === 'completed' || status === 'error';
+}
+
+function shuffleItems<T>(items: T[]): T[] {
+  const shuffled = [...items];
+  for (let i = shuffled.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+  return shuffled;
+}
+
+function getNatBaseUrl(jobRequest: AsyncJobRequest): string {
+  // Legacy fallback for jobs created before backend pinning was deployed.
+  return jobRequest.natBaseUrl || buildBackendBaseUrlForMode(jobRequest.useDeepThinker);
+}
+
+export async function resolveAsyncBackendBaseUrls(useDeepThinker: boolean): Promise<string[]> {
+  const fallbackBaseUrl = buildBackendBaseUrlForMode(useDeepThinker);
+  const isKubernetes =
+    process.env.KUBERNETES_SERVICE_HOST || process.env.DEPLOYMENT_MODE === 'kubernetes';
+
+  if (!isKubernetes) {
+    return [fallbackBaseUrl];
+  }
+
+  try {
+    const discoveryHost = getBackendPodDiscoveryHost(useDeepThinker);
+    const resolvedIps = await resolve4(discoveryHost);
+    const uniqueIps = Array.from(new Set(resolvedIps));
+
+    if (uniqueIps.length === 0) {
+      logger.warn(
+        `No backend pod IPs resolved for ${discoveryHost}; falling back to service URL ${fallbackBaseUrl}`,
+      );
+      return [fallbackBaseUrl];
+    }
+
+    return shuffleItems(uniqueIps).map((backendHost) => buildBackendBaseUrl({ backendHost }));
+  } catch (error: any) {
+    logger.warn(
+      `Backend pod discovery failed; falling back to service URL ${fallbackBaseUrl}`,
+      error,
+    );
+    return [fallbackBaseUrl];
+  }
+}
+
+export async function fetchNatJobStatus(
+  jobId: string,
+  jobRequest: AsyncJobRequest,
+): Promise<NatAsyncJobResponse | null> {
+  const natStatusUrl = buildBackendUrlFromBase(
+    getNatBaseUrl(jobRequest),
+    `/v1/workflow/async/job/${encodeURIComponent(jobId)}`,
+  );
+  const natResponse = await fetchWithTimeout(natStatusUrl, {
+    headers: {
+      'X-Backend-Type': jobRequest.useDeepThinker ? 'deep-thinker' : 'default',
+    },
+  }, 30_000);
+
+  if (!natResponse.ok) {
+    if (natResponse.status === 404) {
+      if (!jobRequest.natBaseUrl) {
+        logger.warn(
+          `Job ${jobId}: Received 404 from legacy shared backend route; leaving job pending for retry`,
+        );
+        return null;
+      }
+      return {
+        job_id: jobId,
+        status: 'failure',
+        error: 'Job not found on backend (may have expired)',
+        output: null,
+        created_at: '',
+        updated_at: '',
+        expires_at: '',
+      };
+    }
+    throw new Error(`NAT returned ${natResponse.status}`);
+  }
+
+  return natResponse.json();
+}
+
+async function finalizeFromNatStatus(
+  jobId: string,
+  jobRequest: AsyncJobRequest,
+  natStatus: NatAsyncJobResponse,
+): Promise<AsyncJobStatus | null> {
+  const statusKey = sessionKey(['async-job-status', jobId]);
+  const mapped = mapNatStatus(natStatus.status);
+
+  const finalized = await withRedisLock(
+    finalizerLockKey(jobId),
+    FINALIZER_LOCK_TTL_MS,
+    async () => {
+      const current = await jsonGet(statusKey) as AsyncJobStatus | null;
+      if (!current) return null;
+      if (current.finalizedAt || isTerminalJobStatus(current.status)) {
+        return current;
+      }
+
+      await jsonSetWithExpiry(abortKey(jobId), true, JOB_EXPIRY_SECONDS).catch(() => {});
+
+      if (mapped === 'error') {
+        await finalizeError(jobId, jobRequest, natStatus.error || 'Backend job failed');
+      } else if (mapped === 'completed') {
+        const rawOutput = extractNatOutput(natStatus.output);
+        await finalizeSuccess(jobId, jobRequest, rawOutput);
+      }
+
+      return await jsonGet(statusKey) as AsyncJobStatus | null;
+    },
+    { retries: 3, retryDelayMs: 50 },
+  );
+
+  if (finalized) return finalized;
+  return await jsonGet(statusKey) as AsyncJobStatus | null;
+}
+
+function launchBackgroundFinalizer(jobId: string, jobRequest: AsyncJobRequest): void {
+  if (backgroundFinalizers.has(jobId)) return;
+  backgroundFinalizers.add(jobId);
+  startBackgroundFinalizer(jobId, jobRequest)
+    .catch((err) => {
+      logger.error(`Job ${jobId}: Background finalizer failed`, err);
+    })
+    .finally(() => {
+      backgroundFinalizers.delete(jobId);
+    });
 }
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -162,7 +356,7 @@ async function startBackgroundStreamReader(
   messagesForNat: any[],
   verifiedUsername: string,
 ): Promise<void> {
-  const streamUrl = buildBackendUrlForMode(jobRequest.useDeepThinker, '/chat/stream');
+  const streamUrl = buildBackendUrlFromBase(getNatBaseUrl(jobRequest), '/chat/stream');
   const payload = {
     messages: messagesForNat,
     model: 'string',
@@ -220,6 +414,27 @@ async function startBackgroundStreamReader(
     // handleGet sets abortKey before calling finalizeSuccess so the parallel
     // stream reader stops publishing events and updating job status.
     let lastAbortCheckMs = 0;
+    let lastStatusFlushMs = 0;
+    let lastStepsFlushMs = 0;
+
+    const flushSteps = async (force = false): Promise<void> => {
+      const now = Date.now();
+      if (!force && now - lastStepsFlushMs < STREAM_STEPS_FLUSH_INTERVAL_MS) return;
+      lastStepsFlushMs = now;
+      await jsonSetWithExpiry(stepsKey, accumulatedSteps, JOB_EXPIRY_SECONDS);
+    };
+
+    const flushStreamingStatus = async (force = false): Promise<void> => {
+      const now = Date.now();
+      if (!force && now - lastStatusFlushMs < STREAM_STATUS_FLUSH_INTERVAL_MS) return;
+      lastStatusFlushMs = now;
+      await updateJobStatus(jobId, {
+        status: 'streaming',
+        partialResponse,
+        intermediateSteps: accumulatedSteps,
+        updatedAt: now,
+      });
+    };
 
     while (true) {
       // Check for abort signal from handleGet (job already finalized)
@@ -250,7 +465,7 @@ async function startBackgroundStreamReader(
           if (step) {
             accumulatedSteps.push(step);
             // Persist incrementally so handleGet() can return live steps
-            await jsonSetWithExpiry(stepsKey, accumulatedSteps, JOB_EXPIRY_SECONDS);
+            await flushSteps();
 
             if (tokenChannel) {
               publisher.publish(tokenChannel, JSON.stringify({
@@ -308,13 +523,7 @@ async function startBackgroundStreamReader(
                   content,
                 })).catch(() => {});
               }
-              // Update partial response in job status
-              await updateJobStatus(jobId, {
-                status: 'streaming',
-                partialResponse,
-                intermediateSteps: accumulatedSteps,
-                updatedAt: Date.now(),
-              });
+              await flushStreamingStatus();
             }
           } catch {
             // Non-JSON data line — skip
@@ -330,7 +539,7 @@ async function startBackgroundStreamReader(
     }
 
     // Final persist of all accumulated steps
-    await jsonSetWithExpiry(stepsKey, accumulatedSteps, JOB_EXPIRY_SECONDS);
+    await flushSteps(true);
     // Update job status with partial response and steps
     await updateJobStatus(jobId, {
       intermediateSteps: accumulatedSteps,
@@ -356,18 +565,75 @@ async function startBackgroundStreamReader(
   }
 }
 
+async function startBackgroundFinalizer(
+  jobId: string,
+  jobRequest: AsyncJobRequest,
+): Promise<void> {
+  const startedAt = Date.now();
+  const statusKey = sessionKey(['async-job-status', jobId]);
+  const stepsKey = sessionKey(['async-job-steps', jobId]);
+
+  while (Date.now() - startedAt < FINALIZER_MAX_RUNTIME_MS) {
+    const status = await jsonGet(statusKey) as AsyncJobStatus | null;
+    if (!status) return;
+    if (status.finalizedAt || isTerminalJobStatus(status.status)) return;
+
+    const shouldAbort = await jsonGet(abortKey(jobId));
+    if (shouldAbort && status.finalizedAt) return;
+
+    try {
+      const natStatus = await fetchNatJobStatus(jobId, jobRequest);
+      if (!natStatus) {
+        await sleep(FINALIZER_POLL_INTERVAL_MS);
+        continue;
+      }
+
+      const mapped = mapNatStatus(natStatus.status);
+      if (mapped === 'pending' || mapped === 'streaming') {
+        const liveSteps = await jsonGet(stepsKey) as any[] | null;
+        await updateJobStatus(jobId, {
+          status: mapped,
+          progress: mapped === 'streaming' ? 50 : 0,
+          ...(liveSteps?.length ? { intermediateSteps: liveSteps } : {}),
+          updatedAt: Date.now(),
+        });
+      } else {
+        await finalizeFromNatStatus(jobId, jobRequest, natStatus);
+        return;
+      }
+    } catch (err) {
+      logger.warn(`Job ${jobId}: Background finalizer poll failed`, err);
+    }
+
+    await sleep(FINALIZER_POLL_INTERVAL_MS);
+  }
+
+  const timeoutStatus: NatAsyncJobResponse = {
+    job_id: jobId,
+    status: 'failure',
+    error: `Async job did not finalize within ${FINALIZER_MAX_RUNTIME_MS / 1000}s`,
+    output: null,
+    created_at: '',
+    updated_at: '',
+    expires_at: '',
+  };
+  await finalizeFromNatStatus(jobId, jobRequest, timeoutStatus).catch((err) => {
+    logger.error(`Job ${jobId}: Failed timeout finalization`, err);
+  });
+}
+
 // ── POST: Submit a new async job to NAT ──────────────────────────────
 
 async function handlePost(req: NextApiRequest, res: NextApiResponse) {
   try {
-    const { messages, additionalProps, userId, conversationId, conversationName } = req.body;
+    const { messages, additionalProps, conversationId, conversationName } = req.body;
 
     if (!messages || !Array.isArray(messages)) {
       return res.status(400).json({ error: 'Invalid messages' });
     }
 
     // SECURITY: Derive user identity from the server-side session,
-    // not from client-sent additionalProps/userId which can be spoofed.
+    // not from client-sent identity fields which can be spoofed.
     const session = await getSession(req, res);
     const verifiedUsername = session?.username || 'anon';
 
@@ -429,7 +695,6 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       });
 
     // Submit to NAT async endpoint
-    const submitUrl = buildAsyncJobSubmitUrl(useDeepThinker);
     const natPayload = {
       messages: messagesForNat,
       job_id: jobId,
@@ -437,24 +702,14 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       expiry_seconds: NAT_ASYNC_EXPIRY_SECONDS,
     };
 
-    logger.info(`Job ${jobId}: Submitting to NAT async at ${submitUrl}`, {
+    const natBaseUrls = await resolveAsyncBackendBaseUrls(useDeepThinker);
+
+    logger.info(`Job ${jobId}: Resolved async backend candidates`, {
       messageCount: messagesForNat.length,
       useDeepThinker,
+      candidateCount: natBaseUrls.length,
+      candidates: natBaseUrls,
     });
-
-    // Fast connectivity pre-check: HEAD request with short timeout to detect
-    // unreachable backends in seconds instead of waiting the full POST timeout.
-    // This catches the common case where the backend pod is not ready or the
-    // event loop is hung (TCP probe passes but HTTP requests hang).
-    try {
-      await fetchWithTimeout(submitUrl, { method: 'HEAD' }, NAT_CONNECTIVITY_TIMEOUT_MS);
-    } catch (connErr: any) {
-      logger.error(`Job ${jobId}: Backend connectivity check failed: ${connErr.message}`);
-      return res.status(503).json({
-        error: `Backend is not reachable (connectivity check failed after ${NAT_CONNECTIVITY_TIMEOUT_MS}ms). The backend may be starting up or temporarily unavailable.`,
-        reason: 'backend_unavailable',
-      });
-    }
 
     const natHeaders = {
       'Content-Type': 'application/json',
@@ -465,34 +720,66 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
 
     let natResult: any;
     let lastError: string | null = null;
+    let selectedNatBaseUrl: string | null = null;
 
-    for (let attempt = 1; attempt <= NAT_SUBMIT_MAX_RETRIES; attempt++) {
-      try {
-        const natResponse = await fetchWithTimeout(submitUrl, {
-          method: 'POST',
-          headers: natHeaders,
-          body: natBody,
-        }, NAT_SUBMIT_TIMEOUT_MS);
+    for (let attempt = 1; attempt <= NAT_SUBMIT_MAX_RETRIES && !natResult; attempt++) {
+      for (const natBaseUrl of natBaseUrls) {
+        const submitUrl = buildBackendUrlFromBase(natBaseUrl, '/v1/workflow/async');
 
-        if (!natResponse.ok) {
-          const errorText = await natResponse.text();
-          lastError = `${natResponse.status} - ${errorText}`;
-          // Don't retry client errors (4xx)
-          if (natResponse.status >= 400 && natResponse.status < 500) {
-            logger.error(`Job ${jobId}: NAT async submit rejected (${natResponse.status}), not retrying`, errorText);
-            return res.status(502).json({ error: `Backend error: ${lastError}` });
-          }
-          logger.warn(`Job ${jobId}: NAT async submit failed (attempt ${attempt}/${NAT_SUBMIT_MAX_RETRIES}): ${lastError}`);
-        } else {
-          natResult = await natResponse.json();
-          break;
+        logger.info(`Job ${jobId}: Submitting to NAT async at ${submitUrl}`, {
+          attempt,
+          maxAttempts: NAT_SUBMIT_MAX_RETRIES,
+          natBaseUrl,
+        });
+
+        try {
+          await fetchWithTimeout(
+            submitUrl,
+            { method: 'HEAD' },
+            NAT_CONNECTIVITY_TIMEOUT_MS,
+          );
+        } catch (connErr: any) {
+          lastError = `connectivity check failed for ${natBaseUrl}: ${connErr.message}`;
+          logger.warn(`Job ${jobId}: ${lastError}`);
+          continue;
         }
-      } catch (err: any) {
-        lastError = err.message || 'Unknown fetch error';
-        logger.warn(`Job ${jobId}: NAT async submit error (attempt ${attempt}/${NAT_SUBMIT_MAX_RETRIES}): ${lastError}`);
+
+        try {
+          const natResponse = await fetchWithTimeout(submitUrl, {
+            method: 'POST',
+            headers: natHeaders,
+            body: natBody,
+          }, NAT_SUBMIT_TIMEOUT_MS);
+
+          if (!natResponse.ok) {
+            const errorText = await natResponse.text();
+            lastError = `${natResponse.status} - ${errorText}`;
+            // Don't retry client errors (4xx)
+            if (natResponse.status >= 400 && natResponse.status < 500) {
+              logger.error(
+                `Job ${jobId}: NAT async submit rejected (${natResponse.status}) on ${natBaseUrl}, not retrying`,
+                errorText,
+              );
+              return res.status(502).json({ error: `Backend error: ${lastError}` });
+            }
+            logger.warn(
+              `Job ${jobId}: NAT async submit failed on ${natBaseUrl} (attempt ${attempt}/${NAT_SUBMIT_MAX_RETRIES}): ${lastError}`,
+            );
+            continue;
+          }
+
+          natResult = await natResponse.json();
+          selectedNatBaseUrl = natBaseUrl;
+          break;
+        } catch (err: any) {
+          lastError = err.message || 'Unknown fetch error';
+          logger.warn(
+            `Job ${jobId}: NAT async submit error on ${natBaseUrl} (attempt ${attempt}/${NAT_SUBMIT_MAX_RETRIES}): ${lastError}`,
+          );
+        }
       }
 
-      if (attempt < NAT_SUBMIT_MAX_RETRIES) {
+      if (!natResult && attempt < NAT_SUBMIT_MAX_RETRIES) {
         logger.info(`Job ${jobId}: Retrying in ${NAT_RETRY_DELAY_MS}ms...`);
         await new Promise((resolve) => setTimeout(resolve, NAT_RETRY_DELAY_MS));
       }
@@ -505,14 +792,18 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
         reason: 'backend_unavailable',
       });
     }
-    logger.info(`Job ${jobId}: NAT accepted job`, { natStatus: natResult.status });
+    logger.info(`Job ${jobId}: NAT accepted job`, {
+      natStatus: natResult.status,
+      natBaseUrl: selectedNatBaseUrl,
+    });
 
     // Store job metadata in Redis for the GET handler
     const jobRequest: AsyncJobRequest = {
       jobId,
+      natBaseUrl: selectedNatBaseUrl || buildBackendBaseUrlForMode(useDeepThinker),
       messages, // original messages for conversation saving later
       additionalProps,
-      userId: userId || 'anon',
+      userId: verifiedUsername,
       conversationId,
       conversationName,
       useDeepThinker,
@@ -530,7 +821,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     await jsonSetWithExpiry(sessionKey(['async-job-status', jobId]), jobStatus, JOB_EXPIRY_SECONDS);
 
     // Set streaming state for cross-session UI
-    const effectiveUserId = userId || 'anon';
+    const effectiveUserId = verifiedUsername;
     if (conversationId) {
       await setStreamingState(effectiveUserId, conversationId, jobId);
       await publishStreamingState(effectiveUserId, conversationId, true, jobId);
@@ -550,6 +841,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     ).catch((err) => {
       logger.error(`Job ${jobId}: Background stream reader failed`, err);
     });
+    launchBackgroundFinalizer(jobId, jobRequest);
 
     return;
   } catch (error) {
@@ -585,30 +877,19 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
     if (!jobRequest) {
       return res.status(200).json(jobStatus);
     }
+    launchBackgroundFinalizer(jobId, jobRequest);
 
-    const natStatusUrl = buildAsyncJobStatusUrl(jobRequest.useDeepThinker, jobId);
-    let natStatus: NatAsyncJobResponse;
+    let natStatus: NatAsyncJobResponse | null = null;
 
     try {
-      const natResponse = await fetchWithTimeout(natStatusUrl, {
-        headers: {
-          'X-Backend-Type': jobRequest.useDeepThinker ? 'deep-thinker' : 'default',
-        },
-      }, 30_000);
-
-      if (!natResponse.ok) {
-        if (natResponse.status === 404) {
-          await finalizeError(jobId, jobRequest, 'Job not found on backend (may have expired)');
-          const updated = await jsonGet(statusKey);
-          return res.status(200).json(updated);
-        }
-        throw new Error(`NAT returned ${natResponse.status}`);
-      }
-
-      natStatus = await natResponse.json();
+      natStatus = await fetchNatJobStatus(jobId, jobRequest);
     } catch (err) {
       logger.error(`Job ${jobId}: Failed to fetch NAT status`, err);
       // Return cached status on transient error -- polling will retry
+      return res.status(200).json(jobStatus);
+    }
+
+    if (!natStatus) {
       return res.status(200).json(jobStatus);
     }
 
@@ -632,31 +913,12 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
 
     // Failed or expired
     if (mappedStatus === 'error') {
-      await finalizeError(jobId, jobRequest, natStatus.error || 'Backend job failed');
-      const updated = await jsonGet(statusKey);
-      return res.status(200).json(updated);
+      const updated = await finalizeFromNatStatus(jobId, jobRequest, natStatus);
+      return res.status(200).json(updated || jobStatus);
     }
 
-    // Success -- finalize (with atomicity guard)
-    // Check finalizedAt alone: the stream reader can flip status back to
-    // 'streaming' (before our guard below kicks in) while keeping finalizedAt,
-    // so checking status===completed would cause double-finalization.
-    const freshStatus = await jsonGet(statusKey) as AsyncJobStatus | null;
-    if (freshStatus?.finalizedAt) {
-      return res.status(200).json(freshStatus);
-    }
-
-    // Signal the background stream reader to stop BEFORE finalizing.
-    // This prevents it from calling updateJobStatus({ status: 'streaming' })
-    // after we write { status: 'completed', finalizedAt } below.
-    await jsonSetWithExpiry(abortKey(jobId), true, JOB_EXPIRY_SECONDS).catch(() => {});
-
-    const rawOutput = extractNatOutput(natStatus.output);
-    logger.info(`Job ${jobId}: NAT job completed, finalizing`, { outputLength: rawOutput.length });
-
-    await finalizeSuccess(jobId, jobRequest, rawOutput);
-    const finalStatus = await jsonGet(statusKey);
-    return res.status(200).json(finalStatus);
+    const finalStatus = await finalizeFromNatStatus(jobId, jobRequest, natStatus);
+    return res.status(200).json(finalStatus || jobStatus);
   } catch (error) {
     logger.error('Error fetching job status', error);
     return res.status(500).json({ error: 'Failed to fetch job status' });
@@ -675,7 +937,11 @@ async function handleDelete(req: NextApiRequest, res: NextApiResponse) {
   try {
     const requestKey = sessionKey(['async-job-request', jobId]);
     const statusKey = sessionKey(['async-job-status', jobId]);
+    const stepsKey = sessionKey(['async-job-steps', jobId]);
     const jobRequest = await jsonGet(requestKey) as AsyncJobRequest | null;
+    const currentStatus = await jsonGet(statusKey) as AsyncJobStatus | null;
+
+    await jsonSetWithExpiry(abortKey(jobId), true, JOB_EXPIRY_SECONDS).catch(() => {});
 
     // Clear streaming state if we have context
     if (jobRequest?.conversationId && jobRequest?.userId) {
@@ -683,13 +949,27 @@ async function handleDelete(req: NextApiRequest, res: NextApiResponse) {
       await publishStreamingState(jobRequest.userId, jobRequest.conversationId, false, jobId as string).catch(() => {});
     }
 
-    await Promise.all([jsonDel(requestKey), jsonDel(statusKey)]);
+    if (currentStatus && !currentStatus.finalizedAt) {
+      const streamSteps = await jsonGet(stepsKey) as any[] | null;
+      await updateJobStatus(jobId, {
+        status: 'error',
+        error: 'Job canceled by user',
+        partialResponse: currentStatus.partialResponse,
+        intermediateSteps: streamSteps?.length
+          ? streamSteps
+          : (currentStatus.intermediateSteps || []),
+        updatedAt: Date.now(),
+        finalizedAt: Date.now(),
+      });
+    }
+
+    await Promise.all([jsonDel(requestKey), jsonDel(stepsKey)]);
 
     // NOTE: NAT async does not expose a cancel endpoint.
-    // The Dask job runs to completion but its result is ignored since Redis keys are gone.
+    // The Dask job runs to completion but the job is marked as canceled in Redis.
     // NAT's expiry_seconds ensures backend cleanup.
 
-    return res.status(200).json({ success: true });
+    return res.status(200).json({ success: true, canceled: true });
   } catch (error) {
     logger.error('Error canceling job', error);
     return res.status(500).json({ error: 'Failed to cancel job' });
@@ -724,6 +1004,7 @@ async function finalizeSuccess(
   // Save conversation to Redis
   if (jobRequest.conversationId) {
     try {
+      const conversationName = jobRequest.conversationName || 'New Conversation';
       const assistantMessage: Message = {
         id: uuidv4(),
         role: 'assistant',
@@ -733,7 +1014,8 @@ async function finalizeSuccess(
       const allMessages = [...(jobRequest.messages || []), assistantMessage];
       const conversationData = {
         id: jobRequest.conversationId,
-        name: jobRequest.conversationName,
+        name: conversationName,
+        folderId: null,
         messages: allMessages,
         updatedAt: Date.now(),
         isPartial: false,
@@ -750,7 +1032,7 @@ async function finalizeSuccess(
         await jsonSetWithExpiry(selectedConvKey, {
           ...selectedConv,
           messages: allMessages,
-          name: jobRequest.conversationName,
+          name: conversationName,
           updatedAt: Date.now(),
         }, 60 * 60 * 24 * 7);
         logger.info(`Job ${jobId}: Updated selected conversation for user ${userId}`);
@@ -853,6 +1135,7 @@ async function finalizeError(
   // Save partial conversation to Redis so progress survives page refresh
   if (jobRequest.conversationId) {
     try {
+      const conversationName = jobRequest.conversationName || 'New Conversation';
       let processedContent = partialResponse;
       if (partialResponse) {
         try {
@@ -877,7 +1160,8 @@ async function finalizeError(
       const allMessages = [...(jobRequest.messages || []), assistantMessage];
       const conversationData = {
         id: jobRequest.conversationId,
-        name: jobRequest.conversationName,
+        name: conversationName,
+        folderId: null,
         messages: allMessages,
         updatedAt: Date.now(),
         isPartial: true,
@@ -895,7 +1179,7 @@ async function finalizeError(
         await jsonSetWithExpiry(selectedConvKey, {
           ...selectedConv,
           messages: allMessages,
-          name: jobRequest.conversationName,
+          name: conversationName,
           updatedAt: Date.now(),
         }, 60 * 60 * 24 * 7);
       }
@@ -942,40 +1226,62 @@ async function finalizeError(
 
 async function updateJobStatus(jobId: string, updates: Partial<AsyncJobStatus>): Promise<void> {
   const statusKey = sessionKey(['async-job-status', jobId]);
-  const currentStatus = await jsonGet(statusKey) as AsyncJobStatus | null;
+  const isTerminalWrite =
+    updates.status === 'completed' || updates.status === 'error' || updates.finalizedAt !== undefined;
 
-  if (!currentStatus) {
-    logger.error('Job status not found for update', jobId);
-    return;
-  }
+  const applied = await withRedisLock(
+    statusLockKey(jobId),
+    STATUS_UPDATE_LOCK_TTL_MS,
+    async () => {
+      const currentStatus = await jsonGet(statusKey) as AsyncJobStatus | null;
 
-  // Finalization guard: prevent the background stream reader from flipping a
-  // completed/errored job back to 'streaming' after finalizeSuccess has run.
-  // Only terminal status writes (completed / error) are allowed through.
-  if (
-    currentStatus.finalizedAt &&
-    updates.status !== undefined &&
-    updates.status !== 'completed' &&
-    updates.status !== 'error'
-  ) {
-    logger.debug(
-      `Job ${jobId}: Ignoring status update (status=${updates.status}) — job already finalized`,
-    );
-    return;
-  }
+      if (!currentStatus) {
+        logger.error('Job status not found for update', jobId);
+        return false;
+      }
 
-  const updatedStatus: AsyncJobStatus = {
-    ...currentStatus,
-    ...updates,
-  };
+      // Finalization guard: prevent the background stream reader from flipping a
+      // completed/errored job back to 'streaming' after finalizeSuccess has run.
+      // Only terminal status writes (completed / error) are allowed through.
+      if (
+        currentStatus.finalizedAt &&
+        updates.status !== undefined &&
+        updates.status !== 'completed' &&
+        updates.status !== 'error'
+      ) {
+        logger.debug(
+          `Job ${jobId}: Ignoring status update (status=${updates.status}) — job already finalized`,
+        );
+        return false;
+      }
 
-  await jsonSetWithExpiry(statusKey, updatedStatus, JOB_EXPIRY_SECONDS);
+      const updatedStatus: AsyncJobStatus = {
+        ...currentStatus,
+        ...updates,
+      };
 
-  // Publish status update via Redis Pub/Sub for WebSocket sidecar
-  try {
-    const publisher = getPublisher();
-    await publisher.publish(`job:${jobId}:status`, JSON.stringify(updatedStatus));
-  } catch (err) {
-    logger.error(`Failed to publish job status for ${jobId}`, err);
+      if (JSON.stringify(updatedStatus) === JSON.stringify(currentStatus)) {
+        return false;
+      }
+
+      await jsonSetWithExpiry(statusKey, updatedStatus, JOB_EXPIRY_SECONDS);
+
+      // Publish status update via Redis Pub/Sub for WebSocket sidecar
+      try {
+        const publisher = getPublisher();
+        await publisher.publish(`job:${jobId}:status`, JSON.stringify(updatedStatus));
+      } catch (err) {
+        logger.error(`Failed to publish job status for ${jobId}`, err);
+      }
+      return true;
+    },
+    {
+      retries: isTerminalWrite ? 20 : 1,
+      retryDelayMs: isTerminalWrite ? 25 : 10,
+    },
+  );
+
+  if (applied === null && isTerminalWrite) {
+    logger.warn(`Job ${jobId}: Failed to acquire status lock for terminal update`);
   }
 }

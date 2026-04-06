@@ -7,10 +7,14 @@ metadata:
     {{- include "daedalus.labels" . | nindent 4 }}
     app.kubernetes.io/component: backend-deep-thinker
 spec:
-  replicas: 1
+  replicas: {{ .Values.backend.deepThinker.replicas | default 2 }}
   revisionHistoryLimit: 3
+  minReadySeconds: 10
   strategy:
-    type: Recreate
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
   selector:
     matchLabels:
       app.kubernetes.io/name: {{ include "daedalus.name" . }}
@@ -24,6 +28,9 @@ spec:
         app.kubernetes.io/instance: {{ .Release.Name }}
       annotations:
         deploy-timestamp: {{ .Values.forceRedeploy | default "" | quote }}
+        {{- if .Values.backend.deepThinker.config.enabled }}
+        checksum/backend-config: {{ include (print $.Template.BasePath "/config-backend-deep-thinker.yaml") . | sha256sum }}
+        {{- end }}
     spec:
       {{- include "daedalus.nodePlacement" . | nindent 6 }}
       {{- with .Values.backend.deepThinker.securityContext }}
@@ -65,18 +72,26 @@ spec:
           envFrom:
             - secretRef:
                 name: {{ .Values.backend.deepThinker.env.fromSecret | default (printf "%s-backend-env" (include "daedalus.fullname" .)) }}
-          {{- with .Values.backend.deepThinker.env.overrides }}
+          {{- if or .Values.backend.deepThinker.config.enabled .Values.backend.deepThinker.env.overrides }}
           env:
+            {{- if .Values.backend.deepThinker.config.enabled }}
+            - name: NAT_CONFIG_FILE
+              value: /workspace/config/config.yaml
+            {{- end }}
+            {{- with .Values.backend.deepThinker.env.overrides }}
             {{- range $k, $v := . }}
+            {{- if or (not $.Values.backend.deepThinker.config.enabled) (ne $k "NAT_CONFIG_FILE") }}
             - name: {{ $k }}
               value: {{ $v | quote }}
+            {{- end }}
+            {{- end }}
             {{- end }}
           {{- end }}
           volumeMounts:
             {{- if .Values.backend.deepThinker.config.enabled }}
             - name: backend-config
-              mountPath: /workspace/config.yaml
-              subPath: config.yaml
+              mountPath: /workspace/config
+              readOnly: true
             {{- end }}
             {{- if .Values.backend.persistence.enabled }}
             - name: backend-data
@@ -92,7 +107,9 @@ spec:
         {{- if .Values.backend.persistence.enabled }}
         - name: backend-data
           persistentVolumeClaim:
-            claimName: {{ include "daedalus.fullname" . }}-backend
+            {{- $claims := .Values.backend.persistence.existingClaimNames | default dict }}
+            {{- $deepThinkerClaim := get $claims "deepThinker" | default .Values.backend.persistence.existingClaimName }}
+            claimName: {{ $deepThinkerClaim | default (printf "%s-backend-deep-thinker" (include "daedalus.fullname" .)) }}
         {{- end }}
         {{- if .Values.backend.deepThinker.config.enabled }}
         - name: backend-config
@@ -118,6 +135,24 @@ metadata:
     {{- include "daedalus.labels" . | nindent 4 }}
 spec:
   type: {{ .Values.backend.deepThinker.service.type }}
+  selector:
+    app.kubernetes.io/name: {{ include "daedalus.name" . }}
+    app.kubernetes.io/component: backend-deep-thinker
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+    - port: {{ .Values.backend.deepThinker.service.port }}
+      targetPort: http
+      name: http
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "daedalus.fullname" . }}-backend-deep-thinker-pods
+  labels:
+    {{- include "daedalus.labels" . | nindent 4 }}
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: false
   selector:
     app.kubernetes.io/name: {{ include "daedalus.name" . }}
     app.kubernetes.io/component: backend-deep-thinker

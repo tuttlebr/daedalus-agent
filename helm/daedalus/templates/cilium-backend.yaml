@@ -32,6 +32,20 @@ spec:
       app.kubernetes.io/instance: {{ $.Release.Name }}
   egress:
     # ── DNS (required for FQDN resolution) ──────────────────────────
+    # Service-based CoreDNS selection (works across common label schemes)
+    - toServices:
+        - k8sService:
+            serviceName: kube-dns
+            namespace: kube-system
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
+          rules:
+            dns:
+              - matchPattern: "*"
     # Pod-networked CoreDNS
     - toEndpoints:
         - matchLabels:
@@ -227,8 +241,6 @@ spec:
             - 192.168.0.0/16
       toPorts:
         - ports:
-            - port: "443"
-              protocol: TCP
             - port: "80"
               protocol: TCP
           {{- if $.Values.backend.networkPolicy.cilium.webscrape.l7Filtering }}
@@ -237,6 +249,9 @@ spec:
               - method: GET
               - method: HEAD
           {{- end }}
+        - ports:
+            - port: "443"
+              protocol: TCP
 {{- end }}
 {{- end }}
 {{- end }}

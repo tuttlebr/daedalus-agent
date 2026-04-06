@@ -43,6 +43,12 @@ spec:
               value: {{ (get (.Values.frontend.env.overrides | default dict) "REDIS_URL") | default (printf "redis://%s-redis.%s.svc.cluster.local:6379" (include "daedalus.fullname" .) .Release.Namespace) | quote }}
             - name: BACKEND_HOST
               value: {{ (get (.Values.frontend.env.overrides | default dict) "BACKEND_HOST") | default (printf "%s-backend" (include "daedalus.fullname" .)) | quote }}
+            - name: BACKEND_NAMESPACE
+              value: {{ .Release.Namespace | quote }}
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
             - name: BACKEND_API_PATH
               value: {{ (get (.Values.frontend.env.overrides | default dict) "BACKEND_API_PATH") | default "/chat/stream" | quote }}
             {{- $backendApiPath := (get (.Values.frontend.env.overrides | default dict) "BACKEND_API_PATH") | default "/chat/stream" }}

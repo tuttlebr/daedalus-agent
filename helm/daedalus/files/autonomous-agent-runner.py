@@ -10,12 +10,16 @@ Inspired by OpenClaw's heartbeat/cron patterns: the agent has a soul (identity),
 a heartbeat (task checklist), and can modify both over time.
 """
 
+import ipaddress
 import json
 import os
+import random
 import re
+import socket
 import sys
 import time
 import uuid
+from urllib.parse import urlsplit
 
 import redis as redis_lib
 import requests
@@ -54,6 +58,82 @@ ASYNC_POLL_TIMEOUT = int(
 # ---------------------------------------------------------------------------
 def log(msg: str) -> None:
     print(f"[{time.strftime('%H:%M:%S')}] {msg}", flush=True)
+
+
+def _normalize_base_url(base_url: str) -> str:
+    return base_url[:-1] if base_url.endswith("/") else base_url
+
+
+def _is_kubernetes() -> bool:
+    return bool(
+        os.environ.get("KUBERNETES_SERVICE_HOST")
+        or os.environ.get("DEPLOYMENT_MODE") == "kubernetes"
+    )
+
+
+def _is_ip_address(hostname: str) -> bool:
+    try:
+        ipaddress.ip_address(hostname)
+        return True
+    except ValueError:
+        return False
+
+
+def _derive_pod_discovery_host(hostname: str) -> str | None:
+    label, dot, suffix = hostname.partition(".")
+    for service_suffix in ("-default", "-deep-thinker"):
+        if label.endswith(service_suffix):
+            return f"{label}-pods{dot}{suffix}"
+    return None
+
+
+def _resolve_async_backend_bases(base_url: str = BACKEND_HOST) -> list[str]:
+    """Return candidate backend base URLs, preferring concrete pod IPs in K8s."""
+    base_url = _normalize_base_url(base_url)
+    if not IS_ASYNC_WORKFLOW or not _is_kubernetes():
+        return [base_url]
+
+    parsed = urlsplit(base_url)
+    hostname = parsed.hostname
+    if not hostname or _is_ip_address(hostname):
+        return [base_url]
+
+    discovery_host = _derive_pod_discovery_host(hostname)
+    if not discovery_host:
+        log(f"Async backend pinning unavailable for host {hostname}; using service URL")
+        return [base_url]
+
+    port = parsed.port
+    scheme = parsed.scheme or "http"
+    try:
+        infos = socket.getaddrinfo(
+            discovery_host,
+            port or 80,
+            type=socket.SOCK_STREAM,
+        )
+    except OSError as e:
+        log(f"Async backend pod discovery failed for {discovery_host}: {e}")
+        return [base_url]
+
+    pod_bases: list[str] = []
+    seen_ips: set[str] = set()
+    for _, _, _, _, sockaddr in infos:
+        ip = sockaddr[0]
+        if ip in seen_ips:
+            continue
+        seen_ips.add(ip)
+        host = f"[{ip}]" if ":" in ip else ip
+        if port is None:
+            pod_bases.append(f"{scheme}://{host}")
+        else:
+            pod_bases.append(f"{scheme}://{host}:{port}")
+
+    if not pod_bases:
+        log(f"Async backend pod discovery returned no addresses for {discovery_host}")
+        return [base_url]
+
+    random.shuffle(pod_bases)
+    return pod_bases
 
 
 def get_redis() -> redis_lib.Redis:
@@ -377,7 +457,12 @@ def _extract_async_output(output) -> str:
 
 def _call_backend_async(messages: list[dict]) -> str | None:
     """Submit a job to /v1/workflow/async and poll for the result."""
-    submit_url = f"{BACKEND_HOST}{BACKEND_API_PATH}"
+    async_backend_bases = _resolve_async_backend_bases(BACKEND_HOST)
+    backend_base = async_backend_bases[0]
+    if backend_base != _normalize_base_url(BACKEND_HOST):
+        log(f"Async workflow pinned to backend pod {backend_base}")
+
+    submit_url = f"{backend_base}{BACKEND_API_PATH}"
     job_id = str(uuid.uuid4())
 
     payload = {
@@ -398,7 +483,7 @@ def _call_backend_async(messages: list[dict]) -> str | None:
         return None
 
     # --- Poll ---
-    status_url = f"{BACKEND_HOST}/v1/workflow/async/job/{job_id}"
+    status_url = f"{backend_base}/v1/workflow/async/job/{job_id}"
     deadline = time.monotonic() + ASYNC_POLL_TIMEOUT
     last_status = "submitted"
     consecutive_not_found = 0
