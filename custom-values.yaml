@@ -53,9 +53,11 @@ backend:
       # Explicit env overrides applied in the pod, useful to fix bad values from secrets
       overrides:
         SSL_CERT_FILE: /etc/ssl/certs/ca-certificates.crt
-        # Limit Dask workers to 2 (match CPU limit) to prevent OOM
+        # Dask workers: 1 per CPU core, 1 thread each, 2Gi memory cap per worker.
+        # With 8 CPUs and max_running_async_jobs=8 this avoids scheduler contention.
         DASK_DISTRIBUTED__WORKER__NTHREADS: "1"
-        DASK_DISTRIBUTED__NWORKERS: "2"
+        DASK_DISTRIBUTED__NWORKERS: "8"
+        DASK_DISTRIBUTED__WORKER__MEMORY__LIMIT: "2GiB"
     config:
       enabled: true
       # Contents of backend/tool-calling-config.yaml; if empty, configMap mounts {}
@@ -91,9 +93,11 @@ backend:
       # Explicit env overrides applied in the pod, useful to fix bad values from secrets
       overrides:
         SSL_CERT_FILE: /etc/ssl/certs/ca-certificates.crt
-        # Limit Dask workers to 2 (match CPU limit) to prevent OOM
+        # Dask workers: 1 per CPU core, 1 thread each, 2Gi memory cap per worker.
+        # With 8 CPUs and max_running_async_jobs=8 this avoids scheduler contention.
         DASK_DISTRIBUTED__WORKER__NTHREADS: "1"
-        DASK_DISTRIBUTED__NWORKERS: "2"
+        DASK_DISTRIBUTED__NWORKERS: "8"
+        DASK_DISTRIBUTED__WORKER__MEMORY__LIMIT: "2GiB"
     config:
       enabled: true
       # Contents of backend/react-agent-config.yaml; if empty, configMap mounts {}

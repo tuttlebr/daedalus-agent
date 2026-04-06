@@ -110,6 +110,27 @@ from the inner coro is wrapped in a BaseException sentinel that escapes
 the ``except Exception`` reconnect handler.  The outer wrapper unwraps
 it and re-raises the original McpError, which the LLM framework then
 returns to the agent as a normal tool error response.
+
+Problem 11: NAT's ``JobStore.submit_job()`` is an async method called
+from FastAPI handlers, but it executes synchronous Dask client
+operations (``dask_client.submit()``, ``Variable()``, ``future.set()``)
+directly on the asyncio event loop.  The ``dask_client`` property
+lazily creates ``Client(address, asynchronous=False)``, a blocking TCP
+connection.  If the local Dask scheduler becomes unresponsive (worker
+exhaustion, memory pressure, GC pauses), these blocking calls freeze
+the entire event loop — no health probes, no API responses, nothing.
+The kubelet liveness probe eventually kills the pod.
+
+Fix 11: Monkey-patch ``JobStore.submit_job()`` to return immediately
+after creating the job in the database.  All synchronous Dask work is
+launched in a fire-and-forget background ``asyncio.Task`` that offloads
+to a thread via ``asyncio.to_thread()``, guarded by
+``asyncio.wait_for()`` with a configurable timeout (default 30 s).
+If Dask submission fails or times out, the background task marks the
+job as FAILURE in the database — the frontend discovers this during
+polling.  An in-flight set prevents duplicate submissions when the
+frontend retries with the same job ID.  The ``sync_timeout > 0`` path
+still awaits Dask inline to preserve the API contract.
 """
 
 import asyncio
@@ -553,6 +574,9 @@ def patch():
 
     # Fix async job result loss when workflow cleanup raises
     _patch_async_job_result_saving()
+
+    # Prevent Dask operations from blocking the event loop
+    _patch_async_job_submit()
 
     _patched = True
 
@@ -1088,6 +1112,201 @@ def _patch_async_job_result_saving():
         logger.warning("Could not patch async job run_generation: %s", exc)
     except Exception as exc:
         logger.warning("Unexpected error patching async job run_generation: %s", exc)
+
+
+# Default timeout for Dask submission.  Keeps the event loop free even when
+# the local Dask scheduler is unresponsive.
+_DASK_SUBMIT_TIMEOUT = 30  # seconds
+
+# Number of retry attempts for Dask submission in the background path.
+# The scheduler often recovers from transient stalls (GC, memory pressure),
+# so retrying avoids marking jobs as FAILURE on single hiccups.
+_DASK_SUBMIT_RETRIES = 3
+
+# Base delay (seconds) between retry attempts; doubles each retry.
+_DASK_SUBMIT_RETRY_DELAY = 2
+
+# Tracks job IDs whose background Dask submission is still in flight.
+# Prevents duplicate submissions when the frontend retries with the same ID.
+_inflight_submissions: set[str] = set()
+
+# Strong references to background tasks so they aren't garbage-collected.
+_background_tasks: set[asyncio.Task] = set()
+
+
+def _patch_async_job_submit():
+    """Prevent synchronous Dask calls in submit_job() from blocking the event loop.
+
+    NAT's ``JobStore.submit_job()`` is an ``async def`` called from FastAPI
+    handlers, but it invokes ``self.dask_client.submit()``, ``Variable()``,
+    and ``future_var.set()`` — all synchronous, potentially blocking Dask
+    RPCs.  If the local Dask scheduler stalls, the entire event loop
+    freezes and the pod fails its liveness probe.
+
+    The patch offloads all synchronous Dask work to a background task so
+    the HTTP handler returns immediately after creating the job in the DB.
+    If Dask submission fails or times out, the background task marks the
+    job as FAILURE — the frontend discovers this during polling.
+
+    For ``sync_timeout > 0`` (caller wants to wait for the result), the
+    Dask submission is still awaited inline to preserve the API contract.
+    """
+    try:
+        from nat.front_ends.fastapi.async_jobs.job_store import JobStore
+
+        _original_submit_job = JobStore.submit_job
+
+        async def patched_submit_job(
+            self,
+            *,
+            job_id=None,
+            config_file=None,
+            expiry_seconds=JobStore.DEFAULT_EXPIRY,
+            sync_timeout=0,
+            job_fn=None,
+            job_args=None,
+            **job_kwargs,
+        ):
+            from dask.distributed import Variable, fire_and_forget
+            from nat.front_ends.fastapi.async_jobs.job_store import JobStatus
+
+            # Async DB work — safe on the event loop
+            job_id = await self._create_job(
+                job_id=job_id,
+                config_file=config_file,
+                expiry_seconds=expiry_seconds,
+            )
+
+            def _dask_submit():
+                """All synchronous Dask interaction, run in a thread."""
+                future = self.dask_client.submit(
+                    job_fn, *job_args, key=f"{job_id}-job", **job_kwargs
+                )
+                future_var = Variable(name=job_id, client=self.dask_client)
+                future_var.set(future, timeout="5 s")
+                return future
+
+            # ── sync_timeout > 0: caller wants to wait for result ────────
+            if sync_timeout > 0:
+                try:
+                    future = await asyncio.wait_for(
+                        asyncio.to_thread(_dask_submit),
+                        timeout=_DASK_SUBMIT_TIMEOUT,
+                    )
+                except (TimeoutError, Exception) as exc:
+                    _msg = (
+                        f"Dask submission timed out for job {job_id} "
+                        f"after {_DASK_SUBMIT_TIMEOUT}s"
+                        if isinstance(exc, asyncio.TimeoutError)
+                        else f"Dask submission failed for job {job_id}: {exc}"
+                    )
+                    logger.error(_msg)
+                    try:
+                        await self.update_status(job_id, JobStatus.FAILURE, error=_msg)
+                    except Exception:
+                        logger.exception(
+                            "Failed to mark job %s as FAILURE after Dask error",
+                            job_id,
+                        )
+                    raise RuntimeError(_msg) from exc
+
+                def _dask_result():
+                    return future.result(timeout=sync_timeout)
+
+                try:
+                    await asyncio.to_thread(_dask_result)
+                    job = await self.get_job(job_id)
+                    assert job is not None, "Job should exist after future result"  # nosec B101
+                    return (job_id, job)
+                except Exception:
+                    pass  # nosec B110 — fall through to fire-and-forget
+
+                await asyncio.to_thread(fire_and_forget, future)
+                return (job_id, None)
+
+            # ── sync_timeout == 0: fire-and-forget background submission ─
+            async def _background_dask_submit():
+                if job_id in _inflight_submissions:
+                    logger.warning(
+                        "Dask submission already in flight for job %s, "
+                        "skipping duplicate",
+                        job_id,
+                    )
+                    return
+                _inflight_submissions.add(job_id)
+                try:
+                    for attempt in range(1, _DASK_SUBMIT_RETRIES + 1):
+                        try:
+                            future = await asyncio.wait_for(
+                                asyncio.to_thread(_dask_submit),
+                                timeout=_DASK_SUBMIT_TIMEOUT,
+                            )
+                            break  # success
+                        except (TimeoutError, Exception) as exc:
+                            _kind = (
+                                "timed out"
+                                if isinstance(exc, asyncio.TimeoutError)
+                                else f"failed ({exc})"
+                            )
+                            if attempt < _DASK_SUBMIT_RETRIES:
+                                _delay = _DASK_SUBMIT_RETRY_DELAY * (2 ** (attempt - 1))
+                                logger.warning(
+                                    "Dask submission %s for job %s "
+                                    "(attempt %d/%d), retrying in %ds",
+                                    _kind,
+                                    job_id,
+                                    attempt,
+                                    _DASK_SUBMIT_RETRIES,
+                                    _delay,
+                                )
+                                await asyncio.sleep(_delay)
+                            else:
+                                _msg = (
+                                    f"Dask submission {_kind} for job "
+                                    f"{job_id} after "
+                                    f"{_DASK_SUBMIT_RETRIES} attempts"
+                                )
+                                logger.error(_msg)
+                                try:
+                                    await self.update_status(
+                                        job_id,
+                                        JobStatus.FAILURE,
+                                        error=_msg,
+                                    )
+                                except Exception:
+                                    logger.exception(
+                                        "Failed to mark job %s as "
+                                        "FAILURE after Dask error",
+                                        job_id,
+                                    )
+                                return
+                    else:
+                        # _DASK_SUBMIT_RETRIES == 0 edge case
+                        return
+
+                    await asyncio.to_thread(fire_and_forget, future)
+                finally:
+                    _inflight_submissions.discard(job_id)
+
+            task = asyncio.create_task(_background_dask_submit())
+            _background_tasks.add(task)
+            task.add_done_callback(_background_tasks.discard)
+
+            return (job_id, None)
+
+        JobStore.submit_job = patched_submit_job
+        logger.info(
+            "JobStore.submit_job patch applied — "
+            "Dask submission runs in background task with %ds timeout "
+            "(%d retries)",
+            _DASK_SUBMIT_TIMEOUT,
+            _DASK_SUBMIT_RETRIES,
+        )
+
+    except ImportError as exc:
+        logger.warning("Could not patch JobStore.submit_job: %s", exc)
+    except Exception as exc:
+        logger.warning("Unexpected error patching JobStore.submit_job: %s", exc)
 
 
 def _install_mcp_log_filters():
