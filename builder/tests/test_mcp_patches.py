@@ -1402,25 +1402,26 @@ class FakeDaskClient:
     """Minimal stand-in for dask.distributed.Client."""
 
     def __init__(self, *, should_block=False, should_raise=False):
+        import threading
+
         self._should_block = should_block
         self._should_raise = should_raise
-        self._block_event = None
+        # Pre-create the event so unblock() cannot race with submit()
+        # on slower CI runners before the worker thread reaches wait().
+        self._block_event = threading.Event() if should_block else None
         self.submitted = []
 
     def submit(self, fn, *args, key=None, **kwargs):
         if self._should_raise:
             raise ConnectionError("scheduler unreachable")
         if self._should_block:
-            import threading
-
-            # Use an event so the thread can be unblocked for clean exit
-            self._block_event = threading.Event()
+            # Use the pre-created event so unblock() cannot miss the wait.
             self._block_event.wait(timeout=30)
         self.submitted.append((fn, args, key, kwargs))
         return FakeDaskFuture(key)
 
     def unblock(self):
-        if self._block_event:
+        if self._block_event is not None:
             self._block_event.set()
 
 
@@ -1493,10 +1494,12 @@ class TestSubmitJobEventLoopProtection:
                 return (job_id, future)
 
             # sync_timeout == 0: background task with retries
+            if job_id in _inflight_submissions:
+                return (job_id, None)
+
+            _inflight_submissions.add(job_id)
+
             async def _background():
-                if job_id in _inflight_submissions:
-                    return
-                _inflight_submissions.add(job_id)
                 try:
                     for attempt in range(1, _DASK_SUBMIT_RETRIES + 1):
                         try:

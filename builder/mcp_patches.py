@@ -1225,15 +1225,20 @@ def _patch_async_job_submit():
                 return (job_id, None)
 
             # ── sync_timeout == 0: fire-and-forget background submission ─
+            if job_id in _inflight_submissions:
+                logger.warning(
+                    "Dask submission already in flight for job %s, "
+                    "skipping duplicate",
+                    job_id,
+                )
+                return (job_id, None)
+
+            # Reserve the job ID before scheduling the background task so
+            # duplicate submit_job() calls in the same event-loop tick do not
+            # race past the deduplication guard.
+            _inflight_submissions.add(job_id)
+
             async def _background_dask_submit():
-                if job_id in _inflight_submissions:
-                    logger.warning(
-                        "Dask submission already in flight for job %s, "
-                        "skipping duplicate",
-                        job_id,
-                    )
-                    return
-                _inflight_submissions.add(job_id)
                 try:
                     for attempt in range(1, _DASK_SUBMIT_RETRIES + 1):
                         try:
