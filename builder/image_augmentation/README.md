@@ -1,128 +1,79 @@
-# Image Augmentation Function for NeMo Agent Toolkit
+# Image Augmentation Function
 
-This custom NVIDIA NeMo Agent toolkit function modifies existing images based on text prompts. It supports multiple backends: NVIDIA API Catalog (custom), NIM self-hosted endpoints, OpenAI, and OpenRouter.
+This builder package registers an image-editing function for Daedalus. It takes one or more uploaded image references plus a prompt, sends them to an OpenAI-compatible image endpoint, stores the edited result in Redis, and returns a frontend-renderable markdown image reference.
 
-## Features
+## Current Behavior
 
-- Image augmentation using text prompts
-- Multiple API backends: `custom`, `nim`, `openai`, `openrouter`
-- Automatic image retrieval from Redis session storage
-- Configurable augmentation parameters (steps, seed, cfg_scale)
-- Returns markdown-formatted images for seamless UI rendering
-- Follows the same pattern as `image_generation_tool` for consistency
+- Accepts a single `imageRef` object or a list of image references
+- Fetches source images from Redis using the stored `imageId` and `sessionId`
+- Uses an OpenAI-compatible endpoint, defaulting to `https://ai.api.nvidia.com/v1`
+- Uses `gpt-image-1` by default
+- Stores the edited output in Redis
+- Returns markdown like `![Augmented image](/api/generated-image/{id})`
 
 ## Configuration
 
-Update the configuration in `src/image_augmentation/configs/config.yml`:
+Default config lives in [`src/image_augmentation/configs/config.yml`](src/image_augmentation/configs/config.yml).
 
 ```yaml
 workflow:
   _type: image_augmentation
-  api_type: custom  # custom, nim, openai, or openrouter
-  api_endpoint: "https://ai.api.nvidia.com/v1/genai/black-forest-labs/flux.1-kontext-dev"
-  redis_url: "redis://redis:6379"
-  api_key: null  # Falls back to NVIDIA_API_KEY env var
+  api_endpoint: "https://ai.api.nvidia.com/v1"
+  redis_url: "redis://daedalus-redis.daedalus.svc.cluster.local:6379"
+  api_key: null
   timeout: 300.0
-  default_steps: 30
-  default_seed: 42
+  model: "gpt-image-1"
+  image_config: null
 ```
 
-### API Types
+Important fields:
 
-| Type | Endpoint | Description |
-|------|----------|-------------|
-| `custom` | Full URL to model endpoint | Direct HTTP POST. Works with NVIDIA API Catalog and compatible endpoints. Sends `aspect_ratio: "match_input_image"` so no client-side resizing is needed. |
-| `nim` | Base URL (appends `/v1/infer`) | NVIDIA NIM self-hosted Flux Kontext. Handles dimension validation and automatic resizing to valid pairs. |
-| `openai` | Uses OpenAI SDK | OpenAI `images.edit` endpoint via the SDK. Requires `OPENAI_API_KEY`. |
-| `openrouter` | OpenRouter API | OpenRouter multimodal chat completions. Supports up to 15 images. Requires `OPENROUTER_API_KEY`. |
+| Field | Purpose |
+|-------|---------|
+| `api_endpoint` | OpenAI-compatible base URL |
+| `api_key` | Falls back to `OPENAI_API_KEY` if unset |
+| `redis_url` | Source and destination image storage |
+| `model` | Image-editing model name |
+| `image_config` | Optional API image settings such as aspect ratio or image size |
 
-### Backend YAML Configuration
+## Function Signature
 
-In the NAT backend YAML (e.g., `backend/tool-calling-config.yaml`):
-
-```yaml
-image_augmentation_tool:
-  _type: image_augmentation
-  api_type: custom
-  api_endpoint: https://ai.api.nvidia.com/v1/genai/black-forest-labs/flux.1-kontext-dev
-  api_key: ${NVIDIA_API_KEY}
-  redis_url: ${REDIS_URL}
-```
-
-## Usage
-
-The function accepts an image reference (from uploaded images stored in Redis) and a text prompt describing the desired augmentations.
-
-### Example Usage
-
-When a user uploads an image and requests augmentation, the LLM extracts the imageRef from the user's message attachments and calls:
+The registered function is effectively:
 
 ```python
-result = await augment_image_simple(
-    prompt="add sunglasses to the person",
-    imageRef={
-        "imageId": "5c15684f928f4a36e60d5337e3c530b5",
-        "sessionId": "db2a8b6a-1caf-4b81-b747-80b3a2db2add",
-        "mimeType": "image/png"
-    },
-    steps=30,  # optional
-    seed=42    # optional
-)
+augment_image(prompt: str, imageRef: str | dict | list[dict] | None = None) -> str
 ```
 
-### Input Parameters
+The `imageRef` payload matches the attachment references produced by the frontend, for example:
 
-- `prompt`: Text describing the desired augmentations (required)
-- `imageRef`: Dictionary with `imageId`, `sessionId`, and optional `mimeType` (required)
-- `steps`: Number of diffusion steps (optional, default: 30)
-- `seed`: Random seed for reproducibility (optional, default: 42)
-- `cfg_scale`: Guidance scale for prompt adherence (optional, 1.0-9.0)
-
-### Response Format
-
-The function returns a markdown-formatted image reference:
-
-```markdown
-![Augmented image](/api/generated-image/{image_id})
+```json
+{
+  "imageId": "5c15684f928f4a36e60d5337e3c530b5",
+  "sessionId": "db2a8b6a-1caf-4b81-b747-80b3a2db2add",
+  "mimeType": "image/png"
+}
 ```
 
-This is automatically rendered as an image in the UI. The augmented image is stored in Redis with a 7-day TTL.
+## Daedalus Integration
 
-## Workflow
+1. A user uploads an image in the frontend.
+2. The frontend stores the image in Redis and includes an `imageRef` in the chat payload.
+3. The backend calls `augment_image` with the prompt plus that image reference.
+4. The function retrieves the source image(s), calls the image model, stores the result, and returns a generated-image URL.
+5. The frontend renders the resulting image inline in the conversation.
 
-1. **User uploads image** -- Frontend stores image in Redis with imageId/sessionId
-2. **User requests augmentation** -- "make the sky purple" with uploaded image
-3. **LLM calls augment_image_simple** -- Passes prompt and imageRef parameters
-4. **Function fetches image** -- Retrieves from Redis using redis-py client
-5. **API augmentation** -- Sends image to configured endpoint
-6. **Store result** -- Augmented image stored in Redis
-7. **Returns markdown** -- `![Augmented image](/api/generated-image/{id})`
-8. **UI renders image** -- Displays augmented result
+## Notes
 
-## Installation
-
-```bash
-pip install -e .   # development
-pip install .      # production
-```
-
-Dependencies: `httpx`, `redis` (redis-py), `Pillow`, `openai` (for OpenAI api_type).
+- Multi-image editing is supported by passing a list of image references.
+- The function returns an image result, not a textual description.
+- This package is meant for edits or transformations of existing user-provided images. Use `image_generation` for brand-new images.
 
 ## Error Handling
 
-The function includes error handling for:
-- Invalid or missing imageRef parameters
-- Failed image retrieval from Redis storage
-- HTTP connection errors to the augmentation API
-- API response parsing errors
-- Invalid image data or expired sessions
+The function returns user-visible error text when:
 
-Errors are logged with detailed context and user-friendly error messages are returned.
-
-## Image Format Support
-
-Supported formats: JPEG/JPG, PNG, WebP, GIF. Images are automatically retrieved from Redis, converted to data URLs for API calls, and stored back as base64 in Redis.
-
-## NIM Dimension Handling
-
-When using `api_type: nim`, the function automatically resizes images to valid Flux Kontext dimension pairs (e.g., 1024x1024, 832x1248) based on aspect ratio similarity. The `custom` type avoids this by sending `aspect_ratio: "match_input_image"` to the API.
+- no prompt is provided
+- the image reference is missing or malformed
+- Redis lookup fails
+- no API key is available
+- the image model fails or returns no image

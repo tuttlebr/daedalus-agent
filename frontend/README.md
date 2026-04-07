@@ -1,73 +1,102 @@
 # Daedalus Frontend
 
-Next.js 14 chat interface for the Daedalus AI assistant.
+Next.js 14 frontend for Daedalus. This app handles authentication, chat orchestration, multimodal uploads, conversation persistence, real-time sync, and PWA behavior on top of the NeMo Agent backends.
+
+## What It Does
+
+- Renders the chat UI, conversation sidebar, settings, and in-app help
+- Authenticates users and keeps identity in Redis-backed sessions plus a signed identity cookie
+- Submits chat primarily through `/api/chat/async`, which creates a backend workflow job and returns a `jobId`
+- Persists conversations, attachments, generated images, selected conversation state, and async job state in Redis
+- Streams progress and intermediate steps back to clients through Redis Pub/Sub plus the WebSocket sidecar, with HTTP polling fallback
+- Supports multimodal uploads for images, documents, videos, and transcripts
+- Runs as a PWA with install prompts, offline shell support, and recovery of interrupted background jobs
+
+## Runtime Model
+
+In Kubernetes, the normal browser request path is:
+
+1. Browser sends requests to nginx through the cluster ingress.
+2. nginx proxies `/` and `/api/*` to this Next.js app.
+3. The frontend authenticates the user, stores or reads session and conversation state from Redis, and submits work to the selected backend service.
+4. Backend tokens, intermediate steps, and job status are persisted back through Redis and fanned out to clients over WebSocket or polling.
+
+The primary chat path is job-based:
+
+- `POST /api/chat/async` creates a NAT async workflow job and immediately returns a `jobId`
+- `GET /api/chat/async?jobId=...` returns live or finalized job state
+- A background stream reader also opens `/chat/stream` to capture tokens and intermediate steps while the async job runs
+- The legacy `/api/chat` edge route still exists for direct streaming, but the main UI favors async job orchestration for long-running work and PWA recovery
 
 ## Development
 
 ```bash
-npm install           # Install dependencies
-npm run dev           # Start dev server on port 5000
-npm run build         # Build for production
-npm run test          # Run tests (Vitest, watch mode)
-npm run coverage      # Generate test coverage report
-npm run lint          # Run Next.js linter
-npm run format        # Format with Prettier
+npm install
+npm run dev
+npm run build
+npm run test
+npm run coverage
+npm run lint
+npm run format
 ```
 
-## Project Structure
+Default local dev port is `5000`.
 
-```
-pages/
-  api/
-    chat.ts              # Main chat endpoint (SSE streaming)
-    chat/async.ts        # Background job processing for PWA
-    auth/                # Login, logout, session management
-    conversations/       # Conversation CRUD
-    session/             # Redis session state
-    milvus/              # Vector DB collection management
-    sync/                # Cross-device real-time sync
-    document/            # Document ingestion
-    usage/               # Usage analytics
-  api/home/
-    home.tsx             # Main application page
-    home.context.tsx     # Global state context
-    home.state.tsx       # State reducer
+## Important Environment Variables
 
-components/
-  Chat/
-    ChatInput.tsx        # Message input with file attachments
-    ChatMessage.tsx      # Message rendering (markdown, images, code)
-    QuickActions.tsx     # Attach file, camera, Deep Thinker toggle
-    CollectionSelector.tsx  # Vector DB collection picker
-    IntermediateSteps/   # AI reasoning visualization
-  Chatbar/               # Sidebar with conversations and settings
-  Help/
-    HelpDialog.tsx       # In-app user guide
-  Settings/
-    SettingDialog.tsx     # User preferences
-  Sidebar/               # Sidebar layout and buttons
-  Markdown/              # Markdown + LaTeX + code rendering
-  Auth/                  # Login page and auth provider
-  PWA/                   # Install prompt, offline indicator
+The frontend consumes most of its runtime configuration through environment variables or Kubernetes secrets.
 
-services/
-  sse.ts                 # Server-sent events streaming
+| Variable | Purpose |
+|----------|---------|
+| `REDIS_URL` | Redis session, conversation, attachment, and job-state storage |
+| `BACKEND_HOST` | Base backend service name used for in-cluster routing |
+| `BACKEND_NAMESPACE` | Namespace used to build backend FQDNs |
+| `BACKEND_API_PATH` | Default NAT path such as `/chat/stream` or `/v1/workflow/async` |
+| `NEXT_PUBLIC_HTTP_CHAT_COMPLETION_URL` | Optional explicit backend URL override |
+| `AUTH_USERNAME`, `AUTH_PASSWORD` | Single-user auth |
+| `AUTH_USER_*_*` | Multi-user auth entries |
+| `DAEDALUS_DEFAULT_USER` | Default selected user for initial login experience |
+| `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` | Optional web-push support |
 
-hooks/
-  useRealtimeSync.ts     # Cross-device sync via SSE
+See [`../.env.template`](../.env.template), [`env.example`](env.example), and the top-level [`../README.md`](../README.md) for deployment setup.
 
-utils/
-  app/                   # Conversation, storage, import/export helpers
-  sync/                  # Real-time sync utilities
-```
+## Key Areas
 
-## Key Features
+| Path | Responsibility |
+|------|----------------|
+| `pages/api/chat.ts` | Direct edge-runtime streaming chat route |
+| `pages/api/chat/async.ts` | Async job submission, status polling, stream capture, finalization |
+| `pages/api/conversations/` | Conversation CRUD and persistence |
+| `pages/api/session/` | Redis helpers for sessions, attachments, selected conversation, and sync state |
+| `pages/api/sync/` | SSE-based sync endpoints |
+| `ws-server.ts` | WebSocket sidecar backed by Redis Pub/Sub |
+| `components/Chat/` | Main chat UI, async job integration, intermediate step rendering |
+| `hooks/useAsyncChat.ts` | Job lifecycle, polling, WebSocket subscription, recovery |
+| `hooks/useWebSocket.ts` | WebSocket sync and token delivery |
+| `hooks/useRealtimeSync.ts` | SSE fallback transport |
+| `utils/app/` | Backend URL building, attachment helpers, conversation utilities |
 
-- **Dual AI modes**: Standard (fast) and Deep Thinker (comprehensive research)
-- **File attachments**: Images, documents, and videos with inline display
-- **Streaming responses**: Real-time SSE from backend agents
-- **Intermediate steps**: Visualize AI reasoning with timeline/category views
-- **Conversation management**: Folders, search, rename, export/import
-- **Cross-device sync**: Real-time updates via Redis pub/sub and SSE
-- **PWA support**: Installable app with background processing and offline access
-- **In-app help**: Built-in user guide accessible from the sidebar
+## Major Features
+
+- Dual backend modes: default and deep thinker
+- Async job execution with resumable status tracking
+- WebSocket-first real-time updates with polling fallback
+- Intermediate step visualization for backend tool execution
+- Redis-backed authentication and conversation sync across devices
+- Upload and rendering support for images, documents, videos, and generated media
+- Document processing workflows that hand off uploaded files to backend tools
+- PWA install flow, offline shell, and interrupted-stream recovery
+- Usage tracking, push subscription endpoints, and conversation import/export
+
+## Testing And Verification
+
+- `npm run test` runs Vitest in watch mode
+- `npm run coverage` runs the test suite with coverage
+- `npm run lint` runs Next.js linting
+- `npm run build` produces the production bundle and injects the precache manifest
+
+## Related Docs
+
+- [`../README.md`](../README.md) for full-stack setup and deployment
+- [`../docs/SRD-frontend.md`](../docs/SRD-frontend.md) for the frontend planning and implementation inventory
+- [`pages/api/milvus/README.md`](pages/api/milvus/README.md) for the current Milvus collection API status

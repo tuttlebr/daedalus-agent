@@ -1,5 +1,9 @@
 # Multimodal Media Guide
 
+Note: this file is an external API reference note, not a description of Daedalus' primary runtime path.
+
+In Daedalus, uploaded media is normally stored in Redis first and passed through frontend and backend routes such as `/api/chat/async`, `/chat/stream`, and `/api/generated-image/{id}` rather than being sent directly from the browser to a provider-specific `/api/v1/chat/completions` endpoint.
+
 This document covers how to work with visual media through the OpenRouter API: analyzing images, understanding video content, and generating new images from text prompts. All capabilities are accessed through the `/api/v1/chat/completions` endpoint.
 
 ---

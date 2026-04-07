@@ -1,222 +1,87 @@
-# RSS Feed Function for NeMo Agent Toolkit
+# RSS Feed Function
 
-This NVIDIA NeMo Agent toolkit function monitors a configured RSS feed and provides AI-powered search with automatic web scraping of the most relevant content based on user queries.
+This package registers a feed-specific search function that fetches RSS entries, reranks them against a user query, scrapes the best match with MarkItDown, and returns either structured metadata or the scraped article body.
 
-## Features
+## Current Behavior
 
-The function provides the following features:
-- **Configured RSS Feed**: Monitor a specific RSS feed configured in your workflow
-- **RSS Feed Parsing**: Fetches and parses RSS feeds using `fastfeedparser`
-- **Intelligent Caching**: Caches RSS feeds for 4 hours to improve performance
-- **AI-Powered Reranking**: Uses NVIDIA reranker models to find the most relevant entry
-- **Automatic Web Scraping**: Fetches full content from the top-ranked result using markitdown
-- **Token-Aware Truncation**: Intelligently truncates scraped content to fit within token limits
-- **Flexible Configuration**: Supports custom reranker endpoints and models
-- **Error Handling**: Returns an error when the reranker is not configured and empty results when the RSS feed fails
+- fetches one configured RSS feed
+- caches parsed feed entries in memory for `cache_ttl_hours`
+- reranks entries with an external reranker service
+- scrapes the top-ranked article URL with MarkItDown
+- truncates scraped content to fit a token budget
 
-## Installation
-
-Install the function with the following steps:
-1. Install the function in your NeMo Agent toolkit workflow:
-```bash
-cd builder/rss_feed
-pip install -e .
-```
-
-2. Add the function to your Dockerfile if you run in containers:
-```dockerfile
-COPY rss_feed /workspace/rss_feed
-RUN --mount=type=cache,id=uv_cache,target=/root/.cache/uv,sharing=locked \
-    NAT_VERSION= nat workflow reinstall rss_feed && \
-    uv pip install -e rss_feed --prerelease=allow
-```
+This function is feed-specific. It does not search the open web by itself.
 
 ## Configuration
 
-### Required Configuration
-
-Both the RSS feed URL and reranker configuration are **required** for this function to work:
+Default config lives in [`src/rss_feed/configs/config.yml`](src/rss_feed/configs/config.yml).
 
 ```yaml
 workflow:
   _type: rss_feed
-
-  # RSS Feed URL (required)
-  feed_url: "https://feeds.arstechnica.com/arstechnica/technology-lab"
-
-  # Required reranker configuration
-  reranker_endpoint: "https://ai.api.nvidia.com/v1/ranking"
-  reranker_model: "nvidia/nv-rerankqa-mistral-4b-v3"
-  reranker_api_key: null  # Or set via NVIDIA_API_KEY env var
+  feed_url: null
+  reranker_endpoint: null
+  reranker_model: null
+  reranker_api_key: null
+  cache_ttl_hours: 4.0
+  cache_backend: "memory"
+  timeout: 30.0
+  user_agent: "daedalus-rss-reader/1.0"
+  max_entries: 20
 ```
 
-### Full Configuration Options
+Required inputs:
 
-```yaml
-workflow:
-  _type: rss_feed
-
-  # RSS Feed URL (required)
-  feed_url: "https://feeds.arstechnica.com/arstechnica/technology-lab"
-
-  # Reranker configuration (required)
-  reranker_endpoint: "https://ai.api.nvidia.com/v1/ranking"
-  reranker_model: "nvidia/nv-rerankqa-mistral-4b-v3"
-  reranker_api_key: null  # Or set via NVIDIA_API_KEY env var
-
-  # Cache configuration
-  cache_ttl_hours: 4.0      # Cache RSS feeds for 4 hours
-  cache_backend: "memory"   # Currently only memory is supported
-
-  # Request configuration
-  timeout: 30.0                        # Request timeout in seconds
-  user_agent: "daedalus-rss-reader/1.0"  # User-Agent header
-  max_entries: 20                      # Max RSS entries to process
-
-  # Web scraping configuration
-  scrape_max_output_tokens: 64000      # Max tokens in scraped content
-  scrape_truncation_message: "\n\n---\n\n_**Note:** Content truncated to fit within token limit._"
-```
+- `feed_url`
+- `reranker_endpoint`
+- `reranker_model`
+- reranker API key through `reranker_api_key` or `NVIDIA_API_KEY`
 
 ## Usage
 
-### Using the Structured Function
-
-The main function returns detailed information about the search:
+Structured search:
 
 ```python
-# Structured search with full details
 result = await rss_feed_search({
-    "query": "latest AI breakthroughs",
-    "description": "Search for AI news"  # Optional
+    "query": "latest AI infrastructure announcements",
+    "description": "Search the configured feed for relevant news"
 })
-
-# Result structure:
-{
-    "success": true,
-    "query": "latest AI breakthroughs",
-    "feed_url": "https://feeds.arstechnica.com/arstechnica/technology-lab",
-    "top_result": {
-        "title": "New AI Model Breaks Records",
-        "link": "https://example.com/article/123",
-        "published": "2024-01-20T10:00:00Z",
-        "author": "John Doe",
-        "description": "A breakthrough in AI..."
-    },
-    "scraped_content": "Full article content...",
-    "entries_count": 25,
-    "cached": false
-}
 ```
 
-### Using the Simple Wrapper
-
-For convenience, use the simple wrapper that returns just the scraped content:
+Simple wrapper:
 
 ```python
-# Simple search that returns scraped content directly
-content = await search_rss(
-    query="climate change solutions"
-)
-
-# Returns the full scraped article content or an error message
+content = await search_rss("latest AI infrastructure announcements")
 ```
 
-## How It Works
+## Response Shape
 
-1. **RSS Feed Parsing**: Fetches the configured RSS feed URL and extracts entries (title, link, published date, author, description)
-2. **Caching**: Stores parsed entries in memory for 4 hours to reduce repeated fetches
-3. **Reranking**: Sends all entry titles to the reranker API along with the user's query
-4. **Selection**: Identifies the highest-scoring entry based on relevance
-5. **Web Scraping**: Uses the webscrape tool to fetch full content from the top result
-6. **Response**: Returns the scraped content or structured data
+The structured function returns fields such as:
 
-## Error Handling
+- `success`
+- `query`
+- `feed_url`
+- `top_result`
+- `scraped_content`
+- `entries_count`
+- `cached`
+- `error`
 
-The function handles the following error scenarios:
-- **No Reranker Configuration**: Returns error requiring reranker setup
-- **RSS Feed Failures**: Returns empty results silently (as requested)
-- **Invalid RSS Format**: Handles gracefully and returns empty results
-- **Scraping Failures**: Reports error but includes RSS entry details
+## Processing Flow
 
-## Supported RSS Fields
+1. Fetch and parse the configured RSS feed.
+2. Reuse cached entries if available.
+3. Send candidate entries to the reranker.
+4. Select the top-ranked article.
+5. Scrape the article content with MarkItDown.
+6. Truncate the result if needed and return it.
 
-The function extracts the following fields from RSS entries:
-- `title` (required): Entry title
-- `link` (required): Entry URL
-- `published`: Publication date
-- `author`: Author information
-- `description`: Entry summary/description
+## Failure Modes
 
-Only entries with both title and link are included in the results.
+- If the RSS feed fails to load or parse, the function returns empty results.
+- If reranker configuration is missing, the function returns a configuration error.
+- If scraping fails, the function can still return the selected RSS entry metadata with an error.
 
-## Example Queries
+## Relationship To Daedalus
 
-Once you've configured your RSS feed URL, you can search it with various queries:
-
-```python
-# Search for AI-related articles
-await search_rss("artificial intelligence")
-
-# Search for climate-related content
-await search_rss("climate research")
-
-# Search for economic news
-await search_rss("economic policy")
-```
-
-### Example RSS Feed URLs for Configuration
-
-Here are some popular RSS feeds you can configure:
-
-- **Technology**: `https://feeds.arstechnica.com/arstechnica/technology-lab`
-- **Science**: `https://www.sciencedaily.com/rss/all.xml`
-- **General News**: `https://feeds.bbci.co.uk/news/world/rss.xml`
-- **Security**: `https://krebsonsecurity.com/feed/`
-- **Space**: `https://www.nasa.gov/rss/dyn/breaking_news.rss`
-
-## Reranker Models
-
-The following NVIDIA reranker models are compatible:
-- `nvidia/nv-rerankqa-mistral-4b-v3` (recommended)
-- `nvidia/llama-3.2-nv-rerankqa-1b-v2`
-- Any other compatible reranking model endpoint
-
-## Performance Considerations
-
-Performance considerations include:
-- **Caching**: RSS feeds are cached for 4 hours by default
-- **Max Entries**: Limited to 100 entries per feed (configurable)
-- **Timeout**: 30-second timeout for HTTP requests
-- **Reranking**: All entry titles are sent in a single batch for efficiency
-
-## Troubleshooting
-
-### "RSS feed URL not configured" Error
-Ensure you have set `feed_url` in your configuration.
-
-### "Reranker configuration is required" Error
-Ensure you have set both `reranker_endpoint` and `reranker_model` in your configuration.
-
-### "No API key provided for reranker" Error
-Set either `reranker_api_key` in config or `NVIDIA_API_KEY` environment variable.
-
-### Empty Results
-Check the following:
-- Check if the configured RSS feed URL is valid and accessible
-- Verify the feed contains entries with both title and link
-- Check logs for parsing errors
-
-### Scraping Failures
-Check the following:
-- Some websites may block automated scraping
-- Check logs for markitdown conversion errors
-- Verify the link from the RSS feed is accessible
-
-## Integration with Other Tools
-
-This function can be combined with other NeMo Agent toolkit tools in workflows for comprehensive information gathering. The RSS feed function uses its own built-in web scraping capabilities powered by markitdown.
-
-## License
-
-This function is part of the NeMo Agent toolkit ecosystem.
+This tool is useful when you want a curated feed-specific research source inside an agent workflow. It complements the broader search and web-scraping tools rather than replacing them.

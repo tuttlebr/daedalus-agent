@@ -1,97 +1,84 @@
-# Image Generation Function for NeMo Agent Toolkit
+# Image Generation Function
 
-This custom NVIDIA NeMo Agent toolkit function integrates with the Stable Diffusion 3.5 Large model API to generate images from text prompts.
+This builder package registers a text-to-image function for Daedalus using an OpenAI-compatible chat completions endpoint with image output support.
 
-## Features
+## Current Behavior
 
-The function provides the following features:
-- Text-to-image generation using Stable Diffusion 3.5
-- Configurable image dimensions (768-1344 pixels)
-- Adjustable generation parameters (steps, guidance scale, seed)
-- Safety checker toggle
-- Base64-encoded JPEG output
+- Uses `gpt-image-1` by default
+- Targets an OpenAI-compatible base URL, defaulting to `https://ai.api.nvidia.com/v1`
+- Optionally rewrites prompts through another LLM before image generation
+- Stores the generated image in Redis
+- Returns markdown that points at `/api/generated-image/{image_id}`, which the frontend renders inline
+
+The function does not return raw base64 to the UI in normal Daedalus usage.
 
 ## Configuration
 
-Update the configuration in `src/image_generation/configs/config.yml`:
+Default config lives in [`src/image_generation/configs/config.yml`](src/image_generation/configs/config.yml).
 
 ```yaml
 workflow:
   _type: image_generation
-  api_endpoint: "http://localhost:8000"  # Your SD 3.5 API endpoint
-  api_key: null  # Set if your API requires authentication
+  api_endpoint: "https://ai.api.nvidia.com/v1"
+  api_key: null
   timeout: 60.0
-  default_width: 1024
-  default_height: 1024
-  default_steps: 50
+  model: "gpt-image-1"
+  image_config: null
+  prompt_rewrite: null
 ```
 
-## Usage
+Important fields:
 
-The function accepts a text prompt and returns a markdown-formatted image that displays directly in the UI.
+| Field | Purpose |
+|-------|---------|
+| `api_endpoint` | OpenAI-compatible base URL |
+| `api_key` | Falls back to `OPENAI_API_KEY` if unset |
+| `model` | Image-generation model name |
+| `redis_url` | Where generated images are stored |
+| `image_config` | Optional API image settings such as aspect ratio or image size |
+| `prompt_rewrite` | Optional LLM-based prompt enhancement |
 
-### Example Usage
+## Usage Model
+
+The registered function is `generate_image(prompt: str) -> str`.
+
+Example:
 
 ```python
-# Generate an image with a prompt
-result = await generate_image("A futuristic city skyline at sunset with flying cars")
+result = await generate_image(
+    "A cinematic painting of a lighthouse in a storm, warm light in the windows"
+)
 ```
 
-### Response Format
-
-The function returns a markdown-formatted image string:
+Typical return value:
 
 ```markdown
-![Generated image](data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeA...)
+![Generated image](/api/generated-image/abc123...)
 ```
 
-This will be automatically rendered as an image in the UI.
+## Daedalus Integration
 
-### Configuration Parameters
+1. The backend calls `generate_image`.
+2. The configured image model returns image content.
+3. The function extracts the first returned image.
+4. The image is stored in Redis through shared helper utilities.
+5. The frontend renders the returned `/api/generated-image/{id}` reference in the conversation.
 
-The following parameters are configured in `config.yml`:
+## Prompt Rewrite
 
-- `default_width`: Default image width (1024)
-- `default_height`: Default image height (1024)
-- `default_steps`: Default number of diffusion steps (50)
-- `default_cfg_scale`: Default guidance scale (3.5)
-- `prompt_rewrite`: Optional prompt enhancement using an LLM
+If `prompt_rewrite` is configured, the function can rewrite the user's prompt through a separate LLM before calling the image model. This is optional and is intended to improve visual specificity while preserving user intent.
 
-## Supported Image Dimensions
+## Requirements
 
-The following dimensions are supported (width x height):
-- 768, 832, 896, 960, 1024, 1088, 1152, 1216, 1280, 1344
-
-Both width and height must be from this list of supported values.
-
-## Installation
-
-Make sure to install the required dependencies:
-
-```bash
-# For editable install (development)
-pip install -e .
-
-# If you encounter issues with editable install, try:
-pip install --upgrade pip setuptools wheel
-pip install -e .
-
-# For regular install (production)
-pip install .
-```
-
-This will install the function along with its dependencies including `httpx` for HTTP requests.
-
-## API Endpoint
-
-This function is designed to work with NVIDIA Visual Generative AI NIM for Stable Diffusion 3.5. Make sure your API endpoint is running and accessible at the configured URL.
+- An OpenAI-compatible image-capable endpoint
+- `OPENAI_API_KEY` or `api_key`
+- Redis reachable at `redis_url`
 
 ## Error Handling
 
-The function includes comprehensive error handling for:
-- HTTP connection errors
-- API response errors
-- Invalid dimensions
-- Content filtering
+The function returns user-visible error text when:
 
-Errors are logged and appropriate error messages are returned to help with debugging.
+- no API key is available
+- the image API call fails
+- the model returns no image
+- Redis storage fails

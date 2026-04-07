@@ -1,17 +1,22 @@
 # Software Requirements Document: Daedalus Frontend
 
-**Version:** 1.0
-**Date:** 2026-03-15
+**Version:** 1.1
+**Date:** 2026-04-07
 **Audience:** Engineering Lead + implementing engineers
-**Status:** Draft
+**Status:** Living planning document
 
 ---
 
 ## 1. Purpose
 
-This document specifies the requirements for the Daedalus frontend — a chat-oriented progressive web app that serves as the primary user interface for a NeMo Agent Toolkit (NAT) application. The frontend must support multimodal input (images, documents, video), render agent-generated images, synchronize all state across devices via Redis, stream responses over WebSocket, and run efficiently on both phones and desktops.
+This document specifies the requirements for the Daedalus frontend — a chat-oriented progressive web app that serves as the primary user interface for a NeMo Agent Toolkit (NAT) application. The frontend supports multimodal input, Redis-backed conversation and session state, async workflow jobs, WebSocket-delivered live updates, polling fallback, and PWA-style recovery for long-running work.
 
-This SRD is intended to be broken apart by an engineering lead and distributed to individual engineers or teams. Each numbered section maps to a discrete work area that can be assigned independently, with cross-cutting concerns called out explicitly.
+This SRD mixes two things:
+
+- the current implementation inventory
+- forward-looking requirements and improvement targets
+
+The source code remains the final authority. Use this document as a planning and coordination artifact, not as a strict protocol spec.
 
 ---
 
@@ -20,30 +25,38 @@ This SRD is intended to be broken apart by an engineering lead and distributed t
 ### 2.1 Existing Architecture
 
 ```
-┌──────────┐     ┌───────┐     ┌──────────┐     ┌──────────────────────┐
-│  Client   │────▶│ NGINX │────▶│ Next.js  │────▶│ NAT Backend(s)       │
-│  (PWA)    │◀────│       │◀────│ :5000    │     │  - tool-calling :8000│
-│           │     │       │     │ WS :3001 │     │  - react-agent  :8001│
-│           │     │       │     └────┬─────┘     └──────────────────────┘
-│           │     └───────┘          │
-│           │                   ┌────▼─────┐
-│           │◀──── WebSocket ──▶│  Redis   │
-│           │     (via NGINX)   │  Stack   │
-│           │                   │ (JSON+   │
-│           │                   │  Pub/Sub)│
-│           │                   └──────────┘
-└──────────┘
+┌──────────┐     ┌────────┐     ┌──────────────┐     ┌──────────────────────┐
+│  Client  │────▶│ nginx  │────▶│ Next.js app  │────▶│ NAT backend service  │
+│  (PWA)   │◀────│ /Ingress│◀───│ API routes    │     │  default or deep     │
+│          │     │        │     │ + WS sidecar  │     │  thinker             │
+│          │     │        │     └──────┬────────┘     └──────────┬───────────┘
+│          │     │        │            │                           │
+│          │     │        │      ┌─────▼─────┐               ┌────▼─────┐
+│          │◀──── WebSocket / SSE │ Redis     │               │ External  │
+│          │     updates + polling│ Stack     │               │ and in-   │
+│          │                      │ job state, │               │ cluster   │
+│          │                      │ sessions,  │               │ services  │
+│          │                      │ pub/sub    │               └───────────┘
+└──────────┘                      └────────────┘
 ```
+
+Primary chat path today:
+
+1. Client posts to `/api/chat/async`
+2. Frontend authenticates the user and stores job metadata in Redis
+3. Frontend submits `/v1/workflow/async` to the selected backend
+4. Frontend opens a parallel `/chat/stream` reader to capture tokens and intermediate steps
+5. WebSocket and polling clients consume Redis-backed job status until finalization
 
 ### 2.2 Existing Technology Stack
 
 | Layer | Technology | Notes |
 |-------|-----------|-------|
-| Framework | Next.js 14 (Pages Router) | Standalone output, port 5000 |
+| Framework | Next.js 14 (Pages Router) | Dev server on port 5000; production container typically behind nginx |
 | UI | React 18, TypeScript, Tailwind CSS | Path alias `@/*` |
 | State | React Context + Zustand | `home.context.tsx`, `home.state.tsx` |
-| Realtime | WebSocket (primary), SSE (fallback) | WS sidecar on :3001 |
-| Data | Redis Stack (RedisJSON + Pub/Sub) | `ioredis` client, user-scoped keys |
+| Realtime | WebSocket (primary), polling plus SSE support | WS sidecar on :3001, async-job polling via `/api/chat/async` |
+| Data | Redis Stack (RedisJSON + Pub/Sub) | Sessions, conversations, attachments, job state, and cross-device sync |
 | PWA | Service Worker, Web App Manifest | LRU cache manager, offline fallback |
 | Media processing | Sharp (server), client-side compression | Thumbnails, format detection |
 | Testing | Vitest + coverage-v8 | Target >= 80% |
@@ -59,6 +72,7 @@ The following are **already in the codebase** and should be extended, not rebuil
 - **Video storage** (`pages/api/session/videoStorage.ts`): Redis-backed storage with similar patterns.
 - **Document storage** (`pages/api/session/documentStorage.ts`): Redis-backed with text extraction.
 - **Async job processing** (`pages/api/chat/async.ts`): Background job execution with Redis-backed status, streaming state pub/sub, conversation persistence.
+- **Direct chat route** (`pages/api/chat.ts`): Edge-runtime direct streaming path retained for non-job use cases.
 - **Session registry** (`hooks/useSessionRegistry.ts`): UUID-based sessions, visibility-aware heartbeats, `sendBeacon` for cleanup.
 - **Background processing** (`hooks/useBackgroundProcessing.ts`): Wake Lock API, battery detection, IndexedDB streaming state recovery.
 - **Service Worker** (`public/sw.js`): LRU cache manager with content-type-aware eviction, offline fallback, push notifications, background sync stub.
@@ -146,7 +160,7 @@ The following are **already in the codebase** and should be extended, not rebuil
 
 | ID | Requirement | Acceptance Criteria |
 |----|------------|-------------------|
-| FR-5.1 | Chat responses stream token-by-token over WebSocket | User sees incremental text as the backend generates it; no full-page reload |
+| FR-5.1 | Chat responses stream token-by-token to the UI | User sees incremental text as the backend generates it; WebSocket is the preferred delivery path and polling remains the fallback |
 | FR-5.2 | Intermediate steps stream in real time | Agent tool calls appear as collapsible step cards while the response is still generating |
 | FR-5.3 | WebSocket is the primary transport; SSE is fallback | `useWebSocket` is used by default; if WS connection fails 3 times, fall back to `useRealtimeSync` SSE |
 | FR-5.4 | Job subscription via WebSocket | Async jobs (FR-2 large uploads, deep thinker) push status updates through `subscribe_job` / `job_status` messages |

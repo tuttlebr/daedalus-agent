@@ -295,6 +295,22 @@ flowchart LR
 | [`custom-values.yaml`](custom-values.yaml)                             | Example production overrides           |
 | [`deploy.sh`](deploy.sh)                                               | Build, push, and deploy helper         |
 
+## Documentation Map
+
+Use these docs when you want more component-level detail than this top-level guide provides.
+
+| Document                                                      | Focus                                                         |
+| ------------------------------------------------------------- | ------------------------------------------------------------- |
+| [`frontend/README.md`](frontend/README.md)                    | Frontend architecture, async job flow, Redis state, and PWA   |
+| [`docs/SRD-frontend.md`](docs/SRD-frontend.md)                | Frontend planning document plus implementation inventory       |
+| [`helm/daedalus/README.md`](helm/daedalus/README.md)          | Helm chart footprint, values, and Kubernetes traffic model    |
+| [`frontend/pages/api/milvus/README.md`](frontend/pages/api/milvus/README.md) | Current status of the frontend-side Milvus helper |
+| [`builder/image_generation/README.md`](builder/image_generation/README.md) | Text-to-image builder function                          |
+| [`builder/image_augmentation/README.md`](builder/image_augmentation/README.md) | Image-editing builder function                       |
+| [`builder/nat_nv_ingest/README.md`](builder/nat_nv_ingest/README.md) | Document ingestion into NvIngest and Milvus            |
+| [`builder/smart_milvus/README.md`](builder/smart_milvus/README.md) | Milvus retrieval and reranking behavior                 |
+| [`builder/rss_feed/README.md`](builder/rss_feed/README.md)    | Feed-specific RSS retrieval and scraping                      |
+
 ## Backend Workflows
 
 Daedalus ships with two backend configurations.
