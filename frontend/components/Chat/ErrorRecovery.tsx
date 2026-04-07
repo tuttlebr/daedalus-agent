@@ -88,6 +88,23 @@ export function categorizeError(error: Error | string): ErrorInfo {
     };
   }
 
+  // Backend queue / scheduler errors
+  if (
+    errorLower.includes('dask submission') ||
+    errorLower.includes('scheduler unreachable') ||
+    errorLower.includes('backend queue') ||
+    /backend unavailable after \d+ attempts/i.test(errorStr)
+  ) {
+    return {
+      error,
+      category: 'server',
+      message: 'The backend queue is temporarily unavailable. Please retry in a moment.',
+      details: errorStr,
+      recoverable: true,
+      retryDelayMs: 5000,
+    };
+  }
+
   // Network errors
   if (
     errorLower.includes('network') ||

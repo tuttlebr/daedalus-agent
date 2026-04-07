@@ -1465,6 +1465,7 @@ class TestSubmitJobEventLoopProtection:
         from mcp_patches import (
             _DASK_SUBMIT_RETRIES,
             _DASK_SUBMIT_RETRY_DELAY,
+            _DASK_SUBMIT_SLOW_WARNING_SECONDS,
             _DASK_SUBMIT_TIMEOUT,
             _background_tasks,
             _inflight_submissions,
@@ -1502,26 +1503,29 @@ class TestSubmitJobEventLoopProtection:
             async def _background():
                 try:
                     for attempt in range(1, _DASK_SUBMIT_RETRIES + 1):
+                        submit_task = asyncio.create_task(
+                            asyncio.to_thread(_dask_submit)
+                        )
                         try:
-                            await asyncio.wait_for(
-                                asyncio.to_thread(_dask_submit),
-                                timeout=_DASK_SUBMIT_TIMEOUT,
-                            )
+                            while True:
+                                done, _ = await asyncio.wait(
+                                    {submit_task},
+                                    timeout=_DASK_SUBMIT_SLOW_WARNING_SECONDS,
+                                    return_when=asyncio.FIRST_COMPLETED,
+                                )
+                                if done:
+                                    submit_task.result()
+                                    break
+
                             break  # success
-                        except (TimeoutError, Exception) as exc:
-                            _kind = (
-                                "timed out"
-                                if isinstance(exc, asyncio.TimeoutError)
-                                else f"failed ({exc})"
-                            )
+                        except Exception as exc:
                             if attempt < _DASK_SUBMIT_RETRIES:
                                 _delay = _DASK_SUBMIT_RETRY_DELAY * (2 ** (attempt - 1))
                                 await asyncio.sleep(_delay)
                             else:
                                 _msg = (
-                                    f"Dask submission {_kind} for job "
-                                    f"{job_id} after "
-                                    f"{_DASK_SUBMIT_RETRIES} attempts"
+                                    f"Dask submission failed for job {job_id} "
+                                    f"after {_DASK_SUBMIT_RETRIES} attempts: {exc}"
                                 )
                                 if hasattr(job_store, "update_status"):
                                     await job_store.update_status(
@@ -1609,6 +1613,7 @@ class TestSubmitJobEventLoopProtection:
             assert args[0][0] == "j2"
             assert args[0][1] == "FAILURE"
             assert "2 attempts" in args[1]["error"]
+            assert "scheduler unreachable" in args[1]["error"]
 
         try:
             run(_run())
@@ -1616,16 +1621,12 @@ class TestSubmitJobEventLoopProtection:
             mcp_patches._DASK_SUBMIT_RETRIES = orig_retries
             mcp_patches._DASK_SUBMIT_RETRY_DELAY = orig_delay
 
-    def test_dask_timeout_marks_failure_after_retries(self):
-        """If Dask blocks past timeout on all retries, marks FAILURE."""
+    def test_slow_dask_submit_keeps_waiting_for_original_attempt(self):
+        """A slow Dask submit should not fail while the original attempt is still blocked."""
         import mcp_patches
 
-        orig_timeout = mcp_patches._DASK_SUBMIT_TIMEOUT
-        orig_retries = mcp_patches._DASK_SUBMIT_RETRIES
-        orig_delay = mcp_patches._DASK_SUBMIT_RETRY_DELAY
-        mcp_patches._DASK_SUBMIT_TIMEOUT = 0.3  # 300ms for test speed
-        mcp_patches._DASK_SUBMIT_RETRIES = 2
-        mcp_patches._DASK_SUBMIT_RETRY_DELAY = 0.1
+        orig_warning = mcp_patches._DASK_SUBMIT_SLOW_WARNING_SECONDS
+        mcp_patches._DASK_SUBMIT_SLOW_WARNING_SECONDS = 0.1
 
         async def _run():
             client = FakeDaskClient(should_block=True)
@@ -1644,19 +1645,19 @@ class TestSubmitJobEventLoopProtection:
             assert job_id == "j3"
             assert result is None
 
-            await self._drain_tasks()
+            await asyncio.sleep(0.25)
+            store.update_status.assert_not_called()
+            assert "j3" in mcp_patches._inflight_submissions
+
             client.unblock()
-            store.update_status.assert_called_once()
-            err = store.update_status.call_args[1]["error"]
-            assert "timed out" in err
-            assert "2 attempts" in err
+            await self._drain_tasks()
+            store.update_status.assert_not_called()
+            assert len(client.submitted) == 1
 
         try:
             run(_run())
         finally:
-            mcp_patches._DASK_SUBMIT_TIMEOUT = orig_timeout
-            mcp_patches._DASK_SUBMIT_RETRIES = orig_retries
-            mcp_patches._DASK_SUBMIT_RETRY_DELAY = orig_delay
+            mcp_patches._DASK_SUBMIT_SLOW_WARNING_SECONDS = orig_warning
 
     def test_submit_returns_immediately_when_dask_blocks(self):
         """submit_job returns in <100ms even when Dask is stuck."""

@@ -124,13 +124,14 @@ The kubelet liveness probe eventually kills the pod.
 Fix 11: Monkey-patch ``JobStore.submit_job()`` to return immediately
 after creating the job in the database.  All synchronous Dask work is
 launched in a fire-and-forget background ``asyncio.Task`` that offloads
-to a thread via ``asyncio.to_thread()``, guarded by
-``asyncio.wait_for()`` with a configurable timeout (default 30 s).
-If Dask submission fails or times out, the background task marks the
-job as FAILURE in the database — the frontend discovers this during
-polling.  An in-flight set prevents duplicate submissions when the
-frontend retries with the same job ID.  The ``sync_timeout > 0`` path
-still awaits Dask inline to preserve the API contract.
+to a thread via ``asyncio.to_thread()``.  Slow background submissions
+emit periodic warnings but keep waiting on the original Dask call,
+because timing out ``to_thread()`` does not stop the underlying blocked
+thread and can falsely mark the job as failed.  Only real submission
+exceptions trigger retries / FAILURE.  An in-flight set prevents
+duplicate submissions when the frontend retries with the same job ID.
+The ``sync_timeout > 0`` path still awaits Dask inline to preserve the
+API contract.
 """
 
 import asyncio
@@ -1114,13 +1115,17 @@ def _patch_async_job_result_saving():
         logger.warning("Unexpected error patching async job run_generation: %s", exc)
 
 
-# Default timeout for Dask submission.  Keeps the event loop free even when
-# the local Dask scheduler is unresponsive.
+# Default timeout for inline Dask submission when callers explicitly request
+# sync_timeout > 0. The async background path does not fail on this timeout.
 _DASK_SUBMIT_TIMEOUT = 30  # seconds
 
-# Number of retry attempts for Dask submission in the background path.
-# The scheduler often recovers from transient stalls (GC, memory pressure),
-# so retrying avoids marking jobs as FAILURE on single hiccups.
+# Interval between warnings while the async background Dask submission is
+# still blocked. The original submit attempt remains in flight.
+_DASK_SUBMIT_SLOW_WARNING_SECONDS = 30
+
+# Number of retry attempts for real Dask submission exceptions in the
+# background path. Retries are only safe once the previous attempt has
+# actually returned with an error.
 _DASK_SUBMIT_RETRIES = 3
 
 # Base delay (seconds) between retry attempts; doubles each retry.
@@ -1145,8 +1150,9 @@ def _patch_async_job_submit():
 
     The patch offloads all synchronous Dask work to a background task so
     the HTTP handler returns immediately after creating the job in the DB.
-    If Dask submission fails or times out, the background task marks the
-    job as FAILURE — the frontend discovers this during polling.
+    If Dask submission raises, the background task retries and eventually
+    marks the job as FAILURE. Slow submits only log warnings and keep
+    waiting on the original attempt.
 
     For ``sync_timeout > 0`` (caller wants to wait for the result), the
     Dask submission is still awaited inline to preserve the API contract.
@@ -1241,35 +1247,49 @@ def _patch_async_job_submit():
             async def _background_dask_submit():
                 try:
                     for attempt in range(1, _DASK_SUBMIT_RETRIES + 1):
+                        submit_task = asyncio.create_task(
+                            asyncio.to_thread(_dask_submit)
+                        )
+                        slow_warnings = 0
                         try:
-                            future = await asyncio.wait_for(
-                                asyncio.to_thread(_dask_submit),
-                                timeout=_DASK_SUBMIT_TIMEOUT,
-                            )
-                            break  # success
-                        except (TimeoutError, Exception) as exc:
-                            _kind = (
-                                "timed out"
-                                if isinstance(exc, asyncio.TimeoutError)
-                                else f"failed ({exc})"
-                            )
+                            while True:
+                                done, _ = await asyncio.wait(
+                                    {submit_task},
+                                    timeout=_DASK_SUBMIT_SLOW_WARNING_SECONDS,
+                                    return_when=asyncio.FIRST_COMPLETED,
+                                )
+                                if done:
+                                    future = submit_task.result()
+                                    break
+
+                                slow_warnings += 1
+                                logger.warning(
+                                    "Dask submission still pending for job %s "
+                                    "after %ds; continuing to wait for the "
+                                    "original submit task",
+                                    job_id,
+                                    slow_warnings * _DASK_SUBMIT_SLOW_WARNING_SECONDS,
+                                )
+
+                            await asyncio.to_thread(fire_and_forget, future)
+                            return
+                        except Exception as exc:
                             if attempt < _DASK_SUBMIT_RETRIES:
                                 _delay = _DASK_SUBMIT_RETRY_DELAY * (2 ** (attempt - 1))
                                 logger.warning(
-                                    "Dask submission %s for job %s "
-                                    "(attempt %d/%d), retrying in %ds",
-                                    _kind,
+                                    "Dask submission failed for job %s "
+                                    "(attempt %d/%d): %s; retrying in %ds",
                                     job_id,
                                     attempt,
                                     _DASK_SUBMIT_RETRIES,
+                                    exc,
                                     _delay,
                                 )
                                 await asyncio.sleep(_delay)
                             else:
                                 _msg = (
-                                    f"Dask submission {_kind} for job "
-                                    f"{job_id} after "
-                                    f"{_DASK_SUBMIT_RETRIES} attempts"
+                                    f"Dask submission failed for job {job_id} "
+                                    f"after {_DASK_SUBMIT_RETRIES} attempts: {exc}"
                                 )
                                 logger.error(_msg)
                                 try:
@@ -1288,8 +1308,6 @@ def _patch_async_job_submit():
                     else:
                         # _DASK_SUBMIT_RETRIES == 0 edge case
                         return
-
-                    await asyncio.to_thread(fire_and_forget, future)
                 finally:
                     _inflight_submissions.discard(job_id)
 
@@ -1302,10 +1320,11 @@ def _patch_async_job_submit():
         JobStore.submit_job = patched_submit_job
         logger.info(
             "JobStore.submit_job patch applied — "
-            "Dask submission runs in background task with %ds timeout "
-            "(%d retries)",
-            _DASK_SUBMIT_TIMEOUT,
+            "Dask submission runs in background task with %ds slow-submit "
+            "warnings (%d exception retries; %ds inline sync timeout)",
+            _DASK_SUBMIT_SLOW_WARNING_SECONDS,
             _DASK_SUBMIT_RETRIES,
+            _DASK_SUBMIT_TIMEOUT,
         )
 
     except ImportError as exc:
