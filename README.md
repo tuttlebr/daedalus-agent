@@ -19,10 +19,10 @@ Daedalus is a full-stack reference application built on the [NVIDIA NeMo Agent t
 
 Daedalus supports two practical ways to run the project.
 
-| Mode | What it starts | Best for |
-|------|----------------|----------|
-| Local Docker Compose | `frontend`, `backend`, `nginx`, `redis`, `redisinsight`, `marketing`, plus a `builder` utility container | Local development and validating one backend config at a time |
-| Kubernetes via Helm | Separate default and deep-thinker backends, frontend, nginx, redis, redisinsight, jupyterlab, autonomous agent, ingress, PVCs, network policies | Persistent multi-user deployments and the full platform footprint |
+| Mode                 | What it starts                                                                                                                                  | Best for                                                          |
+| -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| Local Docker Compose | `frontend`, `backend`, `nginx`, `redis`, `redisinsight`, `marketing`, plus a `builder` utility container                                        | Local development and validating one backend config at a time     |
+| Kubernetes via Helm  | Separate default and deep-thinker backends, frontend, nginx, redis, redisinsight, jupyterlab, autonomous agent, ingress, PVCs, network policies | Persistent multi-user deployments and the full platform footprint |
 
 Important: the local Compose stack does not start Milvus, NV-Ingest, Phoenix, or JupyterLab. Those integrations are wired into the backend configs and Helm values, but they require external services or cluster deployment.
 
@@ -178,28 +178,131 @@ The Helm chart can deploy:
 
 Start with [`helm/daedalus/values.yaml`](helm/daedalus/values.yaml) for defaults and [`custom-values.yaml`](custom-values.yaml) for an opinionated example.
 
+### Kubernetes request flow
+
+The main browser chat path in Kubernetes goes through the frontend's async API route. The frontend authenticates the user, stores job state in Redis, selects the default or deep-thinker backend, and then returns progress plus the final answer back to the browser.
+
+```mermaid
+flowchart LR
+    Client[Client browser or API caller]
+
+    subgraph Cluster[Daedalus Kubernetes deployment]
+        Ingress[Ingress]
+        Nginx[nginx Service and Pod]
+        Frontend[Next.js frontend Service and Pod]
+        Selector{Deep thinker request?}
+        Default[Default backend Service and Pods]
+        Deep[Deep thinker backend Service and Pods]
+        Redis[(Redis Stack)]
+        Integrations[Optional in-cluster integrations<br/>Milvus, NV-Ingest, Phoenix, K8s MCP]
+        External[External HTTPS integrations<br/>NVIDIA, OpenRouter, SerpAPI, GitHub, RSS]
+    end
+
+    Client -->|HTTPS request| Ingress
+    Ingress -->|all paths| Nginx
+    Nginx -->|/ and /api/*| Frontend
+    Frontend -->|auth, session, conversation, job state| Redis
+    Frontend -->|submit workflow| Selector
+    Selector -->|default| Default
+    Selector -->|deep thinker| Deep
+    Default -->|memory and shared state| Redis
+    Deep -->|memory and shared state| Redis
+    Default -->|retrieval, tracing, ingest| Integrations
+    Deep -->|retrieval, tracing, ingest| Integrations
+    Default -->|LLM and tool calls| External
+    Deep -->|LLM and tool calls| External
+    Default -->|job status and streamed output| Frontend
+    Deep -->|job status and streamed output| Frontend
+    Frontend -->|poll and WebSocket updates, final response| Nginx
+    Nginx --> Ingress
+    Ingress --> Client
+```
+
+The sequence below shows the primary UI request and response path used by `/api/chat/async`.
+
+```mermaid
+sequenceDiagram
+    participant C as Client browser
+    participant I as Ingress
+    participant N as nginx
+    participant F as Frontend API
+    participant R as Redis
+    participant B as Selected backend pod
+    participant X as External and optional cluster services
+
+    C->>I: HTTPS POST /api/chat/async
+    I->>N: Forward request
+    N->>F: Proxy /api/chat/async
+    F->>R: Validate session, persist async job metadata
+    F->>B: POST /v1/workflow/async
+    B->>R: Read or write memory and shared state
+    B->>X: Call model, retrieval, search, ingest, tracing services
+    B-->>F: Immediate job accepted
+    F-->>N: Return jobId
+    N-->>I: Return pending response
+    I-->>C: Client receives jobId
+    F->>B: Parallel /chat/stream reader for tokens and intermediate steps
+    B-->>F: Stream tokens and intermediate steps
+    F->>R: Persist partial output and step state
+    C->>I: GET /api/chat/async?jobId=...
+    I->>N: Forward poll request
+    N->>F: Proxy poll request
+    F->>R: Read cached job state
+    F->>B: Poll /v1/workflow/async/job/{jobId}
+    B-->>F: Final job status and output
+    F->>R: Finalize stored response
+    F-->>N: Return completed payload
+    N-->>I: Return completed payload
+    I-->>C: Final client response
+```
+
+nginx can also proxy backend API paths directly. Requests to `/chat/`, `/generate/`, and `/v1/` bypass the frontend pod and are sent straight to the default or deep-thinker backend based on the `X-Backend-Type` header.
+
+```mermaid
+flowchart LR
+    Client[Client browser or API caller]
+    Ingress[Ingress]
+    Nginx[nginx]
+    Route{Path and X-Backend-Type}
+    Default[Default backend]
+    Deep[Deep thinker backend]
+    Redis[(Redis)]
+    External[External and optional cluster services]
+
+    Client -->|HTTPS /chat/*, /generate/*, /v1/*| Ingress --> Nginx --> Route
+    Route -->|default or no header| Default
+    Route -->|X-Backend-Type: deep-thinker| Deep
+    Default --> Redis
+    Deep --> Redis
+    Default --> External
+    Deep --> External
+    Default -->|stream or JSON response| Nginx
+    Deep -->|stream or JSON response| Nginx
+    Nginx --> Ingress --> Client
+```
+
 ## Key Configuration Files
 
-| File | Purpose |
-|------|---------|
-| [`README.md`](README.md) | Top-level setup and deployment guide |
-| [`.env.template`](.env.template) | Main environment variable template |
-| [`docker-compose.yaml`](docker-compose.yaml) | Local multi-service stack |
+| File                                                                   | Purpose                                |
+| ---------------------------------------------------------------------- | -------------------------------------- |
+| [`README.md`](README.md)                                               | Top-level setup and deployment guide   |
+| [`.env.template`](.env.template)                                       | Main environment variable template     |
+| [`docker-compose.yaml`](docker-compose.yaml)                           | Local multi-service stack              |
 | [`backend/tool-calling-config.yaml`](backend/tool-calling-config.yaml) | Standard tool-calling backend workflow |
-| [`backend/react-agent-config.yaml`](backend/react-agent-config.yaml) | Reasoning-focused backend workflow |
-| [`frontend/env.example`](frontend/env.example) | Frontend API path example |
-| [`helm/daedalus/values.yaml`](helm/daedalus/values.yaml) | Default Helm values |
-| [`custom-values.yaml`](custom-values.yaml) | Example production overrides |
-| [`deploy.sh`](deploy.sh) | Build, push, and deploy helper |
+| [`backend/react-agent-config.yaml`](backend/react-agent-config.yaml)   | Reasoning-focused backend workflow     |
+| [`frontend/env.example`](frontend/env.example)                         | Frontend API path example              |
+| [`helm/daedalus/values.yaml`](helm/daedalus/values.yaml)               | Default Helm values                    |
+| [`custom-values.yaml`](custom-values.yaml)                             | Example production overrides           |
+| [`deploy.sh`](deploy.sh)                                               | Build, push, and deploy helper         |
 
 ## Backend Workflows
 
 Daedalus ships with two backend configurations.
 
-| Config | File | Intended use |
-|--------|------|--------------|
-| Default | [`backend/tool-calling-config.yaml`](backend/tool-calling-config.yaml) | Fast tool use, retrieval, memory, MCP integrations, image tooling |
-| Deep Thinker | [`backend/react-agent-config.yaml`](backend/react-agent-config.yaml) | More deliberate reasoning and longer-form research tasks |
+| Config       | File                                                                   | Intended use                                                      |
+| ------------ | ---------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| Default      | [`backend/tool-calling-config.yaml`](backend/tool-calling-config.yaml) | Fast tool use, retrieval, memory, MCP integrations, image tooling |
+| Deep Thinker | [`backend/react-agent-config.yaml`](backend/react-agent-config.yaml)   | More deliberate reasoning and longer-form research tasks          |
 
 Both configs include the custom packages from `builder/` and rely heavily on environment-variable substitution for secrets and endpoints.
 
@@ -221,24 +324,24 @@ For frontend-specific details, see [`frontend/README.md`](frontend/README.md).
 
 The `builder/` directory contains reusable NeMo Agent functions and helpers.
 
-| Package | Purpose |
-|---------|---------|
-| `agent_skills` | Discovers and runs repo-packaged skills |
-| `content_distiller` | Summarization and extraction helpers |
-| `image_augmentation` | Image editing |
-| `image_comprehension` | Image analysis and OCR |
-| `image_generation` | Text-to-image generation |
-| `json_repair_agent` | Repairs malformed JSON outputs |
-| `mas_optimizer` | Multi-agent vs single-agent routing and verification |
-| `nat_helpers` | Shared helpers such as geolocation and image utilities |
-| `nat_nv_ingest` | NV-Ingest integration for document ingestion |
-| `rss_feed` | RSS fetching and ranking |
-| `serpapi_search` | Search integration |
-| `smart_milvus` | Milvus retrieval and reranking |
-| `think_tool` | Deliberate reasoning helper |
-| `user_interaction` | Structured clarification and confirmation prompts |
-| `vtt_interpreter` | Transcript-to-notes processing |
-| `webscrape` | Web page extraction |
+| Package               | Purpose                                                |
+| --------------------- | ------------------------------------------------------ |
+| `agent_skills`        | Discovers and runs repo-packaged skills                |
+| `content_distiller`   | Summarization and extraction helpers                   |
+| `image_augmentation`  | Image editing                                          |
+| `image_comprehension` | Image analysis and OCR                                 |
+| `image_generation`    | Text-to-image generation                               |
+| `json_repair_agent`   | Repairs malformed JSON outputs                         |
+| `mas_optimizer`       | Multi-agent vs single-agent routing and verification   |
+| `nat_helpers`         | Shared helpers such as geolocation and image utilities |
+| `nat_nv_ingest`       | NV-Ingest integration for document ingestion           |
+| `rss_feed`            | RSS fetching and ranking                               |
+| `serpapi_search`      | Search integration                                     |
+| `smart_milvus`        | Milvus retrieval and reranking                         |
+| `think_tool`          | Deliberate reasoning helper                            |
+| `user_interaction`    | Structured clarification and confirmation prompts      |
+| `vtt_interpreter`     | Transcript-to-notes processing                         |
+| `webscrape`           | Web page extraction                                    |
 
 Several packages include their own README files under `builder/`.
 
