@@ -15,12 +15,12 @@ export default function Document(props: Props) {
         <link rel="preload" href="/fonts/NVIDIASans_Rg.woff2" as="font" type="font/woff2" crossOrigin="anonymous" />
         <link rel="preload" href="/fonts/NVIDIASans_Md.woff2" as="font" type="font/woff2" crossOrigin="anonymous" />
 
-        {/* Web App Icons - version query string forces iOS cache refresh */}
-        <link rel="icon" href="/favicon.png?v=2" />
-        <link rel="apple-touch-icon" href="/favicon.png?v=2" />
-        <link rel="apple-touch-icon" sizes="180x180" href="/favicon.png?v=2" />
-        <link rel="icon" type="image/png" sizes="32x32" href="/favicon.png?v=2" />
-        <link rel="icon" type="image/png" sizes="16x16" href="/favicon.png?v=2" />
+        {/* Web App Icons - properly sized assets in /icons/ */}
+        <link rel="icon" href="/icons/icon-32x32.png" />
+        <link rel="apple-touch-icon" href="/icons/icon-180x180.png" />
+        <link rel="apple-touch-icon" sizes="180x180" href="/icons/icon-180x180.png" />
+        <link rel="icon" type="image/png" sizes="32x32" href="/icons/icon-32x32.png" />
+        <link rel="icon" type="image/png" sizes="16x16" href="/icons/icon-16x16.png" />
 
         {/* Web App Manifest - version query string forces cache refresh */}
         <link rel="manifest" href="/manifest.json?v=2" />
@@ -34,27 +34,27 @@ export default function Document(props: Props) {
         <meta name="theme-color" content="#76b900" />
         <meta name="description" content="AI Agent Interface" />
 
-        {/* iOS Splash Screens - media queries target specific device sizes */}
+        {/* iOS Splash Screens - use 512x512 icon as splash (centered by iOS on theme background) */}
         {/* iPhone 15 Pro Max, 14 Pro Max (430x932 @3x) */}
-        <link rel="apple-touch-startup-image" href="/favicon.png?v=2" media="(device-width: 430px) and (device-height: 932px) and (-webkit-device-pixel-ratio: 3)" />
+        <link rel="apple-touch-startup-image" href="/icons/icon-512x512.png" media="(device-width: 430px) and (device-height: 932px) and (-webkit-device-pixel-ratio: 3)" />
         {/* iPhone 15 Pro, 14 Pro (393x852 @3x) */}
-        <link rel="apple-touch-startup-image" href="/favicon.png?v=2" media="(device-width: 393px) and (device-height: 852px) and (-webkit-device-pixel-ratio: 3)" />
+        <link rel="apple-touch-startup-image" href="/icons/icon-512x512.png" media="(device-width: 393px) and (device-height: 852px) and (-webkit-device-pixel-ratio: 3)" />
         {/* iPhone 14, 13, 12 (390x844 @3x) */}
-        <link rel="apple-touch-startup-image" href="/favicon.png?v=2" media="(device-width: 390px) and (device-height: 844px) and (-webkit-device-pixel-ratio: 3)" />
+        <link rel="apple-touch-startup-image" href="/icons/icon-512x512.png" media="(device-width: 390px) and (device-height: 844px) and (-webkit-device-pixel-ratio: 3)" />
         {/* iPhone SE 3rd gen, 8, 7, 6s (375x667 @2x) */}
-        <link rel="apple-touch-startup-image" href="/favicon.png?v=2" media="(device-width: 375px) and (device-height: 667px) and (-webkit-device-pixel-ratio: 2)" />
+        <link rel="apple-touch-startup-image" href="/icons/icon-512x512.png" media="(device-width: 375px) and (device-height: 667px) and (-webkit-device-pixel-ratio: 2)" />
         {/* iPad Pro 12.9" (1024x1366 @2x) */}
-        <link rel="apple-touch-startup-image" href="/favicon.png?v=2" media="(device-width: 1024px) and (device-height: 1366px) and (-webkit-device-pixel-ratio: 2)" />
+        <link rel="apple-touch-startup-image" href="/icons/icon-512x512.png" media="(device-width: 1024px) and (device-height: 1366px) and (-webkit-device-pixel-ratio: 2)" />
         {/* iPad Pro 11" (834x1194 @2x) */}
-        <link rel="apple-touch-startup-image" href="/favicon.png?v=2" media="(device-width: 834px) and (device-height: 1194px) and (-webkit-device-pixel-ratio: 2)" />
+        <link rel="apple-touch-startup-image" href="/icons/icon-512x512.png" media="(device-width: 834px) and (device-height: 1194px) and (-webkit-device-pixel-ratio: 2)" />
         {/* iPad Air, iPad 10th gen (820x1180 @2x) */}
-        <link rel="apple-touch-startup-image" href="/favicon.png?v=2" media="(device-width: 820px) and (device-height: 1180px) and (-webkit-device-pixel-ratio: 2)" />
+        <link rel="apple-touch-startup-image" href="/icons/icon-512x512.png" media="(device-width: 820px) and (device-height: 1180px) and (-webkit-device-pixel-ratio: 2)" />
         {/* Fallback for unmatched devices */}
-        <link rel="apple-touch-startup-image" href="/favicon.png?v=2" />
+        <link rel="apple-touch-startup-image" href="/icons/icon-512x512.png" />
 
         {/* Edge/Windows */}
         <meta name="msapplication-TileColor" content="#76b900" />
-        <meta name="msapplication-TileImage" content="/favicon.png?v=2" />
+        <meta name="msapplication-TileImage" content="/icons/icon-144x144.png" />
       </Head>
       <body>
         <Main />

@@ -29,6 +29,9 @@ import { ChatbarInitialState, initialState } from './Chatbar.state';
 import { v4 as uuidv4 } from 'uuid';
 import { apiDelete, apiPost } from '@/utils/app/api';
 import { useKeyboardShortcuts, commonShortcuts } from '@/hooks/useKeyboardShortcuts';
+import { Logger } from '@/utils/logger';
+
+const logger = new Logger('Chatbar');
 
 export const Chatbar = () => {
   const { t } = useTranslation('sidebar');
@@ -75,15 +78,13 @@ export const Chatbar = () => {
   };
 
   const handleImportConversations = (data: SupportedExportFormats) => {
-    const { history, folders, prompts }: LatestExportFormat = importData(data);
+    const { history, folders }: LatestExportFormat = importData(data);
     homeDispatch({ field: 'conversations', value: history });
     homeDispatch({
       field: 'selectedConversation',
       value: history[history.length - 1],
     });
     homeDispatch({ field: 'folders', value: folders });
-    homeDispatch({ field: 'prompts', value: prompts });
-
     window.location.reload();
   };
 
@@ -113,9 +114,9 @@ export const Chatbar = () => {
     try {
       await apiDelete('/api/session/conversationHistory');
       // Notify other devices that all conversations were cleared
-      apiPost('/api/sync/notify', { type: 'conversation_list_changed' }).catch(err => console.warn('Sync notification failed:', err));
+      apiPost('/api/sync/notify', { type: 'conversation_list_changed' }).catch(err => logger.warn('Sync notification failed:', err));
     } catch (error) {
-      console.error('Failed to clear conversation history from Redis:', error);
+      logger.error('Failed to clear conversation history from Redis:', error);
     }
 
     // Clear conversations and intermediate steps from IndexedDB
@@ -123,14 +124,14 @@ export const Chatbar = () => {
       await clearAllConversationsFromDB();
       await clearAllIntermediateSteps();
     } catch (error) {
-      console.error('Failed to clear data from IndexedDB:', error);
+      logger.error('Failed to clear data from IndexedDB:', error);
     }
 
     // Cleanup images from Redis
     try {
       await fetch('/api/session/cleanup', { method: 'POST' });
     } catch (error) {
-      console.error('Failed to cleanup session images:', error);
+      logger.error('Failed to cleanup session images:', error);
     }
   };
 
@@ -153,7 +154,7 @@ export const Chatbar = () => {
         await deleteConversationFromDB(conversation.id);
         await clearConversationIntermediateSteps(conversation.id);
       } catch (dbError) {
-        console.error('Failed to delete conversation from IndexedDB:', dbError);
+        logger.error('Failed to delete conversation from IndexedDB:', dbError);
       }
 
       if (updatedConversations.length > 0) {
@@ -168,7 +169,7 @@ export const Chatbar = () => {
       }
       toast.success('Conversation deleted successfully');
     } catch (error) {
-      console.error('Failed to delete conversation:', error);
+      logger.error('Failed to delete conversation:', error);
       toast.error('Failed to delete conversation.');
     }
   };

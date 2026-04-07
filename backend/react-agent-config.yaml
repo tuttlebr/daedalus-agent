@@ -900,7 +900,9 @@ general:
         - SPAN_START
         - SPAN_CHUNK
         - SPAN_END
-    workers: 4
+    # NAT async jobs use a pod-local Dask cluster; keep a single backend
+    # process per pod so requests don't bounce across isolated local schedulers.
+    workers: 1
   telemetry:
     tracing:
       phoenix:

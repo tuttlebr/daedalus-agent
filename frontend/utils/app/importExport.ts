@@ -35,7 +35,7 @@ export function cleanData(data: SupportedExportFormats): LatestExportFormat {
   if (isExportFormatV1(data)) {
     return {
       version: 4,
-      history: cleanConversationHistory(data),
+      history: cleanConversationHistory(data as unknown as Conversation[]),
       folders: [],
       prompts: [],
     };

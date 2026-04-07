@@ -28,7 +28,11 @@ import { OptimizedImage } from './OptimizedImage';
 import { DocumentBadge } from './DocumentBadge';
 import { ImageGallery } from './ImageGallery';
 import { getVideoUrl } from '@/utils/app/videoHandler';
-import { IntermediateSteps } from '../IntermediateSteps/IntermediateSteps';
+import dynamic from 'next/dynamic';
+const IntermediateSteps = dynamic(
+  () => import('../IntermediateSteps/IntermediateSteps').then(mod => ({ default: mod.IntermediateSteps })),
+  { ssr: false },
+);
 import { ErrorRecovery, categorizeError } from './ErrorRecovery';
 import { normalizeLatexDelimiters } from '@/utils/app/latexNormalizer';
 

@@ -161,7 +161,13 @@ export function createVisibilityAwareInterval(
     }
   }, effectiveInterval);
 
-  const timerState = {
+  const timerState: {
+    callback: TimerCallback;
+    options: TimerOptions;
+    intervalId: ReturnType<typeof setInterval> | null;
+    isPaused: boolean;
+    isMobile: boolean;
+  } = {
     callback,
     options,
     intervalId,

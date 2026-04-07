@@ -1,6 +1,6 @@
 import { FC, useEffect, useState, useRef } from 'react';
 import { IconBrain, IconTool } from '@tabler/icons-react';
-import { IntermediateStepCategory } from '@/types/chat';
+import { IntermediateStepCategory } from '@/types/intermediateSteps';
 
 interface Props {
   currentActivityText: string;

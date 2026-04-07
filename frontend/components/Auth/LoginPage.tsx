@@ -3,6 +3,9 @@ import { IconUser, IconLock, IconLoader, IconAlertCircle } from '@tabler/icons-r
 import { useRouter } from 'next/router';
 import toast from 'react-hot-toast';
 import { GalaxyAnimation } from '@/components/GalaxyAnimation';
+import { Logger } from '@/utils/logger';
+
+const logger = new Logger('LoginPage');
 
 export const LoginPage: React.FC = () => {
   const router = useRouter();
@@ -16,7 +19,7 @@ export const LoginPage: React.FC = () => {
     const { query } = router;
     if (query.username || query.password) {
       // Log security warning (client-side only, no sensitive data sent)
-      console.warn('[SECURITY] Credentials detected in URL query parameters. Clearing for security.');
+      logger.warn('[SECURITY] Credentials detected in URL query parameters. Clearing for security.');
 
       // Show warning to user
       toast.error('Security: Credentials should not be in the URL. Please use the login form.');

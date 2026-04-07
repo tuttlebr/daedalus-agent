@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { throttle } from 'lodash';
+import { throttle } from '@/utils/data/throttle';
 
 export const useVisualViewport = () => {
   const [keyboardOffset, setKeyboardOffset] = useState(0);

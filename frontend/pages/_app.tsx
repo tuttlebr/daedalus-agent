@@ -19,7 +19,16 @@ import toast from 'react-hot-toast';
 
 function App({ Component, pageProps }: AppProps<{}>) {
 
-  const [queryClient] = useState(() => new QueryClient());
+  const [queryClient] = useState(() => new QueryClient({
+    defaultOptions: {
+      queries: {
+        staleTime: 5 * 60 * 1000,
+        gcTime: 10 * 60 * 1000,
+        retry: 1,
+        refetchOnWindowFocus: false,
+      },
+    },
+  }));
   const [showUpdateToast, setShowUpdateToast] = useState(false);
 
   useEffect(() => {
@@ -53,6 +62,7 @@ function App({ Component, pageProps }: AppProps<{}>) {
 
   return (
     <div>
+      <a href="#main-content" className="sr-only focus:not-sr-only focus:absolute focus:top-0 focus:left-0 focus:z-50 focus:bg-black focus:text-white focus:px-4 focus:py-2">Skip to main content</a>
       <Head>
         <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content" />
       </Head>

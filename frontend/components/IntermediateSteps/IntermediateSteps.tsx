@@ -9,6 +9,9 @@ import { ViewToggle } from './ViewToggle';
 import { searchSteps, migrateOldStepFormat, consolidateSteps, searchConsolidatedSteps } from '@/utils/app/intermediateSteps';
 import { loadIntermediateSteps, saveIntermediateSteps, getIntermediateStepCount } from '@/utils/app/intermediateStepsDB';
 import HomeContext from '@/pages/api/home/home.context';
+import { Logger } from '@/utils/logger';
+
+const logger = new Logger('IntermediateSteps');
 
 interface IntermediateStepsProps {
   steps: any[];
@@ -78,7 +81,7 @@ export const IntermediateSteps: React.FC<IntermediateStepsProps> = ({ steps, cla
     if (conversationId || selectedConversation?.id) {
       const convId = conversationId || selectedConversation?.id;
       if (convId && migratedSteps.length > 0) {
-        saveIntermediateSteps(convId, migratedSteps).catch(console.error);
+        saveIntermediateSteps(convId, migratedSteps).catch(err => logger.error('Failed to save intermediate steps:', err));
         setTotalStepsCount(migratedSteps.length);
         setDisplayedSteps(migratedSteps);
         setLoadedCount(migratedSteps.length);
@@ -105,7 +108,7 @@ export const IntermediateSteps: React.FC<IntermediateStepsProps> = ({ steps, cla
             setLoadedCount(loaded.length);
           }
         } catch (error) {
-          console.error('Failed to load initial steps:', error);
+          logger.error('Failed to load initial steps:', error);
         }
       }
     };
@@ -137,7 +140,7 @@ export const IntermediateSteps: React.FC<IntermediateStepsProps> = ({ steps, cla
       setDisplayedSteps(prev => [...newSteps, ...prev]);
       setLoadedCount(prev => prev + newSteps.length);
     } catch (error) {
-      console.error('Failed to load more steps:', error);
+      logger.error('Failed to load more steps:', error);
     } finally {
       setIsLoadingMore(false);
     }

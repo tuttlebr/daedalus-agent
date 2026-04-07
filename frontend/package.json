@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev -p 5000 -H 0.0.0.0",
-    "build": "next build",
+    "build": "next build && node scripts/inject-precache.js",
     "start": "next start -p 5000 -H 0.0.0.0",
     "lint": "next lint",
     "format": "prettier --write .",
@@ -39,7 +39,6 @@
     "lucide-react": "^0.454.0",
     "mermaid": "^11.13.0",
     "next": "^14.2.10",
-    "next-auth": "^4.24.12",
     "next-i18next": "^13.2.2",
     "pptxgenjs": "^3.12.0",
     "react": "^18.2.0",
@@ -95,7 +94,7 @@
     "prettier": "^2.8.7",
     "prettier-plugin-tailwindcss": "^0.2.5",
     "tailwindcss": "^3.4.16",
-    "typescript": "4.9.5",
+    "typescript": "~5.5.0",
     "vitest": "~2.1.9"
   }
 }

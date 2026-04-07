@@ -1,6 +1,9 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { useRouter } from 'next/router';
 import { setStorageUser, clearUserSessionData, migrateLegacyStorage } from '@/utils/app/storage';
+import { Logger } from '@/utils/logger';
+
+const logger = new Logger('AuthProvider');
 
 interface User {
   id: string;
@@ -54,7 +57,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         setStorageUser(null);
       }
     } catch (error) {
-      console.error('Auth check failed:', error);
+      logger.error('Auth check failed:', error);
       setUser(null);
       // SECURITY: Clear storage user on error
       setStorageUser(null);
@@ -101,7 +104,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         credentials: 'include'  // Ensure cookies are sent
       });
     } catch (error) {
-      console.error('Logout error:', error);
+      logger.error('Logout error:', error);
     } finally {
       // SECURITY: Clear all user-specific session data on logout
       clearUserSessionData();

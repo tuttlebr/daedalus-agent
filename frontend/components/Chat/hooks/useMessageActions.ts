@@ -2,6 +2,9 @@
 
 import { useCallback, useState } from 'react';
 import { Message } from '@/types/chat';
+import { Logger } from '@/utils/logger';
+
+const logger = new Logger('useMessageActions');
 
 interface UseMessageActionsOptions {
   /** Callback when regenerate is requested */
@@ -54,7 +57,7 @@ export function useMessageActions({
       setTimeout(() => setMessageCopied(false), 2000);
       return true;
     } catch (error) {
-      console.error('Failed to copy to clipboard:', error);
+      logger.error('Failed to copy to clipboard:', error);
       return false;
     }
   }, []);

@@ -1,4 +1,5 @@
 'use client';
+import dynamic from 'next/dynamic';
 import { IconBrain, IconArrowDown, IconTool } from '@tabler/icons-react';
 import {
   useCallback,
@@ -22,7 +23,7 @@ import {
   fetchLastMessage,
 } from '@/utils/app/helper';
 import { throttle } from '@/utils/data/throttle';
-import { debounce } from 'lodash';
+import { debounce } from '@/utils/data/debounce';
 import { getUserSessionItem } from '@/utils/app/storage';
 import { ChatBody, Conversation, Message } from '@/types/chat';
 import {
@@ -42,7 +43,10 @@ import { AgentHeartbeat } from './AgentHeartbeat';
 import { MemoizedChatMessage } from './MemoizedChatMessage';
 import { VirtualMessageList } from './VirtualMessageList';
 import { cleanMessagesForLLM, processMessageImages } from '@/utils/app/imageHandler';
-import { GalaxyAnimation } from '@/components/GalaxyAnimation';
+const GalaxyAnimation = dynamic(
+  () => import('@/components/GalaxyAnimation').then(mod => ({ default: mod.GalaxyAnimation })),
+  { ssr: false },
+);
 import { BackgroundProcessingIndicator } from '@/components/PWA/BackgroundProcessingIndicator';
 import { ChatLoadingSkeleton } from '@/components/UI/Skeleton';
 
@@ -2236,10 +2240,8 @@ export const Chat = () => {
 
   return (
     <div
-      className="relative flex flex-col transition-colors duration-300 ease-in-out"
+      className="relative flex flex-col transition-colors duration-300 ease-in-out safe-left safe-right"
       style={{
-        paddingLeft: 'env(safe-area-inset-left)',
-        paddingRight: 'env(safe-area-inset-right)',
         // Use flexbox layout instead of fixed positioning to respond to window height changes
         minHeight: 0,
         minWidth: 0, // Prevent flex items from overflowing
@@ -2260,6 +2262,7 @@ export const Chat = () => {
       />
       <ChatHeader />
       <div
+        id="main-content"
         className="relative flex flex-1 flex-col"
         role="main"
         aria-label="Chat conversation"
@@ -2394,18 +2397,11 @@ export const Chat = () => {
         }}
       >
         <div
-          className="mx-auto w-full px-1 sm:responsive-px pb-0 pt-0 sm:pb-4 sm:pt-2 md:pb-6 md:pt-3"
+          className={`mx-auto w-full px-1 sm:responsive-px pb-0 pt-0 sm:pb-4 sm:pt-2 md:pb-6 md:pt-3 ${!(isKeyboardVisible || (isMobile() && isInputFocused)) ? 'safe-bottom' : ''}`}
           style={{
             width: '100%',
             maxWidth: '100%',
             minWidth: 0,
-            // Only add safe area padding on mobile when keyboard is NOT visible
-            // When keyboard is visible (detected by resize OR focus), the viewport resizes, so we don't need extra padding
-            paddingBottom: (isKeyboardVisible || (isMobile() && isInputFocused))
-              ? '0px'
-              : 'env(safe-area-inset-bottom, 0px)',
-            // Ensure sufficient bottom spacing in landscape to prevent input cutoff
-            marginBottom: (isLandscape && isKeyboardVisible) ? '0px' : '0px',
           }}
         >
           <ChatInput

@@ -1,4 +1,4 @@
-import { memoize } from 'lodash';
+import { memoize } from '@/utils/data/memoize';
 import { createVisibilityAwareInterval } from './visibilityAwareTimer';
 
 // Memoize expensive markdown processing

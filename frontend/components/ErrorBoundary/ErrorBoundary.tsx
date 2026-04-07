@@ -1,4 +1,7 @@
 import React, { Component, ErrorInfo, ReactNode } from 'react';
+import { Logger } from '@/utils/logger';
+
+const logger = new Logger('ErrorBoundary');
 
 interface Props {
   children: ReactNode;
@@ -20,7 +23,7 @@ class ErrorBoundary extends Component<Props, State> {
   }
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo) {
-    console.error('ErrorBoundary caught an error:', error, errorInfo);
+    logger.error('ErrorBoundary caught an error:', error, errorInfo);
   }
 
   handleReload = () => {

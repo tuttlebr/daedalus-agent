@@ -141,7 +141,7 @@ export const useConversationStore = create<ConversationStore>()(
 
       updateConversation: (id, updates) => {
         set((state) => {
-          const index = state.conversations.findIndex((c) => c.id === id);
+          const index = state.conversations.findIndex((c: Conversation) => c.id === id);
           if (index !== -1) {
             state.conversations[index] = {
               ...state.conversations[index],
@@ -154,7 +154,7 @@ export const useConversationStore = create<ConversationStore>()(
 
       deleteConversation: (id) => {
         set((state) => {
-          state.conversations = state.conversations.filter((c) => c.id !== id);
+          state.conversations = state.conversations.filter((c: Conversation) => c.id !== id);
           if (state.selectedConversationId === id) {
             state.selectedConversationId = null;
           }
@@ -189,7 +189,7 @@ export const useConversationStore = create<ConversationStore>()(
 
       addMessage: (conversationId, message) => {
         set((state) => {
-          const conv = state.conversations.find((c) => c.id === conversationId);
+          const conv = state.conversations.find((c: Conversation) => c.id === conversationId);
           if (conv) {
             conv.messages.push(message);
             conv.updatedAt = Date.now();
@@ -199,7 +199,7 @@ export const useConversationStore = create<ConversationStore>()(
 
       updateLastMessage: (conversationId, updates) => {
         set((state) => {
-          const conv = state.conversations.find((c) => c.id === conversationId);
+          const conv = state.conversations.find((c: Conversation) => c.id === conversationId);
           if (conv && conv.messages.length > 0) {
             const lastIndex = conv.messages.length - 1;
             conv.messages[lastIndex] = {
@@ -213,7 +213,7 @@ export const useConversationStore = create<ConversationStore>()(
 
       updateMessageIntermediateSteps: (conversationId, messageIndex, steps) => {
         set((state) => {
-          const conv = state.conversations.find((c) => c.id === conversationId);
+          const conv = state.conversations.find((c: Conversation) => c.id === conversationId);
           if (conv && conv.messages[messageIndex]) {
             conv.messages[messageIndex].intermediateSteps = steps;
           }
@@ -270,7 +270,7 @@ export const useConversationStore = create<ConversationStore>()(
 
       replaceConversation: (id, conversation) => {
         set((state) => {
-          const index = state.conversations.findIndex((c) => c.id === id);
+          const index = state.conversations.findIndex((c: Conversation) => c.id === id);
           if (index !== -1) {
             state.conversations[index] = conversation;
           }
@@ -279,7 +279,7 @@ export const useConversationStore = create<ConversationStore>()(
 
       upsertConversation: (conversation) => {
         set((state) => {
-          const index = state.conversations.findIndex((c) => c.id === conversation.id);
+          const index = state.conversations.findIndex((c: Conversation) => c.id === conversation.id);
           if (index !== -1) {
             state.conversations[index] = conversation;
           } else {

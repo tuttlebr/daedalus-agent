@@ -29,8 +29,9 @@ const CACHEABLE_API_PATTERNS = [
 // Assets to cache on install
 const STATIC_ASSETS = [
   '/',
-  '/favicon.png',
-  '/manifest.json'
+  '/icons/icon-192x192.png',
+  '/manifest.json',
+  '/offline.html'
 ];
 
 // LRU Cache Manager with memory pressure detection
@@ -480,10 +481,13 @@ self.addEventListener('fetch', (event) => {
           const cachedResponse = await caches.match(request);
           if (cachedResponse) return cachedResponse;
 
-          // If not in cache and it's a navigation, return App Shell (root)
+          // If not in cache and it's a navigation, try App Shell then offline page
           if (request.mode === 'navigate') {
              const appShell = await caches.match('/');
              if (appShell) return appShell;
+
+             const offlinePage = await caches.match('/offline.html');
+             if (offlinePage) return offlinePage;
           }
 
           // Return a proper error response instead of null (null is not a valid

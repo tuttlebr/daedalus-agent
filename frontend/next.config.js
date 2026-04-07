@@ -7,11 +7,7 @@ const withBundleAnalyzer = require('@next/bundle-analyzer')({
 const nextConfig = {
   output: 'standalone',
   typescript: {
-    // !! WARN !!
-    // Dangerously allow production builds to successfully complete even if
-    // your project has type errors.
-    // !! WARN !!
-    ignoreBuildErrors: true,
+    ignoreBuildErrors: false,
   },
   // Image optimization configuration
   images: {
@@ -131,6 +127,8 @@ const nextConfig = {
         ],
       },
       // SECURITY: Restrict outbound connections and prevent common web attacks
+      // NOTE: 'unsafe-eval' is required by mermaid.js (diagram rendering) even with securityLevel: 'strict'.
+      // 'unsafe-inline' is required by Next.js for inline scripts and styled-jsx.
       {
         source: '/:path*',
         headers: [
@@ -153,6 +151,10 @@ const nextConfig = {
           {
             key: 'X-XSS-Protection',
             value: '1; mode=block',
+          },
+          {
+            key: 'Permissions-Policy',
+            value: 'camera=(), microphone=(), geolocation=(), payment=(), usb=(), bluetooth=()',
           },
         ],
       },

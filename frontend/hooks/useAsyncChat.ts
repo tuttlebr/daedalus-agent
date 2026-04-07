@@ -631,7 +631,7 @@ export const useAsyncChat = (options: UseAsyncChatOptions = {}): UseAsyncChatRet
 
       // Clean up WebSocket job subscriptions
       const wsManager = getWebSocketManager();
-      for (const jobId of wsActiveJobsRef.current) {
+      for (const jobId of Array.from(wsActiveJobsRef.current)) {
         wsManager.unsubscribeFromJob(jobId);
       }
       wsActiveJobsRef.current.clear();

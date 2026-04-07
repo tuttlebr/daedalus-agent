@@ -4,12 +4,19 @@
 import { memo, useMemo, useRef } from "react";
 import Loading from "@/components/Markdown/Loading";
 
+interface VideoProps {
+  src?: string;
+  controls?: boolean;
+  muted?: boolean;
+  [key: string]: any;
+}
+
 export const Video = memo(({
     src,
     controls = true,
     muted = false,
     ...props
-  }) => {
+  }: VideoProps) => {
     // Use ref to maintain stable reference for video element
     const videoRef = useRef(null);
 
@@ -37,6 +44,6 @@ export const Video = memo(({
     }, [src, controls, muted]); // Only dependencies that should cause a re-render
 
     return videoElement;
-  }, (prevProps, nextProps) => {
+  }, (prevProps: VideoProps, nextProps: VideoProps) => {
     return prevProps.src === nextProps.src;
   });

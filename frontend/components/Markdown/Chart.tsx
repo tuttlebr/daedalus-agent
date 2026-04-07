@@ -10,6 +10,9 @@ import HomeContext from "@/pages/api/home/home.context";
 import * as htmlToImage from 'html-to-image'; // Import html-to-image for generating images
 import { IconDownload } from "@tabler/icons-react";
 import toast from "react-hot-toast";
+import { Logger } from '@/utils/logger';
+
+const logger = new Logger('Chart');
 
 // Dynamically import the ForceGraph2D component with SSR disabled
 const ForceGraph2D = dynamic(() => import('react-force-graph-2d'), { ssr: false });
@@ -59,7 +62,7 @@ const Chart = (props: any) => {
     try {
       const chartElement = document.getElementById(`chart-${Label}`);
       if (chartElement) {
-        console.log('Generating image to download...');
+        logger.info('Generating image to download...');
         const chartBackground = chartElement.style.background;
         // Set the chart background to white before capturing the image
         chartElement.style.background = 'white';
@@ -71,11 +74,11 @@ const Chart = (props: any) => {
         link.click();
         // Reset the chart background
         chartElement.style.background = chartBackground;
-        console.log('Image downloaded successfully.');
+        logger.info('Image downloaded successfully.');
         toast.success('Downloaded successfully.');
       }
     } catch (error) {
-      console.error('Error generating download image:', error);
+      logger.error('Error generating download image:', error);
     }
   };
 
@@ -123,7 +126,7 @@ const Chart = (props: any) => {
                 fill={colors.fill}
                 label
               >
-                {Data.map((entry, index) => (
+                {Data.map((entry: any, index: number) => (
                   <Cell key={`cell-${index}`} fill={getRandomColor()} />
                 ))}
               </Pie>
@@ -240,7 +243,7 @@ const Chart = (props: any) => {
               <ZAxis range={[80, 80]} />
               <Tooltip
                 cursor={{ strokeDasharray: '3 3' }}
-                content={({ active, payload }: { active?: boolean; payload?: Array<{ payload: Record<string, unknown> }> }) => {
+                content={(({ active, payload }: { active?: boolean; payload?: Array<{ payload: Record<string, unknown> }> }) => {
                   if (!active || !payload?.length) return null;
                   const d = payload[0].payload;
                   return (
@@ -250,11 +253,11 @@ const Chart = (props: any) => {
                       <p>{YAxisLabel || YAxisKey}: {String(d[YAxisKey])}</p>
                     </div>
                   );
-                }}
+                }) as any}
               />
               <ReferenceLine x={xMedian} stroke="#666" strokeDasharray="5 5" />
               <ReferenceLine y={yMedian} stroke="#666" strokeDasharray="5 5" />
-              <Scatter data={coloredData} label={renderCustomLabel}>
+              <Scatter data={coloredData} label={renderCustomLabel as any}>
                 {coloredData.map((entry: Record<string, string>, index: number) => (
                   <Cell key={`cell-${index}`} fill={entry._fill} />
                 ))}
@@ -268,7 +271,6 @@ const Chart = (props: any) => {
         return (
           <div style={{ width: "100%", height: "auto", display: "flex", justifyContent: "center", alignItems: "center", padding: "20px" }}>
             <ForceGraph2D
-              id={`chart-GraphPlot-${Label}`}
               graphData={{
                 nodes: Nodes.map((node: any) => ({ id: node.id, name: node.label })),
                 links: Links.map((link: any) => ({

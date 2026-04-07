@@ -3,6 +3,9 @@ import Loading from "./Loading";
 import { IconExclamationCircle, IconDownload } from "@tabler/icons-react";
 import { OptimizedImage } from "@/components/Chat/OptimizedImage";
 import { uploadImage, ImageReference } from "@/utils/app/imageHandler";
+import { Logger } from '@/utils/logger';
+
+const logger = new Logger('Image');
 
 interface ImageProps {
   src?: string;
@@ -45,7 +48,7 @@ export const Image = memo(({ src, alt, ...props }: ImageProps) => {
           return { imageId, sessionId };
         }
       } catch (err) {
-        console.error('Image.tsx: Failed to parse image storage URL:', err);
+        logger.error('Failed to parse image storage URL:', err);
       }
     }
     // Parse imageId from generated-image URL: /api/generated-image/{uuid}
@@ -77,13 +80,13 @@ export const Image = memo(({ src, alt, ...props }: ImageProps) => {
         const mimeTypeMatch = src.match(/data:(image\/[a-zA-Z0-9+.-]+);base64,/);
         const mimeType = mimeTypeMatch ? mimeTypeMatch[1] : 'image/png';
 
-        console.log('Image.tsx: Uploading base64 image to Redis storage...');
+        logger.info('Uploading base64 image to Redis storage...');
         const ref = await uploadImage(src, mimeType);
-        console.log('Image.tsx: Upload complete, imageId:', ref.imageId);
+        logger.info('Upload complete, imageId:', ref.imageId);
 
         setUploadedRef(ref);
       } catch (err) {
-        console.error('Image.tsx: Failed to upload base64 image:', err);
+        logger.error('Failed to upload base64 image:', err);
         // Fall back to displaying original base64 (not ideal but works)
       } finally {
         setIsUploading(false);
@@ -95,7 +98,7 @@ export const Image = memo(({ src, alt, ...props }: ImageProps) => {
   }, [src, isBase64DataUrl, uploadedRef, isUploading]);
 
   const handleImageError = () => {
-    console.error(`Image failed to load: ${src?.substring(0, 100)}...`);
+    logger.error(`Image failed to load: ${src?.substring(0, 100)}...`);
     setError(true);
   };
 
@@ -130,7 +133,7 @@ export const Image = memo(({ src, alt, ...props }: ImageProps) => {
           }
         } catch (shareErr) {
           // If share fails or is cancelled, fall through to download
-          console.log('Share cancelled or failed, falling back to download');
+          logger.info('Share cancelled or failed, falling back to download');
         }
       }
 
@@ -144,7 +147,7 @@ export const Image = memo(({ src, alt, ...props }: ImageProps) => {
       document.body.removeChild(link);
       window.URL.revokeObjectURL(url);
     } catch (err) {
-      console.error('Failed to download image:', err);
+      logger.error('Failed to download image:', err);
     }
   }, [src, alt, uploadedRef]);
 

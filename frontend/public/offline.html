@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>Daedalus - Offline</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    @font-face {
+      font-family: 'NVIDIA Sans';
+      src: url('/fonts/NVIDIASans_Rg.woff2') format('woff2');
+      font-weight: 400;
+      font-display: swap;
+    }
+    @font-face {
+      font-family: 'NVIDIA Sans';
+      src: url('/fonts/NVIDIASans_Md.woff2') format('woff2');
+      font-weight: 500;
+      font-display: swap;
+    }
+
+    body {
+      font-family: 'NVIDIA Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #0a0a0a;
+      color: #e5e7eb;
+      min-height: 100vh;
+      min-height: 100dvh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 2rem;
+      padding-top: max(2rem, env(safe-area-inset-top));
+      padding-bottom: max(2rem, env(safe-area-inset-bottom));
+      text-align: center;
+    }
+
+    .container {
+      max-width: 420px;
+      width: 100%;
+    }
+
+    .icon {
+      width: 80px;
+      height: 80px;
+      margin: 0 auto 1.5rem;
+      opacity: 0.6;
+    }
+
+    .icon img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+    }
+
+    h1 {
+      font-size: 1.5rem;
+      font-weight: 500;
+      margin-bottom: 0.75rem;
+      color: #fff;
+    }
+
+    p {
+      font-size: 0.9375rem;
+      line-height: 1.6;
+      color: #9ca3af;
+      margin-bottom: 2rem;
+    }
+
+    .retry-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+      background: #76b900;
+      color: #000;
+      font-family: inherit;
+      font-size: 0.9375rem;
+      font-weight: 500;
+      padding: 0.75rem 2rem;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      min-height: 48px;
+      touch-action: manipulation;
+      transition: background 200ms ease;
+    }
+
+    .retry-btn:hover { background: #8ad100; }
+    .retry-btn:active { transform: scale(0.98); }
+
+    .retry-btn svg {
+      width: 18px;
+      height: 18px;
+    }
+
+    .status {
+      margin-top: 2.5rem;
+      font-size: 0.8125rem;
+      color: #6b7280;
+    }
+
+    .status-dot {
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #ef4444;
+      margin-right: 0.375rem;
+      vertical-align: middle;
+    }
+
+    .status-dot.online {
+      background: #76b900;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="icon">
+      <img src="/icons/icon-96x96.png" alt="Daedalus" width="96" height="96">
+    </div>
+    <h1>You're offline</h1>
+    <p>Daedalus needs a network connection to work. Check your connection and try again.</p>
+    <button class="retry-btn" onclick="window.location.reload()">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+      Try again
+    </button>
+    <div class="status">
+      <span class="status-dot" id="statusDot"></span>
+      <span id="statusText">Offline</span>
+    </div>
+  </div>
+  <script>
+    window.addEventListener('online', function() {
+      document.getElementById('statusDot').classList.add('online');
+      document.getElementById('statusText').textContent = 'Back online - reloading...';
+      setTimeout(function() { window.location.reload(); }, 500);
+    });
+  </script>
+</body>
+</html>

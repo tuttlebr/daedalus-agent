@@ -1,5 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { IconDatabase, IconCheck, IconRefresh, IconAlertCircle } from '@tabler/icons-react';
+import { Logger } from '@/utils/logger';
+
+const logger = new Logger('CollectionSelector');
 
 interface CollectionSelectorProps {
   onSelect: (collection: string) => void;
@@ -40,7 +43,7 @@ export const CollectionSelector: React.FC<CollectionSelectorProps> = ({
         onSelect(defaultCollection);
       }
     } catch (err) {
-      console.error('Error fetching collections:', err);
+      logger.error('Error fetching collections:', err);
       setError('Failed to load collections');
       setCollections([]);
     } finally {

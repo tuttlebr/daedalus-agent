@@ -70,7 +70,7 @@ const compressImageWithTimeout = (
     timeoutMs,
     new Error('Image compression timed out')
   ).catch((error) => {
-    console.warn('Image compression timed out, using original image:', error.message);
+    logger.warn('Image compression timed out, using original image:', error.message);
     return image; // Fall back to original image
   });
 };
@@ -803,7 +803,7 @@ export const ChatInput: React.FC<Props> = ({
     } catch (error: any) {
       // Only show error if not cancelled
       if (error?.message !== 'Upload cancelled') {
-        console.error('Error uploading documents:', error);
+        logger.error('Error uploading documents:', error);
         alert('Failed to upload documents. Please try again.');
       }
       handleInputFileDelete();
@@ -877,7 +877,7 @@ export const ChatInput: React.FC<Props> = ({
     } catch (error: any) {
       // Only show error if not cancelled
       if (error?.message !== 'Upload cancelled') {
-        console.error('Error uploading images:', error);
+        logger.error('Error uploading images:', error);
         alert('Failed to upload images. Please try again.');
       }
       handleInputFileDelete();
@@ -945,7 +945,7 @@ export const ChatInput: React.FC<Props> = ({
     } catch (error: any) {
       // Only show error if not cancelled
       if (error?.message !== 'Upload cancelled') {
-        console.error('Error uploading video:', error);
+        logger.error('Error uploading video:', error);
         const errorMsg = error instanceof Error ? error.message : 'Failed to upload video';
         alert(errorMsg);
       }
@@ -988,7 +988,7 @@ export const ChatInput: React.FC<Props> = ({
 
       toast.success(`Transcript "${file.name}" loaded. Send a message to process it.`);
     } catch (error) {
-      console.error('Error reading transcript file:', error);
+      logger.error('Error reading transcript file:', error);
       toast.error('Failed to read transcript file');
       handleInputFileDelete();
     }
@@ -1573,7 +1573,7 @@ export const ChatInput: React.FC<Props> = ({
       // Clear the base64 content to save memory
       setInputFileContent('');
     } catch (error) {
-      console.error('Error processing image:', error);
+      logger.error('Error processing image:', error);
       alert('Failed to upload image. Please try again.');
       handleInputFileDelete();
     } finally {

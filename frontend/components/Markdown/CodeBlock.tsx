@@ -9,6 +9,9 @@ import {
   generateRandomString,
   programmingLanguages,
 } from '@/utils/app/codeblock';
+import { Logger } from '@/utils/logger';
+
+const logger = new Logger('CodeBlock');
 
 interface Props {
   language: string;
@@ -24,7 +27,7 @@ export const CodeBlock: FC<Props> = memo(({ language, value }) => {
     try {
       value = value.replaceAll("'", '"');
     } catch (error) {
-      console.log(error);
+      logger.info('JSON parse error:', error);
     }
   }
 
@@ -37,7 +40,7 @@ export const CodeBlock: FC<Props> = memo(({ language, value }) => {
         })()
 
 
-  const copyToClipboard = (e) => {
+  const copyToClipboard = (e: React.MouseEvent) => {
     e?.preventDefault();
     e?.stopPropagation();
     if (typeof navigator === 'undefined' || !navigator.clipboard || !navigator.clipboard.writeText) {
@@ -53,7 +56,7 @@ export const CodeBlock: FC<Props> = memo(({ language, value }) => {
     });
   };
 
-  const downloadAsFile = (e) => {
+  const downloadAsFile = (e: React.MouseEvent) => {
     e?.preventDefault();
     e?.stopPropagation();
     const fileExtension = programmingLanguages[language] || '.file';

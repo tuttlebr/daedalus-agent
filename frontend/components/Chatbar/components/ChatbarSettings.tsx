@@ -5,7 +5,11 @@ import { useTranslation } from 'next-i18next';
 
 import HomeContext from '@/pages/api/home/home.context';
 
-import { SettingDialog } from '@/components/Settings/SettingDialog';
+import dynamic from 'next/dynamic';
+const SettingDialog = dynamic(
+  () => import('@/components/Settings/SettingDialog').then(mod => ({ default: mod.SettingDialog })),
+  { ssr: false },
+);
 import { HelpDialog } from '@/components/Help/HelpDialog';
 import { useAuth } from '@/components/Auth/AuthProvider';
 

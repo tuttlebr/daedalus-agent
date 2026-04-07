@@ -4,6 +4,9 @@ import { useMemoryMonitor, memoryMonitor } from '@/utils/app/memoryMonitor';
 import { clearAllImageBlobs } from '@/utils/app/imageHandler';
 import { cleanupOldIntermediateSteps } from '@/utils/app/intermediateStepsDB';
 import toast from 'react-hot-toast';
+import { Logger } from '@/utils/logger';
+
+const logger = new Logger('MemoryWarning');
 
 interface MemoryWarningProps {
   className?: string;
@@ -46,7 +49,7 @@ export const MemoryWarning: React.FC<MemoryWarningProps> = ({ className = '' }) 
 
       // Level 1: Clear image blob cache
       clearAllImageBlobs();
-      console.log('Cleared image blob cache');
+      logger.info('Cleared image blob cache');
 
       // Level 2: Clean up intermediate steps (more aggressive - 6 hours)
       const deletedSteps = await cleanupOldIntermediateSteps();
@@ -60,7 +63,7 @@ export const MemoryWarning: React.FC<MemoryWarningProps> = ({ className = '' }) 
           await caches.delete(name);
           cachesCleared++;
         }
-        console.log(`Cleared ${cachesCleared} caches`);
+        logger.info(`Cleared ${cachesCleared} caches`);
       }
 
       // Level 4: Clear sessionStorage for non-essential items
@@ -73,7 +76,7 @@ export const MemoryWarning: React.FC<MemoryWarningProps> = ({ className = '' }) 
           }
         }
         keysToRemove.forEach(key => sessionStorage.removeItem(key));
-        console.log(`Cleared ${keysToRemove.length} sessionStorage items`);
+        logger.info(`Cleared ${keysToRemove.length} sessionStorage items`);
       }
 
       // Try to trigger garbage collection
@@ -90,7 +93,7 @@ export const MemoryWarning: React.FC<MemoryWarningProps> = ({ className = '' }) 
       }, 1000);
 
     } catch (error) {
-      console.error('Failed to clear memory:', error);
+      logger.error('Failed to clear memory:', error);
       toast.error('Failed to clear memory');
     } finally {
       setIsClearing(false);

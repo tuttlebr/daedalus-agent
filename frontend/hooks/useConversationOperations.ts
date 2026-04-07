@@ -1,9 +1,19 @@
 import { saveConversation, saveConversations, updateConversation} from '@/utils/app/conversation';
 import { v4 as uuidv4 } from 'uuid';
 import { setUserSessionItem } from '@/utils/app/storage';
+import { Conversation } from '@/types/chat';
+import { ActionType } from '@/hooks/useCreateReducer';
+import { HomeInitialState } from '@/pages/api/home/home.state';
 
-export const useConversationOperations = ({ conversations, dispatch, t, appConfig }) => {
-  const handleSelectConversation = (conversation) => {
+interface UseConversationOperationsParams {
+  conversations: Conversation[];
+  dispatch: React.Dispatch<ActionType<HomeInitialState>>;
+  t: (key: string) => string;
+  appConfig: Record<string, unknown>;
+}
+
+export const useConversationOperations = ({ conversations, dispatch, t, appConfig }: UseConversationOperationsParams) => {
+  const handleSelectConversation = (conversation: Conversation) => {
     dispatch({
       field: 'selectedConversation',
       value: conversation,
@@ -38,7 +48,7 @@ export const useConversationOperations = ({ conversations, dispatch, t, appConfi
     dispatch({ field: 'loading', value: false });
   };
 
-  const handleUpdateConversation = (conversation, data) => {
+  const handleUpdateConversation = (conversation: Conversation, data: { key: string; value: any }) => {
     const updatedConversation = {
       ...conversation,
       [data.key]: data.value,

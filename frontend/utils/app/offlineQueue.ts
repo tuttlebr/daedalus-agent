@@ -28,7 +28,7 @@ export async function enqueueMessage(message: any, conversationId?: string): Pro
   });
 }
 
-export async function dequeueAllMessages(): Promise<Array<{ id: string; message: any; conversationId?: string }>> {
+export async function dequeueAllMessages(): Promise<Array<{ id: string; message: any; conversationId?: string; timestamp: number }>> {
   const db = await openDB();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, 'readwrite');

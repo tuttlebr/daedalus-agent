@@ -2,6 +2,9 @@ import React, { useRef, useEffect, useState, useCallback, useMemo, forwardRef, u
 import { Message } from '@/types/chat';
 import { MemoizedChatMessage } from './MemoizedChatMessage';
 import { revokeImageBlob } from '@/utils/app/imageHandler';
+import { Logger } from '@/utils/logger';
+
+const logger = new Logger('VirtualMessageList');
 
 interface VirtualMessageListProps {
   messages: Message[];
@@ -307,7 +310,7 @@ export const VirtualMessageList = forwardRef<HTMLDivElement, VirtualMessageListP
 
                 const imageIds = trackedImages.current.get(messageId);
                 if (imageIds && imageIds.length > 0) {
-                  console.log(`Revoking ${imageIds.length} image blobs for message ${messageId}`);
+                  logger.info(`Revoking ${imageIds.length} image blobs for message ${messageId}`);
                   imageIds.forEach(imageId => {
                     revokeImageBlob(imageId);
                   });

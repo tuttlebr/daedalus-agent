@@ -3,7 +3,7 @@ import React from 'react';
 
 interface LoadingProps {
   message?: string;
-  type?: 'text' | 'code' | 'chart';
+  type?: 'text' | 'code' | 'chart' | 'image';
 }
 
 const Loading: React.FC<LoadingProps> = ({ message = "Loading", type = 'text' }) => {

@@ -1,12 +1,15 @@
 
 import { Children, memo, useMemo } from 'react';
-import { isEqual } from 'lodash';
+import { isEqual } from '@/utils/data/isEqual';
 import { LazyCodeBlock } from '@/components/Markdown/LazyCodeBlock';
 import { LazyMermaidChart } from '@/components/Markdown/LazyMermaidChart';
 import { LazyChart } from '@/components/Markdown/LazyChart';
 import { LazySearchResults } from '@/components/Markdown/LazySearchResults';
 import { Video } from '@/components/Markdown/Video';
 import { Image } from '@/components/Markdown/Image';
+import { Logger } from '@/utils/logger';
+
+const logger = new Logger('CustomComponents');
 
 // Type definitions for markdown components
 type MarkdownComponentProps = {
@@ -79,7 +82,7 @@ export const getReactMarkDownCustomComponents = (messageIndex = 0, messageId = '
         const payload = JSON.parse(payloadString);
         return payload ? <LazyChart payload={payload} /> : null;
       } catch (error) {
-        console.error(error);
+        logger.error('Failed to parse chart payload:', error);
         return null;
       }
     }, (prevProps: MarkdownComponentProps, nextProps: MarkdownComponentProps) => isEqual(prevProps.children, nextProps.children)),
@@ -99,7 +102,7 @@ export const getReactMarkDownCustomComponents = (messageIndex = 0, messageId = '
         const payload = JSON.parse(payloadString);
         return payload ? <LazySearchResults payload={payload} /> : null;
       } catch (error) {
-        console.error(error);
+        logger.error('Failed to parse search results payload:', error);
         return null;
       }
     }, (prevProps: MarkdownComponentProps, nextProps: MarkdownComponentProps) => isEqual(prevProps.children, nextProps.children)),

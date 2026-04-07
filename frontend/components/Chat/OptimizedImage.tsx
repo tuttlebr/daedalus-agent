@@ -2,6 +2,9 @@ import React, { useState, useEffect, useRef, memo, useCallback } from 'react';
 import { IconMaximize, IconX, IconExclamationCircle, IconDownload } from '@tabler/icons-react';
 import { ImageReference, getImageUrl, fetchImageAsBlob, revokeImageBlob } from '@/utils/app/imageHandler';
 import { ImageSkeleton } from '@/components/UI/Skeleton';
+import { Logger } from '@/utils/logger';
+
+const logger = new Logger('OptimizedImage');
 
 interface OptimizedImageProps {
   imageRef?: ImageReference;
@@ -80,7 +83,7 @@ export const OptimizedImage = memo(({
           setBlobUrl(url);
         }
       } catch (err) {
-        console.error('Failed to load image as blob:', err);
+        logger.error('Failed to load image as blob:', err);
         if (!cancelled) {
           setError(true);
           setIsLoading(false);
@@ -149,7 +152,7 @@ export const OptimizedImage = memo(({
   };
 
   const handleImageError = useCallback(() => {
-    console.error('OptimizedImage: Failed to load image');
+    logger.error('Failed to load image');
 
     // If we have a blob URL that failed (might have been revoked), try to refetch
     if (blobUrl && imageRef) {
@@ -166,7 +169,7 @@ export const OptimizedImage = memo(({
           }
         })
         .catch((err) => {
-          console.error('OptimizedImage: Refetch also failed:', err);
+          logger.error('Refetch also failed:', err);
           if (!unmountingRef.current) {
             setIsLoading(false);
             setError(true);
@@ -187,7 +190,7 @@ export const OptimizedImage = memo(({
         const url = await fetchImageAsBlob(imageRef, false); // false = full resolution
         setFullBlobUrl(url);
       } catch (err) {
-        console.error('Failed to load full resolution image:', err);
+        logger.error('Failed to load full resolution image:', err);
         // Fall back to thumbnail
       }
     }
@@ -233,7 +236,7 @@ export const OptimizedImage = memo(({
           }
         } catch (shareErr) {
           // If share fails or is cancelled, fall through to download
-          console.log('Share cancelled or failed, falling back to download');
+          logger.info('Share cancelled or failed, falling back to download');
         }
       }
 
@@ -247,7 +250,7 @@ export const OptimizedImage = memo(({
       document.body.removeChild(link);
       window.URL.revokeObjectURL(url);
     } catch (err) {
-      console.error('Failed to download image:', err);
+      logger.error('Failed to download image:', err);
     }
   };
 
