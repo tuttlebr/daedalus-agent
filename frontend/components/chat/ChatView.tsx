@@ -210,9 +210,11 @@ export const ChatView = memo(() => {
     // Add user message to store
     addMessage(convId, messageWithId);
 
-    // Auto-name conversation from first message
-    if (selectedConversation.messages.length === 0 && selectedConversation.name === t('New Conversation')) {
-      const name = message.content.slice(0, 50) + (message.content.length > 50 ? '...' : '');
+    // Auto-name conversation from first user message
+    const isNewConversation = selectedConversation.messages.length === 0;
+    if (isNewConversation && message.content.trim()) {
+      const firstLine = message.content.trim().split('\n')[0];
+      const name = firstLine.slice(0, 60) + (firstLine.length > 60 ? '...' : '');
       updateConversation(convId, { name });
     }
 
@@ -244,9 +246,10 @@ export const ChatView = memo(() => {
       additionalProps.useDeepThinker = true;
     }
 
-    // Persist conversation before submitting
+    // Persist conversation - read fresh state to capture the name update
+    const freshConv = useConversationStore.getState().conversations.find((c) => c.id === convId);
     const updatedConv = {
-      ...selectedConversation,
+      ...(freshConv || selectedConversation),
       messages: [...allMessages, assistantMessage],
       updatedAt: Date.now(),
     };
