@@ -59,6 +59,34 @@ describe('sanitizeSchema', () => {
     });
   });
 
+  describe('semantic sectioning elements', () => {
+    const sectioningTags = [
+      'section', 'article', 'aside', 'nav', 'header', 'footer', 'main', 'address',
+    ];
+
+    it.each(sectioningTags)('includes sectioning element <%s>', (tag) => {
+      expect(tags).toContain(tag);
+    });
+  });
+
+  describe('additional text-level elements', () => {
+    it.each(['u', 'bdi', 'data', 'output'])('includes text-level element <%s>', (tag) => {
+      expect(tags).toContain(tag);
+    });
+  });
+
+  describe('interactive/presentational elements', () => {
+    it.each(['progress', 'meter'])('includes element <%s>', (tag) => {
+      expect(tags).toContain(tag);
+    });
+  });
+
+  describe('table enhancement elements', () => {
+    it.each(['col', 'colgroup'])('includes table element <%s>', (tag) => {
+      expect(tags).toContain(tag);
+    });
+  });
+
   describe('dangerous elements are stripped', () => {
     const stripped = sanitizeSchema.strip ?? [];
     const dangerous = ['script', 'style', 'iframe', 'object', 'embed', 'form'];
@@ -142,6 +170,53 @@ describe('sanitizeSchema', () => {
       const annotationXmlAttrs = sanitizeSchema.attributes?.['annotation-xml'] ?? [];
       expect(annotationAttrs).toContain('encoding');
       expect(annotationXmlAttrs).toContain('encoding');
+    });
+
+    it('allows datetime on time', () => {
+      const timeAttrs = sanitizeSchema.attributes?.time ?? [];
+      expect(timeAttrs).toContain('datetime');
+    });
+
+    it('allows title on abbr', () => {
+      const abbrAttrs = sanitizeSchema.attributes?.abbr ?? [];
+      expect(abbrAttrs).toContain('title');
+    });
+
+    it('allows value on data', () => {
+      const dataAttrs = sanitizeSchema.attributes?.data ?? [];
+      expect(dataAttrs).toContain('value');
+    });
+
+    it('allows value and max on progress', () => {
+      const progressAttrs = sanitizeSchema.attributes?.progress ?? [];
+      expect(progressAttrs).toEqual(expect.arrayContaining(['value', 'max']));
+    });
+
+    it('allows value, min, max, low, high, optimum on meter', () => {
+      const meterAttrs = sanitizeSchema.attributes?.meter ?? [];
+      expect(meterAttrs).toEqual(expect.arrayContaining(['value', 'min', 'max', 'low', 'high', 'optimum']));
+    });
+
+    it('allows span on col and colgroup', () => {
+      const colAttrs = sanitizeSchema.attributes?.col ?? [];
+      const colgroupAttrs = sanitizeSchema.attributes?.colgroup ?? [];
+      expect(colAttrs).toContain('span');
+      expect(colgroupAttrs).toContain('span');
+    });
+
+    it('allows cite on q', () => {
+      const qAttrs = sanitizeSchema.attributes?.q ?? [];
+      expect(qAttrs).toContain('cite');
+    });
+
+    it('allows dir on bdo', () => {
+      const bdoAttrs = sanitizeSchema.attributes?.bdo ?? [];
+      expect(bdoAttrs).toContain('dir');
+    });
+
+    it('allows for and name on output', () => {
+      const outputAttrs = sanitizeSchema.attributes?.output ?? [];
+      expect(outputAttrs).toEqual(expect.arrayContaining(['for', 'name']));
     });
   });
 

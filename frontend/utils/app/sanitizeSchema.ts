@@ -58,6 +58,26 @@ export const sanitizeSchema = {
     // Custom visualization elements
     'chart',
     'searchresults',
+    // Semantic sectioning elements
+    'section',
+    'article',
+    'aside',
+    'nav',
+    'header',
+    'footer',
+    'main',
+    'address',
+    // Text-level semantic elements (not in default schema)
+    'u',
+    'bdi',
+    'data',
+    'output',
+    // Interactive / presentational
+    'progress',
+    'meter',
+    // Table enhancements
+    'col',
+    'colgroup',
   ],
   attributes: {
     ...defaultSchema.attributes,
@@ -91,6 +111,16 @@ export const sanitizeSchema = {
     math: ['xmlns', 'display'],
     annotation: ['encoding'],
     'annotation-xml': ['encoding'],
+    time: ['datetime'],
+    abbr: ['title'],
+    data: ['value'],
+    progress: ['value', 'max'],
+    meter: ['value', 'min', 'max', 'low', 'high', 'optimum'],
+    col: ['span'],
+    colgroup: ['span'],
+    q: ['cite'],
+    bdo: ['dir'],
+    output: ['for', 'name'],
   },
   protocols: {
     ...defaultSchema.protocols,

@@ -1,5 +1,5 @@
-import { IconCheck, IconClipboard, IconDownload } from '@tabler/icons-react';
-import { FC, memo, MouseEvent, useState } from 'react';
+import { IconCheck, IconClipboard, IconCode, IconDownload, IconEye } from '@tabler/icons-react';
+import { FC, memo, useState } from 'react';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark } from 'react-syntax-highlighter/dist/cjs/styles/prism';
 
@@ -13,6 +13,8 @@ import { Logger } from '@/utils/logger';
 
 const logger = new Logger('CodeBlock');
 
+const HTML_PREVIEW_LANGUAGES = new Set(['html', 'htm']);
+
 interface Props {
   language: string;
   value: string;
@@ -21,6 +23,9 @@ interface Props {
 export const CodeBlock: FC<Props> = memo(({ language, value }) => {
   const { t } = useTranslation('markdown');
   const [isCopied, setIsCopied] = useState<boolean>(false);
+  const [showPreview, setShowPreview] = useState<boolean>(false);
+
+  const isHtml = HTML_PREVIEW_LANGUAGES.has(language.toLowerCase());
 
   // Ensure value is a valid JSON string
   if (language === 'json') {
@@ -91,6 +96,15 @@ export const CodeBlock: FC<Props> = memo(({ language, value }) => {
         <span className="text-xs lowercase text-white">{language}</span>
 
         <div className="flex items-center">
+          {isHtml && (
+            <button
+              className="flex gap-1.5 items-center rounded bg-none p-1 text-xs text-white hover:text-nvidia-green transition-colors"
+              onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowPreview(!showPreview); }}
+            >
+              {showPreview ? <IconCode size={18} /> : <IconEye size={18} />}
+              {showPreview ? t('Code') : t('Preview')}
+            </button>
+          )}
           <button
             className="flex gap-1.5 items-center rounded bg-none p-1 text-xs text-white"
             onClick={(e) => copyToClipboard(e)}
@@ -106,33 +120,53 @@ export const CodeBlock: FC<Props> = memo(({ language, value }) => {
           </button>
         </div>
       </div>
-      <SyntaxHighlighter
-        language={language}
-        style={oneDark}
-        customStyle={{
-          margin: 0,
-          maxWidth: '100%',
-          maxHeight: '50vh',
-          display: 'block',
-          boxSizing: 'border-box',
-          whiteSpace: 'pre-wrap',
-          wordBreak: 'break-word',
-          overflowX: 'auto',
-          overflowY: 'auto',
-          fontFamily: "'JetBrains Mono', monospace",
-          fontSize: '14px',
-          lineHeight: '1.5',
-        }}
-        codeTagProps={{
-          style: {
+
+      {isHtml && showPreview ? (
+        <div className="relative bg-white rounded-b" style={{ minHeight: '120px' }}>
+          <iframe
+            srcDoc={formattedValue}
+            sandbox="allow-scripts"
+            title="HTML Preview"
+            className="w-full rounded-b"
+            style={{
+              border: 'none',
+              minHeight: '200px',
+              maxHeight: '70vh',
+              height: '400px',
+              display: 'block',
+              backgroundColor: '#ffffff',
+            }}
+          />
+        </div>
+      ) : (
+        <SyntaxHighlighter
+          language={language}
+          style={oneDark}
+          customStyle={{
+            margin: 0,
+            maxWidth: '100%',
+            maxHeight: '50vh',
+            display: 'block',
+            boxSizing: 'border-box',
+            whiteSpace: 'pre-wrap',
+            wordBreak: 'break-word',
+            overflowX: 'auto',
+            overflowY: 'auto',
             fontFamily: "'JetBrains Mono', monospace",
             fontSize: '14px',
-          }
-        }}
-        wrapLongLines={true} // Ensures long lines wrap instead of forcing width expansion
-      >
-        {formattedValue}
-      </SyntaxHighlighter>
+            lineHeight: '1.5',
+          }}
+          codeTagProps={{
+            style: {
+              fontFamily: "'JetBrains Mono', monospace",
+              fontSize: '14px',
+            }
+          }}
+          wrapLongLines={true}
+        >
+          {formattedValue}
+        </SyntaxHighlighter>
+      )}
     </div>
   );
 });
