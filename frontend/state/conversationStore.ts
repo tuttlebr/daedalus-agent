@@ -20,9 +20,13 @@
 import { create } from 'zustand';
 import { subscribeWithSelector } from 'zustand/middleware';
 import { immer } from 'zustand/middleware/immer';
+import { enableMapSet } from 'immer';
 import { Conversation, Message } from '@/types/chat';
 import { IntermediateStep } from '@/types/intermediateSteps';
 import { Logger } from '@/utils/logger';
+
+// Enable immer support for Set and Map (required for streamingConversationIds)
+enableMapSet();
 
 const logger = new Logger('ConversationStore');
 

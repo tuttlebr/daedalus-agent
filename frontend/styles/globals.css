@@ -5,6 +5,9 @@
 /* Import the design system */
 @import './design-system.css';
 
+/* Import SRD animation keyframes and utility classes */
+@import './animations.css';
+
 /* Import KaTeX styles for LaTeX math rendering */
 @import 'katex/dist/katex.min.css';
 

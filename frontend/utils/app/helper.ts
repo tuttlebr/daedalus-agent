@@ -69,8 +69,9 @@ export const compressImage = (base64: string, mimeType: string | undefined, shou
 }
 
 export const getURLQueryParam = ({ param = '' }) => {
-    // Get the URL query parameters safely
-    const urlParams = new URLSearchParams(window?.location?.search);
+    // SSR guard: window is not available during server-side rendering
+    if (typeof window === 'undefined') return param ? null : {};
+    const urlParams = new URLSearchParams(window.location.search);
 
     if (param) {
         // Get the value of a specific query parameter

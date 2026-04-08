@@ -54,9 +54,19 @@ export {
   type UISettingsStore,
 } from './uiSettingsStore';
 
-// Migration Bridge (for gradual HomeContext migration)
+// Connection Store
 export {
-  useStoreBridge,
-  useContextSync,
-  type StoreBridgeReturn,
-} from './useStoreBridge';
+  useConnectionStore,
+  // Selectors
+  selectIsConnected,
+  selectConnectionMode,
+  selectReconnectAttempts,
+  // Convenience hooks
+  useIsConnected,
+  useConnectionMode,
+  // Types
+  type ConnectionMode,
+  type ConnectionState,
+  type ConnectionActions,
+  type ConnectionStore,
+} from './connectionStore';

@@ -468,6 +468,16 @@ export function cleanMessagesForLLM(messages: any[]): Message[] {
             return result;
           }
 
+          if (att.type === 'document') {
+            const result: Record<string, unknown> = {
+              type: att.type,
+              content: att.content,
+              mimeType: att.mimeType,
+            };
+            if (att.documentRef) result.documentRef = att.documentRef;
+            return result;
+          }
+
           return {
             type: att.type,
           };
@@ -559,6 +569,37 @@ export function cleanMessagesForLLM(messages: any[]): Message[] {
             if (contentAdditions) contentAdditions += '\n';
             contentAdditions += videoText;
           }
+        }
+
+        // Collect all document references
+        const allDocumentRefs: any[] = [];
+        message.attachments.forEach((att: any) => {
+          if (att.type === 'document' && att.documentRef) {
+            allDocumentRefs.push({ ...att.documentRef, filename: att.content || att.documentRef?.filename });
+          }
+        });
+
+        if (allDocumentRefs.length > 0) {
+          const docText = allDocumentRefs.length === 1
+            ? `[Document attachment: ${allDocumentRefs[0].filename || 'document'}]`
+            : `[${allDocumentRefs.length} document attachments]`;
+
+          const structuredRefs = allDocumentRefs.map((ref: any, index: number) => {
+            return `[DOCUMENT_REFERENCE_${index + 1}]: ${JSON.stringify(ref)}`;
+          }).join('\n');
+
+          const docInstructions = allDocumentRefs.length === 1
+            ? `\n\n**Document Reference for Tools:**\nUse this documentRef parameter: ${JSON.stringify(allDocumentRefs[0])}`
+            : `\n\n**Document References for Tools:**\n${allDocumentRefs.map((ref: any, i: number) => `Document ${i + 1}: ${JSON.stringify(ref)}`).join('\n')}`;
+
+          // Check if message metadata requests ingestion to a specific collection
+          const targetCollection = message.metadata?.targetCollection;
+          const ingestInstruction = targetCollection
+            ? `\n\n**Ingestion Target:** Use the nv_ingest_postprocessing_tool to ingest this document into the "${targetCollection}" collection.`
+            : '';
+
+          if (contentAdditions) contentAdditions += '\n';
+          contentAdditions += `${docText}\n${structuredRefs}${docInstructions}${ingestInstruction}`;
         }
 
         if (contentAdditions) {

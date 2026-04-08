@@ -1,565 +1,230 @@
-'use client'
-import { useCallback, useEffect, useRef, useState } from 'react';
+'use client';
 
-import { GetServerSideProps } from 'next';
+import { useCallback, useEffect, useRef } from 'react';
 import { useTranslation } from 'next-i18next';
-import { serverSideTranslations } from 'next-i18next/serverSideTranslations';
 import Head from 'next/head';
-
-import { useCreateReducer } from '@/hooks/useCreateReducer';
-import { useWebSocket } from '@/hooks/useWebSocket';
-import { getUserSessionItem, setUserSessionItem } from '@/utils/app/storage';
-
-
-import {
-  cleanConversationHistory,
-  cleanSelectedConversation,
-} from '@/utils/app/clean';
-import {
-  saveConversation,
-  saveConversations,
-  updateConversation,
-  loadConversation,
-} from '@/utils/app/conversation';
-import { saveFolders } from '@/utils/app/folders';
-import { getSettings } from '@/utils/app/settings';
-
-import { Conversation } from '@/types/chat';
-import { KeyValuePair } from '@/types/data';
-import { FolderInterface, FolderType } from '@/types/folder';
-
-import { Chat } from '@/components/Chat/Chat';
-import { Chatbar } from '@/components/Chatbar/Chatbar';
-import { IconMenu2, IconX } from '@tabler/icons-react';
-import { ProtectedRoute } from '@/components/Auth/ProtectedRoute';
-import { MemoryWarning } from '@/components/MemoryWarning';
-
-import HomeContext from './home.context';
-import { HomeInitialState, initialState } from './home.state';
-
 import { v4 as uuidv4 } from 'uuid';
+
+import { useWebSocket } from '@/hooks/useWebSocket';
+import { useKeyboardShortcuts, commonShortcuts } from '@/hooks/useKeyboardShortcuts';
+import { useTheme } from '@/hooks/useTheme';
+import { getUserSessionItem, setUserSessionItem } from '@/utils/app/storage';
+import { cleanConversationHistory, cleanSelectedConversation } from '@/utils/app/clean';
+import { saveConversation, saveConversations, loadConversation } from '@/utils/app/conversation';
 import { getWorkflowName } from '@/utils/app/helper';
 import { apiGet } from '@/utils/app/api';
+import { Conversation } from '@/types/chat';
 
-const Home = (props: any) => {
+import { useConversationStore, useUISettingsStore } from '@/state';
+import { useAuth } from '@/components/auth';
+import { ProtectedRoute } from '@/components/auth';
+import { AppShell } from '@/components/layout';
+import { Sidebar } from '@/components/sidebar/Sidebar';
+import { BottomNav } from '@/components/mobile/BottomNav';
+import { ChatView } from '@/components/chat/ChatView';
+
+const Home = () => {
   const { t } = useTranslation('chat');
+  const { user } = useAuth();
+  const userId = user?.username || 'anon';
+  useTheme();
 
-  const contextValue = useCreateReducer<HomeInitialState>({
-    initialState,
+  const workflow = getWorkflowName() || 'Daedalus';
+
+  // Keyboard shortcuts
+  const toggleChatbar = useUISettingsStore((s) => s.toggleChatbar);
+  useKeyboardShortcuts({
+    shortcuts: [
+      commonShortcuts.toggleSidebar(() => toggleChatbar()),
+      commonShortcuts.newItem(() => {
+        const newConv: Conversation = { id: uuidv4(), name: t('New Conversation'), messages: [], folderId: null };
+        useConversationStore.getState().addConversation(newConv);
+        useConversationStore.getState().selectConversation(newConv.id);
+        saveConversation(newConv);
+      }),
+    ],
   });
 
-  let workflow = 'Daedalus';
+  const conversations = useConversationStore((s) => s.conversations);
+  const setConversations = useConversationStore((s) => s.setConversations);
+  const selectedConversationId = useConversationStore((s) => s.selectedConversationId);
+  const selectConversation = useConversationStore((s) => s.selectConversation);
+  const addConversation = useConversationStore((s) => s.addConversation);
+  const updateConversationInStore = useConversationStore((s) => s.updateConversation);
+  const deleteConversationFromStore = useConversationStore((s) => s.deleteConversation);
 
-  const {
-    state: {
-      lightMode,
-      folders,
-      conversations,
-      selectedConversation,
-      showChatbar,
-      useDeepThinker,
-      chatbarWidth,
-      // showVoiceRecorder, // COMMENTED OUT - Voice recording disabled
-    },
-    dispatch,
-  } = contextValue;
-
-  const stopConversationRef = useRef<boolean>(false);
   const conversationsRef = useRef(conversations);
   conversationsRef.current = conversations;
-  const selectedConversationRef = useRef(selectedConversation);
-  selectedConversationRef.current = selectedConversation;
-  const [quickActionHandlers, setQuickActionHandlers] = useState<{
-    onAttachFile?: () => void;
-    onTakePhoto?: () => void;
-  }>({});
+  const selectedIdRef = useRef(selectedConversationId);
+  selectedIdRef.current = selectedConversationId;
 
-  // Sidebar resize logic
-  const isResizing = useRef(false);
-  const chatbarWidthRef = useRef(chatbarWidth);
-  chatbarWidthRef.current = chatbarWidth;
-
-  const handleResizeMouseDown = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    isResizing.current = true;
-    document.body.style.cursor = 'col-resize';
-    document.body.style.userSelect = 'none';
-
-    const handleMouseMove = (e: MouseEvent) => {
-      if (!isResizing.current) return;
-      const newWidth = Math.min(Math.max(e.clientX, 200), 500);
-      dispatch({ field: 'chatbarWidth', value: newWidth });
-    };
-
-    const handleMouseUp = () => {
-      isResizing.current = false;
-      document.body.style.cursor = '';
-      document.body.style.userSelect = '';
-      document.removeEventListener('mousemove', handleMouseMove);
-      document.removeEventListener('mouseup', handleMouseUp);
-      setUserSessionItem('chatbarWidth', String(chatbarWidthRef.current));
-    };
-
-    document.addEventListener('mousemove', handleMouseMove);
-    document.addEventListener('mouseup', handleMouseUp);
-  }, [dispatch]);
-
-  const handleSelectConversation = (conversation: Conversation) => {
-    // Save the CURRENT conversation before switching to preserve any in-progress state
-    if (selectedConversation && selectedConversation.id !== conversation.id) {
-      saveConversation(selectedConversation);
-      // Also update the conversations list with the current state
-      const updatedConversations = conversations.map((c) =>
-        c.id === selectedConversation.id ? selectedConversation : c
-      );
-      saveConversations(updatedConversations);
-    }
-
-    dispatch({
-      field: 'selectedConversation',
-      value: conversation,
-    });
-
-    saveConversation(conversation);
-  };
-
-  // FOLDER OPERATIONS  --------------------------------------------
-
-  const handleCreateFolder = (name: string, type: FolderType) => {
-    const newFolder: FolderInterface = {
-      id: uuidv4(),
-      name,
-      type,
-    };
-
-    const updatedFolders = [...folders, newFolder];
-
-    dispatch({ field: 'folders', value: updatedFolders });
-    saveFolders(updatedFolders);
-  };
-
-  const handleDeleteFolder = (folderId: string) => {
-    const updatedFolders = folders.filter((f) => f.id !== folderId);
-    dispatch({ field: 'folders', value: updatedFolders });
-    saveFolders(updatedFolders);
-
-    const updatedConversations: Conversation[] = conversations.map((c) => {
-      if (c.folderId === folderId) {
-        return {
-          ...c,
-          folderId: null,
-        };
-      }
-
-      return c;
-    });
-
-    dispatch({ field: 'conversations', value: updatedConversations });
-    saveConversations(updatedConversations);;
-  };
-
-  const handleUpdateFolder = (folderId: string, name: string) => {
-    const updatedFolders = folders.map((f) => {
-      if (f.id === folderId) {
-        return {
-          ...f,
-          name,
-        };
-      }
-
-      return f;
-    });
-
-    dispatch({ field: 'folders', value: updatedFolders });
-
-    saveFolders(updatedFolders);
-  };
-
-  // CONVERSATION OPERATIONS  --------------------------------------------
-
-  const handleNewConversation = () => {
-    // Save the CURRENT conversation before creating a new one to preserve any in-progress state
-    if (selectedConversation) {
-      saveConversation(selectedConversation);
-      // Update the conversations list with the current state before adding the new one
-      const updatedExistingConversations = conversations.map((c) =>
-        c.id === selectedConversation.id ? selectedConversation : c
-      );
-      dispatch({ field: 'conversations', value: updatedExistingConversations });
-      saveConversations(updatedExistingConversations);
-    }
-
-    const lastConversation = conversations[conversations.length - 1];
-
-    const newConversation: Conversation = {
-      id: uuidv4(),
-      name: t('New Conversation'),
-      messages: [],
-      folderId: null,
-    };
-
-    const updatedConversations = selectedConversation
-      ? [...conversations.map((c) => c.id === selectedConversation.id ? selectedConversation : c), newConversation]
-      : [...conversations, newConversation];
-
-    dispatch({ field: 'selectedConversation', value: newConversation });
-    dispatch({ field: 'conversations', value: updatedConversations });
-
-    saveConversation(newConversation);
-    saveConversations(updatedConversations);
-
-    dispatch({ field: 'loading', value: false });
-  };
-
-  const handleUpdateConversation = (
-    conversation: Conversation,
-    data: KeyValuePair,
-  ) => {
-    const updatedConversation = {
-      ...conversation,
-      [data.key]: data.value,
-    };
-
-    const { single, all } = updateConversation(
-      updatedConversation,
-      conversations,
-    );
-
-    dispatch({ field: 'selectedConversation', value: single });
-    dispatch({ field: 'conversations', value: all });
-  };
-
-  // CROSS-DEVICE SYNC  -----------------------------------------------
-
+  // Cross-device sync via WebSocket + Redis pub/sub
   const refreshConversationList = useCallback(async () => {
     try {
       const serverConversations = await apiGet<Conversation[]>('/api/session/conversationHistory');
       if (Array.isArray(serverConversations)) {
         const cleaned = cleanConversationHistory(serverConversations);
-        dispatch({ field: 'conversations', value: cleaned });
+        setConversations(cleaned);
         setUserSessionItem('conversationHistory', JSON.stringify(cleaned));
       }
     } catch (error) {
       console.error('Failed to refresh conversation list:', error);
     }
-  }, [dispatch]);
+  }, [setConversations]);
 
-  // Real-time sync via WebSocket + Redis pub/sub for cross-device updates
   useWebSocket({
     enabled: true,
     onConversationUpdated: useCallback((conversation: Conversation) => {
-      // Only apply update if it came from a different session (different conversation state)
       const current = conversationsRef.current.find((c) => c.id === conversation.id);
-      const isSelectedOnThisDevice = selectedConversationRef.current?.id === conversation.id;
-
-      // Update the conversation list
       if (current) {
-        const updatedConversations = conversationsRef.current.map((c) =>
-          c.id === conversation.id ? conversation : c
-        );
-        dispatch({ field: 'conversations', value: updatedConversations });
+        updateConversationInStore(conversation.id, conversation);
       } else {
-        // New conversation from another device
-        dispatch({ field: 'conversations', value: [...conversationsRef.current, conversation] });
+        addConversation(conversation);
       }
-
-      // If we're viewing this conversation, update it
-      if (isSelectedOnThisDevice) {
-        dispatch({ field: 'selectedConversation', value: conversation });
-      }
-    }, [dispatch]),
+    }, [updateConversationInStore, addConversation]),
     onConversationDeleted: useCallback((conversationId: string) => {
-      const updated = conversationsRef.current.filter((c) => c.id !== conversationId);
-      dispatch({ field: 'conversations', value: updated });
-
-      // If the deleted conversation is currently selected, clear selection
-      if (selectedConversationRef.current?.id === conversationId) {
-        const next = updated[updated.length - 1];
-        dispatch({
-          field: 'selectedConversation',
-          value: next ?? { id: uuidv4(), name: t('New Conversation'), messages: [], folderId: null },
-        });
+      deleteConversationFromStore(conversationId);
+      if (selectedIdRef.current === conversationId) {
+        const remaining = conversationsRef.current.filter((c) => c.id !== conversationId);
+        const next = remaining[remaining.length - 1];
+        if (next) {
+          selectConversation(next.id);
+        } else {
+          const newConv: Conversation = { id: uuidv4(), name: t('New Conversation'), messages: [], folderId: null };
+          addConversation(newConv);
+          selectConversation(newConv.id);
+        }
       }
-    }, [dispatch, t]),
-    onConversationListChanged: useCallback(() => {
-      refreshConversationList();
-    }, [refreshConversationList]),
-    onConnected: useCallback(() => {
-      // On reconnect, refresh the full conversation list to catch anything missed
-      refreshConversationList();
-    }, [refreshConversationList]),
+    }, [deleteConversationFromStore, selectConversation, addConversation, t]),
+    onConversationListChanged: useCallback(() => { refreshConversationList(); }, [refreshConversationList]),
+    onConnected: useCallback(() => { refreshConversationList(); }, [refreshConversationList]),
   });
 
-  // Refresh conversation list when the page becomes visible (user switches back to this tab/device)
   useEffect(() => {
     const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible') {
-        refreshConversationList();
-      }
+      if (document.visibilityState === 'visible') refreshConversationList();
     };
-
     document.addEventListener('visibilitychange', handleVisibilityChange);
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
   }, [refreshConversationList]);
 
-  // EFFECTS  --------------------------------------------
-
+  // Clear stale async jobs from previous sessions (prevents 404 polling spam)
   useEffect(() => {
-    if (window.innerWidth < 640) {
-      dispatch({ field: 'showChatbar', value: false });
-    }
-  }, [selectedConversation, dispatch]);
-
-  useEffect(() => {
-    workflow = getWorkflowName()
-    const settings = getSettings();
-    if (settings.theme) {
-      dispatch({
-        field: 'lightMode',
-        value: settings.theme,
-      });
-    }
-
-    // Use user-specific storage keys to prevent data leakage between users
-    const showChatbar = getUserSessionItem('showChatbar');
-    if (showChatbar !== null) {
-      dispatch({ field: 'showChatbar', value: showChatbar === 'true' });
-    } else {
-      // If no sessionStorage value, use the default from initialState (false)
-      dispatch({ field: 'showChatbar', value: false });
-      setUserSessionItem('showChatbar', 'false');
-    }
-
-    const savedChatbarWidth = getUserSessionItem('chatbarWidth');
-    if (savedChatbarWidth !== null) {
-      const parsed = parseInt(savedChatbarWidth, 10);
-      if (!isNaN(parsed) && parsed >= 200 && parsed <= 500) {
-        dispatch({ field: 'chatbarWidth', value: parsed });
+    try {
+      const key = `asyncJobs_${userId}`;
+      const stored = localStorage.getItem(key);
+      if (stored) {
+        const jobs = JSON.parse(stored);
+        // Clear jobs older than 1 hour
+        const fresh = Array.isArray(jobs) ? jobs.filter((j: any) => Date.now() - (j.timestamp || 0) < 3600000) : [];
+        if (fresh.length !== jobs.length) {
+          localStorage.setItem(key, JSON.stringify(fresh));
+        }
       }
-    }
+    } catch {}
+  }, [userId]);
 
-    const chatHistory = getUserSessionItem('chatHistory');
-    if (chatHistory !== null) {
-      dispatch({ field: 'chatHistory', value: chatHistory === 'true' });
-    } else {
-      // If no sessionStorage value, use the default from initialState (true)
-      dispatch({ field: 'chatHistory', value: true });
-      setUserSessionItem('chatHistory', 'true');
-    }
-
-    const enableBackgroundProcessing = getUserSessionItem('enableBackgroundProcessing');
-    if (enableBackgroundProcessing !== null) {
-      dispatch({ field: 'enableBackgroundProcessing', value: enableBackgroundProcessing === 'true' });
-    } else {
-      // Default to true to enable background processing by default
-      dispatch({ field: 'enableBackgroundProcessing', value: true });
-      setUserSessionItem('enableBackgroundProcessing', 'true');
-    }
-
+  // Initial data load
+  useEffect(() => {
     const folders = getUserSessionItem('folders');
     if (folders) {
-      dispatch({ field: 'folders', value: JSON.parse(folders) });
+      try { useUISettingsStore.getState().setFolders(JSON.parse(folders)); } catch {}
+    }
+
+    const savedWidth = getUserSessionItem('chatbarWidth');
+    if (savedWidth) {
+      const parsed = parseInt(savedWidth, 10);
+      if (!isNaN(parsed) && parsed >= 200 && parsed <= 500) {
+        useUISettingsStore.getState().setChatbarWidth(parsed);
+      }
     }
 
     const fetchConversations = async () => {
       try {
-        // Use session-based conversationHistory endpoint for Redis persistence
         const serverConversations = await apiGet('/api/session/conversationHistory');
         if (Array.isArray(serverConversations)) {
-          const cleanedServerConversations = cleanConversationHistory(serverConversations);
-          dispatch({ field: 'conversations', value: cleanedServerConversations });
-          setUserSessionItem('conversationHistory', JSON.stringify(cleanedServerConversations));
+          const cleaned = cleanConversationHistory(serverConversations);
+          useConversationStore.getState().setConversations(cleaned);
+          setUserSessionItem('conversationHistory', JSON.stringify(cleaned));
         } else {
-            // This case might happen if server returns something other than an array, but not an error.
-            // Fallback to local.
-            const localConversationHistory = getUserSessionItem('conversationHistory');
-            if (localConversationHistory) {
-              dispatch({ field: 'conversations', value: JSON.parse(localConversationHistory) });
-            }
+          const local = getUserSessionItem('conversationHistory');
+          if (local) useConversationStore.getState().setConversations(JSON.parse(local));
         }
-      } catch (error) {
-        console.error('Error fetching conversations, falling back to local storage:', error);
-        // Fallback to local conversations if server fetch fails
-        const localConversationHistory = getUserSessionItem('conversationHistory');
-        if (localConversationHistory) {
-          dispatch({ field: 'conversations', value: JSON.parse(localConversationHistory) });
+      } catch {
+        const local = getUserSessionItem('conversationHistory');
+        if (local) useConversationStore.getState().setConversations(JSON.parse(local));
+      }
+    };
+
+    const loadSelectedConversation = async () => {
+      try {
+        const serverConv = await loadConversation();
+        if (serverConv) {
+          const cleaned = cleanSelectedConversation(serverConv);
+          useConversationStore.getState().addConversation(cleaned);
+          useConversationStore.getState().selectConversation(cleaned.id);
+        } else {
+          const local = getUserSessionItem('selectedConversation');
+          if (local) {
+            const parsed = cleanSelectedConversation(JSON.parse(local));
+            useConversationStore.getState().selectConversation(parsed.id);
+          } else {
+            const newConv: Conversation = { id: uuidv4(), name: t('New Conversation'), messages: [], folderId: null };
+            useConversationStore.getState().addConversation(newConv);
+            useConversationStore.getState().selectConversation(newConv.id);
+          }
+        }
+      } catch {
+        const local = getUserSessionItem('selectedConversation');
+        if (local) {
+          const parsed = cleanSelectedConversation(JSON.parse(local));
+          useConversationStore.getState().selectConversation(parsed.id);
         }
       }
     };
 
     fetchConversations();
-
-    // Load selected conversation from Redis (with localStorage fallback)
-    const loadSelectedConversation = async () => {
-      try {
-        const serverConversation = await loadConversation();
-        if (serverConversation) {
-          const cleanedSelectedConversation = cleanSelectedConversation(serverConversation);
-          dispatch({
-            field: 'selectedConversation',
-            value: cleanedSelectedConversation,
-          });
-        } else {
-          // Fallback to local storage
-          const localSelectedConversation = getUserSessionItem('selectedConversation');
-          if (localSelectedConversation) {
-            const parsedSelectedConversation: Conversation =
-              JSON.parse(localSelectedConversation);
-            const cleanedSelectedConversation = cleanSelectedConversation(
-              parsedSelectedConversation,
-            );
-            dispatch({
-              field: 'selectedConversation',
-              value: cleanedSelectedConversation,
-            });
-          } else {
-            // No existing conversation, create a new one
-            const lastConversation = conversations[conversations.length - 1];
-            dispatch({
-              field: 'selectedConversation',
-              value: {
-                id: uuidv4(),
-                name: t('New Conversation'),
-                messages: [],
-                folderId: null,
-              },
-            });
-          }
-        }
-      } catch (error) {
-        console.error('Error loading selected conversation:', error);
-        // Fallback to local storage on error
-        const localSelectedConversation = getUserSessionItem('selectedConversation');
-        if (localSelectedConversation) {
-          const parsedSelectedConversation: Conversation =
-            JSON.parse(localSelectedConversation);
-          const cleanedSelectedConversation = cleanSelectedConversation(
-            parsedSelectedConversation,
-          );
-          dispatch({
-            field: 'selectedConversation',
-            value: cleanedSelectedConversation,
-          });
-        }
-      }
-    };
-
     loadSelectedConversation();
-  }, [dispatch, t]);
+  }, [t]);
+
+  useEffect(() => {
+    if (window.innerWidth < 768) {
+      useUISettingsStore.getState().setShowChatbar(false);
+    }
+  }, [selectedConversationId]);
 
   return (
     <ProtectedRoute>
-      <HomeContext.Provider
-        value={{
-          ...contextValue,
-          handleNewConversation,
-          handleCreateFolder,
-          handleDeleteFolder,
-          handleUpdateFolder,
-          handleSelectConversation,
-          handleUpdateConversation,
-          quickActionHandlers: {
-            onAttachFile: () => {
-              if (quickActionHandlers.onAttachFile) {
-                quickActionHandlers.onAttachFile();
-              } else {
-                console.warn('Attach file handler not available');
-              }
-            },
-            onTakePhoto: () => {
-              if (quickActionHandlers.onTakePhoto) {
-                quickActionHandlers.onTakePhoto();
-              } else {
-                console.warn('Take photo handler not available');
-              }
-            },
-            onToggleDeepThought: () => {
-              dispatch({ field: 'useDeepThinker', value: !useDeepThinker });
-            },
-            __setHandlers: (handlers: any) => {
-              setQuickActionHandlers((prevHandlers: any) => ({ ...prevHandlers, ...handlers }));
-            },
-          } as any,
-        }}
-      >
-        <Head>
-          <title>{workflow}</title>
-          <meta name="description" content={workflow} />
-          <meta
-            name="viewport"
-            content="width=device-width, initial-scale=1, viewport-fit=cover"
-          />
-          <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)" />
-          <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
-          <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-          <link rel="icon" href="/favicon.png" />
-        </Head>
-        {selectedConversation && (
-          <main
-            className={`flex h-screen w-screen flex-col text-sm text-white dark:text-white ${lightMode}`}
-          >
-            {/* Mobile Layout */}
-            <div className="relative flex flex-col h-full md:hidden">
-              {/* Main chat container - full height with proper spacing */}
-              <div className="flex-1 overflow-hidden">
-                <Chat />
-              </div>
+      <Head>
+        <title>{workflow}</title>
+        <meta name="description" content={workflow} />
+        <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+        <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)" />
+        <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
+        <link rel="icon" href="/favicon.png" />
+      </Head>
 
-              {/* Slide-over chatbar for mobile */}
-              {showChatbar && (
-                <>
-                  {/* Backdrop overlay */}
-                  <div
-                    className="fixed inset-0 bg-black/50 z-40 md:hidden"
-                    onClick={() => dispatch({ field: 'showChatbar', value: false })}
-                  />
-                  {/* Sidebar panel */}
-                  <div
-                    className="fixed left-0 top-0 bottom-0 w-4/5 max-w-sm z-50 transform transition-transform duration-300 ease-in-out translate-x-0"
-                  >
-                    <div className="relative h-full bg-dark-bg-secondary safe-top safe-bottom">
-                      <Chatbar />
-                    </div>
-                  </div>
-                </>
-              )}
-            </div>
-
-            {/* Desktop Layout */}
-            <div className="hidden md:flex h-full overflow-hidden">
-              <div
-                className="flex-shrink-0 overflow-hidden"
-                style={{ width: showChatbar ? `${chatbarWidth}px` : '0px', transition: isResizing.current ? 'none' : 'width 0.3s' }}
-                data-sidebar-desktop={showChatbar ? 'open' : 'collapsed'}
-              >
-                <Chatbar />
-              </div>
-              {showChatbar && (
-                <div
-                  className="w-1 flex-shrink-0 cursor-col-resize hover:bg-nvidia-green/30 active:bg-nvidia-green/50 transition-colors duration-150"
-                  onMouseDown={handleResizeMouseDown}
-                />
-              )}
-              <div className="flex flex-1 min-w-0 overflow-hidden">
-                <Chat />
-              </div>
-            </div>
-          </main>
-        )}
-        <MemoryWarning />
-      </HomeContext.Provider>
+      <main className="flex h-screen w-screen flex-col text-sm text-dark-text-primary bg-dark-bg-primary" id="main-content">
+        <AppShell
+          sidebar={<Sidebar />}
+          bottomNav={<BottomNav />}
+        >
+          <ChatView />
+        </AppShell>
+      </main>
     </ProtectedRoute>
   );
 };
+
 export default Home;
 
-export const getServerSideProps: GetServerSideProps = async ({ locale }) => {
-  const defaultModelId =
-    process.env.DEFAULT_MODEL || '';
+import { GetServerSideProps } from 'next';
+import { serverSideTranslations } from 'next-i18next/serverSideTranslations';
 
+export const getServerSideProps: GetServerSideProps = async ({ locale }) => {
   return {
     props: {
-      defaultModelId,
+      defaultModelId: process.env.DEFAULT_MODEL || '',
       ...(await serverSideTranslations(locale ?? 'en', [
         'common',
         'chat',

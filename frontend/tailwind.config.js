@@ -345,17 +345,67 @@ module.exports = {
           '0%': { transform: 'translateX(-100%)' },
           '50%': { transform: 'translateX(0%)' },
           '100%': { transform: 'translateX(100%)' },
-        }
+        },
+        // SRD Animation Keyframes
+        'heartbeat-sweep': {
+          '0%': { backgroundPosition: '-100% 0' },
+          '100%': { backgroundPosition: '200% 0' },
+        },
+        'heartbeat-breathe': {
+          '0%, 100%': { transform: 'scale(1)', opacity: '0.4' },
+          '50%': { transform: 'scale(1.3)', opacity: '1' },
+        },
+        'morph-in': {
+          from: { opacity: '0', transform: 'translateY(8px)' },
+          to: { opacity: '1', transform: 'translateY(0)' },
+        },
+        'morph-out': {
+          from: { opacity: '1', transform: 'translateY(0)' },
+          to: { opacity: '0', transform: 'translateY(8px)' },
+        },
+        'slide-panel-in': {
+          from: { transform: 'translateX(-100%)' },
+          to: { transform: 'translateX(0)' },
+        },
+        'slide-panel-out': {
+          from: { transform: 'translateX(0)' },
+          to: { transform: 'translateX(-100%)' },
+        },
+        'scale-in': {
+          from: { opacity: '0', transform: 'scale(0.95)' },
+          to: { opacity: '1', transform: 'scale(1)' },
+        },
+        'galaxy-float': {
+          '0%, 100%': { transform: 'translate(0, 0)' },
+          '25%': { transform: 'translate(10px, -10px)' },
+          '50%': { transform: 'translate(-5px, 15px)' },
+          '75%': { transform: 'translate(-15px, -5px)' },
+        },
+        shake: {
+          '0%, 100%': { transform: 'translateX(0)' },
+          '10%, 30%, 50%, 70%, 90%': { transform: 'translateX(-4px)' },
+          '20%, 40%, 60%, 80%': { transform: 'translateX(4px)' },
+        },
       },
       animation: {
         blink: 'blink 1s step-start infinite',
         flicker: 'flicker 1.5s infinite',
         glitch: 'glitch 1s infinite',
         ghost: 'ghost 3s ease-in-out infinite',
-        flash: 'flash 0.5s ease-in-out', // Add your flash animation here
+        flash: 'flash 0.5s ease-in-out',
         crack: 'crack 0.6s ease-in-out forwards',
         darken: 'darken 1s forwards',
         loadingBar: 'loadingBar 2s ease-in-out infinite',
+        // SRD Animations
+        'heartbeat-sweep': 'heartbeat-sweep 1.8s ease-in-out infinite',
+        'heartbeat-breathe': 'heartbeat-breathe 2s ease-in-out infinite',
+        'morph-in': 'morph-in 0.3s ease-out forwards',
+        'morph-out': 'morph-out 0.2s ease-in forwards',
+        'slide-panel-in': 'slide-panel-in 0.3s ease-out forwards',
+        'slide-panel-out': 'slide-panel-out 0.2s ease-in forwards',
+        'scale-in': 'scale-in 0.2s ease-out forwards',
+        'galaxy-float': 'galaxy-float 20s ease-in-out infinite',
+        shake: 'shake 0.5s ease-in-out',
       },
     },
   },

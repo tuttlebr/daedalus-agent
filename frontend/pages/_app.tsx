@@ -7,18 +7,16 @@ import Head from 'next/head';
 import { useEffect, useState } from 'react';
 
 import '@/styles/globals.css';
-import { AuthProvider } from '@/components/Auth/AuthProvider';
-import ErrorBoundary from '@/components/ErrorBoundary/ErrorBoundary';
-import { OfflineIndicator } from '@/components/PWA/OfflineIndicator';
-import { InstallPrompt } from '@/components/PWA/InstallPrompt';
-import { UpdateToast } from '@/components/PWA/UpdateToast';
-import { getSettings } from '@/utils/app/settings';
+import { AuthProvider } from '@/components/auth';
+import { ErrorBoundary } from '@/components/error/ErrorBoundary';
+import { OfflineIndicator } from '@/components/pwa/OfflineIndicator';
+import { InstallPrompt } from '@/components/pwa/InstallPrompt';
+import { UpdateToast } from '@/components/pwa/UpdateToast';
 import { registerServiceWorker, setupOfflineDetection, setupInstallPrompt, setOnUpdateAvailable } from '@/utils/app/pwa';
 import { startMemoryMonitoring } from '@/utils/app/memoryMonitor';
 import toast from 'react-hot-toast';
 
 function App({ Component, pageProps }: AppProps<{}>) {
-
   const [queryClient] = useState(() => new QueryClient({
     defaultOptions: {
       queries: {
@@ -32,25 +30,15 @@ function App({ Component, pageProps }: AppProps<{}>) {
   const [showUpdateToast, setShowUpdateToast] = useState(false);
 
   useEffect(() => {
-    const settings = getSettings();
-    const theme = settings.theme || 'dark';
-
-    if (theme === 'dark') {
-      document.documentElement.classList.add('dark');
-    } else {
-      document.documentElement.classList.remove('dark');
-    }
+    // Apply dark mode immediately to prevent flash
+    document.documentElement.classList.add('dark');
 
     registerServiceWorker();
     setupInstallPrompt();
     setOnUpdateAvailable(() => setShowUpdateToast(true));
     setupOfflineDetection(
-      () => {
-        toast.error('You are offline. Some features may be limited.');
-      },
-      () => {
-        toast.success('Back online!');
-      }
+      () => toast.error('You are offline. Some features may be limited.'),
+      () => toast.success('Back online!')
     );
 
     startMemoryMonitoring({
@@ -62,7 +50,12 @@ function App({ Component, pageProps }: AppProps<{}>) {
 
   return (
     <div>
-      <a href="#main-content" className="sr-only focus:not-sr-only focus:absolute focus:top-0 focus:left-0 focus:z-50 focus:bg-black focus:text-white focus:px-4 focus:py-2">Skip to main content</a>
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:absolute focus:top-0 focus:left-0 focus:z-50 focus:bg-nvidia-green focus:text-white focus:px-4 focus:py-2 focus:rounded-br-lg"
+      >
+        Skip to main content
+      </a>
       <Head>
         <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content" />
       </Head>
@@ -70,7 +63,11 @@ function App({ Component, pageProps }: AppProps<{}>) {
         toastOptions={{
           style: {
             maxWidth: 500,
-            wordBreak: 'break-all',
+            background: '#1a1a1a',
+            color: '#f5f5f5',
+            border: '1px solid rgba(255,255,255,0.06)',
+            borderRadius: '12px',
+            fontSize: '14px',
           },
         }}
         containerStyle={{

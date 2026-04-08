@@ -24,6 +24,7 @@ export interface UISettingsState {
 
   // Chat UI
   showChatbar: boolean;
+  chatbarWidth: number;
   chatHistory: boolean;
   autoScroll: boolean;
 
@@ -65,6 +66,7 @@ export interface UISettingsActions {
   // Chat UI
   setShowChatbar: (show: boolean) => void;
   toggleChatbar: () => void;
+  setChatbarWidth: (width: number) => void;
   setChatHistory: (enabled: boolean) => void;
   setAutoScroll: (enabled: boolean) => void;
 
@@ -121,6 +123,7 @@ const DEFAULT_CHAT_HISTORY =
 const initialState: UISettingsState = {
   lightMode: 'dark',
   showChatbar: false,
+  chatbarWidth: 280,
   chatHistory: DEFAULT_CHAT_HISTORY,
   autoScroll: true,
   enableIntermediateSteps: true,
@@ -168,6 +171,8 @@ export const useUISettingsStore = create<UISettingsStore>()(
 
         toggleChatbar: () =>
           set((state) => ({ showChatbar: !state.showChatbar })),
+
+        setChatbarWidth: (width) => set({ chatbarWidth: width }),
 
         setChatHistory: (enabled) => set({ chatHistory: enabled }),
 
@@ -288,6 +293,7 @@ export const useUISettingsStore = create<UISettingsStore>()(
         partialize: (state) => ({
           lightMode: state.lightMode,
           showChatbar: state.showChatbar,
+          chatbarWidth: state.chatbarWidth,
           chatHistory: state.chatHistory,
           autoScroll: state.autoScroll,
           enableIntermediateSteps: state.enableIntermediateSteps,
