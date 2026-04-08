@@ -2,12 +2,15 @@
 
 import React, { memo } from 'react';
 import classNames from 'classnames';
-import { IconMenu2, IconPaperclip, IconCamera, IconBrain, IconPlus } from '@tabler/icons-react';
-import { useUISettingsStore } from '@/state';
+import { IconMenu2, IconPaperclip, IconBrain, IconPlus } from '@tabler/icons-react';
+import { useUISettingsStore, useConversationStore } from '@/state';
+import { v4 as uuidv4 } from 'uuid';
+import { saveConversation } from '@/utils/app/conversation';
+import { Conversation } from '@/types/chat';
 
 /**
  * Mobile bottom navigation bar.
- * 5 buttons: Menu, Attach, Camera, Think, New Chat.
+ * 4 buttons: Menu, Attach, Think, New Chat.
  * Frosted glass backdrop with safe area inset.
  */
 export const BottomNav = memo(() => {
@@ -28,16 +31,7 @@ export const BottomNav = memo(() => {
       label: 'Attach',
       active: false,
       onClick: () => {
-        // Will be wired in Wave 6
         document.dispatchEvent(new CustomEvent('daedalus:attach-file'));
-      },
-    },
-    {
-      icon: IconCamera,
-      label: 'Camera',
-      active: false,
-      onClick: () => {
-        document.dispatchEvent(new CustomEvent('daedalus:capture-photo'));
       },
     },
     {
@@ -51,14 +45,22 @@ export const BottomNav = memo(() => {
       label: 'New',
       active: false,
       onClick: () => {
-        document.dispatchEvent(new CustomEvent('daedalus:new-conversation'));
+        const newConv: Conversation = {
+          id: uuidv4(),
+          name: 'New Conversation',
+          messages: [],
+          folderId: null,
+        };
+        useConversationStore.getState().addConversation(newConv);
+        useConversationStore.getState().selectConversation(newConv.id);
+        saveConversation(newConv);
       },
     },
   ];
 
   return (
     <nav
-      className="md:hidden flex-shrink-0 bg-black/60 backdrop-blur-xl border-t border-white/[0.06] safe-bottom"
+      className="md:hidden flex-shrink-0 bg-black/60 backdrop-blur-xl border-t border-white/[0.06] safe-bottom z-40"
       role="navigation"
       aria-label="Bottom navigation"
     >
@@ -70,7 +72,7 @@ export const BottomNav = memo(() => {
             aria-label={label}
             className={classNames(
               'flex flex-col items-center justify-center gap-0.5',
-              'min-w-[52px] h-12 rounded-xl',
+              'min-w-[52px] min-h-[48px] rounded-xl',
               'transition-all duration-150 touch-manipulation',
               'active:scale-90',
               active

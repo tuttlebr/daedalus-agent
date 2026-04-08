@@ -54,9 +54,9 @@ const variantClasses: Record<IconButtonVariant, string> = {
 };
 
 const sizeClasses: Record<IconButtonSize, { button: string; icon: number }> = {
-  xs: { button: 'w-6 h-6 rounded-md', icon: 14 },
-  sm: { button: 'w-8 h-8 rounded-lg', icon: 16 },
-  md: { button: 'w-10 h-10 rounded-lg', icon: 20 },
+  xs: { button: 'w-8 h-8 rounded-md', icon: 14 },
+  sm: { button: 'w-10 h-10 rounded-lg', icon: 16 },
+  md: { button: 'w-11 h-11 rounded-lg', icon: 20 },
   lg: { button: 'w-12 h-12 rounded-xl', icon: 24 },
 };
 

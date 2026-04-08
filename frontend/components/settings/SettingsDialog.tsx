@@ -42,15 +42,15 @@ export const SettingsDialog = memo(({ open, onClose }: SettingsDialogProps) => {
 
   return (
     <Dialog open={open} onClose={onClose} title="Settings" size="lg">
-      <div className="flex gap-6">
-        {/* Tabs */}
-        <nav className="flex flex-col gap-1 w-40 flex-shrink-0">
+      <div className="flex flex-col md:flex-row gap-4 md:gap-6">
+        {/* Tabs - horizontal scroll on mobile, vertical on desktop */}
+        <nav className="flex md:flex-col gap-1 overflow-x-auto md:overflow-visible md:w-40 flex-shrink-0 pb-2 md:pb-0 border-b md:border-b-0 border-white/[0.04]">
           {TABS.map(({ id, label, icon: Icon }) => (
             <button
               key={id}
               onClick={() => setActiveTab(id)}
               className={classNames(
-                'flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors text-left',
+                'flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors text-left whitespace-nowrap min-h-[44px]',
                 activeTab === id
                   ? 'bg-nvidia-green/10 text-nvidia-green font-medium'
                   : 'text-dark-text-muted hover:text-dark-text-secondary hover:bg-white/[0.04]'

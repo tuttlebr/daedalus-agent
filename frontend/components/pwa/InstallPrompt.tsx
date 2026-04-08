@@ -52,7 +52,7 @@ export const InstallPrompt = memo(() => {
   if (!showPrompt) return null;
 
   return (
-    <div className="fixed bottom-safe-bottom left-1/2 -translate-x-1/2 z-[90] mb-4 w-[calc(100%-2rem)] max-w-sm animate-slide-up">
+    <div className="fixed left-1/2 -translate-x-1/2 z-[90] bottom-[calc(env(safe-area-inset-bottom)+4.5rem)] md:bottom-safe-bottom md:mb-4 w-[calc(100%-2rem)] max-w-sm animate-slide-up">
       <GlassCard variant="elevated" padding="sm" className="flex items-center gap-3 px-4 py-3">
         <IconDownload size={20} className="text-nvidia-green flex-shrink-0" />
         <div className="flex-1 min-w-0">

@@ -396,28 +396,14 @@ ChatView.displayName = 'ChatView';
 
 const EmptyState = memo(() => (
   <div className="h-full flex flex-col items-center justify-center px-4">
-    <div className="text-center animate-morph-in space-y-4">
+    <div className="text-center animate-morph-in space-y-4 max-w-sm">
       <img src="/main-logo.png" alt="Daedalus" className="h-20 w-auto mx-auto opacity-60" />
       <div>
         <h2 className="text-xl font-semibold text-dark-text-primary">Daedalus</h2>
-        <p className="mt-1 text-sm text-dark-text-muted max-w-md">
-          Your AI agent with access to 50+ tools. Ask me anything, upload files, generate images, search the web, and more.
+        <p className="mt-2 text-sm text-dark-text-muted leading-relaxed">
+          Your AI agent with access to 50+ tools including web search, image generation,
+          document analysis, code review, and more.
         </p>
-      </div>
-      <div className="flex flex-wrap justify-center gap-2 mt-4">
-        {[
-          'Search the web for...',
-          'Generate an image of...',
-          'Analyze this document...',
-          'Help me with code...',
-        ].map((prompt) => (
-          <button
-            key={prompt}
-            className="px-3 py-2 text-xs text-dark-text-muted border border-white/[0.06] rounded-lg hover:bg-white/[0.04] hover:text-dark-text-secondary transition-colors"
-          >
-            {prompt}
-          </button>
-        ))}
       </div>
     </div>
   </div>
