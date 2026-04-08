@@ -295,8 +295,8 @@ export const ChatView = memo(() => {
       className="flex flex-col h-full w-full bg-dark-bg-primary"
       data-mode={useDeepThinker ? 'deep-thinker' : 'tool-calling'}
     >
-      {/* Header */}
-      <header className="flex-shrink-0 flex items-center justify-between px-4 h-14 border-b border-white/[0.04]">
+      {/* Header - safe-top for iOS Dynamic Island / notch */}
+      <header className="flex-shrink-0 flex items-center justify-between px-4 h-14 border-b border-white/[0.04] safe-top">
         <div className="flex items-center gap-3 min-w-0">
           <IconButton
             icon={<IconMenu2 />}
@@ -323,15 +323,23 @@ export const ChatView = memo(() => {
           )}
         </div>
 
-        <Toggle
-          options={[
-            { value: 'tool-calling', label: 'Tool Calling', icon: <IconBolt size={14} /> },
-            { value: 'deep-thinker', label: 'Deep Thinker', icon: <IconBrain size={14} /> },
-          ]}
-          value={useDeepThinker ? 'deep-thinker' : 'tool-calling'}
-          onChange={() => toggleDeepThinker()}
-          size="sm"
-        />
+        {/* Mode toggle - full on desktop, icon-only on mobile (BottomNav has Think) */}
+        <div className="hidden md:block">
+          <Toggle
+            options={[
+              { value: 'tool-calling', label: 'Tool Calling', icon: <IconBolt size={14} /> },
+              { value: 'deep-thinker', label: 'Deep Thinker', icon: <IconBrain size={14} /> },
+            ]}
+            value={useDeepThinker ? 'deep-thinker' : 'tool-calling'}
+            onChange={() => toggleDeepThinker()}
+            size="sm"
+          />
+        </div>
+        {useDeepThinker && (
+          <span className="md:hidden flex items-center gap-1 px-2 py-1 rounded-full bg-nvidia-purple/15 text-nvidia-purple text-[10px] font-medium">
+            <IconBrain size={12} />
+          </span>
+        )}
       </header>
 
       {/* Messages */}

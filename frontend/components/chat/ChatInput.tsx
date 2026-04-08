@@ -302,7 +302,7 @@ export const ChatInput = memo(({ onSend, onStop, isStreaming = false }: ChatInpu
             </div>
           )}
 
-          {/* Input row */}
+          {/* Input row - attach/brain hidden on mobile (in BottomNav instead) */}
           <div className="flex items-end gap-2">
             <IconButton
               icon={<IconPaperclip />}
@@ -310,7 +310,7 @@ export const ChatInput = memo(({ onSend, onStop, isStreaming = false }: ChatInpu
               variant="ghost"
               size="sm"
               onClick={() => fileInputRef.current?.click()}
-              className="flex-shrink-0 mb-0.5"
+              className="hidden md:flex flex-shrink-0 mb-0.5"
             />
 
             <IconButton
@@ -320,7 +320,7 @@ export const ChatInput = memo(({ onSend, onStop, isStreaming = false }: ChatInpu
               size="sm"
               onClick={toggleDeepThinker}
               className={classNames(
-                'flex-shrink-0 mb-0.5',
+                'hidden md:flex flex-shrink-0 mb-0.5',
                 useDeepThinker && 'bg-nvidia-purple hover:bg-nvidia-purple-dark'
               )}
             />
