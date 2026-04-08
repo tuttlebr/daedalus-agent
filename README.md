@@ -70,8 +70,6 @@ Useful optional keys:
 ```bash
 SERPAPI_KEY=...
 GITHUB_PAT=...
-OPENROUTER_API_KEY=...
-AA_API_KEY=...
 ```
 
 ### 2. Choose the backend workflow for local Compose
@@ -310,6 +308,8 @@ Use these docs when you want more component-level detail than this top-level gui
 | [`builder/nat_nv_ingest/README.md`](builder/nat_nv_ingest/README.md) | Document ingestion into NvIngest and Milvus            |
 | [`builder/smart_milvus/README.md`](builder/smart_milvus/README.md) | Milvus retrieval and reranking behavior                 |
 | [`builder/rss_feed/README.md`](builder/rss_feed/README.md)    | Feed-specific RSS retrieval and scraping                      |
+| [`docs/SRD-backend-reference.md`](docs/SRD-backend-reference.md) | Backend planning and architecture reference               |
+| [`docs/NVIDIA-branding-reference.md`](docs/NVIDIA-branding-reference.md) | NVIDIA branding and style guidelines              |
 
 ## Backend Workflows
 
@@ -360,6 +360,14 @@ The `builder/` directory contains reusable NeMo Agent functions and helpers.
 | `webscrape`           | Web page extraction                                    |
 
 Several packages include their own README files under `builder/`.
+
+The `builder/` directory also contains standalone modules that patch NAT at startup:
+
+| Module              | Purpose                                                              |
+| ------------------- | -------------------------------------------------------------------- |
+| `entrypoint.py`     | Custom NAT entrypoint with Starlette compatibility shims             |
+| `llm_diagnostics.py`| OpenAI SDK logging and timeout enforcement for LLM client resilience |
+| `mcp_patches.py`    | MCP StreamableHTTP timeout, reconnection, and error-logging patches  |
 
 ## Autonomous Agent
 
@@ -473,6 +481,8 @@ daedalus-agent/
 - [`builder/smart_milvus/README.md`](builder/smart_milvus/README.md)
 - [`builder/rss_feed/README.md`](builder/rss_feed/README.md)
 - [`builder/image_augmentation/README.md`](builder/image_augmentation/README.md)
+- [`docs/SRD-backend-reference.md`](docs/SRD-backend-reference.md)
+- [`docs/NVIDIA-branding-reference.md`](docs/NVIDIA-branding-reference.md)
 
 ## License
 
