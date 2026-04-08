@@ -37,7 +37,7 @@ const Home = () => {
     shortcuts: [
       commonShortcuts.toggleSidebar(() => toggleChatbar()),
       commonShortcuts.newItem(() => {
-        const newConv: Conversation = { id: uuidv4(), name: t('New Conversation'), messages: [], folderId: null };
+        const newConv: Conversation = { id: uuidv4(), name: t('New Conversation'), messages: [], folderId: null, updatedAt: Date.now() };
         useConversationStore.getState().addConversation(newConv);
         useConversationStore.getState().selectConversation(newConv.id);
         saveConversation(newConv);
@@ -77,7 +77,14 @@ const Home = () => {
     onConversationUpdated: useCallback((conversation: Conversation) => {
       const current = conversationsRef.current.find((c) => c.id === conversation.id);
       if (current) {
-        updateConversationInStore(conversation.id, conversation);
+        // Only apply if incoming data is at least as recent as local state
+        // to prevent stale sync events from overwriting newer local updates
+        // (e.g. auto-naming that happened after the initial save started)
+        const incomingTime = conversation.updatedAt || 0;
+        const currentTime = current.updatedAt || 0;
+        if (incomingTime >= currentTime) {
+          updateConversationInStore(conversation.id, conversation);
+        }
       } else {
         addConversation(conversation);
       }
@@ -90,7 +97,7 @@ const Home = () => {
         if (next) {
           selectConversation(next.id);
         } else {
-          const newConv: Conversation = { id: uuidv4(), name: t('New Conversation'), messages: [], folderId: null };
+          const newConv: Conversation = { id: uuidv4(), name: t('New Conversation'), messages: [], folderId: null, updatedAt: Date.now() };
           addConversation(newConv);
           selectConversation(newConv.id);
         }
@@ -169,7 +176,7 @@ const Home = () => {
             const parsed = cleanSelectedConversation(JSON.parse(local));
             useConversationStore.getState().selectConversation(parsed.id);
           } else {
-            const newConv: Conversation = { id: uuidv4(), name: t('New Conversation'), messages: [], folderId: null };
+            const newConv: Conversation = { id: uuidv4(), name: t('New Conversation'), messages: [], folderId: null, updatedAt: Date.now() };
             useConversationStore.getState().addConversation(newConv);
             useConversationStore.getState().selectConversation(newConv.id);
           }

@@ -50,6 +50,7 @@ export const BottomNav = memo(() => {
           name: 'New Conversation',
           messages: [],
           folderId: null,
+          updatedAt: Date.now(),
         };
         useConversationStore.getState().addConversation(newConv);
         useConversationStore.getState().selectConversation(newConv.id);

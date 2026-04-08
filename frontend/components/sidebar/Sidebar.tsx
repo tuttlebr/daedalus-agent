@@ -42,6 +42,7 @@ export const Sidebar = memo(() => {
       name: t('New Conversation'),
       messages: [],
       folderId: null,
+      updatedAt: Date.now(),
     };
     addConversation(newConv);
     selectConversation(newConv.id);
