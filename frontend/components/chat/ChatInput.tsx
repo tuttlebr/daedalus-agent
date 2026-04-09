@@ -125,7 +125,7 @@ export const ChatInput = memo(({ onSend, onStop, isStreaming = false }: ChatInpu
         const attachment: Attachment = {
           content: file.name,
           type: 'image',
-          imageRef: { imageId: imageRef.imageId, sessionId: imageRef.sessionId, mimeType: file.type },
+          imageRef: { imageId: imageRef.imageId, sessionId: imageRef.sessionId, mimeType: file.type, ...(imageRef.userId && { userId: imageRef.userId }) },
         };
         setAttachments((prev) => [...prev, attachment]);
 
@@ -164,13 +164,13 @@ export const ChatInput = memo(({ onSend, onStop, isStreaming = false }: ChatInpu
         });
 
         if (!response.ok) throw new Error('Video upload failed');
-        const { videoId, sessionId } = await response.json();
+        const { videoId, sessionId, userId } = await response.json();
         setUploading((prev) => prev.map((u) => u.id === uploadId ? { ...u, progress: 100 } : u));
 
         const attachment: Attachment = {
           content: file.name,
           type: 'video',
-          videoRef: { videoId, sessionId, filename: file.name, mimeType: file.type },
+          videoRef: { videoId, sessionId, filename: file.name, mimeType: file.type, ...(userId && { userId }) },
         };
         setAttachments((prev) => [...prev, attachment]);
       }

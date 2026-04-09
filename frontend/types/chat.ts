@@ -25,22 +25,26 @@ export interface Message {
     imageRef?: {
       imageId: string;
       sessionId: string;
+      userId?: string;
       mimeType?: string;
     };
     imageRefs?: Array<{
       imageId: string;
       sessionId: string;
+      userId?: string;
       mimeType?: string;
     }>;
     videoRef?: {
       videoId: string;
       sessionId: string;
+      userId?: string;
       filename?: string;
       mimeType?: string;
     };
     videoRefs?: Array<{
       videoId: string;
       sessionId: string;
+      userId?: string;
       filename?: string;
       mimeType?: string;
     }>;

@@ -536,7 +536,8 @@ export function cleanMessagesForLLM(messages: any[]): Message[] {
               const refObj = {
                 imageId: ref.imageId,
                 sessionId: ref.sessionId,
-                mimeType: ref.mimeType || 'image/png'
+                mimeType: ref.mimeType || 'image/png',
+                ...(ref.userId && { userId: ref.userId }),
               };
               return `[IMAGE_REFERENCE_${index + 1}]: ${JSON.stringify(refObj)}`;
             }).join('\n');
@@ -562,7 +563,8 @@ export function cleanMessagesForLLM(messages: any[]): Message[] {
                 videoId: ref.videoId,
                 sessionId: ref.sessionId,
                 mimeType: ref.mimeType || 'video/mp4',
-                filename: ref.filename
+                filename: ref.filename,
+                ...(ref.userId && { userId: ref.userId }),
               };
               return `[VIDEO_REFERENCE_${index + 1}]: ${JSON.stringify(refObj)}`;
             }).join('\n');
