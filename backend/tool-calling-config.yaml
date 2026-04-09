@@ -210,16 +210,17 @@ functions:
     api_key: ${IMAGE_COMPREHENSION_API_KEY}
     model: ${IMAGE_COMPREHENSION_MODEL}
     description: >-
-      READ-ONLY analysis of a user-uploaded image. Returns TEXT, never a
-      modified image. Describes scenes, answers questions, extracts text
-      (OCR), identifies objects, reads charts and diagrams, or explains
-      visual content.
+      READ-ONLY analysis of a user-uploaded image or video. Returns TEXT,
+      never a modified image or video. Describes scenes, answers questions,
+      extracts text (OCR), identifies objects, reads charts and diagrams,
+      or explains visual content in images and videos.
 
       WHEN TO USE: When the user asks to DESCRIBE, EXPLAIN, READ,
-      IDENTIFY, or ANALYZE an uploaded image and expects a text answer.
-      Trigger phrases: "what is in this image", "describe this picture",
-      "read the text", "what does this chart show", "identify the
-      objects".
+      IDENTIFY, or ANALYZE an uploaded image or video and expects a text
+      answer. Trigger phrases: "what is in this image", "describe this
+      picture", "read the text", "what does this chart show", "identify
+      the objects", "what happens in this video", "describe this video",
+      "summarize this clip".
 
       WHEN NOT TO USE: Do NOT use when the user wants a modified or
       enhanced version of the image — even if they say "augment",
@@ -227,12 +228,17 @@ functions:
       image_augmentation_tool for all of these). Do NOT use to create
       a new image from scratch (use image_generation_tool).
 
-      REQUIRED PARAMETERS: imageRef (object from user message with
-      imageId and sessionId). OPTIONAL: query (string, specific question
-      about the image).
+      PARAMETERS: For images, provide imageRef (object with imageId and
+      sessionId) or image_url (direct URL). For videos, provide videoRef
+      (object with videoId and sessionId) or video_url (direct URL).
+      OPTIONAL: question (string, specific question about the media).
+      Only one media item (image or video) per request.
 
-      Example: {"imageRef": {"imageId": "abc123", "sessionId": "xyz"},
-      "query": "What text is visible in this image?"}
+      Image example: {"imageRef": {"imageId": "abc123", "sessionId": "xyz"},
+      "question": "What text is visible in this image?"}
+
+      Video example: {"videoRef": {"videoId": "vid456", "sessionId": "xyz"},
+      "question": "What happens in this video?"}
     redis_url: ${REDIS_URL}
     timeout: 120
     verbose: false

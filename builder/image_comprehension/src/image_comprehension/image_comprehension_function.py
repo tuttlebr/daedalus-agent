@@ -1,6 +1,7 @@
 import logging
 import os
 
+import httpx
 import redis
 from nat.builder.builder import Builder
 from nat.builder.function_info import FunctionInfo
@@ -11,7 +12,6 @@ from nat_helpers.image_utils import (
     fetch_video_from_redis,
     parse_ref,
 )
-from openai import AsyncOpenAI
 from pydantic import Field
 
 logger = logging.getLogger(__name__)
@@ -52,11 +52,15 @@ async def image_comprehension_function(
     builder: Builder,  # noqa: ARG001
 ):
     api_key = config.api_key or os.getenv("NVIDIA_API_KEY") or "not-used"
+    api_url = config.api_endpoint.rstrip("/") + "/chat/completions"
 
-    client = AsyncOpenAI(
-        base_url=config.api_endpoint,
-        api_key=api_key,
+    http_client = httpx.AsyncClient(
         timeout=config.timeout,
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        },
     )
 
     redis_client = redis.from_url(config.redis_url, decode_responses=False)
@@ -125,22 +129,47 @@ async def image_comprehension_function(
                 max_tokens if max_tokens is not None else config.max_tokens
             )
 
-            response = await client.chat.completions.create(
-                model=config.model,
-                messages=[
+            is_video = (
+                media_content is not None and media_content.get("type") == "video_url"
+            )
+
+            payload = {
+                "model": config.model,
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": "/no_think" if is_video else "/think",
+                    },
                     {
                         "role": "user",
                         "content": [{"type": "text", "text": question}, media_content],
-                    }
+                    },
                 ],
-                max_tokens=effective_max_tokens,
-            )
+                "max_tokens": effective_max_tokens,
+            }
 
-            if response.choices and len(response.choices) > 0:
-                return response.choices[0].message.content
+            response = await http_client.post(api_url, json=payload)
+            response.raise_for_status()
+            data = response.json()
+
+            choices = data.get("choices", [])
+            if choices:
+                content = choices[0].get("message", {}).get("content", "")
+                if content:
+                    return content
 
             return "Error: Unexpected response format from the Vision Language Model."
 
+        except httpx.HTTPStatusError as exc:
+            logger.error(
+                "VLM API returned %d: %s",
+                exc.response.status_code,
+                exc.response.text[:500],
+            )
+            return f"Error: VLM API returned status {exc.response.status_code}."
+        except httpx.RequestError as exc:
+            logger.error("VLM API request failed: %s", exc)
+            return f"Error: Could not reach VLM API: {exc}"
         except Exception as e:
             logger.error("Error during media comprehension: %s", str(e), exc_info=True)
             return f"Error: {str(e)}"
@@ -163,3 +192,4 @@ async def image_comprehension_function(
         logger.warning("Function exited early!")
     finally:
         logger.info("Cleaning up image_comprehension workflow.")
+        await http_client.aclose()
