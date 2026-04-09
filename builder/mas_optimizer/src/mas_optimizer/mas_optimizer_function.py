@@ -20,7 +20,6 @@ Architecture constants from 'Towards a Science of Scaling Agent Systems'
 
 import json
 import logging
-import os
 import re
 
 from mas_optimizer.capability_gate import CapabilityGate
@@ -247,9 +246,6 @@ async def mas_optimizer_function(config: MasOptimizerConfig, builder: Builder):
     analyzer = TaskAnalyzer(
         decomposability_threshold=config.decomposability_threshold,
         tool_count_threshold=config.tool_count_threshold,
-    )
-    default_user = config.default_user_id or os.environ.get(
-        "DAEDALUS_DEFAULT_USER", "tuttlebr"
     )
 
     # ------------------------------------------------------------------
@@ -571,7 +567,7 @@ async def mas_optimizer_function(config: MasOptimizerConfig, builder: Builder):
                 "coordination_efficiency": efficiency,
             },
             "add_memory_instruction": (
-                f"Persist via: add_memory(user_id='{default_user}', "
+                "Persist via: add_memory(user_id=<authenticated_username>, "
                 f"memory='{memory_text}', "
                 f'metadata={{"key_value_pairs": {json.dumps(metadata_pairs)}}})'
             ),

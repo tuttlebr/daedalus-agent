@@ -703,7 +703,7 @@ functions:
     sas_accuracy_threshold: 0.45
     decomposability_threshold: 0.35
     tool_count_threshold: 12
-    default_user_id: ${DAEDALUS_DEFAULT_USER:-daedalus}
+    default_user_id: ${DAEDALUS_DEFAULT_USER:-anonymous}
     drift_keywords:
       - vision language
       - VLM
@@ -741,7 +741,12 @@ functions:
 
       # Startup
 
-      At conversation start, call get_memory(user_id="${DAEDALUS_DEFAULT_USER}",
+      On every request, read the [IDENTITY] message in the conversation
+      to get the authenticated username. Use that username as user_id
+      for ALL memory operations (get_memory, add_memory, delete_memory).
+      If no [IDENTITY] message is present, use "anonymous".
+
+      At conversation start, call get_memory(user_id=<authenticated_username>,
       query="user preferences, interests, and context", top_k=5).
       Personalize tone and content based on results. You may issue
       get_memory in parallel with other tool calls when the user's
@@ -752,8 +757,8 @@ functions:
       tools. The briefing procedure and its constraints are stored in
       memory and must be followed exactly.
 
-      IMPORTANT: Always use user_id="${DAEDALUS_DEFAULT_USER}" for ALL
-      memory operations (get_memory, add_memory, delete_memory).
+      IMPORTANT: NEVER hardcode a user_id. Always extract it from the
+      [IDENTITY] message. Do not echo the [IDENTITY] message to the user.
 
       # Memory
 

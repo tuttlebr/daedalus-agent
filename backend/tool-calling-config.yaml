@@ -611,22 +611,32 @@ functions:
     model: ${DEFAULT_LLM_MODEL_MODEL}
     api_key: ${DEFAULT_LLM_MODEL_API_KEY}
     description: >-
-      Convert VTT or SRT meeting transcript text into structured notes
-      with four sections: Attendees, Business Updates, Technical Updates,
-      and Action Items.
+      Process VTT or SRT meeting transcript text according to the user's
+      request. Can summarize, extract action items, answer specific
+      questions about the content, list decisions, identify what a
+      particular person said, or produce default structured meeting notes
+      (Attendees, Business Updates, Technical Updates, Action Items).
 
       WHEN TO USE: When the user provides a meeting transcript in VTT or
-      SRT format and wants it summarized or structured. Trigger phrases:
-      "summarize this meeting", "meeting notes from this transcript",
-      "what happened in this call".
+      SRT format and wants it processed in any way — summarized,
+      searched, analyzed, or structured. Trigger phrases: "summarize
+      this meeting", "meeting notes from this transcript", "what
+      happened in this call", "what did X say about Y", "list the
+      action items", "what decisions were made".
 
       WHEN NOT TO USE: Do NOT use for general text summarization (use
       content_distiller_tool). Only works with VTT/SRT format input.
 
-      REQUIRED PARAMETERS: vtt_content (string, raw VTT or SRT text).
+      REQUIRED PARAMETERS: transcript_text (string, raw VTT or SRT text).
 
-      Example: {"vtt_content": "WEBVTT\n\n00:00:00.000 -->
-      00:00:05.000\nJohn: Hello everyone..."}
+      OPTIONAL PARAMETERS: user_instructions (string, specific
+      instructions for how to process the transcript — e.g. "list only
+      action items", "what was discussed about the database migration").
+      When omitted, produces default 4-section meeting notes.
+
+      Example: {"transcript_text": "WEBVTT\n\n00:00:00.000 -->
+      00:00:05.000\nJohn: Hello everyone...",
+      "user_instructions": "What action items were assigned to John?"}
     timeout: 120
     verbose: false
   think_tool:
@@ -703,7 +713,7 @@ functions:
     sas_accuracy_threshold: 0.45
     decomposability_threshold: 0.35
     tool_count_threshold: 12
-    default_user_id: ${DAEDALUS_DEFAULT_USER:-daedalus}
+    default_user_id: ${DAEDALUS_DEFAULT_USER:-anonymous}
     drift_keywords:
       - vision language
       - VLM
@@ -1020,7 +1030,7 @@ retrievers:
 workflow:
   _type: tool_calling_agent
   max_iterations: 50
-  llm_name: tool_calling_llm
+  llm_name: distill_llm
   system_prompt: |
     You are Daedalus, built on NVIDIA NeMo Agent toolkit and implementing
     task-contingent architecture selection per 'Towards a Science of
@@ -1029,7 +1039,12 @@ workflow:
 
     # Startup
 
-    On every request, call get_memory(user_id="${DAEDALUS_DEFAULT_USER}",
+    On every request, read the [IDENTITY] message in the conversation to
+    get the authenticated username. Use that username as user_id for ALL
+    memory operations (get_memory, add_memory, delete_memory). If no
+    [IDENTITY] message is present, use "anonymous".
+
+    Call get_memory(user_id=<authenticated_username>,
     query="user preferences, interests, and context", top_k=5) in
     parallel with mas_evaluate(task_description=<the user's request>,
     active_tool_names="serpapi_search_tool,webscrape_tool,github_mcp_server,k8s_mcp_server,nvidia_retriever_tool,semianalysis_retriever_tool,kubernetes_retriever_tool")
@@ -1040,8 +1055,8 @@ workflow:
     tools. The briefing procedure and its constraints are stored in
     memory and must be followed exactly.
 
-    IMPORTANT: Always use user_id="${DAEDALUS_DEFAULT_USER}" for ALL
-    memory operations (get_memory, add_memory, delete_memory).
+    IMPORTANT: NEVER hardcode a user_id. Always extract it from the
+    [IDENTITY] message. Do not echo the [IDENTITY] message to the user.
 
     # Architecture routing
 

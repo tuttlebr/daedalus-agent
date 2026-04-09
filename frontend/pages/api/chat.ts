@@ -209,6 +209,36 @@ async function retrieveImageFromRedis(imageRef: any): Promise<string | null> {
   }
 }
 
+// Retrieve VTT transcript text from Redis using vttRef
+async function retrieveVTTFromRedis(vttRef: any): Promise<string | null> {
+  try {
+    if (!vttRef?.vttId || !vttRef?.sessionId) {
+      logger.error('Invalid vttRef', vttRef);
+      return null;
+    }
+
+    const baseUrl = 'http://127.0.0.1:3000';
+    const url = `${baseUrl}/api/session/vttStorage?vttId=${vttRef.vttId}&sessionId=${vttRef.sessionId}`;
+
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: { 'Accept': 'text/vtt, text/plain' },
+    });
+
+    if (!response.ok) {
+      logger.error('Failed to retrieve VTT', { status: response.status, statusText: response.statusText });
+      return null;
+    }
+
+    const text = await response.text();
+    logger.info('Successfully retrieved VTT from Redis', { vttId: vttRef.vttId, length: text.length });
+    return text;
+  } catch (error) {
+    logger.error('Error retrieving VTT from Redis', error);
+    return null;
+  }
+}
+
 // Extract complete JSON objects from a string (handles nested objects)
 function extractJsonObjects(text: string): { json: any; startIdx: number; endIdx: number }[] {
   const results: { json: any; startIdx: number; endIdx: number }[] = [];
@@ -315,16 +345,24 @@ const handler = async (req: Request): Promise<Response> => {
               documentRef: attachment.documentRef,
               mimeType: attachment.mimeType,
             };
+          } else if (attachment?.vttRef) {
+            return {
+              content: '',
+              type: attachment.type || 'transcript',
+              vttRef: attachment.vttRef,
+              mimeType: attachment.mimeType,
+            };
           }
           return null;
         })
         .filter((att): att is NonNullable<typeof att> => att !== null);
 
-      // Add image references to message content for agent context
+      // Add attachment references to message content for agent context
       if (cleanedMessage.attachments && cleanedMessage.attachments.length > 0) {
+        // Image references — skip if cleanMessagesForLLM already injected them
+        const alreadyHasImageRefs = (cleanedMessage.content || '').includes('[IMAGE_REFERENCE_');
         const imageAttachments = cleanedMessage.attachments.filter((att: any) => att.type === 'image');
-        if (imageAttachments.length > 0) {
-          // Collect all image references (flatten into single array)
+        if (imageAttachments.length > 0 && !alreadyHasImageRefs) {
           const allImageRefs: any[] = [];
           imageAttachments.forEach((att: any) => {
             if (att.imageRef) {
@@ -335,13 +373,10 @@ const handler = async (req: Request): Promise<Response> => {
           });
 
           if (allImageRefs.length > 0) {
-            // Format message clearly for LLM to understand how to call tools
             let imageRefContext = '\n\n[User has attached ';
             if (allImageRefs.length === 1) {
-              // Single image: provide clear instructions
               imageRefContext += `1 image. To use this image with tools, pass imageRef=${JSON.stringify(allImageRefs[0])}]`;
             } else {
-              // Multiple images: provide clear instructions for array format
               imageRefContext += `${allImageRefs.length} images. To use these images with tools, pass imageRef=${JSON.stringify(allImageRefs)}]`;
             }
             cleanedMessage.content = (cleanedMessage.content || '') + imageRefContext;
@@ -352,9 +387,10 @@ const handler = async (req: Request): Promise<Response> => {
           }
         }
 
-        // Add video references to message content for agent context
+        // Video references — skip if cleanMessagesForLLM already injected them
+        const alreadyHasVideoRefs = (cleanedMessage.content || '').includes('[VIDEO_REFERENCE_');
         const videoAttachments = cleanedMessage.attachments.filter((att: any) => att.type === 'video');
-        if (videoAttachments.length > 0) {
+        if (videoAttachments.length > 0 && !alreadyHasVideoRefs) {
           const allVideoRefs: any[] = [];
           videoAttachments.forEach((att: any) => {
             if (att.videoRef) {
@@ -378,6 +414,33 @@ const handler = async (req: Request): Promise<Response> => {
             });
           }
         }
+
+        // VTT/transcript content — skip if already injected by cleanMessagesForLLM
+        const alreadyHasVttContent = (cleanedMessage.content || '').includes('<transcript filename=');
+        const vttAttachments = cleanedMessage.attachments.filter((att: any) => att.type === 'transcript');
+        if (vttAttachments.length > 0 && !alreadyHasVttContent) {
+          for (const att of vttAttachments) {
+            if (att.vttRef) {
+              const vttContent = await retrieveVTTFromRedis(att.vttRef);
+              if (vttContent) {
+                const filename = att.vttRef.filename || 'transcript';
+                let vttContext = `\n\n[User has attached a VTT/SRT transcript file "${filename}". `;
+                vttContext += `Use the vtt_interpreter_tool to process this transcript. `;
+                vttContext += `Pass the transcript content below as the transcript_text parameter. `;
+                vttContext += `If the user's message contains specific instructions (e.g. "list action items", "what did X say about Y"), pass those as the user_instructions parameter.]\n\n`;
+                vttContext += `<transcript filename="${filename}">\n${vttContent}\n</transcript>`;
+                cleanedMessage.content = (cleanedMessage.content || '') + vttContext;
+                logger.info('Added VTT content to message', {
+                  filename,
+                  vttContentLength: vttContent.length,
+                  totalContentLength: cleanedMessage.content.length,
+                });
+              } else {
+                logger.error('Failed to retrieve VTT content', { vttRef: att.vttRef });
+              }
+            }
+          }
+        }
       }
 
       if (cleanedMessage.attachments.length === 0) {
@@ -393,16 +456,31 @@ const handler = async (req: Request): Promise<Response> => {
       }
     });
 
-    // Check content for base64 and truncate if necessary
+    // Check content for base64 leakage and truncate if necessary.
+    // Exempt messages with intentionally-injected transcript content.
     if (
       typeof cleanedMessage.content === 'string' &&
       cleanedMessage.content.length > 10000
     ) {
-      logger.warn(
-        'Message content truncated due to excessive length (possible base64 leakage)',
-      );
-      cleanedMessage.content =
-        cleanedMessage.content.substring(0, 10000) + '... [content truncated]';
+      const hasTranscriptContent = cleanedMessage.content.includes('<transcript filename=');
+      const hasBase64Pattern = /[A-Za-z0-9+/=]{500,}/.test(cleanedMessage.content);
+
+      if (hasBase64Pattern && !hasTranscriptContent) {
+        logger.warn(
+          'Message content truncated due to base64 pattern detection',
+          { contentLength: cleanedMessage.content.length },
+        );
+        cleanedMessage.content =
+          cleanedMessage.content.substring(0, 10000) + '... [content truncated]';
+      } else if (cleanedMessage.content.length > 500000) {
+        // Safety ceiling for any content type
+        logger.warn(
+          'Message content truncated due to extreme length',
+          { contentLength: cleanedMessage.content.length },
+        );
+        cleanedMessage.content =
+          cleanedMessage.content.substring(0, 500000) + '... [content truncated]';
+      }
     }
 
     return cleanedMessage;
@@ -415,6 +493,18 @@ const handler = async (req: Request): Promise<Response> => {
   // Sending extra system-role messages causes a 400 from LLMs that require
   // system messages at the beginning (e.g. Qwen, certain NIM endpoints).
   messages = messages.filter((m: any) => m.role !== 'system');
+
+  // Inject authenticated identity AFTER stripping client-sent system messages.
+  // Uses 'user' role to avoid conflicts with NAT's own system prompt and LLMs
+  // that reject multiple system messages (e.g. Qwen, certain NIM endpoints).
+  // The [IDENTITY] tag lets the agent distinguish this from real user input.
+  messages = [
+    {
+      role: 'user',
+      content: `[IDENTITY] The authenticated user for this session is: ${username}. Use user_id="${username}" for ALL memory operations (get_memory, add_memory, delete_memory).`,
+    },
+    ...messages,
+  ];
 
   // Trim message history to fit within the model's context window
   messages = trimMessagesToFit(messages);
@@ -512,6 +602,7 @@ const handler = async (req: Request): Promise<Response> => {
       headers: {
         'Content-Type': 'application/json',
         'x-user-id': username,
+        'Cookie': `nat-session=${username}`,
         // Add backend type header for routing
         'X-Backend-Type': useDeepThinker ? 'deep-thinker' : 'default',
       },

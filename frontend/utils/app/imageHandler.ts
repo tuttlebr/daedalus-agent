@@ -478,6 +478,15 @@ export function cleanMessagesForLLM(messages: any[]): Message[] {
             return result;
           }
 
+          if (att.type === 'transcript') {
+            const result: Record<string, unknown> = {
+              type: att.type,
+              mimeType: att.mimeType,
+            };
+            if (att.vttRef) result.vttRef = att.vttRef;
+            return result;
+          }
+
           return {
             type: att.type,
           };
@@ -600,6 +609,31 @@ export function cleanMessagesForLLM(messages: any[]): Message[] {
 
           if (contentAdditions) contentAdditions += '\n';
           contentAdditions += `${docText}\n${structuredRefs}${docInstructions}${ingestInstruction}`;
+        }
+
+        // Collect all VTT/transcript references
+        const allVttRefs: any[] = [];
+        message.attachments.forEach((att: any) => {
+          if (att.type === 'transcript' && att.vttRef) {
+            allVttRefs.push(att.vttRef);
+          }
+        });
+
+        if (allVttRefs.length > 0) {
+          const vttText = allVttRefs.length === 1
+            ? `[Transcript attachment: ${allVttRefs[0].filename || 'transcript'}]`
+            : `[${allVttRefs.length} transcript attachments]`;
+
+          const structuredRefs = allVttRefs.map((ref: any, index: number) => {
+            return `[VTT_REFERENCE_${index + 1}]: ${JSON.stringify(ref)}`;
+          }).join('\n');
+
+          const vttInstructions = allVttRefs.length === 1
+            ? `\n\n**Transcript Reference for Tools:**\nUse this vttRef parameter: ${JSON.stringify(allVttRefs[0])}`
+            : `\n\n**Transcript References for Tools:**\n${allVttRefs.map((ref: any, i: number) => `Transcript ${i + 1}: ${JSON.stringify(ref)}`).join('\n')}`;
+
+          if (contentAdditions) contentAdditions += '\n';
+          contentAdditions += `${vttText}\n${structuredRefs}${vttInstructions}`;
         }
 
         if (contentAdditions) {

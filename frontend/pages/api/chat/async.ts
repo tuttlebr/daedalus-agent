@@ -13,6 +13,7 @@ import {
 } from '@/utils/app/backendApi';
 import { fetchWithTimeout } from '@/utils/fetchWithTimeout';
 import { getSession } from '@/utils/auth/session';
+import { getVTT } from '../session/vttStorage';
 
 const logger = new Logger('AsyncJob');
 
@@ -650,30 +651,94 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     const jobId = uuidv4();
     const useDeepThinker = additionalProps?.useDeepThinker || false;
 
-    // Process messages: add image references to content for agent context
+    // Process messages: add attachment references/content for agent context
     const processedMessages = await Promise.all((messages || []).map(async (message: any) => {
       const cleanedMessage = { ...message };
 
       if (cleanedMessage.attachments && Array.isArray(cleanedMessage.attachments)) {
+        // Image references
         const imageAttachments = cleanedMessage.attachments.filter((att: any) => att.type === 'image');
         if (imageAttachments.length > 0) {
-          const allImageRefs: any[] = [];
-          imageAttachments.forEach((att: any) => {
-            if (att.imageRef) {
-              allImageRefs.push(att.imageRef);
-            } else if (att.imageRefs && Array.isArray(att.imageRefs)) {
-              allImageRefs.push(...att.imageRefs);
-            }
-          });
+          // Skip if cleanMessagesForLLM already injected references
+          const alreadyHasImageRefs = cleanedMessage.content?.includes('[IMAGE_REFERENCE_');
+          if (!alreadyHasImageRefs) {
+            const allImageRefs: any[] = [];
+            imageAttachments.forEach((att: any) => {
+              if (att.imageRef) {
+                allImageRefs.push(att.imageRef);
+              } else if (att.imageRefs && Array.isArray(att.imageRefs)) {
+                allImageRefs.push(...att.imageRefs);
+              }
+            });
 
-          if (allImageRefs.length > 0) {
-            let imageRefContext = '\n\n[User has attached ';
-            if (allImageRefs.length === 1) {
-              imageRefContext += `1 image. To use this image with tools, pass imageRef=${JSON.stringify(allImageRefs[0])}]`;
-            } else {
-              imageRefContext += `${allImageRefs.length} images. To use these images with tools, pass imageRef=${JSON.stringify(allImageRefs)}]`;
+            if (allImageRefs.length > 0) {
+              let imageRefContext = '\n\n[User has attached ';
+              if (allImageRefs.length === 1) {
+                imageRefContext += `1 image. To use this image with tools, pass imageRef=${JSON.stringify(allImageRefs[0])}]`;
+              } else {
+                imageRefContext += `${allImageRefs.length} images. To use these images with tools, pass imageRef=${JSON.stringify(allImageRefs)}]`;
+              }
+              cleanedMessage.content = (cleanedMessage.content || '') + imageRefContext;
             }
-            cleanedMessage.content = (cleanedMessage.content || '') + imageRefContext;
+          }
+        }
+
+        // Video references
+        const videoAttachments = cleanedMessage.attachments.filter((att: any) => att.type === 'video');
+        if (videoAttachments.length > 0) {
+          const alreadyHasVideoRefs = cleanedMessage.content?.includes('[VIDEO_REFERENCE_');
+          if (!alreadyHasVideoRefs) {
+            const allVideoRefs: any[] = [];
+            videoAttachments.forEach((att: any) => {
+              if (att.videoRef) {
+                allVideoRefs.push(att.videoRef);
+              } else if (att.videoRefs && Array.isArray(att.videoRefs)) {
+                allVideoRefs.push(...att.videoRefs);
+              }
+            });
+
+            if (allVideoRefs.length > 0) {
+              let videoRefContext = '\n\n[User has attached ';
+              if (allVideoRefs.length === 1) {
+                videoRefContext += `1 video. To use this video with tools, pass videoRef=${JSON.stringify(allVideoRefs[0])}]`;
+              } else {
+                videoRefContext += `${allVideoRefs.length} videos. To use these videos with tools, pass videoRef=${JSON.stringify(allVideoRefs)}]`;
+              }
+              cleanedMessage.content = (cleanedMessage.content || '') + videoRefContext;
+            }
+          }
+        }
+
+        // VTT/transcript content — retrieve from Redis and inject into message
+        const vttAttachments = cleanedMessage.attachments.filter((att: any) => att.type === 'transcript');
+        if (vttAttachments.length > 0) {
+          const alreadyHasVttContent = cleanedMessage.content?.includes('<transcript filename=');
+          if (!alreadyHasVttContent) {
+            for (const att of vttAttachments) {
+              if (att.vttRef?.vttId && att.vttRef?.sessionId) {
+                try {
+                  const storedVtt = await getVTT(att.vttRef.sessionId, att.vttRef.vttId);
+                  if (storedVtt?.data) {
+                    const filename = att.vttRef.filename || storedVtt.filename || 'transcript';
+                    let vttContext = `\n\n[User has attached a VTT/SRT transcript file "${filename}". `;
+                    vttContext += `Use the vtt_interpreter_tool to process this transcript. `;
+                    vttContext += `Pass the transcript content below as the transcript_text parameter. `;
+                    vttContext += `If the user's message contains specific instructions (e.g. "list action items", "what did X say about Y"), pass those as the user_instructions parameter.]\n\n`;
+                    vttContext += `<transcript filename="${filename}">\n${storedVtt.data}\n</transcript>`;
+                    cleanedMessage.content = (cleanedMessage.content || '') + vttContext;
+                    logger.info(`Job ${jobId}: Added VTT content to message`, {
+                      filename,
+                      vttContentLength: storedVtt.data.length,
+                      totalContentLength: cleanedMessage.content.length,
+                    });
+                  } else {
+                    logger.error(`Job ${jobId}: Failed to retrieve VTT content from Redis`, { vttRef: att.vttRef });
+                  }
+                } catch (error) {
+                  logger.error(`Job ${jobId}: Error retrieving VTT from Redis`, { vttRef: att.vttRef, error });
+                }
+              }
+            }
           }
         }
       }

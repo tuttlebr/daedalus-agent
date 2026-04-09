@@ -703,7 +703,7 @@ functions:
     sas_accuracy_threshold: 0.45
     decomposability_threshold: 0.35
     tool_count_threshold: 12
-    default_user_id: ${DAEDALUS_DEFAULT_USER:-daedalus}
+    default_user_id: ${DAEDALUS_DEFAULT_USER:-anonymous}
     drift_keywords:
       - vision language
       - VLM
