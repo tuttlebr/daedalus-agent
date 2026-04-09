@@ -97,8 +97,8 @@ export async function deleteVTT(vttId: string): Promise<boolean> {
 
 // Check if a file is a VTT file
 export function isVTTFile(file: File): boolean {
-  const vttExtensions = ['.vtt', '.webvtt'];
-  const vttMimeTypes = ['text/vtt', 'text/plain'];
+  const vttExtensions = ['.vtt', '.webvtt', '.srt'];
+  const vttMimeTypes = ['text/vtt', 'text/plain', 'application/x-subrip'];
 
   const extension = file.name.toLowerCase().slice(file.name.lastIndexOf('.'));
   const isVTTExtension = vttExtensions.includes(extension);

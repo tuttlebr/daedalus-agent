@@ -1384,160 +1384,49 @@ class TestMcpErrorNoReconnect:
 
 
 # ---------------------------------------------------------------------------
-# Tests: submit_job event-loop protection (Fix 11)
+# Tests: submit_job asyncio task execution (Fix 11 — Dask removed)
 # ---------------------------------------------------------------------------
 
 
-class FakeDaskFuture:
-    """Minimal stand-in for dask.distributed.Future."""
+class TestSubmitJobAsyncioExecution:
+    """Verify that patched submit_job runs jobs as asyncio tasks (no Dask).
 
-    def __init__(self, key):
-        self.key = key
-
-    def result(self, timeout=None):
-        return "done"
-
-
-class FakeDaskClient:
-    """Minimal stand-in for dask.distributed.Client."""
-
-    def __init__(self, *, should_block=False, should_raise=False):
-        import threading
-
-        self._should_block = should_block
-        self._should_raise = should_raise
-        # Pre-create the event so unblock() cannot race with submit()
-        # on slower CI runners before the worker thread reaches wait().
-        self._block_event = threading.Event() if should_block else None
-        self.submitted = []
-
-    def submit(self, fn, *args, key=None, **kwargs):
-        if self._should_raise:
-            raise ConnectionError("scheduler unreachable")
-        if self._should_block:
-            # Use the pre-created event so unblock() cannot miss the wait.
-            self._block_event.wait(timeout=30)
-        self.submitted.append((fn, args, key, kwargs))
-        return FakeDaskFuture(key)
-
-    def unblock(self):
-        if self._block_event is not None:
-            self._block_event.set()
-
-
-class FakeDaskClientFlaky:
-    """Dask client that fails the first N calls then succeeds."""
-
-    def __init__(self, fail_count=1):
-        self._fail_count = fail_count
-        self._call_count = 0
-        self.submitted = []
-
-    def submit(self, fn, *args, key=None, **kwargs):
-        self._call_count += 1
-        if self._call_count <= self._fail_count:
-            raise ConnectionError(f"scheduler unreachable (attempt {self._call_count})")
-        self.submitted.append((fn, args, key, kwargs))
-        return FakeDaskFuture(key)
-
-
-class FakeDaskVariable:
-    """Minimal stand-in for dask.distributed.Variable."""
-
-    def __init__(self, name=None, client=None):
-        self.name = name
-        self.value = None
-
-    def set(self, value, timeout=None):
-        self.value = value
-
-
-class TestSubmitJobEventLoopProtection:
-    """Verify that patched submit_job launches Dask work in a background task.
-
-    These tests validate Fix 11 from mcp_patches.py: for sync_timeout == 0,
-    submit_job() returns immediately after creating the job in the DB, and
-    Dask submission happens in a fire-and-forget background asyncio.Task.
+    These tests validate Fix 11 from mcp_patches.py: submit_job() creates
+    the job in the DB, then runs job_fn directly as a background asyncio
+    task instead of submitting to the Dask scheduler.
     """
 
     def _make_patched_submit_job(self):
         """Build a simplified patched submit_job that mirrors the real patch."""
-        from mcp_patches import (
-            _DASK_SUBMIT_RETRIES,
-            _DASK_SUBMIT_RETRY_DELAY,
-            _DASK_SUBMIT_SLOW_WARNING_SECONDS,
-            _DASK_SUBMIT_TIMEOUT,
-            _background_tasks,
-            _inflight_submissions,
-        )
+        from mcp_patches import _background_tasks, _inflight_submissions
 
         async def patched_submit_job(
             job_store, *, job_id, job_fn, job_args, sync_timeout=0, **kw
         ):
             """Simplified version of the patch for testing."""
-            # Simulate _create_job (already async/safe)
-            # The real patch calls self._create_job() — we skip DB here
 
-            def _dask_submit():
-                future = job_store._dask_client.submit(
-                    job_fn, *job_args, key=f"{job_id}-job"
-                )
-                var = FakeDaskVariable(name=job_id, client=job_store._dask_client)
-                var.set(future, timeout="5 s")
-                return future
-
-            # sync_timeout > 0: inline await (preserves API contract)
-            if sync_timeout > 0:
-                future = await asyncio.wait_for(
-                    asyncio.to_thread(_dask_submit),
-                    timeout=_DASK_SUBMIT_TIMEOUT,
-                )
-                return (job_id, future)
-
-            # sync_timeout == 0: background task with retries
             if job_id in _inflight_submissions:
                 return (job_id, None)
 
             _inflight_submissions.add(job_id)
 
-            async def _background():
+            async def _run_job():
                 try:
-                    for attempt in range(1, _DASK_SUBMIT_RETRIES + 1):
-                        submit_task = asyncio.create_task(
-                            asyncio.to_thread(_dask_submit)
-                        )
-                        try:
-                            while True:
-                                done, _ = await asyncio.wait(
-                                    {submit_task},
-                                    timeout=_DASK_SUBMIT_SLOW_WARNING_SECONDS,
-                                    return_when=asyncio.FIRST_COMPLETED,
-                                )
-                                if done:
-                                    submit_task.result()
-                                    break
-
-                            break  # success
-                        except Exception as exc:
-                            if attempt < _DASK_SUBMIT_RETRIES:
-                                _delay = _DASK_SUBMIT_RETRY_DELAY * (2 ** (attempt - 1))
-                                await asyncio.sleep(_delay)
-                            else:
-                                _msg = (
-                                    f"Dask submission failed for job {job_id} "
-                                    f"after {_DASK_SUBMIT_RETRIES} attempts: {exc}"
-                                )
-                                if hasattr(job_store, "update_status"):
-                                    await job_store.update_status(
-                                        job_id, "FAILURE", error=_msg
-                                    )
-                                return
-                    else:
-                        return
+                    result = job_fn(*job_args)
+                    if asyncio.iscoroutine(result):
+                        result = await result
+                    return result
                 finally:
                     _inflight_submissions.discard(job_id)
 
-            task = asyncio.create_task(_background())
+            if sync_timeout > 0:
+                try:
+                    await asyncio.wait_for(_run_job(), timeout=sync_timeout)
+                    return (job_id, "completed")
+                except TimeoutError:
+                    pass
+
+            task = asyncio.create_task(_run_job())
             _background_tasks.add(task)
             task.add_done_callback(_background_tasks.discard)
 
@@ -1560,237 +1449,129 @@ class TestSubmitJobEventLoopProtection:
         mcp_patches._inflight_submissions.clear()
         mcp_patches._background_tasks.clear()
 
-    def test_healthy_dask_submits_in_background(self):
-        """Normal case: submit returns immediately, background task completes."""
+    def test_job_runs_in_background(self):
+        """Normal case: submit returns immediately, background task runs job_fn."""
+        results = []
 
         async def _run():
-            client = FakeDaskClient()
-            store = MagicMock()
-            store._dask_client = client
             submit = self._make_patched_submit_job()
             job_id, result = await submit(
-                store, job_id="j1", job_fn=lambda: None, job_args=[]
+                None, job_id="j1", job_fn=lambda: results.append("ran"), job_args=[]
             )
             assert job_id == "j1"
-            assert result is None  # async path returns None, not the future
+            assert result is None  # async path returns None
 
-            # Let the background task finish
             await self._drain_tasks()
-            assert len(client.submitted) == 1
+            assert results == ["ran"]
 
         run(_run())
 
-    def test_dask_error_marks_failure_after_retries(self):
-        """If Dask raises on every attempt, background marks FAILURE."""
-        import mcp_patches
+    def test_async_job_fn_awaited(self):
+        """Async job functions are properly awaited."""
+        results = []
 
-        orig_retries = mcp_patches._DASK_SUBMIT_RETRIES
-        orig_delay = mcp_patches._DASK_SUBMIT_RETRY_DELAY
-        mcp_patches._DASK_SUBMIT_RETRIES = 2
-        mcp_patches._DASK_SUBMIT_RETRY_DELAY = 0.1
+        async def async_job():
+            await asyncio.sleep(0)
+            results.append("async_ran")
 
         async def _run():
-            client = FakeDaskClient(should_raise=True)
-            store = MagicMock()
-            store._dask_client = client
-
-            async def _fake_update_status(*a, **kw):
-                pass
-
-            store.update_status = MagicMock(side_effect=_fake_update_status)
-
             submit = self._make_patched_submit_job()
-            # No exception from submit — error is handled in background
             job_id, result = await submit(
-                store, job_id="j2", job_fn=lambda: None, job_args=[]
+                None, job_id="j2", job_fn=async_job, job_args=[]
             )
             assert job_id == "j2"
             assert result is None
 
             await self._drain_tasks()
-            store.update_status.assert_called_once()
-            args = store.update_status.call_args
-            assert args[0][0] == "j2"
-            assert args[0][1] == "FAILURE"
-            assert "2 attempts" in args[1]["error"]
-            assert "scheduler unreachable" in args[1]["error"]
+            assert results == ["async_ran"]
 
-        try:
-            run(_run())
-        finally:
-            mcp_patches._DASK_SUBMIT_RETRIES = orig_retries
-            mcp_patches._DASK_SUBMIT_RETRY_DELAY = orig_delay
+        run(_run())
 
-    def test_slow_dask_submit_keeps_waiting_for_original_attempt(self):
-        """A slow Dask submit should not fail while the original attempt is still blocked."""
-        import mcp_patches
-
-        orig_warning = mcp_patches._DASK_SUBMIT_SLOW_WARNING_SECONDS
-        mcp_patches._DASK_SUBMIT_SLOW_WARNING_SECONDS = 0.1
-
-        async def _run():
-            client = FakeDaskClient(should_block=True)
-            store = MagicMock()
-            store._dask_client = client
-
-            async def _fake_update_status(*a, **kw):
-                pass
-
-            store.update_status = MagicMock(side_effect=_fake_update_status)
-
-            submit = self._make_patched_submit_job()
-            job_id, result = await submit(
-                store, job_id="j3", job_fn=lambda: None, job_args=[]
-            )
-            assert job_id == "j3"
-            assert result is None
-
-            await asyncio.sleep(0.25)
-            store.update_status.assert_not_called()
-            assert "j3" in mcp_patches._inflight_submissions
-
-            client.unblock()
-            await self._drain_tasks()
-            store.update_status.assert_not_called()
-            assert len(client.submitted) == 1
-
-        try:
-            run(_run())
-        finally:
-            mcp_patches._DASK_SUBMIT_SLOW_WARNING_SECONDS = orig_warning
-
-    def test_submit_returns_immediately_when_dask_blocks(self):
-        """submit_job returns in <100ms even when Dask is stuck."""
+    def test_submit_returns_immediately(self):
+        """submit_job returns in <100ms even when job_fn is slow."""
         import time
 
-        import mcp_patches
-
-        original = mcp_patches._DASK_SUBMIT_TIMEOUT
-        mcp_patches._DASK_SUBMIT_TIMEOUT = 5
+        async def slow_job():
+            await asyncio.sleep(10)
 
         async def _run():
-            client = FakeDaskClient(should_block=True)
-            store = MagicMock()
-            store._dask_client = client
-
             submit = self._make_patched_submit_job()
             t0 = time.monotonic()
             job_id, result = await submit(
-                store, job_id="j4", job_fn=lambda: None, job_args=[]
+                None, job_id="j3", job_fn=slow_job, job_args=[]
             )
             elapsed = time.monotonic() - t0
             assert (
                 elapsed < 0.1
             ), f"submit_job took {elapsed:.3f}s — should return immediately"
-            assert job_id == "j4"
+            assert job_id == "j3"
             assert result is None
 
-            client.unblock()
+            # Cancel the slow task to avoid test hanging
+            import mcp_patches
+
+            for t in list(mcp_patches._background_tasks):
+                t.cancel()
             await self._drain_tasks()
 
-        try:
-            run(_run())
-        finally:
-            mcp_patches._DASK_SUBMIT_TIMEOUT = original
+        run(_run())
 
     def test_duplicate_submission_deduplicated(self):
-        """Second call with same job_id skips Dask when first is in-flight."""
+        """Second call with same job_id is skipped when first is in-flight."""
         import mcp_patches
 
-        original = mcp_patches._DASK_SUBMIT_TIMEOUT
-        mcp_patches._DASK_SUBMIT_TIMEOUT = 5
+        call_count = [0]
+
+        async def slow_job():
+            call_count[0] += 1
+            await asyncio.sleep(10)
 
         async def _run():
-            client = FakeDaskClient(should_block=True)
-            store = MagicMock()
-            store._dask_client = client
-
             submit = self._make_patched_submit_job()
 
-            # First call — starts background task
-            job_id1, _ = await submit(
-                store, job_id="j5", job_fn=lambda: None, job_args=[]
-            )
-            # Yield so the background task starts and registers in-flight
+            job_id1, _ = await submit(None, job_id="j4", job_fn=slow_job, job_args=[])
             await asyncio.sleep(0)
-            # Verify it's tracked as in-flight
-            assert "j5" in mcp_patches._inflight_submissions
+            assert "j4" in mcp_patches._inflight_submissions
 
-            # Second call with same ID — should skip
-            job_id2, _ = await submit(
-                store, job_id="j5", job_fn=lambda: None, job_args=[]
-            )
-            assert job_id2 == "j5"
+            job_id2, _ = await submit(None, job_id="j4", job_fn=slow_job, job_args=[])
+            assert job_id2 == "j4"
 
-            # Unblock and drain
-            client.unblock()
+            # Only one invocation should have occurred
+            assert call_count[0] == 1
+
+            for t in list(mcp_patches._background_tasks):
+                t.cancel()
             await self._drain_tasks()
 
-            # Only one Dask submission should have occurred
-            assert len(client.submitted) == 1
+        run(_run())
 
-        try:
-            run(_run())
-        finally:
-            mcp_patches._DASK_SUBMIT_TIMEOUT = original
-
-    def test_dask_retry_succeeds_after_transient_failure(self):
-        """Submission succeeds on retry after initial failure."""
-        import mcp_patches
-
-        orig_retries = mcp_patches._DASK_SUBMIT_RETRIES
-        orig_delay = mcp_patches._DASK_SUBMIT_RETRY_DELAY
-        mcp_patches._DASK_SUBMIT_RETRIES = 3
-        mcp_patches._DASK_SUBMIT_RETRY_DELAY = 0.1
+    def test_sync_timeout_awaits_inline(self):
+        """sync_timeout > 0 awaits the job inline."""
+        results = []
 
         async def _run():
-            # Fails the first call, succeeds on the second
-            client = FakeDaskClientFlaky(fail_count=1)
-            store = MagicMock()
-            store._dask_client = client
-
-            async def _fake_update_status(*a, **kw):
-                pass
-
-            store.update_status = MagicMock(side_effect=_fake_update_status)
-
             submit = self._make_patched_submit_job()
             job_id, result = await submit(
-                store, job_id="j7", job_fn=lambda: None, job_args=[]
-            )
-            assert job_id == "j7"
-            assert result is None
-
-            await self._drain_tasks()
-            # Should NOT have marked as failure — retry succeeded
-            store.update_status.assert_not_called()
-            assert len(client.submitted) == 1
-
-        try:
-            run(_run())
-        finally:
-            mcp_patches._DASK_SUBMIT_RETRIES = orig_retries
-            mcp_patches._DASK_SUBMIT_RETRY_DELAY = orig_delay
-
-    def test_sync_timeout_still_awaits_inline(self):
-        """sync_timeout > 0 preserves inline await behavior."""
-
-        async def _run():
-            client = FakeDaskClient()
-            store = MagicMock()
-            store._dask_client = client
-            submit = self._make_patched_submit_job()
-            job_id, future = await submit(
-                store,
-                job_id="j6",
-                job_fn=lambda: None,
+                None,
+                job_id="j5",
+                job_fn=lambda: results.append("sync_ran"),
                 job_args=[],
                 sync_timeout=5,
             )
-            assert job_id == "j6"
-            # sync path returns the actual future, not None
-            assert future is not None
-            assert future.key == "j6-job"
-            assert len(client.submitted) == 1
+            assert job_id == "j5"
+            assert result == "completed"
+            assert results == ["sync_ran"]
+
+        run(_run())
+
+    def test_inflight_cleared_after_completion(self):
+        """Job ID is removed from _inflight_submissions after completion."""
+        import mcp_patches
+
+        async def _run():
+            submit = self._make_patched_submit_job()
+            await submit(None, job_id="j6", job_fn=lambda: None, job_args=[])
+            await self._drain_tasks()
+            assert "j6" not in mcp_patches._inflight_submissions
 
         run(_run())

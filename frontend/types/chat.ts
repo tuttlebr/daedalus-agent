@@ -50,6 +50,12 @@ export interface Message {
       filename?: string;
       mimeType?: string;
     };
+    vttRef?: {
+      vttId: string;
+      sessionId: string;
+      filename?: string;
+      mimeType?: string;
+    };
   }>;
 }
 

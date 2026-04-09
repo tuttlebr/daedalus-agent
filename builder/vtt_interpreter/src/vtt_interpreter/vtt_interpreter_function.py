@@ -46,6 +46,13 @@ class VttInterpreterInput(BaseModel):
     transcript_text: str = Field(
         ..., description="The raw VTT transcript text to be processed"
     )
+    user_instructions: str | None = Field(
+        None,
+        description="Optional user instructions for how to process the transcript. "
+        "When provided, the output is tailored to the user's specific request "
+        "(e.g. 'just list the action items', 'what was discussed about the database migration?'). "
+        "When omitted, produces default structured meeting notes with four sections.",
+    )
     max_tokens: int | None = Field(
         None, description="Maximum number of tokens in the response"
     )
@@ -197,21 +204,26 @@ async def vtt_interpreter_function(
 
     async def interpret_vtt_transcript(
         transcript_text: str,
+        user_instructions: str | None = None,
         max_tokens: int | None = None,
     ) -> str:
         """
-        Convert VTT transcript text into structured meeting notes.
+        Process a VTT/SRT transcript according to the user's instructions.
+
+        When user_instructions are provided, the transcript is processed according
+        to those specific instructions (e.g. summarize, extract action items, answer
+        a question about the content, list decisions, etc.).
+
+        When no instructions are provided, produces default structured meeting notes
+        with four sections: Attendees, Business Updates, Technical Updates, Action Items.
 
         Args:
-            transcript_text: Raw VTT transcript text
+            transcript_text: Raw VTT or SRT transcript text
+            user_instructions: Optional instructions for how to process the transcript
             max_tokens: Maximum number of tokens in the response
 
         Returns:
-            Structured meeting notes in markdown format with four sections:
-            1. Attendees - Meeting participants/speakers
-            2. Business Updates - Strategic and business points for executives
-            3. Technical Updates - Technical discussion points
-            4. Action Items - Follow-up tasks with assignees and deadlines
+            Processed transcript output in markdown format
         """
         try:
             if not transcript_text or not transcript_text.strip():
@@ -232,8 +244,29 @@ async def vtt_interpreter_function(
                 f"Parsed {len(entries)} transcript entries with {len(speakers)} speakers"
             )
 
-            # Create the prompt for the LLM
-            system_prompt = """You are an expert meeting secretary who creates professional meeting notes from transcripts. Your task is to analyze the provided meeting transcript and organize the information into exactly four sections:
+            # Build prompts based on whether user provided specific instructions
+            if user_instructions:
+                system_prompt = """You are an expert at analyzing meeting transcripts. The user has provided specific instructions for how they want this transcript processed. Follow their instructions precisely.
+
+CRITICAL INSTRUCTIONS:
+- Do NOT make up or infer any information that is not explicitly stated in the transcript
+- Only include information that is clearly mentioned in the conversation
+- If the user asks about something not covered in the transcript, say so explicitly
+- Use clear, professional language suitable for business documentation
+- Format your response in clean markdown"""
+
+                user_prompt = f"""Here is a meeting transcript:
+
+TRANSCRIPT:
+{consolidated_transcript}
+
+USER REQUEST:
+{user_instructions}
+
+Process the transcript according to the user's request above. Only use information explicitly stated in the transcript."""
+
+            else:
+                system_prompt = """You are an expert meeting secretary who creates professional meeting notes from transcripts. Your task is to analyze the provided meeting transcript and organize the information into exactly four sections:
 
 1. **Attendees** - List the meeting participants/speakers
 2. **Business Updates** - Strategic, business-related points suitable for executive leadership summary
@@ -250,7 +283,7 @@ CRITICAL INSTRUCTIONS:
 
 Format your response in clean markdown with clear section headers."""
 
-            user_prompt = f"""Please analyze this meeting transcript and create structured meeting notes:
+                user_prompt = f"""Please analyze this meeting transcript and create structured meeting notes:
 
 TRANSCRIPT:
 {consolidated_transcript}
@@ -292,13 +325,13 @@ Please organize this into the four required sections, being careful not to add a
         logger.info("Registering function interpret_vtt_transcript")
 
         description = (
-            "Processes VTT (WebVTT) transcript text and converts it into structured meeting notes. "
-            "Takes raw VTT transcript content and uses AI to extract and organize information into "
-            "four sections: Attendees (speakers), Business Updates (strategic points for executives), "
-            "Technical Updates (technical discussion for leadership), and Action Items (follow-ups with "
-            "assignees and deadlines when available). Only extracts information explicitly mentioned "
-            "in the transcript without adding or inferring new details. Returns professionally formatted "
-            "meeting notes in markdown format."
+            "Processes VTT (WebVTT) or SRT transcript text according to the user's instructions. "
+            "Can summarize, extract action items, answer questions about the content, list decisions, "
+            "identify what a specific person said, or any other analysis the user requests. "
+            "When no specific instructions are provided, produces default structured meeting notes "
+            "with four sections: Attendees, Business Updates, Technical Updates, and Action Items. "
+            "Only extracts information explicitly mentioned in the transcript without adding or "
+            "inferring new details. Returns professionally formatted output in markdown."
         )
 
         function_info = FunctionInfo.from_fn(

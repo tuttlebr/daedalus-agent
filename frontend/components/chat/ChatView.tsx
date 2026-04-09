@@ -262,7 +262,7 @@ export const ChatView = memo(() => {
         additionalProps,
         userId,
         convId,
-        selectedConversation.name,
+        freshConv?.name || selectedConversation.name,
       );
     } catch (err: any) {
       console.error('Failed to start async job:', err);

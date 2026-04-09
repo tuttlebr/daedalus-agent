@@ -2,7 +2,7 @@
 
 import React, { memo, useState, useRef, useCallback, useEffect } from 'react';
 import classNames from 'classnames';
-import { IconSend, IconSquare, IconPaperclip, IconBrain, IconX, IconPhoto, IconFileText, IconDatabase } from '@tabler/icons-react';
+import { IconSend, IconSquare, IconPaperclip, IconBrain, IconX, IconPhoto, IconFileText, IconDatabase, IconNotes } from '@tabler/icons-react';
 import toast from 'react-hot-toast';
 import { IconButton } from '@/components/primitives';
 import { Textarea } from '@/components/primitives';
@@ -13,13 +13,14 @@ import { useUISettingsStore } from '@/state';
 import { Message } from '@/types/chat';
 import { uploadImage, ImageReference } from '@/utils/app/imageHandler';
 import { validateFileSize, formatFileSize } from '@/constants/uploadLimits';
+import { uploadVTTFile, isVTTFile } from '@/utils/app/vttHandler';
 
 type Attachment = NonNullable<Message['attachments']>[number];
 
 interface UploadingFile {
   id: string;
   file: File;
-  type: 'image' | 'document' | 'video';
+  type: 'image' | 'document' | 'video' | 'transcript';
   progress: number;
   error?: string;
 }
@@ -30,9 +31,10 @@ interface ChatInputProps {
   isStreaming?: boolean;
 }
 
-function classifyFile(file: File): 'image' | 'document' | 'video' {
+function classifyFile(file: File): 'image' | 'document' | 'video' | 'transcript' {
   if (file.type.startsWith('image/')) return 'image';
   if (file.type.startsWith('video/')) return 'video';
+  if (isVTTFile(file)) return 'transcript';
   return 'document';
 }
 
@@ -94,6 +96,25 @@ export const ChatInput = memo(({ onSend, onStop, isStreaming = false }: ChatInpu
     setUploading((prev) => [...prev, { id: uploadId, file, type, progress: 10 }]);
 
     try {
+      // VTT/SRT files: upload as text via dedicated VTT storage (not base64)
+      if (type === 'transcript') {
+        setUploading((prev) => prev.map((u) => u.id === uploadId ? { ...u, progress: 30 } : u));
+        const vttRef = await uploadVTTFile(file);
+        setUploading((prev) => prev.map((u) => u.id === uploadId ? { ...u, progress: 100 } : u));
+
+        const attachment: Attachment = {
+          content: file.name,
+          type: 'transcript',
+          vttRef: { vttId: vttRef.vttId, sessionId: vttRef.sessionId, filename: file.name, mimeType: file.type || 'text/vtt' },
+        };
+        setAttachments((prev) => [...prev, attachment]);
+
+        setTimeout(() => {
+          setUploading((prev) => prev.filter((u) => u.id !== uploadId));
+        }, 1000);
+        return;
+      }
+
       const base64 = await fileToBase64(file);
       setUploading((prev) => prev.map((u) => u.id === uploadId ? { ...u, progress: 50 } : u));
 
@@ -193,6 +214,11 @@ export const ChatInput = memo(({ onSend, onStop, isStreaming = false }: ChatInpu
       // Add collection context to message metadata
     }
 
+    // Add routing hint for transcripts without text
+    if (!messageContent && attachments.some((a) => a.type === 'transcript')) {
+      messageContent = 'Summarize this meeting transcript and create structured notes.';
+    }
+
     // Add routing hint for images without text
     if (!messageContent && attachments.some((a) => a.type === 'image')) {
       messageContent = 'Analyze this image and describe what you see.';
@@ -241,6 +267,7 @@ export const ChatInput = memo(({ onSend, onStop, isStreaming = false }: ChatInpu
                 <div key={u.id} className="flex items-center gap-2 text-xs">
                   {u.type === 'image' ? <IconPhoto size={14} className="text-nvidia-green" /> :
                    u.type === 'document' ? <IconFileText size={14} className="text-nvidia-blue" /> :
+                   u.type === 'transcript' ? <IconNotes size={14} className="text-nvidia-yellow" /> :
                    <IconPhoto size={14} className="text-nvidia-purple" />}
                   <span className="text-dark-text-muted truncate flex-1">{u.file.name}</span>
                   {u.error ? (
@@ -265,11 +292,13 @@ export const ChatInput = memo(({ onSend, onStop, isStreaming = false }: ChatInpu
                     'inline-flex items-center gap-1.5 pl-2 pr-1 py-1 rounded-lg text-xs border',
                     att.type === 'image' ? 'bg-nvidia-green/5 border-nvidia-green/20 text-nvidia-green' :
                     att.type === 'document' ? 'bg-nvidia-blue/5 border-nvidia-blue/20 text-nvidia-blue' :
+                    att.type === 'transcript' ? 'bg-nvidia-yellow/5 border-nvidia-yellow/20 text-nvidia-yellow' :
                     'bg-nvidia-purple/5 border-nvidia-purple/20 text-nvidia-purple'
                   )}
                 >
                   {att.type === 'image' ? <IconPhoto size={12} /> :
                    att.type === 'document' ? <IconFileText size={12} /> :
+                   att.type === 'transcript' ? <IconNotes size={12} /> :
                    <IconPhoto size={12} />}
                   <span className="truncate max-w-[120px]">{att.content}</span>
                   <button
@@ -332,6 +361,7 @@ export const ChatInput = memo(({ onSend, onStop, isStreaming = false }: ChatInpu
                 onChange={(e) => setContent(e.target.value)}
                 onKeyDown={handleKeyDown}
                 placeholder={hasDocumentAttachment ? 'Add instructions or send to ingest...' :
+                             attachments.some((a) => a.type === 'transcript') ? 'Ask about this transcript (e.g. "summarize this meeting")...' :
                              attachments.some((a) => a.type === 'image') ? 'Ask about this image...' :
                              'Send a message...'}
                 maxRows={6}
@@ -368,7 +398,7 @@ export const ChatInput = memo(({ onSend, onStop, isStreaming = false }: ChatInpu
           ref={fileInputRef}
           type="file"
           multiple
-          accept="image/png,image/jpeg,image/gif,image/webp,image/avif,video/mp4,video/x-flv,video/3gpp,.pdf,.docx,.pptx,.html,.htm,.txt"
+          accept="image/png,image/jpeg,image/gif,image/webp,image/avif,video/mp4,video/x-flv,video/3gpp,.pdf,.docx,.pptx,.html,.htm,.txt,text/vtt,.vtt,application/x-subrip,.srt"
           className="hidden"
           onChange={(e) => {
             if (e.target.files) {
