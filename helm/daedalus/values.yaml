@@ -310,7 +310,7 @@ autonomousAgent:
   # Which backend the autonomous agent calls: "default" (tool calling) or "deepThinker" (reasoning)
   backendType: "default"
   securityContext: {}
-  schedule: "0 */12 * * *"
+  schedule: "0 */3 * * *"
   # IANA timezone for the cron schedule (requires K8s 1.27+)
   timeZone: "America/New_York"
   # Hard deadline per job — pod is killed after this many seconds

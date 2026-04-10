@@ -759,9 +759,21 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
         return true;
       });
 
+    // Inject authenticated identity AFTER stripping client-sent system messages.
+    // Uses 'user' role to avoid conflicts with NAT's own system prompt and LLMs
+    // that reject multiple system messages (e.g. Qwen, certain NIM endpoints).
+    // The [IDENTITY] tag lets the agent distinguish this from real user input.
+    const messagesWithIdentity = [
+      {
+        role: 'user',
+        content: `[IDENTITY] The authenticated user for this session is: ${verifiedUsername}. Use user_id="${verifiedUsername}" for ALL memory operations (get_memory, add_memory, delete_memory).`,
+      },
+      ...messagesForNat,
+    ];
+
     // Submit to NAT async endpoint
     const natPayload = {
-      messages: messagesForNat,
+      messages: messagesWithIdentity,
       job_id: jobId,
       sync_timeout: NAT_SYNC_TIMEOUT,
       expiry_seconds: NAT_ASYNC_EXPIRY_SECONDS,
