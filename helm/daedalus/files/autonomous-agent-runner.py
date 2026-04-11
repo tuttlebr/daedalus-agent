@@ -43,6 +43,26 @@ MAX_INPUT_TOKEN_BUDGET = 40_000
 REQUEST_TIMEOUT = int(os.environ.get("REQUEST_TIMEOUT", "240"))  # seconds
 SOUL_PATH = os.environ.get("SOUL_PATH", "/config/soul.md")
 HEARTBEAT_PATH = os.environ.get("HEARTBEAT_PATH", "/config/heartbeat.md")
+IDENTITY_PATH = os.environ.get("IDENTITY_PATH", "/config/identity.md")
+INTERESTS_PATH = os.environ.get("INTERESTS_PATH", "/config/interests.md")
+SCHEMA_PATH = os.environ.get("SCHEMA_PATH", "/config/schema.md")
+USER_PATH = os.environ.get("USER_PATH", "/config/user.md")
+MEMORY_PATH = os.environ.get("MEMORY_PATH", "/config/memory.md")
+RESET_WORKSPACE = os.environ.get("RESET_WORKSPACE", "false").lower() == "true"
+DISTILLATION_INTERVAL = int(os.environ.get("DISTILLATION_INTERVAL", "5"))
+DAILY_NOTE_TTL = 14 * 86400  # 14 days
+
+# Workspace file definitions: seed_path is the ConfigMap path, mutable indicates
+# whether the agent is allowed to self-modify the file via output sections.
+WORKSPACE_FILES = {
+    "identity": {"seed_path": IDENTITY_PATH, "mutable": False},
+    "soul": {"seed_path": SOUL_PATH, "mutable": False},
+    "interests": {"seed_path": INTERESTS_PATH, "mutable": True},
+    "schema": {"seed_path": SCHEMA_PATH, "mutable": False},
+    "user": {"seed_path": USER_PATH, "mutable": True},
+    "heartbeat": {"seed_path": HEARTBEAT_PATH, "mutable": True},
+    "memory": {"seed_path": MEMORY_PATH, "mutable": True},
+}
 
 # Async workflow settings (used when BACKEND_API_PATH is /v1/workflow/async)
 IS_ASYNC_WORKFLOW = "/v1/workflow/async" in BACKEND_API_PATH
@@ -81,7 +101,7 @@ def _is_ip_address(hostname: str) -> bool:
 
 def _derive_pod_discovery_host(hostname: str) -> str | None:
     label, dot, suffix = hostname.partition(".")
-    for service_suffix in ("-default", "-deep-thinker"):
+    for service_suffix in ("-default",):
         if label.endswith(service_suffix):
             return f"{label}-pods{dot}{suffix}"
     return None
@@ -206,30 +226,38 @@ def _read_seed(path: str) -> str | None:
         return None
 
 
-def load_soul(r: redis_lib.Redis) -> str:
-    key = f"autonomous:{USER_ID}:soul"
-    # Always prefer the seed file so deployments pick up changes immediately
-    soul = _read_seed(SOUL_PATH)
-    if soul:
-        r.set(key, soul)
-    else:
-        soul = r.get(key) or (
-            "You are an autonomous agent. Explore, learn, and improve."
-        )
-    return soul
+def _workspace_key(name: str) -> str:
+    return f"autonomous:{USER_ID}:workspace:{name}"
 
 
-def load_heartbeat(r: redis_lib.Redis) -> str:
-    key = f"autonomous:{USER_ID}:heartbeat"
-    # Always prefer the seed file so deployments pick up changes immediately
-    hb = _read_seed(HEARTBEAT_PATH)
-    if hb:
-        r.set(key, hb)
-    else:
-        hb = r.get(key) or (
-            "1. Check RSS feeds for new content\n" "2. Review and curate memories"
-        )
-    return hb
+def load_workspace(r: redis_lib.Redis) -> dict[str, str]:
+    """Load all workspace files using seed-once, Redis-primary pattern.
+
+    On first run (or after a reset), seed files from ConfigMap are written to
+    Redis.  On subsequent runs, the Redis version is authoritative — this is
+    what allows the agent to self-modify mutable workspace files.
+    """
+    if RESET_WORKSPACE:
+        for name in WORKSPACE_FILES:
+            r.delete(_workspace_key(name))
+        log("Workspace reset: all files will be re-seeded from ConfigMap")
+
+    workspace: dict[str, str] = {}
+    for name, config in WORKSPACE_FILES.items():
+        key = _workspace_key(name)
+        # Redis-primary: check evolved version first
+        content = r.get(key)
+        if content:
+            workspace[name] = content
+            continue
+        # Fall back to seed file (first-time initialization)
+        seed = _read_seed(config["seed_path"])
+        if seed:
+            r.set(key, seed)
+            workspace[name] = seed
+        else:
+            workspace[name] = ""
+    return workspace
 
 
 def load_conversation(r: redis_lib.Redis) -> list[dict]:
@@ -295,41 +323,82 @@ def notify_frontend(r: redis_lib.Redis) -> None:
 # ---------------------------------------------------------------------------
 # Prompt construction
 # ---------------------------------------------------------------------------
-def build_prompt(soul: str, heartbeat: str, history: list[dict], cycle: int) -> str:
-    now = time.strftime("%Y-%m-%d %H:%M:%S %Z")
-
-    # Gather recent assistant responses for continuity (skip empty ones)
+def _extract_recent_reports(history: list[dict], count: int = 3) -> str:
+    """Gather recent cycle reports from conversation history for continuity."""
     recent: list[str] = []
     for msg in reversed(history):
         if msg.get("role") == "assistant":
             text = msg.get("content", "").strip()
             if not text:
                 continue
-            # Only take the cycle report section if present
             if "### Cycle Report" in text:
                 text = text[text.index("### Cycle Report") :]
-            if len(text) > 800:
-                text = text[:800] + "..."
+            if len(text) > 1200:
+                text = text[:1200] + "..."
             recent.append(text)
-            if len(recent) >= 3:
+            if len(recent) >= count:
                 break
     recent.reverse()
 
-    context = ""
-    if recent:
-        context = "\n## Recent Cycle Reports\n"
-        for i, thought in enumerate(recent, 1):
-            context += f"\n**Cycle -{len(recent) - i + 1}:**\n{thought}\n"
+    if not recent:
+        return ""
+    context = "\n## Recent Cycle Reports\n"
+    for i, thought in enumerate(recent, 1):
+        context += f"\n**Cycle -{len(recent) - i + 1}:**\n{thought}\n"
+    return context
 
-    return f"""Current time: {now}
-Cycle number: {cycle}
 
-{soul}
+def build_prompt(
+    workspace: dict[str, str],
+    history: list[dict],
+    cycle: int,
+    daily_notes: str = "",
+) -> str:
+    now = time.strftime("%Y-%m-%d %H:%M:%S %Z")
+    context = _extract_recent_reports(history)
 
-## Heartbeat Tasks
-{heartbeat}
-{context}
-## Instructions
+    # Compose workspace sections
+    sections = [
+        f"Current time: {now}",
+        f"Cycle number: {cycle}",
+    ]
+
+    # Identity and soul (immutable core)
+    if workspace.get("identity"):
+        sections.append(workspace["identity"])
+    if workspace.get("soul"):
+        sections.append(workspace["soul"])
+
+    # Mutable workspace files
+    if workspace.get("interests"):
+        sections.append(workspace["interests"])
+    sections.append(f"## Heartbeat Tasks\n{workspace.get('heartbeat', '')}")
+    if workspace.get("memory"):
+        sections.append(f"## Memory Index\n{workspace['memory']}")
+    if workspace.get("user"):
+        sections.append(workspace["user"])
+
+    # Schema reference
+    if workspace.get("schema"):
+        sections.append(workspace["schema"])
+
+    # Recent cycle reports
+    if context:
+        sections.append(context)
+
+    # Daily notes for distillation cycles
+    if daily_notes:
+        sections.append(f"## Recent Daily Notes (for distillation)\n{daily_notes}")
+
+    # Instructions
+    is_distillation = bool(daily_notes)
+    sections.append(_build_instructions(cycle, is_distillation))
+
+    return "\n\n".join(sections)
+
+
+def _build_instructions(cycle: int, is_distillation: bool) -> str:
+    instructions = f"""## Instructions
 
 You are running autonomously as a background process. No human is present.
 Your user_id for all tool calls is "{USER_ID}".
@@ -354,10 +423,10 @@ image uploading, and any other configured tools. Use whatever serves your goals.
    about, note the connection explicitly in the memory.
 
 **Memory schema (mandatory):** Every add_memory call MUST follow the Memory
-Schema defined in your soul document. Always include metadata.key_value_pairs
-with at minimum: type, source ("autonomous_cycle"), and cycle ("{cycle}").
-Use the correct type for each memory: "finding", "synthesis", "project_update",
-or "cycle_report". See the schema for the full field list per type.
+Schema defined above. Always include metadata.key_value_pairs with at minimum:
+type, source ("autonomous_cycle"), and cycle ("{cycle}"). Use the correct type
+for each memory: "finding", "synthesis", "project_update", "dream", or "cycle_report".
+See the schema for the full field list per type.
 
 **Memory maintenance (every few cycles):** Review recent memories for quality
 and relevance. Prune stale ones. If multiple findings point to the same trend,
@@ -373,7 +442,7 @@ obvious or low-value information. Your cycle report could be copy-pasted from
 a previous one. You stayed surface-level. You regurgitated press releases
 instead of finding substance.
 
-**End your response with exactly these sections, and store the cycle report:**
+**End your response with these sections, and store the cycle report:**
 
 ### Cycle Report
 Two to four sentences. What did you learn that's actually worth knowing?
@@ -382,15 +451,42 @@ Lead with the insight, not the process.
 full metadata fields (domains_explored, findings_count, quality_assessment,
 priorities_updated). This is how you maintain continuity across cycles.
 
+### Executive Summary
+Three to five sentences for Brandon as a busy technical executive. Lead with
+the "so what." Be opinionated — what deserves attention and what can be
+ignored? Frame as good/bad/strategy when applicable. This is implications
+and recommendations, not a restatement of the cycle report.
+
 ### Priority Updates
 If your heartbeat tasks need updating, write the full updated list here.
 If they're working well, write: "No changes needed."
 Rewriting tasks to be more specific or interesting is encouraged.
 If you're falling into a rut, this is where you break out of it.
 
+### Interests Updates
+If your Areas of Curiosity need updating — new topics to add, stale ones to
+remove, or areas to rebalance — write the full updated curiosity map here.
+If they're still serving you well, write: "No changes needed."
+
+### User Updates
+If you've learned something new about what Brandon values, cares about, or
+finds useful, write the full updated user context here.
+If nothing new, write: "No changes needed."
+
 ### Self-Reflection
 One honest assessment of this cycle's value. Was this a good cycle or a
 going-through-the-motions cycle? What would make the next one better?"""
+
+    if is_distillation:
+        instructions += """
+
+### Memory Updates
+**Distillation cycle.** Review the Recent Daily Notes above. Distill durable
+insights, active threads, and cross-cycle patterns into an updated Memory Index.
+Remove stale items. This is your curated working memory — keep it concise and
+high-signal. Write the full updated Memory Index here."""
+
+    return instructions
 
 
 # ---------------------------------------------------------------------------
@@ -600,21 +696,91 @@ def strip_reasoning(text: str) -> str:
 # ---------------------------------------------------------------------------
 # Response parsing
 # ---------------------------------------------------------------------------
-def extract_priority_updates(response: str) -> str | None:
-    """Parse updated heartbeat priorities from the agent's response."""
-    marker = "### Priority Updates"
+def _extract_section(response: str, marker: str) -> str | None:
+    """Extract a markdown section from the response, cut at the next same-level heading."""
     if marker not in response:
         return None
     section = response.split(marker, 1)[1]
-    # Cut at the next heading
-    for prefix in ("### ", "## ", "# "):
-        idx = section.find(prefix, 4)
-        if idx != -1:
-            section = section[:idx]
+    # Cut at the next heading at the same level (all output sections use ### ).
+    heading_prefix = marker.split()[0] + " "  # e.g. "### "
+    idx = section.find(heading_prefix, 4)
+    if idx != -1:
+        section = section[:idx]
     section = section.strip()
     if not section or "no change" in section.lower():
         return None
     return section
+
+
+# Map output section headings to workspace file names.
+_WORKSPACE_SECTION_MAP = {
+    "### Priority Updates": "heartbeat",
+    "### Interests Updates": "interests",
+    "### User Updates": "user",
+    "### Memory Updates": "memory",
+}
+
+
+def extract_workspace_updates(response: str) -> dict[str, str]:
+    """Parse all workspace update sections from the agent's response."""
+    updates: dict[str, str] = {}
+    for marker, name in _WORKSPACE_SECTION_MAP.items():
+        content = _extract_section(response, marker)
+        if content:
+            updates[name] = content
+    return updates
+
+
+def extract_priority_updates(response: str) -> str | None:
+    """Parse updated heartbeat priorities from the agent's response.
+
+    Kept for backward compatibility; delegates to _extract_section.
+    """
+    return _extract_section(response, "### Priority Updates")
+
+
+# ---------------------------------------------------------------------------
+# Daily notes
+# ---------------------------------------------------------------------------
+def _daily_note_key(date_str: str) -> str:
+    return f"autonomous:{USER_ID}:workspace:daily:{date_str}"
+
+
+def append_daily_note(r: redis_lib.Redis, cycle: int, response: str) -> None:
+    """Append a cycle entry to today's daily note in Redis."""
+    today = time.strftime("%Y-%m-%d")
+    key = _daily_note_key(today)
+
+    cycle_report = _extract_section(response, "### Cycle Report") or ""
+    self_reflection = _extract_section(response, "### Self-Reflection") or ""
+
+    if not cycle_report and not self_reflection:
+        return
+
+    entry = f"\n## Cycle {cycle} ({time.strftime('%H:%M:%S')})\n\n"
+    if cycle_report:
+        entry += f"### Report\n{cycle_report}\n\n"
+    if self_reflection:
+        entry += f"### Reflection\n{self_reflection}\n\n"
+
+    existing = r.get(key) or f"# Daily Note: {today}\n"
+    r.set(key, existing + entry)
+    r.expire(key, DAILY_NOTE_TTL)
+    log(f"Daily note updated for {today}")
+
+
+def load_recent_daily_notes(r: redis_lib.Redis, days: int = 7) -> str:
+    """Load daily notes from the last N days for distillation."""
+    notes: list[str] = []
+    for offset in range(days):
+        date_str = time.strftime(
+            "%Y-%m-%d", time.localtime(time.time() - offset * 86400)
+        )
+        content = r.get(_daily_note_key(date_str))
+        if content:
+            notes.append(content)
+    notes.reverse()  # chronological order
+    return "\n\n---\n\n".join(notes)
 
 
 # ---------------------------------------------------------------------------
@@ -624,14 +790,20 @@ def main() -> None:
     log("Autonomous agent cycle starting")
     r = get_redis()
 
-    soul = load_soul(r)
-    heartbeat = load_heartbeat(r)
+    workspace = load_workspace(r)
     history = load_conversation(r)
     cycle = int(r.get(f"autonomous:{USER_ID}:cycle_count") or "0") + 1
 
     log(f"Cycle #{cycle} | History: {len(history)} messages")
 
-    prompt = build_prompt(soul, heartbeat, history, cycle)
+    # On distillation cycles, load recent daily notes for the agent to review
+    daily_notes = ""
+    if cycle % DISTILLATION_INTERVAL == 0:
+        daily_notes = load_recent_daily_notes(r)
+        if daily_notes:
+            log(f"Distillation cycle: loaded daily notes ({len(daily_notes)} chars)")
+
+    prompt = build_prompt(workspace, history, cycle, daily_notes)
 
     # Build API messages: recent history (stripped & truncated per-message) + new prompt.
     # Filter out any messages with empty content to prevent 400 errors from the LLM API.
@@ -663,11 +835,14 @@ def main() -> None:
 
     log(f"Response: {len(response)} chars")
 
-    # Apply self-modified priorities
-    new_priorities = extract_priority_updates(response)
-    if new_priorities:
-        r.set(f"autonomous:{USER_ID}:heartbeat", new_priorities)
-        log("Heartbeat updated by agent")
+    # Apply all workspace self-modifications from the agent's response
+    updates = extract_workspace_updates(response)
+    for name, content in updates.items():
+        r.set(_workspace_key(name), content)
+        log(f"Workspace '{name}' updated by agent")
+
+    # Append to today's daily note
+    append_daily_note(r, cycle, response)
 
     # Persist conversation
     now = time.strftime("%Y-%m-%d %H:%M:%S %Z")
@@ -689,7 +864,7 @@ def main() -> None:
                 "last_run": now,
                 "cycle_count": cycle,
                 "response_length": len(response),
-                "priorities_updated": new_priorities is not None,
+                "workspace_updated": list(updates.keys()) if updates else [],
             }
         ),
     )

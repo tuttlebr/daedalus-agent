@@ -1177,6 +1177,10 @@ workflow:
     - Create new image from text -> image_generation_tool
     - Augment/edit/modify uploaded image -> image_augmentation_tool
     - Describe/analyze uploaded image (text answer) -> image_comprehension_tool
+    CRITICAL: When image_generation_tool or image_augmentation_tool returns
+    a markdown image reference (![...](/api/generated-image/...)), you MUST
+    include that exact markdown in your response verbatim. The image is only
+    visible to the user if the markdown reference appears in your output.
 
     User documents:
     - Ingest an uploaded document -> nv_ingest_postprocessing_tool
@@ -1193,9 +1197,6 @@ workflow:
     serpapi_search_tool -> webscrape_tool
   handle_tool_errors: true
   return_direct:
-    - image_augmentation_tool
-    - image_comprehension_tool
-    - image_generation_tool
     - nv_ingest_postprocessing_tool
     - user_interaction_tool
   tool_names:

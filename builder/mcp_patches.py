@@ -815,10 +815,10 @@ def _patch_startup_resilience():
     starts with a reduced (but functional) tool set instead of crashing.
 
     Part 3 — get_function filter:
-    The reasoning_agent plugin (used by the deep-thinker workflow) resolves
-    tools individually via builder.get_function(tool) instead of get_tools().
-    Without this patch, a skipped function group causes ValueError here too.
-    Returns None for skipped groups so the reasoning_agent can skip the tool.
+    Some plugins resolve tools individually via builder.get_function(tool)
+    instead of get_tools(). Without this patch, a skipped function group
+    causes ValueError here too. Returns None for skipped groups so the
+    agent can skip the tool.
     """
     try:
         import functools
@@ -1007,6 +1007,7 @@ def _patch_async_job_result_saving():
             config_file_path,
             job_id,
             payload,
+            serialized_request=None,
         ):
             from nat.front_ends.fastapi.async_jobs.job_store import JobStatus, JobStore
             from nat.front_ends.fastapi.response_helpers import generate_single_response
@@ -1019,10 +1020,18 @@ def _patch_async_job_result_saving():
                 job_store = JobStore(scheduler_address=scheduler_address, db_url=db_url)
                 await job_store.update_status(job_id, JobStatus.RUNNING)
 
+                http_connection = None
+                if serialized_request is not None:
+                    from fastapi import Request
+
+                    http_connection = Request(scope=serialized_request)
+
                 result = None
                 try:
                     async with load_workflow(config_file_path) as local_session_manager:
-                        async with local_session_manager.session() as session:
+                        async with local_session_manager.session(
+                            http_connection=http_connection
+                        ) as session:
                             result = await generate_single_response(
                                 payload,
                                 session,
