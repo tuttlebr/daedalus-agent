@@ -70,19 +70,6 @@ spec:
               protocol: TCP
     {{- end }}
 
-    # Backend deep thinker
-    {{- if .Values.backend.deepThinker.enabled }}
-    - toEndpoints:
-        - matchLabels:
-            app.kubernetes.io/name: {{ include "daedalus.name" . }}
-            app.kubernetes.io/component: backend-deep-thinker
-            app.kubernetes.io/instance: {{ .Release.Name }}
-      toPorts:
-        - ports:
-            - port: {{ .Values.backend.deepThinker.port | quote }}
-              protocol: TCP
-    {{- end }}
-
     # Redis
     - toEndpoints:
         - matchLabels:

@@ -10,7 +10,6 @@ RELEASE="daedalus"
 ENV_FILE="$SCRIPT_DIR/.env"
 VALUES_FILE="$SCRIPT_DIR/custom-values.yaml"
 BACKEND_CONFIG="$SCRIPT_DIR/backend/tool-calling-config.yaml"
-DEEP_THINKER_CONFIG="$SCRIPT_DIR/backend/react-agent-config.yaml"
 SKIP_BUILD=false
 SKIP_TLS=false
 DRY_RUN=false
@@ -139,10 +138,6 @@ fi
 
 if [[ -f "$BACKEND_CONFIG" ]]; then
   HELM_CMD+=( --set-file backend.default.config.data="$BACKEND_CONFIG" )
-fi
-
-if [[ -f "$DEEP_THINKER_CONFIG" ]]; then
-  HELM_CMD+=( --set-file backend.deepThinker.config.data="$DEEP_THINKER_CONFIG" )
 fi
 
 # Force pod recreation by changing the deploy-timestamp annotation

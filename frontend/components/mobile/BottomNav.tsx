@@ -2,7 +2,7 @@
 
 import React, { memo } from 'react';
 import classNames from 'classnames';
-import { IconMenu2, IconPaperclip, IconBrain, IconPlus } from '@tabler/icons-react';
+import { IconMenu2, IconPaperclip, IconPlus } from '@tabler/icons-react';
 import { useUISettingsStore, useConversationStore } from '@/state';
 import { v4 as uuidv4 } from 'uuid';
 import { saveConversation } from '@/utils/app/conversation';
@@ -10,14 +10,12 @@ import { Conversation } from '@/types/chat';
 
 /**
  * Mobile bottom navigation bar.
- * 4 buttons: Menu, Attach, Think, New Chat.
+ * 3 buttons: Menu, Attach, New Chat.
  * Frosted glass backdrop with safe area inset.
  */
 export const BottomNav = memo(() => {
   const showChatbar = useUISettingsStore((s) => s.showChatbar);
   const setShowChatbar = useUISettingsStore((s) => s.setShowChatbar);
-  const useDeepThinker = useUISettingsStore((s) => s.useDeepThinker);
-  const toggleDeepThinker = useUISettingsStore((s) => s.toggleDeepThinker);
 
   const items = [
     {
@@ -33,12 +31,6 @@ export const BottomNav = memo(() => {
       onClick: () => {
         document.dispatchEvent(new CustomEvent('daedalus:attach-file'));
       },
-    },
-    {
-      icon: IconBrain,
-      label: 'Think',
-      active: useDeepThinker,
-      onClick: toggleDeepThinker,
     },
     {
       icon: IconPlus,
@@ -83,10 +75,7 @@ export const BottomNav = memo(() => {
           >
             <div className="relative">
               <Icon size={22} />
-              {active && label === 'Think' && (
-                <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-nvidia-green animate-heartbeat-breathe" />
-              )}
-              {active && label !== 'Think' && (
+              {active && (
                 <span className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-nvidia-green" />
               )}
             </div>

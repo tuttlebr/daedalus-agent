@@ -4,7 +4,7 @@ global:
   networkName: daedalus-network
   # Restrict pod scheduling to these nodes; leave empty to allow any node
   nodePlacement:
-    allowedNodes: []  # e.g. ["daedalus-02", "daedalus-03"]
+    allowedNodes: [] # e.g. ["daedalus-02", "daedalus-03"]
 
 images:
   builder:
@@ -36,7 +36,7 @@ backend:
   # Default backend configuration
   default:
     enabled: true
-    replicas: 2
+    replicas: 1
     port: 8000
     # securityContext — disabled by default; image must support non-root before enabling.
     # To enable, rebuild the backend image (chmod is already in Dockerfile), then uncomment:
@@ -54,53 +54,9 @@ backend:
       # Explicit env overrides applied in the pod, useful to fix bad values from secrets
       overrides:
         SSL_CERT_FILE: /etc/ssl/certs/ca-certificates.crt
-        # Dask workers: 1 per CPU core, 1 thread each, 2Gi memory cap per worker
-        DASK_DISTRIBUTED__WORKER__NTHREADS: "1"
-        DASK_DISTRIBUTED__NWORKERS: "2"
-        DASK_DISTRIBUTED__WORKER__MEMORY__LIMIT: "2GiB"
     config:
       enabled: true
       # Contents of backend/tool-calling-config.yaml; if empty, configMap mounts {}
-      data: ""
-    resources:
-      requests:
-        cpu: 250m
-        memory: 512Mi
-      limits:
-        cpu: 2000m
-        memory: 8Gi
-    service:
-      type: ClusterIP
-      port: 8000
-
-  # Deep Thinker backend configuration
-  deepThinker:
-    enabled: true
-    replicas: 2
-    port: 8000
-    # securityContext — disabled by default; image must support non-root before enabling.
-    # To enable, rebuild the backend image (chmod is already in Dockerfile), then uncomment:
-    #   runAsNonRoot: true
-    #   runAsUser: 1000
-    #   runAsGroup: 1000
-    #   fsGroup: 1000
-    securityContext: {}
-    env:
-      # Name of an existing Secret to load via envFrom (external secret)
-      fromSecret: ""
-      # If you prefer Helm to create the Secret, set createSecret=true and provide key/value pairs under data
-      createSecret: false
-      data: {}
-      # Explicit env overrides applied in the pod, useful to fix bad values from secrets
-      overrides:
-        SSL_CERT_FILE: /etc/ssl/certs/ca-certificates.crt
-        # Dask workers: 1 per CPU core, 1 thread each, 2Gi memory cap per worker
-        DASK_DISTRIBUTED__WORKER__NTHREADS: "1"
-        DASK_DISTRIBUTED__NWORKERS: "2"
-        DASK_DISTRIBUTED__WORKER__MEMORY__LIMIT: "2GiB"
-    config:
-      enabled: true
-      # Contents of backend/react-agent-config.yaml; if empty, configMap mounts {}
       data: ""
     resources:
       requests:
@@ -122,22 +78,21 @@ backend:
     cilium:
       enabled: false # Set to true to deploy CiliumNetworkPolicy resources (requires Cilium CNI)
       webscrape:
-        enabled: true  # Allow backend pods broad HTTP/HTTPS egress for the webscrape tool
+        enabled: true # Allow backend pods broad HTTP/HTTPS egress for the webscrape tool
         l7Filtering: false # When true, restrict webscrape egress to GET/HEAD only (blocks POST exfiltration)
-      extraFQDNs: []  # Additional domains to allow, e.g. ["custom-api.example.com"]
+      extraFQDNs: [] # Additional domains to allow, e.g. ["custom-api.example.com"]
   persistence:
     enabled: true
-    size: 6Gi
+    size: 8Gi
     storageClassName: ""
     create: true
     # Legacy single-claim override (applies to both backends). Prefer
     # existingClaimNames.<component> for reliability.
     existingClaimName: ""
     # Per-backend claim overrides. Leave empty to use chart-managed PVC names:
-    # <release>-daedalus-backend-default and <release>-daedalus-backend-deep-thinker
+    # <release>-daedalus-backend-default
     existingClaimNames:
       default: ""
-      deepThinker: ""
   # Agent Skills directory — skills are baked into the Docker image at /skills by default.
   # Set enabled: true to override with a PVC (useful for hot-swapping skills without rebuilding).
   # When enabled without a pvcName, an emptyDir is used (skills from the image are shadowed).
@@ -157,11 +112,11 @@ frontend:
     fsGroup: 1001
   resources:
     requests:
-      cpu: 100m
-      memory: 256Mi
+      cpu: 250m
+      memory: 512Mi
     limits:
-      cpu: 1000m
-      memory: 1Gi
+      cpu: 2000m
+      memory: 8Gi
   env:
     fromSecret: ""
     createSecret: false
@@ -179,11 +134,11 @@ nginx:
   securityContext: {}
   resources:
     requests:
-      cpu: 50m
-      memory: 64Mi
+      cpu: 250m
+      memory: 512Mi
     limits:
-      cpu: 500m
-      memory: 256Mi
+      cpu: 2000m
+      memory: 8Gi
   httpPort: 80
   https:
     enabled: false
@@ -199,7 +154,7 @@ nginx:
     backendPort: 8000
   imageVolume:
     enabled: true
-    size: 1Gi
+    size: 8Gi
     storageClassName: ""
     create: true
     existingClaimName: ""
@@ -211,11 +166,11 @@ redis:
   securityContext: {}
   resources:
     requests:
-      cpu: 100m
-      memory: 256Mi
+      cpu: 250m
+      memory: 512Mi
     limits:
-      cpu: 1000m
-      memory: 2Gi
+      cpu: 2000m
+      memory: 8Gi
   persistence:
     enabled: true
     size: 64Gi
@@ -231,14 +186,14 @@ redisinsight:
   securityContext: {}
   resources:
     requests:
-      cpu: 50m
-      memory: 128Mi
-    limits:
-      cpu: 500m
+      cpu: 250m
       memory: 512Mi
+    limits:
+      cpu: 2000m
+      memory: 8Gi
   persistence:
     enabled: true
-    size: 4Gi
+    size: 8Gi
     storageClassName: ""
     create: true
     existingClaimName: ""
@@ -248,58 +203,6 @@ redisinsight:
   env:
     overrides: {}
 
-jupyterlab:
-  enabled: true
-  image:
-    repository: quay.io/jupyter/scipy-notebook
-    tag: "latest"
-    pullPolicy: IfNotPresent
-  # Authentication token for JupyterLab (leave empty for no token)
-  token: ""
-  # Hashed password for JupyterLab (leave empty for no password)
-  # Generate with: python -c "from jupyter_server.auth import passwd; print(passwd('your-password'))"
-  password: ""
-  # Base URL for JupyterLab (useful for reverse proxy setups)
-  baseUrl: "/"
-  # Security context for the pod (run as jovyan user)
-  securityContext:
-    runAsUser: 1000
-    runAsGroup: 100
-    fsGroup: 100
-  env:
-    # Use backend secret for API keys (NVIDIA_API_KEY, OPENROUTER_API_KEY, etc.)
-    fromSecret: ""
-    # Milvus connection settings
-    milvusUri: "http://milvus.milvus.svc.cluster.local:19530"
-    milvusHost: "milvus.milvus.svc.cluster.local"
-    milvusPort: "19530"
-    milvusNamespace: "milvus"  # Namespace where Milvus is deployed (for network policy)
-    # Explicit environment variable overrides
-    overrides: {}
-      # NVIDIA_API_KEY: "your-api-key"
-      # OPENROUTER_API_KEY: "your-api-key"
-      # AA_API_KEY: "your-artificial-analysis-api-key"
-  persistence:
-    enabled: true
-    size: 10Gi
-    storageClassName: ""
-    create: true
-    existingClaimName: ""
-  service:
-    # NodePort for intranet-only access (no external ingress)
-    # Access via: http://<node-ip>:<nodePort>
-    # Or use: kubectl port-forward svc/<release>-daedalus-jupyterlab 8888:8888
-    type: NodePort
-    port: 8888
-    nodePort: 30888
-  resources:
-    requests:
-      cpu: 500m
-      memory: 1Gi
-    limits:
-      cpu: 2000m
-      memory: 4Gi
-
 autonomousAgent:
   # Autonomous background agent that curates memories, monitors news feeds,
   # and builds knowledge for the configured user without human interaction.
@@ -307,7 +210,7 @@ autonomousAgent:
   enabled: true
   # Set suspend: true to pause scheduling without removing the CronJob
   suspend: false
-  # Which backend the autonomous agent calls: "default" (tool calling) or "deepThinker" (reasoning)
+  # Which backend the autonomous agent calls
   backendType: "default"
   securityContext: {}
   schedule: "0 */3 * * *"
@@ -325,6 +228,11 @@ autonomousAgent:
   userId: "default-user"
   successfulJobsHistoryLimit: 3
   failedJobsHistoryLimit: 3
+  workspace:
+    # Force re-seed all workspace files from ConfigMap (use after major identity changes)
+    resetOnDeploy: false
+    # Cycles between MEMORY.md distillation from daily notes
+    distillationInterval: 5
   env:
     # Load API keys from the same secret as the backend (needed if backend
     # requires auth headers; usually not needed since the agent calls the
@@ -333,38 +241,11 @@ autonomousAgent:
     overrides: {}
   resources:
     requests:
-      cpu: 100m
-      memory: 256Mi
-    limits:
-      cpu: 500m
+      cpu: 250m
       memory: 512Mi
-
-endpointHealthcheck:
-  enabled: true
-  # No securityContext — the Alpine container needs root to install curl/jq via apk
-  securityContext: {}
-  # Cron schedule for health checks (default: daily at 6:00 AM UTC)
-  schedule: "0 6 * * *"
-  # Container image for running health checks
-  image:
-    repository: alpine
-    tag: "3.20"
-    pullPolicy: IfNotPresent
-  # Number of successful/failed jobs to keep
-  successfulJobsHistoryLimit: 3
-  failedJobsHistoryLimit: 3
-  # Secret containing NVIDIA_API_KEY (defaults to backend secret if not specified)
-  secretName: "daedalus-backend-env"
-  # Optional: Slack webhook URL for failure notifications (leave empty to disable)
-  slackWebhookUrl: ""
-  # Resource limits for the health check container
-  resources:
-    requests:
-      cpu: 50m
-      memory: 64Mi
     limits:
-      cpu: 100m
-      memory: 128Mi
+      cpu: 2000m
+      memory: 8Gi
 
 ingress:
   enabled: true
@@ -374,7 +255,7 @@ ingress:
     nginx.ingress.kubernetes.io/proxy-connect-timeout: "900"
     nginx.ingress.kubernetes.io/proxy-send-timeout: "900"
     nginx.ingress.kubernetes.io/proxy-read-timeout: "900"
-    nginx.ingress.kubernetes.io/proxy-body-size: "150m"  # Support video uploads up to 100MB (base64 adds ~33% overhead)
+    nginx.ingress.kubernetes.io/proxy-body-size: "150m" # Support video uploads up to 100MB (base64 adds ~33% overhead)
     # Disable buffering for streaming responses
     nginx.ingress.kubernetes.io/proxy-buffering: "off"
     nginx.ingress.kubernetes.io/proxy-request-buffering: "off"

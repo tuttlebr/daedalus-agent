@@ -2,14 +2,13 @@
 
 import React, { memo, useState, useRef, useCallback, useEffect } from 'react';
 import classNames from 'classnames';
-import { IconSend, IconSquare, IconPaperclip, IconBrain, IconX, IconPhoto, IconFileText, IconDatabase, IconNotes } from '@tabler/icons-react';
+import { IconSend, IconSquare, IconPaperclip, IconX, IconPhoto, IconFileText, IconDatabase, IconNotes } from '@tabler/icons-react';
 import toast from 'react-hot-toast';
 import { IconButton } from '@/components/primitives';
 import { Textarea } from '@/components/primitives';
 import { DropZone } from '@/components/primitives';
 import { ProgressBar } from '@/components/primitives';
 import { GlassToolbar } from '@/components/surfaces';
-import { useUISettingsStore } from '@/state';
 import { Message } from '@/types/chat';
 import { uploadImage, ImageReference } from '@/utils/app/imageHandler';
 import { validateFileSize, formatFileSize } from '@/constants/uploadLimits';
@@ -56,9 +55,6 @@ export const ChatInput = memo(({ onSend, onStop, isStreaming = false }: ChatInpu
   const [showCollections, setShowCollections] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  const useDeepThinker = useUISettingsStore((s) => s.useDeepThinker);
-  const toggleDeepThinker = useUISettingsStore((s) => s.toggleDeepThinker);
 
   const hasDocumentAttachment = attachments.some((a) => a.type === 'document');
   const isUploading = uploading.some((u) => u.progress < 100 && !u.error);
@@ -331,7 +327,7 @@ export const ChatInput = memo(({ onSend, onStop, isStreaming = false }: ChatInpu
             </div>
           )}
 
-          {/* Input row - attach/brain hidden on mobile (in BottomNav instead) */}
+          {/* Input row - attach hidden on mobile (in BottomNav instead) */}
           <div className="flex items-end gap-2">
             <IconButton
               icon={<IconPaperclip />}
@@ -340,18 +336,6 @@ export const ChatInput = memo(({ onSend, onStop, isStreaming = false }: ChatInpu
               size="sm"
               onClick={() => fileInputRef.current?.click()}
               className="hidden md:flex flex-shrink-0 mb-0.5"
-            />
-
-            <IconButton
-              icon={<IconBrain />}
-              aria-label={useDeepThinker ? 'Switch to Tool Calling' : 'Switch to Deep Thinker'}
-              variant={useDeepThinker ? 'accent' : 'ghost'}
-              size="sm"
-              onClick={toggleDeepThinker}
-              className={classNames(
-                'hidden md:flex flex-shrink-0 mb-0.5',
-                useDeepThinker && 'bg-nvidia-purple hover:bg-nvidia-purple-dark'
-              )}
             />
 
             <div className="flex-1 min-w-0">

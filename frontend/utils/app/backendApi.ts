@@ -36,12 +36,11 @@ export const isStreamingEndpoint = (): boolean =>
   BACKEND_API_PATH.includes('/stream') || BACKEND_API_PATH.includes('/v1/');
 
 /**
- * Get the backend host based on environment and deep thinker flag
+ * Get the backend host based on environment.
  *
- * @param useDeepThinker - Whether to use the deep thinker backend
  * @returns The backend hostname (with Kubernetes FQDN if in K8s environment)
  */
-export function getBackendHost(useDeepThinker: boolean): string {
+export function getBackendHost(): string {
   const baseHost = process.env.BACKEND_HOST || 'daedalus-backend';
   const backendNamespace =
     process.env.BACKEND_NAMESPACE ||
@@ -52,8 +51,7 @@ export function getBackendHost(useDeepThinker: boolean): string {
     process.env.KUBERNETES_SERVICE_HOST || process.env.DEPLOYMENT_MODE === 'kubernetes';
 
   if (isKubernetes) {
-    const suffix = useDeepThinker ? '-deep-thinker' : '-default';
-    return `${baseHost}${suffix}.${backendNamespace}.svc.cluster.local`;
+    return `${baseHost}-default.${backendNamespace}.svc.cluster.local`;
   }
   return baseHost;
 }
@@ -61,10 +59,9 @@ export function getBackendHost(useDeepThinker: boolean): string {
 /**
  * Get the headless service host used for backend pod discovery.
  *
- * @param useDeepThinker - Whether to use the deep thinker backend
  * @returns The discovery hostname (pod-backed in Kubernetes)
  */
-export function getBackendPodDiscoveryHost(useDeepThinker: boolean): string {
+export function getBackendPodDiscoveryHost(): string {
   const baseHost = process.env.BACKEND_HOST || 'daedalus-backend';
   const backendNamespace =
     process.env.BACKEND_NAMESPACE ||
@@ -75,11 +72,10 @@ export function getBackendPodDiscoveryHost(useDeepThinker: boolean): string {
     process.env.KUBERNETES_SERVICE_HOST || process.env.DEPLOYMENT_MODE === 'kubernetes';
 
   if (isKubernetes) {
-    const suffix = useDeepThinker ? '-deep-thinker-pods' : '-default-pods';
-    return `${baseHost}${suffix}.${backendNamespace}.svc.cluster.local`;
+    return `${baseHost}-default-pods.${backendNamespace}.svc.cluster.local`;
   }
 
-  return getBackendHost(useDeepThinker);
+  return getBackendHost();
 }
 
 /**
@@ -99,17 +95,15 @@ export function buildBackendBaseUrl(options: {
 }
 
 /**
- * Build the base backend URL for a specific deep thinker mode.
+ * Build the base backend URL for the default backend.
  *
- * @param useDeepThinker - Whether to use the deep thinker backend
  * @param port - Optional port override
  * @returns The backend base URL
  */
 export function buildBackendBaseUrlForMode(
-  useDeepThinker: boolean,
   port?: string | number
 ): string {
-  const backendHost = getBackendHost(useDeepThinker);
+  const backendHost = getBackendHost();
   return buildBackendBaseUrl({ backendHost, port });
 }
 
@@ -147,17 +141,15 @@ export function buildBackendUrl(options: {
 }
 
 /**
- * Build the full backend URL for a specific deep thinker mode
+ * Build the full backend URL for the default backend.
  *
- * @param useDeepThinker - Whether to use the deep thinker backend
  * @param pathOverride - Optional path override (defaults to BACKEND_API_PATH)
  * @returns The full backend URL
  */
 export function buildBackendUrlForMode(
-  useDeepThinker: boolean,
   pathOverride?: string
 ): string {
-  const backendHost = getBackendHost(useDeepThinker);
+  const backendHost = getBackendHost();
   return buildBackendUrl({ backendHost, pathOverride });
 }
 
@@ -173,18 +165,17 @@ export function getDefaultChatCompletionUrl(): string {
     return process.env.NEXT_PUBLIC_HTTP_CHAT_COMPLETION_URL;
   }
   // Build URL using centralized config (default backend)
-  return buildBackendUrlForMode(false);
+  return buildBackendUrlForMode();
 }
 
 /**
  * Build the URL for submitting an async workflow job to NAT.
  * POST /v1/workflow/async
  *
- * @param useDeepThinker - Whether to route to the deep-thinker backend
  * @returns The full URL for the async job submission endpoint
  */
-export function buildAsyncJobSubmitUrl(useDeepThinker: boolean): string {
-  const backendHost = getBackendHost(useDeepThinker);
+export function buildAsyncJobSubmitUrl(): string {
+  const backendHost = getBackendHost();
   return buildBackendUrl({ backendHost, pathOverride: '/v1/workflow/async' });
 }
 
@@ -192,12 +183,11 @@ export function buildAsyncJobSubmitUrl(useDeepThinker: boolean): string {
  * Build the URL for checking async workflow job status from NAT.
  * GET /v1/workflow/async/job/{jobId}
  *
- * @param useDeepThinker - Whether to route to the deep-thinker backend
  * @param jobId - The job identifier
  * @returns The full URL for the async job status endpoint
  */
-export function buildAsyncJobStatusUrl(useDeepThinker: boolean, jobId: string): string {
-  const backendHost = getBackendHost(useDeepThinker);
+export function buildAsyncJobStatusUrl(jobId: string): string {
+  const backendHost = getBackendHost();
   return buildBackendUrl({
     backendHost,
     pathOverride: `/v1/workflow/async/job/${encodeURIComponent(jobId)}`,

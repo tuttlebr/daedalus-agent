@@ -9,7 +9,7 @@ Daedalus is a full-stack reference application built on the [NVIDIA NeMo Agent t
 ## What This Repository Contains
 
 - A Next.js 14 frontend with streaming chat, attachments, authentication, PWA support, and conversation sync
-- NeMo Agent backend configurations for a tool-calling workflow and a deeper reasoning workflow
+- NeMo Agent backend configuration for a tool-calling workflow with MCP integrations, image tooling, retrieval, and memory
 - Custom builder packages for image generation, image understanding, retrieval, RSS ingestion, transcript parsing, and MAS routing
 - A Docker Compose stack for local development
 - A Helm chart and deployment script for a fuller Kubernetes deployment
@@ -22,9 +22,9 @@ Daedalus supports two practical ways to run the project.
 | Mode                 | What it starts                                                                                                                                  | Best for                                                          |
 | -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
 | Local Docker Compose | `frontend`, `backend`, `nginx`, `redis`, `redisinsight`, `marketing`, plus a `builder` utility container                                        | Local development and validating one backend config at a time     |
-| Kubernetes via Helm  | Separate default and deep-thinker backends, frontend, nginx, redis, redisinsight, jupyterlab, autonomous agent, ingress, PVCs, network policies | Persistent multi-user deployments and the full platform footprint |
+| Kubernetes via Helm  | Backend, frontend, nginx, redis, redisinsight, autonomous agent, ingress, PVCs, network policies | Persistent multi-user deployments and the full platform footprint |
 
-Important: the local Compose stack does not start Milvus, NV-Ingest, Phoenix, or JupyterLab. Those integrations are wired into the backend configs and Helm values, but they require external services or cluster deployment.
+Important: the local Compose stack does not start Milvus, NV-Ingest, or Phoenix. Those integrations are wired into the backend configs and Helm values, but they require external services or cluster deployment.
 
 ## Quick Start
 
@@ -72,23 +72,15 @@ SERPAPI_KEY=...
 GITHUB_PAT=...
 ```
 
-### 2. Choose the backend workflow for local Compose
+### 2. Copy the backend config for local Compose
 
 The Compose stack runs one backend container and expects a file at `backend/config.yaml`.
-
-Use the standard tool-calling workflow:
 
 ```bash
 cp backend/tool-calling-config.yaml backend/config.yaml
 ```
 
-Or use the reasoning-focused workflow instead:
-
-```bash
-cp backend/react-agent-config.yaml backend/config.yaml
-```
-
-If you switch configs, recreate the backend container so NAT reloads the new file.
+If you edit the config later, recreate the backend container so NAT reloads the new file.
 
 ### 3. Start the local stack
 
@@ -108,12 +100,12 @@ docker compose up --build
 
 - Compose is the easiest way to run the full local stack.
 - The standalone frontend dev server uses port `5000`, while the production container listens on `3000`.
-- In local Compose, the frontend does not get a separate default and deep-thinker backend pair. You choose one backend config by copying it to `backend/config.yaml`.
+- In local Compose, you choose a backend config by copying it to `backend/config.yaml`.
 - The `builder` service is a convenience container for working inside the NeMo Agent builder environment; it does not serve traffic.
 
 ## Kubernetes Deployment
 
-Use Kubernetes when you want the full Daedalus layout: separate default and deep-thinker backends, ingress, PVC-backed storage, JupyterLab, the autonomous agent CronJob, and optional Cilium policies.
+Use Kubernetes when you want the full Daedalus layout: backend, ingress, PVC-backed storage, the autonomous agent CronJob, and optional Cilium policies.
 
 ### Preferred path: `deploy.sh`
 
@@ -158,7 +150,6 @@ helm upgrade --install daedalus ./helm/daedalus \
   -n daedalus \
   -f custom-values.yaml \
   --set-file backend.default.config.data=backend/tool-calling-config.yaml \
-  --set-file backend.deepThinker.config.data=backend/react-agent-config.yaml \
   --timeout 10m
 ```
 
@@ -166,10 +157,9 @@ helm upgrade --install daedalus ./helm/daedalus \
 
 The Helm chart can deploy:
 
-- Two backend deployments: default and deep thinker
+- Backend deployment
 - Frontend and nginx
 - Redis Stack and RedisInsight
-- JupyterLab
 - An autonomous-agent CronJob
 - Ingress, PVCs, PodDisruptionBudget, and network policies
 - Optional Cilium FQDN-based egress restrictions
@@ -178,7 +168,7 @@ Start with [`helm/daedalus/values.yaml`](helm/daedalus/values.yaml) for defaults
 
 ### Kubernetes request flow
 
-The main browser chat path in Kubernetes goes through the frontend's async API route. The frontend authenticates the user, stores job state in Redis, selects the default or deep-thinker backend, and then returns progress plus the final answer back to the browser.
+The main browser chat path in Kubernetes goes through the frontend's async API route. The frontend authenticates the user, stores job state in Redis, submits the workflow to the backend, and then returns progress plus the final answer back to the browser.
 
 ```mermaid
 flowchart LR
@@ -188,9 +178,7 @@ flowchart LR
         Ingress[Ingress]
         Nginx[nginx Service and Pod]
         Frontend[Next.js frontend Service and Pod]
-        Selector{Deep thinker request?}
-        Default[Default backend Service and Pods]
-        Deep[Deep thinker backend Service and Pods]
+        Backend[Backend Service and Pods]
         Redis[(Redis Stack)]
         Integrations[Optional in-cluster integrations<br/>Milvus, NV-Ingest, Phoenix, K8s MCP]
         External[External HTTPS integrations<br/>NVIDIA, OpenRouter, SerpAPI, GitHub, RSS]
@@ -200,17 +188,11 @@ flowchart LR
     Ingress -->|all paths| Nginx
     Nginx -->|/ and /api/*| Frontend
     Frontend -->|auth, session, conversation, job state| Redis
-    Frontend -->|submit workflow| Selector
-    Selector -->|default| Default
-    Selector -->|deep thinker| Deep
-    Default -->|memory and shared state| Redis
-    Deep -->|memory and shared state| Redis
-    Default -->|retrieval, tracing, ingest| Integrations
-    Deep -->|retrieval, tracing, ingest| Integrations
-    Default -->|LLM and tool calls| External
-    Deep -->|LLM and tool calls| External
-    Default -->|job status and streamed output| Frontend
-    Deep -->|job status and streamed output| Frontend
+    Frontend -->|submit workflow| Backend
+    Backend -->|memory and shared state| Redis
+    Backend -->|retrieval, tracing, ingest| Integrations
+    Backend -->|LLM and tool calls| External
+    Backend -->|job status and streamed output| Frontend
     Frontend -->|poll and WebSocket updates, final response| Nginx
     Nginx --> Ingress
     Ingress --> Client
@@ -254,28 +236,21 @@ sequenceDiagram
     I-->>C: Final client response
 ```
 
-nginx can also proxy backend API paths directly. Requests to `/chat/`, `/generate/`, and `/v1/` bypass the frontend pod and are sent straight to the default or deep-thinker backend based on the `X-Backend-Type` header.
+nginx can also proxy backend API paths directly. Requests to `/chat/`, `/generate/`, and `/v1/` bypass the frontend pod and are sent straight to the backend.
 
 ```mermaid
 flowchart LR
     Client[Client browser or API caller]
     Ingress[Ingress]
     Nginx[nginx]
-    Route{Path and X-Backend-Type}
-    Default[Default backend]
-    Deep[Deep thinker backend]
+    Backend[Backend]
     Redis[(Redis)]
     External[External and optional cluster services]
 
-    Client -->|HTTPS /chat/*, /generate/*, /v1/*| Ingress --> Nginx --> Route
-    Route -->|default or no header| Default
-    Route -->|X-Backend-Type: deep-thinker| Deep
-    Default --> Redis
-    Deep --> Redis
-    Default --> External
-    Deep --> External
-    Default -->|stream or JSON response| Nginx
-    Deep -->|stream or JSON response| Nginx
+    Client -->|HTTPS /chat/*, /generate/*, /v1/*| Ingress --> Nginx --> Backend
+    Backend --> Redis
+    Backend --> External
+    Backend -->|stream or JSON response| Nginx
     Nginx --> Ingress --> Client
 ```
 
@@ -286,8 +261,7 @@ flowchart LR
 | [`README.md`](README.md)                                               | Top-level setup and deployment guide   |
 | [`.env.template`](.env.template)                                       | Main environment variable template     |
 | [`docker-compose.yaml`](docker-compose.yaml)                           | Local multi-service stack              |
-| [`backend/tool-calling-config.yaml`](backend/tool-calling-config.yaml) | Standard tool-calling backend workflow |
-| [`backend/react-agent-config.yaml`](backend/react-agent-config.yaml)   | Reasoning-focused backend workflow     |
+| [`backend/tool-calling-config.yaml`](backend/tool-calling-config.yaml) | Backend workflow configuration         |
 | [`frontend/env.example`](frontend/env.example)                         | Frontend API path example              |
 | [`helm/daedalus/values.yaml`](helm/daedalus/values.yaml)               | Default Helm values                    |
 | [`custom-values.yaml`](custom-values.yaml)                             | Example production overrides           |
@@ -304,6 +278,7 @@ Use these docs when you want more component-level detail than this top-level gui
 | [`helm/daedalus/README.md`](helm/daedalus/README.md)          | Helm chart footprint, values, and Kubernetes traffic model    |
 | [`frontend/pages/api/milvus/README.md`](frontend/pages/api/milvus/README.md) | Current status of the frontend-side Milvus helper |
 | [`builder/image_generation/README.md`](builder/image_generation/README.md) | Text-to-image builder function                          |
+| [`builder/image_comprehension/README.md`](builder/image_comprehension/README.md) | Image and video analysis builder function         |
 | [`builder/image_augmentation/README.md`](builder/image_augmentation/README.md) | Image-editing builder function                       |
 | [`builder/nat_nv_ingest/README.md`](builder/nat_nv_ingest/README.md) | Document ingestion into NvIngest and Milvus            |
 | [`builder/smart_milvus/README.md`](builder/smart_milvus/README.md) | Milvus retrieval and reranking behavior                 |
@@ -313,14 +288,7 @@ Use these docs when you want more component-level detail than this top-level gui
 
 ## Backend Workflows
 
-Daedalus ships with two backend configurations.
-
-| Config       | File                                                                   | Intended use                                                      |
-| ------------ | ---------------------------------------------------------------------- | ----------------------------------------------------------------- |
-| Default      | [`backend/tool-calling-config.yaml`](backend/tool-calling-config.yaml) | Fast tool use, retrieval, memory, MCP integrations, image tooling |
-| Deep Thinker | [`backend/react-agent-config.yaml`](backend/react-agent-config.yaml)   | More deliberate reasoning and longer-form research tasks          |
-
-Both configs include the custom packages from `builder/` and rely heavily on environment-variable substitution for secrets and endpoints.
+The backend configuration lives at [`backend/tool-calling-config.yaml`](backend/tool-calling-config.yaml) and covers tool use, retrieval, memory, MCP integrations, image tooling, and reasoning. It includes the custom packages from `builder/` and relies heavily on environment-variable substitution for secrets and endpoints.
 
 ## Frontend Capabilities
 
@@ -345,7 +313,7 @@ The `builder/` directory contains reusable NeMo Agent functions and helpers.
 | `agent_skills`        | Discovers and runs repo-packaged skills                |
 | `content_distiller`   | Summarization and extraction helpers                   |
 | `image_augmentation`  | Image editing                                          |
-| `image_comprehension` | Image analysis and OCR                                 |
+| `image_comprehension` | Image and video analysis                               |
 | `image_generation`    | Text-to-image generation                               |
 | `json_repair_agent`   | Repairs malformed JSON outputs                         |
 | `mas_optimizer`       | Multi-agent vs single-agent routing and verification   |
@@ -371,7 +339,7 @@ The `builder/` directory also contains standalone modules that patch NAT at star
 
 ## Autonomous Agent
 
-The Helm chart enables an autonomous background agent by default. It runs as a CronJob and can add memories and research updates for a configured user.
+The Helm chart enables an autonomous background agent by default. It runs as a CronJob and can add memories and research updates for a configured user. The agent mounts a seed knowledge graph from ConfigMap files that define its identity, interests, memory schema, and operating procedures.
 
 Important settings:
 
@@ -380,11 +348,18 @@ Important settings:
 - `autonomousAgent.timeZone`
 - `autonomousAgent.userId`
 - `autonomousAgent.backendType`
+- `autonomousAgent.workspace.resetOnDeploy` — force re-seed all knowledge graph files from ConfigMap (use after major identity changes)
+- `autonomousAgent.workspace.distillationInterval` — cycles between memory distillation passes
 
-Its long-form instructions live in:
+Knowledge graph seed files in [`helm/daedalus/files/`](helm/daedalus/files/):
 
-- [`helm/daedalus/files/autonomous-agent-soul.md`](helm/daedalus/files/autonomous-agent-soul.md)
-- [`helm/daedalus/files/autonomous-agent-heartbeat.md`](helm/daedalus/files/autonomous-agent-heartbeat.md)
+- [`autonomous-agent-identity.md`](helm/daedalus/files/autonomous-agent-identity.md) — name, nature, and persona
+- [`autonomous-agent-soul.md`](helm/daedalus/files/autonomous-agent-soul.md) — core principles and operating truths
+- [`autonomous-agent-interests.md`](helm/daedalus/files/autonomous-agent-interests.md) — exploration topics and curiosity areas
+- [`autonomous-agent-schema.md`](helm/daedalus/files/autonomous-agent-schema.md) — memory format and metadata structure
+- [`autonomous-agent-user.md`](helm/daedalus/files/autonomous-agent-user.md) — user context and preferences
+- [`autonomous-agent-heartbeat.md`](helm/daedalus/files/autonomous-agent-heartbeat.md) — cycle procedures and rotation rules
+- [`autonomous-agent-memory.md`](helm/daedalus/files/autonomous-agent-memory.md) — persistent memory index
 
 ## Network Security
 

@@ -10,10 +10,23 @@ data:
     #!/bin/bash
     set -e
 
+    # Forward SIGTERM to the Redis process so Kubernetes graceful
+    # shutdown triggers a clean Redis SAVE before exit.
+    cleanup() {
+      echo "Received shutdown signal, forwarding to Redis (PID $REDIS_PID)..."
+      kill -TERM "$REDIS_PID" 2>/dev/null
+      wait "$REDIS_PID"
+      echo "Redis stopped."
+      exit 0
+    }
+    trap cleanup SIGTERM SIGINT
+
     echo "Starting Redis with modules..."
 
-    # Start Redis in the background with all required modules
+    # Start Redis in the background with all required modules.
+    # --dir /data ensures RDB and AOF are written to the PVC mount.
     redis-server \
+      --dir /data \
       --save 60 1 \
       --appendonly yes \
       --protected-mode no \

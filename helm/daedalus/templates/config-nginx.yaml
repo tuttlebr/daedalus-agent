@@ -20,7 +20,6 @@ data:
 {{- $_ := set . "_backendHost" $backendHost -}}
 {{- $_ := set . "_backendPort" $backendPort -}}
 {{- $_ := set . "_backendDefaultUpstream" (printf "%s-backend-default.%s.svc.cluster.local:%v" (include "daedalus.fullname" .) .Release.Namespace .Values.backend.default.port) -}}
-{{- $_ := set . "_backendDeepThinkerUpstream" (printf "%s-backend-deep-thinker.%s.svc.cluster.local:%v" (include "daedalus.fullname" .) .Release.Namespace .Values.backend.deepThinker.port) -}}
 {{ tpl (printf "%s" (include "nginx.frontend.conf.template" .)) . | indent 4 }}
 {{- end }}
 {{- else }}
@@ -52,7 +51,6 @@ server {
     set $upstream_frontend http://{{ ._frontendHost }}:3000;
     set $upstream_frontend_ws http://{{ ._frontendHost }}:3001;
     set $upstream_backend_default http://{{ ._backendDefaultUpstream }};
-    set $upstream_backend_deep_thinker http://{{ ._backendDeepThinkerUpstream }};
 
     # Security headers
     add_header X-Frame-Options "DENY" always;
@@ -103,7 +101,7 @@ server {
         proxy_cache off;
         proxy_set_header X-Accel-Buffering no;
 
-        # Increase timeouts for deep thinker and long AI requests (10 minutes)
+        # Increase timeouts for long AI requests (10 minutes)
         proxy_connect_timeout 600s;
         proxy_send_timeout 600s;
         proxy_read_timeout 600s;
@@ -163,12 +161,7 @@ server {
 
     # API routes - OpenAI compatible endpoint
     location /v1/ {
-        # Route based on X-Backend-Type header
-        set $backend_upstream $upstream_backend_default;
-        if ($http_x_backend_type = "deep-thinker") {
-            set $backend_upstream $upstream_backend_deep_thinker;
-        }
-        proxy_pass $backend_upstream;
+        proxy_pass $upstream_backend_default;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection 'upgrade';
@@ -198,12 +191,7 @@ server {
 
     # NAT generate endpoints (including streaming)
     location /generate/ {
-        # Route based on X-Backend-Type header
-        set $backend_upstream $upstream_backend_default;
-        if ($http_x_backend_type = "deep-thinker") {
-            set $backend_upstream $upstream_backend_deep_thinker;
-        }
-        proxy_pass $backend_upstream;
+        proxy_pass $upstream_backend_default;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection 'upgrade';
@@ -233,12 +221,7 @@ server {
 
     # Chat endpoints
     location /chat/ {
-        # Route based on X-Backend-Type header
-        set $backend_upstream $upstream_backend_default;
-        if ($http_x_backend_type = "deep-thinker") {
-            set $backend_upstream $upstream_backend_deep_thinker;
-        }
-        proxy_pass $backend_upstream;
+        proxy_pass $upstream_backend_default;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection 'upgrade';
@@ -285,12 +268,7 @@ server {
 
     # Upload endpoints
     location ~ ^/(upload|tools|health)/ {
-        # Route based on X-Backend-Type header
-        set $backend_upstream $upstream_backend_default;
-        if ($http_x_backend_type = "deep-thinker") {
-            set $backend_upstream $upstream_backend_deep_thinker;
-        }
-        proxy_pass $backend_upstream;
+        proxy_pass $upstream_backend_default;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
@@ -304,12 +282,7 @@ server {
 
     # Evaluate endpoints
     location /evaluate {
-        # Route based on X-Backend-Type header
-        set $backend_upstream $upstream_backend_default;
-        if ($http_x_backend_type = "deep-thinker") {
-            set $backend_upstream $upstream_backend_deep_thinker;
-        }
-        proxy_pass $backend_upstream;
+        proxy_pass $upstream_backend_default;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
@@ -324,12 +297,7 @@ server {
 
     # Auth redirect endpoint
     location /auth/redirect {
-        # Route based on X-Backend-Type header
-        set $backend_upstream $upstream_backend_default;
-        if ($http_x_backend_type = "deep-thinker") {
-            set $backend_upstream $upstream_backend_deep_thinker;
-        }
-        proxy_pass $backend_upstream;
+        proxy_pass $upstream_backend_default;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;

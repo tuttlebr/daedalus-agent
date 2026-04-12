@@ -39,18 +39,6 @@ spec:
         - protocol: TCP
           port: {{ .Values.backend.default.port }}
     {{- end }}
-    # Allow access to deep thinker backend
-    {{- if .Values.backend.deepThinker.enabled }}
-    - to:
-        - podSelector:
-            matchLabels:
-              app.kubernetes.io/name: {{ include "daedalus.name" . }}
-              app.kubernetes.io/component: backend-deep-thinker
-              app.kubernetes.io/instance: {{ .Release.Name }}
-      ports:
-        - protocol: TCP
-          port: {{ .Values.backend.deepThinker.port }}
-    {{- end }}
     # Allow access to Redis (session store, usage tracking)
     - to:
         - podSelector:

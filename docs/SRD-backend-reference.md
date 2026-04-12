@@ -108,8 +108,7 @@ frontend:5000      # Next.js app server
 frontend:3001      # WebSocket sidecar
 nginx:80           # Reverse proxy (TLS termination in production)
 redis:6379         # Redis Stack (RedisJSON + RediSearch)
-backend:8000       # NAT tool-calling agent (default)
-backend:8001       # NAT react agent (deep thinker)
+backend:8000       # NAT tool-calling agent
 ```
 
 ### 3.2 Environment Variables
@@ -128,7 +127,7 @@ Existing chart at `helm/daedalus/` includes:
 - Frontend deployment with resource limits
 - Redis deployment with PVC
 - NGINX deployment with ConfigMap
-- Backend deployments (default + deep thinker)
+- Backend deployment
 - NetworkPolicy restricting backend access
 
 ---

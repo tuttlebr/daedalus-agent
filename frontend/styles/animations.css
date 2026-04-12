@@ -5,7 +5,6 @@
 /* ----------------------------------------------------------------
    Agent Heartbeat: Streaming indicator sweep bar
    A horizontal gradient sweep that loops during agent activity.
-   Green for Tool-Calling mode, purple for Deep Thinker mode.
    ---------------------------------------------------------------- */
 @keyframes heartbeat-sweep {
   0% {
@@ -238,17 +237,6 @@
   animation: heartbeat-sweep 1.8s ease-in-out infinite;
 }
 
-.animate-heartbeat-sweep-purple {
-  background: linear-gradient(
-    90deg,
-    transparent 0%,
-    var(--color-nvidia-purple) 50%,
-    transparent 100%
-  );
-  background-size: 200% 100%;
-  animation: heartbeat-sweep 1.8s ease-in-out infinite;
-}
-
 .animate-heartbeat-breathe {
   animation: heartbeat-breathe 2s ease-in-out infinite;
 }
@@ -312,7 +300,6 @@
    ================================================================ */
 @media (prefers-reduced-motion: reduce) {
   .animate-heartbeat-sweep,
-  .animate-heartbeat-sweep-purple,
   .animate-heartbeat-breathe,
   .animate-morph-in,
   .animate-morph-out,

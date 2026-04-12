@@ -22,7 +22,7 @@ The interface follows four principles:
 
 1. **Dark-first glassmorphism.** Surfaces use frosted glass with backdrop blur and subtle white borders over a near-black background. Depth comes from blur intensity and surface opacity, not drop shadows or gradients. Light theme is supported but dark is the default and primary design target.
 
-2. **NVIDIA Green is the hero.** The color `#76B900` is the singular brand accent. It marks active states, primary actions, success indicators, and focus rings. Every other color is neutral or semantic. Deep Thinker mode uses NVIDIA Purple `#952FC6` as its accent, creating a clear visual distinction between the two agent modes.
+2. **NVIDIA Green is the hero.** The color `#76B900` is the singular brand accent. It marks active states, primary actions, success indicators, and focus rings. Every other color is neutral or semantic.
 
 3. **Typography-driven hierarchy.** NVIDIA Sans carries the visual weight. Headings, body text, and labels create hierarchy through size and weight, not decoration. The interface is clean, minimal, and information-dense without feeling crowded.
 
@@ -56,7 +56,7 @@ There is no multi-page routing. The Main Chat screen is a single-page applicatio
 ├────────────────┬─────────────────────────────────────────┤
 │                │         Zone B: Chat Area                │
 │  Zone A:       │  ┌─────────────────────────────────┐    │
-│  Conversation  │  │  Chat Header (title, mode toggle)│    │
+│  Conversation  │  │  Chat Header (title)             │    │
 │  Sidebar       │  ├─────────────────────────────────┤    │
 │                │  │                                   │    │
 │  - New Chat    │  │  Virtual Message List              │    │
@@ -77,7 +77,7 @@ There is no multi-page routing. The Main Chat screen is a single-page applicatio
 Contains the conversation list, folder structure, search, and action buttons. A drag handle between Zone A and Zone B allows desktop users to resize the sidebar. Width persists in session storage. The sidebar collapses via a toggle button or the keyboard shortcut Cmd/Ctrl+Shift+S.
 
 **Zone B — Chat Area** (center, fills remaining width):
-Contains the chat header with conversation title and mode toggle, a virtualized message list, the agent heartbeat indicator during streaming, and the input area anchored to the bottom. On empty conversations, a galaxy animation and the Daedalus logo fill the center. A QuickActions bar appears above the input with large attach, camera, and Deep Thinker toggle buttons.
+Contains the chat header with conversation title, a virtualized message list, the agent heartbeat indicator during streaming, and the input area anchored to the bottom. On empty conversations, a galaxy animation and the Daedalus logo fill the center. A QuickActions bar appears above the input with large attach and camera buttons.
 
 **Zone C — Intermediate Steps Panel** (inline within messages, expandable):
 Tool call details and agent reasoning steps appear as collapsible cards within assistant messages. When expanded, they show the full input/output of each tool call with syntax-highlighted JSON.
@@ -86,7 +86,7 @@ Tool call details and agent reasoning steps appear as collapsible cards within a
 
 **Desktop (768px and above):** Persistent sidebar alongside the chat area. The sidebar can be toggled open or closed.
 
-**Mobile (below 768px):** The sidebar is hidden by default. A fixed bottom navigation bar provides five actions: Menu (toggles sidebar overlay), Attach (file picker), Camera (device camera), Deep Thinker (mode toggle), and New Chat. The sidebar slides in as a full-screen overlay with backdrop blur.
+**Mobile (below 768px):** The sidebar is hidden by default. A fixed bottom navigation bar provides three actions: Menu (toggles sidebar overlay), Attach (file picker), and New Chat. The sidebar slides in as a full-screen overlay with backdrop blur.
 
 ### 2.4 User Journeys
 
@@ -111,7 +111,6 @@ This section documents the actual design tokens implemented in `tailwind.config.
 | NVIDIA Green | `#76B900` | Primary accent, active states, focus rings, success |
 | NVIDIA Green Dark | `#5A8A00` | Hover/pressed states |
 | NVIDIA Green Light | `#91C438` | Highlights |
-| NVIDIA Purple | `#952FC6` | Deep Thinker mode accent |
 | Orange | `#EF9100` | Warning, network/timeout errors |
 | Red | `#E52020` | Error, destructive actions |
 | Blue | `#0074DF` | Info, rate limit indicators |
@@ -195,7 +194,7 @@ Glass effects are the primary depth mechanism. Each variant is a CSS class combi
 
 | Name | Duration | Behavior | Usage |
 | --- | --- | --- | --- |
-| `heartbeat-sweep` | 1.8s infinite | Gradient sweeps left to right with NVIDIA Green opacity peak. Purple variant for Deep Thinker. | Agent streaming indicator |
+| `heartbeat-sweep` | 1.8s infinite | Gradient sweeps left to right with NVIDIA Green opacity peak. | Agent streaming indicator |
 | `heartbeat-breathe` | 2s ease-in-out infinite | Dot scales 1→1.3 and glows, opacity 0.4→1 | Agent alive dot |
 | `slideUp` | 0.3s | translateY(100%) → 0, opacity 0 → 1 | Toast entry, bottom sheet |
 | `slideDown` | 0.3s | translateY(-100%) → 0, opacity 0 → 1 | Dropdown entry |
@@ -210,8 +209,6 @@ Glass effects are the primary depth mechanism. Each variant is a CSS class combi
 
 | Icon | Usage |
 | --- | --- |
-| `IconBrain` | Deep Thinker mode |
-| `IconBolt` | Tool-Calling mode (default) |
 | `IconPaperclip` | Attach file |
 | `IconCamera` | Camera / photo capture |
 | `IconSend` | Send message |
@@ -250,7 +247,7 @@ Glass effects are the primary depth mechanism. Each variant is a CSS class combi
 | `shadow-nvidia` | `0 0 5px rgba(0,0,0,0.3)` | Cards, subtle elevation |
 | `shadow-nvidia-lg` | Layered multi-shadow | Prominent buttons, elevated cards |
 | `shadow-nvidia-dropdown` | `0 6px 9px rgba(0,0,0,0.175)` | Menus, dropdowns |
-| `shadow-glow-green` | `0 0 20px rgba(118,185,0,0.15)` | Active Deep Thinker button, primary CTAs |
+| `shadow-glow-green` | `0 0 20px rgba(118,185,0,0.15)` | Primary CTAs |
 
 ---
 
@@ -258,17 +255,15 @@ Glass effects are the primary depth mechanism. Each variant is a CSS class combi
 
 ### 4.1 Chat Experience
 
-**Empty state.** When no messages exist in the current conversation, the chat area shows a galaxy animation centered vertically with the Daedalus logo. The input bar sits at the bottom. Above the input, a QuickActions bar displays large, touch-friendly buttons for Attach, Camera, and a Deep Thinker toggle pill. This is the invitation to start a conversation.
+**Empty state.** When no messages exist in the current conversation, the chat area shows a galaxy animation centered vertically with the Daedalus logo. The input bar sits at the bottom. Above the input, a QuickActions bar displays large, touch-friendly buttons for Attach and Camera. This is the invitation to start a conversation.
 
 **Composed state.** Messages appear in a virtualized list. User messages are right-aligned with a subtle green-tinted bubble (`rgba(118, 185, 0, 0.10)`). Assistant messages are left-aligned, full-width, and render rich markdown content. Each message has a small avatar — user avatar on the right, agent avatar on the left. The list auto-scrolls to follow new content. If the user scrolls up during streaming, a "scroll to bottom" floating button appears.
 
 **Streaming behavior.** When the agent is generating a response, the AgentHeartbeat component appears below the message list. It consists of three elements:
 
-1. A **sweep bar** — a horizontal gradient that animates left to right in 1.8s cycles. The gradient uses NVIDIA Green for tool-calling mode and NVIDIA Purple for Deep Thinker mode.
+1. A **sweep bar** — a horizontal gradient that animates left to right in 1.8s cycles, using NVIDIA Green.
 2. A **breathing dot** — a small circle that pulses (scale 1→1.3, opacity 0.4→1) on a 2s cycle, signaling the agent is alive.
 3. **Activity text** — describes the current operation ("Searching the web...", "Generating image...", "Reasoning...") alongside an elapsed-time counter and small icons for completed step categories (brain for LLM calls, wrench for tool calls).
-
-**Mode toggle.** The chat header contains two pill buttons: **Tool-Calling** (with IconBolt) and **Deep Thinker** (with IconBrain). The active pill receives a colored border and tinted background — green for tool-calling, purple for deep thinker. A "Streaming" badge appears next to the toggle when the agent is active. On mobile, the Deep Thinker toggle is also accessible from the bottom nav bar, where it shows a glowing green dot when enabled.
 
 **Markdown rendering.** Assistant messages render GitHub Flavored Markdown including:
 - Syntax-highlighted code blocks (lazy-loaded highlighter)
@@ -308,7 +303,7 @@ When the agent calls tools or performs multi-step reasoning, each step appears a
 - A send button (IconSend) that activates when text or attachments are present
 - A stop button (IconSquare) that replaces send during active streaming
 
-On empty conversations, the QuickActions bar above the input provides larger versions of the attach and camera buttons, plus the Deep Thinker toggle pill.
+On empty conversations, the QuickActions bar above the input provides larger versions of the attach and camera buttons.
 
 **File attachment flow:**
 1. User clicks the paperclip button or drags files onto the chat area
@@ -399,12 +394,12 @@ The prompt can be dismissed (7-day cooldown before re-showing) or permanently hi
 - New messages queue in IndexedDB for background sync when connectivity returns
 - The OfflineIndicator toast displays persistently
 
-**Background processing.** When a long-running job (for example a Deep Thinker research task) is active:
+**Background processing.** When a long-running job is active:
 - The BackgroundProcessingIndicator shows that work is in progress
 - A Wake Lock keeps the screen active (with a 5-minute safety timeout)
 - Battery detection reduces activity below 20% battery
 
-**Push notifications.** When a deep thinker or long-running job completes while the app is backgrounded or the tab is hidden, a push notification fires to bring the user back.
+**Push notifications.** When a long-running job completes while the app is backgrounded or the tab is hidden, a push notification fires to bring the user back.
 
 **App manifest.** The PWA manifest declares:
 - Display: standalone (native app appearance)
@@ -423,14 +418,12 @@ The mobile experience is not a responsive adaptation — it has its own navigati
 
 ### 5.1 Bottom Navigation Bar
 
-A fixed bottom bar appears on screens below 768px. It provides five actions:
+A fixed bottom bar appears on screens below 768px. It provides three actions:
 
 | Button | Icon | Behavior |
 | --- | --- | --- |
 | Menu | `IconMenu2` | Toggles the sidebar overlay on/off |
 | Attach | `IconPaperclip` | Opens the native file picker |
-| Camera | `IconCamera` | Opens the device camera for photo capture |
-| Think | `IconBrain` | Toggles Deep Thinker mode; shows a glowing green dot when active |
 | New | `IconPlus` | Creates a new conversation |
 
 **Visual treatment:** Frosted glass backdrop (`bg-black/60`, `backdrop-blur-xl`), top border of `border-white/[0.06]`. Active items display in NVIDIA Green with a pill-shaped indicator below. Buttons have a minimum width of 52px and height of 48px. Labels are compact at 9px.
@@ -533,33 +526,32 @@ After login, the user lands on the Main Chat screen. On mobile, the sidebar is h
 
 ### 7.3 In-App Help
 
-The Help dialog is accessible from the sidebar's Help button. It contains 18 collapsible sections, each with an icon, title, and detailed content:
+The Help dialog is accessible from the sidebar's Help button. It contains 17 collapsible sections, each with an icon, title, and detailed content:
 
 1. Chatting
-2. Deep Thinker Mode
-3. Attaching Files
-4. Taking Photos
-5. Web Search and Browsing
-6. Image Generation
-7. Image Editing
-8. Knowledge Bases
-9. News and RSS Feeds
-10. Meeting Notes from Transcripts
-11. Document Q&A
-12. Managing Conversations
-13. Searching Conversations
-14. Viewing AI Reasoning
-15. Settings
-16. Export and Import
-17. Keyboard Shortcuts
-18. Install as App (PWA)
+2. Attaching Files
+3. Taking Photos
+4. Web Search and Browsing
+5. Image Generation
+6. Image Editing
+7. Knowledge Bases
+8. News and RSS Feeds
+9. Meeting Notes from Transcripts
+10. Document Q&A
+11. Managing Conversations
+12. Searching Conversations
+13. Viewing AI Reasoning
+14. Settings
+15. Export and Import
+16. Keyboard Shortcuts
+17. Install as App (PWA)
 
 The dialog uses the `liquid-glass-overlay` treatment. On mobile, it renders as a bottom sheet; on desktop, as a centered modal. It closes on Escape key or clicking outside.
 
 ### 7.4 Recommendations (Not Yet Implemented)
 
 The following would improve the first-run experience:
-- **Guided tour:** A step-by-step walkthrough highlighting the mode toggle, attach button, sidebar, and help button on first login.
+- **Guided tour:** A step-by-step walkthrough highlighting the attach button, sidebar, and help button on first login.
 - **Sample prompts:** Pre-populated prompt suggestions in the empty chat state (for example "Search the web for...", "Generate an image of...", "Summarize this document...") to help users discover capabilities.
 
 ---
@@ -617,8 +609,8 @@ The autonomous agent's output appears as a regular conversation in the user's co
 ```
 ┌──────────┐     ┌────────┐     ┌──────────────┐     ┌──────────────────────┐
 │  Client  │────▶│ nginx  │────▶│ Next.js app  │────▶│ NAT backend service  │
-│  (PWA)   │◀────│/Ingress│◀───│ API routes    │     │  default or deep     │
-│          │     │        │     │ + WS sidecar  │     │  thinker             │
+│  (PWA)   │◀────│/Ingress│◀───│ API routes    │     │                      │
+│          │     │        │     │ + WS sidecar  │     │                      │
 │          │     │        │     └──────┬────────┘     └──────────┬───────────┘
 │          │     │        │            │                          │
 │          │     │        │      ┌─────▼─────┐              ┌────▼─────┐
@@ -633,7 +625,7 @@ The autonomous agent's output appears as a regular conversation in the user's co
 **Primary chat path:**
 1. Client posts to `/api/chat/async`
 2. Frontend authenticates the user and stores job metadata in Redis
-3. Frontend submits `/v1/workflow/async` to the selected backend
+3. Frontend submits `/v1/workflow/async` to the backend
 4. Frontend opens a parallel `/chat/stream` reader to capture tokens and intermediate steps
 5. WebSocket and polling clients consume Redis-backed job status until finalization
 
@@ -650,14 +642,9 @@ The autonomous agent's output appears as a regular conversation in the user's co
 | Media | Sharp (server-side), client compression | Thumbnails, format detection |
 | Testing | Vitest + coverage-v8 | Target >= 80% |
 
-### 10.3 Dual-Backend Architecture
+### 10.3 Backend Architecture
 
-The frontend supports two backend modes that directly affect the UI:
-
-- **Default (Tool-Calling):** Uses the NeMo Agent Toolkit tool-calling agent. Optimized for fast responses with direct tool use. The UI accent is NVIDIA Green. Selected by the Tool-Calling pill in the mode toggle.
-- **Deep Thinker:** Uses the NeMo Agent Toolkit ReAct agent with an extended reasoning model. Optimized for complex research and analysis. Responses take longer. The UI accent shifts to NVIDIA Purple. Selected by the Deep Thinker pill in the mode toggle.
-
-The mode can be toggled at any time. Each message is processed by whichever backend was active when it was sent.
+The frontend connects to a single NeMo Agent Toolkit backend. The UI accent is NVIDIA Green.
 
 ---
 
@@ -754,8 +741,7 @@ The mode can be toggled at any time. Each message is processed by whichever back
 | Term | Definition |
 | --- | --- |
 | **NAT** | NeMo Agent Toolkit — the backend agent framework |
-| **Deep Thinker** | The ReAct agent backend for complex reasoning, using NVIDIA Purple as its UI accent |
-| **Default Backend** | The tool-calling agent backend for fast responses, using NVIDIA Green as its UI accent |
+| **Backend** | The NeMo Agent Toolkit backend service, using NVIDIA Green as the UI accent |
 | **Async Job** | A long-running chat request processed in the background with status tracking |
 | **Streaming State** | A Redis-tracked flag indicating a conversation is currently receiving an agent response |
 | **Session Registry** | System tracking which devices and tabs are active for a user |
@@ -763,5 +749,5 @@ The mode can be toggled at any time. Each message is processed by whichever back
 | **Glassmorphism** | The frosted glass visual effect achieved with `backdrop-filter: blur()` and semi-transparent backgrounds |
 | **Liquid Glass** | The Daedalus-specific glassmorphism implementation, available as CSS utility classes (`liquid-glass-*`) |
 | **Agent Heartbeat** | The animated sweep bar and breathing dot that indicate the agent is actively generating a response |
-| **Bottom Nav** | The fixed mobile navigation bar (five buttons) that replaces the sidebar on screens below 768px |
+| **Bottom Nav** | The fixed mobile navigation bar (three buttons) that replaces the sidebar on screens below 768px |
 | **QuickActions** | The large-button bar that appears above the input area on empty conversations |

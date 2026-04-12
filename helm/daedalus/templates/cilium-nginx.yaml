@@ -84,18 +84,5 @@ spec:
             - port: {{ .Values.backend.default.port | quote }}
               protocol: TCP
     {{- end }}
-
-    # Backend deep thinker (only in non-restricted mode)
-    {{- if .Values.backend.deepThinker.enabled }}
-    - toEndpoints:
-        - matchLabels:
-            app.kubernetes.io/name: {{ include "daedalus.name" . }}
-            app.kubernetes.io/component: backend-deep-thinker
-            app.kubernetes.io/instance: {{ .Release.Name }}
-      toPorts:
-        - ports:
-            - port: {{ .Values.backend.deepThinker.port | quote }}
-              protocol: TCP
-    {{- end }}
     {{- end }}
 {{- end }}

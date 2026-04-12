@@ -35,9 +35,6 @@ export interface UISettingsState {
   intermediateStepsView: 'timeline' | 'category';
   intermediateStepsFilter: IntermediateStepCategory[];
 
-  // Deep Thinker
-  useDeepThinker: boolean;
-
   // Background Processing
   enableBackgroundProcessing: boolean;
 
@@ -77,10 +74,6 @@ export interface UISettingsActions {
   setIntermediateStepsView: (view: 'timeline' | 'category') => void;
   setIntermediateStepsFilter: (filter: IntermediateStepCategory[]) => void;
   toggleIntermediateStepCategory: (category: IntermediateStepCategory) => void;
-
-  // Deep Thinker
-  setUseDeepThinker: (enabled: boolean) => void;
-  toggleDeepThinker: () => void;
 
   // Background Processing
   setEnableBackgroundProcessing: (enabled: boolean) => void;
@@ -131,7 +124,6 @@ const initialState: UISettingsState = {
   intermediateStepOverride: true,
   intermediateStepsView: 'timeline',
   intermediateStepsFilter: [],
-  useDeepThinker: false,
   enableBackgroundProcessing: true,
   energySavingMode: false,
   folders: [],
@@ -209,15 +201,6 @@ export const useUISettingsStore = create<UISettingsStore>()(
               intermediateStepsFilter: [...current, category],
             };
           }),
-
-        // ======================================================================
-        // Deep Thinker
-        // ======================================================================
-
-        setUseDeepThinker: (enabled) => set({ useDeepThinker: enabled }),
-
-        toggleDeepThinker: () =>
-          set((state) => ({ useDeepThinker: !state.useDeepThinker })),
 
         // ======================================================================
         // Background Processing
@@ -299,7 +282,6 @@ export const useUISettingsStore = create<UISettingsStore>()(
           enableIntermediateSteps: state.enableIntermediateSteps,
           expandIntermediateSteps: state.expandIntermediateSteps,
           intermediateStepsView: state.intermediateStepsView,
-          useDeepThinker: state.useDeepThinker,
           enableBackgroundProcessing: state.enableBackgroundProcessing,
           energySavingMode: state.energySavingMode,
         }),
@@ -314,7 +296,6 @@ export const useUISettingsStore = create<UISettingsStore>()(
 
 export const selectLightMode = (state: UISettingsStore) => state.lightMode;
 export const selectShowChatbar = (state: UISettingsStore) => state.showChatbar;
-export const selectUseDeepThinker = (state: UISettingsStore) => state.useDeepThinker;
 export const selectEnableIntermediateSteps = (state: UISettingsStore) =>
   state.enableIntermediateSteps;
 
@@ -324,7 +305,6 @@ export const selectEnableIntermediateSteps = (state: UISettingsStore) =>
 
 export const useLightMode = () => useUISettingsStore((state) => state.lightMode);
 export const useShowChatbar = () => useUISettingsStore((state) => state.showChatbar);
-export const useDeepThinker = () => useUISettingsStore((state) => state.useDeepThinker);
 export const useFolders = () => useUISettingsStore((state) => state.folders);
 export const useSearchTerm = () => useUISettingsStore((state) => state.searchTerm);
 

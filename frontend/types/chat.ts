@@ -16,7 +16,6 @@ export interface Message {
   humanInteractionMessages?: any;
   errorMessages?: MessageError;
   metadata?: {
-    useDeepThinker?: boolean;
     [key: string]: any;
   };
   attachments?: Array<{
@@ -80,7 +79,6 @@ export interface ChatBody {
   additionalProps?: {
     enableIntermediateSteps?: boolean;
     username?: string;
-    useDeepThinker?: boolean;
     userContext?: UserContext;
     [key: string]: any;
   }

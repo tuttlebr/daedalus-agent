@@ -514,13 +514,9 @@ const handler = async (req: Request): Promise<Response> => {
     Array.isArray(messages) ? messages.length : 'n/a',
   );
 
-  // Check if any message has useDeepThinker flag
-  const useDeepThinker = messages.some((msg: any) => msg.metadata?.useDeepThinker === true);
-  logger.info('useDeepThinker', useDeepThinker);
-
   try {
-    // Normalize backend URL to in-cluster FQDN and route based on useDeepThinker flag
-    const backendHost = getBackendHost(useDeepThinker);
+    // Normalize backend URL to in-cluster FQDN
+    const backendHost = getBackendHost();
     const defaultStreamUrl = buildBackendUrl({ backendHost });
 
     try {
@@ -528,11 +524,9 @@ const handler = async (req: Request): Promise<Response> => {
       if (!provided) {
         chatCompletionURL = defaultStreamUrl;
       } else {
-        // Always replace the backend host based on deep thinker flag
+        // Replace the backend host with the in-cluster FQDN, preserving the original path
         const u = new URL(provided);
-        // Extract the path and query params from the provided URL
         const pathAndQuery = u.pathname + u.search;
-        // Construct new URL with the correct backend, preserving the original path
         chatCompletionURL = buildBackendUrl({ backendHost, pathOverride: pathAndQuery });
       }
     } catch {
@@ -603,8 +597,6 @@ const handler = async (req: Request): Promise<Response> => {
         'Content-Type': 'application/json',
         'x-user-id': username,
         'Cookie': `nat-session=${username}`,
-        // Add backend type header for routing
-        'X-Backend-Type': useDeepThinker ? 'deep-thinker' : 'default',
       },
       body: JSON.stringify(payload),
     });
@@ -622,10 +614,8 @@ const handler = async (req: Request): Promise<Response> => {
             'HTML response received from server, which cannot be parsed.';
         }
       }
-      const backendLabel = useDeepThinker ? 'deep-thinker' : 'default';
       logger.error('received error response from server', {
         status: response.status,
-        backend: backendLabel,
         url: chatCompletionURL,
         error: errorMessage,
       });
@@ -645,7 +635,7 @@ const handler = async (req: Request): Promise<Response> => {
       }
 
       // For other errors, return a Response object with the error message
-      const formattedError = `Something went wrong. Please try again. \n\n<details><summary>Details</summary>Backend: ${backendLabel} (${chatCompletionURL})\nHTTP ${response.status}\nError: ${
+      const formattedError = `Something went wrong. Please try again. \n\n<details><summary>Details</summary>Backend: ${chatCompletionURL}\nHTTP ${response.status}\nError: ${
         errorMessage || 'Unknown error'
       }</details>`;
       return new Response(formattedError, {
@@ -743,13 +733,11 @@ const handler = async (req: Request): Promise<Response> => {
                       const errDetail = typeof parsed.error === 'string'
                         ? parsed.error
                         : parsed.error?.message || JSON.stringify(parsed.error);
-                      const backendLabel = useDeepThinker ? 'deep-thinker' : 'default';
                       logger.error('backend returned error in stream', {
-                        backend: backendLabel,
                         url: chatCompletionURL,
                         error: errDetail,
                       });
-                      const userMessage = `\n\nThe backend encountered an error. Please try again.\n\n<details><summary>Details</summary>Backend: ${backendLabel} (${chatCompletionURL})\nError: ${errDetail}</details>`;
+                      const userMessage = `\n\nThe backend encountered an error. Please try again.\n\n<details><summary>Details</summary>Backend: ${chatCompletionURL}\nError: ${errDetail}</details>`;
                       controller.enqueue(encoder.encode(userMessage));
                       continue;
                     }
@@ -993,14 +981,12 @@ const handler = async (req: Request): Promise<Response> => {
             }
             // Stream ended — check if it terminated cleanly
             if (!receivedDone && !streamClosed) {
-              const backendLabel = useDeepThinker ? 'deep-thinker' : 'default';
               logger.error('stream ended without [DONE] marker (backend may have crashed)', {
-                backend: backendLabel,
                 url: chatCompletionURL,
                 chunksProcessed: counter,
                 responseLength: totalResponseText.length,
               });
-              const userMessage = `\n\nThe response was interrupted — the backend encountered an error before finishing. Please try again.\n\n<details><summary>Details</summary>Backend: ${backendLabel} (${chatCompletionURL})\nStream ended unexpectedly</details>`;
+              const userMessage = `\n\nThe response was interrupted — the backend encountered an error before finishing. Please try again.\n\n<details><summary>Details</summary>Backend: ${chatCompletionURL}\nStream ended unexpectedly</details>`;
               try {
                 controller.enqueue(encoder.encode(userMessage));
               } catch (enqueueErr) {
@@ -1008,15 +994,13 @@ const handler = async (req: Request): Promise<Response> => {
               }
             }
           } catch (error) {
-            const backendLabel = useDeepThinker ? 'deep-thinker' : 'default';
             logger.error('stream reading error, closing stream', {
-              backend: backendLabel,
               url: chatCompletionURL,
               error,
             });
             if (!streamClosed) {
               const errorMsg = error instanceof Error ? error.message : 'Unknown error';
-              const userMessage = `\n\nSomething went wrong while streaming the response. Please try again.\n\n<details><summary>Details</summary>Backend: ${backendLabel} (${chatCompletionURL})\nError: ${errorMsg}</details>`;
+              const userMessage = `\n\nSomething went wrong while streaming the response. Please try again.\n\n<details><summary>Details</summary>Backend: ${chatCompletionURL}\nError: ${errorMsg}</details>`;
               try {
                 controller.enqueue(encoder.encode(userMessage));
               } catch (enqueueErr) {
@@ -1129,15 +1113,13 @@ const handler = async (req: Request): Promise<Response> => {
       }
     }
   } catch (error) {
-    const backendLabel = useDeepThinker ? 'deep-thinker' : 'default';
     logger.error('error while making request', {
-      backend: backendLabel,
       url: chatCompletionURL,
       error,
     });
     const errorMessage =
       error instanceof Error ? error.message : 'Unknown error';
-    const formattedError = `Something went wrong. Please try again. \n\n<details><summary>Details</summary>Backend: ${backendLabel} (${chatCompletionURL})\nError: ${errorMessage}</details>`;
+    const formattedError = `Something went wrong. Please try again. \n\n<details><summary>Details</summary>Backend: ${chatCompletionURL}\nError: ${errorMessage}</details>`;
     return new Response(formattedError, { status: 200 });
   }
 };

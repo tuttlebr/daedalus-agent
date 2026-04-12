@@ -1822,19 +1822,6 @@ details div {
   animation: heartbeat-sweep 1.8s ease-in-out infinite;
 }
 
-.agent-heartbeat-bar[data-deep-thinker="true"] {
-  background: linear-gradient(
-    90deg,
-    transparent 0%,
-    rgba(149, 47, 198, 0.25) 15%,
-    rgba(149, 47, 198, 0.8) 50%,
-    rgba(149, 47, 198, 0.25) 85%,
-    transparent 100%
-  );
-  background-size: 200% 100%;
-  animation: heartbeat-sweep 1.8s ease-in-out infinite;
-}
-
 /* Breathing glow for the heartbeat dot */
 @keyframes heartbeat-breathe {
   0%, 100% {

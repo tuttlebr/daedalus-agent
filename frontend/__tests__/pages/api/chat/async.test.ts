@@ -56,7 +56,7 @@ describe('chat/async backend pinning helpers', () => {
       '10.0.2.61',
     ]);
 
-    const baseUrls = await resolveAsyncBackendBaseUrls(false);
+    const baseUrls = await resolveAsyncBackendBaseUrls();
 
     expect(mockResolve4).toHaveBeenCalledWith(
       'daedalus-backend-default-pods.daedalus.svc.cluster.local',
@@ -92,16 +92,11 @@ describe('chat/async backend pinning helpers', () => {
       messages: [],
       additionalProps: {},
       userId: 'testuser',
-      useDeepThinker: false,
     } as any);
 
     expect(mockFetchWithTimeout).toHaveBeenCalledWith(
       'http://10.0.2.61:8000/v1/workflow/async/job/job-123',
-      {
-        headers: {
-          'X-Backend-Type': 'default',
-        },
-      },
+      {},
       30000,
     );
   });
@@ -117,17 +112,12 @@ describe('chat/async backend pinning helpers', () => {
       messages: [],
       additionalProps: {},
       userId: 'testuser',
-      useDeepThinker: false,
     } as any);
 
     expect(result).toBeNull();
     expect(mockFetchWithTimeout).toHaveBeenCalledWith(
       'http://daedalus-backend-default.daedalus.svc.cluster.local:8000/v1/workflow/async/job/job-legacy',
-      {
-        headers: {
-          'X-Backend-Type': 'default',
-        },
-      },
+      {},
       30000,
     );
   });

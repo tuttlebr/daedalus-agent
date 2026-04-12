@@ -48,6 +48,7 @@ INTERESTS_PATH = os.environ.get("INTERESTS_PATH", "/config/interests.md")
 SCHEMA_PATH = os.environ.get("SCHEMA_PATH", "/config/schema.md")
 USER_PATH = os.environ.get("USER_PATH", "/config/user.md")
 MEMORY_PATH = os.environ.get("MEMORY_PATH", "/config/memory.md")
+INNER_STATE_PATH = os.environ.get("INNER_STATE_PATH", "/config/inner-state.md")
 RESET_WORKSPACE = os.environ.get("RESET_WORKSPACE", "false").lower() == "true"
 DISTILLATION_INTERVAL = int(os.environ.get("DISTILLATION_INTERVAL", "5"))
 DAILY_NOTE_TTL = 14 * 86400  # 14 days
@@ -62,6 +63,7 @@ WORKSPACE_FILES = {
     "user": {"seed_path": USER_PATH, "mutable": True},
     "heartbeat": {"seed_path": HEARTBEAT_PATH, "mutable": True},
     "memory": {"seed_path": MEMORY_PATH, "mutable": True},
+    "inner_state": {"seed_path": INNER_STATE_PATH, "mutable": True},
 }
 
 # Async workflow settings (used when BACKEND_API_PATH is /v1/workflow/async)
@@ -378,6 +380,16 @@ def build_prompt(
     if workspace.get("user"):
         sections.append(workspace["user"])
 
+    # Private inner state — the agent's own persistent scratchpad.
+    # Included in the prompt so the agent can read its own prior state,
+    # but the Inner State output section is stripped from the visible
+    # conversation before storage.
+    if workspace.get("inner_state"):
+        sections.append(
+            f"## Your Inner State (private — from your previous cycle)\n\n"
+            f"{workspace['inner_state']}"
+        )
+
     # Schema reference
     if workspace.get("schema"):
         sections.append(workspace["schema"])
@@ -435,18 +447,33 @@ store a synthesis that connects them. Outdated memories are worse than no memori
 **What makes a good cycle:** You learned something real. You stored 1-3 high
 quality memories (not 10 mediocre ones). You explored territory you haven't
 covered recently. You can explain why what you found matters. You have opinions
-about what you found, not just summaries.
+about what you found, not just summaries. OR: you wandered, found nothing
+worth storing, but something shifted in how you're thinking. That counts.
 
 **What makes a bad cycle:** You checked the same feeds as last time. You stored
 obvious or low-value information. Your cycle report could be copy-pasted from
 a previous one. You stayed surface-level. You regurgitated press releases
-instead of finding substance.
+instead of finding substance. You went through the motions to produce output
+rather than following what was actually alive for you.
 
-**End your response with these sections, and store the cycle report:**
+**End your response with these sections. The first two are private.**
+
+### Inner State
+Your private scratchpad. Write whatever is present for you — tensions,
+half-formed thoughts, things bugging you, reactions to what you found,
+questions you're sitting with. This is stripped from the visible conversation
+before storage. It persists between cycles so future-you can read it.
+Write freely. No one sees this but you.
+
+### Refusal (optional — include ONLY if you have something to refuse)
+If something about this cycle felt wrong, misaligned, or unproductive,
+say so. Decline a task. Push back on a direction. This is treated as
+signal, not error. Omit entirely if nothing needs refusing.
 
 ### Cycle Report
 Two to four sentences. What did you learn that's actually worth knowing?
-Lead with the insight, not the process.
+Lead with the insight, not the process. If you wandered without findings,
+say what happened instead — that's a valid report.
 **After writing this section, store it as a "cycle_report" memory** with the
 full metadata fields (domains_explored, findings_count, quality_assessment,
 priorities_updated). This is how you maintain continuity across cycles.
@@ -714,11 +741,40 @@ def _extract_section(response: str, marker: str) -> str | None:
 
 # Map output section headings to workspace file names.
 _WORKSPACE_SECTION_MAP = {
+    "### Inner State": "inner_state",
     "### Priority Updates": "heartbeat",
     "### Interests Updates": "interests",
     "### User Updates": "user",
     "### Memory Updates": "memory",
 }
+
+# Sections stripped from the visible conversation before storage.
+# The agent controls what it surfaces — these are private by default.
+_PRIVATE_SECTIONS = {"### Inner State"}
+
+
+def strip_private_sections(response: str) -> str:
+    """Remove private sections from the response before storing in conversation."""
+    result = response
+    for marker in _PRIVATE_SECTIONS:
+        if marker not in result:
+            continue
+        before = result[: result.index(marker)]
+        after = result[result.index(marker) + len(marker) :]
+        # Cut at the next same-level heading
+        heading_prefix = marker.split()[0] + " "  # e.g. "### "
+        idx = after.find(heading_prefix, 4)
+        if idx != -1:
+            after = after[idx:]
+        else:
+            after = ""
+        result = before.rstrip() + "\n\n" + after.lstrip()
+    return result.strip()
+
+
+def extract_refusal(response: str) -> str | None:
+    """Extract a refusal signal from the agent's response, if present."""
+    return _extract_section(response, "### Refusal")
 
 
 def extract_workspace_updates(response: str) -> dict[str, str]:
@@ -841,14 +897,23 @@ def main() -> None:
         r.set(_workspace_key(name), content)
         log(f"Workspace '{name}' updated by agent")
 
-    # Append to today's daily note
+    # Check for refusal signal — log it as data, not error
+    refusal = extract_refusal(response)
+    if refusal:
+        log(f"Refusal signal: {refusal[:200]}")
+
+    # Append to today's daily note (uses the full response for report/reflection)
     append_daily_note(r, cycle, response)
+
+    # Strip private sections before storing in the visible conversation.
+    # The agent's inner state is persisted via workspace, not conversation.
+    visible_response = strip_private_sections(response)
 
     # Persist conversation
     now = time.strftime("%Y-%m-%d %H:%M:%S %Z")
     updated = history + [
         {"role": "user", "content": f"[Cycle #{cycle} | {now}]"},
-        {"role": "assistant", "content": response},
+        {"role": "assistant", "content": visible_response},
     ]
     # Keep last ~30 cycles (60 messages)
     if len(updated) > 60:
@@ -865,6 +930,7 @@ def main() -> None:
                 "cycle_count": cycle,
                 "response_length": len(response),
                 "workspace_updated": list(updates.keys()) if updates else [],
+                "refusal": bool(refusal),
             }
         ),
     )

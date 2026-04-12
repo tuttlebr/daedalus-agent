@@ -43,11 +43,7 @@ spec:
               {{- end }}
               env:
                 - name: BACKEND_HOST
-                  {{- if eq (.Values.autonomousAgent.backendType | default "default") "deepThinker" }}
-                  value: {{ printf "http://%s-backend-deep-thinker:%v" (include "daedalus.fullname" .) (.Values.backend.deepThinker.port | default 8000) }}
-                  {{- else }}
                   value: {{ printf "http://%s-backend-default:%v" (include "daedalus.fullname" .) (.Values.backend.default.port | default 8000) }}
-                  {{- end }}
                 - name: BACKEND_API_PATH
                   value: {{ .Values.autonomousAgent.backendApiPath | default "/chat/stream" | quote }}
                 - name: REDIS_HOST
@@ -58,6 +54,10 @@ spec:
                   value: {{ .Values.autonomousAgent.userId | quote }}
                 - name: REQUEST_TIMEOUT
                   value: {{ .Values.autonomousAgent.requestTimeout | default 240 | quote }}
+                - name: RESET_WORKSPACE
+                  value: {{ .Values.autonomousAgent.workspace.resetOnDeploy | default false | quote }}
+                - name: DISTILLATION_INTERVAL
+                  value: {{ .Values.autonomousAgent.workspace.distillationInterval | default 5 | quote }}
                 {{- range $key, $val := .Values.autonomousAgent.env.overrides }}
                 - name: {{ $key }}
                   value: {{ $val | quote }}
@@ -99,8 +99,20 @@ metadata:
     {{- include "daedalus.labels" . | nindent 4 }}
     app.kubernetes.io/component: autonomous-agent
 data:
+  identity.md: |
+{{ .Files.Get "files/autonomous-agent-identity.md" | indent 4 }}
   soul.md: |
 {{ .Files.Get "files/autonomous-agent-soul.md" | indent 4 }}
+  interests.md: |
+{{ .Files.Get "files/autonomous-agent-interests.md" | indent 4 }}
+  schema.md: |
+{{ .Files.Get "files/autonomous-agent-schema.md" | indent 4 }}
+  user.md: |
+{{ .Files.Get "files/autonomous-agent-user.md" | indent 4 }}
   heartbeat.md: |
 {{ .Files.Get "files/autonomous-agent-heartbeat.md" | indent 4 }}
+  memory.md: |
+{{ .Files.Get "files/autonomous-agent-memory.md" | indent 4 }}
+  inner-state.md: |
+{{ .Files.Get "files/autonomous-agent-inner-state.md" | indent 4 }}
 {{- end }}

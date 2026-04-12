@@ -1,14 +1,14 @@
 'use client';
 
 import React, { memo, useCallback, useRef, useEffect, useState } from 'react';
-import { IconBolt, IconBrain, IconMenu2, IconRobot } from '@tabler/icons-react';
+import { IconMenu2, IconRobot } from '@tabler/icons-react';
 import { useTranslation } from 'next-i18next';
 import { v4 as uuidv4 } from 'uuid';
 
 import { useConversationStore, useUISettingsStore } from '@/state';
 import { useAuth } from '@/components/auth';
 import { useAsyncChat } from '@/hooks/useAsyncChat';
-import { Toggle, IconButton } from '@/components/primitives';
+import { IconButton } from '@/components/primitives';
 import { MessageBubble } from './MessageBubble';
 import { ChatInput } from './ChatInput';
 import { AgentHeartbeat } from './AgentHeartbeat';
@@ -33,8 +33,6 @@ export const ChatView = memo(() => {
   const updateLastMessage = useConversationStore((s) => s.updateLastMessage);
   const setStreaming = useConversationStore((s) => s.setStreaming);
 
-  const useDeepThinker = useUISettingsStore((s) => s.useDeepThinker);
-  const toggleDeepThinker = useUISettingsStore((s) => s.toggleDeepThinker);
   const toggleChatbar = useUISettingsStore((s) => s.toggleChatbar);
   const chatCompletionURL = useUISettingsStore((s) => s.chatCompletionURL);
   const enableIntermediateSteps = useUISettingsStore((s) => s.enableIntermediateSteps);
@@ -224,7 +222,6 @@ export const ChatView = memo(() => {
       role: 'assistant',
       content: '',
       intermediateSteps: [],
-      metadata: { useDeepThinker },
     };
     addMessage(convId, assistantMessage);
 
@@ -241,9 +238,6 @@ export const ChatView = memo(() => {
     const additionalProps: Record<string, any> = {};
     if (enableIntermediateSteps) {
       additionalProps.enableIntermediateSteps = true;
-    }
-    if (useDeepThinker) {
-      additionalProps.useDeepThinker = true;
     }
 
     // Persist conversation - read fresh state to capture the name update
@@ -275,7 +269,7 @@ export const ChatView = memo(() => {
 
     scrollToBottom();
   }, [selectedConversation, addMessage, updateConversation, setStreaming, updateLastMessage,
-      startAsyncJob, chatCompletionURL, enableIntermediateSteps, useDeepThinker, userId, t, scrollToBottom]);
+      startAsyncJob, chatCompletionURL, enableIntermediateSteps, userId, t, scrollToBottom]);
 
   const handleStop = useCallback(async () => {
     if (selectedConversationId) {
@@ -293,7 +287,6 @@ export const ChatView = memo(() => {
   return (
     <div
       className="flex flex-col h-full w-full bg-dark-bg-primary"
-      data-mode={useDeepThinker ? 'deep-thinker' : 'tool-calling'}
     >
       {/* Header - safe-top for iOS Dynamic Island / notch */}
       <header className="flex-shrink-0 flex items-center justify-between px-4 h-14 border-b border-white/[0.04] safe-top">
@@ -323,23 +316,6 @@ export const ChatView = memo(() => {
           )}
         </div>
 
-        {/* Mode toggle - full on desktop, icon-only on mobile (BottomNav has Think) */}
-        <div className="hidden md:block">
-          <Toggle
-            options={[
-              { value: 'tool-calling', label: 'Tool Calling', icon: <IconBolt size={14} /> },
-              { value: 'deep-thinker', label: 'Deep Thinker', icon: <IconBrain size={14} /> },
-            ]}
-            value={useDeepThinker ? 'deep-thinker' : 'tool-calling'}
-            onChange={() => toggleDeepThinker()}
-            size="sm"
-          />
-        </div>
-        {useDeepThinker && (
-          <span className="md:hidden flex items-center gap-1 px-2 py-1 rounded-full bg-nvidia-purple/15 text-nvidia-purple text-[10px] font-medium">
-            <IconBrain size={12} />
-          </span>
-        )}
       </header>
 
       {/* Messages */}
@@ -371,7 +347,6 @@ export const ChatView = memo(() => {
                 <AgentHeartbeat
                   currentActivityText={activityText}
                   completedStepCategories={stepCategories}
-                  useDeepThinker={useDeepThinker}
                 />
               </div>
             )}

@@ -20,25 +20,3 @@ spec:
   storageClassName: {{ .Values.backend.persistence.storageClassName }}
   {{- end }}
 {{- end }}
-{{- $deepThinkerExisting := get $claims "deepThinker" | default .Values.backend.persistence.existingClaimName }}
-{{- if and .Values.backend.deepThinker.enabled .Values.backend.persistence.enabled .Values.backend.persistence.create (not $deepThinkerExisting) }}
----
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: {{ include "daedalus.fullname" . }}-backend-deep-thinker
-  labels:
-    {{- include "daedalus.labels" . | nindent 4 }}
-    app.kubernetes.io/component: backend-deep-thinker
-  annotations:
-    "helm.sh/resource-policy": keep
-spec:
-  accessModes:
-    - ReadWriteOnce
-  resources:
-    requests:
-      storage: {{ .Values.backend.persistence.size }}
-  {{- if .Values.backend.persistence.storageClassName }}
-  storageClassName: {{ .Values.backend.persistence.storageClassName }}
-  {{- end }}
-{{- end }}

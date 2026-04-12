@@ -1,7 +1,10 @@
 import asyncio
 import base64
+import html as html_mod
 import json
 import logging
+import re
+import time
 from pathlib import Path
 from typing import Any
 
@@ -87,6 +90,160 @@ async def nv_ingest_function(
     # Initialize Milvus client
     milvus_client = MilvusClient(uri=config.milvus_uri)
 
+    def clean_markdown(text: str) -> str:
+        """Apply low-cost text cleanup to raw NV-Ingest extracted content."""
+        if not text:
+            return text
+
+        # 1. Decode HTML entities (&nbsp;, &amp;, &lt;, etc.)
+        text = html_mod.unescape(text)
+
+        # 2. Convert residual <br> to newlines; strip common wrapper tags
+        text = re.sub(r"<br\s*/?>", "\n", text)
+        text = re.sub(r"</?(?:span|div|p|font)[^>]*>", "", text)
+
+        # 3. Unicode normalization — replace PDF-common invisible/special chars
+        text = text.replace("\u00a0", " ")  # non-breaking space
+        text = text.replace("\u200b", "")  # zero-width space
+        text = text.replace("\u200c", "")  # zero-width non-joiner
+        text = text.replace("\u200d", "")  # zero-width joiner
+        text = text.replace("\ufeff", "")  # BOM
+        text = text.replace("\u2028", "\n")  # line separator
+        text = text.replace("\u2029", "\n")  # paragraph separator
+
+        # 4. Normalize smart quotes / dashes / ellipsis
+        text = text.replace("\u2018", "'").replace("\u2019", "'")
+        text = text.replace("\u201c", '"').replace("\u201d", '"')
+        text = text.replace("\u2013", "-").replace("\u2014", "--")
+        text = text.replace("\u2026", "...")
+
+        # 5. Dehyphenation — rejoin words split across lines by PDF layout
+        text = re.sub(r"(\w)-\n(\w)", r"\1\2", text)
+
+        # 6. Whitespace normalization
+        text = re.sub(r"[ \t]+", " ", text)
+        text = re.sub(r" +\n", "\n", text)
+        text = re.sub(r"\n{3,}", "\n\n", text)
+
+        return text.strip()
+
+    def clean_table_markdown(text: str) -> str:
+        """Light repair of markdown tables from NV-Ingest structured extraction."""
+        if not text:
+            return text
+
+        # Decode entities and strip stray HTML inside table cells
+        text = html_mod.unescape(text)
+        text = re.sub(r"</?(?:span|div|p|font)[^>]*>", "", text)
+        text = text.replace("\u00a0", " ")
+
+        lines = text.strip().split("\n")
+
+        # Strip empty trailing rows (rows that are only pipes and whitespace)
+        while lines and re.match(r"^\|[\s|]*$", lines[-1]):
+            lines.pop()
+
+        if not lines:
+            return text
+
+        # Determine expected column count from the header row
+        header_cols = lines[0].count("|") - 1  # leading + trailing pipe
+        if header_cols < 1:
+            return "\n".join(lines)
+
+        # Normalize separator row dashes and ensure consistent column count
+        repaired: list[str] = []
+        for i, line in enumerate(lines):
+            if not line.strip().startswith("|"):
+                repaired.append(line)
+                continue
+
+            cells = line.strip().strip("|").split("|")
+
+            # Separator row: normalize to --- per cell
+            if i == 1 and all(c.strip().replace("-", "") == "" for c in cells):
+                cells = [" --- "] * header_cols
+            else:
+                # Pad short rows, truncate long rows
+                if len(cells) < header_cols:
+                    cells.extend([""] * (header_cols - len(cells)))
+                elif len(cells) > header_cols:
+                    cells = cells[:header_cols]
+
+            repaired.append("| " + " | ".join(c.strip() for c in cells) + " |")
+
+        return "\n".join(repaired)
+
+    def _text_quality_score(text: str) -> float:
+        """Score text quality: higher = cleaner. Garbled OCR text scores lower."""
+        if not text:
+            return 0.0
+        alnum = sum(1 for c in text if c.isalnum() or c.isspace())
+        return alnum / len(text) if text else 0.0
+
+    def _normalize_for_dedup(text: str) -> set[str]:
+        """Extract word-set for Jaccard similarity comparison."""
+        return set(re.sub(r"[^a-z0-9\s]", "", text.lower()).split())
+
+    def _dedup_entries(entries: list[dict]) -> list[dict]:
+        """
+        Remove near-duplicate entries that share the same page and overlap
+        significantly in content. Keeps the higher-quality version.
+        """
+        if len(entries) <= 1:
+            return entries
+
+        # Group text entries by page for pairwise comparison
+        page_groups: dict[int, list[tuple[int, dict, str, set[str]]]] = {}
+        for idx, entry in enumerate(entries):
+            doc_type = entry.get("document_type", "")
+            if doc_type != "text":
+                continue
+            meta = entry.get("metadata", {})
+            page = meta.get("content_metadata", {}).get("page_number", -1)
+            content = meta.get("content", "").strip()
+            if not content:
+                continue
+            words = _normalize_for_dedup(content)
+            if not words:
+                continue
+            page_groups.setdefault(page, []).append((idx, entry, content, words))
+
+        # Find indices to drop (near-duplicate with lower quality)
+        drop_indices: set[int] = set()
+        for page, group in page_groups.items():
+            for i in range(len(group)):
+                if group[i][0] in drop_indices:
+                    continue
+                for j in range(i + 1, len(group)):
+                    if group[j][0] in drop_indices:
+                        continue
+                    words_a = group[i][3]
+                    words_b = group[j][3]
+                    intersection = words_a & words_b
+                    union = words_a | words_b
+                    similarity = len(intersection) / len(union) if union else 0.0
+                    if similarity >= 0.5:
+                        # Keep the higher-quality entry, drop the other
+                        score_a = _text_quality_score(group[i][2])
+                        score_b = _text_quality_score(group[j][2])
+                        drop_idx = group[j][0] if score_a >= score_b else group[i][0]
+                        drop_indices.add(drop_idx)
+                        logger.debug(
+                            "Dropping near-duplicate entry %d (page %d, similarity=%.2f)",
+                            drop_idx,
+                            page,
+                            similarity,
+                        )
+
+        if drop_indices:
+            logger.info(
+                "Filtered %d near-duplicate entries from %d total",
+                len(drop_indices),
+                len(entries),
+            )
+        return [e for idx, e in enumerate(entries) if idx not in drop_indices]
+
     def results_to_markdown(results: list[list[dict]]) -> str:
         """
         Convert NvIngest JSON results into well-structured Markdown.
@@ -98,6 +255,18 @@ async def nv_ingest_function(
             return ""
 
         entries = results[0]
+
+        logger.info(
+            "results_to_markdown: %d result sets, %d entries in first set",
+            len(results),
+            len(entries),
+        )
+        # Log document types for debugging
+        type_counts: dict[str, int] = {}
+        for e in entries:
+            dt = e.get("document_type", "unknown")
+            type_counts[dt] = type_counts.get(dt, 0) + 1
+        logger.info("Entry type breakdown: %s", type_counts)
 
         # Sort by page, then by spatial position within the page
         def sort_key(entry: dict) -> tuple:
@@ -111,6 +280,9 @@ async def nv_ingest_function(
             entries = sorted(entries, key=sort_key)
         except (TypeError, KeyError):
             pass
+
+        # Remove near-duplicate entries (e.g. native text + OCR of same region)
+        entries = _dedup_entries(entries)
 
         md_parts: list[str] = []
         current_page: int | None = None
@@ -129,7 +301,7 @@ async def nv_ingest_function(
                 current_page = page_num
 
             if doc_type == "text":
-                text = meta.get("content", "").strip()
+                text = clean_markdown(meta.get("content", "").strip())
                 if text:
                     md_parts.append(text)
                     md_parts.append("")
@@ -138,7 +310,7 @@ async def nv_ingest_function(
                 table_meta = meta.get("table_metadata", {})
                 table_content = table_meta.get("table_content", "").strip()
                 if table_content:
-                    md_parts.append(table_content)
+                    md_parts.append(clean_table_markdown(table_content))
                     md_parts.append("")
 
             elif doc_type == "image":
@@ -155,7 +327,9 @@ async def nv_ingest_function(
                     md_parts.append(f"> {transcript}")
                     md_parts.append("")
 
-        return "\n".join(md_parts).strip()
+        result = "\n".join(md_parts).strip()
+        result = re.sub(r"\n{3,}", "\n\n", result)
+        return result
 
     async def nv_ingest_router(input_message: dict[str, Any]) -> str:
         """
@@ -324,8 +498,6 @@ async def nv_ingest_function(
         )
 
         # Process each document
-        import time
-
         start_time = time.time()
 
         for idx, documentRef in enumerate(documentRefs, 1):
@@ -365,8 +537,6 @@ async def nv_ingest_function(
                     or "Partially processed" in result
                 ):
                     # Extract chunk count from result message
-                    import re
-
                     chunk_match = re.search(r"indexed (\d+)", result)
                     if chunk_match:
                         chunks = int(chunk_match.group(1))
@@ -609,11 +779,10 @@ async def nv_ingest_function(
                     )
                     .split(
                         tokenizer="meta-llama/Llama-3.2-1B",
-                        chunk_size=1024,
-                        chunk_overlap=64,
+                        chunk_size=chunk_size,
+                        chunk_overlap=chunk_overlap,
                     )
                     .dedup()
-                    .caption()
                     .embed()
                     .vdb_upload(
                         collection_name=collection_name,  # Use specified collection
@@ -637,8 +806,8 @@ async def nv_ingest_function(
 
                 result_md = results_to_markdown(results)
                 logger.info("Result markdown: %s", result_md[:500])
-                success_count = len(results)
-                failure_count = len(failures)
+                success_count = len(results[0]) if results and results[0] else 0
+                failure_count = len(failures[0]) if failures and failures[0] else 0
 
                 logger.info(
                     "Completed document ingestion: %s successful, %s failures",
@@ -676,25 +845,6 @@ async def nv_ingest_function(
                         logger.info("Cleaned up temporary file: %s", document_path)
                 except Exception as e:
                     logger.warning("Failed to clean up temp file: %s", e)
-
-            # Prepare response message
-            if failure_count == 0:
-                return (
-                    f"✅ Successfully processed document '{filename}'\n\n"
-                    f"- Extracted and indexed {success_count} text chunks\n"
-                    f"- Stored in collection '{collection_name}'\n"
-                    f"- Chunk size: {chunk_size} characters with "
-                    f"{chunk_overlap} overlap\n\n"
-                    "The document is now searchable in your knowledge base!"
-                )
-            else:
-                return (
-                    f"⚠️ Partially processed document '{filename}'\n\n"
-                    f"- Successfully indexed {success_count} chunks\n"
-                    f"- Failed to process {failure_count} chunks\n"
-                    f"- Stored in collection '{collection_name}'\n\n"
-                    "Some content may be missing from the search index."
-                )
 
         except Exception as e:
             logger.error("Unexpected error in process_document: %s", e, exc_info=True)

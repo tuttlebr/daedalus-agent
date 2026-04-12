@@ -36,7 +36,7 @@ const nextConfig = {
     dangerouslyAllowSVG: true,
     contentSecurityPolicy: "default-src 'self'; script-src 'none'; sandbox;",
   },
-  // Extend proxy timeout so long-running API routes (document processing, deep thinker)
+  // Extend proxy timeout so long-running API routes (document processing)
   // are not killed by Next.js's internal HTTP proxy before the route completes.
   httpAgentOptions: {
     keepAlive: true,

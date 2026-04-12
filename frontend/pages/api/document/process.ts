@@ -108,8 +108,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       }
     };
 
-    // Document processing always uses the default backend with non-streaming /chat endpoint
-    const backendHost = getBackendHost(false);
+    // Document processing uses the default backend with non-streaming /chat endpoint
+    const backendHost = getBackendHost();
     const chatUrl = buildBackendUrl({ backendHost, pathOverride: '/chat' });
 
     const requestBody = JSON.stringify(chatMessage);

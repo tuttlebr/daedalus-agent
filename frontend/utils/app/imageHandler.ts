@@ -427,7 +427,7 @@ export function cleanMessagesForLLM(messages: any[]): Message[] {
       id: message.id,
     };
 
-    // Preserve metadata (includes useDeepThinker flag)
+    // Preserve metadata
     if (message.metadata) {
       cleanedMessage.metadata = message.metadata;
     }

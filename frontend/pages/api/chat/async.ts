@@ -34,7 +34,6 @@ interface AsyncJobRequest {
   userId: string;
   conversationId?: string;
   conversationName?: string;
-  useDeepThinker: boolean;
 }
 
 interface AsyncJobStatus {
@@ -165,11 +164,11 @@ function shuffleItems<T>(items: T[]): T[] {
 
 function getNatBaseUrl(jobRequest: AsyncJobRequest): string {
   // Legacy fallback for jobs created before backend pinning was deployed.
-  return jobRequest.natBaseUrl || buildBackendBaseUrlForMode(jobRequest.useDeepThinker);
+  return jobRequest.natBaseUrl || buildBackendBaseUrlForMode();
 }
 
-export async function resolveAsyncBackendBaseUrls(useDeepThinker: boolean): Promise<string[]> {
-  const fallbackBaseUrl = buildBackendBaseUrlForMode(useDeepThinker);
+export async function resolveAsyncBackendBaseUrls(): Promise<string[]> {
+  const fallbackBaseUrl = buildBackendBaseUrlForMode();
   const isKubernetes =
     process.env.KUBERNETES_SERVICE_HOST || process.env.DEPLOYMENT_MODE === 'kubernetes';
 
@@ -178,7 +177,7 @@ export async function resolveAsyncBackendBaseUrls(useDeepThinker: boolean): Prom
   }
 
   try {
-    const discoveryHost = getBackendPodDiscoveryHost(useDeepThinker);
+    const discoveryHost = getBackendPodDiscoveryHost();
     const resolvedIps = await resolve4(discoveryHost);
     const uniqueIps = Array.from(new Set(resolvedIps));
 
@@ -207,11 +206,7 @@ export async function fetchNatJobStatus(
     getNatBaseUrl(jobRequest),
     `/v1/workflow/async/job/${encodeURIComponent(jobId)}`,
   );
-  const natResponse = await fetchWithTimeout(natStatusUrl, {
-    headers: {
-      'X-Backend-Type': jobRequest.useDeepThinker ? 'deep-thinker' : 'default',
-    },
-  }, 30_000);
+  const natResponse = await fetchWithTimeout(natStatusUrl, {}, 30_000);
 
   if (!natResponse.ok) {
     if (natResponse.status === 404) {
@@ -392,7 +387,6 @@ async function startBackgroundStreamReader(
       headers: {
         'Content-Type': 'application/json',
         'x-user-id': verifiedUsername,
-        'X-Backend-Type': jobRequest.useDeepThinker ? 'deep-thinker' : 'default',
       },
       body: JSON.stringify(payload),
       signal: abortController.signal,
@@ -649,7 +643,6 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     }
 
     const jobId = uuidv4();
-    const useDeepThinker = additionalProps?.useDeepThinker || false;
 
     // Process messages: add attachment references/content for agent context
     const processedMessages = await Promise.all((messages || []).map(async (message: any) => {
@@ -779,11 +772,10 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       expiry_seconds: NAT_ASYNC_EXPIRY_SECONDS,
     };
 
-    const natBaseUrls = await resolveAsyncBackendBaseUrls(useDeepThinker);
+    const natBaseUrls = await resolveAsyncBackendBaseUrls();
 
     logger.info(`Job ${jobId}: Resolved async backend candidates`, {
       messageCount: messagesForNat.length,
-      useDeepThinker,
       candidateCount: natBaseUrls.length,
       candidates: natBaseUrls,
     });
@@ -791,7 +783,6 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     const natHeaders = {
       'Content-Type': 'application/json',
       'x-user-id': verifiedUsername,
-      'X-Backend-Type': useDeepThinker ? 'deep-thinker' : 'default',
     };
     const natBody = JSON.stringify(natPayload);
 
@@ -877,13 +868,12 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     // Store job metadata in Redis for the GET handler
     const jobRequest: AsyncJobRequest = {
       jobId,
-      natBaseUrl: selectedNatBaseUrl || buildBackendBaseUrlForMode(useDeepThinker),
+      natBaseUrl: selectedNatBaseUrl || buildBackendBaseUrlForMode(),
       messages, // original messages for conversation saving later
       additionalProps,
       userId: verifiedUsername,
       conversationId,
       conversationName,
-      useDeepThinker,
     };
     await jsonSetWithExpiry(sessionKey(['async-job-request', jobId]), jobRequest, JOB_EXPIRY_SECONDS);
 

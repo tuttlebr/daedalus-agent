@@ -40,12 +40,10 @@ export {
   // Selectors
   selectLightMode,
   selectShowChatbar,
-  selectUseDeepThinker,
   selectEnableIntermediateSteps,
   // Convenience hooks
   useLightMode,
   useShowChatbar,
-  useDeepThinker,
   useFolders,
   useSearchTerm,
   // Types

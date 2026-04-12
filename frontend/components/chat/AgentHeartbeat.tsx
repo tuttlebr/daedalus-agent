@@ -8,7 +8,6 @@ import { IntermediateStepCategory } from '@/types/intermediateSteps';
 interface AgentHeartbeatProps {
   currentActivityText: string;
   completedStepCategories: IntermediateStepCategory[];
-  useDeepThinker?: boolean;
 }
 
 const CATEGORY_ICONS: Partial<Record<string, React.ElementType>> = {
@@ -34,7 +33,6 @@ function formatElapsed(seconds: number): string {
 export const AgentHeartbeat = memo(({
   currentActivityText,
   completedStepCategories,
-  useDeepThinker = false,
 }: AgentHeartbeatProps) => {
   const [elapsed, setElapsed] = useState(0);
   const startRef = useRef(Date.now());
@@ -48,17 +46,14 @@ export const AgentHeartbeat = memo(({
     return () => clearInterval(timer);
   }, []);
 
-  const accentColor = useDeepThinker ? 'nvidia-purple' : 'nvidia-green';
+  const accentColor = 'nvidia-green';
   const recentCategories = completedStepCategories.slice(-6);
 
   return (
     <div className="animate-morph-in">
       {/* Sweep bar */}
       <div
-        className={classNames(
-          'h-0.5 w-full rounded-full',
-          useDeepThinker ? 'animate-heartbeat-sweep-purple' : 'animate-heartbeat-sweep'
-        )}
+        className="h-0.5 w-full rounded-full animate-heartbeat-sweep"
         style={{ backgroundSize: '200% 100%' }}
       />
 

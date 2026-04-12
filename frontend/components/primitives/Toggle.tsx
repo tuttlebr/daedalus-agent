@@ -19,8 +19,8 @@ export interface ToggleProps {
 }
 
 /**
- * Two-option pill toggle. Used for Tool-Calling vs Deep Thinker mode.
- * accentColors maps to each option's active color (e.g., green and purple).
+ * Two-option pill toggle.
+ * accentColors maps to each option's active color.
  */
 export const Toggle = memo(({
   options,

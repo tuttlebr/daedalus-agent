@@ -35,7 +35,6 @@ export const AssistantMessage = memo(({
   const [needsCollapse, setNeedsCollapse] = useState(false);
   const contentRef = useRef<HTMLDivElement>(null);
   const enableIntermediateSteps = useUISettingsStore((s) => s.enableIntermediateSteps);
-  const useDeepThinker = useUISettingsStore((s) => s.useDeepThinker);
 
   const content = typeof message.content === 'string' ? message.content : '';
   const hasSteps = message.intermediateSteps && message.intermediateSteps.length > 0;
@@ -69,11 +68,11 @@ export const AssistantMessage = memo(({
         {/* Role badge */}
         {isAgent && (
           <Badge
-            variant={useDeepThinker ? 'info' : 'primary'}
+            variant="primary"
             size="xs"
             className="self-start mb-1"
           >
-            {useDeepThinker ? 'Deep Thinker' : 'Agent'}
+            Agent
           </Badge>
         )}
 

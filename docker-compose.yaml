@@ -16,7 +16,7 @@ services:
       dockerfile: Dockerfile
       target: base
       args:
-        NAT_VERSION: v1.6.0-dev
+        NAT_VERSION: v1.6.0
     image: ${DOCKER_REGISTRY:-docker.io/library}/daedalus:builder-${DAEDALUS_VERSION:-latest}
     working_dir: /builder
     volumes:
@@ -31,7 +31,7 @@ services:
       additional_contexts:
         skills: ./skills
       args:
-        NAT_VERSION: v1.6.0-dev
+        NAT_VERSION: v1.6.0
     image: ${DOCKER_REGISTRY:-docker.io/library}/daedalus:backend-${DAEDALUS_VERSION}
     env_file:
       - .env

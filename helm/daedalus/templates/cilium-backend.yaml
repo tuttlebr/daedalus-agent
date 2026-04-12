@@ -3,9 +3,6 @@
 {{- if .Values.backend.default.enabled }}
   {{- $components = append $components "backend-default" }}
 {{- end }}
-{{- if .Values.backend.deepThinker.enabled }}
-  {{- $components = append $components "backend-deep-thinker" }}
-{{- end }}
 {{- range $component := $components }}
 ---
 # Cilium L7/FQDN egress policy for {{ $component }}.

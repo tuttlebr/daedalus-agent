@@ -78,7 +78,6 @@ See [`../.env.template`](../.env.template), [`env.example`](env.example), and th
 
 ## Major Features
 
-- Dual backend modes: default and deep thinker
 - Async job execution with resumable status tracking
 - WebSocket-first real-time updates with polling fallback
 - Intermediate step visualization for backend tool execution
