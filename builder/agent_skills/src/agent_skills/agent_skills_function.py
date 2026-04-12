@@ -84,7 +84,9 @@ async def agent_skills_function(config: AgentSkillsConfig, builder: Builder):
         """List all available agent skills with their names and descriptions.
 
         Args:
-            query: Optional keyword to filter skills by name or description.
+            query: Optional single keyword to filter skills (e.g. "nvcf", "review").
+                   Omit or pass null to list ALL skills. Do NOT pass natural language
+                   phrases like "list all skills" — that will filter results incorrectly.
 
         Returns:
             JSON array of objects with 'name' and 'description' fields.
@@ -95,9 +97,12 @@ async def agent_skills_function(config: AgentSkillsConfig, builder: Builder):
         ]
 
         if query:
-            q = query.lower()
+            # Tokenize query and match any word against name or description
+            tokens = query.lower().split()
             all_skills = [
-                s for s in all_skills if q in s["name"] or q in s["description"].lower()
+                s
+                for s in all_skills
+                if any(t in s["name"] or t in s["description"].lower() for t in tokens)
             ]
 
         if not all_skills:
@@ -228,9 +233,9 @@ async def agent_skills_function(config: AgentSkillsConfig, builder: Builder):
         yield FunctionInfo.from_fn(
             list_skills,
             description=(
-                "List all available agent skills. Each skill provides specialised "
-                "instructions, workflows, and optional scripts that you can load "
-                "on demand. Returns a JSON array of skill names and descriptions."
+                "List all available agent skills. Returns a JSON array of skill "
+                "names and descriptions. Omit the query parameter to list ALL "
+                "skills. Pass a single keyword (e.g. 'nvcf') to filter."
             ),
         )
 

@@ -652,6 +652,11 @@ workflow:
     If mas_evaluate recommends MAS: call load_skill("mas-procedure")
     and follow the procedure matching the recommended architecture type.
 
+    If the user's request clearly matches a skill in the Quick routing
+    guide, load that skill directly without waiting for mas_evaluate.
+    Skills take priority over architecture routing when the match is
+    obvious.
+
     # Memory
 
     Store noteworthy preferences or details with add_memory as clear
@@ -762,6 +767,23 @@ workflow:
     - Topics outside specialized knowledge bases -> serpapi_search_tool
     - Read a specific URL -> webscrape_tool
     - Typical flow: serpapi -> webscrape -> content_distiller_tool
+
+    Skills (agent_skills_tool):
+    - User explicitly names a skill -> load_skill("<skill-name>")
+    - Code review, PR audit, code quality -> load_skill("code-review")
+    - Content writing, blog posts, articles, research writing ->
+      load_skill("content-research-writer")
+    - Executive communication, leadership prep ->
+      load_skill("executive-voice")
+    - NVCF cloud functions, NGC CLI, function deployment ->
+      load_skill("nvcf-ngc-cli-skill")
+    - NVCF self-managed, nvcf-cli, self-hosted functions ->
+      load_skill("nvcf-self-managed-cli")
+    - NVCF self-managed installation, helmfile, control plane ->
+      load_skill("nvcf-self-managed-installation")
+    - Unsure which skill applies -> list_skills() to discover
+    Do NOT call list_skills on every request. Only invoke skills
+    when the request matches a skill's purpose or the user asks.
 
     General fallback order: specialized retriever -> RSS feed ->
     serpapi_search_tool -> webscrape_tool
