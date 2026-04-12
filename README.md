@@ -4,16 +4,28 @@
 
 # Daedalus
 
-Daedalus is a full-stack reference application built on the [NVIDIA NeMo Agent toolkit](https://github.com/NVIDIA/NeMo-Agent-Toolkit). It combines a Next.js chat UI, NeMo Agent workflows, Redis-backed memory and session state, optional document retrieval, and Kubernetes deployment support.
+Daedalus is a production-ready AI agent platform built on the
+[NVIDIA NeMo Agent toolkit](https://github.com/NVIDIA/NeMo-Agent-Toolkit).
+It ships as a single deployable stack — chat UI, agent backend,
+persistent memory, document retrieval, and autonomous background
+research — that runs locally via Docker Compose or at scale on
+Kubernetes.
 
-## What This Repository Contains
+What separates Daedalus from a typical chat wrapper:
 
-- A Next.js 14 frontend with streaming chat, attachments, authentication, PWA support, and conversation sync
-- NeMo Agent backend configuration for a tool-calling workflow with MCP integrations, image tooling, retrieval, and memory
-- Custom builder packages for image generation, image understanding, retrieval, RSS ingestion, transcript parsing, and MAS routing
-- A Docker Compose stack for local development
-- A Helm chart and deployment script for a fuller Kubernetes deployment
-- Optional hardening for Kubernetes and Cilium network policies
+- **Autonomous agent loop** — a background CronJob that independently
+  researches, synthesizes, and writes to memory on a configurable
+  schedule, seeded by a knowledge graph you define
+- **Architecture-aware routing** — the MAS optimizer evaluates each
+  request and selects single-agent or multi-agent execution based on
+  task complexity, not a static configuration
+- **Tool-rich execution** — MCP server integrations (GitHub, Kubernetes),
+  web search, RSS ingestion, image generation and analysis, document
+  ingestion into Milvus, and structured reasoning, all wired into one
+  workflow config
+- **Production hardening** — Helm chart with PVCs, PDBs, network
+  policies, optional Cilium FQDN egress, and multi-user authentication
+  out of the box
 
 ## Deployment Modes
 
@@ -24,7 +36,9 @@ Daedalus supports two practical ways to run the project.
 | Local Docker Compose | `frontend`, `backend`, `nginx`, `redis`, `redisinsight`, `marketing`, plus a `builder` utility container                                        | Local development and validating one backend config at a time     |
 | Kubernetes via Helm  | Backend, frontend, nginx, redis, redisinsight, autonomous agent, ingress, PVCs, network policies | Persistent multi-user deployments and the full platform footprint |
 
-Important: the local Compose stack does not start Milvus, NV-Ingest, or Phoenix. Those integrations are wired into the backend configs and Helm values, but they require external services or cluster deployment.
+> [!IMPORTANT]
+> The local Compose stack does not start Milvus, NV-Ingest, or Phoenix.
+> Those integrations require external services or cluster deployment.
 
 ## Quick Start
 
@@ -236,59 +250,14 @@ sequenceDiagram
     I-->>C: Final client response
 ```
 
-nginx can also proxy backend API paths directly. Requests to `/chat/`, `/generate/`, and `/v1/` bypass the frontend pod and are sent straight to the backend.
-
-```mermaid
-flowchart LR
-    Client[Client browser or API caller]
-    Ingress[Ingress]
-    Nginx[nginx]
-    Backend[Backend]
-    Redis[(Redis)]
-    External[External and optional cluster services]
-
-    Client -->|HTTPS /chat/*, /generate/*, /v1/*| Ingress --> Nginx --> Backend
-    Backend --> Redis
-    Backend --> External
-    Backend -->|stream or JSON response| Nginx
-    Nginx --> Ingress --> Client
-```
-
-## Key Configuration Files
-
-| File                                                                   | Purpose                                |
-| ---------------------------------------------------------------------- | -------------------------------------- |
-| [`README.md`](README.md)                                               | Top-level setup and deployment guide   |
-| [`.env.template`](.env.template)                                       | Main environment variable template     |
-| [`docker-compose.yaml`](docker-compose.yaml)                           | Local multi-service stack              |
-| [`backend/tool-calling-config.yaml`](backend/tool-calling-config.yaml) | Backend workflow configuration         |
-| [`frontend/env.example`](frontend/env.example)                         | Frontend API path example              |
-| [`helm/daedalus/values.yaml`](helm/daedalus/values.yaml)               | Default Helm values                    |
-| [`custom-values.yaml`](custom-values.yaml)                             | Example production overrides           |
-| [`deploy.sh`](deploy.sh)                                               | Build, push, and deploy helper         |
-
-## Documentation Map
-
-Use these docs when you want more component-level detail than this top-level guide provides.
-
-| Document                                                      | Focus                                                         |
-| ------------------------------------------------------------- | ------------------------------------------------------------- |
-| [`frontend/README.md`](frontend/README.md)                    | Frontend architecture, async job flow, Redis state, and PWA   |
-| [`docs/SRD-frontend.md`](docs/SRD-frontend.md)                | Frontend planning document plus implementation inventory       |
-| [`helm/daedalus/README.md`](helm/daedalus/README.md)          | Helm chart footprint, values, and Kubernetes traffic model    |
-| [`frontend/pages/api/milvus/README.md`](frontend/pages/api/milvus/README.md) | Current status of the frontend-side Milvus helper |
-| [`builder/image_generation/README.md`](builder/image_generation/README.md) | Text-to-image builder function                          |
-| [`builder/image_comprehension/README.md`](builder/image_comprehension/README.md) | Image and video analysis builder function         |
-| [`builder/image_augmentation/README.md`](builder/image_augmentation/README.md) | Image-editing builder function                       |
-| [`builder/nat_nv_ingest/README.md`](builder/nat_nv_ingest/README.md) | Document ingestion into NvIngest and Milvus            |
-| [`builder/smart_milvus/README.md`](builder/smart_milvus/README.md) | Milvus retrieval and reranking behavior                 |
-| [`builder/rss_feed/README.md`](builder/rss_feed/README.md)    | Feed-specific RSS retrieval and scraping                      |
-| [`docs/SRD-backend-reference.md`](docs/SRD-backend-reference.md) | Backend planning and architecture reference               |
-| [`docs/NVIDIA-branding-reference.md`](docs/NVIDIA-branding-reference.md) | NVIDIA branding and style guidelines              |
+> **Direct API access:** nginx also proxies `/chat/*`, `/generate/*`,
+> and `/v1/*` directly to the backend, bypassing the frontend pod.
 
 ## Backend Workflows
 
 The backend configuration lives at [`backend/tool-calling-config.yaml`](backend/tool-calling-config.yaml) and covers tool use, retrieval, memory, MCP integrations, image tooling, and reasoning. It includes the custom packages from `builder/` and relies heavily on environment-variable substitution for secrets and endpoints.
+
+The `mas_optimizer` package implements task routing between single-agent and centralized multi-agent handling. It evaluates each request and selects single-agent or multi-agent execution based on task complexity, avoiding unnecessary coordination overhead on simpler requests. Routing thresholds are configured in [`backend/tool-calling-config.yaml`](backend/tool-calling-config.yaml) under `mas_optimizer_tool`.
 
 ## Frontend Capabilities
 
@@ -306,36 +275,31 @@ For frontend-specific details, see [`frontend/README.md`](frontend/README.md).
 
 ## Custom Builder Packages
 
-The `builder/` directory contains reusable NeMo Agent functions and helpers.
+The `builder/` directory contains reusable NeMo Agent functions, helpers, and standalone modules that patch NAT at startup.
 
-| Package               | Purpose                                                |
-| --------------------- | ------------------------------------------------------ |
-| `agent_skills`        | Discovers and runs repo-packaged skills                |
-| `content_distiller`   | Summarization and extraction helpers                   |
-| `image_augmentation`  | Image editing                                          |
-| `image_comprehension` | Image and video analysis                               |
-| `image_generation`    | Text-to-image generation                               |
-| `json_repair_agent`   | Repairs malformed JSON outputs                         |
-| `mas_optimizer`       | Multi-agent vs single-agent routing and verification   |
-| `nat_helpers`         | Shared helpers such as geolocation and image utilities |
-| `nat_nv_ingest`       | NV-Ingest integration for document ingestion           |
-| `rss_feed`            | RSS fetching and ranking                               |
-| `serpapi_search`      | Search integration                                     |
-| `smart_milvus`        | Milvus retrieval and reranking                         |
-| `think_tool`          | Deliberate reasoning helper                            |
-| `user_interaction`    | Structured clarification and confirmation prompts      |
-| `vtt_interpreter`     | Transcript-to-notes processing                         |
-| `webscrape`           | Web page extraction                                    |
+| Name                  | Type    | Purpose                                                              |
+| --------------------- | ------- | -------------------------------------------------------------------- |
+| `agent_skills`        | package | Discovers and runs repo-packaged skills                              |
+| `content_distiller`   | package | Summarization and extraction helpers                                 |
+| `image_augmentation`  | package | Image editing                                                        |
+| `image_comprehension` | package | Image and video analysis                                             |
+| `image_generation`    | package | Text-to-image generation                                             |
+| `json_repair_agent`   | package | Repairs malformed JSON outputs                                       |
+| `mas_optimizer`       | package | Multi-agent vs single-agent routing and verification                 |
+| `nat_helpers`         | package | Shared helpers such as geolocation and image utilities               |
+| `nat_nv_ingest`       | package | NV-Ingest integration for document ingestion                         |
+| `rss_feed`            | package | RSS fetching and ranking                                             |
+| `serpapi_search`      | package | Search integration                                                   |
+| `smart_milvus`        | package | Milvus retrieval and reranking                                       |
+| `think_tool`          | package | Deliberate reasoning helper                                          |
+| `user_interaction`    | package | Structured clarification and confirmation prompts                    |
+| `vtt_interpreter`     | package | Transcript-to-notes processing                                      |
+| `webscrape`           | package | Web page extraction                                                  |
+| `entrypoint.py`       | module  | Custom NAT entrypoint with Starlette compatibility shims             |
+| `llm_diagnostics.py`  | module  | OpenAI SDK logging and timeout enforcement for LLM client resilience |
+| `mcp_patches.py`      | module  | MCP StreamableHTTP timeout, reconnection, and error-logging patches  |
 
 Several packages include their own README files under `builder/`.
-
-The `builder/` directory also contains standalone modules that patch NAT at startup:
-
-| Module              | Purpose                                                              |
-| ------------------- | -------------------------------------------------------------------- |
-| `entrypoint.py`     | Custom NAT entrypoint with Starlette compatibility shims             |
-| `llm_diagnostics.py`| OpenAI SDK logging and timeout enforcement for LLM client resilience |
-| `mcp_patches.py`    | MCP StreamableHTTP timeout, reconnection, and error-logging patches  |
 
 ## Autonomous Agent
 
@@ -369,14 +333,6 @@ The Helm chart supports two layers of traffic control for Kubernetes deployments
 - Optional `CiliumNetworkPolicy` resources for FQDN-based egress allowlists and DNS visibility
 
 The Cilium layer is disabled by default in [`helm/daedalus/values.yaml`](helm/daedalus/values.yaml) and enabled in the example [`custom-values.yaml`](custom-values.yaml).
-
-## MAS Optimizer
-
-The `mas_optimizer` package implements task routing between single-agent and centralized multi-agent handling. It is configured in the backend YAML under `mas_optimizer_tool` and is intended to avoid unnecessary coordination overhead on simpler requests.
-
-If you need to tune it, start with the thresholds in:
-
-- [`backend/tool-calling-config.yaml`](backend/tool-calling-config.yaml)
 
 ## Development
 
@@ -434,6 +390,38 @@ Also set `DAEDALUS_DEFAULT_USER` to a real configured username if you want memor
 
 That is expected unless you provide those external services yourself. The local stack only starts the Daedalus-facing containers.
 
+## Key Configuration Files
+
+| File                                                                   | Purpose                                |
+| ---------------------------------------------------------------------- | -------------------------------------- |
+| [`README.md`](README.md)                                               | Top-level setup and deployment guide   |
+| [`.env.template`](.env.template)                                       | Main environment variable template     |
+| [`docker-compose.yaml`](docker-compose.yaml)                           | Local multi-service stack              |
+| [`backend/tool-calling-config.yaml`](backend/tool-calling-config.yaml) | Backend workflow configuration         |
+| [`frontend/env.example`](frontend/env.example)                         | Frontend API path example              |
+| [`helm/daedalus/values.yaml`](helm/daedalus/values.yaml)               | Default Helm values                    |
+| [`custom-values.yaml`](custom-values.yaml)                             | Example production overrides           |
+| [`deploy.sh`](deploy.sh)                                               | Build, push, and deploy helper         |
+
+## Documentation Map
+
+Use these docs when you want more component-level detail than this top-level guide provides.
+
+| Document                                                      | Focus                                                         |
+| ------------------------------------------------------------- | ------------------------------------------------------------- |
+| [`frontend/README.md`](frontend/README.md)                    | Frontend architecture, async job flow, Redis state, and PWA   |
+| [`docs/SRD-frontend.md`](docs/SRD-frontend.md)                | Frontend planning document plus implementation inventory       |
+| [`helm/daedalus/README.md`](helm/daedalus/README.md)          | Helm chart footprint, values, and Kubernetes traffic model    |
+| [`frontend/pages/api/milvus/README.md`](frontend/pages/api/milvus/README.md) | Current status of the frontend-side Milvus helper |
+| [`builder/image_generation/README.md`](builder/image_generation/README.md) | Text-to-image builder function                          |
+| [`builder/image_comprehension/README.md`](builder/image_comprehension/README.md) | Image and video analysis builder function         |
+| [`builder/image_augmentation/README.md`](builder/image_augmentation/README.md) | Image-editing builder function                       |
+| [`builder/nat_nv_ingest/README.md`](builder/nat_nv_ingest/README.md) | Document ingestion into NvIngest and Milvus            |
+| [`builder/smart_milvus/README.md`](builder/smart_milvus/README.md) | Milvus retrieval and reranking behavior                 |
+| [`builder/rss_feed/README.md`](builder/rss_feed/README.md)    | Feed-specific RSS retrieval and scraping                      |
+| [`docs/SRD-backend-reference.md`](docs/SRD-backend-reference.md) | Backend planning and architecture reference               |
+| [`docs/NVIDIA-branding-reference.md`](docs/NVIDIA-branding-reference.md) | NVIDIA branding and style guidelines              |
+
 ## Repository Layout
 
 ```text
@@ -447,17 +435,6 @@ daedalus-agent/
   nginx/            Reverse-proxy configuration
   skills/           Repo-packaged agent skills
 ```
-
-## Additional Docs
-
-- [`frontend/README.md`](frontend/README.md)
-- [`helm/daedalus/README.md`](helm/daedalus/README.md)
-- [`builder/nat_nv_ingest/README.md`](builder/nat_nv_ingest/README.md)
-- [`builder/smart_milvus/README.md`](builder/smart_milvus/README.md)
-- [`builder/rss_feed/README.md`](builder/rss_feed/README.md)
-- [`builder/image_augmentation/README.md`](builder/image_augmentation/README.md)
-- [`docs/SRD-backend-reference.md`](docs/SRD-backend-reference.md)
-- [`docs/NVIDIA-branding-reference.md`](docs/NVIDIA-branding-reference.md)
 
 ## License
 
