@@ -89,15 +89,6 @@ services:
       redis:
         condition: service_started
 
-  marketing:
-    build:
-      context: marketing
-      dockerfile: Dockerfile
-    image: ${DOCKER_REGISTRY:-docker.io/library}/daedalus:marketing-${DAEDALUS_VERSION:-latest}
-    ports:
-      - "${MARKETING_PORT:-8080}:80"
-    restart: unless-stopped
-
   redis:
     image: redis/redis-stack:latest
     command: [ "redis-server", "--save", "60", "1", "--appendonly", "yes", "--loadmodule", "/opt/redis-stack/lib/rejson.so" ]

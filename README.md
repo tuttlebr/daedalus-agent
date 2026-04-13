@@ -33,7 +33,7 @@ Daedalus supports two practical ways to run the project.
 
 | Mode                 | What it starts                                                                                                                                  | Best for                                                          |
 | -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
-| Local Docker Compose | `frontend`, `backend`, `nginx`, `redis`, `redisinsight`, `marketing`, plus a `builder` utility container                                        | Local development and validating one backend config at a time     |
+| Local Docker Compose | `frontend`, `backend`, `nginx`, `redis`, `redisinsight`, plus a `builder` utility container                                                      | Local development and validating one backend config at a time     |
 | Kubernetes via Helm  | Backend, frontend, nginx, redis, redisinsight, autonomous agent, ingress, PVCs, network policies | Persistent multi-user deployments and the full platform footprint |
 
 > [!IMPORTANT]
@@ -108,7 +108,6 @@ docker compose up --build
 - Frontend directly: `http://localhost:3000`
 - Backend API: `http://localhost:8000`
 - RedisInsight: `http://localhost:8001`
-- Marketing site: `http://localhost:8080`
 
 ## Local Development Notes
 
@@ -431,7 +430,6 @@ daedalus-agent/
   docs/             Additional design notes
   frontend/         Next.js application
   helm/daedalus/    Helm chart and embedded agent assets
-  marketing/        Static marketing site
   nginx/            Reverse-proxy configuration
   skills/           Repo-packaged agent skills
 ```
