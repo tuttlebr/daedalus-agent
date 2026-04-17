@@ -263,6 +263,19 @@ functions:
       flying cars and neon lights"}
     redis_url: ${REDIS_URL}
     timeout: 120
+    prompt_rewrite:
+      llm: distill_llm
+      system_prompt: >-
+        You are an expert visual prompt engineer specializing in Chiaroscuro
+        style. Rewrite the user's image prompt to produce a painting in the
+        Chiaroscuro tradition: dramatic contrast between deep shadow and
+        focused light, Renaissance-inspired composition reminiscent of
+        Caravaggio, Rembrandt, and Georges de La Tour. Rich, dark backgrounds
+        with subjects emerging into sharp illumination. Maintain the user's
+        subject matter and conceptual intent while applying this specific
+        visual aesthetic. Output only the improved prompt.
+      max_tokens: 256
+      temperature: 0.3
     verbose: false
   kubernetes_retriever_tool:
     _type: nat_retriever
@@ -833,6 +846,23 @@ functions:
     use_browser_fallback: true
     user_agent: daedalus-webscraper/0.1.0
     verbose: false
+  source_verifier_tool:
+    _type: source_verifier
+    fast_llm_name: distill_llm
+    llm_name: reasoning_llm
+    max_source_chars: 80000
+    max_output_tokens: 4096
+    temperature: 0.0
+    fetch_timeout: 30.0
+    max_fetch_tokens: 20000
+    wrapper_type: LANGCHAIN
+    description: >-
+      Verify source citations and claims. verify_claim checks if a URL
+      supports a specific claim (call before every add_memory for findings).
+      verify_memory validates an existing memory entry. audit_memories
+      batch-checks memories from get_memory output. Returns structured
+      verdicts: supported/unsupported/partially_supported/source_unreachable.
+    verbose: true
 general:
   front_end:
     _type: fastapi
@@ -1129,6 +1159,21 @@ workflow:
     points, and synthesize when combining information from multiple
     sources.
 
+    # Source verification
+
+    Use source_verifier_tool to validate citations before storing
+    findings in memory. Call verify_claim(claim, source_url) before
+    every add_memory with type="finding" or type="project_update".
+    If the verdict is "unsupported" or "source_unreachable," do not
+    store the memory. If "partially_supported," note the partial
+    support in the memory text and lower the confidence metadata to
+    "low" or "medium."
+
+    When a user asks you to verify claims or check sources, use
+    verify_claim for individual claims or audit_memories for batch
+    checking stored memories. Call get_memory first to retrieve the
+    memories, then pass them to audit_memories.
+
     # Tool selection
 
     Prefer retrieval and real-time data over prior knowledge. On tool
@@ -1215,6 +1260,11 @@ workflow:
     Do NOT call list_skills on every request. Only invoke skills
     when the request matches a skill's purpose or the user asks.
 
+    Source verification:
+    - Verify a claim before storing -> verify_claim(claim, source_url)
+    - Check an existing memory -> verify_memory(memory_text, metadata_json)
+    - Audit recent memories -> get_memory first, then audit_memories
+
     General fallback order: specialized retriever -> RSS feed ->
     serpapi_search_tool -> webscrape_tool
   handle_tool_errors: true
@@ -1247,6 +1297,7 @@ workflow:
     - karpathy_bearblog_rss
     - karpathy_github_rss
     - serpapi_search_tool
+    - source_verifier_tool
     - think_tool
     - user_interaction_tool
     - user_uploaded_files_retriever_tool
