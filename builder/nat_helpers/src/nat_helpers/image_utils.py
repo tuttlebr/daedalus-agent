@@ -62,8 +62,12 @@ async def fetch_image_from_redis(
     redis_keys = []
     if user_id:
         redis_keys.append(f"user:{user_id}:image:{image_id}")
-    if session_id:
+    if session_id and session_id != "generated":
         redis_keys.append(f"image:{session_id}:{image_id}")
+    # Generated/edited outputs from the /v1/images/* panel live at
+    # generated:image:{id}, outside any user or session scope. Always try
+    # this key last so generated images can be reused as edit inputs.
+    redis_keys.append(f"generated:image:{image_id}")
 
     image_data_json = None
     for redis_key in redis_keys:

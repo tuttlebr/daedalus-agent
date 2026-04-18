@@ -18,9 +18,14 @@ import { getDefaultChatCompletionUrl } from '@/utils/app/backendApi';
 // Types
 // ============================================================================
 
+export type AppView = 'chat' | 'create';
+
 export interface UISettingsState {
   // Theme
   lightMode: 'light' | 'dark';
+
+  // Primary view tab
+  activeView: AppView;
 
   // Chat UI
   showChatbar: boolean;
@@ -59,6 +64,9 @@ export interface UISettingsActions {
   // Theme
   setLightMode: (mode: 'light' | 'dark') => void;
   toggleLightMode: () => void;
+
+  // View tab
+  setActiveView: (view: AppView) => void;
 
   // Chat UI
   setShowChatbar: (show: boolean) => void;
@@ -115,6 +123,7 @@ const DEFAULT_CHAT_HISTORY =
 
 const initialState: UISettingsState = {
   lightMode: 'dark',
+  activeView: 'chat',
   showChatbar: false,
   chatbarWidth: 280,
   chatHistory: DEFAULT_CHAT_HISTORY,
@@ -154,6 +163,12 @@ export const useUISettingsStore = create<UISettingsStore>()(
           set((state) => ({
             lightMode: state.lightMode === 'light' ? 'dark' : 'light',
           })),
+
+        // ======================================================================
+        // View tab
+        // ======================================================================
+
+        setActiveView: (view) => set({ activeView: view }),
 
         // ======================================================================
         // Chat UI
@@ -275,6 +290,7 @@ export const useUISettingsStore = create<UISettingsStore>()(
         // Only persist certain fields
         partialize: (state) => ({
           lightMode: state.lightMode,
+          activeView: state.activeView,
           showChatbar: state.showChatbar,
           chatbarWidth: state.chatbarWidth,
           chatHistory: state.chatHistory,

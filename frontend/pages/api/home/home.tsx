@@ -18,10 +18,11 @@ import { Conversation } from '@/types/chat';
 import { useConversationStore, useUISettingsStore } from '@/state';
 import { useAuth } from '@/components/auth';
 import { ProtectedRoute } from '@/components/auth';
-import { AppShell } from '@/components/layout';
+import { AppShell, ViewTabs } from '@/components/layout';
 import { Sidebar } from '@/components/sidebar/Sidebar';
 import { BottomNav } from '@/components/mobile/BottomNav';
 import { ChatView } from '@/components/chat/ChatView';
+import { ImagePanel } from '@/components/images';
 
 const Home = () => {
   const { t } = useTranslation('chat');
@@ -60,6 +61,13 @@ const Home = () => {
 
   // Cross-device sync via WebSocket + Redis pub/sub
   const refreshConversationList = useCallback(async () => {
+    // Skip refresh while any conversation is streaming — the store guard
+    // would preserve streaming conversations anyway, but this avoids the
+    // unnecessary network round-trip.
+    if (useConversationStore.getState().streamingConversationIds.size > 0) {
+      return;
+    }
+
     try {
       const serverConversations = await apiGet<Conversation[]>('/api/session/conversationHistory');
       if (Array.isArray(serverConversations)) {
@@ -75,6 +83,12 @@ const Home = () => {
   useWebSocket({
     enabled: true,
     onConversationUpdated: useCallback((conversation: Conversation) => {
+      // Never overwrite a conversation that is actively streaming —
+      // the frontend is the authority on its messages during streaming.
+      if (useConversationStore.getState().streamingConversationIds.has(conversation.id)) {
+        return;
+      }
+
       const current = conversationsRef.current.find((c) => c.id === conversation.id);
       if (current) {
         // Only apply if incoming data is at least as recent as local state
@@ -216,7 +230,12 @@ const Home = () => {
           sidebar={<Sidebar />}
           bottomNav={<BottomNav />}
         >
-          <ChatView />
+          <div className="flex h-full flex-col">
+            <ViewTabs />
+            <div className="flex-1 min-h-0 overflow-hidden">
+              <ActiveView />
+            </div>
+          </div>
         </AppShell>
       </main>
     </ProtectedRoute>
@@ -224,6 +243,15 @@ const Home = () => {
 };
 
 export default Home;
+
+function ActiveView() {
+  const activeView = useUISettingsStore((s) => s.activeView);
+
+  if (activeView === 'create') {
+    return <ImagePanel />;
+  }
+  return <ChatView />;
+}
 
 import { GetServerSideProps } from 'next';
 import { serverSideTranslations } from 'next-i18next/serverSideTranslations';

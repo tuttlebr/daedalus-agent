@@ -1,5 +1,5 @@
-ARG BASE_IMAGE_URL=nvcr.io/nvidia/base/ubuntu
-ARG BASE_IMAGE_TAG=22.04_20240212
+ARG BASE_IMAGE_URL=ubuntu
+ARG BASE_IMAGE_TAG=24.04
 ARG NAT_VERSION
 ARG PYTHON_VERSION=3.12
 ARG UV_VERSION=0.9.15
@@ -72,6 +72,7 @@ COPY json_repair_agent /workspace/json_repair_agent
 COPY mas_optimizer /workspace/mas_optimizer
 COPY think_tool /workspace/think_tool
 COPY content_distiller /workspace/content_distiller
+COPY source_verifier /workspace/source_verifier
 COPY user_interaction /workspace/user_interaction
 COPY --from=skills . /skills
 
@@ -92,6 +93,7 @@ RUN --mount=type=cache,id=uv_cache,target=/root/.cache/uv,sharing=locked \
     -e mas_optimizer \
     -e think_tool \
     -e content_distiller \
+    -e source_verifier \
     -e user_interaction
 
 RUN --mount=type=cache,id=uv_cache,target=/root/.cache/uv,sharing=locked \
@@ -109,6 +111,7 @@ RUN --mount=type=cache,id=uv_cache,target=/root/.cache/uv,sharing=locked \
     NAT_VERSION= nat workflow reinstall mas_optimizer && \
     NAT_VERSION= nat workflow reinstall think_tool && \
     NAT_VERSION= nat workflow reinstall content_distiller && \
+    NAT_VERSION= nat workflow reinstall source_verifier && \
     NAT_VERSION= nat workflow reinstall user_interaction
 
 ENV PLAYWRIGHT_BROWSERS_PATH=/workspace/.playwright
@@ -120,6 +123,7 @@ RUN chmod -R a+rX /workspace
 COPY entrypoint.py /workspace/entrypoint.py
 COPY llm_diagnostics.py /workspace/llm_diagnostics.py
 COPY mcp_patches.py /workspace/mcp_patches.py
+COPY image_api.py /workspace/image_api.py
 
 WORKDIR /workspace
 ENTRYPOINT ["python", "entrypoint.py"]

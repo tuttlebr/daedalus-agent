@@ -65,6 +65,35 @@ def _patch_starlette_compat(logger):
         logger.debug("Starlette compat patch not needed")
 
 
+def _patch_fastapi_image_routes(logger):
+    """Inject the /v1/images/* router into NAT's FastAPI app.
+
+    NAT v1.4.x does not expose a custom-routes extension point, so we
+    wrap FastAPI.__init__ to run after NAT has constructed its app and
+    attach our router via include_router. The patch runs exactly once
+    per FastAPI instance (guarded by a marker attribute) so it's safe
+    if NAT, uvicorn, or any other code also constructs FastAPI apps.
+    """
+    from fastapi import FastAPI
+
+    original_init = FastAPI.__init__
+
+    def patched_init(self, *args, **kwargs):
+        original_init(self, *args, **kwargs)
+        if getattr(self, "_daedalus_image_routes_attached", False):
+            return
+        try:
+            from image_api import router as image_router
+
+            self.include_router(image_router)
+            self._daedalus_image_routes_attached = True
+            logger.info("Attached /v1/images/* router to FastAPI app")
+        except Exception:
+            logger.exception("Failed to attach /v1/images/* router")
+
+    FastAPI.__init__ = patched_init
+
+
 def main():
     # Configure root logging (NAT will reconfigure its own loggers, but this
     # ensures our daedalus.* diagnostic messages are visible)
@@ -80,6 +109,9 @@ def main():
     # Starlette 1.0.0 removed add_event_handler, add_route, add_websocket_route;
     # NAT v1.4.x still calls them.  Patch before any NAT imports.
     _patch_starlette_compat(logging.getLogger("daedalus.starlette_compat"))
+
+    # Attach our /v1/images/* router to NAT's FastAPI app as it's built.
+    _patch_fastapi_image_routes(logging.getLogger("daedalus.image_api"))
 
     # Apply LLM diagnostic patches before NAT imports create clients
     import llm_diagnostics

@@ -9,6 +9,7 @@ from nat.builder.function_info import FunctionInfo
 from nat.cli.register_workflow import register_function
 from nat.data_models.function import FunctionBaseConfig
 from nat_helpers.image_utils import fetch_image_from_redis, store_image_in_redis
+from nat_helpers.openai_images import edit_images
 from openai import AsyncOpenAI
 from pydantic import Field
 
@@ -77,7 +78,15 @@ async def image_augmentation_function(
     config: ImageAugmentationFunctionConfig,
     builder: Builder,  # noqa: ARG001
 ):
-    api_key = config.api_key or os.getenv("OPENAI_API_KEY")
+    configured_key = (config.api_key or "").strip()
+    if configured_key.startswith("${") and configured_key.endswith("}"):
+        logger.warning(
+            "image_augmentation api_key looks like an unexpanded placeholder (%s); "
+            "falling back to OPENAI_API_KEY env var",
+            configured_key,
+        )
+        configured_key = ""
+    api_key = configured_key or os.getenv("OPENAI_API_KEY")
     if not api_key:
         raise ValueError(
             "API key is required (set api_key in config or OPENAI_API_KEY env var)"
@@ -159,40 +168,23 @@ async def image_augmentation_function(
                     (f"image_{idx}.{extension}", image_bytes, mime_type)
                 )
 
-            kwargs: dict = {
-                "model": config.model,
-                "image": source_files[0] if len(source_files) == 1 else source_files,
-                "prompt": prompt,
-            }
-            if config.quality is not None:
-                kwargs["quality"] = config.quality
-            if config.input_fidelity is not None:
-                kwargs["input_fidelity"] = config.input_fidelity
-            if config.size is not None:
-                kwargs["size"] = config.size
-            if config.n is not None:
-                kwargs["n"] = config.n
-
-            logger.info(
-                "Augmenting %d image(s) with prompt: %s...",
-                len(source_files),
-                prompt[:50],
+            results = await edit_images(
+                client,
+                model=config.model,
+                image=source_files[0] if len(source_files) == 1 else source_files,
+                prompt=prompt,
+                quality=config.quality,
+                input_fidelity=config.input_fidelity,
+                size=config.size,
+                n=config.n,
             )
 
-            response = await client.images.edit(**kwargs)
-
-            if not response.data:
-                return "Error: No image was returned by the model."
-
             refs = []
-            for item in response.data:
-                b64 = getattr(item, "b64_json", None)
-                if not b64:
-                    continue
+            for result in results:
                 image_id = await store_image_in_redis(
                     redis_client,
-                    b64,
-                    "image/png",
+                    result.b64_json,
+                    result.mime_type,
                     prompt,
                     source="image_augmentation",
                 )
