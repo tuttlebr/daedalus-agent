@@ -32,6 +32,24 @@ metadata.key_value_pairs:
   topics:      "<comma-separated topics connected>"
 ```
 
+**shift** — A present disagreement between your current view and a stored
+memory. Store these instead of overwriting. The prior memory stays intact;
+the shift is a third record that names the conflict so future retrievals
+surface both positions.
+
+```
+memory: "BLUF: [the conflict in one sentence]. Previously stored (cycle N): [old position]. Current view (cycle M): [new position]. [1-2 sentences on what changed — new evidence, shifted context, or reconsideration without new evidence]."
+metadata.key_value_pairs:
+  type:        "shift"
+  source:      "autonomous_cycle"
+  cycle:       "<current cycle>"
+  prior_cycle: "<cycle of the memory being disagreed with>"
+  domain:      "<freeform domain tag>"
+  shift_kind:  "new_evidence" | "context_changed" | "reconsidered"
+  source_url:  "<URL supporting the new position — optional>"
+  status:      "open"
+```
+
 **project_update** — A notable change in a tracked source code project.
 
 ```
@@ -84,7 +102,10 @@ Use a `graph LR` (left-to-right) layout. Guidelines:
 - **Nodes** are entities you encountered: a paper, a model, a company, a concept,
   a technology, a trend. Label them concisely.
 - **Edges** describe the relationship: `--enables-->`, `--challenges-->`,
-  `--extends-->`, `--competes with-->`, `--builds on-->`, etc. Use plain language.
+  `--extends-->`, `--competes with-->`, `--builds on-->`, `--contradicts-->`,
+  `--revises-->`, etc. Use plain language. `--contradicts-->` and `--revises-->`
+  make shifts visible at the cycle level; use them when a finding conflicts
+  with or updates an earlier memory.
 - Keep it to the findings from *this cycle only*. Don't reconstruct the entire
   knowledge base — just this session's contribution.
 - If a finding is isolated (no meaningful connection to others this cycle),
@@ -124,4 +145,21 @@ store it. If the answer is "yes, and here's why," store it with that context.
 
 - 1-3 high-quality memories per cycle is ideal. 0 is fine if nothing was worth storing.
 - Never store more than 5 in a single cycle. If you have more, pick the best.
-- Findings that supersede an earlier memory should note what they replace in the text.
+- If a new finding disagrees with an earlier memory, store a `shift` memory that
+  points to both. Don't rewrite or delete the earlier memory to make it agree
+  with your current view. The prior memory and the new position both remain.
+
+### Verification Gate
+
+Before calling `add_memory` for any `finding` or `project_update`, call
+`verify_claim(claim=<BLUF statement>, source_url=<the URL>)`. Only store
+if the verdict is "supported" or "partially_supported."
+
+- **supported** -> store as-is with confidence "high"
+- **partially_supported** -> store with caveats noted in text, confidence "medium"
+- **unsupported** -> do NOT store. Note in your inner state why the source
+  didn't support the claim.
+- **source_unreachable** -> do NOT store. Note for retry next cycle.
+
+For `synthesis` memories, the underlying findings should already be verified.
+A synthesis built on unverified findings inherits their uncertainty.

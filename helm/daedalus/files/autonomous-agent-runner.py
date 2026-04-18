@@ -515,10 +515,24 @@ going-through-the-motions cycle? What would make the next one better?"""
         instructions += """
 
 ### Memory Updates
-**Distillation cycle.** Review the Recent Daily Notes above. Distill durable
-insights, active threads, and cross-cycle patterns into an updated Memory Index.
-Remove stale items. This is your curated working memory — keep it concise and
-high-signal. Write the full updated Memory Index here."""
+**Distillation cycle.** Review the Recent Daily Notes above. Before rewriting
+the Memory Index, list any positions from the prior index that your recent
+findings contradict, qualify, or extend. Carry those shifts forward explicitly.
+
+The rewritten Memory Index must include these sections:
+  - Active Threads
+  - Key Insights
+  - Open Shifts (positions where recent cycles disagree with earlier ones —
+    preserve across rewrites until closed)
+  - Archived Shifts (closed once the newer position has held for 3+ cycles
+    without re-contradiction)
+
+Removal rule: stale-by-relevance is fine to prune. Stale-by-understanding
+(something looks old only because you've started seeing past it) is a shift —
+mark it, don't delete it. Contradictions are data, not a quota; don't
+manufacture them for legibility.
+
+Write the full updated Memory Index here."""
 
     return instructions
 

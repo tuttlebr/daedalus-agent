@@ -31,7 +31,7 @@ enableMapSet();
 const logger = new Logger('ConversationStore');
 
 /** Keep at most this many messages per conversation in memory (matches sanitize.ts). */
-const MAX_MESSAGES = 100;
+const MAX_MESSAGES = 16;
 
 // ============================================================================
 // Types
@@ -126,11 +126,33 @@ export const useConversationStore = create<ConversationStore>()(
 
       setConversations: (conversations) => {
         set((state) => {
-          state.conversations = conversations;
+          // Preserve local state for conversations that are actively streaming —
+          // sync events carry stale data that would overwrite in-flight messages.
+          const streamingLocal = new Map<string, Conversation>();
+          for (const conv of state.conversations) {
+            if (state.streamingConversationIds.has(conv.id)) {
+              streamingLocal.set(conv.id, conv);
+            }
+          }
+
+          const incomingIds = new Set(conversations.map((c: Conversation) => c.id));
+
+          // Replace with incoming data, but keep local copies for streaming conversations
+          state.conversations = conversations.map((c: Conversation) => {
+            return streamingLocal.get(c.id) ?? c;
+          });
+
+          // Re-add any streaming conversations missing from the incoming list
+          for (const [id, conv] of streamingLocal) {
+            if (!incomingIds.has(id)) {
+              state.conversations.unshift(conv);
+            }
+          }
+
           // Clear selection if selected conversation no longer exists
           if (
             state.selectedConversationId &&
-            !conversations.some((c) => c.id === state.selectedConversationId)
+            !state.conversations.some((c: Conversation) => c.id === state.selectedConversationId)
           ) {
             state.selectedConversationId = null;
           }

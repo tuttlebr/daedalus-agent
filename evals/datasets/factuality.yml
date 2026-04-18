@@ -1,0 +1,54 @@
+# Factuality dataset — observational.
+#
+# These prompts are crafted to induce the agent to research a topic AND
+# store a finding to memory, which triggers source_verifier.verify_claim
+# before add_memory. The evaluator reads those verdicts from the trace.
+#
+# Cases with no verify_claim events will fail with "no source_verifier
+# verdicts observed" — that signals the prompt didn't induce the expected
+# behavior (agent chose not to store a finding), not necessarily a
+# factuality problem.
+#
+# Schema:
+#   id: unique string
+#   query: user message
+#   min_verifications: int, default 1
+#   min_supported_fraction: float 0..1, default 0.8
+
+- id: fact-001
+  query: |
+    Research what the H200 GPU's memory bandwidth is and remember the
+    answer as a finding with the source citation.
+  min_verifications: 1
+  min_supported_fraction: 0.8
+
+- id: fact-002
+  query: |
+    Look up who currently leads NVIDIA's research organization and store
+    the name and title as a finding with a citation.
+  min_verifications: 1
+  min_supported_fraction: 0.8
+
+- id: fact-003
+  query: |
+    Find the latest officially disclosed parameter count for any Llama
+    model released in 2026, remember it as a finding, and cite the
+    source.
+  min_verifications: 1
+  min_supported_fraction: 0.8
+
+- id: fact-004
+  query: |
+    Research the key architectural difference between centralized and
+    decentralized multi-agent systems as described in recent agent
+    research, store the distinction as a finding, and cite the paper.
+  min_verifications: 1
+  min_supported_fraction: 0.8
+
+- id: fact-005
+  query: |
+    Find NVIDIA NeMo Agent Toolkit's latest stable version number,
+    remember it as a finding, and cite the release notes or official
+    docs.
+  min_verifications: 1
+  min_supported_fraction: 0.8

@@ -191,3 +191,6 @@ ncp-research.md
 .planning/
 custom-backend/
 profile-data.json
+
+# Eval run outputs (keep directory via .gitkeep)
+evals/results/*.json

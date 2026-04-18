@@ -1,0 +1,27 @@
+[build-system]
+build-backend = "setuptools.build_meta"
+requires = ["setuptools>=64.0.0", "wheel"]
+
+[project]
+name = "source_verifier"
+dynamic = ["version"]
+dependencies = [
+  "nvidia-nat[redis,mcp,langchain,phoenix,async_endpoints]==1.6.0",
+  "webscrape",
+]
+requires-python = ">=3.11,<3.14"
+description = "Source citation verification for NeMo Agent Toolkit. Validates that claimed sources actually support stored findings before they enter memory."
+classifiers = ["Programming Language :: Python"]
+
+[project.entry-points.'nat.components']
+source_verifier = "source_verifier.register"
+
+[tool.setuptools]
+packages = ["source_verifier"]
+package-dir = {"" = "src"}
+
+[tool.setuptools.package-data]
+source_verifier = ["configs/*.yml", "configs/*.yaml"]
+
+[tool.uv]
+config-settings = { editable_mode = "compat" }

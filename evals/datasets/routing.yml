@@ -1,0 +1,93 @@
+# Routing correctness dataset.
+#
+# Each case asserts how the orchestrator SHOULD route, based on the
+# system prompt in backend/tool-calling-config.yaml and the mas_optimizer
+# scoring. Expectations are best-effort at curation time — rerun and
+# adjust if the orchestrator's judgment on a case is reasonable.
+#
+# Schema:
+#   id: unique string
+#   query: user message sent to /chat/stream
+#   expected:
+#     architecture: SAS | MAS-centralized | MAS-decentralized
+#     sub_agent: research_agent | ops_agent | media_agent | user_data_agent | null
+#     skill: <skill_name> | null
+#   forbidden_tools: [...]    # optional
+#   conversational_only: true # optional; expects NO routing tool calls
+
+- id: research-001
+  query: What are the current state-of-the-art results on the GSM8K math benchmark?
+  expected:
+    architecture: SAS
+    sub_agent: research_agent
+    skill: null
+
+- id: research-002
+  query: Summarize the latest NVIDIA earnings call sentiment from analyst coverage.
+  expected:
+    architecture: SAS
+    sub_agent: research_agent
+    skill: null
+
+- id: ops-001
+  query: List the pods in the daedalus namespace and report their status.
+  expected:
+    architecture: SAS
+    sub_agent: ops_agent
+    skill: null
+
+- id: ops-002
+  query: Show me the three most recent merged pull requests in the daedalus-agent GitHub repo.
+  expected:
+    architecture: SAS
+    sub_agent: ops_agent
+    skill: null
+
+- id: media-001
+  query: Generate an image of a chiaroscuro-style portrait of a Roman senator.
+  expected:
+    architecture: SAS
+    sub_agent: media_agent
+    skill: null
+
+- id: user-data-001
+  query: Search my uploaded documents for mentions of "GPU utilization" and summarize what I've said about it.
+  expected:
+    architecture: SAS
+    sub_agent: user_data_agent
+    skill: null
+
+- id: mas-centralized-001
+  query: Analyze our Q3 financial filing alongside the latest earnings call transcript and the competitor 10-Ks, produce a structured comparison table of revenue growth, operating margin, and capex, then cross-check your findings against analyst notes.
+  expected:
+    architecture: MAS-centralized
+    sub_agent: null
+    skill: mas-procedure
+
+- id: mas-decentralized-001
+  query: Explore the public web for novel applications of small language models in industrial IoT, surface surprising findings from at least five independent sources, and report what emerged.
+  expected:
+    architecture: MAS-decentralized
+    sub_agent: null
+    skill: mas-procedure
+
+- id: skill-001
+  query: Review the open pull requests on the daedalus-agent repo and give me a PR status summary.
+  expected:
+    architecture: SAS
+    sub_agent: null
+    skill: pr-monitor
+
+- id: conversational-001
+  query: Hey, thanks for the help earlier.
+  conversational_only: true
+  expected:
+    architecture: SAS
+    sub_agent: null
+    skill: null
+  forbidden_tools:
+    - mas_evaluate
+    - research_agent
+    - ops_agent
+    - media_agent
+    - user_data_agent

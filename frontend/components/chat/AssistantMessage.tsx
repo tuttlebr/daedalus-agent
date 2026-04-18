@@ -88,7 +88,7 @@ export const AssistantMessage = memo(({
         )}
 
         {/* Message content */}
-        {content && (
+        {(content || isStreaming) && (
           <div className="relative">
             <div
               className={classNames(
@@ -126,12 +126,14 @@ export const AssistantMessage = memo(({
                 )}
                 style={needsCollapse && !isExpanded && !isStreaming ? { maxHeight: COLLAPSED_MAX_HEIGHT } : undefined}
               >
-                <MarkdownRenderer
-                  content={content}
-                  messageIndex={messageIndex}
-                  messageId={message.id}
-                  className={proseClasses}
-                />
+                {content && (
+                  <MarkdownRenderer
+                    content={content}
+                    messageIndex={messageIndex}
+                    messageId={message.id}
+                    className={proseClasses}
+                  />
+                )}
 
                 {isStreaming && (
                   <span className="inline-block w-0.5 h-4 ml-0.5 bg-nvidia-green animate-blink align-text-bottom" />
