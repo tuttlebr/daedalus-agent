@@ -13,60 +13,83 @@ import { OptimizedImage } from '@/components/chat/OptimizedImage';
 import { getImageUrl } from '@/utils/app/imageHandler';
 import type { GalleryImage, ImageRef } from '@/state/imagePanelStore';
 
-// Generated images live in Redis at `generated:image:{id}`. Passing
-// `sessionId: 'generated'` routes getImageUrl() to /api/generated-image/{id}
-// (see imageHandler.ts). The OptimizedImage component then handles
-// IntersectionObserver lazy-loading, thumbnail-by-default display, and
-// reference-counted blob cleanup automatically.
 const GENERATED_SESSION_ID = 'generated';
+const GRID_COLS = 4;
+const GRID_ROWS = 2;
 
-function generatedRef(imageId: string, mimeType = 'image/png') {
+function generatedRef(imageId: string, mimeType = 'image/png'): ImageRef {
   return { imageId, sessionId: GENERATED_SESSION_ID, mimeType };
 }
 
-interface GalleryGridProps {
+interface ImagesCanvasProps {
   images: GalleryImage[];
+  loading: boolean;
   onReuseAsInput: (ref: ImageRef) => void;
   onSendToChat?: (imageId: string) => void;
 }
 
-export function GalleryGrid({
+/**
+ * The main working canvas. When empty, shows a faint 4×2 grid-line
+ * placeholder that telegraphs where generated outputs will appear. When
+ * populated, each output fills a cell (left-to-right, top-to-bottom).
+ * Extra rows are added for n > 8.
+ */
+export function ImagesCanvas({
   images,
+  loading,
   onReuseAsInput,
   onSendToChat,
-}: GalleryGridProps) {
-  if (images.length === 0) {
-    return (
-      <div className="flex items-center justify-center h-64 rounded-xl border border-dashed border-neutral-300 dark:border-neutral-700 text-sm text-neutral-500 dark:text-neutral-400">
-        No images yet. Press Generate.
-      </div>
-    );
-  }
+}: ImagesCanvasProps) {
+  const cols = GRID_COLS;
+  const rows = Math.max(GRID_ROWS, Math.ceil(images.length / cols));
+  const totalCells = cols * rows;
 
   return (
-    <div
-      className={classNames(
-        'grid gap-3',
-        images.length === 1
-          ? 'grid-cols-1'
-          : images.length <= 2
-            ? 'grid-cols-1 sm:grid-cols-2'
-            : 'grid-cols-2 sm:grid-cols-2 lg:grid-cols-3',
-      )}
-    >
-      {images.map((img) => (
-        <GalleryItem
-          key={img.imageId}
-          image={img}
-          onReuseAsInput={onReuseAsInput}
-          onSendToChat={onSendToChat}
-        />
-      ))}
+    <div className="relative w-full h-full">
+      <div
+        className={classNames(
+          'grid gap-0 h-full',
+          'divide-x divide-y divide-neutral-800/60',
+          'border-y border-neutral-800/60',
+        )}
+        style={{
+          gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`,
+          gridTemplateRows: `repeat(${rows}, minmax(0, 1fr))`,
+        }}
+      >
+        {Array.from({ length: totalCells }).map((_, idx) => {
+          const img = images[idx];
+          return (
+            <div
+              key={img ? img.imageId : `empty-${idx}`}
+              className="relative group overflow-hidden min-h-0"
+            >
+              {img ? (
+                <CanvasTile
+                  image={img}
+                  onReuseAsInput={onReuseAsInput}
+                  onSendToChat={onSendToChat}
+                />
+              ) : loading && idx < (images.length || cols) ? (
+                <LoadingCell />
+              ) : null}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
 
-function GalleryItem({
+function LoadingCell() {
+  return (
+    <div className="absolute inset-0 flex items-center justify-center">
+      <div className="w-6 h-6 rounded-full border-2 border-neutral-700 border-t-nvidia-green animate-spin" />
+    </div>
+  );
+}
+
+function CanvasTile({
   image,
   onReuseAsInput,
   onSendToChat,
@@ -101,12 +124,12 @@ function GalleryItem({
   const openFull = () => window.open(fullUrl, '_blank', 'noopener');
 
   return (
-    <div className="group relative rounded-xl overflow-hidden bg-neutral-100 dark:bg-neutral-900 ring-1 ring-neutral-200 dark:ring-neutral-800">
+    <div className="absolute inset-0">
       <OptimizedImage
         imageRef={ref}
         alt={image.prompt}
         useThumbnail
-        className="w-full h-auto block"
+        className="w-full h-full object-cover"
       />
       <div
         className={classNames(

@@ -1,24 +1,16 @@
 'use client';
 
 import React, { useCallback, useMemo } from 'react';
-import { IconSparkles } from '@tabler/icons-react';
-import { Button } from '@/components/primitives';
 import {
   useImagePanelStore,
+  selectMode,
   type GalleryImage,
   type HistoryEntry,
   type ImageRef,
 } from '@/state/imagePanelStore';
-import { applyPreset, type ImagePreset } from '@/utils/app/imagePresets';
-import { ModeToggle } from './ModeToggle';
-import { PromptInput } from './PromptInput';
-import { PresetChips } from './PresetChips';
-import { ParameterPanel } from './ParameterPanel';
-import { ImageUploadZone } from './ImageUploadZone';
-import { MaskUpload } from './MaskUpload';
-import { PreserveListInput } from './PreserveListInput';
-import { GalleryGrid } from './GalleryGrid';
-import { HistoryStrip } from './HistoryStrip';
+import { ImagesCanvas } from './ImagesCanvas';
+import { ImagesDock } from './ImagesDock';
+import { HistoryDrawer, HistoryToggleButton } from './HistoryDrawer';
 
 interface ImagePanelProps {
   onSendToChat?: (imageId: string) => void;
@@ -35,54 +27,24 @@ function newEntryId(): string {
 }
 
 export function ImagePanel({ onSendToChat }: ImagePanelProps) {
-  const {
-    mode,
-    prompt,
-    params,
-    inputImages,
-    maskImage,
-    preserveList,
-    gallery,
-    history,
-    loading,
-    error,
-    setMode,
-    setPrompt,
-    setParam,
-    addInputImages,
-    removeInputImage,
-    clearInputImages,
-    setMaskImage,
-    setPreserveList,
-    reuseOutputAsInput,
-    setGallery,
-    appendToHistory,
-    restoreFromHistory,
-    setLoading,
-    setError,
-  } = useImagePanelStore();
-
-  const handleApplyPreset = useCallback(
-    (preset: ImagePreset) => {
-      const { prompt: nextPrompt, preserveList: nextPreserve, params: nextParams } =
-        applyPreset(preset, prompt);
-      setPrompt(nextPrompt);
-      if (nextPreserve !== undefined) setPreserveList(nextPreserve);
-      // Merge preset params over current (preset wins for the keys it sets).
-      Object.entries(nextParams).forEach(([k, v]) => {
-        setParam(k as keyof typeof params, v as never);
-      });
-    },
-    [prompt, setPrompt, setPreserveList, setParam, params],
-  );
+  const prompt = useImagePanelStore((s) => s.prompt);
+  const params = useImagePanelStore((s) => s.params);
+  const inputImages = useImagePanelStore((s) => s.inputImages);
+  const maskImage = useImagePanelStore((s) => s.maskImage);
+  const preserveList = useImagePanelStore((s) => s.preserveList);
+  const gallery = useImagePanelStore((s) => s.gallery);
+  const loading = useImagePanelStore((s) => s.loading);
+  const error = useImagePanelStore((s) => s.error);
+  const reuseOutputAsInput = useImagePanelStore((s) => s.reuseOutputAsInput);
+  const setGallery = useImagePanelStore((s) => s.setGallery);
+  const appendToHistory = useImagePanelStore((s) => s.appendToHistory);
+  const setLoading = useImagePanelStore((s) => s.setLoading);
+  const setError = useImagePanelStore((s) => s.setError);
+  const mode = useImagePanelStore(selectMode);
 
   const submit = useCallback(async () => {
     if (!prompt.trim()) {
       setError('Prompt is required');
-      return;
-    }
-    if (mode === 'edit' && inputImages.length === 0) {
-      setError('Upload at least one source image for edit mode');
       return;
     }
 
@@ -160,106 +122,52 @@ export function ImagePanel({ onSendToChat }: ImagePanelProps) {
     appendToHistory,
   ]);
 
+  const reuseRef = useCallback(
+    (ref: ImageRef) => reuseOutputAsInput(ref),
+    [reuseOutputAsInput],
+  );
+
   const submitDisabled = useMemo(() => {
     if (loading) return true;
     if (!prompt.trim()) return true;
-    if (mode === 'edit' && inputImages.length === 0) return true;
     return false;
-  }, [loading, prompt, mode, inputImages.length]);
+  }, [loading, prompt]);
 
   return (
-    <div className="w-full h-full overflow-y-auto bg-white dark:bg-dark-bg-primary">
-      <div className="max-w-6xl mx-auto px-6 py-6 flex flex-col gap-6">
-        {/* Header */}
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-semibold text-neutral-900 dark:text-neutral-100">
-              Create New
-            </h1>
-            <p className="text-sm text-neutral-500 dark:text-neutral-400 mt-1">
-              Generate and edit images with the full OpenAI images API surface.
-            </p>
-          </div>
-          <ModeToggle mode={mode} onChange={setMode} disabled={loading} />
-        </div>
+    <div className="relative w-full h-full bg-neutral-950 text-neutral-100 overflow-hidden">
+      {/* Top bar — title + history toggle */}
+      <header className="absolute top-0 inset-x-0 z-10 flex items-center justify-between px-5 py-3">
+        <h1 className="text-base font-semibold tracking-tight text-neutral-100">
+          Images
+        </h1>
+        <HistoryToggleButton />
+      </header>
 
-        {/* Two-column: inputs on left, outputs on right */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <div className="flex flex-col gap-5">
-            <PresetChips mode={mode} onApply={handleApplyPreset} />
-
-            <PromptInput value={prompt} onChange={setPrompt} disabled={loading} />
-
-            {mode === 'edit' && (
-              <>
-                <ImageUploadZone
-                  images={inputImages}
-                  onAdd={addInputImages}
-                  onRemove={removeInputImage}
-                  disabled={loading}
-                />
-                <MaskUpload
-                  mask={maskImage}
-                  onChange={setMaskImage}
-                  disabled={loading}
-                />
-                <PreserveListInput
-                  value={preserveList}
-                  onChange={setPreserveList}
-                  disabled={loading}
-                />
-              </>
-            )}
-
-            <ParameterPanel mode={mode} params={params} onChange={setParam} />
-
-            <div className="flex items-center gap-3">
-              <Button
-                variant="accent"
-                size="lg"
-                isLoading={loading}
-                onClick={submit}
-                disabled={submitDisabled}
-                leftIcon={<IconSparkles size={18} />}
-              >
-                {loading
-                  ? mode === 'generate'
-                    ? 'Generating…'
-                    : 'Editing…'
-                  : mode === 'generate'
-                    ? 'Generate'
-                    : 'Edit'}
-              </Button>
-              {mode === 'edit' && inputImages.length > 0 && (
-                <Button variant="ghost" size="sm" onClick={clearInputImages}>
-                  Clear inputs
-                </Button>
-              )}
-            </div>
-
-            {error && (
-              <div className="rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-700 dark:text-red-400">
-                {error}
-              </div>
-            )}
-          </div>
-
-          <div className="flex flex-col gap-5">
-            <label className="text-xs font-medium uppercase tracking-wider text-neutral-500 dark:text-neutral-400">
-              Output
-            </label>
-            <GalleryGrid
-              images={gallery}
-              onReuseAsInput={reuseOutputAsInput}
-              onSendToChat={onSendToChat}
-            />
-          </div>
-        </div>
-
-        <HistoryStrip history={history} onRestore={restoreFromHistory} />
+      {/* Canvas area — grid-line backdrop + outputs. Top/bottom padding
+          reserves room for the header and the floating dock. */}
+      <div className="absolute inset-0 pt-14 pb-[148px]">
+        <ImagesCanvas
+          images={gallery}
+          loading={loading}
+          onReuseAsInput={reuseRef}
+          onSendToChat={onSendToChat}
+        />
       </div>
+
+      {/* Error — small toast above the dock */}
+      {error && (
+        <div className="pointer-events-auto absolute bottom-[132px] inset-x-0 px-4 z-20">
+          <div className="mx-auto max-w-3xl rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-400 backdrop-blur">
+            {error}
+          </div>
+        </div>
+      )}
+
+      {/* Docked prompt bar */}
+      <ImagesDock onSubmit={submit} submitDisabled={submitDisabled} />
+
+      {/* History side drawer */}
+      <HistoryDrawer />
     </div>
   );
 }
-
-export type { ImageRef };

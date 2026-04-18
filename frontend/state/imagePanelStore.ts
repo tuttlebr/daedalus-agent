@@ -4,6 +4,9 @@
  * Holds the current prompt, parameters, input images (edit mode), mask,
  * preserve-list, gallery of returned images, and an in-session history
  * strip. Ephemeral by design — not persisted across reloads.
+ *
+ * Mode is derived, not stored: anything with attached inputImages is an
+ * edit; anything without is a generate.
  */
 
 import { create } from 'zustand';
@@ -63,7 +66,6 @@ export interface HistoryEntry {
 }
 
 export interface ImagePanelState {
-  mode: ImageMode;
   prompt: string;
   params: ImageParams;
   inputImages: ImageRef[];
@@ -73,10 +75,10 @@ export interface ImagePanelState {
   history: HistoryEntry[];
   loading: boolean;
   error: string | null;
+  historyOpen: boolean;
 }
 
 export interface ImagePanelActions {
-  setMode: (mode: ImageMode) => void;
   setPrompt: (prompt: string) => void;
   setParam: <K extends keyof ImageParams>(key: K, value: ImageParams[K]) => void;
   resetParams: () => void;
@@ -98,6 +100,9 @@ export interface ImagePanelActions {
   setLoading: (loading: boolean) => void;
   setError: (error: string | null) => void;
 
+  setHistoryOpen: (open: boolean) => void;
+  toggleHistory: () => void;
+
   clearAll: () => void;
 }
 
@@ -106,7 +111,6 @@ export type ImagePanelStore = ImagePanelState & ImagePanelActions;
 const DEFAULT_PARAMS: ImageParams = {};
 
 const INITIAL_STATE: ImagePanelState = {
-  mode: 'generate',
   prompt: '',
   params: { ...DEFAULT_PARAMS },
   inputImages: [],
@@ -116,17 +120,18 @@ const INITIAL_STATE: ImagePanelState = {
   history: [],
   loading: false,
   error: null,
+  historyOpen: false,
 };
 
 export const useImagePanelStore = create<ImagePanelStore>()(
   subscribeWithSelector((set, get) => ({
     ...INITIAL_STATE,
 
-    setMode: (mode) => set({ mode, error: null }),
     setPrompt: (prompt) => set({ prompt }),
     setParam: (key, value) =>
       set((s) => ({
-        params: value === undefined ? omit(s.params, key) : { ...s.params, [key]: value },
+        params:
+          value === undefined ? omit(s.params, key) : { ...s.params, [key]: value },
       })),
     resetParams: () => set({ params: { ...DEFAULT_PARAMS } }),
 
@@ -150,10 +155,7 @@ export const useImagePanelStore = create<ImagePanelStore>()(
       set((s) => {
         const byId = new Map(s.inputImages.map((r) => [r.imageId, r]));
         byId.set(ref.imageId, ref);
-        return {
-          mode: 'edit',
-          inputImages: Array.from(byId.values()),
-        };
+        return { inputImages: Array.from(byId.values()) };
       }),
 
     setGallery: (gallery) => set({ gallery }),
@@ -163,7 +165,6 @@ export const useImagePanelStore = create<ImagePanelStore>()(
       const entry = get().history.find((e) => e.id === entryId);
       if (!entry) return;
       set({
-        mode: entry.mode,
         prompt: entry.prompt,
         params: { ...entry.params },
         inputImages: [...entry.inputImages],
@@ -175,9 +176,17 @@ export const useImagePanelStore = create<ImagePanelStore>()(
     setLoading: (loading) => set({ loading }),
     setError: (error) => set({ error }),
 
+    setHistoryOpen: (open) => set({ historyOpen: open }),
+    toggleHistory: () => set((s) => ({ historyOpen: !s.historyOpen })),
+
     clearAll: () => set({ ...INITIAL_STATE, history: get().history }),
   })),
 );
+
+/** Derive mode from attachments — if any images are attached, we're editing. */
+export function selectMode(s: ImagePanelState): ImageMode {
+  return s.inputImages.length > 0 ? 'edit' : 'generate';
+}
 
 function omit<T extends object, K extends keyof T>(obj: T, key: K): Omit<T, K> {
   const { [key]: _omitted, ...rest } = obj;

@@ -1,10 +1,7 @@
 export { ImagePanel } from './ImagePanel';
-export { ModeToggle } from './ModeToggle';
-export { PromptInput } from './PromptInput';
-export { PresetChips } from './PresetChips';
-export { ParameterPanel } from './ParameterPanel';
-export { ImageUploadZone } from './ImageUploadZone';
-export { MaskUpload } from './MaskUpload';
-export { PreserveListInput } from './PreserveListInput';
-export { GalleryGrid } from './GalleryGrid';
-export { HistoryStrip } from './HistoryStrip';
+export { ImagesCanvas } from './ImagesCanvas';
+export { ImagesDock } from './ImagesDock';
+export { PresetsPopover } from './PresetsPopover';
+export { ParamsPopover } from './ParamsPopover';
+export { AttachmentsPopover } from './AttachmentsPopover';
+export { HistoryDrawer, HistoryToggleButton } from './HistoryDrawer';
