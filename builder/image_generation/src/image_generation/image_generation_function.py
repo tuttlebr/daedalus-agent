@@ -6,7 +6,7 @@ from nat.builder.builder import Builder, LLMFrameworkEnum
 from nat.builder.function_info import FunctionInfo
 from nat.cli.register_workflow import register_function
 from nat.data_models.function import FunctionBaseConfig
-from nat_helpers.image_utils import extract_images_from_response, store_image_in_redis
+from nat_helpers.image_utils import store_image_in_redis
 from openai import AsyncOpenAI
 from pydantic import Field
 
@@ -14,11 +14,11 @@ logger = logging.getLogger(__name__)
 
 
 class ImageGenerationFunctionConfig(FunctionBaseConfig, name="image_generation"):
-    """Configuration for image generation via OpenAI-compatible chat completions."""
+    """Configuration for image generation via OpenAI's /v1/images/generations API."""
 
     api_endpoint: str | None = Field(
         None,
-        description="Base URL for OpenAI-compatible endpoint. If unset, uses OpenAI default.",
+        description="Base URL for the OpenAI API. If unset, uses the SDK default.",
     )
     api_key: str | None = Field(
         None,
@@ -38,12 +38,26 @@ class ImageGenerationFunctionConfig(FunctionBaseConfig, name="image_generation")
         "redis://redis:6379",
         description="Redis connection URL for storing generated images",
     )
-    image_config: dict | None = Field(
+    quality: str | None = Field(
         default=None,
         description=(
-            "Optional image configuration passed to the API. "
-            "Supports keys like 'aspect_ratio' (e.g. '16:9') and "
-            "'image_size' (e.g. '1K', '2K', '4K')."
+            "Optional rendering quality ('low' or 'high'). Prefer 'low' for "
+            "latency-sensitive flows and 'high' for detail-heavy scenes (dense "
+            "text, intricate materials). Passed to images.generate as `quality`."
+        ),
+    )
+    size: str | None = Field(
+        default=None,
+        description=(
+            "Optional image size in pixels, e.g. '1024x1024', '1024x1536', "
+            "'1536x1024', or 'auto'. Passed to images.generate as `size`."
+        ),
+    )
+    n: int | None = Field(
+        default=None,
+        description=(
+            "Optional number of variations to generate (1–10). When >1, each "
+            "image is stored separately and all markdown refs are returned."
         ),
     )
 
@@ -83,8 +97,27 @@ async def image_generation_function(
         system_prompt = config.prompt_rewrite.get(
             "system_prompt",
             (
-                "You are an expert creative assistant. Improve the given prompt "
-                "for high quality image generation while keeping the user's intent intact."
+                "You are an expert visual prompt engineer. Rewrite the user's "
+                "request into a single, well-structured image-generation prompt "
+                "while preserving their intent and required elements.\n"
+                "\n"
+                "Structure the prompt in this order:\n"
+                "  1. Scene / background (setting, environment, mood)\n"
+                "  2. Subject (main focal point, pose, action)\n"
+                "  3. Key visual details (materials, textures, lighting, palette)\n"
+                "  4. Constraints (what to include or exclude)\n"
+                "\n"
+                "Guidance:\n"
+                "- For photorealism, use photography terms (lens, aperture, "
+                "film stock, lighting) rather than generic 'high quality' words.\n"
+                "- For non-photo output, name the medium (watercolor, 3D render, "
+                "line art) and any relevant style cues.\n"
+                "- Put any literal text the image must render in quotes or ALL "
+                "CAPS, and specify font style, color, and placement.\n"
+                "- State exclusions explicitly ('no watermark, no extra text').\n"
+                "- Keep the prompt concise and well-formed; do not invent new "
+                "subjects the user did not ask for.\n"
+                "- Output only the rewritten prompt, with no preamble."
             ),
         )
 
@@ -164,37 +197,45 @@ async def image_generation_function(
             prompt: Text prompt for image generation
 
         Returns:
-            Markdown-formatted image ready for display
+            Markdown-formatted image ready for display. When `n` > 1 the
+            returned string contains one markdown ref per line.
         """
         try:
             effective_prompt = await rewrite_prompt_if_needed(prompt)
 
-            extra_body: dict = {"modalities": ["image", "text"]}
-            if config.image_config:
-                extra_body["image_config"] = config.image_config
+            kwargs: dict = {"model": config.model, "prompt": effective_prompt}
+            if config.quality is not None:
+                kwargs["quality"] = config.quality
+            if config.size is not None:
+                kwargs["size"] = config.size
+            if config.n is not None:
+                kwargs["n"] = config.n
 
             logger.info("Generating image with prompt: %s...", effective_prompt[:80])
 
-            response = await client.chat.completions.create(
-                model=config.model,
-                messages=[{"role": "user", "content": effective_prompt}],
-                extra_body=extra_body,
-            )
+            response = await client.images.generate(**kwargs)
 
-            images = extract_images_from_response(response)
-            if not images:
+            if not response.data:
                 return "Error: No image was returned by the model."
 
-            b64_data, mime_type = images[0]
-            image_id = await store_image_in_redis(
-                redis_client,
-                b64_data,
-                mime_type,
-                effective_prompt,
-                source="image_generation",
-            )
+            refs = []
+            for item in response.data:
+                b64 = getattr(item, "b64_json", None)
+                if not b64:
+                    continue
+                image_id = await store_image_in_redis(
+                    redis_client,
+                    b64,
+                    "image/png",
+                    effective_prompt,
+                    source="image_generation",
+                )
+                refs.append(f"![Generated image](/api/generated-image/{image_id})")
 
-            return f"![Generated image](/api/generated-image/{image_id})"
+            if not refs:
+                return "Error: No image was returned by the model."
+
+            return "\n".join(refs)
 
         except Exception as e:
             logger.error("Error generating image: %s", str(e))

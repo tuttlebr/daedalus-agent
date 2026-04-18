@@ -17,7 +17,10 @@ class TestImageAugmentationFunctionConfig:
         assert config.timeout == 300.0
         assert config.api_key is None
         assert config.model == "gpt-image-1"
-        assert config.image_config is None
+        assert config.quality is None
+        assert config.input_fidelity is None
+        assert config.size is None
+        assert config.n is None
 
     def test_custom_endpoint(self):
         config = ImageAugmentationFunctionConfig(
@@ -26,16 +29,25 @@ class TestImageAugmentationFunctionConfig:
         assert config.api_endpoint == "https://my-provider.example.com/v1"
 
     def test_custom_model(self):
-        config = ImageAugmentationFunctionConfig(model="google/gemini-2.5-flash-image")
-        assert config.model == "google/gemini-2.5-flash-image"
-
-    def test_image_config(self):
-        config = ImageAugmentationFunctionConfig(
-            image_config={"aspect_ratio": "4:3", "image_size": "1K"}
-        )
-        assert config.image_config["aspect_ratio"] == "4:3"
-        assert config.image_config["image_size"] == "1K"
+        config = ImageAugmentationFunctionConfig(model="gpt-image-1.5")
+        assert config.model == "gpt-image-1.5"
 
     def test_custom_timeout(self):
         config = ImageAugmentationFunctionConfig(timeout=60.0)
         assert config.timeout == 60.0
+
+    def test_quality_and_input_fidelity(self):
+        config = ImageAugmentationFunctionConfig(
+            quality="low",
+            input_fidelity="high",
+        )
+        assert config.quality == "low"
+        assert config.input_fidelity == "high"
+
+    def test_size(self):
+        config = ImageAugmentationFunctionConfig(size="1024x1536")
+        assert config.size == "1024x1536"
+
+    def test_n(self):
+        config = ImageAugmentationFunctionConfig(n=2)
+        assert config.n == 2

@@ -1,3 +1,4 @@
+import base64
 import json
 import logging
 import os
@@ -7,11 +8,7 @@ from nat.builder.builder import Builder
 from nat.builder.function_info import FunctionInfo
 from nat.cli.register_workflow import register_function
 from nat.data_models.function import FunctionBaseConfig
-from nat_helpers.image_utils import (
-    extract_images_from_response,
-    fetch_image_from_redis,
-    store_image_in_redis,
-)
+from nat_helpers.image_utils import fetch_image_from_redis, store_image_in_redis
 from openai import AsyncOpenAI
 from pydantic import Field
 
@@ -22,11 +19,11 @@ class ImageAugmentationFunctionConfig(
     FunctionBaseConfig,
     name="image_augmentation",
 ):
-    """Configuration for image augmentation via OpenAI-compatible chat completions."""
+    """Configuration for image augmentation via OpenAI's /v1/images/edits API."""
 
     api_endpoint: str | None = Field(
         None,
-        description="Base URL for OpenAI-compatible endpoint. If unset, uses OpenAI default.",
+        description="Base URL for the OpenAI API. If unset, uses the SDK default.",
     )
     redis_url: str = Field(
         "redis://redis:6379",
@@ -41,12 +38,36 @@ class ImageAugmentationFunctionConfig(
         "gpt-image-1",
         description="Model to use for image augmentation",
     )
-    image_config: dict | None = Field(
+    quality: str | None = Field(
         default=None,
         description=(
-            "Optional image configuration passed to the API. "
-            "Supports keys like 'aspect_ratio' (e.g. '16:9') and "
-            "'image_size' (e.g. '1K', '2K', '4K')."
+            "Optional rendering quality ('low' or 'high'). Prefer 'low' for "
+            "latency-sensitive edits and 'high' for detail-heavy edits (text, "
+            "fine materials). Passed to images.edit as `quality`."
+        ),
+    )
+    input_fidelity: str | None = Field(
+        default=None,
+        description=(
+            "Optional identity-preservation strength ('low' or 'high'). Use "
+            "'high' when the source subject's likeness, geometry, or layout "
+            "must be preserved (virtual try-on, sketch-to-render, targeted "
+            "object swaps). Passed to images.edit as `input_fidelity`."
+        ),
+    )
+    size: str | None = Field(
+        default=None,
+        description=(
+            "Optional output size in pixels, e.g. '1024x1024', '1024x1536', "
+            "'1536x1024', or 'auto'. Passed to images.edit as `size`."
+        ),
+    )
+    n: int | None = Field(
+        default=None,
+        description=(
+            "Optional number of edited variations to produce (1–10). When "
+            ">1, each variation is stored separately and all markdown refs "
+            "are returned."
         ),
     )
 
@@ -56,7 +77,18 @@ async def image_augmentation_function(
     config: ImageAugmentationFunctionConfig,
     builder: Builder,  # noqa: ARG001
 ):
+    api_key = config.api_key or os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        raise ValueError(
+            "API key is required (set api_key in config or OPENAI_API_KEY env var)"
+        )
+
     redis_client = redis.from_url(config.redis_url, decode_responses=False)
+
+    client_kwargs = {"api_key": api_key, "timeout": config.timeout}
+    if config.api_endpoint:
+        client_kwargs["base_url"] = config.api_endpoint
+    client = AsyncOpenAI(**client_kwargs)
 
     async def augment_image(
         prompt: str,
@@ -65,9 +97,21 @@ async def image_augmentation_function(
         """
         Augment or modify uploaded images based on a text prompt.
 
-        Sends source image(s) alongside the prompt to an OpenAI-compatible
-        chat completions endpoint with image output modality, producing a
-        new version of the image with the requested changes applied.
+        Sends source image(s) alongside the prompt to OpenAI's
+        /v1/images/edits endpoint, producing a new version of the image
+        with the requested changes applied.
+
+        Prompting conventions (follow these to get best results):
+          - Separate "what to change" from "what to preserve" explicitly.
+            For example: "Change the sky to golden hour. Keep the subject's
+            face, pose, clothing, and the camera angle exactly the same."
+          - When multiple images are provided, index them and describe each
+            one's role, e.g. "Image 1: portrait. Image 2: style reference.
+            Apply Image 2's palette and brushwork to Image 1."
+          - Repeat the preserve list on each follow-up turn to prevent
+            drift ("keep everything else the same").
+          - For identity-critical edits, also set `input_fidelity: "high"`
+            in the tool config.
 
         Args:
             prompt: Text prompt describing the desired augmentation
@@ -75,13 +119,13 @@ async def image_augmentation_function(
                 (each with imageId and sessionId)
 
         Returns:
-            Markdown-formatted augmented image ready for display
+            Markdown-formatted augmented image ready for display. When `n`
+            > 1 the returned string contains one markdown ref per line.
         """
         try:
             if not prompt or not prompt.strip():
                 return "Error: No augmentation prompt provided."
 
-            # Normalize imageRef into a list of dicts
             if isinstance(imageRef, str):
                 try:
                     imageRef = json.loads(imageRef)
@@ -98,61 +142,66 @@ async def image_augmentation_function(
             if not image_refs:
                 return "Error: No image reference provided."
 
-            # Build content parts: text prompt first, then source image(s)
-            content: list[dict] = [{"type": "text", "text": prompt}]
-
+            source_files: list[tuple[str, bytes, str]] = []
             for idx, ref in enumerate(image_refs):
                 result = await fetch_image_from_redis(redis_client, ref)
                 if result[0] is None:
                     return f"Error fetching image {idx + 1}: {result[1]}"
 
                 image_base64, mime_type = result
-                content.append(
-                    {
-                        "type": "image_url",
-                        "image_url": {"url": f"data:{mime_type};base64,{image_base64}"},
-                    }
+                try:
+                    image_bytes = base64.b64decode(image_base64)
+                except (ValueError, TypeError) as exc:
+                    return f"Error decoding image {idx + 1}: {exc}"
+
+                extension = "jpg" if "jpeg" in mime_type else mime_type.split("/")[-1]
+                source_files.append(
+                    (f"image_{idx}.{extension}", image_bytes, mime_type)
                 )
 
-            api_key = config.api_key or os.getenv("OPENAI_API_KEY")
-            if not api_key:
-                return "Error: API key is required"
-
-            client_kwargs = {"api_key": api_key, "timeout": config.timeout}
-            if config.api_endpoint:
-                client_kwargs["base_url"] = config.api_endpoint
-            client = AsyncOpenAI(**client_kwargs)
-
-            extra_body: dict = {"modalities": ["image", "text"]}
-            if config.image_config:
-                extra_body["image_config"] = config.image_config
+            kwargs: dict = {
+                "model": config.model,
+                "image": source_files[0] if len(source_files) == 1 else source_files,
+                "prompt": prompt,
+            }
+            if config.quality is not None:
+                kwargs["quality"] = config.quality
+            if config.input_fidelity is not None:
+                kwargs["input_fidelity"] = config.input_fidelity
+            if config.size is not None:
+                kwargs["size"] = config.size
+            if config.n is not None:
+                kwargs["n"] = config.n
 
             logger.info(
                 "Augmenting %d image(s) with prompt: %s...",
-                len(image_refs),
+                len(source_files),
                 prompt[:50],
             )
 
-            response = await client.chat.completions.create(
-                model=config.model,
-                messages=[{"role": "user", "content": content}],
-                extra_body=extra_body,
-            )
+            response = await client.images.edit(**kwargs)
 
-            images = extract_images_from_response(response)
-            if not images:
+            if not response.data:
                 return "Error: No image was returned by the model."
 
-            b64_data, mime_type = images[0]
-            image_id = await store_image_in_redis(
-                redis_client,
-                b64_data,
-                mime_type,
-                prompt,
-                source="image_augmentation",
-            )
+            refs = []
+            for item in response.data:
+                b64 = getattr(item, "b64_json", None)
+                if not b64:
+                    continue
+                image_id = await store_image_in_redis(
+                    redis_client,
+                    b64,
+                    "image/png",
+                    prompt,
+                    source="image_augmentation",
+                )
+                refs.append(f"![Augmented image](/api/generated-image/{image_id})")
 
-            return f"![Augmented image](/api/generated-image/{image_id})"
+            if not refs:
+                return "Error: No image was returned by the model."
+
+            return "\n".join(refs)
 
         except Exception as e:
             logger.error("Error augmenting image: %s", str(e))
@@ -162,11 +211,24 @@ async def image_augmentation_function(
         logger.info("Registering function augment_image")
 
         description = (
-            "Augments, edits, or modifies uploaded images. Produces a new version of the "
-            "image with the requested changes applied. Returns an image, not text. "
-            "Use when a user uploads image(s) and requests augmentation, enhancement, edits, "
-            "or transformations. Requires prompt (text description of desired changes) and "
-            "imageRef (single object or list of objects with imageId and sessionId)."
+            "Augments, edits, or modifies uploaded images. Produces a new "
+            "version of the image with the requested changes applied. Returns "
+            "an image, not text. Use when a user uploads image(s) and requests "
+            "augmentation, enhancement, edits, or transformations.\n"
+            "\n"
+            "Arguments:\n"
+            "  - prompt: describe ONLY what should change, then add a preserve "
+            "list ('keep the face, pose, camera angle, and lighting the same'). "
+            "Repeat the preserve list each turn to avoid drift.\n"
+            "  - imageRef: a single object or a list of objects with imageId "
+            "and sessionId. When passing multiple images, index them in the "
+            "prompt (e.g. 'Image 1: subject. Image 2: style reference. Apply "
+            "Image 2's style to Image 1.').\n"
+            "\n"
+            "Good prompts are specific about what stays constant and what "
+            "changes. For identity-preserving edits (try-on, sketch-to-render, "
+            "targeted swaps) request the subject's face, body, and pose be "
+            "kept exactly the same."
         )
 
         function_info = FunctionInfo.from_fn(augment_image, description=description)

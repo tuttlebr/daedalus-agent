@@ -9,9 +9,12 @@ general:
 
 workflow:
   _type: image_augmentation
-  api_endpoint: "https://ai.api.nvidia.com/v1"
+  api_endpoint: null          # Optional: override OpenAI base URL
   redis_url: "redis://daedalus-redis.daedalus.svc.cluster.local:6379"
-  api_key: null  # Set if your API requires authentication or use OPENAI_API_KEY env var
+  api_key: null               # Falls back to OPENAI_API_KEY env var
   timeout: 300.0
   model: "gpt-image-1"
-  image_config: null  # Optional: { "aspect_ratio": "16:9", "image_size": "1K" }
+  quality: null               # Optional: "low" (fast) or "high" (detail-heavy edits)
+  input_fidelity: null        # Optional: "high" for identity-preserving edits (try-on, sketch-to-render, swaps)
+  size: null                  # Optional: "1024x1024", "1024x1536", "1536x1024", or "auto"
+  n: null                     # Optional: number of edited variations (1-10)

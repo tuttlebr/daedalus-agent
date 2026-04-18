@@ -1,8 +1,7 @@
 """Shared utilities for image-related NAT functions.
 
 Provides Redis storage/retrieval for uploaded and generated media,
-reference parsing, and response extraction for OpenAI-compatible
-chat completion endpoints.
+plus reference parsing.
 """
 
 import asyncio
@@ -197,46 +196,3 @@ async def store_image_in_redis(
         logger.error("Failed to store image in Redis: %s", e)
 
     return image_id
-
-
-def extract_images_from_response(response) -> list[tuple[str, str]]:
-    """Extract base64 image data from a chat completion response.
-
-    Handles the response format where images are returned in
-    ``message.images[].image_url.url`` as base64 data URLs.
-
-    Returns a list of ``(base64_data, mime_type)`` tuples.
-    """
-    if not response.choices:
-        return []
-
-    message = response.choices[0].message
-
-    # images may live on the message directly or in model_extra (non-standard field)
-    images = getattr(message, "images", None)
-    if images is None and hasattr(message, "model_extra") and message.model_extra:
-        images = message.model_extra.get("images")
-
-    if not images:
-        return []
-
-    results = []
-    for img in images:
-        if isinstance(img, dict):
-            url = img.get("image_url", {}).get("url", "")
-        else:
-            image_url_obj = getattr(img, "image_url", None)
-            url = getattr(image_url_obj, "url", "") if image_url_obj else ""
-
-        if url.startswith("data:"):
-            # Parse data URL: data:image/png;base64,iVBOR...
-            header, _, b64_data = url.partition(",")
-            mime_type = "image/png"
-            if ":" in header and ";" in header:
-                mime_type = header.split(":")[1].split(";")[0]
-            results.append((b64_data, mime_type))
-        elif url:
-            # Raw base64 without data URL wrapper
-            results.append((url, "image/png"))
-
-    return results

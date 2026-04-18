@@ -16,7 +16,9 @@ class TestImageGenerationFunctionConfig:
         assert config.model == "gpt-image-1"
         assert config.prompt_rewrite is None
         assert config.redis_url == "redis://redis:6379"
-        assert config.image_config is None
+        assert config.quality is None
+        assert config.size is None
+        assert config.n is None
 
     def test_custom_endpoint(self):
         config = ImageGenerationFunctionConfig(
@@ -25,15 +27,20 @@ class TestImageGenerationFunctionConfig:
         assert config.api_endpoint == "https://my-provider.example.com/v1"
 
     def test_custom_model(self):
-        config = ImageGenerationFunctionConfig(model="google/gemini-2.5-flash-image")
-        assert config.model == "google/gemini-2.5-flash-image"
+        config = ImageGenerationFunctionConfig(model="gpt-image-1.5")
+        assert config.model == "gpt-image-1.5"
 
-    def test_image_config(self):
-        config = ImageGenerationFunctionConfig(
-            image_config={"aspect_ratio": "16:9", "image_size": "2K"}
-        )
-        assert config.image_config["aspect_ratio"] == "16:9"
-        assert config.image_config["image_size"] == "2K"
+    def test_quality(self):
+        config = ImageGenerationFunctionConfig(quality="high")
+        assert config.quality == "high"
+
+    def test_size(self):
+        config = ImageGenerationFunctionConfig(size="1536x1024")
+        assert config.size == "1536x1024"
+
+    def test_n(self):
+        config = ImageGenerationFunctionConfig(n=4)
+        assert config.n == 4
 
     def test_prompt_rewrite_config(self):
         config = ImageGenerationFunctionConfig(

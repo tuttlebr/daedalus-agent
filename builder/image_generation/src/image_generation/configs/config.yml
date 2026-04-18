@@ -9,12 +9,14 @@ general:
 
 workflow:
   _type: image_generation
-  api_endpoint: "https://ai.api.nvidia.com/v1"
-  api_key: null  # Falls back to OPENAI_API_KEY env var
+  api_endpoint: null   # Optional: override OpenAI base URL
+  api_key: null        # Falls back to OPENAI_API_KEY env var
   timeout: 60.0
   model: "gpt-image-1"
-  image_config: null  # Optional: { "aspect_ratio": "16:9", "image_size": "1K" }
-  prompt_rewrite: null  # Example:
+  quality: null        # Optional: "low" (fast) or "high" (detail-heavy scenes)
+  size: null           # Optional: "1024x1024", "1024x1536", "1536x1024", or "auto"
+  n: null              # Optional: number of variations to generate (1-10)
+  prompt_rewrite: null # Example:
   #   llm: balanced_llm
   #   system_prompt: |
   #     You are an expert visual prompt engineer. Rewrite the user's input
