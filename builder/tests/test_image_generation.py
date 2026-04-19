@@ -13,7 +13,7 @@ class TestImageGenerationFunctionConfig:
         assert config.api_endpoint is None
         assert config.api_key is None
         assert config.timeout == 120.0
-        assert config.model == "gpt-image-1"
+        assert config.model == "gpt-image-1.5"
         assert config.prompt_rewrite is None
         assert config.redis_url == "redis://redis:6379"
         assert config.quality is None
@@ -27,8 +27,8 @@ class TestImageGenerationFunctionConfig:
         assert config.api_endpoint == "https://my-provider.example.com/v1"
 
     def test_custom_model(self):
-        config = ImageGenerationFunctionConfig(model="gpt-image-1.5")
-        assert config.model == "gpt-image-1.5"
+        config = ImageGenerationFunctionConfig(model="gpt-image-1")
+        assert config.model == "gpt-image-1"
 
     def test_quality(self):
         config = ImageGenerationFunctionConfig(quality="high")

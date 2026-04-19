@@ -17,8 +17,6 @@ const QUALITY_OPTIONS: Option<string>[] = [
   { value: 'low', label: 'Low' },
   { value: 'medium', label: 'Medium' },
   { value: 'high', label: 'High' },
-  { value: 'standard', label: 'Standard' },
-  { value: 'hd', label: 'HD' },
 ];
 
 const SIZE_OPTIONS: Option<string>[] = [
@@ -26,8 +24,6 @@ const SIZE_OPTIONS: Option<string>[] = [
   { value: '1024x1024', label: '1024×1024' },
   { value: '1024x1536', label: '1024×1536' },
   { value: '1536x1024', label: '1536×1024' },
-  { value: '1024x1792', label: '1024×1792' },
-  { value: '1792x1024', label: '1792×1024' },
 ];
 
 const FORMAT_OPTIONS: Option<string>[] = [
@@ -46,12 +42,6 @@ const BACKGROUND_OPTIONS: Option<string>[] = [
 const MODERATION_OPTIONS: Option<string>[] = [
   { value: '', label: 'Auto' },
   { value: 'low', label: 'Low' },
-];
-
-const STYLE_OPTIONS: Option<string>[] = [
-  { value: '', label: 'Default' },
-  { value: 'vivid', label: 'Vivid' },
-  { value: 'natural', label: 'Natural' },
 ];
 
 const FIDELITY_OPTIONS: Option<string>[] = [
@@ -131,24 +121,14 @@ export function ParamsPopover({ disabled }: ParamsPopoverProps) {
             />
           )}
 
-          {mode === 'generate' && (
-            <>
-              <Select
-                label="Moderation"
-                value={params.moderation ?? ''}
-                options={MODERATION_OPTIONS}
-                onChange={(v) =>
-                  setParam('moderation', (v || undefined) as ImageParams['moderation'])
-                }
-              />
-              <Select
-                label="Style"
-                value={params.style ?? ''}
-                options={STYLE_OPTIONS}
-                onChange={(v) => setParam('style', (v || undefined) as ImageParams['style'])}
-              />
-            </>
-          )}
+          <Select
+            label="Moderation"
+            value={params.moderation ?? ''}
+            options={MODERATION_OPTIONS}
+            onChange={(v) =>
+              setParam('moderation', (v || undefined) as ImageParams['moderation'])
+            }
+          />
 
           {mode === 'edit' && (
             <Select

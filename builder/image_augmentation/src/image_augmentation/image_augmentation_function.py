@@ -36,7 +36,7 @@ class ImageAugmentationFunctionConfig(
         description="Optional API key. Falls back to OPENAI_API_KEY env var.",
     )
     model: str = Field(
-        "gpt-image-1",
+        "gpt-image-1.5",
         description="Model to use for image augmentation",
     )
     quality: str | None = Field(

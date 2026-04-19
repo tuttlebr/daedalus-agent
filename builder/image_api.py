@@ -49,16 +49,12 @@ class ImageRef(BaseModel):
 class GenerateRequest(BaseModel):
     prompt: str = Field(..., min_length=1)
     n: int | None = Field(None, ge=1, le=10)
-    quality: Literal["auto", "low", "medium", "high", "standard", "hd"] | None = None
-    size: (
-        Literal["auto", "1024x1024", "1024x1536", "1536x1024", "1792x1024", "1024x1792"]
-        | None
-    ) = None
+    quality: Literal["auto", "low", "medium", "high"] | None = None
+    size: Literal["auto", "1024x1024", "1024x1536", "1536x1024"] | None = None
     output_format: Literal["png", "jpeg", "webp"] | None = None
     output_compression: int | None = Field(None, ge=0, le=100)
     background: Literal["transparent", "opaque", "auto"] | None = None
     moderation: Literal["low", "auto"] | None = None
-    style: Literal["vivid", "natural"] | None = None
     user: str | None = None
     sessionId: str | None = None
 
@@ -68,12 +64,13 @@ class EditRequest(BaseModel):
     imageRefs: list[ImageRef] = Field(..., min_length=1)
     maskRef: ImageRef | None = None
     n: int | None = Field(None, ge=1, le=10)
-    quality: Literal["auto", "low", "medium", "high", "standard", "hd"] | None = None
+    quality: Literal["auto", "low", "medium", "high"] | None = None
     size: Literal["auto", "1024x1024", "1024x1536", "1536x1024"] | None = None
     input_fidelity: Literal["low", "high"] | None = None
     output_format: Literal["png", "jpeg", "webp"] | None = None
     output_compression: int | None = Field(None, ge=0, le=100)
     background: Literal["transparent", "opaque", "auto"] | None = None
+    moderation: Literal["low", "auto"] | None = None
     user: str | None = None
     sessionId: str | None = None
 

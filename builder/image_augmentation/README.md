@@ -6,7 +6,7 @@ This builder package registers an image-editing function for Daedalus that calls
 
 - Accepts a single `imageRef` object or a list of image references
 - Fetches source images from Redis using the stored `imageId` and `sessionId`, then decodes the base64 payload to bytes for the OpenAI SDK
-- Defaults to the `gpt-image-1` model
+- Defaults to the `gpt-image-1.5` model
 - Stores each edited output in Redis
 - Returns markdown like `![Augmented image](/api/generated-image/{id})`. When `n > 1`, returns one markdown ref per line.
 
@@ -21,7 +21,7 @@ workflow:
   redis_url: "redis://daedalus-redis.daedalus.svc.cluster.local:6379"
   api_key: null
   timeout: 300.0
-  model: "gpt-image-1"
+  model: "gpt-image-1.5"
   quality: null         # "low" or "high"
   input_fidelity: null  # "high" for identity-preserving edits
   size: null            # "1024x1024" / "1024x1536" / "1536x1024" / "auto"

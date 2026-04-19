@@ -16,7 +16,7 @@ class TestImageAugmentationFunctionConfig:
         assert config.redis_url == "redis://redis:6379"
         assert config.timeout == 300.0
         assert config.api_key is None
-        assert config.model == "gpt-image-1"
+        assert config.model == "gpt-image-1.5"
         assert config.quality is None
         assert config.input_fidelity is None
         assert config.size is None
@@ -29,8 +29,8 @@ class TestImageAugmentationFunctionConfig:
         assert config.api_endpoint == "https://my-provider.example.com/v1"
 
     def test_custom_model(self):
-        config = ImageAugmentationFunctionConfig(model="gpt-image-1.5")
-        assert config.model == "gpt-image-1.5"
+        config = ImageAugmentationFunctionConfig(model="gpt-image-1")
+        assert config.model == "gpt-image-1"
 
     def test_custom_timeout(self):
         config = ImageAugmentationFunctionConfig(timeout=60.0)

@@ -26,7 +26,7 @@ class ImageGenerationFunctionConfig(FunctionBaseConfig, name="image_generation")
         description="API key for authentication. Falls back to OPENAI_API_KEY env var.",
     )
     timeout: float = Field(120.0, description="Request timeout in seconds")
-    model: str = Field("gpt-image-1", description="Model to use for image generation")
+    model: str = Field("gpt-image-1.5", description="Model to use for image generation")
     prompt_rewrite: dict | None = Field(
         default=None,
         description=(

@@ -14,18 +14,11 @@ import { subscribeWithSelector } from 'zustand/middleware';
 
 export type ImageMode = 'generate' | 'edit';
 
-export type ImageQuality = 'auto' | 'low' | 'medium' | 'high' | 'standard' | 'hd';
-export type ImageSize =
-  | 'auto'
-  | '1024x1024'
-  | '1024x1536'
-  | '1536x1024'
-  | '1792x1024'
-  | '1024x1792';
+export type ImageQuality = 'auto' | 'low' | 'medium' | 'high';
+export type ImageSize = 'auto' | '1024x1024' | '1024x1536' | '1536x1024';
 export type ImageOutputFormat = 'png' | 'jpeg' | 'webp';
 export type ImageBackground = 'transparent' | 'opaque' | 'auto';
 export type ImageModeration = 'low' | 'auto';
-export type ImageStyle = 'vivid' | 'natural';
 export type ImageInputFidelity = 'low' | 'high';
 
 export interface ImageParams {
@@ -36,7 +29,6 @@ export interface ImageParams {
   output_compression?: number;
   background?: ImageBackground;
   moderation?: ImageModeration;
-  style?: ImageStyle;
   input_fidelity?: ImageInputFidelity;
 }
 

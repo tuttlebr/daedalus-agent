@@ -4,7 +4,7 @@ This builder package registers a text-to-image function for Daedalus that calls 
 
 ## Current Behavior
 
-- Defaults to the `gpt-image-1` model
+- Defaults to the `gpt-image-1.5` model
 - Calls OpenAI's images API directly (no chat-completions wrapper)
 - Optionally rewrites the user's prompt through another LLM before generation, using a structured schema (scene → subject → details → constraints)
 - Stores each generated image in Redis
@@ -20,7 +20,7 @@ workflow:
   api_endpoint: null   # Optional: override OpenAI base URL
   api_key: null
   timeout: 60.0
-  model: "gpt-image-1"
+  model: "gpt-image-1.5"
   quality: null        # "low" or "high"
   size: null           # "1024x1024" / "1024x1536" / "1536x1024" / "auto"
   n: null              # 1-10

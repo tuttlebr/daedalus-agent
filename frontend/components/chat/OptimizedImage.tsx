@@ -100,7 +100,16 @@ export const OptimizedImage = memo(({
     };
   }, [isVisible, imageRef, blobUrl, useThumbnail]);
 
-  // Enhanced cleanup blob URL on unmount or when imageRef changes
+  // Unmount tracker kept in its own empty-deps effect so dependency-change
+  // cleanups below don't flip this flag and poison handleImageLoad/Error.
+  useEffect(() => {
+    unmountingRef.current = false;
+    return () => {
+      unmountingRef.current = true;
+    };
+  }, []);
+
+  // Cleanup blob URL on unmount or when imageRef/blobUrl changes
   useEffect(() => {
     const currentBlobUrl = blobUrl;
     const currentFullBlobUrl = fullBlobUrl;
@@ -108,8 +117,6 @@ export const OptimizedImage = memo(({
     const currentUseThumbnail = useThumbnail;
 
     return () => {
-      unmountingRef.current = true;
-
       // Revoke thumbnail blob
       if (currentBlobUrl && currentImageRef) {
         // Only revoke if image has loaded or failed to load

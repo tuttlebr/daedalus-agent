@@ -12,7 +12,7 @@ workflow:
   api_endpoint: null   # Optional: override OpenAI base URL
   api_key: null        # Falls back to OPENAI_API_KEY env var
   timeout: 60.0
-  model: "gpt-image-1"
+  model: "gpt-image-1.5"
   quality: null        # Optional: "low" (fast) or "high" (detail-heavy scenes)
   size: null           # Optional: "1024x1024", "1024x1536", "1536x1024", or "auto"
   n: null              # Optional: number of variations to generate (1-10)

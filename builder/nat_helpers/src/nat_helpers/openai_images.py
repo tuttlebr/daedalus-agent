@@ -4,9 +4,9 @@ Both the agent tools (image_generation, image_augmentation) and the
 dedicated user-facing panel's FastAPI routes use these helpers so the
 SDK surface is consumed in exactly one place.
 
-All the optional kwargs that gpt-image-1 / gpt-image-1.5 accept are
-forwarded verbatim when the caller sets them, and dropped when they're
-None (so SDK defaults kick in).
+Only the gpt-image-1.5 schema is supported — all optional kwargs listed
+in that schema are forwarded verbatim when the caller sets them, and
+dropped when they're None (so SDK defaults kick in).
 """
 
 from __future__ import annotations
@@ -29,8 +29,8 @@ class ImageResult:
 
 
 # Keys forwarded verbatim when set. Both endpoints share most of these;
-# input_fidelity is edits-only and style is dall-e-3-only but the SDK
-# tolerates extras that equal None so we drop None centrally.
+# input_fidelity is edits-only. None values are dropped centrally so the
+# SDK defaults kick in.
 _GENERATE_KEYS = (
     "quality",
     "size",
@@ -39,7 +39,6 @@ _GENERATE_KEYS = (
     "output_compression",
     "background",
     "moderation",
-    "style",
     "user",
 )
 
@@ -50,6 +49,7 @@ _EDIT_KEYS = (
     "output_format",
     "output_compression",
     "background",
+    "moderation",
     "input_fidelity",
     "user",
 )
