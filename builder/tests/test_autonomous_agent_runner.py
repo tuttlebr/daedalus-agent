@@ -254,7 +254,7 @@ class TestExtractSection:
             ### AI and Infrastructure
             - New topic added
 
-            ### User Updates
+            ### Collaborator Updates
             - Brandon prefers deep dives on semiconductors
 
             ### Self-Reflection
@@ -277,7 +277,7 @@ class TestExtractSection:
             ### Interests Updates
             No changes needed.
 
-            ### User Updates
+            ### Collaborator Updates
             No changes needed.
 
             ### Self-Reflection
@@ -469,7 +469,7 @@ class TestBuildPrompt:
         prompt = module.build_prompt(workspace, [], 1)
 
         assert "### Interests Updates" in prompt
-        assert "### User Updates" in prompt
+        assert "### Collaborator Updates" in prompt
         assert "### Priority Updates" in prompt
 
     def test_prompt_includes_inner_state(self):
