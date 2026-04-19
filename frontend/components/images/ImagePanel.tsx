@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useCallback, useMemo } from 'react';
+import React, { useCallback } from 'react';
 import {
   useImagePanelStore,
   selectMode,
@@ -27,23 +27,31 @@ function newEntryId(): string {
 }
 
 export function ImagePanel({ onSendToChat }: ImagePanelProps) {
-  const prompt = useImagePanelStore((s) => s.prompt);
-  const params = useImagePanelStore((s) => s.params);
-  const inputImages = useImagePanelStore((s) => s.inputImages);
-  const maskImage = useImagePanelStore((s) => s.maskImage);
-  const preserveList = useImagePanelStore((s) => s.preserveList);
+  // Subscribe only to state that drives rendering of THIS component. Volatile
+  // values like prompt/params/inputImages are read via getState() at submit
+  // time so prompt keystrokes don't re-render the panel or invalidate onSubmit.
   const gallery = useImagePanelStore((s) => s.gallery);
   const loading = useImagePanelStore((s) => s.loading);
   const error = useImagePanelStore((s) => s.error);
+  const expectedCount = useImagePanelStore((s) => s.params.n ?? 1);
   const reuseOutputAsInput = useImagePanelStore((s) => s.reuseOutputAsInput);
-  const setGallery = useImagePanelStore((s) => s.setGallery);
   const removeFromGallery = useImagePanelStore((s) => s.removeFromGallery);
-  const appendToHistory = useImagePanelStore((s) => s.appendToHistory);
-  const setLoading = useImagePanelStore((s) => s.setLoading);
-  const setError = useImagePanelStore((s) => s.setError);
-  const mode = useImagePanelStore(selectMode);
 
   const submit = useCallback(async () => {
+    const state = useImagePanelStore.getState();
+    const {
+      prompt,
+      preserveList,
+      params,
+      inputImages,
+      maskImage,
+      setError,
+      setLoading,
+      setGallery,
+      appendToHistory,
+    } = state;
+    const mode = selectMode(state);
+
     if (!prompt.trim()) {
       setError('Prompt is required');
       return;
@@ -110,66 +118,43 @@ export function ImagePanel({ onSendToChat }: ImagePanelProps) {
     } finally {
       setLoading(false);
     }
-  }, [
-    prompt,
-    mode,
-    inputImages,
-    preserveList,
-    params,
-    maskImage,
-    setError,
-    setLoading,
-    setGallery,
-    appendToHistory,
-  ]);
+  }, []);
 
   const reuseRef = useCallback(
     (ref: ImageRef) => reuseOutputAsInput(ref),
     [reuseOutputAsInput],
   );
 
-  const submitDisabled = useMemo(() => {
-    if (loading) return true;
-    if (!prompt.trim()) return true;
-    return false;
-  }, [loading, prompt]);
-
   return (
-    <div className="relative w-full h-full bg-neutral-950 text-neutral-100 overflow-hidden">
-      {/* Top bar — title + history toggle */}
-      <header className="absolute top-0 inset-x-0 z-10 flex items-center justify-between px-5 py-3">
+    <div className="relative w-full h-full flex flex-col bg-neutral-950 text-neutral-100 overflow-hidden">
+      <header className="flex-none safe-top flex items-center justify-between px-5 py-3 z-10">
         <h1 className="text-base font-semibold tracking-tight text-neutral-100">
           Images
         </h1>
         <HistoryToggleButton />
       </header>
 
-      {/* Canvas area — grid-line backdrop + outputs. Top/bottom padding
-          reserves room for the header and the floating dock. */}
-      <div className="absolute inset-0 pt-14 pb-[148px]">
+      <div className="flex-1 min-h-0 relative">
         <ImagesCanvas
           images={gallery}
           loading={loading}
-          expectedCount={params.n ?? 1}
+          expectedCount={expectedCount}
           onReuseAsInput={reuseRef}
           onSendToChat={onSendToChat}
           onDelete={removeFromGallery}
         />
       </div>
 
-      {/* Error — small toast above the dock */}
       {error && (
-        <div className="pointer-events-auto absolute bottom-[132px] inset-x-0 px-4 z-20">
+        <div className="flex-none px-4 pb-1">
           <div className="mx-auto max-w-3xl rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-400 backdrop-blur">
             {error}
           </div>
         </div>
       )}
 
-      {/* Docked prompt bar */}
-      <ImagesDock onSubmit={submit} submitDisabled={submitDisabled} />
+      <ImagesDock onSubmit={submit} />
 
-      {/* History side drawer */}
       <HistoryDrawer />
     </div>
   );

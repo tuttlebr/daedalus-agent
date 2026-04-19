@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useCallback, useRef, useState } from 'react';
+import React, { memo, useCallback, useRef, useState } from 'react';
 import classNames from 'classnames';
 import { IconPaperclip, IconX } from '@tabler/icons-react';
 import { IconButton, Popover } from '@/components/primitives';
@@ -41,7 +41,7 @@ interface AttachmentsPopoverProps {
   disabled?: boolean;
 }
 
-export function AttachmentsPopover({ disabled }: AttachmentsPopoverProps) {
+export const AttachmentsPopover = memo(function AttachmentsPopover({ disabled }: AttachmentsPopoverProps) {
   const inputImages = useImagePanelStore((s) => s.inputImages);
   const addInputImages = useImagePanelStore((s) => s.addInputImages);
   const removeInputImage = useImagePanelStore((s) => s.removeInputImage);
@@ -55,6 +55,7 @@ export function AttachmentsPopover({ disabled }: AttachmentsPopoverProps) {
     <Popover
       position="top"
       align="start"
+      sheetOnMobile
       trigger={
         <DockIconTrigger disabled={disabled} aria-label="Attachments">
           <div className="relative">
@@ -68,7 +69,7 @@ export function AttachmentsPopover({ disabled }: AttachmentsPopoverProps) {
         </DockIconTrigger>
       }
     >
-      <div className="p-4 w-80">
+      <div className="p-4 w-full md:w-80">
         <InputsSection
           images={inputImages}
           onAdd={addInputImages}
@@ -81,7 +82,7 @@ export function AttachmentsPopover({ disabled }: AttachmentsPopoverProps) {
       </div>
     </Popover>
   );
-}
+});
 
 function InputsSection({
   images,
@@ -139,7 +140,7 @@ function InputsSection({
       </div>
 
       {images.length > 0 && (
-        <div className="grid grid-cols-4 gap-1.5 mb-2">
+        <div className="grid grid-cols-3 md:grid-cols-4 gap-1.5 mb-2">
           {images.map((ref, idx) => (
             <Thumb
               key={ref.imageId}

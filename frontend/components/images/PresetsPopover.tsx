@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { memo } from 'react';
 import classNames from 'classnames';
 import { IconGift } from '@tabler/icons-react';
 import { Popover } from '@/components/primitives';
@@ -19,14 +19,12 @@ interface PresetsPopoverProps {
   disabled?: boolean;
 }
 
-export function PresetsPopover({ disabled }: PresetsPopoverProps) {
-  const prompt = useImagePanelStore((s) => s.prompt);
-  const setPrompt = useImagePanelStore((s) => s.setPrompt);
-  const setPreserveList = useImagePanelStore((s) => s.setPreserveList);
-  const setParam = useImagePanelStore((s) => s.setParam);
+export const PresetsPopover = memo(function PresetsPopover({ disabled }: PresetsPopoverProps) {
   const mode = useImagePanelStore(selectMode);
 
   const handleApply = (preset: ImagePreset) => {
+    const { prompt, setPrompt, setPreserveList, setParam } =
+      useImagePanelStore.getState();
     const {
       prompt: nextPrompt,
       preserveList: nextPreserve,
@@ -45,13 +43,14 @@ export function PresetsPopover({ disabled }: PresetsPopoverProps) {
     <Popover
       position="top"
       align="start"
+      sheetOnMobile
       trigger={
         <DockIconTrigger disabled={disabled} aria-label="Presets">
           <IconGift size={16} />
         </DockIconTrigger>
       }
     >
-      <div className="p-3 w-72">
+      <div className="p-3 w-full md:w-72">
         <div className="text-[10px] uppercase tracking-wider text-neutral-500 mb-2">
           Presets · {mode}
         </div>
@@ -73,7 +72,7 @@ export function PresetsPopover({ disabled }: PresetsPopoverProps) {
       </div>
     </Popover>
   );
-}
+});
 
 export const DockIconTrigger = React.forwardRef<
   HTMLButtonElement,

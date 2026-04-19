@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { memo, useMemo } from 'react';
 import classNames from 'classnames';
 import {
   IconDownload,
@@ -12,11 +12,10 @@ import {
 import { IconButton, Tooltip } from '@/components/primitives';
 import { OptimizedImage } from '@/components/chat/OptimizedImage';
 import { getImageUrl } from '@/utils/app/imageHandler';
+import { useIsMobile, useMediaQuery } from '@/hooks/useMediaQuery';
 import type { GalleryImage, ImageRef } from '@/state/imagePanelStore';
 
 const GENERATED_SESSION_ID = 'generated';
-const GRID_COLS = 4;
-const GRID_ROWS = 2;
 
 function generatedRef(imageId: string, mimeType = 'image/png'): ImageRef {
   return { imageId, sessionId: GENERATED_SESSION_ID, mimeType };
@@ -32,12 +31,11 @@ interface ImagesCanvasProps {
 }
 
 /**
- * The main working canvas. When empty, shows a faint 4×2 grid-line
- * placeholder that telegraphs where generated outputs will appear. When
- * populated, each output fills a cell (left-to-right, top-to-bottom).
- * Extra rows are added for n > 8.
+ * Grid of generated outputs. Columns adapt to viewport:
+ * mobile (2), tablet (3), desktop (4). Empty state shows faint
+ * grid lines that telegraph where outputs will appear.
  */
-export function ImagesCanvas({
+export const ImagesCanvas = memo(function ImagesCanvas({
   images,
   loading,
   expectedCount,
@@ -45,11 +43,20 @@ export function ImagesCanvas({
   onSendToChat,
   onDelete,
 }: ImagesCanvasProps) {
-  const cols = GRID_COLS;
+  const isMobile = useIsMobile();
+  const isTablet = useMediaQuery('(min-width: 768px) and (max-width: 1023px)');
+  const cols = isMobile ? 2 : isTablet ? 3 : 4;
+  const baseRows = isMobile ? 3 : 2;
+
   const loadingSlots = loading ? Math.max(1, expectedCount) : 0;
   const populated = Math.max(images.length, loadingSlots);
-  const rows = Math.max(GRID_ROWS, Math.ceil(populated / cols));
+  const rows = Math.max(baseRows, Math.ceil(populated / cols));
   const totalCells = cols * rows;
+
+  const cells = useMemo(
+    () => Array.from({ length: totalCells }, (_, i) => i),
+    [totalCells],
+  );
 
   return (
     <div className="relative w-full h-full">
@@ -64,11 +71,11 @@ export function ImagesCanvas({
           gridTemplateRows: `repeat(${rows}, minmax(0, 1fr))`,
         }}
       >
-        {Array.from({ length: totalCells }).map((_, idx) => {
+        {cells.map((idx) => {
           const img = images[idx];
           return (
             <div
-              key={img ? img.imageId : `empty-${idx}`}
+              key={img ? img.imageId : `empty-${cols}-${idx}`}
               className="relative group overflow-hidden min-h-0"
             >
               {loading && idx < loadingSlots ? (
@@ -87,7 +94,7 @@ export function ImagesCanvas({
       </div>
     </div>
   );
-}
+});
 
 function LoadingCell() {
   return (
@@ -97,7 +104,7 @@ function LoadingCell() {
   );
 }
 
-function CanvasTile({
+const CanvasTile = memo(function CanvasTile({
   image,
   onReuseAsInput,
   onSendToChat,
@@ -145,7 +152,7 @@ function CanvasTile({
         className={classNames(
           'absolute inset-x-0 bottom-0 p-2',
           'bg-gradient-to-t from-black/80 to-transparent',
-          'opacity-0 group-hover:opacity-100 transition-opacity',
+          'opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity',
           'flex gap-1 justify-end',
         )}
       >
@@ -199,4 +206,4 @@ function CanvasTile({
       </div>
     </div>
   );
-}
+});

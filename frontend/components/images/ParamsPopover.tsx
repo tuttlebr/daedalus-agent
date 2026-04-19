@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { memo } from 'react';
 import { IconAdjustmentsHorizontal } from '@tabler/icons-react';
 import { Popover, Textarea } from '@/components/primitives';
 import {
@@ -54,7 +54,7 @@ interface ParamsPopoverProps {
   disabled?: boolean;
 }
 
-export function ParamsPopover({ disabled }: ParamsPopoverProps) {
+export const ParamsPopover = memo(function ParamsPopover({ disabled }: ParamsPopoverProps) {
   const params = useImagePanelStore((s) => s.params);
   const setParam = useImagePanelStore((s) => s.setParam);
   const preserveList = useImagePanelStore((s) => s.preserveList);
@@ -65,13 +65,14 @@ export function ParamsPopover({ disabled }: ParamsPopoverProps) {
     <Popover
       position="top"
       align="start"
+      sheetOnMobile
       trigger={
         <DockIconTrigger disabled={disabled} aria-label="Parameters">
           <IconAdjustmentsHorizontal size={16} />
         </DockIconTrigger>
       }
     >
-      <div className="p-4 w-80 max-h-[70vh] overflow-y-auto">
+      <div className="p-4 w-full md:w-80 md:max-h-[70vh] md:overflow-y-auto">
         <div className="text-[10px] uppercase tracking-wider text-neutral-500 mb-3">
           Parameters
         </div>
@@ -166,7 +167,7 @@ export function ParamsPopover({ disabled }: ParamsPopoverProps) {
       </div>
     </Popover>
   );
-}
+});
 
 function FieldLabel({ children }: { children: React.ReactNode }) {
   return (

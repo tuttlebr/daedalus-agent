@@ -63,7 +63,7 @@ export function HistoryDrawer() {
       {/* drawer */}
       <aside
         className={classNames(
-          'absolute top-0 right-0 bottom-0 w-[360px] max-w-full',
+          'absolute top-0 right-0 bottom-0 w-full md:w-[360px]',
           'bg-neutral-950/95 backdrop-blur-xl border-l border-white/10',
           'transition-transform duration-200 ease-out',
           open ? 'translate-x-0' : 'translate-x-full',
@@ -72,7 +72,7 @@ export function HistoryDrawer() {
         role="dialog"
         aria-label="Session history"
       >
-        <div className="flex items-center justify-between px-4 py-3 border-b border-white/5">
+        <div className="safe-top flex items-center justify-between px-4 py-3 border-b border-white/5">
           <div>
             <div className="text-sm font-medium text-neutral-100">History</div>
             <div className="text-[10px] uppercase tracking-wider text-neutral-500 mt-0.5">
@@ -88,7 +88,7 @@ export function HistoryDrawer() {
           />
         </div>
 
-        <div className="flex-1 overflow-y-auto p-3">
+        <div className="flex-1 overflow-y-auto p-3 pb-safe-bottom">
           {history.length === 0 ? (
             <div className="flex items-center justify-center h-full text-xs text-neutral-600">
               No generations yet this session.
