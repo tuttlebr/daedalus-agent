@@ -17,7 +17,7 @@ export function ViewTabs() {
   return (
     <div
       role="tablist"
-      className="flex items-center gap-1 border-b border-neutral-200 dark:border-neutral-800 bg-white dark:bg-dark-bg-primary px-4"
+      className="flex items-center gap-1 border-b border-neutral-200 dark:border-neutral-800 bg-white dark:bg-dark-bg-primary px-4 safe-top"
     >
       {TABS.map((tab) => {
         const active = activeView === tab.id;

@@ -150,4 +150,11 @@ else
 fi
 
 log "Done"
-watch kubectl get all -n "$NAMESPACE"
+
+log "Waiting for backend rollout"
+kubectl -n "$NAMESPACE" rollout status "deployment/$RELEASE-backend-default" --timeout=5m
+
+log "Following backend logs (Ctrl+C to stop)"
+exec kubectl -n "$NAMESPACE" logs -f \
+  -l "app.kubernetes.io/component=backend-default,app.kubernetes.io/instance=$RELEASE" \
+  --all-containers --prefix --tail=100 --max-log-requests=10

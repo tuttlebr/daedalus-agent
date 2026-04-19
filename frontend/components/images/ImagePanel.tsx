@@ -37,6 +37,7 @@ export function ImagePanel({ onSendToChat }: ImagePanelProps) {
   const error = useImagePanelStore((s) => s.error);
   const reuseOutputAsInput = useImagePanelStore((s) => s.reuseOutputAsInput);
   const setGallery = useImagePanelStore((s) => s.setGallery);
+  const removeFromGallery = useImagePanelStore((s) => s.removeFromGallery);
   const appendToHistory = useImagePanelStore((s) => s.appendToHistory);
   const setLoading = useImagePanelStore((s) => s.setLoading);
   const setError = useImagePanelStore((s) => s.setError);
@@ -149,8 +150,10 @@ export function ImagePanel({ onSendToChat }: ImagePanelProps) {
         <ImagesCanvas
           images={gallery}
           loading={loading}
+          expectedCount={params.n ?? 1}
           onReuseAsInput={reuseRef}
           onSendToChat={onSendToChat}
+          onDelete={removeFromGallery}
         />
       </div>
 

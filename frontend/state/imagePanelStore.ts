@@ -94,6 +94,7 @@ export interface ImagePanelActions {
   reuseOutputAsInput: (ref: ImageRef) => void;
 
   setGallery: (images: GalleryImage[]) => void;
+  removeFromGallery: (imageId: string) => void;
   appendToHistory: (entry: HistoryEntry) => void;
   restoreFromHistory: (entryId: string) => void;
 
@@ -159,6 +160,8 @@ export const useImagePanelStore = create<ImagePanelStore>()(
       }),
 
     setGallery: (gallery) => set({ gallery }),
+    removeFromGallery: (imageId) =>
+      set((s) => ({ gallery: s.gallery.filter((g) => g.imageId !== imageId) })),
     appendToHistory: (entry) =>
       set((s) => ({ history: [entry, ...s.history].slice(0, 50) })),
     restoreFromHistory: (entryId) => {

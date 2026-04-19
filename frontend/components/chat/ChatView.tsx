@@ -288,8 +288,8 @@ export const ChatView = memo(() => {
     <div
       className="flex flex-col h-full w-full bg-dark-bg-primary"
     >
-      {/* Header - safe-top for iOS Dynamic Island / notch */}
-      <header className="flex-shrink-0 flex items-center justify-between px-4 h-14 border-b border-white/[0.04] safe-top">
+      {/* Header — safe-top is handled by ViewTabs above on mobile */}
+      <header className="flex-shrink-0 flex items-center justify-between px-4 h-14 border-b border-white/[0.04]">
         <div className="flex items-center gap-3 min-w-0">
           <IconButton
             icon={<IconMenu2 />}

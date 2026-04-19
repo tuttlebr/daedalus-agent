@@ -7,6 +7,7 @@ import {
   IconEdit,
   IconExternalLink,
   IconMessage,
+  IconTrash,
 } from '@tabler/icons-react';
 import { IconButton, Tooltip } from '@/components/primitives';
 import { OptimizedImage } from '@/components/chat/OptimizedImage';
@@ -24,8 +25,10 @@ function generatedRef(imageId: string, mimeType = 'image/png'): ImageRef {
 interface ImagesCanvasProps {
   images: GalleryImage[];
   loading: boolean;
+  expectedCount: number;
   onReuseAsInput: (ref: ImageRef) => void;
   onSendToChat?: (imageId: string) => void;
+  onDelete: (imageId: string) => void;
 }
 
 /**
@@ -37,11 +40,15 @@ interface ImagesCanvasProps {
 export function ImagesCanvas({
   images,
   loading,
+  expectedCount,
   onReuseAsInput,
   onSendToChat,
+  onDelete,
 }: ImagesCanvasProps) {
   const cols = GRID_COLS;
-  const rows = Math.max(GRID_ROWS, Math.ceil(images.length / cols));
+  const loadingSlots = loading ? Math.max(1, expectedCount) : 0;
+  const populated = Math.max(images.length, loadingSlots);
+  const rows = Math.max(GRID_ROWS, Math.ceil(populated / cols));
   const totalCells = cols * rows;
 
   return (
@@ -64,14 +71,15 @@ export function ImagesCanvas({
               key={img ? img.imageId : `empty-${idx}`}
               className="relative group overflow-hidden min-h-0"
             >
-              {img ? (
+              {loading && idx < loadingSlots ? (
+                <LoadingCell />
+              ) : img ? (
                 <CanvasTile
                   image={img}
                   onReuseAsInput={onReuseAsInput}
                   onSendToChat={onSendToChat}
+                  onDelete={onDelete}
                 />
-              ) : loading && idx < (images.length || cols) ? (
-                <LoadingCell />
               ) : null}
             </div>
           );
@@ -93,10 +101,12 @@ function CanvasTile({
   image,
   onReuseAsInput,
   onSendToChat,
+  onDelete,
 }: {
   image: GalleryImage;
   onReuseAsInput: (ref: ImageRef) => void;
   onSendToChat?: (imageId: string) => void;
+  onDelete: (imageId: string) => void;
 }) {
   const ref = generatedRef(image.imageId);
   const fullUrl = getImageUrl(ref, false);
@@ -175,6 +185,15 @@ function CanvasTile({
             variant="ghost"
             size="sm"
             aria-label="Open full size"
+          />
+        </Tooltip>
+        <Tooltip content="Remove from grid" position="top">
+          <IconButton
+            icon={<IconTrash size={16} />}
+            onClick={() => onDelete(image.imageId)}
+            variant="danger"
+            size="sm"
+            aria-label="Remove from grid"
           />
         </Tooltip>
       </div>

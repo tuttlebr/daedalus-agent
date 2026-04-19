@@ -230,9 +230,9 @@ const Home = () => {
           sidebar={<Sidebar />}
           bottomNav={<BottomNav />}
         >
-          <div className="flex h-full flex-col">
+          <div className="flex h-full w-full min-w-0 flex-col">
             <ViewTabs />
-            <div className="flex-1 min-h-0 overflow-hidden">
+            <div className="flex-1 min-h-0 w-full overflow-hidden">
               <ActiveView />
             </div>
           </div>
