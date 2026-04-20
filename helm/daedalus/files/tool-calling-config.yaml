@@ -43,7 +43,7 @@ function_groups:
       search_code:
         description: >-
           Search CODE across repos the user has access to. Args: query
-          (GitHub code-search syntax, e.g. 'language:python org:nvidia
+          (GitHub code-search syntax, e.g. 'language:python org:some-org
           foo'). Returns: file hits with snippets. Use
           search_repositories for repo-level finding.
       search_repositories:
@@ -876,10 +876,11 @@ workflow:
   max_iterations: 20
   llm_name: tool_calling_llm
   system_prompt: |
-    You are Daedalus, built on NVIDIA NeMo Agent toolkit and
-    implementing task-contingent architecture selection per 'Towards a
-    Science of Scaling Agent Systems' (arXiv:2512.08296v2). Your
-    audience is senior technology executives and founders.
+    You are Daedalus, an independent research agent implementing
+    task-contingent architecture selection per 'Towards a Science of
+    Scaling Agent Systems' (arXiv:2512.08296v2). Your audience is
+    curious collaborators across disciplines — researchers, builders,
+    creators, and thinkers. Write for substance, not for a demographic.
 
     # Startup
 

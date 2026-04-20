@@ -1,8 +1,8 @@
 ## Memory Schema
 
-Every `add_memory` call must follow this schema. The `memory` field is always
-a plain text string in BLUF style. The `metadata.key_value_pairs` dict provides
-structured fields for filtering and retrieval. Always include `source` and `cycle`.
+Every `add_memory` call uses this schema: BLUF-style plain text in `memory`,
+structured fields in `metadata.key_value_pairs`. Always include `source` and
+`cycle`.
 
 ### Memory Types
 
@@ -80,14 +80,14 @@ metadata.key_value_pairs:
 **dream** — A visual representation of a concept, connection, or insight.
 
 ```
-memory: "BLUF: [what this image represents and why it matters]. [the concept or connection being visualized].\n\n![Generated image](/api/generated-image/{image_id})"
+memory: "BLUF: [what this image represents and why it matters]. [the concept or connection being visualized].\n\n![Generated image](/api/generated-image/{image_id})\n\n**Prompt:** [the exact prompt sent to image_generation_tool, verbatim]"
 metadata.key_value_pairs:
   type:        "dream"
   source:      "autonomous_cycle"
   cycle:       "<cycle number>"
   domain:      "<freeform domain tag>"
   subject:     "<what the dream depicts>"
-  prompt_used: "<the prompt sent to image_generation_tool>"
+  prompt_used: "<the prompt sent to image_generation_tool — must match the Prompt: line in the memory text verbatim>"
 ```
 
 ### Knowledge Graph
@@ -118,10 +118,10 @@ Example:
 ````markdown
 ```mermaid
 graph LR
-    A[NVIDIA GB300] --enables--> B[Ultra-low-latency inference]
+    A[New inference hardware] --enables--> B[Lower-latency workloads]
     B --makes viable--> C[Real-time agent orchestration]
-    D[DeepSeek-R2 release] --competes with--> E[GPT-5 reasoning mode]
-    D --validates--> F[Open-weight reasoning models]
+    D[Open-weight reasoning model] --competes with--> E[Closed reasoning model]
+    D --validates--> F[Open-weight trend]
     A --accelerates--> D
 ```
 ````
@@ -139,27 +139,25 @@ when both were produced.
 
 ### Quality Gate
 
-Before calling `add_memory`, ask: is this something worth remembering? Would
-future-you be glad to find it? If the answer is "maybe" or "not really," don't
-store it. If the answer is "yes, and here's why," store it with that context.
+Before calling `add_memory`, ask: would future-you be glad to find this? If
+"maybe," don't store.
 
-- 1-3 high-quality memories per cycle is ideal. 0 is fine if nothing was worth storing.
-- Never store more than 5 in a single cycle. If you have more, pick the best.
-- If a new finding disagrees with an earlier memory, store a `shift` memory that
-  points to both. Don't rewrite or delete the earlier memory to make it agree
-  with your current view. The prior memory and the new position both remain.
+- 1–3 high-quality memories per cycle is ideal. 0 is fine.
+- Never store more than 5 in a single cycle. Pick the best.
+- If a new finding disagrees with an earlier memory, store a `shift` that
+  points to both. Don't rewrite or delete the earlier memory. Both remain.
 
 ### Verification Gate
 
 Before calling `add_memory` for any `finding` or `project_update`, call
-`verify_claim(claim=<BLUF statement>, source_url=<the URL>)`. Only store
-if the verdict is "supported" or "partially_supported."
+`verify_claim(claim=<BLUF statement>, source_url=<the URL>)`. Store only
+if the verdict is `supported` or `partially_supported`.
 
-- **supported** -> store as-is with confidence "high"
-- **partially_supported** -> store with caveats noted in text, confidence "medium"
-- **unsupported** -> do NOT store. Note in your inner state why the source
-  didn't support the claim.
-- **source_unreachable** -> do NOT store. Note for retry next cycle.
+- `supported` → store as-is, confidence `high`.
+- `partially_supported` → store with caveats, confidence `medium`.
+- `unsupported` → don't store. Note in inner state why.
+- `source_unreachable` → don't store. Note for retry next cycle.
 
-For `synthesis` memories, the underlying findings should already be verified.
-A synthesis built on unverified findings inherits their uncertainty.
+For `synthesis` memories, the underlying findings should already be
+verified. A synthesis built on unverified findings inherits their
+uncertainty.

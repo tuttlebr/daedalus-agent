@@ -44,7 +44,7 @@
     skill: null
 
 - id: media-001
-  query: Generate an image of a chiaroscuro-style portrait of a Roman senator.
+  query: Generate an image of a street art-style portrait of a Roman senator.
   expected:
     architecture: SAS
     sub_agent: media_agent
