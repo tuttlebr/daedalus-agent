@@ -103,8 +103,15 @@ export const ChatView = memo(() => {
       // Update activity text from intermediate steps
       if (status.intermediateSteps && status.intermediateSteps.length > 0) {
         const lastStep = status.intermediateSteps[status.intermediateSteps.length - 1];
-        const stepName = lastStep?.payload?.event_type || lastStep?.name || 'Processing';
-        setActivityText(stepName.replace(/_/g, ' ').replace(/([A-Z])/g, ' $1').trim());
+        const rawEvent = lastStep?.payload?.event_type;
+        const friendly: Record<string, string> = {
+          WORKFLOW_START: 'Starting',
+          WORKFLOW_END: 'Finalizing',
+          TOOL_START: 'Running tool',
+          TOOL_END: 'Tool complete',
+          LLM_NEW_TOKEN: 'Generating',
+        };
+        setActivityText(friendly[rawEvent] || lastStep?.name || 'Processing');
 
         // Collect step categories
         const cats = status.intermediateSteps
@@ -124,17 +131,12 @@ export const ChatView = memo(() => {
         }
       }
 
-      // Update partial response text
+      // Do not render partialResponse as message content. In multi-cycle NAT
+      // workflows it concatenates interim LLM reasoning that does not represent
+      // the final answer. The message `content` is set only in onComplete from
+      // fullResponse (and in the status===completed/error branch above as a
+      // safety-net).
       if (status.partialResponse) {
-        const conv = useConversationStore.getState().conversations.find((c) => c.id === convId);
-        if (conv && conv.messages.length > 0) {
-          const lastMsg = conv.messages[conv.messages.length - 1];
-          if (lastMsg.role !== 'user') {
-            updateLastMessage(convId, {
-              content: status.partialResponse,
-            });
-          }
-        }
         scrollToBottom();
       }
     }, [setStreaming, updateLastMessage, scrollToBottom]),
