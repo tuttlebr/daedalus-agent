@@ -5,7 +5,7 @@ import { validateMagicBytes } from '@/utils/app/magicBytes';
 import crypto from 'crypto';
 
 const DOCUMENT_EXPIRY_SECONDS = 60 * 60 * 24 * 7; // 7 days
-const MAX_DOCUMENT_SIZE = 100 * 1024 * 1024; // 100MB limit (matches SERVER_DOCUMENT_LIMIT in uploadLimits.ts)
+const MAX_DOCUMENT_SIZE = 200 * 1024 * 1024; // 200MB limit (matches SERVER_DOCUMENT_LIMIT in uploadLimits.ts)
 
 export interface StoredDocument {
   id: string;
@@ -205,11 +205,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 }
 
 // Configure API route to handle larger payloads
-// 100MB raw * 1.33 base64 overhead ≈ 133MB; 150mb provides headroom
+// 200MB raw * 1.33 base64 overhead ≈ 267MB; 300mb provides headroom
 export const config = {
   api: {
     bodyParser: {
-      sizeLimit: '150mb',
+      sizeLimit: '300mb',
     },
   },
 };

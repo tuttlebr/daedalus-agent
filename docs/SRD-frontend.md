@@ -307,7 +307,7 @@ On empty conversations, the QuickActions bar above the input provides larger ver
 
 **File attachment flow:**
 1. User clicks the paperclip button or drags files onto the chat area
-2. Client-side validation runs against limits: images up to 75 MB (PNG, JPG, GIF, WebP, AVIF), documents up to 100 MB (PDF, DOCX, PPTX, HTML), video up to 75 MB (MP4, FLV, 3GP). Multi-select supports up to 15 images or 100 documents per batch. Video is single-file only.
+2. Client-side validation runs against limits: images up to 75 MB (PNG, JPG, GIF, WebP, AVIF), documents up to 150 MB (PDF, DOCX, PPTX, HTML), video up to 75 MB (MP4, FLV, 3GP). Multi-select supports up to 15 images or 100 documents per batch. Video is single-file only.
 3. A human-readable error appears if validation fails (for example "File exceeds the 75 MB image limit")
 4. Accepted files upload to Redis with per-file progress bars (UploadProgressBar) and cancel buttons
 5. Uploaded files appear as thumbnails (images) or badges (documents) below the textarea

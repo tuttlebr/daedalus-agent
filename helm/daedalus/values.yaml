@@ -113,10 +113,10 @@ frontend:
   resources:
     requests:
       cpu: 250m
-      memory: 512Mi
+      memory: 1Gi
     limits:
       cpu: 2000m
-      memory: 8Gi
+      memory: 12Gi
   env:
     fromSecret: ""
     createSecret: false
@@ -125,6 +125,9 @@ frontend:
       # Backend API path - controls which NAT API endpoint to use
       # Supported values: /chat, /chat/stream, /generate, /generate/stream, /v1/chat/completions
       BACKEND_API_PATH: "/chat/stream"
+      # V8 heap ceiling — sized under the pod memory limit to leave headroom for off-heap Buffers
+      # during large-document base64 decode (200MB doc ≈ 267MB base64 + multiple copies in flight)
+      NODE_OPTIONS: "--max-old-space-size=8192"
   service:
     type: ClusterIP
     port: 3000
@@ -255,7 +258,7 @@ ingress:
     nginx.ingress.kubernetes.io/proxy-connect-timeout: "900"
     nginx.ingress.kubernetes.io/proxy-send-timeout: "900"
     nginx.ingress.kubernetes.io/proxy-read-timeout: "900"
-    nginx.ingress.kubernetes.io/proxy-body-size: "150m" # Support video uploads up to 100MB (base64 adds ~33% overhead)
+    nginx.ingress.kubernetes.io/proxy-body-size: "300m" # Support document uploads up to 200MB (base64 adds ~33% overhead)
     # Disable buffering for streaming responses
     nginx.ingress.kubernetes.io/proxy-buffering: "off"
     nginx.ingress.kubernetes.io/proxy-request-buffering: "off"

@@ -6,7 +6,7 @@ import { getBackendHost, buildBackendUrl } from '@/utils/app/backendApi';
 export const config = {
   api: {
     bodyParser: {
-      sizeLimit: '150mb',
+      sizeLimit: '300mb',
     },
     // Match the 15-minute timeout used by chat.ts and nginx
     responseLimit: false,

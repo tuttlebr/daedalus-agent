@@ -20,7 +20,7 @@ const logger = new Logger('AsyncJob');
 export const config = {
   api: {
     bodyParser: {
-      sizeLimit: '150mb',  // Support large document processing payloads
+      sizeLimit: '300mb',  // Support large document processing payloads
     },
   },
   maxDuration: 900, // 15 minutes

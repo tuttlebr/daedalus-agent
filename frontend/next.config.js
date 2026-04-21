@@ -43,7 +43,7 @@ const nextConfig = {
   },
   experimental: {
     serverActions: {
-      bodySizeLimit: "150mb", // Support large file uploads (documents up to 100MB + base64 overhead)
+      bodySizeLimit: "300mb", // Support large file uploads (documents up to 200MB + base64 overhead)
     },
     proxyTimeout: 900_000, // 15 minutes — matches nginx and API route timeouts
     optimizeCss: true, // Enable CSS optimization

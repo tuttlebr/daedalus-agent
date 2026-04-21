@@ -8,7 +8,7 @@
  * Server-side limits (from pages/api/session/*):
  * - Image: 100MB (imageStorage.ts)
  * - Video: 100MB (videoStorage.ts)
- * - Document: 100MB (documentStorage.ts)
+ * - Document: 200MB (documentStorage.ts)
  */
 
 // Base64 encoding increases size by ~33% (4/3 ratio)
@@ -18,7 +18,7 @@ const BASE64_OVERHEAD_FACTOR = 0.75;
 // Server-side limits (raw)
 const SERVER_IMAGE_LIMIT = 100 * 1024 * 1024;   // 100MB
 const SERVER_VIDEO_LIMIT = 100 * 1024 * 1024;  // 100MB
-const SERVER_DOCUMENT_LIMIT = 100 * 1024 * 1024;     // 100MB
+const SERVER_DOCUMENT_LIMIT = 200 * 1024 * 1024;     // 200MB
 
 /**
  * Client-side upload limits in bytes.
@@ -34,8 +34,8 @@ export const UPLOAD_LIMITS = {
   VIDEO_MAX_SIZE_MB: 75,
 
   // Document limits (PDF, DOCX, PPTX, HTML, etc.)
-  DOCUMENT_MAX_SIZE_BYTES: Math.floor(SERVER_DOCUMENT_LIMIT * BASE64_OVERHEAD_FACTOR), // ~100MB
-  DOCUMENT_MAX_SIZE_MB: 100,
+  DOCUMENT_MAX_SIZE_BYTES: Math.floor(SERVER_DOCUMENT_LIMIT * BASE64_OVERHEAD_FACTOR), // ~150MB
+  DOCUMENT_MAX_SIZE_MB: 150,
 
   // Transcript limits (VTT, SRT - text files, smaller limit)
   TRANSCRIPT_MAX_SIZE_BYTES: 50 * 1024 * 1024, // 50MB for text transcripts
