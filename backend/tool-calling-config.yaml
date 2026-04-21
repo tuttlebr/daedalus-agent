@@ -411,9 +411,29 @@ functions:
     minio_access_key: ${MINIO_ACCESS_KEY}
     minio_endpoint: ${MINIO_ENDPOINT}
     minio_secret_key: ${MINIO_SECRET_KEY}
+    minio_bucket: nv-ingest
     nv_ingest_host: ${NV_INGEST_HOST}
     nv_ingest_port: ${NV_INGEST_PORT}
     redis_url: ${REDIS_URL}:${REDIS_PORT}
+    # Concurrency — batch_concurrency gates per-batch fan-out; keep conservative
+    # to avoid thrashing the NV-Ingest GPU/embedder pool.
+    batch_concurrency: 4
+    worker_pool_size: 16
+    max_documents_per_batch: 20
+    # Robustness
+    redis_socket_timeout: 30
+    redis_connect_timeout: 5
+    ingest_max_retries: 2
+    ingest_retry_delay: 1.0
+    # Image pipeline — filter noise images by default. Captioning is opt-in;
+    # leave caption_* unset until a VLM endpoint is provisioned.
+    enable_image_filter: true
+    enable_captioning: false
+    # V2 API + server-side PDF chunking. Flip use_v2_api=true once the
+    # NV-Ingest deployment advertises V2 support.
+    use_v2_api: false
+    pdf_pages_per_chunk: 32
+    extract_method: pdfium
     verbose: true
   nvidia_blog_rss:
     _type: rss_feed
