@@ -693,7 +693,7 @@ general:
     max_running_async_jobs: 8
     dask_workers: threads
     dask_threads_per_worker: 1
-    dask_worker_memory_limit: "2GiB"
+    dask_worker_memory_limit: "8GiB"
     dask_log_level: WARNING
     step_adaptor:
       mode: custom

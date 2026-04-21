@@ -64,7 +64,7 @@ backend:
         memory: 512Mi
       limits:
         cpu: 2000m
-        memory: 8Gi
+        memory: 10Gi
     service:
       type: ClusterIP
       port: 8000
