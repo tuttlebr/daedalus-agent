@@ -16,14 +16,14 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Limits for extraction (keeps LLM context compact)
 # ---------------------------------------------------------------------------
-MAX_ORGANIC = 8
-MAX_TOP_STORIES = 5
-MAX_NEWS = 5
-MAX_IMAGES = 8
-MAX_SHOPPING = 6
-MAX_VIDEOS = 4
-MAX_RELATED_QUESTIONS = 4
-MAX_RELATED_SEARCHES = 6
+MAX_ORGANIC = 3
+MAX_TOP_STORIES = 3
+MAX_NEWS = 3
+MAX_IMAGES = 3
+MAX_SHOPPING = 1
+MAX_VIDEOS = 1
+MAX_RELATED_QUESTIONS = 1
+MAX_RELATED_SEARCHES = 1
 
 
 # ---------------------------------------------------------------------------
@@ -510,6 +510,11 @@ async def serpapi_search_function(config: SerpApiSearchConfig, builder: Builder)
             return "**Error:** No SerpAPI key configured. Set the SERPAPI_KEY environment variable."
 
         engine_map = {
+            "organic": "google",
+            "news": "google_news",
+            "images": "google_images",
+            "shopping": "google_shopping",
+            "videos": "google_videos",
             "google": "google",
             "google_news": "google_news",
             "google_images": "google_images",

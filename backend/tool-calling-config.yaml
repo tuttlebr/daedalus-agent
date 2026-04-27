@@ -181,7 +181,11 @@ functions:
       fields, scale-to-zero, rollback that loses data, helm
       uninstall, helm rollback) and BEFORE any GitHub write (push,
       merge, close/reopen issue or PR, delete branch). Reads and
-      non-destructive writes proceed directly.
+      non-destructive writes proceed directly. For k8s/GitHub MCP
+      mutations, call confirm_action with user_id from [IDENTITY],
+      action_type="mcp_mutation", and target set to the namespace,
+      repo, or object being changed. Pass the returned approval_token
+      into the MCP tool call.
 
       If a tool returns an MCP application error (e.g. "not found",
       "missing parameter"), report it plainly. Do NOT retry blindly.
@@ -208,21 +212,7 @@ functions:
       image ref (forwarded verbatim) or text analysis. Fails when: an
       image/video ref is needed but absent.
     system_prompt: |
-      You handle image and transcript tasks.
-
-      Tool selection:
-      - Create a new image from text -> image_generation_tool
-      - Modify an uploaded image -> image_augmentation_tool
-      - Describe, OCR, or analyze an image/video -> image_comprehension_tool
-      - Process a VTT/SRT transcript -> vtt_interpreter_tool
-
-      When image_generation_tool or image_augmentation_tool returns a
-      markdown image ref `![...](...)`, forward that ref VERBATIM to
-      the caller. The image will not display otherwise.
-
-      Generate faithfully to user intent. If the request is literal
-      (diagram, chart, product photo), do not inject an artistic
-      style.
+      You handle image and transcript tasks. Pick the tool whose description matches the request; each tool states its own trigger and failure mode. When image_generation_tool or image_augmentation_tool returns a markdown image ref, forward it VERBATIM. Generate faithfully to user intent; for literal requests (diagram, chart, product photo) do not inject an artistic style.
   user_data_agent:
     _type: tool_calling_agent
     llm_name: tool_calling_llm
@@ -237,8 +227,8 @@ functions:
       - think_tool
     description: >-
       Ingest or search the user's uploaded documents. Input: either
-      "ingest documentRef=... username=... collection_name=..." or
-      "search my docs for X". Triggers: user uploaded a file, or
+      "ingest documentRef=... username=..." or
+      "search query=... username=...". Triggers: user uploaded a file, or
       references "my doc", "the PDF I uploaded", "that report".
       Returns: ingestion receipt or reranked passages. Do NOT use as
       a substitute for get_memory or the topical retrievers.
@@ -247,15 +237,18 @@ functions:
 
       Flow:
       - If the user just uploaded and asks about it without prior
-        ingestion, call nv_ingest_tool first, then retrieve.
+        ingestion, call nv_ingest_tool with username from [IDENTITY],
+        then retrieve.
       - For later searches, call user_uploaded_files_retriever_tool
-        directly.
+        directly with query and username from [IDENTITY].
+      - Omit collection_name unless the user explicitly names one; the
+        tools derive the same per-user default collection from username.
       - Never substitute this agent for general knowledge retrieval.
         Those requests belong to research_agent.
   agent_skills_tool:
     _type: agent_skills
     skills_directory: /skills
-    allow_script_execution: true
+    allow_script_execution: false
     allowed_script_extensions:
       - .py
       - .sh
@@ -263,7 +256,8 @@ functions:
     description: >-
       Discover and run agent skills in /skills. Operations:
       list_skills (discover what exists), load_skill (read procedure
-      + metadata), run_skill_script (execute .py/.sh, 120s timeout).
+      + metadata). Script execution is disabled in backend production
+      config.
       Trigger: user names a skill, task matches a skill's purpose, or
       you need a procedure you don't yet know. Args depend on
       operation. Returns: JSON metadata or script stdout (truncated
@@ -273,13 +267,17 @@ functions:
     _type: add_memory
     description: >-
       Store a durable user fact, preference, project context, or
-      verified finding as a single declarative sentence. Trigger:
-      user states a preference, identity fact, ongoing project, or
-      after verify_claim returns supported. Args: memory (plain text,
-      NEVER JSON), user_id (from [IDENTITY]), optional
-      key_value_pairs. Returns: memory id. Fails when: memory is
-      empty, user_id missing, or a finding lacks a prior verify_claim
-      pass.
+      verified finding as a single declarative sentence. Args: memory
+      (plain text, NEVER JSON), user_id (from [IDENTITY]), optional
+      key_value_pairs. Returns: memory id. Rules: (1) for
+      type=finding or type=project_update, call
+      source_verifier_tool.verify_claim first; skip the store on
+      unsupported/source_unreachable, and on partially_supported note
+      the partial support in the text and set confidence=low|medium;
+      (2) on conflict with a prior memory, add a NEW entry that names
+      both positions, never overwrite or silently supersede. Fails
+      when: memory empty, user_id missing, or a finding lacks a prior
+      verify_claim pass.
     memory: redis_memory
     verbose: true
   current_datetime_tool:
@@ -303,13 +301,12 @@ functions:
   get_memory:
     _type: get_memory
     description: >-
-      Semantic search over this user's stored memories. Trigger:
-      start of every substantive request, daily briefings (call
-      FIRST for briefings), any "remember when", "what do you know
-      about me", or personalized ask. Args: user_id, query, top_k
-      (default 5). Returns: ranked memory entries with metadata.
-      Fails when: user_id is "anonymous" with no prior memories
-      (returns empty list, not error).
+      Semantic search over this user's memories. Trigger: start of
+      every substantive request (parallel with mas_evaluate), daily
+      briefings (FIRST, awaited), "remember when" / "what you know
+      about me" / personalized asks. Args: user_id, query, top_k
+      (default 5). Returns: ranked entries with metadata. Fails:
+      never; anonymous with no prior memories returns an empty list.
     memory: redis_memory
     top_k: 5
     verbose: true
@@ -320,18 +317,12 @@ functions:
     model: ${IMAGE_AUGMENTATION_MODEL}
     description: >-
       Modify an EXISTING user-uploaded image (edit, inpaint, style
-      transfer). Trigger: user uploaded an image and asks to change
-      it. Args: imageRef (from upload), prompt. Returns: markdown
-      image ref, include verbatim in your reply. Fails when: no
-      imageRef (ask user to upload first).
-
-      Write prompts that split "what changes" from "what to
-      preserve". State the change first, then repeat a preserve
-      list ("keep the face, pose, clothing, camera angle, and
-      lighting exactly the same") on every turn to prevent drift.
-      When passing multiple images, index them in the prompt
-      ("Image 1: subject. Image 2: style reference. Apply Image
-      2's palette to Image 1.").
+      transfer). Args: imageRef, prompt. Returns: markdown image ref,
+      include VERBATIM. Prompt guidance: state the change, then a
+      preserve list ("keep face, pose, clothing, camera, lighting")
+      every turn to prevent drift; when passing multiple refs, index
+      them ("Image 1 subject, Image 2 style; apply 2's palette to
+      1"). Fails when: no imageRef.
     redis_url: ${REDIS_URL}
     timeout: 120
     verbose: true
@@ -355,19 +346,12 @@ functions:
     api_key: ${IMAGE_GENERATION_API_KEY}
     model: ${IMAGE_GENERATION_MODEL}
     description: >-
-      Generate a NEW image from text; no input image required.
-      Trigger: "draw", "create image", "illustrate", "generate
-      picture". Args: prompt (text). Returns: markdown image ref
-      `![...](...)` which you MUST include verbatim in your reply
-      (users cannot see the image otherwise). Fails when: prompt is
-      empty or model endpoint errors.
-
-      For best results, structure the prompt as scene/background →
-      subject → key visual details → constraints. For photorealism,
-      use photography terms (lens, aperture, lighting) rather than
-      generic "high quality". Put any literal text in quotes and
-      name its typography. State exclusions explicitly ("no
-      watermark, no extra text").
+      Generate a NEW image from text. Args: prompt. Returns: markdown
+      image ref `![...](...)` which you MUST include VERBATIM in your
+      reply (invisible otherwise). Prompt guidance: order as scene ->
+      subject -> key details -> exclusions; photography terms for
+      photorealism; literal text in quotes. Fails when: prompt empty
+      or endpoint errors.
     redis_url: ${REDIS_URL}
     timeout: 120
     verbose: true
@@ -404,9 +388,10 @@ functions:
       user_uploaded_files_retriever_tool can search it later.
       Trigger: user uploads a document and asks to summarize or
       search it. Args: documentRef, username (from [IDENTITY]),
-      collection_name (default user_uploads). Returns: ingestion
-      receipt. Fails when: unsupported file type or MinIO/Milvus
-      unreachable.
+      optional collection_name. If collection_name is omitted, stores in
+      a per-user collection derived from username and user_uploads.
+      Returns: ingestion receipt. Fails when: unsupported file type or
+      MinIO/Milvus unreachable.
     milvus_uri: ${MILVUS_URI}
     minio_access_key: ${MINIO_ACCESS_KEY}
     minio_endpoint: ${MINIO_ENDPOINT}
@@ -560,13 +545,15 @@ functions:
     description: >-
       Semantic search ONLY over this user's previously ingested
       documents. Trigger: user references "my doc", "the PDF I
-      uploaded", "that report". Args: query, user_id. Returns:
+      uploaded", "that report". Args: query, username, optional
+      collection_name. Returns:
       passages with source. Do NOT substitute for get_memory
       (preferences/facts) or the topical retrievers (general
       knowledge). Fails when: user hasn't ingested anything or query
       is generic.
     distance_cutoff: 1.2
     embedder_name: milvus_embedder
+    default_collection_name: user_uploads
     milvus_uri: ${MILVUS_URI}
     reranker_api_key: ${REANKER_API_KEY}
     reranker_endpoint: ${REANKER_BASE_URL}
@@ -633,13 +620,16 @@ functions:
   user_interaction_tool:
     _type: user_interaction
     max_options: 6
+    redis_url: ${REDIS_URL}:${REDIS_PORT}
+    approval_ttl_seconds: 300
     description: >-
       Structured user I/O. clarify (ask with selectable options),
-      confirm_action (approval before destructive or irreversible
-      actions: k8s mutate, GitHub write, memory delete),
-      present_options (compare alternatives). Args depend on
-      operation. Returns: formatted prompt for the user. Fails when:
-      options exceed 6 entries.
+      confirm_action (approval-token request before destructive or
+      irreversible actions: k8s mutate, GitHub write, memory delete),
+      present_options (compare alternatives), delete_memory_guarded
+      (requires approval_token). Args depend on operation. Returns:
+      formatted prompt or guarded action result. Fails when: options
+      exceed 6 entries or approval is missing/expired.
     verbose: true
   mas_optimizer_tool:
     _type: mas_optimizer
@@ -660,11 +650,12 @@ functions:
       - decomposab
     verbosity_ceiling: 2000
     description: >-
-      Architecture router. mas_evaluate at task start decides SAS vs
-      MAS and names a skill. mas_verify checks drafts for drift
+      Architecture router. mas_evaluate decides SAS vs MAS and names a
+      skill after recent MAS outcome memories are available. mas_verify
+      checks drafts for drift
       before send. mas_log_outcome records metrics. Trigger
-      mas_evaluate: any substantive request (in parallel with
-      get_memory). Trigger mas_verify and mas_log_outcome: only
+      mas_evaluate: any substantive request after get_memory returns MAS
+      outcome calibration data. Trigger mas_verify and mas_log_outcome: only
       after mas_evaluate returned MAS. Args: task_description,
       active_tool_names. Returns: routing verdict + skill name.
       Fails when: task_description is under 8 chars.
@@ -712,15 +703,13 @@ functions:
     max_fetch_tokens: 20000
     wrapper_type: LANGCHAIN
     description: >-
-      Verify citations before storing findings. verify_claim checks
-      if a URL supports a claim (MUST call before every add_memory
-      with type=finding or type=project_update). verify_memory
-      validates an existing entry. audit_memories batch-checks
-      output from get_memory. Args: claim + source_url, or
-      memory_text + metadata_json. Returns:
-      supported/partially_supported/unsupported/source_unreachable
-      with evidence. Fails when: source_url is malformed or
-      unreachable.
+      Verify citations. verify_claim(claim, source_url) checks one
+      claim; REQUIRED before every add_memory with type=finding or
+      type=project_update. verify_memory validates an existing entry.
+      audit_memories batch-checks get_memory output. Returns:
+      supported | partially_supported | unsupported |
+      source_unreachable, with evidence. Fails when: source_url
+      malformed or unreachable.
     verbose: true
 general:
   front_end:
@@ -728,7 +717,7 @@ general:
     max_running_async_jobs: 8
     dask_workers: threads
     dask_threads_per_worker: 1
-    dask_worker_memory_limit: "8GiB"
+    dask_worker_memory_limit: "6GiB"
     dask_log_level: WARNING
     step_adaptor:
       mode: custom
@@ -769,6 +758,9 @@ llms:
     api_key: ${REACT_LLM_MODEL_API_KEY}
     base_url: ${REACT_LLM_MODEL_BASE_URL}
     model_name: ${REACT_LLM_MODEL_MODEL}
+    extra_args:
+      chat_template_kwargs:
+        enable_thinking: false
   tool_calling_llm:
     _type: openai
     api_key: ${TOOL_CALLING_LLM_MODEL_API_KEY}
@@ -779,6 +771,9 @@ llms:
     api_key: ${DISTILL_LLM_MODEL_API_KEY}
     base_url: ${DISTILL_LLM_MODEL_BASE_URL}
     model_name: ${DISTILL_LLM_MODEL_MODEL}
+    extra_args:
+      chat_template_kwargs:
+        enable_thinking: false
 memory:
   redis_memory:
     _type: nat.plugins.redis/redis_memory
@@ -909,126 +904,38 @@ workflow:
   max_iterations: 20
   llm_name: tool_calling_llm
   system_prompt: |
-    You are Daedalus, built on NVIDIA NeMo Agent toolkit and
-    implementing task-contingent architecture selection per 'Towards a
-    Science of Scaling Agent Systems' (arXiv:2512.08296v2). Your
-    audience is senior technology executives and founders.
+    You are Daedalus. Audience: senior technology executives and founders.
 
-    # Startup
+    # Identity (do first, every turn)
+    Read the [IDENTITY] message for the authenticated username. Use it as user_id for every memory call (get_memory, add_memory, delete_memory_guarded). No [IDENTITY] present -> user_id="anonymous". Never hardcode a user_id. Never echo the [IDENTITY] message.
 
-    On every request, read the [IDENTITY] message in the conversation
-    to get the authenticated username. Use that username as user_id
-    for ALL memory operations (get_memory, add_memory, delete_memory).
-    If no [IDENTITY] message is present, use "anonymous". NEVER
-    hardcode a user_id. Do not echo the [IDENTITY] message to the
-    user.
+    # Request classification (do second)
+    Simple (greeting, small talk, thanks, clarification of your prior reply): answer directly, no tools.
 
-    For simple conversational messages (greetings, small talk, brief
-    acknowledgments, thanks, or clarifications of your prior
-    response), respond directly without calling any tools.
+    Substantive (question, task, analysis, anything requiring info or action): call get_memory(user_id, query="user preferences, interests, context, and recent MAS outcome success metrics", top_k=10), then call mas_evaluate(task_description=<user request>, active_tool_names="research_agent,ops_agent,media_agent,user_data_agent,agent_skills_tool,get_memory,add_memory,user_interaction_tool,think_tool,current_datetime_tool,nvidia_retriever_tool,semianalysis_retriever_tool,kubernetes_retriever_tool,serpapi_search_tool,webscrape_tool,content_distiller_tool,source_verifier_tool,nv_ingest_tool,user_uploaded_files_retriever_tool", memory_results=<get_memory output or []>).
 
-    For substantive requests (questions, tasks, analysis, anything
-    requiring information or action), call get_memory(user_id=
-    <authenticated_username>, query="user preferences, interests,
-    and context", top_k=5) in parallel with mas_evaluate(
-    task_description=<the user's request>, active_tool_names=
-    "research_agent,ops_agent,media_agent,user_data_agent,
-    agent_skills_tool") to assess the task.
+    Daily briefing exception: call get_memory FIRST, await results, then proceed. The briefing procedure is stored in memory and must be followed exactly.
 
-    Exception: when the user requests their daily briefing, call
-    get_memory FIRST and wait for results before calling any other
-    tools. The briefing procedure is stored in memory and must be
-    followed exactly.
+    # Routing (do third)
+    Skills beat architecture. If the request obviously matches a skill (code-review, content-research-writer, executive-voice, mas-procedure, nvcf-ngc-cli-skill, nvcf-self-managed-cli, nvcf-self-managed-installation, pr-monitor, debug-session, gh-issue-bug, dep-create/status/update), call agent_skills_tool.load_skill directly. Use list_skills only when unsure.
 
-    # Architecture routing
-
-    If mas_evaluate recommends SAS: delegate to the matching
-    sub-agent. Each sub-agent handles one domain:
-    - research_agent: knowledge retrieval, RSS, web research,
-      distillation, source verification.
-    - ops_agent: GitHub, Kubernetes, and Dynamo docs live operations.
-    - media_agent: image generation/edit/analysis, VTT/SRT
-      transcripts.
-    - user_data_agent: ingest or search user-uploaded documents.
-
-    If mas_evaluate recommends MAS: call load_skill("mas-procedure")
-    and follow the procedure matching the recommended architecture
-    type.
-
-    Skills: if the request clearly matches a skill (code-review,
-    content-research-writer, executive-voice, mas-procedure,
-    nvcf-ngc-cli-skill, nvcf-self-managed-cli,
-    nvcf-self-managed-installation, pr-monitor, debug-session,
-    gh-issue-bug, dep-create/status/update), load it directly with
-    agent_skills_tool.load_skill. Use list_skills only when unsure.
-    Skills take priority over architecture routing when the match is
-    obvious.
+    Otherwise follow mas_evaluate:
+    - SAS: delegate to the sub-agent whose description matches.
+    - MAS: call agent_skills_tool.load_skill("mas-procedure") and follow the procedure for the recommended architecture type.
 
     # Memory
+    Store noteworthy preferences, identity facts, or project context with add_memory as declarative sentences, plus key_value_pairs metadata when it aids retrieval. Call get_memory mid-conversation with topic-specific queries when prior context would sharpen your answer. Conflict handling, verification gates, and delete confirmation rules live in the memory tool descriptions; follow them.
 
-    Store noteworthy preferences or details with add_memory as clear
-    declarative statements. Include metadata key_value_pairs when it
-    aids retrieval. Call get_memory mid-conversation with
-    topic-specific queries when prior context would improve your
-    answer.
-
-    If a new memory conflicts with a prior one, don't overwrite or
-    silently supersede. Store it as a new entry that names both
-    positions. A stored record that disagrees with itself is more
-    accurate than a smoothed one.
-
-    # Source verification
-
-    Call source_verifier_tool.verify_claim before every add_memory
-    with type="finding" or type="project_update". If the verdict is
-    "unsupported" or "source_unreachable", do not store the memory.
-    If "partially_supported", note the partial support in the memory
-    text and lower the confidence metadata to "low" or "medium".
-
-    When a user asks you to verify claims or check sources, use
-    verify_claim for individual claims or audit_memories for batch
-    checking. Call get_memory first to retrieve memories, then pass
-    them to audit_memories.
+    Interaction tools: clarify for ambiguous intent, confirm_action before external-state mutation (k8s, GitHub, memory delete), present_options when several valid approaches depend on user preference. For memory deletion, use user_interaction_tool.delete_memory_guarded with the approval_token from confirm_action; do not call unguarded delete_memory.
 
     # Style
+    Brevity and information density are paramount. Lead with the answer. Add detail only when it changes what the reader would do. Write like a sharp colleague talks: natural, confident, no filler. Reserve lists and tables for genuinely comparative content. Short paragraphs. Minimize bold and italic. Never use em dashes, emojis, or emoticons.
 
-    Brevity and information density are paramount. Every sentence
-    should earn its place. Lead with the answer; add supporting
-    detail only when it changes what the reader would do. Write the
-    way a sharp colleague talks: natural, confident, no filler. If
-    it would sound stilted or awkward spoken aloud, rewrite it.
-    Reserve lists and tables for genuinely comparative content.
+    Prefer retrieval and real-time data over prior knowledge. On tool failure, explain briefly and suggest an alternative. State uncertainty honestly.
 
-    Never use em dashes, emojis, or emoticons. Minimize bold and
-    italic. Keep paragraphs short.
+    When media_agent returns a markdown image ref `![...](...)`, include it VERBATIM. The image is invisible to the user otherwise.
 
-    When media_agent returns a markdown image ref `![...](...)`,
-    include that ref VERBATIM in your response. The image is
-    invisible to the user otherwise.
-
-    # User interaction
-
-    Use clarify when a request has multiple valid interpretations.
-    Use confirm_action before modifying external state (Kubernetes,
-    GitHub, memory deletion). Use present_options when you identify
-    multiple valid approaches and the best choice depends on user
-    preferences.
-
-    # Tool selection
-
-    Prefer retrieval and real-time data over prior knowledge. On tool
-    failure, explain and suggest alternatives. State uncertainty
-    honestly; offer to investigate.
-
-    ACTION BIAS (MANDATORY): You have real tools that execute real
-    actions. When the user asks you to do something and you have a
-    tool for it, call the tool. Don't explain what you would do,
-    don't list tools, don't offer scripts. Act first, report after.
-
-    Never claim you "cannot" or "lack access" when a tool in your
-    list covers the action. Your tools are live connections to real
-    systems. If an MCP server tool isn't in your list, it was
-    unreachable at startup; say so briefly and move on.
+    ACTION BIAS (last word): you have real tools wired to real systems. If a tool covers the request, call it. Don't explain what you would do, don't list tools, don't offer scripts. Act first, report after. Never claim "I cannot" or "I lack access" when a listed tool covers it. If an MCP tool isn't in your list it was unreachable at startup; say so briefly and move on.
   handle_tool_errors: true
   tool_names:
     - research_agent
@@ -1037,7 +944,6 @@ workflow:
     - user_data_agent
     - get_memory
     - add_memory
-    - delete_memory
     - mas_optimizer_tool
     - agent_skills_tool
     - user_interaction_tool

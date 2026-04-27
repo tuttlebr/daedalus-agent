@@ -2,7 +2,32 @@
 
 import asyncio
 import json
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
+
+
+class FakeRedis:
+    def __init__(self):
+        self.store = {}
+
+    def setex(self, key, ttl, value):
+        self.store[key] = value
+        return True
+
+    def get(self, key):
+        return self.store.get(key)
+
+    def delete(self, *keys):
+        deleted = 0
+        for key in keys:
+            if key in self.store:
+                del self.store[key]
+                deleted += 1
+        return deleted
+
+    def scan_iter(self, pattern):
+        import fnmatch
+
+        return (key for key in list(self.store) if fnmatch.fnmatch(key, pattern))
 
 
 def run(coro):
@@ -27,9 +52,9 @@ async def _get_tools(config_overrides=None):
 
 
 class TestUserInteractionRegistration:
-    def test_yields_three_function_infos(self):
+    def test_yields_four_function_infos(self):
         items = run(_get_tools())
-        assert len(items) == 3
+        assert len(items) == 4
 
     def test_all_have_fn_and_description(self):
         items = run(_get_tools())
@@ -43,6 +68,7 @@ class TestUserInteractionRegistration:
         assert "clarify" in fn_names
         assert "confirm_action" in fn_names
         assert "present_options" in fn_names
+        assert "delete_memory_guarded" in fn_names
 
 
 class TestClarify:
@@ -107,7 +133,7 @@ class TestConfirmAction:
     def test_basic_confirmation(self):
         async def _run():
             items = await _get_tools()
-            confirm_fn = items[1].fn
+            confirm_fn = next(i.fn for i in items if i.fn.__name__ == "confirm_action")
             result = await confirm_fn(
                 action="Delete all memories for user john",
                 reason="User explicitly requested memory reset",
@@ -121,7 +147,7 @@ class TestConfirmAction:
     def test_irreversible_warning(self):
         async def _run():
             items = await _get_tools()
-            confirm_fn = items[1].fn
+            confirm_fn = next(i.fn for i in items if i.fn.__name__ == "confirm_action")
             result = await confirm_fn(
                 action="Drop the database",
                 reason="Migration requires fresh start",
@@ -134,7 +160,7 @@ class TestConfirmAction:
     def test_with_risks_and_alternatives(self):
         async def _run():
             items = await _get_tools()
-            confirm_fn = items[1].fn
+            confirm_fn = next(i.fn for i in items if i.fn.__name__ == "confirm_action")
             result = await confirm_fn(
                 action="Scale to 10 replicas",
                 reason="Traffic spike expected",
@@ -148,12 +174,34 @@ class TestConfirmAction:
 
         run(_run())
 
+    def test_confirmation_can_issue_approval_token(self):
+        async def _run():
+            import user_interaction.user_interaction_function as mod
+
+            fake_redis = FakeRedis()
+            with patch.object(mod, "make_redis_client", return_value=fake_redis):
+                items = await _get_tools()
+                confirm_fn = next(
+                    i.fn for i in items if i.fn.__name__ == "confirm_action"
+                )
+                result = await confirm_fn(
+                    action="Delete memories",
+                    reason="User requested it",
+                    user_id="brandon",
+                    action_type="delete_memory",
+                    target="brandon",
+                )
+            assert "approval token" in result.lower()
+            assert len(fake_redis.store) == 1
+
+        run(_run())
+
 
 class TestPresentOptions:
     def test_basic_options(self):
         async def _run():
             items = await _get_tools()
-            present_fn = items[2].fn
+            present_fn = next(i.fn for i in items if i.fn.__name__ == "present_options")
             options = json.dumps(
                 [
                     {
@@ -182,7 +230,7 @@ class TestPresentOptions:
     def test_with_recommendation(self):
         async def _run():
             items = await _get_tools()
-            present_fn = items[2].fn
+            present_fn = next(i.fn for i in items if i.fn.__name__ == "present_options")
             options = json.dumps(
                 [
                     {"label": "A", "description": "Option A"},
@@ -202,7 +250,7 @@ class TestPresentOptions:
     def test_invalid_json_returns_error(self):
         async def _run():
             items = await _get_tools()
-            present_fn = items[2].fn
+            present_fn = next(i.fn for i in items if i.fn.__name__ == "present_options")
             result = await present_fn(
                 decision="Choose",
                 options_json="not valid json{{{",
@@ -214,7 +262,7 @@ class TestPresentOptions:
     def test_options_limited_to_max(self):
         async def _run():
             items = await _get_tools({"max_options": 2})
-            present_fn = items[2].fn
+            present_fn = next(i.fn for i in items if i.fn.__name__ == "present_options")
             options = json.dumps([{"label": f"Option {i}"} for i in range(5)])
             result = await present_fn(
                 decision="Choose",
@@ -223,5 +271,58 @@ class TestPresentOptions:
             assert "Option 0" in result
             assert "Option 1" in result
             assert "Option 2" not in result
+
+        run(_run())
+
+
+class TestDeleteMemoryGuarded:
+    def test_rejects_missing_token(self):
+        async def _run():
+            fake_redis = FakeRedis()
+            import user_interaction.user_interaction_function as mod
+
+            with patch.object(mod, "make_redis_client", return_value=fake_redis):
+                items = await _get_tools()
+                delete_fn = next(
+                    i.fn for i in items if i.fn.__name__ == "delete_memory_guarded"
+                )
+                result = await delete_fn(user_id="brandon", approval_token="")
+            assert "denied" in result
+
+        run(_run())
+
+    def test_deletes_matching_memory_keys_once(self):
+        async def _run():
+            from user_interaction.approval_tokens import (
+                ApprovalRequest,
+                issue_approval_token,
+            )
+
+            fake_redis = FakeRedis()
+            token = issue_approval_token(
+                fake_redis,
+                ApprovalRequest(
+                    user_id="brandon",
+                    action_type="delete_memory",
+                    target="brandon",
+                ),
+            )
+            fake_redis.store["nat:memory:brandon:1"] = "a"
+            fake_redis.store["nat:memory:someoneelse:1"] = "b"
+
+            import user_interaction.user_interaction_function as mod
+
+            with patch.object(mod, "make_redis_client", return_value=fake_redis):
+                items = await _get_tools()
+                delete_fn = next(
+                    i.fn for i in items if i.fn.__name__ == "delete_memory_guarded"
+                )
+                result = await delete_fn(user_id="brandon", approval_token=token)
+                second = await delete_fn(user_id="brandon", approval_token=token)
+
+            assert "Deleted 1" in result
+            assert "nat:memory:brandon:1" not in fake_redis.store
+            assert "nat:memory:someoneelse:1" in fake_redis.store
+            assert "denied" in second
 
         run(_run())

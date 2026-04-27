@@ -124,7 +124,9 @@ retries with the same job ID.
 """
 
 import asyncio
+import json
 import logging
+import os
 import traceback
 from contextlib import asynccontextmanager
 
@@ -150,6 +152,107 @@ _CONNECTION_ERROR_TYPES = (
     httpx.ReadTimeout,  # server accepts TCP but never sends HTTP response
     ConnectionError,  # includes ConnectionRefusedError, ConnectionResetError
 )
+
+_MUTATING_TOOL_FRAGMENTS = (
+    "apply",
+    "create",
+    "delete",
+    "patch",
+    "replace",
+    "rollback",
+    "scale",
+    "uninstall",
+    "update",
+)
+
+
+def _flatten_tool_payload(args, kwargs) -> dict:
+    """Best-effort extraction of MCP tool arguments from wrapper inputs."""
+    payload: dict = {}
+    for candidate in list(args) + [kwargs]:
+        if isinstance(candidate, dict):
+            payload.update(candidate)
+        elif isinstance(candidate, str):
+            try:
+                parsed = json.loads(candidate)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(parsed, dict):
+                payload.update(parsed)
+    nested = payload.get("arguments") or payload.get("args") or payload.get("input")
+    if isinstance(nested, dict):
+        merged = dict(payload)
+        merged.update(nested)
+        payload = merged
+    return payload
+
+
+def _is_mutating_mcp_call(tool_name: str, payload: dict) -> bool:
+    text_parts = [tool_name]
+    for key in ("operation", "command", "action", "method", "verb"):
+        val = payload.get(key)
+        if isinstance(val, str):
+            text_parts.append(val)
+    text = " ".join(text_parts).lower()
+    return any(fragment in text for fragment in _MUTATING_TOOL_FRAGMENTS)
+
+
+def _validate_mcp_approval(tool_name: str, payload: dict) -> tuple[bool, str]:
+    if not _is_mutating_mcp_call(tool_name, payload):
+        return True, "read-only"
+
+    token = str(payload.get("approval_token") or "").strip()
+    user_id = str(
+        payload.get("user_id")
+        or payload.get("username")
+        or payload.get("user")
+        or "anonymous"
+    ).strip()
+    target = str(
+        payload.get("target")
+        or payload.get("namespace")
+        or payload.get("repo")
+        or payload.get("name")
+        or tool_name
+    ).strip()
+
+    if not token:
+        return False, (
+            f"MCP tool '{tool_name}' appears to mutate external state and "
+            "requires approval_token."
+        )
+
+    try:
+        from user_interaction.approval_tokens import (
+            make_redis_client,
+            validate_approval_token,
+        )
+
+        ok, reason = validate_approval_token(
+            make_redis_client(os.getenv("APPROVAL_REDIS_URL")),
+            user_id=user_id,
+            token=token,
+            action_type="mcp_mutation",
+            target=target or tool_name,
+            consume=True,
+        )
+    except Exception as exc:
+        return False, f"approval validation failed: {exc}"
+
+    if not ok:
+        return False, reason
+    return True, "approved"
+
+
+def _strip_approval_token(args, kwargs) -> None:
+    for candidate in list(args) + [kwargs]:
+        if not isinstance(candidate, dict):
+            continue
+        candidate.pop("approval_token", None)
+        for key in ("arguments", "args", "input"):
+            nested = candidate.get(key)
+            if isinstance(nested, dict):
+                nested.pop("approval_token", None)
 
 
 def _is_connection_error(exc):
@@ -699,6 +802,16 @@ def _patch_tool_client():
         async def wrapped(self, *args, **kwargs):
             tool_name = getattr(self, "_tool_name", getattr(self, "name", "unknown"))
             url = getattr(self, "_url", getattr(self, "url", "unknown"))
+            payload = _flatten_tool_payload(args, kwargs)
+            approved, approval_reason = _validate_mcp_approval(tool_name, payload)
+            if not approved:
+                logger.warning(
+                    "MCP tool call blocked by approval gate: tool=%s reason=%s",
+                    tool_name,
+                    approval_reason,
+                )
+                raise PermissionError(approval_reason)
+            _strip_approval_token(args, kwargs)
             logger.info(
                 "MCP tool call start: tool=%s url=%s args=%s kwargs=%s",
                 tool_name,

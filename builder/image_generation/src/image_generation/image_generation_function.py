@@ -26,7 +26,7 @@ class ImageGenerationFunctionConfig(FunctionBaseConfig, name="image_generation")
         description="API key for authentication. Falls back to OPENAI_API_KEY env var.",
     )
     timeout: float = Field(120.0, description="Request timeout in seconds")
-    model: str = Field("gpt-image-1.5", description="Model to use for image generation")
+    model: str = Field("gpt-image-2", description="Model to use for image generation")
     prompt_rewrite: dict | None = Field(
         default=None,
         description=(
@@ -42,16 +42,24 @@ class ImageGenerationFunctionConfig(FunctionBaseConfig, name="image_generation")
     quality: str | None = Field(
         default=None,
         description=(
-            "Optional rendering quality ('low' or 'high'). Prefer 'low' for "
-            "latency-sensitive flows and 'high' for detail-heavy scenes (dense "
-            "text, intricate materials). Passed to images.generate as `quality`."
+            "Optional rendering quality: 'low', 'medium', 'high', or 'auto' "
+            "(SDK default). Prefer 'low' for fast drafts and thumbnails, "
+            "'medium' as a latency/detail middle ground, and 'high' for "
+            "detail-heavy scenes (dense text, intricate materials). Passed "
+            "to images.generate as `quality`."
         ),
     )
     size: str | None = Field(
         default=None,
         description=(
-            "Optional image size in pixels, e.g. '1024x1024', '1024x1536', "
-            "'1536x1024', or 'auto'. Passed to images.generate as `size`."
+            "Optional image size in pixels. Popular values: '1024x1024' "
+            "(square), '1536x1024' (landscape), '1024x1536' (portrait), "
+            "'2048x2048' (2K square), '2048x1152' (2K landscape), "
+            "'3840x2160' (4K landscape), '2160x3840' (4K portrait), or "
+            "'auto' (default). Any resolution is accepted when both edges "
+            "are multiples of 16, max edge ≤ 3840, aspect ratio ≤ 3:1, and "
+            "total pixels fall between 655,360 and 8,294,400. Passed to "
+            "images.generate as `size`."
         ),
     )
     n: int | None = Field(
@@ -59,6 +67,45 @@ class ImageGenerationFunctionConfig(FunctionBaseConfig, name="image_generation")
         description=(
             "Optional number of variations to generate (1–10). When >1, each "
             "image is stored separately and all markdown refs are returned."
+        ),
+    )
+    moderation: str | None = Field(
+        default=None,
+        description=(
+            "Optional content moderation strictness. 'auto' (SDK default) "
+            "applies standard filtering; 'low' is less restrictive. Passed "
+            "to images.generate as `moderation`."
+        ),
+    )
+    output_format: str | None = Field(
+        default=None,
+        description=(
+            "Optional output file format: 'png' (SDK default), 'jpeg', or "
+            "'webp'. jpeg is faster than png — prefer it when latency "
+            "matters. Passed to images.generate as `output_format`."
+        ),
+    )
+    output_compression: int | None = Field(
+        default=None,
+        description=(
+            "Optional compression level 0-100 for jpeg/webp outputs. "
+            "Ignored for png. Passed to images.generate as "
+            "`output_compression`."
+        ),
+    )
+    background: str | None = Field(
+        default=None,
+        description=(
+            "Optional background: 'auto' or 'opaque'. gpt-image-2 does NOT "
+            "support 'transparent'. Passed to images.generate as "
+            "`background`."
+        ),
+    )
+    user: str | None = Field(
+        default=None,
+        description=(
+            "Optional end-user identifier forwarded to OpenAI for abuse "
+            "monitoring. Passed to images.generate as `user`."
         ),
     )
 
@@ -219,6 +266,11 @@ async def image_generation_function(
                 quality=config.quality,
                 size=config.size,
                 n=config.n,
+                moderation=config.moderation,
+                output_format=config.output_format,
+                output_compression=config.output_compression,
+                background=config.background,
+                user=config.user,
             )
 
             refs = []

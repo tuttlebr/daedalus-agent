@@ -283,6 +283,15 @@ async def mas_optimizer_function(config: MasOptimizerConfig, builder: Builder):
             memories = json.loads(memory_results) if memory_results else []
         except (json.JSONDecodeError, TypeError):
             memories = []
+        if isinstance(memories, dict):
+            if isinstance(memories.get("results"), list):
+                memories = memories["results"]
+            elif isinstance(memories.get("memories"), list):
+                memories = memories["memories"]
+            else:
+                memories = [memories]
+        if not isinstance(memories, list):
+            memories = []
 
         cap = gate.evaluate(memories)
         task = analyzer.evaluate(task_description, tools)

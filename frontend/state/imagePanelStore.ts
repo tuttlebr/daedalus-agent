@@ -3,7 +3,8 @@
  *
  * Holds the current prompt, parameters, input images (edit mode), mask,
  * preserve-list, gallery of returned images, and an in-session history
- * strip. Ephemeral by design — not persisted across reloads.
+ * strip. The live UI state is local; ImagePanel hydrates and persists history
+ * through the image history API.
  *
  * Mode is derived, not stored: anything with attached inputImages is an
  * edit; anything without is a generate.
@@ -72,7 +73,10 @@ export interface ImagePanelState {
 
 export interface ImagePanelActions {
   setPrompt: (prompt: string) => void;
-  setParam: <K extends keyof ImageParams>(key: K, value: ImageParams[K]) => void;
+  setParam: <K extends keyof ImageParams>(
+    key: K,
+    value: ImageParams[K],
+  ) => void;
   resetParams: () => void;
 
   addInputImages: (refs: ImageRef[]) => void;
@@ -87,6 +91,7 @@ export interface ImagePanelActions {
 
   setGallery: (images: GalleryImage[]) => void;
   removeFromGallery: (imageId: string) => void;
+  setHistory: (entries: HistoryEntry[]) => void;
   appendToHistory: (entry: HistoryEntry) => void;
   restoreFromHistory: (entryId: string) => void;
 
@@ -101,7 +106,7 @@ export interface ImagePanelActions {
 
 export type ImagePanelStore = ImagePanelState & ImagePanelActions;
 
-const DEFAULT_PARAMS: ImageParams = {};
+const DEFAULT_PARAMS: ImageParams = { quality: 'medium' };
 
 const INITIAL_STATE: ImagePanelState = {
   prompt: '',
@@ -124,7 +129,9 @@ export const useImagePanelStore = create<ImagePanelStore>()(
     setParam: (key, value) =>
       set((s) => ({
         params:
-          value === undefined ? omit(s.params, key) : { ...s.params, [key]: value },
+          value === undefined
+            ? omit(s.params, key)
+            : { ...s.params, [key]: value },
       })),
     resetParams: () => set({ params: { ...DEFAULT_PARAMS } }),
 
@@ -154,8 +161,25 @@ export const useImagePanelStore = create<ImagePanelStore>()(
     setGallery: (gallery) => set({ gallery }),
     removeFromGallery: (imageId) =>
       set((s) => ({ gallery: s.gallery.filter((g) => g.imageId !== imageId) })),
+    setHistory: (history) =>
+      set((s) => {
+        const nextHistory = history.slice(0, 50);
+        const latest = nextHistory[0];
+        return {
+          history: nextHistory,
+          gallery:
+            s.gallery.length === 0 && latest
+              ? galleryFromHistoryEntry(latest)
+              : s.gallery,
+        };
+      }),
     appendToHistory: (entry) =>
-      set((s) => ({ history: [entry, ...s.history].slice(0, 50) })),
+      set((s) => ({
+        history: [
+          entry,
+          ...s.history.filter((item) => item.id !== entry.id),
+        ].slice(0, 50),
+      })),
     restoreFromHistory: (entryId) => {
       const entry = get().history.find((e) => e.id === entryId);
       if (!entry) return;
@@ -164,6 +188,7 @@ export const useImagePanelStore = create<ImagePanelStore>()(
         params: { ...entry.params },
         inputImages: [...entry.inputImages],
         maskImage: entry.maskImage,
+        gallery: galleryFromHistoryEntry(entry),
         error: null,
       });
     },
@@ -186,4 +211,12 @@ export function selectMode(s: ImagePanelState): ImageMode {
 function omit<T extends object, K extends keyof T>(obj: T, key: K): Omit<T, K> {
   const { [key]: _omitted, ...rest } = obj;
   return rest;
+}
+
+function galleryFromHistoryEntry(entry: HistoryEntry): GalleryImage[] {
+  return entry.outputImageIds.map((imageId) => ({
+    imageId,
+    prompt: entry.prompt,
+    mode: entry.mode,
+  }));
 }

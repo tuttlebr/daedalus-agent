@@ -1,6 +1,8 @@
-import { Message } from '@/types/chat';
-import { apiBase } from './api';
 import { Logger } from '@/utils/logger';
+
+import { Message } from '@/types/chat';
+
+import { apiBase } from './api';
 
 const logger = new Logger('ImageHandler');
 
@@ -28,14 +30,25 @@ interface BlobCacheEntry {
   lastAccessed: number;
 }
 
+function getBlobCacheKey(
+  imageRef: ImageReference,
+  useThumbnail = false,
+): string {
+  return useThumbnail ? `${imageRef.imageId}-thumb` : imageRef.imageId;
+}
+
 // Import visibility-aware timer for battery-efficient background operations
-let visibilityAwareTimerModule: typeof import('./visibilityAwareTimer') | null = null;
+let visibilityAwareTimerModule: typeof import('./visibilityAwareTimer') | null =
+  null;
 
 class ImageBlobCache {
   private cache = new Map<string, BlobCacheEntry>();
   private weakCache = new WeakMap<object, string>(); // WeakMap for automatic GC
+  private temporaryUrls = new Set<string>();
   private totalSize = 0;
-  private readonly maxSize = this.isMobile() ? 2 * 1024 * 1024 : 3 * 1024 * 1024; // 2MB mobile, 3MB desktop
+  private readonly maxSize = this.isMobile()
+    ? 2 * 1024 * 1024
+    : 3 * 1024 * 1024; // 2MB mobile, 3MB desktop
   private cleanupTimer: { stop: () => void } | null = null;
   private memoryTimer: { stop: () => void } | null = null;
   private referenceCount = new Map<string, number>(); // Track active references
@@ -55,7 +68,7 @@ class ImageBlobCache {
             interval: 60000, // 60s base
             mobileMultiplier: 2, // 120s on mobile
             pauseWhenHidden: true,
-          }
+          },
         );
 
         // Monitor memory pressure - less frequently on mobile
@@ -65,7 +78,7 @@ class ImageBlobCache {
             interval: 30000, // 30s base
             mobileMultiplier: 2, // 60s on mobile
             pauseWhenHidden: true,
-          }
+          },
         );
       });
     }
@@ -75,9 +88,12 @@ class ImageBlobCache {
     return typeof window !== 'undefined' && window.innerWidth <= 768;
   }
 
-  async fetchAsBlob(imageRef: ImageReference, useThumbnail = false): Promise<string> {
+  async fetchAsBlob(
+    imageRef: ImageReference,
+    useThumbnail = false,
+  ): Promise<string> {
     // Use different cache key for thumbnails vs full images
-    const cacheKey = useThumbnail ? `${imageRef.imageId}-thumb` : imageRef.imageId;
+    const cacheKey = getBlobCacheKey(imageRef, useThumbnail);
 
     // Check if already cached
     const cached = this.cache.get(cacheKey);
@@ -99,32 +115,56 @@ class ImageBlobCache {
     const blobUrl = URL.createObjectURL(blob);
 
     // Add to cache with LRU eviction
-    this.addToCache(cacheKey, blobUrl, blob.size);
+    const cachedBlob = this.addToCache(cacheKey, blobUrl, blob.size);
+    if (!cachedBlob) {
+      this.temporaryUrls.add(blobUrl);
+      return blobUrl;
+    }
 
     // Also store in WeakMap for automatic cleanup
     this.weakCache.set(imageRef as any, blobUrl);
 
-    // Initialize reference count
-    this.referenceCount.set(cacheKey, 1);
-
     return blobUrl;
   }
 
-  private addToCache(key: string, url: string, size: number) {
+  private addToCache(key: string, url: string, size: number): boolean {
+    if (size > this.maxSize) {
+      logger.debug('Image exceeds blob cache budget, using temporary URL', {
+        imageId: key,
+        size,
+        maxSize: this.maxSize,
+      });
+      return false;
+    }
+
     // Evict entries if needed
     while (this.totalSize + size > this.maxSize && this.cache.size > 0) {
-      this.evictOldest();
+      if (!this.evictOldest()) {
+        break;
+      }
+    }
+
+    if (this.totalSize + size > this.maxSize) {
+      logger.debug('No unreferenced image blobs available for eviction', {
+        imageId: key,
+        size,
+        totalSize: this.totalSize,
+        maxSize: this.maxSize,
+      });
+      return false;
     }
 
     this.cache.set(key, {
       url,
       size,
-      lastAccessed: Date.now()
+      lastAccessed: Date.now(),
     });
     this.totalSize += size;
+    this.referenceCount.set(key, 1);
+    return true;
   }
 
-  private evictOldest() {
+  private evictOldest(): boolean {
     let oldestKey: string | null = null;
     let oldestTime = Infinity;
 
@@ -148,16 +188,36 @@ class ImageBlobCache {
       this.cache.delete(oldestKey);
       this.referenceCount.delete(oldestKey);
       logger.debug('Evicted image from blob cache', { imageId: oldestKey });
+      return true;
     }
+    return false;
   }
 
-  revoke(imageId: string) {
+  revoke(imageId: string, url?: string) {
+    if (!this.cache.has(imageId)) {
+      if (url && this.temporaryUrls.delete(url)) {
+        URL.revokeObjectURL(url);
+      } else if (
+        imageId.startsWith('blob:') &&
+        this.temporaryUrls.delete(imageId)
+      ) {
+        URL.revokeObjectURL(imageId);
+      }
+      return;
+    }
+
     // Decrement reference count
     const refCount = this.referenceCount.get(imageId) || 0;
     if (refCount > 1) {
       this.referenceCount.set(imageId, refCount - 1);
-      logger.debug('Decremented ref count for image', { imageId, newCount: refCount - 1 });
+      logger.debug('Decremented ref count for image', {
+        imageId,
+        newCount: refCount - 1,
+      });
       return; // Don't actually revoke if still referenced
+    }
+    if (refCount === 1) {
+      this.referenceCount.set(imageId, 0);
     }
 
     // Small delay to handle race conditions where image might still be loading
@@ -165,7 +225,10 @@ class ImageBlobCache {
       // Double-check reference count after delay
       const currentRefCount = this.referenceCount.get(imageId) || 0;
       if (currentRefCount > 0) {
-        logger.debug('Image acquired new reference during delay, skipping revocation', { imageId });
+        logger.debug(
+          'Image acquired new reference during delay, skipping revocation',
+          { imageId },
+        );
         return;
       }
 
@@ -178,7 +241,10 @@ class ImageBlobCache {
           this.referenceCount.delete(imageId);
           logger.debug('Revoked blob URL for image', { imageId });
         } catch (e) {
-          logger.error('Error revoking blob URL for image', { imageId, error: e });
+          logger.error('Error revoking blob URL for image', {
+            imageId,
+            error: e,
+          });
         }
       }
     }, 100); // 100ms delay to allow for race conditions
@@ -192,6 +258,11 @@ class ImageBlobCache {
     }
     this.cache.clear();
     this.referenceCount.clear();
+    const temporaryUrls = Array.from(this.temporaryUrls);
+    for (const url of temporaryUrls) {
+      URL.revokeObjectURL(url);
+    }
+    this.temporaryUrls.clear();
     this.totalSize = 0;
 
     // Stop visibility-aware timers
@@ -206,13 +277,17 @@ class ImageBlobCache {
   }
 
   private checkMemoryPressure() {
-    if (typeof performance === 'undefined' || !(performance as any).memory) return;
+    if (typeof performance === 'undefined' || !(performance as any).memory)
+      return;
 
     const memInfo = (performance as any).memory;
-    const percentUsed = (memInfo.usedJSHeapSize / memInfo.jsHeapSizeLimit) * 100;
+    const percentUsed =
+      (memInfo.usedJSHeapSize / memInfo.jsHeapSizeLimit) * 100;
 
     if (percentUsed >= this.memoryPressureThreshold) {
-      logger.warn('Memory pressure detected', { percentUsed: `${percentUsed.toFixed(1)}%` });
+      logger.warn('Memory pressure detected', {
+        percentUsed: `${percentUsed.toFixed(1)}%`,
+      });
 
       // Aggressive cleanup - remove all unreferenced entries
       const entriesToRemove: string[] = [];
@@ -223,7 +298,7 @@ class ImageBlobCache {
         }
       });
 
-      entriesToRemove.forEach(key => {
+      entriesToRemove.forEach((key) => {
         const entry = this.cache.get(key);
         if (entry) {
           URL.revokeObjectURL(entry.url);
@@ -234,7 +309,9 @@ class ImageBlobCache {
       });
 
       if (entriesToRemove.length > 0) {
-        logger.info('Emergency cleanup: removed image blobs', { count: entriesToRemove.length });
+        logger.info('Emergency cleanup: removed image blobs', {
+          count: entriesToRemove.length,
+        });
       }
     }
   }
@@ -254,7 +331,7 @@ class ImageBlobCache {
       }
     });
 
-    entriesToRemove.forEach(key => {
+    entriesToRemove.forEach((key) => {
       const entry = this.cache.get(key);
       if (entry) {
         URL.revokeObjectURL(entry.url);
@@ -265,7 +342,9 @@ class ImageBlobCache {
     });
 
     if (entriesToRemove.length > 0) {
-      logger.info('Cleaned up stale image blobs', { count: entriesToRemove.length });
+      logger.info('Cleaned up stale image blobs', {
+        count: entriesToRemove.length,
+      });
     }
   }
 }
@@ -287,7 +366,10 @@ if (typeof window !== 'undefined') {
 }
 
 // Upload image to Redis and return reference
-export async function uploadImage(base64Data: string, mimeType: string = 'image/jpeg'): Promise<ImageReference> {
+export async function uploadImage(
+  base64Data: string,
+  mimeType: string = 'image/jpeg',
+): Promise<ImageReference> {
   try {
     // Server-side: directly call the storage function to avoid HTTP overhead and session issues
     if (typeof window === 'undefined') {
@@ -326,7 +408,10 @@ export async function uploadImage(base64Data: string, mimeType: string = 'image/
 }
 
 // Get image URL from reference
-export function getImageUrl(imageRef: ImageReference, useThumbnail = false): string {
+export function getImageUrl(
+  imageRef: ImageReference,
+  useThumbnail = false,
+): string {
   // Generated images use the /api/generated-image/{id} endpoint
   if (imageRef.sessionId === 'generated') {
     const thumbnailParam = useThumbnail ? '?thumbnail=true' : '';
@@ -365,12 +450,15 @@ export function getImageUrl(imageRef: ImageReference, useThumbnail = false): str
 }
 
 // Export blob cache functions for use in components
-export async function fetchImageAsBlob(imageRef: ImageReference, useThumbnail = false): Promise<string> {
+export async function fetchImageAsBlob(
+  imageRef: ImageReference,
+  useThumbnail = false,
+): Promise<string> {
   return blobCache.fetchAsBlob(imageRef, useThumbnail);
 }
 
-export function revokeImageBlob(imageId: string): void {
-  blobCache.revoke(imageId);
+export function revokeImageBlob(imageId: string, url?: string): void {
+  blobCache.revoke(imageId, url);
 }
 
 export function clearAllImageBlobs(): void {
@@ -378,7 +466,9 @@ export function clearAllImageBlobs(): void {
 }
 
 // Process message to replace base64 images with references
-export async function processMessageImages(message: ProcessedMessage): Promise<ProcessedMessage> {
+export async function processMessageImages(
+  message: ProcessedMessage,
+): Promise<ProcessedMessage> {
   if (!message.attachments || message.attachments.length === 0) {
     return message;
   }
@@ -408,7 +498,7 @@ export async function processMessageImages(message: ProcessedMessage): Promise<P
         }
       }
       return attachment;
-    })
+    }),
   );
 
   return {
@@ -436,8 +526,14 @@ export function cleanMessagesForLLM(messages: any[]): Message[] {
     // This allows the LLM to reference document content in subsequent messages
     if (typeof cleanedMessage.content === 'string') {
       cleanedMessage.content = cleanedMessage.content
-        .replace(/<!-- DOCUMENT_EXTRACT_START -->/g, '\n--- Extracted Document Text ---\n')
-        .replace(/<!-- DOCUMENT_EXTRACT_END -->/g, '\n--- End of Extracted Text ---\n')
+        .replace(
+          /<!-- DOCUMENT_EXTRACT_START -->/g,
+          '\n--- Extracted Document Text ---\n',
+        )
+        .replace(
+          /<!-- DOCUMENT_EXTRACT_END -->/g,
+          '\n--- End of Extracted Text ---\n',
+        )
         .trim();
     }
 
@@ -454,7 +550,8 @@ export function cleanMessagesForLLM(messages: any[]): Message[] {
               mimeType: att.mimeType,
             };
             if (att.imageRef) result.imageRef = att.imageRef;
-            if (att.imageRefs && Array.isArray(att.imageRefs)) result.imageRefs = att.imageRefs;
+            if (att.imageRefs && Array.isArray(att.imageRefs))
+              result.imageRefs = att.imageRefs;
             return result;
           }
 
@@ -464,7 +561,8 @@ export function cleanMessagesForLLM(messages: any[]): Message[] {
               mimeType: att.mimeType,
             };
             if (att.videoRef) result.videoRef = att.videoRef;
-            if (att.videoRefs && Array.isArray(att.videoRefs)) result.videoRefs = att.videoRefs;
+            if (att.videoRefs && Array.isArray(att.videoRefs))
+              result.videoRefs = att.videoRefs;
             return result;
           }
 
@@ -516,9 +614,12 @@ export function cleanMessagesForLLM(messages: any[]): Message[] {
         });
 
         // Calculate actual image count (number of image refs, not attachments)
-        const imageCount = allImageRefs.length > 0 ? allImageRefs.length : message.attachments.filter((att: any) =>
-          att.type === 'image' && att.content
-        ).length;
+        const imageCount =
+          allImageRefs.length > 0
+            ? allImageRefs.length
+            : message.attachments.filter(
+                (att: any) => att.type === 'image' && att.content,
+              ).length;
 
         // Calculate actual video count
         const videoCount = allVideoRefs.length;
@@ -526,26 +627,41 @@ export function cleanMessagesForLLM(messages: any[]): Message[] {
         let contentAdditions = '';
 
         if (imageCount > 0) {
-          const imageText = imageCount === 1 ? '[Image attachment]' : `[${imageCount} image attachments]`;
+          const imageText =
+            imageCount === 1
+              ? '[Image attachment]'
+              : `[${imageCount} image attachments]`;
 
           // Add structured imageRef data for the LLM to extract
           if (allImageRefs.length > 0) {
             // Format the imageRef in a way that's easier for the LLM to parse
             // Include both human-readable and structured formats
-            const structuredRefs = allImageRefs.map((ref: any, index: number) => {
-              const refObj = {
-                imageId: ref.imageId,
-                sessionId: ref.sessionId,
-                mimeType: ref.mimeType || 'image/png',
-                ...(ref.userId && { userId: ref.userId }),
-              };
-              return `[IMAGE_REFERENCE_${index + 1}]: ${JSON.stringify(refObj)}`;
-            }).join('\n');
+            const structuredRefs = allImageRefs
+              .map((ref: any, index: number) => {
+                const refObj = {
+                  imageId: ref.imageId,
+                  sessionId: ref.sessionId,
+                  mimeType: ref.mimeType || 'image/png',
+                  ...(ref.userId && { userId: ref.userId }),
+                };
+                return `[IMAGE_REFERENCE_${index + 1}]: ${JSON.stringify(
+                  refObj,
+                )}`;
+              })
+              .join('\n');
 
             // Also add a clear instruction for the LLM
-            const imageInstructions = allImageRefs.length === 1
-              ? `\n\n**Image Reference for Tools:**\nUse this imageRef parameter: ${JSON.stringify(allImageRefs[0])}`
-              : `\n\n**Image References for Tools:**\n${allImageRefs.map((ref: any, i: number) => `Image ${i + 1}: ${JSON.stringify(ref)}`).join('\n')}`;
+            const imageInstructions =
+              allImageRefs.length === 1
+                ? `\n\n**Image Reference for Tools:**\nUse this imageRef parameter: ${JSON.stringify(
+                    allImageRefs[0],
+                  )}`
+                : `\n\n**Image References for Tools:**\n${allImageRefs
+                    .map(
+                      (ref: any, i: number) =>
+                        `Image ${i + 1}: ${JSON.stringify(ref)}`,
+                    )
+                    .join('\n')}`;
 
             contentAdditions += `${imageText}\n${structuredRefs}${imageInstructions}`;
           } else {
@@ -554,25 +670,40 @@ export function cleanMessagesForLLM(messages: any[]): Message[] {
         }
 
         if (videoCount > 0) {
-          const videoText = videoCount === 1 ? '[Video attachment]' : `[${videoCount} video attachments]`;
+          const videoText =
+            videoCount === 1
+              ? '[Video attachment]'
+              : `[${videoCount} video attachments]`;
 
           // Add structured videoRef data for the LLM to extract
           if (allVideoRefs.length > 0) {
-            const structuredRefs = allVideoRefs.map((ref: any, index: number) => {
-              const refObj = {
-                videoId: ref.videoId,
-                sessionId: ref.sessionId,
-                mimeType: ref.mimeType || 'video/mp4',
-                filename: ref.filename,
-                ...(ref.userId && { userId: ref.userId }),
-              };
-              return `[VIDEO_REFERENCE_${index + 1}]: ${JSON.stringify(refObj)}`;
-            }).join('\n');
+            const structuredRefs = allVideoRefs
+              .map((ref: any, index: number) => {
+                const refObj = {
+                  videoId: ref.videoId,
+                  sessionId: ref.sessionId,
+                  mimeType: ref.mimeType || 'video/mp4',
+                  filename: ref.filename,
+                  ...(ref.userId && { userId: ref.userId }),
+                };
+                return `[VIDEO_REFERENCE_${index + 1}]: ${JSON.stringify(
+                  refObj,
+                )}`;
+              })
+              .join('\n');
 
             // Also add a clear instruction for the LLM
-            const videoInstructions = allVideoRefs.length === 1
-              ? `\n\n**Video Reference for Tools:**\nUse this videoRef parameter: ${JSON.stringify(allVideoRefs[0])}`
-              : `\n\n**Video References for Tools:**\n${allVideoRefs.map((ref: any, i: number) => `Video ${i + 1}: ${JSON.stringify(ref)}`).join('\n')}`;
+            const videoInstructions =
+              allVideoRefs.length === 1
+                ? `\n\n**Video Reference for Tools:**\nUse this videoRef parameter: ${JSON.stringify(
+                    allVideoRefs[0],
+                  )}`
+                : `\n\n**Video References for Tools:**\n${allVideoRefs
+                    .map(
+                      (ref: any, i: number) =>
+                        `Video ${i + 1}: ${JSON.stringify(ref)}`,
+                    )
+                    .join('\n')}`;
 
             if (contentAdditions) contentAdditions += '\n';
             contentAdditions += `${videoText}\n${structuredRefs}${videoInstructions}`;
@@ -586,22 +717,40 @@ export function cleanMessagesForLLM(messages: any[]): Message[] {
         const allDocumentRefs: any[] = [];
         message.attachments.forEach((att: any) => {
           if (att.type === 'document' && att.documentRef) {
-            allDocumentRefs.push({ ...att.documentRef, filename: att.content || att.documentRef?.filename });
+            allDocumentRefs.push({
+              ...att.documentRef,
+              filename: att.content || att.documentRef?.filename,
+            });
           }
         });
 
         if (allDocumentRefs.length > 0) {
-          const docText = allDocumentRefs.length === 1
-            ? `[Document attachment: ${allDocumentRefs[0].filename || 'document'}]`
-            : `[${allDocumentRefs.length} document attachments]`;
+          const docText =
+            allDocumentRefs.length === 1
+              ? `[Document attachment: ${
+                  allDocumentRefs[0].filename || 'document'
+                }]`
+              : `[${allDocumentRefs.length} document attachments]`;
 
-          const structuredRefs = allDocumentRefs.map((ref: any, index: number) => {
-            return `[DOCUMENT_REFERENCE_${index + 1}]: ${JSON.stringify(ref)}`;
-          }).join('\n');
+          const structuredRefs = allDocumentRefs
+            .map((ref: any, index: number) => {
+              return `[DOCUMENT_REFERENCE_${index + 1}]: ${JSON.stringify(
+                ref,
+              )}`;
+            })
+            .join('\n');
 
-          const docInstructions = allDocumentRefs.length === 1
-            ? `\n\n**Document Reference for Tools:**\nUse this documentRef parameter: ${JSON.stringify(allDocumentRefs[0])}`
-            : `\n\n**Document References for Tools:**\n${allDocumentRefs.map((ref: any, i: number) => `Document ${i + 1}: ${JSON.stringify(ref)}`).join('\n')}`;
+          const docInstructions =
+            allDocumentRefs.length === 1
+              ? `\n\n**Document Reference for Tools:**\nUse this documentRef parameter: ${JSON.stringify(
+                  allDocumentRefs[0],
+                )}`
+              : `\n\n**Document References for Tools:**\n${allDocumentRefs
+                  .map(
+                    (ref: any, i: number) =>
+                      `Document ${i + 1}: ${JSON.stringify(ref)}`,
+                  )
+                  .join('\n')}`;
 
           // Check if message metadata requests ingestion to a specific collection
           const targetCollection = message.metadata?.targetCollection;
@@ -622,31 +771,46 @@ export function cleanMessagesForLLM(messages: any[]): Message[] {
         });
 
         if (allVttRefs.length > 0) {
-          const vttText = allVttRefs.length === 1
-            ? `[Transcript attachment: ${allVttRefs[0].filename || 'transcript'}]`
-            : `[${allVttRefs.length} transcript attachments]`;
+          const vttText =
+            allVttRefs.length === 1
+              ? `[Transcript attachment: ${
+                  allVttRefs[0].filename || 'transcript'
+                }]`
+              : `[${allVttRefs.length} transcript attachments]`;
 
-          const structuredRefs = allVttRefs.map((ref: any, index: number) => {
-            return `[VTT_REFERENCE_${index + 1}]: ${JSON.stringify(ref)}`;
-          }).join('\n');
+          const structuredRefs = allVttRefs
+            .map((ref: any, index: number) => {
+              return `[VTT_REFERENCE_${index + 1}]: ${JSON.stringify(ref)}`;
+            })
+            .join('\n');
 
-          const vttInstructions = allVttRefs.length === 1
-            ? `\n\n**Transcript Reference for Tools:**\nUse this vttRef parameter: ${JSON.stringify(allVttRefs[0])}`
-            : `\n\n**Transcript References for Tools:**\n${allVttRefs.map((ref: any, i: number) => `Transcript ${i + 1}: ${JSON.stringify(ref)}`).join('\n')}`;
+          const vttInstructions =
+            allVttRefs.length === 1
+              ? `\n\n**Transcript Reference for Tools:**\nUse this vttRef parameter: ${JSON.stringify(
+                  allVttRefs[0],
+                )}`
+              : `\n\n**Transcript References for Tools:**\n${allVttRefs
+                  .map(
+                    (ref: any, i: number) =>
+                      `Transcript ${i + 1}: ${JSON.stringify(ref)}`,
+                  )
+                  .join('\n')}`;
 
           if (contentAdditions) contentAdditions += '\n';
           contentAdditions += `${vttText}\n${structuredRefs}${vttInstructions}`;
         }
 
         if (contentAdditions) {
-          cleanedMessage.content = `${message.content}${message.content ? '\n' : ''}${contentAdditions}`;
+          cleanedMessage.content = `${message.content}${
+            message.content ? '\n' : ''
+          }${contentAdditions}`;
         }
       }
     }
 
     // Remove any properties that might contain base64 data
     const keysToRemove = ['inputFileContent', 'inputFileContentCompressed'];
-    keysToRemove.forEach(key => {
+    keysToRemove.forEach((key) => {
       if (key in cleanedMessage) {
         delete (cleanedMessage as any)[key];
       }
@@ -660,25 +824,31 @@ export function cleanMessagesForLLM(messages: any[]): Message[] {
   });
 
   // Log the cleaning operation for debugging
-  logger.debug('cleanMessagesForLLM: Cleaned messages for LLM', { messageCount: messages.length });
+  logger.debug('cleanMessagesForLLM: Cleaned messages for LLM', {
+    messageCount: messages.length,
+  });
 
   // Debug: Log messages with image references
-  const messagesWithImages = cleaned.filter(msg =>
-    msg.content && msg.content.includes('[IMAGE_REFERENCE')
+  const messagesWithImages = cleaned.filter(
+    (msg) => msg.content && msg.content.includes('[IMAGE_REFERENCE'),
   );
   if (messagesWithImages.length > 0) {
-    logger.debug('Messages with image references', messagesWithImages.map(msg => ({
-      role: msg.role,
-      contentPreview: msg.content.substring(0, 200) + '...',
-      attachments: msg.attachments
-    })));
+    logger.debug(
+      'Messages with image references',
+      messagesWithImages.map((msg) => ({
+        role: msg.role,
+        contentPreview: msg.content.substring(0, 200) + '...',
+        attachments: msg.attachments,
+      })),
+    );
   }
 
   // Drop assistant messages with empty/whitespace-only content to prevent
   // 400 errors from LLMs that reject blank ContentBlock text fields.
   return cleaned.filter((msg) => {
     if (msg.role === 'assistant') {
-      const content = typeof msg.content === 'string' ? msg.content.trim() : msg.content;
+      const content =
+        typeof msg.content === 'string' ? msg.content.trim() : msg.content;
       if (!content || content === '') return false;
     }
     return true;
@@ -696,10 +866,11 @@ export function cleanMessagesForStorage(messages: any[]): any[] {
     const cleanedAttachments = message.attachments.map((attachment: any) => {
       if (attachment.type === 'image') {
         // If attachment has base64 content, remove it but keep the reference
-        if (attachment.content && (
-          attachment.content.startsWith('data:image/') ||
-          attachment.content.length > 1000 // Any large content is likely base64
-        )) {
+        if (
+          attachment.content &&
+          (attachment.content.startsWith('data:image/') ||
+            attachment.content.length > 1000) // Any large content is likely base64
+        ) {
           return {
             ...attachment,
             content: '', // Remove base64 to prevent storage bloat
@@ -708,10 +879,11 @@ export function cleanMessagesForStorage(messages: any[]): any[] {
       }
       if (attachment.type === 'video') {
         // If attachment has base64 content, remove it but keep the reference
-        if (attachment.content && (
-          attachment.content.startsWith('data:video/') ||
-          attachment.content.length > 1000 // Any large content is likely base64
-        )) {
+        if (
+          attachment.content &&
+          (attachment.content.startsWith('data:video/') ||
+            attachment.content.length > 1000) // Any large content is likely base64
+        ) {
           return {
             ...attachment,
             content: '', // Remove base64 to prevent storage bloat
@@ -724,7 +896,7 @@ export function cleanMessagesForStorage(messages: any[]): any[] {
     // Also remove any other properties that might contain base64
     const cleanedMessage = { ...message };
     const keysToRemove = ['inputFileContent', 'inputFileContentCompressed'];
-    keysToRemove.forEach(key => {
+    keysToRemove.forEach((key) => {
       if (key in cleanedMessage) {
         delete cleanedMessage[key];
       }
@@ -748,10 +920,11 @@ export function restoreMessageImages(messages: any[]): any[] {
     const restoredAttachments = message.attachments.map((attachment: any) => {
       if (attachment.type === 'image') {
         // Remove any base64 content that might have been stored
-        if (attachment.content && (
-          attachment.content.startsWith('data:image/') ||
-          attachment.content.length > 1000
-        )) {
+        if (
+          attachment.content &&
+          (attachment.content.startsWith('data:image/') ||
+            attachment.content.length > 1000)
+        ) {
           return {
             ...attachment,
             content: '', // Clear base64 content
@@ -761,10 +934,11 @@ export function restoreMessageImages(messages: any[]): any[] {
       }
       if (attachment.type === 'video') {
         // Remove any base64 content that might have been stored
-        if (attachment.content && (
-          attachment.content.startsWith('data:video/') ||
-          attachment.content.length > 1000
-        )) {
+        if (
+          attachment.content &&
+          (attachment.content.startsWith('data:video/') ||
+            attachment.content.length > 1000)
+        ) {
           return {
             ...attachment,
             content: '', // Clear base64 content
@@ -789,12 +963,13 @@ export function stripBase64Content(obj: any): any {
   }
 
   if (Array.isArray(obj)) {
-    return obj.map(item => stripBase64Content(item));
+    return obj.map((item) => stripBase64Content(item));
   }
 
   const cleaned = { ...obj };
 
-  const dataUrlRegex = /data:(image|video|application|text)\/[a-z0-9.+-]+;base64,[a-z0-9+/=]+/gi;
+  const dataUrlRegex =
+    /data:(image|video|application|text)\/[a-z0-9.+-]+;base64,[a-z0-9+/=]+/gi;
 
   for (const [key, value] of Object.entries(cleaned)) {
     if (typeof value === 'string') {
@@ -823,9 +998,12 @@ export function stripBase64Content(obj: any): any {
 // Delete image from storage
 export async function deleteImage(imageId: string): Promise<void> {
   try {
-    const response = await fetch(`/api/session/imageStorage?imageId=${imageId}`, {
-      method: 'DELETE',
-    });
+    const response = await fetch(
+      `/api/session/imageStorage?imageId=${imageId}`,
+      {
+        method: 'DELETE',
+      },
+    );
 
     if (!response.ok) {
       throw new Error('Failed to delete image');
@@ -859,11 +1037,17 @@ export async function processMarkdownImages(content: string): Promise<string> {
 
       // Check if URL is a data URI with base64 image
       // We trim whitespace to handle potential formatting issues
-      if (url && url.trim().startsWith('data:image/') && url.includes('base64,')) {
+      if (
+        url &&
+        url.trim().startsWith('data:image/') &&
+        url.includes('base64,')
+      ) {
         const base64Data = url.trim();
 
         // Extract mime type from data URL
-        const mimeTypeMatch = base64Data.match(/data:(image\/[a-zA-Z0-9+.-]+);base64,/);
+        const mimeTypeMatch = base64Data.match(
+          /data:(image\/[a-zA-Z0-9+.-]+);base64,/,
+        );
         const mimeType = mimeTypeMatch ? mimeTypeMatch[1] : 'image/png';
 
         // Upload to Redis
@@ -873,9 +1057,15 @@ export async function processMarkdownImages(content: string): Promise<string> {
         const imageUrl = getImageUrl(imageRef);
 
         // Replace the base64 image with the reference URL
-        processedContent = processedContent.replace(fullMatch, `![${altText}](${imageUrl})`);
+        processedContent = processedContent.replace(
+          fullMatch,
+          `![${altText}](${imageUrl})`,
+        );
 
-        logger.debug('Processed markdown image', { altText, imageId: imageRef.imageId });
+        logger.debug('Processed markdown image', {
+          altText,
+          imageId: imageRef.imageId,
+        });
       }
     } catch (error) {
       logger.error('Failed to process markdown image', error);
@@ -897,7 +1087,10 @@ export function extractImageReferences(messages: any[]): string[] {
       for (const attachment of message.attachments) {
         if (attachment.type === 'image') {
           // Single imageRef
-          if (attachment.imageRef?.imageId && !seenIds.has(attachment.imageRef.imageId)) {
+          if (
+            attachment.imageRef?.imageId &&
+            !seenIds.has(attachment.imageRef.imageId)
+          ) {
             imageIds.push(attachment.imageRef.imageId);
             seenIds.add(attachment.imageRef.imageId);
           }

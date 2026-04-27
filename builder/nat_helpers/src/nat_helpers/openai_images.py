@@ -4,9 +4,13 @@ Both the agent tools (image_generation, image_augmentation) and the
 dedicated user-facing panel's FastAPI routes use these helpers so the
 SDK surface is consumed in exactly one place.
 
-Only the gpt-image-1.5 schema is supported — all optional kwargs listed
-in that schema are forwarded verbatim when the caller sets them, and
-dropped when they're None (so SDK defaults kick in).
+Targets the gpt-image-2 schema — all optional kwargs listed in that
+schema are forwarded verbatim when the caller sets them, and dropped
+when they're None (so SDK defaults kick in). The helper is also
+parameter-compatible with earlier gpt-image-1.x models for the shared
+kwargs; model-specific constraints (e.g. gpt-image-2 not supporting
+`background: transparent`, or `input_fidelity` being a no-op for
+gpt-image-2 edits) are enforced by the API, not here.
 """
 
 from __future__ import annotations

@@ -7,6 +7,7 @@ from nat.builder.builder import Builder, LLMFrameworkEnum
 from nat.builder.function_info import FunctionInfo
 from nat.cli.register_workflow import register_function
 from nat.data_models.function import FunctionBaseConfig
+from nat_nv_ingest.nat_nv_ingest import resolve_user_collection_name
 from pydantic import BaseModel, Field
 from pymilvus import MilvusClient
 from smart_milvus.smart_milvus_function import MilvusRetriever
@@ -25,6 +26,10 @@ class UserDocumentRetrieverConfig(FunctionBaseConfig, name="user_document_retrie
     database_name: str = Field(
         default="default",
         description="Milvus database name.",
+    )
+    default_collection_name: str = Field(
+        default="user_uploads",
+        description="Base collection prefix used when deriving per-user collections.",
     )
     content_field: str = Field(
         default="text",
@@ -139,6 +144,7 @@ async def user_document_retriever_function(
         query: str,
         collection_name: str | None = None,
         username: str | None = None,
+        user_id: str | None = None,
         top_k: int | None = None,
         filters: str | None = None,
     ) -> UserDocumentRetrieverOutput:
@@ -148,18 +154,19 @@ async def user_document_retriever_function(
         Args:
             query: Search query for the document content.
             collection_name: Milvus collection name to search.
-            username: Optional username to use when collection_name is not set.
+            username: Optional authenticated username to derive the collection.
+            user_id: Backward-compatible alias for username.
             top_k: Optional override for number of chunks to return.
             filters: Optional Milvus filter expression.
 
         Returns:
             Serialized retriever output or an error message.
         """
-        resolved_collection = collection_name or username
-        if not resolved_collection:
-            return UserDocumentRetrieverOutput(
-                error="collection_name or username is required to search user documents."
-            )
+        resolved_collection = resolve_user_collection_name(
+            collection_name,
+            username or user_id,
+            config.default_collection_name,
+        )
 
         resolved_query = query.strip() if isinstance(query, str) else ""
         if not resolved_query:

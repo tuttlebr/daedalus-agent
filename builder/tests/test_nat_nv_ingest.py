@@ -10,7 +10,10 @@ from nat_nv_ingest.nat_nv_ingest import (
     clean_table_markdown,
     format_batch_response,
     format_single_doc_response,
+    normalize_collection_part,
+    resolve_user_collection_name,
     results_to_markdown,
+    user_upload_collection_name,
 )
 
 # ---------------------------------------------------------------------------
@@ -94,6 +97,25 @@ class TestNvIngestFunctionConfig:
         assert config.redis_connect_timeout == 5
         assert config.ingest_max_retries == 2
         assert config.ingest_retry_delay == 1.0
+
+
+class TestCollectionResolution:
+    def test_normalizes_collection_parts(self):
+        assert normalize_collection_part("Brandon Smith@example.com") == (
+            "brandon_smith_example_com"
+        )
+        assert normalize_collection_part("123") == "u_123"
+
+    def test_user_upload_collection_name_uses_base_and_user(self):
+        assert user_upload_collection_name("Brandon Smith") == (
+            "user_uploads_brandon_smith"
+        )
+
+    def test_resolve_uses_explicit_collection_when_present(self):
+        assert resolve_user_collection_name("My Docs", "brandon") == "my_docs"
+
+    def test_resolve_derives_per_user_default(self):
+        assert resolve_user_collection_name(None, "brandon") == "user_uploads_brandon"
 
 
 # ---------------------------------------------------------------------------

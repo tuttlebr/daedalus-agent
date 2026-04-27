@@ -29,6 +29,8 @@ _NL_COLLAPSE_RE = re.compile(r"\n{3,}")
 _DEHYPHEN_RE = re.compile(r"(\w)-\n(\w)")
 _EMPTY_ROW_RE = re.compile(r"^\|[\s|]*$")
 _NON_ALNUM_RE = re.compile(r"[^a-z0-9\s]")
+_COLLECTION_PART_RE = re.compile(r"[^a-zA-Z0-9_]+")
+_UNDERSCORE_COLLAPSE_RE = re.compile(r"_+")
 
 
 class IngestResult(TypedDict):
@@ -46,6 +48,42 @@ class IngestResult(TypedDict):
     collection: str
     markdown: str
     error: str
+
+
+def normalize_collection_part(value: str | None, fallback: str = "anonymous") -> str:
+    """Return a Milvus-safe collection name component."""
+    raw = (value or "").strip() or fallback
+    normalized = _COLLECTION_PART_RE.sub("_", raw)
+    normalized = _UNDERSCORE_COLLAPSE_RE.sub("_", normalized).strip("_").lower()
+    if not normalized:
+        normalized = fallback
+    if normalized[0].isdigit():
+        normalized = f"u_{normalized}"
+    return normalized[:64]
+
+
+def user_upload_collection_name(
+    username: str | None,
+    base_collection_name: str | None = "user_uploads",
+) -> str:
+    """Derive the default per-user uploaded-document collection name."""
+    base = normalize_collection_part(base_collection_name, fallback="user_uploads")
+    user = normalize_collection_part(username, fallback="anonymous")
+    suffix = f"_{user}"
+    if base.endswith(suffix):
+        return base
+    return f"{base}{suffix}"
+
+
+def resolve_user_collection_name(
+    collection_name: str | None,
+    username: str | None,
+    default_collection_name: str | None = "user_uploads",
+) -> str:
+    """Resolve explicit collection names or derive a per-user default."""
+    if collection_name:
+        return normalize_collection_part(collection_name, fallback="user_uploads")
+    return user_upload_collection_name(username, default_collection_name)
 
 
 class NvIngestFunctionConfig(FunctionBaseConfig, name="nat_nv_ingest"):
@@ -698,8 +736,11 @@ async def nv_ingest_function(
         chunk_size = chunk_size or config.chunk_size
         chunk_overlap = chunk_overlap or config.chunk_overlap
 
-        if not collection_name:
-            collection_name = config.default_collection_name or username
+        collection_name = resolve_user_collection_name(
+            collection_name,
+            username,
+            config.default_collection_name,
+        )
 
         initial_filename = (
             documentRef.get("filename", "") if isinstance(documentRef, dict) else ""
@@ -914,8 +955,11 @@ async def nv_ingest_function(
                 f"{(len(documentRefs) + max_batch - 1) // max_batch} batches."
             )
 
-        if not collection_name:
-            collection_name = config.default_collection_name or username
+        collection_name = resolve_user_collection_name(
+            collection_name,
+            username,
+            config.default_collection_name,
+        )
 
         total_documents = len(documentRefs)
         successful_documents: list[dict[str, Any]] = []

@@ -11,6 +11,7 @@ Constants derived from:
 """
 
 from dataclasses import dataclass
+from typing import Any
 
 # Paper-derived constant (Table 4)
 CAPABILITY_BETA = -0.404
@@ -38,6 +39,21 @@ class CapabilityGate:
     def __init__(self, threshold: float = 0.45) -> None:
         self.threshold = threshold
 
+    def _extract_success(self, value: Any) -> float | None:
+        """Find a success score in common memory payload shapes."""
+        if isinstance(value, dict):
+            if "success" in value:
+                try:
+                    return float(value.get("success"))
+                except (TypeError, ValueError):
+                    return 0.0
+            for key in ("metadata", "key_value_pairs", "data"):
+                nested = value.get(key)
+                score = self._extract_success(nested)
+                if score is not None:
+                    return score
+        return None
+
     def estimate_sas_accuracy(self, memory_results: list[dict]) -> float:
         """Estimate SAS accuracy from stored outcome memories.
 
@@ -55,9 +71,8 @@ class CapabilityGate:
         total = 0.0
         count = 0
         for m in memory_results:
-            try:
-                val = float(m.get("success", 0))
-            except (TypeError, ValueError):
+            val = self._extract_success(m)
+            if val is None:
                 val = 0.0
             total += val
             count += 1

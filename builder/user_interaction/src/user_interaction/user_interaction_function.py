@@ -21,12 +21,19 @@ reduces wasted effort on misunderstood requests.
 
 import json
 import logging
+from typing import Any
 
 from nat.builder.builder import Builder
 from nat.builder.function_info import FunctionInfo
 from nat.cli.register_workflow import register_function
 from nat.data_models.function import FunctionBaseConfig
 from pydantic import Field
+from user_interaction.approval_tokens import (
+    ApprovalRequest,
+    issue_approval_token,
+    make_redis_client,
+    validate_approval_token,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -40,10 +47,32 @@ class UserInteractionConfig(FunctionBaseConfig, name="user_interaction"):
         le=10,
         description="Maximum number of options to present in clarification or choice questions.",
     )
+    redis_url: str | None = Field(
+        default=None,
+        description="Redis URL used for approval-token storage.",
+    )
+    approval_ttl_seconds: int = Field(
+        default=300,
+        ge=30,
+        le=3600,
+        description="Seconds before an approval token expires.",
+    )
+    memory_key_patterns: list[str] = Field(
+        default_factory=lambda: ["nat:*{user_id}*"],
+        description="Redis key patterns deleted by delete_memory_guarded.",
+    )
 
 
 @register_function(config_type=UserInteractionConfig)
 async def user_interaction_function(config: UserInteractionConfig, builder: Builder):
+    _redis_client: Any | None = None
+
+    def _get_redis():
+        nonlocal _redis_client
+        if _redis_client is None:
+            _redis_client = make_redis_client(config.redis_url)
+        return _redis_client
+
     # ------------------------------------------------------------------
     # Tool 1 -- clarify
     # ------------------------------------------------------------------
@@ -109,6 +138,9 @@ async def user_interaction_function(config: UserInteractionConfig, builder: Buil
         risks: str = "",
         alternatives: str = "",
         reversible: bool = True,
+        user_id: str = "",
+        action_type: str = "unspecified",
+        target: str = "",
     ) -> str:
         """Request user confirmation before taking a consequential action.
 
@@ -132,6 +164,9 @@ async def user_interaction_function(config: UserInteractionConfig, builder: Buil
             alternatives: Other approaches you considered. Helps the user
                 understand the decision space. Separate with " | ".
             reversible: Whether this action can be easily undone.
+            user_id: Authenticated user id. Required to issue an approval token.
+            action_type: Consequential action category, e.g. "delete_memory".
+            target: Action target the approval applies to.
 
         Returns:
             Formatted confirmation request to present to the user.
@@ -152,7 +187,32 @@ async def user_interaction_function(config: UserInteractionConfig, builder: Buil
                 alts_formatted = ", ".join(alt_list)
                 parts.append(f"\n**Alternatives considered:** {alts_formatted}")
 
+        token: str | None = None
+        if user_id and action_type and action_type != "unspecified":
+            try:
+                token = issue_approval_token(
+                    _get_redis(),
+                    ApprovalRequest(
+                        user_id=user_id,
+                        action_type=action_type,
+                        target=target or "*",
+                    ),
+                    config.approval_ttl_seconds,
+                )
+            except Exception as exc:
+                logger.error("Failed to issue approval token: %s", exc)
+                parts.append(f"\n**Approval token error:** {exc}")
+
         parts.append("\nProceed? (yes/no)")
+        if token:
+            parts.append(
+                "\nIf approved, use this single-use approval token with the "
+                f"destructive tool call: `{token}`"
+            )
+            parts.append(
+                f"\nToken scope: action_type=`{action_type}`, target=`{target or '*'}`, "
+                f"expires_in={config.approval_ttl_seconds}s."
+            )
 
         return "\n".join(parts)
 
@@ -216,6 +276,51 @@ async def user_interaction_function(config: UserInteractionConfig, builder: Buil
         return "\n".join(parts)
 
     # ------------------------------------------------------------------
+    # Tool 4 -- delete_memory_guarded
+    # ------------------------------------------------------------------
+    async def delete_memory_guarded(
+        user_id: str,
+        approval_token: str,
+        target: str = "",
+    ) -> str:
+        """Delete Redis-backed memory keys for a user after token validation.
+
+        Args:
+            user_id: Authenticated user id whose memories should be deleted.
+            approval_token: Single-use token from confirm_action.
+            target: Approval target. Defaults to user_id.
+        """
+        resolved_user = (user_id or "").strip()
+        if not resolved_user:
+            return "Error: user_id is required."
+
+        redis_client = _get_redis()
+        ok, reason = validate_approval_token(
+            redis_client,
+            user_id=resolved_user,
+            token=approval_token,
+            action_type="delete_memory",
+            target=target or resolved_user,
+            consume=True,
+        )
+        if not ok:
+            return f"Error: delete_memory denied: {reason}."
+
+        patterns = [
+            p.format(user_id=resolved_user)
+            for p in config.memory_key_patterns
+            if "{user_id}" in p
+        ]
+        deleted = 0
+        for pattern in patterns:
+            keys = list(redis_client.scan_iter(pattern))
+            if not keys:
+                continue
+            deleted += int(redis_client.delete(*keys) or 0)
+
+        return f"Deleted {deleted} memory key(s) for user_id='{resolved_user}'."
+
+    # ------------------------------------------------------------------
     # Register all three tools with NAT
     # ------------------------------------------------------------------
     try:
@@ -247,6 +352,16 @@ async def user_interaction_function(config: UserInteractionConfig, builder: Buil
                 "best choice depends on user preferences you cannot determine "
                 "from context. Each option includes label, description, and "
                 "trade-offs."
+            ),
+        )
+
+        yield FunctionInfo.from_fn(
+            delete_memory_guarded,
+            description=(
+                "Delete all Redis-backed memories for a user only after validating "
+                "a single-use approval_token from confirm_action. Required args: "
+                "user_id and approval_token. The token must have action_type "
+                "'delete_memory' and target equal to the user_id."
             ),
         )
 

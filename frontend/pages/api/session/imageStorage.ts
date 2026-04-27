@@ -1,6 +1,14 @@
 import { NextApiRequest, NextApiResponse } from 'next';
-import { getRedis, sessionKey, jsonGet, jsonDel, jsonSetWithExpiry } from './redis';
+
 import { getUserId, getOrSetSessionId } from './_utils';
+import {
+  getRedis,
+  sessionKey,
+  jsonGet,
+  jsonDel,
+  jsonSetWithExpiry,
+} from './redis';
+
 import crypto from 'crypto';
 import sharp from 'sharp';
 
@@ -37,7 +45,10 @@ function generateImageId(): string {
 }
 
 // Process image preserving original format (no lossy compression) and generate thumbnail
-async function processImage(base64Data: string, mimeType: string): Promise<{
+async function processImage(
+  base64Data: string,
+  mimeType: string,
+): Promise<{
   data: string;
   mimeType: string;
   size: number;
@@ -59,13 +70,13 @@ async function processImage(base64Data: string, mimeType: string): Promise<{
     let actualMimeType = mimeType;
     if (metadata.format) {
       const formatToMime: Record<string, string> = {
-        'png': 'image/png',
-        'jpeg': 'image/jpeg',
-        'jpg': 'image/jpeg',
-        'webp': 'image/webp',
-        'gif': 'image/gif',
-        'svg': 'image/svg+xml',
-        'avif': 'image/avif',
+        png: 'image/png',
+        jpeg: 'image/jpeg',
+        jpg: 'image/jpeg',
+        webp: 'image/webp',
+        gif: 'image/gif',
+        svg: 'image/svg+xml',
+        avif: 'image/avif',
       };
       actualMimeType = formatToMime[metadata.format] || mimeType;
     }
@@ -88,7 +99,9 @@ async function processImage(base64Data: string, mimeType: string): Promise<{
 
         thumbnail = thumbnailBuffer.toString('base64');
         thumbnailMimeType = 'image/jpeg';
-        console.log(`Generated thumbnail: ${width}x${height} -> ${THUMBNAIL_MAX_SIZE}px max, ${thumbnailBuffer.length} bytes`);
+        console.log(
+          `Generated thumbnail: ${width}x${height} -> ${THUMBNAIL_MAX_SIZE}px max, ${thumbnailBuffer.length} bytes`,
+        );
       } catch (thumbError) {
         console.error('Failed to generate thumbnail:', thumbError);
         // Continue without thumbnail
@@ -113,7 +126,7 @@ async function processImage(base64Data: string, mimeType: string): Promise<{
     return {
       data: cleanBase64,
       mimeType,
-      size: buffer.length
+      size: buffer.length,
     };
   }
 }
@@ -123,7 +136,7 @@ export async function storeImage(
   sessionId: string,
   userId: string | undefined,
   base64Data: string,
-  mimeType: string = 'image/png'
+  mimeType: string = 'image/png',
 ): Promise<string> {
   const redis = getRedis();
   const imageId = generateImageId();
@@ -176,12 +189,12 @@ export async function storeImage(
 export async function getImage(
   sessionId: string,
   imageId: string,
-  userId?: string
+  userId?: string,
 ): Promise<StoredImage | null> {
   // Try user-specific key first if userId is provided
   if (userId) {
     const userKey = sessionKey(['user', userId, 'image', imageId]);
-    const userImage = await jsonGet(userKey) as StoredImage | null;
+    const userImage = (await jsonGet(userKey)) as StoredImage | null;
     if (userImage) {
       return userImage;
     }
@@ -189,14 +202,14 @@ export async function getImage(
 
   // Fall back to session-specific key (for backward compatibility)
   const key = sessionKey(['image', sessionId, imageId]);
-  return await jsonGet(key) as StoredImage | null;
+  return (await jsonGet(key)) as StoredImage | null;
 }
 
 // Delete image from Redis
 export async function deleteImage(
   sessionId: string,
   imageId: string,
-  userId?: string
+  userId?: string,
 ): Promise<boolean> {
   const redis = getRedis();
   let result = 0;
@@ -243,7 +256,10 @@ export async function getUserImages(userId: string): Promise<string[]> {
 }
 
 // Clean up all images for a session
-export async function cleanupSessionImages(sessionId: string, userId?: string): Promise<number> {
+export async function cleanupSessionImages(
+  sessionId: string,
+  userId?: string,
+): Promise<number> {
   const redis = getRedis();
   let deletedCount = 0;
 
@@ -265,9 +281,9 @@ export async function cleanupSessionImages(sessionId: string, userId?: string): 
   // Also clean up session images (for anonymous users or backward compatibility)
   const imageIds = await getSessionImages(sessionId);
   for (const imageId of imageIds) {
-      const deleted = await deleteImage(sessionId, imageId, userId);
-      if (deleted) deletedCount++;
-    }
+    const deleted = await deleteImage(sessionId, imageId, userId);
+    if (deleted) deletedCount++;
+  }
 
   // Delete the session images set
   const sessionImagesKey = sessionKey(['session-images', sessionId]);
@@ -277,7 +293,11 @@ export async function cleanupSessionImages(sessionId: string, userId?: string): 
 }
 
 // Touch image to refresh its TTL (extend expiry when image is still in use)
-export async function touchImage(imageId: string, userId?: string, sessionId?: string): Promise<boolean> {
+export async function touchImage(
+  imageId: string,
+  userId?: string,
+  sessionId?: string,
+): Promise<boolean> {
   const redis = getRedis();
 
   // Try user-specific key first if userId is provided
@@ -286,7 +306,9 @@ export async function touchImage(imageId: string, userId?: string, sessionId?: s
     const exists = await redis.exists(userKey);
     if (exists) {
       await redis.expire(userKey, IMAGE_EXPIRY_SECONDS);
-      console.log(`Touched image ${imageId} for user ${userId}, TTL refreshed to ${IMAGE_EXPIRY_SECONDS}s`);
+      console.log(
+        `Touched image ${imageId} for user ${userId}, TTL refreshed to ${IMAGE_EXPIRY_SECONDS}s`,
+      );
       return true;
     }
   }
@@ -297,15 +319,30 @@ export async function touchImage(imageId: string, userId?: string, sessionId?: s
     const exists = await redis.exists(key);
     if (exists) {
       await redis.expire(key, IMAGE_EXPIRY_SECONDS);
-      console.log(`Touched image ${imageId} for session ${sessionId}, TTL refreshed to ${IMAGE_EXPIRY_SECONDS}s`);
+      console.log(
+        `Touched image ${imageId} for session ${sessionId}, TTL refreshed to ${IMAGE_EXPIRY_SECONDS}s`,
+      );
       return true;
     }
+  }
+
+  const generatedKey = `generated:image:${imageId}`;
+  const generatedExists = await redis.exists(generatedKey);
+  if (generatedExists) {
+    await redis.expire(generatedKey, IMAGE_EXPIRY_SECONDS);
+    console.log(
+      `Touched generated image ${imageId}, TTL refreshed to ${IMAGE_EXPIRY_SECONDS}s`,
+    );
+    return true;
   }
 
   return false;
 }
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+export default async function handler(
+  req: NextApiRequest,
+  res: NextApiResponse,
+) {
   const sessionId = getOrSetSessionId(req, res);
   const userId = await getUserId(req, res);
 
@@ -335,9 +372,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     // Allow retrieving images from other sessions (for cross-device persistence)
     // Use the sessionId from query params if provided, otherwise use current session
-    const targetSessionId = (typeof querySessionId === 'string' && querySessionId)
-      ? querySessionId
-      : sessionId;
+    const targetSessionId =
+      typeof querySessionId === 'string' && querySessionId
+        ? querySessionId
+        : sessionId;
 
     const wantThumbnail = thumbnail === 'true' || thumbnail === '1';
 
@@ -351,7 +389,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       // Determine which version to return
       const useThumbnail = wantThumbnail && image.thumbnail;
       const imageData = useThumbnail ? image.thumbnail! : image.data;
-      const imageMimeType = useThumbnail ? (image.thumbnailMimeType || 'image/jpeg') : image.mimeType;
+      const imageMimeType = useThumbnail
+        ? image.thumbnailMimeType || 'image/jpeg'
+        : image.mimeType;
 
       // Return image data with aggressive caching
       res.setHeader('Content-Type', imageMimeType);

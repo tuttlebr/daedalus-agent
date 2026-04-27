@@ -9,13 +9,18 @@ general:
 
 workflow:
   _type: image_generation
-  api_endpoint: null   # Optional: override OpenAI base URL
-  api_key: null        # Falls back to OPENAI_API_KEY env var
+  api_endpoint: null # Optional: override OpenAI base URL
+  api_key: null # Falls back to OPENAI_API_KEY env var
   timeout: 60.0
-  model: "gpt-image-1.5"
-  quality: null        # Optional: "low" (fast) or "high" (detail-heavy scenes)
-  size: null           # Optional: "1024x1024", "1024x1536", "1536x1024", or "auto"
-  n: null              # Optional: number of variations to generate (1-10)
+  model: "gpt-image-2"
+  quality: low # Optional: "low" (fast drafts), "medium", "high" (detail-heavy), or "auto"
+  size: null # Optional: "1024x1024", "1536x1024", "1024x1536", "2048x2048", "3840x2160", "auto", or any resolution satisfying gpt-image-2 constraints
+  n: 1 # Optional: number of variations to generate (1-10)
+  # moderation: low # Optional: "auto" (default) or "low" for less restrictive filtering
+  # output_format: jpeg # Optional: "png" (default), "jpeg", or "webp" — jpeg is faster than png
+  # output_compression: 80 # Optional: 0-100 compression for jpeg/webp outputs
+  # background: opaque # Optional: "auto" or "opaque". gpt-image-2 does NOT support "transparent"
+  # user: null # Optional: end-user identifier forwarded to OpenAI for abuse monitoring
   prompt_rewrite: null # Example:
   #   llm: balanced_llm
   #   system_prompt: |
