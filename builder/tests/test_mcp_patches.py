@@ -2,6 +2,8 @@
 
 import asyncio
 import sys
+import threading
+import types
 from contextlib import asynccontextmanager
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -1404,6 +1406,7 @@ class TestSubmitJobAsyncioExecution:
             job_store, *, job_id, job_fn, job_args, sync_timeout=0, **kw
         ):
             """Simplified version of the patch for testing."""
+            job_args = job_args or []
 
             if job_id in _inflight_submissions:
                 return (job_id, None)
@@ -1412,23 +1415,32 @@ class TestSubmitJobAsyncioExecution:
 
             async def _run_job():
                 try:
-                    result = job_fn(*job_args)
+                    if asyncio.iscoroutinefunction(job_fn):
+                        result = await job_fn(*job_args)
+                    else:
+                        result = await asyncio.to_thread(job_fn, *job_args)
                     if asyncio.iscoroutine(result):
                         result = await result
                     return result
                 finally:
                     _inflight_submissions.discard(job_id)
 
+            task = asyncio.create_task(_run_job())
+            _background_tasks.add(task)
+
+            def _finalize_task(done_task):
+                _background_tasks.discard(done_task)
+                if not done_task.cancelled():
+                    done_task.exception()
+
+            task.add_done_callback(_finalize_task)
+
             if sync_timeout > 0:
                 try:
-                    await asyncio.wait_for(_run_job(), timeout=sync_timeout)
+                    await asyncio.wait_for(asyncio.shield(task), timeout=sync_timeout)
                     return (job_id, "completed")
                 except TimeoutError:
                     pass
-
-            task = asyncio.create_task(_run_job())
-            _background_tasks.add(task)
-            task.add_done_callback(_background_tasks.discard)
 
             return (job_id, None)
 
@@ -1564,6 +1576,47 @@ class TestSubmitJobAsyncioExecution:
 
         run(_run())
 
+    def test_sync_timeout_does_not_cancel_background_job(self):
+        """A sync_timeout miss returns but leaves the background job running."""
+        results = []
+
+        async def slow_job():
+            await asyncio.sleep(0.02)
+            results.append("finished")
+
+        async def _run():
+            submit = self._make_patched_submit_job()
+            job_id, result = await submit(
+                None,
+                job_id="j-timeout",
+                job_fn=slow_job,
+                job_args=[],
+                sync_timeout=0.001,
+            )
+            assert job_id == "j-timeout"
+            assert result is None
+            await self._drain_tasks()
+            assert results == ["finished"]
+
+        run(_run())
+
+    def test_sync_job_fn_runs_off_event_loop_thread(self):
+        """Synchronous job functions are offloaded instead of blocking the loop."""
+        thread_ids = []
+
+        def sync_job():
+            thread_ids.append(threading.get_ident())
+
+        async def _run():
+            loop_thread_id = threading.get_ident()
+            submit = self._make_patched_submit_job()
+            await submit(None, job_id="j-thread", job_fn=sync_job, job_args=[])
+            await self._drain_tasks()
+            assert thread_ids
+            assert thread_ids[0] != loop_thread_id
+
+        run(_run())
+
     def test_inflight_cleared_after_completion(self):
         """Job ID is removed from _inflight_submissions after completion."""
         import mcp_patches
@@ -1575,3 +1628,69 @@ class TestSubmitJobAsyncioExecution:
             assert "j6" not in mcp_patches._inflight_submissions
 
         run(_run())
+
+    def test_real_patch_marks_jobstore_submit_job(self, monkeypatch):
+        """The actual monkey patch replaces JobStore.submit_job and is idempotent."""
+        import mcp_patches
+
+        class JobStatus:
+            FAILURE = "failure"
+
+        class PatchableJobStore(FakeJobStore):
+            DEFAULT_EXPIRY = 3600
+
+            async def _create_job(
+                self, job_id=None, config_file=None, expiry_seconds=DEFAULT_EXPIRY
+            ):
+                job_id = job_id or "generated-job"
+                self.jobs[job_id] = {
+                    "status": "submitted",
+                    "error": None,
+                    "output": None,
+                }
+                return job_id
+
+            async def submit_job(self, **kwargs):
+                raise AssertionError("original Dask submit_job should not run")
+
+        module_names = [
+            "nat",
+            "nat.front_ends",
+            "nat.front_ends.fastapi",
+            "nat.front_ends.fastapi.async_jobs",
+        ]
+        for name in module_names:
+            module = types.ModuleType(name)
+            module.__path__ = []
+            monkeypatch.setitem(sys.modules, name, module)
+
+        job_store_mod = types.ModuleType("nat.front_ends.fastapi.async_jobs.job_store")
+        job_store_mod.JobStore = PatchableJobStore
+        job_store_mod.JobStatus = JobStatus
+        monkeypatch.setitem(
+            sys.modules,
+            "nat.front_ends.fastapi.async_jobs.job_store",
+            job_store_mod,
+        )
+
+        mcp_patches._patch_async_job_submit()
+        first_submit = PatchableJobStore.submit_job
+        mcp_patches._patch_async_job_submit()
+        assert PatchableJobStore.submit_job is first_submit
+        assert getattr(PatchableJobStore.submit_job, "_daedalus_dask_bypass")
+
+        ran = []
+
+        async def _run():
+            store = PatchableJobStore()
+            job_id, result = await store.submit_job(
+                job_id="job-real",
+                job_fn=lambda: ran.append("ran"),
+                job_args=[],
+            )
+            assert job_id == "job-real"
+            assert result is None
+            await self._drain_tasks()
+
+        run(_run())
+        assert ran == ["ran"]

@@ -715,7 +715,7 @@ general:
   front_end:
     _type: fastapi
     max_running_async_jobs: 8
-    dask_workers: threads
+    dask_workers: processes
     dask_threads_per_worker: 1
     dask_worker_memory_limit: "6GiB"
     dask_log_level: WARNING
@@ -771,9 +771,6 @@ llms:
     api_key: ${DISTILL_LLM_MODEL_API_KEY}
     base_url: ${DISTILL_LLM_MODEL_BASE_URL}
     model_name: ${DISTILL_LLM_MODEL_MODEL}
-    extra_args:
-      chat_template_kwargs:
-        enable_thinking: false
 memory:
   redis_memory:
     _type: nat.plugins.redis/redis_memory

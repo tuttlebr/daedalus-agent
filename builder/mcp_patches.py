@@ -115,12 +115,12 @@ Problem 11: NAT's ``JobStore.submit_job()`` uses Dask for distributed
 job execution, but the local Dask scheduler is prone to connection
 timeouts and hangs that freeze the event loop and kill the pod.
 
-Fix 11: Monkey-patch ``JobStore.submit_job()`` to bypass Dask entirely
-and run job functions directly as ``asyncio.Task`` instances on the
-existing event loop.  The HTTP handler returns immediately after
-creating the job in the database; the job function runs in a background
-task.  An in-flight set prevents duplicate submissions when the frontend
-retries with the same job ID.
+Fix 11: Monkey-patch ``JobStore.submit_job()`` to bypass Dask entirely.
+Async job functions run as ``asyncio.Task`` instances on the existing
+event loop, while synchronous job functions are offloaded to a worker
+thread.  The HTTP handler returns immediately after creating the job in
+the database.  An in-flight set prevents duplicate submissions when the
+frontend retries with the same job ID.
 """
 
 import asyncio
@@ -1248,6 +1248,10 @@ def _patch_async_job_submit():
     try:
         from nat.front_ends.fastapi.async_jobs.job_store import JobStore
 
+        if getattr(JobStore.submit_job, "_daedalus_dask_bypass", False):
+            logger.info("JobStore.submit_job patch already applied")
+            return
+
         _original_submit_job = JobStore.submit_job
 
         async def patched_submit_job(
@@ -1262,6 +1266,8 @@ def _patch_async_job_submit():
             **job_kwargs,
         ):
             from nat.front_ends.fastapi.async_jobs.job_store import JobStatus
+
+            job_args = job_args or []
 
             # Async DB work — safe on the event loop
             job_id = await self._create_job(
@@ -1284,17 +1290,42 @@ def _patch_async_job_submit():
             async def _run_job():
                 """Execute the job function directly, bypassing Dask."""
                 try:
-                    result = job_fn(*job_args, **job_kwargs)
+                    if asyncio.iscoroutinefunction(job_fn):
+                        result = await job_fn(*job_args, **job_kwargs)
+                    else:
+                        result = await asyncio.to_thread(
+                            job_fn, *job_args, **job_kwargs
+                        )
                     if asyncio.iscoroutine(result):
                         result = await result
                     return result
+                except Exception as exc:
+                    _msg = f"Job {job_id} failed: {exc}"
+                    logger.error(_msg)
+                    try:
+                        await self.update_status(job_id, JobStatus.FAILURE, error=_msg)
+                    except Exception:
+                        logger.exception("Failed to mark job %s as FAILURE", job_id)
+                    raise
                 finally:
                     _inflight_submissions.discard(job_id)
+
+            # Fire-and-forget background execution.  sync_timeout only waits
+            # for an early result; it must not cancel the real job on timeout.
+            task = asyncio.create_task(_run_job())
+            _background_tasks.add(task)
+
+            def _finalize_task(done_task):
+                _background_tasks.discard(done_task)
+                if not done_task.cancelled():
+                    done_task.exception()
+
+            task.add_done_callback(_finalize_task)
 
             # ── sync_timeout > 0: caller wants to wait for result ────────
             if sync_timeout > 0:
                 try:
-                    await asyncio.wait_for(_run_job(), timeout=sync_timeout)
+                    await asyncio.wait_for(asyncio.shield(task), timeout=sync_timeout)
                     job = await self.get_job(job_id)
                     return (job_id, job)
                 except TimeoutError:
@@ -1307,19 +1338,12 @@ def _patch_async_job_submit():
                 except Exception as exc:
                     _msg = f"Job {job_id} failed: {exc}"
                     logger.error(_msg)
-                    try:
-                        await self.update_status(job_id, JobStatus.FAILURE, error=_msg)
-                    except Exception:
-                        logger.exception("Failed to mark job %s as FAILURE", job_id)
                     raise RuntimeError(_msg) from exc
-
-            # ── Fire-and-forget background execution ─────────────────────
-            task = asyncio.create_task(_run_job())
-            _background_tasks.add(task)
-            task.add_done_callback(_background_tasks.discard)
 
             return (job_id, None)
 
+        patched_submit_job._daedalus_dask_bypass = True
+        patched_submit_job._daedalus_original_submit_job = _original_submit_job
         JobStore.submit_job = patched_submit_job
         logger.info(
             "JobStore.submit_job patch applied — "

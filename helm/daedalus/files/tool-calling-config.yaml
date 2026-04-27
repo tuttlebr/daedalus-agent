@@ -691,7 +691,7 @@ general:
   front_end:
     _type: fastapi
     max_running_async_jobs: 8
-    dask_workers: threads
+    dask_workers: processes
     dask_threads_per_worker: 1
     dask_worker_memory_limit: "8GiB"
     dask_log_level: WARNING
