@@ -94,6 +94,8 @@ export interface ImagePanelActions {
   setHistory: (entries: HistoryEntry[]) => void;
   appendToHistory: (entry: HistoryEntry) => void;
   restoreFromHistory: (entryId: string) => void;
+  removeFromHistory: (entryId: string) => void;
+  clearHistory: () => void;
 
   setLoading: (loading: boolean) => void;
   setError: (error: string | null) => void;
@@ -192,6 +194,21 @@ export const useImagePanelStore = create<ImagePanelStore>()(
         error: null,
       });
     },
+    removeFromHistory: (entryId) =>
+      set((s) => {
+        const removed = s.history.find((e) => e.id === entryId);
+        const nextHistory = s.history.filter((e) => e.id !== entryId);
+        const galleryFromThis =
+          !!removed &&
+          s.gallery.length > 0 &&
+          s.gallery.length === removed.outputImageIds.length &&
+          s.gallery.every((g, i) => g.imageId === removed.outputImageIds[i]);
+        return {
+          history: nextHistory,
+          gallery: galleryFromThis ? [] : s.gallery,
+        };
+      }),
+    clearHistory: () => set({ history: [], gallery: [] }),
 
     setLoading: (loading) => set({ loading }),
     setError: (error) => set({ error }),

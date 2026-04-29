@@ -53,3 +53,28 @@ def test_source_verifier_fast_llm_has_no_unsupported_extra_args():
 def test_async_frontend_uses_process_dask_workers():
     for path in DEPLOYED_CONFIGS:
         assert _config(path)["general"]["front_end"]["dask_workers"] == "processes"
+
+
+def test_top_level_workflow_exposes_source_verifier_when_add_memory_requires_it():
+    for path in DEPLOYED_CONFIGS:
+        config = _config(path)
+        add_memory_desc = config["functions"]["add_memory"]["description"]
+        if "source_verifier_tool.verify_claim" in add_memory_desc:
+            assert "source_verifier_tool" in config["workflow"]["tool_names"], path
+
+
+def test_mas_evaluate_uses_effective_routing_domains_not_global_tool_catalog():
+    expected = (
+        'active_tool_names="research_agent,ops_agent,media_agent,user_data_agent"'
+    )
+    forbidden = "nvidia_retriever_tool,semianalysis_retriever_tool"
+    for path in DEPLOYED_CONFIGS:
+        prompt = _config(path)["workflow"]["system_prompt"]
+        assert expected in prompt, path
+        assert forbidden not in prompt, path
+
+
+def test_mas_optimizer_description_exposes_skill_name_contract():
+    for path in DEPLOYED_CONFIGS:
+        desc = _config(path)["functions"]["mas_optimizer_tool"]["description"]
+        assert "skill_name" in desc, path

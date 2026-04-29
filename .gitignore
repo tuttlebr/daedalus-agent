@@ -28,6 +28,7 @@ logs/
 ssl/
 redis/data/
 nginx/logs/
+autonomous-images/
 test-security.sh
 tool-test.sh
 helm-build-deploy.sh
@@ -194,3 +195,4 @@ profile-data.json
 
 # Eval run outputs (keep directory via .gitkeep)
 evals/results/*.json
+download-autonomous-images.py

@@ -20,11 +20,10 @@ def run(coro):
 
 
 class TestCapabilityGate:
-    def test_no_history_defaults_above_threshold(self):
-        """No history should default to SAS (above threshold) to avoid
-        cold-start MAS overhead for new users."""
+    def test_no_history_returns_neutral_threshold(self):
+        """No history should be neutral, not a synthetic SAS success."""
         gate = CapabilityGate(threshold=0.45)
-        assert gate.estimate_sas_accuracy([]) == 0.5
+        assert gate.estimate_sas_accuracy([]) == 0.45
 
     def test_all_successes_above_threshold(self):
         gate = CapabilityGate(threshold=0.45)
@@ -38,25 +37,33 @@ class TestCapabilityGate:
         accuracy = gate.estimate_sas_accuracy(memories)
         assert accuracy == pytest.approx(0.2, abs=0.01)
 
-    def test_missing_success_key_treated_as_zero(self):
+    def test_missing_success_key_is_ignored(self):
         gate = CapabilityGate(threshold=0.45)
         memories = [{"other": "data"}, {"success": 0.6}]
         accuracy = gate.estimate_sas_accuracy(memories)
-        assert accuracy == pytest.approx(0.3, abs=0.01)
+        assert accuracy == pytest.approx(0.6, abs=0.01)
 
-    def test_invalid_success_value_treated_as_zero(self):
+    def test_invalid_success_value_is_ignored(self):
         gate = CapabilityGate(threshold=0.45)
         memories = [{"success": "bad"}, {"success": 0.8}]
         accuracy = gate.estimate_sas_accuracy(memories)
-        assert accuracy == pytest.approx(0.4, abs=0.01)
+        assert accuracy == pytest.approx(0.8, abs=0.01)
 
-    def test_evaluate_not_eligible_when_no_history(self):
-        """No history defaults above threshold, so SAS is preferred."""
+    def test_boolean_success_flag_is_ignored(self):
+        gate = CapabilityGate(threshold=0.45)
+        result = gate.evaluate([{"success": True}])
+        assert result.has_calibration is False
+        assert result.sas_accuracy_estimate is None
+
+    def test_evaluate_neutral_when_no_history(self):
+        """No history should not veto MAS; task analysis decides."""
         gate = CapabilityGate(threshold=0.45)
         result = gate.evaluate([])
-        assert result.mas_eligible is False
-        assert result.sas_accuracy_estimate == 0.5
-        assert "SAS sufficient" in result.reason
+        assert result.mas_eligible is True
+        assert result.sas_accuracy_estimate is None
+        assert result.has_calibration is False
+        assert result.sample_count == 0
+        assert "neutral" in result.reason
 
     def test_evaluate_eligible_when_below_threshold(self):
         """Low historical accuracy should enable MAS."""
@@ -65,6 +72,8 @@ class TestCapabilityGate:
         result = gate.evaluate(memories)
         assert result.mas_eligible is True
         assert result.sas_accuracy_estimate < 0.45
+        assert result.has_calibration is True
+        assert result.sample_count == 3
         assert "MAS may improve" in result.reason
 
     def test_evaluate_not_eligible_when_above_threshold(self):
@@ -88,6 +97,13 @@ class TestCapabilityGate:
         result = gate.evaluate(memories)
         assert result.mas_eligible is True
         assert result.threshold == 0.7
+
+    def test_nested_success_score_is_supported(self):
+        gate = CapabilityGate(threshold=0.45)
+        memories = [{"metadata": {"key_value_pairs": {"success_score": "0.7"}}}]
+        result = gate.evaluate(memories)
+        assert result.sas_accuracy_estimate == pytest.approx(0.7, abs=0.01)
+        assert result.sample_count == 1
 
 
 # ---------------------------------------------------------------------------
@@ -123,6 +139,41 @@ class TestTaskAnalyzer:
     def test_count_tools(self):
         assert TaskAnalyzer.count_tools(["a", "b", "c"]) == 3
         assert TaskAnalyzer.count_tools([]) == 0
+
+    def test_count_tools_dedupes_and_ignores_meta_tools(self):
+        tools = [
+            "research_agent",
+            "research_agent",
+            "get_memory",
+            "add_memory",
+            "agent_skills_tool",
+            "current_datetime_tool",
+        ]
+        assert TaskAnalyzer.count_tools(tools) == 1
+
+    def test_production_tool_catalog_counts_routing_domains(self):
+        tools = [
+            "research_agent",
+            "ops_agent",
+            "media_agent",
+            "user_data_agent",
+            "agent_skills_tool",
+            "get_memory",
+            "add_memory",
+            "user_interaction_tool",
+            "think_tool",
+            "current_datetime_tool",
+            "nvidia_retriever_tool",
+            "semianalysis_retriever_tool",
+            "kubernetes_retriever_tool",
+            "serpapi_search_tool",
+            "webscrape_tool",
+            "content_distiller_tool",
+            "source_verifier_tool",
+            "nv_ingest_tool",
+            "user_uploaded_files_retriever_tool",
+        ]
+        assert TaskAnalyzer.count_tools(tools) == 4
 
     # -- Sequential interdependence tests --------------------------------
 
@@ -309,9 +360,83 @@ class TestMasOptimizerFunction:
             data = json.loads(result)
             assert data["recommendation"] == "MAS"
             assert data["capability_gate"]["eligible"] is True
+            assert data["capability_gate"]["has_calibration"] is True
             assert data["task_analysis"]["eligible"] is True
             assert "sequential_interdependence" in data["task_analysis"]
             assert "effective_decomposability" in data["task_analysis"]
+            assert data["architecture"]["skill_name"] == "mas-procedure"
+            return data
+
+        run(_run())
+
+    def test_mas_evaluate_balanced_no_calibration_allows_decomposable_task(self):
+        """No valid calibration should not block a clearly decomposable task."""
+
+        async def _run():
+            from mas_optimizer.mas_optimizer_function import (
+                MasOptimizerConfig,
+                mas_optimizer_function,
+            )
+
+            config = MasOptimizerConfig()
+            builder = MagicMock()
+            items = []
+            async for item in mas_optimizer_function(config, builder):
+                items.append(item)
+
+            evaluate_fn = items[0].fn
+            result = await evaluate_fn(
+                task_description=(
+                    "research and compare the latest NVIDIA and AMD AI "
+                    "accelerator roadmaps and summarize implications concurrently"
+                ),
+                active_tool_names=(
+                    "research_agent,ops_agent,media_agent,user_data_agent,"
+                    "agent_skills_tool,get_memory,add_memory,user_interaction_tool,"
+                    "think_tool,current_datetime_tool,nvidia_retriever_tool,"
+                    "semianalysis_retriever_tool,kubernetes_retriever_tool,"
+                    "serpapi_search_tool,webscrape_tool,content_distiller_tool,"
+                    "source_verifier_tool,nv_ingest_tool,"
+                    "user_uploaded_files_retriever_tool"
+                ),
+                memory_results="[]",
+            )
+            data = json.loads(result)
+            assert data["recommendation"] == "MAS"
+            assert data["capability_gate"]["has_calibration"] is False
+            assert data["capability_gate"]["sample_count"] == 0
+            assert data["task_analysis"]["tool_count"] == 4
+            assert data["architecture"]["skill_name"] == "mas-procedure"
+            return data
+
+        run(_run())
+
+    def test_mas_evaluate_no_calibration_still_blocks_simple_task(self):
+        """Balanced routing should not turn simple work into MAS."""
+
+        async def _run():
+            from mas_optimizer.mas_optimizer_function import (
+                MasOptimizerConfig,
+                mas_optimizer_function,
+            )
+
+            config = MasOptimizerConfig()
+            builder = MagicMock()
+            items = []
+            async for item in mas_optimizer_function(config, builder):
+                items.append(item)
+
+            evaluate_fn = items[0].fn
+            result = await evaluate_fn(
+                task_description="Describe the Kubernetes networking configuration",
+                active_tool_names="research_agent,ops_agent,media_agent,user_data_agent",
+                memory_results="[]",
+            )
+            data = json.loads(result)
+            assert data["recommendation"] == "SAS"
+            assert data["capability_gate"]["eligible"] is True
+            assert data["task_analysis"]["eligible"] is False
+            assert data["architecture"]["skill_name"] is None
             return data
 
         run(_run())

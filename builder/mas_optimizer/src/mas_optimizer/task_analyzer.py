@@ -144,6 +144,32 @@ ANALYSIS_INDICATORS: frozenset[str] = frozenset(
     }
 )
 
+# Top-level execution domains exposed by the orchestrator. When these are
+# present, lower-level helper tools should not inflate the coordination count.
+ROUTING_DOMAIN_TOOLS: frozenset[str] = frozenset(
+    {
+        "research_agent",
+        "ops_agent",
+        "media_agent",
+        "user_data_agent",
+    }
+)
+
+# Tools that support orchestration, memory, or routing. They add latency but do
+# not represent independent task-solving domains for MAS overhead purposes.
+META_TOOL_NAMES: frozenset[str] = frozenset(
+    {
+        "add_memory",
+        "agent_skills_tool",
+        "current_datetime_tool",
+        "delete_memory",
+        "get_memory",
+        "mas_optimizer_tool",
+        "think_tool",
+        "user_interaction_tool",
+    }
+)
+
 # Action verbs that represent distinct sub-tasks
 _ACTION_VERB_PATTERN = re.compile(
     r"\b("
@@ -266,9 +292,24 @@ class TaskAnalyzer:
         return "structured_analysis"
 
     @staticmethod
-    def count_tools(active_tool_names: list[str]) -> int:
-        """Return the number of active tools."""
-        return len(active_tool_names)
+    def normalize_tool_names(active_tool_names: list[str]) -> list[str]:
+        """Return effective execution tools for coordination-overhead scoring."""
+        cleaned = {
+            tool.strip()
+            for tool in active_tool_names
+            if isinstance(tool, str) and tool.strip()
+        }
+
+        routing_domains = sorted(cleaned & ROUTING_DOMAIN_TOOLS)
+        if routing_domains:
+            return routing_domains
+
+        return sorted(tool for tool in cleaned if tool not in META_TOOL_NAMES)
+
+    @classmethod
+    def count_tools(cls, active_tool_names: list[str]) -> int:
+        """Return the effective number of active execution tools."""
+        return len(cls.normalize_tool_names(active_tool_names))
 
     def evaluate(self, task_text: str, active_tool_names: list[str]) -> TaskAssessment:
         """Run the full task analysis and return an assessment."""

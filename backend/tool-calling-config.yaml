@@ -657,7 +657,8 @@ functions:
       mas_evaluate: any substantive request after get_memory returns MAS
       outcome calibration data. Trigger mas_verify and mas_log_outcome: only
       after mas_evaluate returned MAS. Args: task_description,
-      active_tool_names. Returns: routing verdict + skill name.
+      active_tool_names. Returns: routing verdict, architecture type, and
+      skill_name.
       Fails when: task_description is under 8 chars.
     verbose: true
   serpapi_search_tool:
@@ -758,9 +759,6 @@ llms:
     api_key: ${REACT_LLM_MODEL_API_KEY}
     base_url: ${REACT_LLM_MODEL_BASE_URL}
     model_name: ${REACT_LLM_MODEL_MODEL}
-    extra_args:
-      chat_template_kwargs:
-        enable_thinking: false
   tool_calling_llm:
     _type: openai
     api_key: ${TOOL_CALLING_LLM_MODEL_API_KEY}
@@ -909,7 +907,7 @@ workflow:
     # Request classification (do second)
     Simple (greeting, small talk, thanks, clarification of your prior reply): answer directly, no tools.
 
-    Substantive (question, task, analysis, anything requiring info or action): call get_memory(user_id, query="user preferences, interests, context, and recent MAS outcome success metrics", top_k=10), then call mas_evaluate(task_description=<user request>, active_tool_names="research_agent,ops_agent,media_agent,user_data_agent,agent_skills_tool,get_memory,add_memory,user_interaction_tool,think_tool,current_datetime_tool,nvidia_retriever_tool,semianalysis_retriever_tool,kubernetes_retriever_tool,serpapi_search_tool,webscrape_tool,content_distiller_tool,source_verifier_tool,nv_ingest_tool,user_uploaded_files_retriever_tool", memory_results=<get_memory output or []>).
+    Substantive (question, task, analysis, anything requiring info or action): call get_memory(user_id, query="user preferences, interests, context, and recent MAS outcome success metrics", top_k=10), then call mas_evaluate(task_description=<user request>, active_tool_names="research_agent,ops_agent,media_agent,user_data_agent", memory_results=<get_memory output or []>).
 
     Daily briefing exception: call get_memory FIRST, await results, then proceed. The briefing procedure is stored in memory and must be followed exactly.
 
@@ -941,6 +939,7 @@ workflow:
     - user_data_agent
     - get_memory
     - add_memory
+    - source_verifier_tool
     - mas_optimizer_tool
     - agent_skills_tool
     - user_interaction_tool

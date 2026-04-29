@@ -32,7 +32,7 @@ function newEntryId(): string {
   return `hist_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
-async function loadImageHistory(): Promise<HistoryEntry[]> {
+export async function loadImageHistory(): Promise<HistoryEntry[]> {
   const res = await fetch('/api/images/history');
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const data = (await res.json()) as { history?: HistoryEntry[] };

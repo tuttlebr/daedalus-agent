@@ -1,7 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 
 import { getOrSetSessionId, getUserId } from '../session/_utils';
-import { jsonGet, jsonSetWithExpiry, sessionKey } from '../session/redis';
+import { jsonDel, jsonGet, jsonSetWithExpiry, sessionKey } from '../session/redis';
 
 const IMAGE_HISTORY_TTL_SECONDS = 60 * 60 * 24 * 7;
 const MAX_HISTORY_ENTRIES = 50;
@@ -134,6 +134,33 @@ export default async function handler(
     }
   }
 
-  res.setHeader('Allow', ['GET', 'POST']);
+  if (req.method === 'DELETE') {
+    const { id, all } = req.query;
+    try {
+      if (all === '1' || all === 'true') {
+        await jsonDel(key);
+        return res.status(200).json({ history: [] });
+      }
+      if (typeof id !== 'string' || !id) {
+        return res.status(400).json({ error: 'Missing id or all=1' });
+      }
+      const existing = await loadHistory(key);
+      const next = existing.filter((entry) => entry.id !== id);
+      if (next.length === existing.length) {
+        return res.status(200).json({ history: existing });
+      }
+      if (next.length === 0) {
+        await jsonDel(key);
+      } else {
+        await jsonSetWithExpiry(key, next, IMAGE_HISTORY_TTL_SECONDS);
+      }
+      return res.status(200).json({ history: next });
+    } catch (error) {
+      console.error('images/history DELETE error:', error);
+      return res.status(500).json({ error: 'Failed to delete image history' });
+    }
+  }
+
+  res.setHeader('Allow', ['GET', 'POST', 'DELETE']);
   return res.status(405).json({ error: 'Method not allowed' });
 }

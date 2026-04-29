@@ -21,9 +21,11 @@ CAPABILITY_BETA = -0.404
 class CapabilityAssessment:
     """Result of the capability gate evaluation."""
 
-    sas_accuracy_estimate: float
+    sas_accuracy_estimate: float | None
     threshold: float
     mas_eligible: bool
+    has_calibration: bool
+    sample_count: int
     reason: str
 
 
@@ -39,14 +41,30 @@ class CapabilityGate:
     def __init__(self, threshold: float = 0.45) -> None:
         self.threshold = threshold
 
+    @staticmethod
+    def _coerce_success(value: Any) -> float | None:
+        """Return a valid 0.0-1.0 success score, or None."""
+        if isinstance(value, bool):
+            return None
+        try:
+            score = float(value)
+        except (TypeError, ValueError):
+            return None
+        if 0.0 <= score <= 1.0:
+            return score
+        return None
+
     def _extract_success(self, value: Any) -> float | None:
         """Find a success score in common memory payload shapes."""
         if isinstance(value, dict):
             if "success" in value:
-                try:
-                    return float(value.get("success"))
-                except (TypeError, ValueError):
-                    return 0.0
+                score = self._coerce_success(value.get("success"))
+                if score is not None:
+                    return score
+            if "success_score" in value:
+                score = self._coerce_success(value.get("success_score"))
+                if score is not None:
+                    return score
             for key in ("metadata", "key_value_pairs", "data"):
                 nested = value.get(key)
                 score = self._extract_success(nested)
@@ -54,37 +72,45 @@ class CapabilityGate:
                     return score
         return None
 
+    def _collect_success_scores(self, memory_results: list[dict]) -> list[float]:
+        """Extract valid calibration scores and ignore unrelated memories."""
+        scores: list[float] = []
+        for memory in memory_results:
+            score = self._extract_success(memory)
+            if score is not None:
+                scores.append(score)
+        return scores
+
     def estimate_sas_accuracy(self, memory_results: list[dict]) -> float:
         """Estimate SAS accuracy from stored outcome memories.
 
         Each memory dict should contain a ``success`` key with a float
-        0.0-1.0.  Missing or unparseable values are treated as 0.0.
+        0.0-1.0. Missing, unparseable, or out-of-range values are
+        ignored so unrelated memories do not look like failures.
 
-        Returns threshold + 0.05 when no history exists, defaulting to
-        SAS.  This avoids the cold-start problem where new users always
-        get MAS overhead.  As outcome memories accumulate, the gate
-        calibrates from real data.
+        Returns the configured threshold when no usable calibration
+        exists. Call ``evaluate`` when the eligibility decision needs
+        to distinguish neutral/no-calibration from an observed threshold
+        score.
         """
-        if not memory_results:
-            return self.threshold + 0.05
-
-        total = 0.0
-        count = 0
-        for m in memory_results:
-            val = self._extract_success(m)
-            if val is None:
-                val = 0.0
-            total += val
-            count += 1
-
-        return total / count if count else 0.0
+        scores = self._collect_success_scores(memory_results)
+        if not scores:
+            return self.threshold
+        return sum(scores) / len(scores)
 
     def evaluate(self, memory_results: list[dict]) -> CapabilityAssessment:
         """Run the capability gate and return an assessment."""
-        accuracy = self.estimate_sas_accuracy(memory_results)
-        eligible = accuracy < self.threshold
+        scores = self._collect_success_scores(memory_results)
+        has_calibration = bool(scores)
+        accuracy = sum(scores) / len(scores) if scores else None
+        eligible = not has_calibration or accuracy < self.threshold
 
-        if eligible:
+        if not has_calibration:
+            reason = (
+                "No valid SAS/MAS outcome calibration found; capability gate "
+                "is neutral and MAS may proceed if task analysis passes"
+            )
+        elif eligible:
             reason = (
                 f"SAS accuracy {accuracy:.3f} < {self.threshold} threshold "
                 f"(beta={CAPABILITY_BETA}); MAS may improve outcomes"
@@ -99,5 +125,7 @@ class CapabilityGate:
             sas_accuracy_estimate=accuracy,
             threshold=self.threshold,
             mas_eligible=eligible,
+            has_calibration=has_calibration,
+            sample_count=len(scores),
             reason=reason,
         )

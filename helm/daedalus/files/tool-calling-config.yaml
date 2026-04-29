@@ -625,13 +625,15 @@ functions:
       - decomposab
     verbosity_ceiling: 2000
     description: >-
-      Architecture router. mas_evaluate at task start decides SAS vs
-      MAS and names a skill. mas_verify checks drafts for drift
+      Architecture router. mas_evaluate decides SAS vs MAS and names a
+      skill after recent MAS outcome memories are available. mas_verify
+      checks drafts for drift
       before send. mas_log_outcome records metrics. Trigger
-      mas_evaluate: any substantive request (in parallel with
-      get_memory). Trigger mas_verify and mas_log_outcome: only
+      mas_evaluate: any substantive request after get_memory returns MAS
+      outcome calibration data. Trigger mas_verify and mas_log_outcome: only
       after mas_evaluate returned MAS. Args: task_description,
-      active_tool_names. Returns: routing verdict + skill name.
+      active_tool_names. Returns: routing verdict, architecture type, and
+      skill_name.
       Fails when: task_description is under 8 chars.
     verbose: true
   serpapi_search_tool:
@@ -898,10 +900,11 @@ workflow:
     For substantive requests (questions, tasks, analysis, anything
     requiring information or action), call get_memory(user_id=
     <authenticated_username>, query="user preferences, interests,
-    and context", top_k=5) in parallel with mas_evaluate(
-    task_description=<the user's request>, active_tool_names=
-    "research_agent,ops_agent,media_agent,user_data_agent,
-    agent_skills_tool") to assess the task.
+    context, and recent MAS outcome success metrics", top_k=10), then
+    call mas_evaluate(task_description=<the user's request>,
+    active_tool_names="research_agent,ops_agent,media_agent,user_data_agent",
+    memory_results=<get_memory output or []>) to
+    assess the task.
 
     Exception: when the user requests their daily briefing, call
     get_memory FIRST and wait for results before calling any other
@@ -1008,6 +1011,7 @@ workflow:
     - get_memory
     - add_memory
     - delete_memory
+    - source_verifier_tool
     - mas_optimizer_tool
     - agent_skills_tool
     - user_interaction_tool

@@ -316,9 +316,15 @@ async def mas_optimizer_function(config: MasOptimizerConfig, builder: Builder):
         result = {
             "recommendation": "MAS" if mas_recommended else "SAS",
             "capability_gate": {
-                "sas_accuracy_estimate": round(cap.sas_accuracy_estimate, 3),
+                "sas_accuracy_estimate": (
+                    round(cap.sas_accuracy_estimate, 3)
+                    if cap.sas_accuracy_estimate is not None
+                    else None
+                ),
                 "threshold": cap.threshold,
                 "eligible": cap.mas_eligible,
+                "has_calibration": cap.has_calibration,
+                "sample_count": cap.sample_count,
                 "reason": cap.reason,
             },
             "task_analysis": {
@@ -332,6 +338,7 @@ async def mas_optimizer_function(config: MasOptimizerConfig, builder: Builder):
             },
             "architecture": {
                 "type": full_arch,
+                "skill_name": "mas-procedure" if mas_recommended else None,
                 "error_amplification": error_amp,
                 "optimal_msg_density": (
                     OPTIMAL_MSG_DENSITY if mas_recommended else None
@@ -596,8 +603,8 @@ async def mas_optimizer_function(config: MasOptimizerConfig, builder: Builder):
                 "(SAS accuracy < 0.45), task decomposability, and sequential "
                 "interdependence analysis per 'Towards a Science of Scaling "
                 "Agent Systems'. Returns a JSON assessment with architecture "
-                "recommendation (SAS, centralized, or decentralized), gate "
-                "results, and confidence score."
+                "recommendation (SAS, centralized, or decentralized), "
+                "skill_name, gate results, and confidence score."
             ),
         )
 
