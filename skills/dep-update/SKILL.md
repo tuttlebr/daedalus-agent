@@ -1,4 +1,11 @@
+---
+name: dep-update
+description: Update Dynamo Enhancement Proposal (DEP) lifecycle state on ai-dynamo/dynamo - triage, review, approve, defer, or close - including the PIC workflow and `/approve` aggregation pattern. Use when moving a DEP through review, recording approvals, deferring or closing a DEP, or changing DEP status labels.
+---
+
 # Skill: Update DEP Lifecycle
+
+> **Related skills:** `dep-create` (file a new DEP), `dep-status` (list and filter DEPs).
 
 ## Purpose
 

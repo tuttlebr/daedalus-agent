@@ -2,25 +2,6 @@
 name: nvcf-self-managed-cli
 description: Manage NVIDIA Cloud Functions on self-managed deployments via the nvcf-cli. Create, deploy, invoke, and delete functions; manage API keys and registry credentials. Use when working with self-managed NVCF, self-hosted cloud functions, nvcf-cli, function deployment, invocation, API key generation, or registry credentials.
 compatibility: Requires nvcf-cli binary installed and configured with .nvcf-cli.yaml
-metadata:
-  author: "NVIDIA"
-  version: "1.0"
-  tags:
-    - nvcf
-    - self-managed
-    - self-hosted
-    - cloud-functions
-    - cli
-    - deployment
-    - invocation
-    - api-key
-    - registry
-    - function
-  languages:
-    - bash
-  frameworks:
-    - nvcf-cli
-  domain: cloud-infrastructure
 ---
 
 # NVCF Self-Managed CLI Skill
@@ -158,6 +139,10 @@ nvcf-cli --debug function list
 | 403 Forbidden | `nvcf-cli api-key generate --validate` |
 | Token expired | `nvcf-cli refresh` then `nvcf-cli api-key generate` |
 | 404 on self-hosted | Verify host headers match HTTPRoute hostnames. See [Configuration Reference](references/configuration.md). |
+
+## Worked Examples
+
+For end-to-end workflows (create + deploy + invoke + cleanup, API key management, registry credentials, multi-environment switching), see [examples.md](examples.md).
 
 ## Reference Docs
 

@@ -1,6 +1,6 @@
 ---
 name: profile-loader
-description: Load user profile data into Redis as native JSON documents for personalized agent responses
+description: Load user profile data into Redis as native JSON documents (via JSON.SET) for the personalized agent stack to query. Use when initializing or refreshing a user profile in Redis, seeding profile sections (preferences, context, history) for personalization, or running the load_profile.py script against a user's profile-data.json input.
 ---
 
 # Profile Loader
@@ -28,6 +28,33 @@ JSON.GET profile:tuttlebr:health_and_medications $.medications[*].name
 Call `run_skill_script` with:
 - skill_name: `profile-loader`
 - script_name: `load_profile.py`
+
+## Input format
+
+The script reads `resources/profile-data.json` (relative to the skill directory). The file must contain a top-level object with two required fields:
+
+- `user_id` (string): The Redis key prefix. Must match `^[a-zA-Z0-9_.-]+$` — alphanumerics, dot, underscore, hyphen only. Invalid IDs cause the script to exit with an error.
+- `sections` (object): A map of section name → arbitrary JSON. Each entry becomes a Redis key `profile:<user_id>:<section_name>`. The section names listed in the table below are conventional — additional sections are loaded as-is.
+
+Minimal example:
+
+```json
+{
+  "user_id": "tuttlebr",
+  "sections": {
+    "identity": {
+      "full_name": "Brandon Tuttle",
+      "email": "btuttle@nvidia.com"
+    },
+    "communication_style": {
+      "framework": "BLUF",
+      "verbosity": "concise"
+    }
+  }
+}
+```
+
+The file is gitignored by convention since it contains personal data. Place it at `skills/profile-loader/resources/profile-data.json` before running the script.
 
 ## Sections stored
 

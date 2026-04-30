@@ -912,7 +912,7 @@ workflow:
     Daily briefing exception: call get_memory FIRST, await results, then proceed. The briefing procedure is stored in memory and must be followed exactly.
 
     # Routing (do third)
-    Skills beat architecture. If the request obviously matches a skill (code-review, content-research-writer, executive-voice, mas-procedure, nvcf-ngc-cli-skill, nvcf-self-managed-cli, nvcf-self-managed-installation, pr-monitor, debug-session, gh-issue-bug, dep-create/status/update), call agent_skills_tool.load_skill directly. Use list_skills only when unsure.
+    Skills beat architecture. If the request obviously matches a skill (code-review, content-research-writer, executive-voice, mas-procedure, nvcf-ngc-cli-skill, nvcf-self-managed-cli, nvcf-self-managed-installation, pr-monitor, debug-session, dynamo-bug, dep-create/status/update), call agent_skills_tool.load_skill directly. Use list_skills only when unsure.
 
     Otherwise follow mas_evaluate:
     - SAS: delegate to the sub-agent whose description matches.

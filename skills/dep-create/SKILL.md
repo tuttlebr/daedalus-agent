@@ -1,4 +1,11 @@
+---
+name: dep-create
+description: Create a new Dynamo Enhancement Proposal (DEP) as a GitHub issue on ai-dynamo/dynamo, add an implementation plan to an existing DEP, or file a retroactive DEP for already-merged work. Use when the user wants to propose a feature or architecture change, formalize a design decision, write up a DEP, or document past work as a retroactive DEP.
+---
+
 # Skill: Create a DEP as a GitHub Issue
+
+> **Related skills:** `dep-status` (list and filter DEPs), `dep-update` (move DEPs through their lifecycle).
 
 ## Purpose
 

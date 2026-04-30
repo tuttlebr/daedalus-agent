@@ -2,27 +2,6 @@
 name: nvcf-self-managed-installation
 description: Install and deploy the nvcf-self-managed-stack helmfile bundle for NVCF self-hosted deployments. Covers clean installation, teardown, helm values overrides, image pull secrets, fake GPU operator setup, and debugging installation failures. Use when deploying, installing, reinstalling, tearing down, or configuring the NVCF self-managed control plane stack, or when the user mentions helmfile, self-managed, self-hosted, control plane installation, nvcf-self-managed-stack, or fake GPU operator.
 compatibility: Requires helmfile >= 1.1.0 < 1.2.0, helm >= 3.12, helm-diff plugin, kubectl matching cluster version
-metadata:
-  author: "NVIDIA"
-  version: "1.0"
-  tags:
-    - nvcf
-    - self-managed
-    - helmfile
-    - self-hosted
-    - control-plane
-    - installation
-    - deployment
-    - pull-secrets
-    - fake-gpu-operator
-  languages:
-    - bash
-    - yaml
-  frameworks:
-    - helmfile
-    - helm
-    - kubectl
-  domain: cloud-infrastructure
 ---
 
 # NVCF Self-Managed Stack Operations

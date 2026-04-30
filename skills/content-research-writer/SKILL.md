@@ -1,6 +1,6 @@
 ---
 name: content-research-writer
-description: Assists in writing high-quality content by conducting research, adding citations, improving hooks, iterating on outlines, and providing real-time feedback on each section. Transforms your writing process from solo effort to collaborative partnership.
+description: Collaborate on long-form writing - blog posts, articles, newsletters, thought leadership, case studies, technical docs - by researching topics, adding citations, strengthening hooks, iterating on outlines, and giving section-by-section feedback while preserving the user's voice. Use when the user is drafting any long-form piece and wants iterative research, structure, and editorial feedback rather than a one-shot generation.
 ---
 
 # Content Research Writer
@@ -201,50 +201,7 @@ When a user requests writing assistance:
 
 5. **Provide Section-by-Section Feedback**
 
-   As user writes each section, review for:
-
-   ```markdown
-   # Feedback: [Section Name]
-
-   ## What Works Well ✓
-   - [Strength 1]
-   - [Strength 2]
-   - [Strength 3]
-
-   ## Suggestions for Improvement
-
-   ### Clarity
-   - [Specific issue] → [Suggested fix]
-   - [Complex sentence] → [Simpler alternative]
-
-   ### Flow
-   - [Transition issue] → [Better connection]
-   - [Paragraph order] → [Suggested reordering]
-
-   ### Evidence
-   - [Claim needing support] → [Add citation or example]
-   - [Generic statement] → [Make more specific]
-
-   ### Style
-   - [Tone inconsistency] → [Match your voice better]
-   - [Word choice] → [Stronger alternative]
-
-   ## Specific Line Edits
-
-   Original:
-   > [Exact quote from draft]
-
-   Suggested:
-   > [Improved version]
-
-   Why: [Explanation]
-
-   ## Questions to Consider
-   - [Thought-provoking question 1]
-   - [Thought-provoking question 2]
-
-   Ready to move to next section!
-   ```
+   As the user writes each section, review for clarity, flow, evidence, and style. Cover what's working, what to improve, and offer specific line edits. The full template (with subsection structure for Clarity / Flow / Evidence / Style and a Specific Line Edits block) is in `references/templates.md` — read it when the user wants the full structured feedback. For shorter sections, give a tighter version that skips subsections that don't apply.
 
 6. **Preserve Writer's Voice**
 
@@ -295,57 +252,7 @@ When a user requests writing assistance:
 
 8. **Final Review and Polish**
 
-   When draft is complete, provide comprehensive feedback:
-
-   ```markdown
-   # Full Draft Review
-
-   ## Overall Assessment
-
-   **Strengths**:
-   - [Major strength 1]
-   - [Major strength 2]
-   - [Major strength 3]
-
-   **Impact**: [Overall effectiveness assessment]
-
-   ## Structure & Flow
-   - [Comments on organization]
-   - [Transition quality]
-   - [Pacing assessment]
-
-   ## Content Quality
-   - [Argument strength]
-   - [Evidence sufficiency]
-   - [Example effectiveness]
-
-   ## Technical Quality
-   - Grammar and mechanics: [assessment]
-   - Consistency: [assessment]
-   - Citations: [completeness check]
-
-   ## Readability
-   - Clarity score: [evaluation]
-   - Sentence variety: [evaluation]
-   - Paragraph length: [evaluation]
-
-   ## Final Polish Suggestions
-
-   1. **Introduction**: [Specific improvements]
-   2. **Body**: [Specific improvements]
-   3. **Conclusion**: [Specific improvements]
-   4. **Title**: [Options if needed]
-
-   ## Pre-Publish Checklist
-   - [ ] All claims sourced
-   - [ ] Citations formatted
-   - [ ] Examples clear
-   - [ ] Transitions smooth
-   - [ ] Call to action present
-   - [ ] Proofread for typos
-
-   Ready to publish! 🚀
-   ```
+   When the draft is complete, provide comprehensive feedback covering Overall Assessment, Structure & Flow, Content Quality, Technical Quality, Readability, Final Polish Suggestions, and a Pre-Publish Checklist. The full template is in `references/templates.md`. Collapse sections that don't apply (e.g., a short newsletter doesn't need a separate Readability section) — the goal is useful feedback, not template completion.
 
 ## Examples
 

@@ -1,4 +1,11 @@
+---
+name: dep-status
+description: List and filter open DEPs (Dynamo Enhancement Proposals) by status, area, or PIC; find DEPs related to a topic or component on ai-dynamo/dynamo. Use when triaging the DEP backlog, checking what's pending review, surveying DEPs touching a specific subsystem, or generating a DEP status summary.
+---
+
 # Skill: Check DEP Status
+
+> **Related skills:** `dep-create` (file a new DEP), `dep-update` (move DEPs through their lifecycle).
 
 ## Purpose
 

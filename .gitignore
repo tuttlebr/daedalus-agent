@@ -196,3 +196,6 @@ profile-data.json
 # Eval run outputs (keep directory via .gitkeep)
 evals/results/*.json
 download-autonomous-images.py
+
+# Skill description optimizer workspaces (transient eval data)
+skills/*-optimizer-workspace/

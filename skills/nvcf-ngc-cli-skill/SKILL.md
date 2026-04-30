@@ -2,32 +2,6 @@
 name: nvcf-ngc-cli-skill
 description: Comprehensive skill for NVIDIA Cloud Functions (NVCF) via NGC CLI. Covers functions, tasks, clusters, GPU management, and the NGC registry (nvcr.io). Use when working with cloud functions, deployments, batch tasks, cluster registration, GPU capacity, container images, Helm charts, models, resources, or when the user mentions ngc cf, NVCF, cloud functions, function deployment, GPU quota, nvcr.io, ngc registry, pushing images, or container registry.
 compatibility: Requires NGC CLI installed and configured
-metadata:
-  author: "NVIDIA"
-  version: "1.0"
-  tags:
-    - ngc
-    - nvcf
-    - cloud-functions
-    - deployment
-    - serverless
-    - task
-    - batch
-    - cluster
-    - gpu
-    - cli
-    - registry
-    - nvcr
-    - container-image
-    - helm-chart
-    - model
-    - resource
-  languages:
-    - bash
-    - python
-  frameworks:
-    - ngc-cli
-  domain: cloud-infrastructure
 ---
 
 # NGC Cloud Functions CLI Skill

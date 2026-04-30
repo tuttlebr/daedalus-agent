@@ -1,6 +1,6 @@
 ---
 name: debug-session
-description: Start a debugging session with worklog file
+description: Set up a structured debugging session for an issue in the Dynamo ecosystem - creates a worklog file, gathers environment details (KV cache, backends like SGLang/vLLM/TensorRT-LLM, ZMQ, GPU state via nvidia-smi), captures the bug report and reproduction steps, and frames the investigation. Use when starting work on a Dynamo bug, runtime issue, or performance regression that needs a tracked investigation rather than a quick fix.
 user-invocable: true
 disable-model-invocation: true
 ---

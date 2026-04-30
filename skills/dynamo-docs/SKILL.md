@@ -1,6 +1,6 @@
 ---
 name: dynamo-docs
-description: Maintain Dynamo Fern docs site -- add, update, move, or remove pages. Use for any documentation changes.
+description: Maintain the Dynamo Fern documentation site - add new pages, update existing content, move pages between sections, or remove pages, including navigation (docs.yml) and validation. Use when the user wants to write, edit, restructure, or delete docs on the Dynamo Fern site, or asks for documentation changes scoped to the Dynamo project.
 ---
 
 # Dynamo Docs Maintenance

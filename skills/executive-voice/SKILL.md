@@ -21,7 +21,7 @@ The user will provide content via `$ARGUMENTS` or in conversation. This could be
 
 If the input is unclear or missing, ask: "What are you trying to communicate, and to whom?"
 
-If the user points to team strategy documents, read `assets/INDEX.md` first to find the right source files.
+If the user points to team strategy documents, check whether an `assets/INDEX.md` file exists in the working directory and read it first to find the right source files. (No INDEX exists in many projects; in that case ask the user where the source documents live.)
 
 ## Step 2: Audience Calibration
 
@@ -110,7 +110,7 @@ Executives are drowning in information. Every sentence must earn its place.
 
 ### Filter 8: Cultural Resonance
 
-Read `assets/character-of-nvidia.md` for NVIDIA's cultural DNA. Apply this filter when the audience is SVP+ or estaff — especially for QBR slides, headcount justifications, or strategy pitches. Jensen's vocabulary carries weight at the top of the org.
+If `assets/character-of-nvidia.md` exists in the working directory, read it for additional NVIDIA cultural context to layer on top of the principles below. Apply this filter when the audience is SVP+ or estaff — especially for QBR slides, headcount justifications, or strategy pitches. Jensen's vocabulary carries weight at the top of the org.
 
 Check whether the content speaks this language when appropriate:
 
@@ -156,4 +156,82 @@ Suggest what should be in backup slides or appendix — detail that supports the
 - Be constructive. Every critique comes with a fix.
 - Be honest about what's good. If something works, say so and say why.
 - Channel the executive reviewer mindset: "If I was an executive reading this, I'd want to know the good, the bad, and the potential strategy."
-- For generating executive communication from scratch (rather than reviewing existing content), use `/exec-bridge`.
+
+## Worked examples
+
+These show the filters applied end-to-end. Use them as a calibration reference, not a template — the form should match what the user actually gave you.
+
+### Example 1: Buried jargon → plain framing
+
+**Original (a bullet from a QBR slide):**
+
+> Utilization of TRT-LLM is non-exclusive across our top 10 inference customers. Most are running TRT-LLM concurrently with vLLM and SGLang, with day-0 win rate skewing toward vLLM in 7/10 accounts.
+
+**Review:**
+
+- **Filter 1 (So What?)**: The reader has to assemble the implication themselves. They will not.
+- **Filter 4 (Jargon)**: "non-exclusive," "day-0 win rate" — assumes deep context.
+- **Filter 6 (Decision-enabling)**: Where's the ask? What should the exec do with this?
+
+**Rewrite:**
+
+> Customers hedge across inference engines. vLLM is winning the first deployment in 7/10 of our top accounts because it ships fastest — TRT-LLM gets added later for optimization. We need to own the on-ramp (vLLM compatibility on day 0) or we lose the funnel before the optimization conversation starts.
+
+### Example 2: Bullet salad → so-what summary
+
+**Original (an email update to the VP):**
+
+> Update on the inference platform work:
+> - Migrated 4 services to the new runtime
+> - Hit 95% test coverage
+> - Resolved P1 from last week
+> - Onboarded 2 new customers
+> - Started planning Q3 work
+
+**Review:**
+
+- **Filter 2 (5-Second Rule)**: No takeaway. The exec has to compose the story.
+- **Filter 3 (Good/Bad/Strategy)**: All "good" — what's at risk? What needs help?
+- **Filter 6 (Decision-enabling)**: No ask. This is a status report, not a leadership update.
+
+**Rewrite:**
+
+> **5-second takeaway:** Inference platform is on track for Q2 commitments; Q3 capacity is the constraint, not engineering velocity.
+>
+> **Good:** 4 services migrated, 2 new customers onboarded, P1 cleared. Test coverage at 95%.
+>
+> **Bad:** Q3 plan currently exceeds team capacity by ~30%. We need to either descope or add 2 SWEs.
+>
+> **Ask:** Decision on descope-vs-staff by next staff meeting so we can commit Q3 dates.
+
+### Example 3: Status report → decision-enabling brief
+
+**Original (slide title + body for an estaff review):**
+
+> *Title:* "NCP Integration Progress"
+>
+> *Body:* "We are currently in the integration phase of the NCP partnership. The team has been working through several technical challenges including authentication, data sync, and performance optimization. We expect to complete integration in Q3."
+
+**Review:**
+
+- **Filter 2 (5-Second Rule)**: Title says "progress." That's a non-statement.
+- **Filter 7 (Insight density)**: Three sentences, zero insights. "Working through challenges" is filler.
+- **Filter 8 (NUD analysis, micro-dependency thinking)**: What's NUD here? What can be unblocked sooner?
+- **Filter 3 (Strategy)**: Where's the strategic implication of this integration?
+
+**Rewrite:**
+
+> *Title:* "NCP integration: 6 weeks to revenue, 2 dependencies in flight"
+>
+> *Body:* SOL for this integration is 6 weeks. Our plan is 8 weeks; the delta is two dependencies — NCP's auth API ships week 4, and their data-sync schema lands week 5. We've decomposed the work so our team starts on the perf work this week and joins auth and sync as they unblock. NUD: this is the first NCP partnership using the new auth model; we have a working group with their team meeting weekly. Strategic implication: this integration is the reference architecture; NCPs 2 and 3 will be 30-50% faster.
+
+## Glossary (NVIDIA cultural shorthand)
+
+Jensen-isms that recur in Filter 8 and across executive communication at NVIDIA:
+
+- **SOL (Speed of Light)** — The theoretical fastest execution from first principles. Plans are evaluated against SOL, and the gap between SOL and the actual plan is interrogated.
+- **NUD (New, Unique, Difficult)** — The dimensions on which a plan will be probed. What's new to the team? What's unique to this situation? What's difficult in ways past projects weren't?
+- **Trust but verify** — The verification mindset. Confidence comes from checkpoints and data, not assertions.
+- **First principles** — Reasoning from fundamentals rather than precedent. Used to justify pivots, resequencing, and resource asks.
+- **Speed = preparation** — Moving fast comes from risk analysis and dependency mapping, not just hustle. Hustle without preparation reads as naive.
+- **Micro-dependencies** — Breaking large blockers into small unlockable pieces so adjacent teams can start sooner.

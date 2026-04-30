@@ -930,7 +930,7 @@ workflow:
     content-research-writer, executive-voice, mas-procedure,
     nvcf-ngc-cli-skill, nvcf-self-managed-cli,
     nvcf-self-managed-installation, pr-monitor, debug-session,
-    gh-issue-bug, dep-create/status/update), load it directly with
+    dynamo-bug, dep-create/status/update), load it directly with
     agent_skills_tool.load_skill. Use list_skills only when unsure.
     Skills take priority over architecture routing when the match is
     obvious.
