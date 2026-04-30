@@ -9,17 +9,21 @@ data:
   frontend.conf: |-
 {{- if .Values.nginx.config.useTemplate }}
 {{- $frontendHost := printf "%s-frontend.%s.svc.cluster.local" (include "daedalus.fullname" .) .Release.Namespace -}}
-{{- $_ := set . "_frontendHost" $frontendHost -}}
-{{- $kubeDnsSvc := (lookup "v1" "Service" "kube-system" "kube-dns") -}}
-{{- $_ := set . "_resolverIP" (dig "spec" "clusterIP" "10.96.0.10" ($kubeDnsSvc | default dict)) -}}
+{{- $frontendSvc := (lookup "v1" "Service" .Release.Namespace (printf "%s-frontend" (include "daedalus.fullname" .))) -}}
+{{- $frontendUpstreamHost := dig "spec" "clusterIP" $frontendHost ($frontendSvc | default dict) -}}
+{{- $_ := set . "_frontendHTTPUpstream" (printf "http://%s:3000" $frontendUpstreamHost) -}}
+{{- $_ := set . "_frontendWSUpstream" (printf "http://%s:3001" $frontendUpstreamHost) -}}
 {{- if .Values.nginx.config.restrictedMode }}
 {{ tpl (printf "%s" (include "nginx.frontend.conf.restricted" .)) . | indent 4 }}
 {{- else }}
 {{- $backendHost := .Values.nginx.config.backendHost | default (printf "%s-backend.%s.svc.cluster.local" (include "daedalus.fullname" .) .Release.Namespace) -}}
 {{- $backendPort := .Values.nginx.config.backendPort | default 8000 -}}
+{{- $backendDefaultHost := printf "%s-backend-default.%s.svc.cluster.local" (include "daedalus.fullname" .) .Release.Namespace -}}
+{{- $backendDefaultSvc := (lookup "v1" "Service" .Release.Namespace (printf "%s-backend-default" (include "daedalus.fullname" .))) -}}
+{{- $backendDefaultUpstreamHost := dig "spec" "clusterIP" $backendDefaultHost ($backendDefaultSvc | default dict) -}}
 {{- $_ := set . "_backendHost" $backendHost -}}
 {{- $_ := set . "_backendPort" $backendPort -}}
-{{- $_ := set . "_backendDefaultUpstream" (printf "%s-backend-default.%s.svc.cluster.local:%v" (include "daedalus.fullname" .) .Release.Namespace .Values.backend.default.port) -}}
+{{- $_ := set . "_backendDefaultUpstream" (printf "http://%s:%v" $backendDefaultUpstreamHost .Values.backend.default.port) -}}
 {{ tpl (printf "%s" (include "nginx.frontend.conf.template" .)) . | indent 4 }}
 {{- end }}
 {{- else }}
@@ -46,11 +50,8 @@ server {
     {{- end }}
     server_name localhost;
 
-    # Resolve upstreams at request time (avoids crash if DNS is unavailable at startup)
-    resolver {{ ._resolverIP }} valid=10s;
-    set $upstream_frontend http://{{ ._frontendHost }}:3000;
-    set $upstream_frontend_ws http://{{ ._frontendHost }}:3001;
-    set $upstream_backend_default http://{{ ._backendDefaultUpstream }};
+    # Upstreams are rendered by Helm. Prefer Service ClusterIPs when available
+    # so frontend availability does not depend on per-request nginx DNS lookups.
 
     # Security headers
     add_header X-Frame-Options "DENY" always;
@@ -85,7 +86,7 @@ server {
 
     # Frontend API routes - Long-running AI requests
     location /api/chat {
-        proxy_pass $upstream_frontend;
+        proxy_pass {{ ._frontendHTTPUpstream }};
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection 'upgrade';
@@ -112,7 +113,7 @@ server {
 
     # Other frontend API routes
     location /api/ {
-        proxy_pass $upstream_frontend;
+        proxy_pass {{ ._frontendHTTPUpstream }};
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection 'upgrade';
@@ -130,7 +131,7 @@ server {
 
     # WebSocket sidecar - real-time communication
     location /ws {
-        proxy_pass $upstream_frontend_ws;
+        proxy_pass {{ ._frontendWSUpstream }};
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
@@ -145,7 +146,7 @@ server {
 
     # Main application - Next.js frontend
     location / {
-        proxy_pass $upstream_frontend;
+        proxy_pass {{ ._frontendHTTPUpstream }};
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection $connection_upgrade;
@@ -161,7 +162,7 @@ server {
 
     # API routes - OpenAI compatible endpoint
     location /v1/ {
-        proxy_pass $upstream_backend_default;
+        proxy_pass {{ ._backendDefaultUpstream }};
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection 'upgrade';
@@ -191,7 +192,7 @@ server {
 
     # NAT generate endpoints (including streaming)
     location /generate/ {
-        proxy_pass $upstream_backend_default;
+        proxy_pass {{ ._backendDefaultUpstream }};
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection 'upgrade';
@@ -221,7 +222,7 @@ server {
 
     # Chat endpoints
     location /chat/ {
-        proxy_pass $upstream_backend_default;
+        proxy_pass {{ ._backendDefaultUpstream }};
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection 'upgrade';
@@ -268,7 +269,7 @@ server {
 
     # Upload endpoints
     location ~ ^/(upload|tools|health)/ {
-        proxy_pass $upstream_backend_default;
+        proxy_pass {{ ._backendDefaultUpstream }};
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
@@ -282,7 +283,7 @@ server {
 
     # Evaluate endpoints
     location /evaluate {
-        proxy_pass $upstream_backend_default;
+        proxy_pass {{ ._backendDefaultUpstream }};
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
@@ -297,7 +298,7 @@ server {
 
     # Auth redirect endpoint
     location /auth/redirect {
-        proxy_pass $upstream_backend_default;
+        proxy_pass {{ ._backendDefaultUpstream }};
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
@@ -329,7 +330,7 @@ server {
     location /health {
         # Always use default backend for health checks
         rewrite ^ /docs break;
-        proxy_pass $upstream_backend_default;
+        proxy_pass {{ ._backendDefaultUpstream }};
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
@@ -339,7 +340,7 @@ server {
 
     # Static files caching
     location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$ {
-        proxy_pass $upstream_frontend;
+        proxy_pass {{ ._frontendHTTPUpstream }};
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
@@ -353,7 +354,7 @@ server {
 
     # Next.js specific routes
     location /_next/ {
-        proxy_pass $upstream_frontend;
+        proxy_pass {{ ._frontendHTTPUpstream }};
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
@@ -367,7 +368,7 @@ server {
 
     # Handle favicon
     location /favicon.ico {
-        proxy_pass $upstream_frontend/favicon.ico;
+        proxy_pass {{ ._frontendHTTPUpstream }}/favicon.ico;
         expires 1d;
         add_header Cache-Control "public";
     }
@@ -399,10 +400,8 @@ server {
     {{- end }}
     server_name localhost;
 
-    # Resolve upstreams at request time (avoids crash if DNS is unavailable at startup)
-    resolver {{ ._resolverIP }} valid=10s;
-    set $upstream_frontend http://{{ ._frontendHost }}:3000;
-    set $upstream_frontend_ws http://{{ ._frontendHost }}:3001;
+    # Upstreams are rendered by Helm. Prefer Service ClusterIPs when available
+    # so frontend availability does not depend on per-request nginx DNS lookups.
 
     # Security headers
     add_header X-Frame-Options "DENY" always;
@@ -434,7 +433,7 @@ server {
 
     # Frontend API routes - Long-running AI requests
     location /api/chat {
-        proxy_pass $upstream_frontend;
+        proxy_pass {{ ._frontendHTTPUpstream }};
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection 'upgrade';
@@ -461,7 +460,7 @@ server {
 
     # Other frontend API routes
     location /api/ {
-        proxy_pass $upstream_frontend;
+        proxy_pass {{ ._frontendHTTPUpstream }};
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection 'upgrade';
@@ -479,7 +478,7 @@ server {
 
     # WebSocket sidecar - real-time communication
     location /ws {
-        proxy_pass $upstream_frontend_ws;
+        proxy_pass {{ ._frontendWSUpstream }};
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
@@ -494,7 +493,7 @@ server {
 
     # Main application - Next.js frontend ONLY
     location / {
-        proxy_pass $upstream_frontend;
+        proxy_pass {{ ._frontendHTTPUpstream }};
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection $connection_upgrade;
@@ -507,7 +506,7 @@ server {
 
     # Next.js specific routes
     location /_next/ {
-        proxy_pass $upstream_frontend;
+        proxy_pass {{ ._frontendHTTPUpstream }};
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
@@ -519,14 +518,14 @@ server {
 
     # Static files
     location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$ {
-        proxy_pass $upstream_frontend;
+        proxy_pass {{ ._frontendHTTPUpstream }};
         expires 1y;
         add_header Cache-Control "public, immutable";
     }
 
     # Handle favicon
     location /favicon.ico {
-        proxy_pass $upstream_frontend/favicon.ico;
+        proxy_pass {{ ._frontendHTTPUpstream }}/favicon.ico;
         expires 1d;
         add_header Cache-Control "public";
     }
