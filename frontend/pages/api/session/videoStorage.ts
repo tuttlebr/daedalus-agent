@@ -1,6 +1,6 @@
 import { NextApiRequest, NextApiResponse } from 'next';
 import { getRedis, sessionKey, jsonGet, jsonDel, jsonSetWithExpiry } from './redis';
-import { getUserId, getOrSetSessionId } from './_utils';
+import { getOrSetSessionId, requireAuthenticatedUser } from './_utils';
 import { validateVideoMagicBytes } from '@/utils/app/magicBytes';
 import crypto from 'crypto';
 
@@ -177,8 +177,11 @@ export async function getUserVideos(userId: string): Promise<string[]> {
 }
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  const session = await requireAuthenticatedUser(req, res);
+  if (!session) return;
+
   const sessionId = getOrSetSessionId(req, res);
-  const userId = await getUserId(req, res);
+  const userId = session.username;
 
   if (req.method === 'POST') {
     // Store video
@@ -218,6 +221,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
       if (!video) {
         return res.status(404).json({ error: 'Video not found' });
+      }
+
+      if (!canAccessStoredVideo(video, sessionId, userId)) {
+        return res.status(403).json({ error: 'Forbidden' });
       }
 
       // Return video data with caching
@@ -271,3 +278,14 @@ export const config = {
     },
   },
 };
+
+function canAccessStoredVideo(
+  video: StoredVideo,
+  currentSessionId: string,
+  currentUserId: string,
+): boolean {
+  if (video.userId) {
+    return video.userId === currentUserId;
+  }
+  return video.sessionId === currentSessionId;
+}

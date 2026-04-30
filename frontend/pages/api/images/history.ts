@@ -1,6 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 
-import { getOrSetSessionId, getUserId } from '../session/_utils';
+import { getOrSetSessionId, requireAuthenticatedUser } from '../session/_utils';
 import { jsonDel, jsonGet, jsonSetWithExpiry, sessionKey } from '../session/redis';
 
 const IMAGE_HISTORY_TTL_SECONDS = 60 * 60 * 24 * 7;
@@ -98,8 +98,11 @@ export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse,
 ) {
+  const session = await requireAuthenticatedUser(req, res);
+  if (!session) return;
+
   const sessionId = getOrSetSessionId(req, res);
-  const userId = await getUserId(req, res);
+  const userId = session.username;
   const key = historyKey(userId, sessionId);
 
   if (req.method === 'GET') {

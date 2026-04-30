@@ -1,15 +1,14 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { getRedis, sessionKey, jsonSetWithExpiry, jsonDel, jsonGet } from '../session/redis';
-import { getUserId } from '../session/_utils';
+import { sessionKey, jsonSetWithExpiry, jsonDel, jsonGet } from '../session/redis';
+import { requireAuthenticatedUser } from '../session/_utils';
 
 const PUSH_SUBSCRIPTION_EXPIRY = 60 * 60 * 24 * 30; // 30 days
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  const userId = await getUserId(req, res);
-  if (!userId) {
-    return res.status(401).json({ error: 'Not authenticated' });
-  }
+  const session = await requireAuthenticatedUser(req, res);
+  if (!session) return;
 
+  const userId = session.username;
   const key = sessionKey(['user', userId, 'push-subscriptions']);
 
   if (req.method === 'POST') {

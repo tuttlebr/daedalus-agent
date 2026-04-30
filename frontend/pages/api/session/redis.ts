@@ -1,4 +1,10 @@
-import Redis from 'ioredis';
+import dns from 'node:dns';
+import Redis, { RedisOptions } from 'ioredis';
+import { primeDns, getCachedIp } from './dns-cache';
+
+// Prefer IPv4 — Node ≥17 defaults to 'verbatim' which can return AAAA
+// records first and stall DNS resolution against Kubernetes CoreDNS.
+dns.setDefaultResultOrder('ipv4first');
 
 let redis: Redis | null = null;
 let redisJsonSupported: boolean | null = null;
@@ -6,6 +12,68 @@ let redisJsonSupported: boolean | null = null;
 // Dedicated pub/sub clients (cannot reuse connections for pub/sub)
 let publisher: Redis | null = null;
 let subscriber: Redis | null = null;
+
+// Tolerate transient DNS / network failures: queue commands until the
+// connection recovers instead of failing them with MaxRetriesPerRequestError.
+const REDIS_CLIENT_OPTIONS: RedisOptions = {
+  lazyConnect: true,
+  maxRetriesPerRequest: null,
+  enableOfflineQueue: true,
+  reconnectOnError: () => true,
+  connectTimeout: 10_000,
+  retryStrategy: (times) => Math.min(times * 200, 2_000),
+  family: 4,
+};
+
+function resolveRedisUrl(): string {
+  const raw = process.env.REDIS_URL || 'redis://redis:6379';
+  try {
+    const parsed = new URL(raw);
+    const cachedIp = getCachedIp(parsed.hostname);
+    if (cachedIp && cachedIp !== parsed.hostname) {
+      parsed.hostname = cachedIp;
+      return parsed.toString();
+    }
+  } catch {
+    // Fall through to raw URL
+  }
+  return raw;
+}
+
+// Fire-and-forget: prime cache for the configured Redis host at module load.
+try {
+  const seedHost = new URL(process.env.REDIS_URL || 'redis://redis:6379').hostname;
+  void primeDns(seedHost);
+} catch {
+  // Ignore unparseable URL — connection will fail later with a clearer error.
+}
+
+// Collapse repeated transient errors (EAI_AGAIN, ECONNRESET, etc.) into a
+// single log line per (label, code) every 30 s so logs are scannable.
+type ThrottleState = { count: number; firstSeen: number };
+const errorThrottle = new Map<string, ThrottleState>();
+const ERROR_LOG_INTERVAL_MS = 30_000;
+
+function logRedisErrorThrottled(label: string, error: unknown): void {
+  const code = (error as NodeJS.ErrnoException)?.code ?? 'UNKNOWN';
+  const key = `${label}:${code}`;
+  const now = Date.now();
+  const state = errorThrottle.get(key);
+  if (!state) {
+    console.error(`Redis ${label} error (${code}):`, error);
+    errorThrottle.set(key, { count: 1, firstSeen: now });
+    return;
+  }
+  if (now - state.firstSeen > ERROR_LOG_INTERVAL_MS) {
+    console.error(
+      `Redis ${label} error (${code}) repeated ${state.count}x in last ${Math.round((now - state.firstSeen) / 1000)}s`,
+      error,
+    );
+    errorThrottle.set(key, { count: 1, firstSeen: now });
+    return;
+  }
+  state.count += 1;
+}
 
 // Channel name helpers for real-time sync
 export const channels = {
@@ -35,29 +103,27 @@ export function getRedis(): Redis {
   if (redis && !isRedisConnectionStale(redis)) {
     return redis;
   }
+  if (redis) {
+    redis.disconnect();
+    redis = null;
+  }
 
-  const url = process.env.REDIS_URL || 'redis://redis:6379';
-
-  redis = new Redis(url, {
-    lazyConnect: true,
-    maxRetriesPerRequest: 5,
-    enableOfflineQueue: true,
-    reconnectOnError: () => true,
-  });
+  redis = new Redis(resolveRedisUrl(), REDIS_CLIENT_OPTIONS);
 
   redis.on('error', (error) => {
-    console.error('Redis connection error', error);
+    logRedisErrorThrottled('main', error);
   });
 
   redis.connect().catch((error) => {
-    console.error('Failed to connect to Redis', error);
+    logRedisErrorThrottled('main-connect', error);
   });
 
   return redis;
 }
 
 function isRedisConnectionStale(client: Redis): boolean {
-  return ['end', 'close', 'reconnecting'].includes(client.status);
+  // 'reconnecting' means the client is actively recovering — keep it.
+  return ['end', 'close'].includes(client.status);
 }
 
 export function sessionKey(parts: Array<string | undefined | null>): string {
@@ -229,22 +295,19 @@ export function getPublisher(): Redis {
   if (publisher && !isRedisConnectionStale(publisher)) {
     return publisher;
   }
+  if (publisher) {
+    publisher.disconnect();
+    publisher = null;
+  }
 
-  const url = process.env.REDIS_URL || 'redis://redis:6379';
-
-  publisher = new Redis(url, {
-    lazyConnect: true,
-    maxRetriesPerRequest: 3,
-    enableOfflineQueue: true,
-    reconnectOnError: () => true,
-  });
+  publisher = new Redis(resolveRedisUrl(), REDIS_CLIENT_OPTIONS);
 
   publisher.on('error', (error) => {
-    console.error('Redis publisher connection error', error);
+    logRedisErrorThrottled('publisher', error);
   });
 
   publisher.connect().catch((error) => {
-    console.error('Failed to connect Redis publisher', error);
+    logRedisErrorThrottled('publisher-connect', error);
   });
 
   return publisher;
@@ -255,22 +318,19 @@ export function getSubscriber(): Redis {
   if (subscriber && !isRedisConnectionStale(subscriber)) {
     return subscriber;
   }
+  if (subscriber) {
+    subscriber.disconnect();
+    subscriber = null;
+  }
 
-  const url = process.env.REDIS_URL || 'redis://redis:6379';
-
-  subscriber = new Redis(url, {
-    lazyConnect: true,
-    maxRetriesPerRequest: 3,
-    enableOfflineQueue: true,
-    reconnectOnError: () => true,
-  });
+  subscriber = new Redis(resolveRedisUrl(), REDIS_CLIENT_OPTIONS);
 
   subscriber.on('error', (error) => {
-    console.error('Redis subscriber connection error', error);
+    logRedisErrorThrottled('subscriber', error);
   });
 
   subscriber.connect().catch((error) => {
-    console.error('Failed to connect Redis subscriber', error);
+    logRedisErrorThrottled('subscriber-connect', error);
   });
 
   return subscriber;

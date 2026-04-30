@@ -1,6 +1,6 @@
 import { NextApiRequest, NextApiResponse } from 'next';
 import { getRedis, sessionKey, jsonGet, jsonDel, jsonSetWithExpiry } from './redis';
-import { getUserId, getOrSetSessionId } from './_utils';
+import { getOrSetSessionId, requireAuthenticatedUser } from './_utils';
 import crypto from 'crypto';
 
 const VTT_EXPIRY_SECONDS = 60 * 60 * 24 * 7; // 7 days
@@ -138,8 +138,11 @@ export async function listSessionVTTs(sessionId: string): Promise<Array<{ id: st
 }
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  const session = await requireAuthenticatedUser(req, res);
+  if (!session) return;
+
   const sessionId = getOrSetSessionId(req, res);
-  const userId = await getUserId(req, res);
+  const userId = session.username;
 
   if (req.method === 'POST') {
     // Store VTT file
@@ -193,6 +196,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         return res.status(404).json({ error: 'VTT file not found' });
       }
 
+      if (!canAccessStoredVTT(vtt, sessionId, userId)) {
+        return res.status(403).json({ error: 'Forbidden' });
+      }
+
       // Return VTT content as text
       res.setHeader('Content-Type', vtt.mimeType);
       res.setHeader('Content-Disposition', `attachment; filename="${vtt.filename}"`);
@@ -237,3 +244,14 @@ export const config = {
     },
   },
 };
+
+function canAccessStoredVTT(
+  vtt: StoredVTT,
+  currentSessionId: string,
+  currentUserId: string,
+): boolean {
+  if (vtt.userId) {
+    return vtt.userId === currentUserId;
+  }
+  return vtt.sessionId === currentSessionId;
+}

@@ -2,7 +2,6 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { getRedis, sessionKey, jsonGet, jsonSetWithExpiry, jsonDel } from '../session/redis';
 import { touchImage } from '../session/imageStorage';
 import { getSession } from '@/utils/auth/session';
-import { getUserId } from '../session/_utils';
 import { extractImageReferences } from '@/utils/app/imageHandler';
 import { clampConversations } from '../session/sanitize';
 
@@ -84,13 +83,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
       // Touch images referenced in the conversation to extend their TTL
       try {
-        const userId = await getUserId(req, res);
         if (dataToSave.messages && Array.isArray(dataToSave.messages)) {
           const imageIds = extractImageReferences(dataToSave.messages);
           if (imageIds.length > 0) {
             console.log(`Touching ${imageIds.length} images for conversation ${id}`);
             await Promise.all(
-              imageIds.map(imageId => touchImage(imageId, userId))
+              imageIds.map(imageId => touchImage(imageId, session.username))
             );
           }
         }
@@ -103,10 +101,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       await redis.sadd(userConversationsKey, id);
 
       // Also update the user's conversationHistory list for cross-device synchronization
-      // Use getUserId() to ensure consistency with other endpoints
       try {
-        const userId = await getUserId(req, res);
-        const conversationHistoryKey = sessionKey(['user', userId, 'conversationHistory']);
+        const conversationHistoryKey = sessionKey(['user', session.username, 'conversationHistory']);
         const currentHistory = await jsonGet(conversationHistoryKey) || [];
 
         // Ensure it's an array
@@ -149,8 +145,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
       // Also remove from conversationHistory for cross-device synchronization
       try {
-        const userId = await getUserId(req, res);
-        const conversationHistoryKey = sessionKey(['user', userId, 'conversationHistory']);
+        const conversationHistoryKey = sessionKey(['user', session.username, 'conversationHistory']);
         const currentHistory = await jsonGet(conversationHistoryKey) || [];
 
         // Ensure it's an array

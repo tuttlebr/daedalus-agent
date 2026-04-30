@@ -1,6 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { getRedis, sessionKey, jsonGet, jsonSetWithExpiry } from './redis';
-import { getOrSetSessionId, getUserId } from './_utils';
+import { getOrSetSessionId, requireAuthenticatedUser } from './_utils';
 import { stripBase64FromObject, clampConversations } from './sanitize';
 
 export const config = {
@@ -12,9 +12,12 @@ export const config = {
 };
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  const session = await requireAuthenticatedUser(req, res);
+  if (!session) return;
+
   const redis = getRedis();
   getOrSetSessionId(req, res); // Side effect: ensures session cookie is set
-  const userId = await getUserId(req, res);
+  const userId = session.username;
   // Store conversations at user level for cross-device persistence
   const key = sessionKey(['user', userId, 'conversationHistory']);
 

@@ -31,10 +31,11 @@ The primary chat path is job-based:
 ## Development
 
 ```bash
-npm install
+node --version # use Node.js 22
+npm ci
 npm run dev
 npm run build
-npm run test
+npm test -- --run
 npm run coverage
 npm run lint
 npm run format
@@ -53,9 +54,11 @@ The frontend consumes most of its runtime configuration through environment vari
 | `BACKEND_NAMESPACE` | Namespace used to build backend FQDNs |
 | `BACKEND_API_PATH` | Default NAT path such as `/chat/stream` or `/v1/workflow/async` |
 | `NEXT_PUBLIC_HTTP_CHAT_COMPLETION_URL` | Optional explicit backend URL override |
+| `SESSION_SECRET` | Required in production for signed identity cookies |
 | `AUTH_USERNAME`, `AUTH_PASSWORD` | Single-user auth |
 | `AUTH_USER_*_*` | Multi-user auth entries |
 | `DAEDALUS_DEFAULT_USER` | Default selected user for initial login experience |
+| `ADMIN_USERNAME` | Admin username allowed to inspect all usage stats |
 | `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` | Optional web-push support |
 
 See [`../.env.template`](../.env.template), [`env.example`](env.example), and the top-level [`../README.md`](../README.md) for deployment setup.

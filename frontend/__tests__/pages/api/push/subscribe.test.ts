@@ -2,6 +2,10 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // --- Mocks ---
 
+const authMocks = vi.hoisted(() => ({
+  requireAuthenticatedUser: vi.fn(),
+}));
+
 vi.mock('@/pages/api/session/redis', () => ({
   getRedis: vi.fn(() => ({})),
   sessionKey: vi.fn((parts: string[]) => `daedalus:${parts.join(':')}`),
@@ -11,13 +15,13 @@ vi.mock('@/pages/api/session/redis', () => ({
 }));
 
 vi.mock('@/pages/api/session/_utils', () => ({
-  getUserId: vi.fn().mockResolvedValue('user-123'),
+  requireAuthenticatedUser: authMocks.requireAuthenticatedUser,
 }));
 
 // --- Import handler and mocked modules ---
 
 import handler from '@/pages/api/push/subscribe';
-import { getUserId } from '@/pages/api/session/_utils';
+import { requireAuthenticatedUser } from '@/pages/api/session/_utils';
 import { jsonGet, jsonSetWithExpiry, jsonDel } from '@/pages/api/session/redis';
 
 // --- Helpers ---
@@ -38,16 +42,19 @@ function createMockReqRes(method: string, body: any = {}) {
 describe('push/subscribe API handler', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    (getUserId as any).mockResolvedValue('user-123');
+    (requireAuthenticatedUser as any).mockResolvedValue({ username: 'user-123' });
   });
 
   // ----- Authentication -----
 
   describe('authentication', () => {
     it('returns 401 when no user ID', async () => {
-      (getUserId as any).mockResolvedValue(null);
       const { req, res } = createMockReqRes('POST', {
         endpoint: 'https://push.example.com/sub1',
+      });
+      (requireAuthenticatedUser as any).mockImplementationOnce(async () => {
+        res.status(401).json({ error: 'Not authenticated' });
+        return null;
       });
 
       await handler(req, res);

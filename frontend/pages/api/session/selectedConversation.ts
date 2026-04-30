@@ -1,6 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { sessionKey, jsonGet, jsonSetWithExpiry } from './redis';
-import { getOrSetSessionId, getUserId } from './_utils';
+import { getOrSetSessionId, requireAuthenticatedUser } from './_utils';
 import { stripBase64FromObject } from './sanitize';
 import { publishSyncEvent } from '@/utils/sync/publish';
 
@@ -13,8 +13,11 @@ export const config = {
 };
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  const session = await requireAuthenticatedUser(req, res);
+  if (!session) return;
+
   getOrSetSessionId(req, res); // Side effect: ensures session cookie is set
-  const userId = await getUserId(req, res);
+  const userId = session.username;
   // Store selected conversation at user level for cross-device persistence
   const key = sessionKey(['user', userId, 'selectedConversation']);
 

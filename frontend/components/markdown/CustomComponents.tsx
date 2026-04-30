@@ -19,7 +19,7 @@ type MarkdownComponentProps = {
 };
 
 
-export const getReactMarkDownCustomComponents = (messageIndex = 0, messageId = '') => {
+export const getReactMarkDownCustomComponents = (_messageIndex = 0, _messageId = '') => {
   return useMemo(() => ({
     code: memo(
       ({ node, inline, className, children, ...props }: { children: React.ReactNode; inline?: boolean; [key: string]: any }) => {
@@ -237,5 +237,5 @@ export const getReactMarkDownCustomComponents = (messageIndex = 0, messageId = '
 
     img: memo((props) => <Image {...props} />, (prevProps, nextProps) => isEqual(prevProps, nextProps)),
     video: memo((props) => <Video {...props} />, (prevProps, nextProps) => isEqual(prevProps, nextProps))
-  }),[messageIndex, messageId]);
+  }),[]);
 };

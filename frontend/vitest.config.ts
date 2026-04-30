@@ -9,6 +9,11 @@ export default defineConfig({
   },
   test: {
     environment: 'jsdom',
+    exclude: [
+      '**/node_modules/**',
+      '**/.git/**',
+      '**/.node_modules-root-owned-*/**',
+    ],
     globals: true,
     coverage: {
       provider: 'v8',

@@ -1,6 +1,6 @@
 import { NextApiRequest, NextApiResponse } from 'next';
 
-import { getUserId, getOrSetSessionId } from './_utils';
+import { getOrSetSessionId, requireAuthenticatedUser } from './_utils';
 import {
   getRedis,
   sessionKey,
@@ -343,8 +343,11 @@ export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse,
 ) {
+  const session = await requireAuthenticatedUser(req, res);
+  if (!session) return;
+
   const sessionId = getOrSetSessionId(req, res);
-  const userId = await getUserId(req, res);
+  const userId = session.username;
 
   if (req.method === 'POST') {
     // Store image
@@ -384,6 +387,10 @@ export default async function handler(
 
       if (!image) {
         return res.status(404).json({ error: 'Image not found' });
+      }
+
+      if (!canAccessStoredImage(image, sessionId, userId)) {
+        return res.status(403).json({ error: 'Forbidden' });
       }
 
       // Determine which version to return
@@ -438,4 +445,15 @@ export default async function handler(
     res.setHeader('Allow', ['GET', 'POST', 'DELETE']);
     return res.status(405).json({ error: 'Method not allowed' });
   }
+}
+
+function canAccessStoredImage(
+  image: StoredImage,
+  currentSessionId: string,
+  currentUserId: string,
+): boolean {
+  if (image.userId) {
+    return image.userId === currentUserId;
+  }
+  return image.sessionId === currentSessionId;
 }

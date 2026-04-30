@@ -9,9 +9,15 @@
  */
 
 import { createServer, IncomingMessage } from 'http';
+import dns from 'node:dns';
 import { WebSocketServer, WebSocket } from 'ws';
-import Redis from 'ioredis';
+import Redis, { RedisOptions } from 'ioredis';
 import { parse as parseCookie } from 'cookie';
+import { primeDns, getCachedIp } from './pages/api/session/dns-cache';
+
+// Prefer IPv4 — Node ≥17 defaults to 'verbatim' which can return AAAA
+// records first and stall DNS resolution against Kubernetes CoreDNS.
+dns.setDefaultResultOrder('ipv4first');
 
 // ---------- Configuration ----------
 
@@ -20,6 +26,53 @@ const REDIS_URL = process.env.REDIS_URL || 'redis://redis:6379';
 const HEARTBEAT_INTERVAL = 45_000; // Server sends pong every 45s
 const CLIENT_TIMEOUT = 90_000; // Close if no ping received in 90s
 const SESSION_EXPIRY = 60 * 60 * 24; // 24 hours (match session.ts)
+
+function resolveRedisUrl(): string {
+  try {
+    const parsed = new URL(REDIS_URL);
+    const cachedIp = getCachedIp(parsed.hostname);
+    if (cachedIp && cachedIp !== parsed.hostname) {
+      parsed.hostname = cachedIp;
+      return parsed.toString();
+    }
+  } catch {
+    // Fall through to raw URL
+  }
+  return REDIS_URL;
+}
+
+try {
+  void primeDns(new URL(REDIS_URL).hostname);
+} catch {
+  // Ignore unparseable URL — connection will fail later with a clearer error.
+}
+
+// Collapse repeated transient errors (EAI_AGAIN, ECONNRESET, etc.) into a
+// single log line per (label, code) every 30 s so logs are scannable.
+type ThrottleState = { count: number; firstSeen: number };
+const errorThrottle = new Map<string, ThrottleState>();
+const ERROR_LOG_INTERVAL_MS = 30_000;
+
+function logRedisErrorThrottled(label: string, error: unknown): void {
+  const code = (error as NodeJS.ErrnoException)?.code ?? 'UNKNOWN';
+  const key = `${label}:${code}`;
+  const now = Date.now();
+  const state = errorThrottle.get(key);
+  if (!state) {
+    console.error(`[WS] Redis ${label} error (${code}):`, error);
+    errorThrottle.set(key, { count: 1, firstSeen: now });
+    return;
+  }
+  if (now - state.firstSeen > ERROR_LOG_INTERVAL_MS) {
+    console.error(
+      `[WS] Redis ${label} error (${code}) repeated ${state.count}x in last ${Math.round((now - state.firstSeen) / 1000)}s`,
+      error,
+    );
+    errorThrottle.set(key, { count: 1, firstSeen: now });
+    return;
+  }
+  state.count += 1;
+}
 
 // ---------- Redis Helpers ----------
 
@@ -31,14 +84,21 @@ function sessionKey(parts: string[]): string {
   return parts.filter(Boolean).join(':');
 }
 
+// Tolerate transient DNS / network failures: queue commands until the
+// connection recovers instead of failing them with MaxRetriesPerRequestError.
+const REDIS_CLIENT_OPTIONS: RedisOptions = {
+  lazyConnect: true,
+  maxRetriesPerRequest: null,
+  enableOfflineQueue: true,
+  reconnectOnError: () => true,
+  connectTimeout: 10_000,
+  retryStrategy: (times) => Math.min(times * 200, 2_000),
+  family: 4,
+};
+
 function createRedisClient(label: string): Redis {
-  const client = new Redis(REDIS_URL, {
-    lazyConnect: true,
-    maxRetriesPerRequest: 3,
-    enableOfflineQueue: true,
-    reconnectOnError: () => true,
-  });
-  client.on('error', (err) => console.error(`[WS] Redis ${label} error:`, err));
+  const client = new Redis(resolveRedisUrl(), REDIS_CLIENT_OPTIONS);
+  client.on('error', (err) => logRedisErrorThrottled(label, err));
   return client;
 }
 
@@ -47,7 +107,7 @@ let redisClient: Redis | null = null;
 function getRedis(): Redis {
   if (!redisClient) {
     redisClient = createRedisClient('client');
-    redisClient.connect().catch((err) => console.error('[WS] Redis client connect error:', err));
+    redisClient.connect().catch((err) => logRedisErrorThrottled('client-connect', err));
   }
   return redisClient;
 }

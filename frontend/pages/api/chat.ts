@@ -1,7 +1,6 @@
 import {
   getBackendHost,
   buildBackendUrl,
-  BACKEND_API_PATH,
   isStreamingEndpoint,
 } from '@/utils/app/backendApi';
 
@@ -53,12 +52,11 @@ async function trackUsage(username: string, usage: any): Promise<void> {
     const { prompt_tokens, completion_tokens, total_tokens } = usage;
 
     // Log what we're trying to track
-    logger.info('attempting to track usage', {
+    logger.debug('attempting to track usage', {
       username,
       prompt_tokens,
       completion_tokens,
       total_tokens,
-      rawUsage: usage
     });
 
     // Validate that we have numeric values
@@ -79,10 +77,19 @@ async function trackUsage(username: string, usage: any): Promise<void> {
     // Use 127.0.0.1 instead of localhost to avoid IPv6 issues
     // Edge runtime in same container can call Node.js runtime endpoints
     const baseUrl = 'http://127.0.0.1:3000';
+    const internalToken =
+      process.env.USAGE_TRACKING_INTERNAL_TOKEN || process.env.SESSION_SECRET || '';
+    if (!internalToken) {
+      logger.warn('usage tracking skipped because no internal token is configured');
+      return;
+    }
 
     const response = await fetch(`${baseUrl}/api/usage/track`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'x-daedalus-internal-token': internalToken,
+      },
       body: JSON.stringify({ username, usage }),
     });
 
@@ -269,6 +276,14 @@ function extractJsonObjects(text: string): { json: any; startIdx: number; endIdx
 }
 
 const handler = async (req: Request): Promise<Response> => {
+  // SECURITY: Derive user identity from the signed server-side cookie,
+  // not from client-sent additionalProps which can be spoofed.
+  const identity = await verifyIdentityCookieEdge(req.headers.get('cookie'));
+  if (!identity?.username) {
+    return new Response('Unauthorized', { status: 401 });
+  }
+  const username = identity.username;
+
   // extract the request body
   let {
     chatCompletionURL = '',
@@ -277,11 +292,6 @@ const handler = async (req: Request): Promise<Response> => {
       enableIntermediateSteps: true,
     },
   } = (await req.json()) as ChatBody;
-
-  // SECURITY: Derive user identity from the signed server-side cookie,
-  // not from client-sent additionalProps which can be spoofed.
-  const identity = await verifyIdentityCookieEdge(req.headers.get('cookie'));
-  const username = identity?.username || 'anon';
 
   // Overwrite client-sent identity fields with verified values so the
   // backend never sees unverified user claims.
@@ -586,9 +596,15 @@ const handler = async (req: Request): Promise<Response> => {
       payloadSnapshot: Array.isArray(payload?.messages)
         ? payload.messages.map((msg: any) => ({
             role: msg?.role,
-            content: msg?.content,
+            contentLength: typeof msg?.content === 'string' ? msg.content.length : 0,
           }))
-        : payload,
+        : {
+            hasInputMessage: typeof (payload as Record<string, unknown>)?.input_message === 'string',
+            inputLength:
+              typeof (payload as Record<string, unknown>)?.input_message === 'string'
+                ? ((payload as Record<string, unknown>).input_message as string).length
+                : 0,
+          },
     });
 
     let response = await fetch(chatCompletionURL, {

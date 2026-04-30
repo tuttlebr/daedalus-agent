@@ -1,4 +1,4 @@
-FROM node:18-alpine AS base
+FROM node:22-alpine AS base
 
 # Set timezone to Eastern Time
 ENV TZ=America/New_York
@@ -20,7 +20,7 @@ RUN npm config set fetch-retry-mintimeout 60000 && \
     npm config set fetch-retry-maxtimeout 300000 && \
     npm config set fetch-retries 5 && \
     npm config set fetch-timeout 600000 && \
-    npm install --no-audit --legacy-peer-deps
+    npm ci --no-audit --legacy-peer-deps
 
 # Rebuild the source code only when needed
 FROM base AS builder
@@ -41,7 +41,7 @@ ENV NODE_OPTIONS=--max-old-space-size=4096
 RUN npm run build
 
 # Bundle WebSocket sidecar into a single JS file (all dependencies included)
-RUN npx esbuild ws-server.ts --bundle --platform=node --target=node18 --outfile=./ws-build/ws-server.js
+RUN npx esbuild ws-server.ts --bundle --platform=node --target=node22 --outfile=./ws-build/ws-server.js
 
 # Production image, copy all the files and run next
 FROM base AS runner

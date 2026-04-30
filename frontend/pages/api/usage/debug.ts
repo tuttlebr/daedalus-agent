@@ -1,6 +1,7 @@
 import { NextApiRequest, NextApiResponse } from 'next';
-import { getUserUsageStats, getAllUsageStats } from '@/utils/usage/tracking';
+import { getAllUsageStats } from '@/utils/usage/tracking';
 import { getRedis } from '@/pages/api/session/redis';
+import { getSession } from '@/utils/auth/session';
 
 /**
  * Debug endpoint to check usage tracking status
@@ -13,6 +14,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   try {
+    const session = await getSession(req, res);
+    const adminUsername = process.env.ADMIN_USERNAME || 'admin';
+    if (session?.username !== adminUsername) {
+      return res.status(session ? 403 : 401).json({
+        error: session ? 'Forbidden: Admin access required' : 'Not authenticated',
+      });
+    }
+
     const redis = getRedis();
 
     // Get all keys matching usage pattern

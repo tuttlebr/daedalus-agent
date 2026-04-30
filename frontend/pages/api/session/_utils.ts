@@ -2,6 +2,7 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import cookie from 'cookie';
 import { randomUUID } from 'crypto';
 import { getSession } from '@/utils/auth/session';
+import type { SessionData } from '@/utils/auth/session';
 
 const COOKIE_NAME = 'sid';
 
@@ -30,15 +31,15 @@ export function getOrSetSessionId(req: NextApiRequest, res: NextApiResponse): st
   return sid;
 }
 
-export async function getUserId(req: NextApiRequest, res: NextApiResponse): Promise<string> {
-  // Try to get user ID from authenticated session first
+export async function requireAuthenticatedUser(
+  req: NextApiRequest,
+  res: NextApiResponse,
+): Promise<SessionData | null> {
   const session = await getSession(req, res);
-
-  if (session && session.username) {
-    return session.username;
+  if (!session?.username) {
+    res.status(401).json({ error: 'Not authenticated' });
+    return null;
   }
 
-  // Fallback to header (for backwards compatibility) or 'anon'
-  const userId = (req.headers['x-user-id'] as string) || 'anon';
-  return userId;
+  return session;
 }

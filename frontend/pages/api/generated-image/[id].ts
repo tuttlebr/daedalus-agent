@@ -2,7 +2,7 @@ import { NextApiRequest, NextApiResponse } from 'next';
 
 import { extractImageReferences } from '@/utils/app/imageHandler';
 
-import { getOrSetSessionId, getUserId } from '../session/_utils';
+import { getOrSetSessionId, requireAuthenticatedUser } from '../session/_utils';
 import { getRedis, jsonGet, sessionKey } from '../session/redis';
 
 import sharp from 'sharp';
@@ -16,7 +16,8 @@ export const config = {
 const THUMBNAIL_MAX_SIZE = 400;
 const THUMBNAIL_QUALITY = 80;
 const LEGACY_PUBLIC_ACCESS =
-  process.env.GENERATED_IMAGE_LEGACY_PUBLIC !== 'false';
+  process.env.NODE_ENV !== 'production' &&
+  process.env.GENERATED_IMAGE_LEGACY_PUBLIC === 'true';
 
 interface GeneratedImageRecord {
   data?: string;
@@ -141,10 +142,13 @@ export default async function handler(
   }
 
   try {
+    const session = await requireAuthenticatedUser(req, res);
+    if (!session) return;
+
     const redis = getRedis();
     const redisKey = `generated:image:${id}`;
     const sessionId = getOrSetSessionId(req, res);
-    const userId = await getUserId(req, res);
+    const userId = session.username;
 
     // Try RedisJSON first, fall back to plain GET
     let record: GeneratedImageRecord | null = null;

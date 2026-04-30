@@ -271,7 +271,7 @@ export const ChatView = memo(() => {
 
     scrollToBottom();
   }, [selectedConversation, addMessage, updateConversation, setStreaming, updateLastMessage,
-      startAsyncJob, chatCompletionURL, enableIntermediateSteps, userId, t, scrollToBottom]);
+      startAsyncJob, chatCompletionURL, enableIntermediateSteps, userId, scrollToBottom]);
 
   const handleStop = useCallback(async () => {
     if (selectedConversationId) {

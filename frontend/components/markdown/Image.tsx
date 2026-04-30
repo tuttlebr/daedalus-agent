@@ -151,68 +151,61 @@ export const Image = memo(({ src, alt, ...props }: ImageProps) => {
     }
   }, [src, alt, uploadedRef]);
 
-  const imageElement = useMemo(() => {
-    if (src === "loading" || isUploading) {
-      return <Loading message={isUploading ? "Optimizing image..." : "Loading..."} type="image" />;
-    }
+  if (src === "loading" || isUploading) {
+    return <Loading message={isUploading ? "Optimizing image..." : "Loading..."} type="image" />;
+  }
 
-    // Use OptimizedImage for uploaded base64 images
-    if (uploadedRef) {
-      return <OptimizedImage imageRef={uploadedRef} alt={alt || "Generated image"} />;
-    }
+  // Use OptimizedImage for uploaded base64 images
+  if (uploadedRef) {
+    return <OptimizedImage imageRef={uploadedRef} alt={alt || "Generated image"} />;
+  }
 
-    // Use OptimizedImage component for images stored in Redis
-    if (imageRef) {
-      return <OptimizedImage imageRef={imageRef} alt={alt || "Generated image"} />;
-    }
+  // Use OptimizedImage component for images stored in Redis
+  if (imageRef) {
+    return <OptimizedImage imageRef={imageRef} alt={alt || "Generated image"} />;
+  }
 
-    // Show loading if we're about to upload a base64 image
-    if (isBase64DataUrl && !error) {
-      return <Loading message="Optimizing image..." type="image" />;
-    }
+  // Show loading if we're about to upload a base64 image
+  if (isBase64DataUrl && !error) {
+    return <Loading message="Optimizing image..." type="image" />;
+  }
 
-    // Regular image display (external URLs only - base64 should be uploaded first)
-    return (
-      <>
-        {/* Image Container */}
-        <div className="relative group">
-          {error ? (
-            <div className="flex items-center justify-center p-4 bg-red-50 dark:bg-red-900/20 rounded-lg border border-red-200 dark:border-red-800">
-              <IconExclamationCircle className="w-5 h-5 text-red-500 mr-2" />
-              <p className="text-red-600 dark:text-red-400 text-sm">
-                Failed to load image
-              </p>
-            </div>
-          ) : (
-            <div className="relative">
-              {/* Image */}
-              <img
-                ref={imgRef}
-                src={src}
-                alt={alt || "image"}
-                onError={handleImageError}
-                className="object-cover rounded-lg border border-slate-100 dark:border-gray-700 shadow-xs max-w-full h-auto"
-                loading="lazy"
-                decoding="async"
-                {...props}
-              />
-              {/* Download button overlay */}
-              <button
-                className="absolute top-2 right-2 bg-black/50 hover:bg-black/70 text-white p-2 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity duration-200 sm:opacity-100"
-                onClick={handleDownload}
-                aria-label="Download image"
-                title="Download as PNG"
-              >
-                <IconDownload size={20} />
-              </button>
-            </div>
-          )}
-        </div>
-      </>
-    );
-  }, [src, alt, error, imageRef, uploadedRef, isUploading, isBase64DataUrl, handleDownload]);
-
-  return imageElement;
+  // Regular image display (external URLs only - base64 should be uploaded first)
+  return (
+    <>
+      <div className="relative group">
+        {error ? (
+          <div className="flex items-center justify-center p-4 bg-red-50 dark:bg-red-900/20 rounded-lg border border-red-200 dark:border-red-800">
+            <IconExclamationCircle className="w-5 h-5 text-red-500 mr-2" />
+            <p className="text-red-600 dark:text-red-400 text-sm">
+              Failed to load image
+            </p>
+          </div>
+        ) : (
+          <div className="relative">
+            <img
+              ref={imgRef}
+              src={src}
+              alt={alt || "image"}
+              onError={handleImageError}
+              className="object-cover rounded-lg border border-slate-100 dark:border-gray-700 shadow-xs max-w-full h-auto"
+              loading="lazy"
+              decoding="async"
+              {...props}
+            />
+            <button
+              className="absolute top-2 right-2 bg-black/50 hover:bg-black/70 text-white p-2 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity duration-200 sm:opacity-100"
+              onClick={handleDownload}
+              aria-label="Download image"
+              title="Download as PNG"
+            >
+              <IconDownload size={20} />
+            </button>
+          </div>
+        )}
+      </div>
+    </>
+  );
 }, (prevProps: ImageProps, nextProps: ImageProps) => {
   // Only re-render if src changes
   return prevProps.src === nextProps.src;

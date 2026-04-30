@@ -10,7 +10,11 @@ const revokeObjectURL = vi.fn();
 function mockImageFetch(size: number) {
   global.fetch = vi.fn(async () => {
     const blob = new Blob([new Uint8Array(size)], { type: 'image/png' });
-    return new Response(blob, { status: 200 });
+    return {
+      ok: true,
+      statusText: 'OK',
+      blob: vi.fn().mockResolvedValue(blob),
+    } as unknown as Response;
   }) as unknown as typeof fetch;
 }
 

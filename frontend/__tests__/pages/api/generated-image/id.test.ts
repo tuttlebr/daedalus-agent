@@ -1,27 +1,29 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const redisCall = vi.fn();
-const redisGet = vi.fn();
-const redisSmembers = vi.fn();
-const jsonGet = vi.fn();
-const getOrSetSessionId = vi.fn();
-const getUserId = vi.fn();
+const mocks = vi.hoisted(() => ({
+  redisCall: vi.fn(),
+  redisGet: vi.fn(),
+  redisSmembers: vi.fn(),
+  jsonGet: vi.fn(),
+  getOrSetSessionId: vi.fn(),
+  requireAuthenticatedUser: vi.fn(),
+}));
 
 vi.mock('@/pages/api/session/redis', () => ({
   getRedis: vi.fn(() => ({
-    call: redisCall,
-    get: redisGet,
-    smembers: redisSmembers,
+    call: mocks.redisCall,
+    get: mocks.redisGet,
+    smembers: mocks.redisSmembers,
   })),
-  jsonGet,
+  jsonGet: mocks.jsonGet,
   sessionKey: vi.fn((parts: Array<string | undefined | null>) =>
     parts.filter(Boolean).join(':'),
   ),
 }));
 
 vi.mock('@/pages/api/session/_utils', () => ({
-  getOrSetSessionId,
-  getUserId,
+  getOrSetSessionId: mocks.getOrSetSessionId,
+  requireAuthenticatedUser: mocks.requireAuthenticatedUser,
 }));
 
 vi.mock('@/utils/app/imageHandler', () => ({
@@ -60,21 +62,21 @@ async function loadHandler(legacyPublic = 'true') {
 describe('/api/generated-image/[id]', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    getOrSetSessionId.mockReturnValue('session-1');
-    getUserId.mockResolvedValue('testuser');
-    redisCall.mockResolvedValue(
+    mocks.getOrSetSessionId.mockReturnValue('session-1');
+    mocks.requireAuthenticatedUser.mockResolvedValue({ username: 'testuser' });
+    mocks.redisCall.mockResolvedValue(
       JSON.stringify([
         { data: Buffer.from('full').toString('base64'), mimeType: 'image/png' },
       ]),
     );
-    redisGet.mockResolvedValue(null);
-    redisSmembers.mockResolvedValue([]);
-    jsonGet.mockResolvedValue([]);
+    mocks.redisGet.mockResolvedValue(null);
+    mocks.redisSmembers.mockResolvedValue([]);
+    mocks.jsonGet.mockResolvedValue([]);
   });
 
   it('serves authorized history images with private cache headers', async () => {
     const handler = await loadHandler('false');
-    jsonGet.mockResolvedValueOnce([{ outputImageIds: ['abc-123'] }]);
+    mocks.jsonGet.mockResolvedValueOnce([{ outputImageIds: ['abc-123'] }]);
     const { req, res } = createMockReqRes();
 
     await handler(req, res);

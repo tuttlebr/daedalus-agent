@@ -202,6 +202,8 @@ class ImageBlobCache {
         this.temporaryUrls.delete(imageId)
       ) {
         URL.revokeObjectURL(imageId);
+      } else if (url?.startsWith('blob:') && !this.isCachedUrl(url)) {
+        URL.revokeObjectURL(url);
       }
       return;
     }
@@ -248,6 +250,10 @@ class ImageBlobCache {
         }
       }
     }, 100); // 100ms delay to allow for race conditions
+  }
+
+  private isCachedUrl(url: string): boolean {
+    return Array.from(this.cache.values()).some((entry) => entry.url === url);
   }
 
   clearAll() {

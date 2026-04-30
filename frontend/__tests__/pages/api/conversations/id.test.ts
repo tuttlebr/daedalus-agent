@@ -23,10 +23,6 @@ vi.mock('@/utils/auth/session', () => ({
   getSession: vi.fn().mockResolvedValue({ username: 'testuser' }),
 }));
 
-vi.mock('@/pages/api/session/_utils', () => ({
-  getUserId: vi.fn().mockResolvedValue('testuser'),
-}));
-
 vi.mock('@/pages/api/session/imageStorage', () => ({
   touchImage: vi.fn().mockResolvedValue(undefined),
 }));

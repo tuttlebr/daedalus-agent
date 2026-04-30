@@ -1,7 +1,7 @@
 // First, define the Video component at module level
 'use client'
 
-import { memo, useMemo, useRef } from "react";
+import { memo, useRef } from "react";
 import Loading from "@/components/markdown/Loading";
 
 interface VideoProps {
@@ -20,30 +20,25 @@ export const Video = memo(({
     // Use ref to maintain stable reference for video element
     const videoRef = useRef(null);
 
-    // Memoize the video element to prevent re-renders from context changes
-    const videoElement = useMemo(() => {
-      if (src === 'loading') {
-        return <Loading message='Loading...' type='image' />;
-      }
+    if (src === 'loading') {
+      return <Loading message='Loading...' type='image' />;
+    }
 
-      return (
-        <video
-          ref={videoRef}
-          src={src}
-          controls={controls}
-          autoPlay={false}
-          loop={false}
-          muted={muted}
-          playsInline={false}
-          className="rounded-md border border-slate-400 shadow-sm object-cover"
-          {...props}
-        >
-          Your browser does not support the video tag.
-        </video>
-      );
-    }, [src, controls, muted]); // Only dependencies that should cause a re-render
-
-    return videoElement;
+    return (
+      <video
+        ref={videoRef}
+        src={src}
+        controls={controls}
+        autoPlay={false}
+        loop={false}
+        muted={muted}
+        playsInline={false}
+        className="rounded-md border border-slate-400 shadow-sm object-cover"
+        {...props}
+      >
+        Your browser does not support the video tag.
+      </video>
+    );
   }, (prevProps: VideoProps, nextProps: VideoProps) => {
     return prevProps.src === nextProps.src;
   });

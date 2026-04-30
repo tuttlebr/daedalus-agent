@@ -7,6 +7,7 @@
  */
 
 const COOKIE_NAME = '__identity';
+const DEV_IDENTITY_SECRET = 'daedalus-dev-identity-secret';
 
 export interface IdentityPayload {
   username: string;
@@ -47,7 +48,10 @@ export async function verifyIdentityCookieEdge(
   const encodedPayload = value.substring(0, dotIdx);
   const providedSignature = value.substring(dotIdx + 1);
 
-  const secret = process.env.SESSION_SECRET || 'daedalus-dev-identity-secret';
+  const secret = process.env.SESSION_SECRET || (
+    process.env.NODE_ENV === 'production' ? '' : DEV_IDENTITY_SECRET
+  );
+  if (!secret) return null;
 
   // Compute expected HMAC-SHA256 using Web Crypto API
   const encoder = new TextEncoder();

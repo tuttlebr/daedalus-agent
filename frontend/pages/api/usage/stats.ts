@@ -2,6 +2,10 @@ import { NextApiRequest, NextApiResponse } from 'next';
 import { getUserUsageStats, getAllUsageStats } from '@/utils/usage/tracking';
 import { getSession } from '@/utils/auth/session';
 
+function isAdmin(username: string): boolean {
+  return username === (process.env.ADMIN_USERNAME || 'admin');
+}
+
 /**
  * API endpoint to retrieve user usage statistics
  * GET /api/usage/stats?username=<username>
@@ -23,10 +27,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     const { username, all } = req.query;
+    const sessionIsAdmin = isAdmin(session.username);
 
-    // If requesting all users' stats (admin function)
     if (all === 'true') {
-      // TODO: Add admin check here if you have role-based access control
+      if (!sessionIsAdmin) {
+        return res.status(403).json({ error: 'Forbidden: Admin access required' });
+      }
       const allStats = await getAllUsageStats();
       return res.status(200).json({
         success: true,
@@ -37,9 +43,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     // Get stats for specific user or current user
     const targetUsername = (username as string) || session.username;
 
-    // Security: Users can only see their own stats unless they're admin
-    // TODO: Add admin check here if you want to allow admins to see other users' stats
-    if (targetUsername !== session.username) {
+    if (targetUsername !== session.username && !sessionIsAdmin) {
       return res.status(403).json({
         error: 'Forbidden: You can only view your own usage statistics',
       });

@@ -1,6 +1,6 @@
 import { NextApiRequest, NextApiResponse } from 'next';
 import http from 'http';
-import { getOrSetSessionId, getUserId } from '../session/_utils';
+import { getOrSetSessionId, requireAuthenticatedUser } from '../session/_utils';
 import { buildBackendUrl, getBackendHost } from '@/utils/app/backendApi';
 
 export const config = {
@@ -65,8 +65,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   try {
+    const session = await requireAuthenticatedUser(req, res);
+    if (!session) return;
+
     const sessionId = getOrSetSessionId(req, res);
-    const userId = await getUserId(req, res);
+    const userId = session.username;
 
     const backendUrl = buildBackendUrl({
       backendHost: getBackendHost(),

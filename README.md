@@ -54,6 +54,7 @@ For local Docker Compose, update these values first:
 DEPLOYMENT_MODE=local
 NVIDIA_API_KEY=nvapi-...
 NVIDIA_INFERENCE_API_KEY=nvapi-...
+SESSION_SECRET=<openssl-rand-base64-32>
 ```
 
 Authentication is required by the frontend. The repo supports either a single user or numbered multi-user entries.
@@ -65,6 +66,7 @@ AUTH_USERNAME=admin
 AUTH_PASSWORD=change-me
 AUTH_NAME=Administrator
 DAEDALUS_DEFAULT_USER=admin
+ADMIN_USERNAME=admin
 ```
 
 Multi-user example:
@@ -77,7 +79,10 @@ AUTH_USER_2_USERNAME=bob
 AUTH_USER_2_PASSWORD=change-me
 AUTH_USER_2_NAME=Bob
 DAEDALUS_DEFAULT_USER=alice
+ADMIN_USERNAME=alice
 ```
+
+`SESSION_SECRET` must be unique for every production deployment because it signs identity cookies. Generate one with `openssl rand -base64 32`.
 
 Useful optional keys:
 
@@ -339,7 +344,8 @@ The Cilium layer is disabled by default in [`helm/daedalus/values.yaml`](helm/da
 
 ```bash
 cd frontend
-npm install
+node --version # use Node.js 22
+npm ci
 npm run dev
 ```
 
@@ -365,8 +371,8 @@ uv run --with pytest --with pyyaml --with pydantic --with httpx --with pytest-co
 
 ```bash
 cd frontend
-npm install
-npm run test
+npm ci
+npm test -- --run
 npm run coverage
 ```
 

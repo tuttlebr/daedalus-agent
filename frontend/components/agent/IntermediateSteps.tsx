@@ -111,7 +111,7 @@ export const IntermediateSteps: React.FC<IntermediateStepsProps> = ({ steps, cla
     };
 
     loadInitialSteps();
-  }, [conversationId, selectedConversationId]);
+  }, [conversationId, selectedConversationId, migratedSteps.length]);
 
   // Consolidated count for the badge
   const consolidatedCount = useMemo(() => {

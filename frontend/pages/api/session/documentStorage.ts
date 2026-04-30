@@ -1,6 +1,6 @@
 import { NextApiRequest, NextApiResponse } from 'next';
 import { getRedis, sessionKey, jsonGet, jsonDel, jsonSetWithExpiry } from './redis';
-import { getUserId, getOrSetSessionId } from './_utils';
+import { getOrSetSessionId, requireAuthenticatedUser } from './_utils';
 import { validateMagicBytes } from '@/utils/app/magicBytes';
 import crypto from 'crypto';
 
@@ -124,8 +124,11 @@ export async function cleanupSessionDocuments(sessionId: string): Promise<number
 }
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  const session = await requireAuthenticatedUser(req, res);
+  if (!session) return;
+
   const sessionId = getOrSetSessionId(req, res);
-  const userId = await getUserId(req, res);
+  const userId = session.username;
 
   if (req.method === 'POST') {
     // Store document
@@ -165,6 +168,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
       if (!document) {
         return res.status(404).json({ error: 'Document not found' });
+      }
+
+      if (!canAccessStoredDocument(document, sessionId, userId)) {
+        return res.status(403).json({ error: 'Forbidden' });
       }
 
       // Return document data
@@ -213,3 +220,14 @@ export const config = {
     },
   },
 };
+
+function canAccessStoredDocument(
+  document: StoredDocument,
+  currentSessionId: string,
+  currentUserId: string,
+): boolean {
+  if (document.userId) {
+    return document.userId === currentUserId;
+  }
+  return document.sessionId === currentSessionId;
+}

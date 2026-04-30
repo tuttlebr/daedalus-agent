@@ -20,6 +20,18 @@ export { type IdentityPayload } from './identity-cookie-edge';
 
 const COOKIE_NAME = '__identity';
 const COOKIE_MAX_AGE = 60 * 60 * 24; // 24 hours (matches session TTL)
+const DEV_IDENTITY_SECRET = 'daedalus-dev-identity-secret';
+
+function getIdentitySecret(): string {
+  const secret = process.env.SESSION_SECRET;
+  if (secret) return secret;
+
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('SESSION_SECRET is required in production');
+  }
+
+  return DEV_IDENTITY_SECRET;
+}
 
 /**
  * Set a signed identity cookie (Node.js runtime — called from createSession).
@@ -30,7 +42,7 @@ export function setIdentityCookie(
   user: { id: string; username: string; name: string },
   isSecure: boolean,
 ): void {
-  const secret = process.env.SESSION_SECRET || 'daedalus-dev-identity-secret';
+  const secret = getIdentitySecret();
 
   const payload = {
     username: user.username,

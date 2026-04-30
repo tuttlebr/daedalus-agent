@@ -1,26 +1,28 @@
-import handler from '@/pages/api/images/history';
-
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const jsonGet = vi.fn();
-const jsonSetWithExpiry = vi.fn();
-const jsonDel = vi.fn();
-const getOrSetSessionId = vi.fn();
-const getUserId = vi.fn();
+const mocks = vi.hoisted(() => ({
+  jsonGet: vi.fn(),
+  jsonSetWithExpiry: vi.fn(),
+  jsonDel: vi.fn(),
+  getOrSetSessionId: vi.fn(),
+  requireAuthenticatedUser: vi.fn(),
+}));
 
 vi.mock('@/pages/api/session/_utils', () => ({
-  getOrSetSessionId,
-  getUserId,
+  getOrSetSessionId: mocks.getOrSetSessionId,
+  requireAuthenticatedUser: mocks.requireAuthenticatedUser,
 }));
 
 vi.mock('@/pages/api/session/redis', () => ({
-  jsonGet,
-  jsonSetWithExpiry,
-  jsonDel,
+  jsonGet: mocks.jsonGet,
+  jsonSetWithExpiry: mocks.jsonSetWithExpiry,
+  jsonDel: mocks.jsonDel,
   sessionKey: vi.fn((parts: Array<string | undefined | null>) =>
     parts.filter(Boolean).join(':'),
   ),
 }));
+
+import handler from '@/pages/api/images/history';
 
 function createMockReqRes(
   method: string,
@@ -53,21 +55,21 @@ function entry(id = 'hist-1') {
 describe('/api/images/history', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    getOrSetSessionId.mockReturnValue('session-1');
-    getUserId.mockResolvedValue('testuser');
-    jsonGet.mockResolvedValue([]);
-    jsonSetWithExpiry.mockResolvedValue(undefined);
-    jsonDel.mockResolvedValue(undefined);
+    mocks.getOrSetSessionId.mockReturnValue('session-1');
+    mocks.requireAuthenticatedUser.mockResolvedValue({ username: 'testuser' });
+    mocks.jsonGet.mockResolvedValue([]);
+    mocks.jsonSetWithExpiry.mockResolvedValue(undefined);
+    mocks.jsonDel.mockResolvedValue(undefined);
   });
 
   it('returns stored history for the current user', async () => {
     const stored = [entry()];
-    jsonGet.mockResolvedValue(stored);
+    mocks.jsonGet.mockResolvedValue(stored);
     const { req, res } = createMockReqRes('GET');
 
     await handler(req, res);
 
-    expect(jsonGet).toHaveBeenCalledWith('user:testuser:imagePanelHistory');
+    expect(mocks.jsonGet).toHaveBeenCalledWith('user:testuser:imagePanelHistory');
     expect(res.status).toHaveBeenCalledWith(200);
     expect(res.json).toHaveBeenCalledWith({ history: stored });
   });
@@ -76,13 +78,13 @@ describe('/api/images/history', () => {
     const existing = Array.from({ length: 50 }, (_, index) =>
       entry(`hist-${index}`),
     );
-    jsonGet.mockResolvedValue(existing);
+    mocks.jsonGet.mockResolvedValue(existing);
     const nextEntry = entry('new-entry');
     const { req, res } = createMockReqRes('POST', { entry: nextEntry });
 
     await handler(req, res);
 
-    const savedHistory = jsonSetWithExpiry.mock.calls[0][1];
+    const savedHistory = mocks.jsonSetWithExpiry.mock.calls[0][1];
     expect(savedHistory).toHaveLength(50);
     expect(savedHistory[0]).toEqual(nextEntry);
     expect(res.status).toHaveBeenCalledWith(200);
@@ -95,7 +97,7 @@ describe('/api/images/history', () => {
 
     await handler(req, res);
 
-    expect(jsonSetWithExpiry).not.toHaveBeenCalled();
+    expect(mocks.jsonSetWithExpiry).not.toHaveBeenCalled();
     expect(res.status).toHaveBeenCalledWith(400);
     expect(res.json).toHaveBeenCalledWith({
       error: 'Invalid image history entry',
@@ -105,45 +107,45 @@ describe('/api/images/history', () => {
   describe('DELETE', () => {
     it('removes one entry by id and persists the remaining list', async () => {
       const stored = [entry('hist-1'), entry('hist-2'), entry('hist-3')];
-      jsonGet.mockResolvedValue(stored);
+      mocks.jsonGet.mockResolvedValue(stored);
       const { req, res } = createMockReqRes('DELETE', {}, { id: 'hist-2' });
 
       await handler(req, res);
 
-      expect(jsonSetWithExpiry).toHaveBeenCalledTimes(1);
-      const savedKey = jsonSetWithExpiry.mock.calls[0][0];
-      const savedHistory = jsonSetWithExpiry.mock.calls[0][1];
+      expect(mocks.jsonSetWithExpiry).toHaveBeenCalledTimes(1);
+      const savedKey = mocks.jsonSetWithExpiry.mock.calls[0][0];
+      const savedHistory = mocks.jsonSetWithExpiry.mock.calls[0][1];
       expect(savedKey).toBe('user:testuser:imagePanelHistory');
       expect(savedHistory).toHaveLength(2);
       expect(savedHistory.map((e: any) => e.id)).toEqual(['hist-1', 'hist-3']);
-      expect(jsonDel).not.toHaveBeenCalled();
+      expect(mocks.jsonDel).not.toHaveBeenCalled();
       expect(res.status).toHaveBeenCalledWith(200);
       expect(res.json).toHaveBeenCalledWith({ history: savedHistory });
     });
 
     it('clears all history when all=1', async () => {
       const stored = [entry('hist-1'), entry('hist-2')];
-      jsonGet.mockResolvedValue(stored);
+      mocks.jsonGet.mockResolvedValue(stored);
       const { req, res } = createMockReqRes('DELETE', {}, { all: '1' });
 
       await handler(req, res);
 
-      expect(jsonDel).toHaveBeenCalledTimes(1);
-      expect(jsonDel).toHaveBeenCalledWith('user:testuser:imagePanelHistory');
-      expect(jsonSetWithExpiry).not.toHaveBeenCalled();
+      expect(mocks.jsonDel).toHaveBeenCalledTimes(1);
+      expect(mocks.jsonDel).toHaveBeenCalledWith('user:testuser:imagePanelHistory');
+      expect(mocks.jsonSetWithExpiry).not.toHaveBeenCalled();
       expect(res.status).toHaveBeenCalledWith(200);
       expect(res.json).toHaveBeenCalledWith({ history: [] });
     });
 
     it('returns the unchanged list when the id is missing from history', async () => {
       const stored = [entry('hist-1'), entry('hist-2')];
-      jsonGet.mockResolvedValue(stored);
+      mocks.jsonGet.mockResolvedValue(stored);
       const { req, res } = createMockReqRes('DELETE', {}, { id: 'nope' });
 
       await handler(req, res);
 
-      expect(jsonSetWithExpiry).not.toHaveBeenCalled();
-      expect(jsonDel).not.toHaveBeenCalled();
+      expect(mocks.jsonSetWithExpiry).not.toHaveBeenCalled();
+      expect(mocks.jsonDel).not.toHaveBeenCalled();
       expect(res.status).toHaveBeenCalledWith(200);
       expect(res.json).toHaveBeenCalledWith({ history: stored });
     });
@@ -153,8 +155,8 @@ describe('/api/images/history', () => {
 
       await handler(req, res);
 
-      expect(jsonSetWithExpiry).not.toHaveBeenCalled();
-      expect(jsonDel).not.toHaveBeenCalled();
+      expect(mocks.jsonSetWithExpiry).not.toHaveBeenCalled();
+      expect(mocks.jsonDel).not.toHaveBeenCalled();
       expect(res.status).toHaveBeenCalledWith(400);
       expect(res.json).toHaveBeenCalledWith({
         error: 'Missing id or all=1',
@@ -162,14 +164,14 @@ describe('/api/images/history', () => {
     });
 
     it('uses jsonDel when removing the last remaining entry', async () => {
-      jsonGet.mockResolvedValue([entry('only')]);
+      mocks.jsonGet.mockResolvedValue([entry('only')]);
       const { req, res } = createMockReqRes('DELETE', {}, { id: 'only' });
 
       await handler(req, res);
 
-      expect(jsonDel).toHaveBeenCalledTimes(1);
-      expect(jsonDel).toHaveBeenCalledWith('user:testuser:imagePanelHistory');
-      expect(jsonSetWithExpiry).not.toHaveBeenCalled();
+      expect(mocks.jsonDel).toHaveBeenCalledTimes(1);
+      expect(mocks.jsonDel).toHaveBeenCalledWith('user:testuser:imagePanelHistory');
+      expect(mocks.jsonSetWithExpiry).not.toHaveBeenCalled();
       expect(res.status).toHaveBeenCalledWith(200);
       expect(res.json).toHaveBeenCalledWith({ history: [] });
     });

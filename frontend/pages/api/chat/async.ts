@@ -372,7 +372,7 @@ async function startBackgroundStreamReader(
     stream_options: { include_usage: true },
   };
 
-  const userId = jobRequest.userId || 'anon';
+  const userId = jobRequest.userId;
   const conversationId = jobRequest.conversationId;
   const stepsKey = sessionKey(['async-job-steps', jobId]);
   const accumulatedSteps: any[] = [];
@@ -623,14 +623,17 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
   try {
     const { messages, additionalProps, conversationId, conversationName } = req.body;
 
-    if (!messages || !Array.isArray(messages)) {
-      return res.status(400).json({ error: 'Invalid messages' });
-    }
-
     // SECURITY: Derive user identity from the server-side session,
     // not from client-sent identity fields which can be spoofed.
     const session = await getSession(req, res);
-    const verifiedUsername = session?.username || 'anon';
+    if (!session?.username) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+    const verifiedUsername = session.username;
+
+    if (!messages || !Array.isArray(messages)) {
+      return res.status(400).json({ error: 'Invalid messages' });
+    }
 
     // Overwrite client-sent identity fields with verified values
     if (additionalProps) {
@@ -927,10 +930,20 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
   }
 
   try {
+    const session = await getSession(req, res);
+    if (!session?.username) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+
     const statusKey = sessionKey(['async-job-status', jobId]);
     const jobStatus = await jsonGet(statusKey) as AsyncJobStatus | null;
 
     if (!jobStatus) {
+      return res.status(404).json({ error: 'Job not found' });
+    }
+
+    const jobRequest = await jsonGet(sessionKey(['async-job-request', jobId])) as AsyncJobRequest | null;
+    if (!jobRequest || jobRequest.userId !== session.username) {
       return res.status(404).json({ error: 'Job not found' });
     }
 
@@ -940,10 +953,6 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
     }
 
     // Fetch live status from NAT
-    const jobRequest = await jsonGet(sessionKey(['async-job-request', jobId])) as AsyncJobRequest | null;
-    if (!jobRequest) {
-      return res.status(200).json(jobStatus);
-    }
     launchBackgroundFinalizer(jobId, jobRequest);
 
     let natStatus: NatAsyncJobResponse | null = null;
@@ -1002,10 +1011,18 @@ async function handleDelete(req: NextApiRequest, res: NextApiResponse) {
   }
 
   try {
+    const session = await getSession(req, res);
+    if (!session?.username) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+
     const requestKey = sessionKey(['async-job-request', jobId]);
     const statusKey = sessionKey(['async-job-status', jobId]);
     const stepsKey = sessionKey(['async-job-steps', jobId]);
     const jobRequest = await jsonGet(requestKey) as AsyncJobRequest | null;
+    if (!jobRequest || jobRequest.userId !== session.username) {
+      return res.status(404).json({ error: 'Job not found' });
+    }
     const currentStatus = await jsonGet(statusKey) as AsyncJobStatus | null;
 
     await jsonSetWithExpiry(abortKey(jobId), true, JOB_EXPIRY_SECONDS).catch(() => {});
@@ -1050,7 +1067,7 @@ async function finalizeSuccess(
   jobRequest: AsyncJobRequest,
   rawOutput: string
 ): Promise<void> {
-  const userId = jobRequest.userId || 'anon';
+  const userId = jobRequest.userId;
 
   // Retrieve intermediate steps accumulated by the background stream reader
   const stepsKey = sessionKey(['async-job-steps', jobId]);
@@ -1184,7 +1201,7 @@ async function finalizeError(
   // error paths that bypass handleGet's abort logic, e.g. direct calls).
   await jsonSetWithExpiry(abortKey(jobId), true, JOB_EXPIRY_SECONDS).catch(() => {});
 
-  const userId = jobRequest.userId || 'anon';
+  const userId = jobRequest.userId;
 
   // Read current job status to preserve any partial progress accumulated during polling
   const statusKey = sessionKey(['async-job-status', jobId]);

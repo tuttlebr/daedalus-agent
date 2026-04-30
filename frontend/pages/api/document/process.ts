@@ -1,6 +1,6 @@
 import { NextApiRequest, NextApiResponse } from 'next';
 import http from 'http';
-import { getOrSetSessionId, getUserId } from '../session/_utils';
+import { getOrSetSessionId, requireAuthenticatedUser } from '../session/_utils';
 import { getBackendHost, buildBackendUrl } from '@/utils/app/backendApi';
 
 export const config = {
@@ -66,9 +66,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   try {
-    const sessionId = getOrSetSessionId(req, res);
-    const userId = await getUserId(req, res);
-    const username = userId || 'anon';
+    const session = await requireAuthenticatedUser(req, res);
+    if (!session) return;
+    getOrSetSessionId(req, res);
+    const username = session.username;
 
     const { documentRef, documentRefs, filename, collection } = req.body;
 
@@ -85,7 +86,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     // Use the collection selected by the user, falling back to the username
     const targetCollection = (typeof collection === 'string' && collection) ? collection : username;
 
-    console.log('Processing documents:', {
+    console.info('Processing documents:', {
       documentCount: documentsToProcess.length,
       username,
       collection: targetCollection
@@ -132,8 +133,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     const fullResponse = backendResponse.body;
-
-    console.log('Document processing response:', fullResponse);
 
     const extractTextFromResponse = (raw: string): string => {
       const trimmed = raw.trim();
