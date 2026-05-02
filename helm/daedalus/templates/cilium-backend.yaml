@@ -129,6 +129,18 @@ spec:
             - port: "8080"
               protocol: TCP
 
+    # Nemotron Omni vLLM aggregator frontend (default namespace)
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: default
+            nvidia.com/dynamo-component: Frontend
+            nvidia.com/dynamo-component-type: frontend
+            nvidia.com/dynamo-namespace: default-nemotron-omni-vllm-agg
+      toPorts:
+        - ports:
+            - port: "8000"
+              protocol: TCP
+
     # ── External FQDN allowlist (HTTPS only) ────────────────────────
     # NVIDIA inference & model APIs
     - toFQDNs:
