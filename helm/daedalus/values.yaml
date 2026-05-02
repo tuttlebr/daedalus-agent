@@ -121,10 +121,12 @@ frontend:
     fromSecret: ""
     createSecret: true
     # When createSecret is true, provide plaintext key/value pairs here.
-    # SESSION_SECRET (used to sign identity cookies) is auto-generated on first
-    # install and preserved across upgrades via `lookup` — set it explicitly here
-    # only if you need to share it across replicas or pin it to a known value.
     data: {}
+    # SESSION_SECRET (used to sign identity cookies) lives in its own
+    # chart-managed Secret regardless of fromSecret/createSecret. Auto-generated
+    # on first install and preserved across upgrades via `lookup`. Pin to a
+    # known value only if you need to share it across replicas or environments.
+    sessionSecret: ""
     overrides:
       # Backend API path - controls which NAT API endpoint to use
       # Supported values: /chat, /chat/stream, /generate, /generate/stream, /v1/chat/completions

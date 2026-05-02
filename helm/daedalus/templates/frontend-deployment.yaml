@@ -49,6 +49,11 @@ spec:
             - containerPort: 3001
               name: ws
           env:
+            - name: SESSION_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ printf "%s-frontend-session" (include "daedalus.fullname" .) }}
+                  key: SESSION_SECRET
             - name: REDIS_URL
               value: {{ (get (.Values.frontend.env.overrides | default dict) "REDIS_URL") | default (printf "redis://%s-redis.%s.svc.cluster.local.:6379" (include "daedalus.fullname" .) .Release.Namespace) | quote }}
             - name: BACKEND_HOST
