@@ -81,7 +81,7 @@ function_groups:
           topics.
     server:
       transport: streamable-http
-      url: https://docs.dynamo.nvidia.com/dynamo/_mcp/server
+      url: https://docs.dynamo.nvidia.com/api/fern-docs/mcp
   k8s_mcp_server:
     _type: mcp_client
     tool_call_timeout: 600
