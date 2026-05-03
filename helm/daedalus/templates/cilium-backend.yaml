@@ -129,13 +129,23 @@ spec:
             - port: "8080"
               protocol: TCP
 
-    # Nemotron Omni vLLM aggregator frontend (default namespace)
+    # Nemotron Omni vLLM aggregator frontend service
+    - toServices:
+        - k8sService:
+            serviceName: nemotron-omni-vllm-agg-frontend
+            namespace: nemotron-omni
+      toPorts:
+        - ports:
+            - port: "8000"
+              protocol: TCP
+
+    # Nemotron Omni vLLM aggregator frontend pods (label fallback)
     - toEndpoints:
         - matchLabels:
-            io.kubernetes.pod.namespace: default
+            io.kubernetes.pod.namespace: nemotron-omni
             nvidia.com/dynamo-component: Frontend
             nvidia.com/dynamo-component-type: frontend
-            nvidia.com/dynamo-namespace: default-nemotron-omni-vllm-agg
+            nvidia.com/dynamo-namespace: nemotron-omni-nemotron-omni-vllm-agg
       toPorts:
         - ports:
             - port: "8000"
