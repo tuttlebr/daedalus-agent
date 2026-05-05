@@ -92,6 +92,30 @@ class TestFetchImageFromRedis:
         assert result[0] == "dXNlcg=="
         assert redis_client.requested_keys[0] == "user:alice:image:abc"
 
+    def test_prefers_vlm_normalized_payload_when_available(self):
+        payload = json.dumps(
+            {
+                "data": "b3JpZw==",
+                "mimeType": "image/jpeg",
+                "vlmData": "bm9ybQ==",
+                "vlmMimeType": "image/png",
+            }
+        )
+        redis_client = _FakeRedis({"image:sess1:abc": payload})
+
+        result = _run(
+            fetch_image_from_redis(
+                redis_client,
+                {
+                    "imageId": "abc",
+                    "sessionId": "sess1",
+                    "mimeType": "image/jpeg",
+                },
+            )
+        )
+
+        assert result == ("bm9ybQ==", "image/png")
+
     def test_missing_image_returns_error(self):
         redis_client = _FakeRedis({})
         result = _run(

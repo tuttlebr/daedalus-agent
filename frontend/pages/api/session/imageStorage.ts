@@ -24,11 +24,15 @@ const IMAGE_EXPIRY_SECONDS = 60 * 60 * 24 * 7; // 7 days
 const MAX_IMAGE_SIZE = 10 * 1024 * 1024; // 10MB limit
 const THUMBNAIL_MAX_SIZE = 400; // Max dimension for thumbnails
 const THUMBNAIL_QUALITY = 80; // JPEG quality for thumbnails
+const VLM_MAX_DIMENSION = 4096; // Cap oversized uploads before VLM ingestion
+const VLM_IMAGE_QUALITY = 92; // Preserve detail while normalizing decoder-sensitive JPEGs
 
 export interface StoredImage {
   id: string;
   data: string;
   mimeType: string;
+  vlmData?: string; // Normalized image payload for VLM ingestion
+  vlmMimeType?: string;
   size: number;
   createdAt: number;
   sessionId: string;
@@ -51,6 +55,8 @@ async function processImage(
 ): Promise<{
   data: string;
   mimeType: string;
+  vlmData?: string;
+  vlmMimeType?: string;
   size: number;
   thumbnail?: string;
   thumbnailMimeType?: string;
@@ -58,7 +64,10 @@ async function processImage(
   height?: number;
 }> {
   // Remove data URL prefix if present
-  const cleanBase64 = base64Data.replace(/^data:image\/[a-z+]+;base64,/, '');
+  const cleanBase64 = base64Data.replace(
+    /^data:image\/[a-z0-9.+-]+(?:;[a-z0-9=.+-]+)*;base64,/i,
+    '',
+  );
   const buffer = Buffer.from(cleanBase64, 'base64');
 
   try {
@@ -79,6 +88,30 @@ async function processImage(
         avif: 'image/avif',
       };
       actualMimeType = formatToMime[metadata.format] || mimeType;
+    }
+
+    let vlmData: string | undefined;
+    let vlmMimeType: string | undefined;
+    try {
+      const vlmBuffer = await sharp(buffer)
+        .rotate()
+        .resize(VLM_MAX_DIMENSION, VLM_MAX_DIMENSION, {
+          fit: 'inside',
+          withoutEnlargement: true,
+        })
+        .flatten({ background: '#ffffff' })
+        .toColorspace('srgb')
+        .jpeg({
+          quality: VLM_IMAGE_QUALITY,
+          progressive: false,
+          mozjpeg: false,
+        })
+        .toBuffer();
+
+      vlmData = vlmBuffer.toString('base64');
+      vlmMimeType = 'image/jpeg';
+    } catch (vlmError) {
+      console.error('Failed to generate VLM-normalized image:', vlmError);
     }
 
     // Generate thumbnail if image is larger than thumbnail size
@@ -114,6 +147,8 @@ async function processImage(
     return {
       data: cleanBase64,
       mimeType: actualMimeType,
+      vlmData,
+      vlmMimeType,
       size: buffer.length,
       thumbnail,
       thumbnailMimeType,
@@ -152,6 +187,8 @@ export async function storeImage(
     id: imageId,
     data: processed.data,
     mimeType: processed.mimeType,
+    vlmData: processed.vlmData,
+    vlmMimeType: processed.vlmMimeType,
     size: processed.size,
     createdAt: Date.now(),
     sessionId,

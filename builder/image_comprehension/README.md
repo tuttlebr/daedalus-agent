@@ -7,6 +7,7 @@ This builder package registers a read-only media analysis function for Daedalus.
 - Accepts images via `imageRef` (Redis-stored upload) or `image_url` (direct URL)
 - Accepts videos via `videoRef` (Redis-stored upload) or `video_url` (direct URL)
 - Fetches uploaded media from Redis using stored IDs and session context
+- Prefers the VLM-normalized Redis image payload when present, falling back to the original upload
 - Uses an OpenAI-compatible chat completions endpoint, defaulting to `https://integrate.api.nvidia.com/v1`
 - Uses `nvidia/NVIDIA-Nemotron-Nano-12B-v2` by default
 - Returns a text response describing or answering questions about the media — never a modified image

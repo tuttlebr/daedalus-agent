@@ -88,6 +88,11 @@ async def fetch_image_from_redis(
 
     try:
         image_record = json.loads(image_data_json)
+        vlm_base64 = image_record.get("vlmData")
+        if vlm_base64:
+            vlm_mime_type = image_record.get("vlmMimeType") or "image/jpeg"
+            return (vlm_base64, vlm_mime_type)
+
         image_base64 = image_record.get("data")
         mime_type = (
             image_ref.get("mimeType") or image_record.get("mimeType") or "image/png"
