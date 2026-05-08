@@ -57,7 +57,7 @@ spec:
                 - name: RESET_WORKSPACE
                   value: {{ .Values.autonomousAgent.workspace.resetOnDeploy | default false | quote }}
                 - name: DISTILLATION_INTERVAL
-                  value: {{ .Values.autonomousAgent.workspace.distillationInterval | default 5 | quote }}
+                  value: {{ .Values.autonomousAgent.workspace.distillationInterval | default 10 | quote }}
                 {{- range $key, $val := .Values.autonomousAgent.env.overrides }}
                 - name: {{ $key }}
                   value: {{ $val | quote }}

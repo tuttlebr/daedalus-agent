@@ -241,7 +241,7 @@ autonomousAgent:
     # Force re-seed all workspace files from ConfigMap (use after major identity changes)
     resetOnDeploy: false
     # Cycles between MEMORY.md distillation from daily notes
-    distillationInterval: 5
+    distillationInterval: 10
   env:
     # Load API keys from the same secret as the backend (needed if backend
     # requires auth headers; usually not needed since the agent calls the

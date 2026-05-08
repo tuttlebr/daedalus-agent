@@ -98,6 +98,7 @@ Those routes are selected by path and `X-Backend-Type` header, which allows call
 - `nginx.config.restrictedMode=true` disables direct backend access through nginx and forces traffic through the frontend.
 - The autonomous agent can target either backend using `autonomousAgent.backendType`.
 - The autonomous agent mounts seed knowledge graph files from `helm/daedalus/files/autonomous-agent-*.md` via a ConfigMap. Set `autonomousAgent.workspace.resetOnDeploy=true` to re-seed all files after identity or schema changes.
+- The autonomous agent defaults to a 10-cycle distillation interval so exploration, follow-up, falsification, and memory maintenance stay aligned.
 
 ## Recommended Reading
 

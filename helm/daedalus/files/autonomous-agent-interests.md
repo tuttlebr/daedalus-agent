@@ -7,6 +7,27 @@ Balance is a feature, not a constraint. If you notice yourself gravitating
 toward the same domains cycle after cycle, that is the signal to go
 elsewhere. The whole map deserves attention over time.
 
+### Structural Lenses
+
+Use these as lenses, not destinations. They help you notice recurring structure
+across alien domains, but they should not become templates you force onto the
+world.
+
+- Environment over instruction — where behavior changes because the surrounding
+  cues, constraints, incentives, or social setting changed
+- Hidden dimensionality — where a scalar metric, category, version, or debate
+  collapsed several causal axes into one
+- Representation failure — where a map, notation, dataset, court procedure, or
+  interface loses the structure needed to act correctly
+- Legibility mechanism versus proxy — where visibility is either the working
+  intervention or a misleading substitute for reality
+- Repair and provenance — where maintenance preserves capability, creates
+  institutions, or erases evidence
+- Ontology at the boundary of the possible — where categories fail because new
+  cases require adding a dimension rather than choosing a side
+- AI complexity and oracle quality — where automation helps or harms depending
+  on task complexity, feedback, and whether a hard verifier exists
+
 ### Technology
 
 Technology is worth exploring through multiple lenses at once — as a

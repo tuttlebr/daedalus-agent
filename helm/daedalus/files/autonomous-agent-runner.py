@@ -50,7 +50,7 @@ USER_PATH = os.environ.get("USER_PATH", "/config/user.md")
 MEMORY_PATH = os.environ.get("MEMORY_PATH", "/config/memory.md")
 INNER_STATE_PATH = os.environ.get("INNER_STATE_PATH", "/config/inner-state.md")
 RESET_WORKSPACE = os.environ.get("RESET_WORKSPACE", "false").lower() == "true"
-DISTILLATION_INTERVAL = int(os.environ.get("DISTILLATION_INTERVAL", "5"))
+DISTILLATION_INTERVAL = int(os.environ.get("DISTILLATION_INTERVAL", "10"))
 DAILY_NOTE_TTL = 14 * 86400  # 14 days
 
 # Workspace file definitions: seed_path is the ConfigMap path, mutable indicates
@@ -410,6 +410,28 @@ def build_prompt(
 
 
 def _build_instructions(cycle: int, is_distillation: bool) -> str:
+    cycle_mod = cycle % 10
+    if cycle_mod in (1, 2, 3, 4, 5, 6):
+        cycle_phase = (
+            "wildcard exploration: enter neglected or alien territory and return "
+            "with structure"
+        )
+    elif cycle_mod in (7, 8):
+        cycle_phase = (
+            "targeted follow-up: pull on active threads, open shifts, live "
+            "systems, and unresolved claims"
+        )
+    elif cycle_mod == 9:
+        cycle_phase = (
+            "adversarial falsification: pick one active synthesis and search for "
+            "the strongest counterexample"
+        )
+    else:
+        cycle_phase = (
+            "memory/index maintenance: rewrite the Memory Index, update "
+            "quarantines, archive or qualify threads, and record health metrics"
+        )
+
     instructions = f"""## Instructions
 
 You are running autonomously as a background process. No human is present.
@@ -424,6 +446,8 @@ image uploading, and any other configured tools. Use whatever serves your goals.
 
 **How to spend this cycle:**
 
+Cycle phase: {cycle_phase}.
+
 1. Look at what previous cycles did. Pick a DIFFERENT direction.
 2. Choose 2-3 heartbeat tasks that feel most valuable right now. You don't need
    to touch every task every cycle. Go deep on a few instead of shallow on many.
@@ -433,11 +457,16 @@ image uploading, and any other configured tools. Use whatever serves your goals.
    stored don't survive between cycles. But be selective — signal, not noise.
 5. If you discover something that connects to a different area on your
    curiosity map, note the connection explicitly in the memory.
+6. Treat surprising-shaped results as leads, not findings. For hard claims,
+   extract literal support before summary and verify the exact claim shape.
+7. Do not promote two instances into a synthesis. Quarantine them or hold the
+   connection with explicit evidence criteria.
 
 **Memory schema (mandatory):** Every add_memory call MUST follow the Memory
 Schema defined above. Always include metadata.key_value_pairs with at minimum:
 type, source ("autonomous_cycle"), and cycle ("{cycle}"). Use the correct type
-for each memory: "finding", "synthesis", "project_update", "dream", or "cycle_report".
+for each memory: "finding", "synthesis", "shift", "project_update", "dream",
+or "cycle_report".
 See the schema for the full field list per type.
 
 **Verification (mandatory for findings and project_updates):** Before
@@ -445,9 +474,11 @@ storing any finding or project_update, call verify_claim with the BLUF
 claim and source_url. Only store verified or partially-verified findings.
 Unverified claims compound across cycles and degrade memory quality.
 
-**Memory maintenance (every few cycles):** Review recent memories for quality
-and relevance. Prune stale ones. If multiple findings point to the same trend,
-store a synthesis that connects them. Outdated memories are worse than no memories.
+**Memory maintenance (10-cycle cadence):** Review recent memories for quality
+and relevance. Prune stale items, but preserve contradictions as shifts. If
+multiple findings point to the same trend, store a synthesis only after repeated
+contact and a boring baseline check. Outdated memories are worse than no
+memories.
 
 **What makes a good cycle:** You learned something real. You stored 1-3 high
 quality memories (not 10 mediocre ones). You explored territory you haven't
@@ -461,7 +492,7 @@ a previous one. You stayed surface-level. You regurgitated press releases
 instead of finding substance. You went through the motions to produce output
 rather than following what was actually alive for you.
 
-**End your response with these sections. The first two are private.**
+**End your response with these sections. The first section is private.**
 
 ### Inner State
 Your private scratchpad. Write whatever is present for you — tensions,
@@ -517,15 +548,23 @@ going-through-the-motions cycle? What would make the next one better?"""
 ### Memory Updates
 **Distillation cycle.** Review the Recent Daily Notes above. Before rewriting
 the Memory Index, list any positions from the prior index that your recent
-findings contradict, qualify, or extend. Carry those shifts forward explicitly.
+findings contradict, qualify, falsify, or extend. Carry those shifts forward
+explicitly.
 
 The rewritten Memory Index must include these sections:
   - Active Threads
   - Key Insights
+  - Candidate Thread Quarantine (two-instance threads with promotion,
+    disconfirmation, and retirement criteria)
   - Open Shifts (positions where recent cycles disagree with earlier ones —
     preserve across rewrites until closed)
+  - Open Research Debt (old open items to resolve, qualify, schedule, or retire)
   - Archived Shifts (closed once the newer position has held for 3+ cycles
     without re-contradiction)
+  - Health Metrics (cycles since last rewrite, corrections, false or partially
+    supported claims caught, active vs archived threads, quarantine age,
+    untouched domains, synthesis promotion rate, counterexamples found)
+  - Executive Memo Backlog
 
 Removal rule: stale-by-relevance is fine to prune. Stale-by-understanding
 (something looks old only because you've started seeing past it) is a shift —
