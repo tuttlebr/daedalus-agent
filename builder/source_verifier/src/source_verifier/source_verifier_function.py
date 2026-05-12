@@ -28,6 +28,7 @@ import json
 import logging
 import re
 from dataclasses import dataclass
+from urllib.parse import urlparse
 
 import httpx
 from nat.builder.builder import Builder, LLMFrameworkEnum
@@ -46,6 +47,7 @@ logger = logging.getLogger(__name__)
 
 # Regex to extract markdown links: [text](url)
 _MARKDOWN_LINK_RE = re.compile(r"\[([^\]]*)\]\((https?://[^)]+)\)")
+_PLACEHOLDER_HOSTS = {"example.com", "example.org", "example.net"}
 
 
 # ---------------------------------------------------------------------------
@@ -115,6 +117,14 @@ class SourceVerifierConfig(FunctionBaseConfig, name="source_verifier"):
         ge=1000,
         le=64000,
         description="Maximum tokens of fetched source content to pass to the verification LLM.",
+    )
+    enabled_operations: list[str] | None = Field(
+        default=None,
+        description=(
+            "Optional allow-list of operations to register. Supported values: "
+            "verify_claim, verify_memory, audit_memories. When omitted, all "
+            "operations are registered."
+        ),
     )
 
 
@@ -314,8 +324,16 @@ Rules:
 - Only mark a claim as "supported" if the source EXPLICITLY states or DIRECTLY
   implies the claim with specific evidence.
 - Absence of contradiction is NOT support. The source must actively confirm.
+- For claims about "current", "latest", "officially disclosed", leadership,
+  titles, versions, dates, or numeric values, every decision-critical field
+  must be supported by the source.
+- A version-specific release note is not proof of latest/current unless the
+  source itself says it is latest/current. Prefer official latest/ docs pages,
+  release indexes, or package indexes for latest/current claims.
+- Placeholder URLs such as example.com are never valid support.
 - "partially_supported" means the source confirms some aspects but not others,
-  or the source's numbers/details differ slightly from the claim.
+  or the source's numbers/details differ slightly from the claim. A partially
+  supported claim is not safe to store as a durable finding.
 - "unsupported" means the source does not contain evidence for the claim, or
   actively contradicts it.
 - "insufficient_context" means the source content is too short, generic, or
@@ -354,6 +372,11 @@ Return your assessment as JSON (no markdown fences) with exactly these fields:
 # ---------------------------------------------------------------------------
 @register_function(config_type=SourceVerifierConfig)
 async def source_verifier_function(config: SourceVerifierConfig, builder: Builder):
+    enabled = set(config.enabled_operations or [])
+
+    def _enabled(operation: str) -> bool:
+        return not enabled or operation in enabled
+
     # ------------------------------------------------------------------
     # Tool 1 -- verify_claim
     # ------------------------------------------------------------------
@@ -400,6 +423,22 @@ async def source_verifier_function(config: SourceVerifierConfig, builder: Builde
                     "evidence": None,
                     "reasoning": "No source URL provided. Cannot verify without a source.",
                     "claim_issues": ["No source_url supplied"],
+                }
+            )
+
+        parsed_url = urlparse(source_url.strip())
+        hostname = (parsed_url.hostname or "").lower()
+        if hostname in _PLACEHOLDER_HOSTS:
+            return json.dumps(
+                {
+                    "verdict": "unsupported",
+                    "confidence": 1.0,
+                    "source_url": source_url,
+                    "source_reachable": False,
+                    "fetch_status": "placeholder_url",
+                    "evidence": None,
+                    "reasoning": "Placeholder URLs cannot support factual claims.",
+                    "claim_issues": ["placeholder_source_url"],
                 }
             )
 
@@ -845,42 +884,46 @@ async def source_verifier_function(config: SourceVerifierConfig, builder: Builde
     # Register all three tools with NAT
     # ------------------------------------------------------------------
     try:
-        yield FunctionInfo.from_fn(
-            verify_claim,
-            description=(
-                "Verify whether a source URL actually supports a claimed fact. "
-                "Fetches the URL, uses LLM analysis to assess support. Returns "
-                "structured verdict: supported/partially_supported/unsupported/"
-                "source_unreachable with evidence excerpts and confidence score. "
-                "Call this BEFORE storing any finding in memory to prevent "
-                "citation hallucination. If verdict is 'unsupported' or "
-                "'source_unreachable', do NOT store the memory."
-            ),
-        )
+        if _enabled("verify_claim"):
+            yield FunctionInfo.from_fn(
+                verify_claim,
+                description=(
+                    "Verify whether a source URL actually supports a claimed fact. "
+                    "Fetches the URL, uses LLM analysis to assess support. Returns "
+                    "structured verdict: supported/partially_supported/unsupported/"
+                    "source_unreachable with evidence excerpts and confidence score. "
+                    "Call this on the exact final claim BEFORE storing any finding "
+                    "in memory to prevent citation hallucination. Store memory only "
+                    "when verdict is 'supported'; do not store partially_supported, "
+                    "unsupported, or source_unreachable claims."
+                ),
+            )
 
-        yield FunctionInfo.from_fn(
-            verify_memory,
-            description=(
-                "Verify an existing memory entry's citations and logical "
-                "soundness. Pass the memory text and its metadata JSON. "
-                "For findings: checks source_url reachability and verifies "
-                "claims against the source. For syntheses: assesses whether "
-                "connections are logically sound. Returns verification status, "
-                "issues, and recommendation (retain/flag_for_review/remove)."
-            ),
-        )
+        if _enabled("verify_memory"):
+            yield FunctionInfo.from_fn(
+                verify_memory,
+                description=(
+                    "Verify an existing memory entry's citations and logical "
+                    "soundness. Pass the memory text and its metadata JSON. "
+                    "For findings: checks source_url reachability and verifies "
+                    "claims against the source. For syntheses: assesses whether "
+                    "connections are logically sound. Returns verification status, "
+                    "issues, and recommendation (retain/flag_for_review/remove)."
+                ),
+            )
 
-        yield FunctionInfo.from_fn(
-            audit_memories,
-            description=(
-                "Batch-verify a set of memories for citation quality. First "
-                "call get_memory to retrieve memories, then pass the results "
-                "here as memories_json. Returns a structured audit report with "
-                "per-memory verdicts, aggregate counts (verified/failed/"
-                "unreachable/skipped), and recommendations. Use during memory "
-                "maintenance cycles to catch dead links and unsupported claims."
-            ),
-        )
+        if _enabled("audit_memories"):
+            yield FunctionInfo.from_fn(
+                audit_memories,
+                description=(
+                    "Batch-verify a set of memories for citation quality. First "
+                    "call get_memory to retrieve memories, then pass the results "
+                    "here as memories_json. Returns a structured audit report with "
+                    "per-memory verdicts, aggregate counts (verified/failed/"
+                    "unreachable/skipped), and recommendations. Use during memory "
+                    "maintenance cycles to catch dead links and unsupported claims."
+                ),
+            )
 
     except GeneratorExit:
         logger.warning("source_verifier function exited early!")

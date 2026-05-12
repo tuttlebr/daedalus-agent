@@ -235,6 +235,14 @@ class MasOptimizerConfig(FunctionBaseConfig, name="mas_optimizer"):
             "Below this, the verifier flags weak task-response alignment."
         ),
     )
+    enabled_operations: list[str] | None = Field(
+        default=None,
+        description=(
+            "Optional allow-list of operations to register. Supported values: "
+            "mas_evaluate, mas_verify, mas_log_outcome. When omitted, all "
+            "operations are registered."
+        ),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -247,6 +255,10 @@ async def mas_optimizer_function(config: MasOptimizerConfig, builder: Builder):
         decomposability_threshold=config.decomposability_threshold,
         tool_count_threshold=config.tool_count_threshold,
     )
+    enabled = set(config.enabled_operations or [])
+
+    def _enabled(operation: str) -> bool:
+        return not enabled or operation in enabled
 
     # ------------------------------------------------------------------
     # Tool 1 -- mas_evaluate
@@ -595,41 +607,44 @@ async def mas_optimizer_function(config: MasOptimizerConfig, builder: Builder):
     # Register all three tools with NAT
     # ------------------------------------------------------------------
     try:
-        yield FunctionInfo.from_fn(
-            mas_evaluate,
-            description=(
-                "Evaluate whether a task should use Multi-Agent System (MAS) "
-                "or Single-Agent System (SAS). Applies capability gating "
-                "(SAS accuracy < 0.45), task decomposability, and sequential "
-                "interdependence analysis per 'Towards a Science of Scaling "
-                "Agent Systems'. Returns a JSON assessment with architecture "
-                "recommendation (SAS, centralized, or decentralized), "
-                "skill_name, gate results, and confidence score."
-            ),
-        )
+        if _enabled("mas_evaluate"):
+            yield FunctionInfo.from_fn(
+                mas_evaluate,
+                description=(
+                    "Evaluate whether a task should use Multi-Agent System (MAS) "
+                    "or Single-Agent System (SAS). Applies capability gating "
+                    "(SAS accuracy < 0.45), task decomposability, and sequential "
+                    "interdependence analysis per 'Towards a Science of Scaling "
+                    "Agent Systems'. Returns a JSON assessment with architecture "
+                    "recommendation (SAS, centralized, or decentralized), "
+                    "skill_name, gate results, and confidence score."
+                ),
+            )
 
-        yield FunctionInfo.from_fn(
-            mas_verify,
-            description=(
-                "Verify a draft response against the original task intent. "
-                "Checks for topic drift, task-response entity alignment, "
-                "missing architecture content, verbosity, and self-reference "
-                "coherence. Implements the verifier sub-agent stage that "
-                "reduces error amplification from 17.2x to 4.4x in "
-                "centralized MAS."
-            ),
-        )
+        if _enabled("mas_verify"):
+            yield FunctionInfo.from_fn(
+                mas_verify,
+                description=(
+                    "Verify a draft response against the original task intent. "
+                    "Checks for topic drift, task-response entity alignment, "
+                    "missing architecture content, verbosity, and self-reference "
+                    "coherence. Implements the verifier sub-agent stage that "
+                    "reduces error amplification from 17.2x to 4.4x in "
+                    "centralized MAS."
+                ),
+            )
 
-        yield FunctionInfo.from_fn(
-            mas_log_outcome,
-            description=(
-                "Log a MAS/SAS task outcome with runtime coordination metrics "
-                "(overhead O%, efficiency E_c) for future capability gate "
-                "calibration. Returns a structured memory entry and "
-                "add_memory instruction. Call after task completion to "
-                "close the feedback loop."
-            ),
-        )
+        if _enabled("mas_log_outcome"):
+            yield FunctionInfo.from_fn(
+                mas_log_outcome,
+                description=(
+                    "Log a MAS/SAS task outcome with runtime coordination metrics "
+                    "(overhead O%, efficiency E_c) for future capability gate "
+                    "calibration. Returns a structured memory entry and "
+                    "add_memory instruction. Call after task completion to "
+                    "close the feedback loop."
+                ),
+            )
 
     except GeneratorExit:
         logger.warning("mas_optimizer function exited early!")

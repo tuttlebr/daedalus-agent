@@ -62,14 +62,38 @@ def _fake_register_function(config_type=None, **_kwargs):  # noqa: ARG001
     return decorator
 
 
+def _fake_register_passthrough(config_type=None, **_kwargs):  # noqa: ARG001
+    """Identity decorator for non-function NAT registries used in tests."""
+
+    def decorator(fn):
+        return fn
+
+    return decorator
+
+
 _nat_function_info_mod = MagicMock()
 _nat_function_info_mod.FunctionInfo = _FakeFunctionInfo
 
 _nat_data_models_function_mod = MagicMock()
 _nat_data_models_function_mod.FunctionBaseConfig = _FakeFunctionBaseConfig
 
+_nat_data_models_retriever_mod = MagicMock()
+_nat_data_models_retriever_mod.RetrieverBaseConfig = _FakeFunctionBaseConfig
+
 _nat_register_mod = MagicMock()
 _nat_register_mod.register_function = _fake_register_function
+_nat_register_mod.register_retriever_client = _fake_register_passthrough
+_nat_register_mod.register_retriever_provider = _fake_register_passthrough
+
+
+class _FakeRetrieverProviderInfo:
+    def __init__(self, config=None, description: str = ""):
+        self.config = config
+        self.description = description
+
+
+_nat_builder_retriever_mod = MagicMock()
+_nat_builder_retriever_mod.RetrieverProviderInfo = _FakeRetrieverProviderInfo
 
 
 class _FakeRetriever:
@@ -107,12 +131,14 @@ _NAT_MOCKS: dict[str, object] = {
     "nat": MagicMock(),
     "nat.builder": MagicMock(),
     "nat.builder.builder": MagicMock(),
+    "nat.builder.retriever": _nat_builder_retriever_mod,
     "nat.builder.framework_enum": MagicMock(),
     "nat.builder.function_info": _nat_function_info_mod,
     "nat.cli": MagicMock(),
     "nat.cli.register_workflow": _nat_register_mod,
     "nat.data_models": MagicMock(),
     "nat.data_models.function": _nat_data_models_function_mod,
+    "nat.data_models.retriever": _nat_data_models_retriever_mod,
     "nat.retriever": MagicMock(),
     "nat.retriever.interface": _nat_retriever_interface_mod,
     "nat.retriever.models": _nat_retriever_models_mod,

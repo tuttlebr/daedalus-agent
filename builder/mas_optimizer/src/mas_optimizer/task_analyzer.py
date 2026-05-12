@@ -144,6 +144,63 @@ ANALYSIS_INDICATORS: frozenset[str] = frozenset(
     }
 )
 
+# Requests tied to one concrete execution surface are cheaper and more reliable
+# as SAS even when they include multiple verbs.
+SINGLE_DOMAIN_SAS_INDICATORS: frozenset[str] = frozenset(
+    {
+        "uploaded document",
+        "uploaded documents",
+        "my doc",
+        "my docs",
+        "the pdf i uploaded",
+        "that report",
+        "documentref",
+        "imageref",
+        "videoref",
+        "generate an image",
+        "edit image",
+        "describe image",
+        "summarize this vtt",
+        "summarize this transcript",
+        "meeting transcript",
+        "list the pods",
+        "describe pod",
+        "open pull requests",
+        "merged pull requests",
+        "pull requests",
+        "pull-request status",
+        "pr status",
+    }
+)
+
+# Structured analysis over independent source families is the class of task that
+# benefits from a centralized MAS even when natural wording includes a mild
+# sequential phrase such as "then cross-check".
+STRUCTURED_MULTI_SOURCE_ANALYSIS_INDICATORS: frozenset[str] = frozenset(
+    {
+        "filing",
+        "financial filing",
+        "earnings call",
+        "transcript",
+        "competitor",
+        "10-k",
+        "10-q",
+        "analyst notes",
+        "revenue growth",
+        "margin",
+        "operating margin",
+        "capex",
+        "ai infrastructure",
+        "comparison table",
+        "structured comparison",
+        "cross-check",
+        "alongside",
+    }
+)
+
+STRUCTURED_MULTI_SOURCE_MIN_SIGNALS = 3
+STRUCTURED_MULTI_SOURCE_THRESHOLD_DISCOUNT = 0.17
+
 # Top-level execution domains exposed by the orchestrator. When these are
 # present, lower-level helper tools should not inflate the coordination count.
 ROUTING_DOMAIN_TOOLS: frozenset[str] = frozenset(
@@ -165,7 +222,7 @@ META_TOOL_NAMES: frozenset[str] = frozenset(
         "delete_memory",
         "get_memory",
         "mas_optimizer_tool",
-        "think_tool",
+        "ops_confirmation_tool",
         "user_interaction_tool",
     }
 )
@@ -292,6 +349,27 @@ class TaskAnalyzer:
         return "structured_analysis"
 
     @staticmethod
+    def is_single_domain_sas(task_text: str) -> bool:
+        """Return true for tasks that should stay on one specialist path."""
+        text_lower = task_text.lower()
+        return any(ind in text_lower for ind in SINGLE_DOMAIN_SAS_INDICATORS)
+
+    @staticmethod
+    def is_structured_multi_source_analysis(task_text: str) -> bool:
+        """Return true for structured analysis across independent sources."""
+        text_lower = task_text.lower()
+        source_signals = sum(
+            1
+            for ind in STRUCTURED_MULTI_SOURCE_ANALYSIS_INDICATORS
+            if ind in text_lower
+        )
+        analysis_signals = sum(1 for ind in ANALYSIS_INDICATORS if ind in text_lower)
+        return (
+            source_signals >= STRUCTURED_MULTI_SOURCE_MIN_SIGNALS
+            and analysis_signals > 0
+        )
+
+    @staticmethod
     def normalize_tool_names(active_tool_names: list[str]) -> list[str]:
         """Return effective execution tools for coordination-overhead scoring."""
         cleaned = {
@@ -323,9 +401,20 @@ class TaskAnalyzer:
         # PlanCraft  (D=0.42, SI~0.5) -> effective_d ~ 0.21 (fails)
         effective_d = d * (1.0 - si)
 
-        d_ok = effective_d > self.decomposability_threshold
+        effective_threshold = self.decomposability_threshold
+        structured_multi_source = self.is_structured_multi_source_analysis(task_text)
+        if structured_multi_source and task_type == "structured_analysis":
+            effective_threshold = max(
+                0.0,
+                self.decomposability_threshold
+                - STRUCTURED_MULTI_SOURCE_THRESHOLD_DISCOUNT,
+            )
+
+        single_domain_sas = self.is_single_domain_sas(task_text)
+
+        d_ok = effective_d > effective_threshold
         t_ok = t < self.tool_count_threshold
-        eligible = d_ok and t_ok
+        eligible = d_ok and t_ok and not single_domain_sas
 
         # Architecture: centralized (default, lowest error amp 4.4x)
         # or decentralized (better for exploratory, 7.8x error amp)
@@ -337,16 +426,18 @@ class TaskAnalyzer:
         if eligible:
             reason = (
                 f"D={d:.3f}, SI={si:.3f}, effective_D={effective_d:.3f} "
-                f"> {self.decomposability_threshold}, "
+                f"> {effective_threshold:.3f}, "
                 f"T={t} < {self.tool_count_threshold}; "
                 f"task suitable for MAS ({arch}, beta={COORDINATION_BETA})"
             )
         else:
             parts: list[str] = []
+            if single_domain_sas:
+                parts.append("single-domain request should use SAS/specialist routing")
             if not d_ok:
                 parts.append(
                     f"effective_D={effective_d:.3f} <= "
-                    f"{self.decomposability_threshold} "
+                    f"{effective_threshold:.3f} "
                     f"(D={d:.3f}, SI={si:.3f})"
                 )
             if not t_ok:

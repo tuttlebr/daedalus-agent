@@ -161,17 +161,16 @@ class TestTaskAnalyzer:
             "get_memory",
             "add_memory",
             "user_interaction_tool",
-            "think_tool",
+            "ops_confirmation_tool",
             "current_datetime_tool",
-            "nvidia_retriever_tool",
-            "semianalysis_retriever_tool",
-            "kubernetes_retriever_tool",
+            "domain_retriever_tool",
+            "curated_feed_search_tool",
             "serpapi_search_tool",
             "webscrape_tool",
             "content_distiller_tool",
             "source_verifier_tool",
-            "nv_ingest_tool",
-            "user_uploaded_files_retriever_tool",
+            "visual_media_tool",
+            "user_document_tool",
         ]
         assert TaskAnalyzer.count_tools(tools) == 4
 
@@ -299,6 +298,41 @@ class TestTaskAnalyzer:
         assert result.sequential_interdependence > 0.2
         assert result.effective_decomposability < result.decomposability_score
 
+    def test_structured_multi_source_analysis_gets_centralized_mas_margin(self):
+        """Finance-style multi-source analysis should not be downgraded by mild sequencing."""
+        analyzer = TaskAnalyzer(decomposability_threshold=0.35)
+        result = analyzer.evaluate(
+            "Analyze our Q3 financial filing alongside the latest earnings "
+            "call transcript and the competitor 10-Ks, produce a structured "
+            "comparison table of revenue growth, operating margin, and capex, "
+            "then cross-check your findings against analyst notes.",
+            ["research_agent", "ops_agent", "media_agent", "user_data_agent"],
+        )
+        assert result.mas_eligible is True
+        assert result.recommended_architecture == "centralized"
+        assert "suitable for MAS" in result.reason
+
+    def test_public_earnings_comparison_gets_centralized_mas_margin(self):
+        analyzer = TaskAnalyzer(decomposability_threshold=0.35)
+        result = analyzer.evaluate(
+            "Analyze the latest NVIDIA earnings call, a recent competitor "
+            "earnings call, and two analyst notes, then produce a structured "
+            "comparison of revenue growth, margin, capex, and AI infrastructure "
+            "positioning.",
+            ["research_agent", "ops_agent", "media_agent", "user_data_agent"],
+        )
+        assert result.mas_eligible is True
+        assert result.recommended_architecture == "centralized"
+
+    def test_single_domain_document_search_stays_single_agent(self):
+        analyzer = TaskAnalyzer(decomposability_threshold=0.01)
+        result = analyzer.evaluate(
+            "Search my uploaded documents and summarize that report",
+            ["user_data_agent"],
+        )
+        assert result.mas_eligible is False
+        assert "single-domain request" in result.reason
+
 
 # ---------------------------------------------------------------------------
 # MAS optimizer registered function (NAT integration)
@@ -393,11 +427,10 @@ class TestMasOptimizerFunction:
                 active_tool_names=(
                     "research_agent,ops_agent,media_agent,user_data_agent,"
                     "agent_skills_tool,get_memory,add_memory,user_interaction_tool,"
-                    "think_tool,current_datetime_tool,nvidia_retriever_tool,"
-                    "semianalysis_retriever_tool,kubernetes_retriever_tool,"
-                    "serpapi_search_tool,webscrape_tool,content_distiller_tool,"
-                    "source_verifier_tool,nv_ingest_tool,"
-                    "user_uploaded_files_retriever_tool"
+                    "ops_confirmation_tool,current_datetime_tool,domain_retriever_tool,"
+                    "curated_feed_search_tool,serpapi_search_tool,webscrape_tool,"
+                    "content_distiller_tool,source_verifier_tool,visual_media_tool,"
+                    "user_document_tool"
                 ),
                 memory_results="[]",
             )
@@ -406,6 +439,78 @@ class TestMasOptimizerFunction:
             assert data["capability_gate"]["has_calibration"] is False
             assert data["capability_gate"]["sample_count"] == 0
             assert data["task_analysis"]["tool_count"] == 4
+            assert data["architecture"]["skill_name"] == "mas-procedure"
+            return data
+
+        run(_run())
+
+    def test_mas_evaluate_structured_finance_recommends_centralized(self):
+        """Structured multi-source financial analysis should load the MAS procedure."""
+
+        async def _run():
+            from mas_optimizer.mas_optimizer_function import (
+                MasOptimizerConfig,
+                mas_optimizer_function,
+            )
+
+            config = MasOptimizerConfig()
+            builder = MagicMock()
+            items = []
+            async for item in mas_optimizer_function(config, builder):
+                items.append(item)
+
+            evaluate_fn = items[0].fn
+            result = await evaluate_fn(
+                task_description=(
+                    "Analyze our Q3 financial filing alongside the latest earnings "
+                    "call transcript and the competitor 10-Ks, produce a structured "
+                    "comparison table of revenue growth, operating margin, and capex, "
+                    "then cross-check your findings against analyst notes."
+                ),
+                active_tool_names=(
+                    "research_agent,ops_agent,media_agent,user_data_agent"
+                ),
+                memory_results="[]",
+            )
+            data = json.loads(result)
+            assert data["recommendation"] == "MAS"
+            assert data["architecture"]["type"] == "centralized_mas_with_verifier"
+            assert data["architecture"]["skill_name"] == "mas-procedure"
+            return data
+
+        run(_run())
+
+    def test_mas_evaluate_public_earnings_workflow_recommends_centralized(self):
+        """Workflow audit's public earnings comparison should load MAS procedure."""
+
+        async def _run():
+            from mas_optimizer.mas_optimizer_function import (
+                MasOptimizerConfig,
+                mas_optimizer_function,
+            )
+
+            config = MasOptimizerConfig()
+            builder = MagicMock()
+            items = []
+            async for item in mas_optimizer_function(config, builder):
+                items.append(item)
+
+            evaluate_fn = items[0].fn
+            result = await evaluate_fn(
+                task_description=(
+                    "Analyze the latest NVIDIA earnings call, a recent competitor "
+                    "earnings call, and two analyst notes, then produce a structured "
+                    "comparison of revenue growth, margin, capex, and AI infrastructure "
+                    "positioning."
+                ),
+                active_tool_names=(
+                    "research_agent,ops_agent,media_agent,user_data_agent"
+                ),
+                memory_results="[]",
+            )
+            data = json.loads(result)
+            assert data["recommendation"] == "MAS"
+            assert data["architecture"]["type"] == "centralized_mas_with_verifier"
             assert data["architecture"]["skill_name"] == "mas-procedure"
             return data
 

@@ -14,7 +14,7 @@
 
 ## 1. Product Vision and Design Philosophy
 
-Daedalus is a portable AI agent interface. It connects users to a multi-agent system with over 50 tools — web search, document retrieval, image generation and editing, code analysis, RSS feeds, Kubernetes operations, and more — from a phone, tablet, or desktop browser. It ships as a progressive web app that feels native on every platform.
+Daedalus is a portable AI agent interface. It connects users to an optimized multi-agent tool set for web search, document retrieval, image generation and editing, code analysis, RSS feeds, Kubernetes operations, and more from a phone, tablet, or desktop browser. It ships as a progressive web app that feels native on every platform.
 
 ### Design Thesis
 

@@ -79,3 +79,23 @@ jobs:
 
       - name: Lint chart
         run: helm lint helm/daedalus
+
+  evals:
+    name: Eval Harness Validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r evals/requirements.txt
+
+      - name: Compile eval harness
+        run: python -m py_compile evals/runner.py evals/evaluators/*.py
+
+      - name: Validate eval datasets
+        run: python evals/runner.py --validate-only --dataset routing --dataset factuality --dataset workflows

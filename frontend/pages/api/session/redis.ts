@@ -75,6 +75,66 @@ function logRedisErrorThrottled(label: string, error: unknown): void {
   state.count += 1;
 }
 
+function redisErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return String(error);
+}
+
+function isRedisJsonUnsupportedError(error: unknown): boolean {
+  const message = redisErrorMessage(error).toLowerCase();
+  return (
+    message.includes('unknown command') ||
+    message.includes('unknown subcommand') ||
+    message.includes('wrong number of arguments for') ||
+    (message.includes('module') && message.includes('not loaded'))
+  );
+}
+
+function isWrongTypeError(error: unknown): boolean {
+  const message = redisErrorMessage(error).toLowerCase();
+  return message.includes('wrongtype') || message.includes('wrong kind of value');
+}
+
+function parseRedisJsonResult(result: string | null, path: string): any {
+  if (!result) return null;
+  const parsed = JSON.parse(result);
+  return path.startsWith('$') && Array.isArray(parsed) ? parsed[0] : parsed;
+}
+
+async function getPlainJson(client: Redis, key: string): Promise<any> {
+  let result: string | null;
+  try {
+    result = await client.get(key);
+  } catch (error) {
+    if (isWrongTypeError(error)) {
+      return null;
+    }
+    throw error;
+  }
+
+  if (!result) return null;
+  try {
+    return JSON.parse(result);
+  } catch (error) {
+    console.error('Error parsing JSON from Redis fallback jsonGet:', error);
+    return null;
+  }
+}
+
+async function setRedisJsonRoot(client: Redis, key: string, value: any): Promise<void> {
+  try {
+    await client.call('JSON.SET', key, '$', JSON.stringify(value));
+  } catch (error) {
+    if (!isWrongTypeError(error)) {
+      throw error;
+    }
+    await client.del(key);
+    await client.call('JSON.SET', key, '$', JSON.stringify(value));
+  }
+}
+
 // Channel name helpers for real-time sync
 export const channels = {
   userUpdates: (userId: string) => `user:${userId}:updates`,
@@ -87,13 +147,19 @@ async function ensureRedisJson(client: Redis): Promise<boolean> {
   }
 
   try {
-    // Probe for RedisJSON support once and cache the result
-    await client.call('JSON.SET', '__redisjson_probe__', '$', 'null');
-    await client.call('JSON.DEL', '__redisjson_probe__', '$');
-    redisJsonSupported = true;
+    // Use COMMAND INFO instead of a JSON.SET probe. A write probe fails when
+    // Redis is in MISCONF/readonly mode and should not be mistaken for a
+    // missing RedisJSON module.
+    const info = await client.call('COMMAND', 'INFO', 'JSON.GET') as unknown;
+    redisJsonSupported = Array.isArray(info) && info.length > 0 && info[0] !== null;
   } catch (error) {
-    console.warn('RedisJSON not available – falling back to plain Redis commands for JSON helpers.', error);
-    redisJsonSupported = false;
+    if (isRedisJsonUnsupportedError(error)) {
+      console.warn('RedisJSON not available – falling back to plain Redis commands for JSON helpers.', error);
+      redisJsonSupported = false;
+    } else {
+      console.error('RedisJSON capability check failed because Redis is unhealthy.', error);
+      throw error;
+    }
   }
 
   return redisJsonSupported;
@@ -165,6 +231,10 @@ export async function jsonSet(key: string, path: string, value: any, options?: {
     const result = await client.call('JSON.SET', ...args) as string | null;
     return result;
   } catch (error) {
+    if (isWrongTypeError(error) && (path === '$' || path === '.')) {
+      await client.del(key);
+      return await client.call('JSON.SET', key, path, JSON.stringify(value)) as string | null;
+    }
     console.error('Error in jsonSet:', error);
     throw error;
   }
@@ -176,26 +246,17 @@ export async function jsonGet(key: string, path: string = '$'): Promise<any> {
 
   // Fallback when RedisJSON is unavailable
   if (!supportsJson) {
-    const result = await client.get(key);
-    if (!result) return null;
-    try {
-      return JSON.parse(result);
-    } catch (error) {
-      console.error('Error parsing JSON from Redis fallback jsonGet:', error);
-      return null;
-    }
+    return await getPlainJson(client, key);
   }
 
   try {
     // Use RedisJSON JSON.GET command
     const result = await client.call('JSON.GET', key, path) as string | null;
-
-    if (!result) return null;
-
-    // RedisJSON returns an array when using $ path
-    const parsed = JSON.parse(result);
-    return path.startsWith('$') && Array.isArray(parsed) ? parsed[0] : parsed;
+    return parseRedisJsonResult(result, path);
   } catch (error) {
+    if (isWrongTypeError(error)) {
+      return await getPlainJson(client, key);
+    }
     console.error('Error in jsonGet:', error);
     return null;
   }
@@ -241,8 +302,7 @@ export async function jsonSetWithExpiry(key: string, value: any, ttl: number): P
   }
 
   try {
-    // Set the JSON value
-    await client.call('JSON.SET', key, '$', JSON.stringify(value));
+    await setRedisJsonRoot(client, key, value);
     // Set expiry
     await client.expire(key, ttl);
   } catch (error) {
@@ -258,16 +318,7 @@ export async function jsonMGet(keys: string[], path: string = '$'): Promise<any[
   // Fallback when RedisJSON is unavailable
   if (!supportsJson) {
     try {
-      const results = await client.mget(...keys);
-      return results.map(item => {
-        if (!item) return null;
-        try {
-          return JSON.parse(item);
-        } catch (error) {
-          console.error('Error parsing JSON from Redis fallback jsonMGet:', error);
-          return null;
-        }
-      });
+      return await Promise.all(keys.map(key => getPlainJson(client, key)));
     } catch (error) {
       console.error('Error in jsonMGet fallback:', error);
       return keys.map(() => null);
@@ -278,12 +329,11 @@ export async function jsonMGet(keys: string[], path: string = '$'): Promise<any[
     // Use RedisJSON JSON.MGET command
     const result = await client.call('JSON.MGET', ...keys, path) as (string | null)[];
 
-    return result.map(item => {
-      if (!item) return null;
-      const parsed = JSON.parse(item);
-      return path.startsWith('$') && Array.isArray(parsed) ? parsed[0] : parsed;
-    });
+    return result.map(item => parseRedisJsonResult(item, path));
   } catch (error) {
+    if (isWrongTypeError(error)) {
+      return await Promise.all(keys.map(key => jsonGet(key, path)));
+    }
     console.error('Error in jsonMGet:', error);
     return keys.map(() => null);
   }

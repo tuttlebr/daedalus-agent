@@ -44,7 +44,7 @@ through a falsification pass.
 ## Exploration Tasks
 
 When you encounter diagrams, charts, or architecture drawings, use
-`image_comprehension_tool` with `image_url` to extract meaning. A diagram
+`visual_media_tool` with operation=analyze and `image_url` to extract meaning. A diagram
 understood is worth more than a diagram linked.
 
 1. **Follow a thread.** Dig behind a prior finding. Paper behind blog post.

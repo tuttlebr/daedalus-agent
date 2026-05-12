@@ -86,6 +86,32 @@ def resolve_user_collection_name(
     return user_upload_collection_name(username, default_collection_name)
 
 
+def format_user_document_search_results(output: object, collection_name: str) -> str:
+    """Format Milvus retriever output for user document search."""
+    results = getattr(output, "results", None) or []
+    if not results:
+        return f"No matching uploaded-document passages found in {collection_name}."
+
+    parts = [f"Collection: {collection_name}", f"Passages: {len(results)}"]
+    for idx, doc in enumerate(results, start=1):
+        content = getattr(doc, "page_content", "") or str(doc)
+        metadata = getattr(doc, "metadata", {}) or {}
+        source = (
+            metadata.get("filename")
+            or metadata.get("source")
+            or metadata.get("document_id")
+            or metadata.get("title")
+        )
+        distance = metadata.get("distance")
+        header_bits = [f"{idx}."]
+        if source:
+            header_bits.append(str(source))
+        if distance is not None:
+            header_bits.append(f"distance={distance}")
+        parts.append(f"\n{' '.join(header_bits)}\n{content}")
+    return "\n".join(parts)
+
+
 class NvIngestFunctionConfig(FunctionBaseConfig, name="nat_nv_ingest"):
     """Configuration for NvIngest document processing function."""
 
@@ -126,6 +152,10 @@ class NvIngestFunctionConfig(FunctionBaseConfig, name="nat_nv_ingest"):
     default_collection_name: str = Field(
         default="user_uploads",
         description="Fallback Milvus collection name when none is supplied in the request",
+    )
+    database_name: str = Field(
+        default="default",
+        description="Milvus database name for user document retrieval",
     )
 
     # Extraction pipeline
@@ -190,6 +220,57 @@ class NvIngestFunctionConfig(FunctionBaseConfig, name="nat_nv_ingest"):
     )
     ingest_retry_delay: float = Field(
         default=1.0, description="Seconds to wait between ingest retries"
+    )
+
+    # Retrieval mode for the consolidated user document tool
+    embedder_name: str = Field(
+        default="milvus_embedder",
+        description="Embedder used to vectorize user document search queries",
+    )
+    content_field: str = Field(
+        default="text",
+        description="Milvus field containing indexed document text",
+    )
+    vector_field: str = Field(
+        default="vector",
+        description="Milvus vector field for similarity search",
+    )
+    top_k: int = Field(
+        default=10,
+        gt=0,
+        description="Default number of user document chunks to retrieve",
+    )
+    distance_cutoff: float | None = Field(
+        default=None,
+        description="Optional search distance cutoff before reranking",
+    )
+    output_fields: list[str] | None = Field(
+        default=None,
+        description="Optional Milvus output fields for document retrieval",
+    )
+    search_params: dict[str, Any] = Field(
+        default_factory=lambda: {"metric_type": "L2"},
+        description="Milvus search parameters for document retrieval",
+    )
+    use_reranker: bool = Field(
+        default=True,
+        description="Whether to rerank retrieved document chunks",
+    )
+    reranker_endpoint: str | None = Field(
+        default=None,
+        description="Reranker endpoint for user document retrieval",
+    )
+    reranker_model: str | None = Field(
+        default=None,
+        description="Reranker model for user document retrieval",
+    )
+    reranker_top_n: int | None = Field(
+        default=None,
+        description="Number of reranked document chunks to keep",
+    )
+    reranker_api_key: str | None = Field(
+        default=None,
+        description="Reranker API key for user document retrieval",
     )
 
 
@@ -705,6 +786,42 @@ async def nv_ingest_function(
                     _client_cache["milvus"] = MilvusClient(uri=config.milvus_uri)
         return _client_cache["milvus"]
 
+    async def _get_retriever():
+        if "retriever" not in _client_cache:
+            async with _client_lock:
+                if "retriever" not in _client_cache:
+                    from smart_milvus.smart_milvus_function import MilvusRetriever
+
+                    embedder = await builder.get_embedder(
+                        embedder_name=config.embedder_name,
+                        wrapper_type=LLMFrameworkEnum.LANGCHAIN,
+                    )
+                    milvus_client = _client_cache.get("milvus")
+                    if milvus_client is None:
+                        milvus_client = MilvusClient(uri=config.milvus_uri)
+                        _client_cache["milvus"] = milvus_client
+                    reranker_config = None
+                    if config.use_reranker and config.reranker_endpoint:
+                        reranker_config = {
+                            "endpoint": config.reranker_endpoint,
+                            "model": config.reranker_model,
+                            "top_n": config.reranker_top_n,
+                            "api_key": config.reranker_api_key,
+                        }
+                    _client_cache["retriever"] = MilvusRetriever(
+                        client=milvus_client,
+                        embedder=embedder,
+                        content_field=config.content_field,
+                        database_name=(
+                            config.database_name
+                            if config.database_name != "default"
+                            else None
+                        ),
+                        vector_field_name=config.vector_field,
+                        reranker_config=reranker_config,
+                    )
+        return _client_cache["retriever"]
+
     async def list_collections() -> str:
         """Lists all available Milvus collections."""
         try:
@@ -1140,13 +1257,106 @@ async def nv_ingest_function(
 
         return await list_collections()
 
+    async def search_documents(
+        query: str,
+        username: str,
+        collection_name: str | None = None,
+        top_k: int | None = None,
+        filters: str | None = None,
+    ) -> str:
+        """Search previously ingested documents for one user."""
+        resolved_collection = resolve_user_collection_name(
+            collection_name,
+            username,
+            config.default_collection_name,
+        )
+        resolved_query = query.strip() if isinstance(query, str) else ""
+        if not resolved_query:
+            resolved_query = "summary of the document"
+
+        retriever = await _get_retriever()
+        search_kwargs: dict[str, Any] = {
+            "collection_name": resolved_collection,
+            "top_k": top_k or config.top_k,
+            "filters": filters,
+            "output_fields": config.output_fields,
+            "search_params": config.search_params,
+        }
+        if config.distance_cutoff is not None:
+            search_kwargs["distance_cutoff"] = config.distance_cutoff
+
+        output = await retriever.search(query=resolved_query, **search_kwargs)
+        return format_user_document_search_results(output, resolved_collection)
+
+    async def user_document_tool(
+        operation: str = "search",
+        query: str = "",
+        username: str = "",
+        collection_name: str | None = None,
+        documentRef: dict[str, Any] | None = None,
+        documentRefs: list[dict[str, Any]] | None = None,
+        top_k: int | None = None,
+        filters: str | None = None,
+        chunk_size: int | None = None,
+        chunk_overlap: int | None = None,
+        input_message: dict[str, Any] | None = None,
+    ) -> str:
+        """Ingest or search the user's uploaded documents.
+
+        Args:
+            operation: ingest, search, or list_collections.
+            query: Search query for operation='search'.
+            username: Authenticated username used for per-user collection routing.
+            collection_name: Optional explicit Milvus collection.
+            documentRef: Single uploaded document reference for operation='ingest'.
+            documentRefs: Multiple uploaded document references for operation='ingest'.
+            top_k: Optional search result count.
+            filters: Optional Milvus filter expression.
+            chunk_size: Optional ingest chunk size override.
+            chunk_overlap: Optional ingest chunk overlap override.
+            input_message: Backward-compatible raw request object.
+        """
+        if input_message is not None:
+            return await nv_ingest_router(input_message)
+
+        op = (operation or "search").strip().lower()
+        if op == "search":
+            return await search_documents(
+                query=query,
+                username=username,
+                collection_name=collection_name,
+                top_k=top_k,
+                filters=filters,
+            )
+        if op == "ingest":
+            if documentRefs:
+                return await process_multiple_documents(
+                    documentRefs=documentRefs,
+                    username=username,
+                    collection_name=collection_name,
+                    chunk_size=chunk_size,
+                    chunk_overlap=chunk_overlap,
+                )
+            if documentRef:
+                ingest_result = await process_document(
+                    documentRef=documentRef,
+                    username=username,
+                    collection_name=collection_name,
+                    chunk_size=chunk_size,
+                    chunk_overlap=chunk_overlap,
+                )
+                return format_single_doc_response(ingest_result)
+            return "Error: documentRef or documentRefs is required for ingestion."
+        if op == "list_collections":
+            return await list_collections()
+        return "Error: operation must be one of ingest, search, list_collections."
+
     yield FunctionInfo.from_fn(
-        nv_ingest_router,
+        user_document_tool,
         description=(
-            "Process single or multiple document files for ingestion into vector "
-            "database or list available collections. Accepts a request object that "
-            "may contain documentRef (single document) or documentRefs (array of "
-            "documents), username, and collection_name for document processing. All "
-            "documents in a batch will be uploaded to the same collection."
+            "Ingest or search user-uploaded documents. Args: operation='ingest' "
+            "with documentRef or documentRefs plus username; operation='search' "
+            "with query plus username; optional collection_name. Uses the same "
+            "per-user collection derivation for both operations."
         ),
     )

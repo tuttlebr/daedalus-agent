@@ -285,17 +285,14 @@ The `builder/` directory contains reusable NeMo Agent functions, helpers, and st
 | --------------------- | ------- | -------------------------------------------------------------------- |
 | `agent_skills`        | package | Discovers and runs repo-packaged skills                              |
 | `content_distiller`   | package | Summarization and extraction helpers                                 |
-| `image_augmentation`  | package | Image editing                                                        |
-| `image_comprehension` | package | Image and video analysis                                             |
-| `image_generation`    | package | Text-to-image generation                                             |
+| `image_generation`    | package | Unified visual media and text-to-image generation                    |
 | `json_repair_agent`   | package | Repairs malformed JSON outputs                                       |
 | `mas_optimizer`       | package | Multi-agent vs single-agent routing and verification                 |
 | `nat_helpers`         | package | Shared helpers such as geolocation and image utilities               |
-| `nat_nv_ingest`       | package | NV-Ingest integration for document ingestion                         |
+| `nat_nv_ingest`       | package | Unified user-document ingestion and retrieval                        |
 | `rss_feed`            | package | RSS fetching and ranking                                             |
 | `serpapi_search`      | package | Search integration                                                   |
-| `smart_milvus`        | package | Milvus retrieval and reranking                                       |
-| `think_tool`          | package | Deliberate reasoning helper                                          |
+| `smart_milvus`        | package | Milvus retrieval, domain routing, and reranking                      |
 | `user_interaction`    | package | Structured clarification and confirmation prompts                    |
 | `vtt_interpreter`     | package | Transcript-to-notes processing                                      |
 | `webscrape`           | package | Web page extraction                                                  |
@@ -417,10 +414,9 @@ Use these docs when you want more component-level detail than this top-level gui
 | [`frontend/README.md`](frontend/README.md)                    | Frontend architecture, async job flow, Redis state, and PWA   |
 | [`docs/SRD-frontend.md`](docs/SRD-frontend.md)                | Frontend planning document plus implementation inventory       |
 | [`helm/daedalus/README.md`](helm/daedalus/README.md)          | Helm chart footprint, values, and Kubernetes traffic model    |
+| [`docs/agent-setup-audit.md`](docs/agent-setup-audit.md)      | Agent workflow audit process, metrics, and one-page template  |
 | [`frontend/pages/api/milvus/README.md`](frontend/pages/api/milvus/README.md) | Current status of the frontend-side Milvus helper |
-| [`builder/image_generation/README.md`](builder/image_generation/README.md) | Text-to-image builder function                          |
-| [`builder/image_comprehension/README.md`](builder/image_comprehension/README.md) | Image and video analysis builder function         |
-| [`builder/image_augmentation/README.md`](builder/image_augmentation/README.md) | Image-editing builder function                       |
+| [`builder/image_generation/README.md`](builder/image_generation/README.md) | Visual media builder functions                         |
 | [`builder/nat_nv_ingest/README.md`](builder/nat_nv_ingest/README.md) | Document ingestion into NvIngest and Milvus            |
 | [`builder/smart_milvus/README.md`](builder/smart_milvus/README.md) | Milvus retrieval and reranking behavior                 |
 | [`builder/rss_feed/README.md`](builder/rss_feed/README.md)    | Feed-specific RSS retrieval and scraping                      |

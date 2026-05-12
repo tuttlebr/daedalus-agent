@@ -96,9 +96,25 @@ Those routes are selected by path and `X-Backend-Type` header, which allows call
 - The backends expose headless pod services in addition to normal services so the frontend can discover individual pods for async job submission.
 - Network policies allow frontend-to-backend and backend-to-Redis traffic, and optionally restrict backend egress to approved destinations.
 - `nginx.config.restrictedMode=true` disables direct backend access through nginx and forces traffic through the frontend.
+- On the production `nfs-client` StorageClass backed by UNAS Pro, PVC-writing pods must run as UID `977` and GID `988`. That matches the server export's `all_squash,anonuid=977,anongid=988` policy and avoids relying on `no_root_squash`.
+- Use `runAsUser: 977`, `runAsGroup: 988`, `fsGroup: 988`, and `fsGroupChangePolicy: OnRootMismatch` for Daedalus workloads that write to NFS PVCs. `fsGroup` alone is not enough when files are created with owner-only write modes.
 - The autonomous agent can target either backend using `autonomousAgent.backendType`.
 - The autonomous agent mounts seed knowledge graph files from `helm/daedalus/files/autonomous-agent-*.md` via a ConfigMap. Set `autonomousAgent.workspace.resetOnDeploy=true` to re-seed all files after identity or schema changes.
 - The autonomous agent defaults to a 10-cycle distillation interval so exploration, follow-up, falsification, and memory maintenance stay aligned.
+
+## NFS Ownership Runbook
+
+Before deploying workloads that write to existing `nfs-client` PVCs, run the repo-level `nfs-fix.sh` on the NFS server to audit the export policy. It is intentionally read-only and should report `all_squash,anonuid=977,anongid=988`.
+
+During a maintenance window, stop affected NFS-backed workloads and normalize existing PVC directories on the NFS server:
+
+```sh
+root=/var/nfs/shared/kubernetes
+chown -R 977:988 "$root"
+chmod -R u+rwX,g+rwX,o-rwx "$root"
+find "$root" -type d -exec chmod g+s {} +
+exportfs -ra
+```
 
 ## Recommended Reading
 

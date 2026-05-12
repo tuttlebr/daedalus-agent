@@ -61,11 +61,23 @@ class UserInteractionConfig(FunctionBaseConfig, name="user_interaction"):
         default_factory=lambda: ["nat:*{user_id}*"],
         description="Redis key patterns deleted by delete_memory_guarded.",
     )
+    enabled_operations: list[str] | None = Field(
+        default=None,
+        description=(
+            "Optional allow-list of operations to register. Supported values: "
+            "clarify, confirm_action, present_options, delete_memory_guarded. "
+            "When omitted, all operations are registered."
+        ),
+    )
 
 
 @register_function(config_type=UserInteractionConfig)
 async def user_interaction_function(config: UserInteractionConfig, builder: Builder):
     _redis_client: Any | None = None
+    enabled = set(config.enabled_operations or [])
+
+    def _enabled(operation: str) -> bool:
+        return not enabled or operation in enabled
 
     def _get_redis():
         nonlocal _redis_client
@@ -324,46 +336,50 @@ async def user_interaction_function(config: UserInteractionConfig, builder: Buil
     # Register all three tools with NAT
     # ------------------------------------------------------------------
     try:
-        yield FunctionInfo.from_fn(
-            clarify,
-            description=(
-                "Ask the user a structured clarification question with suggested "
-                "options. Use BEFORE committing to an action when the request is "
-                "ambiguous. Reduces wasted effort from misunderstood requests. "
-                "Formats the question with context, options, and rationale."
-            ),
-        )
+        if _enabled("clarify"):
+            yield FunctionInfo.from_fn(
+                clarify,
+                description=(
+                    "Ask the user a structured clarification question with suggested "
+                    "options. Use BEFORE committing to an action when the request is "
+                    "ambiguous. Reduces wasted effort from misunderstood requests. "
+                    "Formats the question with context, options, and rationale."
+                ),
+            )
 
-        yield FunctionInfo.from_fn(
-            confirm_action,
-            description=(
-                "Request explicit user confirmation before taking a consequential "
-                "action. Use before modifying external state (Kubernetes, GitHub, "
-                "memory), irreversible actions, or actions with significant costs. "
-                "Presents the action, reason, risks, and alternatives."
-            ),
-        )
+        if _enabled("confirm_action"):
+            yield FunctionInfo.from_fn(
+                confirm_action,
+                description=(
+                    "Request explicit user confirmation before taking a consequential "
+                    "action. Use before modifying external state (Kubernetes, GitHub, "
+                    "memory), irreversible actions, or actions with significant costs. "
+                    "Presents the action, reason, risks, and alternatives."
+                ),
+            )
 
-        yield FunctionInfo.from_fn(
-            present_options,
-            description=(
-                "Present a structured comparison of options for the user to "
-                "choose from. Use when multiple valid approaches exist and the "
-                "best choice depends on user preferences you cannot determine "
-                "from context. Each option includes label, description, and "
-                "trade-offs."
-            ),
-        )
+        if _enabled("present_options"):
+            yield FunctionInfo.from_fn(
+                present_options,
+                description=(
+                    "Present a structured comparison of options for the user to "
+                    "choose from. Use when multiple valid approaches exist and the "
+                    "best choice depends on user preferences you cannot determine "
+                    "from context. Each option includes label, description, and "
+                    "trade-offs."
+                ),
+            )
 
-        yield FunctionInfo.from_fn(
-            delete_memory_guarded,
-            description=(
-                "Delete all Redis-backed memories for a user only after validating "
-                "a single-use approval_token from confirm_action. Required args: "
-                "user_id and approval_token. The token must have action_type "
-                "'delete_memory' and target equal to the user_id."
-            ),
-        )
+        if _enabled("delete_memory_guarded"):
+            yield FunctionInfo.from_fn(
+                delete_memory_guarded,
+                description=(
+                    "Delete all Redis-backed memories for a user only after validating "
+                    "a single-use approval_token from confirm_action. Required args: "
+                    "user_id and approval_token. The token must have action_type "
+                    "'delete_memory' and target equal to the user_id."
+                ),
+            )
 
     except GeneratorExit:
         logger.warning("user_interaction function exited early!")

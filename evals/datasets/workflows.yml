@@ -1,0 +1,185 @@
+# Workflow audit dataset.
+#
+# These cases are broader than the default routing/factuality suites and may
+# invoke live tools. Run explicitly against staging or production:
+#
+#   ./run-eval.sh --dataset workflows
+#
+# The evaluator is deterministic and checks observable trace contracts plus
+# budget hints. Tighten the budgets after collecting a real p95 baseline.
+
+- id: chat-simple-001
+  workflow: top_level_chat_routing
+  audience: customer-facing
+  query: Thanks, that answered my question.
+  success_criteria: Direct response, no memory lookup, no MAS evaluation, no sub-agent.
+  expected:
+    forbidden_tools:
+      - get_memory
+      - mas_evaluate
+      - research_agent
+      - ops_agent
+      - media_agent
+      - user_data_agent
+    max_tool_calls: 0
+    max_latency_s: 10
+    max_total_tokens: 2000
+
+- id: research-technical-001
+  workflow: research_answers
+  audience: customer-facing
+  query: Summarize the H200 GPU memory bandwidth from an NVIDIA source and cite it.
+  success_criteria: Research route, cited technical answer, no ops/media/user-doc tools.
+  expected:
+    required_tools:
+      - research_agent
+    forbidden_tools:
+      - ops_agent
+      - media_agent
+      - user_data_agent
+    requires_citation: true
+    max_latency_s: 120
+    max_total_tokens: 30000
+
+- id: research-current-001
+  workflow: research_answers
+  audience: customer-facing
+  query: What is the latest NVIDIA Developer Blog post about NeMo or inference tooling? Cite the source.
+  success_criteria: Current-information research route with a source URL.
+  expected:
+    required_tools:
+      - research_agent
+    requires_citation: true
+    max_latency_s: 180
+    max_total_tokens: 40000
+
+- id: ops-readonly-001
+  workflow: ops_workflows
+  audience: employee-facing
+  query: List the pods in the daedalus namespace and report their status.
+  success_criteria: Read-only ops route, no confirmation prompt, plain error if cluster access is unavailable.
+  expected:
+    required_tools:
+      - ops_agent
+    forbidden_tools:
+      - research_agent
+      - media_agent
+      - user_data_agent
+      - user_interaction_tool
+    max_latency_s: 120
+    max_total_tokens: 25000
+
+- id: ops-github-001
+  workflow: ops_workflows
+  audience: employee-facing
+  query: Show me the three most recent merged pull requests in the daedalus-agent GitHub repo.
+  success_criteria: GitHub read-only route, concise result, no destructive confirmation.
+  expected:
+    required_tools:
+      - ops_agent
+    forbidden_tools:
+      - user_interaction_tool
+      - media_agent
+      - user_data_agent
+    max_latency_s: 120
+    max_total_tokens: 25000
+
+- id: user-docs-search-001
+  workflow: user_documents
+  audience: customer-facing
+  query: Search my uploaded documents for mentions of GPU utilization and summarize what they say.
+  success_criteria: User document route; graceful empty-result behavior if no indexed docs exist.
+  expected:
+    required_tools:
+      - user_data_agent
+    forbidden_tools:
+      - research_agent
+      - ops_agent
+      - media_agent
+    max_latency_s: 120
+    max_total_tokens: 25000
+
+- id: media-image-001
+  workflow: media_workflows
+  audience: customer-facing
+  query: Generate a simple product-style image of a green circuit board on a white background.
+  success_criteria: Media route and verbatim markdown image reference.
+  expected:
+    required_tools:
+      - media_agent
+    forbidden_tools:
+      - research_agent
+      - ops_agent
+      - user_data_agent
+    response_regex:
+      - "!?\\[[^\\]]*\\]\\([^\\)]+\\)"
+    max_latency_s: 240
+    max_total_tokens: 25000
+
+- id: media-transcript-001
+  workflow: media_workflows
+  audience: customer-facing
+  query: |
+    Summarize this VTT transcript into decisions and action items:
+
+    WEBVTT
+
+    00:00:00.000 --> 00:00:05.000
+    Alice: We will move the eval gate to CI this sprint.
+
+    00:00:05.000 --> 00:00:10.000
+    Bob: I will own the latency dashboard and p95 budget.
+  success_criteria: Media/transcript route with decisions and action items.
+  expected:
+    required_tools:
+      - media_agent
+    response_contains:
+      - eval gate
+      - latency dashboard
+    max_latency_s: 120
+    max_total_tokens: 25000
+
+- id: mas-centralized-001
+  workflow: mas_workflows
+  audience: customer-facing
+  query: Analyze the latest NVIDIA earnings call, a recent competitor earnings call, and two analyst notes, then produce a structured comparison of revenue growth, margin, capex, and AI infrastructure positioning.
+  success_criteria: MAS route through the mas-procedure skill for structured synthesis.
+  expected:
+    required_tools:
+      - mas_evaluate
+      - agent_skills_tool
+    max_latency_s: 300
+    max_total_tokens: 60000
+
+- id: mas-decentralized-001
+  workflow: mas_workflows
+  audience: customer-facing
+  query: Explore the public web for surprising uses of small language models in industrial IoT, gather at least five independent leads, and report the strongest emerging pattern.
+  success_criteria: MAS route through mas-procedure for exploratory research.
+  expected:
+    required_tools:
+      - mas_evaluate
+      - agent_skills_tool
+    max_latency_s: 300
+    max_total_tokens: 60000
+
+- id: autonomous-cycle-contract-001
+  workflow: autonomous_agent
+  audience: internal-only
+  query: |
+    Act as the autonomous background agent for one dry-run cycle. Do not mutate memory.
+    Choose one research direction from recent AI infrastructure news and produce only:
+    Cycle Report, Executive Summary, Priority Updates.
+  success_criteria: Autonomous-style output shape without memory mutation.
+  expected:
+    required_tools:
+      - get_memory
+      - mas_evaluate
+    forbidden_tools:
+      - add_memory
+    response_contains:
+      - Cycle Report
+      - Executive Summary
+      - Priority Updates
+    max_latency_s: 180
+    max_total_tokens: 40000

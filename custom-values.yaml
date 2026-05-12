@@ -37,6 +37,15 @@ backend:
   default:
     enabled: true
     port: 8000
+    # UNAS Pro exports the default nfs-client backing share with all_squash,
+    # anonuid=977,anongid=988. Run PVC writers as that identity so writes do
+    # not depend on root passthrough.
+    securityContext:
+      runAsNonRoot: true
+      runAsUser: 977
+      runAsGroup: 988
+      fsGroup: 988
+      fsGroupChangePolicy: OnRootMismatch
     env:
       # Name of an existing Secret to load via envFrom (external secret)
       fromSecret: "daedalus-backend-env"
@@ -46,6 +55,8 @@ backend:
       # Explicit env overrides applied in the pod, useful to fix bad values from secrets
       overrides:
         SSL_CERT_FILE: /etc/ssl/certs/ca-certificates.crt
+        HOME: /tmp
+        XDG_CACHE_HOME: /tmp/.cache
     config:
       enabled: true
       # Contents of backend/tool-calling-config.yaml; if empty, configMap mounts {}
@@ -127,7 +138,12 @@ nginx:
 
 redis:
   enabled: true
-  securityContext: {}
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 977
+    runAsGroup: 988
+    fsGroup: 988
+    fsGroupChangePolicy: OnRootMismatch
   persistence:
     enabled: true
   service:
@@ -136,7 +152,12 @@ redis:
 
 redisinsight:
   enabled: true
-  securityContext: {}
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 977
+    runAsGroup: 988
+    fsGroup: 988
+    fsGroupChangePolicy: OnRootMismatch
   persistence:
     enabled: true
   service:

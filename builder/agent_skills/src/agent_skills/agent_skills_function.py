@@ -70,12 +70,25 @@ class AgentSkillsConfig(FunctionBaseConfig, name="agent_skills"):
         le=300,
         description="Maximum seconds a skill script is allowed to run before being killed.",
     )
+    enabled_operations: list[str] | None = Field(
+        default=None,
+        description=(
+            "Optional allow-list of operations to register. Supported values: "
+            "list_skills, load_skill, run_skill_script. When omitted, all "
+            "operations enabled by the rest of the config are registered."
+        ),
+    )
 
 
 @register_function(config_type=AgentSkillsConfig)
 async def agent_skills_function(config: AgentSkillsConfig, builder: Builder):
     parser = SkillParser(skills_directory=config.skills_directory)
     parser.discover_skills()
+
+    enabled = set(config.enabled_operations or [])
+
+    def _enabled(operation: str) -> bool:
+        return not enabled or operation in enabled
 
     # ------------------------------------------------------------------
     # Tool 1 – list_skills  (Level 1: metadata)
@@ -230,26 +243,28 @@ async def agent_skills_function(config: AgentSkillsConfig, builder: Builder):
     # Register tools with NAT
     # ------------------------------------------------------------------
     try:
-        yield FunctionInfo.from_fn(
-            list_skills,
-            description=(
-                "List all available agent skills. Returns a JSON array of skill "
-                "names and descriptions. Omit the query parameter to list ALL "
-                "skills. Pass a single keyword (e.g. 'nvcf') to filter."
-            ),
-        )
+        if _enabled("list_skills"):
+            yield FunctionInfo.from_fn(
+                list_skills,
+                description=(
+                    "List all available agent skills. Returns a JSON array of skill "
+                    "names and descriptions. Omit the query parameter to list ALL "
+                    "skills. Pass a single keyword (e.g. 'nvcf') to filter."
+                ),
+            )
 
-        yield FunctionInfo.from_fn(
-            load_skill,
-            description=(
-                "Load a skill's full instructions or a specific resource file. "
-                "Call with just a skill_name to get the main instructions, or "
-                "pass a resource path to read an additional file bundled with "
-                "the skill. The response lists any additional resources available."
-            ),
-        )
+        if _enabled("load_skill"):
+            yield FunctionInfo.from_fn(
+                load_skill,
+                description=(
+                    "Load a skill's full instructions or a specific resource file. "
+                    "Call with just a skill_name to get the main instructions, or "
+                    "pass a resource path to read an additional file bundled with "
+                    "the skill. The response lists any additional resources available."
+                ),
+            )
 
-        if config.allow_script_execution:
+        if config.allow_script_execution and _enabled("run_skill_script"):
             yield FunctionInfo.from_fn(
                 run_skill_script,
                 description=(

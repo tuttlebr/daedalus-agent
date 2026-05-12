@@ -172,7 +172,14 @@ nginx:
 
 redis:
   enabled: true
-  securityContext: {}
+  # Redis Stack runs fine as a numeric non-root user, and this avoids
+  # root-squash/AOF write failures on common Kubernetes PVC backends.
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1001
+    runAsGroup: 1001
+    fsGroup: 1001
+    fsGroupChangePolicy: OnRootMismatch
   resources:
     requests:
       cpu: 250m

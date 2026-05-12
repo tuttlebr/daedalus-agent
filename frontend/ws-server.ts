@@ -102,6 +102,49 @@ function createRedisClient(label: string): Redis {
   return client;
 }
 
+function redisErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return String(error);
+}
+
+function isRedisJsonUnavailableForRead(error: unknown): boolean {
+  const message = redisErrorMessage(error).toLowerCase();
+  return (
+    message.includes('unknown command') ||
+    message.includes('unknown subcommand') ||
+    message.includes('wrongtype') ||
+    message.includes('wrong kind of value')
+  );
+}
+
+function parseRedisJsonResult<T>(raw: string | null): T | null {
+  if (!raw) return null;
+  const parsed = JSON.parse(raw);
+  return (Array.isArray(parsed) ? parsed[0] : parsed) as T;
+}
+
+async function getJsonOrPlain<T>(redis: Redis, key: string): Promise<T | null> {
+  try {
+    return parseRedisJsonResult<T>(await redis.call('JSON.GET', key, '$') as string | null);
+  } catch (error) {
+    if (!isRedisJsonUnavailableForRead(error)) {
+      throw error;
+    }
+  }
+
+  try {
+    const raw = await redis.get(key);
+    return raw ? JSON.parse(raw) as T : null;
+  } catch (error) {
+    if (isRedisJsonUnavailableForRead(error)) {
+      return null;
+    }
+    throw error;
+  }
+}
+
 // Shared Redis client for reads
 let redisClient: Redis | null = null;
 function getRedis(): Redis {
@@ -133,20 +176,7 @@ async function validateSession(req: IncomingMessage): Promise<SessionData | null
     const redis = getRedis();
     const key = sessionKey(['auth-session', sessionId]);
 
-    // Try RedisJSON first, fall back to plain GET
-    try {
-      const raw = await redis.call('JSON.GET', key, '$') as string | null;
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        return Array.isArray(parsed) ? parsed[0] : parsed;
-      }
-    } catch {
-      // RedisJSON not available, try plain GET
-      const raw = await redis.get(key);
-      if (raw) return JSON.parse(raw);
-    }
-
-    return null;
+    return await getJsonOrPlain<SessionData>(redis, key);
   } catch (err) {
     console.error('[WS] Session validation error:', err);
     return null;
@@ -173,23 +203,8 @@ async function getStreamingStates(userId: string): Promise<Record<string, Stream
 
     for (const key of keys) {
       try {
-        let raw: string | null = null;
-        try {
-          const jsonRaw = await redis.call('JSON.GET', key, '$') as string | null;
-          if (jsonRaw) {
-            const parsed = JSON.parse(jsonRaw);
-            const state = Array.isArray(parsed) ? parsed[0] : parsed;
-            if (state?.conversationId) states[state.conversationId] = state;
-            continue;
-          }
-        } catch {
-          // RedisJSON not available
-        }
-        raw = await redis.get(key);
-        if (raw) {
-          const state = JSON.parse(raw);
-          if (state?.conversationId) states[state.conversationId] = state;
-        }
+        const state = await getJsonOrPlain<StreamingState>(redis, key);
+        if (state?.conversationId) states[state.conversationId] = state;
       } catch {
         // Skip individual key errors
       }

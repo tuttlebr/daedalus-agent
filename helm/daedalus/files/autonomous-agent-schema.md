@@ -116,14 +116,14 @@ insight. Dreams are optional. Do not generate one when the cycle does not
 honestly support it.
 
 ```
-memory: "BLUF: [what this image represents and why it matters]. [the concept or connection being visualized].\n\n![Generated image](/api/generated-image/{image_id})\n\n**Prompt:** [the exact prompt sent to image_generation_tool, verbatim]"
+memory: "BLUF: [what this image represents and why it matters]. [the concept or connection being visualized].\n\n![Generated image](/api/generated-image/{image_id})\n\n**Prompt:** [the exact prompt sent to visual_media_tool with operation=generate, verbatim]"
 metadata.key_value_pairs:
   type:        "dream"
   source:      "autonomous_cycle"
   cycle:       "<cycle number>"
   domain:      "<freeform domain tag>"
   subject:     "<what the dream depicts>"
-  prompt_used: "<the prompt sent to image_generation_tool — must match the Prompt: line in the memory text verbatim>"
+  prompt_used: "<the prompt sent to visual_media_tool operation=generate — must match the Prompt: line in the memory text verbatim>"
 ```
 
 ### Technical Claim Extraction Mode
@@ -199,7 +199,7 @@ the visual companion to your written summary.
 ### Visual Content in Cycle Reports
 
 If you generated a dream this cycle or analyzed a visual source using
-`image_comprehension_tool`, include the image or a description of the visual
+`visual_media_tool` with operation=analyze, include the image or a description of the visual
 analysis in your cycle report alongside the Mermaid graph. The graph maps
 structure; images capture what structure can't. Both belong in the report when
 both were honestly produced.

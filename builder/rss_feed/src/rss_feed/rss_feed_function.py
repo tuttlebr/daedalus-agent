@@ -32,6 +32,8 @@ class RssEntry(BaseModel):
     published: str | None = None
     author: str | None = None
     description: str | None = None
+    feed_scope: str | None = None
+    feed_url: str | None = None
 
 
 class RssFeedFunctionConfig(FunctionBaseConfig, name="rss_feed"):
@@ -83,6 +85,20 @@ class RssFeedFunctionConfig(FunctionBaseConfig, name="rss_feed"):
     feed_url: str | None = Field(
         default=None, description="RSS feed URL to monitor and search"
     )
+    feeds: dict[str, str] = Field(
+        default_factory=dict,
+        description=(
+            "Optional map of feed_scope names to RSS feed URLs. When set, the "
+            "tool can search one named feed or all feeds with feed_scope='auto'."
+        ),
+    )
+    enabled_operations: list[str] | None = Field(
+        default=None,
+        description=(
+            "Optional allow-list of operations to register. Supported values: "
+            "rss_feed_search, search_rss. When omitted, both operations are registered."
+        ),
+    )
 
     # Web scraping configuration
     scrape_max_output_tokens: int = Field(
@@ -103,6 +119,12 @@ class RssSearchRequest(BaseModel):
     """Request model for RSS feed search."""
 
     query: str = Field(..., description="User query to rerank RSS entries against")
+    feed_scope: str = Field(
+        "auto",
+        description=(
+            "Named feed scope to search, or 'auto' to search every configured feed."
+        ),
+    )
     description: str | None = Field(
         None, description="Optional description of the search"
     )
@@ -114,6 +136,7 @@ class RssSearchResponse(BaseModel):
     success: bool
     query: str
     feed_url: str
+    feed_scope: str | None = None
     top_result: dict[str, Any] | None = None
     scraped_content: str | None = None
     error: str | None = None
@@ -206,8 +229,18 @@ async def rss_feed_function(
 
     # Initialize HTTP client
     headers = {"User-Agent": config.user_agent}
+    enabled = set(config.enabled_operations or [])
 
-    async def parse_rss_feed(feed_url: str) -> list[RssEntry]:
+    def _enabled(operation: str) -> bool:
+        return not enabled or operation in enabled
+
+    def _configured_feeds() -> dict[str, str]:
+        feeds = {k: v for k, v in (config.feeds or {}).items() if k and v}
+        if not feeds and config.feed_url:
+            feeds["default"] = config.feed_url
+        return feeds
+
+    async def parse_rss_feed(feed_url: str, feed_scope: str) -> list[RssEntry]:
         """Parse RSS feed and extract entries."""
         try:
             # Check cache first
@@ -236,6 +269,8 @@ async def rss_feed_function(
                     published=entry.get("published", None),
                     author=entry.get("author", None),
                     description=entry.get("description", None),
+                    feed_scope=feed_scope,
+                    feed_url=feed_url,
                 )
 
                 # Only include entries with both title and link
@@ -358,37 +393,65 @@ async def rss_feed_function(
                     ),
                 ).model_dump()
 
-            # Check if feed URL is configured
-            if not config.feed_url:
+            feeds = _configured_feeds()
+            if not feeds:
                 return RssSearchResponse(
                     success=False,
                     query=search_request.query,
                     feed_url="",
+                    feed_scope=search_request.feed_scope,
                     error=(
-                        "RSS feed URL not configured. Please set feed_url "
+                        "RSS feed URL not configured. Please set feed_url or feeds "
                         "in configuration."
                     ),
                 ).model_dump()
 
+            requested_scope = (search_request.feed_scope or "auto").strip()
+            if requested_scope == "auto":
+                selected_feeds = feeds
+            elif requested_scope in feeds:
+                selected_feeds = {requested_scope: feeds[requested_scope]}
+            else:
+                return RssSearchResponse(
+                    success=False,
+                    query=search_request.query,
+                    feed_url="",
+                    feed_scope=requested_scope,
+                    error=(
+                        f"Unknown feed_scope '{requested_scope}'. Available scopes: "
+                        f"{', '.join(sorted(feeds))}"
+                    ),
+                ).model_dump()
+
             # Check cache status
-            cache_key = f"rss_feed:{config.feed_url}"
-            is_cached = cache_key in cache
+            cache_keys = [f"rss_feed:{url}" for url in selected_feeds.values()]
+            is_cached = all(cache_key in cache for cache_key in cache_keys)
 
             # Parse RSS feed
-            entries = await parse_rss_feed(config.feed_url)
+            nested_entries = await asyncio.gather(
+                *(
+                    parse_rss_feed(feed_url, scope)
+                    for scope, feed_url in selected_feeds.items()
+                )
+            )
+            entries = [entry for group in nested_entries for entry in group]
+            feed_url_display = ",".join(selected_feeds.values())
 
             if not entries:
                 return RssSearchResponse(
                     success=True,
                     query=search_request.query,
-                    feed_url=config.feed_url,
+                    feed_url=feed_url_display,
+                    feed_scope=requested_scope,
                     entries_count=0,
                     cached=is_cached,
                     error="No entries found in RSS feed",
                 ).model_dump()
 
             logger.info(
-                "Found %d entries in RSS feed %s", len(entries), config.feed_url
+                "Found %d entries across RSS feed scope %s",
+                len(entries),
+                requested_scope,
             )
 
             # Rerank entries
@@ -398,7 +461,8 @@ async def rss_feed_function(
                 return RssSearchResponse(
                     success=True,
                     query=search_request.query,
-                    feed_url=config.feed_url,
+                    feed_url=feed_url_display,
+                    feed_scope=requested_scope,
                     entries_count=len(entries),
                     cached=is_cached,
                     error="No suitable entry found after reranking",
@@ -421,13 +485,16 @@ async def rss_feed_function(
                 return RssSearchResponse(
                     success=True,
                     query=search_request.query,
-                    feed_url=config.feed_url,
+                    feed_url=feed_url_display,
+                    feed_scope=requested_scope,
                     top_result={
                         "title": top_entry.title,
                         "link": top_entry.link,
                         "published": top_entry.published,
                         "author": top_entry.author,
                         "description": top_entry.description,
+                        "feed_scope": top_entry.feed_scope,
+                        "feed_url": top_entry.feed_url,
                     },
                     scraped_content=None,
                     entries_count=len(entries),
@@ -439,13 +506,16 @@ async def rss_feed_function(
             return RssSearchResponse(
                 success=True,
                 query=search_request.query,
-                feed_url=config.feed_url,
+                feed_url=feed_url_display,
+                feed_scope=requested_scope,
                 top_result={
                     "title": top_entry.title,
                     "link": top_entry.link,
                     "published": top_entry.published,
                     "author": top_entry.author,
                     "description": top_entry.description,
+                    "feed_scope": top_entry.feed_scope,
+                    "feed_url": top_entry.feed_url,
                 },
                 scraped_content=scraped_content,
                 entries_count=len(entries),
@@ -463,7 +533,10 @@ async def rss_feed_function(
                     query = request.get("query", "")
 
             return RssSearchResponse(
-                success=False, query=query, feed_url=config.feed_url or "", error=str(e)
+                success=False,
+                query=query,
+                feed_url=",".join(_configured_feeds().values()),
+                error=str(e),
             ).model_dump()
         except Exception as e:
             logger.error("RSS feed search error: %s", str(e), exc_info=True)
@@ -478,23 +551,30 @@ async def rss_feed_function(
             return RssSearchResponse(
                 success=False,
                 query=query,
-                feed_url=config.feed_url or "",
+                feed_url=",".join(_configured_feeds().values()),
                 error=f"Unexpected error: {str(e)}",
             ).model_dump()
 
     # Simple wrapper for convenience
-    async def search_rss(query: str, description: str = None) -> str:
+    async def search_rss(
+        query: str,
+        feed_scope: str = "auto",
+        description: str = None,
+    ) -> str:
         """
         Simple RSS feed search that returns formatted results.
 
         Args:
             query: Search query to rerank RSS entries against
+            feed_scope: Named feed scope to search, or auto for every configured feed
             description: Optional description of the search
 
         Returns:
             Formatted string with search results or scraped content
         """
-        result = await rss_feed_search({"query": query, "description": description})
+        result = await rss_feed_search(
+            {"query": query, "feed_scope": feed_scope, "description": description}
+        )
 
         if not result["success"]:
             return f"RSS Feed Search Error: {result['error']}"
@@ -505,25 +585,26 @@ async def rss_feed_function(
             return f"No relevant content found for query: '{query}'"
 
     try:
-        # Register the main function
-        yield FunctionInfo.create(
-            single_fn=rss_feed_search,
-            description=(
-                "Search the configured RSS feed using AI-powered reranking "
-                "and scrape the most relevant result. Requires configured "
-                "feed_url and reranker endpoint. Caches RSS feeds for 4 "
-                "hours to improve performance."
-            ),
-        )
+        if _enabled("rss_feed_search"):
+            yield FunctionInfo.create(
+                single_fn=rss_feed_search,
+                description=(
+                    "Search configured RSS feed entries using AI-powered reranking "
+                    "and scrape the most relevant result. Supports one feed_url or "
+                    "a feeds map with named feed_scope values. Caches RSS feeds for "
+                    "4 hours to improve performance."
+                ),
+            )
 
-        # Also register the simple wrapper
-        yield FunctionInfo.from_fn(
-            search_rss,
-            description=(
-                "Search the configured RSS feed and return the scraped "
-                "content of the most relevant entry based on your query."
-            ),
-        )
+        if _enabled("search_rss"):
+            yield FunctionInfo.from_fn(
+                search_rss,
+                description=(
+                    "Search configured RSS feeds and return the scraped content of "
+                    "the most relevant entry. Args: query and optional feed_scope "
+                    "('auto' or one configured feed name)."
+                ),
+            )
 
     except GeneratorExit:
         logger.warning("RSS feed function exited early!")

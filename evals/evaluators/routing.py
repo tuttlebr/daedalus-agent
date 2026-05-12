@@ -1,8 +1,12 @@
 """Routing correctness evaluator.
 
-Scores whether the agent's trace matches expected routing: mas_evaluate
-was called, returned the expected SAS/MAS verdict, and the expected
-sub-agent/skill was invoked.
+Scores whether the agent's trace matches expected routing. Most substantive
+cases should call mas_evaluate, receive the expected SAS/MAS verdict, and
+invoke the expected sub-agent or skill. Skill-routed SAS cases may load the
+expected skill directly because skills intentionally beat generic architecture
+routing. Obvious single-domain SAS cases may also call the expected sub-agent
+directly; the audit treats that as a latency-saving route rather than a
+missing router call.
 
 Dataset schema per case:
 
@@ -21,6 +25,21 @@ from __future__ import annotations
 from evaluators._common import EvalScore, find_tool_event, parse_json_blob
 
 SUB_AGENTS = {"research_agent", "ops_agent", "media_agent", "user_data_agent"}
+MAS_EVALUATE_TOOL_NAMES = {"mas_evaluate", "mas_optimizer_tool"}
+
+
+def _canonical_tool_name(tool_name: str) -> str:
+    if tool_name in MAS_EVALUATE_TOOL_NAMES:
+        return "mas_evaluate"
+    return tool_name
+
+
+def _find_mas_event(events, event_type: str):
+    for tool_name in MAS_EVALUATE_TOOL_NAMES:
+        found = find_tool_event(events, tool_name, event_type)
+        if found:
+            return found
+    return None
 
 
 def _architecture_matches(mas_out: dict, expected: str) -> bool:
@@ -46,6 +65,16 @@ def score(case: dict, trace) -> EvalScore:
     expected_skill = expected.get("skill")
     forbidden = set(case.get("forbidden_tools") or [])
     conversational_only = bool(case.get("conversational_only"))
+    direct_skill_expected = (
+        bool(expected_skill)
+        and not expected_sub
+        and (expected_arch or "").upper() == "SAS"
+    )
+    direct_subagent_expected = (
+        bool(expected_sub)
+        and (expected_arch or "").upper() == "SAS"
+        and find_tool_event(trace.events, expected_sub, "TOOL_START") is not None
+    )
 
     reasons: list[str] = []
     points = 0.0
@@ -53,16 +82,24 @@ def score(case: dict, trace) -> EvalScore:
 
     # Gate 1: mas_evaluate was / wasn't called as expected
     max_points += 1.0
-    mas_called = find_tool_event(trace.events, "mas_evaluate", "TOOL_START") is not None
+    mas_start = _find_mas_event(trace.events, "TOOL_START")
+    mas_called = mas_start is not None
     if conversational_only:
         if not mas_called:
             points += 1.0
         else:
             reasons.append("mas_evaluate was called for a conversational-only case")
+    elif direct_skill_expected:
+        if not mas_called:
+            points += 1.0
+        else:
+            reasons.append("mas_evaluate was called for a direct skill-routed case")
+    elif direct_subagent_expected and not mas_called:
+        points += 1.0
     else:
         if mas_called:
             points += 0.4
-            mas_end = find_tool_event(trace.events, "mas_evaluate", "TOOL_END")
+            mas_end = _find_mas_event(trace.events, "TOOL_END")
             mas_output = parse_json_blob(mas_end.payload) if mas_end else None
             if mas_output:
                 points += 0.2
@@ -120,7 +157,11 @@ def score(case: dict, trace) -> EvalScore:
     # Gate 4: no forbidden tools were called
     if forbidden:
         max_points += 1.0
-        called = {ev.name for ev in trace.events if ev.event_type == "TOOL_START"}
+        called = {
+            _canonical_tool_name(ev.name)
+            for ev in trace.events
+            if ev.event_type == "TOOL_START"
+        }
         overlap = forbidden & called
         if overlap:
             reasons.append(f"forbidden tools called: {sorted(overlap)}")

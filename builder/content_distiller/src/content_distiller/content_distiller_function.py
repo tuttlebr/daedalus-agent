@@ -74,6 +74,14 @@ class ContentDistillerConfig(FunctionBaseConfig, name="content_distiller"):
         default="LANGCHAIN",
         description="LLM wrapper type: LANGCHAIN or OPENAI.",
     )
+    enabled_operations: list[str] | None = Field(
+        default=None,
+        description=(
+            "Optional allow-list of operations to register. Supported values: "
+            "distill_content, extract_structured, synthesize. When omitted, all "
+            "operations are registered."
+        ),
+    )
 
 
 async def _call_llm(
@@ -173,6 +181,11 @@ def _truncate_content(content: str, max_chars: int) -> tuple[str, bool]:
 
 @register_function(config_type=ContentDistillerConfig)
 async def content_distiller_function(config: ContentDistillerConfig, builder: Builder):
+    enabled = set(config.enabled_operations or [])
+
+    def _enabled(operation: str) -> bool:
+        return not enabled or operation in enabled
+
     # ------------------------------------------------------------------
     # Tool 1 -- distill_content
     # ------------------------------------------------------------------
@@ -392,37 +405,40 @@ async def content_distiller_function(config: ContentDistillerConfig, builder: Bu
     # Register all three tools with NAT
     # ------------------------------------------------------------------
     try:
-        yield FunctionInfo.from_fn(
-            distill_content,
-            description=(
-                "Distill long content into a focused summary using a secondary "
-                "LLM. Use to process verbose tool outputs before incorporating "
-                "them into your response: web scrapes, RSS articles, retriever "
-                "chunks, transcripts, or any long text. Supports prose, bullet, "
-                "and tldr output formats with optional topic focus."
-            ),
-        )
+        if _enabled("distill_content"):
+            yield FunctionInfo.from_fn(
+                distill_content,
+                description=(
+                    "Distill long content into a focused summary using a secondary "
+                    "LLM. Use to process verbose tool outputs before incorporating "
+                    "them into your response: web scrapes, RSS articles, retriever "
+                    "chunks, transcripts, or any long text. Supports prose, bullet, "
+                    "and tldr output formats with optional topic focus."
+                ),
+            )
 
-        yield FunctionInfo.from_fn(
-            extract_structured,
-            description=(
-                "Extract structured data from unstructured text using a secondary "
-                "LLM. Pull specific fields, entities, or data points from raw "
-                "content into JSON or formatted output. Describe the schema you "
-                "want in natural language."
-            ),
-        )
+        if _enabled("extract_structured"):
+            yield FunctionInfo.from_fn(
+                extract_structured,
+                description=(
+                    "Extract structured data from unstructured text using a secondary "
+                    "LLM. Pull specific fields, entities, or data points from raw "
+                    "content into JSON or formatted output. Describe the schema you "
+                    "want in natural language."
+                ),
+            )
 
-        yield FunctionInfo.from_fn(
-            synthesize,
-            description=(
-                "Synthesize multiple content fragments from different sources "
-                "into a coherent analysis. Use after gathering information from "
-                "multiple tools (search, RSS, retrievers, web scrapes) to combine "
-                "them into a unified result. Identifies agreements, contradictions, "
-                "and information gaps across sources."
-            ),
-        )
+        if _enabled("synthesize"):
+            yield FunctionInfo.from_fn(
+                synthesize,
+                description=(
+                    "Synthesize multiple content fragments from different sources "
+                    "into a coherent analysis. Use after gathering information from "
+                    "multiple tools (search, RSS, retrievers, web scrapes) to combine "
+                    "them into a unified result. Identifies agreements, contradictions, "
+                    "and information gaps across sources."
+                ),
+            )
 
     except GeneratorExit:
         logger.warning("content_distiller function exited early!")

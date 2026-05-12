@@ -107,6 +107,8 @@ services:
       dockerfile: Dockerfile
     image: ${DOCKER_REGISTRY:-docker.io/library}/daedalus:evals-${DAEDALUS_VERSION:-latest}
     profiles: [evals]
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     networks:
       - ${NETWORK_NAME:-daedalus-network}
     volumes:

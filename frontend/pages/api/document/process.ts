@@ -94,8 +94,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     // Send a message to the chat endpoint that will trigger document processing
     const messageContent = documentsToProcess.length === 1
-      ? `Process the document "${filename || 'document'}" using nv_ingest_tool with documentRef=${JSON.stringify(documentsToProcess[0])}, username="${username}", and collection_name="${targetCollection}".`
-      : `Process ${documentsToProcess.length} documents using nv_ingest_tool with documentRefs=${JSON.stringify(documentsToProcess)}, username="${username}", and collection_name="${targetCollection}".`;
+      ? `Process the document "${filename || 'document'}" using user_document_tool with operation="ingest", documentRef=${JSON.stringify(documentsToProcess[0])}, username="${username}", and collection_name="${targetCollection}".`
+      : `Process ${documentsToProcess.length} documents using user_document_tool with operation="ingest", documentRefs=${JSON.stringify(documentsToProcess)}, username="${username}", and collection_name="${targetCollection}".`;
 
     const chatMessage = {
       messages: [{

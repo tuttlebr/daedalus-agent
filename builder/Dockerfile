@@ -58,8 +58,6 @@ WORKDIR /workspace
 RUN source /workspace/.venv/bin/activate
 
 COPY nat_helpers /workspace/nat_helpers
-COPY image_augmentation /workspace/image_augmentation
-COPY image_comprehension /workspace/image_comprehension
 COPY image_generation /workspace/image_generation
 COPY nat_nv_ingest /workspace/nat_nv_ingest
 COPY smart_milvus /workspace/smart_milvus
@@ -70,7 +68,6 @@ COPY agent_skills /workspace/agent_skills
 COPY serpapi_search /workspace/serpapi_search
 COPY json_repair_agent /workspace/json_repair_agent
 COPY mas_optimizer /workspace/mas_optimizer
-COPY think_tool /workspace/think_tool
 COPY content_distiller /workspace/content_distiller
 COPY source_verifier /workspace/source_verifier
 COPY user_interaction /workspace/user_interaction
@@ -79,8 +76,6 @@ COPY --from=skills . /skills
 RUN --mount=type=cache,id=uv_cache,target=/root/.cache/uv,sharing=locked \
     uv pip install --prerelease=allow \
     -e nat_helpers \
-    -e image_augmentation \
-    -e image_comprehension \
     -e image_generation \
     -e nat_nv_ingest \
     -e smart_milvus \
@@ -91,14 +86,11 @@ RUN --mount=type=cache,id=uv_cache,target=/root/.cache/uv,sharing=locked \
     -e serpapi_search \
     -e json_repair_agent \
     -e mas_optimizer \
-    -e think_tool \
     -e content_distiller \
     -e source_verifier \
     -e user_interaction
 
 RUN --mount=type=cache,id=uv_cache,target=/root/.cache/uv,sharing=locked \
-    NAT_VERSION= nat workflow reinstall image_augmentation && \
-    NAT_VERSION= nat workflow reinstall image_comprehension && \
     NAT_VERSION= nat workflow reinstall image_generation && \
     NAT_VERSION= nat workflow reinstall nat_nv_ingest && \
     NAT_VERSION= nat workflow reinstall smart_milvus && \
@@ -109,7 +101,6 @@ RUN --mount=type=cache,id=uv_cache,target=/root/.cache/uv,sharing=locked \
     NAT_VERSION= nat workflow reinstall serpapi_search && \
     NAT_VERSION= nat workflow reinstall json_repair_agent && \
     NAT_VERSION= nat workflow reinstall mas_optimizer && \
-    NAT_VERSION= nat workflow reinstall think_tool && \
     NAT_VERSION= nat workflow reinstall content_distiller && \
     NAT_VERSION= nat workflow reinstall source_verifier && \
     NAT_VERSION= nat workflow reinstall user_interaction
@@ -117,13 +108,16 @@ RUN --mount=type=cache,id=uv_cache,target=/root/.cache/uv,sharing=locked \
 ENV PLAYWRIGHT_BROWSERS_PATH=/workspace/.playwright
 RUN playwright install chromium --with-deps
 
-# Ensure all workspace files are accessible when running as non-root (K8s securityContext)
-RUN chmod -R a+rX /workspace
-
 COPY entrypoint.py /workspace/entrypoint.py
 COPY llm_diagnostics.py /workspace/llm_diagnostics.py
 COPY mcp_patches.py /workspace/mcp_patches.py
 COPY image_api.py /workspace/image_api.py
+
+# Ensure baked files are accessible when running as non-root (K8s securityContext),
+# and provide NAT's cwd-relative async job temp directory.
+RUN chmod -R a+rX /workspace /skills && \
+    mkdir -p /workspace/.tmp && \
+    chmod 1777 /workspace/.tmp
 
 WORKDIR /workspace
 ENTRYPOINT ["python", "entrypoint.py"]

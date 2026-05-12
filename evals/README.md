@@ -1,6 +1,6 @@
 # Daedalus evaluation harness
 
-Local-first evaluation for the Daedalus agent. Measures two things:
+Local-first evaluation for the Daedalus agent. Measures three things:
 
 1. **Routing correctness** — does `mas_evaluate` run, return the expected
    SAS/MAS verdict, and does the orchestrator delegate to the expected
@@ -8,21 +8,48 @@ Local-first evaluation for the Daedalus agent. Measures two things:
 2. **Factuality (observational)** — when the agent naturally calls
    `source_verifier.verify_claim` before storing a finding, are the
    verdicts `supported`?
+3. **Workflow audit contracts** — optional broader workflow cases that
+   check required/forbidden tools, citations, output shape, latency budgets,
+   token budgets, and tool-call counts.
+
+Every run also records first-token latency, final latency, token usage
+(reported when available, otherwise estimated), tool-call counts, unique tools,
+and per-dataset p50/p95/p99 summaries.
 
 ## Quick start
 
 ```bash
-./run-eval.sh                                  # full suite
+./run-eval.sh                                  # default routing + factuality suite
 ./run-eval.sh --dataset routing                # one dataset
+./run-eval.sh --dataset workflows              # broader audit suite; may invoke live tools
 ./run-eval.sh --case ops-001                   # one case
-DAEDALUS_BACKEND_URL=http://10.0.2.61:8000 ./run-eval.sh
+DAEDALUS_KUBE_NAMESPACE=daedalus ./run-eval.sh
+DAEDALUS_KUBE_CONTEXT=my-context ./run-eval.sh
+DAEDALUS_BACKEND_URL=https://<staging-or-prod-host> ./run-eval.sh
 ```
 
-Only **Docker** is required on the host — no Python or pip install.
-`run-eval.sh` launches `docker compose run --rm evals <args>`. The
-service attaches to `daedalus-network` and reaches `backend:8000`
-by DNS, so it works out of the box when the stack is up
-(`docker compose up backend ...`).
+`run-eval.sh` assumes the Daedalus backend is running in Kubernetes. If
+`DAEDALUS_BACKEND_URL` is unset, it opens a local `kubectl port-forward` to
+`svc/daedalus-backend-default` in namespace `daedalus`, then runs the Dockerized
+eval harness against that forwarded backend.
+
+Useful Kubernetes defaults:
+
+| var | default | purpose |
+| --- | --- | --- |
+| `DAEDALUS_KUBE_NAMESPACE` | `daedalus` | namespace containing the backend Service |
+| `DAEDALUS_KUBE_BACKEND_SERVICE` | `daedalus-backend-default` | backend Service name |
+| `DAEDALUS_KUBE_BACKEND_PORT` | `8000` | backend Service port |
+| `DAEDALUS_EVAL_LOCAL_PORT` | `18000` | local port used for `kubectl port-forward` |
+| `DAEDALUS_EVAL_PORT_FORWARD_ADDRESS` | `0.0.0.0` | bind address for `kubectl port-forward`; Docker needs a non-loopback bind |
+| `DAEDALUS_KUBE_CONTEXT` | unset | optional kubectl context |
+
+To bypass Kubernetes discovery and hit a specific backend directly:
+
+```bash
+DAEDALUS_BACKEND_URL=http://localhost:8000 python3 evals/runner.py --dataset workflows
+DAEDALUS_BACKEND_URL=https://<staging-or-prod-host> ./run-eval.sh --dataset workflows
+```
 
 First run builds the image (~30s). Afterward, dataset and evaluator
 edits on the host are picked up via volume mount — no rebuild needed.
@@ -34,6 +61,12 @@ docker compose build evals
 
 Results land in `evals/results/<timestamp>.json`. A markdown summary
 prints to stdout; a non-zero exit code signals at least one failure.
+
+Validate dataset and evaluator wiring without calling the backend:
+
+```bash
+python3 evals/runner.py --validate-only --dataset routing --dataset factuality --dataset workflows
+```
 
 ### Native Python (optional)
 
@@ -48,15 +81,20 @@ python3 evals/runner.py --dataset routing
 
 | var | default | purpose |
 | --- | --- | --- |
-| `DAEDALUS_BACKEND_URL` | `http://backend:8000` (Docker) / `http://localhost:8000` (native) | backend base URL |
+| `DAEDALUS_BACKEND_URL` | unset for `run-eval.sh`; `http://localhost:8000` for native runner | backend base URL |
 | `DAEDALUS_EVAL_USER`   | `eval_user`              | user_id injected via `[IDENTITY]` |
 | `DAEDALUS_EVAL_TIMEOUT` | `900` | per-request timeout (seconds) |
+| `DAEDALUS_EVAL_PREFLIGHT_TIMEOUT` | `5` | backend reachability check timeout (seconds) |
 
 The fixed eval user means memory accumulates across runs for that id.
 If that becomes noisy, purge the user's memory between runs or switch
 to a per-run id.
 
 ## How scoring works
+
+The default run includes `routing` and `factuality`. The `workflows` dataset is
+opt-in because it can invoke live integrations such as image generation and MCP
+reads.
 
 ### Routing
 The runner posts each case's `query` to `/chat/stream`, parses the SSE
@@ -86,6 +124,22 @@ be phrased to induce that behavior — e.g. "research X and remember the
 answer". Cases that don't induce verification will fail with
 `no source_verifier verdicts observed`.
 
+### Workflow audit
+
+`evaluators/workflow_audit.py` is deterministic. Each case can declare:
+
+- `required_tools`
+- `forbidden_tools`
+- `min_tool_calls` / `max_tool_calls`
+- `requires_citation`
+- `response_contains`
+- `response_regex`
+- `max_latency_s`
+- `max_total_tokens`
+
+Use this suite to populate the workflow one-page audit in
+`docs/agent-setup-audit.md`.
+
 ## Expanding the dataset
 
 Start by editing `datasets/routing.yml` and `datasets/factuality.yml`.
@@ -102,12 +156,14 @@ Use this to:
 - Confirm your `expected` labels match what the agent actually does
 - Debug misses (tool called under a different name, argument shape, etc.)
 
-Good coverage targets for v2:
+Good coverage targets:
 - ~5 cases per sub-agent (research, ops, media, user_data) → 20
 - ~5 skill-match cases (pr-monitor, debug-session, code-review, etc.)
 - ~5 MAS cases (2-3 centralized, 2-3 decentralized)
 - ~5 conversational / edge cases
 - ~15 factuality cases (research-heavy, findings-inducing)
+- p95 token and latency budgets per major workflow
+- adversarial/messy inputs for every high-value workflow
 
 ## Known limitations (v1)
 
@@ -117,8 +173,8 @@ Good coverage targets for v2:
   call `verify_claim`. A future iteration could post-hoc verify claims
   the agent made without citing — e.g. via a NAT-side wrapper that
   exposes `verify_claim` standalone.
-- **No regression tracking**: `evals/results/` keeps dated runs but
-  there's no diffing UI. Compare JSONs manually or build a small
-  `compare.py` if trend tracking matters.
+- **Limited regression tracking**: `evals/results/` keeps dated runs and
+  summary metrics, but there is no diffing UI yet. Compare JSONs manually or
+  add a `compare.py` if trend tracking matters.
 - **No parallelism**: cases run serially. Fine for ~30 cases; add
   asyncio or a thread pool if the dataset grows past ~100.

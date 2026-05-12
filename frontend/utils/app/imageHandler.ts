@@ -761,7 +761,7 @@ export function cleanMessagesForLLM(messages: any[]): Message[] {
           // Check if message metadata requests ingestion to a specific collection
           const targetCollection = message.metadata?.targetCollection;
           const ingestInstruction = targetCollection
-            ? `\n\n**Ingestion Target:** Use the nv_ingest_tool to ingest this document into the "${targetCollection}" collection.`
+            ? `\n\n**Ingestion Target:** Use user_document_tool with operation="ingest" to ingest this document into the "${targetCollection}" collection.`
             : '';
 
           if (contentAdditions) contentAdditions += '\n';
