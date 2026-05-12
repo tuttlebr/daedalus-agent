@@ -72,7 +72,9 @@ def score(case: dict, trace) -> EvalScore:
         )
 
     if requires_citation:
-        checks.append((_has_url_citation(trace.response), "response has no URL citation"))
+        checks.append(
+            (_has_url_citation(trace.response), "response has no URL citation")
+        )
 
     for phrase in required_phrases:
         checks.append(

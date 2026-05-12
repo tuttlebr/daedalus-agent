@@ -48,13 +48,13 @@ def _effective_operations(config, tool_name):
 
 
 def _effective_operation_count(config, tool_names):
-    return sum(len(_effective_operations(config, tool_name)) for tool_name in tool_names)
+    return sum(
+        len(_effective_operations(config, tool_name)) for tool_name in tool_names
+    )
 
 
 def test_helm_backend_config_stays_in_sync_with_repo_backend():
-    assert HELM_CONFIG.read_text(encoding="utf-8") == CONFIG.read_text(
-        encoding="utf-8"
-    )
+    assert HELM_CONFIG.read_text(encoding="utf-8") == CONFIG.read_text(encoding="utf-8")
 
 
 def test_backend_dockerfile_chmods_runtime_files_after_copy():
@@ -130,7 +130,9 @@ def test_deployed_tool_surface_is_optimized():
 
         assert _effective_operation_count(config, workflow_tools) <= 13, path
         assert (
-            _effective_operation_count(config, functions["research_agent"]["tool_names"])
+            _effective_operation_count(
+                config, functions["research_agent"]["tool_names"]
+            )
             <= 7
         ), path
         assert (
@@ -244,9 +246,7 @@ def test_memory_verification_prompt_limits_failed_retries():
 
 
 def test_mas_procedure_has_bounded_execution_budget():
-    skill = (SKILLS_DIR / "mas-procedure" / "SKILL.md").read_text(
-        encoding="utf-8"
-    )
+    skill = (SKILLS_DIR / "mas-procedure" / "SKILL.md").read_text(encoding="utf-8")
     assert "Global Execution Budget" in skill
     assert "Stop after 8 external retrieval/search/scrape calls" in skill
     assert "use AMD as the default semiconductor competitor" in skill

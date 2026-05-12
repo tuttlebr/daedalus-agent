@@ -175,7 +175,9 @@ def merge_usage(current: dict[str, int], candidate: dict[str, int]) -> dict[str,
     return merged
 
 
-def normalize_intermediate(parsed: dict, received_at_seconds: float) -> ToolEvent | None:
+def normalize_intermediate(
+    parsed: dict, received_at_seconds: float
+) -> ToolEvent | None:
     name_raw = parsed.get("name") or ""
     is_complete = "Complete:" in name_raw
     is_workflow = "<workflow>" in name_raw
@@ -495,9 +497,7 @@ def summarize_cases(cases: list[dict[str, Any]]) -> dict[str, Any]:
                     [
                         float(item["metrics"]["usage"]["total_tokens"])
                         for item in items
-                        if item.get("metrics", {})
-                        .get("usage", {})
-                        .get("total_tokens")
+                        if item.get("metrics", {}).get("usage", {}).get("total_tokens")
                         is not None
                     ],
                     0.95,

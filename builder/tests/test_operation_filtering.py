@@ -103,9 +103,7 @@ def test_user_interaction_enabled_operations_filters_registration():
 
         return await _names(
             user_interaction_function(
-                UserInteractionConfig(
-                    enabled_operations=["clarify", "confirm_action"]
-                ),
+                UserInteractionConfig(enabled_operations=["clarify", "confirm_action"]),
                 MagicMock(),
             )
         )

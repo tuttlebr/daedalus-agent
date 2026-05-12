@@ -266,7 +266,9 @@ async def visual_media_function(config: VisualMediaFunctionConfig, builder: Buil
                 return mime_type_or_error
             media_content = {
                 "type": "video_url",
-                "video_url": {"url": f"data:{mime_type_or_error};base64,{video_base64}"},
+                "video_url": {
+                    "url": f"data:{mime_type_or_error};base64,{video_base64}"
+                },
             }
         elif image_url:
             media_content = {"type": "image_url", "image_url": {"url": image_url}}
@@ -278,10 +280,14 @@ async def visual_media_function(config: VisualMediaFunctionConfig, builder: Buil
                 return mime_type_or_error
             media_content = {
                 "type": "image_url",
-                "image_url": {"url": f"data:{mime_type_or_error};base64,{image_base64}"},
+                "image_url": {
+                    "url": f"data:{mime_type_or_error};base64,{image_base64}"
+                },
             }
 
-        is_video = media_content is not None and media_content.get("type") == "video_url"
+        is_video = (
+            media_content is not None and media_content.get("type") == "video_url"
+        )
         payload = {
             "model": config.comprehension_model,
             "messages": [
