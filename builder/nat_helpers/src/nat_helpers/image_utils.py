@@ -29,9 +29,27 @@ def parse_ref(ref: str | dict | None) -> dict | None:
     return None
 
 
+def _resolve_user_scope(
+    media_ref: dict,
+    expected_user_id: str | None,
+) -> tuple[str | None, str | None]:
+    """Return the user id to use for lookup, or an error message."""
+    ref_user_id = (media_ref.get("userId") or "").strip()
+    expected = (expected_user_id or "").strip()
+
+    if expected and ref_user_id and ref_user_id != expected:
+        return (
+            None,
+            "Error: Media reference belongs to a different authenticated user.",
+        )
+
+    return (expected or ref_user_id or None, None)
+
+
 async def fetch_image_from_redis(
     redis_client: redis_lib.Redis,
     image_ref: dict,
+    expected_user_id: str | None = None,
 ) -> tuple[str, str] | tuple[None, str]:
     """Fetch image data from Redis.
 
@@ -47,7 +65,9 @@ async def fetch_image_from_redis(
 
     image_id = image_ref.get("imageId")
     session_id = image_ref.get("sessionId")
-    user_id = image_ref.get("userId")
+    user_id, user_error = _resolve_user_scope(image_ref, expected_user_id)
+    if user_error:
+        return (None, user_error)
 
     if not image_id:
         return (None, "Error: No imageId in image reference.")
@@ -62,7 +82,7 @@ async def fetch_image_from_redis(
     redis_keys = []
     if user_id:
         redis_keys.append(f"user:{user_id}:image:{image_id}")
-    if session_id and session_id != "generated":
+    if not user_id and session_id and session_id != "generated":
         redis_keys.append(f"image:{session_id}:{image_id}")
     # Generated/edited outputs from the /v1/images/* panel live at
     # generated:image:{id}, outside any user or session scope. Always try
@@ -107,6 +127,7 @@ async def fetch_image_from_redis(
 async def fetch_video_from_redis(
     redis_client: redis_lib.Redis,
     video_ref: dict,
+    expected_user_id: str | None = None,
 ) -> tuple[str, str] | tuple[None, str]:
     """Fetch video data from Redis.
 
@@ -122,7 +143,9 @@ async def fetch_video_from_redis(
 
     video_id = video_ref.get("videoId")
     session_id = video_ref.get("sessionId")
-    user_id = video_ref.get("userId")
+    user_id, user_error = _resolve_user_scope(video_ref, expected_user_id)
+    if user_error:
+        return (None, user_error)
 
     if not video_id:
         return (None, "Error: No videoId in video reference.")
@@ -137,7 +160,7 @@ async def fetch_video_from_redis(
     redis_keys = []
     if user_id:
         redis_keys.append(f"user:{user_id}:video:{video_id}")
-    if session_id:
+    if not user_id and session_id:
         redis_keys.append(f"video:{session_id}:{video_id}")
 
     video_data_json = None
@@ -203,5 +226,6 @@ async def store_image_in_redis(
         await asyncio.to_thread(redis_client.expire, redis_key, 604800)
     except redis_lib.RedisError as e:
         logger.error("Failed to store image in Redis: %s", e)
+        raise
 
     return image_id

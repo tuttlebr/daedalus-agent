@@ -4,7 +4,7 @@
  * The session (sid) cookie is verified server-side against Redis, which works
  * in Node.js API routes but NOT in Edge API routes (Edge can't use ioredis).
  * This signed cookie provides a Redis-free way to verify user identity in Edge
- * routes like /api/chat.
+ * routes like /api/chat/async.
  *
  * Lifecycle: set during login (Node.js), verified during chat (Edge),
  * cleared during logout (Node.js).

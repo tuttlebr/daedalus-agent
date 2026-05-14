@@ -14,6 +14,22 @@ HELM_CONFIG = (
 )
 SKILLS_DIR = Path(__file__).resolve().parents[2] / "skills"
 DOCKERFILE = Path(__file__).resolve().parents[1] / "Dockerfile"
+NGINX_TEMPLATE = (
+    Path(__file__).resolve().parents[2]
+    / "helm"
+    / "daedalus"
+    / "templates"
+    / "config-nginx.yaml"
+)
+CILIUM_NGINX_TEMPLATE = (
+    Path(__file__).resolve().parents[2]
+    / "helm"
+    / "daedalus"
+    / "templates"
+    / "cilium-nginx.yaml"
+)
+HELM_VALUES = Path(__file__).resolve().parents[2] / "helm" / "daedalus" / "values.yaml"
+CUSTOM_VALUES = Path(__file__).resolve().parents[2] / "custom-values.yaml"
 DEPLOYED_CONFIGS = (CONFIG, HELM_CONFIG)
 MULTI_OPERATION_TYPES = {
     "agent_skills": ["list_skills", "load_skill", "run_skill_script"],
@@ -147,8 +163,100 @@ def test_deployed_tool_surface_is_optimized():
             _effective_operation_count(
                 config, functions["user_data_agent"]["tool_names"]
             )
-            <= 1
+            <= 10
         ), path
+
+
+def test_google_workspace_mcp_uses_per_user_oauth():
+    expected = {
+        "gmail_mcp_server": {
+            "server_url": "https://gmailmcp.googleapis.com/mcp/v1",
+            "auth_server_url": "https://gmailmcp.googleapis.com/mcp",
+            "scopes": {
+                "https://www.googleapis.com/auth/gmail.readonly",
+            },
+            "include": [
+                "search_threads",
+                "get_thread",
+                "list_labels",
+            ],
+        },
+        "calendar_mcp_server": {
+            "server_url": "https://calendarmcp.googleapis.com/mcp/v1",
+            "auth_server_url": "https://calendarmcp.googleapis.com/mcp/v1",
+            "scopes": {
+                "https://www.googleapis.com/auth/calendar.calendarlist.readonly",
+                "https://www.googleapis.com/auth/calendar.events.readonly",
+                "https://www.googleapis.com/auth/calendar.events.freebusy",
+            },
+            "include": [
+                "list_calendars",
+                "list_events",
+                "get_event",
+                "suggest_time",
+            ],
+        },
+    }
+
+    for path in DEPLOYED_CONFIGS:
+        config = _config(path)
+        auth = config["authentication"]
+        function_groups = config["function_groups"]
+        workflow_tools = config["workflow"]["tool_names"]
+        user_data_tools = config["functions"]["user_data_agent"]["tool_names"]
+
+        assert "gmail_mcp_server" not in workflow_tools, path
+        assert "calendar_mcp_server" not in workflow_tools, path
+        assert "gmail_mcp_server" in user_data_tools, path
+        assert "calendar_mcp_server" in user_data_tools, path
+
+        for name, values in expected.items():
+            provider = auth[name]
+            assert provider["_type"] == "mcp_oauth2", path
+            assert provider["server_url"] == values["auth_server_url"], path
+            assert provider["client_id"] == "${GOOGLE_MCP_CLIENT_ID}", path
+            assert provider["client_secret"] == "${GOOGLE_MCP_CLIENT_SECRET}", path
+            assert provider["redirect_uri"] == "${GOOGLE_MCP_REDIRECT_URI}", path
+            assert provider["enable_dynamic_registration"] is False, path
+            assert provider["allow_default_user_id_for_tool_calls"] is False, path
+            assert set(provider["scopes"]) == values["scopes"], path
+
+            group = function_groups[name]
+            assert group["include"] == values["include"], path
+            assert group["server"]["auth_provider"] == name, path
+            assert group["server"]["url"] == values["server_url"], path
+
+
+def test_interactive_extensions_are_enabled_for_mcp_oauth():
+    for path in DEPLOYED_CONFIGS:
+        config = _config(path)
+        assert config["general"]["front_end"]["enable_interactive_extensions"] is True
+
+
+def test_restricted_nginx_allows_oauth_redirect_callback():
+    template = NGINX_TEMPLATE.read_text(encoding="utf-8")
+    callback_location = "location = /auth/redirect"
+    direct_api_block = "location ~ ^/(v1|generate|chat|evaluate|upload|tools|health|auth)/"
+
+    assert callback_location in template
+    assert direct_api_block in template
+    assert template.index(callback_location) < template.index(direct_api_block)
+    assert 'proxy_pass {{ ._backendDefaultUpstream }};' in template
+
+
+def test_restricted_nginx_cilium_policy_allows_oauth_callback_upstream():
+    template = CILIUM_NGINX_TEMPLATE.read_text(encoding="utf-8")
+
+    assert "Restricted mode still needs this for the exact" in template
+    assert "app.kubernetes.io/component: backend-default" in template
+    assert "{{- if not .Values.nginx.config.restrictedMode }}" not in template
+
+
+def test_backend_trusts_nginx_forwarded_proto_for_oauth_callback():
+    for path in (HELM_VALUES, CUSTOM_VALUES):
+        values = yaml.safe_load(path.read_text(encoding="utf-8"))
+        overrides = values["backend"]["default"]["env"]["overrides"]
+        assert overrides["FORWARDED_ALLOW_IPS"] == "*", path
 
 
 def test_multi_operation_tools_are_filtered_in_production():
@@ -208,10 +316,22 @@ def test_mas_evaluate_uses_effective_routing_domains_not_global_tool_catalog():
         assert forbidden not in prompt, path
 
 
+def test_direct_specialist_routing_precedes_generic_mas_gate():
+    for path in DEPLOYED_CONFIGS:
+        prompt = _config(path)["workflow"]["system_prompt"]
+        assert "Direct specialist requests" in prompt, path
+        assert "MAS candidate requests" in prompt, path
+        assert prompt.index("Direct specialist requests") < prompt.index(
+            "MAS candidate requests"
+        ), path
+        assert "without get_memory or mas_evaluate" in prompt, path
+
+
 def test_mas_optimizer_description_exposes_skill_name_contract():
     for path in DEPLOYED_CONFIGS:
         desc = _config(path)["functions"]["mas_optimizer_tool"]["description"]
         assert "skill_name" in desc, path
+        assert "matched_signals" in desc, path
 
 
 def test_skill_routing_precedes_generic_mas_gate():

@@ -39,10 +39,19 @@ vi.mock('@/utils/auth/session', () => ({
   getSession: vi.fn().mockResolvedValue({ username: 'testuser' }),
 }));
 
-import {
+import handler, {
+  buildBoundedMessagesForNat,
+  buildNatRequestHeaders,
+  buildNatSessionId,
+  extractAsyncStreamContentDelta,
   fetchNatJobStatus,
   resolveAsyncBackendBaseUrls,
 } from '@/pages/api/chat/async';
+import {
+  PRIOR_ASSISTANT_OMITTED_MESSAGE,
+  stripReplayedAssistantPrefix,
+} from '@/utils/app/conversationReplay';
+import { jsonGet, jsonSetWithExpiry } from '@/pages/api/session/redis';
 
 describe('chat/async backend pinning helpers', () => {
   beforeEach(() => {
@@ -101,9 +110,99 @@ describe('chat/async backend pinning helpers', () => {
 
     expect(mocks.fetchWithTimeout).toHaveBeenCalledWith(
       'http://10.0.2.61:8000/v1/workflow/async/job/job-123',
-      {},
+      { headers: buildNatRequestHeaders('testuser') },
       30000,
     );
+  });
+
+  it('sets identity and an isolated NAT session cookie on backend requests', () => {
+    expect(
+      buildNatRequestHeaders(
+        'testuser',
+        { 'Content-Type': 'application/json' },
+        'job-session-123',
+      ),
+    ).toEqual({
+      'Content-Type': 'application/json',
+      'x-user-id': 'testuser',
+      Cookie: 'nat-session=job-session-123',
+    });
+  });
+
+  it('derives a stable per-turn NAT session id without exposing the username', () => {
+    const first = buildNatSessionId('testuser', 'job-123', 'conv-1', 'turn-1');
+    const same = buildNatSessionId('testuser', 'job-123', 'conv-1', 'turn-1');
+    const nextTurn = buildNatSessionId('testuser', 'job-456', 'conv-1', 'turn-2');
+
+    expect(first).toBe(same);
+    expect(first).toMatch(/^daedalus-[a-f0-9]{32}$/);
+    expect(first).not.toContain('testuser');
+    expect(nextTurn).not.toBe(first);
+  });
+
+  it('uses the stored NAT session id when polling job status', async () => {
+    const json = vi.fn().mockResolvedValue({
+      job_id: 'job-123',
+      status: 'running',
+      error: null,
+      output: null,
+      created_at: '',
+      updated_at: '',
+      expires_at: '',
+    });
+    mocks.fetchWithTimeout.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json,
+    });
+
+    await fetchNatJobStatus('job-123', {
+      jobId: 'job-123',
+      natBaseUrl: 'http://10.0.2.61:8000',
+      natSessionId: 'job-session-123',
+      messages: [],
+      additionalProps: {},
+      userId: 'testuser',
+    } as any);
+
+    expect(mocks.fetchWithTimeout).toHaveBeenCalledWith(
+      'http://10.0.2.61:8000/v1/workflow/async/job/job-123',
+      { headers: buildNatRequestHeaders('testuser', {}, 'job-session-123') },
+      30000,
+    );
+  });
+
+  it('omits prior assistant content without orphaning earlier user turns', () => {
+    const prior = 'A detailed prior assistant response that must not be replayed.';
+    const bounded = buildBoundedMessagesForNat([
+      { role: 'user', content: 'first question' },
+      { role: 'assistant', content: prior, id: 'assistant-1' },
+      { role: 'user', content: 'follow up' },
+    ]);
+
+    expect(bounded).toHaveLength(3);
+    expect(bounded[0].content).toBe('first question');
+    expect(bounded[1]).toEqual({
+      role: 'assistant',
+      content: PRIOR_ASSISTANT_OMITTED_MESSAGE,
+    });
+    expect(bounded[2].content).toBe('follow up');
+    expect(bounded.some((message) => message.content === prior)).toBe(false);
+  });
+
+  it('also omits prior agent-role content before sending to NAT', () => {
+    const prior = 'Agent role content that should not reach the model.';
+    const bounded = buildBoundedMessagesForNat([
+      { role: 'user', content: 'first question' },
+      { role: 'agent', content: prior },
+      { role: 'user', content: 'follow up' },
+    ]);
+
+    expect(bounded[1]).toEqual({
+      role: 'assistant',
+      content: PRIOR_ASSISTANT_OMITTED_MESSAGE,
+    });
+    expect(bounded.some((message) => message.content === prior)).toBe(false);
   });
 
   it('treats legacy shared-service 404s as retryable instead of terminal', async () => {
@@ -122,8 +221,263 @@ describe('chat/async backend pinning helpers', () => {
     expect(result).toBeNull();
     expect(mocks.fetchWithTimeout).toHaveBeenCalledWith(
       'http://daedalus-backend-default.daedalus.svc.cluster.local:8000/v1/workflow/async/job/job-legacy',
-      {},
+      { headers: buildNatRequestHeaders('testuser') },
       30000,
     );
+  });
+
+  it('sanitizes a completed job fullResponse before returning cached status', async () => {
+    const prior = 'Daily summary for May 13, 2026.';
+    const next = 'The namespace is healthy.';
+    const jobStatus = {
+      jobId: 'job-123',
+      status: 'completed',
+      fullResponse: `${prior}\n\n${next}`,
+      createdAt: 1,
+      updatedAt: 2,
+      finalizedAt: 3,
+      conversationId: 'conv-1',
+    };
+    const jobRequest = {
+      jobId: 'job-123',
+      natBaseUrl: 'http://10.0.2.61:8000',
+      messages: [
+        { role: 'user', content: 'daily summary' },
+        { role: 'assistant', content: prior },
+        { role: 'user', content: 'namespace?' },
+      ],
+      additionalProps: {},
+      userId: 'testuser',
+      conversationId: 'conv-1',
+    };
+    (jsonGet as any)
+      .mockResolvedValueOnce(jobStatus)
+      .mockResolvedValueOnce(jobRequest)
+      .mockResolvedValueOnce(jobStatus);
+    (jsonSetWithExpiry as any).mockResolvedValue(undefined);
+    const req = { method: 'GET', query: { jobId: 'job-123' } } as any;
+    const res = {
+      status: vi.fn().mockReturnThis(),
+      json: vi.fn().mockReturnThis(),
+      setHeader: vi.fn(),
+    } as any;
+
+    await handler(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(res.json).toHaveBeenCalledWith({
+      ...jobStatus,
+      fullResponse: next,
+      updatedAt: expect.any(Number),
+    });
+    expect(jsonSetWithExpiry).toHaveBeenCalledWith(
+      'daedalus:async-job-status:job-123',
+      {
+        ...jobStatus,
+        fullResponse: next,
+        updatedAt: expect.any(Number),
+      },
+      3600,
+    );
+  });
+
+  it('sanitizes a completed job fullResponse when the prior answer is appended', async () => {
+    const prior = 'Daily summary for May 13, 2026.';
+    const next = 'The namespace is healthy.';
+    const jobStatus = {
+      jobId: 'job-123',
+      status: 'completed',
+      fullResponse: `${next}\n\n${prior}`,
+      createdAt: 1,
+      updatedAt: 2,
+      finalizedAt: 3,
+      conversationId: 'conv-1',
+    };
+    const jobRequest = {
+      jobId: 'job-123',
+      natBaseUrl: 'http://10.0.2.61:8000',
+      messages: [
+        { role: 'user', content: 'daily summary' },
+        { role: 'assistant', content: prior },
+        { role: 'user', content: 'namespace?' },
+      ],
+      additionalProps: {},
+      userId: 'testuser',
+      conversationId: 'conv-1',
+    };
+    (jsonGet as any)
+      .mockResolvedValueOnce(jobStatus)
+      .mockResolvedValueOnce(jobRequest)
+      .mockResolvedValueOnce(jobStatus);
+    (jsonSetWithExpiry as any).mockResolvedValue(undefined);
+    const req = { method: 'GET', query: { jobId: 'job-123' } } as any;
+    const res = {
+      status: vi.fn().mockReturnThis(),
+      json: vi.fn().mockReturnThis(),
+      setHeader: vi.fn(),
+    } as any;
+
+    await handler(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(res.json).toHaveBeenCalledWith({
+      ...jobStatus,
+      fullResponse: next,
+      updatedAt: expect.any(Number),
+    });
+  });
+
+  it('sanitizes a streaming job partialResponse before returning cached status', async () => {
+    const prior = 'Daily summary for May 13, 2026.';
+    const next = 'The namespace is still healthy.';
+    const jobStatus = {
+      jobId: 'job-123',
+      status: 'streaming',
+      partialResponse: `${prior}\n\n${next}`,
+      createdAt: 1,
+      updatedAt: 2,
+      conversationId: 'conv-1',
+    };
+    const jobRequest = {
+      jobId: 'job-123',
+      executionMode: 'stream',
+      natBaseUrl: 'http://10.0.2.61:8000',
+      messages: [
+        { role: 'user', content: 'daily summary' },
+        { role: 'assistant', content: prior },
+        { role: 'user', content: 'namespace?' },
+      ],
+      additionalProps: {},
+      userId: 'testuser',
+      conversationId: 'conv-1',
+    };
+    (jsonGet as any)
+      .mockResolvedValueOnce(jobStatus)
+      .mockResolvedValueOnce(jobRequest)
+      .mockResolvedValueOnce(jobStatus);
+    (jsonSetWithExpiry as any).mockResolvedValue(undefined);
+    const req = { method: 'GET', query: { jobId: 'job-123' } } as any;
+    const res = {
+      status: vi.fn().mockReturnThis(),
+      json: vi.fn().mockReturnThis(),
+      setHeader: vi.fn(),
+    } as any;
+
+    await handler(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(res.json).toHaveBeenCalledWith({
+      ...jobStatus,
+      partialResponse: next,
+      updatedAt: expect.any(Number),
+    });
+    expect(jsonSetWithExpiry).toHaveBeenCalledWith(
+      'daedalus:async-job-status:job-123',
+      {
+        ...jobStatus,
+        partialResponse: next,
+        updatedAt: expect.any(Number),
+      },
+      3600,
+    );
+  });
+});
+
+describe('chat/async response boundary helpers', () => {
+  it('concatenates normal delta chunks without modification', () => {
+    expect(
+      extractAsyncStreamContentDelta(
+        { choices: [{ delta: { content: 'hello ' } }] },
+        '',
+      ),
+    ).toBe('hello ');
+    expect(
+      extractAsyncStreamContentDelta(
+        { choices: [{ delta: { content: 'world' } }] },
+        'hello ',
+      ),
+    ).toBe('world');
+  });
+
+  it('extracts only the new suffix from full-so-far message snapshots', () => {
+    expect(
+      extractAsyncStreamContentDelta(
+        { choices: [{ message: { content: 'Daily summary for May 13, 2026.' } }] },
+        '',
+      ),
+    ).toBe('Daily summary for May 13, 2026.');
+
+    expect(
+      extractAsyncStreamContentDelta(
+        {
+          choices: [{
+            message: {
+              content: 'Daily summary for May 13, 2026.\n\nThe namespace is healthy.',
+            },
+          }],
+        },
+        'Daily summary for May 13, 2026.',
+      ),
+    ).toBe('\n\nThe namespace is healthy.');
+  });
+
+  it('drops exact duplicate full-so-far snapshots', () => {
+    expect(
+      extractAsyncStreamContentDelta(
+        { output: 'The same accumulated response.' },
+        'The same accumulated response.',
+      ),
+    ).toBe('');
+  });
+
+  it('strips an exact prior assistant replay from the final output', () => {
+    const prior =
+      'Daily summary for May 13, 2026.\n\n' +
+      '## 1. Date\nCurrent timestamp: 2026-05-13 15:26 UTC.';
+    const next = 'The `nemotron-omni` namespace is healthy overall.';
+
+    expect(
+      stripReplayedAssistantPrefix(`${prior}\n\n${next}`, [
+        { role: 'user', content: 'daily summary' },
+        { role: 'assistant', content: prior },
+        { role: 'user', content: 'check nemotron omni' },
+      ]),
+    ).toBe(next);
+  });
+
+  it('strips an exact prior assistant replay appended to the final output', () => {
+    const prior =
+      'Daily summary for May 13, 2026.\n\n' +
+      '## 1. Date\nCurrent timestamp: 2026-05-13 15:26 UTC.';
+    const next = 'The `nemotron-omni` namespace is healthy overall.';
+
+    expect(
+      stripReplayedAssistantPrefix(`${next}\n\n${prior}`, [
+        { role: 'user', content: 'daily summary' },
+        { role: 'assistant', content: prior },
+        { role: 'user', content: 'check nemotron omni' },
+      ]),
+    ).toBe(next);
+  });
+
+  it('preserves responses that reference prior content without exact-prefix replay', () => {
+    const prior = 'Daily summary for May 13, 2026.';
+    const next = 'Compared with the prior daily summary, the namespace is now healthy.';
+
+    expect(
+      stripReplayedAssistantPrefix(next, [
+        { role: 'assistant', content: prior },
+        { role: 'user', content: 'compare the status' },
+      ]),
+    ).toBe(next);
+  });
+
+  it('preserves natural sentence prefixes that are not replay boundaries', () => {
+    expect(
+      stripReplayedAssistantPrefix('OK, here is the current status.', [
+        { role: 'assistant', content: 'OK' },
+        { role: 'user', content: 'status?' },
+      ]),
+    ).toBe('OK, here is the current status.');
   });
 });

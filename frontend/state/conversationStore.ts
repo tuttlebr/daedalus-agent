@@ -69,6 +69,11 @@ export interface ConversationActions {
 
   // Messages
   addMessage: (conversationId: string, message: Message) => void;
+  updateMessage: (
+    conversationId: string,
+    messageId: string,
+    updates: Partial<Message>
+  ) => void;
   updateLastMessage: (conversationId: string, updates: Partial<Message>) => void;
   updateMessageIntermediateSteps: (
     conversationId: string,
@@ -226,6 +231,22 @@ export const useConversationStore = create<ConversationStore>()(
             }
             conv.updatedAt = Date.now();
           }
+        });
+      },
+
+      updateMessage: (conversationId, messageId, updates) => {
+        set((state) => {
+          const conv = state.conversations.find((c: Conversation) => c.id === conversationId);
+          if (!conv) return;
+
+          const index = conv.messages.findIndex((message: Message) => message.id === messageId);
+          if (index === -1) return;
+
+          conv.messages[index] = {
+            ...conv.messages[index],
+            ...updates,
+          };
+          conv.updatedAt = Date.now();
         });
       },
 

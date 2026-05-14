@@ -2,6 +2,7 @@ import { Conversation, Message } from '@/types/chat';
 import toast from 'react-hot-toast';
 import { apiGet, apiPut, apiPost, ConflictError } from '@/utils/app/api';
 import { restoreMessageImages, cleanMessagesForStorage, stripBase64Content } from './imageHandler';
+import { sanitizeConversationAssistantReplays, sanitizeConversationsAssistantReplays } from './conversationReplay';
 import { getUserSessionItem, setUserSessionItem, removeUserSessionItem } from './storage';
 import {
   paginateConversation,
@@ -75,7 +76,9 @@ export const saveConversation = async (conversation: Conversation) => {
     };
 
     // Aggressively strip any remaining base64 content as a safety measure
-    cleanedConversation = stripBase64Content(cleanedConversation);
+    cleanedConversation = sanitizeConversationAssistantReplays(
+      stripBase64Content(cleanedConversation),
+    );
 
     // Cache in sessionStorage (best-effort — data is persisted server-side)
     setUserSessionItem('selectedConversation', JSON.stringify(cleanedConversation));
@@ -130,7 +133,9 @@ export const saveConversations = async (conversations: Conversation[]) => {
     }));
 
     // Aggressively strip any remaining base64 content as a safety measure
-    cleanedConversations = stripBase64Content(cleanedConversations);
+    cleanedConversations = sanitizeConversationsAssistantReplays(
+      stripBase64Content(cleanedConversations),
+    );
 
     // Cache in sessionStorage (best-effort — data is persisted to Redis below).
     // If the payload still exceeds the quota after eviction, progressively
@@ -187,7 +192,9 @@ export const loadConversation = async (loadAllMessages: boolean = false): Promis
     let conversation = await apiGet<Conversation | null>('/api/session/selectedConversation');
     if (conversation) {
       // Strip any base64 content that might have been stored
-      const cleanedConversation = stripBase64Content(conversation);
+      const cleanedConversation = sanitizeConversationAssistantReplays(
+        stripBase64Content(conversation),
+      );
 
       if (cleanedConversation && cleanedConversation.messages) {
         // Restore image references in loaded messages
@@ -219,7 +226,9 @@ export const loadConversations = async (): Promise<Conversation[]> => {
   try {
     let conversations = await apiGet<Conversation[]>('/api/session/conversationHistory');
     // Strip any base64 content and restore image references in all loaded conversations
-    conversations = stripBase64Content(conversations);
+    conversations = sanitizeConversationsAssistantReplays(
+      stripBase64Content(conversations),
+    );
     return conversations.map(conv => {
       if (conv.messages) {
         conv.messages = restoreMessageImages(conv.messages);

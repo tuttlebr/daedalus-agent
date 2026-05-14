@@ -55,6 +55,9 @@ backend:
       # Explicit env overrides applied in the pod, useful to fix bad values from secrets
       overrides:
         SSL_CERT_FILE: /etc/ssl/certs/ca-certificates.crt
+        # Trust nginx proxy headers so OAuth callbacks reconstruct the public
+        # https://... redirect URI during token exchange.
+        FORWARDED_ALLOW_IPS: "*"
         HOME: /tmp
         XDG_CACHE_HOME: /tmp/.cache
     config:

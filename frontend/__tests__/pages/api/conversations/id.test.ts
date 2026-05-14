@@ -125,6 +125,43 @@ describe('conversations/[id] API handler', () => {
       expect(res.json).toHaveBeenCalledWith(conversationData);
     });
 
+    it('sanitizes replayed assistant prefixes when conversation data is found', async () => {
+      const prior = 'Daily summary for May 13, 2026.';
+      const next = 'The namespace is healthy.';
+      const conversationData = {
+        id: 'conv-1',
+        name: 'Test Conversation',
+        messages: [
+          { role: 'user', content: 'daily summary' },
+          { role: 'assistant', content: prior },
+          { role: 'user', content: 'namespace?' },
+          { role: 'assistant', content: `${prior}\n\n${next}` },
+        ],
+        updatedAt: 1000,
+      };
+      (jsonGet as any).mockResolvedValue(conversationData);
+      const { req, res } = createMockReqRes('GET', { id: 'conv-1' });
+
+      await handler(req, res);
+
+      const sanitized = {
+        ...conversationData,
+        messages: [
+          conversationData.messages[0],
+          conversationData.messages[1],
+          conversationData.messages[2],
+          { role: 'assistant', content: next },
+        ],
+      };
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(res.json).toHaveBeenCalledWith(sanitized);
+      expect(jsonSetWithExpiry).toHaveBeenCalledWith(
+        'daedalus:conversation:conv-1',
+        sanitized,
+        60 * 60 * 24 * 7,
+      );
+    });
+
     it('returns 404 when conversation not found', async () => {
       // No conversation data and no job data
       (jsonGet as any).mockResolvedValue(null);

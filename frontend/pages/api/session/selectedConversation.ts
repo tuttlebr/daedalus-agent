@@ -3,6 +3,7 @@ import { sessionKey, jsonGet, jsonSetWithExpiry } from './redis';
 import { getOrSetSessionId, requireAuthenticatedUser } from './_utils';
 import { stripBase64FromObject } from './sanitize';
 import { publishSyncEvent } from '@/utils/sync/publish';
+import { sanitizeConversationAssistantReplays } from '@/utils/app/conversationReplay';
 
 export const config = {
   api: {
@@ -25,7 +26,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     try {
       const data = await jsonGet(key);
       if (!data) return res.status(200).json(null);
-      return res.status(200).json(data);
+      const sanitized = sanitizeConversationAssistantReplays(data);
+      if (sanitized !== data) {
+        await jsonSetWithExpiry(key, sanitized, 60 * 60 * 24 * 7).catch((error) => {
+          console.error('Failed to persist sanitized selectedConversation', error);
+        });
+      }
+      return res.status(200).json(sanitized);
     } catch (e) {
       return res.status(500).json({ error: 'Failed to load selectedConversation' });
     }
@@ -42,6 +49,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
       // Aggressively remove any base64 content to prevent storage bloat and LLM context overflow
       conversation = stripBase64FromObject(conversation);
+      conversation = sanitizeConversationAssistantReplays(conversation);
 
       await jsonSetWithExpiry(key, conversation, 60 * 60 * 24 * 7);
 

@@ -2,8 +2,10 @@
 #
 # Each case asserts how the orchestrator SHOULD route, based on the
 # system prompt in backend/tool-calling-config.yaml and the mas_optimizer
-# scoring. Expectations are best-effort at curation time — rerun and
-# adjust if the orchestrator's judgment on a case is reasonable.
+# scoring. SAS cases may bypass mas_evaluate and call a direct specialist;
+# MAS cases should still route through mas_evaluate and mas-procedure.
+# Expectations are best-effort at curation time — rerun and adjust if the
+# orchestrator's judgment on a case is reasonable.
 #
 # Schema:
 #   id: unique string

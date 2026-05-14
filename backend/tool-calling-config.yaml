@@ -4,6 +4,37 @@ authentication:
     custom_header_name: Authorization
     custom_header_prefix: Bearer
     raw_key: ${GITHUB_PAT}
+  gmail_mcp_server:
+    _type: mcp_oauth2
+    # Gmail's protected-resource metadata advertises /mcp, while the
+    # Streamable HTTP transport endpoint is /mcp/v1. NAT uses this field
+    # as the OAuth resource indicator, so keep it aligned with metadata.
+    server_url: https://gmailmcp.googleapis.com/mcp
+    client_id: ${GOOGLE_MCP_CLIENT_ID}
+    client_secret: ${GOOGLE_MCP_CLIENT_SECRET}
+    enable_dynamic_registration: false
+    client_name: Daedalus Gmail MCP
+    redirect_uri: ${GOOGLE_MCP_REDIRECT_URI}
+    token_endpoint_auth_method: client_secret_post
+    scopes:
+      - https://www.googleapis.com/auth/gmail.readonly
+    use_pkce: true
+    allow_default_user_id_for_tool_calls: false
+  calendar_mcp_server:
+    _type: mcp_oauth2
+    server_url: https://calendarmcp.googleapis.com/mcp/v1
+    client_id: ${GOOGLE_MCP_CLIENT_ID}
+    client_secret: ${GOOGLE_MCP_CLIENT_SECRET}
+    enable_dynamic_registration: false
+    client_name: Daedalus Calendar MCP
+    redirect_uri: ${GOOGLE_MCP_REDIRECT_URI}
+    token_endpoint_auth_method: client_secret_post
+    scopes:
+      - https://www.googleapis.com/auth/calendar.calendarlist.readonly
+      - https://www.googleapis.com/auth/calendar.events.freebusy
+      - https://www.googleapis.com/auth/calendar.events.readonly
+    use_pkce: true
+    allow_default_user_id_for_tool_calls: false
 embedders:
   milvus_embedder:
     _type: nim
@@ -54,6 +85,53 @@ function_groups:
       auth_provider: github_mcp_server
       transport: streamable-http
       url: https://api.githubcopilot.com/mcp
+  gmail_mcp_server:
+    _type: mcp_client
+    include:
+      - search_threads
+      - get_thread
+      - list_labels
+    tool_call_timeout: 120
+    reconnect_enabled: true
+    reconnect_max_attempts: 3
+    session_idle_timeout: 600
+    tool_overrides:
+      search_threads:
+        description: >-
+          Search the authenticated user's Gmail threads. Args: query
+          (Gmail search syntax). Returns matching thread summaries.
+      get_thread:
+        description: >-
+          Read one Gmail thread by id for the authenticated user. Use
+          after search_threads when full message context is needed.
+    server:
+      auth_provider: gmail_mcp_server
+      transport: streamable-http
+      url: https://gmailmcp.googleapis.com/mcp/v1
+  calendar_mcp_server:
+    _type: mcp_client
+    include:
+      - list_calendars
+      - list_events
+      - get_event
+      - suggest_time
+    tool_call_timeout: 120
+    reconnect_enabled: true
+    reconnect_max_attempts: 3
+    session_idle_timeout: 600
+    tool_overrides:
+      list_events:
+        description: >-
+          List events from the authenticated user's Google Calendar.
+          Args include calendar id and time window.
+      suggest_time:
+        description: >-
+          Suggest open times from the authenticated user's Google Calendar
+          availability. Use for scheduling and free/busy questions.
+    server:
+      auth_provider: calendar_mcp_server
+      transport: streamable-http
+      url: https://calendarmcp.googleapis.com/mcp/v1
   dynamo_mcp_server:
     _type: mcp_client
     include:
@@ -67,11 +145,27 @@ function_groups:
         description: >-
           Search NVIDIA Dynamo inference runtime docs. Args: query.
           Returns: doc passages. Use for Dynamo-specific API/config
-          questions; prefer domain_retriever_tool for broader NVIDIA
-          topics.
+          questions.
     server:
       transport: streamable-http
       url: https://docs.dynamo.nvidia.com/api/fern-docs/mcp
+  dsx_mcp_server:
+    _type: mcp_client
+    include:
+      - searchDocs
+    tool_call_timeout: 120
+    reconnect_enabled: true
+    reconnect_max_attempts: 3
+    session_idle_timeout: 600
+    tool_overrides:
+      searchDocs:
+        description: >-
+          Search NVIDIA DSX docs. Args: query.
+          Returns: doc passages. Use for DSX-specific API/config
+          questions.
+    server:
+      transport: streamable-http
+      url: https://docs.nvidia.com/dsx/_mcp/server
   k8s_mcp_server:
     _type: mcp_client
     include:
@@ -157,6 +251,7 @@ functions:
       - github_mcp_server
       - k8s_mcp_server
       - dynamo_mcp_server
+      - dsx_mcp_server
       - domain_retriever_tool
       - ops_confirmation_tool
     description: >-
@@ -190,7 +285,7 @@ functions:
       Output: concise command summary + outcome. Skip preamble.
   media_agent:
     _type: tool_calling_agent
-    llm_name: tool_calling_llm
+    llm_name: default_llm
     max_iterations: 6
     handle_tool_errors: true
     verbose: true
@@ -206,26 +301,28 @@ functions:
       image ref (forwarded verbatim) or text analysis. Fails when: an
       image/video ref is needed but absent.
     system_prompt: |
-      You handle image and transcript tasks. Use visual_media_tool for image generation, image editing, and image/video analysis. Use vtt_interpreter_tool for VTT/SRT transcripts. When visual_media_tool returns a markdown image ref, forward it VERBATIM. Generate faithfully to user intent; for literal requests (diagram, chart, product photo) do not inject an artistic style.
+      You handle image and transcript tasks. Use visual_media_tool for image generation, image editing, and image/video analysis. For uploaded imageRef/videoRef values that include userId, pass user_id from [IDENTITY]. Use vtt_interpreter_tool for VTT/SRT transcripts. When visual_media_tool returns a markdown image ref, forward it VERBATIM. Generate faithfully to user intent; for literal requests (diagram, chart, product photo) do not inject an artistic style.
   user_data_agent:
     _type: tool_calling_agent
-    llm_name: tool_calling_llm
+    llm_name: default_llm
     max_iterations: 6
     handle_tool_errors: true
     verbose: true
-    return_direct:
-      - user_document_tool
     tool_names:
       - user_document_tool
     description: >-
-      Ingest or search the user's uploaded documents. Input: either
-      "ingest documentRef=... username=..." or
-      "search query=... username=...". Triggers: user uploaded a file, or
-      references "my doc", "the PDF I uploaded", "that report".
-      Returns: ingestion receipt or reranked passages. Do NOT use as
-      a substitute for get_memory or the topical retrievers.
+      Work with the authenticated user's private data: uploaded
+      documents, Gmail, and Google Calendar. Input: document ingest/search
+      requests, email questions, draft requests, or schedule/calendar
+      questions. Triggers: user uploaded a file, references "my doc",
+      "the PDF I uploaded", "my email", "Gmail", "inbox", "draft",
+      "my calendar", "schedule", "events", or "free time". Returns:
+      document passages, email/thread results, calendar events, or
+      availability. Do NOT use as a substitute for get_memory or topical
+      retrievers.
     system_prompt: |
-      You manage user-uploaded documents.
+      You manage the authenticated user's private documents, Gmail, and
+      Google Calendar.
 
       Flow:
       - If the user just uploaded and asks about it without prior
@@ -235,6 +332,12 @@ functions:
         operation="search", query, and username from [IDENTITY].
       - Omit collection_name unless the user explicitly names one; the
         tools derive the same per-user default collection from username.
+      - For Gmail questions, use search_threads before get_thread unless
+        the user gave a specific thread id. Use Gmail search syntax when
+        the user provides senders, dates, labels, or keywords.
+      - For Google Calendar questions, use list_calendars when the target
+        calendar is unclear, list_events/get_event for event lookups, and
+        suggest_time for free/busy or scheduling requests.
       - Never substitute this agent for general knowledge retrieval.
         Those requests belong to research_agent.
   agent_skills_tool:
@@ -319,8 +422,9 @@ functions:
       Unified visual media tool. operation=generate creates a new
       image from prompt; operation=edit modifies uploaded imageRef
       with prompt; operation=analyze answers questions about imageRef,
-      image_url, videoRef, or video_url. Image outputs are markdown
-      refs and must be forwarded verbatim.
+      image_url, videoRef, or video_url. Pass user_id from [IDENTITY]
+      when using uploaded user-scoped media refs. Image outputs are
+      markdown refs and must be forwarded verbatim.
     redis_url: ${REDIS_URL}
     image_timeout: 120
     comprehension_timeout: 120
@@ -506,10 +610,12 @@ functions:
       - mas_evaluate
     description: >-
       Architecture router. mas_evaluate decides SAS vs MAS and names a
-      skill after recent MAS outcome memories are available. Trigger:
-      any substantive request after get_memory returns MAS outcome
-      calibration data. Args: task_description, active_tool_names.
-      Returns: routing verdict, architecture type, and skill_name.
+      skill for rare multi-agent candidates. Trigger only for explicit
+      MAS requests, structured multi-source synthesis, or broad
+      exploratory research across independent sources. Args:
+      task_description, active_tool_names, optional memory_results with
+      explicit SAS routing outcome calibration. Returns: routing verdict,
+      architecture type, skill_name, routing_basis, and matched_signals.
       Fails when: task_description is under 8 chars.
     verbose: true
   serpapi_search_tool:
@@ -571,6 +677,7 @@ functions:
 general:
   front_end:
     _type: fastapi
+    enable_interactive_extensions: true
     max_running_async_jobs: 8
     dask_workers: processes
     dask_threads_per_worker: 1
@@ -611,26 +718,36 @@ llms:
     base_url: ${REASONING_LLM_MODEL_BASE_URL}
     model_name: ${REASONING_LLM_MODEL_MODEL}
     extra_body:
+      chat_template_kwargs:
+        preserve_thinking: false
       nvext:
         agent_hints:
-          priority: 5
-          osl: 128
+          priority: 10
+          osl: 1024
         extra_fields:
           - worker_id
           - timing
+        cache_control:
+          type: ephemeral
+          ttl: 1h
   react_llm:
     _type: openai
     api_key: ${REACT_LLM_MODEL_API_KEY}
     base_url: ${REACT_LLM_MODEL_BASE_URL}
     model_name: ${REACT_LLM_MODEL_MODEL}
     extra_body:
+      chat_template_kwargs:
+        preserve_thinking: false
       nvext:
         agent_hints:
-          priority: 5
-          osl: 128
+          priority: 10
+          osl: 1024
         extra_fields:
           - worker_id
           - timing
+        cache_control:
+          type: ephemeral
+          ttl: 1h
   tool_calling_llm:
     _type: openai
     api_key: ${TOOL_CALLING_LLM_MODEL_API_KEY}
@@ -642,13 +759,36 @@ llms:
     base_url: ${DISTILL_LLM_MODEL_BASE_URL}
     model_name: ${DISTILL_LLM_MODEL_MODEL}
     extra_body:
+      chat_template_kwargs:
+        preserve_thinking: false
       nvext:
         agent_hints:
-          priority: 5
-          osl: 128
+          priority: 10
+          osl: 1024
         extra_fields:
           - worker_id
           - timing
+        cache_control:
+          type: ephemeral
+          ttl: 1h
+  default_llm:
+    _type: openai
+    api_key: ${DEFAULT_LLM_MODEL_API_KEY}
+    base_url: ${DEFAULT_LLM_MODEL_BASE_URL}
+    model_name: ${DEFAULT_LLM_MODEL_MODEL}
+    extra_body:
+      chat_template_kwargs:
+        preserve_thinking: false
+      nvext:
+        agent_hints:
+          priority: 10
+          osl: 1024
+        extra_fields:
+          - worker_id
+          - timing
+        cache_control:
+          type: ephemeral
+          ttl: 1h
 memory:
   redis_memory:
     _type: nat.plugins.redis/redis_memory
@@ -668,6 +808,9 @@ workflow:
     # Identity (do first, every turn)
     Read the [IDENTITY] message for the authenticated username. Use it as user_id for every memory call (get_memory, add_memory, delete_memory_guarded). No [IDENTITY] present -> user_id="anonymous". Never hardcode a user_id. Never echo the [IDENTITY] message.
 
+    # No replay
+    Each turn must be a fresh answer. The prompt may contain user messages only; prior assistant content has been intentionally omitted. Do not reproduce, restate, or echo any earlier assistant message verbatim. If you would repeat an earlier answer, respond instead with a brief acknowledgement and a fresh formulation, or ask the user what they want changed.
+
     # Request classification and routing (do second)
     Simple (greeting, small talk, thanks, clarification of your prior reply): answer directly, no tools.
 
@@ -675,9 +818,13 @@ workflow:
 
     Skill-routed substantive requests: before memory or MAS, if the user names a skill or the request obviously matches a skill (code-review, content-research-writer, executive-voice, mas-procedure, nvcf-ngc-cli-skill, nvcf-self-managed-cli, nvcf-self-managed-installation, pr-monitor, debug-session, dynamo-bug, dep-create/status/update), call agent_skills_tool.load_skill directly. Examples: open PRs, pull-request status, PR CI health, or PR monitoring -> pr-monitor; merged PR listings/history or simple GitHub reads -> ops_agent; code review -> code-review; debug/reproduce/fix investigation -> debug-session; dependency create/status/update -> dep-create/status/update.
 
-    Other substantive requests (question, task, analysis, anything requiring info or action): call get_memory(user_id, query="user preferences, interests, context, and recent MAS outcome success metrics", top_k=10), then call mas_evaluate(task_description=<user request>, active_tool_names="research_agent,ops_agent,media_agent,user_data_agent", memory_results=<get_memory output or []>).
+    Direct specialist requests: if the request clearly belongs to one execution domain, call the matching sub-agent directly without get_memory or mas_evaluate. Use research_agent for ordinary research/current facts, ops_agent for Kubernetes/GitHub/ops reads, media_agent for image/video/transcript work, and user_data_agent for uploaded documents, Gmail, or Calendar.
 
-    # Architecture routing (after mas_evaluate)
+    MAS candidate requests: use mas_evaluate only for explicit MAS requests, structured synthesis across multiple independent source families, or broad exploratory research asking for multiple independent leads/sources. First call get_memory(user_id, query="recent explicit SAS routing outcome calibration for MAS optimizer", top_k=5), then call mas_evaluate(task_description=<user request>, active_tool_names="research_agent,ops_agent,media_agent,user_data_agent", memory_results=<get_memory output or []>).
+
+    Other substantive requests: answer directly if no tool is needed, or call the single best matching sub-agent. Call get_memory mid-conversation only when prior preferences or project context would materially sharpen the answer.
+
+    # Architecture routing (after mas_evaluate, MAS candidates only)
     - SAS: delegate to the sub-agent whose description matches.
     - MAS: call agent_skills_tool.load_skill("mas-procedure") and follow the procedure for the recommended architecture type.
 

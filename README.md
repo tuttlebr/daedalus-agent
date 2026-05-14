@@ -16,9 +16,9 @@ What separates Daedalus from a typical chat wrapper:
 - **Autonomous agent loop** — a background CronJob that independently
   researches, synthesizes, and writes to memory on a configurable
   schedule, seeded by a knowledge graph you define
-- **Architecture-aware routing** — the MAS optimizer evaluates each
-  request and selects single-agent or multi-agent execution based on
-  task complexity, not a static configuration
+- **Architecture-aware routing** — direct single-domain requests go to
+  the matching specialist, while the MAS optimizer evaluates rare
+  multi-source synthesis and exploration candidates
 - **Tool-rich execution** — MCP server integrations (GitHub, Kubernetes),
   web search, RSS ingestion, image generation and analysis, document
   ingestion into Milvus, and structured reasoning, all wired into one
@@ -261,7 +261,7 @@ sequenceDiagram
 
 The backend configuration lives at [`backend/tool-calling-config.yaml`](backend/tool-calling-config.yaml) and covers tool use, retrieval, memory, MCP integrations, image tooling, and reasoning. It includes the custom packages from `builder/` and relies heavily on environment-variable substitution for secrets and endpoints.
 
-The `mas_optimizer` package implements task routing between single-agent and centralized multi-agent handling. It evaluates each request and selects single-agent or multi-agent execution based on task complexity, avoiding unnecessary coordination overhead on simpler requests. Routing thresholds are configured in [`backend/tool-calling-config.yaml`](backend/tool-calling-config.yaml) under `mas_optimizer_tool`.
+The `mas_optimizer` package implements the escalation gate between single-agent and multi-agent handling. Routine single-domain requests bypass it and go directly to the matching specialist; MAS candidates such as structured multi-source synthesis or broad independent-source exploration are evaluated against routing thresholds configured in [`backend/tool-calling-config.yaml`](backend/tool-calling-config.yaml) under `mas_optimizer_tool`.
 
 ## Frontend Capabilities
 

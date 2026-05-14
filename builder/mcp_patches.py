@@ -165,6 +165,13 @@ _MUTATING_TOOL_FRAGMENTS = (
     "update",
 )
 
+_NON_DESTRUCTIVE_MCP_TOOLS = {
+    # A Gmail draft is reversible and is not sent to a recipient. The remote
+    # MCP schema does not expose Daedalus's approval_token field, so enforce
+    # explicit confirmation in the agent instructions instead of this wrapper.
+    "create_draft",
+}
+
 
 def _flatten_tool_payload(args, kwargs) -> dict:
     """Best-effort extraction of MCP tool arguments from wrapper inputs."""
@@ -188,6 +195,13 @@ def _flatten_tool_payload(args, kwargs) -> dict:
 
 
 def _is_mutating_mcp_call(tool_name: str, payload: dict) -> bool:
+    normalized_tool_name = tool_name.lower().replace(".", "_").replace("-", "_")
+    if (
+        normalized_tool_name in _NON_DESTRUCTIVE_MCP_TOOLS
+        or normalized_tool_name.endswith("_create_draft")
+    ):
+        return False
+
     text_parts = [tool_name]
     for key in ("operation", "command", "action", "method", "verb"):
         val = payload.get(key)

@@ -346,6 +346,9 @@ async def mas_optimizer_function(config: MasOptimizerConfig, builder: Builder):
                 "tool_count": task.tool_count,
                 "eligible": task.mas_eligible,
                 "recommended_architecture": task.recommended_architecture,
+                "routing_basis": task.routing_basis,
+                "matched_signals": task.matched_signals,
+                "bypass_reason": task.bypass_reason,
                 "reason": task.reason,
             },
             "architecture": {
@@ -573,6 +576,7 @@ async def mas_optimizer_function(config: MasOptimizerConfig, builder: Builder):
             memory_text += f". {notes}"
 
         metadata_pairs = {
+            "routing_outcome": "mas_optimizer",
             "task_type": task_type,
             "architecture": architecture_used,
             "success": str(round(success_score, 2)),
@@ -617,7 +621,8 @@ async def mas_optimizer_function(config: MasOptimizerConfig, builder: Builder):
                     "interdependence analysis per 'Towards a Science of Scaling "
                     "Agent Systems'. Returns a JSON assessment with architecture "
                     "recommendation (SAS, centralized, or decentralized), "
-                    "skill_name, gate results, and confidence score."
+                    "skill_name, gate results, matched routing signals, and "
+                    "confidence score."
                 ),
             )
 

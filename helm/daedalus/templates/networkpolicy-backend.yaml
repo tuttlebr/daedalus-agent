@@ -107,7 +107,7 @@ spec:
       ports:
         - protocol: TCP
           port: 8080
-    # Allow external HTTPS only (NVIDIA APIs, SerpAPI, GitHub, OpenRouter, RSS feeds)
+    # Allow external HTTPS only (NVIDIA APIs, SerpAPI, GitHub, Google OAuth/MCP, OpenRouter, RSS feeds)
     - to:
         - ipBlock:
             cidr: 0.0.0.0/0

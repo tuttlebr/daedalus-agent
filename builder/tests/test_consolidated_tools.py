@@ -1,6 +1,10 @@
 """Tests for consolidated production tool configs."""
 
-from image_generation.visual_media_function import VisualMediaFunctionConfig
+from image_generation.visual_media_function import (
+    VisualMediaFunctionConfig,
+    _chat_completions_url,
+    _validated_user_id,
+)
 from nat_nv_ingest.nat_nv_ingest import NvIngestFunctionConfig
 from rss_feed.rss_feed_function import RssFeedFunctionConfig
 from smart_milvus.register import DomainRetrieverConfig
@@ -20,6 +24,40 @@ def test_visual_media_config_groups_image_and_vlm_settings():
     assert config.edit_model == "gpt-image-1.5"
     assert config.comprehension_api_endpoint == "https://vlm.example.com/v1"
     assert config.comprehension_model == "nvidia/custom-vlm"
+
+
+def test_visual_media_chat_completions_url_accepts_v1_base():
+    assert (
+        _chat_completions_url("https://vlm.example.com/v1")
+        == "https://vlm.example.com/v1/chat/completions"
+    )
+
+
+def test_visual_media_chat_completions_url_accepts_full_path():
+    assert (
+        _chat_completions_url("https://vlm.example.com/v1/chat/completions")
+        == "https://vlm.example.com/v1/chat/completions"
+    )
+
+
+def test_visual_media_requires_user_id_for_user_scoped_refs():
+    user_id, error = _validated_user_id(
+        {"imageId": "abc", "sessionId": "sess", "userId": "alice"},
+        "",
+    )
+
+    assert user_id is None
+    assert "user_id is required" in error
+
+
+def test_visual_media_accepts_authenticated_user_id_for_user_scoped_refs():
+    user_id, error = _validated_user_id(
+        {"imageId": "abc", "sessionId": "sess", "userId": "alice"},
+        "alice",
+    )
+
+    assert user_id == "alice"
+    assert error is None
 
 
 def test_domain_retriever_config_defaults_to_curated_domains():

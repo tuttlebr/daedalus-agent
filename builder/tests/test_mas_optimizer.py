@@ -14,6 +14,37 @@ def run(coro):
     return asyncio.run(coro)
 
 
+def sas_outcome(success: float) -> dict:
+    """Build an explicit SAS routing outcome memory."""
+    return {
+        "memory": f"MAS outcome: type=research, arch=SAS, D=0.50, T=4, success={success}",
+        "metadata": {
+            "key_value_pairs": {
+                "routing_outcome": "mas_optimizer",
+                "architecture": "SAS",
+                "success": str(success),
+            }
+        },
+    }
+
+
+def mas_outcome(success: float) -> dict:
+    """Build an explicit MAS routing outcome memory."""
+    return {
+        "memory": (
+            "MAS outcome: type=research, arch=centralized_mas_with_verifier, "
+            f"D=0.50, T=4, success={success}"
+        ),
+        "metadata": {
+            "key_value_pairs": {
+                "routing_outcome": "mas_optimizer",
+                "architecture": "centralized_mas_with_verifier",
+                "success": str(success),
+            }
+        },
+    }
+
+
 # ---------------------------------------------------------------------------
 # CapabilityGate
 # ---------------------------------------------------------------------------
@@ -27,25 +58,37 @@ class TestCapabilityGate:
 
     def test_all_successes_above_threshold(self):
         gate = CapabilityGate(threshold=0.45)
-        memories = [{"success": 0.8}, {"success": 0.9}, {"success": 0.7}]
+        memories = [sas_outcome(0.8), sas_outcome(0.9), sas_outcome(0.7)]
         accuracy = gate.estimate_sas_accuracy(memories)
         assert accuracy == pytest.approx(0.8, abs=0.01)
 
     def test_mixed_results_below_threshold(self):
         gate = CapabilityGate(threshold=0.45)
-        memories = [{"success": 0.2}, {"success": 0.1}, {"success": 0.3}]
+        memories = [sas_outcome(0.2), sas_outcome(0.1), sas_outcome(0.3)]
         accuracy = gate.estimate_sas_accuracy(memories)
         assert accuracy == pytest.approx(0.2, abs=0.01)
 
     def test_missing_success_key_is_ignored(self):
         gate = CapabilityGate(threshold=0.45)
-        memories = [{"other": "data"}, {"success": 0.6}]
+        memories = [{"other": "data"}, sas_outcome(0.6)]
         accuracy = gate.estimate_sas_accuracy(memories)
         assert accuracy == pytest.approx(0.6, abs=0.01)
 
     def test_invalid_success_value_is_ignored(self):
         gate = CapabilityGate(threshold=0.45)
-        memories = [{"success": "bad"}, {"success": 0.8}]
+        memories = [
+            {
+                "memory": "MAS outcome: type=research, arch=SAS, success=bad",
+                "metadata": {
+                    "key_value_pairs": {
+                        "routing_outcome": "mas_optimizer",
+                        "architecture": "SAS",
+                        "success": "bad",
+                    }
+                },
+            },
+            sas_outcome(0.8),
+        ]
         accuracy = gate.estimate_sas_accuracy(memories)
         assert accuracy == pytest.approx(0.8, abs=0.01)
 
@@ -68,7 +111,7 @@ class TestCapabilityGate:
     def test_evaluate_eligible_when_below_threshold(self):
         """Low historical accuracy should enable MAS."""
         gate = CapabilityGate(threshold=0.45)
-        memories = [{"success": 0.2}, {"success": 0.1}, {"success": 0.3}]
+        memories = [sas_outcome(0.2), sas_outcome(0.1), sas_outcome(0.3)]
         result = gate.evaluate(memories)
         assert result.mas_eligible is True
         assert result.sas_accuracy_estimate < 0.45
@@ -78,7 +121,7 @@ class TestCapabilityGate:
 
     def test_evaluate_not_eligible_when_above_threshold(self):
         gate = CapabilityGate(threshold=0.45)
-        memories = [{"success": 0.9}, {"success": 0.8}]
+        memories = [sas_outcome(0.9), sas_outcome(0.8)]
         result = gate.evaluate(memories)
         assert result.mas_eligible is False
         assert result.sas_accuracy_estimate >= 0.45
@@ -87,23 +130,44 @@ class TestCapabilityGate:
     def test_evaluate_at_exact_threshold_not_eligible(self):
         """Threshold comparison is strict less-than; equal means ineligible."""
         gate = CapabilityGate(threshold=0.45)
-        memories = [{"success": 0.45}]
+        memories = [sas_outcome(0.45)]
         result = gate.evaluate(memories)
         assert result.mas_eligible is False
 
     def test_custom_threshold(self):
         gate = CapabilityGate(threshold=0.7)
-        memories = [{"success": 0.6}]
+        memories = [sas_outcome(0.6)]
         result = gate.evaluate(memories)
         assert result.mas_eligible is True
         assert result.threshold == 0.7
 
     def test_nested_success_score_is_supported(self):
         gate = CapabilityGate(threshold=0.45)
-        memories = [{"metadata": {"key_value_pairs": {"success_score": "0.7"}}}]
+        memories = [
+            {
+                "metadata": {
+                    "key_value_pairs": {
+                        "architecture": "SAS",
+                        "success_score": "0.7",
+                    }
+                }
+            }
+        ]
         result = gate.evaluate(memories)
         assert result.sas_accuracy_estimate == pytest.approx(0.7, abs=0.01)
         assert result.sample_count == 1
+
+    def test_unrelated_success_memory_is_ignored(self):
+        gate = CapabilityGate(threshold=0.45)
+        result = gate.evaluate([{"success": 0.95, "topic": "unrelated"}])
+        assert result.has_calibration is False
+        assert result.sas_accuracy_estimate is None
+
+    def test_successful_mas_outcome_does_not_count_as_sas_accuracy(self):
+        gate = CapabilityGate(threshold=0.45)
+        result = gate.evaluate([mas_outcome(0.95)])
+        assert result.has_calibration is False
+        assert result.sas_accuracy_estimate is None
 
 
 # ---------------------------------------------------------------------------
@@ -271,11 +335,13 @@ class TestTaskAnalyzer:
     def test_evaluate_exploratory_recommends_decentralized(self):
         analyzer = TaskAnalyzer()
         result = analyzer.evaluate(
-            "research and find out the latest news about NVIDIA "
-            "and investigate what is happening concurrently",
+            "Explore the public web for novel applications of small language "
+            "models in industrial IoT, gather at least five independent leads, "
+            "and report the strongest emerging pattern.",
             ["tool1", "tool2"],
         )
         assert result.recommended_architecture == "decentralized"
+        assert result.routing_basis == "exploratory_multi_source_research"
 
     def test_evaluate_analysis_recommends_centralized(self):
         analyzer = TaskAnalyzer()
@@ -310,6 +376,8 @@ class TestTaskAnalyzer:
         )
         assert result.mas_eligible is True
         assert result.recommended_architecture == "centralized"
+        assert result.routing_basis == "structured_multi_source_analysis"
+        assert "earnings call" in result.matched_signals["structured_multi_source"]
         assert "suitable for MAS" in result.reason
 
     def test_public_earnings_comparison_gets_centralized_mas_margin(self):
@@ -323,6 +391,7 @@ class TestTaskAnalyzer:
         )
         assert result.mas_eligible is True
         assert result.recommended_architecture == "centralized"
+        assert result.routing_basis == "structured_multi_source_analysis"
 
     def test_single_domain_document_search_stays_single_agent(self):
         analyzer = TaskAnalyzer(decomposability_threshold=0.01)
@@ -332,6 +401,19 @@ class TestTaskAnalyzer:
         )
         assert result.mas_eligible is False
         assert "single-domain request" in result.reason
+        assert result.bypass_reason == "single-domain request should use SAS/specialist routing"
+
+    def test_coding_debug_request_stays_single_agent(self):
+        analyzer = TaskAnalyzer(decomposability_threshold=0.01)
+        result = analyzer.evaluate(
+            "Investigate failing backend tests, identify root cause, implement "
+            "a fix, and add regression coverage.",
+            ["research_agent", "ops_agent", "media_agent", "user_data_agent"],
+        )
+        assert result.mas_eligible is False
+        assert result.recommended_architecture == "centralized"
+        assert result.routing_basis == "single_agent_or_specialist"
+        assert "coding/debugging request" in result.bypass_reason
 
 
 # ---------------------------------------------------------------------------
@@ -380,11 +462,7 @@ class TestMasOptimizerFunction:
 
             evaluate_fn = items[0].fn
             low_accuracy_history = json.dumps(
-                [
-                    {"success": 0.2},
-                    {"success": 0.1},
-                    {"success": 0.3},
-                ]
+                [sas_outcome(0.2), sas_outcome(0.1), sas_outcome(0.3)]
             )
             result = await evaluate_fn(
                 task_description="search and compare and analyze results concurrently",
@@ -398,6 +476,9 @@ class TestMasOptimizerFunction:
             assert data["task_analysis"]["eligible"] is True
             assert "sequential_interdependence" in data["task_analysis"]
             assert "effective_decomposability" in data["task_analysis"]
+            assert "routing_basis" in data["task_analysis"]
+            assert "matched_signals" in data["task_analysis"]
+            assert "bypass_reason" in data["task_analysis"]
             assert data["architecture"]["skill_name"] == "mas-procedure"
             return data
 
@@ -476,6 +557,10 @@ class TestMasOptimizerFunction:
             assert data["recommendation"] == "MAS"
             assert data["architecture"]["type"] == "centralized_mas_with_verifier"
             assert data["architecture"]["skill_name"] == "mas-procedure"
+            assert (
+                data["task_analysis"]["routing_basis"]
+                == "structured_multi_source_analysis"
+            )
             return data
 
         run(_run())
@@ -512,6 +597,10 @@ class TestMasOptimizerFunction:
             assert data["recommendation"] == "MAS"
             assert data["architecture"]["type"] == "centralized_mas_with_verifier"
             assert data["architecture"]["skill_name"] == "mas-procedure"
+            assert (
+                data["task_analysis"]["routing_basis"]
+                == "structured_multi_source_analysis"
+            )
             return data
 
         run(_run())
@@ -563,11 +652,7 @@ class TestMasOptimizerFunction:
 
             evaluate_fn = items[0].fn
             memories = json.dumps(
-                [
-                    {"success": 0.9},
-                    {"success": 0.8},
-                    {"success": 0.85},
-                ]
+                [sas_outcome(0.9), sas_outcome(0.8), sas_outcome(0.85)]
             )
             result = await evaluate_fn(
                 task_description="search and compare results",
@@ -598,16 +683,13 @@ class TestMasOptimizerFunction:
 
             evaluate_fn = items[0].fn
             low_accuracy_history = json.dumps(
-                [
-                    {"success": 0.2},
-                    {"success": 0.1},
-                    {"success": 0.3},
-                ]
+                [sas_outcome(0.2), sas_outcome(0.1), sas_outcome(0.3)]
             )
             result = await evaluate_fn(
                 task_description=(
-                    "research and find out the latest news about NVIDIA "
-                    "and investigate what is happening concurrently"
+                    "Explore the public web for novel applications of small language "
+                    "models in industrial IoT, gather at least five independent leads, "
+                    "and report the strongest emerging pattern."
                 ),
                 active_tool_names="tool1,tool2",
                 memory_results=low_accuracy_history,
@@ -616,6 +698,10 @@ class TestMasOptimizerFunction:
             assert data["recommendation"] == "MAS"
             assert data["architecture"]["type"] == "decentralized_mas"
             assert data["task_analysis"]["recommended_architecture"] == "decentralized"
+            assert (
+                data["task_analysis"]["routing_basis"]
+                == "exploratory_multi_source_research"
+            )
             return data
 
         run(_run())
@@ -637,11 +723,7 @@ class TestMasOptimizerFunction:
 
             evaluate_fn = items[0].fn
             low_accuracy_history = json.dumps(
-                [
-                    {"success": 0.2},
-                    {"success": 0.1},
-                    {"success": 0.3},
-                ]
+                [sas_outcome(0.2), sas_outcome(0.1), sas_outcome(0.3)]
             )
             result = await evaluate_fn(
                 task_description=(

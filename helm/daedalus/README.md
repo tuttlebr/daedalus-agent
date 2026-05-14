@@ -38,6 +38,12 @@ kubectl -n <namespace> create secret generic <release>-daedalus-frontend-env \
 
 If you prefer Helm-managed secrets, see the `backend.*.env.createSecret` and `frontend.env.createSecret` values.
 
+For Google Workspace MCP, the backend secret must include
+`GOOGLE_MCP_CLIENT_ID`, `GOOGLE_MCP_CLIENT_SECRET`, and
+`GOOGLE_MCP_REDIRECT_URI`. The redirect URI must be registered on the
+Google OAuth client and should point at the public nginx backend redirect
+path, for example `https://daedalus.ddns.me/auth/redirect`.
+
 ## Install Or Upgrade
 
 ```sh

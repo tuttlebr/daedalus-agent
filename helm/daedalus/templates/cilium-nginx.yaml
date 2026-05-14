@@ -71,8 +71,8 @@ spec:
               protocol: TCP
     {{- end }}
 
-    {{- if not .Values.nginx.config.restrictedMode }}
-    # Backend default (only in non-restricted mode)
+    # Backend default. Restricted mode still needs this for the exact
+    # /auth/redirect OAuth callback proxy; nginx blocks other direct API paths.
     {{- if .Values.backend.default.enabled }}
     - toEndpoints:
         - matchLabels:
@@ -83,6 +83,5 @@ spec:
         - ports:
             - port: {{ .Values.backend.default.port | quote }}
               protocol: TCP
-    {{- end }}
     {{- end }}
 {{- end }}

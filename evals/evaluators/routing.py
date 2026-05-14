@@ -1,12 +1,10 @@
 """Routing correctness evaluator.
 
-Scores whether the agent's trace matches expected routing. Most substantive
-cases should call mas_evaluate, receive the expected SAS/MAS verdict, and
-invoke the expected sub-agent or skill. Skill-routed SAS cases may load the
-expected skill directly because skills intentionally beat generic architecture
-routing. Obvious single-domain SAS cases may also call the expected sub-agent
-directly; the audit treats that as a latency-saving route rather than a
-missing router call.
+Scores whether the agent's trace matches expected routing. MAS candidate cases
+should call mas_evaluate, receive the expected MAS verdict, and load the
+expected skill. Skill-routed and obvious single-domain SAS cases should bypass
+the generic architecture gate and call the expected skill or sub-agent directly;
+the audit treats that as the preferred latency-saving route.
 
 Dataset schema per case:
 
@@ -94,8 +92,11 @@ def score(case: dict, trace) -> EvalScore:
             points += 1.0
         else:
             reasons.append("mas_evaluate was called for a direct skill-routed case")
-    elif direct_subagent_expected and not mas_called:
-        points += 1.0
+    elif direct_subagent_expected:
+        if not mas_called:
+            points += 1.0
+        else:
+            reasons.append("mas_evaluate was called for a direct sub-agent SAS case")
     else:
         if mas_called:
             points += 0.4

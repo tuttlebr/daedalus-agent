@@ -173,6 +173,29 @@ SINGLE_DOMAIN_SAS_INDICATORS: frozenset[str] = frozenset(
     }
 )
 
+# Coding/debugging is a single execution surface for this deployment. These
+# tasks may contain many verbs, but spawning a MAS procedure usually adds
+# coordination overhead instead of improving the code path.
+CODING_SAS_INDICATORS: frozenset[str] = frozenset(
+    {
+        "backend tests",
+        "codebase",
+        "debug",
+        "failing test",
+        "failing tests",
+        "implement a fix",
+        "lint",
+        "pytest",
+        "refactor",
+        "regression coverage",
+        "repository",
+        "root cause",
+        "stack trace",
+        "test failure",
+        "traceback",
+    }
+)
+
 # Structured analysis over independent source families is the class of task that
 # benefits from a centralized MAS even when natural wording includes a mild
 # sequential phrase such as "then cross-check".
@@ -200,6 +223,27 @@ STRUCTURED_MULTI_SOURCE_ANALYSIS_INDICATORS: frozenset[str] = frozenset(
 
 STRUCTURED_MULTI_SOURCE_MIN_SIGNALS = 3
 STRUCTURED_MULTI_SOURCE_THRESHOLD_DISCOUNT = 0.17
+
+EXPLORATORY_MULTI_SOURCE_INDICATORS: frozenset[str] = frozenset(
+    {
+        "at least five",
+        "broad",
+        "cross-validate",
+        "emerging pattern",
+        "explore the public web",
+        "five independent",
+        "gather leads",
+        "independent leads",
+        "independent sources",
+        "multiple independent",
+        "novel applications",
+        "public web",
+        "surface surprising",
+        "surprising findings",
+    }
+)
+
+EXPLORATORY_MULTI_SOURCE_MIN_SIGNALS = 2
 
 # Top-level execution domains exposed by the orchestrator. When these are
 # present, lower-level helper tools should not inflate the coordination count.
@@ -250,6 +294,9 @@ class TaskAssessment:
     mas_eligible: bool
     recommended_architecture: str  # "centralized" | "decentralized"
     reason: str
+    routing_basis: str
+    matched_signals: dict[str, list[str]]
+    bypass_reason: str | None
 
 
 class TaskAnalyzer:
@@ -274,6 +321,11 @@ class TaskAnalyzer:
     ) -> None:
         self.decomposability_threshold = decomposability_threshold
         self.tool_count_threshold = tool_count_threshold
+
+    @staticmethod
+    def _matched_indicators(task_text: str, indicators: frozenset[str]) -> list[str]:
+        text_lower = task_text.lower()
+        return sorted(ind for ind in indicators if ind in text_lower)
 
     @staticmethod
     def compute_decomposability(task_text: str) -> float:
@@ -339,6 +391,9 @@ class TaskAnalyzer:
         """
         text_lower = task_text.lower()
 
+        if any(ind in text_lower for ind in CODING_SAS_INDICATORS):
+            return "structured_analysis"
+
         exploration_score = sum(
             1 for ind in EXPLORATION_INDICATORS if ind in text_lower
         )
@@ -355,6 +410,12 @@ class TaskAnalyzer:
         return any(ind in text_lower for ind in SINGLE_DOMAIN_SAS_INDICATORS)
 
     @staticmethod
+    def is_coding_sas(task_text: str) -> bool:
+        """Return true for coding/debugging tasks that should stay SAS."""
+        text_lower = task_text.lower()
+        return any(ind in text_lower for ind in CODING_SAS_INDICATORS)
+
+    @staticmethod
     def is_structured_multi_source_analysis(task_text: str) -> bool:
         """Return true for structured analysis across independent sources."""
         text_lower = task_text.lower()
@@ -367,6 +428,21 @@ class TaskAnalyzer:
         return (
             source_signals >= STRUCTURED_MULTI_SOURCE_MIN_SIGNALS
             and analysis_signals > 0
+        )
+
+    @staticmethod
+    def is_exploratory_multi_source_research(task_text: str) -> bool:
+        """Return true for broad research across independent public sources."""
+        text_lower = task_text.lower()
+        source_signals = sum(
+            1 for ind in EXPLORATORY_MULTI_SOURCE_INDICATORS if ind in text_lower
+        )
+        exploration_signals = sum(
+            1 for ind in EXPLORATION_INDICATORS if ind in text_lower
+        )
+        return (
+            source_signals >= EXPLORATORY_MULTI_SOURCE_MIN_SIGNALS
+            and exploration_signals > 0
         )
 
     @staticmethod
@@ -391,6 +467,25 @@ class TaskAnalyzer:
 
     def evaluate(self, task_text: str, active_tool_names: list[str]) -> TaskAssessment:
         """Run the full task analysis and return an assessment."""
+        matched_signals = {
+            "parallel": self._matched_indicators(task_text, PARALLEL_INDICATORS),
+            "sequential": self._matched_indicators(task_text, SEQUENTIAL_INDICATORS),
+            "interdependence": self._matched_indicators(
+                task_text, INTERDEPENDENCE_INDICATORS
+            ),
+            "exploration": self._matched_indicators(task_text, EXPLORATION_INDICATORS),
+            "analysis": self._matched_indicators(task_text, ANALYSIS_INDICATORS),
+            "single_domain_sas": self._matched_indicators(
+                task_text, SINGLE_DOMAIN_SAS_INDICATORS
+            ),
+            "coding_sas": self._matched_indicators(task_text, CODING_SAS_INDICATORS),
+            "structured_multi_source": self._matched_indicators(
+                task_text, STRUCTURED_MULTI_SOURCE_ANALYSIS_INDICATORS
+            ),
+            "exploratory_multi_source": self._matched_indicators(
+                task_text, EXPLORATORY_MULTI_SOURCE_INDICATORS
+            ),
+        }
         d = self.compute_decomposability(task_text)
         si = self.compute_sequential_interdependence(task_text)
         t = self.count_tools(active_tool_names)
@@ -403,6 +498,7 @@ class TaskAnalyzer:
 
         effective_threshold = self.decomposability_threshold
         structured_multi_source = self.is_structured_multi_source_analysis(task_text)
+        exploratory_multi_source = self.is_exploratory_multi_source_research(task_text)
         if structured_multi_source and task_type == "structured_analysis":
             effective_threshold = max(
                 0.0,
@@ -411,17 +507,37 @@ class TaskAnalyzer:
             )
 
         single_domain_sas = self.is_single_domain_sas(task_text)
+        coding_sas = self.is_coding_sas(task_text)
 
         d_ok = effective_d > effective_threshold
         t_ok = t < self.tool_count_threshold
-        eligible = d_ok and t_ok and not single_domain_sas
+        eligible = d_ok and t_ok and not single_domain_sas and not coding_sas
+        bypass_reasons: list[str] = []
+        if single_domain_sas:
+            bypass_reasons.append(
+                "single-domain request should use SAS/specialist routing"
+            )
+        if coding_sas:
+            bypass_reasons.append(
+                "coding/debugging request should use SAS/skill routing"
+            )
+        bypass_reason = "; ".join(bypass_reasons) or None
 
         # Architecture: centralized (default, lowest error amp 4.4x)
         # or decentralized (better for exploratory, 7.8x error amp)
-        if task_type == "exploratory":
+        if exploratory_multi_source:
             arch = "decentralized"
         else:
             arch = "centralized"
+
+        if structured_multi_source:
+            routing_basis = "structured_multi_source_analysis"
+        elif exploratory_multi_source:
+            routing_basis = "exploratory_multi_source_research"
+        elif eligible:
+            routing_basis = "general_decomposable_task"
+        else:
+            routing_basis = "single_agent_or_specialist"
 
         if eligible:
             reason = (
@@ -432,8 +548,8 @@ class TaskAnalyzer:
             )
         else:
             parts: list[str] = []
-            if single_domain_sas:
-                parts.append("single-domain request should use SAS/specialist routing")
+            if bypass_reason:
+                parts.append(bypass_reason)
             if not d_ok:
                 parts.append(
                     f"effective_D={effective_d:.3f} <= "
@@ -455,4 +571,7 @@ class TaskAnalyzer:
             mas_eligible=eligible,
             recommended_architecture=arch,
             reason=reason,
+            routing_basis=routing_basis,
+            matched_signals=matched_signals,
+            bypass_reason=bypass_reason,
         )

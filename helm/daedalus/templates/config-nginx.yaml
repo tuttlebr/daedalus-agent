@@ -13,17 +13,17 @@ data:
 {{- $frontendUpstreamHost := dig "spec" "clusterIP" $frontendHost ($frontendSvc | default dict) -}}
 {{- $_ := set . "_frontendHTTPUpstream" (printf "http://%s:3000" $frontendUpstreamHost) -}}
 {{- $_ := set . "_frontendWSUpstream" (printf "http://%s:3001" $frontendUpstreamHost) -}}
+{{- $backendDefaultHost := printf "%s-backend-default.%s.svc.cluster.local" (include "daedalus.fullname" .) .Release.Namespace -}}
+{{- $backendDefaultSvc := (lookup "v1" "Service" .Release.Namespace (printf "%s-backend-default" (include "daedalus.fullname" .))) -}}
+{{- $backendDefaultUpstreamHost := dig "spec" "clusterIP" $backendDefaultHost ($backendDefaultSvc | default dict) -}}
+{{- $_ := set . "_backendDefaultUpstream" (printf "http://%s:%v" $backendDefaultUpstreamHost .Values.backend.default.port) -}}
 {{- if .Values.nginx.config.restrictedMode }}
 {{ tpl (printf "%s" (include "nginx.frontend.conf.restricted" .)) . | indent 4 }}
 {{- else }}
 {{- $backendHost := .Values.nginx.config.backendHost | default (printf "%s-backend.%s.svc.cluster.local" (include "daedalus.fullname" .) .Release.Namespace) -}}
 {{- $backendPort := .Values.nginx.config.backendPort | default 8000 -}}
-{{- $backendDefaultHost := printf "%s-backend-default.%s.svc.cluster.local" (include "daedalus.fullname" .) .Release.Namespace -}}
-{{- $backendDefaultSvc := (lookup "v1" "Service" .Release.Namespace (printf "%s-backend-default" (include "daedalus.fullname" .))) -}}
-{{- $backendDefaultUpstreamHost := dig "spec" "clusterIP" $backendDefaultHost ($backendDefaultSvc | default dict) -}}
 {{- $_ := set . "_backendHost" $backendHost -}}
 {{- $_ := set . "_backendPort" $backendPort -}}
-{{- $_ := set . "_backendDefaultUpstream" (printf "http://%s:%v" $backendDefaultUpstreamHost .Values.backend.default.port) -}}
 {{ tpl (printf "%s" (include "nginx.frontend.conf.template" .)) . | indent 4 }}
 {{- end }}
 {{- else }}
@@ -425,6 +425,17 @@ server {
     client_max_body_size 300M;  # Support document uploads up to 200MB (base64 adds ~33% overhead)
     client_body_timeout 900s;
     client_header_timeout 900s;
+
+    # OAuth callback required by NAT's interactive MCP OAuth flow.
+    # Keep this exact route open while blocking all other direct backend auth paths.
+    location = /auth/redirect {
+        proxy_pass {{ ._backendDefaultUpstream }};
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
 
     # Block direct API access - return 403 Forbidden
     location ~ ^/(v1|generate|chat|evaluate|upload|tools|health|auth)/ {

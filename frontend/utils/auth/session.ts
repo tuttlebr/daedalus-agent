@@ -34,7 +34,7 @@ export async function createSession(
   const key = sessionKey(['auth-session', sessionId]);
   await jsonSetWithExpiry(key, sessionData, SESSION_EXPIRY);
 
-  // Set signed identity cookie for Edge-compatible verification (e.g. /api/chat)
+  // Set signed identity cookie for Edge-compatible verification (e.g. /api/chat/async)
   const isSecure = req.headers['x-forwarded-proto'] === 'https' ||
                    (req.connection as any)?.encrypted ||
                    process.env.FORCE_SECURE_COOKIES === 'true' ||

@@ -1,5 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { resolve4 } from 'node:dns/promises';
+import { createHash } from 'node:crypto';
 import { getPublisher, getRedis, sessionKey, jsonGet, jsonSetWithExpiry, jsonDel, setStreamingState, clearStreamingState } from '../session/redis';
 import { publishStreamingState, publishConversationUpdate } from '@/utils/sync/publish';
 import { v4 as uuidv4 } from 'uuid';
@@ -14,6 +15,11 @@ import {
 import { fetchWithTimeout } from '@/utils/fetchWithTimeout';
 import { getSession } from '@/utils/auth/session';
 import { getVTT } from '../session/vttStorage';
+import {
+  PRIOR_ASSISTANT_OMITTED_MESSAGE,
+  sanitizeConversationAssistantReplays,
+  stripReplayedAssistantPrefix,
+} from '@/utils/app/conversationReplay';
 
 const logger = new Logger('AsyncJob');
 
@@ -29,25 +35,33 @@ export const config = {
 interface AsyncJobRequest {
   jobId: string;
   natBaseUrl: string;
+  natSessionId?: string;
+  executionMode?: 'stream' | 'nat_async';
   messages: any[];
   additionalProps: any;
   userId: string;
   conversationId?: string;
   conversationName?: string;
+  turnId?: string;
+  assistantMessageId?: string;
 }
 
 interface AsyncJobStatus {
   jobId: string;
-  status: 'pending' | 'streaming' | 'completed' | 'error';
+  status: 'pending' | 'streaming' | 'oauth_required' | 'completed' | 'error';
   partialResponse?: string;
   fullResponse?: string;
   intermediateSteps?: any[];
   error?: string;
+  authUrl?: string;
+  oauthState?: string;
   progress?: number;
   createdAt: number;
   updatedAt: number;
   conversationId?: string;
   finalizedAt?: number;
+  turnId?: string;
+  assistantMessageId?: string;
 }
 
 interface NatAsyncJobResponse {
@@ -60,11 +74,27 @@ interface NatAsyncJobResponse {
   expires_at: string;
 }
 
+// Diagnostics gated by DAEDALUS_DEBUG_REPLAY=1. Captures outbound /v1/chat/completions
+// payload and raw inbound stream so we can verify whether prior assistant content reaches
+// the model. Cap emissions to avoid disk floods if the env var is left enabled.
+const DEBUG_REPLAY_ENABLED = process.env.DAEDALUS_DEBUG_REPLAY === '1';
+const DEBUG_REPLAY_MAX_EMISSIONS = 200;
+let debugReplayEmissionCount = 0;
+
+function debugReplayHash(content: string): string {
+  if (!content) return '';
+  return createHash('sha256').update(content).digest('hex').slice(0, 16);
+}
+
+function debugReplayLog(label: string, fields: Record<string, any>): void {
+  if (!DEBUG_REPLAY_ENABLED) return;
+  if (debugReplayEmissionCount >= DEBUG_REPLAY_MAX_EMISSIONS) return;
+  debugReplayEmissionCount += 1;
+  logger.info(`[replay-debug] ${label}`, fields);
+}
+
 const JOB_EXPIRY_SECONDS = 60 * 60; // 1 hour
-const NAT_ASYNC_EXPIRY_SECONDS = 3600;
-const NAT_SYNC_TIMEOUT = 0; // Pure async -- return job_id immediately
-const NAT_SUBMIT_TIMEOUT_MS = 12_000; // Per-attempt timeout — async submit should return immediately with a job_id
-const NAT_SUBMIT_MAX_RETRIES = 3; // Max attempts for NAT submission
+const NAT_SUBMIT_MAX_RETRIES = 3; // Max attempts for stream backend selection
 const NAT_RETRY_DELAY_MS = 15_000; // Wait between retries — long enough for readiness probe recovery (~30s pod restart)
 const NAT_CONNECTIVITY_TIMEOUT_MS = 5_000; // Fast pre-check before sending full payload
 const STREAM_STATUS_FLUSH_INTERVAL_MS = 750;
@@ -153,6 +183,140 @@ function isTerminalJobStatus(status: AsyncJobStatus['status']): boolean {
   return status === 'completed' || status === 'error';
 }
 
+function stringifyContent(value: any): string {
+  if (value === null || value === undefined) return '';
+  if (typeof value === 'string') return value;
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => {
+        if (typeof item === 'string') return item;
+        if (typeof item?.text === 'string') return item.text;
+        if (typeof item?.content === 'string') return item.content;
+        return '';
+      })
+      .filter(Boolean)
+      .join('');
+  }
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
+export function buildBoundedMessagesForNat(messages: any[]): any[] {
+  if (!Array.isArray(messages)) return messages;
+
+  return messages
+    .map((message) => {
+      if (message?.role !== 'assistant' && message?.role !== 'agent') {
+        return message;
+      }
+
+      const content = typeof message.content === 'string'
+        ? message.content.trim()
+        : message.content;
+      if (!content) return null;
+
+      // Preserve turn boundaries without sending prior assistant text. Dropping
+      // assistant turns leaves old user turns orphaned, which makes the model
+      // answer already-resolved questions before the current follow-up.
+      return {
+        role: 'assistant',
+        content: PRIOR_ASSISTANT_OMITTED_MESSAGE,
+      };
+    })
+    .filter(Boolean);
+}
+
+export function buildNatSessionId(
+  username: string,
+  jobId: string,
+  conversationId?: string,
+  turnId?: string,
+): string {
+  const seed = [
+    username,
+    conversationId || 'no-conversation',
+    turnId || 'no-turn',
+    jobId,
+  ].join(':');
+  return `daedalus-${createHash('sha256').update(seed).digest('hex').slice(0, 32)}`;
+}
+
+export function extractAsyncStreamContentDelta(parsed: any, accumulatedText: string): string {
+  const deltaContent = parsed?.choices?.[0]?.delta?.content;
+  if (deltaContent !== null && deltaContent !== undefined) {
+    return stringifyContent(deltaContent);
+  }
+
+  let content =
+    parsed?.choices?.[0]?.message?.content ??
+    parsed?.output ??
+    parsed?.answer ??
+    parsed?.value ??
+    parsed?.text ??
+    parsed?.content ??
+    parsed?.data?.output ??
+    parsed?.data?.content ??
+    '';
+
+  if (!content && Array.isArray(parsed?.outputs)) {
+    content = parsed.outputs.join('\n');
+  }
+
+  const text = stringifyContent(content);
+  if (!text) return '';
+
+  // Some providers send a full-so-far snapshot instead of a token delta.
+  // The UI and job status already accumulate chunks, so only forward the new
+  // suffix when the snapshot repeats what we have already seen.
+  if (accumulatedText && text.startsWith(accumulatedText)) {
+    return text.slice(accumulatedText.length);
+  }
+
+  return text;
+}
+
+export function buildNatRequestHeaders(
+  username: string,
+  headers: Record<string, string> = {},
+  natSessionId?: string,
+): Record<string, string> {
+  const {
+    Cookie: existingCookie,
+    cookie: lowercaseExistingCookie,
+    ...restHeaders
+  } = headers;
+  const sessionId = natSessionId?.trim() || username;
+  const natCookie = `nat-session=${encodeURIComponent(sessionId)}`;
+  const cookieHeader = existingCookie || lowercaseExistingCookie;
+
+  return {
+    ...restHeaders,
+    'x-user-id': username,
+    Cookie: cookieHeader ? `${cookieHeader}; ${natCookie}` : natCookie,
+  };
+}
+
+function extractOAuthRequiredPayload(
+  eventName: string | null,
+  parsed: any,
+): { authUrl: string; oauthState?: string } | null {
+  const eventType = parsed?.event_type || parsed?.type || parsed?.event;
+  const isOAuthEvent = eventName === 'oauth_required' || eventType === 'oauth_required';
+  const authUrl = parsed?.auth_url || parsed?.authUrl || parsed?.authorization_url;
+  if (!isOAuthEvent || typeof authUrl !== 'string' || !authUrl) {
+    return null;
+  }
+
+  const oauthState = parsed?.oauth_state || parsed?.oauthState || parsed?.state;
+  return {
+    authUrl,
+    ...(typeof oauthState === 'string' && oauthState ? { oauthState } : {}),
+  };
+}
+
 function shuffleItems<T>(items: T[]): T[] {
   const shuffled = [...items];
   for (let i = shuffled.length - 1; i > 0; i -= 1) {
@@ -206,7 +370,11 @@ export async function fetchNatJobStatus(
     getNatBaseUrl(jobRequest),
     `/v1/workflow/async/job/${encodeURIComponent(jobId)}`,
   );
-  const natResponse = await fetchWithTimeout(natStatusUrl, {}, 30_000);
+  const natResponse = await fetchWithTimeout(
+    natStatusUrl,
+    { headers: buildNatRequestHeaders(jobRequest.userId, {}, jobRequest.natSessionId) },
+    30_000,
+  );
 
   if (!natResponse.ok) {
     if (natResponse.status === 404) {
@@ -280,6 +448,51 @@ function launchBackgroundFinalizer(jobId: string, jobRequest: AsyncJobRequest): 
     });
 }
 
+async function sanitizeJobStatusForReturn(
+  jobId: string,
+  status: AsyncJobStatus,
+  jobRequest: AsyncJobRequest,
+): Promise<AsyncJobStatus> {
+  const updates: Partial<AsyncJobStatus> = {};
+
+  if (typeof status.fullResponse === 'string' && status.fullResponse) {
+    const fullResponse = stripReplayedAssistantPrefix(
+      status.fullResponse,
+      jobRequest.messages || [],
+    );
+    if (fullResponse !== status.fullResponse) {
+      updates.fullResponse = fullResponse;
+    }
+  }
+
+  if (typeof status.partialResponse === 'string' && status.partialResponse) {
+    const partialResponse = stripReplayedAssistantPrefix(
+      status.partialResponse,
+      jobRequest.messages || [],
+    );
+    if (partialResponse !== status.partialResponse) {
+      updates.partialResponse = partialResponse;
+    }
+  }
+
+  if (Object.keys(updates).length === 0) {
+    return status;
+  }
+
+  const sanitized = {
+    ...status,
+    ...updates,
+    updatedAt: Date.now(),
+  };
+  await updateJobStatus(jobId, {
+    ...updates,
+    updatedAt: sanitized.updatedAt,
+  }).catch((error) => {
+    logger.warn(`Job ${jobId}: Failed to persist sanitized response`, error);
+  });
+  return sanitized;
+}
+
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method === 'POST') {
     return handlePost(req, res);
@@ -339,8 +552,8 @@ function parseIntermediateDataLine(json: string): any | null {
 }
 
 /**
- * Open a parallel streaming connection to the backend's /chat/stream
- * endpoint to capture intermediate steps and content tokens in real time.
+ * Open a streaming connection to the backend's interactive OpenAI-compatible
+ * endpoint to capture intermediate steps, OAuth prompts, and content tokens.
  *
  * Runs fire-and-forget after the POST handler returns the jobId.  The
  * accumulated steps are stored in Redis so that handleGet() and
@@ -352,7 +565,7 @@ async function startBackgroundStreamReader(
   messagesForNat: any[],
   verifiedUsername: string,
 ): Promise<void> {
-  const streamUrl = buildBackendUrlFromBase(getNatBaseUrl(jobRequest), '/chat/stream');
+  const streamUrl = buildBackendUrlFromBase(getNatBaseUrl(jobRequest), '/v1/chat/completions');
   const payload = {
     messages: messagesForNat,
     model: 'string',
@@ -378,28 +591,63 @@ async function startBackgroundStreamReader(
   const accumulatedSteps: any[] = [];
   let partialResponse = '';
   let lastToolOutput = '';
+  let streamDone = false;
 
   try {
     logger.info(`Job ${jobId}: Starting background stream reader at ${streamUrl}`);
+
+    if (DEBUG_REPLAY_ENABLED) {
+      const roleHistogram: Record<string, number> = {};
+      const messagePreviews = (messagesForNat || []).map((m: any) => {
+        const role = typeof m?.role === 'string' ? m.role : 'unknown';
+        roleHistogram[role] = (roleHistogram[role] || 0) + 1;
+        const content = typeof m?.content === 'string' ? m.content : '';
+        return {
+          role,
+          contentLength: content.length,
+          contentPreview: content.slice(0, 200),
+          contentSha256: debugReplayHash(content),
+        };
+      });
+      debugReplayLog('outbound', {
+        jobId,
+        conversationId,
+        userId,
+        streamUrl,
+        messageCount: messagesForNat?.length ?? 0,
+        roleHistogram,
+        containsAssistantRole: !!roleHistogram.assistant,
+        messages: messagePreviews,
+      });
+    }
+
     const abortController = new AbortController();
     const response = await fetch(streamUrl, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-user-id': verifiedUsername,
-      },
+      headers: buildNatRequestHeaders(
+        verifiedUsername,
+        { 'Content-Type': 'application/json' },
+        jobRequest.natSessionId,
+      ),
       body: JSON.stringify(payload),
       signal: abortController.signal,
     });
 
     if (!response.ok || !response.body) {
+      const errorText = await response.text().catch(() => '');
       logger.error(`Job ${jobId}: Stream reader got ${response.status}, aborting`);
+      await finalizeError(
+        jobId,
+        jobRequest,
+        `Backend stream returned ${response.status}${errorText ? ` - ${errorText}` : ''}`,
+      );
       return;
     }
 
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
+    let currentSseEvent: string | null = null;
     const publisher = getPublisher();
     const tokenChannel = conversationId
       ? `user:${userId}:chat:${conversationId}:tokens`
@@ -411,6 +659,7 @@ async function startBackgroundStreamReader(
     let lastAbortCheckMs = 0;
     let lastStatusFlushMs = 0;
     let lastStepsFlushMs = 0;
+    let debugDeltaCounter = 0;
 
     const flushSteps = async (force = false): Promise<void> => {
       const now = Date.now();
@@ -427,6 +676,8 @@ async function startBackgroundStreamReader(
         status: 'streaming',
         partialResponse,
         intermediateSteps: accumulatedSteps,
+        authUrl: undefined,
+        oauthState: undefined,
         updatedAt: now,
       });
     };
@@ -452,12 +703,45 @@ async function startBackgroundStreamReader(
       buffer = lines.pop() || '';
 
       for (const line of lines) {
+        if (line === '') {
+          currentSseEvent = null;
+          continue;
+        }
+
+        if (line.startsWith('event: ')) {
+          currentSseEvent = line.slice('event: '.length).trim();
+          continue;
+        }
+
         // ── intermediate_data: lines → parse step, store, publish ──
         if (line.startsWith('intermediate_data: ')) {
           const step = parseIntermediateDataLine(
             line.slice('intermediate_data: '.length),
           );
           if (step) {
+            // Defense-in-depth: sanitize completion-event outputs against any
+            // prior assistant content. TOOL_END is intentionally excluded —
+            // tool outputs (search snippets, retrieved chunks) may legitimately
+            // resemble prior assistant text and we don't want to corrupt them
+            // here. TOOL_END sanitization runs only when lastToolOutput is
+            // promoted to partialResponse below.
+            const eventType = step?.payload?.event_type;
+            if (
+              (eventType === 'LLM_END' ||
+                eventType === 'WORKFLOW_END' ||
+                eventType === 'TASK_END') &&
+              typeof step?.payload?.data?.output === 'string'
+            ) {
+              const original = step.payload.data.output as string;
+              const sanitized = stripReplayedAssistantPrefix(
+                original,
+                jobRequest.messages || [],
+              );
+              if (sanitized !== original) {
+                step.payload.data.output = sanitized;
+              }
+            }
+
             accumulatedSteps.push(step);
             // Persist incrementally so handleGet() can return live steps
             await flushSteps();
@@ -467,6 +751,8 @@ async function startBackgroundStreamReader(
                 type: 'chat_intermediate_step',
                 conversationId,
                 jobId,
+                turnId: jobRequest.turnId,
+                assistantMessageId: jobRequest.assistantMessageId,
                 step,
               })).catch(() => {});
             }
@@ -497,24 +783,49 @@ async function startBackgroundStreamReader(
         // ── data: lines → extract content tokens ──
         if (line.startsWith('data: ')) {
           const data = line.slice(5).trim();
-          if (data === '[DONE]') break;
+          if (data === '[DONE]') {
+            streamDone = true;
+            break;
+          }
           try {
             const parsed = JSON.parse(data);
+            const oauthPayload = extractOAuthRequiredPayload(currentSseEvent, parsed);
+            if (oauthPayload) {
+              await updateJobStatus(jobId, {
+                status: 'oauth_required',
+                authUrl: oauthPayload.authUrl,
+                oauthState: oauthPayload.oauthState,
+                partialResponse,
+                intermediateSteps: accumulatedSteps,
+                progress: 0,
+                updatedAt: Date.now(),
+              });
+              continue;
+            }
             if (parsed.error) continue;
-            const content =
-              parsed.choices?.[0]?.delta?.content ??
-              parsed.choices?.[0]?.message?.content ??
-              parsed.output ??
-              parsed.content ??
-              '';
+            const content = extractAsyncStreamContentDelta(parsed, partialResponse);
             if (content && typeof content === 'string') {
               partialResponse += content;
+              if (DEBUG_REPLAY_ENABLED) {
+                debugDeltaCounter += 1;
+                if (debugDeltaCounter % 10 === 0 || content.length > 100) {
+                  debugReplayLog('inbound-delta', {
+                    jobId,
+                    deltaIndex: debugDeltaCounter,
+                    deltaLength: content.length,
+                    deltaPreview: content.slice(0, 120),
+                    partialResponseLength: partialResponse.length,
+                  });
+                }
+              }
               // Publish content token for real-time streaming in PWA
               if (tokenChannel) {
                 publisher.publish(tokenChannel, JSON.stringify({
                   type: 'chat_token',
                   conversationId,
                   jobId,
+                  turnId: jobRequest.turnId,
+                  assistantMessageId: jobRequest.assistantMessageId,
                   content,
                 })).catch(() => {});
               }
@@ -525,22 +836,46 @@ async function startBackgroundStreamReader(
           }
         }
       }
+
+      if (streamDone) break;
     }
 
     // If stream produced content but NAT async hasn't finished yet, use
-    // lastToolOutput as recovery (same logic as chat.ts)
+    // lastToolOutput as recovery. Sanitize at the moment of promotion so the
+    // user-facing answer is protected even if the raw tool output happens to
+    // contain prior assistant text. Raw step data in accumulatedSteps is left
+    // untouched on purpose so the steps panel still shows the true tool data.
     if (!partialResponse.trim() && lastToolOutput) {
-      partialResponse = lastToolOutput;
+      partialResponse = stripReplayedAssistantPrefix(
+        lastToolOutput,
+        jobRequest.messages || [],
+      );
     }
 
     // Final persist of all accumulated steps
     await flushSteps(true);
-    // Update job status with partial response and steps
-    await updateJobStatus(jobId, {
-      intermediateSteps: accumulatedSteps,
-      ...(partialResponse ? { partialResponse } : {}),
-      updatedAt: Date.now(),
-    });
+    const currentStatus = await jsonGet(sessionKey(['async-job-status', jobId])) as AsyncJobStatus | null;
+    if (currentStatus?.status === 'oauth_required' && !partialResponse.trim()) {
+      await finalizeError(
+        jobId,
+        jobRequest,
+        'OAuth authorization did not complete before the backend stream closed',
+      );
+      return;
+    }
+
+    if (DEBUG_REPLAY_ENABLED) {
+      debugReplayLog('inbound-final', {
+        jobId,
+        finalLength: partialResponse.length,
+        finalSha: debugReplayHash(partialResponse),
+        finalHead: partialResponse.slice(0, 200),
+        finalTail: partialResponse.slice(-200),
+        stepsCount: accumulatedSteps.length,
+      });
+    }
+
+    await finalizeSuccess(jobId, jobRequest, partialResponse);
 
     logger.info(`Job ${jobId}: Stream reader finished`, {
       steps: accumulatedSteps.length,
@@ -552,6 +887,13 @@ async function startBackgroundStreamReader(
       logger.info(`Job ${jobId}: Stream reader aborted cleanly (job finalized)`);
     } else {
       logger.error(`Job ${jobId}: Stream reader error: ${err.message}`);
+      await finalizeError(
+        jobId,
+        jobRequest,
+        err.message || 'Backend stream reader failed',
+      ).catch((finalizeErr) => {
+        logger.error(`Job ${jobId}: Failed to finalize stream reader error`, finalizeErr);
+      });
     }
     // Persist whatever we have so far (steps may still be useful)
     if (accumulatedSteps.length > 0) {
@@ -621,7 +963,14 @@ async function startBackgroundFinalizer(
 
 async function handlePost(req: NextApiRequest, res: NextApiResponse) {
   try {
-    const { messages, additionalProps, conversationId, conversationName } = req.body;
+    const {
+      messages,
+      additionalProps,
+      conversationId,
+      conversationName,
+      turnId,
+      assistantMessageId,
+    } = req.body;
 
     // SECURITY: Derive user identity from the server-side session,
     // not from client-sent identity fields which can be spoofed.
@@ -646,6 +995,12 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     }
 
     const jobId = uuidv4();
+    const natSessionId = buildNatSessionId(
+      verifiedUsername,
+      jobId,
+      typeof conversationId === 'string' ? conversationId : undefined,
+      typeof turnId === 'string' ? turnId : undefined,
+    );
 
     // Process messages: add attachment references/content for agent context
     const processedMessages = await Promise.all((messages || []).map(async (message: any) => {
@@ -745,7 +1100,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     // Strip system messages -- the backend's NAT agent owns the system prompt.
     // Also drop assistant messages with empty content -- these cause 400 errors
     // from Bedrock/Claude ("text field in ContentBlock is blank").
-    const messagesForNat = processedMessages
+    const messagesForNat = buildBoundedMessagesForNat(processedMessages
       .filter((m: any) => m.role !== 'system')
       .filter((m: any) => {
         if (m.role === 'assistant') {
@@ -753,7 +1108,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
           return Boolean(c);
         }
         return true;
-      });
+      }));
 
     // Inject authenticated identity AFTER stripping client-sent system messages.
     // Uses 'user' role to avoid conflicts with NAT's own system prompt and LLMs
@@ -762,18 +1117,14 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     const messagesWithIdentity = [
       {
         role: 'user',
-        content: `[IDENTITY] The authenticated user for this session is: ${verifiedUsername}. Use user_id="${verifiedUsername}" for ALL memory operations (get_memory, add_memory, delete_memory).`,
+        content:
+          `[IDENTITY] The authenticated user for this session is: ${verifiedUsername}. ` +
+          `Use user_id="${verifiedUsername}" for ALL memory operations ` +
+          '(get_memory, add_memory, delete_memory), uploaded media tool calls ' +
+          'that require user_id, and per-user Google Workspace MCP access.',
       },
       ...messagesForNat,
     ];
-
-    // Submit to NAT async endpoint
-    const natPayload = {
-      messages: messagesWithIdentity,
-      job_id: jobId,
-      sync_timeout: NAT_SYNC_TIMEOUT,
-      expiry_seconds: NAT_ASYNC_EXPIRY_SECONDS,
-    };
 
     const natBaseUrls = await resolveAsyncBackendBaseUrls();
 
@@ -783,21 +1134,15 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       candidates: natBaseUrls,
     });
 
-    const natHeaders = {
-      'Content-Type': 'application/json',
-      'x-user-id': verifiedUsername,
-    };
-    const natBody = JSON.stringify(natPayload);
-
-    let natResult: any;
     let lastError: string | null = null;
     let selectedNatBaseUrl: string | null = null;
 
-    for (let attempt = 1; attempt <= NAT_SUBMIT_MAX_RETRIES && !natResult; attempt++) {
+    for (let attempt = 1; attempt <= NAT_SUBMIT_MAX_RETRIES && !selectedNatBaseUrl; attempt++) {
       for (const natBaseUrl of natBaseUrls) {
-        const submitUrl = buildBackendUrlFromBase(natBaseUrl, '/v1/workflow/async');
+        const healthUrl = buildBackendUrlFromBase(natBaseUrl, '/docs');
+        const streamUrl = buildBackendUrlFromBase(natBaseUrl, '/v1/chat/completions');
 
-        logger.info(`Job ${jobId}: Submitting to NAT async at ${submitUrl}`, {
+        logger.info(`Job ${jobId}: Checking stream backend at ${streamUrl}`, {
           attempt,
           maxAttempts: NAT_SUBMIT_MAX_RETRIES,
           natBaseUrl,
@@ -805,78 +1150,51 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
 
         try {
           await fetchWithTimeout(
-            submitUrl,
-            { method: 'HEAD' },
+            healthUrl,
+            { method: 'HEAD', headers: buildNatRequestHeaders(verifiedUsername, {}, natSessionId) },
             NAT_CONNECTIVITY_TIMEOUT_MS,
           );
-        } catch (connErr: any) {
-          lastError = `connectivity check failed for ${natBaseUrl}: ${connErr.message}`;
-          logger.warn(`Job ${jobId}: ${lastError}`);
-          continue;
-        }
-
-        try {
-          const natResponse = await fetchWithTimeout(submitUrl, {
-            method: 'POST',
-            headers: natHeaders,
-            body: natBody,
-          }, NAT_SUBMIT_TIMEOUT_MS);
-
-          if (!natResponse.ok) {
-            const errorText = await natResponse.text();
-            lastError = `${natResponse.status} - ${errorText}`;
-            // Don't retry client errors (4xx)
-            if (natResponse.status >= 400 && natResponse.status < 500) {
-              logger.error(
-                `Job ${jobId}: NAT async submit rejected (${natResponse.status}) on ${natBaseUrl}, not retrying`,
-                errorText,
-              );
-              return res.status(502).json({ error: `Backend error: ${lastError}` });
-            }
-            logger.warn(
-              `Job ${jobId}: NAT async submit failed on ${natBaseUrl} (attempt ${attempt}/${NAT_SUBMIT_MAX_RETRIES}): ${lastError}`,
-            );
-            continue;
-          }
-
-          natResult = await natResponse.json();
           selectedNatBaseUrl = natBaseUrl;
           break;
         } catch (err: any) {
-          lastError = err.message || 'Unknown fetch error';
+          lastError = `connectivity check failed for ${natBaseUrl}: ${err.message || 'Unknown fetch error'}`;
           logger.warn(
-            `Job ${jobId}: NAT async submit error on ${natBaseUrl} (attempt ${attempt}/${NAT_SUBMIT_MAX_RETRIES}): ${lastError}`,
+            `Job ${jobId}: Stream backend check failed on ${natBaseUrl} (attempt ${attempt}/${NAT_SUBMIT_MAX_RETRIES}): ${lastError}`,
           );
         }
       }
 
-      if (!natResult && attempt < NAT_SUBMIT_MAX_RETRIES) {
+      if (!selectedNatBaseUrl && attempt < NAT_SUBMIT_MAX_RETRIES) {
         logger.info(`Job ${jobId}: Retrying in ${NAT_RETRY_DELAY_MS}ms...`);
         await new Promise((resolve) => setTimeout(resolve, NAT_RETRY_DELAY_MS));
       }
     }
 
-    if (!natResult) {
-      logger.error(`Job ${jobId}: NAT async submit failed after ${NAT_SUBMIT_MAX_RETRIES} attempts: ${lastError}`);
+    if (!selectedNatBaseUrl) {
+      logger.error(`Job ${jobId}: No stream backend available after ${NAT_SUBMIT_MAX_RETRIES} attempts: ${lastError}`);
       return res.status(502).json({
         error: `Backend unavailable after ${NAT_SUBMIT_MAX_RETRIES} attempts: ${lastError}`,
         reason: 'backend_unavailable',
       });
     }
-    logger.info(`Job ${jobId}: NAT accepted job`, {
-      natStatus: natResult.status,
+
+    logger.info(`Job ${jobId}: Selected stream backend`, {
       natBaseUrl: selectedNatBaseUrl,
     });
 
     // Store job metadata in Redis for the GET handler
     const jobRequest: AsyncJobRequest = {
       jobId,
+      executionMode: 'stream',
       natBaseUrl: selectedNatBaseUrl || buildBackendBaseUrlForMode(),
+      natSessionId,
       messages, // original messages for conversation saving later
       additionalProps,
       userId: verifiedUsername,
       conversationId,
       conversationName,
+      ...(typeof turnId === 'string' && turnId ? { turnId } : {}),
+      ...(typeof assistantMessageId === 'string' && assistantMessageId ? { assistantMessageId } : {}),
     };
     await jsonSetWithExpiry(sessionKey(['async-job-request', jobId]), jobRequest, JOB_EXPIRY_SECONDS);
 
@@ -887,6 +1205,8 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       createdAt: Date.now(),
       updatedAt: Date.now(),
       conversationId,
+      ...(typeof turnId === 'string' && turnId ? { turnId } : {}),
+      ...(typeof assistantMessageId === 'string' && assistantMessageId ? { assistantMessageId } : {}),
     };
     await jsonSetWithExpiry(sessionKey(['async-job-status', jobId]), jobStatus, JOB_EXPIRY_SECONDS);
 
@@ -906,12 +1226,11 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     startBackgroundStreamReader(
       jobId,
       jobRequest,
-      messagesForNat,
+      messagesWithIdentity,
       verifiedUsername,
     ).catch((err) => {
       logger.error(`Job ${jobId}: Background stream reader failed`, err);
     });
-    launchBackgroundFinalizer(jobId, jobRequest);
 
     return;
   } catch (error) {
@@ -949,7 +1268,13 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
 
     // If already finalized, return cached status immediately
     if ((jobStatus.status === 'completed' || jobStatus.status === 'error') && jobStatus.finalizedAt) {
-      return res.status(200).json(jobStatus);
+      const sanitized = await sanitizeJobStatusForReturn(jobId, jobStatus, jobRequest);
+      return res.status(200).json(sanitized);
+    }
+
+    if (jobRequest.executionMode === 'stream') {
+      const sanitized = await sanitizeJobStatusForReturn(jobId, jobStatus, jobRequest);
+      return res.status(200).json(sanitized);
     }
 
     // Fetch live status from NAT
@@ -962,11 +1287,13 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
     } catch (err) {
       logger.error(`Job ${jobId}: Failed to fetch NAT status`, err);
       // Return cached status on transient error -- polling will retry
-      return res.status(200).json(jobStatus);
+      const sanitized = await sanitizeJobStatusForReturn(jobId, jobStatus, jobRequest);
+      return res.status(200).json(sanitized);
     }
 
     if (!natStatus) {
-      return res.status(200).json(jobStatus);
+      const sanitized = await sanitizeJobStatusForReturn(jobId, jobStatus, jobRequest);
+      return res.status(200).json(sanitized);
     }
 
     const mappedStatus = mapNatStatus(natStatus.status);
@@ -983,18 +1310,21 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
         ...(liveSteps?.length ? { intermediateSteps: liveSteps } : {}),
         updatedAt: Date.now(),
       });
-      const updated = await jsonGet(statusKey);
-      return res.status(200).json(updated);
+      const updated = (await jsonGet(statusKey) as AsyncJobStatus | null) || jobStatus;
+      const sanitized = await sanitizeJobStatusForReturn(jobId, updated, jobRequest);
+      return res.status(200).json(sanitized);
     }
 
     // Failed or expired
     if (mappedStatus === 'error') {
       const updated = await finalizeFromNatStatus(jobId, jobRequest, natStatus);
-      return res.status(200).json(updated || jobStatus);
+      const sanitized = await sanitizeJobStatusForReturn(jobId, updated || jobStatus, jobRequest);
+      return res.status(200).json(sanitized);
     }
 
     const finalStatus = await finalizeFromNatStatus(jobId, jobRequest, natStatus);
-    return res.status(200).json(finalStatus || jobStatus);
+    const sanitized = await sanitizeJobStatusForReturn(jobId, finalStatus || jobStatus, jobRequest);
+    return res.status(200).json(sanitized);
   } catch (error) {
     logger.error('Error fetching job status', error);
     return res.status(500).json({ error: 'Failed to fetch job status' });
@@ -1035,10 +1365,14 @@ async function handleDelete(req: NextApiRequest, res: NextApiResponse) {
 
     if (currentStatus && !currentStatus.finalizedAt) {
       const streamSteps = await jsonGet(stepsKey) as any[] | null;
+      const partialResponse = stripReplayedAssistantPrefix(
+        currentStatus.partialResponse || '',
+        jobRequest.messages || [],
+      );
       await updateJobStatus(jobId, {
         status: 'error',
         error: 'Job canceled by user',
-        partialResponse: currentStatus.partialResponse,
+        partialResponse,
         intermediateSteps: streamSteps?.length
           ? streamSteps
           : (currentStatus.intermediateSteps || []),
@@ -1074,11 +1408,12 @@ async function finalizeSuccess(
   const accumulatedSteps = (await jsonGet(stepsKey) as any[] | null) || [];
 
   // Process base64 images in the response
-  let processedContent = rawOutput;
+  const finalOutput = stripReplayedAssistantPrefix(rawOutput, jobRequest.messages || []);
+  let processedContent = finalOutput;
   try {
     const { processMarkdownImages } = await import('@/utils/app/imageHandler');
-    processedContent = await processMarkdownImages(rawOutput);
-    if (processedContent !== rawOutput) {
+    processedContent = await processMarkdownImages(finalOutput);
+    if (processedContent !== finalOutput) {
       logger.info(`Job ${jobId}: Replaced base64 images with Redis references`);
     }
   } catch (error) {
@@ -1090,13 +1425,17 @@ async function finalizeSuccess(
     try {
       const conversationName = jobRequest.conversationName || 'New Conversation';
       const assistantMessage: Message = {
-        id: uuidv4(),
+        id: jobRequest.assistantMessageId || uuidv4(),
         role: 'assistant',
         content: (processedContent && processedContent.trim()) || '[No response was generated]',
         intermediateSteps: accumulatedSteps,
+        metadata: {
+          ...(jobRequest.turnId ? { turnId: jobRequest.turnId } : {}),
+          jobId,
+        },
       };
       const allMessages = [...(jobRequest.messages || []), assistantMessage];
-      const conversationData = {
+      const conversationData = sanitizeConversationAssistantReplays({
         id: jobRequest.conversationId,
         name: conversationName,
         folderId: null,
@@ -1104,7 +1443,7 @@ async function finalizeSuccess(
         updatedAt: Date.now(),
         isPartial: false,
         completedAt: Date.now(),
-      };
+      });
 
       const conversationKey = sessionKey(['conversation', jobRequest.conversationId]);
       await jsonSetWithExpiry(conversationKey, conversationData, 60 * 60 * 24 * 7);
@@ -1113,16 +1452,16 @@ async function finalizeSuccess(
       const selectedConvKey = sessionKey(['user', userId, 'selectedConversation']);
       const selectedConv = await jsonGet(selectedConvKey) as any;
       if (selectedConv?.id === jobRequest.conversationId) {
-        await jsonSetWithExpiry(selectedConvKey, {
+        await jsonSetWithExpiry(selectedConvKey, sanitizeConversationAssistantReplays({
           ...selectedConv,
-          messages: allMessages,
+          messages: conversationData.messages,
           name: conversationName,
           updatedAt: Date.now(),
-        }, 60 * 60 * 24 * 7);
+        }), 60 * 60 * 24 * 7);
         logger.info(`Job ${jobId}: Updated selected conversation for user ${userId}`);
       }
 
-      logger.info(`Job ${jobId}: Saved conversation ${jobRequest.conversationId} with ${allMessages.length} messages (${accumulatedSteps.length} steps)`);
+      logger.info(`Job ${jobId}: Saved conversation ${jobRequest.conversationId} with ${conversationData.messages.length} messages (${accumulatedSteps.length} steps)`);
 
       // Clear streaming state and publish WS events
       await clearStreamingState(userId, jobRequest.conversationId);
@@ -1135,6 +1474,8 @@ async function finalizeSuccess(
         type: 'chat_complete',
         conversationId: jobRequest.conversationId,
         jobId,
+        turnId: jobRequest.turnId,
+        assistantMessageId: assistantMessage.id,
         fullResponse: processedContent,
         intermediateSteps: accumulatedSteps,
       })).catch(() => {});
@@ -1156,6 +1497,8 @@ async function finalizeSuccess(
     partialResponse: undefined,
     intermediateSteps: accumulatedSteps,
     progress: 100,
+    turnId: jobRequest.turnId,
+    assistantMessageId: jobRequest.assistantMessageId,
     updatedAt: Date.now(),
     finalizedAt: Date.now(),
   });
@@ -1206,7 +1549,10 @@ async function finalizeError(
   // Read current job status to preserve any partial progress accumulated during polling
   const statusKey = sessionKey(['async-job-status', jobId]);
   const currentStatus = await jsonGet(statusKey) as AsyncJobStatus | null;
-  const partialResponse = currentStatus?.partialResponse || '';
+  const partialResponse = stripReplayedAssistantPrefix(
+    currentStatus?.partialResponse || '',
+    jobRequest.messages || [],
+  );
 
   // Prefer steps from the background stream reader (stored separately),
   // fall back to whatever the job status already has
@@ -1231,10 +1577,14 @@ async function finalizeError(
       }
 
       const assistantMessage: Message = {
-        id: uuidv4(),
+        id: jobRequest.assistantMessageId || uuidv4(),
         role: 'assistant',
         content: (processedContent && processedContent.trim()) || '[Error occurred before response was generated]',
         intermediateSteps,
+        metadata: {
+          ...(jobRequest.turnId ? { turnId: jobRequest.turnId } : {}),
+          jobId,
+        },
         errorMessages: {
           message: errorMessage,
           timestamp: Date.now(),
@@ -1242,7 +1592,7 @@ async function finalizeError(
         },
       };
       const allMessages = [...(jobRequest.messages || []), assistantMessage];
-      const conversationData = {
+      const conversationData = sanitizeConversationAssistantReplays({
         id: jobRequest.conversationId,
         name: conversationName,
         folderId: null,
@@ -1251,7 +1601,7 @@ async function finalizeError(
         isPartial: true,
         error: errorMessage,
         completedAt: Date.now(),
-      };
+      });
 
       const conversationKey = sessionKey(['conversation', jobRequest.conversationId]);
       await jsonSetWithExpiry(conversationKey, conversationData, 60 * 60 * 24 * 7);
@@ -1260,12 +1610,12 @@ async function finalizeError(
       const selectedConvKey = sessionKey(['user', userId, 'selectedConversation']);
       const selectedConv = await jsonGet(selectedConvKey) as any;
       if (selectedConv?.id === jobRequest.conversationId) {
-        await jsonSetWithExpiry(selectedConvKey, {
+        await jsonSetWithExpiry(selectedConvKey, sanitizeConversationAssistantReplays({
           ...selectedConv,
-          messages: allMessages,
+          messages: conversationData.messages,
           name: conversationName,
           updatedAt: Date.now(),
-        }, 60 * 60 * 24 * 7);
+        }), 60 * 60 * 24 * 7);
       }
 
       logger.info(`Job ${jobId}: Saved partial conversation ${jobRequest.conversationId} (${partialResponse ? partialResponse.length + ' chars' : 'no content'}, ${intermediateSteps.length} steps) with error`);
@@ -1280,6 +1630,8 @@ async function finalizeError(
         type: 'chat_complete',
         conversationId: jobRequest.conversationId,
         jobId,
+        turnId: jobRequest.turnId,
+        assistantMessageId: assistantMessage.id,
         fullResponse: processedContent,
         intermediateSteps,
         error: errorMessage,
@@ -1298,6 +1650,8 @@ async function finalizeError(
     error: errorMessage,
     partialResponse,
     intermediateSteps,
+    turnId: jobRequest.turnId,
+    assistantMessageId: jobRequest.assistantMessageId,
     updatedAt: Date.now(),
     finalizedAt: Date.now(),
   });

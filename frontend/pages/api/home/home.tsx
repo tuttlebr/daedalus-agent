@@ -10,6 +10,7 @@ import { useKeyboardShortcuts, commonShortcuts } from '@/hooks/useKeyboardShortc
 import { useTheme } from '@/hooks/useTheme';
 import { getUserSessionItem, setUserSessionItem } from '@/utils/app/storage';
 import { cleanConversationHistory, cleanSelectedConversation } from '@/utils/app/clean';
+import { sanitizeConversationAssistantReplays } from '@/utils/app/conversationReplay';
 import { saveConversation, saveConversations, loadConversation } from '@/utils/app/conversation';
 import { getWorkflowName } from '@/utils/app/helper';
 import { apiGet } from '@/utils/app/api';
@@ -83,24 +84,25 @@ const Home = () => {
   useWebSocket({
     enabled: true,
     onConversationUpdated: useCallback((conversation: Conversation) => {
+      const sanitizedConversation = sanitizeConversationAssistantReplays(conversation);
       // Never overwrite a conversation that is actively streaming —
       // the frontend is the authority on its messages during streaming.
-      if (useConversationStore.getState().streamingConversationIds.has(conversation.id)) {
+      if (useConversationStore.getState().streamingConversationIds.has(sanitizedConversation.id)) {
         return;
       }
 
-      const current = conversationsRef.current.find((c) => c.id === conversation.id);
+      const current = conversationsRef.current.find((c) => c.id === sanitizedConversation.id);
       if (current) {
         // Only apply if incoming data is at least as recent as local state
         // to prevent stale sync events from overwriting newer local updates
         // (e.g. auto-naming that happened after the initial save started)
-        const incomingTime = conversation.updatedAt || 0;
+        const incomingTime = sanitizedConversation.updatedAt || 0;
         const currentTime = current.updatedAt || 0;
         if (incomingTime >= currentTime) {
-          updateConversationInStore(conversation.id, conversation);
+          updateConversationInStore(sanitizedConversation.id, sanitizedConversation);
         }
       } else {
-        addConversation(conversation);
+        addConversation(sanitizedConversation);
       }
     }, [updateConversationInStore, addConversation]),
     onConversationDeleted: useCallback((conversationId: string) => {

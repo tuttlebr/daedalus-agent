@@ -2,9 +2,9 @@
 
 Local-first evaluation for the Daedalus agent. Measures three things:
 
-1. **Routing correctness** — does `mas_evaluate` run, return the expected
-   SAS/MAS verdict, and does the orchestrator delegate to the expected
-   sub-agent or load the expected skill?
+1. **Routing correctness** — does the orchestrator bypass MAS for direct
+   SAS routes, call `mas_evaluate` for MAS candidates, and then delegate
+   to the expected sub-agent or load the expected skill?
 2. **Factuality (observational)** — when the agent naturally calls
    `source_verifier.verify_claim` before storing a finding, are the
    verdicts `supported`?
@@ -101,8 +101,9 @@ The runner posts each case's `query` to `/chat/stream`, parses the SSE
 for `intermediate_data:` tool events, and hands the trace to
 `evaluators/routing.py`. It checks in order:
 
-1. `mas_evaluate` was called (or, for `conversational_only`, wasn't)
-2. The mas_evaluate JSON matches the expected architecture label
+1. `mas_evaluate` was called only when expected; direct skill and direct
+   single-domain SAS routes may bypass it
+2. The mas_evaluate JSON matches the expected architecture label when present
 3. The expected sub-agent appears as a `TOOL_START` event
 4. The expected skill appears in an `agent_skills_tool` payload
 5. No `forbidden_tools` were called

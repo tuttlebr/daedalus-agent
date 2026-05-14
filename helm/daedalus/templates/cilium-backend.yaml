@@ -151,6 +151,28 @@ spec:
             - port: "8000"
               protocol: TCP
 
+    # Qwen 36B Dynamo frontend service
+    - toServices:
+        - k8sService:
+            serviceName: qwen36-dynamo-fd-ec-frontend
+            namespace: qwen36-35b
+      toPorts:
+        - ports:
+            - port: "8000"
+              protocol: TCP
+
+    # Qwen 36B Dynamo frontend pods (label fallback)
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: qwen36-35b
+            nvidia.com/dynamo-component: Frontend
+            nvidia.com/dynamo-component-type: frontend
+            nvidia.com/dynamo-namespace: qwen36-35b-qwen36-dynamo-fd-ec
+      toPorts:
+        - ports:
+            - port: "8000"
+              protocol: TCP
+
     # ── External FQDN allowlist (HTTPS only) ────────────────────────
     # NVIDIA inference & model APIs
     - toFQDNs:
@@ -175,13 +197,18 @@ spec:
             - port: "443"
               protocol: TCP
 
-    # MCP servers (SerpAPI, GitHub Copilot, NVIDIA Dynamo docs)
+    # MCP servers (SerpAPI, GitHub Copilot, Google Workspace, NVIDIA Dynamo docs)
     - toFQDNs:
         - matchName: "mcp.serpapi.com"
         - matchName: "api.githubcopilot.com"
         - matchName: "api.github.com"
         - matchPattern: "*.github.com"
         - matchName: "copilot-proxy.githubusercontent.com"
+        - matchName: "gmailmcp.googleapis.com"
+        - matchName: "calendarmcp.googleapis.com"
+        - matchName: "accounts.google.com"
+        - matchName: "oauth2.googleapis.com"
+        - matchName: "www.googleapis.com"
         - matchName: "docs.dynamo.nvidia.com"
       toPorts:
         - ports:

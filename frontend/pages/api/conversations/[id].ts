@@ -4,6 +4,7 @@ import { touchImage } from '../session/imageStorage';
 import { getSession } from '@/utils/auth/session';
 import { extractImageReferences } from '@/utils/app/imageHandler';
 import { clampConversations } from '../session/sanitize';
+import { sanitizeConversationAssistantReplays } from '@/utils/app/conversationReplay';
 
 export const config = {
   api: {
@@ -72,11 +73,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       }
 
       // Server-authoritative timestamp
-      const dataToSave = {
+      const dataToSave = sanitizeConversationAssistantReplays({
         ...existingData,
         ...updatedData,
         updatedAt: Date.now(),
-      };
+      });
 
       // Save the merged conversation state (expire after 7 days)
       await jsonSetWithExpiry(conversationKey, dataToSave, 60 * 60 * 24 * 7);
@@ -178,7 +179,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const conversationData = await jsonGet(conversationKey);
 
       if (conversationData) {
-        return res.status(200).json(conversationData);
+        const sanitized = sanitizeConversationAssistantReplays(conversationData);
+        if (sanitized !== conversationData) {
+          await jsonSetWithExpiry(conversationKey, sanitized, 60 * 60 * 24 * 7);
+        }
+        return res.status(200).json(sanitized);
       }
 
       // Check for any pending/completed async jobs for this conversation
@@ -186,10 +191,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const jobData = await jsonGet(jobKey);
 
       if (jobData && typeof jobData === 'object' && 'messages' in jobData) {
+        const sanitizedJobData = sanitizeConversationAssistantReplays({
+          id,
+          name: '',
+          folderId: null,
+          messages: (jobData as any).messages || [],
+        });
         // Return the full conversation state from the job
         return res.status(200).json({
           conversationId: id,
-          messages: jobData.messages,
+          messages: sanitizedJobData.messages,
           status: (jobData as any).status || 'completed',
         });
       }

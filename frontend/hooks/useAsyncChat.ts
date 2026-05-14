@@ -18,16 +18,20 @@ const WS_FALLBACK_POLL_INTERVAL = 15000;
 
 interface AsyncJobStatus {
   jobId: string;
-  status: 'pending' | 'streaming' | 'completed' | 'error';
+  status: 'pending' | 'streaming' | 'oauth_required' | 'completed' | 'error';
   partialResponse?: string;
   fullResponse?: string;
   intermediateSteps?: any[];
   error?: string;
+  authUrl?: string;
+  oauthState?: string;
   progress?: number;
   createdAt: number;
   updatedAt: number;
   conversationId?: string;
   finalizedAt?: number;  // Timestamp when all backend operations are complete
+  turnId?: string;
+  assistantMessageId?: string;
 }
 
 interface PersistedJob {
@@ -35,19 +39,36 @@ interface PersistedJob {
   conversationId: string;
   userId: string;
   timestamp: number;
+  turnId?: string;
+  assistantMessageId?: string;
+}
+
+interface CompletionMeta {
+  turnId?: string;
+  assistantMessageId?: string;
+  jobId?: string;
 }
 
 interface UseAsyncChatOptions {
   pollingInterval?: number;
   onProgress?: (status: AsyncJobStatus) => void;
-  onComplete?: (response: string, intermediateSteps?: any[], finalizedAt?: number, conversationId?: string) => void;
-  onError?: (error: string, context?: { partialResponse?: string; intermediateSteps?: any[]; jobId?: string; conversationId?: string }) => void;
+  onComplete?: (response: string, intermediateSteps?: any[], finalizedAt?: number, conversationId?: string, meta?: CompletionMeta) => void;
+  onError?: (error: string, context?: { partialResponse?: string; intermediateSteps?: any[]; jobId?: string; conversationId?: string; turnId?: string; assistantMessageId?: string }) => void;
   userId?: string; // Add userId for localStorage key scoping
   useWebSocket?: boolean; // Use WebSocket push instead of polling (default: true)
 }
 
 interface UseAsyncChatReturn {
-  startAsyncJob: (messages: any[], chatCompletionURL: string, additionalProps: any, userId: string, conversationId: string, conversationName: string) => Promise<string>;
+  startAsyncJob: (
+    messages: any[],
+    chatCompletionURL: string,
+    additionalProps: any,
+    userId: string,
+    conversationId: string,
+    conversationName: string,
+    turnId?: string,
+    assistantMessageId?: string,
+  ) => Promise<string>;
   jobStatusByConversationId: Record<string, AsyncJobStatus>;
   isPolling: boolean;
   cancelJob: (conversationId?: string) => Promise<void>;
@@ -173,7 +194,7 @@ export const useAsyncChat = (options: UseAsyncChatOptions = {}): UseAsyncChatRet
     }
 
     // Progress callback
-    if (onProgress) {
+    if (onProgress && status.status !== 'completed' && status.status !== 'error') {
       onProgress(status);
     }
 
@@ -187,7 +208,11 @@ export const useAsyncChat = (options: UseAsyncChatOptions = {}): UseAsyncChatRet
     if ((status.status === 'completed' && status.finalizedAt) || shouldFinalizeFallback) {
       completedJobsRef.current.add(jobId);
       if (onComplete && status.fullResponse) {
-        onComplete(status.fullResponse, status.intermediateSteps, status.finalizedAt, conversationId);
+        onComplete(status.fullResponse, status.intermediateSteps, status.finalizedAt, conversationId, {
+          turnId: status.turnId,
+          assistantMessageId: status.assistantMessageId,
+          jobId,
+        });
       }
       // Clean up
       if (conversationId) {
@@ -210,6 +235,8 @@ export const useAsyncChat = (options: UseAsyncChatOptions = {}): UseAsyncChatRet
           intermediateSteps: status.intermediateSteps,
           jobId,
           conversationId,
+          turnId: status.turnId,
+          assistantMessageId: status.assistantMessageId,
         });
       }
       if (conversationId) {
@@ -359,6 +386,10 @@ export const useAsyncChat = (options: UseAsyncChatOptions = {}): UseAsyncChatRet
         status.fullResponse?.length || 0,
         status.progress || 0,
         status.finalizedAt || 0,
+        status.authUrl || '',
+        status.oauthState || '',
+        status.turnId || '',
+        status.assistantMessageId || '',
       ].join('|');
       const lastHash = lastStatusHashByJobRef.current[jobId] || '';
       const isStatusChanged = statusHash !== lastHash;
@@ -374,7 +405,7 @@ export const useAsyncChat = (options: UseAsyncChatOptions = {}): UseAsyncChatRet
       }
 
       // Call progress callback
-      if (onProgress && isStatusChanged) {
+      if (onProgress && isStatusChanged && status.status !== 'completed' && status.status !== 'error') {
         onProgress(status);
       }
 
@@ -383,6 +414,7 @@ export const useAsyncChat = (options: UseAsyncChatOptions = {}): UseAsyncChatRet
       // 2. Partial response is growing (receiving chunks)
       // This prevents progressively slower polling during active streaming
       const isReceivingData = status.status === 'streaming' ||
+        status.status === 'oauth_required' ||
         (status.partialResponse &&
          previousStatus?.partialResponse &&
          status.partialResponse.length > previousStatus.partialResponse.length);
@@ -409,7 +441,11 @@ export const useAsyncChat = (options: UseAsyncChatOptions = {}): UseAsyncChatRet
         // Only consider job truly complete when finalizedAt is set
         pollCountByJobRef.current[jobId] = 0;
         if (onComplete && status.fullResponse) {
-          onComplete(status.fullResponse, status.intermediateSteps, status.finalizedAt, conversationId);
+          onComplete(status.fullResponse, status.intermediateSteps, status.finalizedAt, conversationId, {
+            turnId: status.turnId,
+            assistantMessageId: status.assistantMessageId,
+            jobId,
+          });
         }
         // Clear polling and persisted job
         if (conversationId) {
@@ -429,6 +465,8 @@ export const useAsyncChat = (options: UseAsyncChatOptions = {}): UseAsyncChatRet
             intermediateSteps: status.intermediateSteps,
             jobId,
             conversationId,
+            turnId: status.turnId,
+            assistantMessageId: status.assistantMessageId,
           });
         }
         // Clear polling and persisted job
@@ -471,6 +509,8 @@ export const useAsyncChat = (options: UseAsyncChatOptions = {}): UseAsyncChatRet
           intermediateSteps: lastKnownStatus?.intermediateSteps,
           jobId,
           conversationId,
+          turnId: lastKnownStatus?.turnId,
+          assistantMessageId: lastKnownStatus?.assistantMessageId,
         });
       }
       removeActiveJob(jobId, conversationId, false);
@@ -518,7 +558,9 @@ export const useAsyncChat = (options: UseAsyncChatOptions = {}): UseAsyncChatRet
     additionalProps: any,
     jobUserId: string,
     conversationId: string,
-    conversationName: string
+    conversationName: string,
+    turnId?: string,
+    assistantMessageId?: string
   ): Promise<string> => {
     try {
       // Cancel any existing job for this conversation
@@ -540,6 +582,8 @@ export const useAsyncChat = (options: UseAsyncChatOptions = {}): UseAsyncChatRet
           userId: jobUserId,
           conversationId,
           conversationName,
+          turnId,
+          assistantMessageId,
         }),
       });
 
@@ -555,6 +599,8 @@ export const useAsyncChat = (options: UseAsyncChatOptions = {}): UseAsyncChatRet
         conversationId,
         userId: jobUserId,
         timestamp: Date.now(),
+        turnId,
+        assistantMessageId,
       };
       activeJobsRef.current[jobId] = job;
 
@@ -596,7 +642,11 @@ export const useAsyncChat = (options: UseAsyncChatOptions = {}): UseAsyncChatRet
     } catch (error: any) {
       logger.error('Error starting async job', error);
       if (onError) {
-        onError(error.message);
+        onError(error.message, {
+          conversationId,
+          turnId,
+          assistantMessageId,
+        });
       }
       throw error;
     }
@@ -751,7 +801,11 @@ export const useAsyncChat = (options: UseAsyncChatOptions = {}): UseAsyncChatRet
             if (status.status === 'completed' && status.fullResponse) {
               completedJobsRef.current.add(job.jobId);
               if (onComplete) {
-                onComplete(status.fullResponse, status.intermediateSteps, status.finalizedAt, job.conversationId);
+                onComplete(status.fullResponse, status.intermediateSteps, status.finalizedAt, job.conversationId, {
+                  turnId: status.turnId || job.turnId,
+                  assistantMessageId: status.assistantMessageId || job.assistantMessageId,
+                  jobId: job.jobId,
+                });
               }
               clearPersistedJobs(userId, job.conversationId);
               removeActiveJob(job.jobId, job.conversationId);
@@ -772,7 +826,11 @@ export const useAsyncChat = (options: UseAsyncChatOptions = {}): UseAsyncChatRet
               const lastAssistantMsg = [...convData.messages].reverse().find((m: any) => m.role === 'assistant');
               if (lastAssistantMsg && onComplete) {
                 completedJobsRef.current.add(job.jobId);
-                onComplete(lastAssistantMsg.content, lastAssistantMsg.intermediateSteps, Date.now(), job.conversationId);
+                onComplete(lastAssistantMsg.content, lastAssistantMsg.intermediateSteps, Date.now(), job.conversationId, {
+                  turnId: lastAssistantMsg.metadata?.turnId || job.turnId,
+                  assistantMessageId: lastAssistantMsg.id || job.assistantMessageId,
+                  jobId: job.jobId,
+                });
                 logger.info(`Recovered orphaned job ${job.jobId} via conversation data`);
               }
               clearPersistedJobs(userId, job.conversationId);

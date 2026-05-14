@@ -2,6 +2,7 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { getRedis, sessionKey, jsonGet, jsonSetWithExpiry } from './redis';
 import { getOrSetSessionId, requireAuthenticatedUser } from './_utils';
 import { stripBase64FromObject, clampConversations } from './sanitize';
+import { sanitizeConversationsAssistantReplays } from '@/utils/app/conversationReplay';
 
 export const config = {
   api: {
@@ -25,7 +26,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     try {
       const data = await jsonGet(key);
       if (!data) return res.status(200).json([]);
-      return res.status(200).json(data);
+      const conversations = Array.isArray(data) ? data : [];
+      const sanitized = sanitizeConversationsAssistantReplays(conversations);
+      if (sanitized !== conversations) {
+        await jsonSetWithExpiry(key, sanitized, 60 * 60 * 24 * 7).catch((error) => {
+          console.error('Failed to persist sanitized conversationHistory', error);
+        });
+      }
+      return res.status(200).json(sanitized);
     } catch (e) {
       return res.status(500).json({ error: 'Failed to load conversationHistory' });
     }
@@ -69,7 +77,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           }
         }
 
-        const clamped = clampConversations(merged);
+        const clamped = sanitizeConversationsAssistantReplays(
+          clampConversations(merged),
+        );
         await jsonSetWithExpiry(key, clamped, 60 * 60 * 24 * 7);
       } catch (err) {
         console.error('Failed to save conversationHistory to Redis', err);

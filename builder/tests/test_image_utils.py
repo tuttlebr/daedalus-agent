@@ -3,7 +3,20 @@
 import asyncio
 import json
 
-from nat_helpers.image_utils import fetch_image_from_redis, parse_ref
+import redis
+
+from nat_helpers.image_utils import (
+    fetch_image_from_redis,
+    parse_ref,
+    store_image_in_redis,
+)
+
+
+class _FakeRedisError(Exception):
+    pass
+
+
+redis.RedisError = _FakeRedisError
 
 # ---------------------------------------------------------------------------
 # parse_ref
@@ -52,6 +65,14 @@ class _FakeRedis:
         return self.payload_for_key.get(key)
 
 
+class _FailingRedis:
+    def execute_command(self, *args):
+        raise redis.RedisError("write failed")
+
+    def expire(self, *args):
+        return True
+
+
 class TestFetchImageFromRedis:
     def test_finds_generated_image_via_fallback(self):
         # Simulate a generated-panel output image: only the generated:image:{id}
@@ -91,6 +112,36 @@ class TestFetchImageFromRedis:
         # User-scoped key wins — we should never fall through to generated.
         assert result[0] == "dXNlcg=="
         assert redis_client.requested_keys[0] == "user:alice:image:abc"
+
+    def test_expected_user_id_rejects_mismatched_ref_user(self):
+        redis_client = _FakeRedis({})
+
+        result = _run(
+            fetch_image_from_redis(
+                redis_client,
+                {"imageId": "abc", "sessionId": "sess1", "userId": "alice"},
+                expected_user_id="bob",
+            )
+        )
+
+        assert result[0] is None
+        assert "different authenticated user" in result[1]
+        assert redis_client.requested_keys == []
+
+    def test_expected_user_id_drives_user_key_lookup(self):
+        payload = json.dumps({"data": "Ym9i", "mimeType": "image/png"})
+        redis_client = _FakeRedis({"user:bob:image:abc": payload})
+
+        result = _run(
+            fetch_image_from_redis(
+                redis_client,
+                {"imageId": "abc", "sessionId": "sess1"},
+                expected_user_id="bob",
+            )
+        )
+
+        assert result == ("Ym9i", "image/png")
+        assert redis_client.requested_keys[0] == "user:bob:image:abc"
 
     def test_prefers_vlm_normalized_payload_when_available(self):
         payload = json.dumps(
@@ -145,3 +196,20 @@ class TestFetchImageFromRedis:
 
         assert result == ("Z2Vu", "image/png")
         assert "image:generated:xyz" not in redis_client.requested_keys
+
+
+class TestStoreImageInRedis:
+    def test_raises_when_redis_write_fails(self):
+        try:
+            _run(
+                store_image_in_redis(
+                    _FailingRedis(),
+                    "aGVsbG8=",
+                    "image/png",
+                    "prompt",
+                )
+            )
+        except redis.RedisError as exc:
+            assert "write failed" in str(exc)
+        else:
+            raise AssertionError("expected RedisError")

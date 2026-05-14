@@ -1,5 +1,5 @@
 export const nextEndPoints = {
-    chat: '/api/chat',
+    chat: '/api/chat/async',
 };
 
 export const appConfig = {

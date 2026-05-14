@@ -10,6 +10,7 @@ Constants derived from:
   - Capability coefficient: beta = -0.404, p < 0.001
 """
 
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -56,6 +57,10 @@ class CapabilityGate:
 
     def _extract_success(self, value: Any) -> float | None:
         """Find a success score in common memory payload shapes."""
+        if isinstance(value, str):
+            match = re.search(r"\bsuccess=([0-9]*\.?[0-9]+)", value)
+            return self._coerce_success(match.group(1)) if match else None
+
         if isinstance(value, dict):
             if "success" in value:
                 score = self._coerce_success(value.get("success"))
@@ -65,6 +70,10 @@ class CapabilityGate:
                 score = self._coerce_success(value.get("success_score"))
                 if score is not None:
                     return score
+            if isinstance(value.get("memory"), str):
+                score = self._extract_success(value["memory"])
+                if score is not None:
+                    return score
             for key in ("metadata", "key_value_pairs", "data"):
                 nested = value.get(key)
                 score = self._extract_success(nested)
@@ -72,10 +81,56 @@ class CapabilityGate:
                     return score
         return None
 
+    def _extract_architecture(self, value: Any) -> str | None:
+        """Find the architecture recorded by an explicit routing outcome."""
+        if isinstance(value, str):
+            match = None
+            for pattern in (r"\barch=([^,\s.]+)", r"\barchitecture=([^,\s.]+)"):
+                match = re.search(pattern, value, flags=re.IGNORECASE)
+                if match:
+                    break
+            return match.group(1).lower() if match else None
+
+        if isinstance(value, dict):
+            for key in ("architecture", "architecture_used", "arch"):
+                candidate = value.get(key)
+                if isinstance(candidate, str) and candidate.strip():
+                    return candidate.strip().lower()
+            if isinstance(value.get("memory"), str):
+                candidate = self._extract_architecture(value["memory"])
+                if candidate:
+                    return candidate
+            for key in ("metadata", "key_value_pairs", "data"):
+                nested = value.get(key)
+                candidate = self._extract_architecture(nested)
+                if candidate:
+                    return candidate
+        return None
+
+    def _is_explicit_routing_outcome(self, value: Any) -> bool:
+        """Return true when a memory is a MAS optimizer outcome record."""
+        if isinstance(value, str):
+            return value.lower().lstrip().startswith("mas outcome:")
+        if not isinstance(value, dict):
+            return False
+
+        memory = value.get("memory")
+        if isinstance(memory, str) and self._is_explicit_routing_outcome(memory):
+            return True
+
+        if self._extract_architecture(value) is None:
+            return False
+        return self._extract_success(value) is not None
+
     def _collect_success_scores(self, memory_results: list[dict]) -> list[float]:
-        """Extract valid calibration scores and ignore unrelated memories."""
+        """Extract valid SAS calibration scores and ignore unrelated memories."""
         scores: list[float] = []
         for memory in memory_results:
+            if not self._is_explicit_routing_outcome(memory):
+                continue
+            architecture = self._extract_architecture(memory)
+            if architecture not in {"sas", "single_agent"}:
+                continue
             score = self._extract_success(memory)
             if score is not None:
                 scores.append(score)
@@ -84,9 +139,10 @@ class CapabilityGate:
     def estimate_sas_accuracy(self, memory_results: list[dict]) -> float:
         """Estimate SAS accuracy from stored outcome memories.
 
-        Each memory dict should contain a ``success`` key with a float
-        0.0-1.0. Missing, unparseable, or out-of-range values are
-        ignored so unrelated memories do not look like failures.
+        Each memory should be an explicit MAS optimizer outcome with a
+        SAS/single_agent architecture and a ``success`` score in [0.0, 1.0].
+        Missing, unparseable, MAS-architecture, or unrelated memories are
+        ignored so successful MAS runs do not masquerade as SAS accuracy.
 
         Returns the configured threshold when no usable calibration
         exists. Call ``evaluate`` when the eligibility decision needs
@@ -107,7 +163,7 @@ class CapabilityGate:
 
         if not has_calibration:
             reason = (
-                "No valid SAS/MAS outcome calibration found; capability gate "
+                "No valid SAS routing outcome calibration found; capability gate "
                 "is neutral and MAS may proceed if task analysis passes"
             )
         elif eligible:

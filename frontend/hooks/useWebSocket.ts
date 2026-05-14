@@ -28,9 +28,9 @@ export interface UseWebSocketCallbacks {
   onConversationListChanged?: () => void;
   onSelectedConversationChanged?: (conversationId: string) => void;
   onStreamingStateChanged?: (conversationId: string, isStreaming: boolean) => void;
-  onChatToken?: (data: { conversationId: string; jobId: string; content: string; intermediateSteps?: any[] }) => void;
-  onChatIntermediateStep?: (data: { conversationId: string; jobId: string; step: any }) => void;
-  onChatComplete?: (data: { conversationId: string; jobId: string; fullResponse: string; intermediateSteps?: any[] }) => void;
+  onChatToken?: (data: { conversationId: string; jobId: string; turnId?: string; assistantMessageId?: string; content: string; intermediateSteps?: any[] }) => void;
+  onChatIntermediateStep?: (data: { conversationId: string; jobId: string; turnId?: string; assistantMessageId?: string; step: any }) => void;
+  onChatComplete?: (data: { conversationId: string; jobId: string; turnId?: string; assistantMessageId?: string; fullResponse: string; intermediateSteps?: any[] }) => void;
   onConnected?: (streamingStates: Record<string, StreamingStateInfo>) => void;
   onDisconnected?: () => void;
 }

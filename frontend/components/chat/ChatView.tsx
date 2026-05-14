@@ -1,8 +1,7 @@
 'use client';
 
 import React, { memo, useCallback, useRef, useEffect, useState } from 'react';
-import { IconMenu2, IconRobot } from '@tabler/icons-react';
-import { useTranslation } from 'next-i18next';
+import { IconExternalLink, IconMenu2, IconRobot } from '@tabler/icons-react';
 import { v4 as uuidv4 } from 'uuid';
 
 import { useConversationStore, useUISettingsStore } from '@/state';
@@ -12,13 +11,13 @@ import { IconButton } from '@/components/primitives';
 import { MessageBubble } from './MessageBubble';
 import { ChatInput } from './ChatInput';
 import { AgentHeartbeat } from './AgentHeartbeat';
-import { Message, Conversation } from '@/types/chat';
-import { saveConversation, saveConversations } from '@/utils/app/conversation';
+import { Message } from '@/types/chat';
+import { saveConversation } from '@/utils/app/conversation';
 import { cleanMessagesForLLM } from '@/utils/app/imageHandler';
+import { sanitizeMessageContentFromPriorAssistant } from '@/utils/app/conversationReplay';
 import { IntermediateStepCategory } from '@/types/intermediateSteps';
 
 export const ChatView = memo(() => {
-  const { t } = useTranslation('chat');
   const { user } = useAuth();
   const userId = user?.username || 'anon';
 
@@ -30,6 +29,7 @@ export const ChatView = memo(() => {
   });
   const updateConversation = useConversationStore((s) => s.updateConversation);
   const addMessage = useConversationStore((s) => s.addMessage);
+  const updateMessage = useConversationStore((s) => s.updateMessage);
   const updateLastMessage = useConversationStore((s) => s.updateLastMessage);
   const setStreaming = useConversationStore((s) => s.setStreaming);
 
@@ -40,12 +40,11 @@ export const ChatView = memo(() => {
   // Streaming state
   const [activityText, setActivityText] = useState('');
   const [stepCategories, setStepCategories] = useState<IntermediateStepCategory[]>([]);
+  const [oauthPrompt, setOauthPrompt] = useState<{ conversationId: string; authUrl: string } | null>(null);
   const streamingIds = useConversationStore((s) => s.streamingConversationIds);
   const isStreaming = selectedConversationId ? streamingIds.has(selectedConversationId) : false;
 
   // Refs for async callbacks
-  const selectedConvRef = useRef(selectedConversation);
-  selectedConvRef.current = selectedConversation;
   const selectedIdRef = useRef(selectedConversationId);
   selectedIdRef.current = selectedConversationId;
 
@@ -56,6 +55,50 @@ export const ChatView = memo(() => {
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, []);
+
+  const updateAssistantMessage = useCallback((
+    convId: string,
+    updates: Partial<Message>,
+    assistantMessageId?: string,
+  ) => {
+    const conv = useConversationStore.getState().conversations.find((c) => c.id === convId);
+    if (!conv || conv.messages.length === 0) return;
+
+    let targetIndex = assistantMessageId
+      ? conv.messages.findIndex((message) => message.id === assistantMessageId)
+      : -1;
+
+    if (targetIndex === -1) {
+      for (let i = conv.messages.length - 1; i >= 0; i -= 1) {
+        if (conv.messages[i].role !== 'user') {
+          targetIndex = i;
+          break;
+        }
+      }
+    }
+
+    if (targetIndex === -1) return;
+
+    const target = conv.messages[targetIndex];
+    if (target.role === 'user') return;
+
+    const nextUpdates = { ...updates };
+    if (typeof nextUpdates.content === 'string') {
+      nextUpdates.content = sanitizeMessageContentFromPriorAssistant(
+        nextUpdates.content,
+        conv.messages.slice(0, targetIndex),
+      );
+    }
+    if (nextUpdates.intermediateSteps === undefined) {
+      delete nextUpdates.intermediateSteps;
+    }
+
+    if (target.id) {
+      updateMessage(convId, target.id, nextUpdates);
+    } else if (targetIndex === conv.messages.length - 1) {
+      updateLastMessage(convId, nextUpdates);
+    }
+  }, [updateMessage, updateLastMessage]);
 
   useEffect(() => {
     scrollToBottom();
@@ -68,6 +111,14 @@ export const ChatView = memo(() => {
       const convId = status.conversationId || selectedIdRef.current;
       if (!convId) return;
 
+      if (status.status === 'oauth_required' && status.authUrl) {
+        setStreaming(convId, true);
+        setActivityText('Waiting for Google authorization');
+        setOauthPrompt({ conversationId: convId, authUrl: status.authUrl });
+        scrollToBottom();
+        return;
+      }
+
       // Detect completion in onProgress as a safety net
       // (onComplete may not fire if fullResponse is empty)
       if (status.status === 'completed' || status.status === 'error') {
@@ -76,17 +127,17 @@ export const ChatView = memo(() => {
           // Final update with whatever content we have
           const conv = store.conversations.find((c) => c.id === convId);
           if (conv && conv.messages.length > 0) {
-            const lastMsg = conv.messages[conv.messages.length - 1];
-            if (lastMsg.role !== 'user') {
-              updateLastMessage(convId, {
-                content: status.fullResponse || status.partialResponse || lastMsg.content,
-                intermediateSteps: status.intermediateSteps || lastMsg.intermediateSteps,
-              });
-            }
+            updateAssistantMessage(convId, {
+              ...(status.fullResponse || status.partialResponse
+                ? { content: status.fullResponse || status.partialResponse }
+                : {}),
+              intermediateSteps: status.intermediateSteps,
+            }, status.assistantMessageId);
           }
           setStreaming(convId, false);
           setActivityText('');
           setStepCategories([]);
+          setOauthPrompt((current) => current?.conversationId === convId ? null : current);
           // Persist
           const updatedConv = useConversationStore.getState().conversations.find((c) => c.id === convId);
           if (updatedConv) {
@@ -99,6 +150,9 @@ export const ChatView = memo(() => {
 
       // Mark conversation as streaming
       setStreaming(convId, true);
+      if (status.status === 'streaming') {
+        setOauthPrompt((current) => current?.conversationId === convId ? null : current);
+      }
 
       // Update activity text from intermediate steps
       if (status.intermediateSteps && status.intermediateSteps.length > 0) {
@@ -122,12 +176,9 @@ export const ChatView = memo(() => {
         // Update intermediate steps on the assistant message
         const conv = useConversationStore.getState().conversations.find((c) => c.id === convId);
         if (conv && conv.messages.length > 0) {
-          const lastMsg = conv.messages[conv.messages.length - 1];
-          if (lastMsg.role !== 'user') {
-            updateLastMessage(convId, {
-              intermediateSteps: status.intermediateSteps,
-            });
-          }
+          updateAssistantMessage(convId, {
+            intermediateSteps: status.intermediateSteps,
+          }, status.assistantMessageId);
         }
       }
 
@@ -139,28 +190,26 @@ export const ChatView = memo(() => {
       if (status.partialResponse) {
         scrollToBottom();
       }
-    }, [setStreaming, updateLastMessage, scrollToBottom]),
+    }, [setStreaming, updateAssistantMessage, scrollToBottom]),
 
-    onComplete: useCallback((fullResponse: string, intermediateSteps?: any[], finalizedAt?: number, conversationId?: string) => {
+    onComplete: useCallback((fullResponse: string, intermediateSteps?: any[], finalizedAt?: number, conversationId?: string, meta?: { assistantMessageId?: string }) => {
       const convId = conversationId || selectedIdRef.current;
       if (!convId) return;
 
       // Update final message
       const conv = useConversationStore.getState().conversations.find((c) => c.id === convId);
       if (conv && conv.messages.length > 0) {
-        const lastMsg = conv.messages[conv.messages.length - 1];
-        if (lastMsg.role !== 'user') {
-          updateLastMessage(convId, {
-            content: fullResponse,
-            intermediateSteps: intermediateSteps || lastMsg.intermediateSteps,
-          });
-        }
+        updateAssistantMessage(convId, {
+          content: fullResponse,
+          intermediateSteps,
+        }, meta?.assistantMessageId);
       }
 
       // Stop streaming
       setStreaming(convId, false);
       setActivityText('');
       setStepCategories([]);
+      setOauthPrompt((current) => current?.conversationId === convId ? null : current);
 
       // Save to Redis
       const updatedConv = useConversationStore.getState().conversations.find((c) => c.id === convId);
@@ -169,9 +218,9 @@ export const ChatView = memo(() => {
       }
 
       scrollToBottom();
-    }, [setStreaming, updateLastMessage, scrollToBottom]),
+    }, [setStreaming, updateAssistantMessage, scrollToBottom]),
 
-    onError: useCallback((error: string, context?: { partialResponse?: string; intermediateSteps?: any[]; jobId?: string; conversationId?: string }) => {
+    onError: useCallback((error: string, context?: { partialResponse?: string; intermediateSteps?: any[]; jobId?: string; conversationId?: string; assistantMessageId?: string }) => {
       const convId = context?.conversationId || selectedIdRef.current;
       if (!convId) return;
 
@@ -181,23 +230,31 @@ export const ChatView = memo(() => {
       if (context?.partialResponse) {
         const conv = useConversationStore.getState().conversations.find((c) => c.id === convId);
         if (conv && conv.messages.length > 0) {
-          updateLastMessage(convId, {
-            content: context.partialResponse + '\n\n*[Response interrupted]*',
+          updateAssistantMessage(convId, {
+            content: `${context.partialResponse}\n\n*[Response interrupted]*`,
             intermediateSteps: context.intermediateSteps,
-          });
+          }, context.assistantMessageId);
         }
       } else {
-        // Add error message
-        addMessage(convId, {
-          role: 'assistant',
-          content: `An error occurred: ${error}`,
-        });
+        const conv = useConversationStore.getState().conversations.find((c) => c.id === convId);
+        if (conv && conv.messages.length > 0) {
+          updateAssistantMessage(convId, {
+            content: `An error occurred: ${error}`,
+            intermediateSteps: context?.intermediateSteps,
+          }, context?.assistantMessageId);
+        } else {
+          addMessage(convId, {
+            role: 'assistant',
+            content: `An error occurred: ${error}`,
+          });
+        }
       }
 
       setStreaming(convId, false);
       setActivityText('');
       setStepCategories([]);
-    }, [setStreaming, updateLastMessage, addMessage]),
+      setOauthPrompt((current) => current?.conversationId === convId ? null : current);
+    }, [setStreaming, updateAssistantMessage, addMessage]),
   });
 
   // Handle message send
@@ -205,6 +262,8 @@ export const ChatView = memo(() => {
     if (!selectedConversation) return;
     const convId = selectedConversation.id;
 
+    const turnId = uuidv4();
+    const assistantMessageId = uuidv4();
     const messageWithId = { ...message, id: uuidv4() };
 
     // Add user message to store
@@ -220,10 +279,11 @@ export const ChatView = memo(() => {
 
     // Add placeholder assistant message
     const assistantMessage: Message = {
-      id: uuidv4(),
+      id: assistantMessageId,
       role: 'assistant',
       content: '',
       intermediateSteps: [],
+      metadata: { turnId },
     };
     addMessage(convId, assistantMessage);
 
@@ -231,6 +291,7 @@ export const ChatView = memo(() => {
     setStreaming(convId, true);
     setActivityText('Starting...');
     setStepCategories([]);
+    setOauthPrompt(null);
 
     // Build the messages array for the backend
     const allMessages = [...selectedConversation.messages, messageWithId];
@@ -259,18 +320,21 @@ export const ChatView = memo(() => {
         userId,
         convId,
         freshConv?.name || selectedConversation.name,
+        turnId,
+        assistantMessageId,
       );
     } catch (err: any) {
       console.error('Failed to start async job:', err);
-      updateLastMessage(convId, {
+      updateAssistantMessage(convId, {
         content: `Failed to send message: ${err.message || 'Unknown error'}`,
-      });
+      }, assistantMessageId);
       setStreaming(convId, false);
       setActivityText('');
+      setOauthPrompt(null);
     }
 
     scrollToBottom();
-  }, [selectedConversation, addMessage, updateConversation, setStreaming, updateLastMessage,
+  }, [selectedConversation, addMessage, updateConversation, setStreaming, updateAssistantMessage,
       startAsyncJob, chatCompletionURL, enableIntermediateSteps, userId, scrollToBottom]);
 
   const handleStop = useCallback(async () => {
@@ -279,6 +343,7 @@ export const ChatView = memo(() => {
       setStreaming(selectedConversationId, false);
       setActivityText('');
       setStepCategories([]);
+      setOauthPrompt(null);
     }
   }, [selectedConversationId, cancelJob, setStreaming]);
 
@@ -357,6 +422,24 @@ export const ChatView = memo(() => {
           </div>
         )}
       </div>
+
+      {oauthPrompt && oauthPrompt.conversationId === selectedConversationId && (
+        <div className="flex-shrink-0 px-4 pb-3">
+          <div className="max-w-3xl mx-auto flex items-center justify-between gap-3 rounded-md border border-nvidia-green/30 bg-nvidia-green/10 px-3 py-2">
+            <span className="text-sm text-dark-text-primary truncate">
+              Google authorization required
+            </span>
+            <button
+              type="button"
+              className="inline-flex items-center gap-1.5 rounded-md bg-nvidia-green px-3 py-1.5 text-xs font-medium text-black hover:bg-nvidia-green/90"
+              onClick={() => window.open(oauthPrompt.authUrl, '_blank', 'noopener,noreferrer')}
+            >
+              <IconExternalLink size={14} />
+              Connect Google
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Input - hidden for autonomous agent conversations (read-only) */}
       {isAutonomousConversation ? (
