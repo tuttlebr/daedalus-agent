@@ -559,7 +559,6 @@ async def rss_feed_function(
     async def search_rss(
         query: str,
         feed_scope: str = "auto",
-        description: str = None,
     ) -> str:
         """
         Simple RSS feed search that returns formatted results.
@@ -567,13 +566,12 @@ async def rss_feed_function(
         Args:
             query: Search query to rerank RSS entries against
             feed_scope: Named feed scope to search, or auto for every configured feed
-            description: Optional description of the search
 
         Returns:
             Formatted string with search results or scraped content
         """
         result = await rss_feed_search(
-            {"query": query, "feed_scope": feed_scope, "description": description}
+            {"query": query, "feed_scope": feed_scope}
         )
 
         if not result["success"]:
