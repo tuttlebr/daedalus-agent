@@ -8,8 +8,12 @@ from rss_feed.rss_feed_function import (
     RssEntry,
     RssSearchRequest,
     RssSearchResponse,
+    _build_reranker_passages,
     _can_use_tiktoken,
     _count_tokens,
+    _normalize_reranker_text,
+    _reranker_error_message,
+    _reranker_passage_token_limit,
     _scrape_content,
     truncate_text,
 )
@@ -92,6 +96,61 @@ class TestTruncateText:
             result = truncate_text("hello", max_tokens=0)
             # 0 * 4 = 0, so text[:0] = ""
             assert result == ""
+
+
+# ---------------------------------------------------------------------------
+# Reranker passage helpers
+# ---------------------------------------------------------------------------
+
+
+class TestRerankerPassageHelpers:
+    def test_normalize_reranker_text_strips_html_and_whitespace(self):
+        text = " <p>NVIDIA&nbsp;<b>GPU</b></p>\n\nNews "
+
+        assert _normalize_reranker_text(text) == "NVIDIA GPU News"
+
+    def test_reranker_passage_token_limit_scales_with_entry_count(self):
+        limit = _reranker_passage_token_limit(
+            query="latest AI news",
+            entry_count=30,
+            max_passage_tokens=512,
+            max_total_tokens=7000,
+        )
+
+        assert 16 <= limit < 512
+
+    def test_build_reranker_passages_compacts_large_rss_descriptions(self):
+        entries = [
+            RssEntry(
+                title="Title",
+                link="https://example.com/article",
+                description="<p>" + ("word " * 2000) + "</p>",
+                feed_scope="nvidia_blog",
+                published="2026-05-18",
+            )
+        ]
+
+        with patch.object(rss_mod, "_can_use_tiktoken", return_value=False):
+            passages, indexes = _build_reranker_passages(
+                query="gpu",
+                entries=entries,
+                max_passage_tokens=32,
+                max_total_tokens=7000,
+            )
+
+        assert indexes == [0]
+        assert passages[0]["text"].startswith("Title: Title")
+        assert "<p>" not in passages[0]["text"]
+        assert len(passages[0]["text"]) <= 32 * 4
+
+    def test_reranker_error_message_includes_response_body(self):
+        response = MagicMock()
+        response.status_code = 400
+        response.text = '{"message":"Input length exceeds maximum allowed token size"}'
+
+        assert "Input length exceeds maximum allowed token size" in (
+            _reranker_error_message(response)
+        )
 
 
 # ---------------------------------------------------------------------------

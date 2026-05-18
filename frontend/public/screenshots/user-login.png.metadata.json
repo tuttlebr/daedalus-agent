@@ -1,0 +1,66 @@
+{
+  "schema_version": "1.0.0",
+  "source_path": "/volume2/daedalus/datasets/daedalus-agent/frontend/public/screenshots/user-login.png",
+  "file_sha256": "d75f83bda32bb2ee6971d032ad312c73ef93f70da0b63656ecf9e7360b22fc74",
+  "file_size_bytes": 195808,
+  "file_mtime_rfc3339": "2026-04-08T12:37:11.133191556Z",
+  "original_mime_type": "image/png",
+  "width": 1880,
+  "height": 2048,
+  "processing_model": "Qwen/Qwen3.6-35B-A3B-FP8",
+  "model_version": "Qwen/Qwen3.6-35B-A3B-FP8",
+  "prompt_version": "2026-05-02.a",
+  "processed_at_rfc3339": "2026-05-15T23:16:28.788127692Z",
+  "processing_duration_ms": 5475,
+  "raw_response": "{\n  \"caption\": \"A dark-themed login screen for an application named Daedalus featuring a classical statue and green accents.\",\n  \"description\": \"This image displays a software login interface with a predominantly black background. At the top, a lime green header bar contains the application title 'Daedalus' and standard window controls. Centered on the screen is a grayscale image of a classical statue depicting a seated figure, likely a craftsman or philosopher. Below the statue are two input fields labeled 'Username' and 'Password', followed by a matching lime green 'Sign in' button.\",\n  \"tags\": [\n    \"login screen\",\n    \"user interface\",\n    \"software\",\n    \"application\",\n    \"dark mode\",\n    \"username\",\n    \"password\",\n    \"sign in\",\n    \"statue\",\n    \"classical art\",\n    \"green\",\n    \"black\",\n    \"minimalist\",\n    \"desktop\",\n    \"macos\",\n    \"authentication\"\n  ],\n  \"scene\": \"A digital login interface for a desktop application.\",\n  \"setting_type\": \"studio\",\n  \"detected_text\": [\n    \"Daedalus\",\n    \"Username\",\n    \"Password\",\n    \"Sign in\"\n  ],\n  \"dominant_colors\": [\n    \"black\",\n    \"lime green\",\n    \"white\",\n    \"gray\"\n  ],\n  \"people\": [],\n  \"objects\": [\n    \"login form\",\n    \"statue\",\n    \"input fields\",\n    \"button\",\n    \"header bar\"\n  ],\n  \"quality\": {\n    \"sharpness\": \"sharp\",\n    \"exposure\": \"balanced\",\n    \"composition\": \"centered\",\n    \"overall_score\": 8\n  }\n}",
+  "content": {
+    "caption": "A dark-themed login screen for an application named Daedalus featuring a classical statue and green accents.",
+    "description": "This image displays a software login interface with a predominantly black background. At the top, a lime green header bar contains the application title 'Daedalus' and standard window controls. Centered on the screen is a grayscale image of a classical statue depicting a seated figure, likely a craftsman or philosopher. Below the statue are two input fields labeled 'Username' and 'Password', followed by a matching lime green 'Sign in' button.",
+    "tags": [
+      "login screen",
+      "user interface",
+      "software",
+      "application",
+      "dark mode",
+      "username",
+      "password",
+      "sign in",
+      "statue",
+      "classical art",
+      "green",
+      "black",
+      "minimalist",
+      "desktop",
+      "macos",
+      "authentication"
+    ],
+    "scene": "A digital login interface for a desktop application.",
+    "setting_type": "studio",
+    "detected_text": [
+      "Daedalus",
+      "Username",
+      "Password",
+      "Sign in"
+    ],
+    "dominant_colors": [
+      "black",
+      "lime green",
+      "white",
+      "gray"
+    ],
+    "people": [],
+    "objects": [
+      "login form",
+      "statue",
+      "input fields",
+      "button",
+      "header bar"
+    ],
+    "quality": {
+      "sharpness": "sharp",
+      "exposure": "balanced",
+      "composition": "centered",
+      "overall_score": 8
+    }
+  }
+}

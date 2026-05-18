@@ -1,0 +1,65 @@
+{
+  "schema_version": "1.0.0",
+  "source_path": "/volume2/daedalus/datasets/daedalus-agent/frontend/public/icons/icon-120x120.png",
+  "file_sha256": "5146872298a68b3603f4bf36f4f1c32c9639a886c3bbc5192b054cae5f0eba1e",
+  "file_size_bytes": 18983,
+  "file_mtime_rfc3339": "2026-04-08T12:37:11.093191246Z",
+  "original_mime_type": "image/png",
+  "width": 120,
+  "height": 120,
+  "processing_model": "Qwen/Qwen3.6-35B-A3B-FP8",
+  "model_version": "Qwen/Qwen3.6-35B-A3B-FP8",
+  "prompt_version": "2026-05-02.a",
+  "processed_at_rfc3339": "2026-05-15T23:16:15.423699592Z",
+  "processing_duration_ms": 4351,
+  "raw_response": "{\n  \"caption\": \"A black and white photograph of a classical statue depicting a seated male figure working with a hammer and anvil.\",\n  \"description\": \"This image features a monochromatic photograph of a classical sculpture, likely made of marble or stone, set against a stark black background. The figure is a muscular male, possibly a blacksmith or artisan, seated on a stool or bench while hunched over an anvil. He holds a hammer in his right hand, poised to strike, and wears a draped garment around his waist and legs. The lighting highlights the texture of the stone and the anatomical details of the figure's back and arms.\",\n  \"tags\": [\n    \"statue\",\n    \"sculpture\",\n    \"classical\",\n    \"blacksmith\",\n    \"hammer\",\n    \"anvil\",\n    \"monochrome\",\n    \"art\",\n    \"marble\",\n    \"seated\",\n    \"muscular\",\n    \"draped\",\n    \"craftsman\",\n    \"tool\",\n    \"work\"\n  ],\n  \"scene\": \"A close-up studio shot of a classical sculpture against a black background.\",\n  \"setting_type\": \"studio\",\n  \"detected_text\": [],\n  \"dominant_colors\": [\n    \"black\",\n    \"white\",\n    \"gray\"\n  ],\n  \"people\": [\n    {\n      \"count_estimate\": 1,\n      \"apparent_age_range\": \"adult\",\n      \"activity\": \"hammering\"\n    }\n  ],\n  \"objects\": [\n    \"hammer\",\n    \"anvil\",\n    \"statue\",\n    \"sculpture\",\n    \"draped cloth\"\n  ],\n  \"quality\": {\n    \"sharpness\": \"sharp\",\n    \"exposure\": \"balanced\",\n    \"composition\": \"centered subject with high contrast against a dark background\",\n    \"overall_score\": 8\n  }\n}",
+  "content": {
+    "caption": "A black and white photograph of a classical statue depicting a seated male figure working with a hammer and anvil.",
+    "description": "This image features a monochromatic photograph of a classical sculpture, likely made of marble or stone, set against a stark black background. The figure is a muscular male, possibly a blacksmith or artisan, seated on a stool or bench while hunched over an anvil. He holds a hammer in his right hand, poised to strike, and wears a draped garment around his waist and legs. The lighting highlights the texture of the stone and the anatomical details of the figure's back and arms.",
+    "tags": [
+      "statue",
+      "sculpture",
+      "classical",
+      "blacksmith",
+      "hammer",
+      "anvil",
+      "monochrome",
+      "art",
+      "marble",
+      "seated",
+      "muscular",
+      "draped",
+      "craftsman",
+      "tool",
+      "work"
+    ],
+    "scene": "A close-up studio shot of a classical sculpture against a black background.",
+    "setting_type": "studio",
+    "detected_text": [],
+    "dominant_colors": [
+      "black",
+      "white",
+      "gray"
+    ],
+    "people": [
+      {
+        "count_estimate": 1,
+        "apparent_age_range": "adult",
+        "activity": "hammering"
+      }
+    ],
+    "objects": [
+      "hammer",
+      "anvil",
+      "statue",
+      "sculpture",
+      "draped cloth"
+    ],
+    "quality": {
+      "sharpness": "sharp",
+      "exposure": "balanced",
+      "composition": "centered subject with high contrast against a dark background",
+      "overall_score": 8
+    }
+  }
+}

@@ -1,7 +1,9 @@
 import asyncio
+import html
 import importlib.util
 import logging
 import os
+import re
 from typing import Any
 
 import fastfeedparser
@@ -22,6 +24,9 @@ except ImportError:
     TIKTOKEN_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
+
+HTML_TAG_RE = re.compile(r"<[^>]+>")
+WHITESPACE_RE = re.compile(r"\s+")
 
 
 class RssEntry(BaseModel):
@@ -59,6 +64,21 @@ class RssFeedFunctionConfig(FunctionBaseConfig, name="rss_feed"):
         description=(
             "API key for the reranker service. Can also be set via "
             "NVIDIA_API_KEY env var"
+        ),
+    )
+    reranker_max_passage_tokens: int = Field(
+        default=192,
+        ge=16,
+        le=2048,
+        description="Maximum tokens to send per RSS entry to the reranker",
+    )
+    reranker_max_total_tokens: int = Field(
+        default=7000,
+        ge=512,
+        le=8192,
+        description=(
+            "Approximate total token budget for reranker query plus passages. "
+            "Keep below the NVCF ranking limit."
         ),
     )
 
@@ -193,6 +213,82 @@ def _can_use_tiktoken() -> bool:
     return importlib.util.find_spec("tiktoken") is not None
 
 
+def _normalize_reranker_text(text: str | None) -> str:
+    """Normalize RSS text before it is sent to the reranker."""
+    if not text:
+        return ""
+    text = html.unescape(text)
+    text = HTML_TAG_RE.sub(" ", text)
+    return WHITESPACE_RE.sub(" ", text).strip()
+
+
+def _reranker_error_message(response: httpx.Response) -> str:
+    """Build a useful, bounded reranker HTTP error message."""
+    body = response.text.strip()
+    if body:
+        body = WHITESPACE_RE.sub(" ", body)
+        body = body[:1000]
+        return f"Reranker request failed with HTTP {response.status_code}: {body}"
+    return f"Reranker request failed with HTTP {response.status_code}"
+
+
+def _reranker_passage_token_limit(
+    query: str,
+    entry_count: int,
+    max_passage_tokens: int,
+    max_total_tokens: int,
+) -> int:
+    """Choose a per-passage token cap that keeps the total request bounded."""
+    if entry_count <= 0:
+        return max_passage_tokens
+
+    query_tokens = _count_tokens(query)
+    # Leave room for JSON framing and reranker prompt overhead.
+    available = max_total_tokens - query_tokens - 256
+    dynamic_limit = max(16, available // entry_count)
+    return max(16, min(max_passage_tokens, dynamic_limit))
+
+
+def _build_reranker_passages(
+    query: str,
+    entries: list[RssEntry],
+    max_passage_tokens: int,
+    max_total_tokens: int,
+) -> tuple[list[dict[str, str]], list[int]]:
+    """Create compact reranker passages and their original entry indexes."""
+    token_limit = _reranker_passage_token_limit(
+        query=query,
+        entry_count=len(entries),
+        max_passage_tokens=max_passage_tokens,
+        max_total_tokens=max_total_tokens,
+    )
+    passages: list[dict[str, str]] = []
+    entry_indexes: list[int] = []
+
+    for index, entry in enumerate(entries):
+        title = _normalize_reranker_text(entry.title)
+        description = _normalize_reranker_text(entry.description)
+
+        parts = []
+        if title:
+            parts.append(f"Title: {title}")
+        if description and description != title:
+            parts.append(f"Summary: {description}")
+        if entry.feed_scope:
+            parts.append(f"Feed: {entry.feed_scope}")
+        if entry.published:
+            parts.append(f"Published: {_normalize_reranker_text(entry.published)}")
+
+        passage_text = truncate_text("\n".join(parts), token_limit).strip()
+        if not passage_text:
+            continue
+
+        passages.append({"text": passage_text})
+        entry_indexes.append(index)
+
+    return passages, entry_indexes
+
+
 def _scrape_content(url: str, max_tokens: int, truncation_msg: str) -> tuple[str, bool]:
     """Scrape content from URL using markitdown."""
     try:
@@ -314,8 +410,15 @@ async def rss_feed_function(
                 "Content-Type": "application/json",
             }
 
-            # Extract descriptions (preferred) or titles as passages
-            passages = [{"text": entry.description or entry.title} for entry in entries]
+            passages, entry_indexes = _build_reranker_passages(
+                query=query,
+                entries=entries,
+                max_passage_tokens=config.reranker_max_passage_tokens,
+                max_total_tokens=config.reranker_max_total_tokens,
+            )
+            if not passages:
+                logger.warning("No non-empty passages available for reranking")
+                return None
 
             payload = {
                 "model": config.reranker_model,
@@ -330,6 +433,8 @@ async def rss_feed_function(
                     headers=headers,
                     json=payload,
                 )
+                if response.status_code >= 400:
+                    raise ValueError(_reranker_error_message(response))
                 response.raise_for_status()
 
             # Process response
@@ -345,12 +450,12 @@ async def rss_feed_function(
 
             # Get the top-ranked entry
             top_ranking = rankings[0]
-            top_index = top_ranking["index"]
+            passage_index = top_ranking["index"]
 
-            if 0 <= top_index < len(entries):
-                return entries[top_index]
+            if 0 <= passage_index < len(entry_indexes):
+                return entries[entry_indexes[passage_index]]
             else:
-                logger.error("Invalid index %d from reranker", top_index)
+                logger.error("Invalid index %d from reranker", passage_index)
                 return None
 
         except Exception as e:

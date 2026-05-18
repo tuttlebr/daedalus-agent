@@ -23,6 +23,8 @@ workflow:
   reranker_endpoint: null
   reranker_model: null
   reranker_api_key: null
+  reranker_max_passage_tokens: 192
+  reranker_max_total_tokens: 7000
   cache_ttl_hours: 4.0
   cache_backend: "memory"
   timeout: 30.0

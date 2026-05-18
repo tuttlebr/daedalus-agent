@@ -1,0 +1,63 @@
+{
+  "schema_version": "1.0.0",
+  "source_path": "/volume2/daedalus/datasets/daedalus-agent/frontend/public/icons/icon-72x72.png",
+  "file_sha256": "31b7d59f60d50bade99479325e4ab33f6ea9a6f2dd62519c94dadaa49e363809",
+  "file_size_bytes": 8604,
+  "file_mtime_rfc3339": "2026-04-08T12:37:11.113191401Z",
+  "original_mime_type": "image/png",
+  "width": 72,
+  "height": 72,
+  "processing_model": "Qwen/Qwen3.6-35B-A3B-FP8",
+  "model_version": "Qwen/Qwen3.6-35B-A3B-FP8",
+  "prompt_version": "2026-05-02.a",
+  "processed_at_rfc3339": "2026-05-15T23:16:19.869631367Z",
+  "processing_duration_ms": 3794,
+  "raw_response": "{\n  \"caption\": \"A monochrome image of a classical sculpture depicting a seated man hammering metal.\",\n  \"description\": \"This image features a high-contrast, black-and-white photograph of a classical sculpture, likely made of marble or stone. The figure is a muscular man seated in profile, leaning forward as he works with a hammer on an anvil. The lighting emphasizes the musculature and the folds of his garment, creating a dramatic effect against the stark black background.\",\n  \"tags\": [\n    \"sculpture\",\n    \"classical\",\n    \"statue\",\n    \"black and white\",\n    \"monochrome\",\n    \"hammer\",\n    \"anvil\",\n    \"muscular\",\n    \"seated\",\n    \"art\",\n    \"marble\",\n    \"craftsman\",\n    \"blacksmith\",\n    \"bronze\",\n    \"relief\"\n  ],\n  \"scene\": \"A close-up studio shot of a classical sculpture.\",\n  \"setting_type\": \"studio\",\n  \"detected_text\": [],\n  \"dominant_colors\": [\n    \"black\",\n    \"white\",\n    \"gray\"\n  ],\n  \"people\": [\n    {\n      \"count_estimate\": 1,\n      \"apparent_age_range\": \"adult\",\n      \"activity\": \"hammering metal\"\n    }\n  ],\n  \"objects\": [\n    \"hammer\",\n    \"anvil\",\n    \"sculpture\"\n  ],\n  \"quality\": {\n    \"sharpness\": \"sharp\",\n    \"exposure\": \"balanced\",\n    \"composition\": \"centered subject with high contrast\",\n    \"overall_score\": 8\n  }\n}",
+  "content": {
+    "caption": "A monochrome image of a classical sculpture depicting a seated man hammering metal.",
+    "description": "This image features a high-contrast, black-and-white photograph of a classical sculpture, likely made of marble or stone. The figure is a muscular man seated in profile, leaning forward as he works with a hammer on an anvil. The lighting emphasizes the musculature and the folds of his garment, creating a dramatic effect against the stark black background.",
+    "tags": [
+      "sculpture",
+      "classical",
+      "statue",
+      "black and white",
+      "monochrome",
+      "hammer",
+      "anvil",
+      "muscular",
+      "seated",
+      "art",
+      "marble",
+      "craftsman",
+      "blacksmith",
+      "bronze",
+      "relief"
+    ],
+    "scene": "A close-up studio shot of a classical sculpture.",
+    "setting_type": "studio",
+    "detected_text": [],
+    "dominant_colors": [
+      "black",
+      "white",
+      "gray"
+    ],
+    "people": [
+      {
+        "count_estimate": 1,
+        "apparent_age_range": "adult",
+        "activity": "hammering metal"
+      }
+    ],
+    "objects": [
+      "hammer",
+      "anvil",
+      "sculpture"
+    ],
+    "quality": {
+      "sharpness": "sharp",
+      "exposure": "balanced",
+      "composition": "centered subject with high contrast",
+      "overall_score": 8
+    }
+  }
+}

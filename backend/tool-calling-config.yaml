@@ -708,6 +708,8 @@ functions:
     reranker_api_key: ${REANKER_API_KEY}
     reranker_endpoint: ${REANKER_BASE_URL}
     reranker_model: ${REANKER_MODEL}
+    reranker_max_passage_tokens: 192
+    reranker_max_total_tokens: 7000
     verbose: true
   vtt_interpreter_tool:
     _type: vtt_interpreter

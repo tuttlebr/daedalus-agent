@@ -1,0 +1,60 @@
+{
+  "schema_version": "1.0.0",
+  "source_path": "/volume2/daedalus/datasets/daedalus-agent/frontend/public/icons/icon-16x16.png",
+  "file_sha256": "5db66a94e34c3f29064b6dd48d6bc51e3cee2ed1be00a467ee4b10b9995c653b",
+  "file_size_bytes": 774,
+  "file_mtime_rfc3339": "2026-04-08T12:37:11.093191246Z",
+  "original_mime_type": "image/png",
+  "width": 16,
+  "height": 16,
+  "processing_model": "Qwen/Qwen3.6-35B-A3B-FP8",
+  "model_version": "Qwen/Qwen3.6-35B-A3B-FP8",
+  "prompt_version": "2026-05-02.a",
+  "processed_at_rfc3339": "2026-05-15T23:16:11.599607218Z",
+  "processing_duration_ms": 3649,
+  "raw_response": "{\n  \"caption\": \"A blurry, low-resolution grayscale icon depicting a person sitting at a desk or table.\",\n  \"description\": \"This is a very low-resolution, pixelated image that appears to be a digital icon or symbol. It shows a silhouette of a person seated, likely at a desk or table, facing towards the right. The image is monochromatic, consisting of shades of gray against a black background, and lacks any fine detail due to the heavy blurring and pixelation.\",\n  \"tags\": [\n    \"icon\",\n    \"pixelated\",\n    \"blurry\",\n    \"grayscale\",\n    \"silhouette\",\n    \"person\",\n    \"seated\",\n    \"desk\",\n    \"low resolution\",\n    \"symbol\",\n    \"user\",\n    \"profile\",\n    \"abstract\"\n  ],\n  \"scene\": \"Abstract icon representation\",\n  \"setting_type\": \"unknown\",\n  \"detected_text\": [],\n  \"dominant_colors\": [\n    \"black\",\n    \"gray\",\n    \"white\"\n  ],\n  \"people\": [\n    {\n      \"count_estimate\": 1,\n      \"apparent_age_range\": \"adult\",\n      \"activity\": \"sitting\"\n    }\n  ],\n  \"objects\": [\n    \"desk\",\n    \"chair\"\n  ],\n  \"quality\": {\n    \"sharpness\": \"blurry\",\n    \"exposure\": \"balanced\",\n    \"composition\": \"centered icon\",\n    \"overall_score\": 2\n  }\n}",
+  "content": {
+    "caption": "A blurry, low-resolution grayscale icon depicting a person sitting at a desk or table.",
+    "description": "This is a very low-resolution, pixelated image that appears to be a digital icon or symbol. It shows a silhouette of a person seated, likely at a desk or table, facing towards the right. The image is monochromatic, consisting of shades of gray against a black background, and lacks any fine detail due to the heavy blurring and pixelation.",
+    "tags": [
+      "icon",
+      "pixelated",
+      "blurry",
+      "grayscale",
+      "silhouette",
+      "person",
+      "seated",
+      "desk",
+      "low resolution",
+      "symbol",
+      "user",
+      "profile",
+      "abstract"
+    ],
+    "scene": "Abstract icon representation",
+    "setting_type": "unknown",
+    "detected_text": [],
+    "dominant_colors": [
+      "black",
+      "gray",
+      "white"
+    ],
+    "people": [
+      {
+        "count_estimate": 1,
+        "apparent_age_range": "adult",
+        "activity": "sitting"
+      }
+    ],
+    "objects": [
+      "desk",
+      "chair"
+    ],
+    "quality": {
+      "sharpness": "blurry",
+      "exposure": "balanced",
+      "composition": "centered icon",
+      "overall_score": 2
+    }
+  }
+}

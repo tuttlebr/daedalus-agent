@@ -1,0 +1,71 @@
+{
+  "schema_version": "1.0.0",
+  "source_path": "/volume2/daedalus/datasets/daedalus-agent/frontend/public/icons/icon-512x512.png",
+  "file_sha256": "ea346e31159c60f2b74c2b22d8b49fefb4032f6fd886634b05dc885a677ec2b3",
+  "file_size_bytes": 169862,
+  "file_mtime_rfc3339": "2026-04-08T12:37:11.113191401Z",
+  "original_mime_type": "image/png",
+  "width": 512,
+  "height": 512,
+  "processing_model": "Qwen/Qwen3.6-35B-A3B-FP8",
+  "model_version": "Qwen/Qwen3.6-35B-A3B-FP8",
+  "prompt_version": "2026-05-02.a",
+  "processed_at_rfc3339": "2026-05-15T23:16:26.278140286Z",
+  "processing_duration_ms": 6055,
+  "raw_response": "{\n  \"caption\": \"A classical marble sculpture of a seated male figure, likely a blacksmith or craftsman, working with a hammer and anvil.\",\n  \"description\": \"This image features a monochromatic photograph of a classical marble sculpture depicting a muscular, bearded man seated in profile. He is draped in a toga-like garment that leaves his right shoulder and arm bare, highlighting his physical strength. The figure is captured in the act of hammering a piece of metal on a small anvil, holding a hammer in his right hand and the workpiece in his left. The sculpture is set against a stark black background, emphasizing the texture and form of the stone.\",\n  \"tags\": [\n    \"sculpture\",\n    \"marble\",\n    \"classical\",\n    \"ancient\",\n    \"statue\",\n    \"blacksmith\",\n    \"craftsman\",\n    \"hammer\",\n    \"anvil\",\n    \"male\",\n    \"bearded\",\n    \"toga\",\n    \"muscular\",\n    \"seated\",\n    \"work\",\n    \"art\",\n    \"monochrome\",\n    \"black background\",\n    \"detail\",\n    \"texture\"\n  ],\n  \"scene\": \"A close-up studio shot of a classical sculpture against a black background.\",\n  \"setting_type\": \"studio\",\n  \"detected_text\": [],\n  \"dominant_colors\": [\n    \"white\",\n    \"gray\",\n    \"black\",\n    \"off-white\"\n  ],\n  \"people\": [\n    {\n      \"count_estimate\": 1,\n      \"apparent_age_range\": \"adult\",\n      \"activity\": \"hammering metal on an anvil\"\n    }\n  ],\n  \"objects\": [\n    \"hammer\",\n    \"anvil\",\n    \"sculpture\",\n    \"toga\",\n    \"beard\"\n  ],\n  \"quality\": {\n    \"sharpness\": \"sharp\",\n    \"exposure\": \"balanced\",\n    \"composition\": \"The figure is centered and fills most of the frame, with the black background isolating the subject.\",\n    \"overall_score\": 8\n  }\n}",
+  "content": {
+    "caption": "A classical marble sculpture of a seated male figure, likely a blacksmith or craftsman, working with a hammer and anvil.",
+    "description": "This image features a monochromatic photograph of a classical marble sculpture depicting a muscular, bearded man seated in profile. He is draped in a toga-like garment that leaves his right shoulder and arm bare, highlighting his physical strength. The figure is captured in the act of hammering a piece of metal on a small anvil, holding a hammer in his right hand and the workpiece in his left. The sculpture is set against a stark black background, emphasizing the texture and form of the stone.",
+    "tags": [
+      "sculpture",
+      "marble",
+      "classical",
+      "ancient",
+      "statue",
+      "blacksmith",
+      "craftsman",
+      "hammer",
+      "anvil",
+      "male",
+      "bearded",
+      "toga",
+      "muscular",
+      "seated",
+      "work",
+      "art",
+      "monochrome",
+      "black background",
+      "detail",
+      "texture"
+    ],
+    "scene": "A close-up studio shot of a classical sculpture against a black background.",
+    "setting_type": "studio",
+    "detected_text": [],
+    "dominant_colors": [
+      "white",
+      "gray",
+      "black",
+      "off-white"
+    ],
+    "people": [
+      {
+        "count_estimate": 1,
+        "apparent_age_range": "adult",
+        "activity": "hammering metal on an anvil"
+      }
+    ],
+    "objects": [
+      "hammer",
+      "anvil",
+      "sculpture",
+      "toga",
+      "beard"
+    ],
+    "quality": {
+      "sharpness": "sharp",
+      "exposure": "balanced",
+      "composition": "The figure is centered and fills most of the frame, with the black background isolating the subject.",
+      "overall_score": 8
+    }
+  }
+}

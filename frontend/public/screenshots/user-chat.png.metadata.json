@@ -1,0 +1,82 @@
+{
+  "schema_version": "1.0.0",
+  "source_path": "/volume2/daedalus/datasets/daedalus-agent/frontend/public/screenshots/user-chat.png",
+  "file_sha256": "d4e79b92d4e85cb5e0033b0bd94b1421691011112608cef3f60b46ef066b2b33",
+  "file_size_bytes": 326429,
+  "file_mtime_rfc3339": "2026-04-08T12:37:11.133191556Z",
+  "original_mime_type": "image/png",
+  "width": 1878,
+  "height": 2048,
+  "processing_model": "Qwen/Qwen3.6-35B-A3B-FP8",
+  "model_version": "Qwen/Qwen3.6-35B-A3B-FP8",
+  "prompt_version": "2026-05-02.a",
+  "processed_at_rfc3339": "2026-05-15T23:16:30.660737782Z",
+  "processing_duration_ms": 5846,
+  "raw_response": "{\n  \"caption\": \"A screenshot of the Daedalus AI chat interface featuring a dark theme, a sidebar with conversation history, and a central greeting with a classical statue image.\",\n  \"description\": \"This image displays the user interface of a web application named Daedalus, likely an AI chatbot or assistant. The layout consists of a dark-themed sidebar on the left containing navigation options like 'New chat', search, and conversation history, while the main content area features a welcoming message, 'How can I help you today?', accompanied by an image of a classical statue. The interface includes a text input field at the bottom for user queries and a prominent green header bar.\",\n  \"tags\": [\n    \"daedalus\",\n    \"ai\",\n    \"chatbot\",\n    \"interface\",\n    \"ui\",\n    \"screenshot\",\n    \"dark-mode\",\n    \"sidebar\",\n    \"conversation\",\n    \"statue\",\n    \"classical\",\n    \"technology\",\n    \"software\",\n    \"web-app\",\n    \"greeting\",\n    \"input-field\",\n    \"green-accent\"\n  ],\n  \"scene\": \"A digital user interface of an AI assistant application.\",\n  \"setting_type\": \"studio\",\n  \"detected_text\": [\n    \"Daedalus\",\n    \"New chat\",\n    \"Search...\",\n    \"New Conversation\",\n    \"Using this podcast transcript ...\",\n    \"Deep Thoughts by Daedalus\",\n    \"Tool-Calling\",\n    \"Deep Thinker\",\n    \"How can I help you today?\",\n    \"Ask anything — I can help with research, analysis, code, and creative tasks.\",\n    \"Run my daily briefing\",\n    \"Clear conversations\",\n    \"Export data\",\n    \"Settings\",\n    \"Help\",\n    \"Logged in as: Brandon Tuttle\",\n    \"Logout\",\n    \"Type a message...\"\n  ],\n  \"dominant_colors\": [\n    \"#000000\",\n    \"#1a1a1a\",\n    \"#76c000\",\n    \"#ffffff\",\n    \"#808080\"\n  ],\n  \"people\": [],\n  \"objects\": [\n    \"statue\",\n    \"sidebar\",\n    \"buttons\",\n    \"text-input\",\n    \"icons\"\n  ],\n  \"quality\": {\n    \"sharpness\": \"sharp\",\n    \"exposure\": \"balanced\",\n    \"composition\": \"centered layout with sidebar navigation\",\n    \"overall_score\": 9\n  }\n}",
+  "content": {
+    "caption": "A screenshot of the Daedalus AI chat interface featuring a dark theme, a sidebar with conversation history, and a central greeting with a classical statue image.",
+    "description": "This image displays the user interface of a web application named Daedalus, likely an AI chatbot or assistant. The layout consists of a dark-themed sidebar on the left containing navigation options like 'New chat', search, and conversation history, while the main content area features a welcoming message, 'How can I help you today?', accompanied by an image of a classical statue. The interface includes a text input field at the bottom for user queries and a prominent green header bar.",
+    "tags": [
+      "daedalus",
+      "ai",
+      "chatbot",
+      "interface",
+      "ui",
+      "screenshot",
+      "dark-mode",
+      "sidebar",
+      "conversation",
+      "statue",
+      "classical",
+      "technology",
+      "software",
+      "web-app",
+      "greeting",
+      "input-field",
+      "green-accent"
+    ],
+    "scene": "A digital user interface of an AI assistant application.",
+    "setting_type": "studio",
+    "detected_text": [
+      "Daedalus",
+      "New chat",
+      "Search...",
+      "New Conversation",
+      "Using this podcast transcript ...",
+      "Deep Thoughts by Daedalus",
+      "Tool-Calling",
+      "Deep Thinker",
+      "How can I help you today?",
+      "Ask anything — I can help with research, analysis, code, and creative tasks.",
+      "Run my daily briefing",
+      "Clear conversations",
+      "Export data",
+      "Settings",
+      "Help",
+      "Logged in as: Brandon Tuttle",
+      "Logout",
+      "Type a message..."
+    ],
+    "dominant_colors": [
+      "#000000",
+      "#1a1a1a",
+      "#76c000",
+      "#ffffff",
+      "#808080"
+    ],
+    "people": [],
+    "objects": [
+      "statue",
+      "sidebar",
+      "buttons",
+      "text-input",
+      "icons"
+    ],
+    "quality": {
+      "sharpness": "sharp",
+      "exposure": "balanced",
+      "composition": "centered layout with sidebar navigation",
+      "overall_score": 9
+    }
+  }
+}

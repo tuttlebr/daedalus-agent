@@ -1,0 +1,63 @@
+{
+  "schema_version": "1.0.0",
+  "source_path": "/volume2/daedalus/datasets/daedalus-agent/frontend/public/icons/icon-32x32.png",
+  "file_sha256": "3ffa52bed5db875ce73cd8dccfc7fdc11e5076a3ae3355d07b18dedb57bd9d24",
+  "file_size_bytes": 2253,
+  "file_mtime_rfc3339": "2026-04-08T12:37:11.103191323Z",
+  "original_mime_type": "image/png",
+  "width": 32,
+  "height": 32,
+  "processing_model": "Qwen/Qwen3.6-35B-A3B-FP8",
+  "model_version": "Qwen/Qwen3.6-35B-A3B-FP8",
+  "prompt_version": "2026-05-02.a",
+  "processed_at_rfc3339": "2026-05-15T23:16:22.118995529Z",
+  "processing_duration_ms": 4060,
+  "raw_response": "{\n  \"caption\": \"A monochromatic, low-resolution image of a seated figure hunched over a surface, possibly working or resting.\",\n  \"description\": \"This is a grainy, black-and-white image depicting a solitary figure seated in profile, facing right. The person appears to be hunched over a table or desk, with their head bowed down, suggesting an activity like writing, eating, or resting. The image quality is very low, resembling a pixelated icon or a heavily compressed thumbnail, which obscures fine details of the clothing and surroundings.\",\n  \"tags\": [\n    \"monochrome\",\n    \"silhouette\",\n    \"seated figure\",\n    \"hunched\",\n    \"low resolution\",\n    \"pixelated\",\n    \"solitary\",\n    \"profile\",\n    \"desk\",\n    \"table\",\n    \"work\",\n    \"rest\",\n    \"grainy\",\n    \"black and white\",\n    \"icon\"\n  ],\n  \"scene\": \"A solitary figure seated at a desk or table, head bowed.\",\n  \"setting_type\": \"indoor\",\n  \"detected_text\": [],\n  \"dominant_colors\": [\n    \"black\",\n    \"white\",\n    \"gray\"\n  ],\n  \"people\": [\n    {\n      \"count_estimate\": 1,\n      \"apparent_age_range\": \"adult\",\n      \"activity\": \"seated and hunched over a surface\"\n    }\n  ],\n  \"objects\": [\n    \"table\",\n    \"desk\",\n    \"figure\"\n  ],\n  \"quality\": {\n    \"sharpness\": \"blurry\",\n    \"exposure\": \"balanced\",\n    \"composition\": \"centered subject in profile\",\n    \"overall_score\": 3\n  }\n}",
+  "content": {
+    "caption": "A monochromatic, low-resolution image of a seated figure hunched over a surface, possibly working or resting.",
+    "description": "This is a grainy, black-and-white image depicting a solitary figure seated in profile, facing right. The person appears to be hunched over a table or desk, with their head bowed down, suggesting an activity like writing, eating, or resting. The image quality is very low, resembling a pixelated icon or a heavily compressed thumbnail, which obscures fine details of the clothing and surroundings.",
+    "tags": [
+      "monochrome",
+      "silhouette",
+      "seated figure",
+      "hunched",
+      "low resolution",
+      "pixelated",
+      "solitary",
+      "profile",
+      "desk",
+      "table",
+      "work",
+      "rest",
+      "grainy",
+      "black and white",
+      "icon"
+    ],
+    "scene": "A solitary figure seated at a desk or table, head bowed.",
+    "setting_type": "indoor",
+    "detected_text": [],
+    "dominant_colors": [
+      "black",
+      "white",
+      "gray"
+    ],
+    "people": [
+      {
+        "count_estimate": 1,
+        "apparent_age_range": "adult",
+        "activity": "seated and hunched over a surface"
+      }
+    ],
+    "objects": [
+      "table",
+      "desk",
+      "figure"
+    ],
+    "quality": {
+      "sharpness": "blurry",
+      "exposure": "balanced",
+      "composition": "centered subject in profile",
+      "overall_score": 3
+    }
+  }
+}

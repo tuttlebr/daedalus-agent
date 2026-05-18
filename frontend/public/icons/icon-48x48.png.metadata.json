@@ -1,0 +1,65 @@
+{
+  "schema_version": "1.0.0",
+  "source_path": "/volume2/daedalus/datasets/daedalus-agent/frontend/public/icons/icon-48x48.png",
+  "file_sha256": "eda75e14e286a4865fc3cb86c740dbac529fd499086a5effb6c6dfdd112af3ec",
+  "file_size_bytes": 4386,
+  "file_mtime_rfc3339": "2026-04-08T12:37:11.103191323Z",
+  "original_mime_type": "image/png",
+  "width": 48,
+  "height": 48,
+  "processing_model": "Qwen/Qwen3.6-35B-A3B-FP8",
+  "model_version": "Qwen/Qwen3.6-35B-A3B-FP8",
+  "prompt_version": "2026-05-02.a",
+  "processed_at_rfc3339": "2026-05-15T23:16:13.496352349Z",
+  "processing_duration_ms": 4163,
+  "raw_response": "{\n  \"caption\": \"A monochrome image of a sculpted figure hunched over a workbench, appearing to carve or chisel a block of stone.\",\n  \"description\": \"This is a high-contrast, monochrome image depicting a figure that resembles a classical sculpture or relief carving. The subject is seated and hunched forward, holding a hammer and chisel, actively working on a block of material on a table. The lighting creates deep shadows, emphasizing the texture and form of the figure's muscular build and the tools in hand.\",\n  \"tags\": [\n    \"sculpture\",\n    \"carving\",\n    \"stone\",\n    \"hammer\",\n    \"chisel\",\n    \"monochrome\",\n    \"art\",\n    \"craftsman\",\n    \"relief\",\n    \"workshop\",\n    \"muscular\",\n    \"seated\",\n    \"tool\",\n    \"black and white\",\n    \"statue\"\n  ],\n  \"scene\": \"A craftsman or sculptor working on a piece of stone.\",\n  \"setting_type\": \"indoor\",\n  \"detected_text\": [],\n  \"dominant_colors\": [\n    \"black\",\n    \"white\",\n    \"gray\"\n  ],\n  \"people\": [\n    {\n      \"count_estimate\": 1,\n      \"apparent_age_range\": \"adult\",\n      \"activity\": \"carving stone\"\n    }\n  ],\n  \"objects\": [\n    \"hammer\",\n    \"chisel\",\n    \"stone block\",\n    \"workbench\",\n    \"sculpture\"\n  ],\n  \"quality\": {\n    \"sharpness\": \"slightly soft\",\n    \"exposure\": \"balanced\",\n    \"composition\": \"centered subject with high contrast\",\n    \"overall_score\": 6\n  }\n}",
+  "content": {
+    "caption": "A monochrome image of a sculpted figure hunched over a workbench, appearing to carve or chisel a block of stone.",
+    "description": "This is a high-contrast, monochrome image depicting a figure that resembles a classical sculpture or relief carving. The subject is seated and hunched forward, holding a hammer and chisel, actively working on a block of material on a table. The lighting creates deep shadows, emphasizing the texture and form of the figure's muscular build and the tools in hand.",
+    "tags": [
+      "sculpture",
+      "carving",
+      "stone",
+      "hammer",
+      "chisel",
+      "monochrome",
+      "art",
+      "craftsman",
+      "relief",
+      "workshop",
+      "muscular",
+      "seated",
+      "tool",
+      "black and white",
+      "statue"
+    ],
+    "scene": "A craftsman or sculptor working on a piece of stone.",
+    "setting_type": "indoor",
+    "detected_text": [],
+    "dominant_colors": [
+      "black",
+      "white",
+      "gray"
+    ],
+    "people": [
+      {
+        "count_estimate": 1,
+        "apparent_age_range": "adult",
+        "activity": "carving stone"
+      }
+    ],
+    "objects": [
+      "hammer",
+      "chisel",
+      "stone block",
+      "workbench",
+      "sculpture"
+    ],
+    "quality": {
+      "sharpness": "slightly soft",
+      "exposure": "balanced",
+      "composition": "centered subject with high contrast",
+      "overall_score": 6
+    }
+  }
+}

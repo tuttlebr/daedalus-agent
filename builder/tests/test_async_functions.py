@@ -1182,3 +1182,82 @@ class TestRssFeedInnerFunctions:
             "api key" in result.get("error", "").lower()
             or "key" in result.get("error", "").lower()
         )
+
+    def test_rss_search_sends_compact_reranker_passages(self):
+        """Large RSS descriptions are compacted before reranking."""
+
+        async def _run():
+            import rss_feed.rss_feed_function as rss_mod
+            from rss_feed.rss_feed_function import rss_feed_function
+
+            config = self._make_config(
+                reranker_api_key="test-key",
+                reranker_max_passage_tokens=32,
+            )
+            real_cache = {}
+
+            def fake_ttlcache(maxsize, ttl):
+                return real_cache
+
+            with patch.object(rss_mod, "TTLCache", side_effect=fake_ttlcache):
+                fn_infos = []
+                async for item in rss_feed_function(config, MagicMock()):
+                    fn_infos.append(item)
+
+            mock_feed_response = MagicMock()
+            mock_feed_response.text = "<rss></rss>"
+            mock_feed_response.raise_for_status = MagicMock()
+
+            mock_rerank_response = MagicMock()
+            mock_rerank_response.status_code = 200
+            mock_rerank_response.raise_for_status = MagicMock()
+            mock_rerank_response.json.return_value = {
+                "rankings": [{"index": 1, "logit": 10.0}, {"index": 0, "logit": 1.0}]
+            }
+
+            mock_client = AsyncMock()
+            mock_client.get = AsyncMock(return_value=mock_feed_response)
+            mock_client.post = AsyncMock(return_value=mock_rerank_response)
+            mock_cm = AsyncMock()
+            mock_cm.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_cm.__aexit__ = AsyncMock(return_value=None)
+
+            mock_parsed = MagicMock()
+            mock_parsed.entries = [
+                {
+                    "title": "Verbose article",
+                    "link": "https://example.com/verbose",
+                    "description": "<p>" + ("word " * 2000) + "</p>",
+                },
+                {
+                    "title": "Relevant article",
+                    "link": "https://example.com/relevant",
+                    "description": "Relevant summary",
+                },
+            ]
+
+            with patch(
+                "rss_feed.rss_feed_function.httpx.AsyncClient", return_value=mock_cm
+            ):
+                with patch(
+                    "rss_feed.rss_feed_function.fastfeedparser.parse",
+                    return_value=mock_parsed,
+                ):
+                    with patch.object(
+                        rss_mod,
+                        "_scrape_content",
+                        return_value=("# Relevant", False),
+                    ):
+                        search_fn = fn_infos[0].fn
+                        result = await search_fn({"query": "AI news"})
+
+            payload = mock_client.post.call_args.kwargs["json"]
+            return result, payload
+
+        result, payload = run(_run())
+
+        assert result["success"] is True
+        assert result["top_result"]["title"] == "Relevant article"
+        assert len(payload["passages"]) == 2
+        assert "<p>" not in payload["passages"][0]["text"]
+        assert len(payload["passages"][0]["text"]) <= 32 * 4

@@ -1,0 +1,65 @@
+{
+  "schema_version": "1.0.0",
+  "source_path": "/volume2/daedalus/datasets/daedalus-agent/frontend/public/icons/icon-152x152.png",
+  "file_sha256": "68dc3f9ae48054b935fad1f1b4ad9a99cfd131fd0f75e8ce0217ce9be0ee951a",
+  "file_size_bytes": 27372,
+  "file_mtime_rfc3339": "2026-04-08T12:37:11.093191246Z",
+  "original_mime_type": "image/png",
+  "width": 152,
+  "height": 152,
+  "processing_model": "Qwen/Qwen3.6-35B-A3B-FP8",
+  "model_version": "Qwen/Qwen3.6-35B-A3B-FP8",
+  "prompt_version": "2026-05-02.a",
+  "processed_at_rfc3339": "2026-05-15T23:16:16.068113273Z",
+  "processing_duration_ms": 4457,
+  "raw_response": "{\n  \"caption\": \"A monochrome photograph of a classical statue depicting a seated male figure working with a hammer and chisel.\",\n  \"description\": \"This image features a black and white photograph of a classical sculpture, likely made of marble or stone. The figure is a muscular male with curly hair, draped in a cloth over his lower body, seated and leaning forward. He is holding a hammer in his right hand and appears to be striking a chisel or working on a block of material resting on a small table or anvil. The background is solid black, isolating the statue and emphasizing its form and texture.\",\n  \"tags\": [\n    \"statue\",\n    \"sculpture\",\n    \"classical\",\n    \"marble\",\n    \"black and white\",\n    \"monochrome\",\n    \"hammer\",\n    \"chisel\",\n    \"artisan\",\n    \"blacksmith\",\n    \"seated\",\n    \"muscular\",\n    \"draped\",\n    \"art\",\n    \"craftsmanship\"\n  ],\n  \"scene\": \"A close-up studio shot of a classical statue against a black background.\",\n  \"setting_type\": \"studio\",\n  \"detected_text\": [],\n  \"dominant_colors\": [\n    \"black\",\n    \"white\",\n    \"gray\"\n  ],\n  \"people\": [\n    {\n      \"count_estimate\": 1,\n      \"apparent_age_range\": \"adult\",\n      \"activity\": \"working with a hammer\"\n    }\n  ],\n  \"objects\": [\n    \"hammer\",\n    \"chisel\",\n    \"table\",\n    \"drapery\",\n    \"statue\"\n  ],\n  \"quality\": {\n    \"sharpness\": \"sharp\",\n    \"exposure\": \"balanced\",\n    \"composition\": \"centered subject with high contrast against a dark background\",\n    \"overall_score\": 8\n  }\n}",
+  "content": {
+    "caption": "A monochrome photograph of a classical statue depicting a seated male figure working with a hammer and chisel.",
+    "description": "This image features a black and white photograph of a classical sculpture, likely made of marble or stone. The figure is a muscular male with curly hair, draped in a cloth over his lower body, seated and leaning forward. He is holding a hammer in his right hand and appears to be striking a chisel or working on a block of material resting on a small table or anvil. The background is solid black, isolating the statue and emphasizing its form and texture.",
+    "tags": [
+      "statue",
+      "sculpture",
+      "classical",
+      "marble",
+      "black and white",
+      "monochrome",
+      "hammer",
+      "chisel",
+      "artisan",
+      "blacksmith",
+      "seated",
+      "muscular",
+      "draped",
+      "art",
+      "craftsmanship"
+    ],
+    "scene": "A close-up studio shot of a classical statue against a black background.",
+    "setting_type": "studio",
+    "detected_text": [],
+    "dominant_colors": [
+      "black",
+      "white",
+      "gray"
+    ],
+    "people": [
+      {
+        "count_estimate": 1,
+        "apparent_age_range": "adult",
+        "activity": "working with a hammer"
+      }
+    ],
+    "objects": [
+      "hammer",
+      "chisel",
+      "table",
+      "drapery",
+      "statue"
+    ],
+    "quality": {
+      "sharpness": "sharp",
+      "exposure": "balanced",
+      "composition": "centered subject with high contrast against a dark background",
+      "overall_score": 8
+    }
+  }
+}
