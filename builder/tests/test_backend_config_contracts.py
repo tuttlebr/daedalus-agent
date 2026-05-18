@@ -144,7 +144,7 @@ def test_deployed_tool_surface_is_optimized():
         assert not forbidden_tools & set(functions), path
         assert not forbidden_tools & set(workflow_tools), path
 
-        assert _effective_operation_count(config, workflow_tools) <= 13, path
+        assert _effective_operation_count(config, workflow_tools) <= 14, path
         assert (
             _effective_operation_count(
                 config, functions["research_agent"]["tool_names"]
@@ -156,6 +156,12 @@ def test_deployed_tool_surface_is_optimized():
             <= 15
         ), path
         assert (
+            _effective_operation_count(
+                config, functions["nvidia_docs_agent"]["tool_names"]
+            )
+            <= 14
+        ), path
+        assert (
             _effective_operation_count(config, functions["media_agent"]["tool_names"])
             <= 2
         ), path
@@ -165,6 +171,55 @@ def test_deployed_tool_surface_is_optimized():
             )
             <= 10
         ), path
+
+
+def test_tool_calling_agents_use_resilient_runner():
+    agent_names = [
+        "research_agent",
+        "nvidia_docs_agent",
+        "ops_agent",
+        "media_agent",
+        "user_data_agent",
+    ]
+    for path in DEPLOYED_CONFIGS:
+        config = _config(path)
+        assert config["workflow"]["_type"] == "tool_calling_agent_resilient", path
+        for name in agent_names:
+            assert (
+                config["functions"][name]["_type"] == "tool_calling_agent_resilient"
+            ), (path, name)
+
+
+def test_return_direct_tools_are_exposed_to_their_agents():
+    expected = {
+        "workflow": ["user_interaction_tool"],
+        "ops_agent": ["ops_confirmation_tool"],
+    }
+    for path in DEPLOYED_CONFIGS:
+        config = _config(path)
+        workflow_tools = set(config["workflow"]["tool_names"])
+        for tool_name in expected["workflow"]:
+            assert tool_name in workflow_tools, path
+        assert config["workflow"]["return_direct"] == expected["workflow"], path
+
+        ops_agent = config["functions"]["ops_agent"]
+        ops_tools = set(ops_agent["tool_names"])
+        for tool_name in expected["ops_agent"]:
+            assert tool_name in ops_tools, path
+        assert ops_agent["return_direct"] == expected["ops_agent"], path
+
+
+def test_user_data_agent_does_not_advertise_unconfigured_gmail_writes():
+    for path in DEPLOYED_CONFIGS:
+        config = _config(path)
+        user_data = config["functions"]["user_data_agent"]
+        exposed_ops = set(_effective_operations(config, "gmail_mcp_server"))
+        text = (
+            user_data.get("description", "") + "\n" + user_data.get("system_prompt", "")
+        ).lower()
+
+        assert "create_draft" not in exposed_ops, path
+        assert "draft" not in text, path
 
 
 def test_google_workspace_mcp_uses_per_user_oauth():
@@ -236,12 +291,14 @@ def test_interactive_extensions_are_enabled_for_mcp_oauth():
 def test_restricted_nginx_allows_oauth_redirect_callback():
     template = NGINX_TEMPLATE.read_text(encoding="utf-8")
     callback_location = "location = /auth/redirect"
-    direct_api_block = "location ~ ^/(v1|generate|chat|evaluate|upload|tools|health|auth)/"
+    direct_api_block = (
+        "location ~ ^/(v1|generate|chat|evaluate|upload|tools|health|auth)/"
+    )
 
     assert callback_location in template
     assert direct_api_block in template
     assert template.index(callback_location) < template.index(direct_api_block)
-    assert 'proxy_pass {{ ._backendDefaultUpstream }};' in template
+    assert "proxy_pass {{ ._backendDefaultUpstream }};" in template
 
 
 def test_restricted_nginx_cilium_policy_allows_oauth_callback_upstream():
@@ -307,7 +364,8 @@ def test_top_level_workflow_exposes_source_verifier_when_add_memory_requires_it(
 
 def test_mas_evaluate_uses_effective_routing_domains_not_global_tool_catalog():
     expected = (
-        'active_tool_names="research_agent,ops_agent,media_agent,user_data_agent"'
+        'active_tool_names="research_agent,nvidia_docs_agent,ops_agent,'
+        'media_agent,user_data_agent"'
     )
     forbidden = "nvidia_retriever_tool,semianalysis_retriever_tool"
     for path in DEPLOYED_CONFIGS:

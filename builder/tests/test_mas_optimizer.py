@@ -218,6 +218,7 @@ class TestTaskAnalyzer:
     def test_production_tool_catalog_counts_routing_domains(self):
         tools = [
             "research_agent",
+            "nvidia_docs_agent",
             "ops_agent",
             "media_agent",
             "user_data_agent",
@@ -236,7 +237,7 @@ class TestTaskAnalyzer:
             "visual_media_tool",
             "user_document_tool",
         ]
-        assert TaskAnalyzer.count_tools(tools) == 4
+        assert TaskAnalyzer.count_tools(tools) == 5
 
     # -- Sequential interdependence tests --------------------------------
 
@@ -401,7 +402,10 @@ class TestTaskAnalyzer:
         )
         assert result.mas_eligible is False
         assert "single-domain request" in result.reason
-        assert result.bypass_reason == "single-domain request should use SAS/specialist routing"
+        assert (
+            result.bypass_reason
+            == "single-domain request should use SAS/specialist routing"
+        )
 
     def test_coding_debug_request_stays_single_agent(self):
         analyzer = TaskAnalyzer(decomposability_threshold=0.01)
@@ -507,6 +511,7 @@ class TestMasOptimizerFunction:
                 ),
                 active_tool_names=(
                     "research_agent,ops_agent,media_agent,user_data_agent,"
+                    "nvidia_docs_agent,"
                     "agent_skills_tool,get_memory,add_memory,user_interaction_tool,"
                     "ops_confirmation_tool,current_datetime_tool,domain_retriever_tool,"
                     "curated_feed_search_tool,serpapi_search_tool,webscrape_tool,"
@@ -519,7 +524,7 @@ class TestMasOptimizerFunction:
             assert data["recommendation"] == "MAS"
             assert data["capability_gate"]["has_calibration"] is False
             assert data["capability_gate"]["sample_count"] == 0
-            assert data["task_analysis"]["tool_count"] == 4
+            assert data["task_analysis"]["tool_count"] == 5
             assert data["architecture"]["skill_name"] == "mas-procedure"
             return data
 
