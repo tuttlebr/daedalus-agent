@@ -12,6 +12,9 @@ VALUES_FILE="$SCRIPT_DIR/custom-values.yaml"
 BACKEND_CONFIG="$SCRIPT_DIR/backend/tool-calling-config.yaml"
 SKIP_BUILD=false
 SKIP_TLS=false
+SKIP_MCP_PREFLIGHT=false
+MCP_PREFLIGHT_TIMEOUT="${MCP_PREFLIGHT_TIMEOUT:-20}"
+MCP_PREFLIGHT_KUBECTL_IMAGE="${MCP_PREFLIGHT_KUBECTL_IMAGE:-curlimages/curl:8.8.0}"
 DRY_RUN=false
 
 usage() {
@@ -29,6 +32,12 @@ Options:
   -f, --values PATH          Helm values file (default: custom-values.yaml)
       --skip-build           Skip docker compose build/push
       --skip-tls             Skip TLS secret creation
+      --skip-mcp-preflight   Skip MCP server reachability checks
+      --mcp-preflight-timeout SECONDS
+                             Per-request MCP pre-flight timeout (default: $MCP_PREFLIGHT_TIMEOUT)
+      --mcp-preflight-kubectl-image IMAGE
+                             Image used for cluster-local MCP checks
+                             (default: $MCP_PREFLIGHT_KUBECTL_IMAGE)
       --dry-run              Print what would happen without applying
   -h, --help                 Show this help and exit
 EOF
@@ -42,6 +51,9 @@ while [[ $# -gt 0 ]]; do
     -f|--values)        VALUES_FILE="$2"; shift 2 ;;
     --skip-build)       SKIP_BUILD=true; shift ;;
     --skip-tls)         SKIP_TLS=true; shift ;;
+    --skip-mcp-preflight) SKIP_MCP_PREFLIGHT=true; shift ;;
+    --mcp-preflight-timeout) MCP_PREFLIGHT_TIMEOUT="$2"; shift 2 ;;
+    --mcp-preflight-kubectl-image) MCP_PREFLIGHT_KUBECTL_IMAGE="$2"; shift 2 ;;
     --dry-run)          DRY_RUN=true; shift ;;
     -h|--help)          usage; exit 0 ;;
     *)                  echo "Unknown option: $1" >&2; usage >&2; exit 1 ;;
@@ -92,6 +104,23 @@ if [[ -f "$ENV_FILE" ]]; then
   done
 else
   echo "WARNING: $ENV_FILE not found -- skipping secret creation" >&2
+fi
+
+# -------------------------------------------------------------------
+# Pre-flight MCP reachability checks
+# -------------------------------------------------------------------
+if [[ "$SKIP_MCP_PREFLIGHT" == false ]]; then
+  if [[ -f "$BACKEND_CONFIG" ]]; then
+    log "Checking MCP server reachability"
+    run python3 "$SCRIPT_DIR/scripts/check_mcp_servers.py" \
+      --config "$BACKEND_CONFIG" \
+      --env-file "$ENV_FILE" \
+      --kubernetes-namespace "$NAMESPACE" \
+      --kubectl-image "$MCP_PREFLIGHT_KUBECTL_IMAGE" \
+      --timeout "$MCP_PREFLIGHT_TIMEOUT"
+  else
+    echo "WARNING: $BACKEND_CONFIG not found -- skipping MCP pre-flight" >&2
+  fi
 fi
 
 # -------------------------------------------------------------------

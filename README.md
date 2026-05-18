@@ -148,8 +148,17 @@ Useful flags:
 ./deploy.sh --dry-run
 ./deploy.sh --skip-build
 ./deploy.sh --skip-tls
+./deploy.sh --skip-mcp-preflight
+./deploy.sh --mcp-preflight-timeout 30
+./deploy.sh --mcp-preflight-kubectl-image curlimages/curl:8.8.0
 ./deploy.sh -n daedalus -r daedalus
 ```
+
+`deploy.sh` runs an MCP pre-flight before Helm. It checks every
+`streamable-http` MCP server in `backend/tool-calling-config.yaml`, verifies
+that configured `include` tools are advertised by `tools/list`, and runs
+cluster-local URLs such as `*.svc.cluster.local` from a short-lived Kubernetes
+curl pod in the target namespace.
 
 ### Manual Helm path
 

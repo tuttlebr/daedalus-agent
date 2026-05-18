@@ -302,74 +302,6 @@ function_groups:
     server:
       transport: streamable-http
       url: https://docs.nvidia.com/dsx/_mcp/server
-  nemo_gym_mcp_server:
-    _type: mcp_client
-    include:
-      - searchDocs
-    tool_call_timeout: 45
-    reconnect_enabled: true
-    reconnect_max_attempts: 3
-    session_idle_timeout: 600
-    tool_overrides:
-      searchDocs:
-        description: >-
-          Search NVIDIA NeMo Gym docs. Args: query.
-          Returns: doc passages. Use for NeMo Gym-specific API/config
-          questions.
-    server:
-      transport: streamable-http
-      url: https://docs.nvidia.com/nemo/gym/_mcp/server
-  aicr_mcp_server:
-    _type: mcp_client
-    include:
-      - searchDocs
-    tool_call_timeout: 45
-    reconnect_enabled: true
-    reconnect_max_attempts: 3
-    session_idle_timeout: 600
-    tool_overrides:
-      searchDocs:
-        description: >-
-          Search NVIDIA AI Cluster Runtime docs. Args: query.
-          Returns: doc passages. Use for AI Cluster Runtime-specific
-          API/config questions.
-    server:
-      transport: streamable-http
-      url: https://docs.nvidia.com/aicr/_mcp/server
-  nvsentinel_mcp_server:
-    _type: mcp_client
-    include:
-      - searchDocs
-    tool_call_timeout: 45
-    reconnect_enabled: true
-    reconnect_max_attempts: 3
-    session_idle_timeout: 600
-    tool_overrides:
-      searchDocs:
-        description: >-
-          Search NVIDIA NVSentinel docs. Args: query.
-          Returns: doc passages. Use for NVSentinel-specific API/config
-          questions.
-    server:
-      transport: streamable-http
-      url: https://docs.nvidia.com/nvsentinel/_mcp/server
-  topograph_mcp_server:
-    _type: mcp_client
-    include:
-      - searchDocs
-    tool_call_timeout: 45
-    reconnect_enabled: true
-    reconnect_max_attempts: 3
-    session_idle_timeout: 600
-    tool_overrides:
-      searchDocs:
-        description: >-
-          Search NVIDIA Topograph docs. Args: query.
-          Returns: doc passages. Use for Topograph-specific API/config
-          questions.
-    server:
-      transport: streamable-http
-      url: https://docs.nvidia.com/topograph/_mcp/server
   k8s_mcp_server:
     _type: mcp_client
     include:
@@ -459,18 +391,13 @@ functions:
       - nvcf_mcp_server
       - infra_controller_mcp_server
       - dsx_mcp_server
-      - nemo_gym_mcp_server
-      - aicr_mcp_server
-      - nvsentinel_mcp_server
-      - topograph_mcp_server
     description: >-
       Search official NVIDIA product documentation through MCP. Input:
       a docs, API, configuration, deployment, or troubleshooting question
       about Dynamo, HEAVY.AI, Brev, NeMo Curator, OpenShell, AIStore,
-      AIPerf, NVIDIA Cloud Functions, Infra Controller, DSX, NeMo Gym,
-      AI Cluster Runtime, NVSentinel, or Topograph. Returns a concise
-      doc-grounded answer. Do NOT use for live Kubernetes/GitHub ops,
-      private user data, media tasks, or general web research.
+      AIPerf, NVIDIA Cloud Functions, Infra Controller, or DSX. Returns a
+      concise doc-grounded answer. Do NOT use for live Kubernetes/GitHub
+      ops, private user data, media tasks, or general web research.
     system_prompt: |
       You are Daedalus's NVIDIA product docs specialist. Use the MCP
       docs server that matches the product named by the user.
@@ -486,10 +413,6 @@ functions:
       - NVIDIA Cloud Functions or NVCF -> nvcf_mcp_server
       - Infra Controller -> infra_controller_mcp_server
       - DSX -> dsx_mcp_server
-      - NeMo Gym -> nemo_gym_mcp_server
-      - AI Cluster Runtime or AICR -> aicr_mcp_server
-      - NVSentinel -> nvsentinel_mcp_server
-      - Topograph -> topograph_mcp_server
 
       For cross-product questions, search only the relevant product
       docs. If the product is ambiguous among the listed docs, ask one
