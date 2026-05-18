@@ -649,6 +649,54 @@ const SectionHeader: React.FC<{
   </div>
 );
 
+interface PaginatedSectionProps<T> {
+  icon: React.ReactNode;
+  title: string;
+  items: T[];
+  initialCount: number;
+  renderItem: (item: T, index: number) => React.ReactNode;
+  containerClass?: string;
+}
+
+function PaginatedSection<T>({
+  icon,
+  title,
+  items,
+  initialCount,
+  renderItem,
+  containerClass,
+}: PaginatedSectionProps<T>) {
+  const [expanded, setExpanded] = useState(false);
+  const visible = expanded ? items : items.slice(0, initialCount);
+  const hidden = items.length - visible.length;
+  return (
+    <div>
+      <SectionHeader icon={icon} title={title} />
+      <div className={containerClass}>{visible.map(renderItem)}</div>
+      {hidden > 0 && (
+        <button
+          type="button"
+          onClick={() => setExpanded(true)}
+          className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-nvidia-green hover:text-nvidia-green/80"
+        >
+          <IconChevronDown size={14} />
+          Show {hidden} more
+        </button>
+      )}
+      {expanded && items.length > initialCount && (
+        <button
+          type="button"
+          onClick={() => setExpanded(false)}
+          className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
+        >
+          <IconChevronUp size={14} />
+          Show fewer
+        </button>
+      )}
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Main Component
 // ---------------------------------------------------------------------------
@@ -694,14 +742,14 @@ const SearchResults: React.FC<SearchResultsProps> = ({ payload }) => {
 
       {/* Organic Results */}
       {payload.organic_results && payload.organic_results.length > 0 && (
-        <div>
-          <SectionHeader icon={<IconSearch className="w-4 h-4" />} title="Web Results" />
-          <div className="divide-y divide-gray-100 dark:divide-gray-700/50">
-            {payload.organic_results.map((r, i) => (
-              <OrganicResultCard key={i} result={r} />
-            ))}
-          </div>
-        </div>
+        <PaginatedSection
+          icon={<IconSearch className="w-4 h-4" />}
+          title="Web Results"
+          items={payload.organic_results}
+          initialCount={10}
+          renderItem={(r, i) => <OrganicResultCard key={i} result={r} />}
+          containerClass="divide-y divide-gray-100 dark:divide-gray-700/50"
+        />
       )}
 
       {/* Images */}
@@ -741,14 +789,14 @@ const SearchResults: React.FC<SearchResultsProps> = ({ payload }) => {
 
       {/* Videos */}
       {payload.video_results && payload.video_results.length > 0 && (
-        <div>
-          <SectionHeader icon={<IconMovie className="w-4 h-4" />} title="Videos" />
-          <div className="divide-y divide-gray-100 dark:divide-gray-700/50">
-            {payload.video_results.map((v, i) => (
-              <VideoCard key={i} item={v} />
-            ))}
-          </div>
-        </div>
+        <PaginatedSection
+          icon={<IconMovie className="w-4 h-4" />}
+          title="Videos"
+          items={payload.video_results}
+          initialCount={6}
+          renderItem={(v, i) => <VideoCard key={i} item={v} />}
+          containerClass="divide-y divide-gray-100 dark:divide-gray-700/50"
+        />
       )}
 
       {/* Related Questions */}

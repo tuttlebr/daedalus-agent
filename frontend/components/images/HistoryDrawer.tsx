@@ -12,17 +12,21 @@ import { IconButton } from '@/components/primitives';
 import { OptimizedImage } from '@/components/chat/OptimizedImage';
 import { useImagePanelStore } from '@/state/imagePanelStore';
 import { loadImageHistory } from './ImagePanel';
+import { useInvalidateImageHistory } from '@/utils/app/queries';
 
 async function deleteImageHistoryEntry(id: string): Promise<void> {
   const res = await fetch(
     `/api/images/history?id=${encodeURIComponent(id)}`,
-    { method: 'DELETE' },
+    { method: 'DELETE', credentials: 'include' },
   );
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
 }
 
 async function clearImageHistoryRequest(): Promise<void> {
-  const res = await fetch('/api/images/history?all=1', { method: 'DELETE' });
+  const res = await fetch('/api/images/history?all=1', {
+    method: 'DELETE',
+    credentials: 'include',
+  });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
 }
 
@@ -66,6 +70,7 @@ export function HistoryDrawer() {
   const [pendingDeleteIds, setPendingDeleteIds] = useState<Set<string>>(
     () => new Set(),
   );
+  const invalidateImageHistory = useInvalidateImageHistory();
 
   useEffect(() => {
     if (!open) return;
@@ -101,6 +106,7 @@ export function HistoryDrawer() {
       removeFromHistory(id);
       try {
         await deleteImageHistoryEntry(id);
+        invalidateImageHistory();
       } catch (err) {
         console.error('Failed to delete history entry:', err);
         await reconcileFromServer();
@@ -121,6 +127,7 @@ export function HistoryDrawer() {
     clearHistory();
     try {
       await clearImageHistoryRequest();
+      invalidateImageHistory();
     } catch (err) {
       console.error('Failed to clear history:', err);
       await reconcileFromServer();

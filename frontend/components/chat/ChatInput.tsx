@@ -2,7 +2,7 @@
 
 import React, { memo, useState, useRef, useCallback, useEffect } from 'react';
 import classNames from 'classnames';
-import { IconSend, IconSquare, IconPaperclip, IconX, IconPhoto, IconFileText, IconDatabase, IconNotes } from '@tabler/icons-react';
+import { IconSend, IconSquare, IconPaperclip, IconX, IconPhoto, IconFileText, IconDatabase, IconNotes, IconRefresh } from '@tabler/icons-react';
 import toast from 'react-hot-toast';
 import { IconButton } from '@/components/primitives';
 import { Textarea } from '@/components/primitives';
@@ -13,6 +13,7 @@ import { Message } from '@/types/chat';
 import { uploadImage, ImageReference } from '@/utils/app/imageHandler';
 import { validateFileSize, formatFileSize } from '@/constants/uploadLimits';
 import { uploadVTTFile, isVTTFile } from '@/utils/app/vttHandler';
+import { useMilvusCollections } from '@/utils/app/queries';
 
 type Attachment = NonNullable<Message['attachments']>[number];
 
@@ -22,6 +23,22 @@ interface UploadingFile {
   type: 'image' | 'document' | 'video' | 'transcript';
   progress: number;
   error?: string;
+}
+
+function describeUploadError(err: unknown, status?: number): string {
+  if (err instanceof DOMException && err.name === 'AbortError') return 'Cancelled';
+  const raw = err instanceof Error ? err.message : String(err);
+  const lower = raw.toLowerCase();
+  if (status === 413 || lower.includes('size limit') || lower.includes('payload too large')) {
+    return 'File exceeds the size limit.';
+  }
+  if (status === 415 || lower.includes('unsupported')) {
+    return 'Unsupported file type.';
+  }
+  if (lower.includes('failed to fetch') || lower.includes('network')) {
+    return 'Connection lost. Check your network.';
+  }
+  return raw || 'Upload failed.';
 }
 
 interface ChatInputProps {
@@ -51,24 +68,16 @@ export const ChatInput = memo(({ onSend, onStop, isStreaming = false }: ChatInpu
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [uploading, setUploading] = useState<UploadingFile[]>([]);
   const [selectedCollection, setSelectedCollection] = useState<string>('');
-  const [collections, setCollections] = useState<string[]>([]);
   const [showCollections, setShowCollections] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const { data: collections = [] } = useMilvusCollections();
+  const uploadControllers = useRef<Map<string, AbortController>>(new Map());
+
   const hasDocumentAttachment = attachments.some((a) => a.type === 'document');
   const isUploading = uploading.some((u) => u.progress < 100 && !u.error);
   const canSend = (content.trim() || attachments.length > 0) && !isStreaming && !isUploading;
-
-  // Fetch Milvus collections on mount
-  useEffect(() => {
-    fetch('/api/milvus/collections')
-      .then((r) => r.json())
-      .then((data) => {
-        if (data.collections) setCollections(data.collections);
-      })
-      .catch(() => {});
-  }, []);
 
   // Show collection selector when documents are attached
   useEffect(() => {
@@ -80,7 +89,7 @@ export const ChatInput = memo(({ onSend, onStop, isStreaming = false }: ChatInpu
     }
   }, [hasDocumentAttachment, showCollections]);
 
-  const uploadFile = useCallback(async (file: File) => {
+  const uploadFile = useCallback(async (file: File, existingUploadId?: string) => {
     const type = classifyFile(file);
     const validation = validateFileSize(file, type);
     if (!validation.valid) {
@@ -88,14 +97,26 @@ export const ChatInput = memo(({ onSend, onStop, isStreaming = false }: ChatInpu
       return;
     }
 
-    const uploadId = `upload-${Date.now()}-${Math.random()}`;
-    setUploading((prev) => [...prev, { id: uploadId, file, type, progress: 10 }]);
+    const uploadId = existingUploadId ?? `upload-${Date.now()}-${Math.random()}`;
+    const controller = new AbortController();
+    uploadControllers.current.set(uploadId, controller);
+
+    if (existingUploadId) {
+      setUploading((prev) =>
+        prev.map((u) => (u.id === uploadId ? { ...u, progress: 10, error: undefined } : u)),
+      );
+    } else {
+      setUploading((prev) => [...prev, { id: uploadId, file, type, progress: 10 }]);
+    }
+
+    const releaseController = () => {
+      uploadControllers.current.delete(uploadId);
+    };
 
     try {
-      // VTT/SRT files: upload as text via dedicated VTT storage (not base64)
       if (type === 'transcript') {
         setUploading((prev) => prev.map((u) => u.id === uploadId ? { ...u, progress: 30 } : u));
-        const vttRef = await uploadVTTFile(file);
+        const vttRef = await uploadVTTFile(file, controller.signal);
         setUploading((prev) => prev.map((u) => u.id === uploadId ? { ...u, progress: 100 } : u));
 
         const attachment: Attachment = {
@@ -108,14 +129,18 @@ export const ChatInput = memo(({ onSend, onStop, isStreaming = false }: ChatInpu
         setTimeout(() => {
           setUploading((prev) => prev.filter((u) => u.id !== uploadId));
         }, 1000);
+        releaseController();
         return;
       }
 
       const base64 = await fileToBase64(file);
+      if (controller.signal.aborted) {
+        throw new DOMException('Upload aborted', 'AbortError');
+      }
       setUploading((prev) => prev.map((u) => u.id === uploadId ? { ...u, progress: 50 } : u));
 
       if (type === 'image') {
-        const imageRef = await uploadImage(base64, file.type);
+        const imageRef = await uploadImage(base64, file.type, controller.signal);
         setUploading((prev) => prev.map((u) => u.id === uploadId ? { ...u, progress: 100 } : u));
 
         const attachment: Attachment = {
@@ -126,10 +151,11 @@ export const ChatInput = memo(({ onSend, onStop, isStreaming = false }: ChatInpu
         setAttachments((prev) => [...prev, attachment]);
 
       } else if (type === 'document') {
-        // Upload document to Redis storage
         const response = await fetch('/api/session/documentStorage', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          signal: controller.signal,
           body: JSON.stringify({
             base64Data: base64,
             filename: file.name,
@@ -137,7 +163,10 @@ export const ChatInput = memo(({ onSend, onStop, isStreaming = false }: ChatInpu
           }),
         });
 
-        if (!response.ok) throw new Error('Document upload failed');
+        if (!response.ok) {
+          const status = response.status;
+          throw new Error(describeUploadError(new Error(`HTTP ${status}`), status));
+        }
         const { documentId, sessionId } = await response.json();
         setUploading((prev) => prev.map((u) => u.id === uploadId ? { ...u, progress: 100 } : u));
 
@@ -152,6 +181,8 @@ export const ChatInput = memo(({ onSend, onStop, isStreaming = false }: ChatInpu
         const response = await fetch('/api/session/videoStorage', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          signal: controller.signal,
           body: JSON.stringify({
             base64Data: base64,
             filename: file.name,
@@ -159,7 +190,10 @@ export const ChatInput = memo(({ onSend, onStop, isStreaming = false }: ChatInpu
           }),
         });
 
-        if (!response.ok) throw new Error('Video upload failed');
+        if (!response.ok) {
+          const status = response.status;
+          throw new Error(describeUploadError(new Error(`HTTP ${status}`), status));
+        }
         const { videoId, sessionId, userId } = await response.json();
         setUploading((prev) => prev.map((u) => u.id === uploadId ? { ...u, progress: 100 } : u));
 
@@ -171,19 +205,44 @@ export const ChatInput = memo(({ onSend, onStop, isStreaming = false }: ChatInpu
         setAttachments((prev) => [...prev, attachment]);
       }
 
-      // Clear completed upload after a moment
       setTimeout(() => {
         setUploading((prev) => prev.filter((u) => u.id !== uploadId));
       }, 1000);
-
+      releaseController();
     } catch (err: any) {
-      console.error('Upload failed:', err);
-      toast.error(`Upload failed: ${err.message || 'Unknown error'}`);
-      setUploading((prev) => prev.map((u) => u.id === uploadId ? { ...u, error: err.message, progress: 0 } : u));
-      setTimeout(() => {
+      releaseController();
+      if (err instanceof DOMException && err.name === 'AbortError') {
         setUploading((prev) => prev.filter((u) => u.id !== uploadId));
-      }, 3000);
+        return;
+      }
+      console.error('Upload failed:', err);
+      const friendly = describeUploadError(err);
+      setUploading((prev) =>
+        prev.map((u) => (u.id === uploadId ? { ...u, error: friendly, progress: 0 } : u)),
+      );
     }
+  }, []);
+
+  const cancelUpload = useCallback((uploadId: string) => {
+    const controller = uploadControllers.current.get(uploadId);
+    if (controller) controller.abort();
+  }, []);
+
+  const retryUpload = useCallback((uploadId: string) => {
+    const entry = uploading.find((u) => u.id === uploadId);
+    if (!entry) return;
+    uploadFile(entry.file, uploadId);
+  }, [uploading, uploadFile]);
+
+  const dismissUpload = useCallback((uploadId: string) => {
+    setUploading((prev) => prev.filter((u) => u.id !== uploadId));
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      uploadControllers.current.forEach((c) => c.abort());
+      uploadControllers.current.clear();
+    };
   }, []);
 
   const handleFileSelect = useCallback((files: File[]) => {
@@ -260,18 +319,54 @@ export const ChatInput = memo(({ onSend, onStop, isStreaming = false }: ChatInpu
           {uploading.length > 0 && (
             <div className="space-y-1.5 mb-2">
               {uploading.map((u) => (
-                <div key={u.id} className="flex items-center gap-2 text-xs">
+                <div
+                  key={u.id}
+                  className={classNames(
+                    'flex items-center gap-2 text-xs px-2 py-1 rounded-md',
+                    u.error && 'bg-nvidia-red/5 border border-nvidia-red/20',
+                  )}
+                >
                   {u.type === 'image' ? <IconPhoto size={14} className="text-nvidia-green" /> :
                    u.type === 'document' ? <IconFileText size={14} className="text-nvidia-blue" /> :
                    u.type === 'transcript' ? <IconNotes size={14} className="text-nvidia-yellow" /> :
                    <IconPhoto size={14} className="text-nvidia-purple" />}
                   <span className="text-dark-text-muted truncate flex-1">{u.file.name}</span>
                   {u.error ? (
-                    <span className="text-nvidia-red">{u.error}</span>
+                    <>
+                      <span className="text-nvidia-red whitespace-nowrap">{u.error}</span>
+                      <button
+                        type="button"
+                        onClick={() => retryUpload(u.id)}
+                        aria-label="Retry upload"
+                        className="p-0.5 rounded text-nvidia-red hover:bg-nvidia-red/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nvidia-red/40"
+                      >
+                        <IconRefresh size={12} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => dismissUpload(u.id)}
+                        aria-label="Dismiss"
+                        className="p-0.5 rounded text-dark-text-muted hover:bg-white/[0.05] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/30"
+                      >
+                        <IconX size={12} />
+                      </button>
+                    </>
                   ) : (
-                    <div className="w-20">
-                      <ProgressBar value={u.progress} size="sm" variant={u.progress === 100 ? 'success' : 'accent'} />
-                    </div>
+                    <>
+                      <div className="w-20">
+                        <ProgressBar value={u.progress} size="sm" variant={u.progress === 100 ? 'success' : 'accent'} />
+                      </div>
+                      {u.progress < 100 && (
+                        <button
+                          type="button"
+                          onClick={() => cancelUpload(u.id)}
+                          aria-label="Cancel upload"
+                          className="p-0.5 rounded text-dark-text-muted hover:bg-white/[0.05] hover:text-dark-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/30"
+                        >
+                          <IconX size={12} />
+                        </button>
+                      )}
+                    </>
                   )}
                 </div>
               ))}

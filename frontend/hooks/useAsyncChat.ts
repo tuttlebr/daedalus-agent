@@ -2,10 +2,10 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { Logger } from '@/utils/logger';
 import { shouldRunExpensiveOperation } from '@/utils/app/visibilityAwareTimer';
 import { getWebSocketManager } from '@/services/websocket';
+import { fetchWithTimeout, FetchTimeoutError } from '@/utils/fetchWithTimeout';
 
 const logger = new Logger('AsyncChat');
 
-// Mobile detection for adaptive polling
 const isMobile = (): boolean => {
   if (typeof window === 'undefined' || typeof navigator === 'undefined') return false;
   const userAgent = navigator.userAgent.toLowerCase();
@@ -13,8 +13,9 @@ const isMobile = (): boolean => {
     || window.innerWidth <= 768;
 };
 
-// Safety-net polling interval for WebSocket jobs (catches silent WS disconnects)
 const WS_FALLBACK_POLL_INTERVAL = 15000;
+const SUBMIT_JOB_TIMEOUT_MS = 60_000;
+const STATUS_FETCH_TIMEOUT_MS = 15_000;
 
 interface AsyncJobStatus {
   jobId: string;
@@ -141,6 +142,7 @@ export const useAsyncChat = (options: UseAsyncChatOptions = {}): UseAsyncChatRet
   const wsJobUnsubsRef = useRef<Record<string, () => void>>({}); // WebSocket handler cleanup by jobId
   const wsActiveJobsRef = useRef<Set<string>>(new Set()); // Jobs using WebSocket (not polling)
   const wsFallbackTimersRef = useRef<Record<string, ReturnType<typeof setInterval> | null>>({}); // WS safety-net polling
+  const lastWsEventByJobRef = useRef<Record<string, number>>({}); // Last WS message timestamp per job
 
   const removeActiveJob = useCallback((jobId: string, conversationId?: string, clearStatus: boolean = true) => {
     const timer = pollingTimersRef.current[jobId];
@@ -158,6 +160,7 @@ export const useAsyncChat = (options: UseAsyncChatOptions = {}): UseAsyncChatRet
     delete pollErrorCountRef.current[jobId];
     delete lastStatusHashByJobRef.current[jobId];
     delete jobStatusByJobIdRef.current[jobId];
+    delete lastWsEventByJobRef.current[jobId];
     completedJobsRef.current.delete(jobId);
 
     if (clearStatus && conversationId) {
@@ -180,6 +183,8 @@ export const useAsyncChat = (options: UseAsyncChatOptions = {}): UseAsyncChatRet
 
     const jobId = status.jobId;
     const conversationId = status.conversationId || activeJobsRef.current[jobId]?.conversationId;
+
+    lastWsEventByJobRef.current[jobId] = Date.now();
 
     // Skip if already completed
     if (completedJobsRef.current.has(jobId)) return;
@@ -282,19 +287,33 @@ export const useAsyncChat = (options: UseAsyncChatOptions = {}): UseAsyncChatRet
   }, [useWS, handleWsJobStatus]);
 
   // Start a safety-net HTTP poll alongside WebSocket to catch silent disconnects.
-  // If WS delivers completion first, completedJobsRef prevents double-processing.
+  // Skips the poll when WS has recently delivered an event for the job.
   const startWsFallbackPolling = useCallback((jobId: string) => {
     if (wsFallbackTimersRef.current[jobId]) {
       clearInterval(wsFallbackTimersRef.current[jobId]!);
     }
+    lastWsEventByJobRef.current[jobId] = Date.now();
     const timer = setInterval(async () => {
       if (!activeJobsRef.current[jobId] || !isComponentMountedRef.current || completedJobsRef.current.has(jobId)) {
         clearInterval(timer);
         delete wsFallbackTimersRef.current[jobId];
+        delete lastWsEventByJobRef.current[jobId];
+        return;
+      }
+      const wsManager = getWebSocketManager();
+      const lastEvent = lastWsEventByJobRef.current[jobId] ?? 0;
+      const wsIsHealthy = wsManager.isConnected
+        && wsActiveJobsRef.current.has(jobId)
+        && Date.now() - lastEvent < WS_FALLBACK_POLL_INTERVAL * 2;
+      if (wsIsHealthy) {
         return;
       }
       try {
-        const response = await fetch(`/api/chat/async?jobId=${jobId}`);
+        const response = await fetchWithTimeout(
+          `/api/chat/async?jobId=${jobId}`,
+          { credentials: 'include' },
+          STATUS_FETCH_TIMEOUT_MS,
+        );
         if (response.ok) {
           const status: AsyncJobStatus = await response.json();
           handleWsJobStatus(status);
@@ -302,10 +321,11 @@ export const useAsyncChat = (options: UseAsyncChatOptions = {}): UseAsyncChatRet
           const conversationId = activeJobsRef.current[jobId]?.conversationId;
           clearInterval(timer);
           delete wsFallbackTimersRef.current[jobId];
+          delete lastWsEventByJobRef.current[jobId];
           removeActiveJob(jobId, conversationId);
         }
       } catch {
-        // Network error — will retry on next interval
+        // Network/timeout error — will retry on next interval
       }
     }, WS_FALLBACK_POLL_INTERVAL);
     wsFallbackTimersRef.current[jobId] = timer;
@@ -570,22 +590,33 @@ export const useAsyncChat = (options: UseAsyncChatOptions = {}): UseAsyncChatRet
         await cancelJob(conversationId);
       }
 
-      const response = await fetch('/api/chat/async', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          messages,
-          chatCompletionURL,
-          additionalProps,
-          userId: jobUserId,
-          conversationId,
-          conversationName,
-          turnId,
-          assistantMessageId,
-        }),
-      });
+      let response: Response;
+      try {
+        response = await fetchWithTimeout(
+          '/api/chat/async',
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({
+              messages,
+              chatCompletionURL,
+              additionalProps,
+              userId: jobUserId,
+              conversationId,
+              conversationName,
+              turnId,
+              assistantMessageId,
+            }),
+          },
+          SUBMIT_JOB_TIMEOUT_MS,
+        );
+      } catch (err) {
+        if (err instanceof FetchTimeoutError) {
+          throw new Error('The server did not respond in time. Please try again.');
+        }
+        throw err;
+      }
 
       if (!response.ok) {
         const body = await response.json().catch(() => ({}));

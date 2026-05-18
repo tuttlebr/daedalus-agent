@@ -12,6 +12,7 @@ import {
   fetchImageAsBlob,
   revokeImageBlob,
 } from '@/utils/app/imageHandler';
+import { getBlobCacheKey } from '@/utils/app/imageBlobCache';
 import { Logger } from '@/utils/logger';
 
 import { Skeleton } from '@/components/primitives/Skeleton';
@@ -34,13 +35,6 @@ const ImageSkeleton = ({
 );
 
 const logger = new Logger('OptimizedImage');
-
-function getBlobCacheKey(
-  imageRef: ImageReference,
-  useThumbnail = false,
-): string {
-  return useThumbnail ? `${imageRef.imageId}-thumb` : imageRef.imageId;
-}
 
 interface OptimizedImageProps {
   imageRef?: ImageReference;

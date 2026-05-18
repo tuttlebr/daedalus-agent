@@ -88,8 +88,8 @@ export const saveConversation = async (conversation: Conversation) => {
       await apiPut(`/api/conversations/${conversation.id}`, cleanedConversation);
     } catch (error) {
       if (error instanceof ConflictError && error.serverState) {
-        // Server has newer data — accept it and retry once with merged state
-        console.warn('Conflict detected, accepting server state and retrying');
+        const { reportError } = await import('@/utils/errorReporter');
+        reportError(error, { source: 'manual' });
         const merged = {
           ...cleanedConversation,
           ...error.serverState,

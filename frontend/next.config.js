@@ -56,9 +56,6 @@ const nextConfig = {
     'lucide-react': {
       transform: 'lucide-react/dist/esm/icons/{{kebabCase member}}',
     },
-    'lodash': {
-      transform: 'lodash/{{member}}',
-    },
   },
   webpack(config, { isServer, dev }) {
     config.experiments = {

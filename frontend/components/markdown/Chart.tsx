@@ -283,9 +283,8 @@ const Chart = (props: any) => {
               nodeLabel="name"
               linkLabel="label"
               nodeAutoColorBy="id"
-              width={window.innerWidth * 0.9} // Adjust width to fit container
-              height={500} // Set height to fit container
-              // zoom={0.5} // Set zoom level (e.g., 2 for zoomed in)
+              width={window.innerWidth * 0.9}
+              height={500}
             />
           </div>
         );

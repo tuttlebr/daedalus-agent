@@ -20,8 +20,9 @@ type MessageHandler = (data: any) => void;
 
 export type ConnectionMode = 'websocket' | 'sse' | 'disconnected';
 
-const WS_CONNECT_TIMEOUT = 5_000; // 5s to establish WebSocket before falling back
-const WS_FAILURE_THRESHOLD = 3; // Skip WS after this many consecutive failures
+const WS_CONNECT_TIMEOUT = 5_000;
+const WS_FAILURE_THRESHOLD = 3;
+const WS_UPGRADE_INTERVAL = 5 * 60 * 1000; // try upgrading SSE -> WS every 5 minutes
 
 export class ConnectionManager {
   private wsManager: WebSocketManager;
@@ -31,9 +32,28 @@ export class ConnectionManager {
   private _mode: ConnectionMode = 'disconnected';
   private fallbackAttempted = false;
   private wsFailureCount = 0;
+  private upgradeTimer: ReturnType<typeof setInterval> | null = null;
+  private onlineListenerAttached = false;
+  private handleOnline = () => {
+    this.wsFailureCount = 0;
+    if (this._mode === 'sse') this.attemptUpgradeToWs();
+  };
 
   constructor() {
     this.wsManager = getWebSocketManager();
+    this.attachOnlineListener();
+  }
+
+  private attachOnlineListener(): void {
+    if (typeof window === 'undefined' || this.onlineListenerAttached) return;
+    window.addEventListener('online', this.handleOnline);
+    this.onlineListenerAttached = true;
+  }
+
+  private detachOnlineListener(): void {
+    if (typeof window === 'undefined' || !this.onlineListenerAttached) return;
+    window.removeEventListener('online', this.handleOnline);
+    this.onlineListenerAttached = false;
   }
 
   get mode(): ConnectionMode {
@@ -78,7 +98,38 @@ export class ConnectionManager {
     } else if (this._mode === 'sse') {
       this.disconnectSSE();
     }
+    this.stopUpgradeTimer();
+    this.detachOnlineListener();
     this._mode = 'disconnected';
+  }
+
+  private startUpgradeTimer(): void {
+    if (typeof window === 'undefined' || this.upgradeTimer) return;
+    this.upgradeTimer = setInterval(() => this.attemptUpgradeToWs(), WS_UPGRADE_INTERVAL);
+  }
+
+  private stopUpgradeTimer(): void {
+    if (this.upgradeTimer) {
+      clearInterval(this.upgradeTimer);
+      this.upgradeTimer = null;
+    }
+  }
+
+  private async attemptUpgradeToWs(): Promise<void> {
+    if (this._mode !== 'sse') return;
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
+    this.wsFailureCount = 0;
+    try {
+      const connected = await this.tryWebSocket();
+      if (connected) {
+        logger.info('Upgraded SSE -> WebSocket');
+        this.disconnectSSE();
+        this._mode = 'websocket';
+        this.stopUpgradeTimer();
+      }
+    } catch {
+      // stay on SSE
+    }
   }
 
   on(type: string, handler: MessageHandler): () => void {
@@ -172,10 +223,12 @@ export class ConnectionManager {
     this.eventSource.onerror = () => {
       logger.warn('SSE connection error');
       this._mode = 'disconnected';
+      this.stopUpgradeTimer();
       this.emit('disconnected', undefined);
     };
 
     this._mode = 'sse';
+    this.startUpgradeTimer();
   }
 
   private disconnectSSE(): void {

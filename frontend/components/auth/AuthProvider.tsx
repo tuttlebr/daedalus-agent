@@ -1,18 +1,15 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import React, { createContext, useContext, useEffect, ReactNode, useCallback } from 'react';
 import { useRouter } from 'next/router';
+import { useQueryClient } from '@tanstack/react-query';
 import { setStorageUser, clearUserSessionData, migrateLegacyStorage } from '@/utils/app/storage';
 import { Logger } from '@/utils/logger';
+import { useAuthMe, type AuthMeUser } from '@/utils/app/queries';
+import { queryKeys } from '@/utils/app/queries/keys';
 
 const logger = new Logger('AuthProvider');
 
-interface User {
-  id: string;
-  username: string;
-  name: string;
-}
-
 interface AuthContextType {
-  user: User | null;
+  user: AuthMeUser | null;
   isLoading: boolean;
   isAuthenticated: boolean;
   login: (username: string, password: string) => Promise<void>;
@@ -35,63 +32,61 @@ interface AuthProviderProps {
 }
 
 export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
-  const [user, setUser] = useState<User | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
   const router = useRouter();
+  const queryClient = useQueryClient();
+  const { data: user = null, isLoading, refetch } = useAuthMe();
 
-  const checkAuth = async () => {
+  useEffect(() => {
+    if (user) {
+      setStorageUser(user.username);
+      migrateLegacyStorage(user.username);
+    } else if (!isLoading) {
+      setStorageUser(null);
+    }
+  }, [user, isLoading]);
+
+  const checkAuth = useCallback(async () => {
     try {
-      const response = await fetch('/api/auth/me', { credentials: 'include' });
-      if (response.ok) {
-        const data = await response.json();
-        setUser(data.user);
-        setStorageUser(data.user.username);
-        migrateLegacyStorage(data.user.username);
-      } else {
-        setUser(null);
-        setStorageUser(null);
-      }
+      await refetch();
     } catch (error) {
       logger.error('Auth check failed:', error);
-      setUser(null);
-      setStorageUser(null);
-    } finally {
-      setIsLoading(false);
     }
-  };
+  }, [refetch]);
 
-  const login = async (username: string, password: string) => {
-    const response = await fetch('/api/auth/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username, password }),
-      credentials: 'include',
-    });
+  const login = useCallback(
+    async (username: string, password: string) => {
+      const response = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password }),
+        credentials: 'include',
+      });
 
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.error || 'Login failed');
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Login failed');
 
-    clearUserSessionData();
-    setUser(data.user);
-    setStorageUser(data.user.username);
-    migrateLegacyStorage(data.user.username);
-    router.push('/');
-  };
+      clearUserSessionData();
+      queryClient.setQueryData(queryKeys.auth.me, data.user as AuthMeUser);
+      setStorageUser(data.user.username);
+      migrateLegacyStorage(data.user.username);
+      router.push('/');
+    },
+    [queryClient, router]
+  );
 
-  const logout = async () => {
+  const logout = useCallback(async () => {
     try {
       await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
     } catch (error) {
       logger.error('Logout error:', error);
     } finally {
       clearUserSessionData();
-      setUser(null);
+      queryClient.setQueryData(queryKeys.auth.me, null);
+      queryClient.clear();
       setStorageUser(null);
       router.push('/login');
     }
-  };
-
-  useEffect(() => { checkAuth(); }, []);
+  }, [queryClient, router]);
 
   return (
     <AuthContext.Provider value={{ user, isLoading, isAuthenticated: !!user, login, logout, checkAuth }}>

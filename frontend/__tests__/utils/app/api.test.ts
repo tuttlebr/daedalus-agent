@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { ConflictError, apiGet, apiPut, apiPost, apiDelete, apiBase } from '@/utils/app/api';
+import { ApiError, ConflictError, apiGet, apiPut, apiPost, apiDelete, apiBase } from '@/utils/app/api';
 
 // --- Mock fetch ---
 
@@ -25,9 +25,12 @@ describe('ConflictError', () => {
     const error = new ConflictError(serverState);
 
     expect(error).toBeInstanceOf(Error);
+    expect(error).toBeInstanceOf(ApiError);
     expect(error.name).toBe('ConflictError');
     expect(error.message).toBe('Conflict: server has newer data');
     expect(error.serverState).toBe(serverState);
+    expect(error.kind).toBe('conflict');
+    expect(error.status).toBe(409);
   });
 
   it('preserves complex serverState object', () => {
@@ -87,16 +90,55 @@ describe('apiGet', () => {
     );
   });
 
-  it('throws Error on non-OK response', async () => {
+  it('throws ApiError with kind=server on 5xx', async () => {
     mockFetch.mockResolvedValue(mockResponse(500, { error: 'Server error' }));
 
-    await expect(apiGet('/api/test')).rejects.toThrow('GET /api/test failed: 500');
+    try {
+      await apiGet('/api/test');
+      expect.fail('Expected ApiError');
+    } catch (error) {
+      expect(error).toBeInstanceOf(ApiError);
+      expect((error as ApiError).status).toBe(500);
+      expect((error as ApiError).kind).toBe('server');
+      expect((error as ApiError).message).toContain('GET /api/test failed: 500');
+    }
   });
 
-  it('throws Error on 404', async () => {
+  it('throws ApiError with kind=client on 4xx', async () => {
     mockFetch.mockResolvedValue(mockResponse(404));
 
-    await expect(apiGet('/api/missing')).rejects.toThrow('GET /api/missing failed: 404');
+    try {
+      await apiGet('/api/missing');
+      expect.fail('Expected ApiError');
+    } catch (error) {
+      expect(error).toBeInstanceOf(ApiError);
+      expect((error as ApiError).status).toBe(404);
+      expect((error as ApiError).kind).toBe('client');
+    }
+  });
+
+  it('throws ApiError with kind=auth on 401', async () => {
+    mockFetch.mockResolvedValue(mockResponse(401));
+
+    try {
+      await apiGet('/api/protected');
+      expect.fail('Expected ApiError');
+    } catch (error) {
+      expect((error as ApiError).kind).toBe('auth');
+    }
+  });
+
+  it('throws ApiError with kind=network on fetch rejection', async () => {
+    mockFetch.mockRejectedValue(new TypeError('Failed to fetch'));
+
+    try {
+      await apiGet('/api/test');
+      expect.fail('Expected ApiError');
+    } catch (error) {
+      expect(error).toBeInstanceOf(ApiError);
+      expect((error as ApiError).kind).toBe('network');
+      expect((error as ApiError).status).toBe(0);
+    }
   });
 });
 
@@ -138,20 +180,29 @@ describe('apiPut', () => {
     }
   });
 
-  it('throws generic Error on other failures (500)', async () => {
+  it('throws ApiError on other failures (500)', async () => {
     mockFetch.mockResolvedValue(mockResponse(500));
 
-    await expect(
-      apiPut('/api/conversations/conv-1', { name: 'Test' }),
-    ).rejects.toThrow('PUT /api/conversations/conv-1 failed: 500');
+    try {
+      await apiPut('/api/conversations/conv-1', { name: 'Test' });
+      expect.fail('Expected ApiError');
+    } catch (error) {
+      expect(error).toBeInstanceOf(ApiError);
+      expect((error as ApiError).status).toBe(500);
+      expect((error as ApiError).kind).toBe('server');
+    }
   });
 
-  it('throws generic Error on 403', async () => {
+  it('throws ApiError with kind=auth on 403', async () => {
     mockFetch.mockResolvedValue(mockResponse(403));
 
-    await expect(
-      apiPut('/api/conversations/conv-1', { name: 'Test' }),
-    ).rejects.toThrow('PUT /api/conversations/conv-1 failed: 403');
+    try {
+      await apiPut('/api/conversations/conv-1', { name: 'Test' });
+      expect.fail('Expected ApiError');
+    } catch (error) {
+      expect(error).toBeInstanceOf(ApiError);
+      expect((error as ApiError).kind).toBe('auth');
+    }
   });
 
   it('returns undefined for 204 No Content', async () => {
@@ -188,12 +239,17 @@ describe('apiPost', () => {
     );
   });
 
-  it('throws Error on non-OK response', async () => {
+  it('throws ApiError on non-OK response', async () => {
     mockFetch.mockResolvedValue(mockResponse(400));
 
-    await expect(
-      apiPost('/api/push/subscribe', { invalid: true }),
-    ).rejects.toThrow('POST /api/push/subscribe failed: 400');
+    try {
+      await apiPost('/api/push/subscribe', { invalid: true });
+      expect.fail('Expected ApiError');
+    } catch (error) {
+      expect(error).toBeInstanceOf(ApiError);
+      expect((error as ApiError).status).toBe(400);
+      expect((error as ApiError).kind).toBe('client');
+    }
   });
 
   it('returns undefined for 204 No Content', async () => {
@@ -227,12 +283,17 @@ describe('apiDelete', () => {
     );
   });
 
-  it('throws Error on non-OK response', async () => {
+  it('throws ApiError on non-OK response', async () => {
     mockFetch.mockResolvedValue(mockResponse(404, {}, false));
 
-    await expect(apiDelete('/api/conversations/missing')).rejects.toThrow(
-      'DELETE /api/conversations/missing failed: Status 404',
-    );
+    try {
+      await apiDelete('/api/conversations/missing');
+      expect.fail('Expected ApiError');
+    } catch (error) {
+      expect(error).toBeInstanceOf(ApiError);
+      expect((error as ApiError).status).toBe(404);
+      expect((error as ApiError).kind).toBe('client');
+    }
   });
 
   it('returns undefined for 204 No Content', async () => {

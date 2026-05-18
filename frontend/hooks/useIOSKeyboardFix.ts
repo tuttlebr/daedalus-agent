@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState } from 'react';
 
 interface UseIOSKeyboardFixReturn {
   isKeyboardVisible: boolean;
@@ -16,23 +16,9 @@ export const useIOSKeyboardFix = (): UseIOSKeyboardFixReturn => {
   useEffect(() => {
     if (typeof window === 'undefined') return;
 
-    // Check if iOS or Android (mobile devices)
-    // We want this to run on any mobile device to detect keyboard
-    const isMobile = typeof navigator !== 'undefined' && /iPad|iPhone|iPod|Android/.test(navigator.userAgent) && !(window as any).MSStream;
-
-    // Run on mobile AND in standard browser window resizing to test responsiveness
-    if (!isMobile && typeof window !== 'undefined' && window.innerWidth > 1024) {
-       // Only return early for large desktop screens where virtual keyboard isn't a concern
-       // but still allow smaller windows (dev tools responsive mode) to trigger logic
-       // return;
-    }
-
-    // Store initial viewport height
     const initialHeight = window.innerHeight;
-    let lastHeight = initialHeight;
     const pendingTimers: ReturnType<typeof setTimeout>[] = [];
 
-    // Function to handle viewport changes
     const handleViewportChange = () => {
       const currentHeight = window.visualViewport
         ? window.visualViewport.height
@@ -40,21 +26,11 @@ export const useIOSKeyboardFix = (): UseIOSKeyboardFixReturn => {
 
       setViewportHeight(currentHeight);
 
-      // Detect keyboard by comparing heights
       const heightDifference = initialHeight - currentHeight;
-      const keyboardVisible = heightDifference > 50; // Lower threshold for iOS
+      const keyboardVisible = heightDifference > 50;
 
       setIsKeyboardVisible(keyboardVisible);
       setKeyboardHeight(keyboardVisible ? heightDifference : 0);
-
-      // If keyboard just appeared, prevent page scroll
-      if (keyboardVisible && currentHeight < lastHeight) {
-        // Body locking removed to allow native resizing
-      } else if (!keyboardVisible && currentHeight > lastHeight) {
-        // Body locking removed to allow native resizing
-      }
-
-      lastHeight = currentHeight;
     };
 
     // Handle focus events
@@ -105,11 +81,6 @@ export const useIOSKeyboardFix = (): UseIOSKeyboardFixReturn => {
       window.removeEventListener('resize', handleViewportChange);
       document.removeEventListener('focusin', handleFocusIn);
       document.removeEventListener('focusout', handleFocusOut);
-
-      // Reset body styles
-      // document.body.style.position = '';
-      // document.body.style.width = '';
-      // document.body.style.top = '';
     };
   }, []);
 

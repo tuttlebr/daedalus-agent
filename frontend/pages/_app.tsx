@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 import { appWithTranslation } from 'next-i18next';
 import type { AppProps } from 'next/app';
+import { useRouter } from 'next/router';
 import Head from 'next/head';
 import { useEffect, useState } from 'react';
 
@@ -14,9 +15,11 @@ import { InstallPrompt } from '@/components/pwa/InstallPrompt';
 import { UpdateToast } from '@/components/pwa/UpdateToast';
 import { registerServiceWorker, setupOfflineDetection, setupInstallPrompt, setOnUpdateAvailable } from '@/utils/app/pwa';
 import { startMemoryMonitoring } from '@/utils/app/memoryMonitor';
+import { reportError } from '@/utils/errorReporter';
 import toast from 'react-hot-toast';
 
 function App({ Component, pageProps }: AppProps<{}>) {
+  const router = useRouter();
   const [queryClient] = useState(() => new QueryClient({
     defaultOptions: {
       queries: {
@@ -46,6 +49,23 @@ function App({ Component, pageProps }: AppProps<{}>) {
       criticalThreshold: 90,
       checkInterval: 60000,
     });
+
+    const onRejection = (event: PromiseRejectionEvent) => {
+      reportError(event.reason ?? new Error('Unhandled promise rejection'), {
+        source: 'unhandled-rejection',
+      });
+    };
+    const onError = (event: ErrorEvent) => {
+      reportError(event.error ?? new Error(event.message), {
+        source: 'window-error',
+      });
+    };
+    window.addEventListener('unhandledrejection', onRejection);
+    window.addEventListener('error', onError);
+    return () => {
+      window.removeEventListener('unhandledrejection', onRejection);
+      window.removeEventListener('error', onError);
+    };
   }, []);
 
   return (
@@ -78,7 +98,7 @@ function App({ Component, pageProps }: AppProps<{}>) {
       <InstallPrompt />
       <QueryClientProvider client={queryClient}>
         <AuthProvider>
-          <ErrorBoundary>
+          <ErrorBoundary resetKey={router.asPath}>
             <Component {...pageProps} />
           </ErrorBoundary>
         </AuthProvider>

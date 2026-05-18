@@ -16,6 +16,7 @@ import { saveConversation } from '@/utils/app/conversation';
 import { cleanMessagesForLLM } from '@/utils/app/imageHandler';
 import { sanitizeMessageContentFromPriorAssistant } from '@/utils/app/conversationReplay';
 import { IntermediateStepCategory } from '@/types/intermediateSteps';
+import { buildMessageError } from '@/utils/app/errorCategory';
 
 export const ChatView = memo(() => {
   const { user } = useAuth();
@@ -226,26 +227,30 @@ export const ChatView = memo(() => {
 
       console.error('Chat error:', error);
 
-      // If there's a partial response, keep it
+      const errorMessages = buildMessageError(error);
+
       if (context?.partialResponse) {
         const conv = useConversationStore.getState().conversations.find((c) => c.id === convId);
         if (conv && conv.messages.length > 0) {
           updateAssistantMessage(convId, {
             content: `${context.partialResponse}\n\n*[Response interrupted]*`,
             intermediateSteps: context.intermediateSteps,
+            errorMessages,
           }, context.assistantMessageId);
         }
       } else {
         const conv = useConversationStore.getState().conversations.find((c) => c.id === convId);
         if (conv && conv.messages.length > 0) {
           updateAssistantMessage(convId, {
-            content: `An error occurred: ${error}`,
+            content: '',
             intermediateSteps: context?.intermediateSteps,
+            errorMessages,
           }, context?.assistantMessageId);
         } else {
           addMessage(convId, {
             role: 'assistant',
-            content: `An error occurred: ${error}`,
+            content: '',
+            errorMessages,
           });
         }
       }
@@ -326,7 +331,8 @@ export const ChatView = memo(() => {
     } catch (err: any) {
       console.error('Failed to start async job:', err);
       updateAssistantMessage(convId, {
-        content: `Failed to send message: ${err.message || 'Unknown error'}`,
+        content: '',
+        errorMessages: buildMessageError(err),
       }, assistantMessageId);
       setStreaming(convId, false);
       setActivityText('');
@@ -336,6 +342,21 @@ export const ChatView = memo(() => {
     scrollToBottom();
   }, [selectedConversation, addMessage, updateConversation, setStreaming, updateAssistantMessage,
       startAsyncJob, chatCompletionURL, enableIntermediateSteps, userId, scrollToBottom]);
+
+  const handleRetryMessage = useCallback(() => {
+    if (!selectedConversation) return;
+    const messages = selectedConversation.messages;
+    let lastUser: Message | undefined;
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      if (messages[i].role === 'user') {
+        lastUser = messages[i];
+        break;
+      }
+    }
+    if (!lastUser) return;
+    const { id: _omitId, ...messageToResend } = lastUser;
+    handleSend(messageToResend as Message);
+  }, [selectedConversation, handleSend]);
 
   const handleStop = useCallback(async () => {
     if (selectedConversationId) {
@@ -398,12 +419,18 @@ export const ChatView = memo(() => {
               const isLastMessage = i === messages.length - 1;
               const isAssistantStreaming = isStreaming && isLastMessage && msg.role !== 'user';
 
+              const canRetry =
+                isLastMessage &&
+                msg.role !== 'user' &&
+                msg.errorMessages?.recoverable === true &&
+                !isStreaming;
               return (
                 <MessageBubble
                   key={msg.id || `msg-${i}`}
                   message={msg}
                   messageIndex={i}
                   isStreaming={isAssistantStreaming}
+                  onRetry={canRetry ? handleRetryMessage : undefined}
                 />
               );
             })}

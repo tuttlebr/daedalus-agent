@@ -16,7 +16,8 @@ export interface VTTListItem {
 export async function uploadVTT(
   content: string,
   filename: string,
-  mimeType: string = 'text/vtt'
+  mimeType: string = 'text/vtt',
+  signal?: AbortSignal,
 ): Promise<VTTReference> {
   try {
     const response = await fetch('/api/session/vttStorage', {
@@ -25,11 +26,25 @@ export async function uploadVTT(
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({ content, filename, mimeType }),
+      credentials: 'include',
+      signal,
     });
 
     if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.error || 'Failed to upload VTT');
+      let detail = '';
+      try {
+        const error = await response.json();
+        detail = error.error || '';
+      } catch {
+        // ignore parse failure
+      }
+      const message =
+        response.status === 413
+          ? 'File exceeds the size limit.'
+          : response.status === 415
+            ? 'Unsupported transcript format.'
+            : detail || `Failed to upload VTT (HTTP ${response.status})`;
+      throw new Error(message);
     }
 
     const { vttId, sessionId } = await response.json();
@@ -41,21 +56,37 @@ export async function uploadVTT(
 }
 
 // Upload VTT file from File object
-export async function uploadVTTFile(file: File): Promise<VTTReference> {
+export async function uploadVTTFile(file: File, signal?: AbortSignal): Promise<VTTReference> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
+
+    const onAbort = () => {
+      reader.abort();
+      reject(new DOMException('Upload aborted', 'AbortError'));
+    };
+
+    if (signal) {
+      if (signal.aborted) {
+        reject(new DOMException('Upload aborted', 'AbortError'));
+        return;
+      }
+      signal.addEventListener('abort', onAbort, { once: true });
+    }
 
     reader.onload = async () => {
       try {
         const content = reader.result as string;
-        const vttRef = await uploadVTT(content, file.name, file.type || 'text/vtt');
+        const vttRef = await uploadVTT(content, file.name, file.type || 'text/vtt', signal);
         resolve(vttRef);
       } catch (error) {
         reject(error);
+      } finally {
+        signal?.removeEventListener('abort', onAbort);
       }
     };
 
     reader.onerror = () => {
+      signal?.removeEventListener('abort', onAbort);
       reject(new Error('Failed to read VTT file'));
     };
 

@@ -5,6 +5,7 @@ import React, { useCallback, useEffect } from 'react';
 import { HistoryDrawer, HistoryToggleButton } from './HistoryDrawer';
 import { ImagesCanvas } from './ImagesCanvas';
 import { ImagesDock } from './ImagesDock';
+import { useImageHistory, useInvalidateImageHistory } from '@/utils/app/queries';
 
 import {
   useImagePanelStore,
@@ -33,7 +34,7 @@ function newEntryId(): string {
 }
 
 export async function loadImageHistory(): Promise<HistoryEntry[]> {
-  const res = await fetch('/api/images/history');
+  const res = await fetch('/api/images/history', { credentials: 'include' });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const data = (await res.json()) as { history?: HistoryEntry[] };
   return Array.isArray(data.history) ? data.history : [];
@@ -44,6 +45,7 @@ async function persistImageHistory(entry: HistoryEntry): Promise<void> {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ entry }),
+    credentials: 'include',
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
 }
@@ -59,22 +61,11 @@ export function ImagePanel({ onSendToChat }: ImagePanelProps) {
   const reuseOutputAsInput = useImagePanelStore((s) => s.reuseOutputAsInput);
   const removeFromGallery = useImagePanelStore((s) => s.removeFromGallery);
   const setHistory = useImagePanelStore((s) => s.setHistory);
+  const { data: historyData } = useImageHistory();
 
   useEffect(() => {
-    let cancelled = false;
-
-    loadImageHistory()
-      .then((history) => {
-        if (!cancelled) setHistory(history);
-      })
-      .catch((e) => {
-        console.warn('Failed to hydrate image history:', e);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [setHistory]);
+    if (historyData) setHistory(historyData);
+  }, [historyData, setHistory]);
 
   const submit = useCallback(async () => {
     const state = useImagePanelStore.getState();

@@ -69,21 +69,19 @@ class MemoryMonitor {
   }
 
   private getMemoryInfo(): MemoryInfo | null {
-    // Check if performance.memory is available (Chrome/Edge only)
-    if ('memory' in performance) {
-      const memory = (performance as any).memory;
-      const percentUsed = (memory.usedJSHeapSize / memory.jsHeapSizeLimit) * 100;
-
-      return {
-        usedJSHeapSize: memory.usedJSHeapSize,
-        totalJSHeapSize: memory.totalJSHeapSize,
-        jsHeapSizeLimit: memory.jsHeapSizeLimit,
-        percentUsed,
-        timestamp: Date.now()
-      };
+    if (typeof performance === 'undefined' || !('memory' in performance)) {
+      return null;
     }
+    const memory = (performance as any).memory;
+    const percentUsed = (memory.usedJSHeapSize / memory.jsHeapSizeLimit) * 100;
 
-    return null;
+    return {
+      usedJSHeapSize: memory.usedJSHeapSize,
+      totalJSHeapSize: memory.totalJSHeapSize,
+      jsHeapSizeLimit: memory.jsHeapSizeLimit,
+      percentUsed,
+      timestamp: Date.now()
+    };
   }
 
   private formatBytes(bytes: number): string {
@@ -145,8 +143,9 @@ class MemoryMonitor {
   start(): void {
     if (this.visibilityAwareTimer) return;
 
-    // Check if we can monitor memory
-    if (!('memory' in performance)) {
+    if (typeof window === 'undefined') return;
+
+    if (typeof performance === 'undefined' || !('memory' in performance)) {
       logger.warn('Memory monitoring not available in this browser');
       return;
     }
@@ -217,7 +216,7 @@ class MemoryMonitor {
   }
 
   forceGarbageCollection(): void {
-    // Try to force garbage collection (only works in some environments)
+    if (typeof window === 'undefined') return;
     if ('gc' in window) {
       logger.info('Forcing garbage collection...');
       (window as any).gc();

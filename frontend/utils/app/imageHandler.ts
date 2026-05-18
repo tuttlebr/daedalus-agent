@@ -3,16 +3,23 @@ import { Logger } from '@/utils/logger';
 import { Message } from '@/types/chat';
 
 import { apiBase } from './api';
+import {
+  type ImageReference,
+  getImageUrl,
+  fetchImageAsBlob,
+  revokeImageBlob,
+  clearAllImageBlobs,
+} from './imageBlobCache';
+
+export {
+  type ImageReference,
+  getImageUrl,
+  fetchImageAsBlob,
+  revokeImageBlob,
+  clearAllImageBlobs,
+};
 
 const logger = new Logger('ImageHandler');
-
-export interface ImageReference {
-  imageId: string;
-  sessionId: string;
-  userId?: string; // Added to support user-specific image storage
-  mimeType?: string;
-  url?: string;
-}
 
 export interface ProcessedMessage extends Message {
   attachments?: Array<{
@@ -23,386 +30,43 @@ export interface ProcessedMessage extends Message {
   }>;
 }
 
-// Blob cache for memory optimization
-interface BlobCacheEntry {
-  url: string;
-  size: number;
-  lastAccessed: number;
-}
-
-function getBlobCacheKey(
-  imageRef: ImageReference,
-  useThumbnail = false,
-): string {
-  return useThumbnail ? `${imageRef.imageId}-thumb` : imageRef.imageId;
-}
-
-// Import visibility-aware timer for battery-efficient background operations
-let visibilityAwareTimerModule: typeof import('./visibilityAwareTimer') | null =
-  null;
-
-class ImageBlobCache {
-  private cache = new Map<string, BlobCacheEntry>();
-  private weakCache = new WeakMap<object, string>(); // WeakMap for automatic GC
-  private temporaryUrls = new Set<string>();
-  private totalSize = 0;
-  private readonly maxSize = this.isMobile()
-    ? 2 * 1024 * 1024
-    : 3 * 1024 * 1024; // 2MB mobile, 3MB desktop
-  private cleanupTimer: { stop: () => void } | null = null;
-  private memoryTimer: { stop: () => void } | null = null;
-  private referenceCount = new Map<string, number>(); // Track active references
-  private memoryPressureThreshold = 70.0; // 70% memory usage triggers cleanup
-
-  constructor() {
-    // Use visibility-aware timers to save battery when app is backgrounded
-    if (typeof window !== 'undefined') {
-      import('./visibilityAwareTimer').then((module) => {
-        visibilityAwareTimerModule = module;
-
-        // Periodic cleanup of stale entries - pauses when app hidden
-        // More frequent on desktop since it's less battery-sensitive
-        this.cleanupTimer = module.createVisibilityAwareInterval(
-          () => this.cleanupStaleEntries(),
-          {
-            interval: 60000, // 60s base
-            mobileMultiplier: 2, // 120s on mobile
-            pauseWhenHidden: true,
-          },
-        );
-
-        // Monitor memory pressure - less frequently on mobile
-        this.memoryTimer = module.createVisibilityAwareInterval(
-          () => this.checkMemoryPressure(),
-          {
-            interval: 30000, // 30s base
-            mobileMultiplier: 2, // 60s on mobile
-            pauseWhenHidden: true,
-          },
-        );
-      });
-    }
-  }
-
-  private isMobile(): boolean {
-    return typeof window !== 'undefined' && window.innerWidth <= 768;
-  }
-
-  async fetchAsBlob(
-    imageRef: ImageReference,
-    useThumbnail = false,
-  ): Promise<string> {
-    // Use different cache key for thumbnails vs full images
-    const cacheKey = getBlobCacheKey(imageRef, useThumbnail);
-
-    // Check if already cached
-    const cached = this.cache.get(cacheKey);
-    if (cached) {
-      cached.lastAccessed = Date.now();
-      // Increment reference count
-      const refCount = this.referenceCount.get(cacheKey) || 0;
-      this.referenceCount.set(cacheKey, refCount + 1);
-      return cached.url;
-    }
-
-    // Fetch from Redis (with thumbnail parameter)
-    const response = await fetch(getImageUrl(imageRef, useThumbnail));
-    if (!response.ok) {
-      throw new Error(`Failed to fetch image: ${response.statusText}`);
-    }
-
-    const blob = await response.blob();
-    const blobUrl = URL.createObjectURL(blob);
-
-    // Add to cache with LRU eviction
-    const cachedBlob = this.addToCache(cacheKey, blobUrl, blob.size);
-    if (!cachedBlob) {
-      this.temporaryUrls.add(blobUrl);
-      return blobUrl;
-    }
-
-    // Also store in WeakMap for automatic cleanup
-    this.weakCache.set(imageRef as any, blobUrl);
-
-    return blobUrl;
-  }
-
-  private addToCache(key: string, url: string, size: number): boolean {
-    if (size > this.maxSize) {
-      logger.debug('Image exceeds blob cache budget, using temporary URL', {
-        imageId: key,
-        size,
-        maxSize: this.maxSize,
-      });
-      return false;
-    }
-
-    // Evict entries if needed
-    while (this.totalSize + size > this.maxSize && this.cache.size > 0) {
-      if (!this.evictOldest()) {
-        break;
-      }
-    }
-
-    if (this.totalSize + size > this.maxSize) {
-      logger.debug('No unreferenced image blobs available for eviction', {
-        imageId: key,
-        size,
-        totalSize: this.totalSize,
-        maxSize: this.maxSize,
-      });
-      return false;
-    }
-
-    this.cache.set(key, {
-      url,
-      size,
-      lastAccessed: Date.now(),
-    });
-    this.totalSize += size;
-    this.referenceCount.set(key, 1);
-    return true;
-  }
-
-  private evictOldest(): boolean {
-    let oldestKey: string | null = null;
-    let oldestTime = Infinity;
-
-    // Convert to array to avoid iterator issues
-    const entries = Array.from(this.cache.entries());
-    for (const [key, entry] of entries) {
-      // Skip items that are still referenced
-      const refCount = this.referenceCount.get(key) || 0;
-      if (refCount > 0) continue;
-
-      if (entry.lastAccessed < oldestTime) {
-        oldestTime = entry.lastAccessed;
-        oldestKey = key;
-      }
-    }
-
-    if (oldestKey) {
-      const entry = this.cache.get(oldestKey)!;
-      URL.revokeObjectURL(entry.url);
-      this.totalSize -= entry.size;
-      this.cache.delete(oldestKey);
-      this.referenceCount.delete(oldestKey);
-      logger.debug('Evicted image from blob cache', { imageId: oldestKey });
-      return true;
-    }
-    return false;
-  }
-
-  revoke(imageId: string, url?: string) {
-    if (!this.cache.has(imageId)) {
-      if (url && this.temporaryUrls.delete(url)) {
-        URL.revokeObjectURL(url);
-      } else if (
-        imageId.startsWith('blob:') &&
-        this.temporaryUrls.delete(imageId)
-      ) {
-        URL.revokeObjectURL(imageId);
-      } else if (url?.startsWith('blob:') && !this.isCachedUrl(url)) {
-        URL.revokeObjectURL(url);
-      }
-      return;
-    }
-
-    // Decrement reference count
-    const refCount = this.referenceCount.get(imageId) || 0;
-    if (refCount > 1) {
-      this.referenceCount.set(imageId, refCount - 1);
-      logger.debug('Decremented ref count for image', {
-        imageId,
-        newCount: refCount - 1,
-      });
-      return; // Don't actually revoke if still referenced
-    }
-    if (refCount === 1) {
-      this.referenceCount.set(imageId, 0);
-    }
-
-    // Small delay to handle race conditions where image might still be loading
-    setTimeout(() => {
-      // Double-check reference count after delay
-      const currentRefCount = this.referenceCount.get(imageId) || 0;
-      if (currentRefCount > 0) {
-        logger.debug(
-          'Image acquired new reference during delay, skipping revocation',
-          { imageId },
-        );
-        return;
-      }
-
-      const entry = this.cache.get(imageId);
-      if (entry) {
-        try {
-          URL.revokeObjectURL(entry.url);
-          this.totalSize -= entry.size;
-          this.cache.delete(imageId);
-          this.referenceCount.delete(imageId);
-          logger.debug('Revoked blob URL for image', { imageId });
-        } catch (e) {
-          logger.error('Error revoking blob URL for image', {
-            imageId,
-            error: e,
-          });
-        }
-      }
-    }, 100); // 100ms delay to allow for race conditions
-  }
-
-  private isCachedUrl(url: string): boolean {
-    return Array.from(this.cache.values()).some((entry) => entry.url === url);
-  }
-
-  clearAll() {
-    // Convert to array to avoid iterator issues
-    const values = Array.from(this.cache.values());
-    for (const entry of values) {
-      URL.revokeObjectURL(entry.url);
-    }
-    this.cache.clear();
-    this.referenceCount.clear();
-    const temporaryUrls = Array.from(this.temporaryUrls);
-    for (const url of temporaryUrls) {
-      URL.revokeObjectURL(url);
-    }
-    this.temporaryUrls.clear();
-    this.totalSize = 0;
-
-    // Stop visibility-aware timers
-    if (this.cleanupTimer) {
-      this.cleanupTimer.stop();
-      this.cleanupTimer = null;
-    }
-    if (this.memoryTimer) {
-      this.memoryTimer.stop();
-      this.memoryTimer = null;
-    }
-  }
-
-  private checkMemoryPressure() {
-    if (typeof performance === 'undefined' || !(performance as any).memory)
-      return;
-
-    const memInfo = (performance as any).memory;
-    const percentUsed =
-      (memInfo.usedJSHeapSize / memInfo.jsHeapSizeLimit) * 100;
-
-    if (percentUsed >= this.memoryPressureThreshold) {
-      logger.warn('Memory pressure detected', {
-        percentUsed: `${percentUsed.toFixed(1)}%`,
-      });
-
-      // Aggressive cleanup - remove all unreferenced entries
-      const entriesToRemove: string[] = [];
-      this.cache.forEach((entry, key) => {
-        const refCount = this.referenceCount.get(key) || 0;
-        if (refCount === 0) {
-          entriesToRemove.push(key);
-        }
-      });
-
-      entriesToRemove.forEach((key) => {
-        const entry = this.cache.get(key);
-        if (entry) {
-          URL.revokeObjectURL(entry.url);
-          this.totalSize -= entry.size;
-          this.cache.delete(key);
-          this.referenceCount.delete(key);
-        }
-      });
-
-      if (entriesToRemove.length > 0) {
-        logger.info('Emergency cleanup: removed image blobs', {
-          count: entriesToRemove.length,
-        });
-      }
-    }
-  }
-
-  private cleanupStaleEntries() {
-    const now = Date.now();
-    const staleTime = this.isMobile() ? 2 * 60 * 1000 : 5 * 60 * 1000; // 2 minutes mobile, 5 minutes desktop
-    const entriesToRemove: string[] = [];
-
-    this.cache.forEach((entry, key) => {
-      // Don't remove if still referenced
-      const refCount = this.referenceCount.get(key) || 0;
-      if (refCount > 0) return;
-
-      if (now - entry.lastAccessed > staleTime) {
-        entriesToRemove.push(key);
-      }
-    });
-
-    entriesToRemove.forEach((key) => {
-      const entry = this.cache.get(key);
-      if (entry) {
-        URL.revokeObjectURL(entry.url);
-        this.totalSize -= entry.size;
-        this.cache.delete(key);
-        this.referenceCount.delete(key);
-      }
-    });
-
-    if (entriesToRemove.length > 0) {
-      logger.info('Cleaned up stale image blobs', {
-        count: entriesToRemove.length,
-      });
-    }
-  }
-}
-
-// Global blob cache instance
-const blobCache = new ImageBlobCache();
-
-// Clean up on page unload
-if (typeof window !== 'undefined') {
-  window.addEventListener('beforeunload', () => {
-    blobCache.clearAll();
-  });
-
-  // Note: We intentionally do NOT clear the blob cache on visibility change.
-  // Clearing all blobs when the page is hidden causes images to disappear
-  // because the OptimizedImage components still reference those blob URLs.
-  // The existing stale entry cleanup (every 30-60 seconds) and memory pressure
-  // cleanup are sufficient for memory management without breaking displayed images.
-}
-
 // Upload image to Redis and return reference
 export async function uploadImage(
   base64Data: string,
   mimeType: string = 'image/jpeg',
+  signal?: AbortSignal,
 ): Promise<ImageReference> {
   try {
-    // Server-side: directly call the storage function to avoid HTTP overhead and session issues
     if (typeof window === 'undefined') {
       const { storeImage } = await import('@/pages/api/session/imageStorage');
       const { randomUUID } = await import('crypto');
 
-      // Generate a session ID for server-side image storage
-      // This allows images to be stored without an actual HTTP session
       const sessionId = randomUUID();
-      const userId = undefined; // Server-side generated images are not user-specific
+      const userId = undefined;
 
       const imageId = await storeImage(sessionId, userId, base64Data, mimeType);
 
       return { imageId, sessionId, userId, mimeType };
     }
 
-    // Client-side: use HTTP API
     const response = await fetch('/api/session/imageStorage', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({ base64Data, mimeType }),
+      credentials: 'include',
+      signal,
     });
 
     if (!response.ok) {
-      throw new Error('Failed to upload image');
+      const message =
+        response.status === 413
+          ? 'File exceeds the size limit.'
+          : response.status === 415
+            ? 'Unsupported image type.'
+            : `Failed to upload image (HTTP ${response.status})`;
+      throw new Error(message);
     }
 
     const { imageId, sessionId, userId } = await response.json();
@@ -411,64 +75,6 @@ export async function uploadImage(
     logger.error('Error uploading image', error);
     throw error;
   }
-}
-
-// Get image URL from reference
-export function getImageUrl(
-  imageRef: ImageReference,
-  useThumbnail = false,
-): string {
-  // Generated images use the /api/generated-image/{id} endpoint
-  if (imageRef.sessionId === 'generated') {
-    const thumbnailParam = useThumbnail ? '?thumbnail=true' : '';
-    if (typeof window === 'undefined') {
-      const port = process.env.PORT || '3000';
-      return `http://127.0.0.1:${port}/api/generated-image/${imageRef.imageId}${thumbnailParam}`;
-    }
-    return `/api/generated-image/${imageRef.imageId}${thumbnailParam}`;
-  }
-
-  // Server-side: need full URL for fetch
-  if (typeof window === 'undefined') {
-    const port = process.env.PORT || '3000';
-    const baseUrl = `http://127.0.0.1:${port}`;
-    let url = `${baseUrl}/api/session/imageStorage?imageId=${imageRef.imageId}`;
-    if (imageRef.sessionId) {
-      url += `&sessionId=${imageRef.sessionId}`;
-    }
-    if (useThumbnail) {
-      url += '&thumbnail=true';
-    }
-    return url;
-  }
-
-  // Client-side: use relative URL
-  let url = `/api/session/imageStorage?imageId=${imageRef.imageId}`;
-  if (imageRef.sessionId) {
-    url += `&sessionId=${imageRef.sessionId}`;
-  }
-  if (useThumbnail) {
-    url += '&thumbnail=true';
-  }
-
-  // Note: userId is handled server-side through authentication, not passed in URL
-  return url;
-}
-
-// Export blob cache functions for use in components
-export async function fetchImageAsBlob(
-  imageRef: ImageReference,
-  useThumbnail = false,
-): Promise<string> {
-  return blobCache.fetchAsBlob(imageRef, useThumbnail);
-}
-
-export function revokeImageBlob(imageId: string, url?: string): void {
-  blobCache.revoke(imageId, url);
-}
-
-export function clearAllImageBlobs(): void {
-  blobCache.clearAll();
 }
 
 // Process message to replace base64 images with references

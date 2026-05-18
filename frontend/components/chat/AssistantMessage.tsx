@@ -2,7 +2,7 @@
 
 import { memo, useState, useRef, useEffect, lazy, Suspense } from 'react';
 import classNames from 'classnames';
-import { IconCopy, IconCheck, IconRefresh, IconChevronDown, IconChevronUp, IconFileText, IconMaximize, IconMinimize } from '@tabler/icons-react';
+import { IconCopy, IconCheck, IconRefresh, IconChevronDown, IconChevronUp, IconFileText, IconMaximize, IconMinimize, IconAlertCircle } from '@tabler/icons-react';
 import { Avatar, IconButton, Badge } from '@/components/primitives';
 import { MarkdownRenderer } from '@/components/markdown/MarkdownRenderer';
 import { Message } from '@/types/chat';
@@ -40,6 +40,9 @@ export const AssistantMessage = memo(({
   const hasSteps = message.intermediateSteps && message.intermediateSteps.length > 0;
   const isAgent = message.role === 'agent';
   const isLongContent = content.length > LONG_CONTENT_CHARS;
+  const errorMessages = message.errorMessages;
+  const hasError = Boolean(errorMessages?.message);
+  const isRecoverable = errorMessages?.recoverable === true;
 
   // After render, check if the actual rendered height exceeds the threshold
   useEffect(() => {
@@ -85,6 +88,37 @@ export const AssistantMessage = memo(({
               <IntermediateSteps steps={message.intermediateSteps!} />
             </div>
           </Suspense>
+        )}
+
+        {/* Error banner */}
+        {hasError && !isStreaming && (
+          <div
+            role="alert"
+            className={classNames(
+              'mb-2 flex items-start gap-2 px-3 py-2 rounded-xl rounded-tl-lg',
+              'bg-nvidia-red/10 border border-nvidia-red/30 text-sm text-dark-text-primary',
+            )}
+          >
+            <IconAlertCircle size={16} className="mt-0.5 flex-shrink-0 text-nvidia-red" />
+            <div className="flex-1 min-w-0">
+              <div className="font-medium">{errorMessages!.message}</div>
+              {errorMessages!.category && errorMessages!.category !== 'unknown' && (
+                <div className="text-[10px] uppercase tracking-wider text-dark-text-muted mt-0.5">
+                  {errorMessages!.category.replace('_', ' ')}
+                </div>
+              )}
+            </div>
+            {isRecoverable && onRetry && (
+              <button
+                type="button"
+                onClick={onRetry}
+                className="flex-shrink-0 inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium text-nvidia-red hover:bg-nvidia-red/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nvidia-red/40"
+              >
+                <IconRefresh size={12} />
+                Retry
+              </button>
+            )}
+          </div>
         )}
 
         {/* Message content */}
