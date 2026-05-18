@@ -86,6 +86,17 @@ def resolve_user_collection_name(
     return user_upload_collection_name(username, default_collection_name)
 
 
+def _can_access_stored_document(
+    document_record: dict[str, Any],
+    username: str | None,
+) -> bool:
+    """Return whether a stored document record is usable by the current user."""
+    document_user_id = str(document_record.get("userId") or "").strip()
+    if not document_user_id:
+        return True
+    return document_user_id == (username or "")
+
+
 def format_user_document_search_results(output: object, collection_name: str) -> str:
     """Format Milvus retriever output for user document search."""
     results = getattr(output, "results", None) or []
@@ -924,6 +935,19 @@ async def nv_ingest_function(
                     )
 
                 document_record = json.loads(document_data_json)
+                if not _can_access_stored_document(document_record, username):
+                    document_user_id = str(document_record.get("userId") or "").strip()
+                    logger.warning(
+                        "Document %s belongs to user %s but was requested by %s",
+                        document_id,
+                        document_user_id,
+                        username,
+                    )
+                    return _failure(
+                        "Error: You do not have access to this document. "
+                        "Please upload the document again from your account."
+                    )
+
                 document_base64 = document_record.get("data")
                 filename = document_record.get("filename", f"{document_id}.bin")
 

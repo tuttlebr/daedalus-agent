@@ -21,7 +21,7 @@ vi.mock('@/pages/api/session/redis', () => ({
   sessionKey: vi.fn((parts: string[]) => `daedalus:${parts.join(':')}`),
   jsonGet: vi.fn(),
   jsonSetWithExpiry: vi.fn(),
-  jsonDel: vi.fn(),
+  jsonDel: vi.fn().mockResolvedValue(0),
   setStreamingState: vi.fn(),
   clearStreamingState: vi.fn(),
 }));
@@ -378,6 +378,117 @@ describe('chat/async backend pinning helpers', () => {
         partialResponse: next,
         updatedAt: expect.any(Number),
       },
+      3600,
+    );
+  });
+
+  it('rejects transcript attachments owned by another user before creating a job', async () => {
+    (jsonGet as any).mockResolvedValueOnce({
+      id: 'vtt-1',
+      data: 'WEBVTT\n\n00:00:00.000 --> 00:00:01.000\nhello',
+      mimeType: 'text/vtt',
+      filename: 'meeting.vtt',
+      size: 48,
+      createdAt: Date.now(),
+      sessionId: 'other-session',
+      userId: 'other-user',
+    });
+    const req = {
+      method: 'POST',
+      headers: { cookie: 'sid=current-session' },
+      body: {
+        messages: [
+          {
+            role: 'user',
+            content: 'summarize this transcript',
+            attachments: [
+              {
+                type: 'transcript',
+                vttRef: {
+                  sessionId: 'other-session',
+                  vttId: 'vtt-1',
+                  filename: 'meeting.vtt',
+                },
+              },
+            ],
+          },
+        ],
+      },
+    } as any;
+    const res = {
+      status: vi.fn().mockReturnThis(),
+      json: vi.fn().mockReturnThis(),
+      setHeader: vi.fn(),
+    } as any;
+
+    await handler(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(res.json).toHaveBeenCalledWith({
+      error: 'You do not have access to one of the transcript attachments.',
+      reason: 'attachment_forbidden',
+    });
+    expect(jsonSetWithExpiry).not.toHaveBeenCalled();
+  });
+
+  it('finalizes stale stream jobs instead of leaving them pending forever', async () => {
+    const now = 2_000_000_000_000;
+    const staleAt = now - 16 * 60 * 1000;
+    const jobStatus = {
+      jobId: 'job-stale',
+      status: 'pending',
+      createdAt: staleAt,
+      updatedAt: staleAt,
+      conversationId: undefined,
+    };
+    const jobRequest = {
+      jobId: 'job-stale',
+      executionMode: 'stream',
+      natBaseUrl: 'http://10.0.2.61:8000',
+      messages: [],
+      additionalProps: {},
+      userId: 'testuser',
+    };
+    const finalizedStatus = {
+      ...jobStatus,
+      status: 'error',
+      error: 'Backend stream did not produce an update before the timeout. Please try again.',
+      partialResponse: '',
+      intermediateSteps: [],
+      updatedAt: now,
+      finalizedAt: now,
+    };
+    (jsonGet as any)
+      .mockResolvedValueOnce(jobStatus)
+      .mockResolvedValueOnce(jobRequest)
+      .mockResolvedValueOnce(jobStatus)
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce(jobStatus)
+      .mockResolvedValueOnce(finalizedStatus);
+    const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(now);
+    const req = { method: 'GET', query: { jobId: 'job-stale' } } as any;
+    const res = {
+      status: vi.fn().mockReturnThis(),
+      json: vi.fn().mockReturnThis(),
+      setHeader: vi.fn(),
+    } as any;
+
+    try {
+      await handler(req, res);
+    } finally {
+      nowSpy.mockRestore();
+    }
+
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(res.json).toHaveBeenCalledWith(finalizedStatus);
+    expect(jsonSetWithExpiry).toHaveBeenCalledWith(
+      'daedalus:async-job-abort:job-stale',
+      true,
+      3600,
+    );
+    expect(jsonSetWithExpiry).toHaveBeenCalledWith(
+      'daedalus:async-job-status:job-stale',
+      finalizedStatus,
       3600,
     );
   });

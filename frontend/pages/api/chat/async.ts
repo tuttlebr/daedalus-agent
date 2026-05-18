@@ -14,7 +14,8 @@ import {
 } from '@/utils/app/backendApi';
 import { fetchWithTimeout } from '@/utils/fetchWithTimeout';
 import { getSession } from '@/utils/auth/session';
-import { getVTT } from '../session/vttStorage';
+import { getOrSetSessionId } from '../session/_utils';
+import { canAccessStoredVTT, getVTT } from '../session/vttStorage';
 import {
   PRIOR_ASSISTANT_OMITTED_MESSAGE,
   sanitizeConversationAssistantReplays,
@@ -37,6 +38,7 @@ interface AsyncJobRequest {
   natBaseUrl: string;
   natSessionId?: string;
   executionMode?: 'stream' | 'nat_async';
+  natMessages?: any[];
   messages: any[];
   additionalProps: any;
   userId: string;
@@ -94,11 +96,13 @@ function debugReplayLog(label: string, fields: Record<string, any>): void {
 }
 
 const JOB_EXPIRY_SECONDS = 60 * 60; // 1 hour
-const NAT_SUBMIT_MAX_RETRIES = 3; // Max attempts for stream backend selection
-const NAT_RETRY_DELAY_MS = 15_000; // Wait between retries — long enough for readiness probe recovery (~30s pod restart)
-const NAT_CONNECTIVITY_TIMEOUT_MS = 5_000; // Fast pre-check before sending full payload
+const NAT_SUBMIT_MAX_RETRIES = Number(process.env.NAT_SUBMIT_MAX_RETRIES || 2);
+const NAT_RETRY_DELAY_MS = Number(process.env.NAT_RETRY_DELAY_MS || 3_000);
+const NAT_CONNECTIVITY_TIMEOUT_MS = Number(process.env.NAT_CONNECTIVITY_TIMEOUT_MS || 2_000);
+const NAT_BACKEND_CACHE_TTL_MS = 30_000;
 const STREAM_STATUS_FLUSH_INTERVAL_MS = 750;
 const STREAM_STEPS_FLUSH_INTERVAL_MS = 750;
+const STREAM_JOB_STALE_TIMEOUT_MS = 15 * 60 * 1000;
 const FINALIZER_POLL_INTERVAL_MS = 5_000;
 const FINALIZER_LOCK_TTL_MS = 30_000;
 const STATUS_UPDATE_LOCK_TTL_MS = 3_000;
@@ -112,6 +116,19 @@ const finalizerLockKey = (jobId: string) => sessionKey(['async-job-finalizer-loc
 const statusLockKey = (jobId: string) => sessionKey(['async-job-status-lock', jobId]);
 
 const backgroundFinalizers = new Set<string>();
+let cachedStreamBackend: { baseUrl: string; expiresAt: number } | null = null;
+
+class ApiRouteError extends Error {
+  status: number;
+  reason: string;
+
+  constructor(status: number, message: string, reason: string) {
+    super(message);
+    this.name = 'ApiRouteError';
+    this.status = status;
+    this.reason = reason;
+  }
+}
 
 async function sleep(ms: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, ms));
@@ -181,6 +198,10 @@ function extractNatOutput(output: { value: string } | string | null): string {
 
 function isTerminalJobStatus(status: AsyncJobStatus['status']): boolean {
   return status === 'completed' || status === 'error';
+}
+
+function isPlausibleUnixMs(value: unknown): value is number {
+  return typeof value === 'number' && value > 946684800000;
 }
 
 function stringifyContent(value: any): string {
@@ -360,6 +381,80 @@ export async function resolveAsyncBackendBaseUrls(): Promise<string[]> {
     );
     return [fallbackBaseUrl];
   }
+}
+
+async function selectStreamBackendBaseUrl(
+  jobId: string,
+  verifiedUsername: string,
+  natSessionId: string,
+): Promise<string> {
+  const natBaseUrls = await resolveAsyncBackendBaseUrls();
+  const now = Date.now();
+  const candidates =
+    cachedStreamBackend &&
+    cachedStreamBackend.expiresAt > now &&
+    natBaseUrls.includes(cachedStreamBackend.baseUrl)
+      ? [
+          cachedStreamBackend.baseUrl,
+          ...natBaseUrls.filter((url) => url !== cachedStreamBackend!.baseUrl),
+        ]
+      : natBaseUrls;
+
+  logger.info(`Job ${jobId}: Resolved async backend candidates`, {
+    candidateCount: candidates.length,
+    candidates,
+    cachedCandidate: cachedStreamBackend?.baseUrl || null,
+  });
+
+  let lastError: string | null = null;
+
+  for (let attempt = 1; attempt <= NAT_SUBMIT_MAX_RETRIES; attempt++) {
+    for (const natBaseUrl of candidates) {
+      const healthUrl = buildBackendUrlFromBase(natBaseUrl, '/docs');
+      const streamUrl = buildBackendUrlFromBase(natBaseUrl, '/v1/chat/completions');
+
+      logger.info(`Job ${jobId}: Checking stream backend at ${streamUrl}`, {
+        attempt,
+        maxAttempts: NAT_SUBMIT_MAX_RETRIES,
+        natBaseUrl,
+      });
+
+      try {
+        const healthResponse = await fetchWithTimeout(
+          healthUrl,
+          { method: 'HEAD', headers: buildNatRequestHeaders(verifiedUsername, {}, natSessionId) },
+          NAT_CONNECTIVITY_TIMEOUT_MS,
+        );
+        if (!healthResponse.ok) {
+          throw new Error(`HTTP ${healthResponse.status}`);
+        }
+        cachedStreamBackend = {
+          baseUrl: natBaseUrl,
+          expiresAt: Date.now() + NAT_BACKEND_CACHE_TTL_MS,
+        };
+        return natBaseUrl;
+      } catch (err: any) {
+        if (cachedStreamBackend?.baseUrl === natBaseUrl) {
+          cachedStreamBackend = null;
+        }
+        lastError = `connectivity check failed for ${natBaseUrl}: ${err.message || 'Unknown fetch error'}`;
+        logger.warn(
+          `Job ${jobId}: Stream backend check failed on ${natBaseUrl} (attempt ${attempt}/${NAT_SUBMIT_MAX_RETRIES}): ${lastError}`,
+        );
+      }
+    }
+
+    if (attempt < NAT_SUBMIT_MAX_RETRIES) {
+      logger.info(`Job ${jobId}: Retrying in ${NAT_RETRY_DELAY_MS}ms...`);
+      await sleep(NAT_RETRY_DELAY_MS);
+    }
+  }
+
+  throw new ApiRouteError(
+    502,
+    `Backend unavailable after ${NAT_SUBMIT_MAX_RETRIES} attempts: ${lastError}`,
+    'backend_unavailable',
+  );
 }
 
 export async function fetchNatJobStatus(
@@ -979,6 +1074,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       return res.status(401).json({ error: 'Not authenticated' });
     }
     const verifiedUsername = session.username;
+    const currentSessionId = getOrSetSessionId(req, res);
 
     if (!messages || !Array.isArray(messages)) {
       return res.status(400).json({ error: 'Invalid messages' });
@@ -1069,6 +1165,20 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
               if (att.vttRef?.vttId && att.vttRef?.sessionId) {
                 try {
                   const storedVtt = await getVTT(att.vttRef.sessionId, att.vttRef.vttId);
+                  if (!storedVtt) {
+                    throw new ApiRouteError(
+                      404,
+                      'Transcript attachment not found. Please upload it again.',
+                      'attachment_not_found',
+                    );
+                  }
+                  if (!canAccessStoredVTT(storedVtt, currentSessionId, verifiedUsername)) {
+                    throw new ApiRouteError(
+                      403,
+                      'You do not have access to one of the transcript attachments.',
+                      'attachment_forbidden',
+                    );
+                  }
                   if (storedVtt?.data) {
                     const filename = att.vttRef.filename || storedVtt.filename || 'transcript';
                     let vttContext = `\n\n[User has attached a VTT/SRT transcript file "${filename}". `;
@@ -1083,10 +1193,20 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
                       totalContentLength: cleanedMessage.content.length,
                     });
                   } else {
-                    logger.error(`Job ${jobId}: Failed to retrieve VTT content from Redis`, { vttRef: att.vttRef });
+                    throw new ApiRouteError(
+                      400,
+                      'Transcript attachment is empty. Please upload it again.',
+                      'attachment_empty',
+                    );
                   }
                 } catch (error) {
+                  if (error instanceof ApiRouteError) throw error;
                   logger.error(`Job ${jobId}: Error retrieving VTT from Redis`, { vttRef: att.vttRef, error });
+                  throw new ApiRouteError(
+                    500,
+                    'Failed to read transcript attachment. Please try again.',
+                    'attachment_read_failed',
+                  );
                 }
               }
             }
@@ -1126,57 +1246,11 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       ...messagesForNat,
     ];
 
-    const natBaseUrls = await resolveAsyncBackendBaseUrls();
-
-    logger.info(`Job ${jobId}: Resolved async backend candidates`, {
-      messageCount: messagesForNat.length,
-      candidateCount: natBaseUrls.length,
-      candidates: natBaseUrls,
-    });
-
-    let lastError: string | null = null;
-    let selectedNatBaseUrl: string | null = null;
-
-    for (let attempt = 1; attempt <= NAT_SUBMIT_MAX_RETRIES && !selectedNatBaseUrl; attempt++) {
-      for (const natBaseUrl of natBaseUrls) {
-        const healthUrl = buildBackendUrlFromBase(natBaseUrl, '/docs');
-        const streamUrl = buildBackendUrlFromBase(natBaseUrl, '/v1/chat/completions');
-
-        logger.info(`Job ${jobId}: Checking stream backend at ${streamUrl}`, {
-          attempt,
-          maxAttempts: NAT_SUBMIT_MAX_RETRIES,
-          natBaseUrl,
-        });
-
-        try {
-          await fetchWithTimeout(
-            healthUrl,
-            { method: 'HEAD', headers: buildNatRequestHeaders(verifiedUsername, {}, natSessionId) },
-            NAT_CONNECTIVITY_TIMEOUT_MS,
-          );
-          selectedNatBaseUrl = natBaseUrl;
-          break;
-        } catch (err: any) {
-          lastError = `connectivity check failed for ${natBaseUrl}: ${err.message || 'Unknown fetch error'}`;
-          logger.warn(
-            `Job ${jobId}: Stream backend check failed on ${natBaseUrl} (attempt ${attempt}/${NAT_SUBMIT_MAX_RETRIES}): ${lastError}`,
-          );
-        }
-      }
-
-      if (!selectedNatBaseUrl && attempt < NAT_SUBMIT_MAX_RETRIES) {
-        logger.info(`Job ${jobId}: Retrying in ${NAT_RETRY_DELAY_MS}ms...`);
-        await new Promise((resolve) => setTimeout(resolve, NAT_RETRY_DELAY_MS));
-      }
-    }
-
-    if (!selectedNatBaseUrl) {
-      logger.error(`Job ${jobId}: No stream backend available after ${NAT_SUBMIT_MAX_RETRIES} attempts: ${lastError}`);
-      return res.status(502).json({
-        error: `Backend unavailable after ${NAT_SUBMIT_MAX_RETRIES} attempts: ${lastError}`,
-        reason: 'backend_unavailable',
-      });
-    }
+    const selectedNatBaseUrl = await selectStreamBackendBaseUrl(
+      jobId,
+      verifiedUsername,
+      natSessionId,
+    );
 
     logger.info(`Job ${jobId}: Selected stream backend`, {
       natBaseUrl: selectedNatBaseUrl,
@@ -1188,6 +1262,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       executionMode: 'stream',
       natBaseUrl: selectedNatBaseUrl || buildBackendBaseUrlForMode(),
       natSessionId,
+      natMessages: messagesWithIdentity,
       messages, // original messages for conversation saving later
       additionalProps,
       userId: verifiedUsername,
@@ -1234,6 +1309,16 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
 
     return;
   } catch (error) {
+    if (error instanceof ApiRouteError) {
+      logger.warn(`Rejected async job request: ${error.message}`, {
+        status: error.status,
+        reason: error.reason,
+      });
+      return res.status(error.status).json({
+        error: error.message,
+        reason: error.reason,
+      });
+    }
     logger.error('Error creating async job', error);
     return res.status(500).json({ error: 'Failed to create job' });
   }
@@ -1273,6 +1358,21 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
     }
 
     if (jobRequest.executionMode === 'stream') {
+      const lastActivityAt = jobStatus.updatedAt || jobStatus.createdAt;
+      if (
+        !isTerminalJobStatus(jobStatus.status) &&
+        isPlausibleUnixMs(lastActivityAt) &&
+        Date.now() - lastActivityAt > STREAM_JOB_STALE_TIMEOUT_MS
+      ) {
+        await finalizeError(
+          jobId,
+          jobRequest,
+          'Backend stream did not produce an update before the timeout. Please try again.',
+        );
+        const updated = (await jsonGet(statusKey) as AsyncJobStatus | null) || jobStatus;
+        const sanitized = await sanitizeJobStatusForReturn(jobId, updated, jobRequest);
+        return res.status(200).json(sanitized);
+      }
       const sanitized = await sanitizeJobStatusForReturn(jobId, jobStatus, jobRequest);
       return res.status(200).json(sanitized);
     }

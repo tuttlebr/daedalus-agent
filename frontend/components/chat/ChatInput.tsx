@@ -10,8 +10,10 @@ import { DropZone } from '@/components/primitives';
 import { ProgressBar } from '@/components/primitives';
 import { GlassToolbar } from '@/components/surfaces';
 import { Message } from '@/types/chat';
-import { uploadImage, ImageReference } from '@/utils/app/imageHandler';
-import { validateFileSize, formatFileSize } from '@/constants/uploadLimits';
+import { uploadImage } from '@/utils/app/imageHandler';
+import { uploadDocument } from '@/utils/app/documentHandler';
+import { uploadVideo, getVideoMimeType } from '@/utils/app/videoHandler';
+import { validateFileSize } from '@/constants/uploadLimits';
 import { uploadVTTFile, isVTTFile } from '@/utils/app/vttHandler';
 import { useMilvusCollections } from '@/utils/app/queries';
 
@@ -72,10 +74,9 @@ export const ChatInput = memo(({ onSend, onStop, isStreaming = false }: ChatInpu
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const { data: collections = [] } = useMilvusCollections();
-  const uploadControllers = useRef<Map<string, AbortController>>(new Map());
-
   const hasDocumentAttachment = attachments.some((a) => a.type === 'document');
+  const { data: collections = [] } = useMilvusCollections(hasDocumentAttachment);
+  const uploadControllers = useRef<Map<string, AbortController>>(new Map());
   const isUploading = uploading.some((u) => u.progress < 100 && !u.error);
   const canSend = (content.trim() || attachments.length > 0) && !isStreaming && !isUploading;
 
@@ -151,56 +152,46 @@ export const ChatInput = memo(({ onSend, onStop, isStreaming = false }: ChatInpu
         setAttachments((prev) => [...prev, attachment]);
 
       } else if (type === 'document') {
-        const response = await fetch('/api/session/documentStorage', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include',
-          signal: controller.signal,
-          body: JSON.stringify({
-            base64Data: base64,
-            filename: file.name,
-            mimeType: file.type || 'application/octet-stream',
-          }),
-        });
-
-        if (!response.ok) {
-          const status = response.status;
-          throw new Error(describeUploadError(new Error(`HTTP ${status}`), status));
-        }
-        const { documentId, sessionId } = await response.json();
+        const documentRef = await uploadDocument(
+          base64,
+          file.name,
+          file.type || 'application/octet-stream',
+          controller.signal,
+        );
         setUploading((prev) => prev.map((u) => u.id === uploadId ? { ...u, progress: 100 } : u));
 
         const attachment: Attachment = {
           content: file.name,
           type: 'document',
-          documentRef: { documentId, sessionId, filename: file.name, mimeType: file.type },
+          documentRef: {
+            documentId: documentRef.documentId,
+            sessionId: documentRef.sessionId,
+            filename: file.name,
+            mimeType: file.type,
+            ...(documentRef.userId && { userId: documentRef.userId }),
+          },
         };
         setAttachments((prev) => [...prev, attachment]);
 
       } else if (type === 'video') {
-        const response = await fetch('/api/session/videoStorage', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include',
-          signal: controller.signal,
-          body: JSON.stringify({
-            base64Data: base64,
-            filename: file.name,
-            mimeType: file.type || 'video/mp4',
-          }),
-        });
-
-        if (!response.ok) {
-          const status = response.status;
-          throw new Error(describeUploadError(new Error(`HTTP ${status}`), status));
-        }
-        const { videoId, sessionId, userId } = await response.json();
+        const videoRef = await uploadVideo(
+          base64,
+          file.name,
+          getVideoMimeType(file),
+          controller.signal,
+        );
         setUploading((prev) => prev.map((u) => u.id === uploadId ? { ...u, progress: 100 } : u));
 
         const attachment: Attachment = {
           content: file.name,
           type: 'video',
-          videoRef: { videoId, sessionId, filename: file.name, mimeType: file.type, ...(userId && { userId }) },
+          videoRef: {
+            videoId: videoRef.videoId,
+            sessionId: videoRef.sessionId,
+            filename: file.name,
+            mimeType: videoRef.mimeType || file.type,
+            ...(videoRef.userId && { userId: videoRef.userId }),
+          },
         };
         setAttachments((prev) => [...prev, attachment]);
       }
@@ -239,9 +230,10 @@ export const ChatInput = memo(({ onSend, onStop, isStreaming = false }: ChatInpu
   }, []);
 
   useEffect(() => {
+    const controllers = uploadControllers.current;
     return () => {
-      uploadControllers.current.forEach((c) => c.abort());
-      uploadControllers.current.clear();
+      controllers.forEach((c) => c.abort());
+      controllers.clear();
     };
   }, []);
 

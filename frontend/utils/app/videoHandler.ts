@@ -1,5 +1,3 @@
-import { Message } from '@/types/chat';
-
 export interface VideoReference {
   videoId: string;
   sessionId: string;
@@ -55,7 +53,8 @@ export function getVideoMimeType(file: File): string {
 export async function uploadVideo(
   base64Data: string,
   filename: string,
-  mimeType: string = 'video/mp4'
+  mimeType: string = 'video/mp4',
+  signal?: AbortSignal,
 ): Promise<VideoReference> {
   try {
     const response = await fetch('/api/session/videoStorage', {
@@ -63,6 +62,8 @@ export async function uploadVideo(
       headers: {
         'Content-Type': 'application/json',
       },
+      credentials: 'include',
+      signal,
       body: JSON.stringify({ base64Data, filename, mimeType }),
     });
 

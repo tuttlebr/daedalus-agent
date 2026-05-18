@@ -12,10 +12,11 @@ async function fetchMilvusCollections(): Promise<string[]> {
   return data.collections ?? [];
 }
 
-export function useMilvusCollections() {
+export function useMilvusCollections(enabled = true) {
   return useQuery({
     queryKey: queryKeys.milvus.collections,
     queryFn: fetchMilvusCollections,
+    enabled,
     staleTime: 10 * 60 * 1000,
     gcTime: 30 * 60 * 1000,
   });

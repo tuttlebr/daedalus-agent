@@ -5,6 +5,7 @@ const logger = new Logger('DocumentHandler');
 export interface DocumentReference {
   documentId: string;
   sessionId: string;
+  userId?: string;
   filename?: string;
   mimeType?: string;
 }
@@ -13,7 +14,8 @@ export interface DocumentReference {
 export async function uploadDocument(
   base64Data: string,
   filename: string,
-  mimeType: string = 'application/octet-stream'
+  mimeType: string = 'application/octet-stream',
+  signal?: AbortSignal,
 ): Promise<DocumentReference> {
   try {
     const response = await fetch('/api/session/documentStorage', {
@@ -21,6 +23,8 @@ export async function uploadDocument(
       headers: {
         'Content-Type': 'application/json',
       },
+      credentials: 'include',
+      signal,
       body: JSON.stringify({ base64Data, filename, mimeType }),
     });
 
@@ -45,8 +49,8 @@ export async function uploadDocument(
       );
     }
 
-    const { documentId, sessionId } = await response.json();
-    return { documentId, sessionId, filename, mimeType };
+    const { documentId, sessionId, userId } = await response.json();
+    return { documentId, sessionId, userId, filename, mimeType };
   } catch (error) {
     logger.error('Error uploading document', error);
     throw error;

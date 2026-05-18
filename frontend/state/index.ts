@@ -51,20 +51,3 @@ export {
   type UISettingsActions,
   type UISettingsStore,
 } from './uiSettingsStore';
-
-// Connection Store
-export {
-  useConnectionStore,
-  // Selectors
-  selectIsConnected,
-  selectConnectionMode,
-  selectReconnectAttempts,
-  // Convenience hooks
-  useIsConnected,
-  useConnectionMode,
-  // Types
-  type ConnectionMode,
-  type ConnectionState,
-  type ConnectionActions,
-  type ConnectionStore,
-} from './connectionStore';

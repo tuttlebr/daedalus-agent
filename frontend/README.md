@@ -67,16 +67,15 @@ See [`../.env.template`](../.env.template), [`env.example`](env.example), and th
 
 | Path | Responsibility |
 |------|----------------|
-| `pages/api/chat.ts` | Direct edge-runtime streaming chat route |
+| `pages/api/chat.ts` | Legacy direct streaming route that returns 410; async chat is the supported path |
 | `pages/api/chat/async.ts` | Async job submission, status polling, stream capture, finalization |
 | `pages/api/conversations/` | Conversation CRUD and persistence |
 | `pages/api/session/` | Redis helpers for sessions, attachments, selected conversation, and sync state |
-| `pages/api/sync/` | SSE-based sync endpoints |
+| `pages/api/sync/notify.ts` | Best-effort cross-session sync notification publisher |
 | `ws-server.ts` | WebSocket sidecar backed by Redis Pub/Sub |
 | `components/Chat/` | Main chat UI, async job integration, intermediate step rendering |
 | `hooks/useAsyncChat.ts` | Job lifecycle, polling, WebSocket subscription, recovery |
 | `hooks/useWebSocket.ts` | WebSocket sync and token delivery |
-| `hooks/useRealtimeSync.ts` | SSE fallback transport |
 | `utils/app/` | Backend URL building, attachment helpers, conversation utilities |
 
 ## Major Features

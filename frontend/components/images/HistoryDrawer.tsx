@@ -118,7 +118,7 @@ export function HistoryDrawer() {
         });
       }
     },
-    [removeFromHistory, pendingDeleteIds, reconcileFromServer],
+    [invalidateImageHistory, removeFromHistory, pendingDeleteIds, reconcileFromServer],
   );
 
   const handleClearAll = useCallback(async () => {
@@ -135,7 +135,7 @@ export function HistoryDrawer() {
       setIsClearing(false);
       setIsConfirmingClear(false);
     }
-  }, [clearHistory, isClearing, reconcileFromServer]);
+  }, [clearHistory, invalidateImageHistory, isClearing, reconcileFromServer]);
 
   return (
     <>

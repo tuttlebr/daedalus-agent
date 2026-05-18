@@ -50,6 +50,7 @@ export interface Message {
     documentRef?: {
       documentId: string;
       sessionId: string;
+      userId?: string;
       filename?: string;
       mimeType?: string;
     };

@@ -3,6 +3,7 @@
 from nat_nv_ingest.nat_nv_ingest import (
     IngestResult,
     NvIngestFunctionConfig,
+    _can_access_stored_document,
     _dedup_entries,
     _normalize_for_dedup,
     _text_quality_score,
@@ -116,6 +117,17 @@ class TestCollectionResolution:
 
     def test_resolve_derives_per_user_default(self):
         assert resolve_user_collection_name(None, "brandon") == "user_uploads_brandon"
+
+
+class TestStoredDocumentAccess:
+    def test_allows_current_document_owner(self):
+        assert _can_access_stored_document({"userId": "brandon"}, "brandon") is True
+
+    def test_denies_other_document_owner(self):
+        assert _can_access_stored_document({"userId": "alice"}, "brandon") is False
+
+    def test_allows_legacy_documents_without_owner(self):
+        assert _can_access_stored_document({}, "brandon") is True
 
 
 # ---------------------------------------------------------------------------

@@ -6,6 +6,8 @@ import crypto from 'crypto';
 
 const DOCUMENT_EXPIRY_SECONDS = 60 * 60 * 24 * 7; // 7 days
 const MAX_DOCUMENT_SIZE = 200 * 1024 * 1024; // 200MB limit (matches SERVER_DOCUMENT_LIMIT in uploadLimits.ts)
+const DOCUMENT_SIZE_ERROR = 'Document size exceeds maximum allowed size';
+const DOCUMENT_TYPE_ERROR = 'File content does not match claimed MIME type';
 
 export interface StoredDocument {
   id: string;
@@ -40,12 +42,12 @@ export async function storeDocument(
   const size = buffer.length;
 
   if (size > MAX_DOCUMENT_SIZE) {
-    throw new Error('Document size exceeds maximum allowed size');
+    throw new Error(DOCUMENT_SIZE_ERROR);
   }
 
   // Validate magic bytes match claimed MIME type
   if (!validateMagicBytes(buffer, mimeType)) {
-    throw new Error('File content does not match claimed MIME type');
+    throw new Error(DOCUMENT_TYPE_ERROR);
   }
 
   const documentData: StoredDocument = {
@@ -145,10 +147,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
       const documentId = await storeDocument(sessionId, userId, base64Data, filename, mimeType);
 
-      return res.status(200).json({ documentId, sessionId });
+      return res.status(200).json({ documentId, sessionId, userId });
     } catch (error) {
       console.error('Error storing document:', error);
-      return res.status(500).json({ error: 'Failed to store document' });
+      const message = error instanceof Error ? error.message : 'Failed to store document';
+      const status = message.includes(DOCUMENT_SIZE_ERROR)
+        ? 413
+        : message.includes(DOCUMENT_TYPE_ERROR)
+          ? 415
+          : 500;
+      return res.status(status).json({ error: message });
     }
   } else if (req.method === 'GET') {
     // Retrieve document

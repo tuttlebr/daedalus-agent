@@ -192,6 +192,11 @@ interface StreamingState {
   userId: string;
 }
 
+interface AsyncJobRequestMeta {
+  jobId: string;
+  userId: string;
+}
+
 async function getStreamingStates(userId: string): Promise<Record<string, StreamingState>> {
   const redis = getRedis();
   const pattern = sessionKey(['streaming', 'user', userId, 'conversation', '*']);
@@ -288,6 +293,23 @@ function sendToConnection(conn: ClientConnection, message: object): void {
 // ---------- Job Subscription via Redis Pub/Sub ----------
 
 async function subscribeToJob(jobId: string, conn: ClientConnection): Promise<void> {
+  const jobRequest = await getJsonOrPlain<AsyncJobRequestMeta>(
+    getRedis(),
+    sessionKey(['async-job-request', jobId]),
+  ).catch((err) => {
+    console.error(`[WS] Error validating job subscription for ${jobId}:`, err);
+    return null;
+  });
+
+  if (!jobRequest || jobRequest.userId !== conn.userId) {
+    console.warn(`[WS] Rejected unauthorized job subscription for ${conn.userId}: ${jobId}`);
+    sendToConnection(conn, {
+      type: 'error',
+      message: 'Unauthorized job subscription',
+    });
+    return;
+  }
+
   conn.subscribedJobs.add(jobId);
 
   const existing = jobSubscribers.get(jobId);

@@ -8,6 +8,7 @@ const NETWORK_HINTS = ['failed to fetch', 'network', 'load failed', 'connection'
 const TIMEOUT_HINTS = ['timed out', 'timeout', 'did not respond'];
 const RATE_LIMIT_HINTS = ['rate limit', 'too many requests', '429'];
 const AUTH_HINTS = ['unauthorized', 'forbidden', '401', '403'];
+const SERVER_HINTS = ['backend unavailable', 'internal server error', 'bad gateway', 'service unavailable'];
 
 export function categorizeError(error: unknown): ErrorCategory {
   if (error instanceof FetchTimeoutError) return 'timeout';
@@ -28,6 +29,7 @@ export function categorizeError(error: unknown): ErrorCategory {
   if (NETWORK_HINTS.some((h) => msg.includes(h))) return 'network';
   if (RATE_LIMIT_HINTS.some((h) => msg.includes(h))) return 'rate_limit';
   if (AUTH_HINTS.some((h) => msg.includes(h))) return 'authentication';
+  if (SERVER_HINTS.some((h) => msg.includes(h))) return 'server';
   if (msg.includes('5') && (msg.includes('500') || msg.includes('502') || msg.includes('503') || msg.includes('504'))) {
     return 'server';
   }

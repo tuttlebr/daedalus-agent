@@ -11,6 +11,8 @@ const MAX_VIDEO_SIZE = 100 * 1024 * 1024; // 100MB limit
 // Codecs: H264, H265, VP8, VP9, FLV
 // Formats: MP4, FLV, 3GP
 const SUPPORTED_MIME_TYPES = ['video/mp4', 'video/x-flv', 'video/3gpp'];
+const VIDEO_SIZE_ERROR = 'exceeds maximum allowed size';
+const VIDEO_TYPE_ERROR = 'File content does not appear to be a valid video';
 
 export interface StoredVideo {
   id: string;
@@ -50,12 +52,12 @@ export async function storeVideo(
   const size = buffer.length;
 
   if (size > MAX_VIDEO_SIZE) {
-    throw new Error(`Video size (${Math.round(size / (1024 * 1024))}MB) exceeds maximum allowed size (${MAX_VIDEO_SIZE / (1024 * 1024)}MB)`);
+    throw new Error(`Video size (${Math.round(size / (1024 * 1024))}MB) ${VIDEO_SIZE_ERROR} (${MAX_VIDEO_SIZE / (1024 * 1024)}MB)`);
   }
 
   // Validate magic bytes
   if (!validateVideoMagicBytes(buffer)) {
-    throw new Error('File content does not appear to be a valid video');
+    throw new Error(VIDEO_TYPE_ERROR);
   }
 
   // Normalize mime type
@@ -202,7 +204,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     } catch (error) {
       console.error('Error storing video:', error);
       const message = error instanceof Error ? error.message : 'Failed to store video';
-      return res.status(500).json({ error: message });
+      const status = message.includes(VIDEO_SIZE_ERROR)
+        ? 413
+        : message.includes(VIDEO_TYPE_ERROR)
+          ? 415
+          : 500;
+      return res.status(status).json({ error: message });
     }
   } else if (req.method === 'GET') {
     // Retrieve video

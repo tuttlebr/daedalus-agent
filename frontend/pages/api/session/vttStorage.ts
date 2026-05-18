@@ -5,6 +5,7 @@ import crypto from 'crypto';
 
 const VTT_EXPIRY_SECONDS = 60 * 60 * 24 * 7; // 7 days
 const MAX_VTT_SIZE = 10 * 1024 * 1024; // 10MB limit for VTT files
+const VTT_SIZE_ERROR = 'VTT file size exceeds maximum allowed size';
 
 export interface StoredVTT {
   id: string;
@@ -36,7 +37,7 @@ export async function storeVTT(
   const size = Buffer.byteLength(content, 'utf8');
 
   if (size > MAX_VTT_SIZE) {
-    throw new Error('VTT file size exceeds maximum allowed size (10MB)');
+    throw new Error(`${VTT_SIZE_ERROR} (10MB)`);
   }
 
   const vttData: StoredVTT = {
@@ -163,7 +164,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     } catch (error) {
       console.error('Error storing VTT:', error);
       const message = error instanceof Error ? error.message : 'Failed to store VTT';
-      return res.status(500).json({ error: message });
+      return res.status(message.includes(VTT_SIZE_ERROR) ? 413 : 500).json({ error: message });
     }
   } else if (req.method === 'GET') {
     const { vttId, sessionId: querySessionId, list } = req.query;
@@ -245,7 +246,7 @@ export const config = {
   },
 };
 
-function canAccessStoredVTT(
+export function canAccessStoredVTT(
   vtt: StoredVTT,
   currentSessionId: string,
   currentUserId: string,

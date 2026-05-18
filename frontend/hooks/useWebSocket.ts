@@ -1,8 +1,7 @@
 /**
  * useWebSocket Hook
  *
- * Drop-in replacement for useRealtimeSync that uses WebSocket instead of SSE.
- * Provides identical callback signatures plus job subscription support.
+ * WebSocket-backed conversation sync and async job update delivery.
  *
  * Visibility-aware: disconnects when backgrounded (unless streaming),
  * reconnects when visible, notifies service worker.

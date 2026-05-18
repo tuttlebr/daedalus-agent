@@ -382,7 +382,11 @@ export const useAsyncChat = (options: UseAsyncChatOptions = {}): UseAsyncChatRet
   // Poll for job status
   const pollJobStatus = useCallback(async (jobId: string) => {
     try {
-      const response = await fetch(`/api/chat/async?jobId=${jobId}`);
+      const response = await fetchWithTimeout(
+        `/api/chat/async?jobId=${jobId}`,
+        { credentials: 'include' },
+        STATUS_FETCH_TIMEOUT_MS,
+      );
 
       if (!response.ok) {
         if (response.status === 404) {
@@ -552,6 +556,7 @@ export const useAsyncChat = (options: UseAsyncChatOptions = {}): UseAsyncChatRet
         // Delete job on server
         await fetch(`/api/chat/async?jobId=${job.jobId}`, {
           method: 'DELETE',
+          credentials: 'include',
         });
         // Clean up WebSocket subscription if active
         if (wsActiveJobsRef.current.has(job.jobId)) {
@@ -620,8 +625,8 @@ export const useAsyncChat = (options: UseAsyncChatOptions = {}): UseAsyncChatRet
 
       if (!response.ok) {
         const body = await response.json().catch(() => ({}));
-        const reason = body?.reason ?? '';
-        throw new Error(`Failed to start async job: ${response.statusText}${reason ? ` (${reason})` : ''}`);
+        const detail = body?.error || body?.message || body?.reason || response.statusText;
+        throw new Error(detail || `Failed to start async job (HTTP ${response.status})`);
       }
 
       const { jobId } = await response.json();
@@ -655,7 +660,11 @@ export const useAsyncChat = (options: UseAsyncChatOptions = {}): UseAsyncChatRet
         // With WebSocket, do one initial poll to get immediate status
         setIsPolling(true);
         try {
-          const initialResponse = await fetch(`/api/chat/async?jobId=${jobId}`);
+          const initialResponse = await fetchWithTimeout(
+            `/api/chat/async?jobId=${jobId}`,
+            { credentials: 'include' },
+            STATUS_FETCH_TIMEOUT_MS,
+          );
           if (initialResponse.ok) {
             const initialStatus: AsyncJobStatus = await initialResponse.json();
             handleWsJobStatus(initialStatus);
@@ -748,7 +757,11 @@ export const useAsyncChat = (options: UseAsyncChatOptions = {}): UseAsyncChatRet
       } else {
         // Do one poll to get current status immediately
         try {
-          const response = await fetch(`/api/chat/async?jobId=${job.jobId}`);
+          const response = await fetchWithTimeout(
+            `/api/chat/async?jobId=${job.jobId}`,
+            { credentials: 'include' },
+            STATUS_FETCH_TIMEOUT_MS,
+          );
           if (response.ok) {
             const status: AsyncJobStatus = await response.json();
             handleWsJobStatus(status);
@@ -776,7 +789,11 @@ export const useAsyncChat = (options: UseAsyncChatOptions = {}): UseAsyncChatRet
   const verifyJobCompletion = useCallback(async (jobId: string, conversationId: string, retries = 3): Promise<boolean> => {
     for (let i = 0; i < retries; i++) {
       try {
-        const response = await fetch(`/api/chat/async?jobId=${jobId}`);
+        const response = await fetchWithTimeout(
+          `/api/chat/async?jobId=${jobId}`,
+          { credentials: 'include' },
+          STATUS_FETCH_TIMEOUT_MS,
+        );
         if (response.ok) {
           const status: AsyncJobStatus = await response.json();
           if (status.status === 'completed' && status.finalizedAt) {
@@ -787,7 +804,11 @@ export const useAsyncChat = (options: UseAsyncChatOptions = {}): UseAsyncChatRet
           // Job no longer exists, sync conversation directly
           logger.warn(`Job ${jobId} not found, syncing conversation directly`);
           try {
-            const convResponse = await fetch(`/api/conversations/${conversationId}`);
+            const convResponse = await fetchWithTimeout(
+              `/api/conversations/${conversationId}`,
+              { credentials: 'include' },
+              STATUS_FETCH_TIMEOUT_MS,
+            );
             if (convResponse.ok) {
               const convData = await convResponse.json();
               if (convData.messages?.length > 0) {
@@ -826,7 +847,11 @@ export const useAsyncChat = (options: UseAsyncChatOptions = {}): UseAsyncChatRet
 
         // Try to get the full job status so we can fire onComplete with the response
         try {
-          const statusResponse = await fetch(`/api/chat/async?jobId=${job.jobId}`);
+          const statusResponse = await fetchWithTimeout(
+            `/api/chat/async?jobId=${job.jobId}`,
+            { credentials: 'include' },
+            STATUS_FETCH_TIMEOUT_MS,
+          );
           if (statusResponse.ok) {
             const status: AsyncJobStatus = await statusResponse.json();
             if (status.status === 'completed' && status.fullResponse) {
@@ -850,7 +875,11 @@ export const useAsyncChat = (options: UseAsyncChatOptions = {}): UseAsyncChatRet
 
         // Fallback: fetch conversation directly from Redis and fire onComplete
         try {
-          const response = await fetch(`/api/conversations/${job.conversationId}`);
+          const response = await fetchWithTimeout(
+            `/api/conversations/${job.conversationId}`,
+            { credentials: 'include' },
+            STATUS_FETCH_TIMEOUT_MS,
+          );
           if (response.ok) {
             const convData = await response.json();
             if (convData.messages?.length > 0) {
