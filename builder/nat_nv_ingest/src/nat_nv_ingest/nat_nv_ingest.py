@@ -226,7 +226,7 @@ class NvIngestFunctionConfig(FunctionBaseConfig, name="nat_nv_ingest"):
         default=16, description="NvIngestClient worker pool size"
     )
     batch_concurrency: int = Field(
-        default=4,
+        default=1,
         description="Max concurrent documents per batch request (1 = sequential)",
     )
     max_documents_per_batch: int = Field(
@@ -246,6 +246,10 @@ class NvIngestFunctionConfig(FunctionBaseConfig, name="nat_nv_ingest"):
     )
     ingest_retry_delay: float = Field(
         default=1.0, description="Seconds to wait between ingest retries"
+    )
+    ingest_timeout_seconds: float = Field(
+        default=300.0,
+        description="Hard timeout for one document's NV-Ingest call",
     )
 
     # Retrieval mode for the consolidated user document tool
@@ -777,6 +781,8 @@ async def nv_ingest_function(
     # Pattern mirrors builder/nat_nv_ingest/src/nat_nv_ingest/user_document_retriever.py.
     _client_cache: dict[str, Any] = {}
     _client_lock = asyncio.Lock()
+    _ingest_locks: dict[str, asyncio.Lock] = {}
+    _ingest_locks_guard = asyncio.Lock()
 
     async def _get_redis() -> redis.Redis:
         if "redis" not in _client_cache:
@@ -804,6 +810,14 @@ async def nv_ingest_function(
                         kwargs["message_client_kwargs"] = {"api_version": "v2"}
                     _client_cache["nv_ingest"] = NvIngestClient(**kwargs)
         return _client_cache["nv_ingest"]
+
+    async def _get_collection_ingest_lock(collection_name: str) -> asyncio.Lock:
+        async with _ingest_locks_guard:
+            lock = _ingest_locks.get(collection_name)
+            if lock is None:
+                lock = asyncio.Lock()
+                _ingest_locks[collection_name] = lock
+            return lock
 
     async def _get_milvus() -> MilvusClient:
         if "milvus" not in _client_cache:
@@ -1015,10 +1029,28 @@ async def nv_ingest_function(
             ingest_start = time.time()
             success_payload: tuple[str, int, int, int] | None = None
             last_exc: Exception | None = None
+            ingest_timeout = max(1.0, config.ingest_timeout_seconds)
+            collection_ingest_lock = await _get_collection_ingest_lock(collection_name)
             for attempt in range(config.ingest_max_retries + 1):
                 try:
-                    success_payload = await asyncio.to_thread(run_ingest_with_postproc)
+                    async with collection_ingest_lock:
+                        success_payload = await asyncio.wait_for(
+                            asyncio.to_thread(run_ingest_with_postproc),
+                            timeout=ingest_timeout,
+                        )
                     break
+                except TimeoutError as e:
+                    last_exc = e
+                    logger.error(
+                        "NV-Ingest timed out after %.1fs for %s",
+                        ingest_timeout,
+                        filename,
+                    )
+                    return _failure(
+                        "Error processing document with NvIngest: "
+                        f"timed out after {ingest_timeout:.0f} seconds.",
+                        filename=filename,
+                    )
                 except Exception as e:
                     last_exc = e
                     if attempt < config.ingest_max_retries:
@@ -1196,11 +1228,45 @@ async def nv_ingest_function(
                 failed_documents.append({"id": filename, "error": outcome["error"]})
                 logger.warning("Document %s failed: %s", filename, outcome["error"])
 
+        def _is_timeout_failure(outcome: IngestResult | Exception) -> bool:
+            if isinstance(outcome, Exception):
+                return isinstance(outcome, TimeoutError)
+            return outcome["status"] == "failure" and "timed out" in outcome[
+                "error"
+            ].lower()
+
+        def _mark_skipped_due_to_timeout(start_idx: int, stop_idx: int) -> None:
+            for skipped_idx in range(start_idx, stop_idx):
+                skipped_ref = documentRefs[skipped_idx]
+                skipped_name = skipped_ref.get(
+                    "filename",
+                    skipped_ref.get("documentId", f"Document_{skipped_idx + 1}"),
+                )
+                failed_documents.append(
+                    {
+                        "id": skipped_name,
+                        "error": (
+                            "Skipped because a prior document ingest timed out; "
+                            "NV-Ingest or Milvus may be unavailable."
+                        ),
+                    }
+                )
+
         for idx in range(sync_prefix):
             _idx, ref_filename, outcome = await _one(idx + 1, documentRefs[idx])
             _accumulate(ref_filename, outcome)
+            if _is_timeout_failure(outcome):
+                _mark_skipped_due_to_timeout(idx + 1, total_documents)
+                break
+
+        if len(successful_documents) + len(failed_documents) < total_documents:
+            skipped_remaining = False
+        else:
+            skipped_remaining = True
 
         for start in range(sync_prefix, total_documents, max_batch):
+            if skipped_remaining:
+                break
             stop = min(start + max_batch, total_documents)
             logger.info(
                 "Starting internal document batch %d-%d of %d",
@@ -1208,12 +1274,27 @@ async def nv_ingest_function(
                 stop,
                 total_documents,
             )
+            if concurrency == 1:
+                for idx in range(start, stop):
+                    _idx, ref_filename, outcome = await _one(
+                        idx + 1, documentRefs[idx]
+                    )
+                    _accumulate(ref_filename, outcome)
+                    if _is_timeout_failure(outcome):
+                        _mark_skipped_due_to_timeout(idx + 1, total_documents)
+                        skipped_remaining = True
+                        break
+                continue
+
             batch = [
                 _one(idx + 1, documentRefs[idx])
                 for idx in range(start, stop)
             ]
             for _idx, ref_filename, outcome in await asyncio.gather(*batch):
                 _accumulate(ref_filename, outcome)
+                if _is_timeout_failure(outcome) and not skipped_remaining:
+                    _mark_skipped_due_to_timeout(stop, total_documents)
+                    skipped_remaining = True
 
         result_message = format_batch_response(
             total_documents=total_documents,

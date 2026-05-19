@@ -85,7 +85,7 @@ class TestNvIngestFunctionConfig:
         assert config.minio_bucket == "nv-ingest"
         assert config.extract_method == "pdfium"
         assert config.max_documents_per_batch == 20
-        assert config.batch_concurrency == 4
+        assert config.batch_concurrency == 1
         assert config.worker_pool_size == 16
         assert config.use_v2_api is False
         assert config.pdf_pages_per_chunk == 32
@@ -98,6 +98,7 @@ class TestNvIngestFunctionConfig:
         assert config.redis_connect_timeout == 5
         assert config.ingest_max_retries == 2
         assert config.ingest_retry_delay == 1.0
+        assert config.ingest_timeout_seconds == 300.0
 
 
 class TestCollectionResolution:

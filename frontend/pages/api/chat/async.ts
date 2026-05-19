@@ -103,6 +103,9 @@ function debugReplayLog(label: string, fields: Record<string, any>): void {
 }
 
 const JOB_EXPIRY_SECONDS = 60 * 60; // 1 hour
+const NAT_ASYNC_EXPIRY_SECONDS = Number(process.env.NAT_ASYNC_EXPIRY_SECONDS || 3600);
+const NAT_SYNC_TIMEOUT = Number(process.env.NAT_SYNC_TIMEOUT || 0);
+const NAT_SUBMIT_TIMEOUT_MS = Number(process.env.NAT_SUBMIT_TIMEOUT_MS || 12_000);
 const NAT_SUBMIT_MAX_RETRIES = Number(process.env.NAT_SUBMIT_MAX_RETRIES || 2);
 const NAT_RETRY_DELAY_MS = Number(process.env.NAT_RETRY_DELAY_MS || 3_000);
 const NAT_CONNECTIVITY_TIMEOUT_MS = Number(process.env.NAT_CONNECTIVITY_TIMEOUT_MS || 2_000);
@@ -332,6 +335,60 @@ export function appendDocumentAttachmentContext(
   return {
     ...message,
     content: `${content}${documentContext}`,
+  };
+}
+
+function isDocumentIngestionMessage(message: any): boolean {
+  const documentRefs = collectDocumentRefs(message.attachments || []);
+  if (documentRefs.length === 0) return false;
+
+  const content = typeof message.content === 'string' ? message.content : '';
+  const hasTargetCollection =
+    typeof message.metadata?.targetCollection === 'string' &&
+    message.metadata.targetCollection.trim();
+
+  return Boolean(
+    hasTargetCollection ||
+      /\b(ingest|index|knowledge base|collection)\b/i.test(content),
+  );
+}
+
+export function isDocumentIngestionRequest(messages: any[]): boolean {
+  return Array.isArray(messages) && messages.some(isDocumentIngestionMessage);
+}
+
+export function compactDocumentIngestionMessage(
+  message: any,
+  verifiedUsername: string,
+): any {
+  if (!isDocumentIngestionMessage(message)) {
+    return message;
+  }
+
+  const documentRefs = collectDocumentRefs(message.attachments || []);
+  const targetCollection =
+    typeof message.metadata?.targetCollection === 'string' &&
+    message.metadata.targetCollection.trim()
+      ? message.metadata.targetCollection.trim()
+      : undefined;
+  const refArg =
+    documentRefs.length === 1
+      ? `documentRef=${JSON.stringify(documentRefs[0])}`
+      : `documentRefs=${JSON.stringify(documentRefs)}`;
+  const collectionArg = targetCollection
+    ? `, collection_name="${targetCollection}"`
+    : '';
+  const noun = documentRefs.length === 1 ? 'document' : 'documents';
+  const targetText = targetCollection
+    ? ` into the "${targetCollection}" collection`
+    : '';
+
+  return {
+    ...message,
+    content:
+      `Ingest ${documentRefs.length} uploaded ${noun}${targetText}. ` +
+      `Call user_document_tool with operation="ingest", ${refArg}, ` +
+      `username="${verifiedUsername}"${collectionArg}.`,
   };
 }
 
@@ -611,6 +668,79 @@ function launchBackgroundFinalizer(jobId: string, jobRequest: AsyncJobRequest): 
     .finally(() => {
       backgroundFinalizers.delete(jobId);
     });
+}
+
+async function submitNatAsyncJob(
+  jobId: string,
+  jobRequest: AsyncJobRequest,
+  messagesForNat: any[],
+  verifiedUsername: string,
+): Promise<void> {
+  const submitUrl = buildBackendUrlFromBase(getNatBaseUrl(jobRequest), '/v1/workflow/async');
+  const payload = {
+    messages: messagesForNat,
+    job_id: jobId,
+    sync_timeout: NAT_SYNC_TIMEOUT,
+    expiry_seconds: NAT_ASYNC_EXPIRY_SECONDS,
+  };
+  const body = JSON.stringify(payload);
+  let lastError: string | null = null;
+
+  for (let attempt = 1; attempt <= NAT_SUBMIT_MAX_RETRIES; attempt++) {
+    try {
+      const response = await fetchWithTimeout(
+        submitUrl,
+        {
+          method: 'POST',
+          headers: buildNatRequestHeaders(
+            verifiedUsername,
+            { 'Content-Type': 'application/json' },
+            jobRequest.natSessionId,
+          ),
+          body,
+        },
+        NAT_SUBMIT_TIMEOUT_MS,
+      );
+
+      if (!response.ok) {
+        const errorText = await response.text().catch(() => '');
+        lastError = `${response.status}${errorText ? ` - ${errorText}` : ''}`;
+        if (response.status >= 400 && response.status < 500) {
+          throw new ApiRouteError(
+            502,
+            `Backend async submit rejected: ${lastError}`,
+            'backend_submit_rejected',
+          );
+        }
+        logger.warn(
+          `Job ${jobId}: NAT async submit failed (attempt ${attempt}/${NAT_SUBMIT_MAX_RETRIES}): ${lastError}`,
+        );
+      } else {
+        const accepted = await response.json().catch(() => null);
+        logger.info(`Job ${jobId}: NAT async job accepted`, {
+          natStatus: accepted?.status || null,
+          submitUrl,
+        });
+        return;
+      }
+    } catch (err: any) {
+      if (err instanceof ApiRouteError) throw err;
+      lastError = err?.message || 'Unknown fetch error';
+      logger.warn(
+        `Job ${jobId}: NAT async submit error (attempt ${attempt}/${NAT_SUBMIT_MAX_RETRIES}): ${lastError}`,
+      );
+    }
+
+    if (attempt < NAT_SUBMIT_MAX_RETRIES) {
+      await sleep(NAT_RETRY_DELAY_MS);
+    }
+  }
+
+  throw new ApiRouteError(
+    502,
+    `Backend async submit failed after ${NAT_SUBMIT_MAX_RETRIES} attempts: ${lastError}`,
+    'backend_unavailable',
+  );
 }
 
 async function sanitizeJobStatusForReturn(
@@ -1289,13 +1419,15 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
         }
       }
 
-      cleanedMessage = appendDocumentAttachmentContext(
-        cleanedMessage,
+      cleanedMessage = compactDocumentIngestionMessage(
+        appendDocumentAttachmentContext(cleanedMessage, verifiedUsername),
         verifiedUsername,
       );
 
       return cleanedMessage;
     }));
+
+    const useNativeAsync = isDocumentIngestionRequest(processedMessages);
 
     // Strip system messages -- the backend's NAT agent owns the system prompt.
     // Also drop assistant messages with empty content -- these cause 400 errors
@@ -1339,7 +1471,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     // Store job metadata in Redis for the GET handler
     const jobRequest: AsyncJobRequest = {
       jobId,
-      executionMode: 'stream',
+      executionMode: useNativeAsync ? 'nat_async' : 'stream',
       natBaseUrl: selectedNatBaseUrl || buildBackendBaseUrlForMode(),
       natSessionId,
       natMessages: messagesWithIdentity,
@@ -1364,6 +1496,26 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       ...(typeof assistantMessageId === 'string' && assistantMessageId ? { assistantMessageId } : {}),
     };
     await jsonSetWithExpiry(sessionKey(['async-job-status', jobId]), jobStatus, JOB_EXPIRY_SECONDS);
+
+    if (useNativeAsync) {
+      logger.info(`Job ${jobId}: Submitting as NAT async document ingestion job`);
+      await submitNatAsyncJob(
+        jobId,
+        jobRequest,
+        messagesWithIdentity,
+        verifiedUsername,
+      );
+
+      const effectiveUserId = verifiedUsername;
+      if (conversationId) {
+        await setStreamingState(effectiveUserId, conversationId, jobId);
+        await publishStreamingState(effectiveUserId, conversationId, true, jobId);
+      }
+
+      res.status(200).json({ jobId, status: 'pending' });
+      launchBackgroundFinalizer(jobId, jobRequest);
+      return;
+    }
 
     // Set streaming state for cross-session UI
     const effectiveUserId = verifiedUsername;
