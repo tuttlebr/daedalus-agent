@@ -47,6 +47,7 @@ import handler, {
   compactDocumentIngestionMessage,
   extractAsyncStreamContentDelta,
   fetchNatJobStatus,
+  getDocumentIngestJobRequest,
   isDocumentIngestionRequest,
   resolveAsyncBackendBaseUrls,
 } from '@/pages/api/chat/async';
@@ -285,31 +286,68 @@ describe('chat/async backend pinning helpers', () => {
     const out = compactDocumentIngestionMessage(message, 'testuser');
 
     expect(out.content).toContain('Ingest 2 uploaded documents into the "nvidia" collection.');
-    expect(out.content).toContain('documentRefs=[{"documentId":"doc-a"');
-    expect(out.content).toContain('username="testuser"');
-    expect(out.content).toContain('collection_name="nvidia"');
+    expect(out.content).not.toContain('documentRefs=');
+    expect(out.content).not.toContain('documentRef=');
+    expect(out.content).not.toContain('user_document_tool');
     expect(out.content).not.toContain('Document 1:');
     expect(out.content).not.toContain('[DOCUMENT_REFERENCE_1]');
   });
 
-  it('submits document-ingestion jobs through NAT async instead of the stream reader', async () => {
+  it('builds a structured document-ingestion job from attachment refs', () => {
+    const job = getDocumentIngestJobRequest([
+      {
+        role: 'user',
+        content: 'Ingest these docs',
+        metadata: { targetCollection: 'nvidia' },
+        attachments: [
+          {
+            type: 'document',
+            content: 'a.md',
+            documentRef: { documentId: 'doc-a', sessionId: 'sess-1' },
+          },
+          {
+            type: 'document',
+            content: 'b.md',
+            documentRef: { documentId: 'doc-b', sessionId: 'sess-1' },
+          },
+        ],
+      },
+    ], 'testuser');
+
+    expect(job).toEqual({
+      documentRefs: [
+        {
+          documentId: 'doc-a',
+          sessionId: 'sess-1',
+          filename: 'a.md',
+        },
+        {
+          documentId: 'doc-b',
+          sessionId: 'sess-1',
+          filename: 'b.md',
+        },
+      ],
+      collectionName: 'nvidia',
+      username: 'testuser',
+    });
+  });
+
+  it('submits document-ingestion jobs directly to the structured backend endpoint', async () => {
     mocks.resolve4.mockResolvedValue(['10.0.2.61']);
     mocks.fetchWithTimeout
       .mockResolvedValueOnce({ ok: true, status: 200 })
       .mockResolvedValueOnce({
         ok: true,
         status: 200,
-        json: vi.fn().mockResolvedValue({
-          job_id: 'accepted-job',
-          status: 'submitted',
-        }),
+        text: vi.fn().mockResolvedValue(JSON.stringify({
+          status: 'success',
+          output: 'Successfully processed all 1 documents',
+        })),
       });
     const req = {
       method: 'POST',
       headers: { cookie: 'sid=current-session' },
       body: {
-        conversationId: 'conv-1',
-        conversationName: 'Docs',
         messages: [
           {
             role: 'user',
@@ -333,6 +371,7 @@ describe('chat/async backend pinning helpers', () => {
     } as any;
 
     await handler(req, res);
+    await new Promise((resolve) => setImmediate(resolve));
 
     expect(res.status).toHaveBeenCalledWith(200);
     expect(mocks.fetchWithTimeout).toHaveBeenCalledWith(
@@ -341,7 +380,7 @@ describe('chat/async backend pinning helpers', () => {
       2000,
     );
     expect(mocks.fetchWithTimeout).toHaveBeenCalledWith(
-      'http://10.0.2.61:8000/v1/workflow/async',
+      'http://10.0.2.61:8000/v1/documents/ingest',
       expect.objectContaining({
         method: 'POST',
         headers: expect.objectContaining({
@@ -349,15 +388,40 @@ describe('chat/async backend pinning helpers', () => {
           'x-user-id': 'testuser',
         }),
       }),
-      12000,
+      3600000,
     );
-    const asyncSubmitCall = (mocks.fetchWithTimeout as any).mock.calls.find(
-      ([url]: [string]) => url === 'http://10.0.2.61:8000/v1/workflow/async',
+    const ingestCall = (mocks.fetchWithTimeout as any).mock.calls.find(
+      ([url]: [string]) => url === 'http://10.0.2.61:8000/v1/documents/ingest',
     );
-    const body = JSON.parse(asyncSubmitCall[1].body);
-    expect(body.sync_timeout).toBe(0);
-    expect(body.messages[1].content).toContain('documentRef={"documentId":"doc-a"');
-    expect(body.messages[1].content).toContain('collection_name="nvidia"');
+    const body = JSON.parse(ingestCall[1].body);
+    expect(body).toEqual({
+      documentRefs: [
+        {
+          documentId: 'doc-a',
+          sessionId: 'sess-1',
+          filename: 'a.md',
+        },
+      ],
+      username: 'testuser',
+      collection_name: 'nvidia',
+    });
+
+    const storedJobRequest = (jsonSetWithExpiry as any).mock.calls.find(
+      ([key]: [string]) => key.includes('async-job-request'),
+    )?.[1];
+    expect(storedJobRequest.executionMode).toBe('document_ingest');
+    expect(storedJobRequest.natMessages).toEqual([]);
+    expect(storedJobRequest.documentIngest).toEqual({
+      documentRefs: [
+        {
+          documentId: 'doc-a',
+          sessionId: 'sess-1',
+          filename: 'a.md',
+        },
+      ],
+      collectionName: 'nvidia',
+      username: 'testuser',
+    });
   });
 
   it('treats legacy shared-service 404s as retryable instead of terminal', async () => {

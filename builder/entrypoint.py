@@ -65,8 +65,8 @@ def _patch_starlette_compat(logger):
         logger.debug("Starlette compat patch not needed")
 
 
-def _patch_fastapi_image_routes(logger):
-    """Inject the /v1/images/* router into NAT's FastAPI app.
+def _patch_fastapi_daedalus_routes(logger):
+    """Inject Daedalus HTTP routers into NAT's FastAPI app.
 
     NAT v1.4.x does not expose a custom-routes extension point, so we
     wrap FastAPI.__init__ to run after NAT has constructed its app and
@@ -80,16 +80,18 @@ def _patch_fastapi_image_routes(logger):
 
     def patched_init(self, *args, **kwargs):
         original_init(self, *args, **kwargs)
-        if getattr(self, "_daedalus_image_routes_attached", False):
+        if getattr(self, "_daedalus_routes_attached", False):
             return
         try:
+            from document_ingest_api import router as document_ingest_router
             from image_api import router as image_router
 
             self.include_router(image_router)
-            self._daedalus_image_routes_attached = True
-            logger.info("Attached /v1/images/* router to FastAPI app")
+            self.include_router(document_ingest_router)
+            self._daedalus_routes_attached = True
+            logger.info("Attached Daedalus HTTP routers to FastAPI app")
         except Exception:
-            logger.exception("Failed to attach /v1/images/* router")
+            logger.exception("Failed to attach Daedalus HTTP routers")
 
     FastAPI.__init__ = patched_init
 
@@ -110,8 +112,8 @@ def main():
     # NAT v1.4.x still calls them.  Patch before any NAT imports.
     _patch_starlette_compat(logging.getLogger("daedalus.starlette_compat"))
 
-    # Attach our /v1/images/* router to NAT's FastAPI app as it's built.
-    _patch_fastapi_image_routes(logging.getLogger("daedalus.image_api"))
+    # Attach Daedalus HTTP routers to NAT's FastAPI app as it's built.
+    _patch_fastapi_daedalus_routes(logging.getLogger("daedalus.http_api"))
 
     # Apply LLM diagnostic patches before NAT imports create clients
     import llm_diagnostics

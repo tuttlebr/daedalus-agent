@@ -86,6 +86,7 @@ def test_backend_dockerfile_chmods_runtime_files_after_copy():
         "COPY llm_diagnostics.py /workspace/llm_diagnostics.py",
         "COPY mcp_patches.py /workspace/mcp_patches.py",
         "COPY image_api.py /workspace/image_api.py",
+        "COPY document_ingest_api.py /workspace/document_ingest_api.py",
     ]
     for copy_instruction in runtime_copies:
         copy_lines = [

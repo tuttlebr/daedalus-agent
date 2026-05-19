@@ -37,8 +37,9 @@ interface AsyncJobRequest {
   jobId: string;
   natBaseUrl: string;
   natSessionId?: string;
-  executionMode?: 'stream' | 'nat_async';
+  executionMode?: 'stream' | 'nat_async' | 'document_ingest';
   natMessages?: any[];
+  documentIngest?: DocumentIngestJobRequest;
   messages: any[];
   additionalProps: any;
   userId: string;
@@ -46,6 +47,12 @@ interface AsyncJobRequest {
   conversationName?: string;
   turnId?: string;
   assistantMessageId?: string;
+}
+
+interface DocumentIngestJobRequest {
+  documentRefs: any[];
+  collectionName: string;
+  username: string;
 }
 
 interface AsyncJobStatus {
@@ -103,12 +110,10 @@ function debugReplayLog(label: string, fields: Record<string, any>): void {
 }
 
 const JOB_EXPIRY_SECONDS = 60 * 60; // 1 hour
-const NAT_ASYNC_EXPIRY_SECONDS = Number(process.env.NAT_ASYNC_EXPIRY_SECONDS || 3600);
-const NAT_SYNC_TIMEOUT = Number(process.env.NAT_SYNC_TIMEOUT || 0);
-const NAT_SUBMIT_TIMEOUT_MS = Number(process.env.NAT_SUBMIT_TIMEOUT_MS || 12_000);
 const NAT_SUBMIT_MAX_RETRIES = Number(process.env.NAT_SUBMIT_MAX_RETRIES || 2);
 const NAT_RETRY_DELAY_MS = Number(process.env.NAT_RETRY_DELAY_MS || 3_000);
 const NAT_CONNECTIVITY_TIMEOUT_MS = Number(process.env.NAT_CONNECTIVITY_TIMEOUT_MS || 2_000);
+const DOCUMENT_INGEST_TIMEOUT_MS = Number(process.env.DOCUMENT_INGEST_TIMEOUT_MS || 60 * 60 * 1000);
 const NAT_BACKEND_CACHE_TTL_MS = 30_000;
 const STREAM_STATUS_FLUSH_INTERVAL_MS = 750;
 const STREAM_STEPS_FLUSH_INTERVAL_MS = 750;
@@ -359,7 +364,7 @@ export function isDocumentIngestionRequest(messages: any[]): boolean {
 
 export function compactDocumentIngestionMessage(
   message: any,
-  verifiedUsername: string,
+  _verifiedUsername: string,
 ): any {
   if (!isDocumentIngestionMessage(message)) {
     return message;
@@ -371,13 +376,6 @@ export function compactDocumentIngestionMessage(
     message.metadata.targetCollection.trim()
       ? message.metadata.targetCollection.trim()
       : undefined;
-  const refArg =
-    documentRefs.length === 1
-      ? `documentRef=${JSON.stringify(documentRefs[0])}`
-      : `documentRefs=${JSON.stringify(documentRefs)}`;
-  const collectionArg = targetCollection
-    ? `, collection_name="${targetCollection}"`
-    : '';
   const noun = documentRefs.length === 1 ? 'document' : 'documents';
   const targetText = targetCollection
     ? ` into the "${targetCollection}" collection`
@@ -385,11 +383,34 @@ export function compactDocumentIngestionMessage(
 
   return {
     ...message,
-    content:
-      `Ingest ${documentRefs.length} uploaded ${noun}${targetText}. ` +
-      `Call user_document_tool with operation="ingest", ${refArg}, ` +
-      `username="${verifiedUsername}"${collectionArg}.`,
+    content: `Ingest ${documentRefs.length} uploaded ${noun}${targetText}.`,
   };
+}
+
+export function getDocumentIngestJobRequest(
+  messages: any[],
+  verifiedUsername: string,
+): DocumentIngestJobRequest | null {
+  if (!Array.isArray(messages)) return null;
+
+  for (const message of messages) {
+    if (!isDocumentIngestionMessage(message)) continue;
+    const documentRefs = collectDocumentRefs(message.attachments || []);
+    if (documentRefs.length === 0) continue;
+    const targetCollection =
+      typeof message.metadata?.targetCollection === 'string' &&
+      message.metadata.targetCollection.trim()
+        ? message.metadata.targetCollection.trim()
+        : verifiedUsername;
+
+    return {
+      documentRefs,
+      collectionName: targetCollection,
+      username: verifiedUsername,
+    };
+  }
+
+  return null;
 }
 
 export function extractAsyncStreamContentDelta(parsed: any, accumulatedText: string): string {
@@ -670,77 +691,92 @@ function launchBackgroundFinalizer(jobId: string, jobRequest: AsyncJobRequest): 
     });
 }
 
-async function submitNatAsyncJob(
+async function submitDirectDocumentIngestJob(
   jobId: string,
   jobRequest: AsyncJobRequest,
-  messagesForNat: any[],
   verifiedUsername: string,
-): Promise<void> {
-  const submitUrl = buildBackendUrlFromBase(getNatBaseUrl(jobRequest), '/v1/workflow/async');
+): Promise<string> {
+  if (!jobRequest.documentIngest) {
+    throw new ApiRouteError(
+      500,
+      'Document ingest job is missing document references.',
+      'document_ingest_missing_payload',
+    );
+  }
+
+  const ingestUrl = buildBackendUrlFromBase(
+    getNatBaseUrl(jobRequest),
+    '/v1/documents/ingest',
+  );
   const payload = {
-    messages: messagesForNat,
-    job_id: jobId,
-    sync_timeout: NAT_SYNC_TIMEOUT,
-    expiry_seconds: NAT_ASYNC_EXPIRY_SECONDS,
+    documentRefs: jobRequest.documentIngest.documentRefs,
+    username: jobRequest.documentIngest.username,
+    collection_name: jobRequest.documentIngest.collectionName,
   };
-  const body = JSON.stringify(payload);
-  let lastError: string | null = null;
 
-  for (let attempt = 1; attempt <= NAT_SUBMIT_MAX_RETRIES; attempt++) {
+  const response = await fetchWithTimeout(
+    ingestUrl,
+    {
+      method: 'POST',
+      headers: buildNatRequestHeaders(
+        verifiedUsername,
+        { 'Content-Type': 'application/json' },
+        jobRequest.natSessionId,
+      ),
+      body: JSON.stringify(payload),
+    },
+    DOCUMENT_INGEST_TIMEOUT_MS,
+  );
+
+  const rawText = await response.text().catch(() => '');
+  let parsed: any = null;
+  if (rawText) {
     try {
-      const response = await fetchWithTimeout(
-        submitUrl,
-        {
-          method: 'POST',
-          headers: buildNatRequestHeaders(
-            verifiedUsername,
-            { 'Content-Type': 'application/json' },
-            jobRequest.natSessionId,
-          ),
-          body,
-        },
-        NAT_SUBMIT_TIMEOUT_MS,
-      );
-
-      if (!response.ok) {
-        const errorText = await response.text().catch(() => '');
-        lastError = `${response.status}${errorText ? ` - ${errorText}` : ''}`;
-        if (response.status >= 400 && response.status < 500) {
-          throw new ApiRouteError(
-            502,
-            `Backend async submit rejected: ${lastError}`,
-            'backend_submit_rejected',
-          );
-        }
-        logger.warn(
-          `Job ${jobId}: NAT async submit failed (attempt ${attempt}/${NAT_SUBMIT_MAX_RETRIES}): ${lastError}`,
-        );
-      } else {
-        const accepted = await response.json().catch(() => null);
-        logger.info(`Job ${jobId}: NAT async job accepted`, {
-          natStatus: accepted?.status || null,
-          submitUrl,
-        });
-        return;
-      }
-    } catch (err: any) {
-      if (err instanceof ApiRouteError) throw err;
-      lastError = err?.message || 'Unknown fetch error';
-      logger.warn(
-        `Job ${jobId}: NAT async submit error (attempt ${attempt}/${NAT_SUBMIT_MAX_RETRIES}): ${lastError}`,
-      );
-    }
-
-    if (attempt < NAT_SUBMIT_MAX_RETRIES) {
-      await sleep(NAT_RETRY_DELAY_MS);
+      parsed = JSON.parse(rawText);
+    } catch {
+      parsed = null;
     }
   }
 
-  throw new ApiRouteError(
-    502,
-    `Backend async submit failed after ${NAT_SUBMIT_MAX_RETRIES} attempts: ${lastError}`,
-    'backend_unavailable',
-  );
+  if (!response.ok) {
+    const detail = parsed?.detail || parsed?.error || rawText || response.statusText;
+    throw new Error(`Document ingest failed (${response.status}): ${detail}`);
+  }
+
+  return parsed?.output || rawText || 'Document ingestion completed.';
+}
+
+async function startBackgroundDocumentIngest(
+  jobId: string,
+  jobRequest: AsyncJobRequest,
+  verifiedUsername: string,
+): Promise<void> {
+  const documentCount = jobRequest.documentIngest?.documentRefs.length || 0;
+  const collectionName = jobRequest.documentIngest?.collectionName || verifiedUsername;
+
+  await updateJobStatus(jobId, {
+    status: 'streaming',
+    partialResponse: `Ingesting ${documentCount} uploaded document${documentCount === 1 ? '' : 's'} into "${collectionName}".`,
+    progress: 10,
+    ...clearOAuthStatusFields(),
+    updatedAt: Date.now(),
+  });
+
+  try {
+    const output = await submitDirectDocumentIngestJob(
+      jobId,
+      jobRequest,
+      verifiedUsername,
+    );
+    await finalizeSuccess(jobId, jobRequest, output);
+  } catch (error: any) {
+    logger.error(`Job ${jobId}: Direct document ingest failed`, error);
+    await finalizeError(
+      jobId,
+      jobRequest,
+      error?.message || 'Document ingestion failed.',
+    );
+  }
 }
 
 async function sanitizeJobStatusForReturn(
@@ -1427,7 +1463,11 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       return cleanedMessage;
     }));
 
-    const useNativeAsync = isDocumentIngestionRequest(processedMessages);
+    const documentIngest = getDocumentIngestJobRequest(
+      processedMessages,
+      verifiedUsername,
+    );
+    const useDirectDocumentIngest = Boolean(documentIngest);
 
     // Strip system messages -- the backend's NAT agent owns the system prompt.
     // Also drop assistant messages with empty content -- these cause 400 errors
@@ -1471,10 +1511,11 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     // Store job metadata in Redis for the GET handler
     const jobRequest: AsyncJobRequest = {
       jobId,
-      executionMode: useNativeAsync ? 'nat_async' : 'stream',
+      executionMode: useDirectDocumentIngest ? 'document_ingest' : 'stream',
       natBaseUrl: selectedNatBaseUrl || buildBackendBaseUrlForMode(),
       natSessionId,
-      natMessages: messagesWithIdentity,
+      natMessages: useDirectDocumentIngest ? [] : messagesWithIdentity,
+      ...(documentIngest ? { documentIngest } : {}),
       messages, // original messages for conversation saving later
       additionalProps,
       userId: verifiedUsername,
@@ -1497,15 +1538,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     };
     await jsonSetWithExpiry(sessionKey(['async-job-status', jobId]), jobStatus, JOB_EXPIRY_SECONDS);
 
-    if (useNativeAsync) {
-      logger.info(`Job ${jobId}: Submitting as NAT async document ingestion job`);
-      await submitNatAsyncJob(
-        jobId,
-        jobRequest,
-        messagesWithIdentity,
-        verifiedUsername,
-      );
-
+    if (useDirectDocumentIngest) {
       const effectiveUserId = verifiedUsername;
       if (conversationId) {
         await setStreamingState(effectiveUserId, conversationId, jobId);
@@ -1513,7 +1546,13 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       }
 
       res.status(200).json({ jobId, status: 'pending' });
-      launchBackgroundFinalizer(jobId, jobRequest);
+      startBackgroundDocumentIngest(
+        jobId,
+        jobRequest,
+        verifiedUsername,
+      ).catch((err) => {
+        logger.error(`Job ${jobId}: Background document ingest failed`, err);
+      });
       return;
     }
 
@@ -1605,6 +1644,11 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
         const sanitized = await sanitizeJobStatusForReturn(jobId, updated, jobRequest);
         return res.status(200).json(sanitized);
       }
+      const sanitized = await sanitizeJobStatusForReturn(jobId, jobStatus, jobRequest);
+      return res.status(200).json(sanitized);
+    }
+
+    if (jobRequest.executionMode === 'document_ingest') {
       const sanitized = await sanitizeJobStatusForReturn(jobId, jobStatus, jobRequest);
       return res.status(200).json(sanitized);
     }

@@ -112,6 +112,7 @@ COPY entrypoint.py /workspace/entrypoint.py
 COPY llm_diagnostics.py /workspace/llm_diagnostics.py
 COPY mcp_patches.py /workspace/mcp_patches.py
 COPY image_api.py /workspace/image_api.py
+COPY document_ingest_api.py /workspace/document_ingest_api.py
 
 # Ensure baked files are accessible when running as non-root (K8s securityContext),
 # and provide NAT's cwd-relative async job temp directory.
