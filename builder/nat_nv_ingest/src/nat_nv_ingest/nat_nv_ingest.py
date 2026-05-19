@@ -31,6 +31,13 @@ _EMPTY_ROW_RE = re.compile(r"^\|[\s|]*$")
 _NON_ALNUM_RE = re.compile(r"[^a-z0-9\s]")
 _COLLECTION_PART_RE = re.compile(r"[^a-zA-Z0-9_]+")
 _UNDERSCORE_COLLAPSE_RE = re.compile(r"_+")
+SHARED_COLLECTION_NAMES = {
+    "kubernetes",
+    "mentalhealth",
+    "nvidia",
+    "semianalysis",
+    "vetpartner",
+}
 
 
 class IngestResult(TypedDict):
@@ -80,9 +87,18 @@ def resolve_user_collection_name(
     username: str | None,
     default_collection_name: str | None = "user_uploads",
 ) -> str:
-    """Resolve a user-upload collection into the authenticated user's namespace."""
-    collection_base = collection_name or default_collection_name
-    return user_upload_collection_name(username, collection_base)
+    """Resolve a target collection without allowing cross-user private writes."""
+    if not collection_name:
+        return user_upload_collection_name(username, default_collection_name)
+
+    collection = normalize_collection_part(collection_name, fallback="user_uploads")
+    user = normalize_collection_part(username, fallback="anonymous")
+
+    if collection in SHARED_COLLECTION_NAMES:
+        return collection
+    if collection == user or collection.endswith(f"_{user}"):
+        return collection
+    return user_upload_collection_name(username, collection)
 
 
 def _can_access_stored_document(
@@ -1080,19 +1096,12 @@ async def nv_ingest_function(
             logger.error("No username provided")
             return "Error: Valid username required for document processing."
 
-        max_batch = config.max_documents_per_batch
+        max_batch = max(1, config.max_documents_per_batch)
         if len(documentRefs) > max_batch:
-            logger.warning(
-                "Too many documents to process at once: %d. Maximum allowed is %d",
+            logger.info(
+                "Processing %d documents in internal batches of %d",
                 len(documentRefs),
                 max_batch,
-            )
-            return (
-                f"⚠️ Too many documents selected ({len(documentRefs)})\n\n"
-                f"For optimal processing and to avoid timeouts, please select no more "
-                f"than {max_batch} documents at a time.\n\n"
-                f"You can process your {len(documentRefs)} documents in "
-                f"{(len(documentRefs) + max_batch - 1) // max_batch} batches."
             )
 
         collection_name = resolve_user_collection_name(
@@ -1191,12 +1200,19 @@ async def nv_ingest_function(
             _idx, ref_filename, outcome = await _one(idx + 1, documentRefs[idx])
             _accumulate(ref_filename, outcome)
 
-        rest = [
-            _one(idx + 1, documentRefs[idx])
-            for idx in range(sync_prefix, total_documents)
-        ]
-        if rest:
-            for _idx, ref_filename, outcome in await asyncio.gather(*rest):
+        for start in range(sync_prefix, total_documents, max_batch):
+            stop = min(start + max_batch, total_documents)
+            logger.info(
+                "Starting internal document batch %d-%d of %d",
+                start + 1,
+                stop,
+                total_documents,
+            )
+            batch = [
+                _one(idx + 1, documentRefs[idx])
+                for idx in range(start, stop)
+            ]
+            for _idx, ref_filename, outcome in await asyncio.gather(*batch):
                 _accumulate(ref_filename, outcome)
 
         result_message = format_batch_response(

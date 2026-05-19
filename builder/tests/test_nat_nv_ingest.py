@@ -115,6 +115,13 @@ class TestCollectionResolution:
     def test_resolve_scopes_explicit_collection_to_user(self):
         assert resolve_user_collection_name("My Docs", "brandon") == "my_docs_brandon"
 
+    def test_resolve_allows_shared_collection_allowlist(self):
+        assert resolve_user_collection_name("nvidia", "brandon") == "nvidia"
+        assert resolve_user_collection_name("vetpartner", "brandon") == "vetpartner"
+
+    def test_resolve_allows_current_user_collection_exactly(self):
+        assert resolve_user_collection_name("brandon", "brandon") == "brandon"
+
     def test_resolve_does_not_allow_cross_user_suffix(self):
         assert (
             resolve_user_collection_name("user_uploads_alice", "brandon")

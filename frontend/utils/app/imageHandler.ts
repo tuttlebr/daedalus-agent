@@ -354,10 +354,12 @@ export function cleanMessagesForLLM(messages: any[]): Message[] {
 
           const docInstructions =
             allDocumentRefs.length === 1
-              ? `\n\n**Document Reference for Tools:**\nUse this documentRef parameter: ${JSON.stringify(
+              ? `\n\n**Document Reference for Tools:**\nUse this documentRef parameter: documentRef=${JSON.stringify(
                   allDocumentRefs[0],
                 )}`
-              : `\n\n**Document References for Tools:**\n${allDocumentRefs
+              : `\n\n**Document References for Tools:**\nUse this documentRefs parameter: documentRefs=${JSON.stringify(
+                  allDocumentRefs,
+                )}\n${allDocumentRefs
                   .map(
                     (ref: any, i: number) =>
                       `Document ${i + 1}: ${JSON.stringify(ref)}`,
@@ -367,7 +369,9 @@ export function cleanMessagesForLLM(messages: any[]): Message[] {
           // Check if message metadata requests ingestion to a specific collection
           const targetCollection = message.metadata?.targetCollection;
           const ingestInstruction = targetCollection
-            ? `\n\n**Ingestion Target:** Use user_document_tool with operation="ingest" to ingest this document into the "${targetCollection}" collection.`
+            ? `\n\n**Ingestion Target:** Use user_document_tool with operation="ingest" to ingest ${
+                allDocumentRefs.length === 1 ? 'this document' : 'these documents'
+              } into the "${targetCollection}" collection.`
             : '';
 
           if (contentAdditions) contentAdditions += '\n';

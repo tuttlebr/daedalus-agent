@@ -40,6 +40,7 @@ vi.mock('@/utils/auth/session', () => ({
 }));
 
 import handler, {
+  appendDocumentAttachmentContext,
   buildBoundedMessagesForNat,
   buildNatRequestHeaders,
   buildNatSessionId,
@@ -203,6 +204,59 @@ describe('chat/async backend pinning helpers', () => {
       content: PRIOR_ASSISTANT_OMITTED_MESSAGE,
     });
     expect(bounded.some((message) => message.content === prior)).toBe(false);
+  });
+
+  it('adds a documentRefs payload for multi-document attachments at the API boundary', () => {
+    const message = {
+      role: 'user',
+      content: 'Ingest these docs',
+      metadata: { targetCollection: 'nvidia' },
+      attachments: [
+        {
+          type: 'document',
+          content: 'a.md',
+          documentRef: { documentId: 'doc-a', sessionId: 'sess-1' },
+        },
+        {
+          type: 'document',
+          content: 'b.md',
+          documentRef: { documentId: 'doc-b', sessionId: 'sess-1' },
+        },
+      ],
+    };
+
+    const out = appendDocumentAttachmentContext(message, 'testuser');
+
+    expect(out.content).toContain('documentRefs=');
+    expect(out.content).toContain('"documentId":"doc-a"');
+    expect(out.content).toContain('"filename":"a.md"');
+    expect(out.content).toContain('username="testuser"');
+    expect(out.content).toContain('collection_name="nvidia"');
+  });
+
+  it('does not duplicate an existing documentRefs payload', () => {
+    const content =
+      'Use this documentRefs parameter: [{"documentId":"doc-a","sessionId":"sess-1"}]';
+    const message = {
+      role: 'user',
+      content,
+      attachments: [
+        {
+          type: 'document',
+          content: 'a.md',
+          documentRef: { documentId: 'doc-a', sessionId: 'sess-1' },
+        },
+        {
+          type: 'document',
+          content: 'b.md',
+          documentRef: { documentId: 'doc-b', sessionId: 'sess-1' },
+        },
+      ],
+    };
+
+    const out = appendDocumentAttachmentContext(message, 'testuser');
+
+    expect(out.content).toBe(content);
   });
 
   it('treats legacy shared-service 404s as retryable instead of terminal', async () => {

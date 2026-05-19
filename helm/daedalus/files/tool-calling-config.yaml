@@ -513,9 +513,10 @@ functions:
       - For later searches, call user_document_tool with
         operation="search", query, and username from [IDENTITY].
       - Omit collection_name unless the user explicitly names a private
-        uploaded-document namespace. The tool treats collection_name as a
-        base name and always derives an authenticated per-user collection;
-        it cannot target shared or another user's collection.
+        uploaded-document namespace or an allow-listed shared upload
+        collection (nvidia, semianalysis, kubernetes, vetpartner,
+        mentalhealth). Private arbitrary names are scoped to the
+        authenticated user; shared allow-listed names are used exactly.
       - For Gmail questions, use search_threads before get_thread unless
         the user gave a specific thread id. Use Gmail search syntax when
         the user provides senders, dates, labels, or keywords.
@@ -648,9 +649,10 @@ functions:
     description: >-
       Ingest or search user-uploaded documents. operation=ingest
       accepts documentRef or documentRefs plus username. operation=search
-      accepts query plus username. collection_name is optional and is
-      interpreted only as a private namespace base; the tool always appends
-      the authenticated user's collection suffix.
+      accepts query plus username. collection_name is optional. Shared
+      allow-listed names (nvidia, semianalysis, kubernetes, vetpartner,
+      mentalhealth) are used exactly; private arbitrary names are scoped
+      to the authenticated user.
     milvus_uri: ${MILVUS_URI}
     minio_access_key: ${MINIO_ACCESS_KEY}
     minio_endpoint: ${MINIO_ENDPOINT}

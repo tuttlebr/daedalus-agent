@@ -272,6 +272,69 @@ export function buildNatSessionId(
   return `daedalus-${createHash('sha256').update(seed).digest('hex').slice(0, 32)}`;
 }
 
+function collectDocumentRefs(attachments: any[]): any[] {
+  const refs: any[] = [];
+  for (const attachment of attachments) {
+    if (attachment?.type !== 'document' || !attachment.documentRef) continue;
+    refs.push({
+      ...attachment.documentRef,
+      filename: attachment.content || attachment.documentRef.filename,
+    });
+  }
+  return refs;
+}
+
+export function appendDocumentAttachmentContext(
+  message: any,
+  verifiedUsername: string,
+): any {
+  if (!message.attachments || !Array.isArray(message.attachments)) {
+    return message;
+  }
+
+  const documentRefs = collectDocumentRefs(message.attachments);
+  if (documentRefs.length === 0) {
+    return message;
+  }
+
+  const content = typeof message.content === 'string' ? message.content : '';
+  const alreadyHasUsableRefs =
+    documentRefs.length === 1
+      ? content.includes('documentRef=') ||
+        content.includes('documentRef parameter')
+      : content.includes('documentRefs=') ||
+        content.includes('documentRefs parameter');
+
+  if (alreadyHasUsableRefs) {
+    return message;
+  }
+
+  const targetCollection =
+    typeof message.metadata?.targetCollection === 'string' &&
+    message.metadata.targetCollection.trim()
+      ? message.metadata.targetCollection.trim()
+      : undefined;
+
+  const refArg =
+    documentRefs.length === 1
+      ? `documentRef=${JSON.stringify(documentRefs[0])}`
+      : `documentRefs=${JSON.stringify(documentRefs)}`;
+  const collectionArg = targetCollection
+    ? `, collection_name="${targetCollection}"`
+    : '';
+  const noun = documentRefs.length === 1 ? 'document' : 'documents';
+
+  const documentContext =
+    `\n\n[User has attached ${documentRefs.length} ${noun}. ` +
+    `For ingestion, call user_document_tool with operation="ingest", ` +
+    `${refArg}, username="${verifiedUsername}"${collectionArg}.]`;
+
+  return {
+    ...message,
+    content: `${content}${documentContext}`,
+  };
+}
+
 export function extractAsyncStreamContentDelta(parsed: any, accumulatedText: string): string {
   const deltaContent = parsed?.choices?.[0]?.delta?.content;
   if (deltaContent !== null && deltaContent !== undefined) {
@@ -1112,7 +1175,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
 
     // Process messages: add attachment references/content for agent context
     const processedMessages = await Promise.all((messages || []).map(async (message: any) => {
-      const cleanedMessage = { ...message };
+      let cleanedMessage = { ...message };
 
       if (cleanedMessage.attachments && Array.isArray(cleanedMessage.attachments)) {
         // Image references
@@ -1225,6 +1288,11 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
           }
         }
       }
+
+      cleanedMessage = appendDocumentAttachmentContext(
+        cleanedMessage,
+        verifiedUsername,
+      );
 
       return cleanedMessage;
     }));

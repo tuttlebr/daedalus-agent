@@ -59,11 +59,12 @@ Important fields:
 - If `documentRef` is supplied, one document is processed.
 - If `documentRefs` is supplied, the tool processes a batch.
 - If neither is supplied, the tool lists available Milvus collections.
-- If `collection_name` is omitted, the tool falls back to the username or configured default collection.
+- If `collection_name` is omitted, the tool derives the configured per-user default collection.
+- Allow-listed shared collection names (`kubernetes`, `mentalhealth`, `nvidia`, `semianalysis`, `vetpartner`) are used exactly; other arbitrary names are scoped to the authenticated user.
 
 ## Practical Limits
 
-- Batch ingestion is capped at 5 documents per request in the tool implementation.
+- Large `documentRefs` requests are processed in internal batches controlled by `max_documents_per_batch` and `batch_concurrency`.
 - The frontend can store large documents in Redis before this tool runs, but actual ingestion success still depends on document format, size, NvIngest capacity, and cluster resources.
 - Uploaded documents are stored in Redis with a 7-day TTL before cleanup.
 
