@@ -203,7 +203,20 @@ async function getStreamingStates(userId: string): Promise<Record<string, Stream
   const states: Record<string, StreamingState> = {};
 
   try {
-    const keys = await redis.keys(pattern);
+    const keys: string[] = [];
+    let cursor = '0';
+    do {
+      const [nextCursor, batch] = await redis.scan(
+        cursor,
+        'MATCH',
+        pattern,
+        'COUNT',
+        100,
+      );
+      cursor = nextCursor;
+      keys.push(...batch);
+    } while (cursor !== '0');
+
     if (keys.length === 0) return states;
 
     for (const key of keys) {

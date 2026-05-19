@@ -382,6 +382,58 @@ describe('chat/async backend pinning helpers', () => {
     );
   });
 
+  it('clears stale OAuth fields once a job is no longer oauth_required', async () => {
+    const jobStatus = {
+      jobId: 'job-123',
+      status: 'streaming',
+      authUrl: 'https://accounts.google.com/o/oauth2/v2/auth',
+      oauthState: 'state-1',
+      createdAt: 1,
+      updatedAt: 2,
+      conversationId: 'conv-1',
+    };
+    const jobRequest = {
+      jobId: 'job-123',
+      executionMode: 'stream',
+      natBaseUrl: 'http://10.0.2.61:8000',
+      messages: [{ role: 'user', content: 'check calendar' }],
+      additionalProps: {},
+      userId: 'testuser',
+      conversationId: 'conv-1',
+    };
+    (jsonGet as any)
+      .mockResolvedValueOnce(jobStatus)
+      .mockResolvedValueOnce(jobRequest)
+      .mockResolvedValueOnce(jobStatus);
+    (jsonSetWithExpiry as any).mockResolvedValue(undefined);
+    const req = { method: 'GET', query: { jobId: 'job-123' } } as any;
+    const res = {
+      status: vi.fn().mockReturnThis(),
+      json: vi.fn().mockReturnThis(),
+      setHeader: vi.fn(),
+    } as any;
+
+    await handler(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(res.json).toHaveBeenCalledWith({
+      ...jobStatus,
+      authUrl: undefined,
+      oauthState: undefined,
+      updatedAt: expect.any(Number),
+    });
+    expect(jsonSetWithExpiry).toHaveBeenCalledWith(
+      'daedalus:async-job-status:job-123',
+      {
+        ...jobStatus,
+        authUrl: undefined,
+        oauthState: undefined,
+        updatedAt: expect.any(Number),
+      },
+      3600,
+    );
+  });
+
   it('rejects transcript attachments owned by another user before creating a job', async () => {
     (jsonGet as any).mockResolvedValueOnce({
       id: 'vtt-1',

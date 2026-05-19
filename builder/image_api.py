@@ -20,10 +20,10 @@ from __future__ import annotations
 import base64
 import logging
 import os
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 import redis
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Header, HTTPException
 from nat_helpers.image_utils import fetch_image_from_redis, store_image_in_redis
 from nat_helpers.openai_images import edit_images, generate_images
 from openai import AsyncOpenAI, OpenAIError
@@ -152,15 +152,30 @@ async def _store_results(
     results: list,
     prompt: str,
     source: str,
+    user_id: str,
+    session_id: str | None,
 ) -> list[str]:
     redis_client = _get_redis()
     ids: list[str] = []
     for r in results:
         image_id = await store_image_in_redis(
-            redis_client, r.b64_json, r.mime_type, prompt, source=source
+            redis_client,
+            r.b64_json,
+            r.mime_type,
+            prompt,
+            source=source,
+            user_id=user_id,
+            session_id=session_id,
         )
         ids.append(image_id)
     return ids
+
+
+def _require_trusted_user(x_user_id: str | None) -> str:
+    user_id = (x_user_id or "").strip()
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Authenticated user is required")
+    return user_id
 
 
 # ---------------------------------------------------------------------------
@@ -169,11 +184,16 @@ async def _store_results(
 
 
 @router.post("/generate", response_model=ImageResponse)
-async def generate(req: GenerateRequest) -> ImageResponse:
+async def generate(
+    req: GenerateRequest,
+    x_user_id: Annotated[str | None, Header(alias="x-user-id")] = None,
+    x_session_id: Annotated[str | None, Header(alias="x-session-id")] = None,
+) -> ImageResponse:
+    user_id = _require_trusted_user(x_user_id)
     model, api_key, base_url = _config_for("GENERATION")
     client = _get_client(api_key, base_url)
 
-    options = req.model_dump(exclude_none=True, exclude={"prompt", "sessionId"})
+    options = req.model_dump(exclude_none=True, exclude={"prompt", "sessionId", "user"})
 
     try:
         results = await generate_images(
@@ -186,12 +206,23 @@ async def generate(req: GenerateRequest) -> ImageResponse:
     if not results:
         raise HTTPException(status_code=502, detail="No image returned by the model")
 
-    ids = await _store_results(results, req.prompt, source="image_panel_generate")
+    ids = await _store_results(
+        results,
+        req.prompt,
+        source="image_panel_generate",
+        user_id=user_id,
+        session_id=(x_session_id or req.sessionId or None),
+    )
     return ImageResponse(imageIds=ids, model=model, prompt=req.prompt)
 
 
 @router.post("/edit", response_model=ImageResponse)
-async def edit(req: EditRequest) -> ImageResponse:
+async def edit(
+    req: EditRequest,
+    x_user_id: Annotated[str | None, Header(alias="x-user-id")] = None,
+    x_session_id: Annotated[str | None, Header(alias="x-session-id")] = None,
+) -> ImageResponse:
+    user_id = _require_trusted_user(x_user_id)
     model, api_key, base_url = _config_for("AUGMENTATION")
     client = _get_client(api_key, base_url)
     redis_client = _get_redis()
@@ -199,7 +230,9 @@ async def edit(req: EditRequest) -> ImageResponse:
     # Fetch source images from Redis, decode to bytes for SDK multipart upload
     source_files: list[tuple[str, bytes, str]] = []
     for idx, ref in enumerate(req.imageRefs):
-        result = await fetch_image_from_redis(redis_client, ref.model_dump())
+        result = await fetch_image_from_redis(
+            redis_client, ref.model_dump(), expected_user_id=user_id
+        )
         if result[0] is None:
             raise HTTPException(status_code=400, detail=f"image {idx + 1}: {result[1]}")
         image_b64, mime = result
@@ -215,7 +248,7 @@ async def edit(req: EditRequest) -> ImageResponse:
     mask_file: tuple[str, bytes, str] | None = None
     if req.maskRef is not None:
         mask_result = await fetch_image_from_redis(
-            redis_client, req.maskRef.model_dump()
+            redis_client, req.maskRef.model_dump(), expected_user_id=user_id
         )
         if mask_result[0] is None:
             raise HTTPException(status_code=400, detail=f"mask: {mask_result[1]}")
@@ -234,7 +267,7 @@ async def edit(req: EditRequest) -> ImageResponse:
 
     options = req.model_dump(
         exclude_none=True,
-        exclude={"prompt", "imageRefs", "maskRef", "sessionId"},
+        exclude={"prompt", "imageRefs", "maskRef", "sessionId", "user"},
     )
 
     try:
@@ -253,5 +286,11 @@ async def edit(req: EditRequest) -> ImageResponse:
     if not results:
         raise HTTPException(status_code=502, detail="No image returned by the model")
 
-    ids = await _store_results(results, req.prompt, source="image_panel_edit")
+    ids = await _store_results(
+        results,
+        req.prompt,
+        source="image_panel_edit",
+        user_id=user_id,
+        session_id=(x_session_id or req.sessionId or None),
+    )
     return ImageResponse(imageIds=ids, model=model, prompt=req.prompt)

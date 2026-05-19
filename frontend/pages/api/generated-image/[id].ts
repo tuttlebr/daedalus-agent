@@ -1,9 +1,7 @@
 import { NextApiRequest, NextApiResponse } from 'next';
 
-import { extractImageReferences } from '@/utils/app/imageHandler';
-
 import { getOrSetSessionId, requireAuthenticatedUser } from '../session/_utils';
-import { getRedis, jsonGet, sessionKey } from '../session/redis';
+import { getRedis } from '../session/redis';
 
 import sharp from 'sharp';
 
@@ -27,23 +25,6 @@ interface GeneratedImageRecord {
   sessionId?: string;
 }
 
-function imageHistoryKey(userId: string, sessionId: string): string {
-  if (userId && userId !== 'anon') {
-    return sessionKey(['user', userId, 'imagePanelHistory']);
-  }
-  return sessionKey(['session', sessionId, 'imagePanelHistory']);
-}
-
-function historyReferencesImage(history: unknown, imageId: string): boolean {
-  if (!Array.isArray(history)) return false;
-  return history.some((entry) => {
-    if (!entry || typeof entry !== 'object') return false;
-    const outputImageIds = (entry as { outputImageIds?: unknown })
-      .outputImageIds;
-    return Array.isArray(outputImageIds) && outputImageIds.includes(imageId);
-  });
-}
-
 function recordMatchesRequestOwner(
   record: GeneratedImageRecord,
   userId: string,
@@ -54,57 +35,12 @@ function recordMatchesRequestOwner(
   return Boolean(record.sessionId && record.sessionId === sessionId);
 }
 
-async function userConversationReferencesImage(
-  userId: string,
-  imageId: string,
-): Promise<boolean> {
-  if (!userId || userId === 'anon') return false;
-
-  const redis = getRedis();
-  const userConversationsKey = sessionKey(['user', userId, 'conversations']);
-  const conversationIds = await redis.smembers(userConversationsKey);
-
-  for (const conversationId of conversationIds) {
-    const conversation = await jsonGet(
-      sessionKey(['conversation', conversationId]),
-    );
-    const messages = conversation?.messages;
-    if (!Array.isArray(messages)) continue;
-    if (extractImageReferences(messages).includes(imageId)) {
-      return true;
-    }
-  }
-
-  const history = await jsonGet(
-    sessionKey(['user', userId, 'conversationHistory']),
-  );
-  if (Array.isArray(history)) {
-    for (const conversation of history) {
-      const messages = conversation?.messages;
-      if (
-        Array.isArray(messages) &&
-        extractImageReferences(messages).includes(imageId)
-      ) {
-        return true;
-      }
-    }
-  }
-
-  return false;
-}
-
 async function canAccessGeneratedImage(
   record: GeneratedImageRecord,
-  imageId: string,
   userId: string,
   sessionId: string,
 ): Promise<boolean> {
-  if (recordMatchesRequestOwner(record, userId, sessionId)) return true;
-
-  const history = await jsonGet(imageHistoryKey(userId, sessionId));
-  if (historyReferencesImage(history, imageId)) return true;
-
-  return userConversationReferencesImage(userId, imageId);
+  return recordMatchesRequestOwner(record, userId, sessionId);
 }
 
 /**
@@ -178,7 +114,6 @@ export default async function handler(
 
     const authorized = await canAccessGeneratedImage(
       record,
-      id,
       userId,
       sessionId,
     );

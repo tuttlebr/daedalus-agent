@@ -78,8 +78,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     const payload = {
       ...req.body,
-      sessionId: req.body?.sessionId ?? sessionId,
-      user: req.body?.user ?? userId,
+      sessionId,
+      user: userId,
     };
 
     const backendResponse = await postJson(
@@ -88,6 +88,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       {
         'Content-Type': 'application/json',
         'x-user-id': userId,
+        'x-session-id': sessionId,
       },
       EDIT_TIMEOUT_MS,
     );

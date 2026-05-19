@@ -10,7 +10,14 @@ if str(_BUILDER_ROOT) not in sys.path:
     sys.path.insert(0, str(_BUILDER_ROOT))
 
 import pytest  # noqa: E402  (path tweak must precede these imports)
-from image_api import EditRequest, GenerateRequest, ImageRef, router  # noqa: E402
+import image_api  # noqa: E402
+from image_api import (  # noqa: E402
+    EditRequest,
+    GenerateRequest,
+    ImageRef,
+    _require_trusted_user,
+    router,
+)
 from pydantic import ValidationError  # noqa: E402
 
 
@@ -19,6 +26,25 @@ class TestRouter:
         # FastAPI is mocked in conftest, so we can't introspect routes here —
         # just confirm the module imported and exposed a router object.
         assert router is not None
+
+    def test_requires_trusted_user_header(self):
+        class FakeHTTPException(Exception):
+            def __init__(self, status_code, detail):
+                super().__init__(detail)
+                self.status_code = status_code
+                self.detail = detail
+
+        original = image_api.HTTPException
+        image_api.HTTPException = FakeHTTPException
+        try:
+            with pytest.raises(FakeHTTPException) as exc_info:
+                _require_trusted_user(None)
+        finally:
+            image_api.HTTPException = original
+        assert exc_info.value.status_code == 401
+
+    def test_accepts_trusted_user_header(self):
+        assert _require_trusted_user(" alice ") == "alice"
 
 
 class TestGenerateRequest:

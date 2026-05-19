@@ -181,9 +181,12 @@ async def visual_media_function(config: VisualMediaFunctionConfig, builder: Buil
             )
         return vlm_client
 
-    async def _generate(prompt: str) -> str:
+    async def _generate(prompt: str, user_id: str | None) -> str:
         if not prompt or not prompt.strip():
             return "Error: prompt is required for operation='generate'."
+        owner_user_id = (user_id or config.user or "").strip()
+        if not owner_user_id:
+            return "Error: user_id is required for operation='generate'."
 
         results = await generate_images(
             _get_image_client("generate"),
@@ -206,6 +209,7 @@ async def visual_media_function(config: VisualMediaFunctionConfig, builder: Buil
                 result.mime_type,
                 prompt,
                 source="visual_media.generate",
+                user_id=owner_user_id,
             )
             refs.append(f"![Generated image](/api/generated-image/{image_id})")
         return "\n".join(refs) if refs else "Error: No image was returned."
@@ -268,6 +272,7 @@ async def visual_media_function(config: VisualMediaFunctionConfig, builder: Buil
                 result.mime_type,
                 prompt,
                 source="visual_media.edit",
+                user_id=expected_user_id or config.user,
             )
             refs.append(f"![Edited image](/api/generated-image/{image_id})")
         return "\n".join(refs) if refs else "Error: No image was returned."
@@ -385,7 +390,7 @@ async def visual_media_function(config: VisualMediaFunctionConfig, builder: Buil
         op = (operation or "").strip().lower()
         try:
             if op == "generate":
-                return await _generate(prompt)
+                return await _generate(prompt, user_id)
             if op == "edit":
                 return await _edit(prompt, imageRef, user_id)
             if op == "analyze":

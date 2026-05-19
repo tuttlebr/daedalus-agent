@@ -80,6 +80,51 @@ jobs:
       - name: Lint chart
         run: helm lint helm/daedalus
 
+      - name: Render chart
+        run: helm template daedalus helm/daedalus >/tmp/daedalus-rendered.yaml
+
+  docker:
+    name: Docker / Compose Smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Seed Compose env
+        run: cp .env.template .env
+
+      - name: Validate Compose config
+        run: docker compose config --quiet
+
+      - name: Build runtime images
+        run: docker compose build backend frontend evals
+
+  security:
+    name: Security Scans
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Secret scan
+        uses: gitleaks/gitleaks-action@v2
+
+      - name: Dependency vulnerability scan
+        uses: aquasecurity/trivy-action@0.24.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          format: sarif
+          output: trivy-results.sarif
+          severity: CRITICAL,HIGH
+
+      - name: Upload vulnerability scan results
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: trivy-results.sarif
+
   evals:
     name: Eval Harness Validation
     runs-on: ubuntu-latest

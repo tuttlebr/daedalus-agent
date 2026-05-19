@@ -4,9 +4,10 @@ import { requireAuth, getSession } from '@/utils/auth/session';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   const session = await getSession(req, res);
+  const adminUsername = process.env.ADMIN_USERNAME || 'admin';
 
   // Only allow admin users to manage users
-  if (session?.username !== 'admin') {
+  if (session?.username !== adminUsername) {
     return res.status(403).json({ error: 'Forbidden: Admin access required' });
   }
 

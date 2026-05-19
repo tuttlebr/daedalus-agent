@@ -78,14 +78,13 @@ function loadAuthConfig(): AuthConfig {
 
 // Initialize users in Redis if they don't exist
 export async function initializeUsers() {
-  const redis = getRedis();
   const config = loadAuthConfig();
 
   for (const configUser of config.users) {
     const userKey = sessionKey(['user', configUser.username]);
-    const exists = await redis.exists(userKey);
+    const existing = await jsonGet(userKey) as User | null;
 
-    if (!exists) {
+    if (!existing) {
       const passwordHash = await bcrypt.hash(configUser.password, 10);
 
       const fullUser: User = {
@@ -98,6 +97,30 @@ export async function initializeUsers() {
 
       await jsonSet(userKey, '.', fullUser);
       console.log(`Created default user: ${configUser.username}`);
+      continue;
+    }
+
+    const passwordMatches = await bcrypt.compare(
+      configUser.password,
+      existing.passwordHash,
+    );
+    const needsUpdate =
+      !passwordMatches ||
+      existing.name !== configUser.name ||
+      existing.id !== configUser.id;
+
+    if (needsUpdate) {
+      const updatedUser: User = {
+        ...existing,
+        id: configUser.id,
+        username: configUser.username,
+        name: configUser.name,
+        passwordHash: passwordMatches
+          ? existing.passwordHash
+          : await bcrypt.hash(configUser.password, 10),
+      };
+      await jsonSet(userKey, '.', updatedUser);
+      console.log(`Updated configured user: ${configUser.username}`);
     }
   }
 }
@@ -109,7 +132,7 @@ export async function getUserByUsername(username: string): Promise<User | null> 
 }
 
 // Verify user credentials
-export async function verifyCredentials(username: string, password: string): Promise<User | null> {
+export async function verifyCredentials(username: string, password: string): Promise<Omit<User, 'passwordHash'> | null> {
   const user = await getUserByUsername(username);
   if (!user) return null;
 
@@ -118,7 +141,7 @@ export async function verifyCredentials(username: string, password: string): Pro
 
   // Return user without password hash
   const { passwordHash, ...userWithoutPassword } = user;
-  return user;
+  return userWithoutPassword;
 }
 
 // Create a new user (admin function)
@@ -164,7 +187,14 @@ export async function listUsers(): Promise<Omit<User, 'passwordHash'>[]> {
   const redis = getRedis();
   const pattern = sessionKey(['user', '*']);
 
-  const keys = await redis.keys(pattern);
+  const keys: string[] = [];
+  let cursor = '0';
+  do {
+    const [nextCursor, batch] = await redis.scan(cursor, 'MATCH', pattern, 'COUNT', 100);
+    cursor = nextCursor;
+    keys.push(...batch);
+  } while (cursor !== '0');
+
   const users: Omit<User, 'passwordHash'>[] = [];
 
   if (keys.length > 0) {

@@ -119,8 +119,8 @@ describe('sanitizeSchema', () => {
       expect(globalAttrs).toContain('class');
     });
 
-    it('allows style on all elements', () => {
-      expect(globalAttrs).toContain('style');
+    it('does not allow inline style on all elements', () => {
+      expect(globalAttrs).not.toContain('style');
     });
 
     it('allows aria-hidden on all elements', () => {
@@ -221,10 +221,12 @@ describe('sanitizeSchema', () => {
   });
 
   describe('safe protocols', () => {
-    it('does not restrict src protocols (allows relative URLs for /api/session/imageStorage)', () => {
-      // src protocols are intentionally NOT defined so that relative URLs pass through.
-      // When protocols.src is undefined, hast-util-sanitize allows all URLs for src.
-      expect(sanitizeSchema.protocols?.src).toBeUndefined();
+    it('restricts src protocols while still allowing relative URLs', () => {
+      const srcProtocols = sanitizeSchema.protocols?.src ?? [];
+      expect(srcProtocols).toContain('http');
+      expect(srcProtocols).toContain('https');
+      expect(srcProtocols).not.toContain('javascript');
+      expect(srcProtocols).not.toContain('data');
     });
 
     it('allows http, https, and mailto for href', () => {
@@ -239,9 +241,9 @@ describe('sanitizeSchema', () => {
       expect(hrefProtocols).not.toContain('javascript');
     });
 
-    it('src protocols are unrestricted (allows relative URLs, data:, etc.)', () => {
-      // src is intentionally not in protocols to allow relative URLs
-      expect(sanitizeSchema.protocols?.src).toBeUndefined();
+    it('does not allow javascript protocol for src', () => {
+      const srcProtocols = sanitizeSchema.protocols?.src ?? [];
+      expect(srcProtocols).not.toContain('javascript');
     });
   });
 

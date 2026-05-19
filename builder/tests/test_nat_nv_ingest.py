@@ -112,8 +112,14 @@ class TestCollectionResolution:
             "user_uploads_brandon_smith"
         )
 
-    def test_resolve_uses_explicit_collection_when_present(self):
-        assert resolve_user_collection_name("My Docs", "brandon") == "my_docs"
+    def test_resolve_scopes_explicit_collection_to_user(self):
+        assert resolve_user_collection_name("My Docs", "brandon") == "my_docs_brandon"
+
+    def test_resolve_does_not_allow_cross_user_suffix(self):
+        assert (
+            resolve_user_collection_name("user_uploads_alice", "brandon")
+            == "user_uploads_alice_brandon"
+        )
 
     def test_resolve_derives_per_user_default(self):
         assert resolve_user_collection_name(None, "brandon") == "user_uploads_brandon"

@@ -66,7 +66,12 @@ describe('/api/generated-image/[id]', () => {
     mocks.requireAuthenticatedUser.mockResolvedValue({ username: 'testuser' });
     mocks.redisCall.mockResolvedValue(
       JSON.stringify([
-        { data: Buffer.from('full').toString('base64'), mimeType: 'image/png' },
+        {
+          data: Buffer.from('full').toString('base64'),
+          mimeType: 'image/png',
+          userId: 'testuser',
+          sessionId: 'session-1',
+        },
       ]),
     );
     mocks.redisGet.mockResolvedValue(null);
@@ -74,9 +79,8 @@ describe('/api/generated-image/[id]', () => {
     mocks.jsonGet.mockResolvedValue([]);
   });
 
-  it('serves authorized history images with private cache headers', async () => {
+  it('serves owned images with private cache headers', async () => {
     const handler = await loadHandler('false');
-    mocks.jsonGet.mockResolvedValueOnce([{ outputImageIds: ['abc-123'] }]);
     const { req, res } = createMockReqRes();
 
     await handler(req, res);
@@ -91,6 +95,12 @@ describe('/api/generated-image/[id]', () => {
 
   it('rejects unowned images when legacy public access is disabled', async () => {
     const handler = await loadHandler('false');
+    mocks.redisCall.mockResolvedValueOnce(
+      JSON.stringify([
+        { data: Buffer.from('full').toString('base64'), mimeType: 'image/png' },
+      ]),
+    );
+    mocks.jsonGet.mockResolvedValueOnce([{ outputImageIds: ['abc-123'] }]);
     const { req, res } = createMockReqRes();
 
     await handler(req, res);

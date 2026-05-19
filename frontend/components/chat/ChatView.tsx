@@ -41,7 +41,7 @@ export const ChatView = memo(() => {
   // Streaming state
   const [activityText, setActivityText] = useState('');
   const [stepCategories, setStepCategories] = useState<IntermediateStepCategory[]>([]);
-  const [oauthPrompt, setOauthPrompt] = useState<{ conversationId: string; authUrl: string } | null>(null);
+  const [oauthPrompt, setOauthPrompt] = useState<{ conversationId: string; jobId?: string; authUrl: string } | null>(null);
   const streamingIds = useConversationStore((s) => s.streamingConversationIds);
   const isStreaming = selectedConversationId ? streamingIds.has(selectedConversationId) : false;
 
@@ -105,6 +105,12 @@ export const ChatView = memo(() => {
     scrollToBottom();
   }, [selectedConversation?.messages?.length, scrollToBottom]);
 
+  useEffect(() => {
+    setOauthPrompt((current) =>
+      current && current.conversationId !== selectedConversationId ? null : current,
+    );
+  }, [selectedConversationId]);
+
   // Async chat hook - handles job submission, WebSocket streaming, polling fallback
   const { startAsyncJob, cancelJob } = useAsyncChat({
     userId,
@@ -115,15 +121,24 @@ export const ChatView = memo(() => {
       if (status.status === 'oauth_required' && status.authUrl) {
         setStreaming(convId, true);
         setActivityText('Waiting for Google authorization');
-        setOauthPrompt({ conversationId: convId, authUrl: status.authUrl });
+        setOauthPrompt({ conversationId: convId, jobId: status.jobId, authUrl: status.authUrl });
         scrollToBottom();
         return;
       }
+
+      setOauthPrompt((current) => {
+        if (!current || current.conversationId !== convId) return current;
+        if (current.jobId && status.jobId && current.jobId !== status.jobId) {
+          return current;
+        }
+        return null;
+      });
 
       // Detect completion in onProgress as a safety net
       // (onComplete may not fire if fullResponse is empty)
       if (status.status === 'completed' || status.status === 'error') {
         const store = useConversationStore.getState();
+        setOauthPrompt((current) => current?.conversationId === convId ? null : current);
         if (store.streamingConversationIds.has(convId)) {
           // Final update with whatever content we have
           const conv = store.conversations.find((c) => c.id === convId);
@@ -138,7 +153,6 @@ export const ChatView = memo(() => {
           setStreaming(convId, false);
           setActivityText('');
           setStepCategories([]);
-          setOauthPrompt((current) => current?.conversationId === convId ? null : current);
           // Persist
           const updatedConv = useConversationStore.getState().conversations.find((c) => c.id === convId);
           if (updatedConv) {

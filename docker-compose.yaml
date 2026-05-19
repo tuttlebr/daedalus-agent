@@ -45,7 +45,7 @@ services:
     networks:
       - ${NETWORK_NAME:-daedalus-network}
     volumes:
-      - ${DOCKER_VOLUME_DIRECTORY:-.}/backend/config.yaml:/workspace/config.yaml
+      - ${BACKEND_CONFIG_FILE:-./backend/tool-calling-config.yaml}:/workspace/config.yaml:ro
       - ${DOCKER_VOLUME_DIRECTORY:-.}/skills:/skills:ro
 
   nginx:

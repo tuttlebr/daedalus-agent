@@ -7,7 +7,7 @@ Daedalus is a full-stack agent platform. The Next.js UI lives in `frontend/`: ro
 ## Build, Test, and Development Commands
 
 - `cp .env.template .env`: create local configuration; never commit populated secrets.
-- `docker compose up --build`: start the local stack.
+- `docker compose up --build`: start the local stack; by default Compose mounts `backend/tool-calling-config.yaml`, or use `BACKEND_CONFIG_FILE=./path/to/config.yaml` to override it.
 - `cd frontend && npm ci --legacy-peer-deps`: install frontend dependencies; use Node.js 22.
 - `cd frontend && npm run dev`: run the frontend on port `5000`.
 - `cd frontend && npm run lint && npm test -- --run && npm run build`: validate lint, Vitest tests, and production build.

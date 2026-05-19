@@ -11,17 +11,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     if (!session) return;
     const username = session.username;
 
-    // For now, return a predefined list of collections
-    // In production, this should be replaced with a proper backend endpoint
-    // that returns structured data instead of natural language
-    const collections = [
-      username,
-      'kubernetes',
-      'mentalhealth',
-      'nvidia',
-      'semianalysis',
-      'vetpartner',
-    ];
+    // User uploads are private. Curated/shared corpora are exposed through
+    // dedicated retriever tools, not as writable upload targets.
+    const collections = [username];
 
     // Remove duplicates and sort
     const uniqueCollections = Array.from(new Set(collections)).sort();
@@ -36,7 +28,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     // Return minimal fallback
     res.status(200).json({
-      collections: [username, 'nvidia']
+      collections: [username],
     });
   }
 }

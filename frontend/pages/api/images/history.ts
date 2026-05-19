@@ -1,10 +1,11 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 
 import { getOrSetSessionId, requireAuthenticatedUser } from '../session/_utils';
-import { jsonDel, jsonGet, jsonSetWithExpiry, sessionKey } from '../session/redis';
+import { getRedis, jsonDel, jsonGet, jsonSetWithExpiry, sessionKey } from '../session/redis';
 
 const IMAGE_HISTORY_TTL_SECONDS = 60 * 60 * 24 * 7;
 const MAX_HISTORY_ENTRIES = 50;
+const IMAGE_ID_PATTERN = /^[a-f0-9-]+$/i;
 
 type ImageMode = 'generate' | 'edit';
 
@@ -25,6 +26,13 @@ interface ImageHistoryEntry {
   outputImageIds: string[];
   model: string;
   createdAt: number;
+}
+
+interface GeneratedImageRecord {
+  data?: string;
+  userId?: string;
+  user?: string;
+  sessionId?: string;
 }
 
 function historyKey(userId: string, sessionId: string): string {
@@ -52,6 +60,64 @@ function isImageRef(value: unknown): value is ImageRef {
     (value.userId === undefined || typeof value.userId === 'string') &&
     (value.mimeType === undefined || typeof value.mimeType === 'string')
   );
+}
+
+function recordMatchesRequestOwner(
+  record: GeneratedImageRecord,
+  userId: string,
+  sessionId: string,
+): boolean {
+  const ownerUserId = record.userId || record.user;
+  if (ownerUserId && ownerUserId === userId) return true;
+  return Boolean(record.sessionId && record.sessionId === sessionId);
+}
+
+async function loadGeneratedImageRecord(
+  imageId: string,
+): Promise<GeneratedImageRecord | null> {
+  const redis = getRedis();
+  const redisKey = `generated:image:${imageId}`;
+
+  try {
+    const jsonResult = (await redis.call('JSON.GET', redisKey, '$')) as
+      | string
+      | null;
+    if (jsonResult) {
+      const parsed = JSON.parse(jsonResult);
+      return Array.isArray(parsed) ? parsed[0] : parsed;
+    }
+  } catch {
+    const plainResult = await redis.get(redisKey);
+    if (plainResult) {
+      try {
+        return JSON.parse(plainResult);
+      } catch {
+        return null;
+      }
+    }
+  }
+
+  return null;
+}
+
+async function validateOutputImageIds(
+  imageIds: string[],
+  userId: string,
+  sessionId: string,
+): Promise<string | null> {
+  for (const imageId of imageIds) {
+    if (!IMAGE_ID_PATTERN.test(imageId)) {
+      return 'Invalid image history entry';
+    }
+    const record = await loadGeneratedImageRecord(imageId);
+    if (!record?.data) {
+      return 'Generated image not found';
+    }
+    if (!recordMatchesRequestOwner(record, userId, sessionId)) {
+      return 'Generated image does not belong to the current user';
+    }
+  }
+  return null;
 }
 
 function parseEntry(value: unknown): ImageHistoryEntry | null {
@@ -123,6 +189,15 @@ export default async function handler(
     }
 
     try {
+      const validationError = await validateOutputImageIds(
+        entry.outputImageIds,
+        userId,
+        sessionId,
+      );
+      if (validationError) {
+        return res.status(403).json({ error: validationError });
+      }
+
       const existing = await loadHistory(key);
       const nextHistory = [
         entry,

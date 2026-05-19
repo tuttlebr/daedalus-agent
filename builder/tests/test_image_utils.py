@@ -73,6 +73,20 @@ class _FailingRedis:
         return True
 
 
+class _WritableRedis:
+    def __init__(self):
+        self.commands: list[tuple] = []
+        self.expirations: list[tuple] = []
+
+    def execute_command(self, *args):
+        self.commands.append(args)
+        return "OK"
+
+    def expire(self, *args):
+        self.expirations.append(args)
+        return True
+
+
 class TestFetchImageFromRedis:
     def test_finds_generated_image_via_fallback(self):
         # Simulate a generated-panel output image: only the generated:image:{id}
@@ -197,8 +211,46 @@ class TestFetchImageFromRedis:
         assert result == ("Z2Vu", "image/png")
         assert "image:generated:xyz" not in redis_client.requested_keys
 
+    def test_generated_image_rejects_different_owner(self):
+        payload = json.dumps(
+            {"data": "Z2Vu", "mimeType": "image/png", "userId": "alice"}
+        )
+        redis_client = _FakeRedis({"generated:image:xyz": payload})
+
+        result = _run(
+            fetch_image_from_redis(
+                redis_client,
+                {"imageId": "xyz", "sessionId": "generated"},
+                expected_user_id="bob",
+            )
+        )
+
+        assert result[0] is None
+        assert "different authenticated user" in result[1]
+
 
 class TestStoreImageInRedis:
+    def test_stores_owner_metadata_when_provided(self):
+        redis_client = _WritableRedis()
+
+        image_id = _run(
+            store_image_in_redis(
+                redis_client,
+                "aGVsbG8=",
+                "image/png",
+                "prompt",
+                user_id="alice",
+                session_id="session-1",
+            )
+        )
+
+        assert image_id
+        command = redis_client.commands[0]
+        assert command[0] == "JSON.SET"
+        payload = json.loads(command[3])
+        assert payload["userId"] == "alice"
+        assert payload["sessionId"] == "session-1"
+
     def test_raises_when_redis_write_fails(self):
         try:
             _run(

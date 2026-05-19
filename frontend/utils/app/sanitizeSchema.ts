@@ -85,7 +85,6 @@ export const sanitizeSchema = {
       ...(defaultSchema.attributes?.['*'] || []),
       'className',
       'class',
-      'style',
       'aria-hidden',
       'role',
     ],
@@ -106,8 +105,8 @@ export const sanitizeSchema = {
     td: ['align', 'valign', 'colSpan', 'rowSpan'],
     th: ['align', 'valign', 'colSpan', 'rowSpan', 'scope'],
     a: ['href', 'title', 'target', 'rel'],
-    span: ['className', 'class', 'style', 'aria-hidden'],
-    div: ['className', 'class', 'style', 'aria-hidden'],
+    span: ['className', 'class', 'aria-hidden'],
+    div: ['className', 'class', 'aria-hidden'],
     math: ['xmlns', 'display'],
     annotation: ['encoding'],
     'annotation-xml': ['encoding'],
@@ -124,9 +123,9 @@ export const sanitizeSchema = {
   },
   protocols: {
     ...defaultSchema.protocols,
-    // Remove 'src' restriction to allow relative URLs (e.g. /api/session/imageStorage)
-    // plus data: URIs. Dangerous elements are blocked by the strip list.
-    src: undefined as any,
+    // Relative application URLs are allowed by rehype-sanitize because they
+    // have no protocol. Explicit protocols stay restricted.
+    src: ['http', 'https'],
     href: ['http', 'https', 'mailto'],
   },
   // Strip dangerous elements entirely

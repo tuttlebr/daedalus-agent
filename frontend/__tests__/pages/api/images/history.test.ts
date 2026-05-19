@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
+  redisCall: vi.fn(),
+  redisGet: vi.fn(),
   jsonGet: vi.fn(),
   jsonSetWithExpiry: vi.fn(),
   jsonDel: vi.fn(),
@@ -14,6 +16,10 @@ vi.mock('@/pages/api/session/_utils', () => ({
 }));
 
 vi.mock('@/pages/api/session/redis', () => ({
+  getRedis: vi.fn(() => ({
+    call: mocks.redisCall,
+    get: mocks.redisGet,
+  })),
   jsonGet: mocks.jsonGet,
   jsonSetWithExpiry: mocks.jsonSetWithExpiry,
   jsonDel: mocks.jsonDel,
@@ -57,6 +63,16 @@ describe('/api/images/history', () => {
     vi.clearAllMocks();
     mocks.getOrSetSessionId.mockReturnValue('session-1');
     mocks.requireAuthenticatedUser.mockResolvedValue({ username: 'testuser' });
+    mocks.redisCall.mockResolvedValue(
+      JSON.stringify([
+        {
+          data: 'aGVsbG8=',
+          userId: 'testuser',
+          sessionId: 'session-1',
+        },
+      ]),
+    );
+    mocks.redisGet.mockResolvedValue(null);
     mocks.jsonGet.mockResolvedValue([]);
     mocks.jsonSetWithExpiry.mockResolvedValue(undefined);
     mocks.jsonDel.mockResolvedValue(undefined);
@@ -101,6 +117,27 @@ describe('/api/images/history', () => {
     expect(res.status).toHaveBeenCalledWith(400);
     expect(res.json).toHaveBeenCalledWith({
       error: 'Invalid image history entry',
+    });
+  });
+
+  it('rejects history entries that reference another user image', async () => {
+    mocks.redisCall.mockResolvedValueOnce(
+      JSON.stringify([
+        {
+          data: 'aGVsbG8=',
+          userId: 'other-user',
+          sessionId: 'other-session',
+        },
+      ]),
+    );
+    const { req, res } = createMockReqRes('POST', { entry: entry('new-entry') });
+
+    await handler(req, res);
+
+    expect(mocks.jsonSetWithExpiry).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(res.json).toHaveBeenCalledWith({
+      error: 'Generated image does not belong to the current user',
     });
   });
 

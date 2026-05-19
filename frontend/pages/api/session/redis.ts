@@ -435,7 +435,20 @@ export async function getStreamingStates(
   const states: Record<string, StreamingState> = {};
 
   try {
-    const keys = await client.keys(pattern);
+    const keys: string[] = [];
+    let cursor = '0';
+    do {
+      const [nextCursor, batch] = await client.scan(
+        cursor,
+        'MATCH',
+        pattern,
+        'COUNT',
+        100,
+      );
+      cursor = nextCursor;
+      keys.push(...batch);
+    } while (cursor !== '0');
+
     if (keys.length === 0) {
       return states;
     }

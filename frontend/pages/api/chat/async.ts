@@ -66,6 +66,13 @@ interface AsyncJobStatus {
   assistantMessageId?: string;
 }
 
+function clearOAuthStatusFields(): Pick<AsyncJobStatus, 'authUrl' | 'oauthState'> {
+  return {
+    authUrl: undefined,
+    oauthState: undefined,
+  };
+}
+
 interface NatAsyncJobResponse {
   job_id: string;
   status: 'submitted' | 'running' | 'success' | 'failure' | 'interrupted';
@@ -550,6 +557,10 @@ async function sanitizeJobStatusForReturn(
 ): Promise<AsyncJobStatus> {
   const updates: Partial<AsyncJobStatus> = {};
 
+  if (status.status !== 'oauth_required' && (status.authUrl || status.oauthState)) {
+    Object.assign(updates, clearOAuthStatusFields());
+  }
+
   if (typeof status.fullResponse === 'string' && status.fullResponse) {
     const fullResponse = stripReplayedAssistantPrefix(
       status.fullResponse,
@@ -771,8 +782,7 @@ async function startBackgroundStreamReader(
         status: 'streaming',
         partialResponse,
         intermediateSteps: accumulatedSteps,
-        authUrl: undefined,
-        oauthState: undefined,
+        ...clearOAuthStatusFields(),
         updatedAt: now,
       });
     };
@@ -840,6 +850,7 @@ async function startBackgroundStreamReader(
             accumulatedSteps.push(step);
             // Persist incrementally so handleGet() can return live steps
             await flushSteps();
+            await flushStreamingStatus(true);
 
             if (tokenChannel) {
               publisher.publish(tokenChannel, JSON.stringify({
@@ -1026,6 +1037,7 @@ async function startBackgroundFinalizer(
         await updateJobStatus(jobId, {
           status: mapped,
           progress: mapped === 'streaming' ? 50 : 0,
+          ...clearOAuthStatusFields(),
           ...(liveSteps?.length ? { intermediateSteps: liveSteps } : {}),
           updatedAt: Date.now(),
         });
@@ -1407,6 +1419,7 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
       await updateJobStatus(jobId, {
         status: mappedStatus,
         progress: mappedStatus === 'streaming' ? 50 : 0,
+        ...clearOAuthStatusFields(),
         ...(liveSteps?.length ? { intermediateSteps: liveSteps } : {}),
         updatedAt: Date.now(),
       });
@@ -1473,6 +1486,7 @@ async function handleDelete(req: NextApiRequest, res: NextApiResponse) {
         status: 'error',
         error: 'Job canceled by user',
         partialResponse,
+        ...clearOAuthStatusFields(),
         intermediateSteps: streamSteps?.length
           ? streamSteps
           : (currentStatus.intermediateSteps || []),
@@ -1595,6 +1609,7 @@ async function finalizeSuccess(
     status: 'completed',
     fullResponse: processedContent,
     partialResponse: undefined,
+    ...clearOAuthStatusFields(),
     intermediateSteps: accumulatedSteps,
     progress: 100,
     turnId: jobRequest.turnId,
@@ -1749,6 +1764,7 @@ async function finalizeError(
     status: 'error',
     error: errorMessage,
     partialResponse,
+    ...clearOAuthStatusFields(),
     intermediateSteps,
     turnId: jobRequest.turnId,
     assistantMessageId: jobRequest.assistantMessageId,

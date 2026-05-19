@@ -90,12 +90,14 @@ async def fetch_image_from_redis(
     redis_keys.append(f"generated:image:{image_id}")
 
     image_data_json = None
+    matched_key = ""
     for redis_key in redis_keys:
         try:
             image_data_json = await asyncio.to_thread(
                 redis_client.execute_command, "JSON.GET", redis_key
             )
             if image_data_json:
+                matched_key = redis_key
                 break
         except redis_lib.RedisError:
             continue
@@ -108,6 +110,16 @@ async def fetch_image_from_redis(
 
     try:
         image_record = json.loads(image_data_json)
+        if matched_key.startswith("generated:image:"):
+            owner_user_id = str(
+                image_record.get("userId") or image_record.get("user") or ""
+            ).strip()
+            if expected_user_id and owner_user_id and owner_user_id != expected_user_id:
+                return (
+                    None,
+                    "Error: Generated image belongs to a different authenticated user.",
+                )
+
         vlm_base64 = image_record.get("vlmData")
         if vlm_base64:
             vlm_mime_type = image_record.get("vlmMimeType") or "image/jpeg"
@@ -199,6 +211,8 @@ async def store_image_in_redis(
     mime_type: str,
     prompt: str,
     source: str = "image_generation",
+    user_id: str | None = None,
+    session_id: str | None = None,
 ) -> str:
     """Store a generated or augmented image in Redis.
 
@@ -214,6 +228,10 @@ async def store_image_in_redis(
         "createdAt": datetime.now(timezone.utc).isoformat(),
         "source": source,
     }
+    if user_id:
+        image_record["userId"] = user_id
+    if session_id:
+        image_record["sessionId"] = session_id
 
     try:
         await asyncio.to_thread(

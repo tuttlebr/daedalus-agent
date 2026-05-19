@@ -91,12 +91,12 @@ SERPAPI_KEY=...
 GITHUB_PAT=...
 ```
 
-### 2. Copy the backend config for local Compose
+### 2. Optionally choose a backend config for local Compose
 
-The Compose stack runs one backend container and expects a file at `backend/config.yaml`.
+The Compose stack mounts `backend/tool-calling-config.yaml` by default. To run a different backend config, set `BACKEND_CONFIG_FILE` to the file that should be mounted as `/workspace/config.yaml`.
 
 ```bash
-cp backend/tool-calling-config.yaml backend/config.yaml
+BACKEND_CONFIG_FILE=./backend/tool-calling-config.yaml docker compose up --build
 ```
 
 If you edit the config later, recreate the backend container so NAT reloads the new file.
@@ -118,7 +118,7 @@ docker compose up --build
 
 - Compose is the easiest way to run the full local stack.
 - The standalone frontend dev server uses port `5000`, while the production container listens on `3000`.
-- In local Compose, you choose a backend config by copying it to `backend/config.yaml`.
+- In local Compose, choose a backend config with `BACKEND_CONFIG_FILE`; it defaults to `./backend/tool-calling-config.yaml`.
 - The `builder` service is a convenience container for working inside the NeMo Agent builder environment; it does not serve traffic.
 
 ## Kubernetes Deployment
@@ -384,9 +384,9 @@ npm run coverage
 
 ## Troubleshooting
 
-### `backend/config.yaml` is missing
+### Backend config override is missing
 
-The local backend container mounts `/workspace/config.yaml` from `backend/config.yaml`. Create it by copying one of the provided backend configs before starting Compose.
+The local backend container mounts `/workspace/config.yaml` from `BACKEND_CONFIG_FILE`, defaulting to `./backend/tool-calling-config.yaml`. If you override `BACKEND_CONFIG_FILE`, make sure that file exists before starting Compose.
 
 ### Login page loads but no user can sign in
 

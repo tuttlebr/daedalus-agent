@@ -80,10 +80,9 @@ def resolve_user_collection_name(
     username: str | None,
     default_collection_name: str | None = "user_uploads",
 ) -> str:
-    """Resolve explicit collection names or derive a per-user default."""
-    if collection_name:
-        return normalize_collection_part(collection_name, fallback="user_uploads")
-    return user_upload_collection_name(username, default_collection_name)
+    """Resolve a user-upload collection into the authenticated user's namespace."""
+    collection_base = collection_name or default_collection_name
+    return user_upload_collection_name(username, collection_base)
 
 
 def _can_access_stored_document(
