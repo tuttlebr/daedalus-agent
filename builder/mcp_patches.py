@@ -269,9 +269,23 @@ def _strip_approval_token(args, kwargs) -> None:
                 nested.pop("approval_token", None)
 
 
+def _is_transient_http_error(exc) -> bool:
+    """Return True for httpx.HTTPStatusError with a 5xx status code.
+
+    5xx responses from upstream MCP servers are server-side and typically
+    transient — treat them like connection errors so startup retries / skips
+    instead of crashing the pod.
+    """
+    if not isinstance(exc, httpx.HTTPStatusError):
+        return False
+    response = getattr(exc, "response", None)
+    status = getattr(response, "status_code", None) if response is not None else None
+    return isinstance(status, int) and 500 <= status < 600
+
+
 def _is_connection_error(exc):
     """Return True if *exc* (possibly wrapped in ExceptionGroup) is a connection error."""
-    if isinstance(exc, _CONNECTION_ERROR_TYPES):
+    if isinstance(exc, _CONNECTION_ERROR_TYPES) or _is_transient_http_error(exc):
         return True
     # anyio TaskGroup wraps exceptions in ExceptionGroup
     if isinstance(exc, ExceptionGroup):  # noqa: F821 (builtin in 3.11+)
@@ -284,7 +298,7 @@ def _is_connection_error(exc):
 
 def _extract_root_connection_error(exc):
     """Return the innermost connection error from *exc* for concise logging."""
-    if isinstance(exc, _CONNECTION_ERROR_TYPES):
+    if isinstance(exc, _CONNECTION_ERROR_TYPES) or _is_transient_http_error(exc):
         return exc
     if isinstance(exc, ExceptionGroup):  # noqa: F821 (builtin in 3.11+)
         for e in exc.exceptions:

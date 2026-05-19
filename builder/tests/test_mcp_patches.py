@@ -505,6 +505,39 @@ class TestIsConnectionError:
         )
         assert _is_connection_error(eg)
 
+    @staticmethod
+    def _http_status_error(status_code: int, message: str = ""):
+        from types import SimpleNamespace
+        return httpx.HTTPStatusError(
+            message or f"HTTP {status_code}",
+            request=None,
+            response=SimpleNamespace(status_code=status_code),
+        )
+
+    def test_http_500_is_transient_connection_error(self):
+        """5xx HTTPStatusError treated as transient — retry/skip during startup."""
+        assert _is_connection_error(self._http_status_error(500))
+
+    def test_http_503_is_transient_connection_error(self):
+        """503 Service Unavailable is transient."""
+        assert _is_connection_error(self._http_status_error(503))
+
+    def test_http_500_in_exception_group(self):
+        """5xx HTTPStatusError wrapped in ExceptionGroup (MCP TaskGroup pattern)."""
+        eg = ExceptionGroup(  # noqa: F821
+            "unhandled errors in a TaskGroup",
+            [self._http_status_error(500)],
+        )
+        assert _is_connection_error(eg)
+
+    def test_http_401_not_connection_error(self):
+        """4xx HTTPStatusError is a real config error — must not be skipped."""
+        assert not _is_connection_error(self._http_status_error(401))
+
+    def test_http_404_not_connection_error(self):
+        """404 is a misconfiguration, not transient."""
+        assert not _is_connection_error(self._http_status_error(404))
+
 
 # ---------------------------------------------------------------------------
 # Tests: _extract_root_connection_error helper
