@@ -469,7 +469,7 @@ export const ChatInput = memo(({ onSend, onStop, isStreaming = false }: ChatInpu
           ref={fileInputRef}
           type="file"
           multiple
-          accept="image/png,image/jpeg,image/gif,image/webp,image/avif,video/mp4,video/x-flv,video/3gpp,.pdf,.docx,.pptx,.html,.htm,.txt,text/vtt,.vtt,application/x-subrip,.srt"
+          accept="image/png,image/jpeg,image/gif,image/webp,image/avif,video/mp4,video/x-flv,video/3gpp,.pdf,.docx,.pptx,.html,.htm,.txt,text/plain,.md,.markdown,text/markdown,text/x-markdown,text/vtt,.vtt,application/x-subrip,.srt"
           className="hidden"
           onChange={(e) => {
             if (e.target.files) {

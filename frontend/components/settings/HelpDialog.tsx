@@ -17,7 +17,7 @@ interface HelpDialogProps {
 
 const HELP_SECTIONS = [
   { icon: IconMessage, title: 'Chatting', content: 'Type your message and press Enter to send. Use Shift+Enter for new lines. The AI agent will process your request using its available tools.' },
-  { icon: IconPaperclip, title: 'Attaching Files', content: 'Click the paperclip icon or drag files onto the chat. Supports images (PNG, JPG, GIF, WebP), documents (PDF, DOCX, PPTX, HTML), and videos (MP4, FLV, 3GP). Files are securely stored and processed.' },
+  { icon: IconPaperclip, title: 'Attaching Files', content: 'Click the paperclip icon or drag files onto the chat. Supports images (PNG, JPG, GIF, WebP), documents (PDF, DOCX, PPTX, HTML, Markdown, text), and videos (MP4, FLV, 3GP). Files are securely stored and processed.' },
   { icon: IconCamera, title: 'Taking Photos', content: 'Use the camera button on mobile to capture and send photos directly. Grant camera permission when prompted.' },
   { icon: IconWorldSearch, title: 'Web Search and Browsing', content: 'Ask the agent to search the web for current information. It can also browse specific URLs and extract content from web pages.' },
   { icon: IconPhoto, title: 'Image Generation', content: 'Ask the agent to generate images from text descriptions. Supports iterative editing - ask to modify generated images.' },

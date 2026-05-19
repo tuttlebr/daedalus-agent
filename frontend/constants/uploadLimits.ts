@@ -33,7 +33,7 @@ export const UPLOAD_LIMITS = {
   VIDEO_MAX_SIZE_BYTES: Math.floor(SERVER_VIDEO_LIMIT * BASE64_OVERHEAD_FACTOR), // ~75MB
   VIDEO_MAX_SIZE_MB: 75,
 
-  // Document limits (PDF, DOCX, PPTX, HTML, etc.)
+  // Document limits (PDF, DOCX, PPTX, HTML, Markdown, plain text, etc.)
   DOCUMENT_MAX_SIZE_BYTES: Math.floor(SERVER_DOCUMENT_LIMIT * BASE64_OVERHEAD_FACTOR), // ~150MB
   DOCUMENT_MAX_SIZE_MB: 150,
 
@@ -116,11 +116,17 @@ export function getFileSizeLimit(file: File): number {
       type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
       type === 'application/vnd.openxmlformats-officedocument.presentationml.presentation' ||
       type === 'text/html' ||
+      type === 'text/markdown' ||
+      type === 'text/x-markdown' ||
+      type === 'text/plain' ||
       name.endsWith('.pdf') ||
       name.endsWith('.docx') ||
       name.endsWith('.pptx') ||
       name.endsWith('.html') ||
-      name.endsWith('.htm')) {
+      name.endsWith('.htm') ||
+      name.endsWith('.md') ||
+      name.endsWith('.markdown') ||
+      name.endsWith('.txt')) {
     return UPLOAD_LIMITS.DOCUMENT_MAX_SIZE_BYTES;
   }
 
