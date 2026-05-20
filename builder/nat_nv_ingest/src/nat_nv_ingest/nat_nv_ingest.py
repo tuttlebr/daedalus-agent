@@ -3,6 +3,7 @@ import base64
 import html as html_mod
 import json
 import logging
+import os
 import re
 import time
 from collections.abc import Awaitable, Callable
@@ -185,6 +186,23 @@ class NvIngestFunctionConfig(FunctionBaseConfig, name="nat_nv_ingest"):
     nv_ingest_port: int = Field(default=7670, description="NvIngest service port")
     milvus_uri: str = Field(
         default="http://localhost:19530", description="Milvus connection URI"
+    )
+    milvus_username: str | None = Field(
+        default_factory=lambda: os.getenv("MILVUS_USERNAME")
+        or os.getenv("MILVUS_USER")
+        or None,
+        description="Milvus username when authentication is enabled",
+    )
+    milvus_password: str | None = Field(
+        default_factory=lambda: os.getenv("MILVUS_PASSWORD") or None,
+        description="Milvus password when authentication is enabled",
+    )
+    milvus_token: str | None = Field(
+        default_factory=lambda: os.getenv("MILVUS_TOKEN") or None,
+        description=(
+            "Milvus auth token for direct pymilvus clients. If formatted as "
+            "username:password, it is also used for NV-Ingest VDB upload."
+        ),
     )
     minio_endpoint: str = Field(
         default="localhost:9000", description="MinIO endpoint for document storage"
@@ -731,11 +749,11 @@ def _build_ingestor(
 
     if is_txt:
         extract_kwargs: dict[str, Any] = {
-        "extract_text": True,
-        "extract_tables": False,
-        "extract_charts": False,
-        "extract_images": False
-    }
+            "extract_text": True,
+            "extract_tables": False,
+            "extract_charts": False,
+            "extract_images": False,
+        }
     else:
         extract_kwargs: dict[str, Any] = {
             "extract_text": True,
@@ -749,7 +767,9 @@ def _build_ingestor(
         if is_office:
             extract_kwargs["render_as_pdf"] = True
 
-    ingestor = Ingestor(client=nv_client).buffers([(filename, BytesIO(document_bytes))])
+    ingestor = Ingestor(client=nv_client).buffers(
+        [(filename, BytesIO(document_bytes))]
+    )
 
     if is_pdf and config.use_v2_api:
         pages = max(1, min(128, config.pdf_pages_per_chunk))
@@ -777,6 +797,8 @@ def _build_ingestor(
                 "are not set — skipping captioning stage."
             )
 
+    vdb_auth_kwargs = _milvus_vdb_auth_kwargs(config)
+
     ingestor = (
         ingestor.split(
             tokenizer=config.tokenizer,
@@ -797,9 +819,56 @@ def _build_ingestor(
             access_key=config.minio_access_key,
             secret_key=config.minio_secret_key,
             stream=True,
+            **vdb_auth_kwargs,
         )
     )
     return ingestor
+
+
+def _clean_optional_secret(value: str | None) -> str | None:
+    if value is None:
+        return None
+    stripped = value.strip()
+    return stripped or None
+
+
+def _milvus_auth_token(config: NvIngestFunctionConfig) -> str | None:
+    token = _clean_optional_secret(config.milvus_token)
+    if token:
+        return token
+
+    username = _clean_optional_secret(config.milvus_username)
+    password = _clean_optional_secret(config.milvus_password)
+    if username is None and password is None:
+        return None
+    return f"{username or ''}:{password or ''}"
+
+
+def _milvus_client_kwargs(config: NvIngestFunctionConfig) -> dict[str, str]:
+    kwargs = {"uri": config.milvus_uri}
+    token = _milvus_auth_token(config)
+    if token:
+        kwargs["token"] = token
+    return kwargs
+
+
+def _milvus_vdb_auth_kwargs(config: NvIngestFunctionConfig) -> dict[str, str]:
+    username = _clean_optional_secret(config.milvus_username)
+    password = _clean_optional_secret(config.milvus_password)
+
+    if (username is None or password is None) and config.milvus_token:
+        token = _clean_optional_secret(config.milvus_token)
+        if token and ":" in token:
+            token_username, token_password = token.split(":", 1)
+            username = username or token_username
+            password = password if password is not None else token_password
+
+    kwargs: dict[str, str] = {}
+    if username is not None:
+        kwargs["username"] = username
+    if password is not None:
+        kwargs["password"] = password
+    return kwargs
 
 
 class NvIngestDocumentProcessor:
@@ -1648,7 +1717,9 @@ async def nv_ingest_function(
         if "milvus" not in _client_cache:
             async with _client_lock:
                 if "milvus" not in _client_cache:
-                    _client_cache["milvus"] = MilvusClient(uri=config.milvus_uri)
+                    _client_cache["milvus"] = MilvusClient(
+                        **_milvus_client_kwargs(config)
+                    )
         return _client_cache["milvus"]
 
     async def _get_retriever():
@@ -1663,7 +1734,7 @@ async def nv_ingest_function(
                     )
                     milvus_client = _client_cache.get("milvus")
                     if milvus_client is None:
-                        milvus_client = MilvusClient(uri=config.milvus_uri)
+                        milvus_client = MilvusClient(**_milvus_client_kwargs(config))
                         _client_cache["milvus"] = milvus_client
                     reranker_config = None
                     if config.use_reranker and config.reranker_endpoint:

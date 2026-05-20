@@ -105,9 +105,27 @@ class TestConfig:
         monkeypatch.delenv("REDIS_PORT", raising=False)
         monkeypatch.delenv("NV_INGEST_HOST", raising=False)
         monkeypatch.delenv("MILVUS_URI", raising=False)
+        monkeypatch.delenv("MILVUS_USERNAME", raising=False)
+        monkeypatch.delenv("MILVUS_USER", raising=False)
+        monkeypatch.delenv("MILVUS_PASSWORD", raising=False)
+        monkeypatch.delenv("MILVUS_TOKEN", raising=False)
 
         config = _default_config()
 
         assert config.redis_url == "redis://daedalus-redis.daedalus.svc.cluster.local"
         assert config.nv_ingest_host == "nv-ingest.nv-ingest.svc.cluster.local"
         assert config.milvus_uri == "http://milvus.milvus.svc.cluster.local:19530"
+        assert config.milvus_username is None
+        assert config.milvus_password is None
+        assert config.milvus_token is None
+
+    def test_default_config_uses_milvus_auth_env(self, monkeypatch):
+        monkeypatch.setenv("MILVUS_USERNAME", "root")
+        monkeypatch.setenv("MILVUS_PASSWORD", "Milvus")
+        monkeypatch.setenv("MILVUS_TOKEN", "root:Milvus")
+
+        config = _default_config()
+
+        assert config.milvus_username == "root"
+        assert config.milvus_password == "Milvus"
+        assert config.milvus_token == "root:Milvus"

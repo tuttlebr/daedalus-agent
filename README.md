@@ -448,6 +448,10 @@ Also set `DAEDALUS_DEFAULT_USER` to a real configured username if you want memor
 
 That is expected unless you provide those external services yourself. The local stack only starts the Daedalus-facing containers.
 
+### Milvus authentication failures during ingestion
+
+If NvIngest document ingestion fails with `StatusCode.UNAUTHENTICATED` and `auth check failure`, set Milvus credentials in the backend environment secret: `MILVUS_USERNAME` and `MILVUS_PASSWORD`, or `MILVUS_TOKEN` when your token is formatted as `username:password`. The ingestion path passes those credentials to NvIngest's Milvus upload stage and to direct Milvus search/list clients.
+
 ## Key Configuration Files
 
 | File                                                                   | Purpose                                |

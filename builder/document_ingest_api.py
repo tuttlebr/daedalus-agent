@@ -99,6 +99,9 @@ def _default_config() -> NvIngestFunctionConfig:
         milvus_uri=os.getenv(
             "MILVUS_URI", "http://milvus.milvus.svc.cluster.local:19530"
         ),
+        milvus_username=os.getenv("MILVUS_USERNAME") or os.getenv("MILVUS_USER"),
+        milvus_password=os.getenv("MILVUS_PASSWORD"),
+        milvus_token=os.getenv("MILVUS_TOKEN"),
         minio_endpoint=os.getenv(
             "MINIO_ENDPOINT", "milvus-minio.milvus.svc.cluster.local:9000"
         ),

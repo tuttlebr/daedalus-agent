@@ -3,8 +3,11 @@
 from nat_nv_ingest.nat_nv_ingest import (
     IngestResult,
     NvIngestFunctionConfig,
+    _build_ingestor,
     _can_access_stored_document,
     _dedup_entries,
+    _milvus_client_kwargs,
+    _milvus_vdb_auth_kwargs,
     _normalize_for_dedup,
     _text_quality_score,
     clean_markdown,
@@ -23,11 +26,19 @@ from nat_nv_ingest.nat_nv_ingest import (
 
 
 class TestNvIngestFunctionConfig:
-    def test_defaults(self):
+    def test_defaults(self, monkeypatch):
+        monkeypatch.delenv("MILVUS_USERNAME", raising=False)
+        monkeypatch.delenv("MILVUS_USER", raising=False)
+        monkeypatch.delenv("MILVUS_PASSWORD", raising=False)
+        monkeypatch.delenv("MILVUS_TOKEN", raising=False)
+
         config = NvIngestFunctionConfig()
         assert config.nv_ingest_host == "localhost"
         assert config.nv_ingest_port == 7670
         assert config.milvus_uri == "http://localhost:19530"
+        assert config.milvus_username is None
+        assert config.milvus_password is None
+        assert config.milvus_token is None
         assert config.minio_endpoint == "localhost:9000"
         assert config.minio_access_key == "minioadmin"
         assert config.minio_secret_key == "minioadmin"
@@ -57,6 +68,31 @@ class TestNvIngestFunctionConfig:
     def test_custom_milvus_uri(self):
         config = NvIngestFunctionConfig(milvus_uri="http://milvus:19530")
         assert config.milvus_uri == "http://milvus:19530"
+
+    def test_custom_milvus_auth(self):
+        config = NvIngestFunctionConfig(
+            milvus_username="root",
+            milvus_password="Milvus",
+        )
+        assert _milvus_client_kwargs(config) == {
+            "uri": "http://localhost:19530",
+            "token": "root:Milvus",
+        }
+        assert _milvus_vdb_auth_kwargs(config) == {
+            "username": "root",
+            "password": "Milvus",
+        }
+
+    def test_custom_milvus_token_auth(self):
+        config = NvIngestFunctionConfig(milvus_token="root:Milvus")
+        assert _milvus_client_kwargs(config) == {
+            "uri": "http://localhost:19530",
+            "token": "root:Milvus",
+        }
+        assert _milvus_vdb_auth_kwargs(config) == {
+            "username": "root",
+            "password": "Milvus",
+        }
 
     def test_recreate_collection_flag(self):
         config = NvIngestFunctionConfig(recreate_collection=True)
@@ -99,6 +135,55 @@ class TestNvIngestFunctionConfig:
         assert config.ingest_max_retries == 2
         assert config.ingest_retry_delay == 1.0
         assert config.ingest_timeout_seconds == 300.0
+
+    def test_build_ingestor_passes_milvus_auth_to_vdb_upload(self, monkeypatch):
+        class FakeIngestor:
+            vdb_upload_kwargs = None
+
+            def __init__(self, client):
+                self.client = client
+
+            def buffers(self, _buffers):
+                return self
+
+            def extract(self, **_kwargs):
+                return self
+
+            def filter(self, **_kwargs):
+                return self
+
+            def split(self, **_kwargs):
+                return self
+
+            def dedup(self):
+                return self
+
+            def embed(self):
+                return self
+
+            def vdb_upload(self, **kwargs):
+                FakeIngestor.vdb_upload_kwargs = kwargs
+                return self
+
+        import nat_nv_ingest.nat_nv_ingest as mod
+
+        monkeypatch.setattr(mod, "Ingestor", FakeIngestor)
+
+        _build_ingestor(
+            nv_client=object(),
+            document_bytes=b"hello",
+            filename="hello.md",
+            config=NvIngestFunctionConfig(
+                milvus_username="root",
+                milvus_password="Milvus",
+            ),
+            collection_name="docs",
+            chunk_size=1024,
+            chunk_overlap=150,
+        )
+
+        assert FakeIngestor.vdb_upload_kwargs["username"] == "root"
+        assert FakeIngestor.vdb_upload_kwargs["password"] == "Milvus"
 
 
 class TestCollectionResolution:

@@ -73,6 +73,19 @@ def test_domain_retriever_config_defaults_to_curated_domains():
     assert config.domain_collections["mentalhealth"] == "mentalhealth"
 
 
+def test_domain_retriever_config_defaults_milvus_auth_from_env(monkeypatch):
+    monkeypatch.setenv("MILVUS_USERNAME", "root")
+    monkeypatch.setenv("MILVUS_PASSWORD", "Milvus")
+    monkeypatch.delenv("MILVUS_TOKEN", raising=False)
+
+    config = DomainRetrieverConfig(
+        uri="http://milvus:19530",
+        embedding_model="milvus_embedder",
+    )
+
+    assert config.connection_args == {"user": "root", "password": "Milvus"}
+
+
 def test_user_document_tool_config_contains_ingest_and_search_settings():
     config = NvIngestFunctionConfig()
 

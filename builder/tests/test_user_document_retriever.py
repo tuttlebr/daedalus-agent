@@ -76,3 +76,13 @@ def test_retriever_accepts_user_id_alias():
         assert fake_retriever.calls[0][1]["collection_name"] == "user_uploads_brandon"
 
     run(_run())
+
+
+def test_retriever_config_defaults_milvus_auth_from_env(monkeypatch):
+    from nat_nv_ingest.user_document_retriever import UserDocumentRetrieverConfig
+
+    monkeypatch.setenv("MILVUS_TOKEN", "root:Milvus")
+
+    config = UserDocumentRetrieverConfig(milvus_uri="http://milvus:19530")
+
+    assert config.connection_args == {"token": "root:Milvus"}

@@ -38,6 +38,7 @@ Important fields:
 | Field | Purpose |
 |-------|---------|
 | `uri` | Milvus endpoint |
+| `connection_args` | Optional Milvus connection/auth arguments; defaults from `MILVUS_USERNAME` / `MILVUS_PASSWORD` or `MILVUS_TOKEN` |
 | `embedding_model` | Query embedder used before search |
 | `database_name` | Optional Milvus database prefix |
 | `collection_name` | Bound default collection name, if any |

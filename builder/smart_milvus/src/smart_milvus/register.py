@@ -1,3 +1,5 @@
+import os
+
 from nat.builder.builder import Builder, LLMFrameworkEnum
 from nat.builder.function_info import FunctionInfo
 from nat.builder.retriever import RetrieverProviderInfo
@@ -11,6 +13,21 @@ from nat.data_models.retriever import RetrieverBaseConfig
 from pydantic import Field, HttpUrl
 
 
+def _milvus_connection_args_from_env() -> dict[str, str]:
+    token = (os.getenv("MILVUS_TOKEN") or "").strip()
+    if token:
+        return {"token": token}
+
+    username = (os.getenv("MILVUS_USERNAME") or os.getenv("MILVUS_USER") or "").strip()
+    password = (os.getenv("MILVUS_PASSWORD") or "").strip()
+    connection_args: dict[str, str] = {}
+    if username:
+        connection_args["user"] = username
+    if password:
+        connection_args["password"] = password
+    return connection_args
+
+
 class MilvusRetrieverConfig(RetrieverBaseConfig, name="smart_milvus"):
     """
     Configuration for a Retriever which pulls data from a Milvus service.
@@ -22,7 +39,7 @@ class MilvusRetrieverConfig(RetrieverBaseConfig, name="smart_milvus"):
     connection_args: dict = Field(
         description="Dictionary of arguments used to connect to and "
         "authenticate with the Milvus service",
-        default={},
+        default_factory=_milvus_connection_args_from_env,
     )
     embedding_model: str = Field(
         description="The name of the embedding model to use for vectorizing "
@@ -97,6 +114,10 @@ class DomainRetrieverConfig(FunctionBaseConfig, name="domain_retriever"):
     """Configuration for one routed Milvus retriever over curated domains."""
 
     uri: HttpUrl = Field(description="Milvus service URI")
+    connection_args: dict = Field(
+        default_factory=_milvus_connection_args_from_env,
+        description="Milvus connection/auth arguments.",
+    )
     embedding_model: str = Field(
         description="Embedder name used to vectorize the query"
     )
@@ -237,7 +258,9 @@ async def domain_retriever_function(config: DomainRetrieverConfig, builder: Buil
                 embedder_name=config.embedding_model,
                 wrapper_type=LLMFrameworkEnum.LANGCHAIN,
             )
-            milvus_client = MilvusClient(uri=str(config.uri))
+            milvus_client = MilvusClient(
+                uri=str(config.uri), **config.connection_args
+            )
             reranker_config = None
             if config.use_reranker and config.reranker_endpoint:
                 reranker_config = {

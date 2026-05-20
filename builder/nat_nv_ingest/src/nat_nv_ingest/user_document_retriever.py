@@ -1,6 +1,7 @@
 """User document retriever tool backed by Milvus."""
 
 import logging
+import os
 from typing import Any
 
 from nat.builder.builder import Builder, LLMFrameworkEnum
@@ -15,10 +16,29 @@ from smart_milvus.smart_milvus_function import MilvusRetriever
 logger = logging.getLogger(__name__)
 
 
+def _milvus_connection_args_from_env() -> dict[str, str]:
+    token = (os.getenv("MILVUS_TOKEN") or "").strip()
+    if token:
+        return {"token": token}
+
+    username = (os.getenv("MILVUS_USERNAME") or os.getenv("MILVUS_USER") or "").strip()
+    password = (os.getenv("MILVUS_PASSWORD") or "").strip()
+    connection_args: dict[str, str] = {}
+    if username:
+        connection_args["user"] = username
+    if password:
+        connection_args["password"] = password
+    return connection_args
+
+
 class UserDocumentRetrieverConfig(FunctionBaseConfig, name="user_document_retriever"):
     """Configuration for retrieving content from user-uploaded documents."""
 
     milvus_uri: str = Field(description="Milvus connection URI.")
+    connection_args: dict[str, str] = Field(
+        default_factory=_milvus_connection_args_from_env,
+        description="Milvus connection/auth arguments.",
+    )
     embedder_name: str = Field(
         default="milvus_embedder",
         description="Embedder name used to vectorize queries.",
@@ -117,7 +137,9 @@ async def user_document_retriever_function(
                 embedder_name=config.embedder_name,
                 wrapper_type=LLMFrameworkEnum.LANGCHAIN,
             )
-            milvus_client = MilvusClient(uri=str(config.milvus_uri))
+            milvus_client = MilvusClient(
+                uri=str(config.milvus_uri), **config.connection_args
+            )
 
             reranker_config = None
             if config.use_reranker and config.reranker_endpoint:

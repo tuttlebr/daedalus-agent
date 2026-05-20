@@ -50,6 +50,8 @@ Important fields:
 | `redis_url` | Source document storage |
 | `nv_ingest_host` / `nv_ingest_port` | NvIngest service |
 | `milvus_uri` | Milvus destination |
+| `milvus_username` / `milvus_password` | Optional Milvus auth for direct clients and NV-Ingest VDB upload |
+| `milvus_token` | Optional Milvus token; `username:password` tokens are also split for NV-Ingest VDB upload |
 | `chunk_size` / `chunk_overlap` | Chunking behavior |
 | `recreate_collection` | Rebuild collection on ingestion |
 | `default_collection_name` | Fallback collection when caller does not provide one |
