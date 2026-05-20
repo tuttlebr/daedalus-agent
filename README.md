@@ -24,8 +24,8 @@ What separates Daedalus from a typical chat wrapper:
   ingestion into Milvus, and structured reasoning, all wired into one
   workflow config
 - **Production hardening** — Helm chart with PVCs, PDBs, network
-  policies, optional Cilium FQDN egress, and multi-user authentication
-  out of the box
+  policies, optional Cilium FQDN egress, internal service auth, and
+  multi-user authentication out of the box
 
 ## Deployment Modes
 
@@ -83,6 +83,11 @@ ADMIN_USERNAME=alice
 ```
 
 `SESSION_SECRET` must be unique for every production deployment because it signs identity cookies. Generate one with `openssl rand -base64 32`.
+
+`DAEDALUS_INTERNAL_API_TOKEN` protects trusted frontend-to-backend calls that
+carry authenticated identity headers. Helm generates and preserves this token
+automatically; for local Compose or non-Helm deployments, leave it empty for
+development or set the same value for both frontend and backend.
 
 Useful optional keys:
 
@@ -189,13 +194,14 @@ The Helm chart can deploy:
 - Redis Stack and RedisInsight
 - An autonomous-agent CronJob
 - Ingress, PVCs, PodDisruptionBudget, and network policies
+- A chart-managed internal API token shared by frontend and backend
 - Optional Cilium FQDN-based egress restrictions
 
 Start with [`helm/daedalus/values.yaml`](helm/daedalus/values.yaml) for defaults and [`custom-values.yaml`](custom-values.yaml) for an opinionated example.
 
 ### Kubernetes request flow
 
-The main browser chat path in Kubernetes goes through the frontend's async API route. The frontend authenticates the user, stores job state in Redis, submits the workflow to the backend, and then returns progress plus the final answer back to the browser.
+The main browser chat path in Kubernetes goes through the frontend's async API route. The frontend authenticates the user, stores job metadata in Redis, submits a durable NAT async job to a selected backend pod, and returns a `jobId` immediately. The frontend then polls backend job status and writes final conversation state back to Redis.
 
 ```mermaid
 flowchart LR
@@ -215,11 +221,11 @@ flowchart LR
     Ingress -->|all paths| Nginx
     Nginx -->|/ and /api/*| Frontend
     Frontend -->|auth, session, conversation, job state| Redis
-    Frontend -->|submit workflow| Backend
+    Frontend -->|submit NAT async job| Backend
     Backend -->|memory and shared state| Redis
     Backend -->|retrieval, tracing, ingest| Integrations
     Backend -->|LLM and tool calls| External
-    Backend -->|job status and streamed output| Frontend
+    Backend -->|job status and final output| Frontend
     Frontend -->|poll and WebSocket updates, final response| Nginx
     Nginx --> Ingress
     Ingress --> Client
@@ -240,17 +246,15 @@ sequenceDiagram
     C->>I: HTTPS POST /api/chat/async
     I->>N: Forward request
     N->>F: Proxy /api/chat/async
-    F->>R: Validate session, persist async job metadata
+    F->>R: Validate session
     F->>B: POST /v1/workflow/async
     B->>R: Read or write memory and shared state
     B->>X: Call model, retrieval, search, ingest, tracing services
     B-->>F: Immediate job accepted
+    F->>R: Persist async job metadata
     F-->>N: Return jobId
     N-->>I: Return pending response
     I-->>C: Client receives jobId
-    F->>B: Parallel /chat/stream reader for tokens and intermediate steps
-    B-->>F: Stream tokens and intermediate steps
-    F->>R: Persist partial output and step state
     C->>I: GET /api/chat/async?jobId=...
     I->>N: Forward poll request
     N->>F: Proxy poll request
@@ -263,12 +267,16 @@ sequenceDiagram
     I-->>C: Final client response
 ```
 
-> **Direct API access:** nginx also proxies `/chat/*`, `/generate/*`,
-> and `/v1/*` directly to the backend, bypassing the frontend pod.
+> **Direct API access:** Helm defaults to `nginx.config.restrictedMode=true`,
+> which forces browser/API traffic through the authenticated frontend. Set
+> `nginx.config.restrictedMode=false` only when you intentionally want nginx
+> to proxy `/chat/*`, `/generate/*`, and `/v1/*` directly to the backend.
 
 ## Backend Workflows
 
 The backend configuration lives at [`backend/tool-calling-config.yaml`](backend/tool-calling-config.yaml) and covers tool use, retrieval, memory, MCP integrations, image tooling, and reasoning. It includes the custom packages from `builder/` and relies heavily on environment-variable substitution for secrets and endpoints.
+
+Helm embeds the same workflow config at [`helm/daedalus/files/tool-calling-config.yaml`](helm/daedalus/files/tool-calling-config.yaml). Builder contract tests keep the repo and Helm copies in sync so local Compose and Kubernetes expose the same tool surface.
 
 The `mas_optimizer` package implements the escalation gate between single-agent and multi-agent handling. Routine single-domain requests bypass it and go directly to the matching specialist; MAS candidates such as structured multi-source synthesis or broad independent-source exploration are evaluated against routing thresholds configured in [`backend/tool-calling-config.yaml`](backend/tool-calling-config.yaml) under `mas_optimizer_tool`.
 
@@ -276,9 +284,10 @@ The `mas_optimizer` package implements the escalation gate between single-agent 
 
 The frontend includes:
 
-- Streaming chat against NAT endpoints such as `/chat/stream` and `/v1/chat/completions`
+- Durable async chat submission through NAT's `/v1/workflow/async` API
 - Authentication backed by Redis
 - File attachments for images, documents, and videos
+- Document ingestion routing through backend-owned async jobs
 - Conversation folders, export/import, and search
 - Real-time sync and usage tracking APIs
 - PWA support and offline assets
@@ -343,6 +352,44 @@ The Helm chart supports two layers of traffic control for Kubernetes deployments
 - Optional `CiliumNetworkPolicy` resources for FQDN-based egress allowlists and DNS visibility
 
 The Cilium layer is disabled by default in [`helm/daedalus/values.yaml`](helm/daedalus/values.yaml) and enabled in the example [`custom-values.yaml`](custom-values.yaml).
+
+Backend ingress is limited to the chart-managed frontend and nginx pods by default. The chart no longer opens the backend to every pod in the release namespace. If another namespace needs access, add it explicitly:
+
+```yaml
+backend:
+  networkPolicy:
+    extraIngressNamespaces:
+      - name: monitoring
+        ports:
+          - port: 8000
+            protocol: TCP
+```
+
+Backend egress to known in-cluster dependencies such as Redis, Milvus,
+NV-Ingest, Phoenix, and the Kubernetes MCP server is rendered by default. Add
+extra namespace egress the same way:
+
+```yaml
+backend:
+  networkPolicy:
+    extraEgressNamespaces:
+      - name: llm-gateway
+        ports:
+          - port: 8000
+            protocol: TCP
+```
+
+When Cilium is enabled, the broad Kubernetes `0.0.0.0/0:443` egress fallback is
+not rendered. External access is then controlled by the Cilium FQDN allowlist
+and the optional `backend.networkPolicy.cilium.webscrape` rule. Disable
+`webscrape.enabled` if you do not want broad HTTP/HTTPS fetches for the
+webscrape tool.
+
+Frontend-to-backend identity headers are protected by
+`DAEDALUS_INTERNAL_API_TOKEN`. Helm creates `<release>-daedalus-internal-api`
+and injects the token into both pods. Non-Helm deployments should set the same
+token on frontend and backend; if it is unset, backend direct endpoints accept
+the legacy identity header behavior for local development.
 
 ## Development
 

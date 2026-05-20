@@ -17,6 +17,20 @@ const WS_FALLBACK_POLL_INTERVAL = 15000;
 const SUBMIT_JOB_TIMEOUT_MS = 60_000;
 const STATUS_FETCH_TIMEOUT_MS = 15_000;
 
+interface DocumentIngestProgress {
+  completed: number;
+  total: number;
+  currentDoc?: string;
+  currentIndex?: number;
+  percent: number;
+  phase?: string;
+  message?: string;
+  chunks?: number;
+  pages?: number;
+  failures?: number;
+  attempt?: number;
+}
+
 interface AsyncJobStatus {
   jobId: string;
   status: 'pending' | 'streaming' | 'oauth_required' | 'completed' | 'error';
@@ -27,6 +41,7 @@ interface AsyncJobStatus {
   authUrl?: string;
   oauthState?: string;
   progress?: number;
+  ingestProgress?: DocumentIngestProgress;
   createdAt: number;
   updatedAt: number;
   conversationId?: string;
@@ -409,6 +424,20 @@ export const useAsyncChat = (options: UseAsyncChatOptions = {}): UseAsyncChatRet
         status.partialResponse?.length || 0,
         status.fullResponse?.length || 0,
         status.progress || 0,
+        status.ingestProgress
+          ? [
+              status.ingestProgress.completed,
+              status.ingestProgress.total,
+              status.ingestProgress.currentDoc || '',
+              status.ingestProgress.currentIndex || '',
+              status.ingestProgress.phase || '',
+              status.ingestProgress.message || '',
+              status.ingestProgress.chunks || '',
+              status.ingestProgress.pages || '',
+              status.ingestProgress.failures || '',
+              status.ingestProgress.attempt || '',
+            ].join('/')
+          : '',
         status.finalizedAt || 0,
         status.authUrl || '',
         status.oauthState || '',

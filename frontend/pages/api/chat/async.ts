@@ -12,6 +12,7 @@ import {
   buildBackendUrlFromBase,
   getBackendPodDiscoveryHost,
 } from '@/utils/app/backendApi';
+import { withInternalBackendAuth } from '@/utils/server/backendAuth';
 import { fetchWithTimeout } from '@/utils/fetchWithTimeout';
 import { getSession } from '@/utils/auth/session';
 import { getOrSetSessionId } from '../session/_utils';
@@ -55,6 +56,20 @@ interface DocumentIngestJobRequest {
   username: string;
 }
 
+interface DocumentIngestProgress {
+  completed: number;
+  total: number;
+  currentDoc?: string;
+  currentIndex?: number;
+  percent: number;
+  phase?: string;
+  message?: string;
+  chunks?: number;
+  pages?: number;
+  failures?: number;
+  attempt?: number;
+}
+
 interface AsyncJobStatus {
   jobId: string;
   status: 'pending' | 'streaming' | 'oauth_required' | 'completed' | 'error';
@@ -65,6 +80,7 @@ interface AsyncJobStatus {
   authUrl?: string;
   oauthState?: string;
   progress?: number;
+  ingestProgress?: DocumentIngestProgress;
   createdAt: number;
   updatedAt: number;
   conversationId?: string;
@@ -113,7 +129,10 @@ const JOB_EXPIRY_SECONDS = 60 * 60; // 1 hour
 const NAT_SUBMIT_MAX_RETRIES = Number(process.env.NAT_SUBMIT_MAX_RETRIES || 2);
 const NAT_RETRY_DELAY_MS = Number(process.env.NAT_RETRY_DELAY_MS || 3_000);
 const NAT_CONNECTIVITY_TIMEOUT_MS = Number(process.env.NAT_CONNECTIVITY_TIMEOUT_MS || 2_000);
+const NAT_SUBMIT_TIMEOUT_MS = Number(process.env.NAT_SUBMIT_TIMEOUT_MS || 45_000);
 const DOCUMENT_INGEST_TIMEOUT_MS = Number(process.env.DOCUMENT_INGEST_TIMEOUT_MS || 60 * 60 * 1000);
+const DIRECT_DOCUMENT_INGEST_STREAM_ENABLED =
+  process.env.DAEDALUS_DIRECT_DOCUMENT_INGEST_STREAM === '1';
 const NAT_BACKEND_CACHE_TTL_MS = 30_000;
 const STREAM_STATUS_FLUSH_INTERVAL_MS = 750;
 const STREAM_STEPS_FLUSH_INTERVAL_MS = 750;
@@ -413,6 +432,27 @@ export function getDocumentIngestJobRequest(
   return null;
 }
 
+function buildDocumentIngestNatMessages(
+  documentIngest: DocumentIngestJobRequest,
+): any[] {
+  const refArg =
+    documentIngest.documentRefs.length === 1
+      ? `documentRef=${JSON.stringify(documentIngest.documentRefs[0])}`
+      : `documentRefs=${JSON.stringify(documentIngest.documentRefs)}`;
+  const noun = documentIngest.documentRefs.length === 1 ? 'document' : 'documents';
+
+  return [
+    {
+      role: 'user',
+      content:
+        `Process ${documentIngest.documentRefs.length} uploaded ${noun} ` +
+        `using user_document_tool with operation="ingest", ${refArg}, ` +
+        `username="${documentIngest.username}", and ` +
+        `collection_name="${documentIngest.collectionName}".`,
+    },
+  ];
+}
+
 export function extractAsyncStreamContentDelta(parsed: any, accumulatedText: string): string {
   const deltaContent = parsed?.choices?.[0]?.delta?.content;
   if (deltaContent !== null && deltaContent !== undefined) {
@@ -461,11 +501,11 @@ export function buildNatRequestHeaders(
   const natCookie = `nat-session=${encodeURIComponent(sessionId)}`;
   const cookieHeader = existingCookie || lowercaseExistingCookie;
 
-  return {
+  return withInternalBackendAuth({
     ...restHeaders,
     'x-user-id': username,
     Cookie: cookieHeader ? `${cookieHeader}; ${natCookie}` : natCookie,
-  };
+  });
 }
 
 function extractOAuthRequiredPayload(
@@ -605,6 +645,47 @@ async function selectStreamBackendBaseUrl(
   );
 }
 
+async function submitNatAsyncJob(
+  jobId: string,
+  natBaseUrl: string,
+  messagesForNat: any[],
+  verifiedUsername: string,
+  natSessionId: string,
+): Promise<void> {
+  const submitUrl = buildBackendUrlFromBase(natBaseUrl, '/v1/workflow/async');
+  const payload = {
+    messages: messagesForNat,
+    job_id: jobId,
+    sync_timeout: 0,
+    expiry_seconds: JOB_EXPIRY_SECONDS,
+  };
+
+  const response = await fetchWithTimeout(
+    submitUrl,
+    {
+      method: 'POST',
+      headers: buildNatRequestHeaders(
+        verifiedUsername,
+        { 'Content-Type': 'application/json' },
+        natSessionId,
+      ),
+      body: JSON.stringify(payload),
+    },
+    NAT_SUBMIT_TIMEOUT_MS,
+  );
+
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => '');
+    throw new ApiRouteError(
+      response.status >= 500 ? 502 : response.status,
+      `Backend async job submission failed (${response.status})${
+        errorText ? `: ${errorText}` : ''
+      }`,
+      'backend_submit_failed',
+    );
+  }
+}
+
 export async function fetchNatJobStatus(
   jobId: string,
   jobRequest: AsyncJobRequest,
@@ -691,10 +772,40 @@ function launchBackgroundFinalizer(jobId: string, jobRequest: AsyncJobRequest): 
     });
 }
 
-async function submitDirectDocumentIngestJob(
+function formatIngestPartialResponse(
+  collectionName: string,
+  ingestProgress: DocumentIngestProgress,
+): string {
+  const { completed, total, currentDoc, currentIndex, message, phase } = ingestProgress;
+  if (message) {
+    return `${message} (${completed}/${total} into "${collectionName}").`;
+  }
+  if (completed >= total && total > 0) {
+    return `Finalizing ingestion into "${collectionName}".`;
+  }
+  if (phase === 'fetching') {
+    return `Fetching ${currentDoc || 'document'} for ingestion into "${collectionName}".`;
+  }
+  if (phase === 'indexing') {
+    return `Writing ${currentDoc || 'document'} chunks to "${collectionName}".`;
+  }
+  if (currentDoc) {
+    const indexText = currentIndex ? `document ${currentIndex} of ${total}` : `${completed} of ${total}`;
+    return `Ingesting ${indexText} into "${collectionName}" (${currentDoc}).`;
+  }
+  return `Ingesting ${total} document${total === 1 ? '' : 's'} into "${collectionName}".`;
+}
+
+function optionalNumber(value: unknown): number | undefined {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+async function streamDocumentIngestJob(
   jobId: string,
   jobRequest: AsyncJobRequest,
   verifiedUsername: string,
+  onProgress: (progress: DocumentIngestProgress) => Promise<void>,
 ): Promise<string> {
   if (!jobRequest.documentIngest) {
     throw new ApiRouteError(
@@ -706,7 +817,7 @@ async function submitDirectDocumentIngestJob(
 
   const ingestUrl = buildBackendUrlFromBase(
     getNatBaseUrl(jobRequest),
-    '/v1/documents/ingest',
+    '/v1/documents/ingest/stream',
   );
   const payload = {
     documentRefs: jobRequest.documentIngest.documentRefs,
@@ -714,36 +825,107 @@ async function submitDirectDocumentIngestJob(
     collection_name: jobRequest.documentIngest.collectionName,
   };
 
-  const response = await fetchWithTimeout(
-    ingestUrl,
-    {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), DOCUMENT_INGEST_TIMEOUT_MS);
+
+  let response: Response;
+  try {
+    response = await fetch(ingestUrl, {
       method: 'POST',
       headers: buildNatRequestHeaders(
         verifiedUsername,
-        { 'Content-Type': 'application/json' },
+        { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
         jobRequest.natSessionId,
       ),
       body: JSON.stringify(payload),
-    },
-    DOCUMENT_INGEST_TIMEOUT_MS,
-  );
-
-  const rawText = await response.text().catch(() => '');
-  let parsed: any = null;
-  if (rawText) {
-    try {
-      parsed = JSON.parse(rawText);
-    } catch {
-      parsed = null;
+      signal: controller.signal,
+    });
+  } catch (err: any) {
+    clearTimeout(timeoutId);
+    if (err?.name === 'AbortError') {
+      throw new Error(`Document ingest timed out after ${DOCUMENT_INGEST_TIMEOUT_MS}ms`);
     }
+    throw err;
   }
 
   if (!response.ok) {
-    const detail = parsed?.detail || parsed?.error || rawText || response.statusText;
-    throw new Error(`Document ingest failed (${response.status}): ${detail}`);
+    clearTimeout(timeoutId);
+    const errBody = await response.text().catch(() => '');
+    throw new Error(`Document ingest failed (${response.status}): ${errBody || response.statusText}`);
   }
 
-  return parsed?.output || rawText || 'Document ingestion completed.';
+  if (!response.body) {
+    clearTimeout(timeoutId);
+    throw new Error('Document ingest stream returned no body');
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let finalOutput: string | null = null;
+  let errorDetail: string | null = null;
+
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+
+      let separatorIdx: number;
+      while ((separatorIdx = buffer.indexOf('\n\n')) !== -1) {
+        const rawEvent = buffer.slice(0, separatorIdx);
+        buffer = buffer.slice(separatorIdx + 2);
+        if (!rawEvent.trim()) continue;
+
+        let event = 'message';
+        const dataLines: string[] = [];
+        for (const line of rawEvent.split(/\r?\n/)) {
+          if (line.startsWith('event:')) {
+            event = line.slice(6).trim();
+          } else if (line.startsWith('data:')) {
+            dataLines.push(line.slice(5).trim());
+          }
+        }
+        const dataStr = dataLines.join('\n');
+        if (!dataStr) continue;
+
+        let parsed: any;
+        try {
+          parsed = JSON.parse(dataStr);
+        } catch {
+          continue;
+        }
+
+        if (event === 'progress') {
+          await onProgress({
+            completed: Number(parsed.completed) || 0,
+            total: Number(parsed.total) || 0,
+            currentDoc: typeof parsed.current === 'string' ? parsed.current : undefined,
+            currentIndex: optionalNumber(parsed.currentIndex),
+            percent: Number(parsed.percent) || 0,
+            phase: typeof parsed.phase === 'string' ? parsed.phase : undefined,
+            message: typeof parsed.message === 'string' ? parsed.message : undefined,
+            chunks: optionalNumber(parsed.chunks),
+            pages: optionalNumber(parsed.pages),
+            failures: optionalNumber(parsed.failures),
+            attempt: optionalNumber(parsed.attempt),
+          });
+        } else if (event === 'complete') {
+          finalOutput = typeof parsed.output === 'string' ? parsed.output : '';
+        } else if (event === 'error') {
+          errorDetail = typeof parsed.detail === 'string' ? parsed.detail : 'Unknown error';
+        }
+      }
+    }
+  } finally {
+    clearTimeout(timeoutId);
+    try { reader.releaseLock(); } catch { /* ignore */ }
+  }
+
+  if (errorDetail) {
+    throw new Error(`Document ingest failed: ${errorDetail}`);
+  }
+  return finalOutput || 'Document ingestion completed.';
 }
 
 async function startBackgroundDocumentIngest(
@@ -754,19 +936,37 @@ async function startBackgroundDocumentIngest(
   const documentCount = jobRequest.documentIngest?.documentRefs.length || 0;
   const collectionName = jobRequest.documentIngest?.collectionName || verifiedUsername;
 
+  const initialIngestProgress: DocumentIngestProgress = {
+    completed: 0,
+    total: documentCount,
+    percent: 0,
+    phase: 'queued',
+    message: `Queued ${documentCount} document${documentCount === 1 ? '' : 's'} for ingestion`,
+  };
+
   await updateJobStatus(jobId, {
     status: 'streaming',
-    partialResponse: `Ingesting ${documentCount} uploaded document${documentCount === 1 ? '' : 's'} into "${collectionName}".`,
-    progress: 10,
+    partialResponse: formatIngestPartialResponse(collectionName, initialIngestProgress),
+    progress: 0,
+    ingestProgress: initialIngestProgress,
     ...clearOAuthStatusFields(),
     updatedAt: Date.now(),
   });
 
   try {
-    const output = await submitDirectDocumentIngestJob(
+    const output = await streamDocumentIngestJob(
       jobId,
       jobRequest,
       verifiedUsername,
+      async (progress) => {
+        await updateJobStatus(jobId, {
+          status: 'streaming',
+          progress: progress.percent,
+          ingestProgress: progress,
+          partialResponse: formatIngestPartialResponse(collectionName, progress),
+          updatedAt: Date.now(),
+        });
+      },
     );
     await finalizeSuccess(jobId, jobRequest, output);
   } catch (error: any) {
@@ -1467,7 +1667,9 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       processedMessages,
       verifiedUsername,
     );
-    const useDirectDocumentIngest = Boolean(documentIngest);
+    const useDirectDocumentIngest = Boolean(
+      documentIngest && DIRECT_DOCUMENT_INGEST_STREAM_ENABLED,
+    );
 
     // Strip system messages -- the backend's NAT agent owns the system prompt.
     // Also drop assistant messages with empty content -- these cause 400 errors
@@ -1497,6 +1699,13 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       },
       ...messagesForNat,
     ];
+    const durableMessagesForNat =
+      documentIngest && !useDirectDocumentIngest
+        ? [
+            messagesWithIdentity[0],
+            ...buildDocumentIngestNatMessages(documentIngest),
+          ]
+        : messagesWithIdentity;
 
     const selectedNatBaseUrl = await selectStreamBackendBaseUrl(
       jobId,
@@ -1504,17 +1713,18 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       natSessionId,
     );
 
-    logger.info(`Job ${jobId}: Selected stream backend`, {
+    logger.info(`Job ${jobId}: Selected async backend`, {
       natBaseUrl: selectedNatBaseUrl,
+      executionMode: useDirectDocumentIngest ? 'document_ingest' : 'nat_async',
     });
 
     // Store job metadata in Redis for the GET handler
     const jobRequest: AsyncJobRequest = {
       jobId,
-      executionMode: useDirectDocumentIngest ? 'document_ingest' : 'stream',
+      executionMode: useDirectDocumentIngest ? 'document_ingest' : 'nat_async',
       natBaseUrl: selectedNatBaseUrl || buildBackendBaseUrlForMode(),
       natSessionId,
-      natMessages: useDirectDocumentIngest ? [] : messagesWithIdentity,
+      natMessages: useDirectDocumentIngest ? [] : durableMessagesForNat,
       ...(documentIngest ? { documentIngest } : {}),
       messages, // original messages for conversation saving later
       additionalProps,
@@ -1524,6 +1734,17 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       ...(typeof turnId === 'string' && turnId ? { turnId } : {}),
       ...(typeof assistantMessageId === 'string' && assistantMessageId ? { assistantMessageId } : {}),
     };
+
+    if (!useDirectDocumentIngest) {
+      await submitNatAsyncJob(
+        jobId,
+        jobRequest.natBaseUrl,
+        durableMessagesForNat,
+        verifiedUsername,
+        natSessionId,
+      );
+    }
+
     await jsonSetWithExpiry(sessionKey(['async-job-request', jobId]), jobRequest, JOB_EXPIRY_SECONDS);
 
     // Initialize job status
@@ -1565,18 +1786,6 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
 
     // Respond immediately so the client can start polling / WS listening
     res.status(200).json({ jobId, status: 'pending' });
-
-    // Fire-and-forget: open a parallel streaming connection to capture
-    // intermediate steps and content tokens in real time.  The Node.js
-    // runtime keeps the async work alive after res.json() returns.
-    startBackgroundStreamReader(
-      jobId,
-      jobRequest,
-      messagesWithIdentity,
-      verifiedUsername,
-    ).catch((err) => {
-      logger.error(`Job ${jobId}: Background stream reader failed`, err);
-    });
 
     return;
   } catch (error) {

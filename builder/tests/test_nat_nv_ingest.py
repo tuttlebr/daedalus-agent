@@ -482,6 +482,130 @@ class TestFormatBatchResponse:
 
 
 # ---------------------------------------------------------------------------
+# Progress callback for process_multiple_documents
+# ---------------------------------------------------------------------------
+
+
+class TestProcessMultipleDocumentsProgress:
+    def test_progress_callback_is_invoked_per_document(self):
+        """``process_multiple_documents`` reports structured progress events."""
+        import asyncio
+        from unittest.mock import patch
+
+        from nat_nv_ingest.nat_nv_ingest import (
+            NvIngestDocumentProcessor,
+            NvIngestFunctionConfig,
+        )
+
+        processor = NvIngestDocumentProcessor(NvIngestFunctionConfig())
+
+        async def fake_process_document(
+            documentRef, username, collection_name, progress_callback=None, **_
+        ):
+            if progress_callback:
+                await progress_callback(
+                    {
+                        "phase": "fetching",
+                        "current": documentRef["filename"],
+                        "message": "Fetching from Redis",
+                    }
+                )
+            return {
+                "status": "success",
+                "filename": documentRef["filename"],
+                "chunks": 1,
+                "failures": 0,
+                "pages": 1,
+                "collection": collection_name,
+                "markdown": "",
+                "error": "",
+            }
+
+        events: list[dict] = []
+
+        async def progress_cb(progress: dict) -> None:
+            events.append(progress)
+
+        refs = [
+            {"documentId": "d1", "sessionId": "s", "filename": "a.pdf"},
+            {"documentId": "d2", "sessionId": "s", "filename": "b.pdf"},
+            {"documentId": "d3", "sessionId": "s", "filename": "c.pdf"},
+        ]
+
+        with patch.object(
+            processor, "process_document", side_effect=fake_process_document
+        ):
+            asyncio.run(
+                processor.process_multiple_documents(
+                    documentRefs=refs,
+                    username="alice",
+                    collection_name="alice",
+                    progress_callback=progress_cb,
+                )
+            )
+
+        assert events[0]["completed"] == 0
+        assert events[0]["total"] == 3
+        assert events[0]["phase"] == "queued"
+        assert any(e["phase"] == "fetching" and e["current"] == "a.pdf" for e in events)
+        completion_events = [e for e in events if e["completed"] > 0]
+        assert any(
+            e["completed"] == 3
+            and e["total"] == 3
+            and e["current"] == "c.pdf"
+            and e["phase"] == "completed"
+            for e in completion_events
+        )
+        completed_counts = [e["completed"] for e in events]
+        assert completed_counts == sorted(completed_counts)
+        assert all(e["total"] == 3 for e in events)
+        assert all("percent" in e for e in events)
+
+    def test_progress_callback_exception_is_swallowed(self):
+        """A raising callback must not break ingestion."""
+        import asyncio
+        from unittest.mock import patch
+
+        from nat_nv_ingest.nat_nv_ingest import (
+            NvIngestDocumentProcessor,
+            NvIngestFunctionConfig,
+        )
+
+        processor = NvIngestDocumentProcessor(NvIngestFunctionConfig())
+
+        async def fake_process_document(documentRef, username, collection_name, **_):
+            return {
+                "status": "success",
+                "filename": documentRef["filename"],
+                "chunks": 1,
+                "failures": 0,
+                "pages": 1,
+                "collection": collection_name,
+                "markdown": "",
+                "error": "",
+            }
+
+        async def broken_cb(_progress):
+            raise RuntimeError("kaboom")
+
+        refs = [{"documentId": "d1", "sessionId": "s", "filename": "a.pdf"}]
+
+        with patch.object(
+            processor, "process_document", side_effect=fake_process_document
+        ):
+            output = asyncio.run(
+                processor.process_multiple_documents(
+                    documentRefs=refs,
+                    username="alice",
+                    collection_name="alice",
+                    progress_callback=broken_cb,
+                )
+            )
+
+        assert "Successfully processed all 1 documents" in output
+
+
+# ---------------------------------------------------------------------------
 # html_to_markdown_udf module importability
 # ---------------------------------------------------------------------------
 

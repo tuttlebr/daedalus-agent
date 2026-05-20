@@ -28,6 +28,34 @@ CILIUM_NGINX_TEMPLATE = (
     / "templates"
     / "cilium-nginx.yaml"
 )
+NETWORK_POLICY_BACKEND_TEMPLATE = (
+    Path(__file__).resolve().parents[2]
+    / "helm"
+    / "daedalus"
+    / "templates"
+    / "networkpolicy-backend.yaml"
+)
+CILIUM_BACKEND_TEMPLATE = (
+    Path(__file__).resolve().parents[2]
+    / "helm"
+    / "daedalus"
+    / "templates"
+    / "cilium-backend.yaml"
+)
+BACKEND_DEPLOYMENT_TEMPLATE = (
+    Path(__file__).resolve().parents[2]
+    / "helm"
+    / "daedalus"
+    / "templates"
+    / "backend-default-deployment.yaml"
+)
+FRONTEND_DEPLOYMENT_TEMPLATE = (
+    Path(__file__).resolve().parents[2]
+    / "helm"
+    / "daedalus"
+    / "templates"
+    / "frontend-deployment.yaml"
+)
 HELM_VALUES = Path(__file__).resolve().parents[2] / "helm" / "daedalus" / "values.yaml"
 CUSTOM_VALUES = Path(__file__).resolve().parents[2] / "custom-values.yaml"
 DEPLOYED_CONFIGS = (CONFIG, HELM_CONFIG)
@@ -315,6 +343,39 @@ def test_backend_trusts_nginx_forwarded_proto_for_oauth_callback():
         values = yaml.safe_load(path.read_text(encoding="utf-8"))
         overrides = values["backend"]["default"]["env"]["overrides"]
         assert overrides["FORWARDED_ALLOW_IPS"] == "*", path
+
+
+def test_backend_network_policy_uses_explicit_namespace_access():
+    template = NETWORK_POLICY_BACKEND_TEMPLATE.read_text(encoding="utf-8")
+
+    assert "Allow traffic from the same namespace" not in template
+    assert "extraIngressNamespaces" in template
+    assert "extraEgressNamespaces" in template
+    assert "{{- if not .Values.backend.networkPolicy.cilium.enabled }}" in template
+
+
+def test_cilium_backend_policy_exposes_extra_namespace_access():
+    template = CILIUM_BACKEND_TEMPLATE.read_text(encoding="utf-8")
+
+    assert "extraIngressNamespaces" in template
+    assert "extraEgressNamespaces" in template
+    assert "io.kubernetes.pod.namespace: {{ .name | quote }}" in template
+
+
+def test_internal_api_token_is_injected_into_frontend_and_backend():
+    for path in (BACKEND_DEPLOYMENT_TEMPLATE, FRONTEND_DEPLOYMENT_TEMPLATE):
+        template = path.read_text(encoding="utf-8")
+        assert "DAEDALUS_INTERNAL_API_TOKEN" in template, path
+        assert '-internal-api" (include "daedalus.fullname" .)' in template, path
+
+
+def test_backend_security_context_defaults_to_non_root():
+    values = yaml.safe_load(HELM_VALUES.read_text(encoding="utf-8"))
+    security_context = values["backend"]["default"]["securityContext"]
+
+    assert security_context["runAsNonRoot"] is True
+    assert security_context["runAsUser"] != 0
+    assert security_context["runAsGroup"] != 0
 
 
 def test_multi_operation_tools_are_filtered_in_production():

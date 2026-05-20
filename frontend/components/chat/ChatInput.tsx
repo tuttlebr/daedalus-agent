@@ -13,7 +13,7 @@ import { Message } from '@/types/chat';
 import { uploadImage } from '@/utils/app/imageHandler';
 import { uploadDocument } from '@/utils/app/documentHandler';
 import { uploadVideo, getVideoMimeType } from '@/utils/app/videoHandler';
-import { validateFileSize } from '@/constants/uploadLimits';
+import { UPLOAD_LIMITS, validateFileSize } from '@/constants/uploadLimits';
 import { uploadVTTFile, isVTTFile } from '@/utils/app/vttHandler';
 import { useMilvusCollections } from '@/utils/app/queries';
 
@@ -238,10 +238,32 @@ export const ChatInput = memo(({ onSend, onStop, isStreaming = false }: ChatInpu
   }, []);
 
   const handleFileSelect = useCallback((files: File[]) => {
+    const existingDocs = attachments.filter((a) => a.type === 'document').length;
+    const allowed: File[] = [];
+    let droppedDocs = 0;
     for (const file of files) {
+      if (classifyFile(file) === 'document') {
+        if (existingDocs + allowed.filter((f) => classifyFile(f) === 'document').length
+            >= UPLOAD_LIMITS.MAX_DOCUMENTS_PER_BATCH) {
+          droppedDocs += 1;
+          continue;
+        }
+      }
+      allowed.push(file);
+    }
+
+    if (droppedDocs > 0) {
+      toast.error(
+        `Only ${UPLOAD_LIMITS.MAX_DOCUMENTS_PER_BATCH} documents can be ingested per request. ` +
+        `Skipped ${droppedDocs} file${droppedDocs === 1 ? '' : 's'} — split into multiple requests.`,
+        { duration: 8000 },
+      );
+    }
+
+    for (const file of allowed) {
       uploadFile(file);
     }
-  }, [uploadFile]);
+  }, [attachments, uploadFile]);
 
   const removeAttachment = useCallback((index: number) => {
     setAttachments((prev) => prev.filter((_, i) => i !== index));

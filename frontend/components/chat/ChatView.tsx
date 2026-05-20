@@ -11,6 +11,7 @@ import { IconButton } from '@/components/primitives';
 import { MessageBubble } from './MessageBubble';
 import { ChatInput } from './ChatInput';
 import { AgentHeartbeat } from './AgentHeartbeat';
+import { DocumentIngestProgress } from './DocumentIngestProgress';
 import { Message } from '@/types/chat';
 import { saveConversation } from '@/utils/app/conversation';
 import { cleanMessagesForLLM } from '@/utils/app/imageHandler';
@@ -112,7 +113,7 @@ export const ChatView = memo(() => {
   }, [selectedConversationId]);
 
   // Async chat hook - handles job submission, WebSocket streaming, polling fallback
-  const { startAsyncJob, cancelJob } = useAsyncChat({
+  const { startAsyncJob, cancelJob, jobStatusByConversationId } = useAsyncChat({
     userId,
     onProgress: useCallback((status: any) => {
       const convId = status.conversationId || selectedIdRef.current;
@@ -431,7 +432,11 @@ export const ChatView = memo(() => {
           <div className="max-w-3xl mx-auto px-4 py-6 space-y-6">
             {messages.map((msg, i) => {
               const isLastMessage = i === messages.length - 1;
-              const isAssistantStreaming = isStreaming && isLastMessage && msg.role !== 'user';
+              const ingestProgress = selectedConversationId
+                ? jobStatusByConversationId[selectedConversationId]?.ingestProgress
+                : undefined;
+              const isAssistantStreaming =
+                isStreaming && isLastMessage && msg.role !== 'user' && !ingestProgress;
 
               const canRetry =
                 isLastMessage &&
@@ -449,8 +454,14 @@ export const ChatView = memo(() => {
               );
             })}
 
-            {/* Agent heartbeat during streaming */}
-            {isStreaming && (
+            {/* Document ingestion progress (replaces heartbeat for ingestion jobs) */}
+            {isStreaming && selectedConversationId && jobStatusByConversationId[selectedConversationId]?.ingestProgress ? (
+              <div className="max-w-3xl mx-auto">
+                <DocumentIngestProgress
+                  progress={jobStatusByConversationId[selectedConversationId]!.ingestProgress!}
+                />
+              </div>
+            ) : isStreaming && (
               <div className="max-w-3xl mx-auto">
                 <AgentHeartbeat
                   currentActivityText={activityText}

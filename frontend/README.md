@@ -55,6 +55,7 @@ The frontend consumes most of its runtime configuration through environment vari
 | `BACKEND_API_PATH` | Default NAT path such as `/chat/stream` or `/v1/workflow/async` |
 | `NEXT_PUBLIC_HTTP_CHAT_COMPLETION_URL` | Optional explicit backend URL override |
 | `SESSION_SECRET` | Required in production for signed identity cookies |
+| `DAEDALUS_INTERNAL_API_TOKEN` | Shared token attached to trusted frontend-to-backend requests |
 | `AUTH_USERNAME`, `AUTH_PASSWORD` | Single-user auth |
 | `AUTH_USER_*_*` | Multi-user auth entries |
 | `DAEDALUS_DEFAULT_USER` | Default selected user for initial login experience |

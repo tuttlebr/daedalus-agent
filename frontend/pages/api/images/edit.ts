@@ -2,6 +2,7 @@ import { NextApiRequest, NextApiResponse } from 'next';
 import http from 'http';
 import { getOrSetSessionId, requireAuthenticatedUser } from '../session/_utils';
 import { buildBackendUrl, getBackendHost } from '@/utils/app/backendApi';
+import { withInternalBackendAuth } from '@/utils/server/backendAuth';
 
 export const config = {
   api: {
@@ -85,11 +86,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const backendResponse = await postJson(
       backendUrl,
       JSON.stringify(payload),
-      {
+      withInternalBackendAuth({
         'Content-Type': 'application/json',
         'x-user-id': userId,
         'x-session-id': sessionId,
-      },
+      }),
       EDIT_TIMEOUT_MS,
     );
 

@@ -46,6 +46,27 @@ class TestRouter:
     def test_accepts_trusted_user_header(self):
         assert _require_trusted_user(" alice ") == "alice"
 
+    def test_requires_internal_token_when_configured(self, monkeypatch):
+        class FakeHTTPException(Exception):
+            def __init__(self, status_code, detail):
+                super().__init__(detail)
+                self.status_code = status_code
+                self.detail = detail
+
+        monkeypatch.setenv("DAEDALUS_INTERNAL_API_TOKEN", "secret-token")
+        original = image_api.HTTPException
+        image_api.HTTPException = FakeHTTPException
+        try:
+            with pytest.raises(FakeHTTPException) as exc_info:
+                _require_trusted_user("alice", None)
+        finally:
+            image_api.HTTPException = original
+        assert exc_info.value.status_code == 401
+
+    def test_accepts_matching_internal_token(self, monkeypatch):
+        monkeypatch.setenv("DAEDALUS_INTERNAL_API_TOKEN", "secret-token")
+        assert _require_trusted_user(" alice ", "secret-token") == "alice"
+
 
 class TestGenerateRequest:
     def test_minimal(self):

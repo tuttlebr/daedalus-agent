@@ -18,6 +18,7 @@ Env var contract (same as the agent tools):
 from __future__ import annotations
 
 import base64
+import hmac
 import logging
 import os
 from typing import Annotated, Any, Literal
@@ -171,7 +172,25 @@ async def _store_results(
     return ids
 
 
-def _require_trusted_user(x_user_id: str | None) -> str:
+def _configured_internal_token() -> str:
+    return (os.getenv("DAEDALUS_INTERNAL_API_TOKEN") or "").strip()
+
+
+def _require_internal_token(x_daedalus_internal_token: str | None) -> None:
+    expected = _configured_internal_token()
+    if not expected:
+        return
+
+    provided = (x_daedalus_internal_token or "").strip()
+    if not provided or not hmac.compare_digest(provided, expected):
+        raise HTTPException(status_code=401, detail="Internal API token is required")
+
+
+def _require_trusted_user(
+    x_user_id: str | None,
+    x_daedalus_internal_token: str | None = None,
+) -> str:
+    _require_internal_token(x_daedalus_internal_token)
     user_id = (x_user_id or "").strip()
     if not user_id:
         raise HTTPException(status_code=401, detail="Authenticated user is required")
@@ -188,8 +207,11 @@ async def generate(
     req: GenerateRequest,
     x_user_id: Annotated[str | None, Header(alias="x-user-id")] = None,
     x_session_id: Annotated[str | None, Header(alias="x-session-id")] = None,
+    x_daedalus_internal_token: Annotated[
+        str | None, Header(alias="x-daedalus-internal-token")
+    ] = None,
 ) -> ImageResponse:
-    user_id = _require_trusted_user(x_user_id)
+    user_id = _require_trusted_user(x_user_id, x_daedalus_internal_token)
     model, api_key, base_url = _config_for("GENERATION")
     client = _get_client(api_key, base_url)
 
@@ -221,8 +243,11 @@ async def edit(
     req: EditRequest,
     x_user_id: Annotated[str | None, Header(alias="x-user-id")] = None,
     x_session_id: Annotated[str | None, Header(alias="x-session-id")] = None,
+    x_daedalus_internal_token: Annotated[
+        str | None, Header(alias="x-daedalus-internal-token")
+    ] = None,
 ) -> ImageResponse:
-    user_id = _require_trusted_user(x_user_id)
+    user_id = _require_trusted_user(x_user_id, x_daedalus_internal_token)
     model, api_key, base_url = _config_for("AUGMENTATION")
     client = _get_client(api_key, base_url)
     redis_client = _get_redis()

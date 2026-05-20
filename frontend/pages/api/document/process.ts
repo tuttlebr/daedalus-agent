@@ -2,6 +2,7 @@ import { NextApiRequest, NextApiResponse } from 'next';
 import http from 'http';
 import { getOrSetSessionId, requireAuthenticatedUser } from '../session/_utils';
 import { getBackendHost, buildBackendUrl } from '@/utils/app/backendApi';
+import { withInternalBackendAuth } from '@/utils/server/backendAuth';
 
 export const config = {
   api: {
@@ -117,10 +118,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const backendResponse = await postToBackend(
       chatUrl,
       requestBody,
-      {
+      withInternalBackendAuth({
         'Content-Type': 'application/json',
         'x-user-id': username,
-      },
+      }),
       DOCUMENT_PROCESSING_TIMEOUT_MS,
     );
 

@@ -72,21 +72,24 @@ spec:
           envFrom:
             - secretRef:
                 name: {{ .Values.backend.default.env.fromSecret | default (printf "%s-backend-env" (include "daedalus.fullname" .)) }}
-          {{- if or .Values.backend.default.config.enabled .Values.backend.default.env.overrides }}
           env:
+            - name: DAEDALUS_INTERNAL_API_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ printf "%s-internal-api" (include "daedalus.fullname" .) }}
+                  key: DAEDALUS_INTERNAL_API_TOKEN
             {{- if .Values.backend.default.config.enabled }}
             - name: NAT_CONFIG_FILE
               value: /workspace/config/config.yaml
             {{- end }}
             {{- with .Values.backend.default.env.overrides }}
             {{- range $k, $v := . }}
-            {{- if or (not $.Values.backend.default.config.enabled) (ne $k "NAT_CONFIG_FILE") }}
+            {{- if and (ne $k "DAEDALUS_INTERNAL_API_TOKEN") (or (not $.Values.backend.default.config.enabled) (ne $k "NAT_CONFIG_FILE")) }}
             - name: {{ $k }}
               value: {{ $v | quote }}
             {{- end }}
             {{- end }}
             {{- end }}
-          {{- end }}
           volumeMounts:
             {{- if .Values.backend.default.config.enabled }}
             - name: backend-config

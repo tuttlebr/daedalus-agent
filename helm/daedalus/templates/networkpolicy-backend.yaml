@@ -37,14 +37,19 @@ spec:
       ports:
         - protocol: TCP
           port: {{ .Values.backend.default.port }}
-    # Allow traffic from the same namespace for health checks
+    {{- range .Values.backend.networkPolicy.extraIngressNamespaces }}
+    # Additional namespace ingress: {{ .name }}
     - from:
         - namespaceSelector:
             matchLabels:
-              kubernetes.io/metadata.name: {{ .Release.Namespace }}
+              kubernetes.io/metadata.name: {{ .name | quote }}
       ports:
-        - protocol: TCP
-          port: {{ .Values.backend.default.port }}
+        {{- $ports := .ports | default (list (dict "port" $.Values.backend.default.port "protocol" "TCP")) }}
+        {{- range $ports }}
+        - protocol: {{ .protocol | default "TCP" }}
+          port: {{ .port }}
+        {{- end }}
+    {{- end }}
   egress:
     # Allow DNS resolution
     - to:
@@ -107,6 +112,21 @@ spec:
       ports:
         - protocol: TCP
           port: 8080
+    {{- range .Values.backend.networkPolicy.extraEgressNamespaces }}
+    # Additional namespace egress: {{ .name }}
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .name | quote }}
+      {{- with .ports }}
+      ports:
+        {{- range . }}
+        - protocol: {{ .protocol | default "TCP" }}
+          port: {{ .port }}
+        {{- end }}
+      {{- end }}
+    {{- end }}
+    {{- if not .Values.backend.networkPolicy.cilium.enabled }}
     # Allow external HTTPS only (NVIDIA APIs, SerpAPI, GitHub, Google OAuth/MCP, OpenRouter, RSS feeds)
     - to:
         - ipBlock:
@@ -118,4 +138,5 @@ spec:
       ports:
         - protocol: TCP
           port: 443
+    {{- end }}
 {{- end }}

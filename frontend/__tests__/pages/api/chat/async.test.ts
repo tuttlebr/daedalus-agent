@@ -65,6 +65,8 @@ describe('chat/async backend pinning helpers', () => {
     process.env.BACKEND_PORT = '8000';
     process.env.KUBERNETES_SERVICE_HOST = '10.0.0.1';
     delete process.env.DEPLOYMENT_MODE;
+    delete process.env.DAEDALUS_INTERNAL_API_TOKEN;
+    delete process.env.DAEDALUS_DIRECT_DOCUMENT_INGEST_STREAM;
   });
 
   it('resolves pinned backend pod base URLs from the headless service', async () => {
@@ -130,6 +132,16 @@ describe('chat/async backend pinning helpers', () => {
       'Content-Type': 'application/json',
       'x-user-id': 'testuser',
       Cookie: 'nat-session=job-session-123',
+    });
+  });
+
+  it('adds the internal API token to backend requests when configured', () => {
+    process.env.DAEDALUS_INTERNAL_API_TOKEN = 'internal-secret';
+
+    expect(buildNatRequestHeaders('testuser')).toEqual({
+      'x-user-id': 'testuser',
+      'x-daedalus-internal-token': 'internal-secret',
+      Cookie: 'nat-session=testuser',
     });
   });
 
@@ -332,18 +344,21 @@ describe('chat/async backend pinning helpers', () => {
     });
   });
 
-  it('submits document-ingestion jobs directly to the structured backend endpoint', async () => {
+  it('submits document ingestion through the durable backend async endpoint by default', async () => {
     mocks.resolve4.mockResolvedValue(['10.0.2.61']);
     mocks.fetchWithTimeout
       .mockResolvedValueOnce({ ok: true, status: 200 })
-      .mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        text: vi.fn().mockResolvedValue(JSON.stringify({
-          status: 'success',
-          output: 'Successfully processed all 1 documents',
-        })),
-      });
+      .mockResolvedValueOnce({ ok: true, status: 200, json: vi.fn() });
+    const redisStore = new Map<string, any>();
+    (jsonSetWithExpiry as any).mockImplementation(
+      async (key: string, value: any) => {
+        redisStore.set(key, value);
+      },
+    );
+    (jsonGet as any).mockImplementation(async (key: string) => (
+      redisStore.has(key) ? redisStore.get(key) : null
+    ));
+
     const req = {
       method: 'POST',
       headers: { cookie: 'sid=current-session' },
@@ -371,16 +386,10 @@ describe('chat/async backend pinning helpers', () => {
     } as any;
 
     await handler(req, res);
-    await new Promise((resolve) => setImmediate(resolve));
 
     expect(res.status).toHaveBeenCalledWith(200);
     expect(mocks.fetchWithTimeout).toHaveBeenCalledWith(
-      'http://10.0.2.61:8000/docs',
-      expect.objectContaining({ method: 'HEAD' }),
-      2000,
-    );
-    expect(mocks.fetchWithTimeout).toHaveBeenCalledWith(
-      'http://10.0.2.61:8000/v1/documents/ingest',
+      'http://10.0.2.61:8000/v1/workflow/async',
       expect.objectContaining({
         method: 'POST',
         headers: expect.objectContaining({
@@ -388,29 +397,18 @@ describe('chat/async backend pinning helpers', () => {
           'x-user-id': 'testuser',
         }),
       }),
-      3600000,
+      45000,
     );
-    const ingestCall = (mocks.fetchWithTimeout as any).mock.calls.find(
-      ([url]: [string]) => url === 'http://10.0.2.61:8000/v1/documents/ingest',
-    );
-    const body = JSON.parse(ingestCall[1].body);
-    expect(body).toEqual({
-      documentRefs: [
-        {
-          documentId: 'doc-a',
-          sessionId: 'sess-1',
-          filename: 'a.md',
-        },
-      ],
-      username: 'testuser',
-      collection_name: 'nvidia',
-    });
+    const submitBody = JSON.parse(mocks.fetchWithTimeout.mock.calls[1][1].body);
+    expect(submitBody.sync_timeout).toBe(0);
+    expect(submitBody.messages[1].content).toContain('documentRef=');
+    expect(submitBody.messages[1].content).toContain('collection_name="nvidia"');
 
     const storedJobRequest = (jsonSetWithExpiry as any).mock.calls.find(
       ([key]: [string]) => key.includes('async-job-request'),
     )?.[1];
-    expect(storedJobRequest.executionMode).toBe('document_ingest');
-    expect(storedJobRequest.natMessages).toEqual([]);
+    expect(storedJobRequest.executionMode).toBe('nat_async');
+    expect(storedJobRequest.natMessages[1].content).toContain('documentRef=');
     expect(storedJobRequest.documentIngest).toEqual({
       documentRefs: [
         {

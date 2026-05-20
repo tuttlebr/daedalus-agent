@@ -5,6 +5,7 @@ import json
 import logging
 import re
 import time
+from collections.abc import Awaitable, Callable
 from io import BytesIO
 from typing import Any, Literal, TypedDict
 
@@ -19,6 +20,38 @@ from pydantic import Field
 from pymilvus import MilvusClient
 
 logger = logging.getLogger(__name__)
+
+
+class IngestProgressEvent(TypedDict, total=False):
+    completed: int
+    total: int
+    current: str | None
+    currentIndex: int
+    percent: int
+    phase: str
+    message: str
+    chunks: int
+    pages: int
+    failures: int
+    attempt: int
+
+
+ProgressCallback = Callable[[IngestProgressEvent], Awaitable[None]]
+
+
+_PROGRESS_PHASE_WEIGHTS = {
+    "queued": 0.0,
+    "fetching": 0.04,
+    "fetched": 0.08,
+    "waiting": 0.12,
+    "preparing": 0.16,
+    "submitting": 0.24,
+    "processing": 0.42,
+    "indexing": 0.70,
+    "postprocessing": 0.86,
+    "postprocessed": 0.94,
+    "retrying": 0.20,
+}
 
 # Precompiled regex used by the markdown cleaners and dedup helpers.
 _HTML_TAG_RE = re.compile(r"</?(?:span|div|p|font)[^>]*>")
@@ -694,18 +727,27 @@ def _build_ingestor(
     lower = filename.lower()
     is_pdf = lower.endswith(".pdf")
     is_office = lower.endswith((".docx", ".pptx"))
+    is_txt = lower.endswith((".txt", ".md", ".html", ".json"))
 
-    extract_kwargs: dict[str, Any] = {
+    if is_txt:
+        extract_kwargs: dict[str, Any] = {
         "extract_text": True,
-        "extract_tables": True,
-        "extract_charts": True,
-        "extract_images": True,
-        "table_output_format": "markdown",
-        "text_depth": "page",
-        "extract_method": config.extract_method,
+        "extract_tables": False,
+        "extract_charts": False,
+        "extract_images": False
     }
-    if is_office:
-        extract_kwargs["render_as_pdf"] = True
+    else:
+        extract_kwargs: dict[str, Any] = {
+            "extract_text": True,
+            "extract_tables": True,
+            "extract_charts": True,
+            "extract_images": True,
+            "table_output_format": "markdown",
+            "text_depth": "page",
+            "extract_method": config.extract_method,
+        }
+        if is_office:
+            extract_kwargs["render_as_pdf"] = True
 
     ingestor = Ingestor(client=nv_client).buffers([(filename, BytesIO(document_bytes))])
 
@@ -812,6 +854,7 @@ class NvIngestDocumentProcessor:
         collection_name: str | None = None,
         chunk_size: int | None = None,
         chunk_overlap: int | None = None,
+        progress_callback: ProgressCallback | None = None,
     ) -> IngestResult:
         """Processes a document from Redis and ingests it into Milvus."""
         config = self.config
@@ -834,6 +877,7 @@ class NvIngestDocumentProcessor:
         initial_filename = (
             documentRef.get("filename", "") if isinstance(documentRef, dict) else ""
         )
+        loop = asyncio.get_running_loop()
 
         def _failure(error: str, filename: str = "") -> IngestResult:
             return IngestResult(
@@ -846,6 +890,42 @@ class NvIngestDocumentProcessor:
                 markdown="",
                 error=error,
             )
+
+        async def _emit_stage(
+            phase: str,
+            filename: str | None = None,
+            message: str | None = None,
+            **extra: Any,
+        ) -> None:
+            if progress_callback is None:
+                return
+            payload: IngestProgressEvent = {"phase": phase}
+            if filename is not None:
+                payload["current"] = filename
+            if message:
+                payload["message"] = message
+            payload.update(extra)
+            try:
+                await progress_callback(payload)
+            except Exception:
+                logger.exception("Ingestion progress callback failed; continuing")
+
+        def _emit_stage_from_thread(
+            phase: str,
+            filename: str | None = None,
+            message: str | None = None,
+            **extra: Any,
+        ) -> None:
+            if progress_callback is None:
+                return
+            future = asyncio.run_coroutine_threadsafe(
+                _emit_stage(phase, filename, message, **extra),
+                loop,
+            )
+            try:
+                future.result(timeout=2)
+            except Exception:
+                logger.debug("Timed out forwarding ingest progress event", exc_info=True)
 
         try:
             if not documentRef or not isinstance(documentRef, dict):
@@ -866,6 +946,12 @@ class NvIngestDocumentProcessor:
 
             if not collection_name:
                 return _failure("Error: Collection name must be specified.")
+
+            await _emit_stage(
+                "fetching",
+                initial_filename or document_id,
+                "Fetching upload from session storage",
+            )
 
             logger.info(
                 "Processing document %s for user %s into collection %s",
@@ -932,10 +1018,21 @@ class NvIngestDocumentProcessor:
                 time.time() - fetch_start,
                 len(document_bytes),
             )
+            await _emit_stage(
+                "fetched",
+                filename,
+                f"Fetched {filename} from Redis ({len(document_bytes)} bytes)",
+            )
 
+            await _emit_stage("preparing", filename, "Preparing NV-Ingest pipeline")
             nv_client = await self._get_nv_client()
 
             def run_ingest_with_postproc() -> tuple[str, int, int, int]:
+                _emit_stage_from_thread(
+                    "preparing",
+                    filename,
+                    "Building NV-Ingest extraction and Milvus upload pipeline",
+                )
                 ingestor = _build_ingestor(
                     nv_client=nv_client,
                     document_bytes=document_bytes,
@@ -945,14 +1042,66 @@ class NvIngestDocumentProcessor:
                     chunk_size=chunk_size,
                     chunk_overlap=chunk_overlap,
                 )
-                with ingestor as ctx:
-                    logger.info("Starting document ingestion for %s...", filename)
-                    results, failures = ctx.ingest(
-                        show_progress=False, return_failures=True
-                    )
+
+                class _BatchFinishedHandler(logging.Handler):
+                    def __init__(self) -> None:
+                        super().__init__(level=logging.INFO)
+                        self._seen = False
+
+                    def emit(self, record: logging.LogRecord) -> None:
+                        if self._seen:
+                            return
+                        try:
+                            message = record.getMessage()
+                        except Exception:
+                            return
+                        if "Batch processing finished" not in message:
+                            return
+                        self._seen = True
+                        _emit_stage_from_thread(
+                            "indexing",
+                            filename,
+                            (
+                                "NV-Ingest extraction finished; writing chunks "
+                                "to Milvus"
+                            ),
+                        )
+
+                progress_log_handler = _BatchFinishedHandler()
+                client_logger = logging.getLogger("nv_ingest_client.client.client")
+                client_logger.addHandler(progress_log_handler)
+                try:
+                    with ingestor as ctx:
+                        logger.info("Starting document ingestion for %s...", filename)
+                        _emit_stage_from_thread(
+                            "processing",
+                            filename,
+                            (
+                                "NV-Ingest is extracting, chunking, and "
+                                "embedding the document"
+                            ),
+                        )
+                        results, failures = ctx.ingest(
+                            show_progress=False, return_failures=True
+                        )
+                finally:
+                    client_logger.removeHandler(progress_log_handler)
+                _emit_stage_from_thread(
+                    "postprocessing",
+                    filename,
+                    "Converting extracted content to Markdown",
+                )
                 md, page_count = results_to_markdown(results)
                 success_count = len(results[0]) if results and results[0] else 0
                 failure_count = len(failures[0]) if failures and failures[0] else 0
+                _emit_stage_from_thread(
+                    "postprocessed",
+                    filename,
+                    f"Prepared {success_count} chunks from {page_count} pages",
+                    chunks=success_count,
+                    pages=page_count,
+                    failures=failure_count,
+                )
                 return md, page_count, success_count, failure_count
 
             ingest_start = time.time()
@@ -964,7 +1113,20 @@ class NvIngestDocumentProcessor:
             )
             for attempt in range(config.ingest_max_retries + 1):
                 try:
+                    if collection_ingest_lock.locked():
+                        await _emit_stage(
+                            "waiting",
+                            filename,
+                            "Waiting for the collection write lock",
+                            attempt=attempt + 1,
+                        )
                     async with collection_ingest_lock:
+                        await _emit_stage(
+                            "submitting",
+                            filename,
+                            "Submitting document to NV-Ingest",
+                            attempt=attempt + 1,
+                        )
                         success_payload = await asyncio.wait_for(
                             asyncio.to_thread(run_ingest_with_postproc),
                             timeout=ingest_timeout,
@@ -985,6 +1147,15 @@ class NvIngestDocumentProcessor:
                 except Exception as e:
                     last_exc = e
                     if attempt < config.ingest_max_retries:
+                        await _emit_stage(
+                            "retrying",
+                            filename,
+                            (
+                                f"NV-Ingest attempt {attempt + 1}/"
+                                f"{config.ingest_max_retries + 1} failed; retrying"
+                            ),
+                            attempt=attempt + 1,
+                        )
                         logger.warning(
                             "NV-Ingest attempt %d/%d failed for %s: %s — retrying in %.1fs",
                             attempt + 1,
@@ -1040,8 +1211,15 @@ class NvIngestDocumentProcessor:
         collection_name: str | None = None,
         chunk_size: int | None = None,
         chunk_overlap: int | None = None,
+        progress_callback: ProgressCallback | None = None,
     ) -> str:
-        """Processes multiple documents from Redis and ingests them into Milvus."""
+        """Processes multiple documents from Redis and ingests them into Milvus.
+
+        If ``progress_callback`` is provided, it is invoked after each document
+        phase change with a structured payload containing ``completed``,
+        ``total``, ``current``, ``phase``, ``message``, and ``percent``.
+        Exceptions raised by the callback are logged but do not interrupt ingestion.
+        """
         config = self.config
         logger.info(
             "process_multiple_documents called with: documentRefs=%s, username=%s, collection_name=%s",
@@ -1096,6 +1274,47 @@ class NvIngestDocumentProcessor:
         concurrency = max(1, config.batch_concurrency)
         sem = asyncio.Semaphore(concurrency)
 
+        def _completed_count() -> int:
+            return len(successful_documents) + len(failed_documents)
+
+        def _percent_for(completed: int, phase: str) -> int:
+            if total_documents <= 0:
+                return 0
+            if completed >= total_documents:
+                return 100
+            phase_weight = _PROGRESS_PHASE_WEIGHTS.get(phase, 0.0)
+            percent = int(((completed + phase_weight) / total_documents) * 100)
+            return max(0, min(99, percent))
+
+        async def _emit_progress(
+            *,
+            current_filename: str | None,
+            phase: str,
+            current_index: int | None = None,
+            message: str | None = None,
+            completed: int | None = None,
+            **extra: Any,
+        ) -> None:
+            if progress_callback is None:
+                return
+            completed_count = _completed_count() if completed is None else completed
+            payload: IngestProgressEvent = {
+                "completed": completed_count,
+                "total": total_documents,
+                "current": current_filename,
+                "percent": _percent_for(completed_count, phase),
+                "phase": phase,
+            }
+            if current_index is not None:
+                payload["currentIndex"] = current_index
+            if message:
+                payload["message"] = message
+            payload.update(extra)
+            try:
+                await progress_callback(payload)
+            except Exception:
+                logger.exception("Ingestion progress callback failed; continuing")
+
         async def _one(
             idx: int, documentRef: dict[str, Any]
         ) -> tuple[int, str, IngestResult | Exception]:
@@ -1110,6 +1329,36 @@ class NvIngestDocumentProcessor:
             )
             t0 = time.time()
             try:
+                await _emit_progress(
+                    current_filename=ref_filename,
+                    phase="queued",
+                    current_index=idx,
+                    message=f"Starting document {idx} of {total_documents}",
+                )
+
+                async def _doc_progress(stage: IngestProgressEvent) -> None:
+                    extra = {
+                        key: value
+                        for key, value in stage.items()
+                        if key
+                        not in {
+                            "completed",
+                            "total",
+                            "current",
+                            "currentIndex",
+                            "percent",
+                            "phase",
+                            "message",
+                        }
+                    }
+                    await _emit_progress(
+                        current_filename=stage.get("current") or ref_filename,
+                        phase=stage.get("phase") or "processing",
+                        current_index=idx,
+                        message=stage.get("message"),
+                        **extra,
+                    )
+
                 async with sem:
                     result = await self.process_document(
                         documentRef=documentRef,
@@ -1117,6 +1366,7 @@ class NvIngestDocumentProcessor:
                         collection_name=collection_name,
                         chunk_size=chunk_size,
                         chunk_overlap=chunk_overlap,
+                        progress_callback=_doc_progress,
                     )
                 logger.info(
                     "Document %d completed in %.2fs: status=%s chunks=%d pages=%d",
@@ -1136,11 +1386,17 @@ class NvIngestDocumentProcessor:
                 )
                 return idx, ref_filename, e
 
-        def _accumulate(ref_filename: str, outcome: IngestResult | Exception) -> None:
+        def _accumulate(
+            ref_filename: str, outcome: IngestResult | Exception
+        ) -> dict[str, Any]:
             nonlocal total_chunks, total_pages
             if isinstance(outcome, Exception):
                 failed_documents.append({"id": ref_filename, "error": str(outcome)})
-                return
+                return {
+                    "filename": ref_filename,
+                    "phase": "failed",
+                    "message": f"Failed {ref_filename}: {outcome}",
+                }
             filename = outcome["filename"] or ref_filename
             if outcome["status"] in ("success", "partial"):
                 total_chunks += outcome["chunks"]
@@ -1153,9 +1409,32 @@ class NvIngestDocumentProcessor:
                         "status": outcome["status"],
                     }
                 )
+                return {
+                    "filename": filename,
+                    "phase": "completed",
+                    "message": (
+                        f"Indexed {filename}: {outcome['chunks']} chunks, "
+                        f"{outcome['pages']} pages"
+                    ),
+                    "chunks": outcome["chunks"],
+                    "pages": outcome["pages"],
+                    "failures": outcome["failures"],
+                }
             else:
                 failed_documents.append({"id": filename, "error": outcome["error"]})
                 logger.warning("Document %s failed: %s", filename, outcome["error"])
+                return {
+                    "filename": filename,
+                    "phase": "failed",
+                    "message": f"Failed {filename}: {outcome['error']}",
+                }
+
+        def _metric_kwargs(status_event: dict[str, Any]) -> dict[str, Any]:
+            return {
+                key: status_event[key]
+                for key in ("chunks", "pages", "failures")
+                if key in status_event
+            }
 
         def _is_timeout_failure(outcome: IngestResult | Exception) -> bool:
             if isinstance(outcome, Exception):
@@ -1164,7 +1443,8 @@ class NvIngestDocumentProcessor:
                 "error"
             ].lower()
 
-        def _mark_skipped_due_to_timeout(start_idx: int, stop_idx: int) -> None:
+        def _mark_skipped_due_to_timeout(start_idx: int, stop_idx: int) -> int:
+            skipped_count = 0
             for skipped_idx in range(start_idx, stop_idx):
                 skipped_ref = documentRefs[skipped_idx]
                 skipped_name = skipped_ref.get(
@@ -1180,12 +1460,35 @@ class NvIngestDocumentProcessor:
                         ),
                     }
                 )
+                skipped_count += 1
+            return skipped_count
+
+        await _emit_progress(
+            current_filename=None,
+            phase="queued",
+            message=(
+                f"Queued {total_documents} document"
+                f"{'' if total_documents == 1 else 's'} for ingestion"
+            ),
+        )
 
         for idx in range(sync_prefix):
             _idx, ref_filename, outcome = await _one(idx + 1, documentRefs[idx])
-            _accumulate(ref_filename, outcome)
+            status_event = _accumulate(ref_filename, outcome)
+            await _emit_progress(
+                current_filename=status_event["filename"],
+                phase=status_event["phase"],
+                current_index=idx + 1,
+                message=status_event["message"],
+                **_metric_kwargs(status_event),
+            )
             if _is_timeout_failure(outcome):
-                _mark_skipped_due_to_timeout(idx + 1, total_documents)
+                skipped_count = _mark_skipped_due_to_timeout(idx + 1, total_documents)
+                await _emit_progress(
+                    current_filename=None,
+                    phase="skipped",
+                    message=f"Skipped {skipped_count} remaining documents after timeout",
+                )
                 break
 
         skipped_remaining = len(successful_documents) + len(
@@ -1207,19 +1510,54 @@ class NvIngestDocumentProcessor:
                     _idx, ref_filename, outcome = await _one(
                         idx + 1, documentRefs[idx]
                     )
-                    _accumulate(ref_filename, outcome)
+                    status_event = _accumulate(ref_filename, outcome)
+                    await _emit_progress(
+                        current_filename=status_event["filename"],
+                        phase=status_event["phase"],
+                        current_index=idx + 1,
+                        message=status_event["message"],
+                        **_metric_kwargs(status_event),
+                    )
                     if _is_timeout_failure(outcome):
-                        _mark_skipped_due_to_timeout(idx + 1, total_documents)
+                        skipped_count = _mark_skipped_due_to_timeout(
+                            idx + 1, total_documents
+                        )
+                        await _emit_progress(
+                            current_filename=None,
+                            phase="skipped",
+                            message=(
+                                f"Skipped {skipped_count} remaining documents "
+                                "after timeout"
+                            ),
+                        )
                         skipped_remaining = True
                         break
                 continue
 
             batch = [_one(idx + 1, documentRefs[idx]) for idx in range(start, stop)]
             for _idx, ref_filename, outcome in await asyncio.gather(*batch):
-                _accumulate(ref_filename, outcome)
+                status_event = _accumulate(ref_filename, outcome)
+                await _emit_progress(
+                    current_filename=status_event["filename"],
+                    phase=status_event["phase"],
+                    current_index=_idx,
+                    message=status_event["message"],
+                    **_metric_kwargs(status_event),
+                )
                 if _is_timeout_failure(outcome) and not skipped_remaining:
-                    _mark_skipped_due_to_timeout(stop, total_documents)
+                    skipped_count = _mark_skipped_due_to_timeout(stop, total_documents)
+                    await _emit_progress(
+                        current_filename=None,
+                        phase="skipped",
+                        message=f"Skipped {skipped_count} remaining documents after timeout",
+                    )
                     skipped_remaining = True
+
+        await _emit_progress(
+            current_filename=None,
+            phase="finalizing",
+            message=f"Finalizing ingestion summary for {collection_name}",
+        )
 
         result_message = format_batch_response(
             total_documents=total_documents,

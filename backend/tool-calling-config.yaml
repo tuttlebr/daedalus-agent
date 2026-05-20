@@ -1,4 +1,9 @@
 authentication:
+  k8s_mcp_server:
+    _type: api_key
+    custom_header_name: Authorization
+    custom_header_prefix: Bearer
+    raw_key: ${KUBERNETES_MCP_TOKEN}
   github_mcp_server:
     _type: api_key
     custom_header_name: Authorization
@@ -258,6 +263,7 @@ function_groups:
     server:
       transport: streamable-http
       url: ${KUBERNETES_MCP_SERVER}
+      auth_provider: k8s_mcp_server
 functions:
   research_agent:
     _type: tool_calling_agent_resilient

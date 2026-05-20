@@ -27,6 +27,22 @@ spec:
       app.kubernetes.io/name: {{ include "daedalus.name" $ }}
       app.kubernetes.io/component: {{ $component }}
       app.kubernetes.io/instance: {{ $.Release.Name }}
+  {{- with $.Values.backend.networkPolicy.extraIngressNamespaces }}
+  ingress:
+    {{- range . }}
+    # Additional namespace ingress: {{ .name }}
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: {{ .name | quote }}
+      toPorts:
+        {{- $ports := .ports | default (list (dict "port" $.Values.backend.default.port "protocol" "TCP")) }}
+        {{- range $ports }}
+        - ports:
+            - port: {{ .port | quote }}
+              protocol: {{ .protocol | default "TCP" }}
+        {{- end }}
+    {{- end }}
+  {{- end }}
   egress:
     # ── DNS (required for FQDN resolution) ──────────────────────────
     # Service-based CoreDNS selection (works across common label schemes)
@@ -128,6 +144,23 @@ spec:
         - ports:
             - port: "8080"
               protocol: TCP
+
+    {{- with $.Values.backend.networkPolicy.extraEgressNamespaces }}
+    # ── Additional user-defined namespace egress ────────────────────
+    {{- range . }}
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: {{ .name | quote }}
+      {{- with .ports }}
+      toPorts:
+        {{- range . }}
+        - ports:
+            - port: {{ .port | quote }}
+              protocol: {{ .protocol | default "TCP" }}
+        {{- end }}
+      {{- end }}
+    {{- end }}
+    {{- end }}
 
     # Nemotron Omni vLLM aggregator frontend service
     - toServices:

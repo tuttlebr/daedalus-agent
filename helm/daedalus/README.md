@@ -38,6 +38,11 @@ kubectl -n <namespace> create secret generic <release>-daedalus-frontend-env \
 
 If you prefer Helm-managed secrets, see the `backend.*.env.createSecret` and `frontend.env.createSecret` values.
 
+The chart also manages `<release>-daedalus-internal-api`, a shared
+frontend-to-backend token used for direct in-cluster API calls. Leave
+`global.internalApiToken` empty to auto-generate and preserve the token across
+upgrades, or set it explicitly when coordinating multiple releases.
+
 For Google Workspace MCP, the backend secret must include
 `GOOGLE_MCP_CLIENT_ID`, `GOOGLE_MCP_CLIENT_SECRET`, and
 `GOOGLE_MCP_REDIRECT_URI`. The redirect URI must be registered on the
@@ -101,6 +106,11 @@ Those routes are selected by path and `X-Backend-Type` header, which allows call
 - The frontend is job-oriented by default and expects Redis to be available.
 - The backends expose headless pod services in addition to normal services so the frontend can discover individual pods for async job submission.
 - Network policies allow frontend-to-backend and backend-to-Redis traffic, and optionally restrict backend egress to approved destinations.
+- Use `backend.networkPolicy.extraIngressNamespaces` and
+  `backend.networkPolicy.extraEgressNamespaces` to open specific namespaces
+  and ports. When Cilium is enabled, the broad Kubernetes HTTPS egress fallback
+  is not rendered, so external access is controlled by the Cilium FQDN and
+  webscrape rules.
 - `nginx.config.restrictedMode=true` disables direct backend access through nginx and forces traffic through the frontend.
 - On the production `nfs-client` StorageClass backed by UNAS Pro, PVC-writing pods must run as UID `977` and GID `988`. That matches the server export's `all_squash,anonuid=977,anongid=988` policy and avoids relying on `no_root_squash`.
 - Use `runAsUser: 977`, `runAsGroup: 988`, `fsGroup: 988`, and `fsGroupChangePolicy: OnRootMismatch` for Daedalus workloads that write to NFS PVCs. `fsGroup` alone is not enough when files are created with owner-only write modes.

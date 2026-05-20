@@ -2,6 +2,9 @@ global:
   nameOverride: ""
   fullnameOverride: ""
   networkName: daedalus-network
+  # Shared frontend-to-backend token. Leave empty to let Helm generate and
+  # preserve one in <release>-daedalus-internal-api.
+  internalApiToken: ""
   # Restrict pod scheduling to these nodes; leave empty to allow any node
   nodePlacement:
     allowedNodes: [] # e.g. ["daedalus-02", "daedalus-03"]
@@ -38,13 +41,12 @@ backend:
     enabled: true
     replicas: 1
     port: 8000
-    # securityContext — disabled by default; image must support non-root before enabling.
-    # To enable, rebuild the backend image (chmod is already in Dockerfile), then uncomment:
-    #   runAsNonRoot: true
-    #   runAsUser: 1000
-    #   runAsGroup: 1000
-    #   fsGroup: 1000
-    securityContext: {}
+    securityContext:
+      runAsNonRoot: true
+      runAsUser: 1000
+      runAsGroup: 1000
+      fsGroup: 1000
+      fsGroupChangePolicy: OnRootMismatch
     env:
       # Name of an existing Secret to load via envFrom (external secret)
       fromSecret: ""
@@ -78,6 +80,20 @@ backend:
     minAvailable: 1
   networkPolicy:
     enabled: true # Set to true to restrict backend access to only frontend and nginx pods
+    # Additional namespaces allowed to call backend pods. Ports default to the
+    # backend HTTP port when omitted.
+    extraIngressNamespaces: []
+    # - name: monitoring
+    #   ports:
+    #     - port: 8000
+    #       protocol: TCP
+    # Additional namespaces backend pods may call. Keep ports explicit unless
+    # the target namespace is fully trusted.
+    extraEgressNamespaces: []
+    # - name: llm-gateway
+    #   ports:
+    #     - port: 8000
+    #       protocol: TCP
     cilium:
       enabled: false # Set to true to deploy CiliumNetworkPolicy resources (requires Cilium CNI)
       webscrape:

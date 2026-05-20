@@ -7,6 +7,9 @@ copying hundreds of references into a tool call.
 
 from __future__ import annotations
 
+import asyncio
+import hmac
+import json
 import logging
 import os
 from functools import lru_cache
@@ -14,6 +17,7 @@ from typing import Annotated, Any
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, Header, HTTPException
+from fastapi.responses import StreamingResponse
 from nat_nv_ingest.nat_nv_ingest import (
     NvIngestDocumentProcessor,
     NvIngestFunctionConfig,
@@ -23,6 +27,8 @@ from pydantic import BaseModel, Field
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/v1/documents", tags=["documents"])
+
+MAX_DOCUMENTS_PER_REQUEST = int(os.getenv("DOCUMENT_INGEST_REQUEST_LIMIT", "100"))
 
 
 class DocumentRef(BaseModel):
@@ -127,19 +133,37 @@ def _processor() -> NvIngestDocumentProcessor:
     return NvIngestDocumentProcessor(_default_config())
 
 
-def _require_trusted_user(x_user_id: str | None) -> str:
+def _configured_internal_token() -> str:
+    return (os.getenv("DAEDALUS_INTERNAL_API_TOKEN") or "").strip()
+
+
+def _require_internal_token(x_daedalus_internal_token: str | None) -> None:
+    expected = _configured_internal_token()
+    if not expected:
+        return
+
+    provided = (x_daedalus_internal_token or "").strip()
+    if not provided or not hmac.compare_digest(provided, expected):
+        raise HTTPException(status_code=401, detail="Internal API token is required")
+
+
+def _require_trusted_user(
+    x_user_id: str | None,
+    x_daedalus_internal_token: str | None = None,
+) -> str:
+    _require_internal_token(x_daedalus_internal_token)
     user_id = (x_user_id or "").strip()
     if not user_id:
         raise HTTPException(status_code=401, detail="Authenticated user is required")
     return user_id
 
 
-@router.post("/ingest", response_model=IngestResponse)
-async def ingest(
+def _resolve_request(
     req: IngestRequest,
-    x_user_id: Annotated[str | None, Header(alias="x-user-id")] = None,
-) -> IngestResponse:
-    user_id = _require_trusted_user(x_user_id)
+    x_user_id: str | None,
+    x_daedalus_internal_token: str | None = None,
+) -> tuple[str, list[dict[str, Any]], str]:
+    user_id = _require_trusted_user(x_user_id, x_daedalus_internal_token)
     username = (req.username or user_id).strip()
     if username != user_id:
         raise HTTPException(status_code=403, detail="username must match x-user-id")
@@ -149,9 +173,48 @@ async def ingest(
     elif req.documentRef:
         document_refs = [req.documentRef.model_dump(exclude_none=True)]
     else:
-        raise HTTPException(status_code=400, detail="documentRef or documentRefs required")
+        raise HTTPException(
+            status_code=400, detail="documentRef or documentRefs required"
+        )
+
+    if len(document_refs) > MAX_DOCUMENTS_PER_REQUEST:
+        raise HTTPException(
+            status_code=413,
+            detail=(
+                f"Too many documents in a single request: "
+                f"{len(document_refs)} > {MAX_DOCUMENTS_PER_REQUEST}. "
+                "Split the upload into smaller batches."
+            ),
+        )
 
     collection = req.collection_name or req.collection or username
+    return username, document_refs, collection
+
+
+def _classify_status(output: str) -> str:
+    lower_output = output.lower()
+    if "failed to process any documents" in lower_output or lower_output.startswith(
+        "error:"
+    ):
+        return "failure"
+    if "partially completed batch processing" in lower_output:
+        return "partial"
+    return "success"
+
+
+@router.post("/ingest", response_model=IngestResponse)
+async def ingest(
+    req: IngestRequest,
+    x_user_id: Annotated[str | None, Header(alias="x-user-id")] = None,
+    x_daedalus_internal_token: Annotated[
+        str | None, Header(alias="x-daedalus-internal-token")
+    ] = None,
+) -> IngestResponse:
+    username, document_refs, collection = _resolve_request(
+        req,
+        x_user_id,
+        x_daedalus_internal_token,
+    )
 
     try:
         output = await _processor().process_multiple_documents(
@@ -165,18 +228,122 @@ async def ingest(
         logger.exception("documents.ingest failed")
         raise HTTPException(status_code=500, detail=str(e)) from e
 
-    status = "success"
-    lower_output = output.lower()
-    if "failed to process any documents" in lower_output or lower_output.startswith(
-        "error:"
-    ):
-        status = "failure"
-    elif "partially completed batch processing" in lower_output:
-        status = "partial"
-
     return IngestResponse(
-        status=status,
+        status=_classify_status(output),
         collection=collection,
         documents=len(document_refs),
         output=output,
+    )
+
+
+def _sse(event: str, payload: dict[str, Any]) -> str:
+    return f"event: {event}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+
+@router.post("/ingest/stream")
+async def ingest_stream(
+    req: IngestRequest,
+    x_user_id: Annotated[str | None, Header(alias="x-user-id")] = None,
+    x_daedalus_internal_token: Annotated[
+        str | None, Header(alias="x-daedalus-internal-token")
+    ] = None,
+) -> StreamingResponse:
+    """Server-Sent Events variant of /ingest that emits per-document progress.
+
+    Events:
+      - progress: {completed, total, current, currentIndex, percent, phase, message}
+      - complete: {status, output, collection, documents}
+      - error:    {detail}
+    """
+    username, document_refs, collection = _resolve_request(
+        req,
+        x_user_id,
+        x_daedalus_internal_token,
+    )
+    total = len(document_refs)
+    queue: asyncio.Queue[tuple[str, dict[str, Any]]] = asyncio.Queue()
+
+    async def progress_cb(progress: dict[str, Any]) -> None:
+        payload = {
+            "completed": int(progress.get("completed") or 0),
+            "total": int(progress.get("total") or total),
+            "current": progress.get("current"),
+            "currentIndex": progress.get("currentIndex"),
+            "percent": int(progress.get("percent") or 0),
+            "phase": progress.get("phase") or "processing",
+            "message": progress.get("message"),
+            "chunks": progress.get("chunks"),
+            "pages": progress.get("pages"),
+            "failures": progress.get("failures"),
+            "attempt": progress.get("attempt"),
+        }
+        await queue.put(("progress", payload))
+
+    async def run_ingest() -> None:
+        try:
+            output = await _processor().process_multiple_documents(
+                documentRefs=document_refs,
+                username=username,
+                collection_name=collection,
+                chunk_size=req.chunk_size,
+                chunk_overlap=req.chunk_overlap,
+                progress_callback=progress_cb,
+            )
+            await queue.put(
+                (
+                    "complete",
+                    {
+                        "status": _classify_status(output),
+                        "collection": collection,
+                        "documents": total,
+                        "output": output,
+                    },
+                )
+            )
+        except Exception as e:
+            logger.exception("documents.ingest stream failed")
+            await queue.put(("error", {"detail": str(e)}))
+        finally:
+            await queue.put(("__done__", {}))
+
+    async def event_stream():
+        # Initial progress event so the client can render an empty bar immediately.
+        yield _sse(
+            "progress",
+            {
+                "completed": 0,
+                "total": total,
+                "current": None,
+                "currentIndex": None,
+                "percent": 0,
+                "phase": "queued",
+                "message": (
+                    f"Queued {total} document"
+                    f"{'' if total == 1 else 's'} for ingestion"
+                ),
+            },
+        )
+        task = asyncio.create_task(run_ingest())
+        try:
+            while True:
+                event, payload = await queue.get()
+                if event == "__done__":
+                    break
+                yield _sse(event, payload)
+        finally:
+            if not task.done():
+                task.cancel()
+                try:
+                    await task
+                except (asyncio.CancelledError, Exception):
+                    pass
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
     )
