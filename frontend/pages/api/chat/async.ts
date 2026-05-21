@@ -18,7 +18,6 @@ import { getSession } from '@/utils/auth/session';
 import { getOrSetSessionId } from '../session/_utils';
 import { canAccessStoredVTT, getVTT } from '../session/vttStorage';
 import {
-  PRIOR_ASSISTANT_OMITTED_MESSAGE,
   sanitizeConversationAssistantReplays,
   stripReplayedAssistantPrefix,
 } from '@/utils/app/conversationReplay';
@@ -267,27 +266,34 @@ function stringifyContent(value: any): string {
   }
 }
 
+// Normalize messages for the OpenAI-compatible /v1/chat/completions backend.
+// Preserves the full conversation history (both user and assistant turns) so
+// follow-ups like "convert your last response to HTML" have actual context.
+// Strips Daedalus-internal fields that aren't part of the OpenAI schema so the
+// backend agent and downstream LLMs receive a clean payload.
 export function buildBoundedMessagesForNat(messages: any[]): any[] {
   if (!Array.isArray(messages)) return messages;
 
   return messages
     .map((message) => {
-      if (message?.role !== 'assistant' && message?.role !== 'agent') {
-        return message;
+      if (!message || typeof message !== 'object') return null;
+
+      const rawRole = typeof message.role === 'string' ? message.role : '';
+      const role = rawRole === 'agent' ? 'assistant' : rawRole;
+      if (role !== 'user' && role !== 'assistant') {
+        return null;
       }
 
       const content = typeof message.content === 'string'
-        ? message.content.trim()
-        : message.content;
-      if (!content) return null;
+        ? message.content
+        : '';
+      // Drop assistant messages with empty content — Bedrock/Claude reject
+      // ContentBlock entries whose `text` field is blank.
+      if (role === 'assistant' && !content.trim()) {
+        return null;
+      }
 
-      // Preserve turn boundaries without sending prior assistant text. Dropping
-      // assistant turns leaves old user turns orphaned, which makes the model
-      // answer already-resolved questions before the current follow-up.
-      return {
-        role: 'assistant',
-        content: PRIOR_ASSISTANT_OMITTED_MESSAGE,
-      };
+      return { role, content };
     })
     .filter(Boolean);
 }

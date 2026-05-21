@@ -5,13 +5,6 @@ from pathlib import Path
 import yaml
 
 CONFIG = Path(__file__).resolve().parents[2] / "backend" / "tool-calling-config.yaml"
-HELM_CONFIG = (
-    Path(__file__).resolve().parents[2]
-    / "helm"
-    / "daedalus"
-    / "files"
-    / "tool-calling-config.yaml"
-)
 SKILLS_DIR = Path(__file__).resolve().parents[2] / "skills"
 DOCKERFILE = Path(__file__).resolve().parents[1] / "Dockerfile"
 NGINX_TEMPLATE = (
@@ -58,7 +51,7 @@ FRONTEND_DEPLOYMENT_TEMPLATE = (
 )
 HELM_VALUES = Path(__file__).resolve().parents[2] / "helm" / "daedalus" / "values.yaml"
 CUSTOM_VALUES = Path(__file__).resolve().parents[2] / "custom-values.yaml"
-DEPLOYED_CONFIGS = (CONFIG, HELM_CONFIG)
+DEPLOYED_CONFIGS = (CONFIG,)
 MULTI_OPERATION_TYPES = {
     "agent_skills": ["list_skills", "load_skill", "run_skill_script"],
     "content_distiller": ["distill_content", "extract_structured", "synthesize"],
@@ -95,10 +88,6 @@ def _effective_operation_count(config, tool_names):
     return sum(
         len(_effective_operations(config, tool_name)) for tool_name in tool_names
     )
-
-
-def test_helm_backend_config_stays_in_sync_with_repo_backend():
-    assert HELM_CONFIG.read_text(encoding="utf-8") == CONFIG.read_text(encoding="utf-8")
 
 
 def test_backend_dockerfile_chmods_runtime_files_after_copy():
@@ -139,6 +128,16 @@ def test_user_document_tool_contract_uses_username_collection_pair():
     assert "Args: query, user_id" not in desc
 
 
+def test_user_document_tool_is_decoupled_from_user_data_agent():
+    functions = _config()["functions"]
+    assert functions["user_data_agent"]["tool_names"] == [
+        "gmail_mcp_server",
+        "calendar_mcp_server",
+    ]
+    assert functions["user_document_agent"]["tool_names"] == ["user_document_tool"]
+    assert "user_document_agent" in _config()["workflow"]["tool_names"]
+
+
 def test_top_level_workflow_does_not_expose_unguarded_delete_memory():
     workflow_tools = _config()["workflow"]["tool_names"]
     assert "delete_memory" not in workflow_tools
@@ -173,7 +172,7 @@ def test_deployed_tool_surface_is_optimized():
         assert not forbidden_tools & set(functions), path
         assert not forbidden_tools & set(workflow_tools), path
 
-        assert _effective_operation_count(config, workflow_tools) <= 14, path
+        assert _effective_operation_count(config, workflow_tools) <= 15, path
         assert (
             _effective_operation_count(
                 config, functions["research_agent"]["tool_names"]
@@ -208,6 +207,7 @@ def test_tool_calling_agents_use_resilient_runner():
         "nvidia_docs_agent",
         "ops_agent",
         "media_agent",
+        "user_document_agent",
         "user_data_agent",
     ]
     for path in DEPLOYED_CONFIGS:
@@ -427,7 +427,7 @@ def test_top_level_workflow_exposes_source_verifier_when_add_memory_requires_it(
 def test_mas_evaluate_uses_effective_routing_domains_not_global_tool_catalog():
     expected = (
         'active_tool_names="research_agent,nvidia_docs_agent,ops_agent,'
-        'media_agent,user_data_agent"'
+        'media_agent,user_document_agent,user_data_agent"'
     )
     forbidden = "nvidia_retriever_tool,semianalysis_retriever_tool"
     for path in DEPLOYED_CONFIGS:

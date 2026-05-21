@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/v1/documents", tags=["documents"])
 
-MAX_DOCUMENTS_PER_REQUEST = int(os.getenv("DOCUMENT_INGEST_REQUEST_LIMIT", "100"))
+MAX_DOCUMENTS_PER_REQUEST = int(os.getenv("DOCUMENT_INGEST_REQUEST_LIMIT", "500"))
 
 
 class DocumentRef(BaseModel):

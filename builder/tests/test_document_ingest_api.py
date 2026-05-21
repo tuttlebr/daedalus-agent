@@ -1,5 +1,6 @@
 """Schema-level tests for the /v1/documents/* FastAPI routes."""
 
+import json
 import sys
 from pathlib import Path
 
@@ -67,6 +68,26 @@ class TestRouter:
     def test_accepts_matching_internal_token(self, monkeypatch):
         monkeypatch.setenv("DAEDALUS_INTERNAL_API_TOKEN", "secret-token")
         assert _require_trusted_user(" alice ", "secret-token") == "alice"
+
+    def test_sse_serializes_structured_progress_events(self):
+        chunk = document_ingest_api._sse(
+            "progress",
+            {
+                "completed": 0,
+                "total": 1,
+                "percent": 0,
+                "phase": "queued",
+                "message": "Queued 1 document for ingestion",
+            },
+        )
+
+        event_lines = chunk.splitlines()
+        assert event_lines[0] == "event: progress"
+        payload = json.loads(event_lines[1].removeprefix("data: "))
+        assert payload["completed"] == 0
+        assert payload["total"] == 1
+        assert payload["percent"] == 0
+        assert payload["phase"] == "queued"
 
 
 class TestIngestRequest:

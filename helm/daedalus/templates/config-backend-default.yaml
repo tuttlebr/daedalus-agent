@@ -7,9 +7,5 @@ metadata:
     {{- include "daedalus.labels" . | nindent 4 }}
 data:
   config.yaml: |-
-{{- if .Values.backend.default.config.data }}
 {{ .Values.backend.default.config.data | indent 4 }}
-{{- else }}
-{{ .Files.Get "files/tool-calling-config.yaml" | indent 4 }}
-{{- end }}
 {{- end }}

@@ -6,7 +6,7 @@ Next.js 14 frontend for Daedalus. This app handles authentication, chat orchestr
 
 - Renders the chat UI, conversation sidebar, settings, and in-app help
 - Authenticates users and keeps identity in Redis-backed sessions plus a signed identity cookie
-- Submits chat primarily through `/api/chat/async`, which creates a backend workflow job and returns a `jobId`
+- Submits chat primarily through `/api/chat/async`, which creates a frontend-managed job, opens a pinned backend stream, and returns a `jobId`
 - Persists conversations, attachments, generated images, selected conversation state, and async job state in Redis
 - Streams progress and intermediate steps back to clients through Redis Pub/Sub plus the WebSocket sidecar, with HTTP polling fallback
 - Supports multimodal uploads for images, documents, videos, and transcripts
@@ -21,12 +21,13 @@ In Kubernetes, the normal browser request path is:
 3. The frontend authenticates the user, stores or reads session and conversation state from Redis, and submits work to the selected backend service.
 4. Backend tokens, intermediate steps, and job status are persisted back through Redis and fanned out to clients over WebSocket or polling.
 
-The primary chat path is job-based:
+The primary chat path is frontend job-based:
 
-- `POST /api/chat/async` creates a NAT async workflow job and immediately returns a `jobId`
+- `POST /api/chat/async` stores job metadata and immediately returns a `jobId`
 - `GET /api/chat/async?jobId=...` returns live or finalized job state
-- A background stream reader also opens `/chat/stream` to capture tokens and intermediate steps while the async job runs
-- The legacy `/api/chat` edge route still exists for direct streaming, but the main UI favors async job orchestration for long-running work and PWA recovery
+- A background stream reader opens `/v1/chat/completions` for normal chat turns
+- Document ingestion opens `/v1/documents/ingest/stream` and forwards structured progress through job state
+- NAT `/v1/workflow/async` remains only as a legacy document-ingest fallback
 
 ## Development
 
@@ -52,8 +53,10 @@ The frontend consumes most of its runtime configuration through environment vari
 | `REDIS_URL` | Redis session, conversation, attachment, and job-state storage |
 | `BACKEND_HOST` | Base backend service name used for in-cluster routing |
 | `BACKEND_NAMESPACE` | Namespace used to build backend FQDNs |
-| `BACKEND_API_PATH` | Default NAT path such as `/chat/stream` or `/v1/workflow/async` |
+| `BACKEND_API_PATH` | Default backend path for generated URLs, usually `/v1/chat/completions` |
 | `NEXT_PUBLIC_HTTP_CHAT_COMPLETION_URL` | Optional explicit backend URL override |
+| `NEXT_PUBLIC_UPLOAD_*` | Build-time upload validation limits for browser-side file checks |
+| `DAEDALUS_DIRECT_DOCUMENT_INGEST_STREAM` | Set to `0` only to force legacy NAT async document ingestion |
 | `SESSION_SECRET` | Required in production for signed identity cookies |
 | `DAEDALUS_INTERNAL_API_TOKEN` | Shared token attached to trusted frontend-to-backend requests |
 | `AUTH_USERNAME`, `AUTH_PASSWORD` | Single-user auth |

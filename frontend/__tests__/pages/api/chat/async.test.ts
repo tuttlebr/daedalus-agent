@@ -52,7 +52,6 @@ import handler, {
   resolveAsyncBackendBaseUrls,
 } from '@/pages/api/chat/async';
 import {
-  PRIOR_ASSISTANT_OMITTED_MESSAGE,
   stripReplayedAssistantPrefix,
 } from '@/utils/app/conversationReplay';
 import { jsonGet, jsonSetWithExpiry } from '@/pages/api/session/redis';
@@ -188,8 +187,8 @@ describe('chat/async backend pinning helpers', () => {
     );
   });
 
-  it('omits prior assistant content without orphaning earlier user turns', () => {
-    const prior = 'A detailed prior assistant response that must not be replayed.';
+  it('preserves prior assistant content so follow-ups have real context', () => {
+    const prior = 'A detailed prior assistant response the user wants to reuse.';
     const bounded = buildBoundedMessagesForNat([
       { role: 'user', content: 'first question' },
       { role: 'assistant', content: prior, id: 'assistant-1' },
@@ -197,28 +196,54 @@ describe('chat/async backend pinning helpers', () => {
     ]);
 
     expect(bounded).toHaveLength(3);
-    expect(bounded[0].content).toBe('first question');
-    expect(bounded[1]).toEqual({
-      role: 'assistant',
-      content: PRIOR_ASSISTANT_OMITTED_MESSAGE,
-    });
-    expect(bounded[2].content).toBe('follow up');
-    expect(bounded.some((message) => message.content === prior)).toBe(false);
+    expect(bounded[0]).toEqual({ role: 'user', content: 'first question' });
+    expect(bounded[1]).toEqual({ role: 'assistant', content: prior });
+    expect(bounded[2]).toEqual({ role: 'user', content: 'follow up' });
   });
 
-  it('also omits prior agent-role content before sending to NAT', () => {
-    const prior = 'Agent role content that should not reach the model.';
+  it('normalizes agent-role messages to assistant-role for the OpenAI schema', () => {
+    const prior = 'Agent role content that should reach the model as assistant.';
     const bounded = buildBoundedMessagesForNat([
       { role: 'user', content: 'first question' },
       { role: 'agent', content: prior },
       { role: 'user', content: 'follow up' },
     ]);
 
-    expect(bounded[1]).toEqual({
-      role: 'assistant',
-      content: PRIOR_ASSISTANT_OMITTED_MESSAGE,
-    });
-    expect(bounded.some((message) => message.content === prior)).toBe(false);
+    expect(bounded[1]).toEqual({ role: 'assistant', content: prior });
+  });
+
+  it('drops empty assistant messages (Bedrock rejects blank ContentBlock text)', () => {
+    const bounded = buildBoundedMessagesForNat([
+      { role: 'user', content: 'first question' },
+      { role: 'assistant', content: '   ' },
+      { role: 'user', content: 'follow up' },
+    ]);
+
+    expect(bounded).toHaveLength(2);
+    expect(bounded.map((m) => m.role)).toEqual(['user', 'user']);
+  });
+
+  it('strips Daedalus-internal fields from outbound messages', () => {
+    const bounded = buildBoundedMessagesForNat([
+      {
+        role: 'user',
+        content: 'question',
+        id: 'msg-1',
+        attachments: [{ type: 'image', content: 'pic.png' }],
+        metadata: { turnId: 't-1' },
+      },
+      {
+        role: 'assistant',
+        content: 'answer',
+        intermediateSteps: [{ payload: { event_type: 'TOOL_END' } }],
+        errorMessages: { message: 'x', timestamp: 1, recoverable: true },
+      },
+    ]);
+
+    expect(bounded).toEqual([
+      { role: 'user', content: 'question' },
+      { role: 'assistant', content: 'answer' },
+    ]);
   });
 
   it('adds a documentRefs payload for multi-document attachments at the API boundary', () => {
@@ -748,6 +773,74 @@ describe('chat/async backend pinning helpers', () => {
     )?.[1];
     expect(storedJobRequest.executionMode).toBe('stream');
     expect(storedJobRequest.documentIngest).toBeUndefined();
+  });
+
+  it('sends prior assistant content verbatim through the full POST flow', async () => {
+    mocks.resolve4.mockResolvedValue(['10.0.2.61']);
+    mocks.fetchWithTimeout.mockResolvedValue({ ok: true, status: 200 });
+    const fetchSpy = vi.fn(() => new Promise(() => {}) as any);
+    vi.stubGlobal('fetch', fetchSpy);
+    Object.defineProperty(window, 'fetch', {
+      configurable: true,
+      value: fetchSpy,
+    });
+    const redisStore = new Map<string, any>();
+    (jsonSetWithExpiry as any).mockImplementation(
+      async (key: string, value: any) => {
+        redisStore.set(key, value);
+      },
+    );
+    (jsonGet as any).mockImplementation(async (key: string) => (
+      redisStore.has(key) ? redisStore.get(key) : null
+    ));
+
+    const priorAssistant = 'The release notes show three new features and two bug fixes.';
+
+    const req = {
+      method: 'POST',
+      headers: { cookie: 'sid=current-session' },
+      body: {
+        conversationId: 'conv-1',
+        messages: [
+          { role: 'user', content: 'Summarize the release notes.' },
+          { role: 'assistant', content: priorAssistant, id: 'asst-1' },
+          { role: 'user', content: 'Return your last response as a simple HTML file.' },
+        ],
+      },
+    } as any;
+    const res = {
+      status: vi.fn().mockReturnThis(),
+      json: vi.fn().mockReturnThis(),
+      setHeader: vi.fn(),
+    } as any;
+
+    try {
+      await handler(req, res);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+
+    expect(res.status).toHaveBeenCalledWith(200);
+
+    const storedJobRequest = (jsonSetWithExpiry as any).mock.calls.find(
+      ([key]: [string]) => key.includes('async-job-request'),
+    )?.[1];
+    expect(storedJobRequest.executionMode).toBe('stream');
+
+    const sentMessages = storedJobRequest.natMessages;
+    expect(sentMessages[0].content).toContain('[IDENTITY]');
+    expect(sentMessages.slice(1)).toEqual([
+      { role: 'user', content: 'Summarize the release notes.' },
+      { role: 'assistant', content: priorAssistant },
+      { role: 'user', content: 'Return your last response as a simple HTML file.' },
+    ]);
+
+    const streamCall = fetchSpy.mock.calls.find(
+      ([url]: [string]) => url.endsWith('/v1/chat/completions'),
+    );
+    expect(streamCall).toBeDefined();
+    const streamPayload = JSON.parse(streamCall[1].body);
+    expect(streamPayload.messages).toEqual(sentMessages);
   });
 
   it('treats legacy shared-service 404s as retryable instead of terminal', async () => {

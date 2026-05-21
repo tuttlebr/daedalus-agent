@@ -201,7 +201,7 @@ Start with [`helm/daedalus/values.yaml`](helm/daedalus/values.yaml) for defaults
 
 ### Kubernetes request flow
 
-The main browser chat path in Kubernetes goes through the frontend's async API route. The frontend authenticates the user, stores job metadata in Redis, submits a durable NAT async job to a selected backend pod, and returns a `jobId` immediately. The frontend then polls backend job status and writes final conversation state back to Redis.
+The main browser chat path in Kubernetes goes through the frontend's async API route. The frontend authenticates the user, stores frontend-managed job metadata in Redis, opens a pinned backend stream, and returns a `jobId` immediately. Normal chat uses `/v1/chat/completions`; uploaded document ingestion uses `/v1/documents/ingest/stream` so progress can be pushed back through Redis/WebSocket. NAT `/v1/workflow/async` is kept only as a legacy document-ingest fallback.
 
 ```mermaid
 flowchart LR
@@ -221,11 +221,11 @@ flowchart LR
     Ingress -->|all paths| Nginx
     Nginx -->|/ and /api/*| Frontend
     Frontend -->|auth, session, conversation, job state| Redis
-    Frontend -->|submit NAT async job| Backend
+    Frontend -->|open pinned stream| Backend
     Backend -->|memory and shared state| Redis
     Backend -->|retrieval, tracing, ingest| Integrations
     Backend -->|LLM and tool calls| External
-    Backend -->|job status and final output| Frontend
+    Backend -->|tokens, progress, final output| Frontend
     Frontend -->|poll and WebSocket updates, final response| Nginx
     Nginx --> Ingress
     Ingress --> Client
@@ -246,21 +246,20 @@ sequenceDiagram
     C->>I: HTTPS POST /api/chat/async
     I->>N: Forward request
     N->>F: Proxy /api/chat/async
-    F->>R: Validate session
-    F->>B: POST /v1/workflow/async
-    B->>R: Read or write memory and shared state
-    B->>X: Call model, retrieval, search, ingest, tracing services
-    B-->>F: Immediate job accepted
-    F->>R: Persist async job metadata
+    F->>R: Validate session and persist job metadata
     F-->>N: Return jobId
     N-->>I: Return pending response
     I-->>C: Client receives jobId
+    F->>B: Background POST /v1/chat/completions or /v1/documents/ingest/stream
+    B->>R: Read or write memory and shared state
+    B->>X: Call model, retrieval, search, ingest, tracing services
+    B-->>F: Stream tokens, tool events, or ingest progress
+    F->>R: Update cached job state
     C->>I: GET /api/chat/async?jobId=...
     I->>N: Forward poll request
     N->>F: Proxy poll request
-    F->>R: Read cached job state
-    F->>B: Poll /v1/workflow/async/job/{jobId}
-    B-->>F: Final job status and output
+    F->>R: Read streamed job status
+    R-->>F: Final job status and output
     F->>R: Finalize stored response
     F-->>N: Return completed payload
     N-->>I: Return completed payload
@@ -274,9 +273,7 @@ sequenceDiagram
 
 ## Backend Workflows
 
-The backend configuration lives at [`backend/tool-calling-config.yaml`](backend/tool-calling-config.yaml) and covers tool use, retrieval, memory, MCP integrations, image tooling, and reasoning. It includes the custom packages from `builder/` and relies heavily on environment-variable substitution for secrets and endpoints.
-
-Helm embeds the same workflow config at [`helm/daedalus/files/tool-calling-config.yaml`](helm/daedalus/files/tool-calling-config.yaml). Builder contract tests keep the repo and Helm copies in sync so local Compose and Kubernetes expose the same tool surface.
+The backend configuration lives at [`backend/tool-calling-config.yaml`](backend/tool-calling-config.yaml) and covers tool use, retrieval, memory, MCP integrations, image tooling, and reasoning. It includes the custom packages from `builder/` and relies heavily on environment-variable substitution for secrets and endpoints. Local Compose mounts this file directly, and Helm deployments should pass the same file with `--set-file backend.default.config.data=backend/tool-calling-config.yaml`.
 
 The `mas_optimizer` package implements the escalation gate between single-agent and multi-agent handling. Routine single-domain requests bypass it and go directly to the matching specialist; MAS candidates such as structured multi-source synthesis or broad independent-source exploration are evaluated against routing thresholds configured in [`backend/tool-calling-config.yaml`](backend/tool-calling-config.yaml) under `mas_optimizer_tool`.
 
@@ -284,10 +281,10 @@ The `mas_optimizer` package implements the escalation gate between single-agent 
 
 The frontend includes:
 
-- Durable async chat submission through NAT's `/v1/workflow/async` API
+- Frontend-managed async chat with pinned backend streaming
 - Authentication backed by Redis
 - File attachments for images, documents, and videos
-- Document ingestion routing through backend-owned async jobs
+- Direct document ingestion with streamed progress
 - Conversation folders, export/import, and search
 - Real-time sync and usage tracking APIs
 - PWA support and offline assets

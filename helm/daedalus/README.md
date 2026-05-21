@@ -57,7 +57,7 @@ helm upgrade --install <release> ./daedalus \
   -f values.yaml
 ```
 
-Override backend configs explicitly when needed:
+Provide the backend workflow config explicitly:
 
 ```sh
 helm upgrade --install <release> ./daedalus \

@@ -285,7 +285,7 @@ functions:
       latest", "compare", "state of", any knowledge-gathering or
       briefing. Returns: distilled findings with source URLs. Do NOT
       use for live ops (ops_agent), image/video/transcripts
-      (media_agent), user document search (user_data_agent), or
+      (media_agent), user document search (user_document_agent), or
       official NVIDIA product docs lookup (nvidia_docs_agent).
     system_prompt: |
       You are Daedalus's research specialist. Your job: answer
@@ -433,22 +433,43 @@ functions:
     handle_tool_errors: true
     verbose: true
     tool_names:
-      - user_document_tool
       - gmail_mcp_server
       - calendar_mcp_server
     description: >-
-      Work with the authenticated user's private data: uploaded
-      documents, Gmail, and Google Calendar. Input: document ingest/search
-      requests, email questions, or schedule/calendar
-      questions. Triggers: user uploaded a file, references "my doc",
-      "the PDF I uploaded", "my email", "Gmail", "inbox",
-      "my calendar", "schedule", "events", or "free time". Returns:
-      document passages, email/thread results, calendar events, or
-      availability. Do NOT use as a substitute for get_memory or topical
-      retrievers.
+      Work with the authenticated user's Gmail and Google Calendar.
+      Input: email questions or schedule/calendar questions. Triggers:
+      "my email", "Gmail", "inbox", "my calendar", "schedule",
+      "events", or "free time". Returns: email/thread results,
+      calendar events, or availability. Do NOT use as a substitute for
+      get_memory, topical retrievers, or uploaded document search.
     system_prompt: |
-      You manage the authenticated user's private documents, Gmail, and
-      Google Calendar.
+      You manage the authenticated user's Gmail and Google Calendar.
+
+      Flow:
+      - For Gmail questions, use search_threads before get_thread unless
+        the user gave a specific thread id. Use Gmail search syntax when
+        the user provides senders, dates, labels, or keywords.
+      - For Google Calendar questions, use list_calendars when the target
+        calendar is unclear, list_events/get_event for event lookups, and
+        suggest_time for free/busy or scheduling requests.
+      - Never substitute this agent for general knowledge retrieval.
+  user_document_agent:
+    _type: tool_calling_agent_resilient
+    llm_name: default_llm
+    max_iterations: 6
+    handle_tool_errors: true
+    verbose: true
+    tool_names:
+      - user_document_tool
+    description: >-
+      Work with the authenticated user's uploaded documents. Input:
+      document ingest/search requests. Triggers: user uploaded a file,
+      references "my doc", "the PDF I uploaded", uploaded-document
+      namespaces, or asks to search prior uploads. Returns: document
+      passages or ingestion results. Do NOT use for Gmail, Calendar,
+      get_memory, or topical retrievers.
+    system_prompt: |
+      You manage the authenticated user's uploaded documents.
 
       Flow:
       - If the user just uploaded and asks about it without prior
@@ -461,14 +482,8 @@ functions:
         collection (nvidia, semianalysis, kubernetes, vetpartner,
         mentalhealth). Private arbitrary names are scoped to the
         authenticated user; shared allow-listed names are used exactly.
-      - For Gmail questions, use search_threads before get_thread unless
-        the user gave a specific thread id. Use Gmail search syntax when
-        the user provides senders, dates, labels, or keywords.
-      - For Google Calendar questions, use list_calendars when the target
-        calendar is unclear, list_events/get_event for event lookups, and
-        suggest_time for free/busy or scheduling requests.
-      - Never substitute this agent for general knowledge retrieval.
-        Those requests belong to research_agent.
+      - Never substitute this agent for Gmail, Calendar, general
+        knowledge retrieval, or memory retrieval.
   agent_skills_tool:
     _type: agent_skills
     skills_directory: /skills
@@ -865,7 +880,7 @@ llms:
           - timing
         cache_control:
           type: ephemeral
-          ttl: 1h
+          ttl: 8h
   react_llm:
     _type: openai
     api_key: ${REACT_LLM_MODEL_API_KEY}
@@ -883,12 +898,25 @@ llms:
           - timing
         cache_control:
           type: ephemeral
-          ttl: 1h
+          ttl: 8h
   tool_calling_llm:
     _type: openai
     api_key: ${TOOL_CALLING_LLM_MODEL_API_KEY}
     base_url: ${TOOL_CALLING_LLM_MODEL_BASE_URL}
     model_name: ${TOOL_CALLING_LLM_MODEL_MODEL}
+    extra_body:
+      chat_template_kwargs:
+        preserve_thinking: false
+      nvext:
+        agent_hints:
+          priority: 10
+          osl: 1024
+        extra_fields:
+          - worker_id
+          - timing
+        cache_control:
+          type: ephemeral
+          ttl: 8h
   distill_llm:
     _type: openai
     api_key: ${DISTILL_LLM_MODEL_API_KEY}
@@ -906,7 +934,7 @@ llms:
           - timing
         cache_control:
           type: ephemeral
-          ttl: 1h
+          ttl: 8h
   default_llm:
     _type: openai
     api_key: ${DEFAULT_LLM_MODEL_API_KEY}
@@ -924,7 +952,7 @@ llms:
           - timing
         cache_control:
           type: ephemeral
-          ttl: 1h
+          ttl: 8h
 memory:
   redis_memory:
     _type: nat.plugins.redis/redis_memory
@@ -954,9 +982,9 @@ workflow:
 
     Skill-routed substantive requests: before memory or MAS, if the user names a skill or the request obviously matches a skill (code-review, content-research-writer, executive-voice, mas-procedure, nvcf-ngc-cli-skill, nvcf-self-managed-cli, nvcf-self-managed-installation, pr-monitor, debug-session, dynamo-bug, dep-create/status/update), call agent_skills_tool.load_skill directly. Examples: open PRs, pull-request status, PR CI health, or PR monitoring -> pr-monitor; merged PR listings/history or simple GitHub reads -> ops_agent; code review -> code-review; debug/reproduce/fix investigation -> debug-session; dependency create/status/update -> dep-create/status/update.
 
-    Direct specialist requests: if the request clearly belongs to one execution domain, call the matching sub-agent directly without get_memory or mas_evaluate. Use research_agent for ordinary research/current facts, nvidia_docs_agent for official NVIDIA product docs/API/config questions, ops_agent for Kubernetes/GitHub/ops reads, media_agent for image/video/transcript work, and user_data_agent for uploaded documents, Gmail, or Calendar.
+    Direct specialist requests: if the request clearly belongs to one execution domain, call the matching sub-agent directly without get_memory or mas_evaluate. Use research_agent for ordinary research/current facts, nvidia_docs_agent for official NVIDIA product docs/API/config questions, ops_agent for Kubernetes/GitHub/ops reads, media_agent for image/video/transcript work, user_document_agent for uploaded documents, and user_data_agent for Gmail or Calendar.
 
-    MAS candidate requests: use mas_evaluate only for explicit MAS requests, structured synthesis across multiple independent source families, or broad exploratory research asking for multiple independent leads/sources. First call get_memory(user_id, query="recent explicit SAS routing outcome calibration for MAS optimizer", top_k=5), then call mas_evaluate(task_description=<user request>, active_tool_names="research_agent,nvidia_docs_agent,ops_agent,media_agent,user_data_agent", memory_results=<get_memory output or []>).
+    MAS candidate requests: use mas_evaluate only for explicit MAS requests, structured synthesis across multiple independent source families, or broad exploratory research asking for multiple independent leads/sources. First call get_memory(user_id, query="recent explicit SAS routing outcome calibration for MAS optimizer", top_k=5), then call mas_evaluate(task_description=<user request>, active_tool_names="research_agent,nvidia_docs_agent,ops_agent,media_agent,user_document_agent,user_data_agent", memory_results=<get_memory output or []>).
 
     Other substantive requests: answer directly if no tool is needed, or call the single best matching sub-agent. Call get_memory mid-conversation only when prior preferences or project context would materially sharpen the answer.
 
@@ -985,6 +1013,7 @@ workflow:
     - nvidia_docs_agent
     - ops_agent
     - media_agent
+    - user_document_agent
     - user_data_agent
     - get_memory
     - add_memory

@@ -62,7 +62,8 @@ backend:
         XDG_CACHE_HOME: /tmp/.cache
     config:
       enabled: true
-      # Contents of backend/tool-calling-config.yaml; if empty, configMap mounts {}
+      # Contents of backend/tool-calling-config.yaml; set with --set-file.
+      # If empty, the ConfigMap renders an empty config.yaml.
       data: ""
     service:
       type: ClusterIP
@@ -106,6 +107,9 @@ frontend:
     overrides:
       # Backend API path - controls which NAT API endpoint to use
       # Supported values: /chat, /chat/stream, /generate, /generate/stream, /v1/chat/completions
+      # Uploaded document ingestion uses the direct streaming endpoint by default.
+      # Set to "0" only to force the legacy NAT async fallback.
+      DAEDALUS_DIRECT_DOCUMENT_INGEST_STREAM: "1"
       # V8 heap ceiling — sized under the pod memory limit to leave headroom for off-heap Buffers
       # during large-document base64 decode (200MB doc ≈ 267MB base64 + multiple copies in flight)
       NODE_OPTIONS: "--max-old-space-size=8192"
