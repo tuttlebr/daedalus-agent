@@ -11,6 +11,7 @@ calls back into ``tool_calls`` so the agent loop continues normally.
 import json
 import logging
 
+from json_repair_agent.identity_propagation import propagate_identity_to_tool_calls
 from json_repair_agent.json_repair import repair_json_string
 from langchain_core.callbacks.base import AsyncCallbackHandler
 from langchain_core.language_models import BaseChatModel
@@ -74,6 +75,7 @@ class ResilientToolCallAgentGraph(ToolCallAgentGraph):
                 logger.info(AGENT_CALL_LOG_MESSAGE, agent_input, response)
 
             response = _repair_invalid_tool_calls(response)
+            response = propagate_identity_to_tool_calls(response, state.messages)
 
             state.messages += [response]
             return state

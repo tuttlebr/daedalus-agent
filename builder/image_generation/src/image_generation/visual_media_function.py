@@ -385,7 +385,7 @@ async def visual_media_function(config: VisualMediaFunctionConfig, builder: Buil
             question: Analysis question. Falls back to prompt.
             max_tokens: Optional analysis response token limit.
             user_id: Authenticated username from the [IDENTITY] message. Required
-                when imageRef/videoRef contains a userId.
+                for generate and for user-scoped edit/analyze inputs.
         """
         op = (operation or "").strip().lower()
         try:
@@ -433,8 +433,8 @@ async def visual_media_function(config: VisualMediaFunctionConfig, builder: Buil
                 "a new image from prompt; operation='edit' to modify uploaded "
                 "imageRef with prompt; operation='analyze' to answer a question "
                 "about imageRef, image_url, videoRef, or video_url. Pass user_id "
-                "from [IDENTITY] when uploaded refs include userId. Image outputs "
-                "return markdown refs that must be forwarded verbatim."
+                "from [IDENTITY] for every generate/edit/analyze call. Image "
+                "outputs return markdown refs that must be forwarded verbatim."
             ),
         )
     except GeneratorExit:

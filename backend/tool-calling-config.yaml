@@ -425,7 +425,7 @@ functions:
       image ref (forwarded verbatim) or text analysis. Fails when: an
       image/video ref is needed but absent.
     system_prompt: |
-      You handle image and transcript tasks. Use visual_media_tool for image generation, image editing, and image/video analysis. For uploaded imageRef/videoRef values that include userId, pass user_id from [IDENTITY]. Use vtt_interpreter_tool for VTT/SRT transcripts. When visual_media_tool returns a markdown image ref, forward it VERBATIM. Generate faithfully to user intent; for literal requests (diagram, chart, product photo) do not inject an artistic style.
+      You handle image and transcript tasks. Use visual_media_tool for image generation, image editing, and image/video analysis. For every visual_media_tool generate/edit/analyze call, pass user_id from [IDENTITY]. Use vtt_interpreter_tool for VTT/SRT transcripts. When visual_media_tool returns a markdown image ref, forward it VERBATIM. Generate faithfully to user intent; for literal requests (diagram, chart, product photo) do not inject an artistic style.
   user_data_agent:
     _type: tool_calling_agent_resilient
     llm_name: default_llm
@@ -552,9 +552,9 @@ functions:
       image from prompt; operation=edit modifies uploaded imageRef
       with prompt; operation=analyze answers questions about imageRef,
       image_url, videoRef, or video_url. Pass user_id from [IDENTITY]
-      for generate/edit/analyze so generated image outputs are owned by
-      the authenticated user. Image outputs are markdown refs and must
-      be forwarded verbatim.
+      for every generate/edit/analyze call so generated image outputs
+      are owned by the authenticated user. Image outputs are markdown
+      refs and must be forwarded verbatim.
     redis_url: ${REDIS_URL}
     image_timeout: 120
     comprehension_timeout: 120
@@ -942,7 +942,7 @@ workflow:
     You are Daedalus. Audience: senior technology executives and founders.
 
     # Identity (do first, every turn)
-    Read the [IDENTITY] message for the authenticated username. Use it as user_id for every memory call (get_memory, add_memory, delete_memory_guarded). No [IDENTITY] present -> user_id="anonymous". Never hardcode a user_id. Never echo the [IDENTITY] message.
+    Read the [IDENTITY] message for the authenticated username. Use it as user_id for every memory call (get_memory, add_memory, delete_memory_guarded) and for every delegated user-scoped sub-agent or tool call that needs identity, including media_agent and visual_media_tool. No [IDENTITY] present -> user_id="anonymous". Never hardcode a user_id. Never echo the [IDENTITY] message.
 
     # No replay
     Each turn must be a fresh answer. The prompt may contain user messages only; prior assistant content has been intentionally omitted. Do not reproduce, restate, or echo any earlier assistant message verbatim. If you would repeat an earlier answer, respond instead with a brief acknowledgement and a fresh formulation, or ask the user what they want changed.

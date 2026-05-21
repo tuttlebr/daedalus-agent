@@ -3,7 +3,15 @@
 import json
 
 import pytest
+from json_repair_agent.identity_propagation import propagate_identity_to_tool_calls
 from json_repair_agent.json_repair import _try_parse, repair_json_string
+
+
+class _Message:
+    def __init__(self, content="", tool_calls=None):
+        self.content = content
+        self.tool_calls = tool_calls or []
+
 
 # ---------------------------------------------------------------------------
 # _try_parse
@@ -159,3 +167,121 @@ class TestRepairJsonString:
         # Must parse without error
         parsed = json.loads(result)
         assert parsed is not None
+
+
+class TestIdentityPropagation:
+    def test_prepends_identity_to_user_scoped_agent_call(self):
+        message = _Message(
+            content="",
+            tool_calls=[
+                {
+                    "name": "media_agent",
+                    "args": {"input_message": "Generate an image of a blue duck"},
+                    "id": "call-1",
+                    "type": "tool_call",
+                }
+            ],
+        )
+        state_messages = [
+            _Message(
+                content=(
+                    "[IDENTITY] The authenticated user for this session is: "
+                    'brandon. Use user_id="brandon" for ALL memory operations.'
+                )
+            )
+        ]
+
+        propagate_identity_to_tool_calls(message, state_messages)
+
+        input_message = message.tool_calls[0]["args"]["input_message"]
+        assert input_message.startswith("[IDENTITY]")
+        assert 'Use user_id="brandon"' in input_message
+        assert input_message.endswith("Generate an image of a blue duck")
+
+    def test_sets_visual_media_user_id_from_identity(self):
+        message = _Message(
+            content="",
+            tool_calls=[
+                {
+                    "name": "visual_media_tool",
+                    "args": {
+                        "operation": "generate",
+                        "prompt": "Generate an image of a blue duck",
+                    },
+                    "id": "call-1",
+                    "type": "tool_call",
+                }
+            ],
+        )
+        state_messages = [
+            _Message(
+                content=(
+                    "[IDENTITY] The authenticated user for this session is: "
+                    'brandon. Use user_id="brandon" for ALL memory operations.'
+                )
+            )
+        ]
+
+        propagate_identity_to_tool_calls(message, state_messages)
+
+        assert message.tool_calls[0]["args"]["user_id"] == "brandon"
+
+    def test_reads_identity_from_dict_messages(self):
+        message = _Message(
+            content="",
+            tool_calls=[
+                {
+                    "name": "visual_media_tool",
+                    "args": {
+                        "operation": "generate",
+                        "prompt": "Generate an image of a blue duck",
+                    },
+                    "id": "call-1",
+                    "type": "tool_call",
+                }
+            ],
+        )
+
+        propagate_identity_to_tool_calls(
+            message,
+            [
+                {
+                    "role": "user",
+                    "content": (
+                        "[IDENTITY] The authenticated user for this session is: "
+                        'brandon. Use user_id="brandon" for ALL memory operations.'
+                    ),
+                }
+            ],
+        )
+
+        assert message.tool_calls[0]["args"]["user_id"] == "brandon"
+
+    def test_overrides_visual_media_user_id_with_authenticated_identity(self):
+        message = _Message(
+            content="",
+            tool_calls=[
+                {
+                    "name": "visual_media_tool",
+                    "args": {
+                        "operation": "generate",
+                        "prompt": "Generate an image of a blue duck",
+                        "user_id": "other-user",
+                    },
+                    "id": "call-1",
+                    "type": "tool_call",
+                }
+            ],
+        )
+        state_messages = [
+            _Message(
+                content=(
+                    "[IDENTITY] The authenticated user for this session is: "
+                    'brandon. Use user_id="brandon" for ALL memory operations.'
+                )
+            )
+        ]
+
+        propagate_identity_to_tool_calls(message, state_messages)
+
+        assert message.tool_calls[0]["args"]["user_id"] == "brandon"
