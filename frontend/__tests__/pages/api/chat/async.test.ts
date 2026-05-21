@@ -344,7 +344,195 @@ describe('chat/async backend pinning helpers', () => {
     });
   });
 
-  it('submits document ingestion through the durable backend async endpoint by default', async () => {
+  it('does not treat a plain follow-up as ingestion when the prior turn ingested docs', () => {
+    const messages = [
+      {
+        role: 'user',
+        content: 'Ingest these docs',
+        metadata: { targetCollection: 'nvidia' },
+        attachments: [
+          {
+            type: 'document',
+            content: 'a.md',
+            documentRef: { documentId: 'doc-a', sessionId: 'sess-1' },
+          },
+        ],
+      },
+      {
+        role: 'assistant',
+        content: 'Ingestion complete.',
+      },
+      {
+        role: 'user',
+        content: 'What were the main themes across those documents?',
+      },
+    ];
+
+    expect(isDocumentIngestionRequest(messages)).toBe(false);
+    expect(getDocumentIngestJobRequest(messages, 'testuser')).toBeNull();
+  });
+
+  it('still detects ingestion when the newest user message has document attachments', () => {
+    const messages = [
+      {
+        role: 'user',
+        content: 'Quick question.',
+      },
+      {
+        role: 'assistant',
+        content: 'Sure, what is it?',
+      },
+      {
+        role: 'user',
+        content: 'Ingest these docs',
+        metadata: { targetCollection: 'nvidia' },
+        attachments: [
+          {
+            type: 'document',
+            content: 'a.md',
+            documentRef: { documentId: 'doc-a', sessionId: 'sess-1' },
+          },
+        ],
+      },
+    ];
+
+    expect(isDocumentIngestionRequest(messages)).toBe(true);
+    expect(getDocumentIngestJobRequest(messages, 'testuser')).toEqual({
+      documentRefs: [
+        { documentId: 'doc-a', sessionId: 'sess-1', filename: 'a.md' },
+      ],
+      collectionName: 'nvidia',
+      username: 'testuser',
+    });
+  });
+
+  it('runs document ingestion through the direct streaming ingest endpoint by default', async () => {
+    mocks.resolve4.mockResolvedValue(['10.0.2.61']);
+    mocks.fetchWithTimeout.mockResolvedValue({ ok: true, status: 200 });
+    const fetchSpy = vi.fn(() => new Promise(() => {}) as any);
+    vi.stubGlobal('fetch', fetchSpy);
+    Object.defineProperty(window, 'fetch', {
+      configurable: true,
+      value: fetchSpy,
+    });
+    const redisStore = new Map<string, any>();
+    (jsonSetWithExpiry as any).mockImplementation(
+      async (key: string, value: any) => {
+        redisStore.set(key, value);
+      },
+    );
+    (jsonGet as any).mockImplementation(async (key: string) => (
+      redisStore.has(key) ? redisStore.get(key) : null
+    ));
+
+    const req = {
+      method: 'POST',
+      headers: { cookie: 'sid=current-session' },
+      body: {
+        messages: [
+          {
+            role: 'user',
+            content: 'Ingest these docs',
+            metadata: { targetCollection: 'nvidia' },
+            attachments: [
+              {
+                type: 'document',
+                content: 'a.md',
+                documentRef: { documentId: 'doc-a', sessionId: 'sess-1' },
+              },
+            ],
+          },
+        ],
+      },
+    } as any;
+    const res = {
+      status: vi.fn().mockReturnThis(),
+      json: vi.fn().mockReturnThis(),
+      setHeader: vi.fn(),
+    } as any;
+
+    try {
+      await handler(req, res);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    } finally {
+      vi.unstubAllGlobals();
+    }
+
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
+      status: 'streaming',
+    }));
+    expect(mocks.fetchWithTimeout).toHaveBeenCalledTimes(1);
+    expect(mocks.fetchWithTimeout).toHaveBeenCalledWith(
+      'http://10.0.2.61:8000/docs',
+      expect.objectContaining({
+        method: 'HEAD',
+      }),
+      2000,
+    );
+    expect(mocks.fetchWithTimeout).not.toHaveBeenCalledWith(
+      expect.stringContaining('/v1/workflow/async'),
+      expect.anything(),
+      expect.anything(),
+    );
+    expect(fetchSpy).toHaveBeenCalledWith(
+      'http://10.0.2.61:8000/v1/documents/ingest/stream',
+      expect.objectContaining({
+        method: 'POST',
+        headers: expect.objectContaining({
+          'Content-Type': 'application/json',
+          Accept: 'text/event-stream',
+          'x-user-id': 'testuser',
+        }),
+      }),
+    );
+
+    const storedJobRequest = (jsonSetWithExpiry as any).mock.calls.find(
+      ([key]: [string]) => key.includes('async-job-request'),
+    )?.[1];
+    expect(storedJobRequest.executionMode).toBe('document_ingest');
+    expect(storedJobRequest.natMessages).toEqual([]);
+    expect(storedJobRequest.documentIngest).toEqual({
+      documentRefs: [
+        {
+          documentId: 'doc-a',
+          sessionId: 'sess-1',
+          filename: 'a.md',
+        },
+      ],
+      collectionName: 'nvidia',
+      username: 'testuser',
+    });
+
+    const storedJobStatus = (jsonSetWithExpiry as any).mock.calls.find(
+      ([key]: [string]) => key.includes('async-job-status'),
+    )?.[1];
+    expect(storedJobStatus.status).toBe('streaming');
+    expect(storedJobStatus.progress).toBe(0);
+    expect(storedJobStatus.ingestProgress).toEqual(expect.objectContaining({
+      completed: 0,
+      total: 1,
+      percent: 0,
+      phase: 'queued',
+    }));
+
+    const ingestBody = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    expect(ingestBody).toEqual({
+      documentRefs: [
+        {
+          documentId: 'doc-a',
+          sessionId: 'sess-1',
+          filename: 'a.md',
+        },
+      ],
+      username: 'testuser',
+      collection_name: 'nvidia',
+    });
+  });
+
+  it('can submit document ingestion through NAT async when the direct stream is disabled', async () => {
+    process.env.DAEDALUS_DIRECT_DOCUMENT_INGEST_STREAM = '0';
     mocks.resolve4.mockResolvedValue(['10.0.2.61']);
     mocks.fetchWithTimeout
       .mockResolvedValueOnce({ ok: true, status: 200 })
@@ -409,17 +597,157 @@ describe('chat/async backend pinning helpers', () => {
     )?.[1];
     expect(storedJobRequest.executionMode).toBe('nat_async');
     expect(storedJobRequest.natMessages[1].content).toContain('documentRef=');
-    expect(storedJobRequest.documentIngest).toEqual({
-      documentRefs: [
-        {
-          documentId: 'doc-a',
-          sessionId: 'sess-1',
-          filename: 'a.md',
-        },
-      ],
-      collectionName: 'nvidia',
-      username: 'testuser',
+  });
+
+  it('runs normal chat turns through the streaming backend without submitting a NAT async job', async () => {
+    mocks.resolve4.mockResolvedValue(['10.0.2.61']);
+    mocks.fetchWithTimeout.mockResolvedValue({ ok: true, status: 200 });
+    const fetchSpy = vi.fn(() => new Promise(() => {}) as any);
+    vi.stubGlobal('fetch', fetchSpy);
+    Object.defineProperty(window, 'fetch', {
+      configurable: true,
+      value: fetchSpy,
     });
+    const redisStore = new Map<string, any>();
+    (jsonSetWithExpiry as any).mockImplementation(
+      async (key: string, value: any) => {
+        redisStore.set(key, value);
+      },
+    );
+    (jsonGet as any).mockImplementation(async (key: string) => (
+      redisStore.has(key) ? redisStore.get(key) : null
+    ));
+
+    const req = {
+      method: 'POST',
+      headers: { cookie: 'sid=current-session' },
+      body: {
+        conversationId: 'conv-1',
+        messages: [
+          {
+            role: 'user',
+            content: 'What is the status?',
+          },
+        ],
+      },
+    } as any;
+    const res = {
+      status: vi.fn().mockReturnThis(),
+      json: vi.fn().mockReturnThis(),
+      setHeader: vi.fn(),
+    } as any;
+
+    try {
+      await handler(req, res);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(mocks.fetchWithTimeout).toHaveBeenCalledTimes(1);
+    expect(mocks.fetchWithTimeout).toHaveBeenCalledWith(
+      'http://10.0.2.61:8000/docs',
+      expect.objectContaining({ method: 'HEAD' }),
+      2000,
+    );
+    expect(mocks.fetchWithTimeout).not.toHaveBeenCalledWith(
+      expect.stringContaining('/v1/workflow/async'),
+      expect.anything(),
+      expect.anything(),
+    );
+    expect(fetchSpy).toHaveBeenCalledWith(
+      'http://10.0.2.61:8000/v1/chat/completions',
+      expect.objectContaining({
+        method: 'POST',
+        headers: expect.objectContaining({
+          'Content-Type': 'application/json',
+          'x-user-id': 'testuser',
+        }),
+      }),
+    );
+
+    const storedJobRequest = (jsonSetWithExpiry as any).mock.calls.find(
+      ([key]: [string]) => key.includes('async-job-request'),
+    )?.[1];
+    expect(storedJobRequest.executionMode).toBe('stream');
+    expect(storedJobRequest.natMessages[1].content).toBe('What is the status?');
+  });
+
+  it('routes follow-up messages through stream mode even when prior turns contained document ingestion', async () => {
+    mocks.resolve4.mockResolvedValue(['10.0.2.61']);
+    mocks.fetchWithTimeout.mockResolvedValue({ ok: true, status: 200 });
+    const fetchSpy = vi.fn(() => new Promise(() => {}) as any);
+    vi.stubGlobal('fetch', fetchSpy);
+    Object.defineProperty(window, 'fetch', {
+      configurable: true,
+      value: fetchSpy,
+    });
+    const redisStore = new Map<string, any>();
+    (jsonSetWithExpiry as any).mockImplementation(
+      async (key: string, value: any) => {
+        redisStore.set(key, value);
+      },
+    );
+    (jsonGet as any).mockImplementation(async (key: string) => (
+      redisStore.has(key) ? redisStore.get(key) : null
+    ));
+
+    const req = {
+      method: 'POST',
+      headers: { cookie: 'sid=current-session' },
+      body: {
+        conversationId: 'conv-1',
+        messages: [
+          {
+            role: 'user',
+            content: 'Ingest these docs',
+            metadata: { targetCollection: 'nvidia' },
+            attachments: [
+              {
+                type: 'document',
+                content: 'a.md',
+                documentRef: { documentId: 'doc-a', sessionId: 'sess-1' },
+              },
+            ],
+          },
+          {
+            role: 'assistant',
+            content: 'Ingested 1 document into "nvidia".',
+          },
+          {
+            role: 'user',
+            content: 'Now tell me about the contents.',
+          },
+        ],
+      },
+    } as any;
+    const res = {
+      status: vi.fn().mockReturnThis(),
+      json: vi.fn().mockReturnThis(),
+      setHeader: vi.fn(),
+    } as any;
+
+    try {
+      await handler(req, res);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(fetchSpy).toHaveBeenCalledWith(
+      'http://10.0.2.61:8000/v1/chat/completions',
+      expect.anything(),
+    );
+    expect(fetchSpy).not.toHaveBeenCalledWith(
+      'http://10.0.2.61:8000/v1/documents/ingest/stream',
+      expect.anything(),
+    );
+
+    const storedJobRequest = (jsonSetWithExpiry as any).mock.calls.find(
+      ([key]: [string]) => key.includes('async-job-request'),
+    )?.[1];
+    expect(storedJobRequest.executionMode).toBe('stream');
+    expect(storedJobRequest.documentIngest).toBeUndefined();
   });
 
   it('treats legacy shared-service 404s as retryable instead of terminal', async () => {

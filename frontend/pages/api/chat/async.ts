@@ -131,8 +131,6 @@ const NAT_RETRY_DELAY_MS = Number(process.env.NAT_RETRY_DELAY_MS || 3_000);
 const NAT_CONNECTIVITY_TIMEOUT_MS = Number(process.env.NAT_CONNECTIVITY_TIMEOUT_MS || 2_000);
 const NAT_SUBMIT_TIMEOUT_MS = Number(process.env.NAT_SUBMIT_TIMEOUT_MS || 45_000);
 const DOCUMENT_INGEST_TIMEOUT_MS = Number(process.env.DOCUMENT_INGEST_TIMEOUT_MS || 60 * 60 * 1000);
-const DIRECT_DOCUMENT_INGEST_STREAM_ENABLED =
-  process.env.DAEDALUS_DIRECT_DOCUMENT_INGEST_STREAM === '1';
 const NAT_BACKEND_CACHE_TTL_MS = 30_000;
 const STREAM_STATUS_FLUSH_INTERVAL_MS = 750;
 const STREAM_STEPS_FLUSH_INTERVAL_MS = 750;
@@ -151,6 +149,16 @@ const statusLockKey = (jobId: string) => sessionKey(['async-job-status-lock', jo
 
 const backgroundFinalizers = new Set<string>();
 let cachedStreamBackend: { baseUrl: string; expiresAt: number } | null = null;
+
+function isNatAsyncExecutionMode(
+  mode: AsyncJobRequest['executionMode'],
+): mode is 'nat_async' {
+  return mode === 'nat_async' || mode === undefined;
+}
+
+function isDirectDocumentIngestStreamEnabled(): boolean {
+  return process.env.DAEDALUS_DIRECT_DOCUMENT_INGEST_STREAM !== '0';
+}
 
 class ApiRouteError extends Error {
   status: number;
@@ -377,8 +385,21 @@ function isDocumentIngestionMessage(message: any): boolean {
   );
 }
 
+// The user's just-submitted message is always the last user-role entry in the
+// payload. Earlier user messages can still carry document attachments + ingest
+// metadata from prior turns, so scanning the full history would re-route plain
+// follow-up questions through the ingestion path.
+function getLastUserMessage(messages: any[]): any | null {
+  if (!Array.isArray(messages)) return null;
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    if (messages[i]?.role === 'user') return messages[i];
+  }
+  return null;
+}
+
 export function isDocumentIngestionRequest(messages: any[]): boolean {
-  return Array.isArray(messages) && messages.some(isDocumentIngestionMessage);
+  const lastUserMessage = getLastUserMessage(messages);
+  return Boolean(lastUserMessage && isDocumentIngestionMessage(lastUserMessage));
 }
 
 export function compactDocumentIngestionMessage(
@@ -410,26 +431,23 @@ export function getDocumentIngestJobRequest(
   messages: any[],
   verifiedUsername: string,
 ): DocumentIngestJobRequest | null {
-  if (!Array.isArray(messages)) return null;
+  const message = getLastUserMessage(messages);
+  if (!message || !isDocumentIngestionMessage(message)) return null;
 
-  for (const message of messages) {
-    if (!isDocumentIngestionMessage(message)) continue;
-    const documentRefs = collectDocumentRefs(message.attachments || []);
-    if (documentRefs.length === 0) continue;
-    const targetCollection =
-      typeof message.metadata?.targetCollection === 'string' &&
-      message.metadata.targetCollection.trim()
-        ? message.metadata.targetCollection.trim()
-        : verifiedUsername;
+  const documentRefs = collectDocumentRefs(message.attachments || []);
+  if (documentRefs.length === 0) return null;
 
-    return {
-      documentRefs,
-      collectionName: targetCollection,
-      username: verifiedUsername,
-    };
-  }
+  const targetCollection =
+    typeof message.metadata?.targetCollection === 'string' &&
+    message.metadata.targetCollection.trim()
+      ? message.metadata.targetCollection.trim()
+      : verifiedUsername;
 
-  return null;
+  return {
+    documentRefs,
+    collectionName: targetCollection,
+    username: verifiedUsername,
+  };
 }
 
 function buildDocumentIngestNatMessages(
@@ -1668,8 +1686,15 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       verifiedUsername,
     );
     const useDirectDocumentIngest = Boolean(
-      documentIngest && DIRECT_DOCUMENT_INGEST_STREAM_ENABLED,
+      documentIngest && isDirectDocumentIngestStreamEnabled(),
     );
+    const useNatAsyncJob = Boolean(documentIngest && !useDirectDocumentIngest);
+    const executionMode: NonNullable<AsyncJobRequest['executionMode']> =
+      useDirectDocumentIngest
+        ? 'document_ingest'
+        : useNatAsyncJob
+          ? 'nat_async'
+          : 'stream';
 
     // Strip system messages -- the backend's NAT agent owns the system prompt.
     // Also drop assistant messages with empty content -- these cause 400 errors
@@ -1713,15 +1738,15 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       natSessionId,
     );
 
-    logger.info(`Job ${jobId}: Selected async backend`, {
+    logger.info(`Job ${jobId}: Selected backend`, {
       natBaseUrl: selectedNatBaseUrl,
-      executionMode: useDirectDocumentIngest ? 'document_ingest' : 'nat_async',
+      executionMode,
     });
 
     // Store job metadata in Redis for the GET handler
     const jobRequest: AsyncJobRequest = {
       jobId,
-      executionMode: useDirectDocumentIngest ? 'document_ingest' : 'nat_async',
+      executionMode,
       natBaseUrl: selectedNatBaseUrl || buildBackendBaseUrlForMode(),
       natSessionId,
       natMessages: useDirectDocumentIngest ? [] : durableMessagesForNat,
@@ -1735,7 +1760,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       ...(typeof assistantMessageId === 'string' && assistantMessageId ? { assistantMessageId } : {}),
     };
 
-    if (!useDirectDocumentIngest) {
+    if (useNatAsyncJob) {
       await submitNatAsyncJob(
         jobId,
         jobRequest.natBaseUrl,
@@ -1747,12 +1772,34 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
 
     await jsonSetWithExpiry(sessionKey(['async-job-request', jobId]), jobRequest, JOB_EXPIRY_SECONDS);
 
-    // Initialize job status
+    // Initialize job status. Direct document ingestion starts as streaming so
+    // the first client status read can render progress immediately.
+    const createdAt = Date.now();
+    const initialIngestProgress: DocumentIngestProgress | undefined =
+      useDirectDocumentIngest && documentIngest
+        ? {
+            completed: 0,
+            total: documentIngest.documentRefs.length,
+            percent: 0,
+            phase: 'queued',
+            message: `Queued ${documentIngest.documentRefs.length} document${documentIngest.documentRefs.length === 1 ? '' : 's'} for ingestion`,
+          }
+        : undefined;
     const jobStatus: AsyncJobStatus = {
       jobId,
-      status: 'pending',
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
+      status: initialIngestProgress ? 'streaming' : 'pending',
+      createdAt,
+      updatedAt: createdAt,
+      ...(initialIngestProgress && documentIngest
+        ? {
+            partialResponse: formatIngestPartialResponse(
+              documentIngest.collectionName,
+              initialIngestProgress,
+            ),
+            progress: 0,
+            ingestProgress: initialIngestProgress,
+          }
+        : {}),
       conversationId,
       ...(typeof turnId === 'string' && turnId ? { turnId } : {}),
       ...(typeof assistantMessageId === 'string' && assistantMessageId ? { assistantMessageId } : {}),
@@ -1766,7 +1813,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
         await publishStreamingState(effectiveUserId, conversationId, true, jobId);
       }
 
-      res.status(200).json({ jobId, status: 'pending' });
+      res.status(200).json({ jobId, status: jobStatus.status });
       startBackgroundDocumentIngest(
         jobId,
         jobRequest,
@@ -1785,7 +1832,18 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     }
 
     // Respond immediately so the client can start polling / WS listening
-    res.status(200).json({ jobId, status: 'pending' });
+    res.status(200).json({ jobId, status: jobStatus.status });
+
+    if (!useNatAsyncJob) {
+      startBackgroundStreamReader(
+        jobId,
+        jobRequest,
+        durableMessagesForNat,
+        verifiedUsername,
+      ).catch((err) => {
+        logger.error(`Job ${jobId}: Background stream reader failed`, err);
+      });
+    }
 
     return;
   } catch (error) {
@@ -1862,7 +1920,12 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
       return res.status(200).json(sanitized);
     }
 
-    // Fetch live status from NAT
+    if (!isNatAsyncExecutionMode(jobRequest.executionMode)) {
+      const sanitized = await sanitizeJobStatusForReturn(jobId, jobStatus, jobRequest);
+      return res.status(200).json(sanitized);
+    }
+
+    // Fetch live status from NAT for legacy durable async jobs.
     launchBackgroundFinalizer(jobId, jobRequest);
 
     let natStatus: NatAsyncJobResponse | null = null;
