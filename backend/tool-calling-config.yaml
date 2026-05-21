@@ -414,7 +414,6 @@ functions:
     handle_tool_errors: true
     verbose: true
     tool_names:
-      - visual_media_tool
       - vtt_interpreter_tool
     description: >-
       Handle media tasks: generate/edit/analyze images or video, or
@@ -904,19 +903,19 @@ llms:
     api_key: ${TOOL_CALLING_LLM_MODEL_API_KEY}
     base_url: ${TOOL_CALLING_LLM_MODEL_BASE_URL}
     model_name: ${TOOL_CALLING_LLM_MODEL_MODEL}
-    extra_body:
-      chat_template_kwargs:
-        preserve_thinking: false
-      nvext:
-        agent_hints:
-          priority: 10
-          osl: 1024
-        extra_fields:
-          - worker_id
-          - timing
-        cache_control:
-          type: ephemeral
-          ttl: 8h
+    # extra_body:
+    #   chat_template_kwargs:
+    #     preserve_thinking: false
+    #   nvext:
+    #     agent_hints:
+    #       priority: 10
+    #       osl: 1024
+    #     extra_fields:
+    #       - worker_id
+    #       - timing
+    #     cache_control:
+    #       type: ephemeral
+    #       ttl: 8h
   distill_llm:
     _type: openai
     api_key: ${DISTILL_LLM_MODEL_API_KEY}
@@ -1008,6 +1007,7 @@ workflow:
   handle_tool_errors: true
   return_direct:
     - user_interaction_tool
+    - visual_media_tool
   tool_names:
     - research_agent
     - nvidia_docs_agent
@@ -1022,5 +1022,6 @@ workflow:
     - agent_skills_tool
     - user_interaction_tool
     - current_datetime_tool
+    - visual_media_tool
   verbose: true
   workflow_alias: Daedalus
