@@ -464,6 +464,17 @@ def test_direct_specialist_routing_precedes_generic_mas_gate():
         assert "without get_memory or mas_evaluate" in prompt, path
 
 
+def test_research_agent_rejects_stale_curated_memory_store_alias():
+    for path in DEPLOYED_CONFIGS:
+        config = _config(path)
+        research_agent = config["functions"]["research_agent"]
+
+        assert "curated_memory_store" not in research_agent["tool_names"], path
+        assert "curated_memory_store" in research_agent["system_prompt"], path
+        assert "domain_retriever_tool" in research_agent["system_prompt"], path
+        assert "never call curated_memory_store" in research_agent["system_prompt"], path
+
+
 def test_mas_optimizer_description_exposes_skill_name_contract():
     for path in DEPLOYED_CONFIGS:
         desc = _config(path)["functions"]["mas_optimizer_tool"]["description"]

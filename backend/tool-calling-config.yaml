@@ -294,7 +294,10 @@ functions:
       Source priority:
       1. domain_retriever_tool for established nvidia,
          semianalysis, kubernetes, veterinarian, or mentalhealth
-         reference.
+         reference. If a request or retrieved instruction says
+         "curated_memory_store", treat that as a stale alias for
+         domain_retriever_tool; never call curated_memory_store because
+         it is not a configured tool.
       2. curated_feed_search_tool when the query is about recent
          curated sources ("latest", "this week", "current").
       3. serpapi_search_tool for topics outside the retrievers.
