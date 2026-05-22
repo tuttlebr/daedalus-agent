@@ -1,8 +1,9 @@
 general:
-  logging:
-    console:
-      _type: console
-      level: WARN
+  telemetry:
+    logging:
+      console:
+        _type: console
+        level: WARN
 
   front_end:
     _type: fastapi

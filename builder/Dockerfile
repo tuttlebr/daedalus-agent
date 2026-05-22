@@ -48,7 +48,7 @@ RUN --mount=type=cache,id=uv_cache,target=/root/.cache/uv,sharing=locked \
     . /workspace/.venv/bin/activate && \
     uv pip install --prerelease=allow \
     "nvidia-nat[redis,mcp,langchain,phoenix,async_endpoints] @ git+https://github.com/NVIDIA/NeMo-Agent-Toolkit.git@${NAT_VERSION}" \
-    "starlette<1.0.0"
+    "pydantic<2.14"
 
 ENV PATH="/workspace/.venv/bin:$PATH"
 

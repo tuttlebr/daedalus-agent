@@ -1,32 +1,27 @@
 """
-Patch NAT's MCP StreamableHTTP client to pass configurable timeouts
-to the underlying MCP SDK's streamablehttp_client() and add diagnostic
-logging for tool call failures.
+Patch NAT's MCP StreamableHTTP client to override the upstream 30 s
+HTTP connect timeout with a faster fail-fast value, and add daedalus-
+specific logging and approval-gate behavior around MCP tool calls.
 
-Problem 1: NAT's MCPStreamableHTTPClient.connect_to_server() calls
-streamablehttp_client(url, auth) without passing the `timeout` or
-`sse_read_timeout` parameters. The MCP SDK defaults to timeout=30s,
-which causes httpx.ReadTimeout during both tool calls and cleanup/shutdown
-when the remote MCP server is slow.
+Problem 1: NAT 1.7.0's MCPStreamableHTTPClient.connect_to_server()
+uses MCP_DEFAULT_TIMEOUT=30 s as the httpx connect timeout.  With
+startup-resilience retries (Fix 5) running each MCP server up to four
+times, this multiplies into ~135 s per unreachable server before
+giving up -- enough to extend pod startup by several minutes when
+multiple MCP endpoints are offline.
 
 Problem 2: NAT's MCPToolClient logs "tool call failed:" but often
 swallows the actual exception details, making debugging impossible.
 
-Problem 3: NAT's MCPBaseClient.get_tool() raises "not initialized"
-when the session drops, but get_tool is called *before* call_tool
-(which is wrapped in _with_reconnect). The reconnect logic never
-fires because the error occurs one step earlier in the call chain.
-
-Fix 1: Monkey-patch connect_to_server() to forward the configured
-tool_call_timeout as the HTTP-level timeout.
+Fix 1: Monkey-patch connect_to_server() to build the httpx client via
+the SDK's create_mcp_http_client() helper (matches upstream) but with
+httpx.Timeout(connect=_MCP_CONNECT_TIMEOUT) so unreachable servers
+fail in seconds instead of 30 s.  Read/write/pool timeouts inherit
+upstream's max(MCP_DEFAULT_SSE_READ_TIMEOUT, tool_call_timeout,
+auth_flow_timeout) so long-running tool calls are unaffected.
 
 Fix 2: Monkey-patch MCPToolClient to add verbose error logging with
 full tracebacks around tool call execution.
-
-Fix 3: Monkey-patch MCPBaseClient.get_tool() to catch the "not
-initialized" RuntimeError and re-enter __aenter__() (which is safe
-when _exit_stack is None) before retrying, so clients with
-reconnect_enabled=true recover transparently.
 
 Problem 4: The MCP SDK's terminate_session() catches Exception but not
 CancelledError (a BaseException).  During shutdown, the HTTP DELETE it
@@ -567,119 +562,71 @@ def patch():
         except ImportError:
             from nat.plugins.mcp.client_base import MCPStreamableHTTPClient
         from mcp import ClientSession
+        from mcp.client.streamable_http import streamable_http_client
+        from mcp.shared._httpx_utils import MCP_DEFAULT_SSE_READ_TIMEOUT
+        from mcp.shared._httpx_utils import create_mcp_http_client
 
-        # Import both streamable_http_client variants:
-        #   streamable_http_client  -- NAT's version, accepts http_client= kwarg
-        #   streamablehttp_client   -- MCP SDK's version, accepts timeout/sse_read_timeout
-        # Prefer NAT's version to preserve custom_headers and session ID tracking.
-        try:
-            from mcp.client.streamable_http import (
-                streamable_http_client as _nat_http_client,
-            )
-
-            _use_nat_client = True
-        except ImportError:
-            _use_nat_client = False
-
-        try:
-            from mcp.client.streamable_http import (
-                streamablehttp_client as _sdk_http_client,
-            )
-        except ImportError:
-            _sdk_http_client = None
-
-        # Split timeouts: short connect to fail fast on unreachable servers,
-        # long read for slow tool responses.
+        # Override upstream's 30 s connect timeout for fast-fail on unreachable
+        # MCP servers; read/write/pool inherit upstream's long-read values.
         _MCP_CONNECT_TIMEOUT = 10.0
-        _MCP_WRITE_TIMEOUT = 30.0
-        _MCP_POOL_TIMEOUT = 10.0
-
-        def _make_split_timeout(read_seconds: float) -> httpx.Timeout:
-            return httpx.Timeout(
-                connect=_MCP_CONNECT_TIMEOUT,
-                read=read_seconds,
-                write=_MCP_WRITE_TIMEOUT,
-                pool=_MCP_POOL_TIMEOUT,
-            )
 
         @asynccontextmanager
         async def patched_connect_to_server(self):
             """
-            Patched connect_to_server that passes the configured tool_call_timeout
-            as both the HTTP timeout and MCP session read timeout, with graceful
-            teardown error handling.
-
-            Uses NAT's streamable_http_client (with pre-built httpx.AsyncClient)
-            to preserve custom_headers and session ID tracking.  Falls back to
-            the MCP SDK's streamablehttp_client if the NAT variant is unavailable.
-
-            Uses split httpx.Timeout (short connect, long read) so that
-            ConnectTimeout fires quickly when a server is unreachable,
-            rather than waiting the full tool_call_timeout.
+            Patched connect_to_server that builds the httpx client the same
+            way upstream does (create_mcp_http_client + streamable_http_client)
+            but with a fast-fail connect timeout, and adds the daedalus
+            graceful-teardown wrapper (Fix 4) that swallows CancelledError /
+            cancel-scope RuntimeError raised after the session yield returns.
             """
-            timeout_seconds = self._tool_call_timeout.total_seconds()
             url = self._url
-            split_timeout = _make_split_timeout(timeout_seconds)
+            tool_call_timeout_s = self._tool_call_timeout.total_seconds()
+            sse_read_timeout_s = max(
+                MCP_DEFAULT_SSE_READ_TIMEOUT,
+                tool_call_timeout_s,
+                self._auth_flow_timeout.total_seconds(),
+            )
+            timeout = httpx.Timeout(_MCP_CONNECT_TIMEOUT, read=sse_read_timeout_s)
 
-            logger.info("MCP connect_to_server: url=%s timeout=%s", url, split_timeout)
+            logger.info("MCP connect_to_server: url=%s timeout=%s", url, timeout)
 
-            if _use_nat_client:
-                # NAT's streamable_http_client accepts a pre-built httpx client.
-                # Build one with custom headers, auth, and our split timeout.
-                http_client = httpx.AsyncClient(
-                    headers=self._custom_headers if self._custom_headers else None,
-                    auth=self._httpx_auth,
-                    timeout=split_timeout,
-                )
+            http_client = create_mcp_http_client(
+                headers=self._custom_headers if self._custom_headers else None,
+                timeout=timeout,
+                auth=self._httpx_auth,
+            )
 
-                @asynccontextmanager
-                async def _ctx():
-                    async with http_client:
-                        async with _nat_http_client(
-                            url=url,
-                            http_client=http_client,
-                        ) as (read, write, get_session_id):
-                            self._get_mcp_session_id = get_session_id
-                            yield read, write, get_session_id
-
-                ctx = _ctx()
-            elif _sdk_http_client is not None:
-                ctx = _sdk_http_client(
-                    url=url,
-                    auth=self._httpx_auth,
-                    timeout=timeout_seconds,
-                    sse_read_timeout=max(timeout_seconds, 300),
-                )
-            else:
-                raise ImportError(
-                    "Neither streamable_http_client nor streamablehttp_client available"
-                )
+            @asynccontextmanager
+            async def _ctx():
+                async with http_client:
+                    async with streamable_http_client(
+                        url=url, http_client=http_client
+                    ) as (read, write, get_session_id):
+                        self._get_mcp_session_id = get_session_id
+                        yield read, write, get_session_id
 
             try:
                 async with _connect_with_graceful_teardown(
-                    ctx,
+                    _ctx(),
                     ClientSession,
                     url,
-                    read_timeout_seconds=timeout_seconds,
+                    read_timeout_seconds=tool_call_timeout_s,
                 ) as session:
                     yield session
             finally:
-                if _use_nat_client:
-                    self._get_mcp_session_id = None
+                self._get_mcp_session_id = None
 
         MCPStreamableHTTPClient.connect_to_server = patched_connect_to_server
         logger.info(
-            "MCP StreamableHTTP timeout patch applied -- "
-            "HTTP timeout now follows tool_call_timeout from YAML config"
+            "MCP StreamableHTTP connect-timeout patch applied -- "
+            "httpx connect=%ss (upstream default 30s)",
+            _MCP_CONNECT_TIMEOUT,
         )
 
     except ImportError as exc:
         logger.warning("Could not patch MCP StreamableHTTP client: %s", exc)
     except Exception as exc:
         logger.warning("Unexpected error patching MCP client: %s", exc)
-
-    # Patch MCPBaseClient.get_tool to reconnect on session drop
-    _patch_get_tool_reconnect()
 
     # Patch MCPToolClient to add diagnostic logging around tool calls
     _patch_tool_client()
@@ -700,84 +647,6 @@ def patch():
     _patch_async_job_submit()
 
     _patched = True
-
-
-def _patch_get_tool_reconnect():
-    """Wrap MCPBaseClient.get_tool with reconnection on 'not initialized' errors.
-
-    NAT's reconnect logic (_with_reconnect) only wraps call_tool, but
-    get_tool is called first and raises RuntimeError when _exit_stack is
-    None after a session drop.  This patch catches that error and
-    re-enters __aenter__() (safe when _exit_stack is None) so the
-    session is re-established before retrying.
-    """
-    try:
-        try:
-            from nat.plugins.mcp.client.client_base import MCPBaseClient
-        except ImportError:
-            from nat.plugins.mcp.client_base import MCPBaseClient
-
-        import functools
-
-        original_get_tool = MCPBaseClient.get_tool
-
-        @functools.wraps(original_get_tool)
-        async def patched_get_tool(self, *args, **kwargs):
-            try:
-                return await original_get_tool(self, *args, **kwargs)
-            except RuntimeError as exc:
-                if "not initialized" not in str(exc):
-                    raise
-                if not getattr(self, "_reconnect_enabled", False):
-                    raise
-
-                url = getattr(self, "_url", "unknown")
-                logger.warning(
-                    "MCP client not initialized during get_tool (url=%s), "
-                    "attempting reconnect",
-                    url,
-                )
-
-                try:
-                    # _exit_stack is None here, so __aenter__ is safe to call
-                    # (it only raises when _exit_stack is already set).
-                    await self.__aenter__()
-                except RuntimeError as init_err:
-                    if "already initialized" in str(init_err):
-                        # Another concurrent coroutine already reconnected
-                        logger.info(
-                            "MCP client already reconnected by concurrent call: url=%s",
-                            url,
-                        )
-                    else:
-                        logger.error(
-                            "MCP reconnect failed in get_tool: url=%s error=%s(%s)\n%s",
-                            url,
-                            type(init_err).__name__,
-                            init_err,
-                            traceback.format_exc(),
-                        )
-                        raise exc from init_err
-                except Exception as reconnect_err:
-                    logger.error(
-                        "MCP reconnect failed in get_tool: url=%s error=%s(%s)\n%s",
-                        url,
-                        type(reconnect_err).__name__,
-                        reconnect_err,
-                        traceback.format_exc(),
-                    )
-                    raise exc from reconnect_err
-
-                logger.info("MCP reconnect succeeded in get_tool: url=%s", url)
-                return await original_get_tool(self, *args, **kwargs)
-
-        MCPBaseClient.get_tool = patched_get_tool
-        logger.info("MCPBaseClient.get_tool reconnect patch applied")
-
-    except ImportError as exc:
-        logger.warning("Could not patch MCPBaseClient.get_tool: %s", exc)
-    except Exception as exc:
-        logger.warning("Unexpected error patching MCPBaseClient.get_tool: %s", exc)
 
 
 def _patch_tool_client():

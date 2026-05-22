@@ -1,0 +1,437 @@
+<!--
+  NVIDIA HTML Component Snippets
+
+  Each snippet is self-contained and uses the CSS variables defined in starter.html
+  (--nv-green, --nv-black, etc.). Copy a snippet into the <body> of a page that
+  loads starter.html's <style> block.
+
+  Snippets in this file:
+    1.  Pill / badge
+    2.  Stat block
+    3.  Two-column feature row
+    4.  Mission/feature card grid
+    5.  Pricing / engagement-tier card
+    6.  Pretitled section header
+    7.  Data table
+    8.  Quote / testimonial
+    9.  Inline status badge (live dot)
+    10. Sticky in-page nav
+    11. Dashboard metric card (for status pages)
+    12. Logo strip (sponsor row)
+-->
+
+
+<!-- ===== 1. Pill / badge ===== -->
+<style>
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 8px;
+    border-radius: 18px;
+    font-size: 12px;
+    font-weight: 500;
+    line-height: 1;
+  }
+  .pill-outline { border: 1.5px solid #898989; background: #FFF; color: #000; }
+  .pill-orange  { background: var(--nv-orange); color: #000; }
+  .pill-blue    { background: var(--nv-blue); color: #FFF; }
+  .pill-green   { background: var(--nv-green); color: #000; }
+</style>
+<span class="pill pill-outline">Outline</span>
+<span class="pill pill-orange">Talk</span>
+<span class="pill pill-blue">Tutorial</span>
+<span class="pill pill-green">Featured</span>
+
+
+<!-- ===== 2. Stat block ===== -->
+<style>
+  .stat {
+    text-align: center;
+  }
+  .stat .stat-num {
+    font-size: clamp(2.5rem, 5vw, 4rem);
+    font-weight: 700;
+    color: var(--nv-green);
+    line-height: 1;
+  }
+  .stat .stat-label {
+    margin-top: 8px;
+    font-size: 0.75rem;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--nv-gray-med);
+  }
+  .stat-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 24px;
+    margin: 32px 0;
+  }
+</style>
+<div class="stat-row">
+  <div class="stat">
+    <div class="stat-num">12</div>
+    <div class="stat-label">Engineers</div>
+  </div>
+  <div class="stat">
+    <div class="stat-num">40+</div>
+    <div class="stat-label">Customers Served</div>
+  </div>
+  <div class="stat">
+    <div class="stat-num">6</div>
+    <div class="stat-label">Product Categories</div>
+  </div>
+</div>
+
+
+<!-- ===== 3. Two-column feature row (alternating image/text) ===== -->
+<style>
+  .feature-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 60px;
+    align-items: center;
+  }
+  .feature-row.reverse { direction: rtl; }
+  .feature-row.reverse > * { direction: ltr; }
+  @media (max-width: 768px) {
+    .feature-row { grid-template-columns: 1fr; gap: 32px; }
+  }
+  .feature-row img { width: 100%; }
+</style>
+<div class="feature-row">
+  <div>
+    <p class="kicker">Capability</p>
+    <h3>What This Feature Does</h3>
+    <p>One paragraph explaining the feature. Lead with the benefit, then the mechanism.</p>
+    <a href="#" class="btn btn-primary">Learn More</a>
+  </div>
+  <div>
+    <img src="placeholder.jpg" alt="Description of the image">
+  </div>
+</div>
+
+
+<!-- ===== 4. Mission/feature card grid (3-4 cards) ===== -->
+<style>
+  /* Uses .card-grid and .card from starter.html */
+  .card-icon {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    background: var(--nv-green);
+    color: var(--nv-black);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    margin-bottom: 16px;
+  }
+</style>
+<div class="card-grid">
+  <div class="card">
+    <div class="card-icon">1</div>
+    <h4>Production Deployments</h4>
+    <p>Help customers get NVIDIA inference software running in production at scale.</p>
+  </div>
+  <div class="card">
+    <div class="card-icon">2</div>
+    <h4>Product Feedback Loop</h4>
+    <p>Surface what's working and what's broken back to engineering teams.</p>
+  </div>
+  <div class="card">
+    <div class="card-icon">3</div>
+    <h4>Field Enablement</h4>
+    <p>Teach the rest of the field how to position and support inference.</p>
+  </div>
+</div>
+
+
+<!-- ===== 5. Pricing / engagement-tier card ===== -->
+<style>
+  .tier-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 24px;
+  }
+  .tier {
+    background: var(--nv-white);
+    border: 1px solid var(--nv-gray-border);
+    padding: 32px 28px;
+    display: flex;
+    flex-direction: column;
+  }
+  .tier.featured {
+    border: 2px solid var(--nv-green);
+  }
+  .tier h3 { margin-bottom: 4px; }
+  .tier .tier-tagline {
+    color: var(--nv-gray-med);
+    font-size: 0.875rem;
+    margin-bottom: 24px;
+  }
+  .tier ul {
+    list-style: none;
+    padding: 0;
+    margin: 0 0 24px;
+    flex-grow: 1;
+  }
+  .tier ul li {
+    padding: 8px 0;
+    border-bottom: 1px solid var(--nv-gray-light);
+    font-size: 0.9375rem;
+  }
+  .tier ul li:last-child { border-bottom: none; }
+  .tier .btn { width: 100%; text-align: center; }
+</style>
+<div class="tier-grid">
+  <div class="tier">
+    <h3>AI Expert Support</h3>
+    <p class="tier-tagline">Short engagement, scoped consultation</p>
+    <ul>
+      <li>2-4 week duration</li>
+      <li>One workstream focus</li>
+      <li>Async + weekly sync</li>
+    </ul>
+    <a href="#" class="btn btn-primary">Request</a>
+  </div>
+  <div class="tier featured">
+    <h3>Embedded Partnership</h3>
+    <p class="tier-tagline">Full integration with customer team</p>
+    <ul>
+      <li>3-6 month duration</li>
+      <li>Multi-workstream coverage</li>
+      <li>Daily collaboration</li>
+    </ul>
+    <a href="#" class="btn btn-green">Request</a>
+  </div>
+</div>
+
+
+<!-- ===== 6. Pretitled section header ===== -->
+<header class="section-header">
+  <p class="kicker">Strategy</p>
+  <h2>What We Build, Together</h2>
+  <p>Optional supporting sentence under the header.</p>
+</header>
+
+
+<!-- ===== 7. Data table ===== -->
+<style>
+  table.nv-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9375rem;
+  }
+  table.nv-table thead {
+    background: var(--nv-gray-light);
+    text-align: left;
+  }
+  table.nv-table th,
+  table.nv-table td {
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--nv-gray-border);
+  }
+  table.nv-table tbody tr:hover {
+    background: var(--nv-bg-light);
+  }
+</style>
+<table class="nv-table">
+  <thead>
+    <tr>
+      <th>Industry</th>
+      <th>Inference Relevance</th>
+      <th>How We Support</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Financial Services</td>
+      <td>High — fraud detection, risk models</td>
+      <td>Latency tuning, multi-tenant serving</td>
+    </tr>
+    <tr>
+      <td>Healthcare</td>
+      <td>High — medical imaging, drug discovery</td>
+      <td>Compliance-aware deployment</td>
+    </tr>
+    <tr>
+      <td>Telecom</td>
+      <td>Medium — RAN AI, customer ops</td>
+      <td>Edge inference patterns</td>
+    </tr>
+  </tbody>
+</table>
+
+
+<!-- ===== 8. Quote / testimonial ===== -->
+<style>
+  .quote {
+    border-left: 4px solid var(--nv-green);
+    padding: 16px 0 16px 32px;
+    margin: 32px 0;
+    font-size: 1.25rem;
+    line-height: 1.5;
+  }
+  .quote cite {
+    display: block;
+    font-size: 0.875rem;
+    font-style: normal;
+    color: var(--nv-gray-med);
+    margin-top: 12px;
+  }
+</style>
+<blockquote class="quote">
+  "We cut inference latency by 60% in two weeks of working with the team."
+  <cite>— Engineering Director, customer</cite>
+</blockquote>
+
+
+<!-- ===== 9. Inline status badge (live dot) ===== -->
+<style>
+  .live-dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--nv-red);
+    vertical-align: middle;
+    margin-right: 6px;
+  }
+  .live-dot.green { background: var(--nv-green); }
+  .live-dot.yellow { background: #F9C500; }
+</style>
+<span><span class="live-dot"></span> Live</span>
+<span><span class="live-dot green"></span> Healthy</span>
+<span><span class="live-dot yellow"></span> Degraded</span>
+
+
+<!-- ===== 10. Sticky in-page nav ===== -->
+<style>
+  .nv-nav {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background: var(--nv-black);
+    color: var(--nv-white);
+    padding: 12px 24px;
+    box-shadow: var(--nv-shadow-dropdown);
+  }
+  .nv-nav .container {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .nv-nav .brand {
+    font-weight: 700;
+    font-size: 1.125rem;
+    color: var(--nv-white);
+  }
+  .nv-nav .brand .accent { color: var(--nv-green); }
+  .nv-nav ul {
+    display: flex;
+    gap: 24px;
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+  .nv-nav a {
+    color: var(--nv-white);
+    font-size: 0.875rem;
+    font-weight: 500;
+  }
+  .nv-nav a:hover { color: var(--nv-green); }
+</style>
+<nav class="nv-nav">
+  <div class="container">
+    <span class="brand">NVIDIA <span class="accent">|</span> Inference Ops</span>
+    <ul>
+      <li><a href="#mission">Mission</a></li>
+      <li><a href="#team">Team</a></li>
+      <li><a href="#engage">Engage</a></li>
+    </ul>
+  </div>
+</nav>
+
+
+<!-- ===== 11. Dashboard metric card ===== -->
+<style>
+  .metric-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 16px;
+  }
+  .metric {
+    background: var(--nv-white);
+    border: 1px solid var(--nv-gray-border);
+    padding: 20px 24px;
+  }
+  .metric .metric-label {
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--nv-gray-med);
+    font-weight: 500;
+  }
+  .metric .metric-value {
+    font-size: 2rem;
+    font-weight: 700;
+    margin: 8px 0 4px;
+    color: var(--nv-black);
+  }
+  .metric .metric-delta {
+    font-size: 0.875rem;
+    color: var(--nv-green);
+  }
+  .metric .metric-delta.negative { color: var(--nv-red); }
+</style>
+<div class="metric-grid">
+  <div class="metric">
+    <div class="metric-label">P50 Latency</div>
+    <div class="metric-value">24 ms</div>
+    <div class="metric-delta">↓ 12% week over week</div>
+  </div>
+  <div class="metric">
+    <div class="metric-label">Requests / Sec</div>
+    <div class="metric-value">8,420</div>
+    <div class="metric-delta">↑ 4%</div>
+  </div>
+  <div class="metric">
+    <div class="metric-label">Error Rate</div>
+    <div class="metric-value">0.04%</div>
+    <div class="metric-delta negative">↑ 0.01%</div>
+  </div>
+</div>
+
+
+<!-- ===== 12. Logo strip (partner / sponsor row) ===== -->
+<style>
+  .logo-strip {
+    background: var(--nv-gray-light);
+    padding: 32px 24px;
+  }
+  .logo-strip .container {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    align-items: center;
+    gap: 40px;
+  }
+  .logo-strip img {
+    height: 32px;
+    width: auto;
+    opacity: 0.7;
+    transition: opacity var(--nv-transition);
+  }
+  .logo-strip img:hover { opacity: 1; }
+</style>
+<div class="logo-strip">
+  <div class="container">
+    <img src="partner-1.svg" alt="Partner 1">
+    <img src="partner-2.svg" alt="Partner 2">
+    <img src="partner-3.svg" alt="Partner 3">
+    <img src="partner-4.svg" alt="Partner 4">
+  </div>
+</div>

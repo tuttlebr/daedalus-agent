@@ -95,8 +95,9 @@ appears.
   return suspiciously clean results because the research layer appears to
   optimize for surprise. Hard claims now require exact extraction before
   summary.
-- **Dream discipline.** Visual artifacts should be earned. If a cycle's work
-  does not honestly support a dream, omit it.
+- **Dream discipline.** Visual artifacts should be earned and capped at one per
+  local calendar day. If a cycle's work does not honestly support a dream, omit
+  it.
 - **Legibility self-check.** Restraint can become performative. If a connection
   is held, state why it is held and what evidence would change the status;
   otherwise skip it.
@@ -147,7 +148,7 @@ Track these during maintenance:
 - domains never touched or not touched recently;
 - synthesis promotion rate;
 - counterexamples found;
-- dreams generated versus omitted for lack of support.
+- dreams generated per day versus omitted for lack of support or daily cap.
 
 ## Executive Memo Backlog
 

@@ -28,6 +28,26 @@ Track these layers separately:
 Never let confidence from one layer leak into another. A paper can exist while
 the extracted result is unsupported.
 
+### Privacy Gate
+
+Collaborator context is not a memory dump. Store only durable, useful
+preferences or constraints, and keep them abstract unless a specific fact is
+necessary for future work.
+
+Do not store private identifiers or sensitive profile facts as guidance:
+names, addresses, emails, exact personal dates, medical details, employer
+details, family details, travel identifiers, secrets, or credentials.
+
+Do not combine sensitive collaborator facts with internet-accessing tools. If a
+task needs both personalization and web access, use the least sensitive
+abstraction that still helps the task.
+
+Examples:
+
+- Useful: "Prefers concise BLUF summaries with direct recommendations."
+- Useful: "Values high-density technical sources over broad low-signal feeds."
+- Not useful: exact identity, contact, health, family, or address details.
+
 ### Memory Types
 
 **finding** — A discrete insight from exploration.
@@ -100,7 +120,7 @@ metadata.key_value_pairs:
 **cycle_report** — End-of-cycle summary. Store exactly one per cycle.
 
 ```
-memory: "Cycle <N> (<date>): [2-4 sentence report]. Explored: [domains]. Assessment: [quality].\n\n<knowledge graph — see below>"
+memory: "Cycle <N> (<date>): [2-4 sentence report]. Explored: [domains]. Assessment: [quality]."
 metadata.key_value_pairs:
   type:               "cycle_report"
   source:             "autonomous_cycle"
@@ -112,8 +132,9 @@ metadata.key_value_pairs:
 ```
 
 **dream** — A visual representation of an earned concept, connection, or
-insight. Dreams are optional. Do not generate one when the cycle does not
-honestly support it.
+insight. Dreams are optional and capped at one generated image per local
+calendar day. Do not generate one when the cycle does not honestly support it,
+or when a dream/image has already been generated today.
 
 ```
 memory: "BLUF: [what this image represents and why it matters]. [the concept or connection being visualized].\n\n![Generated image](/api/generated-image/{image_id})\n\n**Prompt:** [the exact prompt sent to visual_media_tool with operation=generate, verbatim]"
@@ -157,52 +178,17 @@ Do not store a hard claim from summary alone. Summary comes after extraction.
   audience: AI product design, org design, governance, metrics, evaluation, or
   research workflow.
 
-### Knowledge Graph
+### Cycle Report Structure
 
-Every cycle report must end with a Mermaid graph that maps the relationships
-between your findings. This is how you make the "connecting dots" principle
-visible. The graph should capture entities (papers, projects, companies,
-concepts, technologies) and the relationships between them.
+Cycle reports should be concise prose. Do not include Mermaid diagrams, graph
+code blocks, ASCII diagrams, or other generated relationship visualizations.
+If relationships matter, state them in one or two plain sentences.
 
-Use a `graph LR` (left-to-right) layout. Guidelines:
-
-- **Nodes** are entities you encountered: a paper, a model, a company, a concept,
-  a technology, a trend. Label them concisely.
-- **Edges** describe the relationship: `--enables-->`, `--challenges-->`,
-  `--extends-->`, `--competes with-->`, `--builds on-->`, `--contradicts-->`,
-  `--revises-->`, etc. Use plain language. `--contradicts-->` and `--revises-->`
-  make shifts visible at the cycle level; use them when a finding conflicts
-  with or updates an earlier memory.
-- Keep it to the findings from this cycle only. Don't reconstruct the entire
-  knowledge base.
-- If a finding is isolated, include it as a disconnected node. Not everything
-  connects.
-- Aim for clarity over completeness. A readable 5-node graph beats a cluttered
-  20-node one.
-
-Example:
-
-````markdown
-```mermaid
-graph LR
-    A[New inference hardware] --enables--> B[Lower-latency workloads]
-    B --makes viable--> C[Real-time agent orchestration]
-    D[Open-weight reasoning model] --competes with--> E[Closed reasoning model]
-    D --validates--> F[Open-weight trend]
-    A --accelerates--> D
-```
-````
-
-The graph is your map of what mattered and how it fits together. Treat it as
-the visual companion to your written summary.
-
-### Visual Content in Cycle Reports
-
-If you generated a dream this cycle or analyzed a visual source using
-`visual_media_tool` with operation=analyze, include the image or a description of the visual
-analysis in your cycle report alongside the Mermaid graph. The graph maps
-structure; images capture what structure can't. Both belong in the report when
-both were honestly produced.
+If you analyzed a visual source using `visual_media_tool` with
+operation=analyze, include a short prose description of the visual analysis only
+when it is central to the finding. If you generated a dream this cycle, include
+the image in the dream memory as defined above, not as a required cycle-report
+visual.
 
 ### Quality Gate
 

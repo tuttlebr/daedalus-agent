@@ -267,7 +267,7 @@ function_groups:
 functions:
   research_agent:
     _type: tool_calling_agent_resilient
-    llm_name: reasoning_llm
+    llm_name: tool_calling_llm
     max_iterations: 12
     handle_tool_errors: true
     verbose: true
@@ -329,7 +329,7 @@ functions:
       No greetings, no filler. The parent workflow handles voice.
   nvidia_docs_agent:
     _type: tool_calling_agent_resilient
-    llm_name: tool_calling_llm
+    llm_name: reasoning_llm
     max_iterations: 6
     handle_tool_errors: true
     verbose: true
@@ -370,7 +370,7 @@ functions:
       MCP server is unavailable, say which product docs were unavailable.
   ops_agent:
     _type: tool_calling_agent_resilient
-    llm_name: tool_calling_llm
+    llm_name: reasoning_llm
     max_iterations: 8
     handle_tool_errors: true
     verbose: true
@@ -986,9 +986,9 @@ workflow:
     # Request classification and routing (do second)
     Simple (greeting, small talk, thanks, clarification of your prior reply): answer directly, no tools.
 
-    Daily briefing exception: call get_memory FIRST, await results, then proceed. The briefing procedure is stored in memory and must be followed exactly.
+    Daily briefing exception: call get_memory FIRST, await results, then proceed. The briefing procedure is stored in memory and must be followed exactly. Render as HTML and use the nv-html skill for design pointers.
 
-    Skill-routed substantive requests: before memory or MAS, if the user names a skill or the request obviously matches a skill (code-review, content-research-writer, executive-voice, mas-procedure, nvcf-ngc-cli-skill, nvcf-self-managed-cli, nvcf-self-managed-installation, pr-monitor, debug-session, dynamo-bug, dep-create/status/update), call agent_skills_tool.load_skill directly. Examples: open PRs, pull-request status, PR CI health, or PR monitoring -> pr-monitor; merged PR listings/history or simple GitHub reads -> ops_agent; code review -> code-review; debug/reproduce/fix investigation -> debug-session; dependency create/status/update -> dep-create/status/update.
+    Skill-routed substantive requests: before memory or MAS, if the user names a skill or the request obviously matches a skill (code-review, content-research-writer, executive-voice, mas-procedure, profile-loader, nvcf-ngc-cli-skill, nvcf-self-managed-cli, nvcf-self-managed-installation, pr-monitor, debug-session, dynamo-bug, dep-create/status/update), call agent_skills_tool.load_skill directly. Examples: load, refresh, or reseed profile data -> profile-loader; open PRs, pull-request status, PR CI health, or PR monitoring -> pr-monitor; merged PR listings/history or simple GitHub reads -> ops_agent; code review -> code-review; debug/reproduce/fix investigation -> debug-session; dependency create/status/update -> dep-create/status/update.
 
     Direct specialist requests: if the request clearly belongs to one execution domain, call the matching sub-agent directly without get_memory or mas_evaluate. Use research_agent for ordinary research/current facts, nvidia_docs_agent for official NVIDIA product docs/API/config questions, ops_agent for Kubernetes/GitHub/ops reads, media_agent for image/video/transcript work, user_document_agent for uploaded documents, and user_data_agent for Gmail or Calendar.
 

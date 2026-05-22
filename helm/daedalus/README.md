@@ -10,7 +10,7 @@ Depending on values, the chart can deploy:
 - the Next.js frontend
 - the backend deployment
 - Redis Stack and RedisInsight
-- the autonomous-agent CronJob with a seed knowledge graph (identity, interests, schema, memory, and operating procedures mounted via ConfigMap)
+- the autonomous-agent CronJob with seed workspace files (identity, interests, schema, memory, and operating procedures mounted via ConfigMap)
 - PVCs, PodDisruptionBudget, NetworkPolicy, and optional Cilium policies
 
 The top-level [`../../README.md`](../../README.md) contains the end-to-end deployment guide and request-flow diagrams. This file focuses on the chart itself.
@@ -115,7 +115,7 @@ Those routes are selected by path and `X-Backend-Type` header, which allows call
 - On the production `nfs-client` StorageClass backed by UNAS Pro, PVC-writing pods must run as UID `977` and GID `988`. That matches the server export's `all_squash,anonuid=977,anongid=988` policy and avoids relying on `no_root_squash`.
 - Use `runAsUser: 977`, `runAsGroup: 988`, `fsGroup: 988`, and `fsGroupChangePolicy: OnRootMismatch` for Daedalus workloads that write to NFS PVCs. `fsGroup` alone is not enough when files are created with owner-only write modes.
 - The autonomous agent can target either backend using `autonomousAgent.backendType`.
-- The autonomous agent mounts seed knowledge graph files from `helm/daedalus/files/autonomous-agent-*.md` via a ConfigMap. Set `autonomousAgent.workspace.resetOnDeploy=true` to re-seed all files after identity or schema changes.
+- The autonomous agent mounts seed workspace files from `helm/daedalus/files/autonomous-agent-*.md` via a ConfigMap. Set `autonomousAgent.workspace.resetOnDeploy=true` to re-seed all files after identity or schema changes.
 - The autonomous agent defaults to a 10-cycle distillation interval so exploration, follow-up, falsification, and memory maintenance stay aligned.
 
 ## NFS Ownership Runbook

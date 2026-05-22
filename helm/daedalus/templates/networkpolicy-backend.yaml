@@ -37,6 +37,18 @@ spec:
       ports:
         - protocol: TCP
           port: {{ .Values.backend.default.port }}
+    {{- if .Values.autonomousAgent.enabled }}
+    # Allow traffic from autonomous-agent pods
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: {{ include "daedalus.name" . }}
+              app.kubernetes.io/component: autonomous-agent
+              app.kubernetes.io/instance: {{ .Release.Name }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.backend.default.port }}
+    {{- end }}
     {{- range .Values.backend.networkPolicy.extraIngressNamespaces }}
     # Additional namespace ingress: {{ .name }}
     - from:

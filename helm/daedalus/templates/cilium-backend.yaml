@@ -27,8 +27,41 @@ spec:
       app.kubernetes.io/name: {{ include "daedalus.name" $ }}
       app.kubernetes.io/component: {{ $component }}
       app.kubernetes.io/instance: {{ $.Release.Name }}
-  {{- with $.Values.backend.networkPolicy.extraIngressNamespaces }}
+  {{- if or $.Values.autonomousAgent.enabled $.Values.backend.networkPolicy.extraIngressNamespaces }}
   ingress:
+    # Frontend-to-backend traffic
+    - fromEndpoints:
+        - matchLabels:
+            app.kubernetes.io/name: {{ include "daedalus.name" $ }}
+            app.kubernetes.io/component: frontend
+            app.kubernetes.io/instance: {{ $.Release.Name }}
+      toPorts:
+        - ports:
+            - port: {{ $.Values.backend.default.port | quote }}
+              protocol: TCP
+    # Nginx-to-backend traffic
+    - fromEndpoints:
+        - matchLabels:
+            app.kubernetes.io/name: {{ include "daedalus.name" $ }}
+            app.kubernetes.io/component: nginx
+            app.kubernetes.io/instance: {{ $.Release.Name }}
+      toPorts:
+        - ports:
+            - port: {{ $.Values.backend.default.port | quote }}
+              protocol: TCP
+    {{- if $.Values.autonomousAgent.enabled }}
+    # Autonomous agent async submit/poll traffic
+    - fromEndpoints:
+        - matchLabels:
+            app.kubernetes.io/name: {{ include "daedalus.name" $ }}
+            app.kubernetes.io/component: autonomous-agent
+            app.kubernetes.io/instance: {{ $.Release.Name }}
+      toPorts:
+        - ports:
+            - port: {{ $.Values.backend.default.port | quote }}
+              protocol: TCP
+    {{- end }}
+    {{- with $.Values.backend.networkPolicy.extraIngressNamespaces }}
     {{- range . }}
     # Additional namespace ingress: {{ .name }}
     - fromEndpoints:
@@ -41,6 +74,7 @@ spec:
             - port: {{ .port | quote }}
               protocol: {{ .protocol | default "TCP" }}
         {{- end }}
+    {{- end }}
     {{- end }}
   {{- end }}
   egress:

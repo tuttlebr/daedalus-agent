@@ -1,8 +1,9 @@
 general:
-  logging:
-    console:
-      _type: console
-      level: INFO
+  telemetry:
+    logging:
+      console:
+        _type: console
+        level: INFO
 
   front_end:
     _type: console

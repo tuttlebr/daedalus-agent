@@ -88,7 +88,7 @@ Used in `02-core.yaml.gotmpl`. Helmfile's native inheritance mechanism.
 
 ```yaml
 - name: api
-  version: 1.6.0
+  version: 1.7.0
   namespace: nvcf
   inherit:
     - template: service
