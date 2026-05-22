@@ -1,13 +1,9 @@
 import { NextApiRequest, NextApiResponse } from 'next';
+import {
+  classifyMilvusCollectionScope,
+  SHARED_MILVUS_COLLECTIONS,
+} from '@/utils/app/milvusCollections';
 import { requireAuthenticatedUser } from '../session/_utils';
-
-const SHARED_UPLOAD_COLLECTIONS = [
-  'kubernetes',
-  'mentalhealth',
-  'nvidia',
-  'semianalysis',
-  'vetpartner',
-];
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') {
@@ -19,14 +15,27 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     if (!session) return;
     const username = session.username;
 
-    // This is a lightweight helper for the upload UI. Shared writable targets
-    // are allow-listed here and in nat_nv_ingest collection resolution.
-    const collections = [username, ...SHARED_UPLOAD_COLLECTIONS];
+    // This is a lightweight helper for the upload UI. Shared collections are
+    // intentional first-class corpora in the same Milvus database as
+    // user-scoped collections, but they are explicitly labeled for ingestion
+    // policy and audit handling.
+    const collections = [username, ...SHARED_MILVUS_COLLECTIONS];
 
     // Remove duplicates and sort
     const uniqueCollections = Array.from(new Set(collections)).sort();
 
-    res.status(200).json({ collections: uniqueCollections });
+    res.status(200).json({
+      collections: uniqueCollections,
+      collectionOptions: uniqueCollections.map((name) => ({
+        name,
+        scope: classifyMilvusCollectionScope(name),
+      })),
+      collectionPolicy: {
+        databaseName: 'default',
+        sharedCollections: SHARED_MILVUS_COLLECTIONS,
+        userCollection: username,
+      },
+    });
   } catch (error) {
     console.error('Error fetching collections:', error);
 
@@ -35,8 +44,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const username = session.username;
 
     // Return minimal fallback
+    const collections = [username, 'nvidia'];
     res.status(200).json({
-      collections: [username, 'nvidia'],
+      collections,
+      collectionOptions: collections.map((name) => ({
+        name,
+        scope: classifyMilvusCollectionScope(name),
+      })),
+      collectionPolicy: {
+        databaseName: 'default',
+        sharedCollections: SHARED_MILVUS_COLLECTIONS,
+        userCollection: username,
+      },
     });
   }
 }

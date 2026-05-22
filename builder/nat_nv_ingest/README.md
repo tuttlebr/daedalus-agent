@@ -62,7 +62,8 @@ Important fields:
 - If `documentRefs` is supplied, the tool processes a batch.
 - If neither is supplied, the tool lists available Milvus collections.
 - If `collection_name` is omitted, the tool derives the configured per-user default collection.
-- Allow-listed shared collection names (`kubernetes`, `mentalhealth`, `nvidia`, `semianalysis`, `vetpartner`) are used exactly; other arbitrary names are scoped to the authenticated user.
+- Shared collections and user-scoped collections intentionally live in the same Milvus database. The allow-listed shared names (`kubernetes`, `mentalhealth`, `nvidia`, `semianalysis`, `vetpartner`) are used exactly; other arbitrary names are scoped to the authenticated user.
+- Ingestion callers can pass `collection_scope` (`shared` or `user`) and `provenance` metadata. Scope mismatches are rejected, and provenance is logged so shared-corpus writes carry uploader/source/target context.
 
 ## Practical Limits
 

@@ -135,6 +135,34 @@ def resolve_user_collection_name(
     return user_upload_collection_name(username, collection)
 
 
+def classify_collection_scope(collection_name: str | None) -> Literal["shared", "user"]:
+    """Classify a Milvus collection as shared or user-scoped."""
+    collection = normalize_collection_part(collection_name, fallback="")
+    if collection in SHARED_COLLECTION_NAMES:
+        return "shared"
+    return "user"
+
+
+def validate_collection_scope(
+    collection_name: str,
+    requested_scope: str | None,
+) -> Literal["shared", "user"]:
+    """Validate optional caller-supplied scope against the resolved collection."""
+    actual_scope = classify_collection_scope(collection_name)
+    if not requested_scope:
+        return actual_scope
+
+    normalized_scope = requested_scope.strip().lower()
+    if normalized_scope not in {"shared", "user"}:
+        raise ValueError("collection_scope must be 'shared' or 'user'.")
+    if normalized_scope != actual_scope:
+        raise ValueError(
+            f"collection_scope '{normalized_scope}' does not match "
+            f"collection '{collection_name}' ({actual_scope})."
+        )
+    return actual_scope
+
+
 def _can_access_stored_document(
     document_record: dict[str, Any],
     username: str | None,
@@ -921,6 +949,8 @@ class NvIngestDocumentProcessor:
         documentRef: dict[str, Any],
         username: str,
         collection_name: str | None = None,
+        collection_scope: str | None = None,
+        provenance: dict[str, Any] | None = None,
         chunk_size: int | None = None,
         chunk_overlap: int | None = None,
         progress_callback: ProgressCallback | None = None,
@@ -942,6 +972,16 @@ class NvIngestDocumentProcessor:
             username,
             config.default_collection_name,
         )
+        try:
+            resolved_scope = validate_collection_scope(
+                collection_name,
+                collection_scope,
+            )
+        except ValueError as e:
+            resolved_scope = "user"
+            scope_error = str(e)
+        else:
+            scope_error = ""
 
         initial_filename = (
             documentRef.get("filename", "") if isinstance(documentRef, dict) else ""
@@ -997,6 +1037,9 @@ class NvIngestDocumentProcessor:
                 logger.debug("Timed out forwarding ingest progress event", exc_info=True)
 
         try:
+            if scope_error:
+                return _failure(f"Error: {scope_error}")
+
             if not documentRef or not isinstance(documentRef, dict):
                 return _failure("Error: Invalid document reference provided.")
 
@@ -1023,11 +1066,17 @@ class NvIngestDocumentProcessor:
             )
 
             logger.info(
-                "Processing document %s for user %s into collection %s",
+                "Processing document %s for user %s into %s collection %s",
                 document_id,
                 username,
+                resolved_scope,
                 collection_name,
             )
+            if provenance:
+                logger.info(
+                    "Document ingestion provenance: %s",
+                    json.dumps(provenance, sort_keys=True)[:1000],
+                )
 
             redis_key = f"document:{session_id}:{document_id}"
             fetch_start = time.time()
@@ -1278,6 +1327,8 @@ class NvIngestDocumentProcessor:
         documentRefs: list[dict[str, Any]],
         username: str,
         collection_name: str | None = None,
+        collection_scope: str | None = None,
+        provenance: dict[str, Any] | None = None,
         chunk_size: int | None = None,
         chunk_overlap: int | None = None,
         progress_callback: ProgressCallback | None = None,
@@ -1321,6 +1372,13 @@ class NvIngestDocumentProcessor:
             username,
             config.default_collection_name,
         )
+        try:
+            resolved_scope = validate_collection_scope(
+                collection_name,
+                collection_scope,
+            )
+        except ValueError as e:
+            return f"Error: {e}"
 
         total_documents = len(documentRefs)
         successful_documents: list[dict[str, Any]] = []
@@ -1329,14 +1387,20 @@ class NvIngestDocumentProcessor:
         total_pages = 0
 
         logger.info(
-            "Starting batch processing of %d documents for user %s into collection %s "
+            "Starting batch processing of %d documents for user %s into %s collection %s "
             "(concurrency=%d, recreate=%s)",
             total_documents,
             username,
+            resolved_scope,
             collection_name,
             config.batch_concurrency,
             config.recreate_collection,
         )
+        if provenance:
+            logger.info(
+                "Batch document ingestion provenance: %s",
+                json.dumps(provenance, sort_keys=True)[:1000],
+            )
         start_time = time.time()
 
         sync_prefix = 1 if config.recreate_collection and total_documents > 1 else 0
@@ -1433,6 +1497,8 @@ class NvIngestDocumentProcessor:
                         documentRef=documentRef,
                         username=username,
                         collection_name=collection_name,
+                        collection_scope=resolved_scope,
+                        provenance=provenance,
                         chunk_size=chunk_size,
                         chunk_overlap=chunk_overlap,
                         progress_callback=_doc_progress,
@@ -1775,6 +1841,8 @@ async def nv_ingest_function(
         documentRef: dict[str, Any],
         username: str,
         collection_name: str | None = None,
+        collection_scope: str | None = None,
+        provenance: dict[str, Any] | None = None,
         chunk_size: int | None = None,
         chunk_overlap: int | None = None,
     ) -> IngestResult:
@@ -1794,6 +1862,16 @@ async def nv_ingest_function(
             username,
             config.default_collection_name,
         )
+        try:
+            resolved_scope = validate_collection_scope(
+                collection_name,
+                collection_scope,
+            )
+        except ValueError as e:
+            resolved_scope = "user"
+            scope_error = str(e)
+        else:
+            scope_error = ""
 
         initial_filename = (
             documentRef.get("filename", "") if isinstance(documentRef, dict) else ""
@@ -1812,6 +1890,9 @@ async def nv_ingest_function(
             )
 
         try:
+            if scope_error:
+                return _failure(f"Error: {scope_error}")
+
             if not documentRef or not isinstance(documentRef, dict):
                 return _failure("Error: Invalid document reference provided.")
 
@@ -1832,11 +1913,17 @@ async def nv_ingest_function(
                 return _failure("Error: Collection name must be specified.")
 
             logger.info(
-                "Processing document %s for user %s into collection %s",
+                "Processing document %s for user %s into %s collection %s",
                 document_id,
                 username,
+                resolved_scope,
                 collection_name,
             )
+            if provenance:
+                logger.info(
+                    "Document ingestion provenance: %s",
+                    json.dumps(provenance, sort_keys=True)[:1000],
+                )
 
             # Fetch document bytes from Redis
             redis_key = f"document:{session_id}:{document_id}"
@@ -2002,6 +2089,8 @@ async def nv_ingest_function(
         documentRefs: list[dict[str, Any]],
         username: str,
         collection_name: str | None = None,
+        collection_scope: str | None = None,
+        provenance: dict[str, Any] | None = None,
         chunk_size: int | None = None,
         chunk_overlap: int | None = None,
     ) -> str:
@@ -2037,6 +2126,13 @@ async def nv_ingest_function(
             username,
             config.default_collection_name,
         )
+        try:
+            resolved_scope = validate_collection_scope(
+                collection_name,
+                collection_scope,
+            )
+        except ValueError as e:
+            return f"Error: {e}"
 
         total_documents = len(documentRefs)
         successful_documents: list[dict[str, Any]] = []
@@ -2045,14 +2141,20 @@ async def nv_ingest_function(
         total_pages = 0
 
         logger.info(
-            "Starting batch processing of %d documents for user %s into collection %s "
+            "Starting batch processing of %d documents for user %s into %s collection %s "
             "(concurrency=%d, recreate=%s)",
             total_documents,
             username,
+            resolved_scope,
             collection_name,
             config.batch_concurrency,
             config.recreate_collection,
         )
+        if provenance:
+            logger.info(
+                "Batch document ingestion provenance: %s",
+                json.dumps(provenance, sort_keys=True)[:1000],
+            )
         start_time = time.time()
 
         # A concurrent recreate=True race on the Milvus schema would have
@@ -2082,6 +2184,8 @@ async def nv_ingest_function(
                         documentRef=documentRef,
                         username=username,
                         collection_name=collection_name,
+                        collection_scope=resolved_scope,
+                        provenance=provenance,
                         chunk_size=chunk_size,
                         chunk_overlap=chunk_overlap,
                     )
@@ -2247,6 +2351,10 @@ async def nv_ingest_function(
                     return value
                 return metadata.get(key, default)
 
+            provenance = inner_request.get("provenance") or metadata.get("provenance")
+            if not isinstance(provenance, dict):
+                provenance = None
+
             if "documentRefs" in inner_request:
                 documentRefs = inner_request.get("documentRefs")
                 logger.info(
@@ -2257,6 +2365,8 @@ async def nv_ingest_function(
                     documentRefs=documentRefs,
                     username=get_param("username", ""),
                     collection_name=get_param("collection_name"),
+                    collection_scope=get_param("collection_scope"),
+                    provenance=provenance,
                     chunk_size=inner_request.get("chunk_size"),
                     chunk_overlap=inner_request.get("chunk_overlap"),
                 )
@@ -2266,6 +2376,8 @@ async def nv_ingest_function(
                     documentRef=inner_request.get("documentRef"),
                     username=get_param("username", ""),
                     collection_name=get_param("collection_name"),
+                    collection_scope=get_param("collection_scope"),
+                    provenance=provenance,
                     chunk_size=inner_request.get("chunk_size"),
                     chunk_overlap=inner_request.get("chunk_overlap"),
                 )
@@ -2309,6 +2421,8 @@ async def nv_ingest_function(
         query: str = "",
         username: str = "",
         collection_name: str | None = None,
+        collection_scope: str | None = None,
+        provenance: dict[str, Any] | None = None,
         documentRef: dict[str, Any] | None = None,
         documentRefs: list[dict[str, Any]] | None = None,
         top_k: int | None = None,
@@ -2324,6 +2438,8 @@ async def nv_ingest_function(
             query: Search query for operation='search'.
             username: Authenticated username used for per-user collection routing.
             collection_name: Optional explicit Milvus collection.
+            collection_scope: Optional expected scope, either shared or user.
+            provenance: Optional audit metadata for ingestion requests.
             documentRef: Single uploaded document reference for operation='ingest'.
             documentRefs: Multiple uploaded document references for operation='ingest'.
             top_k: Optional search result count.
@@ -2350,6 +2466,8 @@ async def nv_ingest_function(
                     documentRefs=documentRefs,
                     username=username,
                     collection_name=collection_name,
+                    collection_scope=collection_scope,
+                    provenance=provenance,
                     chunk_size=chunk_size,
                     chunk_overlap=chunk_overlap,
                 )
@@ -2358,6 +2476,8 @@ async def nv_ingest_function(
                     documentRef=documentRef,
                     username=username,
                     collection_name=collection_name,
+                    collection_scope=collection_scope,
+                    provenance=provenance,
                     chunk_size=chunk_size,
                     chunk_overlap=chunk_overlap,
                 )

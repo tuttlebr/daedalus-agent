@@ -272,6 +272,7 @@ describe('chat/async backend pinning helpers', () => {
     expect(out.content).toContain('"filename":"a.md"');
     expect(out.content).toContain('username="testuser"');
     expect(out.content).toContain('collection_name="nvidia"');
+    expect(out.content).toContain('collection_scope="shared"');
   });
 
   it('does not duplicate an existing documentRefs payload', () => {
@@ -351,7 +352,7 @@ describe('chat/async backend pinning helpers', () => {
       },
     ], 'testuser');
 
-    expect(job).toEqual({
+    expect(job).toEqual(expect.objectContaining({
       documentRefs: [
         {
           documentId: 'doc-a',
@@ -365,8 +366,15 @@ describe('chat/async backend pinning helpers', () => {
         },
       ],
       collectionName: 'nvidia',
+      collectionScope: 'shared',
+      provenance: expect.objectContaining({
+        uploader: 'testuser',
+        targetCollection: 'nvidia',
+        collectionScope: 'shared',
+        databaseName: 'default',
+      }),
       username: 'testuser',
-    });
+    }));
   });
 
   it('does not treat a plain follow-up as ingestion when the prior turn ingested docs', () => {
@@ -422,13 +430,36 @@ describe('chat/async backend pinning helpers', () => {
     ];
 
     expect(isDocumentIngestionRequest(messages)).toBe(true);
-    expect(getDocumentIngestJobRequest(messages, 'testuser')).toEqual({
+    expect(getDocumentIngestJobRequest(messages, 'testuser')).toEqual(expect.objectContaining({
       documentRefs: [
         { documentId: 'doc-a', sessionId: 'sess-1', filename: 'a.md' },
       ],
       collectionName: 'nvidia',
+      collectionScope: 'shared',
+      provenance: expect.objectContaining({
+        uploader: 'testuser',
+        targetCollection: 'nvidia',
+        collectionScope: 'shared',
+      }),
       username: 'testuser',
-    });
+    }));
+  });
+
+  it('rejects explicit scope mismatches for shared ingestion targets', () => {
+    expect(() => getDocumentIngestJobRequest([
+      {
+        role: 'user',
+        content: 'Ingest this doc',
+        metadata: { targetCollection: 'nvidia', collectionScope: 'user' },
+        attachments: [
+          {
+            type: 'document',
+            content: 'a.md',
+            documentRef: { documentId: 'doc-a', sessionId: 'sess-1' },
+          },
+        ],
+      },
+    ], 'testuser')).toThrow('does not match');
   });
 
   it('runs document ingestion through the direct streaming ingest endpoint by default', async () => {
@@ -518,7 +549,7 @@ describe('chat/async backend pinning helpers', () => {
     )?.[1];
     expect(storedJobRequest.executionMode).toBe('document_ingest');
     expect(storedJobRequest.natMessages).toEqual([]);
-    expect(storedJobRequest.documentIngest).toEqual({
+    expect(storedJobRequest.documentIngest).toEqual(expect.objectContaining({
       documentRefs: [
         {
           documentId: 'doc-a',
@@ -527,8 +558,14 @@ describe('chat/async backend pinning helpers', () => {
         },
       ],
       collectionName: 'nvidia',
+      collectionScope: 'shared',
+      provenance: expect.objectContaining({
+        uploader: 'testuser',
+        targetCollection: 'nvidia',
+        collectionScope: 'shared',
+      }),
       username: 'testuser',
-    });
+    }));
 
     const storedJobStatus = (jsonSetWithExpiry as any).mock.calls.find(
       ([key]: [string]) => key.includes('async-job-status'),
@@ -543,7 +580,7 @@ describe('chat/async backend pinning helpers', () => {
     }));
 
     const ingestBody = JSON.parse(fetchSpy.mock.calls[0][1].body);
-    expect(ingestBody).toEqual({
+    expect(ingestBody).toEqual(expect.objectContaining({
       documentRefs: [
         {
           documentId: 'doc-a',
@@ -553,7 +590,13 @@ describe('chat/async backend pinning helpers', () => {
       ],
       username: 'testuser',
       collection_name: 'nvidia',
-    });
+      collection_scope: 'shared',
+      provenance: expect.objectContaining({
+        uploader: 'testuser',
+        targetCollection: 'nvidia',
+        collectionScope: 'shared',
+      }),
+    }));
   });
 
   it('can submit document ingestion through NAT async when the direct stream is disabled', async () => {
@@ -616,6 +659,7 @@ describe('chat/async backend pinning helpers', () => {
     expect(submitBody.sync_timeout).toBe(0);
     expect(submitBody.messages[1].content).toContain('documentRef=');
     expect(submitBody.messages[1].content).toContain('collection_name="nvidia"');
+    expect(submitBody.messages[1].content).toContain('collection_scope="shared"');
 
     const storedJobRequest = (jsonSetWithExpiry as any).mock.calls.find(
       ([key]: [string]) => key.includes('async-job-request'),

@@ -16,6 +16,7 @@ import { uploadVideo, getVideoMimeType } from '@/utils/app/videoHandler';
 import { UPLOAD_LIMITS, validateFileSize } from '@/constants/uploadLimits';
 import { uploadVTTFile, isVTTFile } from '@/utils/app/vttHandler';
 import { useMilvusCollections } from '@/utils/app/queries';
+import { classifyMilvusCollectionScope } from '@/utils/app/milvusCollections';
 
 type Attachment = NonNullable<Message['attachments']>[number];
 
@@ -298,7 +299,12 @@ export const ChatInput = memo(({ onSend, onStop, isStreaming = false }: ChatInpu
       content: messageContent,
       attachments: messageAttachments.length > 0 ? messageAttachments : undefined,
       metadata: {
-        ...(selectedCollection ? { targetCollection: selectedCollection } : {}),
+        ...(selectedCollection
+          ? {
+              targetCollection: selectedCollection,
+              collectionScope: classifyMilvusCollectionScope(selectedCollection),
+            }
+          : {}),
       },
     };
 

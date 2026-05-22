@@ -18,6 +18,11 @@ import { getSession } from '@/utils/auth/session';
 import { getOrSetSessionId } from '../session/_utils';
 import { canAccessStoredVTT, getVTT } from '../session/vttStorage';
 import {
+  resolveMilvusCollectionTarget,
+  type MilvusCollectionProvenance,
+  type MilvusCollectionScope,
+} from '@/utils/app/milvusCollections';
+import {
   sanitizeConversationAssistantReplays,
   stripReplayedAssistantPrefix,
 } from '@/utils/app/conversationReplay';
@@ -52,6 +57,8 @@ interface AsyncJobRequest {
 interface DocumentIngestJobRequest {
   documentRefs: any[];
   collectionName: string;
+  collectionScope: MilvusCollectionScope;
+  provenance: MilvusCollectionProvenance;
   username: string;
 }
 
@@ -168,6 +175,19 @@ class ApiRouteError extends Error {
     this.name = 'ApiRouteError';
     this.status = status;
     this.reason = reason;
+  }
+}
+
+function resolveDocumentCollectionTarget(
+  options: Parameters<typeof resolveMilvusCollectionTarget>[0],
+) {
+  try {
+    return resolveMilvusCollectionTarget(options);
+  } catch (error) {
+    const message = error instanceof Error
+      ? error.message
+      : 'Invalid document collection target.';
+    throw new ApiRouteError(400, message, 'collection_scope_mismatch');
   }
 }
 
@@ -355,13 +375,22 @@ export function appendDocumentAttachmentContext(
     message.metadata.targetCollection.trim()
       ? message.metadata.targetCollection.trim()
       : undefined;
+  const collectionTarget = targetCollection
+    ? resolveDocumentCollectionTarget({
+        targetCollection,
+        username: verifiedUsername,
+        requestedScope: message.metadata?.collectionScope,
+        source: 'chat.attachment_context',
+      })
+    : undefined;
 
   const refArg =
     documentRefs.length === 1
       ? `documentRef=${JSON.stringify(documentRefs[0])}`
       : `documentRefs=${JSON.stringify(documentRefs)}`;
-  const collectionArg = targetCollection
-    ? `, collection_name="${targetCollection}"`
+  const collectionArg = collectionTarget
+    ? `, collection_name="${collectionTarget.collectionName}", ` +
+      `collection_scope="${collectionTarget.collectionScope}"`
     : '';
   const noun = documentRefs.length === 1 ? 'document' : 'documents';
 
@@ -448,10 +477,18 @@ export function getDocumentIngestJobRequest(
     message.metadata.targetCollection.trim()
       ? message.metadata.targetCollection.trim()
       : verifiedUsername;
+  const collectionTarget = resolveDocumentCollectionTarget({
+    targetCollection,
+    username: verifiedUsername,
+    requestedScope: message.metadata?.collectionScope,
+    source: 'chat.async_document_ingest',
+  });
 
   return {
     documentRefs,
-    collectionName: targetCollection,
+    collectionName: collectionTarget.collectionName,
+    collectionScope: collectionTarget.collectionScope,
+    provenance: collectionTarget.provenance,
     username: verifiedUsername,
   };
 }
@@ -472,7 +509,9 @@ function buildDocumentIngestNatMessages(
         `Process ${documentIngest.documentRefs.length} uploaded ${noun} ` +
         `using user_document_tool with operation="ingest", ${refArg}, ` +
         `username="${documentIngest.username}", and ` +
-        `collection_name="${documentIngest.collectionName}".`,
+        `collection_name="${documentIngest.collectionName}", ` +
+        `collection_scope="${documentIngest.collectionScope}", and ` +
+        `provenance=${JSON.stringify(documentIngest.provenance)}.`,
     },
   ];
 }
@@ -847,6 +886,8 @@ async function streamDocumentIngestJob(
     documentRefs: jobRequest.documentIngest.documentRefs,
     username: jobRequest.documentIngest.username,
     collection_name: jobRequest.documentIngest.collectionName,
+    collection_scope: jobRequest.documentIngest.collectionScope,
+    provenance: jobRequest.documentIngest.provenance,
   };
 
   const controller = new AbortController();

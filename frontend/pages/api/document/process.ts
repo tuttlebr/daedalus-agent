@@ -2,6 +2,7 @@ import { NextApiRequest, NextApiResponse } from 'next';
 import http from 'http';
 import { getOrSetSessionId, requireAuthenticatedUser } from '../session/_utils';
 import { getBackendHost, buildBackendUrl } from '@/utils/app/backendApi';
+import { resolveMilvusCollectionTarget } from '@/utils/app/milvusCollections';
 import { withInternalBackendAuth } from '@/utils/server/backendAuth';
 
 export const config = {
@@ -84,19 +85,28 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(400).json({ error: 'Invalid document reference(s)' });
     }
 
-    // Use the collection selected by the user, falling back to the username
-    const targetCollection = (typeof collection === 'string' && collection) ? collection : username;
+    // Use the collection selected by the user, falling back to the username.
+    // Shared collections are intentional corpora in the same Milvus database,
+    // so tag the scope/provenance explicitly for audit handling downstream.
+    const collectionTarget = resolveMilvusCollectionTarget({
+      targetCollection: typeof collection === 'string' ? collection : undefined,
+      username,
+      source: 'document.process',
+    });
+    const targetCollection = collectionTarget.collectionName;
 
     console.info('Processing documents:', {
       documentCount: documentsToProcess.length,
       username,
-      collection: targetCollection
+      collection: targetCollection,
+      collectionScope: collectionTarget.collectionScope,
+      provenance: collectionTarget.provenance,
     });
 
     // Send a message to the chat endpoint that will trigger document processing
     const messageContent = documentsToProcess.length === 1
-      ? `Process the document "${filename || 'document'}" using user_document_tool with operation="ingest", documentRef=${JSON.stringify(documentsToProcess[0])}, username="${username}", and collection_name="${targetCollection}".`
-      : `Process ${documentsToProcess.length} documents using user_document_tool with operation="ingest", documentRefs=${JSON.stringify(documentsToProcess)}, username="${username}", and collection_name="${targetCollection}".`;
+      ? `Process the document "${filename || 'document'}" using user_document_tool with operation="ingest", documentRef=${JSON.stringify(documentsToProcess[0])}, username="${username}", collection_name="${targetCollection}", collection_scope="${collectionTarget.collectionScope}", and provenance=${JSON.stringify(collectionTarget.provenance)}.`
+      : `Process ${documentsToProcess.length} documents using user_document_tool with operation="ingest", documentRefs=${JSON.stringify(documentsToProcess)}, username="${username}", collection_name="${targetCollection}", collection_scope="${collectionTarget.collectionScope}", and provenance=${JSON.stringify(collectionTarget.provenance)}.`;
 
     const chatMessage = {
       messages: [{

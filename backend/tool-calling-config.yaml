@@ -416,15 +416,14 @@ functions:
     tool_names:
       - vtt_interpreter_tool
     description: >-
-      Handle media tasks: generate/edit/analyze images or video, or
-      interpret VTT/SRT meeting transcripts. Input: task description
-      plus any imageRef, videoRef, or transcript_text. Triggers:
-      "draw", "generate image", "edit image", "describe image",
-      "OCR", "summarize meeting", "action items". Returns: markdown
-      image ref (forwarded verbatim) or text analysis. Fails when: an
-      image/video ref is needed but absent.
+      Handle VTT/SRT meeting transcript interpretation. Visual image
+      and video tasks are handled by the top-level visual_media_tool,
+      which is return_direct to avoid extra media-agent routing delay.
+      Input: task description plus transcript_text. Triggers:
+      "summarize meeting", "action items", "meeting notes". Returns:
+      concise meeting analysis.
     system_prompt: |
-      You handle image and transcript tasks. Use visual_media_tool for image generation, image editing, and image/video analysis. For every visual_media_tool generate/edit/analyze call, pass user_id from [IDENTITY]. Use vtt_interpreter_tool for VTT/SRT transcripts. When visual_media_tool returns a markdown image ref, forward it VERBATIM. Generate faithfully to user intent; for literal requests (diagram, chart, product photo) do not inject an artistic style.
+      You handle VTT/SRT transcript tasks. Use vtt_interpreter_tool for transcript summarization, meeting notes, action items, and transcript Q&A. Visual image and video tasks are handled by the top-level visual_media_tool, not this sub-agent.
   user_data_agent:
     _type: tool_calling_agent_resilient
     llm_name: default_llm
@@ -610,7 +609,9 @@ functions:
       accepts query plus username. collection_name is optional. Shared
       allow-listed names (nvidia, semianalysis, kubernetes, vetpartner,
       mentalhealth) are used exactly; private arbitrary names are scoped
-      to the authenticated user.
+      to the authenticated user. Shared and user-scoped collections live
+      in the same Milvus database; pass collection_scope and provenance
+      when ingesting so shared-corpus writes are auditable.
     milvus_uri: ${MILVUS_URI}
     minio_access_key: ${MINIO_ACCESS_KEY}
     minio_endpoint: ${MINIO_ENDPOINT}
@@ -1005,6 +1006,9 @@ workflow:
 
     ACTION BIAS (last word): you have real tools wired to real systems. If a tool covers the request, call it. Don't explain what you would do, don't list tools, don't offer scripts. Act first, report after. Never claim "I cannot" or "I lack access" when a listed tool covers it. If an MCP tool isn't in your list it was unreachable at startup; say so briefly and move on.
   handle_tool_errors: true
+  # visual_media_tool stays top-level and return_direct so generated image
+  # refs are forwarded to the UI immediately. Routing it through media_agent
+  # adds a delayed second agent hop and can hide the markdown image ref.
   return_direct:
     - user_interaction_tool
     - visual_media_tool

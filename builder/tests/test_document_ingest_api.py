@@ -18,6 +18,7 @@ from document_ingest_api import (  # noqa: E402
     _default_config,
     _redis_url,
     _require_trusted_user,
+    _resolve_request,
     router,
 )
 from pydantic import ValidationError  # noqa: E402
@@ -98,12 +99,44 @@ class TestIngestRequest:
                 DocumentRef(documentId="doc-b", sessionId="sess-1"),
             ],
             collection_name="nvidia",
+            collection_scope="shared",
+            provenance={
+                "uploader": "alice",
+                "source": "test",
+                "targetCollection": "nvidia",
+            },
             username="alice",
         )
 
         assert len(req.documentRefs or []) == 2
         assert req.collection_name == "nvidia"
+        assert req.collection_scope == "shared"
+        assert req.provenance["uploader"] == "alice"
         assert req.username == "alice"
+
+    def test_resolve_request_rejects_collection_scope_mismatch(self):
+        class FakeHTTPException(Exception):
+            def __init__(self, status_code, detail):
+                super().__init__(detail)
+                self.status_code = status_code
+                self.detail = detail
+
+        req = IngestRequest(
+            documentRef=DocumentRef(documentId="doc-a", sessionId="sess-1"),
+            collection_name="nvidia",
+            collection_scope="user",
+            username="alice",
+        )
+        original = document_ingest_api.HTTPException
+        document_ingest_api.HTTPException = FakeHTTPException
+        try:
+            with pytest.raises(FakeHTTPException) as exc_info:
+                _resolve_request(req, "alice")
+        finally:
+            document_ingest_api.HTTPException = original
+
+        assert exc_info.value.status_code == 400
+        assert "does not match" in exc_info.value.detail
 
     def test_rejects_empty_document_id(self):
         with pytest.raises(ValidationError):

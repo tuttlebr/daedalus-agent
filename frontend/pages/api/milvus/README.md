@@ -10,6 +10,7 @@ Today it:
 - derives the current user from the session
 - returns a small predefined collection list that includes the current username
   and the allow-listed shared upload targets
+- labels each target as either `shared` or `user` collection metadata
 - falls back to a minimal list if the handler errors
 
 See [`collections.ts`](collections.ts) for the implementation.
@@ -24,6 +25,8 @@ The frontend needs a fast, predictable source for collection names when users pr
 - It does not reflect the real set of collections in the cluster.
 - It only exposes the shared targets that `nat_nv_ingest` allows writes to:
   `kubernetes`, `mentalhealth`, `nvidia`, `semianalysis`, and `vetpartner`.
+- Shared and user-scoped collections are intentionally separate collection
+  classes in one Milvus database, not separate databases.
 - It should be treated as a convenience API for the current UI, not as a source of truth.
 
 ## Recommended Future Direction

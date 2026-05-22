@@ -3,7 +3,10 @@
 import json
 
 import pytest
-from json_repair_agent.identity_propagation import propagate_identity_to_tool_calls
+from json_repair_agent.identity_propagation import (
+    normalize_tool_call_args,
+    propagate_identity_to_tool_calls,
+)
 from json_repair_agent.json_repair import _try_parse, repair_json_string
 
 
@@ -170,6 +173,80 @@ class TestRepairJsonString:
 
 
 class TestIdentityPropagation:
+    def test_preserves_required_unused_arg_for_current_datetime_tool(self):
+        message = _Message(
+            content="",
+            tool_calls=[
+                {
+                    "name": "current_datetime_tool",
+                    "args": {"unused": "check date"},
+                    "id": "call-1",
+                    "type": "tool_call",
+                }
+            ],
+        )
+
+        normalize_tool_call_args(message)
+
+        assert message.tool_calls[0]["args"] == {"unused": "check date"}
+
+    def test_adds_required_unused_arg_for_current_datetime_alias(self):
+        message = _Message(
+            content="",
+            tool_calls=[
+                {
+                    "name": "current_datetime",
+                    "args": {},
+                    "id": "call-1",
+                    "type": "tool_call",
+                }
+            ],
+        )
+
+        normalize_tool_call_args(message)
+
+        assert message.tool_calls[0]["args"] == {"unused": "unused"}
+
+    def test_drops_extra_args_from_current_datetime_tool(self):
+        message = _Message(
+            content="",
+            tool_calls=[
+                {
+                    "name": "current_datetime_tool",
+                    "args": {"unused": "check date", "extra": "bad"},
+                    "id": "call-1",
+                    "type": "tool_call",
+                }
+            ],
+        )
+
+        normalize_tool_call_args(message)
+
+        assert message.tool_calls[0]["args"] == {"unused": "check date"}
+
+    def test_preserves_args_for_search_tools(self):
+        message = _Message(
+            content="",
+            tool_calls=[
+                {
+                    "name": "serpapi_search_tool",
+                    "args": {
+                        "query": "Michigan State Spartans football 2026 schedule",
+                        "num_results": 8,
+                    },
+                    "id": "call-1",
+                    "type": "tool_call",
+                }
+            ],
+        )
+
+        normalize_tool_call_args(message)
+
+        assert message.tool_calls[0]["args"] == {
+            "query": "Michigan State Spartans football 2026 schedule",
+            "num_results": 8,
+        }
+
     def test_prepends_identity_to_user_scoped_agent_call(self):
         message = _Message(
             content="",

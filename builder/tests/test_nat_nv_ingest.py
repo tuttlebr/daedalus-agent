@@ -12,12 +12,14 @@ from nat_nv_ingest.nat_nv_ingest import (
     _text_quality_score,
     clean_markdown,
     clean_table_markdown,
+    classify_collection_scope,
     format_batch_response,
     format_single_doc_response,
     normalize_collection_part,
     resolve_user_collection_name,
     results_to_markdown,
     user_upload_collection_name,
+    validate_collection_scope,
 )
 
 # ---------------------------------------------------------------------------
@@ -204,6 +206,22 @@ class TestCollectionResolution:
     def test_resolve_allows_shared_collection_allowlist(self):
         assert resolve_user_collection_name("nvidia", "brandon") == "nvidia"
         assert resolve_user_collection_name("vetpartner", "brandon") == "vetpartner"
+
+    def test_classifies_shared_and_user_scoped_collections(self):
+        assert classify_collection_scope("nvidia") == "shared"
+        assert classify_collection_scope("My Docs") == "user"
+
+    def test_validates_matching_collection_scope(self):
+        assert validate_collection_scope("nvidia", "shared") == "shared"
+        assert validate_collection_scope("my_docs_brandon", "user") == "user"
+
+    def test_rejects_scope_mismatch_for_shared_collection(self):
+        try:
+            validate_collection_scope("nvidia", "user")
+        except ValueError as exc:
+            assert "does not match" in str(exc)
+        else:
+            raise AssertionError("Expected collection scope mismatch")
 
     def test_resolve_allows_current_user_collection_exactly(self):
         assert resolve_user_collection_name("brandon", "brandon") == "brandon"

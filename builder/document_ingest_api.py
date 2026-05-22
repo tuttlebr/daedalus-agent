@@ -21,6 +21,7 @@ from fastapi.responses import StreamingResponse
 from nat_nv_ingest.nat_nv_ingest import (
     NvIngestDocumentProcessor,
     NvIngestFunctionConfig,
+    validate_collection_scope,
 )
 from pydantic import BaseModel, Field
 
@@ -44,6 +45,8 @@ class IngestRequest(BaseModel):
     documentRefs: list[DocumentRef] | None = None
     collection_name: str | None = None
     collection: str | None = None
+    collection_scope: str | None = None
+    provenance: dict[str, Any] | None = None
     username: str | None = None
     chunk_size: int | None = Field(None, gt=0)
     chunk_overlap: int | None = Field(None, ge=0)
@@ -165,7 +168,7 @@ def _resolve_request(
     req: IngestRequest,
     x_user_id: str | None,
     x_daedalus_internal_token: str | None = None,
-) -> tuple[str, list[dict[str, Any]], str]:
+) -> tuple[str, list[dict[str, Any]], str, str, dict[str, Any] | None]:
     user_id = _require_trusted_user(x_user_id, x_daedalus_internal_token)
     username = (req.username or user_id).strip()
     if username != user_id:
@@ -191,7 +194,15 @@ def _resolve_request(
         )
 
     collection = req.collection_name or req.collection or username
-    return username, document_refs, collection
+    try:
+        collection_scope = validate_collection_scope(
+            collection,
+            req.collection_scope,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+    return username, document_refs, collection, collection_scope, req.provenance
 
 
 def _classify_status(output: str) -> str:
@@ -213,17 +224,21 @@ async def ingest(
         str | None, Header(alias="x-daedalus-internal-token")
     ] = None,
 ) -> IngestResponse:
-    username, document_refs, collection = _resolve_request(
+    username, document_refs, collection, collection_scope, provenance = _resolve_request(
         req,
         x_user_id,
         x_daedalus_internal_token,
     )
+    if provenance:
+        logger.info("documents.ingest provenance: %s", json.dumps(provenance)[:1000])
 
     try:
         output = await _processor().process_multiple_documents(
             documentRefs=document_refs,
             username=username,
             collection_name=collection,
+            collection_scope=collection_scope,
+            provenance=provenance,
             chunk_size=req.chunk_size,
             chunk_overlap=req.chunk_overlap,
         )
@@ -258,11 +273,16 @@ async def ingest_stream(
       - complete: {status, output, collection, documents}
       - error:    {detail}
     """
-    username, document_refs, collection = _resolve_request(
+    username, document_refs, collection, collection_scope, provenance = _resolve_request(
         req,
         x_user_id,
         x_daedalus_internal_token,
     )
+    if provenance:
+        logger.info(
+            "documents.ingest_stream provenance: %s",
+            json.dumps(provenance)[:1000],
+        )
     total = len(document_refs)
     queue: asyncio.Queue[tuple[str, dict[str, Any]]] = asyncio.Queue()
 
@@ -288,6 +308,8 @@ async def ingest_stream(
                 documentRefs=document_refs,
                 username=username,
                 collection_name=collection,
+                collection_scope=collection_scope,
+                provenance=provenance,
                 chunk_size=req.chunk_size,
                 chunk_overlap=req.chunk_overlap,
                 progress_callback=progress_cb,

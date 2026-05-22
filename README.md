@@ -271,6 +271,25 @@ sequenceDiagram
 > `nginx.config.restrictedMode=false` only when you intentionally want nginx
 > to proxy `/chat/*`, `/generate/*`, and `/v1/*` directly to the backend.
 
+### Document ingestion and Milvus collections
+
+Uploaded-document ingestion can target either user-scoped collections or
+allow-listed shared collections. Both collection classes intentionally live in
+the same Milvus database; the distinction is policy and naming, not a separate
+database boundary.
+
+The shared upload targets are `kubernetes`, `mentalhealth`, `nvidia`,
+`semianalysis`, and `vetpartner`. Other arbitrary collection names are scoped
+to the authenticated user before they reach Milvus. Ingestion requests carry
+`collection_scope` (`shared` or `user`) plus provenance metadata such as
+uploader, source, target collection, database name, and timestamp. The backend
+rejects scope mismatches so accidental writes to shared corpora are caught
+before ingestion.
+
+For implementation details, see
+[`frontend/pages/api/milvus/README.md`](frontend/pages/api/milvus/README.md)
+and [`builder/nat_nv_ingest/README.md`](builder/nat_nv_ingest/README.md).
+
 ## Backend Workflows
 
 The backend configuration lives at [`backend/tool-calling-config.yaml`](backend/tool-calling-config.yaml) and covers tool use, retrieval, memory, MCP integrations, image tooling, and reasoning. It includes the custom packages from `builder/` and relies heavily on environment-variable substitution for secrets and endpoints. Local Compose mounts this file directly, and Helm deployments should pass the same file with `--set-file backend.default.config.data=backend/tool-calling-config.yaml`.

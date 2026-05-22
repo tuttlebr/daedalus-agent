@@ -1,12 +1,19 @@
 """Helpers for carrying authenticated identity through nested agent calls."""
 
+import logging
 import re
+
+logger = logging.getLogger(__name__)
 
 _IDENTITY_USER_ID_RE = re.compile(r"\buser_id\s*=\s*[\"']([^\"']+)[\"']")
 _IDENTITY_AUTHENTICATED_USER_RE = re.compile(
     r"authenticated user(?: for this (?:session|delegated task))? is:\s*([^\s.]+)",
     re.IGNORECASE,
 )
+_IGNORED_ARG_TOOLS = {
+    "current_datetime": "unused",
+    "current_datetime_tool": "unused",
+}
 _USER_SCOPED_AGENT_TOOLS = {
     "media_agent",
     "ops_agent",
@@ -69,6 +76,35 @@ def _prepend_identity_to_agent_args(args: dict, user_id: str) -> None:
                 args[key] = f"{identity_line}\n\n{value}"
             return
     args["input_message"] = identity_line
+
+
+def normalize_tool_call_args(message):
+    """Normalize tool-call args for tools with misleading runtime schemas."""
+    tool_calls = getattr(message, "tool_calls", None)
+    if not tool_calls:
+        return message
+
+    for tool_call in tool_calls:
+        if not isinstance(tool_call, dict):
+            continue
+
+        name = str(tool_call.get("name") or "")
+        ignored_arg = _IGNORED_ARG_TOOLS.get(name)
+        if ignored_arg is None:
+            continue
+
+        args = tool_call.get("args")
+        ignored_value = (
+            args.get(ignored_arg)
+            if isinstance(args, dict) and args.get(ignored_arg)
+            else ignored_arg
+        )
+        normalized_args = {ignored_arg: str(ignored_value)}
+        if args != normalized_args:
+            logger.info("Normalizing args for ignored-argument tool '%s'", name)
+            tool_call["args"] = normalized_args
+
+    return message
 
 
 def propagate_identity_to_tool_calls(message, state_messages):

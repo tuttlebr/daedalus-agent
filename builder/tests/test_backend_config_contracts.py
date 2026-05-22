@@ -172,7 +172,10 @@ def test_deployed_tool_surface_is_optimized():
         assert not forbidden_tools & set(functions), path
         assert not forbidden_tools & set(workflow_tools), path
 
-        assert _effective_operation_count(config, workflow_tools) <= 15, path
+        # visual_media_tool is intentionally exposed at the top level and marked
+        # return_direct so generated image refs are delivered without the
+        # additional media-agent routing delay.
+        assert _effective_operation_count(config, workflow_tools) <= 16, path
         assert (
             _effective_operation_count(
                 config, functions["research_agent"]["tool_names"]
@@ -221,7 +224,7 @@ def test_tool_calling_agents_use_resilient_runner():
 
 def test_return_direct_tools_are_exposed_to_their_agents():
     expected = {
-        "workflow": ["user_interaction_tool"],
+        "workflow": ["user_interaction_tool", "visual_media_tool"],
         "ops_agent": ["ops_confirmation_tool"],
     }
     for path in DEPLOYED_CONFIGS:
@@ -236,6 +239,20 @@ def test_return_direct_tools_are_exposed_to_their_agents():
         for tool_name in expected["ops_agent"]:
             assert tool_name in ops_tools, path
         assert ops_agent["return_direct"] == expected["ops_agent"], path
+
+
+def test_visual_media_tool_is_direct_return_for_latency():
+    for path in DEPLOYED_CONFIGS:
+        config = _config(path)
+        workflow_tools = set(config["workflow"]["tool_names"])
+        return_direct = set(config["workflow"]["return_direct"])
+
+        assert "visual_media_tool" in workflow_tools, path
+        assert "visual_media_tool" in return_direct, path
+        assert "media_agent" in workflow_tools, path
+        assert config["functions"]["media_agent"]["tool_names"] == [
+            "vtt_interpreter_tool"
+        ], path
 
 
 def test_user_data_agent_does_not_advertise_unconfigured_gmail_writes():
