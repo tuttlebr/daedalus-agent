@@ -4,7 +4,6 @@ import asyncio
 import json
 
 import redis
-
 from nat_helpers.image_utils import (
     fetch_image_from_redis,
     parse_ref,

@@ -675,9 +675,7 @@ async def rss_feed_function(
         Returns:
             Formatted string with search results or scraped content
         """
-        result = await rss_feed_search(
-            {"query": query, "feed_scope": feed_scope}
-        )
+        result = await rss_feed_search({"query": query, "feed_scope": feed_scope})
 
         if not result["success"]:
             return f"RSS Feed Search Error: {result['error']}"

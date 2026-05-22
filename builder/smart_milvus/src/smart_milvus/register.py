@@ -258,9 +258,7 @@ async def domain_retriever_function(config: DomainRetrieverConfig, builder: Buil
                 embedder_name=config.embedding_model,
                 wrapper_type=LLMFrameworkEnum.LANGCHAIN,
             )
-            milvus_client = MilvusClient(
-                uri=str(config.uri), **config.connection_args
-            )
+            milvus_client = MilvusClient(uri=str(config.uri), **config.connection_args)
             reranker_config = None
             if config.use_reranker and config.reranker_endpoint:
                 reranker_config = {

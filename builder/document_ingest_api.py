@@ -224,10 +224,12 @@ async def ingest(
         str | None, Header(alias="x-daedalus-internal-token")
     ] = None,
 ) -> IngestResponse:
-    username, document_refs, collection, collection_scope, provenance = _resolve_request(
-        req,
-        x_user_id,
-        x_daedalus_internal_token,
+    username, document_refs, collection, collection_scope, provenance = (
+        _resolve_request(
+            req,
+            x_user_id,
+            x_daedalus_internal_token,
+        )
     )
     if provenance:
         logger.info("documents.ingest provenance: %s", json.dumps(provenance)[:1000])
@@ -273,10 +275,12 @@ async def ingest_stream(
       - complete: {status, output, collection, documents}
       - error:    {detail}
     """
-    username, document_refs, collection, collection_scope, provenance = _resolve_request(
-        req,
-        x_user_id,
-        x_daedalus_internal_token,
+    username, document_refs, collection, collection_scope, provenance = (
+        _resolve_request(
+            req,
+            x_user_id,
+            x_daedalus_internal_token,
+        )
     )
     if provenance:
         logger.info(

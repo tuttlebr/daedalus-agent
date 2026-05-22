@@ -1,9 +1,8 @@
 """Tests for MCP server pre-flight config and response handling."""
 
-from pathlib import Path
 import importlib.util
 import sys
-
+from pathlib import Path
 
 SCRIPT = Path(__file__).resolve().parents[2] / "scripts" / "check_mcp_servers.py"
 DEPLOY = Path(__file__).resolve().parents[2] / "deploy.sh"
@@ -42,7 +41,9 @@ def test_discovers_streamable_http_mcp_servers_and_resolves_env():
     }
 
     servers = check_mcp_servers.discover_mcp_servers(config, {"GITHUB_PAT": "token"})
-    headers, errors = check_mcp_servers.auth_headers(servers[0], {"GITHUB_PAT": "token"})
+    headers, errors = check_mcp_servers.auth_headers(
+        servers[0], {"GITHUB_PAT": "token"}
+    )
 
     assert [server.name for server in servers] == ["github_mcp_server"]
     assert servers[0].include == ["search_code"]

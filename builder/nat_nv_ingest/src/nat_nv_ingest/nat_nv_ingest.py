@@ -795,9 +795,7 @@ def _build_ingestor(
         if is_office:
             extract_kwargs["render_as_pdf"] = True
 
-    ingestor = Ingestor(client=nv_client).buffers(
-        [(filename, BytesIO(document_bytes))]
-    )
+    ingestor = Ingestor(client=nv_client).buffers([(filename, BytesIO(document_bytes))])
 
     if is_pdf and config.use_v2_api:
         pages = max(1, min(128, config.pdf_pages_per_chunk))
@@ -1034,7 +1032,9 @@ class NvIngestDocumentProcessor:
             try:
                 future.result(timeout=2)
             except Exception:
-                logger.debug("Timed out forwarding ingest progress event", exc_info=True)
+                logger.debug(
+                    "Timed out forwarding ingest progress event", exc_info=True
+                )
 
         try:
             if scope_error:
@@ -1574,9 +1574,10 @@ class NvIngestDocumentProcessor:
         def _is_timeout_failure(outcome: IngestResult | Exception) -> bool:
             if isinstance(outcome, Exception):
                 return isinstance(outcome, TimeoutError)
-            return outcome["status"] == "failure" and "timed out" in outcome[
-                "error"
-            ].lower()
+            return (
+                outcome["status"] == "failure"
+                and "timed out" in outcome["error"].lower()
+            )
 
         def _mark_skipped_due_to_timeout(start_idx: int, stop_idx: int) -> int:
             skipped_count = 0
@@ -1626,9 +1627,9 @@ class NvIngestDocumentProcessor:
                 )
                 break
 
-        skipped_remaining = len(successful_documents) + len(
-            failed_documents
-        ) >= total_documents
+        skipped_remaining = (
+            len(successful_documents) + len(failed_documents) >= total_documents
+        )
 
         for start in range(sync_prefix, total_documents, max_batch):
             if skipped_remaining:
@@ -1642,9 +1643,7 @@ class NvIngestDocumentProcessor:
             )
             if concurrency == 1:
                 for idx in range(start, stop):
-                    _idx, ref_filename, outcome = await _one(
-                        idx + 1, documentRefs[idx]
-                    )
+                    _idx, ref_filename, outcome = await _one(idx + 1, documentRefs[idx])
                     status_event = _accumulate(ref_filename, outcome)
                     await _emit_progress(
                         current_filename=status_event["filename"],
@@ -2231,9 +2230,10 @@ async def nv_ingest_function(
         def _is_timeout_failure(outcome: IngestResult | Exception) -> bool:
             if isinstance(outcome, Exception):
                 return isinstance(outcome, TimeoutError)
-            return outcome["status"] == "failure" and "timed out" in outcome[
-                "error"
-            ].lower()
+            return (
+                outcome["status"] == "failure"
+                and "timed out" in outcome["error"].lower()
+            )
 
         def _mark_skipped_due_to_timeout(start_idx: int, stop_idx: int) -> None:
             for skipped_idx in range(start_idx, stop_idx):
@@ -2276,9 +2276,7 @@ async def nv_ingest_function(
             )
             if concurrency == 1:
                 for idx in range(start, stop):
-                    _idx, ref_filename, outcome = await _one(
-                        idx + 1, documentRefs[idx]
-                    )
+                    _idx, ref_filename, outcome = await _one(idx + 1, documentRefs[idx])
                     _accumulate(ref_filename, outcome)
                     if _is_timeout_failure(outcome):
                         _mark_skipped_due_to_timeout(idx + 1, total_documents)
@@ -2286,10 +2284,7 @@ async def nv_ingest_function(
                         break
                 continue
 
-            batch = [
-                _one(idx + 1, documentRefs[idx])
-                for idx in range(start, stop)
-            ]
+            batch = [_one(idx + 1, documentRefs[idx]) for idx in range(start, stop)]
             for _idx, ref_filename, outcome in await asyncio.gather(*batch):
                 _accumulate(ref_filename, outcome)
                 if _is_timeout_failure(outcome) and not skipped_remaining:

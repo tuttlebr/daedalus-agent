@@ -48,4 +48,3 @@ describe('milvus collection policy helpers', () => {
     })).toThrow('does not match');
   });
 });
-

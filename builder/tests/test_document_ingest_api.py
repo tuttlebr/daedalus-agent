@@ -10,8 +10,8 @@ _BUILDER_ROOT = Path(__file__).resolve().parent.parent
 if str(_BUILDER_ROOT) not in sys.path:
     sys.path.insert(0, str(_BUILDER_ROOT))
 
-import pytest  # noqa: E402
 import document_ingest_api  # noqa: E402
+import pytest  # noqa: E402
 from document_ingest_api import (  # noqa: E402
     DocumentRef,
     IngestRequest,

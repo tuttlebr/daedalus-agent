@@ -508,6 +508,7 @@ class TestIsConnectionError:
     @staticmethod
     def _http_status_error(status_code: int, message: str = ""):
         from types import SimpleNamespace
+
         return httpx.HTTPStatusError(
             message or f"HTTP {status_code}",
             request=None,

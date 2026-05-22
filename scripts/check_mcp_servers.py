@@ -8,7 +8,7 @@ import json
 import os
 import re
 import shlex
-import subprocess
+import subprocess  # nosec B404 - used to invoke `kubectl` for cluster-local preflight checks
 import sys
 import uuid
 from dataclasses import dataclass
@@ -129,7 +129,9 @@ def looks_unset(value: str) -> bool:
     return any(token.lower() in lowered for token in PLACEHOLDER_VALUES)
 
 
-def discover_mcp_servers(config: dict[str, Any], env: dict[str, str]) -> list[McpServer]:
+def discover_mcp_servers(
+    config: dict[str, Any], env: dict[str, str]
+) -> list[McpServer]:
     function_groups = config.get("function_groups", {})
     authentication = config.get("authentication", {})
     servers: list[McpServer] = []
@@ -172,7 +174,9 @@ def discover_mcp_servers(config: dict[str, Any], env: dict[str, str]) -> list[Mc
     return servers
 
 
-def auth_headers(server: McpServer, env: dict[str, str]) -> tuple[dict[str, str], list[str]]:
+def auth_headers(
+    server: McpServer, env: dict[str, str]
+) -> tuple[dict[str, str], list[str]]:
     provider = server.auth_provider
     if not provider:
         return {}, []
@@ -203,7 +207,9 @@ def auth_headers(server: McpServer, env: dict[str, str]) -> tuple[dict[str, str]
                 )
         return {}, errors
 
-    return {}, [f"auth provider {server.auth_provider_name} has unsupported type {provider_type}"]
+    return {}, [
+        f"auth provider {server.auth_provider_name} has unsupported type {provider_type}"
+    ]
 
 
 def initialize_payload() -> dict[str, Any]:
@@ -261,6 +267,12 @@ def rpc_post(
     headers: dict[str, str],
     timeout: float,
 ) -> tuple[int, dict[str, str], str]:
+    parsed_url = urlparse(url)
+    if parsed_url.scheme not in {"http", "https"}:
+        raise CheckError(
+            f"unsupported URL scheme '{parsed_url.scheme}'; only http/https are allowed"
+        )
+
     request_headers = {
         "Accept": "application/json, text/event-stream",
         "Content-Type": "application/json",
@@ -274,7 +286,7 @@ def rpc_post(
         method="POST",
     )
     try:
-        with urlopen(request, timeout=timeout) as response:
+        with urlopen(request, timeout=timeout) as response:  # nosec B310 - scheme validated above
             body = response.read().decode("utf-8", errors="replace")
             response_headers = {k.lower(): v for k, v in response.headers.items()}
             return response.status, response_headers, body
@@ -317,7 +329,9 @@ def validate_tools(server: McpServer, payload: dict[str, Any]) -> int:
     return len(tool_names)
 
 
-def check_local(server: McpServer, headers: dict[str, str], timeout: float) -> CheckResult:
+def check_local(
+    server: McpServer, headers: dict[str, str], timeout: float
+) -> CheckResult:
     init_status, init_headers, init_body = rpc_post(
         server.url, initialize_payload(), headers, timeout
     )
@@ -367,7 +381,9 @@ def check_with_kubectl(
             "authenticated cluster-local MCP checks are not supported from kubectl mode"
         )
 
-    pod_name = f"mcp-preflight-{server.name.replace('_', '-')[:35]}-{uuid.uuid4().hex[:6]}"
+    pod_name = (
+        f"mcp-preflight-{server.name.replace('_', '-')[:35]}-{uuid.uuid4().hex[:6]}"
+    )
     timeout_text = str(int(timeout))
     script = f"""
 set -u
@@ -441,7 +457,7 @@ printf '\\n__MCP_TOOLS_BODY_END__\\n'
         script,
     ]
     try:
-        completed = subprocess.run(
+        completed = subprocess.run(  # nosec B603 - fixed kubectl argv; shell script values are locally generated and shlex-quoted
             command,
             text=True,
             capture_output=True,
@@ -488,7 +504,9 @@ def check_server(
 
     try:
         if namespace and is_cluster_local_url(server.url):
-            return check_with_kubectl(server, headers, timeout, namespace, kubectl_image)
+            return check_with_kubectl(
+                server, headers, timeout, namespace, kubectl_image
+            )
         return check_local(server, headers, timeout)
     except (CheckError, json.JSONDecodeError, ValueError) as exc:
         return CheckResult(server.name, server.url, False, str(exc))
