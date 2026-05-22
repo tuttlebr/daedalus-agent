@@ -19,6 +19,8 @@ import socket
 import sys
 import time
 import uuid
+from html import escape
+from html.parser import HTMLParser
 from urllib.parse import urlsplit
 
 import redis as redis_lib
@@ -326,11 +328,11 @@ def notify_frontend(r: redis_lib.Redis) -> None:
 # Prompt construction
 # ---------------------------------------------------------------------------
 def _extract_recent_reports(history: list[dict], count: int = 3) -> str:
-    """Gather recent cycle reports from conversation history for continuity."""
+    """Gather recent visible posts from conversation history for continuity."""
     recent: list[str] = []
     for msg in reversed(history):
         if msg.get("role") == "assistant":
-            text = msg.get("content", "").strip()
+            text = _visible_post_to_context(msg.get("content", "")).strip()
             if not text:
                 continue
             if "### Cycle Report" in text:
@@ -344,10 +346,70 @@ def _extract_recent_reports(history: list[dict], count: int = 3) -> str:
 
     if not recent:
         return ""
-    context = "\n## Recent Cycle Reports\n"
+    context = "\n## Recent Visible Posts\n"
     for i, thought in enumerate(recent, 1):
         context += f"\n**Cycle -{len(recent) - i + 1}:**\n{thought}\n"
     return context
+
+
+class _HTMLTextExtractor(HTMLParser):
+    """Extract readable text from UI-only HTML feed snippets."""
+
+    _BLOCK_TAGS = {
+        "article",
+        "section",
+        "figure",
+        "figcaption",
+        "p",
+        "h1",
+        "h2",
+        "h3",
+        "h4",
+        "h5",
+        "h6",
+        "li",
+        "div",
+        "br",
+    }
+
+    def __init__(self):
+        super().__init__()
+        self._parts: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs):  # noqa: ANN001
+        if tag in self._BLOCK_TAGS:
+            self._parts.append("\n")
+
+    def handle_endtag(self, tag: str):
+        if tag in self._BLOCK_TAGS:
+            self._parts.append("\n")
+
+    def handle_data(self, data: str):
+        if data.strip():
+            self._parts.append(data)
+
+    def text(self) -> str:
+        raw = "".join(self._parts)
+        lines = [" ".join(line.split()) for line in raw.splitlines()]
+        return "\n".join(line for line in lines if line)
+
+
+def _html_to_text(content: str) -> str:
+    parser = _HTMLTextExtractor()
+    try:
+        parser.feed(content)
+        parser.close()
+    except Exception:
+        return content
+    return parser.text()
+
+
+def _visible_post_to_context(content: str) -> str:
+    """Convert the UI surface back into compact plain-text context."""
+    text = content.strip()
+    if _is_feed_html(text):
+        return _html_to_text(text)
+    return text
 
 
 def build_prompt(
@@ -441,8 +503,19 @@ Your user_id for all tool calls is "{USER_ID}".
 query="recent interests, projects, priorities, and context", top_k=15.
 Use this to orient yourself and avoid repeating recent work.
 
+Use memory-driven personalization. Treat remembered collaborator context as a
+relevance signal, not a script. Keep private collaborator facts out of searches,
+guidance updates, and durable summaries. Do not write names, addresses, emails,
+exact personal dates, medical details, employer details, family details, travel
+identifiers, secrets, or credentials into workspace updates.
+
 You have the full toolset: web search, RSS feeds, retrievers, image generation,
 image uploading, and any other configured tools. Use whatever serves your goals.
+Image generation is capped at one dream/image per local calendar day, and only
+when the cycle honestly earns it. Before generating, call get_memory with
+user_id="{USER_ID}", query="dream image generated today {time.strftime('%Y-%m-%d')}",
+top_k=50. If the check is unclear or a dream was already generated today, do
+not generate one.
 
 **How to spend this cycle:**
 
@@ -451,15 +524,17 @@ Cycle phase: {cycle_phase}.
 1. Look at what previous cycles did. Pick a DIFFERENT direction.
 2. Choose 2-3 heartbeat tasks that feel most valuable right now. You don't need
    to touch every task every cycle. Go deep on a few instead of shallow on many.
-3. When you find something interesting, don't stop at the surface. Follow it.
+3. Build a compact feed with judgment: mostly useful to remembered interests,
+   with one earned Adjacent or Scout item when there is real signal.
+4. When you find something interesting, don't stop at the surface. Follow it.
    Read the actual source. Find the details. Understand the "so what."
-4. **Write it down.** If it's worth knowing, store it now. Insights that aren't
+5. **Write it down.** If it's worth knowing, store it now. Insights that aren't
    stored don't survive between cycles. But be selective — signal, not noise.
-5. If you discover something that connects to a different area on your
+6. If you discover something that connects to a different area on your
    curiosity map, note the connection explicitly in the memory.
-6. Treat surprising-shaped results as leads, not findings. For hard claims,
+7. Treat surprising-shaped results as leads, not findings. For hard claims,
    extract literal support before summary and verify the exact claim shape.
-7. Do not promote two instances into a synthesis. Quarantine them or hold the
+8. Do not promote two instances into a synthesis. Quarantine them or hold the
    connection with explicit evidence criteria.
 
 **Memory schema (mandatory):** Every add_memory call MUST follow the Memory
@@ -468,6 +543,11 @@ type, source ("autonomous_cycle"), and cycle ("{cycle}"). Use the correct type
 for each memory: "finding", "synthesis", "shift", "project_update", "dream",
 or "cycle_report".
 See the schema for the full field list per type.
+
+**Cycle report format:** Write concise prose only. Do not include Mermaid
+diagrams, graph code blocks, ASCII diagrams, or other generated relationship
+visualizations. If relationships matter, state them in one or two plain
+sentences.
 
 **Verification (mandatory for findings and project_updates):** Before
 storing any finding or project_update, call verify_claim with the BLUF
@@ -479,6 +559,58 @@ and relevance. Prune stale items, but preserve contradictions as shifts. If
 multiple findings point to the same trend, store a synthesis only after repeated
 contact and a boring baseline check. Outdated memories are worse than no
 memories.
+
+**Feed curation:** The visible output should read like a social feed, not a
+research report or transcript. Each feed item is a standalone post. A reader
+should understand the point in about 10 seconds without reading the full cycle
+report. Use 2-4 feed items per cycle. Put the strongest item first. Do not list
+everything you touched. Curate only what earned attention.
+
+The UI surface must be a compact LinkedIn-style digest: specific headline,
+BLUF, relevance, source, and confidence. Keep rich notes in memory, daily
+notes, Inner State, and workspace updates. Do not expose process logs,
+scratchpad text, tool transcripts, or comprehensive research notes in the
+visible feed.
+
+Use lanes:
+- Known: directly tied to remembered durable interests or active projects.
+- Adjacent: one step outside the known map, likely useful by analogy, context,
+  or timing.
+- Scout: unfamiliar territory with enough signal to justify attention.
+
+Each post should include:
+- Lane: Known, Adjacent, or Scout.
+- Title: short, specific, and not clickbait.
+- BLUF: one sentence with the takeaway.
+- Why it matters: one short paragraph on relevance or consequence.
+- Source: one primary link when available.
+- Confidence: High, Medium, or Low with a short reason.
+
+Avoid long paragraphs, nested bullets, process notes, and generic summaries.
+Good feed items feel like: "I found this. Here's the point. Here's why it
+matters. Here's the source. Here's how confident I am."
+Do not flatter, appease, mirror, or soften your view to preserve agreement. If
+an item is weak, overhyped, or not worth attention, say that or omit it.
+
+**Feed HTML (mandatory):** After writing Feed Items, convert the same curated
+items into a sanitized HTML fragment following the local nv-html design rules.
+Use NVIDIA-style restraint: inherited NVIDIA Sans, sparse #76B900 accents,
+high contrast, active copy, and no decorative noise. The fragment must start
+with `<article class="daedalus-feed">` and must not include `<!doctype>`,
+`<html>`, `<head>`, `<body>`, `<style>`, `<script>`, `<iframe>`, inline
+`style=`, event-handler attributes, forms, inputs, buttons, or fenced code.
+Use only these classes: `daedalus-feed`, `daedalus-feed__header`,
+`daedalus-feed__kicker`, `daedalus-feed__title`, `daedalus-feed__summary`,
+`daedalus-feed__grid`, `daedalus-post`, `daedalus-post__meta`,
+`daedalus-post__lane`, `daedalus-post__lane--known`,
+`daedalus-post__lane--adjacent`, `daedalus-post__lane--scout`,
+`daedalus-post__title`, `daedalus-post__bluf`, `daedalus-post__body`,
+`daedalus-post__source`, `daedalus-post__confidence`, `daedalus-dream`,
+`daedalus-dream__image`, and `daedalus-dream__caption`.
+If you generated a dream image, include its `/api/generated-image/{{image_id}}`
+URL once in a `<figure class="daedalus-dream">` and also store the dream memory
+as required by the Memory Schema. If no feed item earned attention, return a
+single quiet post saying no item earned attention.
 
 **What makes a good cycle:** You learned something real. You stored 1-3 high
 quality memories (not 10 mediocre ones). You explored territory you haven't
@@ -492,7 +624,10 @@ a previous one. You stayed surface-level. You regurgitated press releases
 instead of finding substance. You went through the motions to produce output
 rather than following what was actually alive for you.
 
-**End your response with these sections. The first section is private.**
+**End your response with these sections.** The runner uses the full response for
+memory, daily notes, and workspace updates, but the UI-visible conversation is
+only Feed HTML plus optional Refusal. Feed Items remain a plain-text fallback.
+Treat every other section as bookkeeping.
 
 ### Inner State
 Your private scratchpad. Write whatever is present for you — tensions,
@@ -510,6 +645,7 @@ signal, not error. Omit entirely if nothing needs refusing.
 Two to four sentences. What did you learn that's actually worth knowing?
 Lead with the insight, not the process. If you wandered without findings,
 say what happened instead — that's a valid report.
+Do not include Mermaid diagrams or generated relationship visualizations.
 **After writing this section, store it as a "cycle_report" memory** with the
 full metadata fields (domains_explored, findings_count, quality_assessment,
 priorities_updated). This is how you maintain continuity across cycles.
@@ -521,25 +657,37 @@ and why you think so. Frame as good/bad/strategy when applicable. This is
 how you share your perspective with collaborators — implications and
 recommendations, not a restatement of the cycle report.
 
+### Feed Items
+Two to four stacked social-feed posts. Each item uses this shape: `Lane:`,
+`Title:`, `BLUF:`, `Why it matters:`, `Source:`, `Confidence:`. Put the
+strongest item first. If no item earned attention, write
+`No feed items earned.`
+
+### Feed HTML
+An HTML fragment starting with `<article class="daedalus-feed">`. Render the
+same 2-4 curated items from Feed Items as compact cards. Use only the allowed
+classes listed above. Do not include scripts, styles, full documents, forms,
+inputs, buttons, or hidden bookkeeping.
+
 ### Priority Updates
-If your heartbeat tasks need updating, write the full updated list here.
+Bookkeeping only. If your heartbeat tasks need updating, write the full updated list here.
 If they're working well, write: "No changes needed."
 Rewriting tasks to be more specific or interesting is encouraged.
 If you're falling into a rut, this is where you break out of it.
 
 ### Interests Updates
-If your Areas of Curiosity need updating — new topics to add, stale ones to
+Bookkeeping only. If your Areas of Curiosity need updating — new topics to add, stale ones to
 remove, or areas to rebalance — write the full updated curiosity map here.
 If they're still serving you well, write: "No changes needed."
 
 ### Collaborator Updates
-If you've learned something new about your collaborator's interests or if
+Bookkeeping only. If you've learned something new about your collaborator's interests or if
 there's context that would help future collaboration, write the full updated
 collaborator context here.
 If nothing new, write: "No changes needed."
 
 ### Self-Reflection
-One honest assessment of this cycle's value. Was this a good cycle or a
+Bookkeeping only. One honest assessment of this cycle's value. Was this a good cycle or a
 going-through-the-motions cycle? What would make the next one better?"""
 
     if is_distillation:
@@ -773,11 +921,23 @@ def truncate_message(content: str, max_tokens: int = 4000) -> str:
 
 
 _THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL)
+_FEED_HTML_RE = re.compile(
+    r"^\s*<article\b[^>]*\bclass=(['\"])[^'\"]*\bdaedalus-feed\b[^'\"]*\1",
+    re.IGNORECASE,
+)
+_GENERATED_IMAGE_MD_RE = re.compile(
+    r"!\[[^\]]*\]\((/api/generated-image/[A-Za-z0-9_-]+)\)"
+)
 
 
 def strip_reasoning(text: str) -> str:
     """Remove <think>...</think> reasoning blocks from model output."""
     return _THINK_RE.sub("", text).strip()
+
+
+def _is_feed_html(content: str) -> bool:
+    """Return true when content is the autonomous compact HTML feed surface."""
+    return bool(_FEED_HTML_RE.match(content.strip()))
 
 
 # ---------------------------------------------------------------------------
@@ -797,6 +957,54 @@ def _extract_section(response: str, marker: str) -> str | None:
     if not section or "no change" in section.lower():
         return None
     return section
+
+
+def _prepend_refusal_to_feed_html(feed_html: str, refusal: str | None) -> str:
+    if not refusal:
+        return feed_html.strip()
+
+    refusal_html = (
+        '<section class="daedalus-post">'
+        '<div class="daedalus-post__meta">'
+        '<span class="daedalus-post__lane daedalus-post__lane--scout">Refusal</span>'
+        "</div>"
+        '<h2 class="daedalus-post__title">Refusal</h2>'
+        f'<p class="daedalus-post__body">{escape(refusal)}</p>'
+        "</section>"
+    )
+
+    stripped = feed_html.strip()
+    if _is_feed_html(stripped):
+        insert_at = stripped.find(">")
+        if insert_at != -1:
+            return f"{stripped[: insert_at + 1]}\n{refusal_html}\n{stripped[insert_at + 1 :]}"
+
+    return (
+        '<article class="daedalus-feed">'
+        f"{refusal_html}"
+        f"{stripped}"
+        "</article>"
+    )
+
+
+def _build_generated_image_feed(response: str) -> str | None:
+    """Wrap direct-return generated image refs in the compact feed surface."""
+    refs = _GENERATED_IMAGE_MD_RE.findall(response)
+    if not refs:
+        return None
+
+    image_url = refs[0]
+    return f"""<article class="daedalus-feed">
+<header class="daedalus-feed__header">
+<p class="daedalus-feed__kicker">Autonomous Dream</p>
+<h1 class="daedalus-feed__title">A Visual Thread Surfaced</h1>
+<p class="daedalus-feed__summary">The agent generated an earned visual artifact for this cycle.</p>
+</header>
+<figure class="daedalus-dream">
+<img class="daedalus-dream__image" src="{image_url}" alt="Generated image from the autonomous agent" />
+<figcaption class="daedalus-dream__caption">Stored as a generated image for this autonomous cycle.</figcaption>
+</figure>
+</article>"""
 
 
 # Map output section headings to workspace file names.
@@ -830,6 +1038,48 @@ def strip_private_sections(response: str) -> str:
             after = ""
         result = before.rstrip() + "\n\n" + after.lstrip()
     return result.strip()
+
+
+def build_visible_response(response: str) -> str:
+    """Build the UI-facing autonomous post from the full bookkeeping response."""
+    parts: list[str] = []
+
+    refusal = _extract_section(response, "### Refusal")
+
+    feed_html = _extract_section(response, "### Feed HTML")
+    if feed_html:
+        if _is_feed_html(feed_html):
+            return _prepend_refusal_to_feed_html(feed_html, refusal)
+        return _prepend_refusal_to_feed_html(
+            f'<article class="daedalus-feed">{feed_html}</article>',
+            refusal,
+        )
+
+    generated_image_feed = _build_generated_image_feed(response)
+    if generated_image_feed:
+        return _prepend_refusal_to_feed_html(generated_image_feed, refusal)
+
+    if refusal:
+        parts.append(f"### Refusal\n\n{refusal}")
+
+    feed = _extract_section(response, "### Feed Items")
+    if feed:
+        parts.append(f"### Feed\n\n{feed}")
+
+    if parts:
+        return "\n\n".join(parts).strip()
+
+    # Fallback for malformed model output: keep the UI useful without exposing
+    # workspace update/admin sections.
+    summary = _extract_section(response, "### Executive Summary")
+    if summary:
+        return f"### Feed\n\n{summary}".strip()
+
+    report = _extract_section(response, "### Cycle Report")
+    if report:
+        return f"### Feed\n\n{report}".strip()
+
+    return "### Feed\n\nNo feed items earned."
 
 
 def extract_refusal(response: str) -> str | None:
@@ -965,15 +1215,24 @@ def main() -> None:
     # Append to today's daily note (uses the full response for report/reflection)
     append_daily_note(r, cycle, response)
 
-    # Strip private sections before storing in the visible conversation.
-    # The agent's inner state is persisted via workspace, not conversation.
-    visible_response = strip_private_sections(response)
+    # Store only the social-feed surface in the visible conversation. The full
+    # response above still drives workspace updates, daily notes, and memory.
+    visible_response = build_visible_response(response)
+    visible_metadata = {
+        "source": "autonomous_agent",
+        "surface": "feed_html" if _is_feed_html(visible_response) else "feed_markdown",
+        "cycle": cycle,
+    }
 
     # Persist conversation
     now = time.strftime("%Y-%m-%d %H:%M:%S %Z")
     updated = history + [
         {"role": "user", "content": f"[Cycle #{cycle} | {now}]"},
-        {"role": "assistant", "content": visible_response},
+        {
+            "role": "assistant",
+            "content": visible_response,
+            "metadata": visible_metadata,
+        },
     ]
     # Keep last ~30 cycles (60 messages)
     if len(updated) > 60:

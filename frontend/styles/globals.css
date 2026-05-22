@@ -1850,6 +1850,189 @@ details div {
   animation: heartbeat-breathe 2s ease-in-out infinite;
 }
 
+/* Autonomous agent condensed HTML feed */
+.autonomous-feed-render {
+  width: 100%;
+}
+
+.daedalus-feed {
+  display: grid;
+  gap: 12px;
+  width: 100%;
+  color: var(--color-dark-text-primary);
+  font-family: var(--font-family-sans, 'NVIDIA Sans', system-ui, sans-serif);
+}
+
+.daedalus-feed__header {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: #000000;
+  padding: 18px;
+}
+
+.daedalus-feed__kicker {
+  margin: 0 0 8px;
+  color: var(--color-nvidia-green);
+  font-size: 0.625rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+.daedalus-feed__title {
+  margin: 0;
+  color: #ffffff;
+  font-size: 1.35rem;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.daedalus-feed__summary {
+  margin: 8px 0 0;
+  max-width: 72ch;
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
+.daedalus-feed__grid {
+  display: grid;
+  gap: 10px;
+}
+
+.daedalus-post {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  background: rgba(18, 18, 18, 0.92);
+  padding: 16px;
+}
+
+.daedalus-post__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.daedalus-post__lane,
+.daedalus-post__confidence {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.daedalus-post__lane {
+  color: #ffffff;
+  text-transform: uppercase;
+}
+
+.daedalus-post__lane--known {
+  border-color: rgba(118, 185, 0, 0.5);
+  color: var(--color-nvidia-green);
+}
+
+.daedalus-post__lane--adjacent {
+  border-color: rgba(149, 47, 198, 0.5);
+  color: var(--color-nvidia-purple-light);
+}
+
+.daedalus-post__lane--scout {
+  border-color: rgba(239, 145, 0, 0.55);
+  color: #ef9100;
+}
+
+.daedalus-post__title {
+  margin: 0 0 8px;
+  color: var(--color-dark-text-primary);
+  font-size: 1rem;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.daedalus-post__bluf {
+  margin: 0 0 10px;
+  color: #ffffff;
+  font-size: 0.95rem;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.daedalus-post__body {
+  margin: 0 0 12px;
+  color: var(--color-dark-text-secondary);
+  font-size: 0.88rem;
+  line-height: 1.5;
+}
+
+.daedalus-post__source {
+  margin: 0;
+  color: var(--color-dark-text-muted);
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
+.daedalus-post__source a {
+  color: var(--color-nvidia-green);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.daedalus-post__source a:hover {
+  color: var(--color-nvidia-green-light);
+  text-decoration: underline;
+}
+
+.daedalus-post__confidence {
+  margin-top: 2px;
+  color: var(--color-dark-text-secondary);
+}
+
+.daedalus-dream {
+  overflow: hidden;
+  margin: 0;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  background: #000000;
+}
+
+.daedalus-dream__image {
+  display: block;
+  width: 100%;
+  max-height: min(520px, 65vh);
+  object-fit: cover;
+}
+
+.daedalus-dream__caption {
+  padding: 10px 12px;
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
+@media (min-width: 768px) {
+  .daedalus-feed__grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 480px) {
+  .daedalus-feed__header,
+  .daedalus-post {
+    padding: 14px;
+  }
+
+  .daedalus-feed__title {
+    font-size: 1.15rem;
+  }
+}
+
 /* =================================================================
    ENHANCED BUTTON INTERACTIONS
    Subtle micro-interactions for button hover/active states

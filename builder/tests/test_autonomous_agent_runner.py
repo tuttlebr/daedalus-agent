@@ -506,6 +506,95 @@ class TestBuildPrompt:
         assert "### Inner State" in prompt
         assert "### Refusal" in prompt
 
+    def test_prompt_includes_feed_html_contract(self):
+        module = load_runner_module()
+        workspace = {
+            "identity": "id",
+            "soul": "soul",
+            "interests": "interests",
+            "heartbeat": "hb",
+            "memory": "",
+            "user": "",
+            "schema": "schema",
+            "inner_state": "",
+        }
+        prompt = module.build_prompt(workspace, [], 1)
+
+        assert "### Feed HTML" in prompt
+        assert '<article class="daedalus-feed">' in prompt
+        assert "nv-html" in prompt
+
+
+# ---------------------------------------------------------------------------
+# Visible response tests
+# ---------------------------------------------------------------------------
+class TestBuildVisibleResponse:
+    def test_prefers_feed_html_over_markdown_feed_items(self):
+        module = load_runner_module()
+        response = textwrap.dedent("""\
+            ### Cycle Report
+            Full private report.
+
+            ### Feed Items
+            Lane: Known
+            Title: Markdown fallback
+
+            ### Feed HTML
+            <article class="daedalus-feed"><section class="daedalus-post"><h2 class="daedalus-post__title">HTML Feed</h2></section></article>
+
+            ### Priority Updates
+            No changes needed.
+        """)
+
+        result = module.build_visible_response(response)
+
+        assert result.startswith('<article class="daedalus-feed">')
+        assert "HTML Feed" in result
+        assert "Markdown fallback" not in result
+        assert "Priority Updates" not in result
+
+    def test_prepends_refusal_inside_feed_html(self):
+        module = load_runner_module()
+        response = textwrap.dedent("""\
+            ### Refusal
+            I will not force a weak item.
+
+            ### Feed HTML
+            <article class="daedalus-feed"><section class="daedalus-post"><h2 class="daedalus-post__title">Signal</h2></section></article>
+        """)
+
+        result = module.build_visible_response(response)
+
+        assert result.startswith('<article class="daedalus-feed">')
+        assert "Refusal" in result
+        assert "I will not force a weak item." in result
+        assert result.index("Refusal") < result.index("Signal")
+
+    def test_wraps_direct_return_generated_image_as_feed_html(self):
+        module = load_runner_module()
+        response = "![Generated image](/api/generated-image/abc-123)"
+
+        result = module.build_visible_response(response)
+
+        assert result.startswith('<article class="daedalus-feed">')
+        assert "/api/generated-image/abc-123" in result
+        assert "daedalus-dream" in result
+
+    def test_recent_context_strips_feed_html_markup(self):
+        module = load_runner_module()
+        history = [
+            {
+                "role": "assistant",
+                "content": '<article class="daedalus-feed"><section class="daedalus-post"><h2>Title</h2><p>BLUF text.</p></section></article>',
+            }
+        ]
+
+        context = module._extract_recent_reports(history)
+
+        assert "<article" not in context
+        assert "Title" in context
+        assert "BLUF text." in context
+
 
 # ---------------------------------------------------------------------------
 # Private section stripping tests

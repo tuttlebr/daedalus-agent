@@ -13,7 +13,10 @@ import {
 } from '@tabler/icons-react';
 import { memo, useState, useRef, useEffect, lazy, Suspense } from 'react';
 
-import { extractStandaloneHtmlResponse } from '@/utils/app/htmlResponse';
+import {
+  extractStandaloneHtmlResponse,
+  isAutonomousFeedHtmlMessage,
+} from '@/utils/app/htmlResponse';
 
 import { Message } from '@/types/chat';
 
@@ -61,22 +64,29 @@ export const AssistantMessage = memo(
     const hasSteps =
       message.intermediateSteps && message.intermediateSteps.length > 0;
     const isAgent = message.role === 'agent';
-    const isLongContent = content.length > LONG_CONTENT_CHARS;
+    const isAutonomousFeedHtml = isAutonomousFeedHtmlMessage(message);
+    const isLongContent =
+      !isAutonomousFeedHtml && content.length > LONG_CONTENT_CHARS;
     const errorMessages = message.errorMessages;
     const hasError = Boolean(errorMessages?.message);
     const isRecoverable = errorMessages?.recoverable === true;
-    const htmlPreviewContent = !isStreaming
+    const htmlPreviewContent = !isStreaming && !isAutonomousFeedHtml
       ? extractStandaloneHtmlResponse(content)
       : null;
 
     // After render, check if the actual rendered height exceeds the threshold
     useEffect(() => {
-      if (!isStreaming && contentRef.current && isLongContent) {
+      if (isStreaming || !contentRef.current || !isLongContent) {
+        setNeedsCollapse(false);
+        return;
+      }
+
+      if (contentRef.current) {
         setNeedsCollapse(
           contentRef.current.scrollHeight > COLLAPSED_MAX_HEIGHT + 50,
         );
       }
-    }, [content, isStreaming, isLongContent]);
+    }, [content, isStreaming, isLongContent, isAutonomousFeedHtml]);
 
     const handleCopy = () => {
       navigator.clipboard.writeText(content);
@@ -86,6 +96,7 @@ export const AssistantMessage = memo(
 
     const proseClasses =
       'prose dark:prose-invert prose-sm max-w-none prose-p:my-1.5 prose-pre:my-2 prose-ul:my-1.5 prose-ol:my-1.5 prose-headings:text-dark-text-primary prose-a:text-nvidia-green prose-code:text-nvidia-green-light prose-strong:text-dark-text-primary';
+    const feedClasses = 'autonomous-feed-render max-w-none';
 
     return (
       <div className="group flex w-full gap-3 animate-morph-in">
@@ -156,9 +167,13 @@ export const AssistantMessage = memo(
             <div className="relative w-full min-w-0">
               <div
                 className={classNames(
-                  'min-w-0 px-4 py-3 rounded-2xl rounded-tl-lg',
-                  'bg-dark-bg-secondary/80 border border-white/[0.06]',
-                  'text-dark-text-primary text-sm',
+                  'min-w-0 text-dark-text-primary text-sm',
+                  isAutonomousFeedHtml
+                    ? 'p-0'
+                    : [
+                        'px-4 py-3 rounded-2xl rounded-tl-lg',
+                        'bg-dark-bg-secondary/80 border border-white/[0.06]',
+                      ],
                   isStreaming && 'border-nvidia-green/20',
                 )}
               >
@@ -212,7 +227,9 @@ export const AssistantMessage = memo(
                         content={content}
                         messageIndex={messageIndex}
                         messageId={message.id}
-                        className={proseClasses}
+                        className={
+                          isAutonomousFeedHtml ? feedClasses : proseClasses
+                        }
                       />
                     )
                   )}

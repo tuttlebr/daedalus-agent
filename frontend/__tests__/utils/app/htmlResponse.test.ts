@@ -1,5 +1,7 @@
 import {
   extractStandaloneHtmlResponse,
+  isAutonomousFeedHtmlMessage,
+  looksLikeAutonomousFeedHtml,
   looksLikeStandaloneHtml,
 } from '@/utils/app/htmlResponse';
 
@@ -33,5 +35,31 @@ describe('html response detection', () => {
     expect(
       extractStandaloneHtmlResponse('Here is <strong>inline</strong> HTML.'),
     ).toBeNull();
+  });
+
+  it('detects autonomous feed HTML fragments', () => {
+    const content =
+      '<article class="daedalus-feed"><section class="daedalus-post">Item</section></article>';
+
+    expect(looksLikeAutonomousFeedHtml(content)).toBe(true);
+    expect(
+      isAutonomousFeedHtmlMessage({
+        content,
+        metadata: { source: 'autonomous_agent', surface: 'feed_html' },
+      }),
+    ).toBe(true);
+  });
+
+  it('requires autonomous metadata before inline feed rendering', () => {
+    const content =
+      '<article class="daedalus-feed"><section class="daedalus-post">Item</section></article>';
+
+    expect(isAutonomousFeedHtmlMessage({ content })).toBe(false);
+    expect(
+      isAutonomousFeedHtmlMessage({
+        content,
+        metadata: { source: 'manual', surface: 'feed_html' },
+      }),
+    ).toBe(false);
   });
 });
