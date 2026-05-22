@@ -1,6 +1,6 @@
 ---
 name: dep-create
-description: Create a new Dynamo Enhancement Proposal (DEP) as a GitHub issue on ai-dynamo/dynamo, add an implementation plan to an existing DEP, or file a retroactive DEP for already-merged work. Use when the user wants to propose a feature or architecture change, formalize a design decision, write up a DEP, or document past work as a retroactive DEP.
+description: Create a new Dynamo Enhancement Proposal (DEP) as a GitHub issue on ai-dynamo/dynamo, add an implementation plan to an existing DEP, or file a retroactive DEP for already-merged work. Use whenever the user wants to "file a DEP", "write a DEP", "propose a DEP", "draft an enhancement proposal", "create a Dynamo proposal", "formalize a design decision", "add an implementation plan to DEP #N", or "file a retroactive DEP" — even if they don't say the word "DEP" but describe writing up a feature/architecture/process proposal targeted at ai-dynamo/dynamo.
 ---
 
 # Skill: Create a DEP as a GitHub Issue
@@ -34,20 +34,49 @@ for work already merged.
    for customer-specific context that cannot appear in the public
    issue prose.
 
+   **If the doc is inaccessible** (no MCP access, sharing restricted,
+   404), do not abandon the workflow: ask the user to paste the
+   relevant sections inline, and still link the URL in the References
+   section so a future NVIDIA reader can verify the source.
+
 2. **Gather required fields** from the user and source doc (prompt
    if missing):
    - **Summary**: One-paragraph description of the proposal
    - **Motivation**: Why this change is needed
    - **Proposal**: Detailed description of the proposed change
 
-3. **Determine the area label** based on proposal content. Area labels
-   are bare names (e.g., `frontend`, `router`, `backend-vllm`) that
-   correspond to CODEOWNERS teams.
+3. **Determine and verify the area label**. Area labels are bare
+   names (e.g., `frontend`, `router`, `backend-vllm`) that correspond
+   to CODEOWNERS teams. Before using a label, confirm it exists on the
+   repo — typos silently create unlabelled DEPs:
 
-4. **Decide template**: full or lightweight.
-   Use lightweight if only Summary, Motivation, and Proposal are needed.
+   ```bash
+   gh label list --repo ai-dynamo/dynamo --search "<keyword>"
+   ```
 
-5. **Create the issue** (full DEP):
+   If no exact match, list nearby candidates for the user to pick.
+
+4. **Strip customer / partner names from every field** before
+   drafting the gh command. Scan summary, motivation, proposal,
+   alternates, requirements for proper nouns and replace with
+   generic stand-ins: `Acme Corp` → `a customer`, `AWS` → `a cloud
+   partner` (unless AWS is the literal subject), `Hopper Health` →
+   `an enterprise user`. DEPs are public — this scrub is not
+   optional. (The Notes section has more detail.)
+
+5. **Decide template**: full or lightweight. Rubric:
+   - **Lightweight** when the scope is a single component, no
+     alternates were considered (the design was obvious), and there's
+     no measurable success criterion to track.
+   - **Full** when alternates were weighed, customer/external impact
+     exists, or the proposal touches more than one CODEOWNERS team.
+
+6. **Construct the title**. Keep it ≤ 80 chars; no customer names; no
+   area prefix in the title itself (the label carries the area).
+   Pattern: `DEP: <what it adds, in plain prose>`. Example:
+   `DEP: Add async streaming to the KV router for multi-node disagg`.
+
+7. **Create the issue** (full DEP):
 
 ```bash
 gh issue create \
@@ -99,7 +128,7 @@ EOF
 )"
 ```
 
-6. **Report** the created issue number and URL to the user.
+8. **Report** the created issue number and URL to the user.
 
 ### Add an Implementation Plan
 

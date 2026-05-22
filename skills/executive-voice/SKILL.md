@@ -1,7 +1,6 @@
 ---
 name: executive-voice
-description: Coach content for an executive audience — applies the "so what?" test, audience calibration, jargon elimination, and decision-enabling framing. Use when preparing slides, documents, emails, or talking points for leadership.
-argument-hint: "[paste content, describe a situation, or point to a file]"
+description: Coach content for an executive audience (VP / SVP / estaff / JHH-level) — applies the "so what?" test, audience calibration, jargon elimination, BLUF framing, and decision-enabling structure. Use whenever the user is "preparing for an executive review", "writing slides for the VP/SVP/estaff", "drafting an email to leadership", "preparing talking points for a 1:1 with my manager", "writing an exec summary", "tightening a brief for JHH", or otherwise wants their content sharpened for a senior-leadership audience. Also use when the user shares a draft and asks "how would this land with leadership" or "what would an exec ask about this".
 ---
 
 # Executive Voice
@@ -76,6 +75,14 @@ Read every sentence as if you're seeing this project for the first time. Flag:
 - Vague phrases ("first class support", "full stack challenge", "highly interesting")
 - Bullets that require speaker notes to make sense — if it can't stand alone, rewrite it
 
+**Substitution heuristic — don't just cut, replace.** Cutting jargon without replacing it leaves a vague sentence. Use one of these patterns:
+
+1. **Replace the noun with the verb it enables.** "We built an event-driven router" → "Requests now route to the warmest worker without a control-plane hop."
+2. **Replace the architecture component with the user-visible outcome.** "Disaggregated KV cache" → "Decode workers can serve any request without re-prefilling."
+3. **Keep the term but attach it to the unlock.** "We added MoE support" → "MoE support — which lets us serve 1.5x more tokens per GPU on Mixtral-class models."
+
+If you can't apply any of the three, the term probably doesn't belong in the deck.
+
 ### Filter 5: Optics and Politics
 
 Technical teams often miss the political dimension:
@@ -99,6 +106,15 @@ Transform informational content into decision-enabling content:
 
 - "Here's what's happening" becomes "Here's what's happening, here's what it means, here's what we recommend"
 - Data becomes insight becomes recommendation
+
+**Latent-ask extraction.** Many users arrive without a clear ask — they have results, not a request. Don't force a fake ask; coach the user to surface the real one with these diagnostic questions:
+
+1. "If your SVP says 'great, what do you need from me?', what's the honest answer — headcount, air cover, a decision, a tie-breaker, or nothing?"
+2. "Is there a fork in the road in the next 30 days that this brief should be informing?"
+3. "Who else is touching this work and what would change in their plans if your SVP backed (or didn't back) you?"
+4. "If the answer to all of the above is 'nothing' — is this an FYI or a celebration, and should it be an email instead of a brief?"
+
+The latent ask is almost always one of: a resource (headcount/budget/access), a decision (tie-breaker between paths), air cover (defending a tradeoff to peer execs), or a strategic signal (telling the org this matters). Name it explicitly.
 
 ### Filter 7: Insight Density
 
@@ -137,6 +153,16 @@ Who this seems targeted at, and whether the content matches that audience's need
 ### 5-Second Takeaway
 
 What the exec will walk away remembering (or "I can't identify one — that's the first problem").
+
+### What the exec will ask
+
+A short list of the 3-5 questions the audience (especially SVP+) will fire back, in their likely order. Anticipating these is half the value of the brief — if the answer isn't already in the content, surface the gap here so the user can patch it before the meeting. Common patterns:
+
+- "What's the ask?"
+- "What changed since last time we talked about this?"
+- "Who else is doing this / what's the competitive view?"
+- "Where is this NUD?" (see Filter 8)
+- "What does success look like in 6 months?"
 
 ### Line-by-Line Review
 

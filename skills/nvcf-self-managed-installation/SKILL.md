@@ -1,10 +1,11 @@
 ---
 name: nvcf-self-managed-installation
-description: Install and deploy the nvcf-self-managed-stack helmfile bundle for NVCF self-hosted deployments. Covers clean installation, teardown, helm values overrides, image pull secrets, fake GPU operator setup, and debugging installation failures. Use when deploying, installing, reinstalling, tearing down, or configuring the NVCF self-managed control plane stack, or when the user mentions helmfile, self-managed, self-hosted, control plane installation, nvcf-self-managed-stack, or fake GPU operator.
-compatibility: Requires helmfile >= 1.1.0 < 1.2.0, helm >= 3.12, helm-diff plugin, kubectl matching cluster version
+description: Install, deploy, upgrade, and tear down the nvcf-self-managed-stack helmfile bundle for NVCF self-hosted control plane deployments. Covers clean installation, teardown, helm values overrides, image pull secrets, fake GPU operator setup, and debugging installation failures. Use whenever the user mentions installing/reinstalling/uninstalling/tearing-down the NVCF control plane, "helmfile", "self-managed stack", "self-hosted control plane", "nvcf-self-managed-stack", "fake GPU operator", helm values overrides for NVCF, image pull secrets for NVCF, or debugging an NVCF installation failure. Requires helmfile >= 1.1.0 < 1.2.0, helm >= 3.12, helm-diff plugin, kubectl matching cluster version.
 ---
 
 # NVCF Self-Managed Stack Operations
+
+> **Related skills:** `nvcf-self-managed-cli` (function operations on the deployed self-managed control plane via nvcf-cli), `nvcf-ngc-cli-skill` (function ops on the cloud-hosted NVCF via NGC CLI).
 
 Operational guide for the `nvcf-self-managed-stack` helmfile bundle used to deploy the NVCF control plane.
 
@@ -141,6 +142,39 @@ kubectl get ns | grep -E '(cassandra|nats|vault|nvcf|api-keys|ess|sis|nvca)'
 # Should return empty (nvca-modelcache-init is unrelated and can be ignored)
 ```
 
+### If you installed fake-gpu-operator / KWOK / Kyverno
+
+These were installed outside the helmfile stack (see "Fake GPU Operator" and "Image Pull Secrets" sections below) and therefore are **not** removed by `helmfile destroy`. Tear them down explicitly when fully removing the dev install:
+
+```bash
+# fake-gpu-operator (RunAI helm release)
+helm uninstall gpu-operator -n gpu-operator
+kubectl delete namespace gpu-operator --ignore-not-found
+
+# KWOK (manifest-installed)
+kubectl delete -k 'https://github.com/kubernetes-sigs/kwok/kustomize/kwok?ref=main' --ignore-not-found
+kubectl delete -k 'https://github.com/kubernetes-sigs/kwok/kustomize/stage/fast?ref=main' --ignore-not-found
+
+# Kyverno (used for image-pull-secret injection)
+helm uninstall kyverno -n kyverno
+kubectl delete namespace kyverno --ignore-not-found
+kubectl delete clusterpolicy --all  # remove any leftover policy CRs
+
+# Un-label nodes that were marked for fake-GPU assignment
+kubectl label nodes --all 'nvidia.com/gpu.product-' 'run.ai/simulated-gpu-node-pool-' --overwrite
+```
+
+### Nuclear option (dev clusters only)
+
+For kind / k3d / minikube dev clusters, the fastest reset is to delete the cluster and re-create:
+
+```bash
+kind delete cluster --name <name>
+kind create cluster --name <name> --config kind-config.yaml
+```
+
+This wipes everything cleanly — significantly faster than running every helm uninstall in sequence. **Never use on shared or production clusters.**
+
 ## Overriding Helm Chart Values
 
 ### Environment file (limited)
@@ -223,6 +257,18 @@ kubectl get pod -n <namespace> <pod-name> -o jsonpath='{.spec.imagePullSecrets}'
 Not needed if using a CSP built-in credential helper (e.g., ECR with IAM node roles).
 
 For the Kyverno policy YAML and pull secret creation script, see [references/pull-secrets.md](references/pull-secrets.md).
+
+## Kind / Dev Cluster Notes
+
+If you're installing onto a **kind**, **k3d**, or **minikube** cluster (typically for fake-gpu work below), a few defaults from the helmfile stack assume a real cluster and need attention:
+
+- **Gateway / LoadBalancer services** will stay `Pending` for EXTERNAL-IP. Pick one of:
+  - `kubectl port-forward svc/<gateway> 8080:80 -n <ns>` for ad-hoc local access (simplest).
+  - Install `cloud-provider-kind` (`go install sigs.k8s.io/cloud-provider-kind@latest && cloud-provider-kind &`) for proper LB allocation.
+  - Install MetalLB if you need a stable IP range on the kind network.
+- **Storage class**: kind defaults to `standard` (a local-path provisioner) — fine for dev. Verify with `kubectl get storageclass`.
+- **Resource trimming**: on a single-node kind cluster, set helm-release `resources.requests` lower in your env file to avoid Pending pods. Cassandra and NATS are the usual offenders.
+- **Cluster reset**: if the install gets too tangled, see the "Nuclear option" under Clean Teardown — `kind delete cluster` is often the fastest path forward in dev.
 
 ## Fake GPU Operator (Non-GPU Clusters)
 

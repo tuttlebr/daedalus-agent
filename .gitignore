@@ -199,3 +199,4 @@ download-autonomous-images.py
 
 # Skill description optimizer workspaces (transient eval data)
 skills/*-optimizer-workspace/
+skills-workspace/

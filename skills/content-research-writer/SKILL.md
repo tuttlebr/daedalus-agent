@@ -1,6 +1,6 @@
 ---
 name: content-research-writer
-description: Collaborate on long-form writing - blog posts, articles, newsletters, thought leadership, case studies, technical docs - by researching topics, adding citations, strengthening hooks, iterating on outlines, and giving section-by-section feedback while preserving the user's voice. Use when the user is drafting any long-form piece and wants iterative research, structure, and editorial feedback rather than a one-shot generation.
+description: Collaborate on long-form writing — blog posts, articles, newsletters, thought leadership, case studies, technical docs — by researching topics, adding citations, strengthening hooks, iterating on outlines, and giving section-by-section feedback while preserving the user's voice. Use whenever the user wants to "draft a blog post", "write an article", "co-write a newsletter", "outline a thought-leadership piece", "research and cite a topic", "improve a hook", "iterate on a draft", "edit a section", or is otherwise working on a long-form piece and wants ongoing research/structure/editorial collaboration rather than a one-shot generation.
 ---
 
 # Content Research Writer
@@ -78,7 +78,9 @@ When a user requests writing assistance:
 
 1. **Understand the Writing Project**
 
-   Ask clarifying questions:
+   If the user has already supplied topic, audience, format, or voice in the prompt, skip restating those questions — confirm gaps only, then proceed. Asking back questions the user already answered wastes their attention.
+
+   For unknowns only, ask:
    - What's the topic and main argument?
    - Who's the target audience?
    - What's the desired length/format?
@@ -212,6 +214,16 @@ When a user requests writing assistance:
    - **Match tone**: Formal, casual, technical, friendly
    - **Respect choices**: If they prefer their version, support it
    - **Enhance, don't override**: Make their writing better, not different
+
+   **Extract a voice rubric early.** Within the first turn or two, convert the user's voice description (or their existing samples) into 4-8 concrete, enforceable rules — then reuse those rules as the rubric for every subsequent section review. Examples of enforceable rules:
+
+   - Banned phrases / words (e.g. "leverage", "synergy", em-dashes, exclamation points)
+   - Sentence shape (short, punchy / long flowing / mixed cadence)
+   - Register (technical insider vs. general business)
+   - Citation density (heavy / light / inline-only)
+   - Opener pattern (number-led / question-led / scene-set)
+
+   Write the rubric down at the top of the working file so it survives across sections. Apply it explicitly in feedback ("rule 3: banned em-dash here").
 
    Ask periodically:
    - "Does this sound like you?"
@@ -385,6 +397,15 @@ Ready for the next section!
 4. Write with strong POV
 5. Add supporting evidence
 6. Craft compelling conclusion
+
+### Technical / Expert-Audience Workflow
+Use when the reader is a domain expert (engineers, researchers, operators) rather than a general audience. The defaults invert:
+1. **No setup** — skip the "what is X" intro; assume the audience already knows
+2. **Number-led topic sentences** — lead with the concrete claim, defer prose
+3. **Acronyms unexpanded** — KV cache, MoE, NCCL stay raw; the reader's not skimming
+4. **No CTA at end** — experts skip them; close with a sharp observation or open question instead
+5. **Code or data, not metaphor** — show the actual snippet, table, or trace; don't analogize
+6. **Citation density: high but inline** — link to papers/docs in flow, not a "Further Reading" appendix
 
 ## Pro Tips
 

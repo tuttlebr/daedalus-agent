@@ -2,6 +2,24 @@
 
 Quick reference for common tool call patterns found in LLM chat templates.
 
+## Current parser inventory (consult this first in Phase 3)
+
+This table is a starting point; **verify against the live `lib/parsers/src/tool_calling/` tree and `config.rs`** before relying on it, since parsers and presets evolve. If something here disagrees with the code, the code wins.
+
+| Preset / parser | File | Markers | Models |
+|---|---|---|---|
+| `hermes()` | `json/base_json_parser.rs` (preset in `config.rs`) | `<tool_call>...</tool_call>` | Hermes-2, Jamba, Qwen2.5 |
+| `mistral()` | `json/base_json_parser.rs` (preset in `config.rs`) | `[TOOL_CALLS] [{...}]` | Mistral, Mixtral |
+| `llama3_json()` | `json/base_json_parser.rs` (preset in `config.rs`) | `<|python_tag|>[{...}]` | Llama 3.1, Llama 3.2 |
+| `qwen3_coder` | `xml/parser.rs` | `<tool_call><function=...>` | Qwen3-Coder, Nemotron-Nano |
+| `deepseek_v3` | `json/deepseek_v3_parser.rs` | `<｜tool▁call▁begin｜>...<｜tool▁call▁end｜>` w/ markdown JSON | DeepSeek-V3 |
+| `deepseek_v3_1` | `json/deepseek_v3_1_parser.rs` | `<｜tool▁call▁begin｜>...<｜tool▁call▁end｜>` inline | DeepSeek-V3.1 |
+| `dsml` | `dsml/parser.rs` | `<｜DSML｜function_calls>...` | DeepSeek-V3.2 |
+| `pythonic` | `pythonic/pythonic_parser.rs` | `[func(arg=val)]` | Experimental |
+| `harmony` | `harmony/harmony_parser.rs` | `<|channel|>commentary to=...` | GPT-OSS |
+
+**Phase-3 procedure**: read this table, then `ls /lib/parsers/src/tool_calling/` and `grep -n 'pub fn ' /lib/parsers/src/tool_calling/config.rs` to confirm. Any preset listed here that no longer appears in `config.rs` has been renamed/removed — fix this file when you notice the drift.
+
 ## Pattern Categories
 
 ### 1. JSON with Special Tokens

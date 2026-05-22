@@ -485,20 +485,25 @@ functions:
   agent_skills_tool:
     _type: agent_skills
     skills_directory: /skills
-    allow_script_execution: false
+    allow_script_execution: true
     enabled_operations:
       - load_skill
+      - run_skill_script
     allowed_script_extensions:
       - .py
       - .sh
     script_timeout: 120
     description: >-
-      Load agent skills in /skills. Only load_skill is exposed in
-      backend production config; script execution is disabled.
-      Trigger: user names a skill, task matches a skill's purpose, or
-      you need a procedure you don't yet know. Args: skill_name and
-      optional resource. Returns: skill instructions or resource
-      content. Fails when: skill not found.
+      Load and execute agent skills in /skills. load_skill returns
+      skill instructions or bundled resources; run_skill_script
+      executes bundled .py/.sh scripts in a sanitized environment
+      (secrets stripped, 120s timeout). Trigger: user names a skill,
+      task matches a skill's purpose, or you need a procedure you
+      don't yet know. Args: skill_name and optional resource, or
+      skill_name + script + args. Returns: skill instructions,
+      resource content, or script output. Fails when: skill not
+      found, script path escapes skill dir, extension not in
+      .py/.sh, or script exceeds timeout.
     verbose: true
   add_memory:
     _type: add_memory

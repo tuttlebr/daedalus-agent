@@ -33,7 +33,7 @@ def main() -> None:
     redis_db = int(os.environ.get("REDIS_DB", "0"))
 
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    profile_path = os.path.join(script_dir, "..", "resources", "profile-data.json")
+    profile_path = os.path.join(script_dir, "..", "assets", "profile-data.json")
 
     with open(profile_path) as f:
         profile = json.load(f)

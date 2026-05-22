@@ -1,9 +1,11 @@
 ---
 name: dynamo-docs
-description: Maintain the Dynamo Fern documentation site - add new pages, update existing content, move pages between sections, or remove pages, including navigation (docs.yml) and validation. Use when the user wants to write, edit, restructure, or delete docs on the Dynamo Fern site, or asks for documentation changes scoped to the Dynamo project.
+description: Maintain the Dynamo Fern documentation site — add new pages, update existing content, move pages between sections, or remove pages, including navigation (index.yml) updates, callout conversion, and `fern check` validation. Use whenever the user wants to "write Dynamo docs", "update the Dynamo docs site", "add a page to the Dynamo Fern site", "move a Dynamo doc to <section>", "fix a broken link in Dynamo docs", "remove a doc page", or otherwise asks for documentation changes scoped to ai-dynamo/dynamo's Fern-based docs site (paths under `docs/`, configured by `fern/docs.yml`).
 ---
 
 # Dynamo Docs Maintenance
+
+> **Related skills:** `dynamo-bug` (file an upstream bug against ai-dynamo/dynamo), `debug-session` (structured investigation that often surfaces gaps the docs should fill).
 
 Unified skill for adding, updating, moving, and removing pages on the Dynamo Fern documentation site.
 
@@ -16,7 +18,7 @@ The `docs-website` branch is CI-managed and must **never** be edited by hand.
 
 ### Add a Page
 
-1. Gather: page title, target section, filename (kebab-case `.md`), subdirectory under `docs/`.
+1. Gather: page title, target section, filename (kebab-case `.md`). Infer the subdirectory from the section using the **Section → Subdirectory map** below; if the section isn't in the map, grep `docs/index.yml` for the section banner and use the `path:` of an existing page in that section as your guide.
 2. Create `docs/<subdirectory>/<filename>.md`:
 
 ```markdown
@@ -29,12 +31,36 @@ title: <Page Title>
 # <Page Title>
 ```
 
-3. Add a nav entry in `docs/index.yml` under the correct section:
+3. Add a nav entry in `docs/index.yml` under the correct section. Real nav entries are **nested inside `- section: ... contents:`** and require 6-space indent (not the 2-space top-level form). Find the right `# ==================== <Section> ====================` banner first; insertion is append-at-end of the section's `contents:` unless that section is alphabetically ordered (`Backends` and `Integrations` are; others are topical).
 
 ```yaml
-- page: <Page Title>
-  path: <subdirectory>/<filename>.md
+# inside docs/index.yml, under the matching section banner
+- section: User Guides
+  contents:
+    - page: Existing Page
+      path: guides/existing-page.md
+    - page: <Page Title>          # <- your new entry, 6-space indent
+      path: <subdirectory>/<filename>.md
 ```
+
+### Section → Subdirectory map
+
+These are the canonical homes for each section in `docs/index.yml`:
+
+| Section banner | Canonical subdirectory under `docs/` |
+|---|---|
+| Getting Started | `getting-started/` |
+| Kubernetes Deployment | `kubernetes/` |
+| User Guides | `guides/` |
+| Backends | `backends/` |
+| Components | `components/` |
+| Integrations | `integrations/` |
+| Documentation | `documentation/` |
+| Design Docs | `design-docs/` |
+| Blog | `blog/` |
+| Hidden Pages | `hidden/` |
+
+If the section banner is present but the subdirectory above doesn't exist yet (rare — usually only for a brand-new section), inspect an existing page's `path:` field for that section in `index.yml` to find the truth; the map can drift from real layout.
 
 ### Update a Page
 

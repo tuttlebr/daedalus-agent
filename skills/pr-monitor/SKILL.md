@@ -1,6 +1,6 @@
 ---
 name: pr-monitor
-description: Check CI status, analyze failures, and explain skips for a Dynamo PR
+description: Health-check a Dynamo pull request on ai-dynamo/dynamo — check CI status across the lightweight (pre-merge.yml) and full (pr.yaml, container-validation-dynamo.yml) pipelines, determine whether a `pull-request/<N>` branch was cut by copy-pr-bot, analyze failed jobs, explain skipped jobs, and report review status. Use whenever the user asks to "check PR #N", "monitor PR <N>", "what's the CI status on PR <N>", "is PR <N> green", "why is full CI not running on PR <N>", "explain the failures on PR <N>", "is this PR ready to merge", or otherwise wants a structured CI/review summary for a specific Dynamo PR.
 user-invocable: true
 disable-model-invocation: true
 ---
@@ -11,10 +11,13 @@ Perform a full health check on a Dynamo pull request. Takes a PR number as argum
 
 ## Step 1: PR Overview
 
-Gather PR metadata and determine what CI should look like for this PR.
+Gather PR metadata and determine what CI should look like for this PR. Include `mergeable`, `mergeStateStatus`, and `statusCheckRollup` so Step 5 can compute a real ready-to-merge verdict instead of approximating from review state alone.
 
 ```bash
-gh pr view $PR_NUMBER --repo ai-dynamo/dynamo --json title,body,author,state,isDraft,additions,deletions,changedFiles,labels,reviewDecision,headRefName,baseRefName
+gh pr view $PR_NUMBER --repo ai-dynamo/dynamo --json \
+  title,body,author,state,isDraft,additions,deletions,changedFiles,\
+labels,reviewDecision,headRefName,baseRefName,\
+mergeable,mergeStateStatus,statusCheckRollup
 
 gh pr diff $PR_NUMBER --repo ai-dynamo/dynamo --name-only
 ```
@@ -184,7 +187,18 @@ If everything matches expectations, say "No unexpected skips or discrepancies" a
 
 ## Step 5: Actionable Summary
 
-Synthesize into a concise report:
+Synthesize into a concise report.
+
+**Ready to merge: [YES | NO — <reason>]**
+
+Combine four signals to compute the verdict (don't approximate from review state alone):
+
+1. All required checks green (from `statusCheckRollup`)
+2. `reviewDecision == APPROVED`
+3. `mergeStateStatus == CLEAN` (no conflicts, no branch-protection blockers)
+4. Not draft (`isDraft == false`)
+
+If any are false, the verdict is NO and the `<reason>` names the first failing signal (e.g. `NO — mergeStateStatus=BEHIND, rebase needed`, `NO — required reviewer hasn't approved`, `NO — 3 status checks still pending`).
 
 **PR Health: [PASSING | FAILING | PENDING | CI NOT TRIGGERED | PARTIAL — lightweight only]**
 
@@ -248,5 +262,6 @@ When all checks complete, re-run the summary from Step 5 with final results. Rep
 - **Rate limits**: If `gh` commands fail due to rate limiting, report what you could gather and suggest retrying later.
 - **Multiple workflows**: A single push can trigger `pr.yaml`, `pre-merge.yml`, and `container-validation-dynamo.yml`. Check all of them.
 - **`pull-request/[0-9]+` branches**: Created by copy-pr-bot after maintainer approval. Required for full CI — applies to both fork and internal PRs.
+- **External-contribution re-approval on every push**: copy-pr-bot does **not** auto-update the `pull-request/<N>` branch on subsequent pushes from a fork PR's author. After a fix push, an NVIDIA maintainer must comment `/ok to test <new_sha>` again — the previous approval is sha-pinned. If the user is asking "I pushed a fix, why isn't full CI running again?", this is almost always the answer.
 - **`external-contribution` label**: Fork PRs get this label automatically. Its presence confirms the PR is from an external contributor.
 - **External CI (GitLab)**: Ignore `ci/gitlab/*` checks entirely. These are NVIDIA-internal and cannot be diagnosed from GitHub.

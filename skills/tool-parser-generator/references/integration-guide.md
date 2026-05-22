@@ -31,11 +31,16 @@ impl ToolCallConfig {
 
 Edit `/lib/parsers/src/tool_calling/parsers.rs`:
 
-In the `get_tool_parser_map()` function:
+In the `get_tool_parser_map()` function, register both the short preset name AND the HuggingFace id (dynamo backends typically route by HF id):
 
 ```rust
 map.insert("model_name".to_string(), ParserType::Json);
+map.insert("Org/Model-Name-Vendor-Suffix".to_string(), ParserType::Json);
 ```
+
+### Step 2b: Update `test_get_available_tool_parsers()`
+
+This test guards the registry. Add the new preset name to the `available_parsers` array in the test. Skipping this step is the most common cause of CI red after running this skill.
 
 ### Step 3: Add Tests
 

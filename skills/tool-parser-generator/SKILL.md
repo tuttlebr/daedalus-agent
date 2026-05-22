@@ -1,10 +1,11 @@
 ---
 name: tool-parser-generator
-description: Generate optimized tool call parsers for dynamo from HuggingFace model chat templates. Use this when you need to add support for a new model's tool calling format. Takes a HuggingFace model name, analyzes its chat template, compares with existing parsers, and either maps to existing parser or generates new Rust code with tests for the dynamo tool_calling library.
-license: "Apache-2.0"
+description: Generate or configure tool-call parsers for dynamo from a HuggingFace model's chat template. Fetches `tokenizer_config.json`, analyzes the Jinja chat template to identify tool-call markers and format (JSON, XML, Pythonic, Harmony, or DSML), matches against dynamo's existing parsers in `lib/parsers/src/tool_calling/`, and either adds a config preset (preferred, >80% of cases) or generates a new parser with Rust tests. Use whenever the user wants to "add tool calling support for <HF model>", "generate a parser for <model>", "support tool calls from <model>", "wire <model> into dynamo's tool_calling library", or asks how a model structures its tool calls.
 ---
 
 # Tool Parser Generator Skill
+
+> **Related skills:** `dynamo-docs` (document the new parser on the Dynamo Fern docs site), `dynamo-bug` (file an upstream bug if a model's chat template is malformed).
 
 Add support for new models' tool calling formats by analyzing their chat templates and generating appropriate parser implementations for dynamo.
 
@@ -187,6 +188,10 @@ For any new parser or configuration, generate comprehensive tests:
    - Inline in parser file (in `#[cfg(test)]` module)
    - Or in `/lib/parsers/src/tool_calling/tests.rs`
 
+5. **Update `test_get_available_tool_parsers()`** (don't defer this to Phase 6 — it lives with the tests):
+   - Add the new parser preset name to the `available_parsers` array in the test
+   - This test guards the registry; skipping it is the #1 cause of failed CI after this skill runs
+
 ### Phase 6: Integration
 
 1. **Update module exports**:
@@ -195,8 +200,10 @@ For any new parser or configuration, generate comprehensive tests:
 
 2. **Register parser** in `parsers.rs` if new parser:
    - Add to `get_tool_parser_map()` function
-   - **CRITICAL**: Update `test_get_available_tool_parsers()` test
-   - Add your new parser name to the `available_parsers` array in the test
+   - **Register both names**: register the short preset name (`qwen2_5`) AND the canonical HuggingFace id (`Qwen/Qwen2.5-72B-Instruct`) as aliases — dynamo backends typically route by HF id, so omitting the alias leaves the parser unreachable from real model invocations.
+   - **CRITICAL**: confirm Phase 5 step 5 (the `test_get_available_tool_parsers()` update) was done. If you went straight to Phase 6, do it now.
+
+   For the **config-preset-only path** (Phase 4 Option A — no new parser file): no `mod` declaration is needed. Skip step 1 above and only do the dispatch wiring in `config.rs` + the registry add in `parsers.rs`.
 
 3. **Document the parser**:
    - Add doc comments explaining format

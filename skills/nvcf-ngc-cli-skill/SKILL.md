@@ -1,10 +1,11 @@
 ---
 name: nvcf-ngc-cli-skill
-description: Comprehensive skill for NVIDIA Cloud Functions (NVCF) via NGC CLI. Covers functions, tasks, clusters, GPU management, and the NGC registry (nvcr.io). Use when working with cloud functions, deployments, batch tasks, cluster registration, GPU capacity, container images, Helm charts, models, resources, or when the user mentions ngc cf, NVCF, cloud functions, function deployment, GPU quota, nvcr.io, ngc registry, pushing images, or container registry.
-compatibility: Requires NGC CLI installed and configured
+description: Comprehensive skill for NVIDIA Cloud Functions (NVCF) on the cloud-hosted control plane via NGC CLI. Covers functions, tasks, clusters, GPU management, and the NGC registry (nvcr.io). Use when working with cloud functions, deployments, batch tasks, cluster registration, GPU capacity, container images, Helm charts, models, resources, or when the user mentions ngc cf, NVCF, cloud functions, function deployment, GPU quota, nvcr.io, ngc registry, pushing images, or container registry. Requires NGC CLI installed and configured.
 ---
 
 # NGC Cloud Functions CLI Skill
+
+> **Related skills:** `nvcf-self-managed-cli` (function ops on a self-hosted control plane via nvcf-cli), `nvcf-self-managed-installation` (install the self-managed control plane via helmfile).
 
 Complete reference for managing NVIDIA Cloud Functions (NVCF) via NGC CLI.
 
@@ -32,9 +33,14 @@ The `--org` flag accepts the **org ID** (the alphanumeric string shown in parent
 ngc cf gpu quota --org 011011100111011001101001011001000110100101100001
 ```
 
-### Verify NGC_API_KEY (Required Before Invocation)
+### Verify NGC_API_KEY (Required Before Invocation OR Image Push)
 
-If the task involves invoking a function (via curl, HTTP, or any script), you **must** verify `NGC_API_KEY` is available in the agent's shell **before** attempting any invocation. Do not attempt invocation first and troubleshoot after failure.
+The same `NGC_API_KEY` is required for two distinct workflows:
+
+1. **Function invocation** (curl / HTTP / scripts hitting `https://api.nvcf.nvidia.com/v2/...` or a function endpoint)
+2. **`docker login nvcr.io`** when pushing container images, pulling private images, or running `ngc registry image push/pull`
+
+Verify the key **before** either workflow — pushing an image first and only loading the key when `docker push` 401s wastes the build step.
 
 ```bash
 [ -n "$NGC_API_KEY" ] && echo "NGC_API_KEY is configured" || echo "NGC_API_KEY is not set"
@@ -202,16 +208,20 @@ Manage container images, Helm charts, models, and resources in the NGC registry 
 
 **Critical:** Images must exist in the registry before creating a function or task that references them. If you build an image locally, you must push it to nvcr.io (or another accessible registry) first. Do not create a function referencing an image that has not been pushed.
 
+**Cross-org pushes:** if the *target* org for this image is not the org currently in `ngc config current`, tag with the **target** org's slug (not the configured one) and pass `--org <TARGET_ORG_ID>` to subsequent `ngc registry image ...` commands. Discover slugs and IDs with `ngc org list`.
+
 ```bash
-# Authenticate Docker to NGC registry
+# Authenticate Docker to NGC registry (works for any org you have access to)
 echo "$NGC_API_KEY" | docker login nvcr.io -u '$oauthtoken' --password-stdin
 
-# Tag and push a local image to NGC
-docker tag my-app:v1 nvcr.io/<org>/my-app:v1
-docker push nvcr.io/<org>/my-app:v1
+# Tag and push a local image to the target NGC org (TARGET_ORG_SLUG may differ
+# from `ngc config current` — use the org you intend to publish to).
+docker tag my-app:v1 nvcr.io/<TARGET_ORG_SLUG>/my-app:v1
+docker push nvcr.io/<TARGET_ORG_SLUG>/my-app:v1
 
-# Verify the image exists before creating a function
-ngc registry image info <org>/my-app:v1
+# Verify the image exists before creating a function (pass --org if different
+# from the configured default).
+ngc registry image info <TARGET_ORG_SLUG>/my-app:v1 --org <TARGET_ORG_ID>
 
 # List images / charts / models / resources
 ngc registry image list

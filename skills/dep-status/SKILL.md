@@ -1,6 +1,6 @@
 ---
 name: dep-status
-description: List and filter open DEPs (Dynamo Enhancement Proposals) by status, area, or PIC; find DEPs related to a topic or component on ai-dynamo/dynamo. Use when triaging the DEP backlog, checking what's pending review, surveying DEPs touching a specific subsystem, or generating a DEP status summary.
+description: List and filter Dynamo Enhancement Proposals (DEPs) on ai-dynamo/dynamo by status, area, PIC, or topic. Use whenever the user asks to "check DEP status", "list DEPs", "show open DEPs", "what DEPs are under review", "find DEPs about X", "DEP triage", "DEP backlog", "what's pending review", "DEPs assigned to <person>", "DEPs touching <component>", or wants a DEP status summary across one or more areas. Also use for cross-referencing DEPs by area label or finding related DEPs by keyword.
 ---
 
 # Skill: Check DEP Status
@@ -28,31 +28,67 @@ gh issue list --repo ai-dynamo/dynamo \
   --json number,title,labels,assignees,createdAt,updatedAt
 ```
 
-2. **Filter by area** (if requested):
+2. **Filter by area** (if requested). `gh` `--label` is AND when
+   passed multiple times:
 
 ```bash
+# Single area
 gh issue list --repo ai-dynamo/dynamo \
   --label "<area>" \
-  --json number,title,labels,assignees
+  --json number,title,labels,assignees,createdAt,updatedAt
+
+# Multiple areas in EITHER (OR semantics): run once per area and
+# dedupe in jq. Note: a DEP can carry multiple area labels — a single
+# issue may legitimately appear in two area filters; dedupe by number.
 ```
 
-3. **Filter by status** (if requested):
+3. **Filter by status** (if requested). Combine with area via repeated
+   `--label`:
 
 ```bash
+# Status only
 gh issue list --repo ai-dynamo/dynamo \
   --label "dep:<status>" \
   --json number,title,labels,assignees
+
+# Status + area combined (AND): for "open DEPs under-review touching
+# router"
+gh issue list --repo ai-dynamo/dynamo \
+  --label "dep:under-review" --label "router" \
+  --json number,title,labels,assignees,createdAt,updatedAt
 ```
 
-4. **Format as a summary table**:
+4. **Compute age and flag stale DEPs.** When the user asks about
+   triage / backlog / "what's pending", compute days since
+   `updatedAt` and flag entries older than a threshold (default
+   14 days, but honor any value the user supplies):
+
+```bash
+THRESHOLD_DAYS=14
+gh issue list --repo ai-dynamo/dynamo \
+  --label "dep:under-review" \
+  --json number,title,labels,assignees,updatedAt \
+  --jq --arg t "$THRESHOLD_DAYS" '
+    map(. + {age_days: (((now - (.updatedAt | fromdate)) / 86400) | floor)})
+    | map(. + {stale: (.age_days | tonumber) > ($t | tonumber)})
+  '
+```
+
+5. **Format as a summary table.** Include Age and a stale marker when
+   a threshold was applied or the user asked about backlog:
 
 ```text
-| # | Title | Status | Area | PIC | Updated |
-|---|-------|--------|------|-----|---------|
-| 42 | DEP: KV router scheduling | dep:under-review | router | @pic | 2026-03-28 |
+| # | Title | Status | Area | PIC | Updated | Age (d) | Stale? |
+|---|-------|--------|------|-----|---------|---------|--------|
+| 42 | DEP: KV router scheduling | dep:under-review | router | @alice | 2026-03-28 | 18 | ⚠ |
+| 47 | DEP: Scheduler async streams | dep:under-review | scheduler | @bob | 2026-05-04 | 4 |  |
 ```
 
-5. **Find related DEPs** by searching issue titles and bodies:
+PIC comes from `.assignees[0].login`; if multiple assignees, render
+them comma-separated and treat the first as the lead PIC. If
+`assignees` is empty, show `unassigned`.
+
+6. **Find related DEPs** by searching issue titles and bodies:
 
 ```bash
 gh issue list --repo ai-dynamo/dynamo \
@@ -60,7 +96,7 @@ gh issue list --repo ai-dynamo/dynamo \
   --json number,title,labels,state
 ```
 
-6. **Include closed DEPs** if requested:
+7. **Include closed DEPs** if requested:
 
 ```bash
 gh issue list --repo ai-dynamo/dynamo \

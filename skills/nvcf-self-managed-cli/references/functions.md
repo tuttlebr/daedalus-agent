@@ -173,6 +173,18 @@ nvcf-cli function create --rate-limit "100-M" --rate-limit-exempted <nca-id> ...
 
 ### Helm Chart Functions
 
+**Prerequisite:** NVCF does not accept local `.tgz` chart bundles directly. The chart must already exist in a registry NVCF can pull from — typically NGC (`nvcr.io/<org>/...`) or another OCI-compliant registry whose credentials have been registered with NVCF (see [registry.md](registry.md) for credential registration). If you have a local chart, push it first:
+
+```bash
+# Push to NGC's chart registry
+ngc registry chart push <chart-name>:<version>
+
+# OR push to a generic OCI registry
+helm push <chart>-<version>.tgz oci://<registry-host>/<org>
+```
+
+Then create the function pointing at the registry coordinates:
+
 ```bash
 nvcf-cli function create \
   --name my-helm-function \
