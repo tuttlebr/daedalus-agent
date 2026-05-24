@@ -4,9 +4,10 @@
 
 ## Validation
 
-- [ ] Builder tests (`cd builder && python3 -m pytest`)
-- [ ] Frontend lint/typecheck/tests/build
-- [ ] Helm lint
+- [ ] Ran `make ci` (or the per-area targets below) without failures
+- [ ] Builder tests (`make builder`)
+- [ ] Frontend lint/typecheck/tests/build (`make frontend`)
+- [ ] Helm lint (`make helm`)
 - [ ] Docs updated, if needed
 
 ## Notes
