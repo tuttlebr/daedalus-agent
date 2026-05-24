@@ -119,7 +119,7 @@ Output:
 ```
 API Key generated
   Name: ci-runner-7d
-  Key: nvcf_apikey_AbCdEf123...
+  Key: <redacted-api-key>
   Expires: 2026-05-07T18:30:00Z
 ```
 
