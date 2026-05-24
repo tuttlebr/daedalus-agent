@@ -472,7 +472,9 @@ def test_research_agent_rejects_stale_curated_memory_store_alias():
         assert "curated_memory_store" not in research_agent["tool_names"], path
         assert "curated_memory_store" in research_agent["system_prompt"], path
         assert "domain_retriever_tool" in research_agent["system_prompt"], path
-        assert "never call curated_memory_store" in research_agent["system_prompt"], path
+        assert (
+            "never call curated_memory_store" in research_agent["system_prompt"]
+        ), path
 
 
 def test_mas_optimizer_description_exposes_skill_name_contract():

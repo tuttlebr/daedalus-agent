@@ -563,8 +563,10 @@ def patch():
             from nat.plugins.mcp.client_base import MCPStreamableHTTPClient
         from mcp import ClientSession
         from mcp.client.streamable_http import streamable_http_client
-        from mcp.shared._httpx_utils import MCP_DEFAULT_SSE_READ_TIMEOUT
-        from mcp.shared._httpx_utils import create_mcp_http_client
+        from mcp.shared._httpx_utils import (
+            MCP_DEFAULT_SSE_READ_TIMEOUT,
+            create_mcp_http_client,
+        )
 
         # Override upstream's 30 s connect timeout for fast-fail on unreachable
         # MCP servers; read/write/pool inherit upstream's long-read values.
