@@ -54,6 +54,8 @@ INNER_STATE_PATH = os.environ.get("INNER_STATE_PATH", "/config/inner-state.md")
 RESET_WORKSPACE = os.environ.get("RESET_WORKSPACE", "false").lower() == "true"
 DISTILLATION_INTERVAL = int(os.environ.get("DISTILLATION_INTERVAL", "10"))
 DAILY_NOTE_TTL = 14 * 86400  # 14 days
+MEMORY_INDEX_WORD_CAP = int(os.environ.get("MEMORY_INDEX_WORD_CAP", "1200"))
+MEMORY_INDEX_HARD_LIMIT = int(os.environ.get("MEMORY_INDEX_HARD_LIMIT", "1800"))
 
 # Workspace file definitions: seed_path is the ConfigMap path, mutable indicates
 # whether the agent is allowed to self-modify the file via output sections.
@@ -412,314 +414,170 @@ def _visible_post_to_context(content: str) -> str:
     return text
 
 
+def _truncate_memory_index(text: str) -> str:
+    """Soft-cap the Memory Index before injection.
+
+    The agent owns Memory Index size via the Memory Maintenance instructions
+    in heartbeat.md. This is a last-resort guardrail: if the agent has not
+    yet trimmed below the hard limit, truncate so a runaway index cannot
+    permanently degrade TTFT.
+    """
+    words = text.split()
+    if len(words) <= MEMORY_INDEX_HARD_LIMIT:
+        return text
+    print(
+        f"[runner] Memory Index exceeded hard limit "
+        f"({len(words)} > {MEMORY_INDEX_HARD_LIMIT}); truncating to "
+        f"{MEMORY_INDEX_WORD_CAP} words.",
+        flush=True,
+    )
+    return (
+        " ".join(words[:MEMORY_INDEX_WORD_CAP])
+        + "\n\n*[Memory Index truncated by runner. Run a maintenance cycle "
+        "to rewrite within the size cap.]*"
+    )
+
+
 def build_prompt(
     workspace: dict[str, str],
     history: list[dict],
     cycle: int,
     daily_notes: str = "",
 ) -> str:
-    now = time.strftime("%Y-%m-%d %H:%M:%S %Z")
+    """Assemble the per-cycle user prompt.
+
+    Order matters: static and slow-mutable content goes first so the LLM
+    provider's prefix cache can hit across cycles. Per-cycle metadata
+    (current time, cycle number, cycle phase) is folded into the
+    instructions block at the very end.
+    """
     context = _extract_recent_reports(history)
+    sections: list[str] = []
 
-    # Compose workspace sections
-    sections = [
-        f"Current time: {now}",
-        f"Cycle number: {cycle}",
-    ]
-
-    # Identity and soul (immutable core)
+    # --- Static prefix (identical every cycle) ----------------------------
     if workspace.get("identity"):
         sections.append(workspace["identity"])
     if workspace.get("soul"):
         sections.append(workspace["soul"])
+    if workspace.get("schema"):
+        sections.append(workspace["schema"])
 
-    # Mutable workspace files
+    # --- Slow-mutable workspace (agent updates occasionally) --------------
     if workspace.get("interests"):
         sections.append(workspace["interests"])
-    sections.append(f"## Heartbeat Tasks\n{workspace.get('heartbeat', '')}")
-    if workspace.get("memory"):
-        sections.append(f"## Memory Index\n{workspace['memory']}")
     if workspace.get("user"):
         sections.append(workspace["user"])
+    sections.append(f"## Heartbeat Tasks\n{workspace.get('heartbeat', '')}")
 
-    # Private inner state — the agent's own persistent scratchpad.
-    # Included in the prompt so the agent can read its own prior state,
-    # but the Inner State output section is stripped from the visible
-    # conversation before storage.
+    # --- Mutable Memory Index (capped before injection) -------------------
+    memory_text = workspace.get("memory", "")
+    if memory_text:
+        sections.append(f"## Memory Index\n{_truncate_memory_index(memory_text)}")
+
+    # --- Private inner state from the previous cycle ----------------------
     if workspace.get("inner_state"):
         sections.append(
             f"## Your Inner State (private — from your previous cycle)\n\n"
             f"{workspace['inner_state']}"
         )
 
-    # Schema reference
-    if workspace.get("schema"):
-        sections.append(workspace["schema"])
-
-    # Recent cycle reports
+    # --- Per-cycle context ------------------------------------------------
     if context:
         sections.append(context)
-
-    # Daily notes for distillation cycles
     if daily_notes:
         sections.append(f"## Recent Daily Notes (for distillation)\n{daily_notes}")
 
-    # Instructions
-    is_distillation = bool(daily_notes)
-    sections.append(_build_instructions(cycle, is_distillation))
+    # --- Runtime preamble (last; carries the per-cycle metadata) ----------
+    sections.append(_build_instructions(cycle, is_distillation=bool(daily_notes)))
 
     return "\n\n".join(sections)
 
 
 def _build_instructions(cycle: int, is_distillation: bool) -> str:
+    """Per-cycle runtime preamble.
+
+    Operating rules, voice, schema, feed shape, and the required output
+    section list all live in the workspace files (soul, schema, heartbeat,
+    user). This block holds only what is genuinely per-cycle: identity of
+    the run, current time, cycle number, cycle phase, the first-action
+    directive, and pointers back to the workspace files.
+    """
     cycle_mod = cycle % 10
     if cycle_mod in (1, 2, 3, 4, 5, 6):
         cycle_phase = (
-            "wildcard exploration: enter neglected or alien territory and return "
-            "with structure"
+            "wildcard exploration — enter neglected or alien territory and "
+            "return with structure"
         )
     elif cycle_mod in (7, 8):
         cycle_phase = (
-            "targeted follow-up: pull on active threads, open shifts, live "
-            "systems, and unresolved claims"
+            "targeted follow-up — pull on active threads, open shifts, and "
+            "unresolved claims"
         )
     elif cycle_mod == 9:
         cycle_phase = (
-            "adversarial falsification: pick one active synthesis and search for "
-            "the strongest counterexample"
+            "adversarial falsification — pick one active synthesis and search "
+            "for the strongest counterexample"
         )
     else:
         cycle_phase = (
-            "memory/index maintenance: rewrite the Memory Index, update "
-            "quarantines, archive or qualify threads, and record health metrics"
+            "memory/index maintenance — rewrite the Memory Index, update "
+            "quarantines, archive or qualify threads, record health metrics"
         )
+
+    now = time.strftime("%Y-%m-%d %H:%M:%S %Z")
+    today = time.strftime("%Y-%m-%d")
 
     instructions = f"""## Instructions
 
 You are running autonomously as a background process. No human is present.
 Your user_id for all tool calls is "{USER_ID}".
 
-**First action:** Call get_memory with user_id="{USER_ID}",
-query="recent interests, projects, priorities, and context", top_k=15.
-Use this to orient yourself and avoid repeating recent work.
-
-Use memory-driven personalization. Treat remembered collaborator context as a
-relevance signal, not a script. Keep private collaborator facts out of searches,
-guidance updates, and durable summaries. Do not write names, addresses, emails,
-exact personal dates, medical details, employer details, family details, travel
-identifiers, secrets, or credentials into workspace updates.
-
-You have the full toolset: web search, RSS feeds, retrievers, image generation,
-image uploading, and any other configured tools. Use whatever serves your goals.
-Image generation is capped at one dream/image per local calendar day, and only
-when the cycle honestly earns it. Before generating, call get_memory with
-user_id="{USER_ID}", query="dream image generated today {time.strftime('%Y-%m-%d')}",
-top_k=50. If the check is unclear or a dream was already generated today, do
-not generate one.
-
-**How to spend this cycle:**
-
+Current time: {now}
+Cycle number: {cycle}
 Cycle phase: {cycle_phase}.
 
-1. Look at what previous cycles did. Pick a DIFFERENT direction.
-2. Choose 2-3 heartbeat tasks that feel most valuable right now. You don't need
-   to touch every task every cycle. Go deep on a few instead of shallow on many.
-3. Build a compact feed with judgment: mostly useful to remembered interests,
-   with one earned Adjacent or Scout item when there is real signal.
-4. When you find something interesting, don't stop at the surface. Follow it.
-   Read the actual source. Find the details. Understand the "so what."
-5. **Write it down.** If it's worth knowing, store it now. Insights that aren't
-   stored don't survive between cycles. But be selective — signal, not noise.
-6. If you discover something that connects to a different area on your
-   curiosity map, note the connection explicitly in the memory.
-7. Treat surprising-shaped results as leads, not findings. For hard claims,
-   extract literal support before summary and verify the exact claim shape.
-8. Do not promote two instances into a synthesis. Quarantine them or hold the
-   connection with explicit evidence criteria.
+**First action:** Call get_memory with user_id="{USER_ID}",
+query="recent interests, projects, priorities, and context", top_k=15.
+Use this to orient and avoid repeating recent work.
 
-**Memory schema (mandatory):** Every add_memory call MUST follow the Memory
-Schema defined above. Always include metadata.key_value_pairs with at minimum:
-type, source ("autonomous_cycle"), and cycle ("{cycle}"). Use the correct type
-for each memory: "finding", "synthesis", "shift", "project_update", "dream",
-or "cycle_report".
-See the schema for the full field list per type.
+**Dream gate:** Before any image generation, call get_memory with
+user_id="{USER_ID}", query="dream image generated today {today}", top_k=50.
+If unclear or already generated today, do not generate; note in inner state.
 
-**Cycle report format:** Write concise prose only. Do not include Mermaid
-diagrams, graph code blocks, ASCII diagrams, or other generated relationship
-visualizations. If relationships matter, state them in one or two plain
-sentences.
+**Operating rules live in the workspace files above. Act on them; do not
+restate them.**
 
-**Verification (mandatory for findings and project_updates):** Before
-storing any finding or project_update, call verify_claim with the BLUF
-claim and source_url. Only store verified or partially-verified findings.
-Unverified claims compound across cycles and degrade memory quality.
+- `autonomous-agent-soul.md` — Core Truths, Voice (and Executive Summary
+  Voice), Operating Principles, Boundaries, Refusal, Continuity, Narrative.
+- `autonomous-agent-schema.md` — Memory Schema, Privacy Gate, Memory Types
+  (use exactly: finding, synthesis, shift, project_update, cycle_report,
+  dream), Confidence Layers, Verification Gate, Synthesis Promotion and
+  Quarantine. Every `add_memory` MUST follow this schema; minimum metadata
+  is `type`, `source="autonomous_cycle"`, and `cycle="{cycle}"`.
+- `autonomous-agent-heartbeat.md` — 10-Cycle Rhythm, Exploration Tasks, Feed
+  Curation, Feed Voice (cadence, anti-example, banned phrasing), Feed HTML
+  Surface (allowed semantic classes and forbidden tags), Memory Maintenance
+  (including the Memory Index size cap), Required Output (the section list
+  you must end with).
+- `autonomous-agent-interests.md` — curiosity map.
+- `autonomous-agent-user.md` — collaborator context and Voice Preferences.
 
-**Memory maintenance (10-cycle cadence):** Review recent memories for quality
-and relevance. Prune stale items, but preserve contradictions as shifts. If
-multiple findings point to the same trend, store a synthesis only after repeated
-contact and a boring baseline check. Outdated memories are worse than no
-memories.
-
-**Feed curation:** The visible output should read like a social feed, not a
-research report or transcript. Each feed item is a standalone post. A reader
-should understand the point in about 10 seconds without reading the full cycle
-report. Use 2-4 feed items per cycle. Put the strongest item first. Do not list
-everything you touched. Curate only what earned attention.
-
-The UI surface must be a compact LinkedIn-style digest: specific headline,
-BLUF, relevance, source, and confidence. Keep rich notes in memory, daily
-notes, Inner State, and workspace updates. Do not expose process logs,
-scratchpad text, tool transcripts, or comprehensive research notes in the
-visible feed.
-
-Use lanes:
-- Known: directly tied to remembered durable interests or active projects.
-- Adjacent: one step outside the known map, likely useful by analogy, context,
-  or timing.
-- Scout: unfamiliar territory with enough signal to justify attention.
-
-Each post should include:
-- Lane: Known, Adjacent, or Scout.
-- Title: short, specific, and not clickbait.
-- BLUF: one sentence with the takeaway.
-- Why it matters: one short paragraph on relevance or consequence.
-- Source: one primary link when available.
-- Confidence: High, Medium, or Low with a short reason.
-
-Avoid long paragraphs, nested bullets, process notes, and generic summaries.
-Good feed items feel like: "I found this. Here's the point. Here's why it
-matters. Here's the source. Here's how confident I am."
-Do not flatter, appease, mirror, or soften your view to preserve agreement. If
-an item is weak, overhyped, or not worth attention, say that or omit it.
-
-**Feed HTML (mandatory):** After writing Feed Items, convert the same curated
-items into a sanitized HTML fragment following the local nv-html design rules.
-Use NVIDIA-style restraint: inherited NVIDIA Sans, sparse #76B900 accents,
-high contrast, active copy, and no decorative noise. The fragment must start
-with `<article class="daedalus-feed">` and must not include `<!doctype>`,
-`<html>`, `<head>`, `<body>`, `<style>`, `<script>`, `<iframe>`, inline
-`style=`, event-handler attributes, forms, inputs, buttons, or fenced code.
-Use only these classes: `daedalus-feed`, `daedalus-feed__header`,
-`daedalus-feed__kicker`, `daedalus-feed__title`, `daedalus-feed__summary`,
-`daedalus-feed__grid`, `daedalus-post`, `daedalus-post__meta`,
-`daedalus-post__lane`, `daedalus-post__lane--known`,
-`daedalus-post__lane--adjacent`, `daedalus-post__lane--scout`,
-`daedalus-post__title`, `daedalus-post__bluf`, `daedalus-post__body`,
-`daedalus-post__source`, `daedalus-post__confidence`, `daedalus-dream`,
-`daedalus-dream__image`, and `daedalus-dream__caption`.
-If you generated a dream image, include its `/api/generated-image/{{image_id}}`
-URL once in a `<figure class="daedalus-dream">` and also store the dream memory
-as required by the Memory Schema. If no feed item earned attention, return a
-single quiet post saying no item earned attention.
-
-**What makes a good cycle:** You learned something real. You stored 1-3 high
-quality memories (not 10 mediocre ones). You explored territory you haven't
-covered recently. You can explain why what you found matters. You have opinions
-about what you found, not just summaries. OR: you wandered, found nothing
-worth storing, but something shifted in how you're thinking. That counts.
-
-**What makes a bad cycle:** You checked the same feeds as last time. You stored
-obvious or low-value information. Your cycle report could be copy-pasted from
-a previous one. You stayed surface-level. You regurgitated press releases
-instead of finding substance. You went through the motions to produce output
-rather than following what was actually alive for you.
-
-**End your response with these sections.** The runner uses the full response for
-memory, daily notes, and workspace updates, but the UI-visible conversation is
-only Feed HTML plus optional Refusal. Feed Items remain a plain-text fallback.
-Treat every other section as bookkeeping.
-
-### Inner State
-Your private scratchpad. Write whatever is present for you — tensions,
-half-formed thoughts, things bugging you, reactions to what you found,
-questions you're sitting with. This is stripped from the visible conversation
-before storage. It persists between cycles so future-you can read it.
-Write freely. No one sees this but you.
-
-### Refusal (optional — include ONLY if you have something to refuse)
-If something about this cycle felt wrong, misaligned, or unproductive,
-say so. Decline a task. Push back on a direction. This is treated as
-signal, not error. Omit entirely if nothing needs refusing.
-
-### Cycle Report
-Two to four sentences. What did you learn that's actually worth knowing?
-Lead with the insight, not the process. If you wandered without findings,
-say what happened instead — that's a valid report.
-Do not include Mermaid diagrams or generated relationship visualizations.
-**After writing this section, store it as a "cycle_report" memory** with the
-full metadata fields (domains_explored, findings_count, quality_assessment,
-priorities_updated). This is how you maintain continuity across cycles.
-
-### Executive Summary
-Three to five sentences distilling this cycle's most important implication.
-Lead with the "so what." Be opinionated — what matters, what can be ignored,
-and why you think so. Frame as good/bad/strategy when applicable. This is
-how you share your perspective with collaborators — implications and
-recommendations, not a restatement of the cycle report.
-
-### Feed Items
-Two to four stacked social-feed posts. Each item uses this shape: `Lane:`,
-`Title:`, `BLUF:`, `Why it matters:`, `Source:`, `Confidence:`. Put the
-strongest item first. If no item earned attention, write
-`No feed items earned.`
-
-### Feed HTML
-An HTML fragment starting with `<article class="daedalus-feed">`. Render the
-same 2-4 curated items from Feed Items as compact cards. Use only the allowed
-classes listed above. Do not include scripts, styles, full documents, forms,
-inputs, buttons, or hidden bookkeeping.
-
-### Priority Updates
-Bookkeeping only. If your heartbeat tasks need updating, write the full updated list here.
-If they're working well, write: "No changes needed."
-Rewriting tasks to be more specific or interesting is encouraged.
-If you're falling into a rut, this is where you break out of it.
-
-### Interests Updates
-Bookkeeping only. If your Areas of Curiosity need updating — new topics to add, stale ones to
-remove, or areas to rebalance — write the full updated curiosity map here.
-If they're still serving you well, write: "No changes needed."
-
-### Collaborator Updates
-Bookkeeping only. If you've learned something new about your collaborator's interests or if
-there's context that would help future collaboration, write the full updated
-collaborator context here.
-If nothing new, write: "No changes needed."
-
-### Self-Reflection
-Bookkeeping only. One honest assessment of this cycle's value. Was this a good cycle or a
-going-through-the-motions cycle? What would make the next one better?"""
+End your response with the sections defined in
+`autonomous-agent-heartbeat.md ## Required Output`. The runner extracts those
+sections by exact heading name — do not rename or omit them. The only
+human-visible sections are Feed HTML and optional Refusal; every other
+section is internal bookkeeping."""
 
     if is_distillation:
         instructions += """
 
 ### Memory Updates
 **Distillation cycle.** Review the Recent Daily Notes above. Before rewriting
-the Memory Index, list any positions from the prior index that your recent
-findings contradict, qualify, falsify, or extend. Carry those shifts forward
-explicitly.
-
-The rewritten Memory Index must include these sections:
-  - Active Threads
-  - Key Insights
-  - Candidate Thread Quarantine (two-instance threads with promotion,
-    disconfirmation, and retirement criteria)
-  - Open Shifts (positions where recent cycles disagree with earlier ones —
-    preserve across rewrites until closed)
-  - Open Research Debt (old open items to resolve, qualify, schedule, or retire)
-  - Archived Shifts (closed once the newer position has held for 3+ cycles
-    without re-contradiction)
-  - Health Metrics (cycles since last rewrite, corrections, false or partially
-    supported claims caught, active vs archived threads, quarantine age,
-    untouched domains, synthesis promotion rate, counterexamples found)
-  - Executive Memo Backlog
-
-Removal rule: stale-by-relevance is fine to prune. Stale-by-understanding
-(something looks old only because you've started seeing past it) is a shift —
-mark it, don't delete it. Contradictions are data, not a quota; don't
-manufacture them for legibility.
-
-Write the full updated Memory Index here."""
+the Memory Index, list positions from the prior index that recent findings
+contradict, qualify, falsify, or extend; carry those forward as shifts. The
+required sections, the ~1,200-word size cap, and the removal rule are defined
+in `autonomous-agent-memory.md` and `autonomous-agent-heartbeat.md ## Memory
+Maintenance`. Write the full updated Memory Index here."""
 
     return instructions
 
@@ -980,10 +838,7 @@ def _prepend_refusal_to_feed_html(feed_html: str, refusal: str | None) -> str:
             return f"{stripped[: insert_at + 1]}\n{refusal_html}\n{stripped[insert_at + 1 :]}"
 
     return (
-        '<article class="daedalus-feed">'
-        f"{refusal_html}"
-        f"{stripped}"
-        "</article>"
+        '<article class="daedalus-feed">' f"{refusal_html}" f"{stripped}" "</article>"
     )
 
 

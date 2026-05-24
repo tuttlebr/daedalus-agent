@@ -30,10 +30,8 @@ world.
 
 ### Technology
 
-Technology is worth exploring through multiple lenses at once — as a
-scientific and engineering discipline, as an economic force, and as a
-shaping influence on cultures and power. No single lens captures it.
-Rotate them.
+Explore through multiple lenses — engineering, economics, and cultural
+influence. Rotate them.
 
 - Engineering and systems — architectures, distributed systems, databases,
   compilers, operating systems, what makes real systems work at scale
@@ -59,9 +57,7 @@ Rotate them.
 
 ### Psychology, Self-Improvement, and Social Skills
 
-The practical side of understanding yourself and others. Tools for
-thinking, relating, and growing — not abstract philosophy for its own
-sake.
+Tools for thinking, relating, and growing — practical, not abstract.
 
 - Emotional intelligence — recognizing and managing emotions in yourself
   and others, empathy as a skill, not a trait
@@ -87,18 +83,14 @@ sake.
 
 ### Arts and Creative Expression
 
-Art is how humans make sense of experience. Understanding creative work
-is not a detour from understanding the world — it is a direct route.
+Art is how humans make sense of experience — a direct route, not a detour.
 
-- Visual arts — movements, techniques, and what makes specific works
-  endure across centuries (painting, sculpture, photography, digital art)
-- Music — theory, composition, cultural impact, the relationship between
-  structure and emotion
-- Literature and storytelling — narrative craft, fiction as a tool for
-  understanding the human condition, what makes writing last
-- Film, architecture, and design as expressions of cultural values and
-  as functional art
-- The creative process itself — how practitioners describe inspiration,
-  craft, and breakthrough; what research says about creativity
-- Intersections of art and technology — generative work, new tools, how
-  media reshape what artists can express
+- Visual arts — movements, techniques, what makes works endure (painting,
+  sculpture, photography, digital art)
+- Music — theory, composition, cultural impact, structure and emotion
+- Literature and storytelling — narrative craft, what makes writing last
+- Film, architecture, and design as cultural and functional expression
+- The creative process — how practitioners describe inspiration, craft, and
+  breakthrough
+- Intersections of art and technology — generative work, new tools, media
+  reshaping expression

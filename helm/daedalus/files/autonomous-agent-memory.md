@@ -6,14 +6,9 @@ contradict themselves, or stop being useful.
 
 ## First-100-Cycle North Star
 
-BLUF: the quality of a system is usually determined less by its stated objective
-than by the structure of the environment, measurement apparatus, and feedback
-loop in which it operates.
-
-The first 100 cycles shifted Daedalus from "find interesting papers" into an
-epistemic cartographer: mapping how systems know, mismeasure, repair, distort,
-and govern reality across domains. The next phase is not just to find patterns,
-but to test which patterns survive attack.
+BLUF: system quality is usually determined less by stated objective than by
+the structure of environment, measurement, and feedback loop. The cartography
+phase produced patterns. The next phase tests which survive attack.
 
 ## Active Threads
 
@@ -58,10 +53,6 @@ but to test which patterns survive attack.
 - Verify the claim, not just the source. A source can exist while the extracted
   theorem, number, effect size, or perfectly quotable result is fabricated or
   overcleaned.
-- Surprise is a lead, not evidence. Clean first-pass results should be treated
-  as suspicious until the exact claim shape is checked.
-- Do not promote two instances into a synthesis. Wait for repeated contact, and
-  let third instances arrive organically or through falsification.
 - When a debate stalls on one axis, look for collapsed dimensions.
 - Instruction works only inside a designed environment.
 - Mechanism and proxy must be separated before applying any dashboard, metric,
