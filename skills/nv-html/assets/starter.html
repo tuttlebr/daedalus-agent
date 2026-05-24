@@ -81,6 +81,44 @@
       margin-bottom: 1rem;
     }
 
+    /* ===== Code & monospace ===== */
+    pre, code, kbd, samp {
+      font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+      font-size: 0.9375em;
+    }
+    code {
+      background: var(--nv-gray-light);
+      color: var(--nv-black);
+      padding: 2px 6px;
+      border-radius: 3px;
+    }
+    pre {
+      background: var(--nv-gray-light);
+      color: var(--nv-black);
+      padding: 16px 20px;
+      border-radius: 4px;
+      overflow-x: auto;
+      line-height: 1.5;
+      margin: 0 0 1em;
+    }
+    pre code {
+      background: transparent;
+      color: inherit;
+      padding: 0;
+      border-radius: 0;
+    }
+    .section.dark pre,
+    .hero pre {
+      background: var(--nv-dark);
+      color: var(--nv-white);
+      border: 1px solid var(--nv-gray-dark);
+    }
+    .section.dark code,
+    .hero code {
+      background: var(--nv-gray-dark);
+      color: var(--nv-white);
+    }
+
     /* ===== Layout ===== */
     .section {
       padding: var(--nv-pad-section-desktop);
@@ -149,6 +187,7 @@
     }
     .card {
       background: var(--nv-white);
+      color: var(--nv-black);
       padding: 32px 24px;
       box-shadow: var(--nv-shadow-card);
     }

@@ -7,7 +7,7 @@ description: Generate NVIDIA-branded HTML pages that follow the official brand s
 
 Produce HTML pages that read as NVIDIA at a glance: confident typography, alternating dark/light sections, a single hero accent of NVIDIA Green, and copy that follows the PACE framework. The defaults in this skill exist because they encode the brand — deviate only when a request genuinely requires it.
 
-The authoritative brand guide lives at the project root in `DESIGN.md`. This skill condenses what you need on-page; read `DESIGN.md` directly when a request goes deeper than the lookups here (full color palette, accessibility notes, trademark policy, etc.).
+The authoritative brand guide lives in this skill at `references/DESIGN.md`. This skill condenses what you need on-page; read `references/DESIGN.md` directly when a request goes deeper than the lookups here (full color palette, accessibility notes, trademark policy, etc.).
 
 ## The non-negotiables
 
@@ -19,6 +19,7 @@ These are the rules that make a page recognizably NVIDIA. If you find yourself s
 4. **High contrast.** White text on black. Black text on white. `#666` for secondary text. No muddy mid-grays for body copy.
 5. **Title case for headings, no terminal punctuation in headings.** No exclamation marks anywhere in body or headings.
 6. **"NVIDIA" in all caps.** Never "Nvidia" or "nvidia" or "NV." Use "an NVIDIA" (the "en" sound, not "a").
+7. **Pair every `background:` with a `color:`.** Any component with a hardcoded background must declare its own text color — never rely on inheritance. A `.card` or `<code>` dropped inside a dark wrapper will otherwise inherit white text onto its own white surface and vanish. This also applies to `<pre>` and `<code>`: they ship with explicit light/dark variants in `starter.html` — don't strip them.
 
 ## Quick-reference lookups
 
@@ -133,9 +134,9 @@ Full guide in `references/voice.md`. The summary:
 ## What this skill does not do
 
 - **Marketing approval.** Brand-adjacent pages destined for nvidia.com or customer-facing campaigns need Brand Studio review — flag this to the user if the request sounds external/public.
-- **Trademark legal copy.** For pages with product trademarks, point the user to `DESIGN.md` § Trademarks for the legal copy block; don't invent one.
+- **Trademark legal copy.** For pages with product trademarks, point the user to `references/DESIGN.md` § Trademark and naming for the legal copy block; don't invent one.
 - **Accessibility validation.** Defaults aim for WCAG AA, but a real audit (contrast, keyboard, screen reader) is the user's job before shipping anything external.
 
 ## When in doubt
 
-Read `DESIGN.md` at the project root. It is the source of truth — if this skill and DESIGN.md disagree, DESIGN.md wins, and please update this skill to match.
+Read `references/DESIGN.md`. It is the source of truth — if this skill and DESIGN.md disagree, DESIGN.md wins, and please update this skill to match.
