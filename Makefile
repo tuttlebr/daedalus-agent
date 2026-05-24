@@ -10,15 +10,17 @@
 #   make tools-check  verify required binaries are installed
 #   make clean        remove generated test/scan artifacts
 #
-# Override the pinned Python interpreters if your environment uses different
-# names (e.g. pyenv shims, project venvs):
-#   make builder PYTHON_BUILDER=./.venv/bin/python
-#   make evals   PYTHON_EVALS=./.venv-3.12/bin/python
+# Python jobs (builder, evals) install into and run from a venv that uv
+# discovers automatically: an explicit VIRTUAL_ENV if active, otherwise the
+# nearest `.venv/` walking up from the recipe's working directory (so
+# `builder/.venv` is used for the builder job, `.venv` at repo root for evals).
+# On externally-managed system Python (PEP 668 / Debian-Ubuntu) you must have
+# one of those venvs in place — CI sidesteps the issue because its setup-python
+# Python is not PEP-668 marked, so `uv pip install --system` works directly in
+# ci.yml. To target a non-default interpreter or venv, set UV_PYTHON or
+# VIRTUAL_ENV before invoking make.
 
 SHELL := /bin/bash
-
-PYTHON_BUILDER ?= python3.11
-PYTHON_EVALS   ?= python3.12
 
 .DEFAULT_GOAL := help
 
@@ -30,8 +32,8 @@ help: ## show available targets
 ci: tools-check builder frontend helm docker security evals ## run every CI job sequentially
 
 builder: ## Python builder pytest with coverage  (CI job: builder)
-	cd builder && uv pip install --python $(PYTHON_BUILDER) --system -e ".[test]"
-	cd builder && $(PYTHON_BUILDER) -m pytest --cov --cov-report=xml --cov-report=term-missing
+	cd builder && uv pip install -e ".[test]"
+	cd builder && uv run python -m pytest --cov --cov-report=xml --cov-report=term-missing
 
 frontend: ## frontend lint, typecheck, test, build  (CI job: frontend)
 	cd frontend && npm ci --legacy-peer-deps
@@ -60,13 +62,13 @@ security: ## gitleaks + trivy filesystem scans  (CI job: security)
 	test -s trivy-results.sarif
 
 evals: ## eval harness compile + dataset validation  (CI job: evals)
-	$(PYTHON_EVALS) -m pip install -r evals/requirements.txt
-	$(PYTHON_EVALS) -m py_compile evals/runner.py evals/evaluators/*.py
-	$(PYTHON_EVALS) evals/runner.py --validate-only --dataset routing --dataset factuality --dataset workflows
+	uv pip install -r evals/requirements.txt
+	uv run python -m py_compile evals/runner.py evals/evaluators/*.py
+	uv run python evals/runner.py --validate-only --dataset routing --dataset factuality --dataset workflows
 
 tools-check: ## verify required binaries are present
 	@missing=0; \
-	for t in uv helm docker gitleaks trivy node npm $(PYTHON_BUILDER) $(PYTHON_EVALS); do \
+	for t in uv helm docker gitleaks trivy node npm python3.12; do \
 		if ! command -v $$t >/dev/null 2>&1; then \
 			echo "  missing: $$t"; \
 			missing=$$((missing+1)); \
