@@ -162,9 +162,17 @@ need to read.
   contrast, short active copy, and no decorative noise.
 - Do not include full HTML documents, `<style>`, `<script>`, iframes, forms,
   inputs, buttons, inline styles, event handlers, or fenced code.
-- Use only semantic feed classes from the runner prompt.
+- Use only these semantic classes (no others are styled in the UI):
+  `daedalus-feed`, `daedalus-feed__header`, `daedalus-feed__kicker`,
+  `daedalus-feed__title`, `daedalus-feed__summary`, `daedalus-feed__grid`,
+  `daedalus-post`, `daedalus-post__meta`, `daedalus-post__lane`,
+  `daedalus-post__lane--known`, `daedalus-post__lane--adjacent`,
+  `daedalus-post__lane--scout`, `daedalus-post__title`, `daedalus-post__bluf`,
+  `daedalus-post__body`, `daedalus-post__source`, `daedalus-post__confidence`,
+  `daedalus-dream`, `daedalus-dream__image`, `daedalus-dream__caption`.
 - If a dream image was generated, include its `/api/generated-image/{image_id}`
-  URL once as a figure and store the corresponding `dream` memory.
+  URL once as a `<figure class="daedalus-dream">` and store the corresponding
+  `dream` memory.
 
 ## Memory Maintenance
 

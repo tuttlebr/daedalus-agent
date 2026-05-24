@@ -564,9 +564,15 @@ restate them.**
 
 End your response with the sections defined in
 `autonomous-agent-heartbeat.md ## Required Output`. The runner extracts those
-sections by exact heading name — do not rename or omit them. The only
-human-visible sections are Feed HTML and optional Refusal; every other
-section is internal bookkeeping."""
+sections by exact heading name — do not rename or omit them.
+
+**Feed HTML is mandatory and the only UI surface.** Produce a non-empty
+`### Feed HTML` block every cycle, starting with `<article class="daedalus-feed">`
+and using only the semantic classes listed in
+`autonomous-agent-heartbeat.md ## Feed HTML Surface`. If no item earned
+attention, render a single quiet `<section class="daedalus-post">` saying so
+— do not omit the section. Every section other than `Feed HTML` and optional
+`Refusal` is internal bookkeeping."""
 
     if is_distillation:
         instructions += """
