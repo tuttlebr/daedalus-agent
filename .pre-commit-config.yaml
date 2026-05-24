@@ -7,19 +7,21 @@
 
 # Skip typical vendor/build artifacts
 exclude: |
-  (^node_modules/)|
-  (^\.venv/)|
-  (^venv/)|
-  (^\.mypy_cache/)|
-  (^__pycache__/)|
-  (^dist/)|
-  (^build/)|
-  (^\.git/)|
-  (/.terraform/)|
-  (^coverage/)|
-  (^\.cache/)|
-  (^\.pytest_cache/)|
-  (package-lock\.json$)
+  (?x)(
+    ^node_modules/|
+    ^\.venv/|
+    ^venv/|
+    ^\.mypy_cache/|
+    ^__pycache__/|
+    ^dist/|
+    ^build/|
+    ^\.git/|
+    (^|/)\.terraform/|
+    ^coverage/|
+    ^\.cache/|
+    ^\.pytest_cache/|
+    (^|/)package-lock\.json$
+  )
 
 repos:
   - repo: https://github.com/tuttlebr/nv-pre-commit
