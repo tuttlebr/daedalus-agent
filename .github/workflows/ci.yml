@@ -106,6 +106,8 @@ jobs:
       security-events: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Secret scan
         uses: gitleaks/gitleaks-action@v2
