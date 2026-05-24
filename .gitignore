@@ -119,6 +119,8 @@ Desktop.ini
 
 # Testing
 coverage/
+coverage.xml
+trivy-results.sarif
 *.lcov
 .nyc_output/
 
