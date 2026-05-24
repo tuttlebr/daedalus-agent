@@ -1,7 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { getRedis, sessionKey, jsonGet, jsonSetWithExpiry } from './redis';
-import { getOrSetSessionId, requireAuthenticatedUser } from './_utils';
-import { stripBase64FromObject, clampConversations } from './sanitize';
+import { getRedis, sessionKey, jsonGet, jsonSetWithExpiry } from '@/server/session/redis';
+import { getOrSetSessionId, requireAuthenticatedUser } from '@/server/session/_utils';
+import { stripBase64FromObject, clampConversations } from '@/server/session/sanitize';
 import { sanitizeConversationsAssistantReplays } from '@/utils/app/conversationReplay';
 
 export const config = {

@@ -1,4 +1,4 @@
-import { getRedis, sessionKey, jsonGet, jsonSet } from '@/pages/api/session/redis';
+import { getRedis, sessionKey, jsonGet, jsonSet } from '@/server/session/redis';
 import { Logger } from '@/utils/logger';
 
 const logger = new Logger('UsageTracking');

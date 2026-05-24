@@ -1,6 +1,6 @@
 import { NextApiRequest, NextApiResponse } from 'next';
 import { getAllUsageStats } from '@/utils/usage/tracking';
-import { getRedis } from '@/pages/api/session/redis';
+import { getRedis } from '@/server/session/redis';
 import { getSession } from '@/utils/auth/session';
 
 /**

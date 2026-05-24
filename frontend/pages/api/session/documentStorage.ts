@@ -1,6 +1,6 @@
 import { NextApiRequest, NextApiResponse } from 'next';
-import { getRedis, sessionKey, jsonGet, jsonDel, jsonSetWithExpiry } from './redis';
-import { getOrSetSessionId, requireAuthenticatedUser } from './_utils';
+import { getRedis, sessionKey, jsonGet, jsonDel, jsonSetWithExpiry } from '@/server/session/redis';
+import { getOrSetSessionId, requireAuthenticatedUser } from '@/server/session/_utils';
 import { validateMagicBytes } from '@/utils/app/magicBytes';
 import crypto from 'crypto';
 
@@ -229,7 +229,7 @@ export const config = {
   },
 };
 
-function canAccessStoredDocument(
+export function canAccessStoredDocument(
   document: StoredDocument,
   currentSessionId: string,
   currentUserId: string,

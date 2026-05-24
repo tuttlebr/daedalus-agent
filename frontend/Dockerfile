@@ -91,7 +91,9 @@ COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 COPY --from=builder --chown=nextjs:nodejs /app/package.json ./package.json
 
 # Copy WebSocket sidecar
+RUN mkdir -p scripts
 COPY --from=builder --chown=nextjs:nodejs /app/ws-build/ws-server.js ./ws-server.js
+COPY --from=builder --chown=nextjs:nodejs /app/scripts/start-runtime.js ./scripts/start-runtime.js
 
 USER nextjs
 
@@ -102,7 +104,7 @@ ENV WS_PORT=3001
 # set hostname to localhost
 ENV HOSTNAME=0.0.0.0
 
-# server.js is created by next build from the standalone output
-# https://nextjs.org/docs/pages/api-reference/next-config-js/output
-# Start both Next.js and WebSocket sidecar
-CMD ["sh", "-c", "node ws-server.js & node server.js"]
+# server.js is created by next build from the standalone output.
+# The runtime wrapper exits the container if either the Next.js server or the
+# WebSocket sidecar dies.
+CMD ["node", "scripts/start-runtime.js"]

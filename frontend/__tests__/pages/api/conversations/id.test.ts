@@ -7,7 +7,7 @@ const mockSismember = vi.fn().mockResolvedValue(1);
 const mockSadd = vi.fn().mockResolvedValue(1);
 const mockSrem = vi.fn().mockResolvedValue(1);
 
-vi.mock('@/pages/api/session/redis', () => ({
+vi.mock('@/server/session/redis', () => ({
   getRedis: vi.fn(() => ({
     sismember: mockSismember,
     sadd: mockSadd,
@@ -31,7 +31,7 @@ vi.mock('@/utils/app/imageHandler', () => ({
   extractImageReferences: vi.fn().mockReturnValue([]),
 }));
 
-vi.mock('@/pages/api/session/sanitize', () => ({
+vi.mock('@/server/session/sanitize', () => ({
   clampConversations: vi.fn((arr: any[]) => arr),
 }));
 
@@ -39,7 +39,7 @@ vi.mock('@/pages/api/session/sanitize', () => ({
 
 import handler from '@/pages/api/conversations/[id]';
 import { getSession } from '@/utils/auth/session';
-import { jsonGet, jsonSetWithExpiry, jsonDel } from '@/pages/api/session/redis';
+import { jsonGet, jsonSetWithExpiry, jsonDel } from '@/server/session/redis';
 
 // --- Helpers ---
 

@@ -1,6 +1,10 @@
 import { NextApiRequest, NextApiResponse } from 'next';
 import http from 'http';
-import { getOrSetSessionId, requireAuthenticatedUser } from '../session/_utils';
+import { getOrSetSessionId, requireAuthenticatedUser } from '@/server/session/_utils';
+import {
+  DocumentRefAccessError,
+  validateDocumentRefsForUser,
+} from '@/server/session/documentRefs';
 import { getBackendHost, buildBackendUrl } from '@/utils/app/backendApi';
 import { resolveMilvusCollectionTarget } from '@/utils/app/milvusCollections';
 import { withInternalBackendAuth } from '@/utils/server/backendAuth';
@@ -70,7 +74,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   try {
     const session = await requireAuthenticatedUser(req, res);
     if (!session) return;
-    getOrSetSessionId(req, res);
+    const sessionId = getOrSetSessionId(req, res);
     const username = session.username;
 
     const { documentRef, documentRefs, filename, collection } = req.body;
@@ -84,6 +88,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     } else {
       return res.status(400).json({ error: 'Invalid document reference(s)' });
     }
+
+    documentsToProcess = await validateDocumentRefsForUser(
+      documentsToProcess,
+      sessionId,
+      username,
+    );
 
     // Use the collection selected by the user, falling back to the username.
     // Shared collections are intentional corpora in the same Milvus database,
@@ -308,6 +318,17 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     });
 
   } catch (error) {
+    if (error instanceof DocumentRefAccessError) {
+      console.warn('Rejected document processing request:', {
+        status: error.status,
+        reason: error.reason,
+      });
+      return res.status(error.status).json({
+        error: error.message,
+        reason: error.reason,
+      });
+    }
+
     console.error('Error processing document:', error);
 
     const message = error instanceof Error ? error.message : 'Unknown error';

@@ -8,14 +8,14 @@ const mocks = vi.hoisted(() => ({
   redisDel: vi.fn(),
 }));
 
-vi.mock('@/pages/api/session/redis', () => ({
+vi.mock('@/server/session/redis', () => ({
   getRedis: vi.fn(() => ({ del: mocks.redisDel })),
   sessionKey: vi.fn((parts: string[]) => `daedalus:${parts.join(':')}`),
   jsonGet: mocks.jsonGet,
   jsonSetWithExpiry: mocks.jsonSetWithExpiry,
 }));
 
-vi.mock('@/pages/api/session/_utils', () => ({
+vi.mock('@/server/session/_utils', () => ({
   requireAuthenticatedUser: mocks.requireAuthenticatedUser,
   getOrSetSessionId: mocks.getOrSetSessionId,
 }));

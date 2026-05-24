@@ -1,5 +1,5 @@
 import { NextApiRequest, NextApiResponse } from 'next';
-import { getOrSetSessionId, requireAuthenticatedUser } from './_utils';
+import { getOrSetSessionId, requireAuthenticatedUser } from '@/server/session/_utils';
 import { cleanupSessionImages } from './imageStorage';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {

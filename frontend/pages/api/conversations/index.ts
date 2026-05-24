@@ -1,5 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { getRedis, jsonMGet, sessionKey } from '../session/redis';
+import { getRedis, jsonMGet, sessionKey } from '@/server/session/redis';
 import { getSession } from '@/utils/auth/session';
 
 /**

@@ -1,5 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { getRedis, sessionKey, jsonSetWithExpiry, jsonGet } from './redis';
+import { getRedis, sessionKey, jsonSetWithExpiry, jsonGet } from '@/server/session/redis';
 import { getSession } from '@/utils/auth/session';
 import { publishSyncEvent } from '@/utils/sync/publish';
 

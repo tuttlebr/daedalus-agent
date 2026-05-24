@@ -1,7 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { sessionKey, jsonGet, jsonSetWithExpiry } from './redis';
-import { getOrSetSessionId, requireAuthenticatedUser } from './_utils';
-import { stripBase64FromObject } from './sanitize';
+import { sessionKey, jsonGet, jsonSetWithExpiry } from '@/server/session/redis';
+import { getOrSetSessionId, requireAuthenticatedUser } from '@/server/session/_utils';
+import { stripBase64FromObject } from '@/server/session/sanitize';
 import { publishSyncEvent } from '@/utils/sync/publish';
 import { sanitizeConversationAssistantReplays } from '@/utils/app/conversationReplay';
 

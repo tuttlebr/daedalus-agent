@@ -1,6 +1,6 @@
 import { NextApiRequest, NextApiResponse } from 'next';
-import { getRedis, sessionKey, jsonGet, jsonDel, jsonSetWithExpiry } from './redis';
-import { getOrSetSessionId, requireAuthenticatedUser } from './_utils';
+import { getRedis, sessionKey, jsonGet, jsonDel, jsonSetWithExpiry } from '@/server/session/redis';
+import { getOrSetSessionId, requireAuthenticatedUser } from '@/server/session/_utils';
 import { validateVideoMagicBytes } from '@/utils/app/magicBytes';
 import crypto from 'crypto';
 

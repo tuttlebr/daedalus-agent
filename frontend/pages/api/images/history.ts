@@ -1,7 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 
-import { getOrSetSessionId, requireAuthenticatedUser } from '../session/_utils';
-import { getRedis, jsonDel, jsonGet, jsonSetWithExpiry, sessionKey } from '../session/redis';
+import { getOrSetSessionId, requireAuthenticatedUser } from '@/server/session/_utils';
+import { getRedis, jsonDel, jsonGet, jsonSetWithExpiry, sessionKey } from '@/server/session/redis';
 
 const IMAGE_HISTORY_TTL_SECONDS = 60 * 60 * 24 * 7;
 const MAX_HISTORY_ENTRIES = 50;

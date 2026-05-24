@@ -1,4 +1,4 @@
-import { getPublisher, channels } from '@/pages/api/session/redis';
+import { getPublisher, channels } from '@/server/session/redis';
 import { Conversation } from '@/types/chat';
 
 export type SyncEventType =

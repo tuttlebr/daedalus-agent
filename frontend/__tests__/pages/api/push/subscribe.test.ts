@@ -6,7 +6,7 @@ const authMocks = vi.hoisted(() => ({
   requireAuthenticatedUser: vi.fn(),
 }));
 
-vi.mock('@/pages/api/session/redis', () => ({
+vi.mock('@/server/session/redis', () => ({
   getRedis: vi.fn(() => ({})),
   sessionKey: vi.fn((parts: string[]) => `daedalus:${parts.join(':')}`),
   jsonGet: vi.fn(),
@@ -14,15 +14,15 @@ vi.mock('@/pages/api/session/redis', () => ({
   jsonDel: vi.fn(),
 }));
 
-vi.mock('@/pages/api/session/_utils', () => ({
+vi.mock('@/server/session/_utils', () => ({
   requireAuthenticatedUser: authMocks.requireAuthenticatedUser,
 }));
 
 // --- Import handler and mocked modules ---
 
 import handler from '@/pages/api/push/subscribe';
-import { requireAuthenticatedUser } from '@/pages/api/session/_utils';
-import { jsonGet, jsonSetWithExpiry, jsonDel } from '@/pages/api/session/redis';
+import { requireAuthenticatedUser } from '@/server/session/_utils';
+import { jsonGet, jsonSetWithExpiry, jsonDel } from '@/server/session/redis';
 
 // --- Helpers ---
 

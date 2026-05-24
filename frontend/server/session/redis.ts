@@ -13,14 +13,29 @@ let redisJsonSupported: boolean | null = null;
 let publisher: Redis | null = null;
 let subscriber: Redis | null = null;
 
-// Tolerate transient DNS / network failures: queue commands until the
-// connection recovers instead of failing them with MaxRetriesPerRequestError.
+function positiveIntegerFromEnv(name: string, fallback: number): number {
+  const parsed = Number(process.env[name]);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : fallback;
+}
+
+const REDIS_MAX_RETRIES_PER_REQUEST = positiveIntegerFromEnv(
+  'REDIS_MAX_RETRIES_PER_REQUEST',
+  3,
+);
+const REDIS_COMMAND_TIMEOUT_MS = positiveIntegerFromEnv(
+  'REDIS_COMMAND_TIMEOUT_MS',
+  10_000,
+);
+
+// Bound per-command retries and timeouts so failed Redis connectivity does not
+// leave API requests pending indefinitely.
 const REDIS_CLIENT_OPTIONS: RedisOptions = {
   lazyConnect: true,
-  maxRetriesPerRequest: null,
+  maxRetriesPerRequest: REDIS_MAX_RETRIES_PER_REQUEST,
   enableOfflineQueue: true,
   reconnectOnError: () => true,
   connectTimeout: 10_000,
+  commandTimeout: REDIS_COMMAND_TIMEOUT_MS,
   retryStrategy: (times) => Math.min(times * 200, 2_000),
   family: 4,
 };

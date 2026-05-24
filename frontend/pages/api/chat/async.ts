@@ -1,7 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { resolve4 } from 'node:dns/promises';
 import { createHash } from 'node:crypto';
-import { getPublisher, getRedis, sessionKey, jsonGet, jsonSetWithExpiry, jsonDel, setStreamingState, clearStreamingState } from '../session/redis';
+import { getPublisher, getRedis, sessionKey, jsonGet, jsonSetWithExpiry, jsonDel, setStreamingState, clearStreamingState } from '@/server/session/redis';
 import { publishStreamingState, publishConversationUpdate } from '@/utils/sync/publish';
 import { v4 as uuidv4 } from 'uuid';
 import { Message } from '@/types/chat';
@@ -15,7 +15,11 @@ import {
 import { withInternalBackendAuth } from '@/utils/server/backendAuth';
 import { fetchWithTimeout } from '@/utils/fetchWithTimeout';
 import { getSession } from '@/utils/auth/session';
-import { getOrSetSessionId } from '../session/_utils';
+import { getOrSetSessionId } from '@/server/session/_utils';
+import {
+  DocumentRefAccessError,
+  validateDocumentRefsForUser,
+} from '@/server/session/documentRefs';
 import { canAccessStoredVTT, getVTT } from '../session/vttStorage';
 import {
   resolveMilvusCollectionTarget,
@@ -345,6 +349,62 @@ function collectDocumentRefs(attachments: any[]): any[] {
   return refs;
 }
 
+function stripClientDocumentRefHints(content: string): string {
+  if (!content) return '';
+
+  return content
+    .replace(
+      /\n?\*\*Document References? for Tools:\*\*\nUse this documentRefs? parameter: documentRefs?=[\s\S]*?(?=\n\n|\n\*\*|$)/gi,
+      '',
+    )
+    .replace(/\n?\[DOCUMENT_REFERENCE_\d+\]:\s*\{[^\n]*\}/gi, '')
+    .replace(/\n?Document \d+:\s*\{[^\n]*\}/gi, '')
+    .trimEnd();
+}
+
+async function validateDocumentAttachmentsForMessage(
+  message: any,
+  currentSessionId: string,
+  verifiedUsername: string,
+): Promise<any> {
+  if (!message.attachments || !Array.isArray(message.attachments)) {
+    return message;
+  }
+
+  const validatedAttachments = [];
+  for (const attachment of message.attachments) {
+    if (attachment?.type !== 'document' || !attachment.documentRef) {
+      validatedAttachments.push(attachment);
+      continue;
+    }
+
+    try {
+      const [validatedRef] = await validateDocumentRefsForUser(
+        [{
+          ...attachment.documentRef,
+          filename: attachment.content || attachment.documentRef.filename,
+        }],
+        currentSessionId,
+        verifiedUsername,
+      );
+      validatedAttachments.push({
+        ...attachment,
+        documentRef: validatedRef,
+      });
+    } catch (error) {
+      if (error instanceof DocumentRefAccessError) {
+        throw new ApiRouteError(error.status, error.message, error.reason);
+      }
+      throw error;
+    }
+  }
+
+  return {
+    ...message,
+    attachments: validatedAttachments,
+  };
+}
+
 export function appendDocumentAttachmentContext(
   message: any,
   verifiedUsername: string,
@@ -358,17 +418,9 @@ export function appendDocumentAttachmentContext(
     return message;
   }
 
-  const content = typeof message.content === 'string' ? message.content : '';
-  const alreadyHasUsableRefs =
-    documentRefs.length === 1
-      ? content.includes('documentRef=') ||
-        content.includes('documentRef parameter')
-      : content.includes('documentRefs=') ||
-        content.includes('documentRefs parameter');
-
-  if (alreadyHasUsableRefs) {
-    return message;
-  }
+  const content = stripClientDocumentRefHints(
+    typeof message.content === 'string' ? message.content : '',
+  );
 
   const targetCollection =
     typeof message.metadata?.targetCollection === 'string' &&
@@ -1609,6 +1661,12 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       let cleanedMessage = { ...message };
 
       if (cleanedMessage.attachments && Array.isArray(cleanedMessage.attachments)) {
+        cleanedMessage = await validateDocumentAttachmentsForMessage(
+          cleanedMessage,
+          currentSessionId,
+          verifiedUsername,
+        );
+
         // Image references
         const imageAttachments = cleanedMessage.attachments.filter((att: any) => att.type === 'image');
         if (imageAttachments.length > 0) {

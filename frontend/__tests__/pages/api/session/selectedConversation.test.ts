@@ -8,13 +8,13 @@ const mocks = vi.hoisted(() => ({
   publishSyncEvent: vi.fn(),
 }));
 
-vi.mock('@/pages/api/session/redis', () => ({
+vi.mock('@/server/session/redis', () => ({
   sessionKey: vi.fn((parts: string[]) => `daedalus:${parts.join(':')}`),
   jsonGet: mocks.jsonGet,
   jsonSetWithExpiry: mocks.jsonSetWithExpiry,
 }));
 
-vi.mock('@/pages/api/session/_utils', () => ({
+vi.mock('@/server/session/_utils', () => ({
   requireAuthenticatedUser: mocks.requireAuthenticatedUser,
   getOrSetSessionId: mocks.getOrSetSessionId,
 }));

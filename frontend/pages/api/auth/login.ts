@@ -2,7 +2,7 @@ import { NextApiRequest, NextApiResponse } from 'next';
 import { createHash } from 'crypto';
 import { verifyCredentials, initializeUsers } from '@/utils/auth/users';
 import { createSession } from '@/utils/auth/session';
-import { getRedis, sessionKey } from '../session/redis';
+import { getRedis, sessionKey } from '@/server/session/redis';
 
 const LOGIN_WINDOW_SECONDS = Number(process.env.AUTH_LOGIN_WINDOW_SECONDS || 300);
 const LOGIN_LOCKOUT_SECONDS = Number(process.env.AUTH_LOGIN_LOCKOUT_SECONDS || 900);

@@ -1,6 +1,6 @@
 import { NextApiRequest, NextApiResponse } from 'next';
-import { getRedis, sessionKey, jsonGet, jsonSetWithExpiry } from '@/pages/api/session/redis';
-import { getOrSetSessionId } from '@/pages/api/session/_utils';
+import { getRedis, sessionKey, jsonGet, jsonSetWithExpiry } from '@/server/session/redis';
+import { getOrSetSessionId } from '@/server/session/_utils';
 import { User } from './users';
 import { setIdentityCookie, clearIdentityCookie } from './identity-cookie';
 

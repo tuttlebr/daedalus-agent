@@ -13,7 +13,7 @@ import dns from 'node:dns';
 import { WebSocketServer, WebSocket } from 'ws';
 import Redis, { RedisOptions } from 'ioredis';
 import { parse as parseCookie } from 'cookie';
-import { primeDns, getCachedIp } from './pages/api/session/dns-cache';
+import { primeDns, getCachedIp } from './server/session/dns-cache';
 
 // Prefer IPv4 — Node ≥17 defaults to 'verbatim' which can return AAAA
 // records first and stall DNS resolution against Kubernetes CoreDNS.
@@ -26,6 +26,33 @@ const REDIS_URL = process.env.REDIS_URL || 'redis://redis:6379';
 const HEARTBEAT_INTERVAL = 45_000; // Server sends pong every 45s
 const CLIENT_TIMEOUT = 90_000; // Close if no ping received in 90s
 const SESSION_EXPIRY = 60 * 60 * 24; // 24 hours (match session.ts)
+const CHANNEL_ID_PATTERN = /^[A-Za-z0-9._-]{1,128}$/;
+
+function positiveIntegerFromEnv(name: string, fallback: number): number {
+  const parsed = Number(process.env[name]);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : fallback;
+}
+
+const MAX_WS_MESSAGE_BYTES = positiveIntegerFromEnv(
+  'WS_MAX_MESSAGE_BYTES',
+  64 * 1024,
+);
+const MAX_JOB_SUBSCRIPTIONS_PER_CONNECTION = positiveIntegerFromEnv(
+  'WS_MAX_JOB_SUBSCRIPTIONS_PER_CONNECTION',
+  50,
+);
+const MAX_CHAT_SUBSCRIPTIONS_PER_CONNECTION = positiveIntegerFromEnv(
+  'WS_MAX_CHAT_SUBSCRIPTIONS_PER_CONNECTION',
+  50,
+);
+const REDIS_MAX_RETRIES_PER_REQUEST = positiveIntegerFromEnv(
+  'REDIS_MAX_RETRIES_PER_REQUEST',
+  3,
+);
+const REDIS_COMMAND_TIMEOUT_MS = positiveIntegerFromEnv(
+  'REDIS_COMMAND_TIMEOUT_MS',
+  10_000,
+);
 
 function resolveRedisUrl(): string {
   try {
@@ -84,14 +111,15 @@ function sessionKey(parts: string[]): string {
   return parts.filter(Boolean).join(':');
 }
 
-// Tolerate transient DNS / network failures: queue commands until the
-// connection recovers instead of failing them with MaxRetriesPerRequestError.
+// Bound per-command retries and timeouts so Redis outages cannot leave socket
+// subscription requests pending indefinitely.
 const REDIS_CLIENT_OPTIONS: RedisOptions = {
   lazyConnect: true,
-  maxRetriesPerRequest: null,
+  maxRetriesPerRequest: REDIS_MAX_RETRIES_PER_REQUEST,
   enableOfflineQueue: true,
   reconnectOnError: () => true,
   connectTimeout: 10_000,
+  commandTimeout: REDIS_COMMAND_TIMEOUT_MS,
   retryStrategy: (times) => Math.min(times * 200, 2_000),
   family: 4,
 };
@@ -303,9 +331,69 @@ function sendToConnection(conn: ClientConnection, message: object): void {
   }
 }
 
+function isSafeChannelId(value: string): boolean {
+  return CHANNEL_ID_PATTERN.test(value);
+}
+
+function rejectSubscription(conn: ClientConnection, message: string): void {
+  sendToConnection(conn, {
+    type: 'error',
+    message,
+  });
+}
+
+async function canSubscribeToChat(
+  userId: string,
+  conversationId: string,
+): Promise<boolean> {
+  const redis = getRedis();
+  const userConversationsKey = sessionKey(['user', userId, 'conversations']);
+  const streamingKey = sessionKey([
+    'streaming',
+    'user',
+    userId,
+    'conversation',
+    conversationId,
+  ]);
+
+  try {
+    if (await redis.sismember(userConversationsKey, conversationId) === 1) {
+      return true;
+    }
+  } catch (error) {
+    console.error(`[WS] Error checking conversation ownership for ${conversationId}:`, error);
+    return false;
+  }
+
+  try {
+    const streamingState = await getJsonOrPlain<StreamingState>(redis, streamingKey);
+    return Boolean(
+      streamingState?.conversationId === conversationId &&
+      streamingState.userId === userId,
+    );
+  } catch (error) {
+    console.error(`[WS] Error checking streaming state for ${conversationId}:`, error);
+    return false;
+  }
+}
+
 // ---------- Job Subscription via Redis Pub/Sub ----------
 
 async function subscribeToJob(jobId: string, conn: ClientConnection): Promise<void> {
+  if (!isSafeChannelId(jobId)) {
+    rejectSubscription(conn, 'Invalid job subscription');
+    return;
+  }
+
+  if (conn.subscribedJobs.has(jobId)) {
+    return;
+  }
+
+  if (conn.subscribedJobs.size >= MAX_JOB_SUBSCRIPTIONS_PER_CONNECTION) {
+    rejectSubscription(conn, 'Too many job subscriptions');
+    return;
+  }
+
   const jobRequest = await getJsonOrPlain<AsyncJobRequestMeta>(
     getRedis(),
     sessionKey(['async-job-request', jobId]),
@@ -316,10 +404,7 @@ async function subscribeToJob(jobId: string, conn: ClientConnection): Promise<vo
 
   if (!jobRequest || jobRequest.userId !== conn.userId) {
     console.warn(`[WS] Rejected unauthorized job subscription for ${conn.userId}: ${jobId}`);
-    sendToConnection(conn, {
-      type: 'error',
-      message: 'Unauthorized job subscription',
-    });
+    rejectSubscription(conn, 'Unauthorized job subscription');
     return;
   }
 
@@ -375,6 +460,26 @@ function unsubscribeFromJob(jobId: string): void {
 const chatSubscribers = new Map<string, { subscriber: Redis; refCount: number }>();
 
 async function subscribeToChat(userId: string, conversationId: string, conn: ClientConnection): Promise<void> {
+  if (!isSafeChannelId(conversationId)) {
+    rejectSubscription(conn, 'Invalid chat subscription');
+    return;
+  }
+
+  if (conn.subscribedChats.has(conversationId)) {
+    return;
+  }
+
+  if (conn.subscribedChats.size >= MAX_CHAT_SUBSCRIPTIONS_PER_CONNECTION) {
+    rejectSubscription(conn, 'Too many chat subscriptions');
+    return;
+  }
+
+  if (!await canSubscribeToChat(userId, conversationId)) {
+    console.warn(`[WS] Rejected unauthorized chat subscription for ${userId}: ${conversationId}`);
+    rejectSubscription(conn, 'Unauthorized chat subscription');
+    return;
+  }
+
   conn.subscribedChats.add(conversationId);
 
   const channelKey = `user:${userId}:chat:${conversationId}:tokens`;
@@ -483,7 +588,7 @@ const server = createServer((req, res) => {
   res.end();
 });
 
-const wss = new WebSocketServer({ server });
+const wss = new WebSocketServer({ server, maxPayload: MAX_WS_MESSAGE_BYTES });
 
 wss.on('connection', async (ws: WebSocket, req: IncomingMessage) => {
   // Authenticate
@@ -537,6 +642,11 @@ wss.on('connection', async (ws: WebSocket, req: IncomingMessage) => {
   // Handle messages from client
   ws.on('message', async (raw: Buffer) => {
     try {
+      if (raw.length > MAX_WS_MESSAGE_BYTES) {
+        ws.close(1009, 'Message too large');
+        return;
+      }
+
       const msg = JSON.parse(raw.toString());
 
       switch (msg.type) {
@@ -554,8 +664,9 @@ wss.on('connection', async (ws: WebSocket, req: IncomingMessage) => {
 
         case 'unsubscribe_job':
           if (msg.jobId && typeof msg.jobId === 'string') {
-            conn.subscribedJobs.delete(msg.jobId);
-            unsubscribeFromJob(msg.jobId);
+            if (conn.subscribedJobs.delete(msg.jobId)) {
+              unsubscribeFromJob(msg.jobId);
+            }
           }
           break;
 
@@ -567,8 +678,9 @@ wss.on('connection', async (ws: WebSocket, req: IncomingMessage) => {
 
         case 'unsubscribe_chat':
           if (msg.conversationId && typeof msg.conversationId === 'string') {
-            conn.subscribedChats.delete(msg.conversationId);
-            unsubscribeFromChat(userId, msg.conversationId);
+            if (conn.subscribedChats.delete(msg.conversationId)) {
+              unsubscribeFromChat(userId, msg.conversationId);
+            }
           }
           break;
 

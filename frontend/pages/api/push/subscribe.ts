@@ -1,6 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { sessionKey, jsonSetWithExpiry, jsonDel, jsonGet } from '../session/redis';
-import { requireAuthenticatedUser } from '../session/_utils';
+import { sessionKey, jsonSetWithExpiry, jsonDel, jsonGet } from '@/server/session/redis';
+import { requireAuthenticatedUser } from '@/server/session/_utils';
 
 const PUSH_SUBSCRIPTION_EXPIRY = 60 * 60 * 24 * 30; // 30 days
 

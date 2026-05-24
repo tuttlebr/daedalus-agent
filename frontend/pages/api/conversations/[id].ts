@@ -1,9 +1,9 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { getRedis, sessionKey, jsonGet, jsonSetWithExpiry, jsonDel } from '../session/redis';
+import { getRedis, sessionKey, jsonGet, jsonSetWithExpiry, jsonDel } from '@/server/session/redis';
 import { touchImage } from '../session/imageStorage';
 import { getSession } from '@/utils/auth/session';
 import { extractImageReferences } from '@/utils/app/imageHandler';
-import { clampConversations } from '../session/sanitize';
+import { clampConversations } from '@/server/session/sanitize';
 import { sanitizeConversationAssistantReplays } from '@/utils/app/conversationReplay';
 
 export const config = {

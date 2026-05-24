@@ -1,6 +1,6 @@
 import { NextApiRequest, NextApiResponse } from 'next';
 import http from 'http';
-import { getOrSetSessionId, requireAuthenticatedUser } from '../session/_utils';
+import { getOrSetSessionId, requireAuthenticatedUser } from '@/server/session/_utils';
 import { buildBackendUrl, getBackendHost } from '@/utils/app/backendApi';
 import { withInternalBackendAuth } from '@/utils/server/backendAuth';
 

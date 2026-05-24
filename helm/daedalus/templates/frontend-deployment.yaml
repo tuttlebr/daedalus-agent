@@ -88,12 +88,14 @@ spec:
             - secretRef:
                 name: {{ .Values.frontend.env.fromSecret | default (printf "%s-frontend-env" (include "daedalus.fullname" .)) }}
           livenessProbe:
-            tcpSocket:
+            httpGet:
+              path: /api/health
               port: http
             initialDelaySeconds: 15
             periodSeconds: 30
           readinessProbe:
-            tcpSocket:
+            httpGet:
+              path: /api/health?ready=1
               port: http
             initialDelaySeconds: 5
             periodSeconds: 10

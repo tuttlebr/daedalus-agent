@@ -1,7 +1,7 @@
 import { NextApiRequest, NextApiResponse } from 'next';
 
-import { getOrSetSessionId, requireAuthenticatedUser } from '../session/_utils';
-import { getRedis } from '../session/redis';
+import { getOrSetSessionId, requireAuthenticatedUser } from '@/server/session/_utils';
+import { getRedis } from '@/server/session/redis';
 
 import sharp from 'sharp';
 

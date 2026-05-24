@@ -9,7 +9,7 @@ const mocks = vi.hoisted(() => ({
   requireAuthenticatedUser: vi.fn(),
 }));
 
-vi.mock('@/pages/api/session/redis', () => ({
+vi.mock('@/server/session/redis', () => ({
   getRedis: vi.fn(() => ({
     call: mocks.redisCall,
     get: mocks.redisGet,
@@ -21,7 +21,7 @@ vi.mock('@/pages/api/session/redis', () => ({
   ),
 }));
 
-vi.mock('@/pages/api/session/_utils', () => ({
+vi.mock('@/server/session/_utils', () => ({
   getOrSetSessionId: mocks.getOrSetSessionId,
   requireAuthenticatedUser: mocks.requireAuthenticatedUser,
 }));

@@ -20,7 +20,7 @@ vi.mock('@/utils/auth/session', () => ({
   createSession: mocks.createSession,
 }));
 
-vi.mock('@/pages/api/session/redis', () => ({
+vi.mock('@/server/session/redis', () => ({
   getRedis: vi.fn(() => ({
     get: mocks.redisGet,
     ttl: mocks.redisTtl,

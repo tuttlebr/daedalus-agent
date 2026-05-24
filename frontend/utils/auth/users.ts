@@ -1,5 +1,5 @@
 import bcrypt from 'bcryptjs';
-import { getRedis, sessionKey, jsonGet, jsonSet, jsonMGet } from '@/pages/api/session/redis';
+import { getRedis, sessionKey, jsonGet, jsonSet, jsonMGet } from '@/server/session/redis';
 import fs from 'fs';
 import path from 'path';
 
