@@ -96,6 +96,20 @@ def _patch_fastapi_daedalus_routes(logger):
     FastAPI.__init__ = patched_init
 
 
+def _configure_phoenix_auth_env(logger):
+    """Derive OTLP/Phoenix auth headers from PHOENIX_API_KEY when provided."""
+    phoenix_api_key = os.environ.get("PHOENIX_API_KEY", "").strip()
+    if not phoenix_api_key:
+        return
+
+    header = f"api_key={phoenix_api_key}"
+    if not os.environ.get("OTEL_EXPORTER_OTLP_HEADERS", "").strip():
+        os.environ["OTEL_EXPORTER_OTLP_HEADERS"] = header
+        logger.info("Configured OTLP exporter headers from PHOENIX_API_KEY")
+    if not os.environ.get("PHOENIX_CLIENT_HEADERS", "").strip():
+        os.environ["PHOENIX_CLIENT_HEADERS"] = header
+
+
 def main():
     # Configure root logging (NAT will reconfigure its own loggers, but this
     # ensures our daedalus.* diagnostic messages are visible)
@@ -107,6 +121,8 @@ def main():
         format="%(asctime)s - %(levelname)-8s - %(name)s:%(lineno)d - %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
     )
+
+    _configure_phoenix_auth_env(logging.getLogger("daedalus.phoenix"))
 
     # Starlette 1.0.0 removed add_event_handler, add_route, add_websocket_route;
     # NAT v1.4.x still calls them.  Patch before any NAT imports.

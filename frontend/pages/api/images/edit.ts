@@ -1,8 +1,13 @@
 import { NextApiRequest, NextApiResponse } from 'next';
-import http from 'http';
-import { getOrSetSessionId, requireAuthenticatedUser } from '@/server/session/_utils';
+
 import { buildBackendUrl, getBackendHost } from '@/utils/app/backendApi';
 import { withInternalBackendAuth } from '@/utils/server/backendAuth';
+import { postJsonToBackend } from '@/utils/server/httpProxy';
+
+import {
+  getOrSetSessionId,
+  requireAuthenticatedUser,
+} from '@/server/session/_utils';
 
 export const config = {
   api: {
@@ -17,49 +22,10 @@ export const config = {
 
 const EDIT_TIMEOUT_MS = 180_000;
 
-function postJson(
-  url: string,
-  body: string,
-  headers: Record<string, string>,
-  timeoutMs: number,
-): Promise<{ statusCode: number; body: string }> {
-  return new Promise((resolve, reject) => {
-    const parsed = new URL(url);
-    const req = http.request(
-      {
-        hostname: parsed.hostname,
-        port: parsed.port || '80',
-        path: parsed.pathname + parsed.search,
-        method: 'POST',
-        headers: {
-          ...headers,
-          'Content-Length': Buffer.byteLength(body),
-        },
-        timeout: timeoutMs,
-      },
-      (res) => {
-        const chunks: Buffer[] = [];
-        res.on('data', (chunk: Buffer) => chunks.push(chunk));
-        res.on('end', () => {
-          resolve({
-            statusCode: res.statusCode || 500,
-            body: Buffer.concat(chunks).toString('utf-8'),
-          });
-        });
-        res.on('error', reject);
-      },
-    );
-    req.on('timeout', () => {
-      req.destroy();
-      reject(new Error(`Backend request timed out after ${timeoutMs}ms`));
-    });
-    req.on('error', reject);
-    req.write(body);
-    req.end();
-  });
-}
-
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+export default async function handler(
+  req: NextApiRequest,
+  res: NextApiResponse,
+) {
   if (req.method !== 'POST') {
     res.setHeader('Allow', ['POST']);
     return res.status(405).json({ error: 'Method not allowed' });
@@ -83,7 +49,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       user: userId,
     };
 
-    const backendResponse = await postJson(
+    const backendResponse = await postJsonToBackend(
       backendUrl,
       JSON.stringify(payload),
       withInternalBackendAuth({
@@ -103,7 +69,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   } catch (error) {
     console.error('images/edit proxy error:', error);
     const message = error instanceof Error ? error.message : 'Unknown error';
-    const isTimeout = message.includes('timed out') || message.includes('ETIMEDOUT');
+    const isTimeout =
+      message.includes('timed out') || message.includes('ETIMEDOUT');
     const isConnRefused = message.includes('ECONNREFUSED');
     if (isTimeout) {
       return res.status(504).json({ error: 'Backend timed out', message });

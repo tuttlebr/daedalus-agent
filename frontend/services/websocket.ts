@@ -35,6 +35,10 @@ export type ServerMessage =
   | { type: 'selected_conversation_changed'; data: { conversationId: string } }
   | { type: 'streaming_started'; data: { conversationId: string; sessionId: string } }
   | { type: 'streaming_ended'; data: { conversationId: string; sessionId: string } }
+  | { type: 'autonomy_status'; data: any }
+  | { type: 'autonomy_run_event'; data: any }
+  | { type: 'autonomy_feed_updated'; data: any }
+  | { type: 'autonomy_approval_requested'; data: any }
   | { type: 'chat_token'; conversationId: string; jobId: string; turnId?: string; assistantMessageId?: string; content: string; intermediateSteps?: any[] }
   | { type: 'chat_intermediate_step'; conversationId: string; jobId: string; turnId?: string; assistantMessageId?: string; step: any }
   | { type: 'chat_complete'; conversationId: string; jobId: string; turnId?: string; assistantMessageId?: string; fullResponse: string; intermediateSteps?: any[] }

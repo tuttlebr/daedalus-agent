@@ -18,7 +18,7 @@ import { getDefaultChatCompletionUrl } from '@/utils/app/backendApi';
 // Types
 // ============================================================================
 
-export type AppView = 'chat' | 'create';
+export type AppView = 'chat' | 'autonomy' | 'create';
 
 export interface UISettingsState {
   // Theme

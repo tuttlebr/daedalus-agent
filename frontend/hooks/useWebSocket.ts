@@ -30,6 +30,10 @@ export interface UseWebSocketCallbacks {
   onChatToken?: (data: { conversationId: string; jobId: string; turnId?: string; assistantMessageId?: string; content: string; intermediateSteps?: any[] }) => void;
   onChatIntermediateStep?: (data: { conversationId: string; jobId: string; turnId?: string; assistantMessageId?: string; step: any }) => void;
   onChatComplete?: (data: { conversationId: string; jobId: string; turnId?: string; assistantMessageId?: string; fullResponse: string; intermediateSteps?: any[] }) => void;
+  onAutonomyStatus?: (data: any) => void;
+  onAutonomyRunEvent?: (data: any) => void;
+  onAutonomyFeedUpdated?: (data: any) => void;
+  onAutonomyApprovalRequested?: (data: any) => void;
   onConnected?: (streamingStates: Record<string, StreamingStateInfo>) => void;
   onDisconnected?: () => void;
 }
@@ -203,6 +207,22 @@ export const useWebSocket = (options: UseWebSocketOptions = {}): UseWebSocketRet
 
     unsubs.push(manager.on('chat_complete', (data: any) => {
       callbacksRef.current.onChatComplete?.(data);
+    }));
+
+    unsubs.push(manager.on('autonomy_status', (data: any) => {
+      callbacksRef.current.onAutonomyStatus?.(data);
+    }));
+
+    unsubs.push(manager.on('autonomy_run_event', (data: any) => {
+      callbacksRef.current.onAutonomyRunEvent?.(data);
+    }));
+
+    unsubs.push(manager.on('autonomy_feed_updated', (data: any) => {
+      callbacksRef.current.onAutonomyFeedUpdated?.(data);
+    }));
+
+    unsubs.push(manager.on('autonomy_approval_requested', (data: any) => {
+      callbacksRef.current.onAutonomyApprovalRequested?.(data);
     }));
 
     // Battery critical - could surface a banner

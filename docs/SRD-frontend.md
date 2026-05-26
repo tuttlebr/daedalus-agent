@@ -560,17 +560,17 @@ The following would improve the first-run experience:
 
 ### 8.1 Concept
 
-Daedalus supports an autonomous agent that runs on a schedule (Kubernetes CronJob). The agent logs in as a configured user, executes a predefined workflow (for example a daily research briefing), and writes the results into that user's conversation history.
+Daedalus supports an autonomous worker that runs continuously in Kubernetes. The worker follows UI-managed goals, executes scheduled or manual runs, writes durable memory through the backend workflow, and publishes structured feed, run, and approval state into Redis.
 
 ### 8.2 Current UX
 
-The autonomous agent's output appears as a regular conversation in the user's conversation list. It syncs through the same Redis and WebSocket pipeline as any other conversation. There is no visual distinction between agent-initiated and user-initiated conversations.
+The autonomous agent has a dedicated Autonomy dashboard. It shows worker status, schedule controls, run-now/cancel actions, goals, feed items, recent runs, and pending approvals. Updates sync through the same Redis and WebSocket infrastructure used by conversations.
 
-### 8.3 Recommendations (Not Yet Implemented)
+### 8.3 Control Plane
 
-- **Visual distinction:** Autonomous agent conversations should have a different avatar (for example a clock or calendar icon) and a header badge ("Daily Briefing") to differentiate them from user-initiated conversations.
-- **Notification:** When a new briefing arrives, a badge or dot indicator should appear on the conversation in the sidebar.
-- **Scheduling controls:** Future work could let users configure briefing topics, schedule, and whether they want the autonomous agent active — all from the frontend Settings panel.
+- **Dashboard:** The primary surface is the `autonomy` app tab, not a read-only conversation thread.
+- **Approvals:** Destructive or irreversible actions pause the run and create a pending UI approval.
+- **Scheduling controls:** Users can pause/resume the worker, change the interval, and queue a manual run from the dashboard.
 
 ---
 

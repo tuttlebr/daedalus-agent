@@ -1,0 +1,84 @@
+{{- if .Values.autonomousAgent.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "daedalus.fullname" . }}-autonomous-agent
+  labels:
+    {{- include "daedalus.labels" . | nindent 4 }}
+    app.kubernetes.io/component: autonomous-agent
+spec:
+  replicas: {{ ternary 0 (.Values.autonomousAgent.replicas | default 1) (.Values.autonomousAgent.suspend | default false) }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "daedalus.name" . }}
+      app.kubernetes.io/component: autonomous-agent
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        {{- include "daedalus.labels" . | nindent 8 }}
+        app.kubernetes.io/component: autonomous-agent
+    spec:
+      {{- include "daedalus.nodePlacement" . | nindent 6 }}
+      {{- with .Values.autonomousAgent.securityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      initContainers:
+        - name: wait-for-backend
+          image: {{ .Values.images.backend.repository }}:{{ .Values.images.backend.tag }}
+          imagePullPolicy: {{ .Values.images.backend.pullPolicy }}
+          command: ["python", "-c"]
+          args:
+            - |
+              import os
+              import time
+              import urllib.request
+
+              url = os.environ["BACKEND_BASE_URL"].rstrip("/") + "/docs"
+              for attempt in range(60):
+                  try:
+                      with urllib.request.urlopen(url, timeout=5) as response:
+                          if response.status < 500:
+                              raise SystemExit(0)
+                  except Exception as exc:
+                      print(f"waiting for backend {url}: {exc}", flush=True)
+                      time.sleep(2)
+              raise SystemExit(f"backend did not become reachable: {url}")
+          env:
+            - name: BACKEND_BASE_URL
+              value: {{ printf "http://%s-backend-default:%v" (include "daedalus.fullname" .) (.Values.backend.default.port | default 8000) }}
+      containers:
+        - name: autonomous-agent
+          image: {{ .Values.images.backend.repository }}:{{ .Values.images.backend.tag }}
+          imagePullPolicy: {{ .Values.images.backend.pullPolicy }}
+          command: ["python", "-m", "autonomous_agent.worker"]
+          {{- if .Values.autonomousAgent.env.fromSecret }}
+          envFrom:
+            - secretRef:
+                name: {{ .Values.autonomousAgent.env.fromSecret }}
+          {{- end }}
+          env:
+            - name: BACKEND_BASE_URL
+              value: {{ printf "http://%s-backend-default:%v" (include "daedalus.fullname" .) (.Values.backend.default.port | default 8000) }}
+            - name: BACKEND_API_PATH
+              value: {{ .Values.autonomousAgent.backendApiPath | default "/v1/workflow/async" | quote }}
+            - name: REDIS_URL
+              value: {{ printf "redis://%s-redis:%v" (include "daedalus.fullname" .) (.Values.redis.service.port | default 6379) | quote }}
+            - name: AUTONOMOUS_USER_ID
+              value: {{ .Values.autonomousAgent.userId | quote }}
+            - name: REQUEST_TIMEOUT
+              value: {{ .Values.autonomousAgent.requestTimeout | default 3600 | quote }}
+            - name: AUTONOMY_WORKER_POLL_INTERVAL
+              value: {{ .Values.autonomousAgent.worker.pollIntervalSeconds | default 10 | quote }}
+            - name: AUTONOMY_WORKER_LEASE_TTL
+              value: {{ .Values.autonomousAgent.worker.leaseTtlSeconds | default 60 | quote }}
+            - name: AUTONOMY_INTERVAL_SECONDS
+              value: {{ .Values.autonomousAgent.worker.intervalSeconds | default 14400 | quote }}
+            {{- range $key, $val := .Values.autonomousAgent.env.overrides }}
+            - name: {{ $key }}
+              value: {{ $val | quote }}
+            {{- end }}
+          resources:
+            {{- toYaml .Values.autonomousAgent.resources | nindent 12 }}
+{{- end }}

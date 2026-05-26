@@ -2,11 +2,12 @@
 
 import React from 'react';
 import classNames from 'classnames';
-import { IconMessageCircle, IconSparkles } from '@tabler/icons-react';
+import { IconMessageCircle, IconRobot, IconSparkles } from '@tabler/icons-react';
 import { useUISettingsStore, type AppView } from '@/state/uiSettingsStore';
 
 const TABS: { id: AppView; label: string; icon: React.ReactNode }[] = [
   { id: 'chat', label: 'Chat', icon: <IconMessageCircle size={16} /> },
+  { id: 'autonomy', label: 'Autonomy', icon: <IconRobot size={16} /> },
   { id: 'create', label: 'Create New', icon: <IconSparkles size={16} /> },
 ];
 

@@ -8,12 +8,14 @@
  * Port: 3001 (internal only, proxied via NGINX at /ws)
  */
 
+import { positiveIntegerFromEnv } from './server/config/env';
+import { primeDns, getCachedIp } from './server/session/dns-cache';
+
+import { parse as parseCookie } from 'cookie';
 import { createServer, IncomingMessage } from 'http';
+import Redis, { RedisOptions } from 'ioredis';
 import dns from 'node:dns';
 import { WebSocketServer, WebSocket } from 'ws';
-import Redis, { RedisOptions } from 'ioredis';
-import { parse as parseCookie } from 'cookie';
-import { primeDns, getCachedIp } from './server/session/dns-cache';
 
 // Prefer IPv4 — Node ≥17 defaults to 'verbatim' which can return AAAA
 // records first and stall DNS resolution against Kubernetes CoreDNS.
@@ -27,11 +29,6 @@ const HEARTBEAT_INTERVAL = 45_000; // Server sends pong every 45s
 const CLIENT_TIMEOUT = 90_000; // Close if no ping received in 90s
 const SESSION_EXPIRY = 60 * 60 * 24; // 24 hours (match session.ts)
 const CHANNEL_ID_PATTERN = /^[A-Za-z0-9._-]{1,128}$/;
-
-function positiveIntegerFromEnv(name: string, fallback: number): number {
-  const parsed = Number(process.env[name]);
-  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : fallback;
-}
 
 const MAX_WS_MESSAGE_BYTES = positiveIntegerFromEnv(
   'WS_MAX_MESSAGE_BYTES',
@@ -92,7 +89,9 @@ function logRedisErrorThrottled(label: string, error: unknown): void {
   }
   if (now - state.firstSeen > ERROR_LOG_INTERVAL_MS) {
     console.error(
-      `[WS] Redis ${label} error (${code}) repeated ${state.count}x in last ${Math.round((now - state.firstSeen) / 1000)}s`,
+      `[WS] Redis ${label} error (${code}) repeated ${
+        state.count
+      }x in last ${Math.round((now - state.firstSeen) / 1000)}s`,
       error,
     );
     errorThrottle.set(key, { count: 1, firstSeen: now });
@@ -155,7 +154,9 @@ function parseRedisJsonResult<T>(raw: string | null): T | null {
 
 async function getJsonOrPlain<T>(redis: Redis, key: string): Promise<T | null> {
   try {
-    return parseRedisJsonResult<T>(await redis.call('JSON.GET', key, '$') as string | null);
+    return parseRedisJsonResult<T>(
+      (await redis.call('JSON.GET', key, '$')) as string | null,
+    );
   } catch (error) {
     if (!isRedisJsonUnavailableForRead(error)) {
       throw error;
@@ -164,7 +165,7 @@ async function getJsonOrPlain<T>(redis: Redis, key: string): Promise<T | null> {
 
   try {
     const raw = await redis.get(key);
-    return raw ? JSON.parse(raw) as T : null;
+    return raw ? (JSON.parse(raw) as T) : null;
   } catch (error) {
     if (isRedisJsonUnavailableForRead(error)) {
       return null;
@@ -178,7 +179,9 @@ let redisClient: Redis | null = null;
 function getRedis(): Redis {
   if (!redisClient) {
     redisClient = createRedisClient('client');
-    redisClient.connect().catch((err) => logRedisErrorThrottled('client-connect', err));
+    redisClient
+      .connect()
+      .catch((err) => logRedisErrorThrottled('client-connect', err));
   }
   return redisClient;
 }
@@ -193,7 +196,9 @@ interface SessionData {
   lastActivity: number;
 }
 
-async function validateSession(req: IncomingMessage): Promise<SessionData | null> {
+async function validateSession(
+  req: IncomingMessage,
+): Promise<SessionData | null> {
   try {
     const cookieHeader = req.headers.cookie || '';
     const cookies = parseCookie(cookieHeader);
@@ -225,9 +230,17 @@ interface AsyncJobRequestMeta {
   userId: string;
 }
 
-async function getStreamingStates(userId: string): Promise<Record<string, StreamingState>> {
+async function getStreamingStates(
+  userId: string,
+): Promise<Record<string, StreamingState>> {
   const redis = getRedis();
-  const pattern = sessionKey(['streaming', 'user', userId, 'conversation', '*']);
+  const pattern = sessionKey([
+    'streaming',
+    'user',
+    userId,
+    'conversation',
+    '*',
+  ]);
   const states: Record<string, StreamingState> = {};
 
   try {
@@ -278,7 +291,10 @@ interface ClientConnection {
 const connectionsByUser = new Map<string, Set<ClientConnection>>();
 
 // jobId → Redis subscriber
-const jobSubscribers = new Map<string, { subscriber: Redis; refCount: number }>();
+const jobSubscribers = new Map<
+  string,
+  { subscriber: Redis; refCount: number }
+>();
 
 function addConnection(conn: ClientConnection): void {
   let userConns = connectionsByUser.get(conn.userId);
@@ -357,29 +373,41 @@ async function canSubscribeToChat(
   ]);
 
   try {
-    if (await redis.sismember(userConversationsKey, conversationId) === 1) {
+    if ((await redis.sismember(userConversationsKey, conversationId)) === 1) {
       return true;
     }
   } catch (error) {
-    console.error(`[WS] Error checking conversation ownership for ${conversationId}:`, error);
+    console.error(
+      `[WS] Error checking conversation ownership for ${conversationId}:`,
+      error,
+    );
     return false;
   }
 
   try {
-    const streamingState = await getJsonOrPlain<StreamingState>(redis, streamingKey);
+    const streamingState = await getJsonOrPlain<StreamingState>(
+      redis,
+      streamingKey,
+    );
     return Boolean(
       streamingState?.conversationId === conversationId &&
-      streamingState.userId === userId,
+        streamingState.userId === userId,
     );
   } catch (error) {
-    console.error(`[WS] Error checking streaming state for ${conversationId}:`, error);
+    console.error(
+      `[WS] Error checking streaming state for ${conversationId}:`,
+      error,
+    );
     return false;
   }
 }
 
 // ---------- Job Subscription via Redis Pub/Sub ----------
 
-async function subscribeToJob(jobId: string, conn: ClientConnection): Promise<void> {
+async function subscribeToJob(
+  jobId: string,
+  conn: ClientConnection,
+): Promise<void> {
   if (!isSafeChannelId(jobId)) {
     rejectSubscription(conn, 'Invalid job subscription');
     return;
@@ -403,7 +431,9 @@ async function subscribeToJob(jobId: string, conn: ClientConnection): Promise<vo
   });
 
   if (!jobRequest || jobRequest.userId !== conn.userId) {
-    console.warn(`[WS] Rejected unauthorized job subscription for ${conn.userId}: ${jobId}`);
+    console.warn(
+      `[WS] Rejected unauthorized job subscription for ${conn.userId}: ${jobId}`,
+    );
     rejectSubscription(conn, 'Unauthorized job subscription');
     return;
   }
@@ -457,9 +487,16 @@ function unsubscribeFromJob(jobId: string): void {
 // ---------- Chat Token Subscription via Redis Pub/Sub ----------
 
 // channelKey → Redis subscriber (ref-counted)
-const chatSubscribers = new Map<string, { subscriber: Redis; refCount: number }>();
+const chatSubscribers = new Map<
+  string,
+  { subscriber: Redis; refCount: number }
+>();
 
-async function subscribeToChat(userId: string, conversationId: string, conn: ClientConnection): Promise<void> {
+async function subscribeToChat(
+  userId: string,
+  conversationId: string,
+  conn: ClientConnection,
+): Promise<void> {
   if (!isSafeChannelId(conversationId)) {
     rejectSubscription(conn, 'Invalid chat subscription');
     return;
@@ -474,8 +511,10 @@ async function subscribeToChat(userId: string, conversationId: string, conn: Cli
     return;
   }
 
-  if (!await canSubscribeToChat(userId, conversationId)) {
-    console.warn(`[WS] Rejected unauthorized chat subscription for ${userId}: ${conversationId}`);
+  if (!(await canSubscribeToChat(userId, conversationId))) {
+    console.warn(
+      `[WS] Rejected unauthorized chat subscription for ${userId}: ${conversationId}`,
+    );
     rejectSubscription(conn, 'Unauthorized chat subscription');
     return;
   }
@@ -506,7 +545,10 @@ async function subscribeToChat(userId: string, conversationId: string, conn: Cli
         }
       }
     } catch (err) {
-      console.error(`[WS] Error parsing chat token for ${conversationId}:`, err);
+      console.error(
+        `[WS] Error parsing chat token for ${conversationId}:`,
+        err,
+      );
     }
   });
 
@@ -530,7 +572,10 @@ function unsubscribeFromChat(userId: string, conversationId: string): void {
 // ---------- User Channel Subscription ----------
 
 // userId → dedicated Redis subscriber
-const userSubscribers = new Map<string, { subscriber: Redis; refCount: number }>();
+const userSubscribers = new Map<
+  string,
+  { subscriber: Redis; refCount: number }
+>();
 
 async function subscribeToUserChannel(userId: string): Promise<void> {
   const existing = userSubscribers.get(userId);
@@ -577,11 +622,16 @@ const server = createServer((req, res) => {
   // Health check endpoint
   if (req.url === '/health') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({
-      status: 'ok',
-      connections: Array.from(connectionsByUser.values()).reduce((sum, s) => sum + s.size, 0),
-      users: connectionsByUser.size,
-    }));
+    res.end(
+      JSON.stringify({
+        status: 'ok',
+        connections: Array.from(connectionsByUser.values()).reduce(
+          (sum, s) => sum + s.size,
+          0,
+        ),
+        users: connectionsByUser.size,
+      }),
+    );
     return;
   }
   res.writeHead(404);
@@ -622,7 +672,11 @@ wss.on('connection', async (ws: WebSocket, req: IncomingMessage) => {
     streamingStates,
   });
 
-  console.log(`[WS] Client connected: ${userId} (${connectionsByUser.get(userId)?.size || 0} connections)`);
+  console.log(
+    `[WS] Client connected: ${userId} (${
+      connectionsByUser.get(userId)?.size || 0
+    } connections)`,
+  );
 
   // Start heartbeat: server sends pong every 45s
   conn.heartbeatTimer = setInterval(() => {

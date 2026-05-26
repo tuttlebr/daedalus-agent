@@ -20,7 +20,7 @@ images:
     pullPolicy: Always
   frontend:
     repository: YOUR_REGISTRY/daedalus
-    tag: frontend-0.1.1
+    tag: frontend-0.1.0
     pullPolicy: Always
   nginx:
     repository: nginx
@@ -150,7 +150,7 @@ frontend:
     overrides:
       # Backend API path - controls which NAT API endpoint to use
       # Supported values: /chat, /chat/stream, /generate, /generate/stream, /v1/chat/completions
-      BACKEND_API_PATH: "/chat/stream"
+      BACKEND_API_PATH: "/v1/chat/completions"
       # Uploaded document ingestion uses the direct streaming endpoint by default.
       # Set to "0" only to force the legacy NAT async fallback.
       DAEDALUS_DIRECT_DOCUMENT_INGEST_STREAM: "1"
@@ -243,35 +243,28 @@ redisinsight:
     overrides: {}
 
 autonomousAgent:
-  # Autonomous background agent that curates memories, monitors news feeds,
-  # and builds knowledge for the configured user without human interaction.
-  # Thoughts are stored as a conversation visible in the frontend sidebar.
+  # Dedicated autonomous worker that curates memories, monitors news feeds,
+  # follows UI-managed goals, and publishes state to the Autonomy dashboard.
   enabled: true
-  # Set suspend: true to pause scheduling without removing the CronJob
+  # Set suspend: true to pause the worker Deployment without removing it.
   suspend: false
-  # Which backend the autonomous agent calls
-  backendType: "default"
+  replicas: 1
   securityContext: {}
-  schedule: "0 * * * *"
-  # IANA timezone for the cron schedule (requires K8s 1.27+)
-  timeZone: "America/New_York"
-  # Hard deadline per job — pod is killed after this many seconds
-  activeDeadlineSeconds: 600
-  # HTTP timeout for the backend API call (leave buffer before activeDeadlineSeconds)
-  requestTimeout: 240
+  # HTTP/poll timeout for a single autonomous backend run
+  requestTimeout: 3600
   # Which backend API path to use
   # "/chat/stream" — SSE streaming (single long-lived connection, subject to REQUEST_TIMEOUT)
   # "/v1/workflow/async" — submit + poll (tolerates long-running agent cycles)
-  backendApiPath: "/chat/stream"
+  backendApiPath: "/v1/workflow/async"
   # User whose memory and conversation history the agent operates on
   userId: "default-user"
-  successfulJobsHistoryLimit: 3
-  failedJobsHistoryLimit: 3
-  workspace:
-    # Force re-seed all workspace files from ConfigMap (use after major identity changes)
-    resetOnDeploy: false
-    # Cycles between MEMORY.md distillation from daily notes
-    distillationInterval: 10
+  worker:
+    # Poll interval for queue and schedule checks
+    pollIntervalSeconds: 10
+    # Lease TTL prevents multiple replicas from running the same user concurrently
+    leaseTtlSeconds: 60
+    # Default autonomous run interval; can be changed later from the UI dashboard
+    intervalSeconds: 14400
   env:
     # Load API keys from the same secret as the backend (needed if backend
     # requires auth headers; usually not needed since the agent calls the

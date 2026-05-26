@@ -5,6 +5,7 @@ from pathlib import Path
 import yaml
 
 CONFIG = Path(__file__).resolve().parents[2] / "backend" / "tool-calling-config.yaml"
+ENV_TEMPLATE = Path(__file__).resolve().parents[2] / ".env.template"
 SKILLS_DIR = Path(__file__).resolve().parents[2] / "skills"
 DOCKERFILE = Path(__file__).resolve().parents[1] / "Dockerfile"
 NGINX_TEMPLATE = (
@@ -52,6 +53,8 @@ FRONTEND_DEPLOYMENT_TEMPLATE = (
 HELM_VALUES = Path(__file__).resolve().parents[2] / "helm" / "daedalus" / "values.yaml"
 CUSTOM_VALUES = Path(__file__).resolve().parents[2] / "custom-values.yaml"
 DEPLOYED_CONFIGS = (CONFIG,)
+LEGACY_RERANKER_PREFIX = "REA" + "NKER_"
+LEGACY_CLUSTER_LOCAL_PORT = "cluster.local" + ".:"
 MULTI_OPERATION_TYPES = {
     "agent_skills": ["list_skills", "load_skill", "run_skill_script"],
     "content_distiller": ["distill_content", "extract_structured", "synthesize"],
@@ -90,6 +93,23 @@ def _effective_operation_count(config, tool_names):
     )
 
 
+def _env_placeholders(text: str) -> set[str]:
+    import re
+
+    return {
+        match.group(1)
+        for match in re.finditer(r"\$\{([A-Z][A-Z0-9_]*)(?::-[^}]*)?\}", text)
+    }
+
+
+def _template_env_names() -> set[str]:
+    return {
+        line.split("=", 1)[0]
+        for line in ENV_TEMPLATE.read_text(encoding="utf-8").splitlines()
+        if line and not line.startswith("#") and "=" in line
+    }
+
+
 def test_backend_dockerfile_chmods_runtime_files_after_copy():
     lines = DOCKERFILE.read_text(encoding="utf-8").splitlines()
     chmod_lines = [
@@ -114,6 +134,28 @@ def test_backend_dockerfile_chmods_runtime_files_after_copy():
 
     assert "mkdir -p /workspace/.tmp" in "\n".join(lines)
     assert "chmod 1777 /workspace/.tmp" in "\n".join(lines)
+
+
+def test_backend_config_env_placeholders_are_declared_in_template():
+    config_text = CONFIG.read_text(encoding="utf-8")
+
+    assert _env_placeholders(config_text) - _template_env_names() == set()
+
+
+def test_backend_config_uses_canonical_env_names():
+    config_text = CONFIG.read_text(encoding="utf-8")
+    template_text = ENV_TEMPLATE.read_text(encoding="utf-8")
+
+    assert LEGACY_RERANKER_PREFIX not in config_text
+    assert LEGACY_RERANKER_PREFIX not in template_text
+    assert "${REDIS_URL}:${REDIS_PORT}" not in config_text
+    assert "KUBERNETES_MCP_TOKEN=" in template_text
+
+
+def test_frontend_deployment_uses_canonical_service_urls():
+    template_text = FRONTEND_DEPLOYMENT_TEMPLATE.read_text(encoding="utf-8")
+
+    assert LEGACY_CLUSTER_LOCAL_PORT not in template_text
 
 
 def test_production_skill_scripts_are_disabled():

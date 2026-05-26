@@ -71,6 +71,7 @@ COPY mas_optimizer /workspace/mas_optimizer
 COPY content_distiller /workspace/content_distiller
 COPY source_verifier /workspace/source_verifier
 COPY user_interaction /workspace/user_interaction
+COPY autonomous_agent /workspace/autonomous_agent
 COPY --from=skills . /skills
 
 RUN --mount=type=cache,id=uv_cache,target=/root/.cache/uv,sharing=locked \
@@ -88,7 +89,8 @@ RUN --mount=type=cache,id=uv_cache,target=/root/.cache/uv,sharing=locked \
     -e mas_optimizer \
     -e content_distiller \
     -e source_verifier \
-    -e user_interaction
+    -e user_interaction \
+    -e autonomous_agent
 
 RUN --mount=type=cache,id=uv_cache,target=/root/.cache/uv,sharing=locked \
     NAT_VERSION= nat workflow reinstall image_generation && \

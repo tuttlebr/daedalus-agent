@@ -1,6 +1,8 @@
-import dns from 'node:dns';
-import Redis, { RedisOptions } from 'ioredis';
+import { positiveIntegerFromEnv } from '../config/env';
 import { primeDns, getCachedIp } from './dns-cache';
+
+import Redis, { RedisOptions } from 'ioredis';
+import dns from 'node:dns';
 
 // Prefer IPv4 — Node ≥17 defaults to 'verbatim' which can return AAAA
 // records first and stall DNS resolution against Kubernetes CoreDNS.
@@ -12,11 +14,6 @@ let redisJsonSupported: boolean | null = null;
 // Dedicated pub/sub clients (cannot reuse connections for pub/sub)
 let publisher: Redis | null = null;
 let subscriber: Redis | null = null;
-
-function positiveIntegerFromEnv(name: string, fallback: number): number {
-  const parsed = Number(process.env[name]);
-  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : fallback;
-}
 
 const REDIS_MAX_RETRIES_PER_REQUEST = positiveIntegerFromEnv(
   'REDIS_MAX_RETRIES_PER_REQUEST',
@@ -57,7 +54,8 @@ function resolveRedisUrl(): string {
 
 // Fire-and-forget: prime cache for the configured Redis host at module load.
 try {
-  const seedHost = new URL(process.env.REDIS_URL || 'redis://redis:6379').hostname;
+  const seedHost = new URL(process.env.REDIS_URL || 'redis://redis:6379')
+    .hostname;
   void primeDns(seedHost);
 } catch {
   // Ignore unparseable URL — connection will fail later with a clearer error.
@@ -81,7 +79,9 @@ function logRedisErrorThrottled(label: string, error: unknown): void {
   }
   if (now - state.firstSeen > ERROR_LOG_INTERVAL_MS) {
     console.error(
-      `Redis ${label} error (${code}) repeated ${state.count}x in last ${Math.round((now - state.firstSeen) / 1000)}s`,
+      `Redis ${label} error (${code}) repeated ${
+        state.count
+      }x in last ${Math.round((now - state.firstSeen) / 1000)}s`,
       error,
     );
     errorThrottle.set(key, { count: 1, firstSeen: now });
@@ -109,7 +109,9 @@ function isRedisJsonUnsupportedError(error: unknown): boolean {
 
 function isWrongTypeError(error: unknown): boolean {
   const message = redisErrorMessage(error).toLowerCase();
-  return message.includes('wrongtype') || message.includes('wrong kind of value');
+  return (
+    message.includes('wrongtype') || message.includes('wrong kind of value')
+  );
 }
 
 function parseRedisJsonResult(result: string | null, path: string): any {
@@ -138,7 +140,11 @@ async function getPlainJson(client: Redis, key: string): Promise<any> {
   }
 }
 
-async function setRedisJsonRoot(client: Redis, key: string, value: any): Promise<void> {
+async function setRedisJsonRoot(
+  client: Redis,
+  key: string,
+  value: any,
+): Promise<void> {
   try {
     await client.call('JSON.SET', key, '$', JSON.stringify(value));
   } catch (error) {
@@ -165,14 +171,21 @@ async function ensureRedisJson(client: Redis): Promise<boolean> {
     // Use COMMAND INFO instead of a JSON.SET probe. A write probe fails when
     // Redis is in MISCONF/readonly mode and should not be mistaken for a
     // missing RedisJSON module.
-    const info = await client.call('COMMAND', 'INFO', 'JSON.GET') as unknown;
-    redisJsonSupported = Array.isArray(info) && info.length > 0 && info[0] !== null;
+    const info = (await client.call('COMMAND', 'INFO', 'JSON.GET')) as unknown;
+    redisJsonSupported =
+      Array.isArray(info) && info.length > 0 && info[0] !== null;
   } catch (error) {
     if (isRedisJsonUnsupportedError(error)) {
-      console.warn('RedisJSON not available – falling back to plain Redis commands for JSON helpers.', error);
+      console.warn(
+        'RedisJSON not available – falling back to plain Redis commands for JSON helpers.',
+        error,
+      );
       redisJsonSupported = false;
     } else {
-      console.error('RedisJSON capability check failed because Redis is unhealthy.', error);
+      console.error(
+        'RedisJSON capability check failed because Redis is unhealthy.',
+        error,
+      );
       throw error;
     }
   }
@@ -212,7 +225,12 @@ export function sessionKey(parts: Array<string | undefined | null>): string {
 }
 
 // JSON operation helpers using RedisJSON commands
-export async function jsonSet(key: string, path: string, value: any, options?: { NX?: boolean; XX?: boolean }): Promise<string | null> {
+export async function jsonSet(
+  key: string,
+  path: string,
+  value: any,
+  options?: { NX?: boolean; XX?: boolean },
+): Promise<string | null> {
   const client = getRedis();
   const supportsJson = await ensureRedisJson(client);
 
@@ -220,7 +238,9 @@ export async function jsonSet(key: string, path: string, value: any, options?: {
   if (!supportsJson) {
     // Only root paths are supported in fallback mode
     if (path !== '$' && path !== '.') {
-      console.warn(`jsonSet fallback only supports root path. Received path: ${path}`);
+      console.warn(
+        `jsonSet fallback only supports root path. Received path: ${path}`,
+      );
     }
 
     const args: (string | number)[] = [key, JSON.stringify(value)];
@@ -243,12 +263,17 @@ export async function jsonSet(key: string, path: string, value: any, options?: {
       args.push('XX');
     }
 
-    const result = await client.call('JSON.SET', ...args) as string | null;
+    const result = (await client.call('JSON.SET', ...args)) as string | null;
     return result;
   } catch (error) {
     if (isWrongTypeError(error) && (path === '$' || path === '.')) {
       await client.del(key);
-      return await client.call('JSON.SET', key, path, JSON.stringify(value)) as string | null;
+      return (await client.call(
+        'JSON.SET',
+        key,
+        path,
+        JSON.stringify(value),
+      )) as string | null;
     }
     console.error('Error in jsonSet:', error);
     throw error;
@@ -266,7 +291,7 @@ export async function jsonGet(key: string, path: string = '$'): Promise<any> {
 
   try {
     // Use RedisJSON JSON.GET command
-    const result = await client.call('JSON.GET', key, path) as string | null;
+    const result = (await client.call('JSON.GET', key, path)) as string | null;
     return parseRedisJsonResult(result, path);
   } catch (error) {
     if (isWrongTypeError(error)) {
@@ -277,7 +302,10 @@ export async function jsonGet(key: string, path: string = '$'): Promise<any> {
   }
 }
 
-export async function jsonDel(key: string, path: string = '$'): Promise<number> {
+export async function jsonDel(
+  key: string,
+  path: string = '$',
+): Promise<number> {
   const client = getRedis();
   const supportsJson = await ensureRedisJson(client);
 
@@ -292,7 +320,7 @@ export async function jsonDel(key: string, path: string = '$'): Promise<number> 
       return await client.del(key);
     } else {
       // Delete a specific path
-      const result = await client.call('JSON.DEL', key, path) as number;
+      const result = (await client.call('JSON.DEL', key, path)) as number;
       return result;
     }
   } catch (error) {
@@ -301,7 +329,11 @@ export async function jsonDel(key: string, path: string = '$'): Promise<number> 
   }
 }
 
-export async function jsonSetWithExpiry(key: string, value: any, ttl: number): Promise<void> {
+export async function jsonSetWithExpiry(
+  key: string,
+  value: any,
+  ttl: number,
+): Promise<void> {
   const client = getRedis();
   const supportsJson = await ensureRedisJson(client);
 
@@ -326,14 +358,17 @@ export async function jsonSetWithExpiry(key: string, value: any, ttl: number): P
   }
 }
 
-export async function jsonMGet(keys: string[], path: string = '$'): Promise<any[]> {
+export async function jsonMGet(
+  keys: string[],
+  path: string = '$',
+): Promise<any[]> {
   const client = getRedis();
   const supportsJson = await ensureRedisJson(client);
 
   // Fallback when RedisJSON is unavailable
   if (!supportsJson) {
     try {
-      return await Promise.all(keys.map(key => getPlainJson(client, key)));
+      return await Promise.all(keys.map((key) => getPlainJson(client, key)));
     } catch (error) {
       console.error('Error in jsonMGet fallback:', error);
       return keys.map(() => null);
@@ -342,12 +377,15 @@ export async function jsonMGet(keys: string[], path: string = '$'): Promise<any[
 
   try {
     // Use RedisJSON JSON.MGET command
-    const result = await client.call('JSON.MGET', ...keys, path) as (string | null)[];
+    const result = (await client.call('JSON.MGET', ...keys, path)) as (
+      | string
+      | null
+    )[];
 
-    return result.map(item => parseRedisJsonResult(item, path));
+    return result.map((item) => parseRedisJsonResult(item, path));
   } catch (error) {
     if (isWrongTypeError(error)) {
-      return await Promise.all(keys.map(key => jsonGet(key, path)));
+      return await Promise.all(keys.map((key) => jsonGet(key, path)));
     }
     console.error('Error in jsonMGet:', error);
     return keys.map(() => null);
@@ -415,10 +453,16 @@ const STREAMING_STATE_TTL = 600; // 10 minutes auto-cleanup
 export async function setStreamingState(
   userId: string,
   conversationId: string,
-  sessionId: string
+  sessionId: string,
 ): Promise<void> {
   const client = getRedis();
-  const key = sessionKey(['streaming', 'user', userId, 'conversation', conversationId]);
+  const key = sessionKey([
+    'streaming',
+    'user',
+    userId,
+    'conversation',
+    conversationId,
+  ]);
 
   const state: StreamingState = {
     conversationId,
@@ -433,19 +477,31 @@ export async function setStreamingState(
 // Clear streaming state for a conversation
 export async function clearStreamingState(
   userId: string,
-  conversationId: string
+  conversationId: string,
 ): Promise<void> {
   const client = getRedis();
-  const key = sessionKey(['streaming', 'user', userId, 'conversation', conversationId]);
+  const key = sessionKey([
+    'streaming',
+    'user',
+    userId,
+    'conversation',
+    conversationId,
+  ]);
   await jsonDel(key);
 }
 
 // Get all streaming states for a user
 export async function getStreamingStates(
-  userId: string
+  userId: string,
 ): Promise<Record<string, StreamingState>> {
   const client = getRedis();
-  const pattern = sessionKey(['streaming', 'user', userId, 'conversation', '*']);
+  const pattern = sessionKey([
+    'streaming',
+    'user',
+    userId,
+    'conversation',
+    '*',
+  ]);
 
   const states: Record<string, StreamingState> = {};
 

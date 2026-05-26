@@ -1,5 +1,5 @@
 {{- if and .Values.backend.networkPolicy.cilium.enabled .Values.autonomousAgent.enabled }}
-# Cilium egress policy for the Autonomous Agent CronJob — allows connection
+# Cilium egress policy for the Autonomous Agent worker — allows connection
 # to Redis (conversation state) and the backend API (chat/stream endpoint).
 # Without this, the namespace-wide DNS visibility policy enables egress
 # enforcement on the agent pod but provides no Redis or backend egress rule,
@@ -61,6 +61,14 @@ spec:
               - matchPattern: "*"
 
     # Redis
+    - toServices:
+        - k8sService:
+            serviceName: {{ printf "%s-redis" (include "daedalus.fullname" .) | quote }}
+            namespace: {{ .Release.Namespace | quote }}
+      toPorts:
+        - ports:
+            - port: {{ .Values.redis.service.port | quote }}
+              protocol: TCP
     - toEndpoints:
         - matchLabels:
             app.kubernetes.io/name: {{ include "daedalus.name" . }}
@@ -72,6 +80,14 @@ spec:
               protocol: TCP
 
     # Backend API
+    - toServices:
+        - k8sService:
+            serviceName: {{ printf "%s-backend-default" (include "daedalus.fullname" .) | quote }}
+            namespace: {{ .Release.Namespace | quote }}
+      toPorts:
+        - ports:
+            - port: {{ .Values.backend.default.port | default 8000 | quote }}
+              protocol: TCP
     - toEndpoints:
         - matchLabels:
             app.kubernetes.io/name: {{ include "daedalus.name" . }}

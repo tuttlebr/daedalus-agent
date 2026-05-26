@@ -13,9 +13,9 @@ Kubernetes.
 
 What separates Daedalus from a typical chat wrapper:
 
-- **Autonomous agent loop** — a background CronJob that independently
-  researches, synthesizes, and writes to memory on a configurable
-  schedule, seeded by a knowledge graph you define
+- **Autonomous agent worker** — a dedicated background worker that
+  researches, follows UI-managed goals, requests approvals, and writes
+  durable memory on a configurable schedule
 - **Architecture-aware routing** — direct single-domain requests go to
   the matching specialist, while the MAS optimizer evaluates rare
   multi-source synthesis and exploration candidates
@@ -31,10 +31,10 @@ What separates Daedalus from a typical chat wrapper:
 
 Daedalus supports two practical ways to run the project.
 
-| Mode                 | What it starts                                                                                                                                  | Best for                                                          |
-| -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
-| Local Docker Compose | `frontend`, `backend`, `nginx`, `redis`, `redisinsight`, plus a `builder` utility container                                                      | Local development and validating one backend config at a time     |
-| Kubernetes via Helm  | Backend, frontend, nginx, redis, redisinsight, autonomous agent, ingress, PVCs, network policies | Persistent multi-user deployments and the full platform footprint |
+| Mode                 | What it starts                                                                                    | Best for                                                          |
+| -------------------- | ------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| Local Docker Compose | `frontend`, `backend`, `nginx`, `redis`, `redisinsight`, plus a `builder` utility container       | Local development and validating one backend config at a time     |
+| Kubernetes via Helm  | Backend, frontend, nginx, redis, redisinsight, autonomous worker, ingress, PVCs, network policies | Persistent multi-user deployments and the full platform footprint |
 
 > [!IMPORTANT]
 > The local Compose stack does not start Milvus, NV-Ingest, or Phoenix.
@@ -53,7 +53,6 @@ For local Docker Compose, update these values first:
 ```bash
 DEPLOYMENT_MODE=local
 NVIDIA_API_KEY=nvapi-...
-NVIDIA_INFERENCE_API_KEY=nvapi-...
 SESSION_SECRET=<openssl-rand-base64-32>
 ```
 
@@ -128,7 +127,7 @@ docker compose up --build
 
 ## Kubernetes Deployment
 
-Use Kubernetes when you want the full Daedalus layout: backend, ingress, PVC-backed storage, the autonomous agent CronJob, and optional Cilium policies.
+Use Kubernetes when you want the full Daedalus layout: backend, ingress, PVC-backed storage, the autonomous worker, and optional Cilium policies.
 
 ### Preferred path: `deploy.sh`
 
@@ -139,7 +138,7 @@ Before using it:
 1. Fill in `.env` with your real secrets.
 2. Set `DOCKER_REGISTRY` and `DAEDALUS_VERSION` in `.env`.
 3. Update image repositories, ingress hostnames, and any node-placement or persistence settings in [`custom-values.yaml`](custom-values.yaml).
-4. If you want the autonomous agent to write into your own history, set `autonomousAgent.userId` to a real login username.
+4. If you want the autonomous worker to write memories and dashboard updates for your account, set `autonomousAgent.userId` to a real login username.
 
 Run:
 
@@ -192,7 +191,7 @@ The Helm chart can deploy:
 - Backend deployment
 - Frontend and nginx
 - Redis Stack and RedisInsight
-- An autonomous-agent CronJob
+- An autonomous-agent worker Deployment
 - Ingress, PVCs, PodDisruptionBudget, and network policies
 - A chart-managed internal API token shared by frontend and backend
 - Optional Cilium FQDN-based egress restrictions
@@ -301,6 +300,7 @@ The `mas_optimizer` package implements the escalation gate between single-agent 
 The frontend includes:
 
 - Frontend-managed async chat with pinned backend streaming
+- Autonomy dashboard for worker status, goals, runs, feed items, and approvals
 - Authentication backed by Redis
 - File attachments for images, documents, and videos
 - Direct document ingestion with streamed progress
@@ -315,50 +315,79 @@ For frontend-specific details, see [`frontend/README.md`](frontend/README.md).
 
 The `builder/` directory contains reusable NeMo Agent functions, helpers, and standalone modules that patch NAT at startup.
 
-| Name                  | Type    | Purpose                                                              |
-| --------------------- | ------- | -------------------------------------------------------------------- |
-| `agent_skills`        | package | Discovers and runs repo-packaged skills                              |
-| `content_distiller`   | package | Summarization and extraction helpers                                 |
-| `image_generation`    | package | Unified visual media and text-to-image generation                    |
-| `json_repair_agent`   | package | Repairs malformed JSON outputs                                       |
-| `mas_optimizer`       | package | Multi-agent vs single-agent routing and verification                 |
-| `nat_helpers`         | package | Shared helpers such as geolocation and image utilities               |
-| `nat_nv_ingest`       | package | Unified user-document ingestion and retrieval                        |
-| `rss_feed`            | package | RSS fetching and ranking                                             |
-| `serpapi_search`      | package | Search integration                                                   |
-| `smart_milvus`        | package | Milvus retrieval, domain routing, and reranking                      |
-| `user_interaction`    | package | Structured clarification and confirmation prompts                    |
-| `vtt_interpreter`     | package | Transcript-to-notes processing                                      |
-| `webscrape`           | package | Web page extraction                                                  |
-| `entrypoint.py`       | module  | Custom NAT entrypoint with Starlette compatibility shims             |
-| `llm_diagnostics.py`  | module  | OpenAI SDK logging and timeout enforcement for LLM client resilience |
-| `mcp_patches.py`      | module  | MCP StreamableHTTP timeout, reconnection, and error-logging patches  |
+| Name                 | Type    | Purpose                                                               |
+| -------------------- | ------- | --------------------------------------------------------------------- |
+| `agent_skills`       | package | Discovers and runs repo-packaged skills                               |
+| `autonomous_agent`   | package | Long-running autonomous worker, Redis state store, and prompt runtime |
+| `content_distiller`  | package | Summarization and extraction helpers                                  |
+| `image_generation`   | package | Unified visual media and text-to-image generation                     |
+| `json_repair_agent`  | package | Repairs malformed JSON outputs                                        |
+| `mas_optimizer`      | package | Multi-agent vs single-agent routing and verification                  |
+| `nat_helpers`        | package | Shared helpers such as geolocation and image utilities                |
+| `nat_nv_ingest`      | package | Unified user-document ingestion and retrieval                         |
+| `rss_feed`           | package | RSS fetching and ranking                                              |
+| `serpapi_search`     | package | Search integration                                                    |
+| `smart_milvus`       | package | Milvus retrieval, domain routing, and reranking                       |
+| `user_interaction`   | package | Structured clarification and confirmation prompts                     |
+| `vtt_interpreter`    | package | Transcript-to-notes processing                                        |
+| `webscrape`          | package | Web page extraction                                                   |
+| `entrypoint.py`      | module  | Custom NAT entrypoint with Starlette compatibility shims              |
+| `llm_diagnostics.py` | module  | OpenAI SDK logging and timeout enforcement for LLM client resilience  |
+| `mcp_patches.py`     | module  | MCP StreamableHTTP timeout, reconnection, and error-logging patches   |
 
 Several packages include their own README files under `builder/`.
 
 ## Autonomous Agent
 
-The Helm chart enables an autonomous background agent by default. It runs as a CronJob and can add memories and research updates for a configured user. The agent mounts a seed knowledge graph from ConfigMap files that define its identity, interests, memory schema, and operating procedures.
+The Helm chart enables an autonomous background agent by default. It now runs as a dedicated worker Deployment instead of a Kubernetes CronJob. The worker uses Redis as its control plane: the UI stores config, goals, queued runs, events, feed items, approvals, and cancellation flags, while the worker consumes the queue and publishes updates back through the existing WebSocket sync channel.
+
+The design follows the useful parts of Hermes-style autonomy: a persistent agent loop, stable identity and memory context, explicit goals, structured run output, and approval gates. Daedalus intentionally keeps the UI as the only human interaction point; there are no Slack, Discord, or other third-party messaging surfaces.
+
+### Runtime Behavior
+
+- The worker runs `python -m autonomous_agent.worker` from the builder image.
+- Scheduled runs are controlled by `autonomousAgent.worker.intervalSeconds` and can be changed in the Autonomy dashboard.
+- Manual runs can be queued from the dashboard or with [`trigger-autonomous-agent.sh`](trigger-autonomous-agent.sh).
+- The worker calls the backend workflow, defaults to `/v1/workflow/async`, and writes structured feed items plus workspace updates.
+- Destructive, irreversible, credential-related, send/merge/delete/scale/uninstall, or memory-delete actions must request confirmation. The run pauses and the dashboard shows a pending approval.
+- A Redis lease with heartbeat prevents multiple worker replicas from running the same configured user concurrently.
+
+### UI Control Plane
+
+Open the app and select the **Autonomy** tab. The dashboard provides:
+
+- Pause/resume for scheduled autonomous work
+- Run-now and cancel controls
+- Interval editing
+- Goal creation
+- Structured feed review
+- Recent run and event history
+- Pending action approvals
 
 Important settings:
 
 - `autonomousAgent.enabled`
-- `autonomousAgent.schedule`
-- `autonomousAgent.timeZone`
+- `autonomousAgent.worker.intervalSeconds`
+- `autonomousAgent.worker.pollIntervalSeconds`
+- `autonomousAgent.worker.leaseTtlSeconds`
+- `autonomousAgent.replicas`
+- `autonomousAgent.suspend`
 - `autonomousAgent.userId`
-- `autonomousAgent.backendType`
-- `autonomousAgent.workspace.resetOnDeploy` — force re-seed all knowledge graph files from ConfigMap (use after major identity changes)
-- `autonomousAgent.workspace.distillationInterval` — cycles between memory distillation passes
+- `autonomousAgent.backendApiPath`
+- `autonomousAgent.requestTimeout`
 
-Knowledge graph seed files in [`helm/daedalus/files/`](helm/daedalus/files/):
+For a manual Kubernetes trigger:
 
-- [`autonomous-agent-identity.md`](helm/daedalus/files/autonomous-agent-identity.md) — name, nature, and persona
-- [`autonomous-agent-soul.md`](helm/daedalus/files/autonomous-agent-soul.md) — core principles and operating truths
-- [`autonomous-agent-interests.md`](helm/daedalus/files/autonomous-agent-interests.md) — exploration topics and curiosity areas
-- [`autonomous-agent-schema.md`](helm/daedalus/files/autonomous-agent-schema.md) — memory format and metadata structure
-- [`autonomous-agent-user.md`](helm/daedalus/files/autonomous-agent-user.md) — user context and preferences
-- [`autonomous-agent-heartbeat.md`](helm/daedalus/files/autonomous-agent-heartbeat.md) — cycle procedures and rotation rules
-- [`autonomous-agent-memory.md`](helm/daedalus/files/autonomous-agent-memory.md) — persistent memory index
+```bash
+./trigger-autonomous-agent.sh --namespace daedalus --release daedalus --user tuttlebr --prompt "Check active goals and publish a short feed update"
+```
+
+Use `--dry-run` to print the Redis queue payload without enqueuing it.
+
+The worker seeds its first-run workspace from built-in defaults in
+[`builder/autonomous_agent/src/autonomous_agent/prompt.py`](builder/autonomous_agent/src/autonomous_agent/prompt.py).
+After that, mutable workspace sections live in Redis and are updated by the
+worker itself.
 
 ## Network Security
 
@@ -414,7 +443,7 @@ the legacy identity header behavior for local development.
 ```bash
 cd frontend
 node --version # use Node.js 22
-npm ci
+npm ci --legacy-peer-deps
 npm run dev
 ```
 
@@ -440,7 +469,7 @@ uv run --with pytest --with pyyaml --with pydantic --with httpx --with pytest-co
 
 ```bash
 cd frontend
-npm ci
+npm ci --legacy-peer-deps
 npm test -- --run
 npm run coverage
 ```
@@ -470,34 +499,34 @@ If NvIngest document ingestion fails with `StatusCode.UNAUTHENTICATED` and `auth
 
 ## Key Configuration Files
 
-| File                                                                   | Purpose                                |
-| ---------------------------------------------------------------------- | -------------------------------------- |
-| [`README.md`](README.md)                                               | Top-level setup and deployment guide   |
-| [`.env.template`](.env.template)                                       | Main environment variable template     |
-| [`docker-compose.yaml`](docker-compose.yaml)                           | Local multi-service stack              |
-| [`backend/tool-calling-config.yaml`](backend/tool-calling-config.yaml) | Backend workflow configuration         |
-| [`frontend/env.example`](frontend/env.example)                         | Frontend API path example              |
-| [`helm/daedalus/values.yaml`](helm/daedalus/values.yaml)               | Default Helm values                    |
-| [`custom-values.yaml`](custom-values.yaml)                             | Example production overrides           |
-| [`deploy.sh`](deploy.sh)                                               | Build, push, and deploy helper         |
+| File                                                                   | Purpose                              |
+| ---------------------------------------------------------------------- | ------------------------------------ |
+| [`README.md`](README.md)                                               | Top-level setup and deployment guide |
+| [`.env.template`](.env.template)                                       | Main environment variable template   |
+| [`docker-compose.yaml`](docker-compose.yaml)                           | Local multi-service stack            |
+| [`backend/tool-calling-config.yaml`](backend/tool-calling-config.yaml) | Backend workflow configuration       |
+| [`frontend/env.example`](frontend/env.example)                         | Frontend API path example            |
+| [`helm/daedalus/values.yaml`](helm/daedalus/values.yaml)               | Default Helm values                  |
+| [`custom-values.yaml`](custom-values.yaml)                             | Example production overrides         |
+| [`deploy.sh`](deploy.sh)                                               | Build, push, and deploy helper       |
 
 ## Documentation Map
 
 Use these docs when you want more component-level detail than this top-level guide provides.
 
-| Document                                                      | Focus                                                         |
-| ------------------------------------------------------------- | ------------------------------------------------------------- |
-| [`frontend/README.md`](frontend/README.md)                    | Frontend architecture, async job flow, Redis state, and PWA   |
-| [`docs/SRD-frontend.md`](docs/SRD-frontend.md)                | Frontend planning document plus implementation inventory       |
-| [`helm/daedalus/README.md`](helm/daedalus/README.md)          | Helm chart footprint, values, and Kubernetes traffic model    |
-| [`docs/agent-setup-audit.md`](docs/agent-setup-audit.md)      | Agent workflow audit process, metrics, and one-page template  |
-| [`frontend/pages/api/milvus/README.md`](frontend/pages/api/milvus/README.md) | Current status of the frontend-side Milvus helper |
-| [`builder/image_generation/README.md`](builder/image_generation/README.md) | Visual media builder functions                         |
-| [`builder/nat_nv_ingest/README.md`](builder/nat_nv_ingest/README.md) | Document ingestion into NvIngest and Milvus            |
-| [`builder/smart_milvus/README.md`](builder/smart_milvus/README.md) | Milvus retrieval and reranking behavior                 |
-| [`builder/rss_feed/README.md`](builder/rss_feed/README.md)    | Feed-specific RSS retrieval and scraping                      |
-| [`docs/SRD-backend-reference.md`](docs/SRD-backend-reference.md) | Backend planning and architecture reference               |
-| [`docs/NVIDIA-branding-reference.md`](docs/NVIDIA-branding-reference.md) | NVIDIA branding and style guidelines              |
+| Document                                                                     | Focus                                                        |
+| ---------------------------------------------------------------------------- | ------------------------------------------------------------ |
+| [`frontend/README.md`](frontend/README.md)                                   | Frontend architecture, async job flow, Redis state, and PWA  |
+| [`docs/SRD-frontend.md`](docs/SRD-frontend.md)                               | Frontend planning document plus implementation inventory     |
+| [`helm/daedalus/README.md`](helm/daedalus/README.md)                         | Helm chart footprint, values, and Kubernetes traffic model   |
+| [`docs/agent-setup-audit.md`](docs/agent-setup-audit.md)                     | Agent workflow audit process, metrics, and one-page template |
+| [`frontend/pages/api/milvus/README.md`](frontend/pages/api/milvus/README.md) | Current status of the frontend-side Milvus helper            |
+| [`builder/image_generation/README.md`](builder/image_generation/README.md)   | Visual media builder functions                               |
+| [`builder/nat_nv_ingest/README.md`](builder/nat_nv_ingest/README.md)         | Document ingestion into NvIngest and Milvus                  |
+| [`builder/smart_milvus/README.md`](builder/smart_milvus/README.md)           | Milvus retrieval and reranking behavior                      |
+| [`builder/rss_feed/README.md`](builder/rss_feed/README.md)                   | Feed-specific RSS retrieval and scraping                     |
+| [`docs/SRD-backend-reference.md`](docs/SRD-backend-reference.md)             | Backend planning and architecture reference                  |
+| [`docs/NVIDIA-branding-reference.md`](docs/NVIDIA-branding-reference.md)     | NVIDIA branding and style guidelines                         |
 
 ## Repository Layout
 

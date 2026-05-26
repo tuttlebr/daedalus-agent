@@ -20,7 +20,7 @@ RUN npm config set fetch-retry-mintimeout 60000 && \
     npm config set fetch-retry-maxtimeout 300000 && \
     npm config set fetch-retries 5 && \
     npm config set fetch-timeout 600000 && \
-    npm ci --no-audit --legacy-peer-deps
+    npm ci --legacy-peer-deps --no-audit
 
 # Rebuild the source code only when needed
 FROM base AS builder

@@ -17,7 +17,7 @@ services:
       target: base
       args:
         NAT_VERSION: v1.7.0
-    image: ${DOCKER_REGISTRY:-docker.io/library}/daedalus:builder-${DAEDALUS_VERSION:-latest}
+    image: ${DOCKER_REGISTRY:-docker.io/library}/daedalus:builder-${DAEDALUS_VERSION:-0.1.0}
     working_dir: /builder
     volumes:
       - ${DOCKER_VOLUME_DIRECTORY:-.}/builder:/builder
@@ -32,7 +32,7 @@ services:
         skills: ./skills
       args:
         NAT_VERSION: v1.7.0
-    image: ${DOCKER_REGISTRY:-docker.io/library}/daedalus:backend-${DAEDALUS_VERSION}
+    image: ${DOCKER_REGISTRY:-docker.io/library}/daedalus:backend-${DAEDALUS_VERSION:-0.1.0}
     env_file:
       - .env
     environment:
@@ -87,12 +87,12 @@ services:
     environment:
       - BACKEND_HOST=${BACKEND_HOST:-backend}
       - BACKEND_PORT=${BACKEND_PORT:-8000}
-      - BACKEND_API_PATH=${BACKEND_API_PATH:-/chat}
+      - BACKEND_API_PATH=${BACKEND_API_PATH:-/v1/chat/completions}
     ports:
       - "3000:3000"
     networks:
       - ${NETWORK_NAME:-daedalus-network}
-    image: ${DOCKER_REGISTRY:-docker.io/library}/daedalus:frontend-${DAEDALUS_VERSION:-latest}
+    image: ${DOCKER_REGISTRY:-docker.io/library}/daedalus:frontend-${DAEDALUS_VERSION:-0.1.0}
     depends_on:
       backend:
         condition: service_started
@@ -102,7 +102,7 @@ services:
         condition: service_started
 
   redis:
-    image: redis/redis-stack:latest
+    image: redis/redis-stack:7.2.0-v19
     command: [ "redis-server", "--save", "60", "1", "--appendonly", "yes", "--loadmodule", "/opt/redis-stack/lib/rejson.so" ]
     restart: unless-stopped
     volumes:
@@ -117,7 +117,7 @@ services:
     build:
       context: evals
       dockerfile: Dockerfile
-    image: ${DOCKER_REGISTRY:-docker.io/library}/daedalus:evals-${DAEDALUS_VERSION:-latest}
+    image: ${DOCKER_REGISTRY:-docker.io/library}/daedalus:evals-${DAEDALUS_VERSION:-0.1.0}
     profiles: [evals]
     extra_hosts:
       - "host.docker.internal:host-gateway"

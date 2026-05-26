@@ -10,7 +10,8 @@
 
 // Backend API path configuration
 // Supported values: '/chat', '/chat/stream', '/generate', '/generate/stream', '/v1/chat/completions'
-export const BACKEND_API_PATH = process.env.BACKEND_API_PATH || '/chat';
+export const BACKEND_API_PATH =
+  process.env.BACKEND_API_PATH || '/v1/chat/completions';
 
 // Default backend port
 export const BACKEND_PORT = process.env.BACKEND_PORT || '8000';
@@ -22,12 +23,14 @@ function normalizeBaseUrl(baseUrl: string): string {
 /**
  * Check if using generate endpoint (requires different payload format)
  */
-export const isGenerateEndpoint = (): boolean => BACKEND_API_PATH.includes('generate');
+export const isGenerateEndpoint = (): boolean =>
+  BACKEND_API_PATH.includes('generate');
 
 /**
  * Check if using OpenAI v1 compatible endpoint
  */
-export const isOpenAIv1Endpoint = (): boolean => BACKEND_API_PATH.includes('/v1/');
+export const isOpenAIv1Endpoint = (): boolean =>
+  BACKEND_API_PATH.includes('/v1/');
 
 /**
  * Check if using a streaming endpoint
@@ -48,7 +51,8 @@ export function getBackendHost(): string {
     process.env.NAMESPACE ||
     'daedalus';
   const isKubernetes =
-    process.env.KUBERNETES_SERVICE_HOST || process.env.DEPLOYMENT_MODE === 'kubernetes';
+    process.env.KUBERNETES_SERVICE_HOST ||
+    process.env.DEPLOYMENT_MODE === 'kubernetes';
 
   if (isKubernetes) {
     return `${baseHost}-default.${backendNamespace}.svc.cluster.local`;
@@ -69,7 +73,8 @@ export function getBackendPodDiscoveryHost(): string {
     process.env.NAMESPACE ||
     'daedalus';
   const isKubernetes =
-    process.env.KUBERNETES_SERVICE_HOST || process.env.DEPLOYMENT_MODE === 'kubernetes';
+    process.env.KUBERNETES_SERVICE_HOST ||
+    process.env.DEPLOYMENT_MODE === 'kubernetes';
 
   if (isKubernetes) {
     return `${baseHost}-default-pods.${backendNamespace}.svc.cluster.local`;
@@ -100,9 +105,7 @@ export function buildBackendBaseUrl(options: {
  * @param port - Optional port override
  * @returns The backend base URL
  */
-export function buildBackendBaseUrlForMode(
-  port?: string | number
-): string {
+export function buildBackendBaseUrlForMode(port?: string | number): string {
   const backendHost = getBackendHost();
   return buildBackendBaseUrl({ backendHost, port });
 }
@@ -114,7 +117,10 @@ export function buildBackendBaseUrlForMode(
  * @param pathOverride - Optional path override (defaults to BACKEND_API_PATH)
  * @returns The full backend URL
  */
-export function buildBackendUrlFromBase(baseUrl: string, pathOverride?: string): string {
+export function buildBackendUrlFromBase(
+  baseUrl: string,
+  pathOverride?: string,
+): string {
   const path = pathOverride || BACKEND_API_PATH;
   return `${normalizeBaseUrl(baseUrl)}${path}`;
 }
@@ -146,9 +152,7 @@ export function buildBackendUrl(options: {
  * @param pathOverride - Optional path override (defaults to BACKEND_API_PATH)
  * @returns The full backend URL
  */
-export function buildBackendUrlForMode(
-  pathOverride?: string
-): string {
+export function buildBackendUrlForMode(pathOverride?: string): string {
   const backendHost = getBackendHost();
   return buildBackendUrl({ backendHost, pathOverride });
 }

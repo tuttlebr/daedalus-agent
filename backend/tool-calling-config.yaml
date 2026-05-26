@@ -152,23 +152,6 @@ function_groups:
     server:
       transport: streamable-http
       url: https://docs.nvidia.com/dynamo/_mcp/server
-  brev_mcp_server:
-    _type: mcp_client
-    include:
-      - searchDocs
-    tool_call_timeout: 45
-    reconnect_enabled: true
-    reconnect_max_attempts: 3
-    session_idle_timeout: 600
-    tool_overrides:
-      searchDocs:
-        description: >-
-          Search NVIDIA Brev docs. Args: query.
-          Returns: doc passages. Use for Brev-specific API/config
-          questions.
-    server:
-      transport: streamable-http
-      url: https://docs.nvidia.com/brev/_mcp/server
   openshell_mcp_server:
     _type: mcp_client
     include:
@@ -335,17 +318,14 @@ functions:
     verbose: true
     tool_names:
       - dynamo_mcp_server
-      - brev_mcp_server
       - openshell_mcp_server
-      - aistore_mcp_server
       - aiperf_mcp_server
       - nvcf_mcp_server
       - dsx_mcp_server
     description: >-
       Search official NVIDIA product documentation through MCP. Input:
       a docs, API, configuration, deployment, or troubleshooting question
-      about Dynamo, HEAVY.AI, Brev, NeMo Curator, OpenShell, AIStore,
-      AIPerf, NVIDIA Cloud Functions, Infra Controller, or DSX. Returns a
+      about Dynamo, OpenShell, AIPerf, NVIDIA Cloud Functions, or DSX. Returns a
       concise doc-grounded answer. Do NOT use for live Kubernetes/GitHub
       ops, private user data, media tasks, or general web research.
     system_prompt: |
@@ -354,9 +334,7 @@ functions:
 
       Product routing:
       - Dynamo -> dynamo_mcp_server
-      - Brev -> brev_mcp_server
       - OpenShell -> openshell_mcp_server
-      - AIStore -> aistore_mcp_server
       - AIPerf -> aiperf_mcp_server
       - NVIDIA Cloud Functions or NVCF -> nvcf_mcp_server
       - DSX -> dsx_mcp_server
@@ -590,9 +568,9 @@ functions:
     vector_field: vector
     top_k: 10
     use_reranker: true
-    reranker_api_key: ${REANKER_API_KEY}
-    reranker_endpoint: ${REANKER_BASE_URL}
-    reranker_model: ${REANKER_MODEL}
+    reranker_api_key: ${RERANKER_API_KEY}
+    reranker_endpoint: ${RERANKER_BASE_URL}
+    reranker_model: ${RERANKER_MODEL}
     reranker_top_n: 5
     domain_collections:
       nvidia: nvidia
@@ -622,7 +600,7 @@ functions:
     minio_bucket: nv-ingest
     nv_ingest_host: ${NV_INGEST_HOST}
     nv_ingest_port: ${NV_INGEST_PORT}
-    redis_url: ${REDIS_URL}:${REDIS_PORT}
+    redis_url: ${REDIS_URL}
     # Concurrency — keep VDB uploads serial per backend worker. NV-Ingest's
     # Milvus upload path can wedge when several documents write to one
     # collection concurrently.
@@ -648,9 +626,9 @@ functions:
     content_field: text
     database_name: default
     distance_cutoff: 1.2
-    reranker_api_key: ${REANKER_API_KEY}
-    reranker_endpoint: ${REANKER_BASE_URL}
-    reranker_model: ${REANKER_MODEL}
+    reranker_api_key: ${RERANKER_API_KEY}
+    reranker_endpoint: ${RERANKER_BASE_URL}
+    reranker_model: ${RERANKER_MODEL}
     reranker_top_n: 5
     top_k: 10
     use_reranker: true
@@ -675,9 +653,9 @@ functions:
     max_entries: 5
     enabled_operations:
       - search_rss
-    reranker_api_key: ${REANKER_API_KEY}
-    reranker_endpoint: ${REANKER_BASE_URL}
-    reranker_model: ${REANKER_MODEL}
+    reranker_api_key: ${RERANKER_API_KEY}
+    reranker_endpoint: ${RERANKER_BASE_URL}
+    reranker_model: ${RERANKER_MODEL}
     reranker_max_passage_tokens: 192
     reranker_max_total_tokens: 7000
     verbose: true
@@ -714,7 +692,7 @@ functions:
   user_interaction_tool:
     _type: user_interaction
     max_options: 6
-    redis_url: ${REDIS_URL}:${REDIS_PORT}
+    redis_url: ${REDIS_URL}
     approval_ttl_seconds: 300
     enabled_operations:
       - clarify
@@ -732,7 +710,7 @@ functions:
   ops_confirmation_tool:
     _type: user_interaction
     max_options: 6
-    redis_url: ${REDIS_URL}:${REDIS_PORT}
+    redis_url: ${REDIS_URL}
     approval_ttl_seconds: 300
     enabled_operations:
       - confirm_action
@@ -961,7 +939,7 @@ memory:
     _type: nat.plugins.redis/redis_memory
     db: 0
     embedder: milvus_embedder
-    host: ${RI_REDIS_HOST_DAEDALUS}
+    host: ${REDIS_HOST}
     key_prefix: nat
     port: ${REDIS_PORT}
     verbose: true

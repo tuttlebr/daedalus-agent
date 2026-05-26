@@ -78,13 +78,19 @@ spec:
                 secretKeyRef:
                   name: {{ printf "%s-internal-api" (include "daedalus.fullname" .) }}
                   key: DAEDALUS_INTERNAL_API_TOKEN
+            - name: REDIS_HOST
+              value: {{ (get (.Values.backend.default.env.overrides | default dict) "REDIS_HOST") | default (printf "%s-redis.%s.svc.cluster.local" (include "daedalus.fullname" .) .Release.Namespace) | quote }}
+            - name: REDIS_PORT
+              value: {{ (get (.Values.backend.default.env.overrides | default dict) "REDIS_PORT") | default (.Values.redis.service.port | default 6379) | quote }}
+            - name: REDIS_URL
+              value: {{ (get (.Values.backend.default.env.overrides | default dict) "REDIS_URL") | default (printf "redis://%s-redis.%s.svc.cluster.local:%v" (include "daedalus.fullname" .) .Release.Namespace (.Values.redis.service.port | default 6379)) | quote }}
             {{- if .Values.backend.default.config.enabled }}
             - name: NAT_CONFIG_FILE
               value: /workspace/config/config.yaml
             {{- end }}
             {{- with .Values.backend.default.env.overrides }}
             {{- range $k, $v := . }}
-            {{- if and (ne $k "DAEDALUS_INTERNAL_API_TOKEN") (or (not $.Values.backend.default.config.enabled) (ne $k "NAT_CONFIG_FILE")) }}
+            {{- if and (ne $k "DAEDALUS_INTERNAL_API_TOKEN") (ne $k "REDIS_HOST") (ne $k "REDIS_PORT") (ne $k "REDIS_URL") (or (not $.Values.backend.default.config.enabled) (ne $k "NAT_CONFIG_FILE")) }}
             - name: {{ $k }}
               value: {{ $v | quote }}
             {{- end }}

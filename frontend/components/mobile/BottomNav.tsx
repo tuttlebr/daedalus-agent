@@ -2,7 +2,7 @@
 
 import React, { memo } from 'react';
 import classNames from 'classnames';
-import { IconMenu2, IconPaperclip, IconPlus } from '@tabler/icons-react';
+import { IconMenu2, IconPaperclip, IconPlus, IconRobot } from '@tabler/icons-react';
 import { useUISettingsStore, useConversationStore } from '@/state';
 import { v4 as uuidv4 } from 'uuid';
 import { saveConversation } from '@/utils/app/conversation';
@@ -16,6 +16,8 @@ import { Conversation } from '@/types/chat';
 export const BottomNav = memo(() => {
   const showChatbar = useUISettingsStore((s) => s.showChatbar);
   const setShowChatbar = useUISettingsStore((s) => s.setShowChatbar);
+  const activeView = useUISettingsStore((s) => s.activeView);
+  const setActiveView = useUISettingsStore((s) => s.setActiveView);
 
   const items = [
     {
@@ -33,10 +35,17 @@ export const BottomNav = memo(() => {
       },
     },
     {
+      icon: IconRobot,
+      label: 'Auto',
+      active: activeView === 'autonomy',
+      onClick: () => setActiveView(activeView === 'autonomy' ? 'chat' : 'autonomy'),
+    },
+    {
       icon: IconPlus,
       label: 'New',
       active: false,
       onClick: () => {
+        setActiveView('chat');
         const newConv: Conversation = {
           id: uuidv4(),
           name: 'New Conversation',

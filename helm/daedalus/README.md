@@ -10,7 +10,7 @@ Depending on values, the chart can deploy:
 - the Next.js frontend
 - the backend deployment
 - Redis Stack and RedisInsight
-- the autonomous-agent CronJob with seed workspace files (identity, interests, schema, memory, and operating procedures mounted via ConfigMap)
+- the autonomous-agent worker Deployment
 - PVCs, PodDisruptionBudget, NetworkPolicy, and optional Cilium policies
 
 The top-level [`../../README.md`](../../README.md) contains the end-to-end deployment guide and request-flow diagrams. This file focuses on the chart itself.
@@ -114,9 +114,9 @@ Those routes are selected by path and `X-Backend-Type` header, which allows call
 - `nginx.config.restrictedMode=true` disables direct backend access through nginx and forces traffic through the frontend.
 - On the production `nfs-client` StorageClass backed by UNAS Pro, PVC-writing pods must run as UID `977` and GID `988`. That matches the server export's `all_squash,anonuid=977,anongid=988` policy and avoids relying on `no_root_squash`.
 - Use `runAsUser: 977`, `runAsGroup: 988`, `fsGroup: 988`, and `fsGroupChangePolicy: OnRootMismatch` for Daedalus workloads that write to NFS PVCs. `fsGroup` alone is not enough when files are created with owner-only write modes.
-- The autonomous agent can target either backend using `autonomousAgent.backendType`.
-- The autonomous agent mounts seed workspace files from `helm/daedalus/files/autonomous-agent-*.md` via a ConfigMap. Set `autonomousAgent.workspace.resetOnDeploy=true` to re-seed all files after identity or schema changes.
-- The autonomous agent defaults to a 10-cycle distillation interval so exploration, follow-up, falsification, and memory maintenance stay aligned.
+- The autonomous worker targets the configured backend through `autonomousAgent.backendApiPath`, usually `/v1/workflow/async`.
+- The autonomous worker seeds first-run workspace context from built-in defaults in the `autonomous_agent` package.
+- The run cadence defaults to `autonomousAgent.worker.intervalSeconds` and can be changed from the Autonomy dashboard.
 
 ## NFS Ownership Runbook
 

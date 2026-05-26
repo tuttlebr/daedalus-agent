@@ -26,6 +26,7 @@ import { Sidebar } from '@/components/sidebar/Sidebar';
 import { BottomNav } from '@/components/mobile/BottomNav';
 import { ChatView } from '@/components/chat/ChatView';
 import { ImagePanel } from '@/components/images';
+import { AutonomyDashboard } from '@/components/autonomy';
 
 const Home = () => {
   const { t } = useTranslation('chat');
@@ -253,6 +254,9 @@ function ActiveView() {
 
   if (activeView === 'create') {
     return <ImagePanel />;
+  }
+  if (activeView === 'autonomy') {
+    return <AutonomyDashboard />;
   }
   return <ChatView />;
 }

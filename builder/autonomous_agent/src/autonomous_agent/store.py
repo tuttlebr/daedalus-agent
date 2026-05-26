@@ -1,0 +1,252 @@
+"""Redis-backed state store for autonomous runs."""
+
+from __future__ import annotations
+
+import json
+import os
+import time
+import uuid
+from typing import Any
+
+from .models import default_config, new_event, now_ms
+
+
+def key(user_id: str, name: str) -> str:
+    return f"autonomy:{user_id}:{name}"
+
+
+class RedisStore:
+    def __init__(self, redis_url: str | None = None) -> None:
+        import redis
+
+        self.redis = redis.from_url(
+            redis_url or os.getenv("REDIS_URL", "redis://redis:6379"),
+            decode_responses=True,
+        )
+        self._json_supported: bool | None = None
+        self._lease_tokens: dict[str, str] = {}
+
+    def ping(self) -> None:
+        self.redis.ping()
+
+    def _supports_json(self) -> bool:
+        if self._json_supported is not None:
+            return self._json_supported
+        try:
+            self.redis.execute_command("JSON.GET", "__autonomy_probe__")
+            self._json_supported = True
+        except Exception:
+            self._json_supported = False
+        return self._json_supported
+
+    def json_get(self, redis_key: str, fallback: Any = None) -> Any:
+        if self._supports_json():
+            try:
+                raw = self.redis.execute_command("JSON.GET", redis_key)
+                return json.loads(raw) if raw else fallback
+            except Exception:
+                return fallback
+        raw = self.redis.get(redis_key)
+        if not raw:
+            return fallback
+        try:
+            return json.loads(raw)
+        except json.JSONDecodeError:
+            return fallback
+
+    def json_set(self, redis_key: str, value: Any) -> None:
+        serialized = json.dumps(value)
+        if self._supports_json():
+            try:
+                self.redis.execute_command("JSON.SET", redis_key, ".", serialized)
+                return
+            except Exception:
+                pass
+        self.redis.set(redis_key, serialized)
+
+    def get_text(self, redis_key: str) -> str | None:
+        value = self.redis.get(redis_key)
+        return str(value) if value is not None else None
+
+    def set_text(self, redis_key: str, value: str) -> None:
+        self.redis.set(redis_key, value)
+
+    def publish(self, user_id: str, event_type: str, data: dict[str, Any]) -> None:
+        event = {"type": event_type, "timestamp": now_ms(), "data": data}
+        self.redis.publish(f"user:{user_id}:updates", json.dumps(event))
+
+    def get_config(self, user_id: str) -> dict[str, Any]:
+        config = self.json_get(key(user_id, "config"))
+        if isinstance(config, dict):
+            return {**default_config(user_id), **config}
+        config = default_config(user_id)
+        interval = os.getenv("AUTONOMY_INTERVAL_SECONDS")
+        if interval and interval.isdigit():
+            config["intervalSeconds"] = int(interval)
+        self.json_set(key(user_id, "config"), config)
+        return config
+
+    def save_config(self, user_id: str, config: dict[str, Any]) -> None:
+        config = {**config, "updatedAt": now_ms()}
+        self.json_set(key(user_id, "config"), config)
+        self.publish(user_id, "autonomy_status", {"config": config})
+
+    def list_goals(self, user_id: str) -> list[dict[str, Any]]:
+        goals = self.json_get(key(user_id, "goals"), [])
+        return goals if isinstance(goals, list) else []
+
+    def list_runs(self, user_id: str) -> list[dict[str, Any]]:
+        runs = self.json_get(key(user_id, "runs"), [])
+        return runs if isinstance(runs, list) else []
+
+    def save_runs(self, user_id: str, runs: list[dict[str, Any]]) -> None:
+        max_runs = int(self.get_config(user_id).get("maxRunsStored") or 100)
+        self.json_set(key(user_id, "runs"), runs[:max_runs])
+
+    def upsert_run(self, user_id: str, run: dict[str, Any]) -> None:
+        runs = [r for r in self.list_runs(user_id) if r.get("id") != run.get("id")]
+        run["updatedAt"] = now_ms()
+        runs.insert(0, run)
+        self.save_runs(user_id, runs)
+        self.publish(user_id, "autonomy_status", {"run": run})
+
+    def append_event(self, user_id: str, event: dict[str, Any]) -> None:
+        events = self.json_get(key(user_id, "events"), [])
+        if not isinstance(events, list):
+            events = []
+        events.insert(0, event)
+        self.json_set(key(user_id, "events"), events[:500])
+        self.publish(user_id, "autonomy_run_event", event)
+
+    def log_event(
+        self,
+        user_id: str,
+        run_id: str,
+        event_type: str,
+        message: str,
+        *,
+        level: str = "info",
+        data: dict[str, Any] | None = None,
+    ) -> None:
+        self.append_event(
+            user_id,
+            new_event(
+                run_id=run_id,
+                event_type=event_type,
+                message=message,
+                level=level,
+                data=data,
+            ),
+        )
+
+    def list_events(self, user_id: str, run_id: str | None = None) -> list[dict[str, Any]]:
+        events = self.json_get(key(user_id, "events"), [])
+        if not isinstance(events, list):
+            return []
+        if run_id:
+            return [event for event in events if event.get("runId") == run_id]
+        return events
+
+    def append_feed_items(self, user_id: str, items: list[dict[str, Any]]) -> None:
+        if not items:
+            return
+        feed = self.json_get(key(user_id, "feed"), [])
+        if not isinstance(feed, list):
+            feed = []
+        feed = items + feed
+        max_items = int(self.get_config(user_id).get("maxFeedItems") or 200)
+        self.json_set(key(user_id, "feed"), feed[:max_items])
+        self.publish(user_id, "autonomy_feed_updated", {"items": items})
+
+    def append_approval(self, user_id: str, approval: dict[str, Any]) -> None:
+        approvals = self.json_get(key(user_id, "approvals"), [])
+        if not isinstance(approvals, list):
+            approvals = []
+        approvals.insert(0, approval)
+        self.json_set(key(user_id, "approvals"), approvals[:100])
+        self.publish(user_id, "autonomy_approval_requested", approval)
+
+    def enqueue(self, user_id: str, request: dict[str, Any]) -> None:
+        self.redis.lpush(key(user_id, "queue"), json.dumps(request))
+        self.publish(user_id, "autonomy_status", {"queued": request})
+
+    def dequeue(self, user_id: str, timeout: int = 5) -> dict[str, Any] | None:
+        item = self.redis.brpop(key(user_id, "queue"), timeout=timeout)
+        if not item:
+            return None
+        _, raw = item
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError:
+            return None
+        return parsed if isinstance(parsed, dict) else None
+
+    def acquire_lease(self, user_id: str, ttl_seconds: int = 60) -> bool:
+        token = f"{os.getpid()}:{uuid.uuid4().hex}"
+        acquired = bool(
+            self.redis.set(key(user_id, "lease"), token, nx=True, ex=ttl_seconds)
+        )
+        if acquired:
+            self._lease_tokens[user_id] = token
+        return acquired
+
+    def refresh_lease(self, user_id: str, ttl_seconds: int = 60) -> None:
+        token = self._lease_tokens.get(user_id)
+        if not token:
+            return
+        self.redis.eval(
+            """
+            if redis.call("GET", KEYS[1]) == ARGV[1] then
+                return redis.call("EXPIRE", KEYS[1], ARGV[2])
+            end
+            return 0
+            """,
+            1,
+            key(user_id, "lease"),
+            token,
+            int(ttl_seconds),
+        )
+
+    def release_lease(self, user_id: str) -> None:
+        token = self._lease_tokens.pop(user_id, None)
+        if not token:
+            return
+        self.redis.eval(
+            """
+            if redis.call("GET", KEYS[1]) == ARGV[1] then
+                return redis.call("DEL", KEYS[1])
+            end
+            return 0
+            """,
+            1,
+            key(user_id, "lease"),
+            token,
+        )
+
+    def cancel_requested(self, user_id: str, run_id: str) -> bool:
+        return bool(self.redis.get(key(user_id, f"cancel:{run_id}")))
+
+    def maybe_enqueue_scheduled(self, user_id: str) -> None:
+        config = self.get_config(user_id)
+        if not config.get("enabled", True):
+            return
+        interval = int(config.get("intervalSeconds") or 14_400)
+        last = int(config.get("lastScheduledRunAt") or 0)
+        current = now_ms()
+        if last and current - last < interval * 1000:
+            return
+        request = {
+            "id": f"scheduled-{current}",
+            "trigger": "scheduled",
+            "requestedBy": "worker",
+            "createdAt": current,
+        }
+        self.enqueue(user_id, request)
+        config["lastScheduledRunAt"] = current
+        self.save_config(user_id, config)
+
+    def sleep_with_lease(self, user_id: str, seconds: int) -> None:
+        deadline = time.monotonic() + seconds
+        while time.monotonic() < deadline:
+            self.refresh_lease(user_id)
+            time.sleep(min(10, max(0, deadline - time.monotonic())))
