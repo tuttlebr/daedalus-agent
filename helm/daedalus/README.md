@@ -70,18 +70,18 @@ The repo-level [`../../custom-values.yaml`](../../custom-values.yaml) is the opi
 
 ## Key Value Areas
 
-| Values path | Purpose |
-|-------------|---------|
-| `images.*` | Container repositories, tags, and pull policy |
-| `frontend.*` | Frontend deployment, service, and env overrides |
-| `backend.default.*` | Backend deployment and config |
-| `backend.persistence.*` | PVCs used by backend pods |
-| `backend.networkPolicy.*` | Kubernetes and optional Cilium restrictions |
-| `nginx.*` | nginx deployment, direct backend routing, TLS, restricted mode |
-| `redis.*` | Redis Stack deployment and persistence |
-| `redisinsight.*` | RedisInsight deployment and service |
-| `autonomousAgent.*` | Background research agent schedule and config |
-| `ingress.*` | External hostnames, ingress class, annotations, and TLS |
+| Values path                | Purpose                                                |
+| -------------------------- | ------------------------------------------------------ |
+| `images.*`                 | Container repositories, tags, and pull policy          |
+| `frontend.*`               | Frontend deployment, service, and env overrides        |
+| `backend.default.*`        | Backend deployment and config                          |
+| `backend.persistence.*`    | PVCs used by backend pods                              |
+| `backend.networkPolicy.*`  | Kubernetes and optional Cilium restrictions            |
+| `nginx.*`                  | nginx deployment, direct backend routing, TLS, restricted mode |
+| `redis.*`                  | Redis Stack deployment and persistence                 |
+| `redisinsight.*`           | RedisInsight deployment and service                    |
+| `autonomousAgent.*`        | Background research worker schedule and config         |
+| `ingress.*`                | External hostnames, ingress class, annotations, and TLS |
 
 ## Traffic Model
 

@@ -1,4 +1,4 @@
-<p align="center">
+<p align="left">
   <img src="frontend/public/favicon.png" alt="Daedalus" width="120">
 </p>
 
@@ -33,7 +33,7 @@ Daedalus supports two practical ways to run the project.
 
 | Mode                 | What it starts                                                                                    | Best for                                                          |
 | -------------------- | ------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
-| Local Docker Compose | `frontend`, `backend`, `nginx`, `redis`, `redisinsight`, plus a `builder` utility container       | Local development and validating one backend config at a time     |
+| Local Docker Compose | `frontend`, `backend`, `nginx`, `redis`, plus a `builder` utility container                       | Local development and validating one backend config at a time     |
 | Kubernetes via Helm  | Backend, frontend, nginx, redis, redisinsight, autonomous worker, ingress, PVCs, network policies | Persistent multi-user deployments and the full platform footprint |
 
 > [!IMPORTANT]
@@ -116,7 +116,7 @@ docker compose up --build
 - Main app through nginx: `http://localhost`
 - Frontend directly: `http://localhost:3000`
 - Backend API: `http://localhost:8000`
-- RedisInsight: `http://localhost:8001`
+- RedisInsight (bundled with Redis Stack): `http://localhost:8001`
 
 ## Local Development Notes
 
@@ -129,7 +129,7 @@ docker compose up --build
 
 Use Kubernetes when you want the full Daedalus layout: backend, ingress, PVC-backed storage, the autonomous worker, and optional Cilium policies.
 
-### Preferred path: `deploy.sh`
+### Preferred Path: `deploy.sh`
 
 The repository includes a deployment script that builds, pushes, creates or updates secrets, and runs Helm.
 
@@ -164,7 +164,7 @@ that configured `include` tools are advertised by `tools/list`, and runs
 cluster-local URLs such as `*.svc.cluster.local` from a short-lived Kubernetes
 curl pod in the target namespace.
 
-### Manual Helm path
+### Manual Helm Path
 
 If you prefer to deploy manually:
 
@@ -184,7 +184,7 @@ helm upgrade --install daedalus ./helm/daedalus \
   --timeout 10m
 ```
 
-### Full Helm footprint
+### Full Helm Footprint
 
 The Helm chart can deploy:
 
@@ -198,9 +198,9 @@ The Helm chart can deploy:
 
 Start with [`helm/daedalus/values.yaml`](helm/daedalus/values.yaml) for defaults and [`custom-values.yaml`](custom-values.yaml) for an opinionated example.
 
-### Kubernetes request flow
+### Kubernetes Request Flow
 
-The main browser chat path in Kubernetes goes through the frontend's async API route. The frontend authenticates the user, stores frontend-managed job metadata in Redis, opens a pinned backend stream, and returns a `jobId` immediately. Normal chat uses `/v1/chat/completions`; uploaded document ingestion uses `/v1/documents/ingest/stream` so progress can be pushed back through Redis/WebSocket. NAT `/v1/workflow/async` is kept only as a legacy document-ingest fallback.
+The main browser chat path in Kubernetes goes through the frontend's async API route. The frontend authenticates the user, stores frontend-managed job metadata in Redis, opens a pinned backend stream, and returns a `jobId` immediately. Normal chat uses `/v1/chat/completions`; uploaded document ingestion uses `/v1/documents/ingest/stream` so progress can be pushed back through Redis and WebSocket. NAT `/v1/workflow/async` is kept only as a legacy document-ingest fallback.
 
 ```mermaid
 flowchart LR
@@ -266,11 +266,11 @@ sequenceDiagram
 ```
 
 > **Direct API access:** Helm defaults to `nginx.config.restrictedMode=true`,
-> which forces browser/API traffic through the authenticated frontend. Set
+> which forces browser and API traffic through the authenticated frontend. Set
 > `nginx.config.restrictedMode=false` only when you intentionally want nginx
 > to proxy `/chat/*`, `/generate/*`, and `/v1/*` directly to the backend.
 
-### Document ingestion and Milvus collections
+### Document Ingestion and Milvus Collections
 
 Uploaded-document ingestion can target either user-scoped collections or
 allow-listed shared collections. Both collection classes intentionally live in
@@ -304,7 +304,7 @@ The frontend includes:
 - Authentication backed by Redis
 - File attachments for images, documents, and videos
 - Direct document ingestion with streamed progress
-- Conversation folders, export/import, and search
+- Conversation folders, export and import, and search
 - Real-time sync and usage tracking APIs
 - PWA support and offline assets
 - A built-in Help dialog for end users
@@ -320,14 +320,17 @@ The `builder/` directory contains reusable NeMo Agent functions, helpers, and st
 | `agent_skills`       | package | Discovers and runs repo-packaged skills                               |
 | `autonomous_agent`   | package | Long-running autonomous worker, Redis state store, and prompt runtime |
 | `content_distiller`  | package | Summarization and extraction helpers                                  |
-| `image_generation`   | package | Unified visual media and text-to-image generation                     |
+| `image_augmentation` | package | OpenAI image-edits wrapper for uploaded images                        |
+| `image_comprehension`| package | Vision-language analysis for images and videos                        |
+| `image_generation`   | package | OpenAI text-to-image generation                                       |
 | `json_repair_agent`  | package | Repairs malformed JSON outputs                                        |
 | `mas_optimizer`      | package | Multi-agent vs single-agent routing and verification                  |
 | `nat_helpers`        | package | Shared helpers such as geolocation and image utilities                |
-| `nat_nv_ingest`      | package | Unified user-document ingestion and retrieval                         |
-| `rss_feed`           | package | RSS fetching and ranking                                              |
+| `nat_nv_ingest`      | package | Unified user-document ingestion, search, and listing                  |
+| `rss_feed`           | package | RSS fetching, reranking, and scraping                                 |
 | `serpapi_search`     | package | Search integration                                                    |
 | `smart_milvus`       | package | Milvus retrieval, domain routing, and reranking                       |
+| `source_verifier`    | package | Claim verification before findings are persisted                      |
 | `user_interaction`   | package | Structured clarification and confirmation prompts                     |
 | `vtt_interpreter`    | package | Transcript-to-notes processing                                        |
 | `webscrape`          | package | Web page extraction                                                   |
@@ -339,7 +342,7 @@ Several packages include their own README files under `builder/`.
 
 ## Autonomous Agent
 
-The Helm chart enables an autonomous background agent by default. It now runs as a dedicated worker Deployment instead of a Kubernetes CronJob. The worker uses Redis as its control plane: the UI stores config, goals, queued runs, events, feed items, approvals, and cancellation flags, while the worker consumes the queue and publishes updates back through the existing WebSocket sync channel.
+The Helm chart enables an autonomous background agent by default. It runs as a dedicated worker Deployment, using Redis as its control plane: the UI stores config, goals, queued runs, events, feed items, approvals, and cancellation flags, while the worker consumes the queue and publishes updates back through the existing WebSocket sync channel.
 
 The design follows the useful parts of Hermes-style autonomy: a persistent agent loop, stable identity and memory context, explicit goals, structured run output, and approval gates. Daedalus intentionally keeps the UI as the only human interaction point; there are no Slack, Discord, or other third-party messaging surfaces.
 
@@ -347,8 +350,8 @@ The design follows the useful parts of Hermes-style autonomy: a persistent agent
 
 - The worker runs `python -m autonomous_agent.worker` from the builder image.
 - Scheduled runs are controlled by `autonomousAgent.worker.intervalSeconds` and can be changed in the Autonomy dashboard.
-- Manual runs can be queued from the dashboard or with [`trigger-autonomous-agent.sh`](trigger-autonomous-agent.sh).
-- The worker calls the backend workflow, defaults to `/v1/workflow/async`, and writes structured feed items plus workspace updates.
+- Manual runs are queued from the Autonomy dashboard, which writes to the Redis queue the worker consumes.
+- The worker calls the backend workflow at `autonomousAgent.backendApiPath` (defaults to `/v1/workflow/async`) and writes structured feed items plus workspace updates.
 - Destructive, irreversible, credential-related, send/merge/delete/scale/uninstall, or memory-delete actions must request confirmation. The run pauses and the dashboard shows a pending approval.
 - A Redis lease with heartbeat prevents multiple worker replicas from running the same configured user concurrently.
 
@@ -356,7 +359,7 @@ The design follows the useful parts of Hermes-style autonomy: a persistent agent
 
 Open the app and select the **Autonomy** tab. The dashboard provides:
 
-- Pause/resume for scheduled autonomous work
+- Pause and resume for scheduled autonomous work
 - Run-now and cancel controls
 - Interval editing
 - Goal creation
@@ -375,14 +378,6 @@ Important settings:
 - `autonomousAgent.userId`
 - `autonomousAgent.backendApiPath`
 - `autonomousAgent.requestTimeout`
-
-For a manual Kubernetes trigger:
-
-```bash
-./trigger-autonomous-agent.sh --namespace daedalus --release daedalus --user tuttlebr --prompt "Check active goals and publish a short feed update"
-```
-
-Use `--dry-run` to print the Redis queue payload without enqueuing it.
 
 The worker seeds its first-run workspace from built-in defaults in
 [`builder/autonomous_agent/src/autonomous_agent/prompt.py`](builder/autonomous_agent/src/autonomous_agent/prompt.py).
@@ -438,7 +433,7 @@ the legacy identity header behavior for local development.
 
 ## Development
 
-### Frontend only
+### Frontend Only
 
 ```bash
 cd frontend
@@ -449,23 +444,23 @@ npm run dev
 
 The standalone dev server runs on `http://localhost:5000`.
 
-### Builder tests
+### Builder Tests
 
 ```bash
 cd builder
-uv run --with pytest --with pyyaml --with pydantic --with httpx \
-  pytest tests/ -v
+uv pip install -e ".[test]"
+uv run python -m pytest -v
 ```
 
 With coverage:
 
 ```bash
 cd builder
-uv run --with pytest --with pyyaml --with pydantic --with httpx --with pytest-cov \
-  pytest tests/ --cov --cov-report=term-missing
+uv pip install -e ".[test]"
+uv run python -m pytest --cov --cov-report=term-missing
 ```
 
-### Frontend tests
+### Frontend Tests
 
 ```bash
 cd frontend
@@ -474,13 +469,19 @@ npm test -- --run
 npm run coverage
 ```
 
+### Local CI Mirror
+
+The repo includes a [`Makefile`](Makefile) that mirrors the CI workflow jobs.
+Run a single job locally with `make builder`, `make frontend`, `make helm`,
+`make docker`, `make security`, or `make evals`. Run them all with `make ci`.
+
 ## Troubleshooting
 
-### Backend config override is missing
+### Backend Config Override Is Missing
 
 The local backend container mounts `/workspace/config.yaml` from `BACKEND_CONFIG_FILE`, defaulting to `./backend/tool-calling-config.yaml`. If you override `BACKEND_CONFIG_FILE`, make sure that file exists before starting Compose.
 
-### Login page loads but no user can sign in
+### Login Page Loads But No User Can Sign In
 
 Make sure you defined either:
 
@@ -489,13 +490,13 @@ Make sure you defined either:
 
 Also set `DAEDALUS_DEFAULT_USER` to a real configured username if you want memory and background-agent activity associated with that user.
 
-### Local Compose cannot reach Milvus or NV-Ingest
+### Local Compose Cannot Reach Milvus or NV-Ingest
 
 That is expected unless you provide those external services yourself. The local stack only starts the Daedalus-facing containers.
 
-### Milvus authentication failures during ingestion
+### Milvus Authentication Failures During Ingestion
 
-If NvIngest document ingestion fails with `StatusCode.UNAUTHENTICATED` and `auth check failure`, set Milvus credentials in the backend environment secret: `MILVUS_USERNAME` and `MILVUS_PASSWORD`, or `MILVUS_TOKEN` when your token is formatted as `username:password`. The ingestion path passes those credentials to NvIngest's Milvus upload stage and to direct Milvus search/list clients.
+If NvIngest document ingestion fails with `StatusCode.UNAUTHENTICATED` and `auth check failure`, set Milvus credentials in the backend environment secret: `MILVUS_USERNAME` and `MILVUS_PASSWORD`, or `MILVUS_TOKEN` when your token is formatted as `username:password`. The ingestion path passes those credentials to NvIngest's Milvus upload stage and to direct Milvus search and list clients.
 
 ## Key Configuration Files
 
@@ -509,24 +510,24 @@ If NvIngest document ingestion fails with `StatusCode.UNAUTHENTICATED` and `auth
 | [`helm/daedalus/values.yaml`](helm/daedalus/values.yaml)               | Default Helm values                  |
 | [`custom-values.yaml`](custom-values.yaml)                             | Example production overrides         |
 | [`deploy.sh`](deploy.sh)                                               | Build, push, and deploy helper       |
+| [`Makefile`](Makefile)                                                 | Local mirror of CI workflow jobs     |
 
 ## Documentation Map
 
 Use these docs when you want more component-level detail than this top-level guide provides.
 
-| Document                                                                     | Focus                                                        |
-| ---------------------------------------------------------------------------- | ------------------------------------------------------------ |
-| [`frontend/README.md`](frontend/README.md)                                   | Frontend architecture, async job flow, Redis state, and PWA  |
-| [`docs/SRD-frontend.md`](docs/SRD-frontend.md)                               | Frontend planning document plus implementation inventory     |
-| [`helm/daedalus/README.md`](helm/daedalus/README.md)                         | Helm chart footprint, values, and Kubernetes traffic model   |
-| [`docs/agent-setup-audit.md`](docs/agent-setup-audit.md)                     | Agent workflow audit process, metrics, and one-page template |
-| [`frontend/pages/api/milvus/README.md`](frontend/pages/api/milvus/README.md) | Current status of the frontend-side Milvus helper            |
-| [`builder/image_generation/README.md`](builder/image_generation/README.md)   | Visual media builder functions                               |
-| [`builder/nat_nv_ingest/README.md`](builder/nat_nv_ingest/README.md)         | Document ingestion into NvIngest and Milvus                  |
-| [`builder/smart_milvus/README.md`](builder/smart_milvus/README.md)           | Milvus retrieval and reranking behavior                      |
-| [`builder/rss_feed/README.md`](builder/rss_feed/README.md)                   | Feed-specific RSS retrieval and scraping                     |
-| [`docs/SRD-backend-reference.md`](docs/SRD-backend-reference.md)             | Backend planning and architecture reference                  |
-| [`docs/NVIDIA-branding-reference.md`](docs/NVIDIA-branding-reference.md)     | NVIDIA branding and style guidelines                         |
+| Document                                                                     | Focus                                                          |
+| ---------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| [`frontend/README.md`](frontend/README.md)                                   | Frontend architecture, async job flow, Redis state, and PWA    |
+| [`helm/daedalus/README.md`](helm/daedalus/README.md)                         | Helm chart footprint, values, and Kubernetes traffic model     |
+| [`evals/README.md`](evals/README.md)                                         | Local evaluation harness for routing, factuality, and workflow |
+| [`frontend/pages/api/milvus/README.md`](frontend/pages/api/milvus/README.md) | Frontend-side Milvus collection helper                         |
+| [`builder/image_augmentation/README.md`](builder/image_augmentation/README.md) | OpenAI image edits for uploaded images                       |
+| [`builder/image_comprehension/README.md`](builder/image_comprehension/README.md) | Vision-language analysis of images and videos              |
+| [`builder/image_generation/README.md`](builder/image_generation/README.md)   | OpenAI text-to-image generation                                |
+| [`builder/nat_nv_ingest/README.md`](builder/nat_nv_ingest/README.md)         | User-document ingestion, search, and listing                   |
+| [`builder/rss_feed/README.md`](builder/rss_feed/README.md)                   | Feed-specific RSS retrieval and scraping                       |
+| [`builder/smart_milvus/README.md`](builder/smart_milvus/README.md)           | Milvus retrieval and reranking behavior                        |
 
 ## Repository Layout
 
@@ -534,7 +535,7 @@ Use these docs when you want more component-level detail than this top-level gui
 daedalus-agent/
   backend/          NeMo Agent workflow YAML files
   builder/          Custom Python packages and tests
-  docs/             Additional design notes
+  evals/            Local evaluation harness
   frontend/         Next.js application
   helm/daedalus/    Helm chart and embedded agent assets
   nginx/            Reverse-proxy configuration

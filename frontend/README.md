@@ -4,7 +4,7 @@ Next.js 14 frontend for Daedalus. This app handles authentication, chat orchestr
 
 ## What It Does
 
-- Renders the chat UI, conversation sidebar, settings, and in-app help
+- Renders the chat UI, conversation sidebar, settings, Autonomy dashboard, and in-app help
 - Authenticates users and keeps identity in Redis-backed sessions plus a signed identity cookie
 - Submits chat primarily through `/api/chat/async`, which creates a frontend-managed job, opens a pinned backend stream, and returns a `jobId`
 - Persists conversations, attachments, generated images, selected conversation state, and async job state in Redis
@@ -28,6 +28,7 @@ The primary chat path is frontend job-based:
 - A background stream reader opens `/v1/chat/completions` for normal chat turns
 - Document ingestion opens `/v1/documents/ingest/stream` and forwards structured progress through job state
 - NAT `/v1/workflow/async` remains only as a legacy document-ingest fallback
+- The legacy `/api/chat` route is retired and returns HTTP 410
 
 ## Development
 
@@ -69,19 +70,23 @@ See [`../.env.template`](../.env.template), [`env.example`](env.example), and th
 
 ## Key Areas
 
-| Path                       | Responsibility                                                                   |
-| -------------------------- | -------------------------------------------------------------------------------- |
-| `pages/api/chat.ts`        | Legacy direct streaming route that returns 410; async chat is the supported path |
-| `pages/api/chat/async.ts`  | Async job submission, status polling, stream capture, finalization               |
-| `pages/api/conversations/` | Conversation CRUD and persistence                                                |
-| `pages/api/session/`       | Session and attachment API routes                                                |
-| `pages/api/sync/notify.ts` | Best-effort cross-session sync notification publisher                            |
-| `server/session/`          | Redis, session, sanitization, and documentRef validation helpers                 |
-| `ws-server.ts`             | WebSocket sidecar backed by Redis Pub/Sub                                        |
-| `components/Chat/`         | Main chat UI, async job integration, intermediate step rendering                 |
-| `hooks/useAsyncChat.ts`    | Job lifecycle, polling, WebSocket subscription, recovery                         |
-| `hooks/useWebSocket.ts`    | WebSocket sync and token delivery                                                |
-| `utils/app/`               | Backend URL building, attachment helpers, conversation utilities                 |
+| Path                          | Responsibility                                                                   |
+| ----------------------------- | -------------------------------------------------------------------------------- |
+| `pages/api/chat.ts`           | Legacy direct streaming route that returns 410; async chat is the supported path |
+| `pages/api/chat/async.ts`     | Async job submission, status polling, stream capture, finalization               |
+| `pages/api/autonomy/`         | Autonomy dashboard API (config, goals, runs, feed items, approvals)              |
+| `pages/api/conversations/`    | Conversation CRUD and persistence                                                |
+| `pages/api/document/`         | Document upload, lookup, and ingestion progress                                  |
+| `pages/api/session/`          | Session and attachment API routes                                                |
+| `pages/api/sync/notify.ts`    | Best-effort cross-session sync notification publisher                            |
+| `server/autonomy/store.ts`    | Redis-backed autonomous agent state store                                        |
+| `server/session/`             | Redis, session, sanitization, and documentRef validation helpers                 |
+| `ws-server.ts`                | WebSocket sidecar backed by Redis Pub/Sub                                        |
+| `components/chat/`            | Main chat UI, async job integration, intermediate step rendering                 |
+| `components/autonomy/`        | Autonomy dashboard UI                                                            |
+| `hooks/useAsyncChat.ts`       | Job lifecycle, polling, WebSocket subscription, recovery                         |
+| `hooks/useWebSocket.ts`       | WebSocket sync and token delivery                                                |
+| `utils/app/`                  | Backend URL building, attachment helpers, conversation utilities                 |
 
 ## Major Features
 
@@ -91,12 +96,14 @@ See [`../.env.template`](../.env.template), [`env.example`](env.example), and th
 - Redis-backed authentication and conversation sync across devices
 - Upload and rendering support for images, documents, videos, and generated media
 - Document processing workflows that hand off uploaded files to backend tools
+- Autonomy dashboard wired to the autonomous worker through Redis
 - PWA install flow, offline shell, and interrupted-stream recovery
-- Usage tracking, push subscription endpoints, and conversation import/export
+- Usage tracking, push subscription endpoints, and conversation import and export
 
 ## Testing And Verification
 
 - `npm run test` runs Vitest in watch mode
+- `npm test -- --run` runs the suite once (used by CI)
 - `npm run coverage` runs the test suite with coverage
 - `npm run lint` runs Next.js linting
 - `npm run build` produces the production bundle and injects the precache manifest
@@ -104,5 +111,4 @@ See [`../.env.template`](../.env.template), [`env.example`](env.example), and th
 ## Related Docs
 
 - [`../README.md`](../README.md) for full-stack setup and deployment
-- [`../docs/SRD-frontend.md`](../docs/SRD-frontend.md) for the frontend planning and implementation inventory
-- [`pages/api/milvus/README.md`](pages/api/milvus/README.md) for the current Milvus collection API status
+- [`pages/api/milvus/README.md`](pages/api/milvus/README.md) for the current Milvus collection helper status

@@ -1,8 +1,11 @@
 # Image Comprehension Function
 
-This builder package registers a read-only media analysis function for Daedalus. It accepts uploaded images or videos, sends them to an OpenAI-compatible Vision Language Model endpoint, and returns a text description or answer.
+This builder package registers a read-only media analysis function for
+Daedalus. It accepts uploaded images or videos, sends them to an
+OpenAI-compatible Vision Language Model endpoint, and returns a text
+description or answer.
 
-## Current Behavior
+## What It Does
 
 - Accepts images via `imageRef` (Redis-stored upload) or `image_url` (direct URL)
 - Accepts videos via `videoRef` (Redis-stored upload) or `video_url` (direct URL)
@@ -29,14 +32,14 @@ workflow:
 
 Important fields:
 
-| Field | Purpose |
-|-------|---------|
-| `api_endpoint` | OpenAI-compatible VLM base URL |
-| `api_key` | Falls back to `NVIDIA_API_KEY` if unset |
-| `redis_url` | Source for uploaded images and videos |
-| `model` | Vision Language Model name |
-| `timeout` | HTTP timeout in seconds |
-| `max_tokens` | Maximum response length |
+| Field          | Purpose                                          |
+| -------------- | ------------------------------------------------ |
+| `api_endpoint` | OpenAI-compatible VLM base URL                   |
+| `api_key`      | Falls back to `NVIDIA_API_KEY` if unset          |
+| `redis_url`    | Source for uploaded images and videos            |
+| `model`        | Vision Language Model name                       |
+| `timeout`      | HTTP timeout in seconds                          |
+| `max_tokens`   | Maximum response length                          |
 
 ## Function Signature
 
@@ -69,8 +72,8 @@ comprehend_media(
 
 ## Notes
 
-- This function is read-only analysis. It returns text, not modified media. Use `image_augmentation` for edits and `image_generation` for new images.
-- The `imageRef` / `videoRef` payloads match the attachment references produced by the Daedalus frontend.
+- This function is read-only analysis. It returns text, not modified media. Use [`../image_augmentation/`](../image_augmentation/) for edits and [`../image_generation/`](../image_generation/) for new images.
+- The `imageRef` and `videoRef` payloads match the attachment references produced by the Daedalus frontend.
 
 ## Error Handling
 
