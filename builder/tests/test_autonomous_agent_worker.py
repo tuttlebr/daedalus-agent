@@ -145,7 +145,9 @@ def test_load_workspace_uses_builtin_defaults_without_config_mount():
 
     assert "persistent background worker" in workspace["identity"]
     assert "No curated memory index" in workspace["memory"]
-    assert store.text["autonomous:test-user:workspace:identity"] == workspace["identity"]
+    assert (
+        store.text["autonomous:test-user:workspace:identity"] == workspace["identity"]
+    )
 
 
 def test_run_once_stores_structured_feed_and_completed_run():

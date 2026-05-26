@@ -12,7 +12,6 @@ from urllib.parse import quote
 
 import requests
 
-
 _AUTH_URL_RE = re.compile(r"https?://[^\s<>\")]+")
 
 
@@ -53,11 +52,7 @@ def _extract_auth_url_from_text(text: str) -> str:
     for raw_url in _AUTH_URL_RE.findall(text):
         url = raw_url.rstrip(".,;")
         lowered = url.lower()
-        if (
-            "oauth" in lowered
-            or "auth" in lowered
-            or "accounts.google.com" in lowered
-        ):
+        if "oauth" in lowered or "auth" in lowered or "accounts.google.com" in lowered:
             return url
     return ""
 
@@ -209,7 +204,7 @@ class BackendClient:
                     current_sse_event = None
                     continue
                 if line.startswith("event: "):
-                    current_sse_event = line[len("event: "):].strip()
+                    current_sse_event = line[len("event: ") :].strip()
                     continue
                 if not line.startswith("data: "):
                     continue

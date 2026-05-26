@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import time
@@ -57,11 +58,9 @@ class RedisStore:
     def json_set(self, redis_key: str, value: Any) -> None:
         serialized = json.dumps(value)
         if self._supports_json():
-            try:
+            with contextlib.suppress(Exception):
                 self.redis.execute_command("JSON.SET", redis_key, ".", serialized)
                 return
-            except Exception:
-                pass
         self.redis.set(redis_key, serialized)
 
     def get_text(self, redis_key: str) -> str | None:
@@ -139,7 +138,9 @@ class RedisStore:
             ),
         )
 
-    def list_events(self, user_id: str, run_id: str | None = None) -> list[dict[str, Any]]:
+    def list_events(
+        self, user_id: str, run_id: str | None = None
+    ) -> list[dict[str, Any]]:
         events = self.json_get(key(user_id, "events"), [])
         if not isinstance(events, list):
             return []

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import os
 import signal
 import sys
@@ -102,7 +101,9 @@ def run_once(
             run["completedAt"] = now_ms()
             run["summary"] = "Run cancelled after backend returned."
             store.upsert_run(user_id, run)
-            store.log_event(user_id, run["id"], "run_cancelled", run["summary"], level="warn")
+            store.log_event(
+                user_id, run["id"], "run_cancelled", run["summary"], level="warn"
+            )
             return run
 
         if output_requests_approval(response):
@@ -133,7 +134,9 @@ def run_once(
         store.append_feed_items(user_id, feed_items)
 
         run["status"] = "completed"
-        run["summary"] = str(output.get("summary") or output.get("executive_summary") or "")
+        run["summary"] = str(
+            output.get("summary") or output.get("executive_summary") or ""
+        )
         run["feedItemIds"] = [item["id"] for item in feed_items]
         run["metrics"]["workspaceUpdated"] = changed
         run["completedAt"] = now_ms()
@@ -219,7 +222,9 @@ def run_with_lease_heartbeat(
                 log(f"lease heartbeat failed: {exc}")
 
     store.refresh_lease(user_id, ttl_seconds=lease_ttl)
-    thread = threading.Thread(target=heartbeat, name="autonomy-lease-heartbeat", daemon=True)
+    thread = threading.Thread(
+        target=heartbeat, name="autonomy-lease-heartbeat", daemon=True
+    )
     thread.start()
     try:
         return run_once(store=store, backend=backend, user_id=user_id, request=request)

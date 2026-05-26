@@ -121,11 +121,7 @@ def build_messages(
 ) -> list[dict[str, str]]:
     """Build a stable-prefix autonomous prompt for the NAT workflow."""
 
-    active_goals = [
-        g
-        for g in goals
-        if g.get("status", "active") == "active"
-    ][:8]
+    active_goals = [g for g in goals if g.get("status", "active") == "active"][:8]
     recent_summaries = [
         {
             "id": r.get("id"),
@@ -230,7 +226,9 @@ def strip_reasoning(text: str) -> str:
 def parse_structured_output(text: str) -> dict[str, Any]:
     cleaned = strip_reasoning(text)
     candidates: list[str] = []
-    candidates.extend(match.group(1).strip() for match in _JSON_FENCE_RE.finditer(cleaned))
+    candidates.extend(
+        match.group(1).strip() for match in _JSON_FENCE_RE.finditer(cleaned)
+    )
     candidates.append(cleaned)
 
     first = cleaned.find("{")
@@ -247,14 +245,18 @@ def parse_structured_output(text: str) -> dict[str, Any]:
             return parsed
 
     return {
-        "summary": cleaned[:2000] if cleaned else "The run completed without structured output.",
+        "summary": cleaned[:2000]
+        if cleaned
+        else "The run completed without structured output.",
         "executive_summary": "",
         "feed_items": [
             {
                 "lane": "known",
                 "title": "Autonomy Run Completed",
                 "bluf": "The run returned an unstructured response.",
-                "body": cleaned[:1200] if cleaned else "No usable response was returned.",
+                "body": cleaned[:1200]
+                if cleaned
+                else "No usable response was returned.",
                 "source_url": "",
                 "confidence": "low",
                 "confidence_reason": "Structured output validation failed.",
@@ -285,7 +287,9 @@ def feed_items_from_output(run_id: str, output: dict[str, Any]) -> list[dict[str
                 title=title or "Untitled finding",
                 bluf=bluf or title,
                 body=str(item.get("body") or "").strip(),
-                source_url=str(item.get("source_url") or item.get("sourceUrl") or "").strip(),
+                source_url=str(
+                    item.get("source_url") or item.get("sourceUrl") or ""
+                ).strip(),
                 confidence=str(item.get("confidence") or "medium").strip().lower(),
                 confidence_reason=str(
                     item.get("confidence_reason") or item.get("confidenceReason") or ""
