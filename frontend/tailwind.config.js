@@ -9,7 +9,7 @@ module.exports = {
   theme: {
     fontFamily: {
       'sans': ['NVIDIA Sans', 'system-ui', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', 'sans-serif'],
-      'serif': ['Georgia', 'Cambria', 'Times New Roman', 'Times', 'serif'],
+      'serif': ['IBM Plex Serif', 'Georgia', 'Cambria', 'Times New Roman', 'Times', 'serif'],
       'mono': ['JetBrains Mono', 'SF Mono', 'Monaco', 'Cascadia Code', 'Roboto Mono', 'Consolas', 'Courier New', 'monospace'],
     },
     fontWeight: {
