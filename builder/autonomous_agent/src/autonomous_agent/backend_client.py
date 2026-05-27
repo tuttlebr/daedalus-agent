@@ -133,6 +133,25 @@ def extract_async_output(output: Any) -> str:
     return json.dumps(output)
 
 
+def extract_async_job_id(payload: Any, fallback: str) -> str:
+    if not isinstance(payload, dict):
+        return fallback
+
+    for key in ("job_id", "jobId", "id"):
+        value = payload.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+
+    for key in ("job", "data"):
+        nested = payload.get(key)
+        if isinstance(nested, dict):
+            value = extract_async_job_id(nested, "")
+            if value:
+                return value
+
+    return fallback
+
+
 class BackendClient:
     def __init__(
         self,
@@ -247,10 +266,15 @@ class BackendClient:
             timeout=45,
         )
         resp.raise_for_status()
+        try:
+            job_id = extract_async_job_id(resp.json(), job_id)
+        except ValueError:
+            pass
 
         status_url = f"{self.base_url}/v1/workflow/async/job/{job_id}"
         deadline = time.monotonic() + self.request_timeout
         last_error: str | None = None
+        consecutive_not_found = 0
         while time.monotonic() < deadline:
             time.sleep(self.poll_interval)
             try:
@@ -259,8 +283,20 @@ class BackendClient:
                     headers=self._headers(),
                     timeout=30,
                 )
+                if status_resp.status_code == 404:
+                    consecutive_not_found += 1
+                    last_error = (
+                        f"backend async job {job_id} was not found after "
+                        "successful submission"
+                    )
+                    if consecutive_not_found >= 3:
+                        raise RuntimeError(last_error)
+                    continue
+                consecutive_not_found = 0
                 status_resp.raise_for_status()
                 job = status_resp.json()
+            except RuntimeError:
+                raise
             except requests.RequestException as exc:
                 last_error = str(exc)
                 continue

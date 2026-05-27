@@ -13,6 +13,7 @@ interface StatusStripProps {
   activeRun: AutonomyRun | undefined;
   lastRunAt: number | null;
   pendingApprovals: number;
+  queuedRequests: number;
   onOpenWorkspace: () => void;
   onRefresh: () => void;
   wsConnected: boolean;
@@ -24,6 +25,7 @@ export const StatusStrip = forwardRef<HTMLButtonElement, StatusStripProps>(funct
     activeRun,
     lastRunAt,
     pendingApprovals,
+    queuedRequests,
     onOpenWorkspace,
     onRefresh,
     wsConnected,
@@ -54,6 +56,12 @@ export const StatusStrip = forwardRef<HTMLButtonElement, StatusStripProps>(funct
               <>
                 <Sep />
                 <Meta>next {next}</Meta>
+              </>
+            )}
+            {queuedRequests > 0 && (
+              <>
+                <Sep />
+                <Meta>{queuedRequests} queued</Meta>
               </>
             )}
             {!wsConnected && (

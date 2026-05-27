@@ -8,6 +8,16 @@ export type AutonomyRunStatus =
 
 export type AutonomyTrigger = 'manual' | 'scheduled' | 'goal' | string;
 
+export interface AutonomyQueuedRequest {
+  id: string;
+  trigger: AutonomyTrigger;
+  goalId?: string | null;
+  prompt?: string;
+  requestedBy: string;
+  createdAt: number;
+  position: number;
+}
+
 export interface AutonomyConfig {
   enabled: boolean;
   userId: string;

@@ -12,6 +12,7 @@ import {
   AutonomyEvent,
   AutonomyFeedItem,
   AutonomyGoal,
+  AutonomyQueuedRequest,
   AutonomyRun,
 } from '@/types/autonomy';
 import { publishSyncEvent } from '@/utils/sync/publish';
@@ -121,6 +122,46 @@ export async function createGoal(
 
 export async function listRuns(userId: string): Promise<AutonomyRun[]> {
   return getList<AutonomyRun>(userId, 'runs');
+}
+
+function normalizeQueuedRequest(
+  value: unknown,
+  position: number,
+): AutonomyQueuedRequest | null {
+  if (!value || typeof value !== 'object') return null;
+  const request = value as Partial<AutonomyQueuedRequest>;
+  const id = typeof request.id === 'string' && request.id.trim()
+    ? request.id
+    : `queued_${position}`;
+
+  return {
+    id,
+    trigger: typeof request.trigger === 'string' ? request.trigger : 'manual',
+    goalId: typeof request.goalId === 'string' ? request.goalId : null,
+    prompt: typeof request.prompt === 'string' ? request.prompt : '',
+    requestedBy: typeof request.requestedBy === 'string'
+      ? request.requestedBy
+      : 'unknown',
+    createdAt: Number.isFinite(request.createdAt) ? Number(request.createdAt) : 0,
+    position,
+  };
+}
+
+export async function listQueuedRequests(
+  userId: string,
+): Promise<AutonomyQueuedRequest[]> {
+  const redis = getRedis();
+  const rawItems = await redis.lrange(autonomyKey(userId, 'queue'), 0, -1);
+  return rawItems
+    .reverse()
+    .map((raw, index) => {
+      try {
+        return normalizeQueuedRequest(JSON.parse(raw), index + 1);
+      } catch {
+        return null;
+      }
+    })
+    .filter((request): request is AutonomyQueuedRequest => request !== null);
 }
 
 export async function getRun(

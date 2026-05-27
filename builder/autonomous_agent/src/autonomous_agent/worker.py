@@ -29,6 +29,57 @@ def log(message: str) -> None:
     print(f"[autonomy] {time.strftime('%Y-%m-%d %H:%M:%S')} {message}", flush=True)
 
 
+def _request_summary(request: dict[str, Any] | None) -> str:
+    if not request:
+        return "none"
+    prompt = str(request.get("prompt") or "").replace("\n", " ").strip()
+    if len(prompt) > 120:
+        prompt = f"{prompt[:117]}..."
+    return (
+        f"id={request.get('id') or 'unknown'} "
+        f"trigger={request.get('trigger') or 'manual'} "
+        f"requestedBy={request.get('requestedBy') or 'unknown'} "
+        f"createdAt={request.get('createdAt') or 'unknown'} "
+        f"prompt={prompt!r}"
+    )
+
+
+def start_queue_monitor(
+    store: RedisStore,
+    user_id: str,
+    *,
+    interval_seconds: int = 30,
+) -> threading.Thread:
+    """Log queue visibility even while the worker is blocked in a run."""
+
+    def monitor() -> None:
+        last_depth: int | None = None
+        while not STOP:
+            try:
+                depth = store.queue_length(user_id)
+                if depth != last_depth or depth > 0:
+                    next_request = store.queue_snapshot(user_id, limit=1)
+                    next_summary = _request_summary(
+                        next_request[0] if next_request else None
+                    )
+                    log(
+                        "queue status: "
+                        f"depth={depth} next={next_summary}"
+                    )
+                    last_depth = depth
+            except Exception as exc:
+                log(f"queue monitor error: {exc}")
+            time.sleep(interval_seconds)
+
+    thread = threading.Thread(
+        target=monitor,
+        name="autonomy-queue-monitor",
+        daemon=True,
+    )
+    thread.start()
+    return thread
+
+
 def _handle_signal(signum: int, _frame: Any) -> None:
     global STOP
     log(f"received signal {signum}; stopping after current operation")
@@ -245,6 +296,7 @@ def main() -> int:
     store = RedisStore()
     store.ping()
     backend = make_backend(user_id)
+    start_queue_monitor(store, user_id)
     log(f"worker starting for user={user_id}")
 
     while not STOP:
@@ -252,9 +304,16 @@ def main() -> int:
             time.sleep(poll_interval)
             continue
         try:
-            store.maybe_enqueue_scheduled(user_id)
+            scheduled = store.maybe_enqueue_scheduled(user_id)
+            if scheduled:
+                log(f"scheduled request enqueued: {_request_summary(scheduled)}")
             request = store.dequeue(user_id, timeout=poll_interval)
             if request:
+                log(
+                    "dequeued request: "
+                    f"{_request_summary(request)} "
+                    f"queue_depth_after={store.queue_length(user_id)}"
+                )
                 run_with_lease_heartbeat(
                     store=store,
                     backend=backend,

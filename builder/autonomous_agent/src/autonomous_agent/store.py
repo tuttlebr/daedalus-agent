@@ -171,6 +171,21 @@ class RedisStore:
         self.redis.lpush(key(user_id, "queue"), json.dumps(request))
         self.publish(user_id, "autonomy_status", {"queued": request})
 
+    def queue_length(self, user_id: str) -> int:
+        return int(self.redis.llen(key(user_id, "queue")) or 0)
+
+    def queue_snapshot(self, user_id: str, limit: int = 5) -> list[dict[str, Any]]:
+        raw_items = self.redis.lrange(key(user_id, "queue"), -limit, -1)
+        requests: list[dict[str, Any]] = []
+        for raw in reversed(raw_items):
+            try:
+                parsed = json.loads(raw)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(parsed, dict):
+                requests.append(parsed)
+        return requests
+
     def dequeue(self, user_id: str, timeout: int = 5) -> dict[str, Any] | None:
         item = self.redis.brpop(key(user_id, "queue"), timeout=timeout)
         if not item:
@@ -227,15 +242,15 @@ class RedisStore:
     def cancel_requested(self, user_id: str, run_id: str) -> bool:
         return bool(self.redis.get(key(user_id, f"cancel:{run_id}")))
 
-    def maybe_enqueue_scheduled(self, user_id: str) -> None:
+    def maybe_enqueue_scheduled(self, user_id: str) -> dict[str, Any] | None:
         config = self.get_config(user_id)
         if not config.get("enabled", True):
-            return
+            return None
         interval = int(config.get("intervalSeconds") or 14_400)
         last = int(config.get("lastScheduledRunAt") or 0)
         current = now_ms()
         if last and current - last < interval * 1000:
-            return
+            return None
         request = {
             "id": f"scheduled-{current}",
             "trigger": "scheduled",
@@ -245,6 +260,7 @@ class RedisStore:
         self.enqueue(user_id, request)
         config["lastScheduledRunAt"] = current
         self.save_config(user_id, config)
+        return request
 
     def sleep_with_lease(self, user_id: str, seconds: int) -> None:
         deadline = time.monotonic() + seconds

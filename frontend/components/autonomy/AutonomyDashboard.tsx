@@ -9,6 +9,7 @@ import type {
   AutonomyEvent,
   AutonomyFeedItem,
   AutonomyGoal,
+  AutonomyQueuedRequest,
   AutonomyRun,
 } from '@/types/autonomy';
 
@@ -21,6 +22,7 @@ interface DashboardState {
   config: AutonomyConfig | null;
   goals: AutonomyGoal[];
   runs: AutonomyRun[];
+  queue: AutonomyQueuedRequest[];
   feed: AutonomyFeedItem[];
   approvals: AutonomyApproval[];
   events: AutonomyEvent[];
@@ -30,6 +32,7 @@ const emptyState: DashboardState = {
   config: null,
   goals: [],
   runs: [],
+  queue: [],
   feed: [],
   approvals: [],
   events: [],
@@ -65,10 +68,11 @@ export function AutonomyDashboard() {
 
   const refresh = useCallback(async () => {
     try {
-      const [config, goals, runs, feed, approvals] = await Promise.all([
+      const [config, goals, runs, queue, feed, approvals] = await Promise.all([
         fetch('/api/autonomy/config').then((r) => r.json()),
         fetch('/api/autonomy/goals').then((r) => r.json()),
         fetch('/api/autonomy/runs').then((r) => r.json()),
+        fetch('/api/autonomy/queue').then((r) => r.json()),
         fetch('/api/autonomy/feed').then((r) => r.json()),
         fetch('/api/autonomy/approvals').then((r) => r.json()),
       ]);
@@ -79,7 +83,7 @@ export function AutonomyDashboard() {
         );
         events = detail?.events || [];
       }
-      setState({ config, goals, runs, feed, approvals, events });
+      setState({ config, goals, runs, queue, feed, approvals, events });
     } finally {
       setLoading(false);
     }
@@ -271,6 +275,7 @@ export function AutonomyDashboard() {
           activeRun={activeRun}
           lastRunAt={lastRunAt}
           pendingApprovals={pendingApprovals.length}
+          queuedRequests={state.queue.length}
           onOpenWorkspace={() => setDrawerOpen(true)}
           onRefresh={() => refresh()}
           wsConnected={wsConnected}
@@ -288,6 +293,7 @@ export function AutonomyDashboard() {
         config={state.config}
         goals={state.goals}
         runs={state.runs}
+        queue={state.queue}
         events={state.events}
         activeRun={activeRun}
         busy={busy}

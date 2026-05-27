@@ -16,6 +16,7 @@ import type {
   AutonomyConfig,
   AutonomyEvent,
   AutonomyGoal,
+  AutonomyQueuedRequest,
   AutonomyRun,
 } from '@/types/autonomy';
 
@@ -27,6 +28,7 @@ interface WorkspaceDrawerProps {
   config: AutonomyConfig | null;
   goals: AutonomyGoal[];
   runs: AutonomyRun[];
+  queue: AutonomyQueuedRequest[];
   events: AutonomyEvent[];
   activeRun: AutonomyRun | undefined;
   busy: string | null;
@@ -43,6 +45,7 @@ export function WorkspaceDrawer({
   config,
   goals,
   runs,
+  queue,
   events,
   activeRun,
   busy,
@@ -287,6 +290,47 @@ export function WorkspaceDrawer({
                         {goal.description}
                       </p>
                     )}
+                  </article>
+                ))
+              )}
+            </div>
+          </Collapsible>
+
+          <Collapsible
+            title="Queue"
+            badge={queue.length}
+            defaultOpen={queue.length > 0}
+          >
+            <div className="space-y-3">
+              {queue.length === 0 ? (
+                <p className="font-serif text-[13px] italic text-dark-text-muted">
+                  No queued requests.
+                </p>
+              ) : (
+                queue.slice(0, 20).map((request) => (
+                  <article
+                    key={request.id}
+                    className="border-t border-white/[0.04] pt-2.5 first:border-t-0 first:pt-0"
+                  >
+                    <div className="flex items-baseline justify-between gap-3">
+                      <div className="flex min-w-0 items-baseline gap-2">
+                        <span className="shrink-0 font-mono text-[10px] uppercase tracking-wider text-nvidia-green/80">
+                          {request.position === 1 ? 'next' : `#${request.position}`}
+                        </span>
+                        <span className="truncate font-mono text-[10px] uppercase tracking-wider text-dark-text-subtle">
+                          {request.trigger}
+                        </span>
+                      </div>
+                      <span className="shrink-0 font-mono text-[10px] text-dark-text-subtle">
+                        {relativeTime(request.createdAt)}
+                      </span>
+                    </div>
+                    <p className="mt-1 line-clamp-3 font-serif text-[13px] leading-snug text-dark-text-secondary">
+                      {request.prompt?.trim() || 'No prompt supplied.'}
+                    </p>
+                    <p className="mt-1 truncate font-mono text-[10px] text-dark-text-subtle">
+                      {request.id} · {request.requestedBy}
+                    </p>
                   </article>
                 ))
               )}

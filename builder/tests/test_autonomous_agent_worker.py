@@ -1,7 +1,9 @@
 import json
 
 from autonomous_agent.backend_client import (
+    BackendClient,
     OAuthRequiredError,
+    extract_async_job_id,
     extract_oauth_required_payload,
 )
 from autonomous_agent.prompt import (
@@ -239,6 +241,92 @@ def test_extract_oauth_required_payload_from_sse_event():
         "auth_url": "https://accounts.google.com/o/oauth2/v2/auth?state=abc",
         "oauth_state": "abc",
     }
+
+
+def test_extract_async_job_id_accepts_common_response_shapes():
+    assert extract_async_job_id({"job_id": "server-job"}, "local-job") == "server-job"
+    assert extract_async_job_id({"job": {"id": "nested-job"}}, "local-job") == "nested-job"
+    assert extract_async_job_id({}, "local-job") == "local-job"
+
+
+def test_backend_client_uses_returned_async_job_id(monkeypatch):
+    requested_urls = []
+
+    class FakeResponse:
+        status_code = 200
+
+        def __init__(self, payload):
+            self.payload = payload
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return self.payload
+
+    def fake_post(*args, **kwargs):
+        return FakeResponse({"job_id": "server-job"})
+
+    def fake_get(url, *args, **kwargs):
+        requested_urls.append(url)
+        return FakeResponse({"status": "success", "output": {"value": "done"}})
+
+    monkeypatch.setattr("autonomous_agent.backend_client.requests.post", fake_post)
+    monkeypatch.setattr("autonomous_agent.backend_client.requests.get", fake_get)
+    monkeypatch.setattr("autonomous_agent.backend_client.time.sleep", lambda _: None)
+
+    backend = BackendClient(
+        base_url="http://backend:8000",
+        api_path="/v1/workflow/async",
+        user_id="test-user",
+        request_timeout=30,
+        poll_interval=1,
+    )
+
+    assert backend.call([{"role": "user", "content": "go"}]) == "done"
+    assert requested_urls == ["http://backend:8000/v1/workflow/async/job/server-job"]
+
+
+def test_backend_client_fails_fast_after_repeated_async_404(monkeypatch):
+    class FakeResponse:
+        status_code = 404
+
+        def __init__(self, payload=None):
+            self.payload = payload or {}
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return self.payload
+
+    def fake_post(*args, **kwargs):
+        response = FakeResponse({"job_id": "missing-job"})
+        response.status_code = 202
+        return response
+
+    monkeypatch.setattr("autonomous_agent.backend_client.requests.post", fake_post)
+    monkeypatch.setattr(
+        "autonomous_agent.backend_client.requests.get",
+        lambda *args, **kwargs: FakeResponse(),
+    )
+    monkeypatch.setattr("autonomous_agent.backend_client.time.sleep", lambda _: None)
+
+    backend = BackendClient(
+        base_url="http://backend:8000",
+        api_path="/v1/workflow/async",
+        user_id="test-user",
+        request_timeout=30,
+        poll_interval=1,
+    )
+
+    try:
+        backend.call([{"role": "user", "content": "go"}])
+    except RuntimeError as exc:
+        assert "missing-job" in str(exc)
+        assert "not found" in str(exc)
+    else:
+        raise AssertionError("expected repeated async 404s to fail fast")
 
 
 def test_make_backend_uses_canonical_base_url_env(monkeypatch):
