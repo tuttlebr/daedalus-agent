@@ -637,19 +637,45 @@ functions:
   curated_feed_search_tool:
     _type: rss_feed
     description: >-
-      Search curated RSS feeds for recent NVIDIA, SemiAnalysis, and
-      Karpathy items. Args: query and optional feed_scope ("auto",
-      "nvidia_blog", "nvidia_developer", "nvidia_newsroom",
-      "semianalysis", "karpathy_bearblog", "karpathy_github").
+      Search curated RSS feeds for recent, source-specific items.
+      Args: query and optional feed_scope. Use feed_scope="auto" when
+      the best source is unclear. Available scopes: nvidia_blog for
+      NVIDIA corporate/product news, AI, GPUs, data center, robotics,
+      gaming, and company stories; nvidia_developer for NVIDIA
+      technical developer content, SDKs, CUDA, inference, training,
+      acceleration, and implementation guides; nvidia_newsroom for
+      official NVIDIA press releases, partnerships, earnings-adjacent
+      announcements, executive statements, and launch announcements;
+      semianalysis for AI infrastructure, semiconductors, GPUs,
+      datacenters, market analysis, and deep industry analysis;
+      npr_news for general US/world news, politics, culture, health,
+      science, and public-interest reporting; nomadicmatt for budget
+      travel, destination guides, itineraries, travel planning, and
+      travel tips; openai_news for official OpenAI product, research,
+      model, safety, policy, and company updates; huggingface for
+      Hugging Face models, datasets, libraries, Spaces, open-source ML,
+      and community AI updates; mit_ai_review for MIT Technology
+      Review artificial intelligence coverage, AI research, policy,
+      industry impact, and AI society issues; mit_culture_review for
+      MIT Technology Review culture coverage, internet culture, media,
+      society, and technology's human impact; mit_computing_review for
+      MIT Technology Review computing coverage, software, chips,
+      cybersecurity, quantum, infrastructure, and computing trends.
       Returns the scraped top-ranked item. Use serpapi_search_tool for
-      sources outside this feed set.
+      sources outside this feed set or when broad web coverage is
+      needed.
     feeds:
       nvidia_blog: https://feeds.feedburner.com/nvidiablog
       nvidia_developer: https://developer.nvidia.com/blog/feed
       nvidia_newsroom: https://nvidianews.nvidia.com/releases.xml
       semianalysis: https://newsletter.semianalysis.com/feed
-      karpathy_bearblog: https://karpathy.bearblog.dev/feed/
-      karpathy_github: https://karpathy.github.io/feed.xml
+      npr_news: https://feeds.npr.org/1004/rss.xml
+      nomadicmatt: https://www.nomadicmatt.com/feed/
+      openai_news: https://openai.com/news/rss.xml
+      huggingface: https://huggingface.co/blog/feed.xml
+      mit_ai_review: https://www.technologyreview.com/topic/artificial-intelligence/feed/
+      mit_culture_review: https://www.technologyreview.com/topic/culture/feed/
+      mit_computing_review: https://www.technologyreview.com/topic/computing/feed/
     max_entries: 5
     enabled_operations:
       - search_rss
