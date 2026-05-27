@@ -1,16 +1,71 @@
 'use client';
 
-import { IconCopy, IconCheck, IconNotes } from '@tabler/icons-react';
-import { memo, useState } from 'react';
+import {
+  IconCopy,
+  IconCheck,
+  IconNotes,
+  IconFileText,
+  IconChevronDown,
+  IconChevronUp,
+} from '@tabler/icons-react';
+import { memo, useMemo, useState } from 'react';
 
 import { Message } from '@/types/chat';
 
 import { MarkdownRenderer } from '@/components/markdown/MarkdownRenderer';
-import { Avatar, IconButton } from '@/components/primitives';
+import { Avatar, Badge, IconButton } from '@/components/primitives';
 
 import classNames from 'classnames';
 
 type Attachment = NonNullable<Message['attachments']>[number];
+
+interface InlineDocument {
+  filename: string;
+  pages: number;
+  truncated: boolean;
+  originalChars: number;
+  markdown: string;
+}
+
+const ATTACHED_DOC_RE = /<attached_document\s+([^>]*)>([\s\S]*?)<\/attached_document>/g;
+
+function getAttr(attrs: string, name: string): string | undefined {
+  const re = new RegExp(`${name}\\s*=\\s*"([^"]*)"`);
+  const match = attrs.match(re);
+  return match ? match[1] : undefined;
+}
+
+function decodeXmlAttr(value: string): string {
+  return value
+    .replace(/&quot;/g, '"')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&amp;/g, '&');
+}
+
+function parseInlineDocuments(
+  raw: string,
+): { cleanedContent: string; inlineDocs: InlineDocument[] } {
+  const inlineDocs: InlineDocument[] = [];
+  let cleanedContent = raw.replace(ATTACHED_DOC_RE, (_match, attrs, body) => {
+    const filename = decodeXmlAttr(getAttr(attrs, 'filename') || 'document');
+    const pages = parseInt(getAttr(attrs, 'pages') || '0', 10) || 0;
+    const truncated = getAttr(attrs, 'truncated') === 'true';
+    const originalChars =
+      parseInt(getAttr(attrs, 'original_chars') || '0', 10) || 0;
+    inlineDocs.push({
+      filename,
+      pages,
+      truncated,
+      originalChars,
+      markdown: body.trim(),
+    });
+    return '';
+  });
+  // Collapse any whitespace runs the strip leaves behind.
+  cleanedContent = cleanedContent.replace(/\n{3,}/g, '\n\n').trim();
+  return { cleanedContent, inlineDocs };
+}
 
 interface UserMessageProps {
   message: Message;
@@ -27,7 +82,11 @@ export const UserMessage = memo(
       setTimeout(() => setCopied(false), 2000);
     };
 
-    const content = typeof message.content === 'string' ? message.content : '';
+    const rawContent = typeof message.content === 'string' ? message.content : '';
+    const { cleanedContent: content, inlineDocs } = useMemo(
+      () => parseInlineDocuments(rawContent),
+      [rawContent],
+    );
     const attachments = message.attachments || [];
 
     return (
@@ -38,6 +97,19 @@ export const UserMessage = memo(
             <div className="flex max-w-full flex-wrap gap-2 mb-2 justify-end">
               {attachments.map((att, i) => (
                 <AttachmentDisplay key={i} attachment={att} />
+              ))}
+            </div>
+          )}
+
+          {/* Inline-extracted document cards (one per <attached_document>) */}
+          {inlineDocs.length > 0 && (
+            <div className="w-full mb-2 space-y-2">
+              {inlineDocs.map((doc, i) => (
+                <InlineDocumentCard
+                  key={`${doc.filename}-${i}`}
+                  doc={doc}
+                  messageIndex={messageIndex}
+                />
               ))}
             </div>
           )}
@@ -124,3 +196,67 @@ const AttachmentDisplay = memo(({ attachment }: { attachment: Attachment }) => {
 });
 
 AttachmentDisplay.displayName = 'AttachmentDisplay';
+
+interface InlineDocumentCardProps {
+  doc: InlineDocument;
+  messageIndex: number;
+}
+
+const InlineDocumentCard = memo(
+  ({ doc, messageIndex }: InlineDocumentCardProps) => {
+    const [isExpanded, setIsExpanded] = useState(false);
+    const charsLabel = `${doc.markdown.length.toLocaleString()} chars`;
+    const pageLabel = doc.pages > 0 ? `${doc.pages} pages` : null;
+    const omitted = doc.truncated
+      ? Math.max(0, doc.originalChars - doc.markdown.length)
+      : 0;
+
+    return (
+      <div className="w-full rounded-2xl rounded-br-lg border border-nvidia-blue/25 bg-dark-bg-secondary/60 overflow-hidden">
+        <button
+          type="button"
+          onClick={() => setIsExpanded((v) => !v)}
+          className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-white/[0.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nvidia-blue/40"
+          aria-expanded={isExpanded}
+        >
+          <IconFileText
+            size={14}
+            className="flex-shrink-0 text-nvidia-blue"
+            aria-hidden
+          />
+          <span className="truncate text-xs font-medium text-dark-text-primary">
+            {doc.filename}
+          </span>
+          <span className="text-[11px] text-dark-text-muted whitespace-nowrap">
+            inline · {[pageLabel, charsLabel].filter(Boolean).join(' · ')}
+          </span>
+          {doc.truncated && (
+            <Badge variant="warning" size="xs" className="whitespace-nowrap">
+              Truncated · {omitted.toLocaleString()} chars omitted
+            </Badge>
+          )}
+          <span className="ml-auto flex-shrink-0 text-dark-text-muted">
+            {isExpanded ? (
+              <IconChevronUp size={14} />
+            ) : (
+              <IconChevronDown size={14} />
+            )}
+          </span>
+        </button>
+        {isExpanded && (
+          <div className="border-t border-white/[0.06] bg-dark-bg-tertiary/40 px-4 py-3">
+            <div className="max-h-[300px] overflow-y-auto pr-1">
+              <MarkdownRenderer
+                content={doc.markdown}
+                messageIndex={messageIndex}
+                className="prose dark:prose-invert prose-sm max-w-none prose-p:my-1.5 prose-pre:my-2 prose-headings:text-dark-text-primary"
+              />
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  },
+);
+
+InlineDocumentCard.displayName = 'InlineDocumentCard';

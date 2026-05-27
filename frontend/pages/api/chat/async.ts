@@ -405,11 +405,28 @@ async function validateDocumentAttachmentsForMessage(
   };
 }
 
+// Inline mode: the client extracted the doc to markdown and embedded it
+// directly in the user message between <attached_document> tags. We must NOT
+// route these messages through the ingest tool — they're regular streaming
+// chat with the doc text already in the prompt.
+const INLINE_DOCUMENT_MARKER = /<attached_document\b/i;
+
+function hasInlineDocumentMarker(message: any): boolean {
+  const content = typeof message?.content === 'string' ? message.content : '';
+  return INLINE_DOCUMENT_MARKER.test(content);
+}
+
 export function appendDocumentAttachmentContext(
   message: any,
   verifiedUsername: string,
 ): any {
   if (!message.attachments || !Array.isArray(message.attachments)) {
+    return message;
+  }
+
+  // Inline mode embeds the doc markdown directly — don't add a routing hint
+  // that would make the agent try to ingest the (already-handled) document.
+  if (hasInlineDocumentMarker(message)) {
     return message;
   }
 
@@ -458,6 +475,10 @@ export function appendDocumentAttachmentContext(
 }
 
 function isDocumentIngestionMessage(message: any): boolean {
+  // Inline mode is the opposite of ingestion: the doc is already in the
+  // message body, no Milvus write should happen.
+  if (hasInlineDocumentMarker(message)) return false;
+
   const documentRefs = collectDocumentRefs(message.attachments || []);
   if (documentRefs.length === 0) return false;
 

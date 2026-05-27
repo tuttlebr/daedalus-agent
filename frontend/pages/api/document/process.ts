@@ -77,7 +77,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const sessionId = getOrSetSessionId(req, res);
     const username = session.username;
 
-    const { documentRef, documentRefs, filename, collection } = req.body;
+    const { documentRef, documentRefs, filename, collection, mode } = req.body;
+    const requestMode: 'ingest' | 'extract' =
+      mode === 'extract' ? 'extract' : 'ingest';
 
     // Support both single documentRef and multiple documentRefs
     let documentsToProcess;
@@ -89,23 +91,94 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(400).json({ error: 'Invalid document reference(s)' });
     }
 
+    if (requestMode === 'extract' && documentsToProcess.length !== 1) {
+      return res.status(400).json({
+        error: 'Extract mode supports exactly one document at a time.',
+      });
+    }
+
     documentsToProcess = await validateDocumentRefsForUser(
       documentsToProcess,
       sessionId,
       username,
     );
 
-    // Use the collection selected by the user, falling back to the username.
-    // Shared collections are intentional corpora in the same Milvus database,
-    // so tag the scope/provenance explicitly for audit handling downstream.
+    // Extract mode bypasses the agent entirely — the LLM router was
+    // paraphrasing the request, corrupting `username` and falling back to
+    // op=ingest. Call the typed REST endpoint directly instead.
+    if (requestMode === 'extract') {
+      const backendHost = getBackendHost();
+      const extractUrl = buildBackendUrl({
+        backendHost,
+        pathOverride: '/v1/documents/extract',
+      });
+      const extractBody = JSON.stringify({
+        documentRef: documentsToProcess[0],
+        username,
+      });
+      const extractResponse = await postToBackend(
+        extractUrl,
+        extractBody,
+        withInternalBackendAuth({
+          'Content-Type': 'application/json',
+          'x-user-id': username,
+        }),
+        DOCUMENT_PROCESSING_TIMEOUT_MS,
+      );
+
+      let extractPayload: Record<string, unknown> = {};
+      try {
+        extractPayload = JSON.parse(extractResponse.body || '{}');
+      } catch {
+        extractPayload = {};
+      }
+
+      if (
+        extractResponse.statusCode < 200 ||
+        extractResponse.statusCode >= 300
+      ) {
+        const detail =
+          typeof extractPayload.detail === 'string'
+            ? extractPayload.detail
+            : extractResponse.body || 'Document extraction failed';
+        return res.status(extractResponse.statusCode).json({
+          error: 'Document extraction failed',
+          details: detail,
+        });
+      }
+
+      return res.status(200).json({
+        success: true,
+        mode: 'extract',
+        markdown:
+          typeof extractPayload.markdown === 'string'
+            ? extractPayload.markdown
+            : '',
+        filename:
+          typeof extractPayload.filename === 'string'
+            ? extractPayload.filename
+            : filename || 'document',
+        pages:
+          typeof extractPayload.pages === 'number' ? extractPayload.pages : 0,
+        truncated: extractPayload.truncated === true,
+        originalChars:
+          typeof extractPayload.original_chars === 'number'
+            ? (extractPayload.original_chars as number)
+            : 0,
+      });
+    }
+
+    // Ingest mode: collection resolution + synthetic chat message as before.
     const collectionTarget = resolveMilvusCollectionTarget({
-      targetCollection: typeof collection === 'string' ? collection : undefined,
+      targetCollection:
+        typeof collection === 'string' ? collection : undefined,
       username,
       source: 'document.process',
     });
     const targetCollection = collectionTarget.collectionName;
 
     console.info('Processing documents:', {
+      mode: requestMode,
       documentCount: documentsToProcess.length,
       username,
       collection: targetCollection,
@@ -113,7 +186,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       provenance: collectionTarget.provenance,
     });
 
-    // Send a message to the chat endpoint that will trigger document processing
+    // Send a message to the chat endpoint that will trigger the ingest op
     const messageContent = documentsToProcess.length === 1
       ? `Process the document "${filename || 'document'}" using user_document_tool with operation="ingest", documentRef=${JSON.stringify(documentsToProcess[0])}, username="${username}", collection_name="${targetCollection}", collection_scope="${collectionTarget.collectionScope}", and provenance=${JSON.stringify(collectionTarget.provenance)}.`
       : `Process ${documentsToProcess.length} documents using user_document_tool with operation="ingest", documentRefs=${JSON.stringify(documentsToProcess)}, username="${username}", collection_name="${targetCollection}", collection_scope="${collectionTarget.collectionScope}", and provenance=${JSON.stringify(collectionTarget.provenance)}.`;

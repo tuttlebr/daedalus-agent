@@ -42,6 +42,19 @@ interface UploadingFile {
   error?: string;
 }
 
+// Sentinel value for the "skip ingestion" option in the collection dropdown.
+// Picked so it can't collide with a real Milvus collection name (underscores
+// are stripped/collapsed during normalization).
+const INLINE_MODE = '__inline__';
+
+function escapeXmlAttr(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
 function describeUploadError(err: unknown, status?: number): string {
   if (err instanceof DOMException && err.name === 'AbortError')
     return 'Cancelled';
@@ -355,23 +368,89 @@ export const ChatInput = memo(
       setAttachments((prev) => prev.filter((_, i) => i !== index));
     }, []);
 
-    const handleSend = useCallback(() => {
+    const handleSend = useCallback(async () => {
       if (!canSend) return;
 
       // Build message content with routing hints for the backend
       let messageContent = content.trim();
       const messageAttachments = [...attachments];
+      const isInlineMode = selectedCollection === INLINE_MODE;
 
-      // Add routing metadata for document ingestion
-      if (hasDocumentAttachment && selectedCollection) {
-        const docNames = attachments
-          .filter((a) => a.type === 'document')
-          .map((a) => a.content)
-          .join(', ');
+      // Inline mode: extract the document to markdown via the backend, then
+      // embed the markdown directly in the user message so the LLM sees the
+      // doc text without going through the RAG pipeline.
+      if (isInlineMode) {
+        const docAttachments = attachments.filter(
+          (a) => a.type === 'document' && a.documentRef,
+        );
+        if (docAttachments.length !== 1) {
+          toast.error(
+            'Inline mode supports exactly one document at a time. ' +
+              'Remove extra docs or pick a knowledge base instead.',
+          );
+          return;
+        }
+        const docAtt = docAttachments[0];
+        const loadingToast = toast.loading(
+          `Extracting ${docAtt.content || 'document'}...`,
+        );
+        try {
+          const response = await fetch('/api/document/process', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              mode: 'extract',
+              documentRef: docAtt.documentRef,
+              filename: docAtt.content,
+            }),
+          });
+          const payload = await response.json();
+          if (!response.ok || !payload.success) {
+            toast.dismiss(loadingToast);
+            toast.error(
+              payload?.error || payload?.details || 'Failed to extract document',
+            );
+            return;
+          }
+          const markdown: string = payload.markdown || '';
+          const filename: string = payload.filename || docAtt.content || 'document';
+          const truncated: boolean = payload.truncated === true;
+          const originalChars: number =
+            typeof payload.originalChars === 'number'
+              ? payload.originalChars
+              : 0;
+          const pages: number =
+            typeof payload.pages === 'number' ? payload.pages : 0;
+          const attrs = [
+            `filename="${escapeXmlAttr(filename)}"`,
+            `pages="${pages}"`,
+          ];
+          if (truncated) {
+            attrs.push('truncated="true"');
+            attrs.push(`original_chars="${originalChars}"`);
+          }
+          const docBlock =
+            `<attached_document ${attrs.join(' ')}>\n${markdown}\n</attached_document>`;
+          messageContent = messageContent
+            ? `${messageContent}\n\n${docBlock}`
+            : docBlock;
+          toast.dismiss(loadingToast);
+          if (truncated) {
+            toast(
+              `Document truncated to 50K chars (was ${originalChars.toLocaleString()}).`,
+              { duration: 5000 },
+            );
+          }
+        } catch (err) {
+          toast.dismiss(loadingToast);
+          console.error('Inline extract failed:', err);
+          toast.error('Failed to extract document — check backend logs.');
+          return;
+        }
+      } else if (hasDocumentAttachment && selectedCollection) {
         messageContent =
           messageContent ||
           `Ingest the uploaded document(s) into the "${selectedCollection}" knowledge base.`;
-        // Add collection context to message metadata
       }
 
       // Add routing hint for transcripts without text
@@ -391,7 +470,7 @@ export const ChatInput = memo(
         attachments:
           messageAttachments.length > 0 ? messageAttachments : undefined,
         metadata: {
-          ...(selectedCollection
+          ...(!isInlineMode && selectedCollection
             ? {
                 targetCollection: selectedCollection,
                 collectionScope:
@@ -552,7 +631,7 @@ export const ChatInput = memo(
             )}
 
             {/* Collection selector for documents */}
-            {showCollections && collections.length > 0 && (
+            {showCollections && (
               <div className="flex items-center gap-2 mb-2 px-1">
                 <IconDatabase
                   size={14}
@@ -567,6 +646,14 @@ export const ChatInput = memo(
                   className="flex-1 bg-dark-bg-tertiary text-dark-text-primary text-xs border border-white/10 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-nvidia-green/30"
                 >
                   <option value="">Select a knowledge base...</option>
+                  <option value={INLINE_MODE}>
+                    Read inline (skip ingest, single doc)
+                  </option>
+                  {collections.length > 0 && (
+                    <option value="" disabled>
+                      ── knowledge bases ──
+                    </option>
+                  )}
                   {collections.map((col) => (
                     <option key={col} value={col}>
                       {col}

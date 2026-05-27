@@ -19,6 +19,7 @@ from urllib.parse import urlparse
 from fastapi import APIRouter, Header, HTTPException
 from fastapi.responses import StreamingResponse
 from nat_nv_ingest.nat_nv_ingest import (
+    INLINE_MARKDOWN_CHAR_LIMIT,
     NvIngestDocumentProcessor,
     NvIngestFunctionConfig,
     validate_collection_scope,
@@ -57,6 +58,21 @@ class IngestResponse(BaseModel):
     collection: str
     documents: int
     output: str
+
+
+class ExtractRequest(BaseModel):
+    documentRef: DocumentRef
+    username: str | None = None
+    char_limit: int | None = Field(None, gt=0, le=500_000)
+
+
+class ExtractResponse(BaseModel):
+    status: str
+    filename: str
+    pages: int
+    markdown: str
+    truncated: bool
+    original_chars: int
 
 
 def _env_bool(name: str, default: bool) -> bool:
@@ -375,4 +391,60 @@ async def ingest_stream(
             "Connection": "keep-alive",
             "X-Accel-Buffering": "no",
         },
+    )
+
+
+@router.post("/extract", response_model=ExtractResponse)
+async def extract(
+    req: ExtractRequest,
+    x_user_id: Annotated[str | None, Header(alias="x-user-id")] = None,
+    x_daedalus_internal_token: Annotated[
+        str | None, Header(alias="x-daedalus-internal-token")
+    ] = None,
+) -> ExtractResponse:
+    """Extract a single document to markdown without chunking or Milvus upload.
+
+    Bypasses the agent loop entirely so the request cannot be paraphrased
+    away — `extract` operations require exact-args fidelity (especially
+    `username` for the ownership check) which the LLM router corrupts when
+    routed through `/chat`.
+    """
+    user_id = _require_trusted_user(x_user_id, x_daedalus_internal_token)
+    username = (req.username or user_id).strip()
+    if username != user_id:
+        raise HTTPException(status_code=403, detail="username must match x-user-id")
+
+    document_ref = req.documentRef.model_dump(exclude_none=True)
+    char_limit = req.char_limit or INLINE_MARKDOWN_CHAR_LIMIT
+
+    try:
+        result = await _processor().extract_document(
+            documentRef=document_ref,
+            username=username,
+            char_limit=char_limit,
+        )
+    except Exception as e:
+        logger.exception("documents.extract failed")
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+    if result["status"] == "failure":
+        # Map ownership/missing-doc failures to 4xx so the frontend can
+        # surface them cleanly instead of generic 500s.
+        message = result["error"]
+        lower = message.lower()
+        if "access" in lower:
+            raise HTTPException(status_code=403, detail=message)
+        if "not found" in lower or "expired" in lower:
+            raise HTTPException(status_code=404, detail=message)
+        if "invalid" in lower or "required" in lower or "empty" in lower:
+            raise HTTPException(status_code=400, detail=message)
+        raise HTTPException(status_code=500, detail=message)
+
+    return ExtractResponse(
+        status=result["status"],
+        filename=result["filename"],
+        pages=result["pages"],
+        markdown=result["markdown"],
+        truncated=result["truncated"],
+        original_chars=result["original_chars"],
     )
