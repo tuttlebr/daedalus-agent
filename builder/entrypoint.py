@@ -10,6 +10,23 @@ import logging
 import os
 import sys
 
+OPTIONAL_STRING_ENV_DEFAULTS = ("EXA_API_KEY",)
+
+
+def _configure_optional_tool_env(logger):
+    """Seed optional string env vars so NAT interpolation does not emit None."""
+    seeded = []
+    for name in OPTIONAL_STRING_ENV_DEFAULTS:
+        if name not in os.environ:
+            os.environ[name] = ""
+            seeded.append(name)
+
+    if seeded:
+        logger.info(
+            "Configured empty defaults for optional tool env vars: %s",
+            ", ".join(seeded),
+        )
+
 
 def _patch_starlette_compat(logger):
     """Re-add methods removed in Starlette 1.0.0 that NAT v1.4.x still uses.
@@ -123,6 +140,7 @@ def main():
     )
 
     _configure_phoenix_auth_env(logging.getLogger("daedalus.phoenix"))
+    _configure_optional_tool_env(logging.getLogger("daedalus.optional_env"))
 
     # Starlette 1.0.0 removed add_event_handler, add_route, add_websocket_route;
     # NAT v1.4.x still calls them.  Patch before any NAT imports.
