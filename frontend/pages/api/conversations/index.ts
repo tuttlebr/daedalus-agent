@@ -1,11 +1,16 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { getRedis, jsonMGet, sessionKey } from '@/server/session/redis';
+
 import { getSession } from '@/utils/auth/session';
+
+import { getRedis, jsonMGet, sessionKey } from '@/server/session/redis';
 
 /**
  * Endpoint to get all conversations for the authenticated user.
  */
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+export default async function handler(
+  req: NextApiRequest,
+  res: NextApiResponse,
+) {
   if (req.method !== 'GET') {
     res.setHeader('Allow', ['GET']);
     return res.status(405).json({ error: 'Method not allowed' });
@@ -18,7 +23,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     const redis = getRedis();
-    const userConversationsKey = sessionKey(['user', session.username, 'conversations']);
+    const userConversationsKey = sessionKey([
+      'user',
+      session.username,
+      'conversations',
+    ]);
 
     // Fetch all conversation IDs from the user's set
     const conversationIds = await redis.smembers(userConversationsKey);
@@ -28,7 +37,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     // Fetch all conversation data in a single MGET call
-    const conversationKeys = conversationIds.map(id => sessionKey(['conversation', id]));
+    const conversationKeys = conversationIds.map((id) =>
+      sessionKey(['conversation', id]),
+    );
     const conversations = await jsonMGet(conversationKeys, '$');
 
     // Filter out any null conversations and add the id to the conversation object

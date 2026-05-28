@@ -59,10 +59,10 @@ export function useFocusTrap({
   const getFocusableElements = useCallback(() => {
     if (!containerRef.current) return [];
     const elements = containerRef.current.querySelectorAll<HTMLElement>(
-      FOCUSABLE_ELEMENTS.join(',')
+      FOCUSABLE_ELEMENTS.join(','),
     );
     return Array.from(elements).filter(
-      (el) => el.offsetParent !== null // Exclude hidden elements
+      (el) => el.offsetParent !== null, // Exclude hidden elements
     );
   }, []);
 
@@ -115,7 +115,7 @@ export function useFocusTrap({
         }
       }
     },
-    [isActive, onEscape, getFocusableElements]
+    [isActive, onEscape, getFocusableElements],
   );
 
   // Set up event listener and manage focus

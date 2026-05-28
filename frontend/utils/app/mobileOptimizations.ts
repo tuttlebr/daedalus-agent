@@ -20,12 +20,17 @@ interface MemoryProfile {
 
 // Detect mobile device
 export function isMobile(): boolean {
-  if (typeof window === 'undefined' || typeof navigator === 'undefined') return false;
+  if (typeof window === 'undefined' || typeof navigator === 'undefined')
+    return false;
 
   // Check multiple indicators
   const userAgent = navigator.userAgent.toLowerCase();
-  const isMobileUA = /android|webos|iphone|ipad|ipod|blackberry|iemobile|opera mini/i.test(userAgent);
-  const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+  const isMobileUA =
+    /android|webos|iphone|ipad|ipod|blackberry|iemobile|opera mini/i.test(
+      userAgent,
+    );
+  const isTouchDevice =
+    'ontouchstart' in window || navigator.maxTouchPoints > 0;
   const isSmallScreen = window.innerWidth <= 768;
   const hasCoarsePointer = window.matchMedia('(pointer: coarse)').matches;
 
@@ -45,12 +50,15 @@ export async function detectMemoryConstraints(): Promise<{
     // deviceMemory returns RAM in GB
     totalMemory = (navigator as any).deviceMemory * 1024;
     isLowMemory = totalMemory <= 2048; // 2GB or less
-  } else if (typeof performance !== 'undefined' && (performance as any).memory) {
+  } else if (
+    typeof performance !== 'undefined' &&
+    (performance as any).memory
+  ) {
     // Chrome-specific API (in MB)
     const memInfo = (performance as any).memory;
     if (memInfo.jsHeapSizeLimit) {
       // Estimate total memory from heap limit
-      totalMemory = Math.floor(memInfo.jsHeapSizeLimit / (1024 * 1024) * 4);
+      totalMemory = Math.floor((memInfo.jsHeapSizeLimit / (1024 * 1024)) * 4);
       isLowMemory = totalMemory <= 2048;
     }
   } else if (isMobile()) {
@@ -77,8 +85,8 @@ export async function getDeviceOptimizedSettings(): Promise<DeviceCapabilities> 
         recommendedMaxMessages: 30,
         enableBackgroundProcessing: false,
         enableIntermediateSteps: false,
-        enableRichMedia: false
-      }
+        enableRichMedia: false,
+      },
     },
     medium: {
       threshold: 4096,
@@ -88,8 +96,8 @@ export async function getDeviceOptimizedSettings(): Promise<DeviceCapabilities> 
         recommendedMaxMessages: 50,
         enableBackgroundProcessing: true,
         enableIntermediateSteps: true,
-        enableRichMedia: true
-      }
+        enableRichMedia: true,
+      },
     },
     high: {
       threshold: Infinity,
@@ -99,9 +107,9 @@ export async function getDeviceOptimizedSettings(): Promise<DeviceCapabilities> 
         recommendedMaxMessages: 100,
         enableBackgroundProcessing: true,
         enableIntermediateSteps: true,
-        enableRichMedia: true
-      }
-    }
+        enableRichMedia: true,
+      },
+    },
   };
 
   // Determine profile based on memory
@@ -114,9 +122,16 @@ export async function getDeviceOptimizedSettings(): Promise<DeviceCapabilities> 
 
   // Apply mobile-specific adjustments
   if (mobile) {
-    profile.recommendedCacheSizeMB = Math.floor((profile.recommendedCacheSizeMB || 30) * 0.6);
-    profile.recommendedMaxMessages = Math.floor((profile.recommendedMaxMessages || 100) * 0.7);
-    profile.recommendedImageQuality = Math.min(0.7, profile.recommendedImageQuality || 1);
+    profile.recommendedCacheSizeMB = Math.floor(
+      (profile.recommendedCacheSizeMB || 30) * 0.6,
+    );
+    profile.recommendedMaxMessages = Math.floor(
+      (profile.recommendedMaxMessages || 100) * 0.7,
+    );
+    profile.recommendedImageQuality = Math.min(
+      0.7,
+      profile.recommendedImageQuality || 1,
+    );
   }
 
   return {
@@ -128,7 +143,7 @@ export async function getDeviceOptimizedSettings(): Promise<DeviceCapabilities> 
     recommendedMaxMessages: profile.recommendedMaxMessages || 100,
     enableBackgroundProcessing: profile.enableBackgroundProcessing ?? true,
     enableIntermediateSteps: profile.enableIntermediateSteps ?? true,
-    enableRichMedia: profile.enableRichMedia ?? true
+    enableRichMedia: profile.enableRichMedia ?? true,
   };
 }
 
@@ -140,7 +155,16 @@ interface ManagedTimer {
   isRunning: () => boolean;
 }
 
-let visibilityTimerModule: { createVisibilityAwareInterval: (cb: () => void | Promise<void>, opts: { interval: number; mobileMultiplier?: number; pauseWhenHidden?: boolean }) => ManagedTimer } | null = null;
+let visibilityTimerModule: {
+  createVisibilityAwareInterval: (
+    cb: () => void | Promise<void>,
+    opts: {
+      interval: number;
+      mobileMultiplier?: number;
+      pauseWhenHidden?: boolean;
+    },
+  ) => ManagedTimer;
+} | null = null;
 
 // Monitor memory pressure and adjust settings dynamically
 export class AdaptiveMemoryManager {
@@ -159,7 +183,7 @@ export class AdaptiveMemoryManager {
       recommendedMaxMessages: 100,
       enableBackgroundProcessing: true,
       enableIntermediateSteps: true,
-      enableRichMedia: true
+      enableRichMedia: true,
     };
   }
 
@@ -173,14 +197,19 @@ export class AdaptiveMemoryManager {
     }
 
     // Start monitoring if on mobile or low memory device
-    if (this.currentSettings.isMobile || this.currentSettings.isLowMemoryDevice) {
+    if (
+      this.currentSettings.isMobile ||
+      this.currentSettings.isLowMemoryDevice
+    ) {
       this.startMonitoring();
     }
   }
 
   private startMonitoring() {
     if (!visibilityTimerModule) {
-      console.warn('Visibility timer module not loaded, skipping memory monitoring');
+      console.warn(
+        'Visibility timer module not loaded, skipping memory monitoring',
+      );
       return;
     }
 
@@ -188,9 +217,21 @@ export class AdaptiveMemoryManager {
     // Check every 30s on desktop, 60s on mobile
     this.memoryCheckTimer = visibilityTimerModule.createVisibilityAwareInterval(
       async () => {
-        if (typeof performance !== 'undefined' && (performance as unknown as { memory?: { usedJSHeapSize: number; jsHeapSizeLimit: number } }).memory) {
-          const memInfo = (performance as unknown as { memory: { usedJSHeapSize: number; jsHeapSizeLimit: number } }).memory;
-          const percentUsed = (memInfo.usedJSHeapSize / memInfo.jsHeapSizeLimit) * 100;
+        if (
+          typeof performance !== 'undefined' &&
+          (
+            performance as unknown as {
+              memory?: { usedJSHeapSize: number; jsHeapSizeLimit: number };
+            }
+          ).memory
+        ) {
+          const memInfo = (
+            performance as unknown as {
+              memory: { usedJSHeapSize: number; jsHeapSizeLimit: number };
+            }
+          ).memory;
+          const percentUsed =
+            (memInfo.usedJSHeapSize / memInfo.jsHeapSizeLimit) * 100;
 
           // Dynamically adjust settings based on memory pressure
           if (percentUsed > 80 && this.currentSettings.enableRichMedia) {
@@ -198,11 +239,17 @@ export class AdaptiveMemoryManager {
             this.currentSettings.enableIntermediateSteps = false;
             this.currentSettings.recommendedImageQuality = 0.3;
             this.onSettingsChange?.(this.currentSettings);
-          } else if (percentUsed > 70 && this.currentSettings.enableIntermediateSteps) {
+          } else if (
+            percentUsed > 70 &&
+            this.currentSettings.enableIntermediateSteps
+          ) {
             this.currentSettings.enableIntermediateSteps = false;
             this.currentSettings.recommendedImageQuality = 0.5;
             this.onSettingsChange?.(this.currentSettings);
-          } else if (percentUsed < 60 && !this.currentSettings.enableIntermediateSteps) {
+          } else if (
+            percentUsed < 60 &&
+            !this.currentSettings.enableIntermediateSteps
+          ) {
             // Re-enable features when memory pressure is low
             const baseSettings = await getDeviceOptimizedSettings();
             this.currentSettings = baseSettings;
@@ -214,7 +261,7 @@ export class AdaptiveMemoryManager {
         interval: 30000, // 30 seconds base
         mobileMultiplier: 2, // 60 seconds on mobile
         pauseWhenHidden: true, // Don't monitor when app is backgrounded
-      }
+      },
     );
   }
 
@@ -233,7 +280,9 @@ export class AdaptiveMemoryManager {
 // Singleton instance
 let adaptiveManager: AdaptiveMemoryManager | null = null;
 
-export function getAdaptiveMemoryManager(onSettingsChange?: (settings: DeviceCapabilities) => void): AdaptiveMemoryManager {
+export function getAdaptiveMemoryManager(
+  onSettingsChange?: (settings: DeviceCapabilities) => void,
+): AdaptiveMemoryManager {
   if (!adaptiveManager) {
     adaptiveManager = new AdaptiveMemoryManager(onSettingsChange);
     adaptiveManager.initialize();
@@ -244,9 +293,10 @@ export function getAdaptiveMemoryManager(onSettingsChange?: (settings: DeviceCap
 // Helper to compress images based on device capabilities
 export async function adaptiveImageCompress(
   base64Image: string,
-  mimeType: string = 'image/jpeg'
+  mimeType: string = 'image/jpeg',
 ): Promise<string> {
-  const settings = adaptiveManager?.getSettings() || await getDeviceOptimizedSettings();
+  const settings =
+    adaptiveManager?.getSettings() || (await getDeviceOptimizedSettings());
 
   if (!settings.enableRichMedia) {
     // Return placeholder or skip image
@@ -287,7 +337,10 @@ export async function adaptiveImageCompress(
       ctx.drawImage(img, 0, 0, width, height);
 
       // Convert back to base64 with quality setting
-      const compressed = canvas.toDataURL(mimeType, settings.recommendedImageQuality);
+      const compressed = canvas.toDataURL(
+        mimeType,
+        settings.recommendedImageQuality,
+      );
       resolve(compressed);
     };
 
@@ -301,5 +354,5 @@ export const mobileUtils = {
   isMobile,
   detectMemoryConstraints,
   getDeviceOptimizedSettings,
-  adaptiveImageCompress
+  adaptiveImageCompress,
 };

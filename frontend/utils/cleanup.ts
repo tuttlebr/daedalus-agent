@@ -92,25 +92,25 @@ export function addManagedListener<K extends keyof WindowEventMap>(
   target: Window,
   type: K,
   listener: (ev: WindowEventMap[K]) => void,
-  options?: boolean | AddEventListenerOptions
+  options?: boolean | AddEventListenerOptions,
 ): () => void;
 export function addManagedListener<K extends keyof DocumentEventMap>(
   target: Document,
   type: K,
   listener: (ev: DocumentEventMap[K]) => void,
-  options?: boolean | AddEventListenerOptions
+  options?: boolean | AddEventListenerOptions,
 ): () => void;
 export function addManagedListener<K extends keyof HTMLElementEventMap>(
   target: HTMLElement,
   type: K,
   listener: (ev: HTMLElementEventMap[K]) => void,
-  options?: boolean | AddEventListenerOptions
+  options?: boolean | AddEventListenerOptions,
 ): () => void;
 export function addManagedListener(
   target: EventTarget,
   type: string,
   listener: EventListener,
-  options?: boolean | AddEventListenerOptions
+  options?: boolean | AddEventListenerOptions,
 ): () => void {
   target.addEventListener(type, listener, options);
   return () => target.removeEventListener(type, listener, options);
@@ -131,7 +131,7 @@ export function addManagedListener(
  */
 export function setManagedTimeout(
   callback: () => void,
-  delay: number
+  delay: number,
 ): () => void {
   const timeoutId = setTimeout(callback, delay);
   return () => clearTimeout(timeoutId);
@@ -152,7 +152,7 @@ export function setManagedTimeout(
  */
 export function setManagedInterval(
   callback: () => void,
-  delay: number
+  delay: number,
 ): () => void {
   const intervalId = setInterval(callback, delay);
   return () => clearInterval(intervalId);
@@ -173,7 +173,7 @@ export function setManagedInterval(
  */
 export function createDebouncedFn<T extends (...args: any[]) => void>(
   fn: T,
-  delay: number
+  delay: number,
 ): [T, () => void] {
   let timeoutId: NodeJS.Timeout | null = null;
 
@@ -216,7 +216,7 @@ export function createDebouncedFn<T extends (...args: any[]) => void>(
  */
 export function createThrottledFn<T extends (...args: any[]) => void>(
   fn: T,
-  limit: number
+  limit: number,
 ): [T, () => void] {
   let lastCall = 0;
   let timeoutId: NodeJS.Timeout | null = null;
@@ -287,9 +287,9 @@ export function safeCleanup(fn: () => void): void {
  * );
  * ```
  */
-export function createStableCallback<T extends (...args: any[]) => any>(
-  ref: { current: T }
-): T {
+export function createStableCallback<T extends (...args: any[]) => any>(ref: {
+  current: T;
+}): T {
   return ((...args: Parameters<T>) => ref.current(...args)) as T;
 }
 
@@ -305,7 +305,9 @@ export function createStableCallback<T extends (...args: any[]) => any>(
  * );
  * ```
  */
-export function combineCleanup(...cleanupFns: Array<(() => void) | undefined | null>): () => void {
+export function combineCleanup(
+  ...cleanupFns: Array<(() => void) | undefined | null>
+): () => void {
   return () => {
     cleanupFns.forEach((fn) => {
       if (fn) {

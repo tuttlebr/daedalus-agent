@@ -1,9 +1,11 @@
 'use client';
 
 import React, { memo } from 'react';
+
 import { useIsMobile } from '@/hooks/useMediaQuery';
-import { SplitPane } from './SplitPane';
+
 import { MobileShell } from './MobileShell';
+import { SplitPane } from './SplitPane';
 
 export interface AppShellProps {
   sidebar: React.ReactNode;
@@ -16,26 +18,20 @@ export interface AppShellProps {
  * - Desktop (>= md): SplitPane with resizable sidebar.
  * - Mobile (< md): MobileShell with bottom nav and overlay sidebar.
  */
-export const AppShell = memo(({
-  sidebar,
-  bottomNav,
-  children,
-}: AppShellProps) => {
-  const isMobile = useIsMobile();
+export const AppShell = memo(
+  ({ sidebar, bottomNav, children }: AppShellProps) => {
+    const isMobile = useIsMobile();
 
-  if (isMobile) {
-    return (
-      <MobileShell sidebar={sidebar} bottomNav={bottomNav}>
-        {children}
-      </MobileShell>
-    );
-  }
+    if (isMobile) {
+      return (
+        <MobileShell sidebar={sidebar} bottomNav={bottomNav}>
+          {children}
+        </MobileShell>
+      );
+    }
 
-  return (
-    <SplitPane sidebar={sidebar}>
-      {children}
-    </SplitPane>
-  );
-});
+    return <SplitPane sidebar={sidebar}>{children}</SplitPane>;
+  },
+);
 
 AppShell.displayName = 'AppShell';

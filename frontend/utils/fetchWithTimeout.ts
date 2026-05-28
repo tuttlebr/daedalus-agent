@@ -40,7 +40,7 @@ export class FetchTimeoutError extends Error {
 export async function fetchWithTimeout(
   url: string,
   options: RequestInit = {},
-  timeoutMs = 30000
+  timeoutMs = 30000,
 ): Promise<Response> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
@@ -71,7 +71,7 @@ export async function fetchWithTimeout(
  */
 function combineAbortSignals(
   signal1: AbortSignal,
-  signal2: AbortSignal
+  signal2: AbortSignal,
 ): AbortSignal {
   const controller = new AbortController();
 
@@ -107,7 +107,7 @@ function combineAbortSignals(
 export async function withTimeout<T>(
   promise: Promise<T>,
   timeoutMs: number,
-  timeoutError: Error = new Error(`Operation timed out after ${timeoutMs}ms`)
+  timeoutError: Error = new Error(`Operation timed out after ${timeoutMs}ms`),
 ): Promise<T> {
   let timeoutId: ReturnType<typeof setTimeout>;
 

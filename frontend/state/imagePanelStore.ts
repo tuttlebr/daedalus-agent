@@ -6,44 +6,58 @@
  * strip. The live UI state is local; ImagePanel hydrates and persists history
  * through the image history API.
  *
- * Mode is derived, not stored: anything with attached inputImages is an
- * edit; anything without is a generate.
+ * Mode and model are explicit so users can choose Generate or Edit before
+ * attaching reference images, and so controls can follow model capabilities.
  */
+import {
+  DEFAULT_IMAGE_MODEL,
+  cleanImageParamsForModel,
+  resolveImageModel,
+  type ImageMode,
+  type ImageModel,
+  type ImageParams,
+} from '@/utils/app/imageModelCapabilities';
 
 import { create } from 'zustand';
 import { subscribeWithSelector } from 'zustand/middleware';
 
-export type ImageMode = 'generate' | 'edit';
+export type {
+  ImageBackground,
+  ImageInputFidelity,
+  ImageMode,
+  ImageModel,
+  ImageModeration,
+  ImageOutputFormat,
+  ImageParams,
+  ImageQuality,
+  ImageSize,
+} from '@/utils/app/imageModelCapabilities';
 
-export type ImageQuality = 'auto' | 'low' | 'medium' | 'high';
-export type ImageSize = 'auto' | '1024x1024' | '1024x1536' | '1536x1024';
-export type ImageOutputFormat = 'png' | 'jpeg' | 'webp';
-export type ImageBackground = 'transparent' | 'opaque' | 'auto';
-export type ImageModeration = 'low' | 'auto';
-export type ImageInputFidelity = 'low' | 'high';
-
-export interface ImageParams {
-  n?: number;
-  quality?: ImageQuality;
-  size?: ImageSize;
-  output_format?: ImageOutputFormat;
-  output_compression?: number;
-  background?: ImageBackground;
-  moderation?: ImageModeration;
-  input_fidelity?: ImageInputFidelity;
-}
+export type GenerationStatus =
+  | 'idle'
+  | 'queued'
+  | 'submitting'
+  | 'generating'
+  | 'finalizing';
 
 export interface ImageRef {
   imageId: string;
   sessionId: string;
   userId?: string;
   mimeType?: string;
+  width?: number;
+  height?: number;
+  hasAlpha?: boolean;
 }
 
 export interface GalleryImage {
   imageId: string;
   prompt: string;
   mode: ImageMode;
+  model: ImageModel;
+  params: ImageParams;
+  createdAt: number;
+  partial?: boolean;
 }
 
 export interface HistoryEntry {
@@ -56,22 +70,31 @@ export interface HistoryEntry {
   outputImageIds: string[];
   model: string;
   createdAt: number;
+  usage?: Record<string, unknown>;
 }
 
 export interface ImagePanelState {
+  mode: ImageMode;
+  model: ImageModel;
   prompt: string;
   params: ImageParams;
   inputImages: ImageRef[];
   maskImage: ImageRef | null;
   preserveList: string;
   gallery: GalleryImage[];
+  partialGallery: GalleryImage[];
+  selectedImageId: string | null;
   history: HistoryEntry[];
   loading: boolean;
+  generationStatus: GenerationStatus;
+  generationStartedAt: number | null;
   error: string | null;
   historyOpen: boolean;
 }
 
 export interface ImagePanelActions {
+  setMode: (mode: ImageMode) => void;
+  setModel: (model: ImageModel) => void;
   setPrompt: (prompt: string) => void;
   setParam: <K extends keyof ImageParams>(
     key: K,
@@ -90,6 +113,8 @@ export interface ImagePanelActions {
   reuseOutputAsInput: (ref: ImageRef) => void;
 
   setGallery: (images: GalleryImage[]) => void;
+  setPartialGallery: (images: GalleryImage[]) => void;
+  setSelectedImageId: (imageId: string | null) => void;
   removeFromGallery: (imageId: string) => void;
   setHistory: (entries: HistoryEntry[]) => void;
   appendToHistory: (entry: HistoryEntry) => void;
@@ -98,6 +123,10 @@ export interface ImagePanelActions {
   clearHistory: () => void;
 
   setLoading: (loading: boolean) => void;
+  setGenerationStatus: (
+    status: GenerationStatus,
+    startedAt?: number | null,
+  ) => void;
   setError: (error: string | null) => void;
 
   setHistoryOpen: (open: boolean) => void;
@@ -111,14 +140,20 @@ export type ImagePanelStore = ImagePanelState & ImagePanelActions;
 const DEFAULT_PARAMS: ImageParams = { quality: 'medium' };
 
 const INITIAL_STATE: ImagePanelState = {
+  mode: 'generate',
+  model: DEFAULT_IMAGE_MODEL,
   prompt: '',
   params: { ...DEFAULT_PARAMS },
   inputImages: [],
   maskImage: null,
   preserveList: '',
   gallery: [],
+  partialGallery: [],
+  selectedImageId: null,
   history: [],
   loading: false,
+  generationStatus: 'idle',
+  generationStartedAt: null,
   error: null,
   historyOpen: false,
 };
@@ -127,21 +162,32 @@ export const useImagePanelStore = create<ImagePanelStore>()(
   subscribeWithSelector((set, get) => ({
     ...INITIAL_STATE,
 
+    setMode: (mode) => set({ mode, error: null }),
+    setModel: (model) =>
+      set((s) => ({
+        model,
+        params: cleanImageParamsForModel(s.params, model),
+      })),
     setPrompt: (prompt) => set({ prompt }),
     setParam: (key, value) =>
       set((s) => ({
-        params:
+        params: cleanImageParamsForModel(
           value === undefined
             ? omit(s.params, key)
             : { ...s.params, [key]: value },
+          s.model,
+        ),
       })),
-    resetParams: () => set({ params: { ...DEFAULT_PARAMS } }),
+    resetParams: () =>
+      set((s) => ({
+        params: cleanImageParamsForModel(DEFAULT_PARAMS, s.model),
+      })),
 
     addInputImages: (refs) =>
       set((s) => {
         const byId = new Map(s.inputImages.map((r) => [r.imageId, r]));
         for (const r of refs) byId.set(r.imageId, r);
-        return { inputImages: Array.from(byId.values()) };
+        return { inputImages: Array.from(byId.values()), mode: 'edit' };
       }),
     removeInputImage: (imageId) =>
       set((s) => ({
@@ -157,22 +203,44 @@ export const useImagePanelStore = create<ImagePanelStore>()(
       set((s) => {
         const byId = new Map(s.inputImages.map((r) => [r.imageId, r]));
         byId.set(ref.imageId, ref);
-        return { inputImages: Array.from(byId.values()) };
+        return { inputImages: Array.from(byId.values()), mode: 'edit' };
       }),
 
-    setGallery: (gallery) => set({ gallery }),
+    setGallery: (gallery) =>
+      set((s) => ({
+        gallery,
+        partialGallery: [],
+        selectedImageId:
+          gallery[0]?.imageId ??
+          (gallery.some((img) => img.imageId === s.selectedImageId)
+            ? s.selectedImageId
+            : null),
+      })),
+    setPartialGallery: (partialGallery) => set({ partialGallery }),
+    setSelectedImageId: (selectedImageId) => set({ selectedImageId }),
     removeFromGallery: (imageId) =>
-      set((s) => ({ gallery: s.gallery.filter((g) => g.imageId !== imageId) })),
+      set((s) => {
+        const gallery = s.gallery.filter((g) => g.imageId !== imageId);
+        return {
+          gallery,
+          selectedImageId:
+            s.selectedImageId === imageId
+              ? gallery[0]?.imageId ?? null
+              : s.selectedImageId,
+        };
+      }),
     setHistory: (history) =>
       set((s) => {
         const nextHistory = history.slice(0, 50);
         const latest = nextHistory[0];
+        const gallery =
+          s.gallery.length === 0 && latest
+            ? galleryFromHistoryEntry(latest)
+            : s.gallery;
         return {
           history: nextHistory,
-          gallery:
-            s.gallery.length === 0 && latest
-              ? galleryFromHistoryEntry(latest)
-              : s.gallery,
+          gallery,
+          selectedImageId: s.selectedImageId ?? gallery[0]?.imageId ?? null,
         };
       }),
     appendToHistory: (entry) =>
@@ -186,11 +254,15 @@ export const useImagePanelStore = create<ImagePanelStore>()(
       const entry = get().history.find((e) => e.id === entryId);
       if (!entry) return;
       set({
+        mode: entry.mode,
+        model: resolveEntryModel(entry.model),
         prompt: entry.prompt,
-        params: { ...entry.params },
+        params: cleanImageParamsForModel(entry.params, entry.model),
         inputImages: [...entry.inputImages],
         maskImage: entry.maskImage,
         gallery: galleryFromHistoryEntry(entry),
+        partialGallery: [],
+        selectedImageId: entry.outputImageIds[0] ?? null,
         error: null,
       });
     },
@@ -206,11 +278,26 @@ export const useImagePanelStore = create<ImagePanelStore>()(
         return {
           history: nextHistory,
           gallery: galleryFromThis ? [] : s.gallery,
+          selectedImageId: galleryFromThis ? null : s.selectedImageId,
         };
       }),
-    clearHistory: () => set({ history: [], gallery: [] }),
+    clearHistory: () =>
+      set({
+        history: [],
+        gallery: [],
+        partialGallery: [],
+        selectedImageId: null,
+      }),
 
     setLoading: (loading) => set({ loading }),
+    setGenerationStatus: (generationStatus, generationStartedAt) =>
+      set((s) => ({
+        generationStatus,
+        generationStartedAt:
+          generationStartedAt === undefined
+            ? s.generationStartedAt
+            : generationStartedAt,
+      })),
     setError: (error) => set({ error }),
 
     setHistoryOpen: (open) => set({ historyOpen: open }),
@@ -220,9 +307,9 @@ export const useImagePanelStore = create<ImagePanelStore>()(
   })),
 );
 
-/** Derive mode from attachments — if any images are attached, we're editing. */
+/** Select the explicit image workflow mode. */
 export function selectMode(s: ImagePanelState): ImageMode {
-  return s.inputImages.length > 0 ? 'edit' : 'generate';
+  return s.mode;
 }
 
 function omit<T extends object, K extends keyof T>(obj: T, key: K): Omit<T, K> {
@@ -235,5 +322,12 @@ function galleryFromHistoryEntry(entry: HistoryEntry): GalleryImage[] {
     imageId,
     prompt: entry.prompt,
     mode: entry.mode,
+    model: resolveEntryModel(entry.model),
+    params: cleanImageParamsForModel(entry.params, entry.model),
+    createdAt: entry.createdAt,
   }));
+}
+
+function resolveEntryModel(model: string): ImageModel {
+  return resolveImageModel(model);
 }

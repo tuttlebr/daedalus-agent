@@ -1,6 +1,6 @@
-import { describe, expect, it } from 'vitest';
-
 import { isVTTFile } from '@/utils/app/vttHandler';
+
+import { describe, expect, it } from 'vitest';
 
 function fileLike(name: string, type: string): File {
   return { name, type } as File;

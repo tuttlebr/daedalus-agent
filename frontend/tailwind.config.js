@@ -8,9 +8,33 @@ module.exports = {
   darkMode: 'class',
   theme: {
     fontFamily: {
-      'sans': ['NVIDIA Sans', 'system-ui', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', 'sans-serif'],
-      'serif': ['IBM Plex Serif', 'Georgia', 'Cambria', 'Times New Roman', 'Times', 'serif'],
-      'mono': ['JetBrains Mono', 'SF Mono', 'Monaco', 'Cascadia Code', 'Roboto Mono', 'Consolas', 'Courier New', 'monospace'],
+      sans: [
+        'NVIDIA Sans',
+        'system-ui',
+        '-apple-system',
+        'BlinkMacSystemFont',
+        'Segoe UI',
+        'Roboto',
+        'sans-serif',
+      ],
+      serif: [
+        'IBM Plex Serif',
+        'Georgia',
+        'Cambria',
+        'Times New Roman',
+        'Times',
+        'serif',
+      ],
+      mono: [
+        'JetBrains Mono',
+        'SF Mono',
+        'Monaco',
+        'Cascadia Code',
+        'Roboto Mono',
+        'Consolas',
+        'Courier New',
+        'monospace',
+      ],
     },
     fontWeight: {
       normal: '400',
@@ -37,7 +61,7 @@ module.exports = {
         'safe-left': 'var(--safe-area-inset-left)',
         'safe-right': 'var(--safe-area-inset-right)',
         'touch-min': 'var(--touch-target-min)',
-        'touch': 'var(--touch-target-comfortable)',
+        touch: 'var(--touch-target-comfortable)',
         'touch-lg': 'var(--touch-target-large)',
         'space-1': 'var(--space-1)',
         'space-2': 'var(--space-2)',
@@ -52,18 +76,18 @@ module.exports = {
       },
       minHeight: {
         'touch-min': 'var(--touch-target-min)',
-        'touch': 'var(--touch-target-comfortable)',
+        touch: 'var(--touch-target-comfortable)',
         'touch-lg': 'var(--touch-target-large)',
       },
       minWidth: {
         'touch-min': 'var(--touch-target-min)',
-        'touch': 'var(--touch-target-comfortable)',
+        touch: 'var(--touch-target-comfortable)',
         'touch-lg': 'var(--touch-target-large)',
       },
       fontFamily: {
-        'heading': ['NVIDIA Sans', 'system-ui', '-apple-system', 'sans-serif'],
-        'display': ['NVIDIA Sans', 'system-ui', '-apple-system', 'sans-serif'],
-        'nvidia': ['NVIDIA Sans', 'system-ui', '-apple-system', 'sans-serif'],
+        heading: ['NVIDIA Sans', 'system-ui', '-apple-system', 'sans-serif'],
+        display: ['NVIDIA Sans', 'system-ui', '-apple-system', 'sans-serif'],
+        nvidia: ['NVIDIA Sans', 'system-ui', '-apple-system', 'sans-serif'],
       },
       colors: {
         // =============================================================
@@ -120,131 +144,133 @@ module.exports = {
         // =============================================================
         // Extended Green Spectrum
         // =============================================================
-        'sage': {
+        sage: {
           DEFAULT: 'var(--color-sage)',
           light: 'var(--color-sage-light)',
           dark: 'var(--color-sage-dark)',
         },
-        'emerald': {
+        emerald: {
           DEFAULT: 'var(--color-emerald)',
           light: 'var(--color-emerald-light)',
           dark: 'var(--color-emerald-dark)',
         },
-        'lime': {
+        lime: {
           DEFAULT: 'var(--color-lime)',
           light: 'var(--color-lime-light)',
           dark: 'var(--color-lime-dark)',
         },
 
         // Semantic colors
-        'success': {
+        success: {
           DEFAULT: 'var(--color-success)',
           light: 'var(--color-success-light)',
           dark: 'var(--color-success-dark)',
         },
-        'error': {
+        error: {
           DEFAULT: 'var(--color-error)',
           light: 'var(--color-error-light)',
           dark: 'var(--color-error-dark)',
         },
-        'warning': {
+        warning: {
           DEFAULT: 'var(--color-warning)',
           light: 'var(--color-warning-light)',
           dark: 'var(--color-warning-dark)',
         },
-        'info': {
+        info: {
           DEFAULT: 'var(--color-info)',
           light: 'var(--color-info-light)',
           dark: 'var(--color-info-dark)',
         },
 
         // Gray scale
-        'gray': {
-          '50': 'var(--color-gray-50)',
-          '100': 'var(--color-gray-100)',
-          '200': 'var(--color-gray-200)',
-          '300': 'var(--color-gray-300)',
-          '400': 'var(--color-gray-400)',
-          '500': 'var(--color-gray-500)',
-          '600': 'var(--color-gray-600)',
-          '700': 'var(--color-gray-700)',
-          '800': 'var(--color-gray-800)',
-          '900': 'var(--color-gray-900)',
+        gray: {
+          50: 'var(--color-gray-50)',
+          100: 'var(--color-gray-100)',
+          200: 'var(--color-gray-200)',
+          300: 'var(--color-gray-300)',
+          400: 'var(--color-gray-400)',
+          500: 'var(--color-gray-500)',
+          600: 'var(--color-gray-600)',
+          700: 'var(--color-gray-700)',
+          800: 'var(--color-gray-800)',
+          900: 'var(--color-gray-900)',
         },
 
         // Light theme colors
-        'bg': {
-          'primary': 'var(--color-bg-primary)',
-          'secondary': 'var(--color-bg-secondary)',
-          'tertiary': 'var(--color-bg-tertiary)',
+        bg: {
+          primary: 'var(--color-bg-primary)',
+          secondary: 'var(--color-bg-secondary)',
+          tertiary: 'var(--color-bg-tertiary)',
         },
-        'text': {
-          'primary': 'var(--color-text-primary)',
-          'secondary': 'var(--color-text-secondary)',
-          'muted': 'var(--color-text-muted)',
+        text: {
+          primary: 'var(--color-text-primary)',
+          secondary: 'var(--color-text-secondary)',
+          muted: 'var(--color-text-muted)',
         },
 
         // Dark theme colors
         'dark-bg': {
-          'primary': 'var(--color-dark-bg-primary)',
-          'secondary': 'var(--color-dark-bg-secondary)',
-          'tertiary': 'var(--color-dark-bg-tertiary)',
-          'quaternary': 'var(--color-dark-bg-quaternary)',
+          primary: 'var(--color-dark-bg-primary)',
+          secondary: 'var(--color-dark-bg-secondary)',
+          tertiary: 'var(--color-dark-bg-tertiary)',
+          quaternary: 'var(--color-dark-bg-quaternary)',
         },
         'dark-text': {
-          'primary': 'var(--color-dark-text-primary)',
-          'secondary': 'var(--color-dark-text-secondary)',
-          'muted': 'var(--color-dark-text-muted)',
+          primary: 'var(--color-dark-text-primary)',
+          secondary: 'var(--color-dark-text-secondary)',
+          muted: 'var(--color-dark-text-muted)',
         },
         // Glass surfaces
-        'surface': {
-          'glass': 'var(--surface-glass)',
+        surface: {
+          glass: 'var(--surface-glass)',
           'glass-hover': 'var(--surface-glass-hover)',
-          'control': 'var(--surface-glass-control)',
-          'overlay': 'var(--surface-glass-overlay)',
-          'accent': 'var(--surface-accent)',
+          control: 'var(--surface-glass-control)',
+          overlay: 'var(--surface-glass-overlay)',
+          accent: 'var(--surface-accent)',
         },
 
         // Border colors
-        'border': {
-          'light': 'var(--color-border)',
-          'dark': 'var(--color-dark-border)',
-          'glass': 'var(--surface-glass-border)',
+        border: {
+          light: 'var(--color-border)',
+          dark: 'var(--color-dark-border)',
+          glass: 'var(--surface-glass-border)',
         },
 
         // Chat specific colors
-        'chat': {
-          'user': 'var(--chat-bg-user)',
-          'assistant': 'var(--chat-bg-assistant)',
-          'border': 'var(--chat-border)',
-          'input': 'var(--chat-input-bg)',
+        chat: {
+          user: 'var(--chat-bg-user)',
+          assistant: 'var(--chat-bg-assistant)',
+          border: 'var(--chat-border)',
+          input: 'var(--chat-input-bg)',
           'input-border': 'var(--chat-input-border)',
         },
 
         // Component colors
-        'card': {
-          'bg': 'var(--card-bg)',
-          'border': 'var(--card-border)',
+        card: {
+          bg: 'var(--card-bg)',
+          border: 'var(--card-border)',
         },
 
         // Button colors
-        'button': {
-          'bg': 'var(--button-bg)',
-          'hover': 'var(--button-hover)',
-          'text': 'var(--button-text)',
+        button: {
+          bg: 'var(--button-bg)',
+          hover: 'var(--button-hover)',
+          text: 'var(--button-text)',
           'accent-bg': 'var(--button-accent-bg)',
           'accent-hover': 'var(--button-accent-hover)',
         },
       },
       boxShadow: {
-        'nvidia': '0 0 5px 0 rgba(0, 0, 0, 0.3)',
-        'nvidia-lg': '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)',
+        nvidia: '0 0 5px 0 rgba(0, 0, 0, 0.3)',
+        'nvidia-lg':
+          '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)',
         'nvidia-dropdown': '0 6px 9px rgba(0, 0, 0, 0.175)',
         'glow-green': '0 0 20px rgba(118, 185, 0, 0.15)',
       },
       backgroundImage: {
         'gradient-radial': 'radial-gradient(var(--tw-gradient-stops))',
-        'gradient-nvidia': 'linear-gradient(180deg, transparent, rgba(118, 185, 0, 0.05))',
+        'gradient-nvidia':
+          'linear-gradient(180deg, transparent, rgba(118, 185, 0, 0.05))',
         'gradient-green-primary': 'var(--gradient-green-primary)',
         'gradient-green-subtle': 'var(--gradient-green-subtle)',
         'gradient-dark': 'var(--gradient-dark)',
@@ -269,15 +295,15 @@ module.exports = {
         200: '2',
       },
       screens: {
-        'xs': '475px',
+        xs: '475px',
         ...require('tailwindcss/defaultTheme').screens,
       },
       fontSize: {
-        'xs': ['0.75rem', { lineHeight: '1rem' }],
-        'sm': ['0.875rem', { lineHeight: '1.25rem' }],
-        'base': ['1rem', { lineHeight: '1.5rem' }],
-        'lg': ['1.125rem', { lineHeight: '1.75rem' }],
-        'xl': ['1.25rem', { lineHeight: '1.75rem' }],
+        xs: ['0.75rem', { lineHeight: '1rem' }],
+        sm: ['0.875rem', { lineHeight: '1.25rem' }],
+        base: ['1rem', { lineHeight: '1.5rem' }],
+        lg: ['1.125rem', { lineHeight: '1.75rem' }],
+        xl: ['1.25rem', { lineHeight: '1.75rem' }],
       },
       keyframes: {
         blink: {

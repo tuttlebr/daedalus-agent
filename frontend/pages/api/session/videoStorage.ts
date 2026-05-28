@@ -1,13 +1,24 @@
 import { NextApiRequest, NextApiResponse } from 'next';
-import { getRedis, sessionKey, jsonGet, jsonDel, jsonSetWithExpiry } from '@/server/session/redis';
-import { getOrSetSessionId, requireAuthenticatedUser } from '@/server/session/_utils';
+
 import { validateVideoMagicBytes } from '@/utils/app/magicBytes';
+
+import {
+  getOrSetSessionId,
+  requireAuthenticatedUser,
+} from '@/server/session/_utils';
+import {
+  getRedis,
+  sessionKey,
+  jsonGet,
+  jsonDel,
+  jsonSetWithExpiry,
+} from '@/server/session/redis';
 import crypto from 'crypto';
 
 const VIDEO_EXPIRY_SECONDS = 60 * 60 * 24 * 7; // 7 days
 const MAX_VIDEO_SIZE = 100 * 1024 * 1024; // 100MB limit
 
-// Supported video formats (from image_comprehension_function.py)
+// Supported video formats (from visual_media_function.py analyze path)
 // Codecs: H264, H265, VP8, VP9, FLV
 // Formats: MP4, FLV, 3GP
 const SUPPORTED_MIME_TYPES = ['video/mp4', 'video/x-flv', 'video/3gpp'];
@@ -41,7 +52,7 @@ export async function storeVideo(
   userId: string | undefined,
   base64Data: string,
   filename: string,
-  mimeType: string = 'video/mp4'
+  mimeType: string = 'video/mp4',
 ): Promise<string> {
   const redis = getRedis();
   const videoId = generateVideoId();
@@ -52,7 +63,11 @@ export async function storeVideo(
   const size = buffer.length;
 
   if (size > MAX_VIDEO_SIZE) {
-    throw new Error(`Video size (${Math.round(size / (1024 * 1024))}MB) ${VIDEO_SIZE_ERROR} (${MAX_VIDEO_SIZE / (1024 * 1024)}MB)`);
+    throw new Error(
+      `Video size (${Math.round(
+        size / (1024 * 1024),
+      )}MB) ${VIDEO_SIZE_ERROR} (${MAX_VIDEO_SIZE / (1024 * 1024)}MB)`,
+    );
   }
 
   // Validate magic bytes
@@ -88,7 +103,7 @@ export async function storeVideo(
     filename,
     createdAt: Date.now(),
     sessionId,
-    userId
+    userId,
   };
 
   // Use user-specific key for authenticated users, session-specific for anonymous
@@ -116,12 +131,12 @@ export async function storeVideo(
 export async function getVideo(
   sessionId: string,
   videoId: string,
-  userId?: string
+  userId?: string,
 ): Promise<StoredVideo | null> {
   // Try user-specific key first if userId is provided
   if (userId) {
     const userKey = sessionKey(['user', userId, 'video', videoId]);
-    const userVideo = await jsonGet(userKey) as StoredVideo | null;
+    const userVideo = (await jsonGet(userKey)) as StoredVideo | null;
     if (userVideo) {
       return userVideo;
     }
@@ -129,14 +144,14 @@ export async function getVideo(
 
   // Fall back to session-specific key
   const key = sessionKey(['video', sessionId, videoId]);
-  return await jsonGet(key) as StoredVideo | null;
+  return (await jsonGet(key)) as StoredVideo | null;
 }
 
 // Delete video from Redis
 export async function deleteVideo(
   sessionId: string,
   videoId: string,
-  userId?: string
+  userId?: string,
 ): Promise<boolean> {
   const redis = getRedis();
   let result = 0;
@@ -178,7 +193,10 @@ export async function getUserVideos(userId: string): Promise<string[]> {
   return await redis.smembers(userVideosKey);
 }
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+export default async function handler(
+  req: NextApiRequest,
+  res: NextApiResponse,
+) {
   const session = await requireAuthenticatedUser(req, res);
   if (!session) return;
 
@@ -198,17 +216,24 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         return res.status(400).json({ error: 'No filename provided' });
       }
 
-      const videoId = await storeVideo(sessionId, userId, base64Data, filename, mimeType);
+      const videoId = await storeVideo(
+        sessionId,
+        userId,
+        base64Data,
+        filename,
+        mimeType,
+      );
 
       return res.status(200).json({ videoId, sessionId, userId });
     } catch (error) {
       console.error('Error storing video:', error);
-      const message = error instanceof Error ? error.message : 'Failed to store video';
+      const message =
+        error instanceof Error ? error.message : 'Failed to store video';
       const status = message.includes(VIDEO_SIZE_ERROR)
         ? 413
         : message.includes(VIDEO_TYPE_ERROR)
-          ? 415
-          : 500;
+        ? 415
+        : 500;
       return res.status(status).json({ error: message });
     }
   } else if (req.method === 'GET') {
@@ -219,9 +244,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(400).json({ error: 'Invalid video ID' });
     }
 
-    const targetSessionId = (typeof querySessionId === 'string' && querySessionId)
-      ? querySessionId
-      : sessionId;
+    const targetSessionId =
+      typeof querySessionId === 'string' && querySessionId
+        ? querySessionId
+        : sessionId;
 
     try {
       const video = await getVideo(targetSessionId, videoId, userId);
@@ -241,7 +267,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       res.setHeader('X-Content-Type-Options', 'nosniff');
 
       if (video.filename) {
-        res.setHeader('Content-Disposition', `inline; filename="${video.filename}"`);
+        res.setHeader(
+          'Content-Disposition',
+          `inline; filename="${video.filename}"`,
+        );
       }
 
       const buffer = Buffer.from(video.data, 'base64');

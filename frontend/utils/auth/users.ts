@@ -1,5 +1,11 @@
+import {
+  getRedis,
+  sessionKey,
+  jsonGet,
+  jsonSet,
+  jsonMGet,
+} from '@/server/session/redis';
 import bcrypt from 'bcryptjs';
-import { getRedis, sessionKey, jsonGet, jsonSet, jsonMGet } from '@/server/session/redis';
 import fs from 'fs';
 import path from 'path';
 
@@ -34,18 +40,22 @@ function loadAuthConfig(): AuthConfig {
       id: String(i),
       username: process.env[`AUTH_USER_${i}_USERNAME`] || '',
       password: process.env[`AUTH_USER_${i}_PASSWORD`] || '',
-      name: process.env[`AUTH_USER_${i}_NAME`] || `User ${i}`
+      name: process.env[`AUTH_USER_${i}_NAME`] || `User ${i}`,
     });
     i++;
   }
 
   // Also support a single user via simple env vars
-  if (envUsers.length === 0 && process.env.AUTH_USERNAME && process.env.AUTH_PASSWORD) {
+  if (
+    envUsers.length === 0 &&
+    process.env.AUTH_USERNAME &&
+    process.env.AUTH_PASSWORD
+  ) {
     envUsers.push({
       id: '1',
       username: process.env.AUTH_USERNAME,
       password: process.env.AUTH_PASSWORD,
-      name: process.env.AUTH_NAME || 'Admin User'
+      name: process.env.AUTH_NAME || 'Admin User',
     });
   }
 
@@ -57,24 +67,37 @@ function loadAuthConfig(): AuthConfig {
 
   // Otherwise, try to load from file (DEPRECATED: Use environment variables instead)
   try {
-    const configPath = path.join(process.cwd(), 'frontend', 'auth-passwords.json');
+    const configPath = path.join(
+      process.cwd(),
+      'frontend',
+      'auth-passwords.json',
+    );
     const configData = fs.readFileSync(configPath, 'utf-8');
-    console.warn('WARNING: Loading authentication from auth-passwords.json is deprecated.');
-    console.warn('WARNING: This file contains plaintext passwords and should not be committed to source control.');
-    console.warn('WARNING: Please migrate to environment variables (AUTH_USERNAME, AUTH_PASSWORD, etc.)');
+    console.warn(
+      'WARNING: Loading authentication from auth-passwords.json is deprecated.',
+    );
+    console.warn(
+      'WARNING: This file contains plaintext passwords and should not be committed to source control.',
+    );
+    console.warn(
+      'WARNING: Please migrate to environment variables (AUTH_USERNAME, AUTH_PASSWORD, etc.)',
+    );
     console.log('Loaded authentication configuration from auth-passwords.json');
     return JSON.parse(configData) as AuthConfig;
   } catch (error) {
     console.error('No authentication configuration found.');
-    console.error('Please configure authentication using environment variables:');
+    console.error(
+      'Please configure authentication using environment variables:',
+    );
     console.error('  - Single user: AUTH_USERNAME, AUTH_PASSWORD, AUTH_NAME');
-    console.error('  - Multiple users: AUTH_USER_1_USERNAME, AUTH_USER_1_PASSWORD, etc.');
+    console.error(
+      '  - Multiple users: AUTH_USER_1_USERNAME, AUTH_USER_1_PASSWORD, etc.',
+    );
     console.error('See env.example for configuration examples.');
     // Return empty configuration if no auth is configured
     return { users: [] };
   }
 }
-
 
 // Initialize users in Redis if they don't exist
 export async function initializeUsers() {
@@ -82,7 +105,7 @@ export async function initializeUsers() {
 
   for (const configUser of config.users) {
     const userKey = sessionKey(['user', configUser.username]);
-    const existing = await jsonGet(userKey) as User | null;
+    const existing = (await jsonGet(userKey)) as User | null;
 
     if (!existing) {
       const passwordHash = await bcrypt.hash(configUser.password, 10);
@@ -126,13 +149,18 @@ export async function initializeUsers() {
 }
 
 // Get user by username
-export async function getUserByUsername(username: string): Promise<User | null> {
+export async function getUserByUsername(
+  username: string,
+): Promise<User | null> {
   const userKey = sessionKey(['user', username]);
-  return await jsonGet(userKey) as User | null;
+  return (await jsonGet(userKey)) as User | null;
 }
 
 // Verify user credentials
-export async function verifyCredentials(username: string, password: string): Promise<Omit<User, 'passwordHash'> | null> {
+export async function verifyCredentials(
+  username: string,
+  password: string,
+): Promise<Omit<User, 'passwordHash'> | null> {
   const user = await getUserByUsername(username);
   if (!user) return null;
 
@@ -145,7 +173,11 @@ export async function verifyCredentials(username: string, password: string): Pro
 }
 
 // Create a new user (admin function)
-export async function createUser(username: string, password: string, name: string): Promise<User> {
+export async function createUser(
+  username: string,
+  password: string,
+  name: string,
+): Promise<User> {
   const redis = getRedis();
   const userKey = sessionKey(['user', username]);
 
@@ -169,7 +201,10 @@ export async function createUser(username: string, password: string, name: strin
 }
 
 // Update user password
-export async function updateUserPassword(username: string, newPassword: string): Promise<boolean> {
+export async function updateUserPassword(
+  username: string,
+  newPassword: string,
+): Promise<boolean> {
   const user = await getUserByUsername(username);
   if (!user) return false;
 
@@ -190,7 +225,13 @@ export async function listUsers(): Promise<Omit<User, 'passwordHash'>[]> {
   const keys: string[] = [];
   let cursor = '0';
   do {
-    const [nextCursor, batch] = await redis.scan(cursor, 'MATCH', pattern, 'COUNT', 100);
+    const [nextCursor, batch] = await redis.scan(
+      cursor,
+      'MATCH',
+      pattern,
+      'COUNT',
+      100,
+    );
     cursor = nextCursor;
     keys.push(...batch);
   } while (cursor !== '0');

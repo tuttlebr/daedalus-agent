@@ -63,7 +63,11 @@ export function groupByDay(items: AutonomyFeedItem[]): DayBucket[] {
   const buckets: DayBucket[] = [];
   for (const [dayStart, bucket] of byDay.entries()) {
     bucket.sort((a, b) => b.createdAt - a.createdAt);
-    buckets.push({ dayStart, label: dayLabel(dayStart, todayStart), items: bucket });
+    buckets.push({
+      dayStart,
+      label: dayLabel(dayStart, todayStart),
+      items: bucket,
+    });
   }
   buckets.sort((a, b) => b.dayStart - a.dayStart);
   return buckets;
@@ -92,7 +96,10 @@ export function timeOfDay(ts: number): string {
   }).format(new Date(ts));
 }
 
-export function relativeTime(ts?: number | null, now: number = Date.now()): string {
+export function relativeTime(
+  ts?: number | null,
+  now: number = Date.now(),
+): string {
   if (!ts) return 'never';
   const delta = Math.max(0, now - ts);
   if (delta < 45_000) return 'just now';
@@ -100,12 +107,16 @@ export function relativeTime(ts?: number | null, now: number = Date.now()): stri
   if (delta < 86_400_000) return `${Math.round(delta / 3_600_000)}h ago`;
   const days = Math.round(delta / 86_400_000);
   if (days < 30) return `${days}d ago`;
-  return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' }).format(
-    new Date(ts),
-  );
+  return new Intl.DateTimeFormat(undefined, {
+    month: 'short',
+    day: 'numeric',
+  }).format(new Date(ts));
 }
 
-export function nextRunCountdown(config: AutonomyConfig | null, now: number = Date.now()): string | null {
+export function nextRunCountdown(
+  config: AutonomyConfig | null,
+  now: number = Date.now(),
+): string | null {
   if (!config || !config.enabled) return null;
   const intervalMs = Math.max(1, config.intervalSeconds || 0) * 1000;
   const last = config.lastScheduledRunAt || 0;

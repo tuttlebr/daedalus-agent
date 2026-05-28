@@ -36,26 +36,10 @@
     ],
     "scene": "A digital login interface for a desktop application.",
     "setting_type": "studio",
-    "detected_text": [
-      "Daedalus",
-      "Username",
-      "Password",
-      "Sign in"
-    ],
-    "dominant_colors": [
-      "black",
-      "lime green",
-      "white",
-      "gray"
-    ],
+    "detected_text": ["Daedalus", "Username", "Password", "Sign in"],
+    "dominant_colors": ["black", "lime green", "white", "gray"],
     "people": [],
-    "objects": [
-      "login form",
-      "statue",
-      "input fields",
-      "button",
-      "header bar"
-    ],
+    "objects": ["login form", "statue", "input fields", "button", "header bar"],
     "quality": {
       "sharpness": "sharp",
       "exposure": "balanced",

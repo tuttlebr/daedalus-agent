@@ -39,12 +39,7 @@
     "scene": "A close-up studio shot of a classical sculpture.",
     "setting_type": "studio",
     "detected_text": [],
-    "dominant_colors": [
-      "black",
-      "white",
-      "gray",
-      "silver"
-    ],
+    "dominant_colors": ["black", "white", "gray", "silver"],
     "people": [
       {
         "count_estimate": 1,
@@ -52,13 +47,7 @@
         "activity": "carving wood with a hammer"
       }
     ],
-    "objects": [
-      "hammer",
-      "wood",
-      "toga",
-      "sculpture",
-      "statue"
-    ],
+    "objects": ["hammer", "wood", "toga", "sculpture", "statue"],
     "quality": {
       "sharpness": "sharp",
       "exposure": "balanced",

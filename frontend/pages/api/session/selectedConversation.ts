@@ -1,9 +1,14 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { sessionKey, jsonGet, jsonSetWithExpiry } from '@/server/session/redis';
-import { getOrSetSessionId, requireAuthenticatedUser } from '@/server/session/_utils';
-import { stripBase64FromObject } from '@/server/session/sanitize';
-import { publishSyncEvent } from '@/utils/sync/publish';
+
 import { sanitizeConversationAssistantReplays } from '@/utils/app/conversationReplay';
+import { publishSyncEvent } from '@/utils/sync/publish';
+
+import {
+  getOrSetSessionId,
+  requireAuthenticatedUser,
+} from '@/server/session/_utils';
+import { sessionKey, jsonGet, jsonSetWithExpiry } from '@/server/session/redis';
+import { stripBase64FromObject } from '@/server/session/sanitize';
 
 export const config = {
   api: {
@@ -13,7 +18,10 @@ export const config = {
   },
 };
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+export default async function handler(
+  req: NextApiRequest,
+  res: NextApiResponse,
+) {
   const session = await requireAuthenticatedUser(req, res);
   if (!session) return;
 
@@ -28,13 +36,20 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       if (!data) return res.status(200).json(null);
       const sanitized = sanitizeConversationAssistantReplays(data);
       if (sanitized !== data) {
-        await jsonSetWithExpiry(key, sanitized, 60 * 60 * 24 * 7).catch((error) => {
-          console.error('Failed to persist sanitized selectedConversation', error);
-        });
+        await jsonSetWithExpiry(key, sanitized, 60 * 60 * 24 * 7).catch(
+          (error) => {
+            console.error(
+              'Failed to persist sanitized selectedConversation',
+              error,
+            );
+          },
+        );
       }
       return res.status(200).json(sanitized);
     } catch (e) {
-      return res.status(500).json({ error: 'Failed to load selectedConversation' });
+      return res
+        .status(500)
+        .json({ error: 'Failed to load selectedConversation' });
     }
   }
 
@@ -64,7 +79,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     } catch (err) {
       console.error('Failed to save selectedConversation to Redis', err);
       // Return error status so frontend knows the save failed
-      return res.status(500).json({ error: 'Failed to save conversation to Redis' });
+      return res
+        .status(500)
+        .json({ error: 'Failed to save conversation to Redis' });
     }
   }
 

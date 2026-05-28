@@ -28,12 +28,16 @@ describe('normalizeLatexDelimiters', () => {
 
   it('should convert align environment to aligned', () => {
     const input = '\\begin{align}a &= b\\end{align}';
-    expect(normalizeLatexDelimiters(input)).toBe('$$\\begin{aligned}a &= b\\end{aligned}$$');
+    expect(normalizeLatexDelimiters(input)).toBe(
+      '$$\\begin{aligned}a &= b\\end{aligned}$$',
+    );
   });
 
   it('should convert align* environment to aligned', () => {
     const input = '\\begin{align*}a &= b\\end{align*}';
-    expect(normalizeLatexDelimiters(input)).toBe('$$\\begin{aligned}a &= b\\end{aligned}$$');
+    expect(normalizeLatexDelimiters(input)).toBe(
+      '$$\\begin{aligned}a &= b\\end{aligned}$$',
+    );
   });
 
   it('should pass through already-correct $...$ delimiters', () => {

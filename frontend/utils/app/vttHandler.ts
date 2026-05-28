@@ -42,8 +42,8 @@ export async function uploadVTT(
         response.status === 413
           ? 'File exceeds the size limit.'
           : response.status === 415
-            ? 'Unsupported transcript format.'
-            : detail || `Failed to upload VTT (HTTP ${response.status})`;
+          ? 'Unsupported transcript format.'
+          : detail || `Failed to upload VTT (HTTP ${response.status})`;
       throw new Error(message);
     }
 
@@ -56,7 +56,10 @@ export async function uploadVTT(
 }
 
 // Upload VTT file from File object
-export async function uploadVTTFile(file: File, signal?: AbortSignal): Promise<VTTReference> {
+export async function uploadVTTFile(
+  file: File,
+  signal?: AbortSignal,
+): Promise<VTTReference> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
 
@@ -76,7 +79,12 @@ export async function uploadVTTFile(file: File, signal?: AbortSignal): Promise<V
     reader.onload = async () => {
       try {
         const content = reader.result as string;
-        const vttRef = await uploadVTT(content, file.name, file.type || 'text/vtt', signal);
+        const vttRef = await uploadVTT(
+          content,
+          file.name,
+          file.type || 'text/vtt',
+          signal,
+        );
         resolve(vttRef);
       } catch (error) {
         reject(error);
@@ -140,7 +148,10 @@ export function isVTTFile(file: File): boolean {
 }
 
 // Convert VTT reference to format expected by the backend tool
-export function toVttRef(vttRef: VTTReference): { vttId: string; sessionId: string } {
+export function toVttRef(vttRef: VTTReference): {
+  vttId: string;
+  sessionId: string;
+} {
   return {
     vttId: vttRef.vttId,
     sessionId: vttRef.sessionId,

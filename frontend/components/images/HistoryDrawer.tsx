@@ -1,24 +1,23 @@
 'use client';
 
+import { IconCheck, IconHistory, IconTrash, IconX } from '@tabler/icons-react';
 import React, { useCallback, useEffect, useState } from 'react';
-import classNames from 'classnames';
-import {
-  IconCheck,
-  IconHistory,
-  IconTrash,
-  IconX,
-} from '@tabler/icons-react';
-import { IconButton } from '@/components/primitives';
-import { OptimizedImage } from '@/components/chat/OptimizedImage';
-import { useImagePanelStore } from '@/state/imagePanelStore';
-import { loadImageHistory } from './ImagePanel';
+
 import { useInvalidateImageHistory } from '@/utils/app/queries';
 
+import { OptimizedImage } from '@/components/chat/OptimizedImage';
+import { IconButton } from '@/components/primitives';
+
+import { loadImageHistory } from './ImagePanel';
+
+import { useImagePanelStore } from '@/state/imagePanelStore';
+import classNames from 'classnames';
+
 async function deleteImageHistoryEntry(id: string): Promise<void> {
-  const res = await fetch(
-    `/api/images/history?id=${encodeURIComponent(id)}`,
-    { method: 'DELETE', credentials: 'include' },
-  );
+  const res = await fetch(`/api/images/history?id=${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    credentials: 'include',
+  });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
 }
 
@@ -118,7 +117,12 @@ export function HistoryDrawer() {
         });
       }
     },
-    [invalidateImageHistory, removeFromHistory, pendingDeleteIds, reconcileFromServer],
+    [
+      invalidateImageHistory,
+      removeFromHistory,
+      pendingDeleteIds,
+      reconcileFromServer,
+    ],
   );
 
   const handleClearAll = useCallback(async () => {
@@ -143,7 +147,9 @@ export function HistoryDrawer() {
       <div
         className={classNames(
           'absolute inset-0 bg-black/50 transition-opacity duration-200',
-          open ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none',
+          open
+            ? 'opacity-100 pointer-events-auto'
+            : 'opacity-0 pointer-events-none',
         )}
         onClick={() => setHistoryOpen(false)}
         aria-hidden
@@ -165,7 +171,8 @@ export function HistoryDrawer() {
           <div>
             <div className="text-sm font-medium text-neutral-100">History</div>
             <div className="text-[10px] uppercase tracking-wider text-neutral-500 mt-0.5">
-              {history.length} entr{history.length === 1 ? 'y' : 'ies'} this session
+              {history.length} entr{history.length === 1 ? 'y' : 'ies'} this
+              session
             </div>
           </div>
           <IconButton
@@ -247,14 +254,14 @@ export function HistoryDrawer() {
                       }}
                       disabled={isDeletingThis}
                       className={classNames(
-                        'absolute top-1.5 right-1.5 p-1 rounded-md',
+                        'absolute top-1 right-1 grid h-9 w-9 place-items-center rounded-md touch-manipulation',
                         'text-neutral-500 hover:text-nvidia-red hover:bg-nvidia-red/10',
-                        'opacity-0 group-hover:opacity-100 focus-visible:opacity-100',
+                        'opacity-100 md:opacity-0 md:group-hover:opacity-100 md:focus-visible:opacity-100',
                         'transition-all disabled:opacity-50',
                         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nvidia-red/40',
                       )}
                     >
-                      <IconX size={12} />
+                      <IconX size={14} />
                     </button>
                   </div>
                 );

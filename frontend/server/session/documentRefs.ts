@@ -3,6 +3,7 @@ import {
   getDocument,
   type StoredDocument,
 } from '@/pages/api/session/documentStorage';
+
 import { UPLOAD_LIMITS } from '@/constants/uploadLimits';
 
 const SAFE_REF_ID_PATTERN = /^[A-Za-z0-9._-]{1,128}$/;
@@ -31,7 +32,10 @@ function toOptionalString(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value : undefined;
 }
 
-function assertSafeRefId(value: unknown, field: 'documentId' | 'sessionId'): string {
+function assertSafeRefId(
+  value: unknown,
+  field: 'documentId' | 'sessionId',
+): string {
   if (typeof value !== 'string' || !SAFE_REF_ID_PATTERN.test(value)) {
     throw new DocumentRefAccessError(
       400,
@@ -48,11 +52,9 @@ function normalizeDocumentRef(
 ): ValidatedDocumentRef {
   const ref = input as Record<string, unknown>;
   const filename =
-    toOptionalString(ref.filename) ||
-    toOptionalString(storedDocument.filename);
+    toOptionalString(ref.filename) || toOptionalString(storedDocument.filename);
   const mimeType =
-    toOptionalString(ref.mimeType) ||
-    toOptionalString(storedDocument.mimeType);
+    toOptionalString(ref.mimeType) || toOptionalString(storedDocument.mimeType);
 
   return {
     documentId: storedDocument.id,
@@ -107,7 +109,9 @@ export async function validateDocumentRefsForUser(
       );
     }
 
-    if (!canAccessStoredDocument(storedDocument, currentSessionId, currentUserId)) {
+    if (
+      !canAccessStoredDocument(storedDocument, currentSessionId, currentUserId)
+    ) {
       throw new DocumentRefAccessError(
         403,
         'You do not have access to one of the document attachments.',

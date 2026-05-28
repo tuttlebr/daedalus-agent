@@ -1,10 +1,19 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { getRedis, sessionKey, jsonGet, jsonSetWithExpiry, jsonDel } from '@/server/session/redis';
-import { touchImage } from '../session/imageStorage';
-import { getSession } from '@/utils/auth/session';
-import { extractImageReferences } from '@/utils/app/imageHandler';
-import { clampConversations } from '@/server/session/sanitize';
+
 import { sanitizeConversationAssistantReplays } from '@/utils/app/conversationReplay';
+import { extractImageReferences } from '@/utils/app/imageHandler';
+import { getSession } from '@/utils/auth/session';
+
+import { touchImage } from '../session/imageStorage';
+
+import {
+  getRedis,
+  sessionKey,
+  jsonGet,
+  jsonSetWithExpiry,
+  jsonDel,
+} from '@/server/session/redis';
+import { clampConversations } from '@/server/session/sanitize';
 
 export const config = {
   api: {
@@ -18,10 +27,13 @@ export const config = {
  * Verify that a user owns a conversation by checking if the conversation ID
  * exists in the user's conversations set in Redis.
  */
-async function verifyConversationOwnership(username: string, conversationId: string): Promise<boolean> {
+async function verifyConversationOwnership(
+  username: string,
+  conversationId: string,
+): Promise<boolean> {
   const redis = getRedis();
   const userConversationsKey = sessionKey(['user', username, 'conversations']);
-  return await redis.sismember(userConversationsKey, conversationId) === 1;
+  return (await redis.sismember(userConversationsKey, conversationId)) === 1;
 }
 
 /**
@@ -30,7 +42,10 @@ async function verifyConversationOwnership(username: string, conversationId: str
  * PUT: Save conversation state.
  * DELETE: Delete a conversation.
  */
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+export default async function handler(
+  req: NextApiRequest,
+  res: NextApiResponse,
+) {
   const session = await getSession(req, res);
   if (!session) {
     return res.status(401).json({ error: 'Not authenticated' });
@@ -43,7 +58,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   const redis = getRedis();
   const conversationKey = sessionKey(['conversation', id]);
-  const userConversationsKey = sessionKey(['user', session.username, 'conversations']);
+  const userConversationsKey = sessionKey([
+    'user',
+    session.username,
+    'conversations',
+  ]);
 
   if (req.method === 'PUT') {
     const updatedData = req.body;
@@ -54,9 +73,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
       // If conversation exists, verify ownership before allowing updates
       if (existingData) {
-        const ownsConversation = await verifyConversationOwnership(session.username, id);
+        const ownsConversation = await verifyConversationOwnership(
+          session.username,
+          id,
+        );
         if (!ownsConversation) {
-          return res.status(403).json({ error: 'Forbidden: You do not have access to this conversation' });
+          return res.status(403).json({
+            error: 'Forbidden: You do not have access to this conversation',
+          });
         }
 
         // Conflict detection: reject if client data is stale
@@ -87,9 +111,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         if (dataToSave.messages && Array.isArray(dataToSave.messages)) {
           const imageIds = extractImageReferences(dataToSave.messages);
           if (imageIds.length > 0) {
-            console.log(`Touching ${imageIds.length} images for conversation ${id}`);
+            console.log(
+              `Touching ${imageIds.length} images for conversation ${id}`,
+            );
             await Promise.all(
-              imageIds.map(imageId => touchImage(imageId, session.username))
+              imageIds.map((imageId) => touchImage(imageId, session.username)),
             );
           }
         }
@@ -103,11 +129,17 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
       // Also update the user's conversationHistory list for cross-device synchronization
       try {
-        const conversationHistoryKey = sessionKey(['user', session.username, 'conversationHistory']);
-        const currentHistory = await jsonGet(conversationHistoryKey) || [];
+        const conversationHistoryKey = sessionKey([
+          'user',
+          session.username,
+          'conversationHistory',
+        ]);
+        const currentHistory = (await jsonGet(conversationHistoryKey)) || [];
 
         // Ensure it's an array
-        const historyArray = Array.isArray(currentHistory) ? currentHistory : [];
+        const historyArray = Array.isArray(currentHistory)
+          ? currentHistory
+          : [];
 
         // Remove existing conversation if present (to update it)
         const filteredHistory = historyArray.filter((c: any) => c.id !== id);
@@ -119,7 +151,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         const cleanedHistory = clampConversations(updatedHistory);
 
         // Save back to Redis
-        await jsonSetWithExpiry(conversationHistoryKey, cleanedHistory, 60 * 60 * 24 * 7);
+        await jsonSetWithExpiry(
+          conversationHistoryKey,
+          cleanedHistory,
+          60 * 60 * 24 * 7,
+        );
       } catch (historyError) {
         // Log error but don't fail the request - conversationHistory sync is best-effort
         console.error('Failed to update conversationHistory:', historyError);
@@ -133,9 +169,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   } else if (req.method === 'DELETE') {
     try {
       // Verify ownership before allowing deletion
-      const ownsConversation = await verifyConversationOwnership(session.username, id);
+      const ownsConversation = await verifyConversationOwnership(
+        session.username,
+        id,
+      );
       if (!ownsConversation) {
-        return res.status(403).json({ error: 'Forbidden: You do not have access to this conversation' });
+        return res.status(403).json({
+          error: 'Forbidden: You do not have access to this conversation',
+        });
       }
 
       // Delete the conversation key
@@ -146,20 +187,33 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
       // Also remove from conversationHistory for cross-device synchronization
       try {
-        const conversationHistoryKey = sessionKey(['user', session.username, 'conversationHistory']);
-        const currentHistory = await jsonGet(conversationHistoryKey) || [];
+        const conversationHistoryKey = sessionKey([
+          'user',
+          session.username,
+          'conversationHistory',
+        ]);
+        const currentHistory = (await jsonGet(conversationHistoryKey)) || [];
 
         // Ensure it's an array
-        const historyArray = Array.isArray(currentHistory) ? currentHistory : [];
+        const historyArray = Array.isArray(currentHistory)
+          ? currentHistory
+          : [];
 
         // Remove the deleted conversation from the list
         const filteredHistory = historyArray.filter((c: any) => c.id !== id);
 
         // Save back to Redis
-        await jsonSetWithExpiry(conversationHistoryKey, filteredHistory, 60 * 60 * 24 * 7);
+        await jsonSetWithExpiry(
+          conversationHistoryKey,
+          filteredHistory,
+          60 * 60 * 24 * 7,
+        );
       } catch (historyError) {
         // Log error but don't fail the request - conversationHistory sync is best-effort
-        console.error('Failed to update conversationHistory on delete:', historyError);
+        console.error(
+          'Failed to update conversationHistory on delete:',
+          historyError,
+        );
       }
 
       return res.status(200).json({ success: true });
@@ -170,16 +224,22 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   } else if (req.method === 'GET') {
     try {
       // Verify ownership before allowing access
-      const ownsConversation = await verifyConversationOwnership(session.username, id);
+      const ownsConversation = await verifyConversationOwnership(
+        session.username,
+        id,
+      );
       if (!ownsConversation) {
-        return res.status(403).json({ error: 'Forbidden: You do not have access to this conversation' });
+        return res.status(403).json({
+          error: 'Forbidden: You do not have access to this conversation',
+        });
       }
 
       // First check for saved conversation data
       const conversationData = await jsonGet(conversationKey);
 
       if (conversationData) {
-        const sanitized = sanitizeConversationAssistantReplays(conversationData);
+        const sanitized =
+          sanitizeConversationAssistantReplays(conversationData);
         if (sanitized !== conversationData) {
           await jsonSetWithExpiry(conversationKey, sanitized, 60 * 60 * 24 * 7);
         }

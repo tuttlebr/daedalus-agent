@@ -1,8 +1,21 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { getRedis, sessionKey, jsonGet, jsonSetWithExpiry } from '@/server/session/redis';
-import { getOrSetSessionId, requireAuthenticatedUser } from '@/server/session/_utils';
-import { stripBase64FromObject, clampConversations } from '@/server/session/sanitize';
+
 import { sanitizeConversationsAssistantReplays } from '@/utils/app/conversationReplay';
+
+import {
+  getOrSetSessionId,
+  requireAuthenticatedUser,
+} from '@/server/session/_utils';
+import {
+  getRedis,
+  sessionKey,
+  jsonGet,
+  jsonSetWithExpiry,
+} from '@/server/session/redis';
+import {
+  stripBase64FromObject,
+  clampConversations,
+} from '@/server/session/sanitize';
 
 export const config = {
   api: {
@@ -12,7 +25,10 @@ export const config = {
   },
 };
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+export default async function handler(
+  req: NextApiRequest,
+  res: NextApiResponse,
+) {
   const session = await requireAuthenticatedUser(req, res);
   if (!session) return;
 
@@ -29,13 +45,20 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const conversations = Array.isArray(data) ? data : [];
       const sanitized = sanitizeConversationsAssistantReplays(conversations);
       if (sanitized !== conversations) {
-        await jsonSetWithExpiry(key, sanitized, 60 * 60 * 24 * 7).catch((error) => {
-          console.error('Failed to persist sanitized conversationHistory', error);
-        });
+        await jsonSetWithExpiry(key, sanitized, 60 * 60 * 24 * 7).catch(
+          (error) => {
+            console.error(
+              'Failed to persist sanitized conversationHistory',
+              error,
+            );
+          },
+        );
       }
       return res.status(200).json(sanitized);
     } catch (e) {
-      return res.status(500).json({ error: 'Failed to load conversationHistory' });
+      return res
+        .status(500)
+        .json({ error: 'Failed to load conversationHistory' });
     }
   }
 
@@ -98,13 +121,19 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       await redis.del(key);
 
       // Also clear the selectedConversation for this user
-      const selectedConversationKey = sessionKey(['user', userId, 'selectedConversation']);
+      const selectedConversationKey = sessionKey([
+        'user',
+        userId,
+        'selectedConversation',
+      ]);
       await redis.del(selectedConversationKey);
 
       return res.status(200).json({ success: true });
     } catch (e) {
       console.error('Error deleting conversationHistory from Redis', e);
-      return res.status(500).json({ error: 'Failed to delete conversation history' });
+      return res
+        .status(500)
+        .json({ error: 'Failed to delete conversation history' });
     }
   }
 

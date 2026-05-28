@@ -1,3 +1,5 @@
+import handler from '@/pages/api/session/conversationHistory';
+
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
@@ -20,8 +22,6 @@ vi.mock('@/server/session/_utils', () => ({
   getOrSetSessionId: mocks.getOrSetSessionId,
 }));
 
-import handler from '@/pages/api/session/conversationHistory';
-
 function createMockReqRes(method: string, body: any = {}) {
   const req = { method, body } as any;
   const res = {
@@ -43,31 +43,35 @@ describe('session/conversationHistory replay sanitization', () => {
   it('sanitizes replayed assistant prefixes on GET and writes back cleaned data', async () => {
     const prior = 'Daily summary for May 13, 2026.';
     const next = 'The namespace is healthy.';
-    const conversations = [{
-      id: 'conv-1',
-      name: 'Test',
-      folderId: null,
-      messages: [
-        { role: 'user', content: 'daily summary' },
-        { role: 'assistant', content: prior },
-        { role: 'user', content: 'namespace?' },
-        { role: 'assistant', content: `${prior}\n\n${next}` },
-      ],
-    }];
+    const conversations = [
+      {
+        id: 'conv-1',
+        name: 'Test',
+        folderId: null,
+        messages: [
+          { role: 'user', content: 'daily summary' },
+          { role: 'assistant', content: prior },
+          { role: 'user', content: 'namespace?' },
+          { role: 'assistant', content: `${prior}\n\n${next}` },
+        ],
+      },
+    ];
     mocks.jsonGet.mockResolvedValue(conversations);
 
     const { req, res } = createMockReqRes('GET');
     await handler(req, res);
 
-    const sanitized = [{
-      ...conversations[0],
-      messages: [
-        conversations[0].messages[0],
-        conversations[0].messages[1],
-        conversations[0].messages[2],
-        { role: 'assistant', content: next },
-      ],
-    }];
+    const sanitized = [
+      {
+        ...conversations[0],
+        messages: [
+          conversations[0].messages[0],
+          conversations[0].messages[1],
+          conversations[0].messages[2],
+          { role: 'assistant', content: next },
+        ],
+      },
+    ];
     expect(res.status).toHaveBeenCalledWith(200);
     expect(res.json).toHaveBeenCalledWith(sanitized);
     expect(mocks.jsonSetWithExpiry).toHaveBeenCalledWith(

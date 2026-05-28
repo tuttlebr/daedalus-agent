@@ -9,7 +9,6 @@ import {
 
 import { ExportFormatV1, ExportFormatV2, ExportFormatV4 } from '@/types/export';
 
-
 import { describe, expect, it } from 'vitest';
 
 describe('Export Format Functions', () => {
@@ -224,7 +223,7 @@ describe('cleanData Functions', () => {
             name: 'folder 1',
             type: 'chat',
           },
-        ]
+        ],
       });
     });
   });

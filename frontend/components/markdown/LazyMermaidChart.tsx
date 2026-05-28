@@ -1,5 +1,7 @@
-import dynamic from 'next/dynamic';
 import { FC } from 'react';
+
+import dynamic from 'next/dynamic';
+
 import Loading from './Loading';
 
 interface Props {
@@ -8,11 +10,11 @@ interface Props {
 
 // Lazy load the MermaidChart component
 const MermaidChart = dynamic(
-  () => import('./MermaidChart').then(mod => ({ default: mod.MermaidChart })),
+  () => import('./MermaidChart').then((mod) => ({ default: mod.MermaidChart })),
   {
     loading: () => <Loading message="Loading diagram..." type="chart" />,
     ssr: false, // Mermaid requires DOM access
-  }
+  },
 );
 
 export const LazyMermaidChart: FC<Props> = (props) => {

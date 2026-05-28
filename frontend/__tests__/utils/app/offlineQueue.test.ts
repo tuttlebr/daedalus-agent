@@ -1,3 +1,11 @@
+// We must import the module AFTER the mock is in place
+// so that openDB() sees our mock `indexedDB` global.
+import {
+  enqueueMessage,
+  dequeueAllMessages,
+  getQueueLength,
+} from '@/utils/app/offlineQueue';
+
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 /**
@@ -112,10 +120,6 @@ function createMockIndexedDB() {
 const mockIDB = createMockIndexedDB();
 vi.stubGlobal('indexedDB', mockIDB);
 
-// We must import the module AFTER the mock is in place
-// so that openDB() sees our mock `indexedDB` global.
-import { enqueueMessage, dequeueAllMessages, getQueueLength } from '@/utils/app/offlineQueue';
-
 describe('offlineQueue', () => {
   // Each test suite gets a fresh IDB mock to avoid state leaking between tests.
   beforeEach(() => {
@@ -129,7 +133,9 @@ describe('offlineQueue', () => {
     });
 
     it('accepts an optional conversationId', async () => {
-      await expect(enqueueMessage({ text: 'hello' }, 'conv-123')).resolves.toBeUndefined();
+      await expect(
+        enqueueMessage({ text: 'hello' }, 'conv-123'),
+      ).resolves.toBeUndefined();
     });
   });
 

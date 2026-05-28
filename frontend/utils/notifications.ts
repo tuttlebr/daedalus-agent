@@ -10,23 +10,24 @@ export interface NotificationOptions {
 }
 
 // Request notification permission
-export const requestNotificationPermission = async (): Promise<NotificationPermission> => {
-  if (!('Notification' in window)) {
-    console.warn('Notifications not supported');
-    return 'denied';
-  }
+export const requestNotificationPermission =
+  async (): Promise<NotificationPermission> => {
+    if (!('Notification' in window)) {
+      console.warn('Notifications not supported');
+      return 'denied';
+    }
 
-  if (Notification.permission === 'granted') {
-    return 'granted';
-  }
+    if (Notification.permission === 'granted') {
+      return 'granted';
+    }
 
-  if (Notification.permission !== 'denied') {
-    const permission = await Notification.requestPermission();
-    return permission;
-  }
+    if (Notification.permission !== 'denied') {
+      const permission = await Notification.requestPermission();
+      return permission;
+    }
 
-  return Notification.permission;
-};
+    return Notification.permission;
+  };
 
 // Check if the app is currently visible to the user
 const isAppVisible = (): boolean => {
@@ -37,7 +38,10 @@ const isAppVisible = (): boolean => {
 };
 
 // Show notification (only when app is backgrounded)
-export const showNotification = async (options: NotificationOptions, forceShow = false): Promise<void> => {
+export const showNotification = async (
+  options: NotificationOptions,
+  forceShow = false,
+): Promise<void> => {
   // Don't show notifications if user is actively using the app (unless forced)
   if (!forceShow && isAppVisible()) {
     console.log('Skipping notification - user is actively in the app');
@@ -87,7 +91,9 @@ export const showNotification = async (options: NotificationOptions, forceShow =
 };
 
 // Show streaming completion notification (only if user is away from app)
-export const notifyStreamingComplete = async (conversationTitle?: string): Promise<void> => {
+export const notifyStreamingComplete = async (
+  conversationTitle?: string,
+): Promise<void> => {
   await showNotification({
     title: 'Response Complete',
     body: conversationTitle

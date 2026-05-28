@@ -1,16 +1,22 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Logger } from '@/utils/logger';
-import { shouldRunExpensiveOperation } from '@/utils/app/visibilityAwareTimer';
+
 import { getWebSocketManager } from '@/services/websocket';
+
+import { shouldRunExpensiveOperation } from '@/utils/app/visibilityAwareTimer';
 import { fetchWithTimeout, FetchTimeoutError } from '@/utils/fetchWithTimeout';
+import { Logger } from '@/utils/logger';
 
 const logger = new Logger('AsyncChat');
 
 const isMobile = (): boolean => {
-  if (typeof window === 'undefined' || typeof navigator === 'undefined') return false;
+  if (typeof window === 'undefined' || typeof navigator === 'undefined')
+    return false;
   const userAgent = navigator.userAgent.toLowerCase();
-  return /android|webos|iphone|ipad|ipod|blackberry|iemobile|opera mini/i.test(userAgent)
-    || window.innerWidth <= 768;
+  return (
+    /android|webos|iphone|ipad|ipod|blackberry|iemobile|opera mini/i.test(
+      userAgent,
+    ) || window.innerWidth <= 768
+  );
 };
 
 const WS_FALLBACK_POLL_INTERVAL = 15000;
@@ -45,7 +51,7 @@ interface AsyncJobStatus {
   createdAt: number;
   updatedAt: number;
   conversationId?: string;
-  finalizedAt?: number;  // Timestamp when all backend operations are complete
+  finalizedAt?: number; // Timestamp when all backend operations are complete
   turnId?: string;
   assistantMessageId?: string;
 }
@@ -68,8 +74,24 @@ interface CompletionMeta {
 interface UseAsyncChatOptions {
   pollingInterval?: number;
   onProgress?: (status: AsyncJobStatus) => void;
-  onComplete?: (response: string, intermediateSteps?: any[], finalizedAt?: number, conversationId?: string, meta?: CompletionMeta) => void;
-  onError?: (error: string, context?: { partialResponse?: string; intermediateSteps?: any[]; jobId?: string; conversationId?: string; turnId?: string; assistantMessageId?: string }) => void;
+  onComplete?: (
+    response: string,
+    intermediateSteps?: any[],
+    finalizedAt?: number,
+    conversationId?: string,
+    meta?: CompletionMeta,
+  ) => void;
+  onError?: (
+    error: string,
+    context?: {
+      partialResponse?: string;
+      intermediateSteps?: any[];
+      jobId?: string;
+      conversationId?: string;
+      turnId?: string;
+      assistantMessageId?: string;
+    },
+  ) => void;
   userId?: string; // Add userId for localStorage key scoping
   useWebSocket?: boolean; // Use WebSocket push instead of polling (default: true)
 }
@@ -123,15 +145,22 @@ const clearPersistedJobs = (userId: string, conversationId?: string) => {
       return;
     }
     const existing = getPersistedJobs(userId);
-    const nextJobs = existing.filter((job) => job.conversationId !== conversationId);
+    const nextJobs = existing.filter(
+      (job) => job.conversationId !== conversationId,
+    );
     persistJobs(nextJobs, userId);
-    logger.debug('Cleared persisted jobs for conversation', { userId, conversationId });
+    logger.debug('Cleared persisted jobs for conversation', {
+      userId,
+      conversationId,
+    });
   } catch (error) {
     logger.error('Failed to clear persisted jobs', error);
   }
 };
 
-export const useAsyncChat = (options: UseAsyncChatOptions = {}): UseAsyncChatReturn => {
+export const useAsyncChat = (
+  options: UseAsyncChatOptions = {},
+): UseAsyncChatReturn => {
   const {
     // Adaptive polling: 3s on desktop, 5s on mobile (battery-conscious)
     pollingInterval = isMobile() ? 5000 : 3000,
@@ -142,9 +171,13 @@ export const useAsyncChat = (options: UseAsyncChatOptions = {}): UseAsyncChatRet
     useWebSocket: useWS = true,
   } = options;
 
-  const [jobStatusByConversationId, setJobStatusByConversationId] = useState<Record<string, AsyncJobStatus>>({});
+  const [jobStatusByConversationId, setJobStatusByConversationId] = useState<
+    Record<string, AsyncJobStatus>
+  >({});
   const [isPolling, setIsPolling] = useState(false);
-  const pollingTimersRef = useRef<Record<string, ReturnType<typeof setTimeout> | null>>({});
+  const pollingTimersRef = useRef<
+    Record<string, ReturnType<typeof setTimeout> | null>
+  >({});
   const activeJobsRef = useRef<Record<string, PersistedJob>>({});
   const pollCountByJobRef = useRef<Record<string, number>>({});
   const pollErrorCountRef = useRef<Record<string, number>>({});
@@ -156,362 +189,120 @@ export const useAsyncChat = (options: UseAsyncChatOptions = {}): UseAsyncChatRet
   const completedJobsRef = useRef<Set<string>>(new Set());
   const wsJobUnsubsRef = useRef<Record<string, () => void>>({}); // WebSocket handler cleanup by jobId
   const wsActiveJobsRef = useRef<Set<string>>(new Set()); // Jobs using WebSocket (not polling)
-  const wsFallbackTimersRef = useRef<Record<string, ReturnType<typeof setInterval> | null>>({}); // WS safety-net polling
+  const wsFallbackTimersRef = useRef<
+    Record<string, ReturnType<typeof setInterval> | null>
+  >({}); // WS safety-net polling
   const lastWsEventByJobRef = useRef<Record<string, number>>({}); // Last WS message timestamp per job
 
-  const removeActiveJob = useCallback((jobId: string, conversationId?: string, clearStatus: boolean = true) => {
-    const timer = pollingTimersRef.current[jobId];
-    if (timer) {
-      clearTimeout(timer);
-      delete pollingTimersRef.current[jobId];
-    }
-    const fallbackTimer = wsFallbackTimersRef.current[jobId];
-    if (fallbackTimer) {
-      clearInterval(fallbackTimer);
-      delete wsFallbackTimersRef.current[jobId];
-    }
-    delete activeJobsRef.current[jobId];
-    delete pollCountByJobRef.current[jobId];
-    delete pollErrorCountRef.current[jobId];
-    delete lastStatusHashByJobRef.current[jobId];
-    delete jobStatusByJobIdRef.current[jobId];
-    delete lastWsEventByJobRef.current[jobId];
-    completedJobsRef.current.delete(jobId);
+  const removeActiveJob = useCallback(
+    (jobId: string, conversationId?: string, clearStatus: boolean = true) => {
+      const timer = pollingTimersRef.current[jobId];
+      if (timer) {
+        clearTimeout(timer);
+        delete pollingTimersRef.current[jobId];
+      }
+      const fallbackTimer = wsFallbackTimersRef.current[jobId];
+      if (fallbackTimer) {
+        clearInterval(fallbackTimer);
+        delete wsFallbackTimersRef.current[jobId];
+      }
+      delete activeJobsRef.current[jobId];
+      delete pollCountByJobRef.current[jobId];
+      delete pollErrorCountRef.current[jobId];
+      delete lastStatusHashByJobRef.current[jobId];
+      delete jobStatusByJobIdRef.current[jobId];
+      delete lastWsEventByJobRef.current[jobId];
+      completedJobsRef.current.delete(jobId);
 
-    if (clearStatus && conversationId) {
-      setJobStatusByConversationId((prev) => {
-        if (!prev[conversationId]) {
-          return prev;
-        }
-        const next = { ...prev };
-        delete next[conversationId];
-        return next;
-      });
-    }
+      if (clearStatus && conversationId) {
+        setJobStatusByConversationId((prev) => {
+          if (!prev[conversationId]) {
+            return prev;
+          }
+          const next = { ...prev };
+          delete next[conversationId];
+          return next;
+        });
+      }
 
-    setIsPolling(Object.keys(activeJobsRef.current).length > 0);
-  }, []);
+      setIsPolling(Object.keys(activeJobsRef.current).length > 0);
+    },
+    [],
+  );
 
   // Handle incoming job status from WebSocket push
-  const handleWsJobStatus = useCallback((status: AsyncJobStatus) => {
-    if (!isComponentMountedRef.current) return;
+  const handleWsJobStatus = useCallback(
+    (status: AsyncJobStatus) => {
+      if (!isComponentMountedRef.current) return;
 
-    const jobId = status.jobId;
-    const conversationId = status.conversationId || activeJobsRef.current[jobId]?.conversationId;
+      const jobId = status.jobId;
+      const conversationId =
+        status.conversationId || activeJobsRef.current[jobId]?.conversationId;
 
-    lastWsEventByJobRef.current[jobId] = Date.now();
+      lastWsEventByJobRef.current[jobId] = Date.now();
 
-    // Skip if already completed
-    if (completedJobsRef.current.has(jobId)) return;
+      // Skip if already completed
+      if (completedJobsRef.current.has(jobId)) return;
 
-    // Update state
-    jobStatusByJobIdRef.current[jobId] = status;
-    if (conversationId) {
-      setJobStatusByConversationId((prev) => ({
-        ...prev,
-        [conversationId]: status,
-      }));
-    }
-
-    // Progress callback
-    if (onProgress && status.status !== 'completed' && status.status !== 'error') {
-      onProgress(status);
-    }
-
-    const completionGraceMs = 8000;
-    const updatedAt = status.updatedAt || status.createdAt || Date.now();
-    const shouldFinalizeFallback = status.status === 'completed'
-      && !status.finalizedAt
-      && Boolean(status.fullResponse)
-      && Date.now() - updatedAt > completionGraceMs;
-
-    if ((status.status === 'completed' && status.finalizedAt) || shouldFinalizeFallback) {
-      completedJobsRef.current.add(jobId);
-      if (onComplete && status.fullResponse) {
-        onComplete(status.fullResponse, status.intermediateSteps, status.finalizedAt, conversationId, {
-          turnId: status.turnId,
-          assistantMessageId: status.assistantMessageId,
-          jobId,
-        });
-      }
-      // Clean up
+      // Update state
+      jobStatusByJobIdRef.current[jobId] = status;
       if (conversationId) {
-        clearPersistedJobs(userId, conversationId);
-      }
-      // Unsubscribe from WebSocket job updates
-      const wsManager = getWebSocketManager();
-      wsManager.unsubscribeFromJob(jobId);
-      wsActiveJobsRef.current.delete(jobId);
-      if (wsJobUnsubsRef.current[jobId]) {
-        wsJobUnsubsRef.current[jobId]();
-        delete wsJobUnsubsRef.current[jobId];
-      }
-      removeActiveJob(jobId, conversationId);
-      logger.info('Job completed via WebSocket push');
-    } else if (status.status === 'error') {
-      if (onError) {
-        onError(status.error || 'Unknown error', {
-          partialResponse: status.partialResponse,
-          intermediateSteps: status.intermediateSteps,
-          jobId,
-          conversationId,
-          turnId: status.turnId,
-          assistantMessageId: status.assistantMessageId,
-        });
-      }
-      if (conversationId) {
-        clearPersistedJobs(userId, conversationId);
-      }
-      const wsManager = getWebSocketManager();
-      wsManager.unsubscribeFromJob(jobId);
-      wsActiveJobsRef.current.delete(jobId);
-      if (wsJobUnsubsRef.current[jobId]) {
-        wsJobUnsubsRef.current[jobId]();
-        delete wsJobUnsubsRef.current[jobId];
-      }
-      removeActiveJob(jobId, conversationId);
-      logger.info('Job errored via WebSocket push');
-    }
-    // For 'pending' and 'streaming', just let updates flow through
-  }, [onProgress, onComplete, onError, userId, removeActiveJob]);
-
-  // Subscribe a job to WebSocket push updates
-  const subscribeJobToWs = useCallback((jobId: string): boolean => {
-    if (!useWS) return false;
-
-    const wsManager = getWebSocketManager();
-    if (!wsManager.isConnected) {
-      logger.debug('WebSocket not connected, falling back to polling');
-      return false;
-    }
-
-    // Subscribe to job status via WebSocket
-    wsManager.subscribeToJob(jobId);
-    wsActiveJobsRef.current.add(jobId);
-
-    // Register handler for job_status messages
-    const unsub = wsManager.on('job_status', (data: AsyncJobStatus) => {
-      if (data.jobId === jobId) {
-        handleWsJobStatus(data);
-      }
-    });
-    wsJobUnsubsRef.current[jobId] = unsub;
-
-    logger.info(`Job ${jobId} subscribed to WebSocket push`);
-    return true;
-  }, [useWS, handleWsJobStatus]);
-
-  // Start a safety-net HTTP poll alongside WebSocket to catch silent disconnects.
-  // Skips the poll when WS has recently delivered an event for the job.
-  const startWsFallbackPolling = useCallback((jobId: string) => {
-    if (wsFallbackTimersRef.current[jobId]) {
-      clearInterval(wsFallbackTimersRef.current[jobId]!);
-    }
-    lastWsEventByJobRef.current[jobId] = Date.now();
-    const timer = setInterval(async () => {
-      if (!activeJobsRef.current[jobId] || !isComponentMountedRef.current || completedJobsRef.current.has(jobId)) {
-        clearInterval(timer);
-        delete wsFallbackTimersRef.current[jobId];
-        delete lastWsEventByJobRef.current[jobId];
-        return;
-      }
-      const wsManager = getWebSocketManager();
-      const lastEvent = lastWsEventByJobRef.current[jobId] ?? 0;
-      const wsIsHealthy = wsManager.isConnected
-        && wsActiveJobsRef.current.has(jobId)
-        && Date.now() - lastEvent < WS_FALLBACK_POLL_INTERVAL * 2;
-      if (wsIsHealthy) {
-        return;
-      }
-      try {
-        const response = await fetchWithTimeout(
-          `/api/chat/async?jobId=${jobId}`,
-          { credentials: 'include' },
-          STATUS_FETCH_TIMEOUT_MS,
-        );
-        if (response.ok) {
-          const status: AsyncJobStatus = await response.json();
-          handleWsJobStatus(status);
-        } else if (response.status === 404) {
-          const conversationId = activeJobsRef.current[jobId]?.conversationId;
-          clearInterval(timer);
-          delete wsFallbackTimersRef.current[jobId];
-          delete lastWsEventByJobRef.current[jobId];
-          removeActiveJob(jobId, conversationId);
-        }
-      } catch {
-        // Network/timeout error — will retry on next interval
-      }
-    }, WS_FALLBACK_POLL_INTERVAL);
-    wsFallbackTimersRef.current[jobId] = timer;
-  }, [handleWsJobStatus, removeActiveJob]);
-
-  // Calculate adaptive polling interval with exponential backoff
-  // Starts fast, slows down over time to save battery
-  const getAdaptiveInterval = useCallback((jobId: string, status?: AsyncJobStatus | null) => {
-    const baseInterval = pollingInterval;
-    const pollCount = pollCountByJobRef.current[jobId] ?? 0;
-
-    // Exponential backoff: double interval every 10 polls, max 4x base
-    const backoffMultiplier = Math.min(4, Math.pow(1.1, Math.floor(pollCount / 10)));
-
-    // If on mobile and job is in 'pending' state, poll less frequently
-    const mobileSlowdown = isMobile() && status?.status === 'pending' ? 2 : 1;
-    const visibilitySlowdown = !isPageVisibleRef.current ? 4 : 1;
-
-    return Math.floor(baseInterval * backoffMultiplier * mobileSlowdown * visibilitySlowdown);
-  }, [pollingInterval]);
-
-  // Schedule next poll with adaptive timing
-  const scheduleNextPoll = useCallback((jobId: string, pollFn: (jobId: string) => Promise<AsyncJobStatus | null>) => {
-    const existingTimer = pollingTimersRef.current[jobId];
-    if (existingTimer) {
-      clearTimeout(existingTimer);
-    }
-
-    const interval = getAdaptiveInterval(jobId, jobStatusByJobIdRef.current[jobId]);
-    pollingTimersRef.current[jobId] = setTimeout(async () => {
-      // Skip poll if page is hidden (battery saving)
-      if (!isPageVisibleRef.current) {
-        // Reschedule for when visible
-        scheduleNextPoll(jobId, pollFn);
-        return;
+        setJobStatusByConversationId((prev) => ({
+          ...prev,
+          [conversationId]: status,
+        }));
       }
 
-      // Check if we should skip expensive operations (low battery)
-      const shouldPoll = await shouldRunExpensiveOperation();
-      if (!shouldPoll) {
-        // Still reschedule but with longer interval
-        pollCountByJobRef.current[jobId] = (pollCountByJobRef.current[jobId] ?? 0) + 5;
-        scheduleNextPoll(jobId, pollFn);
-        return;
-      }
-
-      if (activeJobsRef.current[jobId] && isComponentMountedRef.current) {
-        pollCountByJobRef.current[jobId] = (pollCountByJobRef.current[jobId] ?? 0) + 1;
-        await pollFn(jobId);
-      }
-    }, interval);
-  }, [getAdaptiveInterval]);
-
-  // Poll for job status
-  const pollJobStatus = useCallback(async (jobId: string) => {
-    try {
-      const response = await fetchWithTimeout(
-        `/api/chat/async?jobId=${jobId}`,
-        { credentials: 'include' },
-        STATUS_FETCH_TIMEOUT_MS,
-      );
-
-      if (!response.ok) {
-        if (response.status === 404) {
-          logger.info('Job not found, stopping polling');
-          const conversationId = activeJobsRef.current[jobId]?.conversationId;
-          removeActiveJob(jobId, conversationId);
-          return null;
-        }
-        throw new Error(`Failed to fetch job status: ${response.statusText}`);
-      }
-
-      const status: AsyncJobStatus = await response.json();
-      const conversationId = status.conversationId || activeJobsRef.current[jobId]?.conversationId;
-
-      // Capture previous status BEFORE updating refs (for backoff reset logic)
-      const previousStatus = jobStatusByJobIdRef.current[jobId];
-
-      const statusHash = [
-        status.status,
-        status.partialResponse?.length || 0,
-        status.fullResponse?.length || 0,
-        status.progress || 0,
-        status.ingestProgress
-          ? [
-              status.ingestProgress.completed,
-              status.ingestProgress.total,
-              status.ingestProgress.currentDoc || '',
-              status.ingestProgress.currentIndex || '',
-              status.ingestProgress.phase || '',
-              status.ingestProgress.message || '',
-              status.ingestProgress.chunks || '',
-              status.ingestProgress.pages || '',
-              status.ingestProgress.failures || '',
-              status.ingestProgress.attempt || '',
-            ].join('/')
-          : '',
-        status.finalizedAt || 0,
-        status.authUrl || '',
-        status.oauthState || '',
-        status.turnId || '',
-        status.assistantMessageId || '',
-      ].join('|');
-      const lastHash = lastStatusHashByJobRef.current[jobId] || '';
-      const isStatusChanged = statusHash !== lastHash;
-      if (isStatusChanged) {
-        jobStatusByJobIdRef.current[jobId] = status;
-        lastStatusHashByJobRef.current[jobId] = statusHash;
-        if (conversationId) {
-          setJobStatusByConversationId((prev) => ({
-            ...prev,
-            [conversationId]: status,
-          }));
-        }
-      }
-
-      // Call progress callback
-      if (onProgress && isStatusChanged && status.status !== 'completed' && status.status !== 'error') {
+      // Progress callback
+      if (
+        onProgress &&
+        status.status !== 'completed' &&
+        status.status !== 'error'
+      ) {
         onProgress(status);
       }
 
-      // Reset backoff when actively receiving data:
-      // 1. Status changes to streaming (active work)
-      // 2. Partial response is growing (receiving chunks)
-      // This prevents progressively slower polling during active streaming
-      const isReceivingData = status.status === 'streaming' ||
-        status.status === 'oauth_required' ||
-        (status.partialResponse &&
-         previousStatus?.partialResponse &&
-         status.partialResponse.length > previousStatus.partialResponse.length);
-
-      if (isReceivingData) {
-        pollCountByJobRef.current[jobId] = 0;
-      }
-      // Reset consecutive poll error counter on any successful poll
-      pollErrorCountRef.current[jobId] = 0;
-
       const completionGraceMs = 8000;
       const updatedAt = status.updatedAt || status.createdAt || Date.now();
-      const shouldFinalizeFallback = status.status === 'completed'
-        && !status.finalizedAt
-        && Boolean(status.fullResponse)
-        && Date.now() - updatedAt > completionGraceMs;
+      const shouldFinalizeFallback =
+        status.status === 'completed' &&
+        !status.finalizedAt &&
+        Boolean(status.fullResponse) &&
+        Date.now() - updatedAt > completionGraceMs;
 
-      // Check if job is complete AND finalized
-      if ((status.status === 'completed' && status.finalizedAt) || shouldFinalizeFallback) {
-        if (completedJobsRef.current.has(jobId)) {
-          return status;
-        }
+      if (
+        (status.status === 'completed' && status.finalizedAt) ||
+        shouldFinalizeFallback
+      ) {
         completedJobsRef.current.add(jobId);
-        // Only consider job truly complete when finalizedAt is set
-        pollCountByJobRef.current[jobId] = 0;
         if (onComplete && status.fullResponse) {
-          onComplete(status.fullResponse, status.intermediateSteps, status.finalizedAt, conversationId, {
-            turnId: status.turnId,
-            assistantMessageId: status.assistantMessageId,
-            jobId,
-          });
+          onComplete(
+            status.fullResponse,
+            status.intermediateSteps,
+            status.finalizedAt,
+            conversationId,
+            {
+              turnId: status.turnId,
+              assistantMessageId: status.assistantMessageId,
+              jobId,
+            },
+          );
         }
-        // Clear polling and persisted job
+        // Clean up
         if (conversationId) {
           clearPersistedJobs(userId, conversationId);
         }
+        // Unsubscribe from WebSocket job updates
+        const wsManager = getWebSocketManager();
+        wsManager.unsubscribeFromJob(jobId);
+        wsActiveJobsRef.current.delete(jobId);
+        if (wsJobUnsubsRef.current[jobId]) {
+          wsJobUnsubsRef.current[jobId]();
+          delete wsJobUnsubsRef.current[jobId];
+        }
         removeActiveJob(jobId, conversationId);
-        logger.info('Job completed and finalized - cleared persisted state');
-      } else if (status.status === 'completed' && !status.finalizedAt) {
-        // Job marked complete but still finalizing - keep polling
-        logger.debug('Job completed but not finalized yet, continuing to poll');
-        scheduleNextPoll(jobId, pollJobStatus);
+        logger.info('Job completed via WebSocket push');
       } else if (status.status === 'error') {
-        pollCountByJobRef.current[jobId] = 0;
         if (onError) {
           onError(status.error || 'Unknown error', {
             partialResponse: status.partialResponse,
@@ -522,204 +313,560 @@ export const useAsyncChat = (options: UseAsyncChatOptions = {}): UseAsyncChatRet
             assistantMessageId: status.assistantMessageId,
           });
         }
-        // Clear polling and persisted job
         if (conversationId) {
           clearPersistedJobs(userId, conversationId);
         }
+        const wsManager = getWebSocketManager();
+        wsManager.unsubscribeFromJob(jobId);
+        wsActiveJobsRef.current.delete(jobId);
+        if (wsJobUnsubsRef.current[jobId]) {
+          wsJobUnsubsRef.current[jobId]();
+          delete wsJobUnsubsRef.current[jobId];
+        }
         removeActiveJob(jobId, conversationId);
-        logger.info('Job errored - cleared persisted state');
-      } else {
-        // Job still in progress, schedule next poll
-        scheduleNextPoll(jobId, pollJobStatus);
+        logger.info('Job errored via WebSocket push');
+      }
+      // For 'pending' and 'streaming', just let updates flow through
+    },
+    [onProgress, onComplete, onError, userId, removeActiveJob],
+  );
+
+  // Subscribe a job to WebSocket push updates
+  const subscribeJobToWs = useCallback(
+    (jobId: string): boolean => {
+      if (!useWS) return false;
+
+      const wsManager = getWebSocketManager();
+      if (!wsManager.isConnected) {
+        logger.debug('WebSocket not connected, falling back to polling');
+        return false;
       }
 
-      return status;
-    } catch (error: unknown) {
-      logger.error('Error polling job status', error);
-      const conversationId = activeJobsRef.current[jobId]?.conversationId;
+      // Subscribe to job status via WebSocket
+      wsManager.subscribeToJob(jobId);
+      wsActiveJobsRef.current.add(jobId);
 
-      // Track consecutive poll failures - only fire onError after multiple failures
-      if (!pollErrorCountRef.current[jobId]) {
-        pollErrorCountRef.current[jobId] = 0;
-      }
-      pollErrorCountRef.current[jobId]++;
-
-      if (pollErrorCountRef.current[jobId] < 4) {
-        // Transient failure: log and retry with backoff
-        logger.warn(`Poll failure ${pollErrorCountRef.current[jobId]}/4 for job ${jobId}, retrying with backoff`);
-        scheduleNextPoll(jobId, pollJobStatus);
-        return null;
-      }
-
-      // 4+ consecutive failures: give up with whatever partial data we have
-      logger.error(`Poll failure ${pollErrorCountRef.current[jobId]} for job ${jobId}, giving up`);
-      pollErrorCountRef.current[jobId] = 0;
-      pollCountByJobRef.current[jobId] = 0;
-      const lastKnownStatus = jobStatusByConversationId[conversationId || ''];
-      if (onError) {
-        onError(error instanceof Error ? error.message : 'Unknown error', {
-          partialResponse: lastKnownStatus?.partialResponse,
-          intermediateSteps: lastKnownStatus?.intermediateSteps,
-          jobId,
-          conversationId,
-          turnId: lastKnownStatus?.turnId,
-          assistantMessageId: lastKnownStatus?.assistantMessageId,
-        });
-      }
-      removeActiveJob(jobId, conversationId, false);
-      return null;
-    }
-  }, [onProgress, onComplete, onError, userId, scheduleNextPoll, removeActiveJob]);
-
-  const cancelJob = useCallback(async (conversationId?: string) => {
-    const jobsToCancel = conversationId
-      ? Object.values(activeJobsRef.current).filter((job) => job.conversationId === conversationId)
-      : Object.values(activeJobsRef.current);
-
-    if (jobsToCancel.length === 0) {
-      return;
-    }
-
-    try {
-      await Promise.all(jobsToCancel.map(async (job) => {
-        // Delete job on server
-        await fetch(`/api/chat/async?jobId=${job.jobId}`, {
-          method: 'DELETE',
-          credentials: 'include',
-        });
-        // Clean up WebSocket subscription if active
-        if (wsActiveJobsRef.current.has(job.jobId)) {
-          const wsManager = getWebSocketManager();
-          wsManager.unsubscribeFromJob(job.jobId);
-          wsActiveJobsRef.current.delete(job.jobId);
-          if (wsJobUnsubsRef.current[job.jobId]) {
-            wsJobUnsubsRef.current[job.jobId]();
-            delete wsJobUnsubsRef.current[job.jobId];
-          }
+      // Register handler for job_status messages
+      const unsub = wsManager.on('job_status', (data: AsyncJobStatus) => {
+        if (data.jobId === jobId) {
+          handleWsJobStatus(data);
         }
-        clearPersistedJobs(userId, job.conversationId);
-        removeActiveJob(job.jobId, job.conversationId);
-      }));
-    } catch (error) {
-      logger.error('Error canceling job', error);
-    }
-  }, [userId, removeActiveJob]);
+      });
+      wsJobUnsubsRef.current[jobId] = unsub;
 
-  // Start async job
-  const startAsyncJob = useCallback(async (
-    messages: any[],
-    chatCompletionURL: string,
-    additionalProps: any,
-    jobUserId: string,
-    conversationId: string,
-    conversationName: string,
-    turnId?: string,
-    assistantMessageId?: string
-  ): Promise<string> => {
-    try {
-      // Cancel any existing job for this conversation
-      const existingJobs = Object.values(activeJobsRef.current)
-        .filter((job) => job.conversationId === conversationId);
-      if (existingJobs.length > 0) {
-        await cancelJob(conversationId);
+      logger.info(`Job ${jobId} subscribed to WebSocket push`);
+      return true;
+    },
+    [useWS, handleWsJobStatus],
+  );
+
+  // Start a safety-net HTTP poll alongside WebSocket to catch silent disconnects.
+  // Skips the poll when WS has recently delivered an event for the job.
+  const startWsFallbackPolling = useCallback(
+    (jobId: string) => {
+      if (wsFallbackTimersRef.current[jobId]) {
+        clearInterval(wsFallbackTimersRef.current[jobId]!);
       }
-
-      let response: Response;
-      try {
-        response = await fetchWithTimeout(
-          '/api/chat/async',
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            credentials: 'include',
-            body: JSON.stringify({
-              messages,
-              chatCompletionURL,
-              additionalProps,
-              userId: jobUserId,
-              conversationId,
-              conversationName,
-              turnId,
-              assistantMessageId,
-            }),
-          },
-          SUBMIT_JOB_TIMEOUT_MS,
-        );
-      } catch (err) {
-        if (err instanceof FetchTimeoutError) {
-          throw new Error('The server did not respond in time. Please try again.');
+      lastWsEventByJobRef.current[jobId] = Date.now();
+      const timer = setInterval(async () => {
+        if (
+          !activeJobsRef.current[jobId] ||
+          !isComponentMountedRef.current ||
+          completedJobsRef.current.has(jobId)
+        ) {
+          clearInterval(timer);
+          delete wsFallbackTimersRef.current[jobId];
+          delete lastWsEventByJobRef.current[jobId];
+          return;
         }
-        throw err;
-      }
-
-      if (!response.ok) {
-        const body = await response.json().catch(() => ({}));
-        const detail = body?.error || body?.message || body?.reason || response.statusText;
-        throw new Error(detail || `Failed to start async job (HTTP ${response.status})`);
-      }
-
-      const { jobId } = await response.json();
-      const job: PersistedJob = {
-        jobId,
-        conversationId,
-        userId: jobUserId,
-        timestamp: Date.now(),
-        turnId,
-        assistantMessageId,
-      };
-      activeJobsRef.current[jobId] = job;
-
-      // Persist job metadata for resume after backgrounding
-      const persistedJobs = getPersistedJobs(userId);
-      const nextPersistedJobs = [
-        ...persistedJobs.filter((existing) => existing.conversationId !== conversationId),
-        job,
-      ];
-      persistJobs(nextPersistedJobs, userId);
-
-      // Try WebSocket push first, fall back to polling
-      const usingWs = subscribeJobToWs(jobId);
-
-      if (!usingWs) {
-        // Fallback: use HTTP polling
-        setIsPolling(true);
-        pollCountByJobRef.current[jobId] = 0;
-        await pollJobStatus(jobId);
-      } else {
-        // With WebSocket, do one initial poll to get immediate status
-        setIsPolling(true);
+        const wsManager = getWebSocketManager();
+        const lastEvent = lastWsEventByJobRef.current[jobId] ?? 0;
+        const wsIsHealthy =
+          wsManager.isConnected &&
+          wsActiveJobsRef.current.has(jobId) &&
+          Date.now() - lastEvent < WS_FALLBACK_POLL_INTERVAL * 2;
+        if (wsIsHealthy) {
+          return;
+        }
         try {
-          const initialResponse = await fetchWithTimeout(
+          const response = await fetchWithTimeout(
             `/api/chat/async?jobId=${jobId}`,
             { credentials: 'include' },
             STATUS_FETCH_TIMEOUT_MS,
           );
-          if (initialResponse.ok) {
-            const initialStatus: AsyncJobStatus = await initialResponse.json();
-            handleWsJobStatus(initialStatus);
+          if (response.ok) {
+            const status: AsyncJobStatus = await response.json();
+            handleWsJobStatus(status);
+          } else if (response.status === 404) {
+            const conversationId = activeJobsRef.current[jobId]?.conversationId;
+            clearInterval(timer);
+            delete wsFallbackTimersRef.current[jobId];
+            delete lastWsEventByJobRef.current[jobId];
+            removeActiveJob(jobId, conversationId);
           }
         } catch {
-          // Initial status fetch failed, WebSocket will deliver updates
+          // Network/timeout error — will retry on next interval
         }
-        // Start safety-net polling alongside WebSocket
-        if (!completedJobsRef.current.has(jobId)) {
-          startWsFallbackPolling(jobId);
-        }
+      }, WS_FALLBACK_POLL_INTERVAL);
+      wsFallbackTimersRef.current[jobId] = timer;
+    },
+    [handleWsJobStatus, removeActiveJob],
+  );
+
+  // Calculate adaptive polling interval with exponential backoff
+  // Starts fast, slows down over time to save battery
+  const getAdaptiveInterval = useCallback(
+    (jobId: string, status?: AsyncJobStatus | null) => {
+      const baseInterval = pollingInterval;
+      const pollCount = pollCountByJobRef.current[jobId] ?? 0;
+
+      // Exponential backoff: double interval every 10 polls, max 4x base
+      const backoffMultiplier = Math.min(
+        4,
+        Math.pow(1.1, Math.floor(pollCount / 10)),
+      );
+
+      // If on mobile and job is in 'pending' state, poll less frequently
+      const mobileSlowdown = isMobile() && status?.status === 'pending' ? 2 : 1;
+      const visibilitySlowdown = !isPageVisibleRef.current ? 4 : 1;
+
+      return Math.floor(
+        baseInterval * backoffMultiplier * mobileSlowdown * visibilitySlowdown,
+      );
+    },
+    [pollingInterval],
+  );
+
+  // Schedule next poll with adaptive timing
+  const scheduleNextPoll = useCallback(
+    (
+      jobId: string,
+      pollFn: (jobId: string) => Promise<AsyncJobStatus | null>,
+    ) => {
+      const existingTimer = pollingTimersRef.current[jobId];
+      if (existingTimer) {
+        clearTimeout(existingTimer);
       }
 
-      return jobId;
-    } catch (error: any) {
-      logger.error('Error starting async job', error);
-      if (onError) {
-        onError(error.message, {
+      const interval = getAdaptiveInterval(
+        jobId,
+        jobStatusByJobIdRef.current[jobId],
+      );
+      pollingTimersRef.current[jobId] = setTimeout(async () => {
+        // Skip poll if page is hidden (battery saving)
+        if (!isPageVisibleRef.current) {
+          // Reschedule for when visible
+          scheduleNextPoll(jobId, pollFn);
+          return;
+        }
+
+        // Check if we should skip expensive operations (low battery)
+        const shouldPoll = await shouldRunExpensiveOperation();
+        if (!shouldPoll) {
+          // Still reschedule but with longer interval
+          pollCountByJobRef.current[jobId] =
+            (pollCountByJobRef.current[jobId] ?? 0) + 5;
+          scheduleNextPoll(jobId, pollFn);
+          return;
+        }
+
+        if (activeJobsRef.current[jobId] && isComponentMountedRef.current) {
+          pollCountByJobRef.current[jobId] =
+            (pollCountByJobRef.current[jobId] ?? 0) + 1;
+          await pollFn(jobId);
+        }
+      }, interval);
+    },
+    [getAdaptiveInterval],
+  );
+
+  // Poll for job status
+  const pollJobStatus = useCallback(
+    async (jobId: string) => {
+      try {
+        const response = await fetchWithTimeout(
+          `/api/chat/async?jobId=${jobId}`,
+          { credentials: 'include' },
+          STATUS_FETCH_TIMEOUT_MS,
+        );
+
+        if (!response.ok) {
+          if (response.status === 404) {
+            logger.info('Job not found, stopping polling');
+            const conversationId = activeJobsRef.current[jobId]?.conversationId;
+            removeActiveJob(jobId, conversationId);
+            return null;
+          }
+          throw new Error(`Failed to fetch job status: ${response.statusText}`);
+        }
+
+        const status: AsyncJobStatus = await response.json();
+        const conversationId =
+          status.conversationId || activeJobsRef.current[jobId]?.conversationId;
+
+        // Capture previous status BEFORE updating refs (for backoff reset logic)
+        const previousStatus = jobStatusByJobIdRef.current[jobId];
+
+        const statusHash = [
+          status.status,
+          status.partialResponse?.length || 0,
+          status.fullResponse?.length || 0,
+          status.progress || 0,
+          status.ingestProgress
+            ? [
+                status.ingestProgress.completed,
+                status.ingestProgress.total,
+                status.ingestProgress.currentDoc || '',
+                status.ingestProgress.currentIndex || '',
+                status.ingestProgress.phase || '',
+                status.ingestProgress.message || '',
+                status.ingestProgress.chunks || '',
+                status.ingestProgress.pages || '',
+                status.ingestProgress.failures || '',
+                status.ingestProgress.attempt || '',
+              ].join('/')
+            : '',
+          status.finalizedAt || 0,
+          status.authUrl || '',
+          status.oauthState || '',
+          status.turnId || '',
+          status.assistantMessageId || '',
+        ].join('|');
+        const lastHash = lastStatusHashByJobRef.current[jobId] || '';
+        const isStatusChanged = statusHash !== lastHash;
+        if (isStatusChanged) {
+          jobStatusByJobIdRef.current[jobId] = status;
+          lastStatusHashByJobRef.current[jobId] = statusHash;
+          if (conversationId) {
+            setJobStatusByConversationId((prev) => ({
+              ...prev,
+              [conversationId]: status,
+            }));
+          }
+        }
+
+        // Call progress callback
+        if (
+          onProgress &&
+          isStatusChanged &&
+          status.status !== 'completed' &&
+          status.status !== 'error'
+        ) {
+          onProgress(status);
+        }
+
+        // Reset backoff when actively receiving data:
+        // 1. Status changes to streaming (active work)
+        // 2. Partial response is growing (receiving chunks)
+        // This prevents progressively slower polling during active streaming
+        const isReceivingData =
+          status.status === 'streaming' ||
+          status.status === 'oauth_required' ||
+          (status.partialResponse &&
+            previousStatus?.partialResponse &&
+            status.partialResponse.length >
+              previousStatus.partialResponse.length);
+
+        if (isReceivingData) {
+          pollCountByJobRef.current[jobId] = 0;
+        }
+        // Reset consecutive poll error counter on any successful poll
+        pollErrorCountRef.current[jobId] = 0;
+
+        const completionGraceMs = 8000;
+        const updatedAt = status.updatedAt || status.createdAt || Date.now();
+        const shouldFinalizeFallback =
+          status.status === 'completed' &&
+          !status.finalizedAt &&
+          Boolean(status.fullResponse) &&
+          Date.now() - updatedAt > completionGraceMs;
+
+        // Check if job is complete AND finalized
+        if (
+          (status.status === 'completed' && status.finalizedAt) ||
+          shouldFinalizeFallback
+        ) {
+          if (completedJobsRef.current.has(jobId)) {
+            return status;
+          }
+          completedJobsRef.current.add(jobId);
+          // Only consider job truly complete when finalizedAt is set
+          pollCountByJobRef.current[jobId] = 0;
+          if (onComplete && status.fullResponse) {
+            onComplete(
+              status.fullResponse,
+              status.intermediateSteps,
+              status.finalizedAt,
+              conversationId,
+              {
+                turnId: status.turnId,
+                assistantMessageId: status.assistantMessageId,
+                jobId,
+              },
+            );
+          }
+          // Clear polling and persisted job
+          if (conversationId) {
+            clearPersistedJobs(userId, conversationId);
+          }
+          removeActiveJob(jobId, conversationId);
+          logger.info('Job completed and finalized - cleared persisted state');
+        } else if (status.status === 'completed' && !status.finalizedAt) {
+          // Job marked complete but still finalizing - keep polling
+          logger.debug(
+            'Job completed but not finalized yet, continuing to poll',
+          );
+          scheduleNextPoll(jobId, pollJobStatus);
+        } else if (status.status === 'error') {
+          pollCountByJobRef.current[jobId] = 0;
+          if (onError) {
+            onError(status.error || 'Unknown error', {
+              partialResponse: status.partialResponse,
+              intermediateSteps: status.intermediateSteps,
+              jobId,
+              conversationId,
+              turnId: status.turnId,
+              assistantMessageId: status.assistantMessageId,
+            });
+          }
+          // Clear polling and persisted job
+          if (conversationId) {
+            clearPersistedJobs(userId, conversationId);
+          }
+          removeActiveJob(jobId, conversationId);
+          logger.info('Job errored - cleared persisted state');
+        } else {
+          // Job still in progress, schedule next poll
+          scheduleNextPoll(jobId, pollJobStatus);
+        }
+
+        return status;
+      } catch (error: unknown) {
+        logger.error('Error polling job status', error);
+        const conversationId = activeJobsRef.current[jobId]?.conversationId;
+
+        // Track consecutive poll failures - only fire onError after multiple failures
+        if (!pollErrorCountRef.current[jobId]) {
+          pollErrorCountRef.current[jobId] = 0;
+        }
+        pollErrorCountRef.current[jobId]++;
+
+        if (pollErrorCountRef.current[jobId] < 4) {
+          // Transient failure: log and retry with backoff
+          logger.warn(
+            `Poll failure ${pollErrorCountRef.current[jobId]}/4 for job ${jobId}, retrying with backoff`,
+          );
+          scheduleNextPoll(jobId, pollJobStatus);
+          return null;
+        }
+
+        // 4+ consecutive failures: give up with whatever partial data we have
+        logger.error(
+          `Poll failure ${pollErrorCountRef.current[jobId]} for job ${jobId}, giving up`,
+        );
+        pollErrorCountRef.current[jobId] = 0;
+        pollCountByJobRef.current[jobId] = 0;
+        const lastKnownStatus = jobStatusByConversationId[conversationId || ''];
+        if (onError) {
+          onError(error instanceof Error ? error.message : 'Unknown error', {
+            partialResponse: lastKnownStatus?.partialResponse,
+            intermediateSteps: lastKnownStatus?.intermediateSteps,
+            jobId,
+            conversationId,
+            turnId: lastKnownStatus?.turnId,
+            assistantMessageId: lastKnownStatus?.assistantMessageId,
+          });
+        }
+        removeActiveJob(jobId, conversationId, false);
+        return null;
+      }
+    },
+    [
+      onProgress,
+      onComplete,
+      onError,
+      userId,
+      scheduleNextPoll,
+      removeActiveJob,
+    ],
+  );
+
+  const cancelJob = useCallback(
+    async (conversationId?: string) => {
+      const jobsToCancel = conversationId
+        ? Object.values(activeJobsRef.current).filter(
+            (job) => job.conversationId === conversationId,
+          )
+        : Object.values(activeJobsRef.current);
+
+      if (jobsToCancel.length === 0) {
+        return;
+      }
+
+      try {
+        await Promise.all(
+          jobsToCancel.map(async (job) => {
+            // Delete job on server
+            await fetch(`/api/chat/async?jobId=${job.jobId}`, {
+              method: 'DELETE',
+              credentials: 'include',
+            });
+            // Clean up WebSocket subscription if active
+            if (wsActiveJobsRef.current.has(job.jobId)) {
+              const wsManager = getWebSocketManager();
+              wsManager.unsubscribeFromJob(job.jobId);
+              wsActiveJobsRef.current.delete(job.jobId);
+              if (wsJobUnsubsRef.current[job.jobId]) {
+                wsJobUnsubsRef.current[job.jobId]();
+                delete wsJobUnsubsRef.current[job.jobId];
+              }
+            }
+            clearPersistedJobs(userId, job.conversationId);
+            removeActiveJob(job.jobId, job.conversationId);
+          }),
+        );
+      } catch (error) {
+        logger.error('Error canceling job', error);
+      }
+    },
+    [userId, removeActiveJob],
+  );
+
+  // Start async job
+  const startAsyncJob = useCallback(
+    async (
+      messages: any[],
+      chatCompletionURL: string,
+      additionalProps: any,
+      jobUserId: string,
+      conversationId: string,
+      conversationName: string,
+      turnId?: string,
+      assistantMessageId?: string,
+    ): Promise<string> => {
+      try {
+        // Cancel any existing job for this conversation
+        const existingJobs = Object.values(activeJobsRef.current).filter(
+          (job) => job.conversationId === conversationId,
+        );
+        if (existingJobs.length > 0) {
+          await cancelJob(conversationId);
+        }
+
+        let response: Response;
+        try {
+          response = await fetchWithTimeout(
+            '/api/chat/async',
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              credentials: 'include',
+              body: JSON.stringify({
+                messages,
+                chatCompletionURL,
+                additionalProps,
+                userId: jobUserId,
+                conversationId,
+                conversationName,
+                turnId,
+                assistantMessageId,
+              }),
+            },
+            SUBMIT_JOB_TIMEOUT_MS,
+          );
+        } catch (err) {
+          if (err instanceof FetchTimeoutError) {
+            throw new Error(
+              'The server did not respond in time. Please try again.',
+            );
+          }
+          throw err;
+        }
+
+        if (!response.ok) {
+          const body = await response.json().catch(() => ({}));
+          const detail =
+            body?.error || body?.message || body?.reason || response.statusText;
+          throw new Error(
+            detail || `Failed to start async job (HTTP ${response.status})`,
+          );
+        }
+
+        const { jobId } = await response.json();
+        const job: PersistedJob = {
+          jobId,
           conversationId,
+          userId: jobUserId,
+          timestamp: Date.now(),
           turnId,
           assistantMessageId,
-        });
+        };
+        activeJobsRef.current[jobId] = job;
+
+        // Persist job metadata for resume after backgrounding
+        const persistedJobs = getPersistedJobs(userId);
+        const nextPersistedJobs = [
+          ...persistedJobs.filter(
+            (existing) => existing.conversationId !== conversationId,
+          ),
+          job,
+        ];
+        persistJobs(nextPersistedJobs, userId);
+
+        // Try WebSocket push first, fall back to polling
+        const usingWs = subscribeJobToWs(jobId);
+
+        if (!usingWs) {
+          // Fallback: use HTTP polling
+          setIsPolling(true);
+          pollCountByJobRef.current[jobId] = 0;
+          await pollJobStatus(jobId);
+        } else {
+          // With WebSocket, do one initial poll to get immediate status
+          setIsPolling(true);
+          try {
+            const initialResponse = await fetchWithTimeout(
+              `/api/chat/async?jobId=${jobId}`,
+              { credentials: 'include' },
+              STATUS_FETCH_TIMEOUT_MS,
+            );
+            if (initialResponse.ok) {
+              const initialStatus: AsyncJobStatus =
+                await initialResponse.json();
+              handleWsJobStatus(initialStatus);
+            }
+          } catch {
+            // Initial status fetch failed, WebSocket will deliver updates
+          }
+          // Start safety-net polling alongside WebSocket
+          if (!completedJobsRef.current.has(jobId)) {
+            startWsFallbackPolling(jobId);
+          }
+        }
+
+        return jobId;
+      } catch (error: any) {
+        logger.error('Error starting async job', error);
+        if (onError) {
+          onError(error.message, {
+            conversationId,
+            turnId,
+            assistantMessageId,
+          });
+        }
+        throw error;
       }
-      throw error;
-    }
-  }, [pollJobStatus, onError, userId, cancelJob, subscribeJobToWs, handleWsJobStatus, startWsFallbackPolling]);
+    },
+    [
+      pollJobStatus,
+      onError,
+      userId,
+      cancelJob,
+      subscribeJobToWs,
+      handleWsJobStatus,
+      startWsFallbackPolling,
+    ],
+  );
 
   // Track page visibility for battery-efficient polling
   useEffect(() => {
@@ -728,7 +875,8 @@ export const useAsyncChat = (options: UseAsyncChatOptions = {}): UseAsyncChatRet
     };
 
     document.addEventListener('visibilitychange', handleVisibilityChange);
-    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+    return () =>
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
   }, []);
 
   // Clean up on unmount
@@ -767,7 +915,9 @@ export const useAsyncChat = (options: UseAsyncChatOptions = {}): UseAsyncChatRet
       return; // No persisted jobs to resume
     }
 
-    const jobsToResume = persistedJobs.filter((job) => !activeJobsRef.current[job.jobId]);
+    const jobsToResume = persistedJobs.filter(
+      (job) => !activeJobsRef.current[job.jobId],
+    );
     if (jobsToResume.length === 0) {
       return;
     }
@@ -804,7 +954,13 @@ export const useAsyncChat = (options: UseAsyncChatOptions = {}): UseAsyncChatRet
         }
       }
     }
-  }, [userId, pollJobStatus, subscribeJobToWs, handleWsJobStatus, startWsFallbackPolling]);
+  }, [
+    userId,
+    pollJobStatus,
+    subscribeJobToWs,
+    handleWsJobStatus,
+    startWsFallbackPolling,
+  ]);
 
   // On mount: resume any persisted job
   useEffect(() => {
@@ -815,54 +971,71 @@ export const useAsyncChat = (options: UseAsyncChatOptions = {}): UseAsyncChatRet
   }, [resumePollingIfNeeded]);
 
   // Verify job completion with retry logic
-  const verifyJobCompletion = useCallback(async (jobId: string, conversationId: string, retries = 3): Promise<boolean> => {
-    for (let i = 0; i < retries; i++) {
-      try {
-        const response = await fetchWithTimeout(
-          `/api/chat/async?jobId=${jobId}`,
-          { credentials: 'include' },
-          STATUS_FETCH_TIMEOUT_MS,
-        );
-        if (response.ok) {
-          const status: AsyncJobStatus = await response.json();
-          if (status.status === 'completed' && status.finalizedAt) {
-            logger.info(`Job ${jobId} verified as complete on attempt ${i + 1}`);
-            return true;
-          }
-        } else if (response.status === 404) {
-          // Job no longer exists, sync conversation directly
-          logger.warn(`Job ${jobId} not found, syncing conversation directly`);
-          try {
-            const convResponse = await fetchWithTimeout(
-              `/api/conversations/${conversationId}`,
-              { credentials: 'include' },
-              STATUS_FETCH_TIMEOUT_MS,
-            );
-            if (convResponse.ok) {
-              const convData = await convResponse.json();
-              if (convData.messages?.length > 0) {
-                logger.info(`Retrieved conversation ${conversationId} directly`);
-                return true;
-              }
+  const verifyJobCompletion = useCallback(
+    async (
+      jobId: string,
+      conversationId: string,
+      retries = 3,
+    ): Promise<boolean> => {
+      for (let i = 0; i < retries; i++) {
+        try {
+          const response = await fetchWithTimeout(
+            `/api/chat/async?jobId=${jobId}`,
+            { credentials: 'include' },
+            STATUS_FETCH_TIMEOUT_MS,
+          );
+          if (response.ok) {
+            const status: AsyncJobStatus = await response.json();
+            if (status.status === 'completed' && status.finalizedAt) {
+              logger.info(
+                `Job ${jobId} verified as complete on attempt ${i + 1}`,
+              );
+              return true;
             }
-          } catch (e) {
-            logger.error('Failed to sync conversation directly', e);
+          } else if (response.status === 404) {
+            // Job no longer exists, sync conversation directly
+            logger.warn(
+              `Job ${jobId} not found, syncing conversation directly`,
+            );
+            try {
+              const convResponse = await fetchWithTimeout(
+                `/api/conversations/${conversationId}`,
+                { credentials: 'include' },
+                STATUS_FETCH_TIMEOUT_MS,
+              );
+              if (convResponse.ok) {
+                const convData = await convResponse.json();
+                if (convData.messages?.length > 0) {
+                  logger.info(
+                    `Retrieved conversation ${conversationId} directly`,
+                  );
+                  return true;
+                }
+              }
+            } catch (e) {
+              logger.error('Failed to sync conversation directly', e);
+            }
+            return false;
           }
-          return false;
-        }
-        // Wait before retry with exponential backoff
-        if (i < retries - 1) {
-          await new Promise(resolve => setTimeout(resolve, 1000 * Math.pow(2, i)));
-        }
-      } catch (error) {
-        logger.error(`Verification attempt ${i + 1} failed`, error);
-        if (i < retries - 1) {
-          await new Promise(resolve => setTimeout(resolve, 1000 * Math.pow(2, i)));
+          // Wait before retry with exponential backoff
+          if (i < retries - 1) {
+            await new Promise((resolve) =>
+              setTimeout(resolve, 1000 * Math.pow(2, i)),
+            );
+          }
+        } catch (error) {
+          logger.error(`Verification attempt ${i + 1} failed`, error);
+          if (i < retries - 1) {
+            await new Promise((resolve) =>
+              setTimeout(resolve, 1000 * Math.pow(2, i)),
+            );
+          }
         }
       }
-    }
-    return false;
-  }, []);
+      return false;
+    },
+    [],
+  );
 
   // Check for orphaned jobs (jobs older than 10 minutes that may have been missed)
   const checkOrphanedJobs = useCallback(async () => {
@@ -886,20 +1059,32 @@ export const useAsyncChat = (options: UseAsyncChatOptions = {}): UseAsyncChatRet
             if (status.status === 'completed' && status.fullResponse) {
               completedJobsRef.current.add(job.jobId);
               if (onComplete) {
-                onComplete(status.fullResponse, status.intermediateSteps, status.finalizedAt, job.conversationId, {
-                  turnId: status.turnId || job.turnId,
-                  assistantMessageId: status.assistantMessageId || job.assistantMessageId,
-                  jobId: job.jobId,
-                });
+                onComplete(
+                  status.fullResponse,
+                  status.intermediateSteps,
+                  status.finalizedAt,
+                  job.conversationId,
+                  {
+                    turnId: status.turnId || job.turnId,
+                    assistantMessageId:
+                      status.assistantMessageId || job.assistantMessageId,
+                    jobId: job.jobId,
+                  },
+                );
               }
               clearPersistedJobs(userId, job.conversationId);
               removeActiveJob(job.jobId, job.conversationId);
-              logger.info(`Recovered orphaned job ${job.jobId} - fired onComplete with response`);
+              logger.info(
+                `Recovered orphaned job ${job.jobId} - fired onComplete with response`,
+              );
               continue;
             }
           }
         } catch (e) {
-          logger.error(`Failed to fetch status for orphaned job ${job.jobId}`, e);
+          logger.error(
+            `Failed to fetch status for orphaned job ${job.jobId}`,
+            e,
+          );
         }
 
         // Fallback: fetch conversation directly from Redis and fire onComplete
@@ -912,22 +1097,36 @@ export const useAsyncChat = (options: UseAsyncChatOptions = {}): UseAsyncChatRet
           if (response.ok) {
             const convData = await response.json();
             if (convData.messages?.length > 0) {
-              const lastAssistantMsg = [...convData.messages].reverse().find((m: any) => m.role === 'assistant');
+              const lastAssistantMsg = [...convData.messages]
+                .reverse()
+                .find((m: any) => m.role === 'assistant');
               if (lastAssistantMsg && onComplete) {
                 completedJobsRef.current.add(job.jobId);
-                onComplete(lastAssistantMsg.content, lastAssistantMsg.intermediateSteps, Date.now(), job.conversationId, {
-                  turnId: lastAssistantMsg.metadata?.turnId || job.turnId,
-                  assistantMessageId: lastAssistantMsg.id || job.assistantMessageId,
-                  jobId: job.jobId,
-                });
-                logger.info(`Recovered orphaned job ${job.jobId} via conversation data`);
+                onComplete(
+                  lastAssistantMsg.content,
+                  lastAssistantMsg.intermediateSteps,
+                  Date.now(),
+                  job.conversationId,
+                  {
+                    turnId: lastAssistantMsg.metadata?.turnId || job.turnId,
+                    assistantMessageId:
+                      lastAssistantMsg.id || job.assistantMessageId,
+                    jobId: job.jobId,
+                  },
+                );
+                logger.info(
+                  `Recovered orphaned job ${job.jobId} via conversation data`,
+                );
               }
               clearPersistedJobs(userId, job.conversationId);
               removeActiveJob(job.jobId, job.conversationId);
             }
           }
         } catch (e) {
-          logger.error(`Failed to check conversation for orphaned job ${job.jobId}`, e);
+          logger.error(
+            `Failed to check conversation for orphaned job ${job.jobId}`,
+            e,
+          );
         }
       }
     }
@@ -950,7 +1149,8 @@ export const useAsyncChat = (options: UseAsyncChatOptions = {}): UseAsyncChatRet
     };
 
     document.addEventListener('visibilitychange', handleVisibilityResume);
-    return () => document.removeEventListener('visibilitychange', handleVisibilityResume);
+    return () =>
+      document.removeEventListener('visibilitychange', handleVisibilityResume);
   }, [resumePollingIfNeeded, checkOrphanedJobs]);
 
   // Cleanup on unmount
@@ -976,6 +1176,7 @@ export const useAsyncChat = (options: UseAsyncChatOptions = {}): UseAsyncChatRet
     jobStatusByConversationId,
     isPolling,
     cancelJob,
-    clearPersistedJob: (conversationId?: string) => clearPersistedJobs(userId, conversationId),
+    clearPersistedJob: (conversationId?: string) =>
+      clearPersistedJobs(userId, conversationId),
   };
 };

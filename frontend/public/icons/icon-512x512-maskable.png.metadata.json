@@ -39,12 +39,7 @@
     "scene": "A classical statue of a craftsman working with wood.",
     "setting_type": "studio",
     "detected_text": [],
-    "dominant_colors": [
-      "green",
-      "gray",
-      "white",
-      "black"
-    ],
+    "dominant_colors": ["green", "gray", "white", "black"],
     "people": [
       {
         "count_estimate": 1,
@@ -52,12 +47,7 @@
         "activity": "carving wood"
       }
     ],
-    "objects": [
-      "hammer",
-      "wood block",
-      "bench",
-      "toga"
-    ],
+    "objects": ["hammer", "wood block", "bench", "toga"],
     "quality": {
       "sharpness": "sharp",
       "exposure": "balanced",

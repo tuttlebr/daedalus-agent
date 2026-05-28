@@ -1,12 +1,20 @@
 'use client';
 
+import {
+  IconMenu2,
+  IconPaperclip,
+  IconPlus,
+  IconRobot,
+} from '@tabler/icons-react';
 import React, { memo } from 'react';
-import classNames from 'classnames';
-import { IconMenu2, IconPaperclip, IconPlus, IconRobot } from '@tabler/icons-react';
-import { useUISettingsStore, useConversationStore } from '@/state';
-import { v4 as uuidv4 } from 'uuid';
+
 import { saveConversation } from '@/utils/app/conversation';
+
 import { Conversation } from '@/types/chat';
+
+import { useUISettingsStore, useConversationStore } from '@/state';
+import classNames from 'classnames';
+import { v4 as uuidv4 } from 'uuid';
 
 /**
  * Mobile bottom navigation bar.
@@ -38,7 +46,8 @@ export const BottomNav = memo(() => {
       icon: IconRobot,
       label: 'Auto',
       active: activeView === 'autonomy',
-      onClick: () => setActiveView(activeView === 'autonomy' ? 'chat' : 'autonomy'),
+      onClick: () =>
+        setActiveView(activeView === 'autonomy' ? 'chat' : 'autonomy'),
     },
     {
       icon: IconPlus,
@@ -77,9 +86,7 @@ export const BottomNav = memo(() => {
               'min-w-[52px] min-h-[48px] rounded-xl',
               'transition-all duration-150 touch-manipulation',
               'active:scale-90',
-              active
-                ? 'text-nvidia-green'
-                : 'text-dark-text-muted'
+              active ? 'text-nvidia-green' : 'text-dark-text-muted',
             )}
           >
             <div className="relative">

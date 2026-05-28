@@ -18,8 +18,19 @@ export default defineConfig({
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json', 'html'],
-      include: ['utils/**/*.ts', 'components/**/*.tsx', 'services/**/*.ts', 'hooks/**/*.ts', 'pages/api/**/*.ts'],
-      exclude: ['**/*.test.ts', '**/*.test.tsx', '**/*.d.ts', 'node_modules/**'],
+      include: [
+        'utils/**/*.ts',
+        'components/**/*.tsx',
+        'services/**/*.ts',
+        'hooks/**/*.ts',
+        'pages/api/**/*.ts',
+      ],
+      exclude: [
+        '**/*.test.ts',
+        '**/*.test.tsx',
+        '**/*.d.ts',
+        'node_modules/**',
+      ],
       thresholds: {
         lines: 80,
         functions: 80,

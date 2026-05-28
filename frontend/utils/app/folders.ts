@@ -1,4 +1,5 @@
 import { FolderInterface } from '@/types/folder';
+
 import { setUserSessionItem } from './storage';
 
 export const saveFolders = (folders: FolderInterface[]) => {

@@ -1,11 +1,20 @@
 'use client';
 
+import {
+  IconSettings,
+  IconBrain,
+  IconBolt,
+  IconActivity,
+  IconDatabase,
+} from '@tabler/icons-react';
 import React, { memo, useState } from 'react';
-import classNames from 'classnames';
-import { IconSettings, IconBrain, IconBolt, IconActivity, IconDatabase } from '@tabler/icons-react';
-import { Dialog, Button, Toggle } from '@/components/primitives';
-import { useUISettingsStore } from '@/state';
+
 import { useTheme } from '@/hooks/useTheme';
+
+import { Dialog, Button, Toggle } from '@/components/primitives';
+
+import { useUISettingsStore } from '@/state';
+import classNames from 'classnames';
 
 interface SettingsDialogProps {
   open: boolean;
@@ -29,14 +38,30 @@ export const SettingsDialog = memo(({ open, onClose }: SettingsDialogProps) => {
   const setAutoScroll = useUISettingsStore((s) => s.setAutoScroll);
   const chatHistory = useUISettingsStore((s) => s.chatHistory);
   const setChatHistory = useUISettingsStore((s) => s.setChatHistory);
-  const enableIntermediateSteps = useUISettingsStore((s) => s.enableIntermediateSteps);
-  const setEnableIntermediateSteps = useUISettingsStore((s) => s.setEnableIntermediateSteps);
-  const expandIntermediateSteps = useUISettingsStore((s) => s.expandIntermediateSteps);
-  const setExpandIntermediateSteps = useUISettingsStore((s) => s.setExpandIntermediateSteps);
-  const intermediateStepsView = useUISettingsStore((s) => s.intermediateStepsView);
-  const setIntermediateStepsView = useUISettingsStore((s) => s.setIntermediateStepsView);
-  const enableBackgroundProcessing = useUISettingsStore((s) => s.enableBackgroundProcessing);
-  const setEnableBackgroundProcessing = useUISettingsStore((s) => s.setEnableBackgroundProcessing);
+  const enableIntermediateSteps = useUISettingsStore(
+    (s) => s.enableIntermediateSteps,
+  );
+  const setEnableIntermediateSteps = useUISettingsStore(
+    (s) => s.setEnableIntermediateSteps,
+  );
+  const expandIntermediateSteps = useUISettingsStore(
+    (s) => s.expandIntermediateSteps,
+  );
+  const setExpandIntermediateSteps = useUISettingsStore(
+    (s) => s.setExpandIntermediateSteps,
+  );
+  const intermediateStepsView = useUISettingsStore(
+    (s) => s.intermediateStepsView,
+  );
+  const setIntermediateStepsView = useUISettingsStore(
+    (s) => s.setIntermediateStepsView,
+  );
+  const enableBackgroundProcessing = useUISettingsStore(
+    (s) => s.enableBackgroundProcessing,
+  );
+  const setEnableBackgroundProcessing = useUISettingsStore(
+    (s) => s.setEnableBackgroundProcessing,
+  );
   const energySavingMode = useUISettingsStore((s) => s.energySavingMode);
   const setEnergySavingMode = useUISettingsStore((s) => s.setEnergySavingMode);
 
@@ -53,7 +78,7 @@ export const SettingsDialog = memo(({ open, onClose }: SettingsDialogProps) => {
                 'flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors text-left whitespace-nowrap min-h-[44px]',
                 activeTab === id
                   ? 'bg-nvidia-green/10 text-nvidia-green font-medium'
-                  : 'text-dark-text-muted hover:text-dark-text-secondary hover:bg-white/[0.04]'
+                  : 'text-dark-text-muted hover:text-dark-text-secondary hover:bg-white/[0.04]',
               )}
             >
               <Icon size={16} />
@@ -66,15 +91,24 @@ export const SettingsDialog = memo(({ open, onClose }: SettingsDialogProps) => {
         <div className="flex-1 min-w-0 space-y-6">
           {activeTab === 'general' && (
             <>
-              <SettingRow label="Theme" description="Switch between dark and light mode">
+              <SettingRow
+                label="Theme"
+                description="Switch between dark and light mode"
+              >
                 <Button size="xs" variant="secondary" onClick={toggleTheme}>
                   {mode === 'dark' ? 'Switch to Light' : 'Switch to Dark'}
                 </Button>
               </SettingRow>
-              <SettingRow label="Auto-Scroll" description="Automatically scroll to new messages">
+              <SettingRow
+                label="Auto-Scroll"
+                description="Automatically scroll to new messages"
+              >
                 <ToggleSwitch checked={autoScroll} onChange={setAutoScroll} />
               </SettingRow>
-              <SettingRow label="Chat History" description="Save conversation history">
+              <SettingRow
+                label="Chat History"
+                description="Save conversation history"
+              >
                 <ToggleSwitch checked={chatHistory} onChange={setChatHistory} />
               </SettingRow>
             </>
@@ -82,20 +116,45 @@ export const SettingsDialog = memo(({ open, onClose }: SettingsDialogProps) => {
 
           {activeTab === 'agent' && (
             <>
-              <SettingRow label="Show Agent Steps" description="Display intermediate reasoning steps">
-                <ToggleSwitch checked={enableIntermediateSteps} onChange={setEnableIntermediateSteps} />
+              <SettingRow
+                label="Show Agent Steps"
+                description="Display intermediate reasoning steps"
+              >
+                <ToggleSwitch
+                  checked={enableIntermediateSteps}
+                  onChange={setEnableIntermediateSteps}
+                />
               </SettingRow>
-              <SettingRow label="Auto-Expand Steps" description="Expand step details by default">
-                <ToggleSwitch checked={expandIntermediateSteps} onChange={setExpandIntermediateSteps} />
+              <SettingRow
+                label="Auto-Expand Steps"
+                description="Expand step details by default"
+              >
+                <ToggleSwitch
+                  checked={expandIntermediateSteps}
+                  onChange={setExpandIntermediateSteps}
+                />
               </SettingRow>
-              <SettingRow label="Steps View" description="Choose timeline or category view">
+              <SettingRow
+                label="Steps View"
+                description="Choose timeline or category view"
+              >
                 <Toggle
                   options={[
-                    { value: 'timeline', label: 'Timeline', icon: <IconActivity size={12} /> },
-                    { value: 'category', label: 'Category', icon: <IconDatabase size={12} /> },
+                    {
+                      value: 'timeline',
+                      label: 'Timeline',
+                      icon: <IconActivity size={12} />,
+                    },
+                    {
+                      value: 'category',
+                      label: 'Category',
+                      icon: <IconDatabase size={12} />,
+                    },
                   ]}
                   value={intermediateStepsView}
-                  onChange={(v) => setIntermediateStepsView(v as 'timeline' | 'category')}
+                  onChange={(v) =>
+                    setIntermediateStepsView(v as 'timeline' | 'category')
+                  }
                   size="sm"
                   accentColors={['bg-nvidia-green', 'bg-nvidia-green']}
                 />
@@ -105,28 +164,54 @@ export const SettingsDialog = memo(({ open, onClose }: SettingsDialogProps) => {
 
           {activeTab === 'performance' && (
             <>
-              <SettingRow label="Background Processing" description="Continue processing when the app is backgrounded">
-                <ToggleSwitch checked={enableBackgroundProcessing} onChange={setEnableBackgroundProcessing} />
+              <SettingRow
+                label="Background Processing"
+                description="Continue processing when the app is backgrounded"
+              >
+                <ToggleSwitch
+                  checked={enableBackgroundProcessing}
+                  onChange={setEnableBackgroundProcessing}
+                />
               </SettingRow>
-              <SettingRow label="Energy Saving Mode" description="Reduce animations and background activity">
-                <ToggleSwitch checked={energySavingMode} onChange={setEnergySavingMode} />
+              <SettingRow
+                label="Energy Saving Mode"
+                description="Reduce animations and background activity"
+              >
+                <ToggleSwitch
+                  checked={energySavingMode}
+                  onChange={setEnergySavingMode}
+                />
               </SettingRow>
             </>
           )}
 
           {activeTab === 'data' && (
             <>
-              <SettingRow label="Export Conversations" description="Download all conversations as JSON">
-                <Button size="xs" variant="secondary" onClick={() => {
-                  // Export logic from existing ImportExport
-                }}>
+              <SettingRow
+                label="Export Conversations"
+                description="Download all conversations as JSON"
+              >
+                <Button
+                  size="xs"
+                  variant="secondary"
+                  onClick={() => {
+                    // Export logic from existing ImportExport
+                  }}
+                >
                   Export
                 </Button>
               </SettingRow>
-              <SettingRow label="Import Conversations" description="Import conversations from a JSON file">
-                <Button size="xs" variant="secondary" onClick={() => {
-                  // Import logic from existing ImportExport
-                }}>
+              <SettingRow
+                label="Import Conversations"
+                description="Import conversations from a JSON file"
+              >
+                <Button
+                  size="xs"
+                  variant="secondary"
+                  onClick={() => {
+                    // Import logic from existing ImportExport
+                  }}
+                >
                   Import
                 </Button>
               </SettingRow>
@@ -140,35 +225,53 @@ export const SettingsDialog = memo(({ open, onClose }: SettingsDialogProps) => {
 
 SettingsDialog.displayName = 'SettingsDialog';
 
-const SettingRow = memo(({ label, description, children }: { label: string; description: string; children: React.ReactNode }) => (
-  <div className="flex items-center justify-between gap-4 py-2">
-    <div>
-      <p className="text-sm font-medium text-dark-text-primary">{label}</p>
-      <p className="text-xs text-dark-text-muted">{description}</p>
+const SettingRow = memo(
+  ({
+    label,
+    description,
+    children,
+  }: {
+    label: string;
+    description: string;
+    children: React.ReactNode;
+  }) => (
+    <div className="flex items-center justify-between gap-4 py-2">
+      <div>
+        <p className="text-sm font-medium text-dark-text-primary">{label}</p>
+        <p className="text-xs text-dark-text-muted">{description}</p>
+      </div>
+      {children}
     </div>
-    {children}
-  </div>
-));
+  ),
+);
 
 SettingRow.displayName = 'SettingRow';
 
-const ToggleSwitch = memo(({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) => (
-  <button
-    role="switch"
-    aria-checked={checked}
-    onClick={() => onChange(!checked)}
-    className={classNames(
-      'relative w-10 h-6 rounded-full transition-colors duration-200 flex-shrink-0',
-      checked ? 'bg-nvidia-green' : 'bg-neutral-700'
-    )}
-  >
-    <span
+const ToggleSwitch = memo(
+  ({
+    checked,
+    onChange,
+  }: {
+    checked: boolean;
+    onChange: (v: boolean) => void;
+  }) => (
+    <button
+      role="switch"
+      aria-checked={checked}
+      onClick={() => onChange(!checked)}
       className={classNames(
-        'absolute top-1 w-4 h-4 rounded-full bg-white shadow transition-transform duration-200',
-        checked ? 'translate-x-5' : 'translate-x-1'
+        'relative w-10 h-6 rounded-full transition-colors duration-200 flex-shrink-0',
+        checked ? 'bg-nvidia-green' : 'bg-neutral-700',
       )}
-    />
-  </button>
-));
+    >
+      <span
+        className={classNames(
+          'absolute top-1 w-4 h-4 rounded-full bg-white shadow transition-transform duration-200',
+          checked ? 'translate-x-5' : 'translate-x-1',
+        )}
+      />
+    </button>
+  ),
+);
 
 ToggleSwitch.displayName = 'ToggleSwitch';

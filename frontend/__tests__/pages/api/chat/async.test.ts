@@ -1,3 +1,19 @@
+import { stripReplayedAssistantPrefix } from '@/utils/app/conversationReplay';
+
+import handler, {
+  appendDocumentAttachmentContext,
+  buildBoundedMessagesForNat,
+  buildNatRequestHeaders,
+  buildNatSessionId,
+  compactDocumentIngestionMessage,
+  extractAsyncStreamContentDelta,
+  fetchNatJobStatus,
+  getDocumentIngestJobRequest,
+  isDocumentIngestionRequest,
+  resolveAsyncBackendBaseUrls,
+} from '@/pages/api/chat/async';
+
+import { jsonGet, jsonSetWithExpiry } from '@/server/session/redis';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => {
@@ -29,7 +45,9 @@ vi.mock('node:dns/promises', () => ({
 }));
 
 vi.mock('@/server/session/redis', () => ({
-  getPublisher: vi.fn(() => ({ publish: vi.fn().mockResolvedValue(undefined) })),
+  getPublisher: vi.fn(() => ({
+    publish: vi.fn().mockResolvedValue(undefined),
+  })),
   getRedis: vi.fn(() => ({
     set: vi.fn().mockResolvedValue('OK'),
     eval: vi.fn().mockResolvedValue(1),
@@ -60,27 +78,12 @@ vi.mock('@/server/session/documentRefs', () => ({
   DocumentRefAccessError: mocks.DocumentRefAccessError,
 }));
 
-import handler, {
-  appendDocumentAttachmentContext,
-  buildBoundedMessagesForNat,
-  buildNatRequestHeaders,
-  buildNatSessionId,
-  compactDocumentIngestionMessage,
-  extractAsyncStreamContentDelta,
-  fetchNatJobStatus,
-  getDocumentIngestJobRequest,
-  isDocumentIngestionRequest,
-  resolveAsyncBackendBaseUrls,
-} from '@/pages/api/chat/async';
-import {
-  stripReplayedAssistantPrefix,
-} from '@/utils/app/conversationReplay';
-import { jsonGet, jsonSetWithExpiry } from '@/server/session/redis';
-
 describe('chat/async backend pinning helpers', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.validateDocumentRefsForUser.mockImplementation(async (refs: any[]) => refs);
+    mocks.validateDocumentRefsForUser.mockImplementation(
+      async (refs: any[]) => refs,
+    );
     process.env.BACKEND_HOST = 'daedalus-backend';
     process.env.BACKEND_NAMESPACE = 'daedalus';
     process.env.BACKEND_PORT = '8000';
@@ -91,11 +94,7 @@ describe('chat/async backend pinning helpers', () => {
   });
 
   it('resolves pinned backend pod base URLs from the headless service', async () => {
-    mocks.resolve4.mockResolvedValue([
-      '10.0.2.61',
-      '10.0.3.154',
-      '10.0.2.61',
-    ]);
+    mocks.resolve4.mockResolvedValue(['10.0.2.61', '10.0.3.154', '10.0.2.61']);
 
     const baseUrls = await resolveAsyncBackendBaseUrls();
 
@@ -169,7 +168,12 @@ describe('chat/async backend pinning helpers', () => {
   it('derives a stable per-turn NAT session id without exposing the username', () => {
     const first = buildNatSessionId('testuser', 'job-123', 'conv-1', 'turn-1');
     const same = buildNatSessionId('testuser', 'job-123', 'conv-1', 'turn-1');
-    const nextTurn = buildNatSessionId('testuser', 'job-456', 'conv-1', 'turn-2');
+    const nextTurn = buildNatSessionId(
+      'testuser',
+      'job-456',
+      'conv-1',
+      'turn-2',
+    );
 
     expect(first).toBe(same);
     expect(first).toMatch(/^daedalus-[a-f0-9]{32}$/);
@@ -210,7 +214,8 @@ describe('chat/async backend pinning helpers', () => {
   });
 
   it('preserves prior assistant content so follow-ups have real context', () => {
-    const prior = 'A detailed prior assistant response the user wants to reuse.';
+    const prior =
+      'A detailed prior assistant response the user wants to reuse.';
     const bounded = buildBoundedMessagesForNat([
       { role: 'user', content: 'first question' },
       { role: 'assistant', content: prior, id: 'assistant-1' },
@@ -224,7 +229,8 @@ describe('chat/async backend pinning helpers', () => {
   });
 
   it('normalizes agent-role messages to assistant-role for the OpenAI schema', () => {
-    const prior = 'Agent role content that should reach the model as assistant.';
+    const prior =
+      'Agent role content that should reach the model as assistant.';
     const bounded = buildBoundedMessagesForNat([
       { role: 'user', content: 'first question' },
       { role: 'agent', content: prior },
@@ -350,7 +356,9 @@ describe('chat/async backend pinning helpers', () => {
 
     const out = compactDocumentIngestionMessage(message, 'testuser');
 
-    expect(out.content).toContain('Ingest 2 uploaded documents into the "nvidia" collection.');
+    expect(out.content).toContain(
+      'Ingest 2 uploaded documents into the "nvidia" collection.',
+    );
     expect(out.content).not.toContain('documentRefs=');
     expect(out.content).not.toContain('documentRef=');
     expect(out.content).not.toContain('user_document_tool');
@@ -359,49 +367,54 @@ describe('chat/async backend pinning helpers', () => {
   });
 
   it('builds a structured document-ingestion job from attachment refs', () => {
-    const job = getDocumentIngestJobRequest([
-      {
-        role: 'user',
-        content: 'Ingest these docs',
-        metadata: { targetCollection: 'nvidia' },
-        attachments: [
-          {
-            type: 'document',
-            content: 'a.md',
-            documentRef: { documentId: 'doc-a', sessionId: 'sess-1' },
-          },
-          {
-            type: 'document',
-            content: 'b.md',
-            documentRef: { documentId: 'doc-b', sessionId: 'sess-1' },
-          },
-        ],
-      },
-    ], 'testuser');
-
-    expect(job).toEqual(expect.objectContaining({
-      documentRefs: [
+    const job = getDocumentIngestJobRequest(
+      [
         {
-          documentId: 'doc-a',
-          sessionId: 'sess-1',
-          filename: 'a.md',
-        },
-        {
-          documentId: 'doc-b',
-          sessionId: 'sess-1',
-          filename: 'b.md',
+          role: 'user',
+          content: 'Ingest these docs',
+          metadata: { targetCollection: 'nvidia' },
+          attachments: [
+            {
+              type: 'document',
+              content: 'a.md',
+              documentRef: { documentId: 'doc-a', sessionId: 'sess-1' },
+            },
+            {
+              type: 'document',
+              content: 'b.md',
+              documentRef: { documentId: 'doc-b', sessionId: 'sess-1' },
+            },
+          ],
         },
       ],
-      collectionName: 'nvidia',
-      collectionScope: 'shared',
-      provenance: expect.objectContaining({
-        uploader: 'testuser',
-        targetCollection: 'nvidia',
+      'testuser',
+    );
+
+    expect(job).toEqual(
+      expect.objectContaining({
+        documentRefs: [
+          {
+            documentId: 'doc-a',
+            sessionId: 'sess-1',
+            filename: 'a.md',
+          },
+          {
+            documentId: 'doc-b',
+            sessionId: 'sess-1',
+            filename: 'b.md',
+          },
+        ],
+        collectionName: 'nvidia',
         collectionScope: 'shared',
-        databaseName: 'default',
+        provenance: expect.objectContaining({
+          uploader: 'testuser',
+          targetCollection: 'nvidia',
+          collectionScope: 'shared',
+          databaseName: 'default',
+        }),
+        username: 'testuser',
       }),
-      username: 'testuser',
-    }));
+    );
   });
 
   it('does not treat a plain follow-up as ingestion when the prior turn ingested docs', () => {
@@ -457,36 +470,43 @@ describe('chat/async backend pinning helpers', () => {
     ];
 
     expect(isDocumentIngestionRequest(messages)).toBe(true);
-    expect(getDocumentIngestJobRequest(messages, 'testuser')).toEqual(expect.objectContaining({
-      documentRefs: [
-        { documentId: 'doc-a', sessionId: 'sess-1', filename: 'a.md' },
-      ],
-      collectionName: 'nvidia',
-      collectionScope: 'shared',
-      provenance: expect.objectContaining({
-        uploader: 'testuser',
-        targetCollection: 'nvidia',
+    expect(getDocumentIngestJobRequest(messages, 'testuser')).toEqual(
+      expect.objectContaining({
+        documentRefs: [
+          { documentId: 'doc-a', sessionId: 'sess-1', filename: 'a.md' },
+        ],
+        collectionName: 'nvidia',
         collectionScope: 'shared',
+        provenance: expect.objectContaining({
+          uploader: 'testuser',
+          targetCollection: 'nvidia',
+          collectionScope: 'shared',
+        }),
+        username: 'testuser',
       }),
-      username: 'testuser',
-    }));
+    );
   });
 
   it('rejects explicit scope mismatches for shared ingestion targets', () => {
-    expect(() => getDocumentIngestJobRequest([
-      {
-        role: 'user',
-        content: 'Ingest this doc',
-        metadata: { targetCollection: 'nvidia', collectionScope: 'user' },
-        attachments: [
+    expect(() =>
+      getDocumentIngestJobRequest(
+        [
           {
-            type: 'document',
-            content: 'a.md',
-            documentRef: { documentId: 'doc-a', sessionId: 'sess-1' },
+            role: 'user',
+            content: 'Ingest this doc',
+            metadata: { targetCollection: 'nvidia', collectionScope: 'user' },
+            attachments: [
+              {
+                type: 'document',
+                content: 'a.md',
+                documentRef: { documentId: 'doc-a', sessionId: 'sess-1' },
+              },
+            ],
           },
         ],
-      },
-    ], 'testuser')).toThrow('does not match');
+        'testuser',
+      ),
+    ).toThrow('does not match');
   });
 
   it('runs document ingestion through the direct streaming ingest endpoint by default', async () => {
@@ -504,9 +524,9 @@ describe('chat/async backend pinning helpers', () => {
         redisStore.set(key, value);
       },
     );
-    (jsonGet as any).mockImplementation(async (key: string) => (
-      redisStore.has(key) ? redisStore.get(key) : null
-    ));
+    (jsonGet as any).mockImplementation(async (key: string) =>
+      redisStore.has(key) ? redisStore.get(key) : null,
+    );
 
     const req = {
       method: 'POST',
@@ -543,9 +563,11 @@ describe('chat/async backend pinning helpers', () => {
     }
 
     expect(res.status).toHaveBeenCalledWith(200);
-    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
-      status: 'streaming',
-    }));
+    expect(res.json).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: 'streaming',
+      }),
+    );
     expect(mocks.fetchWithTimeout).toHaveBeenCalledTimes(1);
     expect(mocks.fetchWithTimeout).toHaveBeenCalledWith(
       'http://10.0.2.61:8000/docs',
@@ -576,56 +598,65 @@ describe('chat/async backend pinning helpers', () => {
     )?.[1];
     expect(storedJobRequest.executionMode).toBe('document_ingest');
     expect(storedJobRequest.natMessages).toEqual([]);
-    expect(storedJobRequest.documentIngest).toEqual(expect.objectContaining({
-      documentRefs: [
-        {
-          documentId: 'doc-a',
-          sessionId: 'sess-1',
-          filename: 'a.md',
-        },
-      ],
-      collectionName: 'nvidia',
-      collectionScope: 'shared',
-      provenance: expect.objectContaining({
-        uploader: 'testuser',
-        targetCollection: 'nvidia',
+    expect(storedJobRequest.documentIngest).toEqual(
+      expect.objectContaining({
+        documentRefs: [
+          {
+            documentId: 'doc-a',
+            sessionId: 'sess-1',
+            filename: 'a.md',
+          },
+        ],
+        collectionName: 'nvidia',
         collectionScope: 'shared',
+        provenance: expect.objectContaining({
+          uploader: 'testuser',
+          targetCollection: 'nvidia',
+          collectionScope: 'shared',
+        }),
+        username: 'testuser',
       }),
-      username: 'testuser',
-    }));
+    );
 
     const storedJobStatus = (jsonSetWithExpiry as any).mock.calls.find(
       ([key]: [string]) => key.includes('async-job-status'),
     )?.[1];
     expect(storedJobStatus.status).toBe('streaming');
     expect(storedJobStatus.progress).toBe(0);
-    expect(storedJobStatus.ingestProgress).toEqual(expect.objectContaining({
-      completed: 0,
-      total: 1,
-      percent: 0,
-      phase: 'queued',
-    }));
+    expect(storedJobStatus.ingestProgress).toEqual(
+      expect.objectContaining({
+        completed: 0,
+        total: 1,
+        percent: 0,
+        phase: 'queued',
+      }),
+    );
 
-    const fetchCalls = fetchSpy.mock.calls as unknown as [string, RequestInit][];
+    const fetchCalls = fetchSpy.mock.calls as unknown as [
+      string,
+      RequestInit,
+    ][];
     const ingestCall = fetchCalls[0];
     const ingestBody = JSON.parse(String(ingestCall[1]?.body ?? '{}'));
-    expect(ingestBody).toEqual(expect.objectContaining({
-      documentRefs: [
-        {
-          documentId: 'doc-a',
-          sessionId: 'sess-1',
-          filename: 'a.md',
-        },
-      ],
-      username: 'testuser',
-      collection_name: 'nvidia',
-      collection_scope: 'shared',
-      provenance: expect.objectContaining({
-        uploader: 'testuser',
-        targetCollection: 'nvidia',
-        collectionScope: 'shared',
+    expect(ingestBody).toEqual(
+      expect.objectContaining({
+        documentRefs: [
+          {
+            documentId: 'doc-a',
+            sessionId: 'sess-1',
+            filename: 'a.md',
+          },
+        ],
+        username: 'testuser',
+        collection_name: 'nvidia',
+        collection_scope: 'shared',
+        provenance: expect.objectContaining({
+          uploader: 'testuser',
+          targetCollection: 'nvidia',
+          collectionScope: 'shared',
+        }),
       }),
-    }));
+    );
   });
 
   it('rejects document attachments that fail server-side ref validation', async () => {
@@ -685,9 +716,9 @@ describe('chat/async backend pinning helpers', () => {
         redisStore.set(key, value);
       },
     );
-    (jsonGet as any).mockImplementation(async (key: string) => (
-      redisStore.has(key) ? redisStore.get(key) : null
-    ));
+    (jsonGet as any).mockImplementation(async (key: string) =>
+      redisStore.has(key) ? redisStore.get(key) : null,
+    );
 
     const req = {
       method: 'POST',
@@ -732,8 +763,12 @@ describe('chat/async backend pinning helpers', () => {
     const submitBody = JSON.parse(mocks.fetchWithTimeout.mock.calls[1][1].body);
     expect(submitBody.sync_timeout).toBe(0);
     expect(submitBody.messages[1].content).toContain('documentRef=');
-    expect(submitBody.messages[1].content).toContain('collection_name="nvidia"');
-    expect(submitBody.messages[1].content).toContain('collection_scope="shared"');
+    expect(submitBody.messages[1].content).toContain(
+      'collection_name="nvidia"',
+    );
+    expect(submitBody.messages[1].content).toContain(
+      'collection_scope="shared"',
+    );
 
     const storedJobRequest = (jsonSetWithExpiry as any).mock.calls.find(
       ([key]: [string]) => key.includes('async-job-request'),
@@ -757,9 +792,9 @@ describe('chat/async backend pinning helpers', () => {
         redisStore.set(key, value);
       },
     );
-    (jsonGet as any).mockImplementation(async (key: string) => (
-      redisStore.has(key) ? redisStore.get(key) : null
-    ));
+    (jsonGet as any).mockImplementation(async (key: string) =>
+      redisStore.has(key) ? redisStore.get(key) : null,
+    );
 
     const req = {
       method: 'POST',
@@ -831,9 +866,9 @@ describe('chat/async backend pinning helpers', () => {
         redisStore.set(key, value);
       },
     );
-    (jsonGet as any).mockImplementation(async (key: string) => (
-      redisStore.has(key) ? redisStore.get(key) : null
-    ));
+    (jsonGet as any).mockImplementation(async (key: string) =>
+      redisStore.has(key) ? redisStore.get(key) : null,
+    );
 
     const req = {
       method: 'POST',
@@ -908,11 +943,12 @@ describe('chat/async backend pinning helpers', () => {
         redisStore.set(key, value);
       },
     );
-    (jsonGet as any).mockImplementation(async (key: string) => (
-      redisStore.has(key) ? redisStore.get(key) : null
-    ));
+    (jsonGet as any).mockImplementation(async (key: string) =>
+      redisStore.has(key) ? redisStore.get(key) : null,
+    );
 
-    const priorAssistant = 'The release notes show three new features and two bug fixes.';
+    const priorAssistant =
+      'The release notes show three new features and two bug fixes.';
 
     const req = {
       method: 'POST',
@@ -922,7 +958,10 @@ describe('chat/async backend pinning helpers', () => {
         messages: [
           { role: 'user', content: 'Summarize the release notes.' },
           { role: 'assistant', content: priorAssistant, id: 'asst-1' },
-          { role: 'user', content: 'Return your last response as a simple HTML file.' },
+          {
+            role: 'user',
+            content: 'Return your last response as a simple HTML file.',
+          },
         ],
       },
     } as any;
@@ -950,12 +989,18 @@ describe('chat/async backend pinning helpers', () => {
     expect(sentMessages.slice(1)).toEqual([
       { role: 'user', content: 'Summarize the release notes.' },
       { role: 'assistant', content: priorAssistant },
-      { role: 'user', content: 'Return your last response as a simple HTML file.' },
+      {
+        role: 'user',
+        content: 'Return your last response as a simple HTML file.',
+      },
     ]);
 
-    const fetchCalls = fetchSpy.mock.calls as unknown as [string, RequestInit][];
-    const streamCall = fetchCalls.find(
-      ([url]) => url.endsWith('/v1/chat/completions'),
+    const fetchCalls = fetchSpy.mock.calls as unknown as [
+      string,
+      RequestInit,
+    ][];
+    const streamCall = fetchCalls.find(([url]) =>
+      url.endsWith('/v1/chat/completions'),
     );
     expect(streamCall).toBeDefined();
     if (!streamCall) throw new Error('Expected chat stream request');
@@ -1262,7 +1307,8 @@ describe('chat/async backend pinning helpers', () => {
     const finalizedStatus = {
       ...jobStatus,
       status: 'error',
-      error: 'Backend stream did not produce an update before the timeout. Please try again.',
+      error:
+        'Backend stream did not produce an update before the timeout. Please try again.',
       partialResponse: '',
       intermediateSteps: [],
       updatedAt: now,
@@ -1323,7 +1369,11 @@ describe('chat/async response boundary helpers', () => {
   it('extracts only the new suffix from full-so-far message snapshots', () => {
     expect(
       extractAsyncStreamContentDelta(
-        { choices: [{ message: { content: 'Daily summary for May 13, 2026.' } }] },
+        {
+          choices: [
+            { message: { content: 'Daily summary for May 13, 2026.' } },
+          ],
+        },
         '',
       ),
     ).toBe('Daily summary for May 13, 2026.');
@@ -1331,11 +1381,14 @@ describe('chat/async response boundary helpers', () => {
     expect(
       extractAsyncStreamContentDelta(
         {
-          choices: [{
-            message: {
-              content: 'Daily summary for May 13, 2026.\n\nThe namespace is healthy.',
+          choices: [
+            {
+              message: {
+                content:
+                  'Daily summary for May 13, 2026.\n\nThe namespace is healthy.',
+              },
             },
-          }],
+          ],
         },
         'Daily summary for May 13, 2026.',
       ),
@@ -1383,7 +1436,8 @@ describe('chat/async response boundary helpers', () => {
 
   it('preserves responses that reference prior content without exact-prefix replay', () => {
     const prior = 'Daily summary for May 13, 2026.';
-    const next = 'Compared with the prior daily summary, the namespace is now healthy.';
+    const next =
+      'Compared with the prior daily summary, the namespace is now healthy.';
 
     expect(
       stripReplayedAssistantPrefix(next, [

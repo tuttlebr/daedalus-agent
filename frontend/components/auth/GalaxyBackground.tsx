@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, memo } from 'react';
+
 import { useReducedMotion } from '@/hooks/useReducedMotion';
 
 const PARTICLE_COUNT = 80;

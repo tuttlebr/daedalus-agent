@@ -57,21 +57,9 @@
       "Logout",
       "Type a message..."
     ],
-    "dominant_colors": [
-      "#000000",
-      "#1a1a1a",
-      "#76c000",
-      "#ffffff",
-      "#808080"
-    ],
+    "dominant_colors": ["#000000", "#1a1a1a", "#76c000", "#ffffff", "#808080"],
     "people": [],
-    "objects": [
-      "statue",
-      "sidebar",
-      "buttons",
-      "text-input",
-      "icons"
-    ],
+    "objects": ["statue", "sidebar", "buttons", "text-input", "icons"],
     "quality": {
       "sharpness": "sharp",
       "exposure": "balanced",

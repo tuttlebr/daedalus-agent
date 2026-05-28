@@ -36,11 +36,7 @@
     "scene": "A close-up studio shot of a classical sculpture.",
     "setting_type": "studio",
     "detected_text": [],
-    "dominant_colors": [
-      "black",
-      "white",
-      "gray"
-    ],
+    "dominant_colors": ["black", "white", "gray"],
     "people": [
       {
         "count_estimate": 1,
@@ -48,11 +44,7 @@
         "activity": "hammering metal"
       }
     ],
-    "objects": [
-      "hammer",
-      "anvil",
-      "sculpture"
-    ],
+    "objects": ["hammer", "anvil", "sculpture"],
     "quality": {
       "sharpness": "sharp",
       "exposure": "balanced",

@@ -1,235 +1,40 @@
 'use client';
 
-import React, { memo } from 'react';
 import { IconAdjustmentsHorizontal } from '@tabler/icons-react';
-import { Popover, Textarea } from '@/components/primitives';
-import {
-  useImagePanelStore,
-  selectMode,
-  type ImageParams,
-} from '@/state/imagePanelStore';
+import React, { memo } from 'react';
+
+import { Popover } from '@/components/primitives';
+
+import { ImageSettingsPanel } from './ImageSettingsPanel';
 import { DockIconTrigger } from './PresetsPopover';
-
-type Option<V extends string> = { value: V | ''; label: string };
-
-const QUALITY_OPTIONS: Option<string>[] = [
-  { value: '', label: 'Auto' },
-  { value: 'low', label: 'Low' },
-  { value: 'medium', label: 'Medium' },
-  { value: 'high', label: 'High' },
-];
-
-const SIZE_OPTIONS: Option<string>[] = [
-  { value: '', label: 'Auto' },
-  { value: '1024x1024', label: '1024×1024' },
-  { value: '1024x1536', label: '1024×1536' },
-  { value: '1536x1024', label: '1536×1024' },
-];
-
-const FORMAT_OPTIONS: Option<string>[] = [
-  { value: '', label: 'PNG' },
-  { value: 'png', label: 'PNG' },
-  { value: 'jpeg', label: 'JPEG' },
-  { value: 'webp', label: 'WebP' },
-];
-
-const BACKGROUND_OPTIONS: Option<string>[] = [
-  { value: '', label: 'Auto' },
-  { value: 'opaque', label: 'Opaque' },
-  { value: 'transparent', label: 'Transparent' },
-];
-
-const MODERATION_OPTIONS: Option<string>[] = [
-  { value: '', label: 'Auto' },
-  { value: 'low', label: 'Low' },
-];
-
-const FIDELITY_OPTIONS: Option<string>[] = [
-  { value: '', label: 'Default' },
-  { value: 'low', label: 'Low' },
-  { value: 'high', label: 'High' },
-];
 
 interface ParamsPopoverProps {
   disabled?: boolean;
+  triggerClassName?: string;
 }
 
-export const ParamsPopover = memo(function ParamsPopover({ disabled }: ParamsPopoverProps) {
-  const params = useImagePanelStore((s) => s.params);
-  const setParam = useImagePanelStore((s) => s.setParam);
-  const preserveList = useImagePanelStore((s) => s.preserveList);
-  const setPreserveList = useImagePanelStore((s) => s.setPreserveList);
-  const mode = useImagePanelStore(selectMode);
-
+export const ParamsPopover = memo(function ParamsPopover({
+  disabled,
+  triggerClassName,
+}: ParamsPopoverProps) {
   return (
     <Popover
       position="top"
       align="start"
       sheetOnMobile
       trigger={
-        <DockIconTrigger disabled={disabled} aria-label="Parameters">
+        <DockIconTrigger
+          disabled={disabled}
+          aria-label="Settings"
+          className={triggerClassName}
+        >
           <IconAdjustmentsHorizontal size={16} />
         </DockIconTrigger>
       }
     >
-      <div className="p-4 w-full md:w-80 md:max-h-[70vh] md:overflow-y-auto">
-        <div className="text-[10px] uppercase tracking-wider text-neutral-500 mb-3">
-          Parameters
-        </div>
-
-        <div className="grid grid-cols-2 gap-3">
-          <Select
-            label="Quality"
-            value={params.quality ?? ''}
-            options={QUALITY_OPTIONS}
-            onChange={(v) => setParam('quality', (v || undefined) as ImageParams['quality'])}
-          />
-          <Select
-            label="Size"
-            value={params.size ?? ''}
-            options={SIZE_OPTIONS}
-            onChange={(v) => setParam('size', (v || undefined) as ImageParams['size'])}
-          />
-          <Select
-            label="Format"
-            value={params.output_format ?? ''}
-            options={FORMAT_OPTIONS}
-            onChange={(v) =>
-              setParam('output_format', (v || undefined) as ImageParams['output_format'])
-            }
-          />
-          <Select
-            label="Background"
-            value={params.background ?? ''}
-            options={BACKGROUND_OPTIONS}
-            onChange={(v) =>
-              setParam('background', (v || undefined) as ImageParams['background'])
-            }
-          />
-
-          {(params.output_format === 'jpeg' || params.output_format === 'webp') && (
-            <NumberInput
-              label="Compression"
-              value={params.output_compression ?? ''}
-              min={0}
-              max={100}
-              onChange={(v) =>
-                setParam(
-                  'output_compression',
-                  v === '' ? undefined : Number(v),
-                )
-              }
-            />
-          )}
-
-          <Select
-            label="Moderation"
-            value={params.moderation ?? ''}
-            options={MODERATION_OPTIONS}
-            onChange={(v) =>
-              setParam('moderation', (v || undefined) as ImageParams['moderation'])
-            }
-          />
-
-          {mode === 'edit' && (
-            <Select
-              label="Input fidelity"
-              value={params.input_fidelity ?? ''}
-              options={FIDELITY_OPTIONS}
-              onChange={(v) =>
-                setParam(
-                  'input_fidelity',
-                  (v || undefined) as ImageParams['input_fidelity'],
-                )
-              }
-            />
-          )}
-        </div>
-
-        {mode === 'edit' && (
-          <div className="mt-4 pt-4 border-t border-white/5">
-            <label className="text-[10px] uppercase tracking-wider text-neutral-500 mb-2 block">
-              Preserve list
-            </label>
-            <p className="text-[11px] text-neutral-500 mb-2">
-              Appended to the prompt as "keep everything else the same,
-              specifically…" to fight drift.
-            </p>
-            <Textarea
-              value={preserveList}
-              onChange={(e) => setPreserveList(e.target.value)}
-              placeholder="face, pose, clothing, camera angle, lighting"
-              rows={2}
-              className="text-xs"
-            />
-          </div>
-        )}
+      <div className="w-full md:w-96 md:max-h-[70vh] md:overflow-y-auto">
+        <ImageSettingsPanel variant="sheet" />
       </div>
     </Popover>
   );
 });
-
-function FieldLabel({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="text-[10px] uppercase tracking-wider text-neutral-500 mb-1">
-      {children}
-    </div>
-  );
-}
-
-function Select({
-  label,
-  value,
-  options,
-  onChange,
-}: {
-  label: string;
-  value: string;
-  options: Option<string>[];
-  onChange: (v: string) => void;
-}) {
-  return (
-    <div>
-      <FieldLabel>{label}</FieldLabel>
-      <select
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="w-full h-8 px-2 text-xs rounded-md bg-black/30 border border-white/10 text-neutral-100 focus:outline-none focus:ring-1 focus:ring-nvidia-green/60"
-      >
-        {options.map((o) => (
-          <option key={o.value} value={o.value}>
-            {o.label}
-          </option>
-        ))}
-      </select>
-    </div>
-  );
-}
-
-function NumberInput({
-  label,
-  value,
-  min,
-  max,
-  onChange,
-}: {
-  label: string;
-  value: number | '';
-  min: number;
-  max: number;
-  onChange: (v: string) => void;
-}) {
-  return (
-    <div>
-      <FieldLabel>{label}</FieldLabel>
-      <input
-        type="number"
-        min={min}
-        max={max}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="w-full h-8 px-2 text-xs rounded-md bg-black/30 border border-white/10 text-neutral-100 focus:outline-none focus:ring-1 focus:ring-nvidia-green/60"
-      />
-    </div>
-  );
-}

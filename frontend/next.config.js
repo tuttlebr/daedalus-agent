@@ -43,7 +43,7 @@ const nextConfig = {
   },
   experimental: {
     serverActions: {
-      bodySizeLimit: "300mb", // Support large file uploads (documents up to 200MB + base64 overhead)
+      bodySizeLimit: '300mb', // Support large file uploads (documents up to 200MB + base64 overhead)
     },
     proxyTimeout: 900_000, // 15 minutes — matches nginx and API route timeouts
     optimizeCss: true, // Enable CSS optimization
@@ -83,7 +83,7 @@ const nextConfig = {
               test: /[\\/]node_modules[\\/]/,
               name(module) {
                 const packageName = module.context.match(
-                  /[\\/]node_modules[\\/](.*?)([[\\/]|$)/
+                  /[\\/]node_modules[\\/](.*?)([[\\/]|$)/,
                 )[1];
                 return `npm.${packageName.replace('@', '')}`;
               },
@@ -104,8 +104,7 @@ const nextConfig = {
     return config;
   },
   async redirects() {
-    return [
-    ]
+    return [];
   },
   // PWA configuration
   async headers() {
@@ -131,7 +130,8 @@ const nextConfig = {
         headers: [
           {
             key: 'Content-Security-Policy',
-            value: "default-src 'self'; script-src 'self' 'unsafe-eval' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://*.nvidia.com https://*.nvcf.nvidia.com; font-src 'self' data:; connect-src 'self' ws: wss:; frame-ancestors 'none'; base-uri 'self'; form-action 'self';",
+            value:
+              "default-src 'self'; script-src 'self' 'unsafe-eval' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://*.nvidia.com https://*.nvcf.nvidia.com; font-src 'self' data:; connect-src 'self' ws: wss:; frame-ancestors 'none'; base-uri 'self'; form-action 'self';",
           },
           {
             key: 'Referrer-Policy',
@@ -151,7 +151,8 @@ const nextConfig = {
           },
           {
             key: 'Permissions-Policy',
-            value: 'camera=(), microphone=(), geolocation=(), payment=(), usb=(), bluetooth=()',
+            value:
+              'camera=(), microphone=(), geolocation=(), payment=(), usb=(), bluetooth=()',
           },
         ],
       },

@@ -1,7 +1,10 @@
 import React, { useEffect } from 'react';
+
 import { useRouter } from 'next/router';
-import { useAuth } from './AuthProvider';
+
 import { Spinner } from '@/components/primitives';
+
+import { useAuth } from './AuthProvider';
 
 interface ProtectedRouteProps {
   children: React.ReactNode;

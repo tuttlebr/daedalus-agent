@@ -1,6 +1,7 @@
 import { NextApiRequest, NextApiResponse } from 'next';
-import { getUserUsageStats, getAllUsageStats } from '@/utils/usage/tracking';
+
 import { getSession } from '@/utils/auth/session';
+import { getUserUsageStats, getAllUsageStats } from '@/utils/usage/tracking';
 
 function isAdmin(username: string): boolean {
   return username === (process.env.ADMIN_USERNAME || 'admin');
@@ -12,7 +13,10 @@ function isAdmin(username: string): boolean {
  * GET /api/usage/stats (returns current user's stats)
  * GET /api/usage/stats?all=true (admin only - returns all users' stats)
  */
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+export default async function handler(
+  req: NextApiRequest,
+  res: NextApiResponse,
+) {
   if (req.method !== 'GET') {
     res.setHeader('Allow', ['GET']);
     return res.status(405).json({ error: 'Method not allowed' });
@@ -31,7 +35,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     if (all === 'true') {
       if (!sessionIsAdmin) {
-        return res.status(403).json({ error: 'Forbidden: Admin access required' });
+        return res
+          .status(403)
+          .json({ error: 'Forbidden: Admin access required' });
       }
       const allStats = await getAllUsageStats();
       return res.status(200).json({

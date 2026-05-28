@@ -1,5 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 
+import { AutonomyGoal } from '@/types/autonomy';
+
 import {
   createGoal,
   listGoals,
@@ -7,9 +9,11 @@ import {
   saveGoals,
 } from '@/server/autonomy/store';
 import { requireAuthenticatedUser } from '@/server/session/_utils';
-import { AutonomyGoal } from '@/types/autonomy';
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+export default async function handler(
+  req: NextApiRequest,
+  res: NextApiResponse,
+) {
   const session = await requireAuthenticatedUser(req, res);
   if (!session) return;
   const userId = session.username;
@@ -29,11 +33,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(400).json({ error: 'id is required' });
     }
     const goals = await listGoals(userId);
-    const next = goals.map((goal): AutonomyGoal => (
-      goal.id === id
-        ? { ...goal, ...updates, id: goal.id, updatedAt: nowMs() }
-        : goal
-    ));
+    const next = goals.map(
+      (goal): AutonomyGoal =>
+        goal.id === id
+          ? { ...goal, ...updates, id: goal.id, updatedAt: nowMs() }
+          : goal,
+    );
     await saveGoals(userId, next);
     return res.status(200).json(next.find((goal) => goal.id === id) || null);
   }

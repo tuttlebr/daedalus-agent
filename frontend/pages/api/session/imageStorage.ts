@@ -1,6 +1,9 @@
 import { NextApiRequest, NextApiResponse } from 'next';
 
-import { getOrSetSessionId, requireAuthenticatedUser } from '@/server/session/_utils';
+import {
+  getOrSetSessionId,
+  requireAuthenticatedUser,
+} from '@/server/session/_utils';
 import {
   getRedis,
   sessionKey,
@@ -8,7 +11,6 @@ import {
   jsonDel,
   jsonSetWithExpiry,
 } from '@/server/session/redis';
-
 import crypto from 'crypto';
 import sharp from 'sharp';
 

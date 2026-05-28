@@ -6,12 +6,11 @@ import {
   IconPlayerPlay,
   IconPlayerStop,
   IconPlus,
+  IconTrash,
   IconX,
 } from '@tabler/icons-react';
-import classNames from 'classnames';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-import { Button, Input, Textarea } from '@/components/primitives';
 import type {
   AutonomyConfig,
   AutonomyEvent,
@@ -20,7 +19,11 @@ import type {
   AutonomyRun,
 } from '@/types/autonomy';
 
+import { Button, IconButton, Input, Textarea } from '@/components/primitives';
+
 import { relativeTime } from './utils';
+
+import classNames from 'classnames';
 
 interface WorkspaceDrawerProps {
   open: boolean;
@@ -37,6 +40,7 @@ interface WorkspaceDrawerProps {
   onCancelActiveRun: () => void;
   onUpdateInterval: (hours: number) => void;
   onCreateGoal: (title: string, description: string) => void;
+  onDeleteGoal: (id: string) => void;
 }
 
 export function WorkspaceDrawer({
@@ -54,6 +58,7 @@ export function WorkspaceDrawer({
   onCancelActiveRun,
   onUpdateInterval,
   onCreateGoal,
+  onDeleteGoal,
 }: WorkspaceDrawerProps) {
   const panelRef = useRef<HTMLDivElement>(null);
   const [manualPrompt, setManualPrompt] = useState('');
@@ -63,7 +68,9 @@ export function WorkspaceDrawer({
 
   useEffect(() => {
     if (!config) return;
-    setIntervalHours(String(Math.max(1, Math.round((config.intervalSeconds || 14400) / 3600))));
+    setIntervalHours(
+      String(Math.max(1, Math.round((config.intervalSeconds || 14400) / 3600))),
+    );
   }, [config?.intervalSeconds, config]);
 
   const handleKeyDown = useCallback(
@@ -96,7 +103,9 @@ export function WorkspaceDrawer({
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
     const timer = window.setTimeout(() => {
-      panelRef.current?.querySelector<HTMLElement>('button, [href], input, textarea')?.focus();
+      panelRef.current
+        ?.querySelector<HTMLElement>('button, [href], input, textarea')
+        ?.focus();
     }, 80);
     return () => {
       document.removeEventListener('keydown', handleKeyDown);
@@ -106,7 +115,9 @@ export function WorkspaceDrawer({
   }, [open, handleKeyDown]);
 
   const enabled = !!config?.enabled;
-  const hasActiveRun = !!activeRun && ['running', 'queued', 'waiting_approval'].includes(activeRun.status);
+  const hasActiveRun =
+    !!activeRun &&
+    ['running', 'queued', 'waiting_approval'].includes(activeRun.status);
 
   return (
     <div
@@ -127,7 +138,7 @@ export function WorkspaceDrawer({
         ref={panelRef}
         role="dialog"
         aria-modal="true"
-        aria-label="Aurora workspace"
+        aria-label="Daedalus workspace"
         className={classNames(
           'absolute right-0 top-0 flex h-full w-full flex-col bg-[#0c0d0e] shadow-2xl ring-1 ring-white/[0.04]',
           'transition-transform duration-300 ease-out motion-reduce:transition-none',
@@ -135,35 +146,40 @@ export function WorkspaceDrawer({
           open ? 'translate-x-0' : 'translate-x-full',
         )}
       >
-        <header className="flex items-center justify-between border-b border-white/[0.04] px-5 py-4">
+        <header className="safe-top flex items-center justify-between border-b border-white/[0.04] px-5 py-4">
           <div>
             <p className="font-mono text-[10px] uppercase tracking-[0.22em] text-dark-text-subtle">
               workspace
             </p>
             <h2 className="mt-0.5 font-display text-[17px] font-semibold text-dark-text-primary">
-              Aurora controls
+              Daedalus controls
             </h2>
           </div>
           <button
             type="button"
             onClick={onClose}
             aria-label="Close workspace"
-            className="grid h-9 w-9 place-items-center rounded-full text-dark-text-muted transition hover:bg-white/[0.06] hover:text-dark-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nvidia-green/40"
+            className="grid h-11 w-11 place-items-center rounded-full text-dark-text-muted transition hover:bg-white/[0.06] hover:text-dark-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nvidia-green/40"
           >
-            <IconX size={16} />
+            <IconX size={18} />
           </button>
         </header>
 
-        <div className="flex-1 overflow-y-auto px-5 py-5">
+        <div className="safe-bottom flex-1 overflow-y-auto px-5 py-5">
           <Section title="State">
             <div className="flex items-center justify-between gap-3">
               <div className="min-w-0">
                 <p className="font-serif text-[14px] text-dark-text-secondary">
-                  Aurora is currently <strong className="text-dark-text-primary">{enabled ? 'awake' : 'paused'}</strong>.
+                  Daedalus is currently{' '}
+                  <strong className="text-dark-text-primary">
+                    {enabled ? 'awake' : 'paused'}
+                  </strong>
+                  .
                 </p>
                 {hasActiveRun && (
                   <p className="mt-1 font-mono text-[11px] text-dark-text-muted">
-                    {activeRun?.status} · started {relativeTime(activeRun?.startedAt || activeRun?.createdAt)}
+                    {activeRun?.status} · started{' '}
+                    {relativeTime(activeRun?.startedAt || activeRun?.createdAt)}
                   </p>
                 )}
               </div>
@@ -172,7 +188,13 @@ export function WorkspaceDrawer({
                 variant={enabled ? 'secondary' : 'accent'}
                 onClick={onTogglePause}
                 isLoading={busy === 'config'}
-                leftIcon={enabled ? <IconPlayerPause size={14} /> : <IconPlayerPlay size={14} />}
+                leftIcon={
+                  enabled ? (
+                    <IconPlayerPause size={14} />
+                  ) : (
+                    <IconPlayerPlay size={14} />
+                  )
+                }
               >
                 {enabled ? 'Pause' : 'Resume'}
               </Button>
@@ -210,7 +232,7 @@ export function WorkspaceDrawer({
               className="mt-2"
               leftIcon={<IconPlayerPlay size={14} />}
             >
-              Send to Aurora
+              Send to Daedalus
             </Button>
           </Section>
 
@@ -228,11 +250,15 @@ export function WorkspaceDrawer({
                   value={intervalHours}
                   onChange={(event) => setIntervalHours(event.target.value)}
                 />
-                <span className="font-serif text-[14px] text-dark-text-muted">hours</span>
+                <span className="font-serif text-[14px] text-dark-text-muted">
+                  hours
+                </span>
                 <Button
                   size="sm"
                   variant="secondary"
-                  onClick={() => onUpdateInterval(Math.max(1, Number(intervalHours || 4)))}
+                  onClick={() =>
+                    onUpdateInterval(Math.max(1, Number(intervalHours || 4)))
+                  }
                   isLoading={busy === 'config'}
                   className="ml-auto"
                 >
@@ -253,7 +279,7 @@ export function WorkspaceDrawer({
               <Textarea
                 value={goalDescription}
                 onChange={(event) => setGoalDescription(event.target.value)}
-                placeholder="What should Aurora watch for?"
+                placeholder="What should Daedalus watch for?"
                 maxRows={3}
               />
               <Button
@@ -273,23 +299,43 @@ export function WorkspaceDrawer({
             </div>
             <div className="mt-4 space-y-3">
               {goals.length === 0 ? (
-                <p className="font-serif text-[13px] italic text-dark-text-muted">No goals yet.</p>
+                <p className="font-serif text-[13px] italic text-dark-text-muted">
+                  No goals yet.
+                </p>
               ) : (
                 goals.slice(0, 12).map((goal) => (
-                  <article key={goal.id} className="border-t border-white/[0.04] pt-2.5 first:border-t-0 first:pt-0">
-                    <div className="flex items-baseline justify-between gap-3">
-                      <p className="truncate font-display text-[14px] font-semibold text-dark-text-primary">
-                        {goal.title}
-                      </p>
-                      <span className="font-mono text-[10px] uppercase tracking-wider text-dark-text-subtle">
-                        {goal.status}
-                      </span>
+                  <article
+                    key={goal.id}
+                    className="border-t border-white/[0.04] pt-2.5 first:border-t-0 first:pt-0"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="flex items-baseline gap-2">
+                          <p className="truncate font-display text-[14px] font-semibold text-dark-text-primary">
+                            {goal.title}
+                          </p>
+                          <span className="shrink-0 font-mono text-[10px] uppercase tracking-wider text-dark-text-subtle">
+                            {goal.status}
+                          </span>
+                        </div>
+                        {goal.description && (
+                          <p className="mt-1 font-serif text-[13px] leading-snug text-dark-text-muted">
+                            {goal.description}
+                          </p>
+                        )}
+                      </div>
+                      <IconButton
+                        size="xs"
+                        variant="danger"
+                        icon={<IconTrash />}
+                        aria-label={`Delete goal: ${goal.title}`}
+                        tooltip="Delete goal"
+                        isLoading={busy === `goal:${goal.id}`}
+                        disabled={busy !== null && busy !== `goal:${goal.id}`}
+                        onClick={() => onDeleteGoal(goal.id)}
+                        className="shrink-0"
+                      />
                     </div>
-                    {goal.description && (
-                      <p className="mt-1 font-serif text-[13px] leading-snug text-dark-text-muted">
-                        {goal.description}
-                      </p>
-                    )}
                   </article>
                 ))
               )}
@@ -315,7 +361,9 @@ export function WorkspaceDrawer({
                     <div className="flex items-baseline justify-between gap-3">
                       <div className="flex min-w-0 items-baseline gap-2">
                         <span className="shrink-0 font-mono text-[10px] uppercase tracking-wider text-nvidia-green/80">
-                          {request.position === 1 ? 'next' : `#${request.position}`}
+                          {request.position === 1
+                            ? 'next'
+                            : `#${request.position}`}
                         </span>
                         <span className="truncate font-mono text-[10px] uppercase tracking-wider text-dark-text-subtle">
                           {request.trigger}
@@ -340,12 +388,22 @@ export function WorkspaceDrawer({
           <Collapsible title="History" badge={runs.length}>
             <div className="space-y-3">
               {runs.length === 0 ? (
-                <p className="font-serif text-[13px] italic text-dark-text-muted">No runs yet.</p>
+                <p className="font-serif text-[13px] italic text-dark-text-muted">
+                  No runs yet.
+                </p>
               ) : (
                 runs.slice(0, 12).map((run) => (
-                  <article key={run.id} className="border-t border-white/[0.04] pt-2.5 first:border-t-0 first:pt-0">
+                  <article
+                    key={run.id}
+                    className="border-t border-white/[0.04] pt-2.5 first:border-t-0 first:pt-0"
+                  >
                     <div className="flex items-baseline justify-between gap-3">
-                      <span className={classNames('font-mono text-[10px] uppercase tracking-wider', runStatusTone(run.status))}>
+                      <span
+                        className={classNames(
+                          'font-mono text-[10px] uppercase tracking-wider',
+                          runStatusTone(run.status),
+                        )}
+                      >
                         {run.status}
                       </span>
                       <span className="font-mono text-[10px] text-dark-text-subtle">
@@ -366,10 +424,15 @@ export function WorkspaceDrawer({
           <Collapsible title="Diagnostics" badge={events.length}>
             <ol className="space-y-1.5">
               {events.length === 0 ? (
-                <p className="font-serif text-[13px] italic text-dark-text-muted">No events.</p>
+                <p className="font-serif text-[13px] italic text-dark-text-muted">
+                  No events.
+                </p>
               ) : (
                 events.slice(0, 30).map((event) => (
-                  <li key={event.id} className="flex gap-2 font-mono text-[11px]">
+                  <li
+                    key={event.id}
+                    className="flex gap-2 font-mono text-[11px]"
+                  >
                     <span className="w-16 shrink-0 text-dark-text-subtle">
                       {relativeTime(event.createdAt)}
                     </span>
@@ -383,7 +446,9 @@ export function WorkspaceDrawer({
                     >
                       {event.type}
                     </span>
-                    <span className="min-w-0 break-words text-dark-text-muted">{event.message}</span>
+                    <span className="min-w-0 break-words text-dark-text-muted">
+                      {event.message}
+                    </span>
                   </li>
                 ))
               )}
@@ -395,7 +460,13 @@ export function WorkspaceDrawer({
   );
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function Section({
+  title,
+  children,
+}: {
+  title: string;
+  children: React.ReactNode;
+}) {
   return (
     <section className="mb-6">
       <h3 className="mb-2 font-mono text-[10px] uppercase tracking-[0.22em] text-dark-text-subtle">
@@ -444,7 +515,8 @@ function Collapsible({
 
 function runStatusTone(status: string): string {
   if (status === 'completed') return 'text-emerald-400/80';
-  if (status === 'failed' || status === 'cancelled') return 'text-nvidia-red/80';
+  if (status === 'failed' || status === 'cancelled')
+    return 'text-nvidia-red/80';
   if (status === 'waiting_approval') return 'text-amber-300/80';
   if (status === 'running') return 'text-nvidia-green/80';
   return 'text-dark-text-subtle';

@@ -9,9 +9,8 @@
  * Battery-aware: disconnects when backgrounded (unless streaming),
  * extends reconnect delay on low battery.
  */
-
-import { Logger } from '@/utils/logger';
 import { shouldRunExpensiveOperation } from '@/utils/app/visibilityAwareTimer';
+import { Logger } from '@/utils/logger';
 
 const logger = new Logger('WebSocket');
 
@@ -29,19 +28,51 @@ export type ClientMessage =
 export type ServerMessage =
   | { type: 'pong'; ts: number }
   | { type: 'connected'; userId: string; streamingStates: Record<string, any> }
-  | { type: 'conversation_updated'; data: { conversationId: string; conversation: any } }
+  | {
+      type: 'conversation_updated';
+      data: { conversationId: string; conversation: any };
+    }
   | { type: 'conversation_deleted'; data: { conversationId: string } }
   | { type: 'conversation_list_changed' }
   | { type: 'selected_conversation_changed'; data: { conversationId: string } }
-  | { type: 'streaming_started'; data: { conversationId: string; sessionId: string } }
-  | { type: 'streaming_ended'; data: { conversationId: string; sessionId: string } }
+  | {
+      type: 'streaming_started';
+      data: { conversationId: string; sessionId: string };
+    }
+  | {
+      type: 'streaming_ended';
+      data: { conversationId: string; sessionId: string };
+    }
   | { type: 'autonomy_status'; data: any }
   | { type: 'autonomy_run_event'; data: any }
   | { type: 'autonomy_feed_updated'; data: any }
   | { type: 'autonomy_approval_requested'; data: any }
-  | { type: 'chat_token'; conversationId: string; jobId: string; turnId?: string; assistantMessageId?: string; content: string; intermediateSteps?: any[] }
-  | { type: 'chat_intermediate_step'; conversationId: string; jobId: string; turnId?: string; assistantMessageId?: string; step: any }
-  | { type: 'chat_complete'; conversationId: string; jobId: string; turnId?: string; assistantMessageId?: string; fullResponse: string; intermediateSteps?: any[] }
+  | {
+      type: 'chat_token';
+      conversationId: string;
+      jobId: string;
+      turnId?: string;
+      assistantMessageId?: string;
+      content: string;
+      intermediateSteps?: any[];
+    }
+  | {
+      type: 'chat_intermediate_step';
+      conversationId: string;
+      jobId: string;
+      turnId?: string;
+      assistantMessageId?: string;
+      step: any;
+    }
+  | {
+      type: 'chat_complete';
+      conversationId: string;
+      jobId: string;
+      turnId?: string;
+      assistantMessageId?: string;
+      fullResponse: string;
+      intermediateSteps?: any[];
+    }
   | { type: 'job_status'; data: any }
   | { type: 'error'; message: string };
 
@@ -79,7 +110,10 @@ export class WebSocketManager {
   }
 
   connect(): void {
-    if (this.ws?.readyState === WebSocket.OPEN || this.ws?.readyState === WebSocket.CONNECTING) {
+    if (
+      this.ws?.readyState === WebSocket.OPEN ||
+      this.ws?.readyState === WebSocket.CONNECTING
+    ) {
       return;
     }
 
@@ -88,7 +122,9 @@ export class WebSocketManager {
     try {
       // Build absolute WebSocket URL
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const wsUrl = this.url.startsWith('ws') ? this.url : `${protocol}//${window.location.host}${this.url}`;
+      const wsUrl = this.url.startsWith('ws')
+        ? this.url
+        : `${protocol}//${window.location.host}${this.url}`;
 
       this.ws = new WebSocket(wsUrl);
 
@@ -119,7 +155,9 @@ export class WebSocketManager {
       };
 
       this.ws.onclose = (event) => {
-        logger.info(`WebSocket closed: code=${event.code} reason=${event.reason}`);
+        logger.info(
+          `WebSocket closed: code=${event.code} reason=${event.reason}`,
+        );
         this._isConnected = false;
         this.stopPing();
 
@@ -289,7 +327,9 @@ export class WebSocketManager {
 
     // Stop after max attempts
     if (this.reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
-      logger.warn(`Max reconnection attempts reached (${MAX_RECONNECT_ATTEMPTS}) - stopping auto-reconnect`);
+      logger.warn(
+        `Max reconnection attempts reached (${MAX_RECONNECT_ATTEMPTS}) - stopping auto-reconnect`,
+      );
       this.emit('max_reconnect_reached', { attempts: this.reconnectAttempts });
       return;
     }
@@ -297,7 +337,7 @@ export class WebSocketManager {
     // Battery-aware delay
     let delay = Math.min(
       BASE_RECONNECT_DELAY * Math.pow(2, this.reconnectAttempts),
-      MAX_RECONNECT_DELAY
+      MAX_RECONNECT_DELAY,
     );
 
     // Check battery status
@@ -326,7 +366,9 @@ export class WebSocketManager {
     delay = Math.round(delay + jitter);
 
     this.reconnectAttempts++;
-    logger.info(`Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts})`);
+    logger.info(
+      `Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts})`,
+    );
 
     this.reconnectTimer = setTimeout(() => {
       this.connect();

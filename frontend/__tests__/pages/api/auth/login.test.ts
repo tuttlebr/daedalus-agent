@@ -1,3 +1,5 @@
+import handler from '@/pages/api/auth/login';
+
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
@@ -33,12 +35,7 @@ vi.mock('@/server/session/redis', () => ({
   ),
 }));
 
-import handler from '@/pages/api/auth/login';
-
-function createMockReqRes(
-  body: Record<string, unknown>,
-  method = 'POST',
-) {
+function createMockReqRes(body: Record<string, unknown>, method = 'POST') {
   const req = {
     method,
     body,
@@ -101,10 +98,7 @@ describe('/api/auth/login', () => {
     await handler(req, res);
 
     expect(mocks.redisIncr).toHaveBeenCalledTimes(1);
-    expect(mocks.redisExpire).toHaveBeenCalledWith(
-      expect.any(String),
-      300,
-    );
+    expect(mocks.redisExpire).toHaveBeenCalledWith(expect.any(String), 300);
     expect(res.status).toHaveBeenCalledWith(401);
   });
 

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { useWebSocket } from '@/hooks/useWebSocket';
+
 import type {
   AutonomyApproval,
   AutonomyConfig,
@@ -49,7 +50,10 @@ export function AutonomyDashboard() {
   const titleRestoreRef = useRef<string | null>(null);
 
   const activeRun = useMemo(
-    () => state.runs.find((run) => ['running', 'queued', 'waiting_approval'].includes(run.status)),
+    () =>
+      state.runs.find((run) =>
+        ['running', 'queued', 'waiting_approval'].includes(run.status),
+      ),
     [state.runs],
   );
   const pendingApprovals = useMemo(
@@ -78,8 +82,8 @@ export function AutonomyDashboard() {
       ]);
       let events: AutonomyEvent[] = [];
       if (runs?.[0]?.id) {
-        const detail = await fetch(`/api/autonomy/runs/${runs[0].id}`).then((r) =>
-          r.ok ? r.json() : null,
+        const detail = await fetch(`/api/autonomy/runs/${runs[0].id}`).then(
+          (r) => (r.ok ? r.json() : null),
         );
         events = detail?.events || [];
       }
@@ -135,8 +139,11 @@ export function AutonomyDashboard() {
   // Document title alert when approvals are pending and tab is unfocused
   useEffect(() => {
     if (typeof document === 'undefined') return;
-    if (titleRestoreRef.current === null) titleRestoreRef.current = document.title;
-    const baseTitle = titleRestoreRef.current.replace(/^\(\d+\)\s+/, '').replace(/\s+— Pending$/, '');
+    if (titleRestoreRef.current === null)
+      titleRestoreRef.current = document.title;
+    const baseTitle = titleRestoreRef.current
+      .replace(/^\(\d+\)\s+/, '')
+      .replace(/\s+— Pending$/, '');
     const updateTitle = () => {
       const hidden = document.visibilityState !== 'visible';
       if (hidden && pendingApprovals.length > 0) {
@@ -210,6 +217,23 @@ export function AutonomyDashboard() {
     [refresh],
   );
 
+  const deleteGoal = useCallback(
+    async (id: string) => {
+      setBusy(`goal:${id}`);
+      try {
+        const response = await fetch(
+          `/api/autonomy/goals?id=${encodeURIComponent(id)}`,
+          { method: 'DELETE' },
+        );
+        if (!response.ok) throw new Error('Failed to delete goal');
+        await refresh();
+      } finally {
+        setBusy(null);
+      }
+    },
+    [refresh],
+  );
+
   const resolveApproval = useCallback(
     async (id: string, decision: 'approved' | 'denied') => {
       setBusy(id);
@@ -232,7 +256,9 @@ export function AutonomyDashboard() {
     if (!activeRun) return;
     setBusy('cancel');
     try {
-      await fetch(`/api/autonomy/runs/${activeRun.id}/cancel`, { method: 'POST' });
+      await fetch(`/api/autonomy/runs/${activeRun.id}/cancel`, {
+        method: 'POST',
+      });
       await refresh();
     } finally {
       setBusy(null);
@@ -268,7 +294,7 @@ export function AutonomyDashboard() {
   return (
     <div className="h-full overflow-y-auto bg-[#0a0b0c] text-dark-text-primary">
       <BackgroundGrain />
-      <div className="relative mx-auto w-full max-w-[760px] px-4 pb-24 pt-1 md:px-6">
+      <div className="relative mx-auto w-full max-w-[760px] px-4 pt-1 md:px-6 pb-[calc(96px+env(safe-area-inset-bottom))] md:pb-24">
         <StatusStrip
           ref={workspaceButtonRef}
           config={state.config}
@@ -302,6 +328,7 @@ export function AutonomyDashboard() {
         onCancelActiveRun={cancelActiveRun}
         onUpdateInterval={updateInterval}
         onCreateGoal={createGoal}
+        onDeleteGoal={deleteGoal}
       />
     </div>
   );

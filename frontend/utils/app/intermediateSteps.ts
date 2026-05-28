@@ -4,7 +4,7 @@ import {
   IntermediateStepType,
   IntermediateStepState,
   getEventCategory,
-  getEventState
+  getEventState,
 } from '@/types/intermediateSteps';
 
 interface StepNode {
@@ -25,10 +25,12 @@ interface CategoryGroup {
 /**
  * Group steps by their event category
  */
-export function groupStepsByCategory(steps: IntermediateStep[]): Map<IntermediateStepCategory, IntermediateStep[]> {
+export function groupStepsByCategory(
+  steps: IntermediateStep[],
+): Map<IntermediateStepCategory, IntermediateStep[]> {
   const grouped = new Map<IntermediateStepCategory, IntermediateStep[]>();
 
-  steps.forEach(step => {
+  steps.forEach((step) => {
     const category = getEventCategory(step.payload.event_type);
     const categorySteps = grouped.get(category) || [];
     categorySteps.push(step);
@@ -47,18 +49,20 @@ export function buildStepHierarchy(steps: IntermediateStep[]): StepNode[] {
   const uuidToStartTime = new Map<string, number>();
 
   // First pass: create all nodes and track START event times
-  steps.forEach(step => {
+  steps.forEach((step) => {
     const node: StepNode = { step, children: [] };
     nodeMap.set(step.payload.UUID, node);
 
     // Track START event timestamps for duration calculation
-    if (getEventState(step.payload.event_type) === IntermediateStepState.START) {
+    if (
+      getEventState(step.payload.event_type) === IntermediateStepState.START
+    ) {
       uuidToStartTime.set(step.payload.UUID, step.payload.event_timestamp);
     }
   });
 
   // Second pass: build hierarchy and calculate durations
-  steps.forEach(step => {
+  steps.forEach((step) => {
     const node = nodeMap.get(step.payload.UUID);
     if (!node) return;
 
@@ -66,20 +70,27 @@ export function buildStepHierarchy(steps: IntermediateStep[]): StepNode[] {
     if (getEventState(step.payload.event_type) === IntermediateStepState.END) {
       // First check if span_event_timestamp is provided (backend calculated)
       if (step.payload.span_event_timestamp) {
-        node.duration = (step.payload.event_timestamp - step.payload.span_event_timestamp) * 1000; // Convert to ms
+        node.duration =
+          (step.payload.event_timestamp - step.payload.span_event_timestamp) *
+          1000; // Convert to ms
         node.startTimestamp = step.payload.span_event_timestamp;
         node.endTimestamp = step.payload.event_timestamp;
       } else {
         // Try to find matching START event by name and parent
-        const matchingStartStep = steps.find(s =>
-          s.parent_id === step.parent_id &&
-          s.payload.name === step.payload.name &&
-          getEventState(s.payload.event_type) === IntermediateStepState.START &&
-          s.payload.event_timestamp < step.payload.event_timestamp
+        const matchingStartStep = steps.find(
+          (s) =>
+            s.parent_id === step.parent_id &&
+            s.payload.name === step.payload.name &&
+            getEventState(s.payload.event_type) ===
+              IntermediateStepState.START &&
+            s.payload.event_timestamp < step.payload.event_timestamp,
         );
 
         if (matchingStartStep) {
-          node.duration = (step.payload.event_timestamp - matchingStartStep.payload.event_timestamp) * 1000;
+          node.duration =
+            (step.payload.event_timestamp -
+              matchingStartStep.payload.event_timestamp) *
+            1000;
           node.startTimestamp = matchingStartStep.payload.event_timestamp;
           node.endTimestamp = step.payload.event_timestamp;
         }
@@ -95,7 +106,7 @@ export function buildStepHierarchy(steps: IntermediateStep[]): StepNode[] {
 
       // If not found, try to find by matching parent in the steps
       if (!parentNode) {
-        const parentStep = steps.find(s => s.payload.UUID === step.parent_id);
+        const parentStep = steps.find((s) => s.payload.UUID === step.parent_id);
         if (parentStep) {
           parentNode = nodeMap.get(parentStep.payload.UUID);
         }
@@ -112,8 +123,10 @@ export function buildStepHierarchy(steps: IntermediateStep[]): StepNode[] {
 
   // Sort children by timestamp
   const sortNodes = (nodes: StepNode[]) => {
-    nodes.sort((a, b) => a.step.payload.event_timestamp - b.step.payload.event_timestamp);
-    nodes.forEach(node => sortNodes(node.children));
+    nodes.sort(
+      (a, b) => a.step.payload.event_timestamp - b.step.payload.event_timestamp,
+    );
+    nodes.forEach((node) => sortNodes(node.children));
   };
 
   sortNodes(rootNodes);
@@ -124,19 +137,29 @@ export function buildStepHierarchy(steps: IntermediateStep[]): StepNode[] {
 /**
  * Calculate duration between matching START and END events
  */
-export function calculateStepDuration(startStep: IntermediateStep, endStep: IntermediateStep): number | null {
-  if (getEventState(startStep.payload.event_type) !== IntermediateStepState.START ||
-      getEventState(endStep.payload.event_type) !== IntermediateStepState.END) {
+export function calculateStepDuration(
+  startStep: IntermediateStep,
+  endStep: IntermediateStep,
+): number | null {
+  if (
+    getEventState(startStep.payload.event_type) !==
+      IntermediateStepState.START ||
+    getEventState(endStep.payload.event_type) !== IntermediateStepState.END
+  ) {
     return null;
   }
 
   // Check if they're matching events (same name and parent)
-  if (startStep.payload.name !== endStep.payload.name ||
-      startStep.parent_id !== endStep.parent_id) {
+  if (
+    startStep.payload.name !== endStep.payload.name ||
+    startStep.parent_id !== endStep.parent_id
+  ) {
     return null;
   }
 
-  return (endStep.payload.event_timestamp - startStep.payload.event_timestamp) * 1000; // Return in ms
+  return (
+    (endStep.payload.event_timestamp - startStep.payload.event_timestamp) * 1000
+  ); // Return in ms
 }
 
 /**
@@ -147,7 +170,9 @@ export function formatStepData(data: any, maxLength: number = 1000): string {
 
   // Handle string data
   if (typeof data === 'string') {
-    return data.length > maxLength ? data.substring(0, maxLength) + '...' : data;
+    return data.length > maxLength
+      ? data.substring(0, maxLength) + '...'
+      : data;
   }
 
   // Handle object/array data
@@ -164,12 +189,15 @@ export function formatStepData(data: any, maxLength: number = 1000): string {
 /**
  * Search steps by text in name, type, or data
  */
-export function searchSteps(steps: IntermediateStep[], searchTerm: string): IntermediateStep[] {
+export function searchSteps(
+  steps: IntermediateStep[],
+  searchTerm: string,
+): IntermediateStep[] {
   if (!searchTerm || !searchTerm.trim()) return steps;
 
   const term = searchTerm.toLowerCase();
 
-  return steps.filter(step => {
+  return steps.filter((step) => {
     // Search in name
     if (step.payload.name?.toLowerCase().includes(term)) return true;
 
@@ -177,10 +205,12 @@ export function searchSteps(steps: IntermediateStep[], searchTerm: string): Inte
     if (step.payload.event_type.toLowerCase().includes(term)) return true;
 
     // Search in tags
-    if (step.payload.tags?.some(tag => tag.toLowerCase().includes(term))) return true;
+    if (step.payload.tags?.some((tag) => tag.toLowerCase().includes(term)))
+      return true;
 
     // Search in function name
-    if (step.function_ancestry.function_name.toLowerCase().includes(term)) return true;
+    if (step.function_ancestry.function_name.toLowerCase().includes(term))
+      return true;
 
     // Search in data (limited to avoid performance issues)
     try {
@@ -212,13 +242,16 @@ export function getStepStatistics(steps: IntermediateStep[]): {
     let categoryDuration = 0;
 
     // Calculate durations for this category
-    const endSteps = categorySteps.filter(s =>
-      getEventState(s.payload.event_type) === IntermediateStepState.END
+    const endSteps = categorySteps.filter(
+      (s) => getEventState(s.payload.event_type) === IntermediateStepState.END,
     );
 
-    endSteps.forEach(endStep => {
+    endSteps.forEach((endStep) => {
       if (endStep.payload.span_event_timestamp) {
-        const duration = (endStep.payload.event_timestamp - endStep.payload.span_event_timestamp) * 1000;
+        const duration =
+          (endStep.payload.event_timestamp -
+            endStep.payload.span_event_timestamp) *
+          1000;
         categoryDuration += duration;
         totalDuration += duration;
         durationCount++;
@@ -229,7 +262,7 @@ export function getStepStatistics(steps: IntermediateStep[]): {
       category,
       steps: categorySteps,
       totalDuration: categoryDuration,
-      count: categorySteps.length
+      count: categorySteps.length,
     });
   });
 
@@ -237,7 +270,7 @@ export function getStepStatistics(steps: IntermediateStep[]): {
     totalSteps: steps.length,
     byCategory,
     totalDuration,
-    avgDuration: durationCount > 0 ? totalDuration / durationCount : 0
+    avgDuration: durationCount > 0 ? totalDuration / durationCount : 0,
   };
 }
 
@@ -274,9 +307,7 @@ const FRIENDLY_NAMES: Record<string, string> = {
   webscrape: 'Searching the web',
   serpapi_search: 'Searching the web',
   smart_milvus: 'Searching knowledge base',
-  image_generation: 'Generating image',
-  image_comprehension: 'Analyzing image',
-  image_augmentation: 'Editing image',
+  visual_media: 'Working with image',
   rss_feed: 'Reading RSS feeds',
   nat_nv_ingest: 'Processing document',
   vtt_interpreter: 'Processing transcript',
@@ -300,13 +331,17 @@ function cleanupName(raw: string): string {
   return raw
     .replace(/_/g, ' ')
     .replace(/([a-z])([A-Z])/g, '$1 $2')
-    .replace(/\b\w/g, c => c.toUpperCase())
+    .replace(/\b\w/g, (c) => c.toUpperCase())
     .trim();
 }
 
 export function getFriendlyName(step: IntermediateStep): string {
   const category = getEventCategory(step.payload.event_type);
-  const rawName = (step.payload.name || step.function_ancestry.function_name || '').toLowerCase();
+  const rawName = (
+    step.payload.name ||
+    step.function_ancestry.function_name ||
+    ''
+  ).toLowerCase();
 
   // Check exact match first
   for (const [key, label] of Object.entries(FRIENDLY_NAMES)) {
@@ -318,7 +353,8 @@ export function getFriendlyName(step: IntermediateStep): string {
 
   // Clean up the raw name if we have one
   if (step.payload.name) return cleanupName(step.payload.name);
-  if (step.function_ancestry.function_name) return cleanupName(step.function_ancestry.function_name);
+  if (step.function_ancestry.function_name)
+    return cleanupName(step.function_ancestry.function_name);
 
   return CATEGORY_LABELS[category] || 'Processing';
 }
@@ -336,15 +372,23 @@ function extractContext(step: IntermediateStep): string | undefined {
     if (toolInputs) {
       if (typeof toolInputs === 'string') return truncate(toolInputs, 120);
       // Try to extract a query/url/input field from tool inputs
-      const queryField = toolInputs.query || toolInputs.url || toolInputs.input ||
-                         toolInputs.question || toolInputs.search_query || toolInputs.prompt;
-      if (queryField && typeof queryField === 'string') return truncate(queryField, 120);
+      const queryField =
+        toolInputs.query ||
+        toolInputs.url ||
+        toolInputs.input ||
+        toolInputs.question ||
+        toolInputs.search_query ||
+        toolInputs.prompt;
+      if (queryField && typeof queryField === 'string')
+        return truncate(queryField, 120);
       // If it's an object with few keys, show a brief summary
       const keys = Object.keys(toolInputs);
       if (keys.length <= 3) {
-        const parts = keys.map(k => {
+        const parts = keys.map((k) => {
           const v = toolInputs[k];
-          return `${k}: ${typeof v === 'string' ? truncate(v, 40) : JSON.stringify(v)}`;
+          return `${k}: ${
+            typeof v === 'string' ? truncate(v, 40) : JSON.stringify(v)
+          }`;
         });
         return truncate(parts.join(', '), 120);
       }
@@ -355,8 +399,10 @@ function extractContext(step: IntermediateStep): string | undefined {
   const dataInput = step.payload.data?.input;
   if (dataInput) {
     if (typeof dataInput === 'string') return truncate(dataInput, 120);
-    const queryField = dataInput.query || dataInput.url || dataInput.input || dataInput.question;
-    if (queryField && typeof queryField === 'string') return truncate(queryField, 120);
+    const queryField =
+      dataInput.query || dataInput.url || dataInput.input || dataInput.question;
+    if (queryField && typeof queryField === 'string')
+      return truncate(queryField, 120);
   }
 
   return undefined;
@@ -372,7 +418,11 @@ function extractOutput(step: IntermediateStep): any {
     const spanOutputs = (meta as any).span_outputs;
     if (spanOutputs) return spanOutputs;
   }
-  return step.payload.data?.output || step.payload.data?.result || step.payload.data?.response;
+  return (
+    step.payload.data?.output ||
+    step.payload.data?.result ||
+    step.payload.data?.response
+  );
 }
 
 function truncate(str: string, maxLen: number): string {
@@ -388,8 +438,13 @@ function truncate(str: string, maxLen: number): string {
  * (e.g. multiple LLM calls) each get their own pair.
  * END events can also match via span_event_timestamp ≈ START timestamp.
  */
-export function consolidateSteps(steps: IntermediateStep[], isComplete?: boolean): ConsolidatedStep[] {
-  const sorted = [...steps].sort((a, b) => a.payload.event_timestamp - b.payload.event_timestamp);
+export function consolidateSteps(
+  steps: IntermediateStep[],
+  isComplete?: boolean,
+): ConsolidatedStep[] {
+  const sorted = [...steps].sort(
+    (a, b) => a.payload.event_timestamp - b.payload.event_timestamp,
+  );
 
   // Queue of unpaired STARTs per name+parent key
   const startQueues = new Map<string, IntermediateStep[]>();
@@ -398,11 +453,13 @@ export function consolidateSteps(steps: IntermediateStep[], isComplete?: boolean
   // Orphaned ENDs (no matching START found)
   const orphanedEnds: IntermediateStep[] = [];
 
-  sorted.forEach(step => {
+  sorted.forEach((step) => {
     const state = getEventState(step.payload.event_type);
     if (state === IntermediateStepState.CHUNK) return;
 
-    const key = `${step.payload.name || step.function_ancestry.function_name}::${step.parent_id}`;
+    const key = `${
+      step.payload.name || step.function_ancestry.function_name
+    }::${step.parent_id}`;
 
     if (state === IntermediateStepState.START) {
       const queue = startQueues.get(key) || [];
@@ -417,8 +474,8 @@ export function consolidateSteps(steps: IntermediateStep[], isComplete?: boolean
         let matchIdx = 0;
         if (step.payload.span_event_timestamp && queue.length > 1) {
           const spanTs = step.payload.span_event_timestamp;
-          const bestIdx = queue.findIndex(s =>
-            Math.abs(s.payload.event_timestamp - spanTs) < 0.01
+          const bestIdx = queue.findIndex(
+            (s) => Math.abs(s.payload.event_timestamp - spanTs) < 0.01,
           );
           if (bestIdx >= 0) matchIdx = bestIdx;
         }
@@ -437,9 +494,11 @@ export function consolidateSteps(steps: IntermediateStep[], isComplete?: boolean
   pairs.forEach(({ start, end }) => {
     let duration: number | undefined;
     if (end.payload.span_event_timestamp) {
-      duration = (end.payload.event_timestamp - end.payload.span_event_timestamp) * 1000;
+      duration =
+        (end.payload.event_timestamp - end.payload.span_event_timestamp) * 1000;
     } else {
-      duration = (end.payload.event_timestamp - start.payload.event_timestamp) * 1000;
+      duration =
+        (end.payload.event_timestamp - start.payload.event_timestamp) * 1000;
     }
 
     consolidated.push({
@@ -449,7 +508,9 @@ export function consolidateSteps(steps: IntermediateStep[], isComplete?: boolean
       status: 'completed',
       duration,
       context: extractContext(start) || extractContext(end),
-      input: start.payload.data?.input || (start.payload.metadata as any)?.tool_inputs,
+      input:
+        start.payload.data?.input ||
+        (start.payload.metadata as any)?.tool_inputs,
       output: extractOutput(end),
       startStep: start,
       endStep: end,
@@ -459,15 +520,17 @@ export function consolidateSteps(steps: IntermediateStep[], isComplete?: boolean
   });
 
   // Unpaired STARTs: active while streaming, completed once the response is done
-  startQueues.forEach(queue => {
-    queue.forEach(start => {
+  startQueues.forEach((queue) => {
+    queue.forEach((start) => {
       consolidated.push({
         id: start.payload.UUID,
         friendlyName: getFriendlyName(start),
         category: getEventCategory(start.payload.event_type),
         status: isComplete ? 'completed' : 'active',
         context: extractContext(start),
-        input: start.payload.data?.input || (start.payload.metadata as any)?.tool_inputs,
+        input:
+          start.payload.data?.input ||
+          (start.payload.metadata as any)?.tool_inputs,
         startStep: start,
         children: [],
         depth: start.function_ancestry.depth || 0,
@@ -476,10 +539,11 @@ export function consolidateSteps(steps: IntermediateStep[], isComplete?: boolean
   });
 
   // Orphaned ENDs (completed but no START found — use span_event_timestamp for duration)
-  orphanedEnds.forEach(end => {
+  orphanedEnds.forEach((end) => {
     let duration: number | undefined;
     if (end.payload.span_event_timestamp) {
-      duration = (end.payload.event_timestamp - end.payload.span_event_timestamp) * 1000;
+      duration =
+        (end.payload.event_timestamp - end.payload.span_event_timestamp) * 1000;
     }
 
     consolidated.push({
@@ -498,19 +562,24 @@ export function consolidateSteps(steps: IntermediateStep[], isComplete?: boolean
   });
 
   // Sort by start time
-  consolidated.sort((a, b) => a.startStep.payload.event_timestamp - b.startStep.payload.event_timestamp);
+  consolidated.sort(
+    (a, b) =>
+      a.startStep.payload.event_timestamp - b.startStep.payload.event_timestamp,
+  );
 
   // Build hierarchy from depth/parent relationships
   return buildConsolidatedHierarchy(consolidated);
 }
 
-function buildConsolidatedHierarchy(steps: ConsolidatedStep[]): ConsolidatedStep[] {
+function buildConsolidatedHierarchy(
+  steps: ConsolidatedStep[],
+): ConsolidatedStep[] {
   if (steps.length === 0) return [];
 
   const rootSteps: ConsolidatedStep[] = [];
   const parentStack: ConsolidatedStep[] = [];
 
-  steps.forEach(step => {
+  steps.forEach((step) => {
     // Find the right parent based on parent_id
     const parentId = step.startStep.parent_id;
 
@@ -532,9 +601,15 @@ function buildConsolidatedHierarchy(steps: ConsolidatedStep[]): ConsolidatedStep
   return rootSteps;
 }
 
-function findParent(steps: ConsolidatedStep[], parentId: string): ConsolidatedStep | null {
+function findParent(
+  steps: ConsolidatedStep[],
+  parentId: string,
+): ConsolidatedStep | null {
   for (const step of steps) {
-    if (step.startStep.payload.UUID === parentId || step.endStep?.payload.UUID === parentId) {
+    if (
+      step.startStep.payload.UUID === parentId ||
+      step.endStep?.payload.UUID === parentId
+    ) {
       return step;
     }
     const found = findParent(step.children, parentId);
@@ -546,18 +621,29 @@ function findParent(steps: ConsolidatedStep[], parentId: string): ConsolidatedSt
 /**
  * Search consolidated steps by friendly name or context
  */
-export function searchConsolidatedSteps(steps: ConsolidatedStep[], searchTerm: string): ConsolidatedStep[] {
+export function searchConsolidatedSteps(
+  steps: ConsolidatedStep[],
+  searchTerm: string,
+): ConsolidatedStep[] {
   if (!searchTerm || !searchTerm.trim()) return steps;
   const term = searchTerm.toLowerCase();
 
-  return steps.filter(step => {
+  return steps.filter((step) => {
     if (step.friendlyName.toLowerCase().includes(term)) return true;
     if (step.context?.toLowerCase().includes(term)) return true;
     if (step.startStep.payload.name?.toLowerCase().includes(term)) return true;
-    if (step.startStep.function_ancestry.function_name.toLowerCase().includes(term)) return true;
+    if (
+      step.startStep.function_ancestry.function_name
+        .toLowerCase()
+        .includes(term)
+    )
+      return true;
     // Recurse into children
     if (step.children.length > 0) {
-      const matchingChildren = searchConsolidatedSteps(step.children, searchTerm);
+      const matchingChildren = searchConsolidatedSteps(
+        step.children,
+        searchTerm,
+      );
       if (matchingChildren.length > 0) return true;
     }
     return false;
@@ -587,7 +673,7 @@ export function migrateOldStepFormat(oldStep: any): IntermediateStep | null {
         node_id: oldStep.id || 'unknown',
         parent_id: oldStep.parent_id || null,
         function_name: oldStep.content?.name || 'Unknown Function',
-        depth: 0
+        depth: 0,
       },
       payload: {
         event_type: eventType,
@@ -595,13 +681,13 @@ export function migrateOldStepFormat(oldStep: any): IntermediateStep | null {
         name: oldStep.content?.name || oldStep.name || 'Migrated Step',
         metadata: {
           migrated: true,
-          original_data: oldStep
+          original_data: oldStep,
         },
         data: {
-          output: oldStep.content?.payload || oldStep.content
+          output: oldStep.content?.payload || oldStep.content,
         },
-        UUID: oldStep.id || `migrated-${Date.now()}-${Math.random()}`
-      }
+        UUID: oldStep.id || `migrated-${Date.now()}-${Math.random()}`,
+      },
     };
 
     return newStep;

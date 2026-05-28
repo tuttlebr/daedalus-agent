@@ -6,13 +6,14 @@
  *
  * @requires zustand - Run: npm install zustand
  */
+import { getDefaultChatCompletionUrl } from '@/utils/app/backendApi';
+
+import { FolderInterface } from '@/types/folder';
+import { IntermediateStepCategory } from '@/types/intermediateSteps';
 
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import { subscribeWithSelector } from 'zustand/middleware';
-import { IntermediateStepCategory } from '@/types/intermediateSteps';
-import { FolderInterface } from '@/types/folder';
-import { getDefaultChatCompletionUrl } from '@/utils/app/backendApi';
 
 // ============================================================================
 // Types
@@ -242,7 +243,7 @@ export const useUISettingsStore = create<UISettingsStore>()(
         updateFolder: (id, updates) =>
           set((state) => ({
             folders: state.folders.map((f) =>
-              f.id === id ? { ...f, ...updates } : f
+              f.id === id ? { ...f, ...updates } : f,
             ),
           })),
 
@@ -301,9 +302,9 @@ export const useUISettingsStore = create<UISettingsStore>()(
           enableBackgroundProcessing: state.enableBackgroundProcessing,
           energySavingMode: state.energySavingMode,
         }),
-      }
-    )
-  )
+      },
+    ),
+  ),
 );
 
 // ============================================================================
@@ -319,10 +320,13 @@ export const selectEnableIntermediateSteps = (state: UISettingsStore) =>
 // Convenience Hooks
 // ============================================================================
 
-export const useLightMode = () => useUISettingsStore((state) => state.lightMode);
-export const useShowChatbar = () => useUISettingsStore((state) => state.showChatbar);
+export const useLightMode = () =>
+  useUISettingsStore((state) => state.lightMode);
+export const useShowChatbar = () =>
+  useUISettingsStore((state) => state.showChatbar);
 export const useFolders = () => useUISettingsStore((state) => state.folders);
-export const useSearchTerm = () => useUISettingsStore((state) => state.searchTerm);
+export const useSearchTerm = () =>
+  useUISettingsStore((state) => state.searchTerm);
 
 // ============================================================================
 // DevTools

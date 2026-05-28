@@ -1,15 +1,28 @@
 import React, { useState, useMemo, useEffect } from 'react';
+
+import {
+  searchSteps,
+  migrateOldStepFormat,
+  consolidateSteps,
+  searchConsolidatedSteps,
+} from '@/utils/app/intermediateSteps';
+import {
+  loadIntermediateSteps,
+  saveIntermediateSteps,
+  getIntermediateStepCount,
+} from '@/utils/app/intermediateStepsDB';
+import { Logger } from '@/utils/logger';
+
 import {
   IntermediateStep,
   getEventState,
   IntermediateStepState,
 } from '@/types/intermediateSteps';
+
 import { StepTimeline } from './StepTimeline';
 import { ViewToggle } from './ViewToggle';
-import { searchSteps, migrateOldStepFormat, consolidateSteps, searchConsolidatedSteps } from '@/utils/app/intermediateSteps';
-import { loadIntermediateSteps, saveIntermediateSteps, getIntermediateStepCount } from '@/utils/app/intermediateStepsDB';
+
 import { useConversationStore, useUISettingsStore } from '@/state';
-import { Logger } from '@/utils/logger';
 
 const logger = new Logger('IntermediateSteps');
 
@@ -22,12 +35,20 @@ interface IntermediateStepsProps {
 const INITIAL_STEPS_TO_SHOW = 5;
 const STEPS_TO_LOAD_MORE = 10;
 
-export const IntermediateSteps: React.FC<IntermediateStepsProps> = ({ steps, className = '', conversationId }) => {
-  const selectedConversationId = useConversationStore((s) => s.selectedConversationId);
-  const streamingConversationIds = useConversationStore((s) => s.streamingConversationIds);
+export const IntermediateSteps: React.FC<IntermediateStepsProps> = ({
+  steps,
+  className = '',
+  conversationId,
+}) => {
+  const selectedConversationId = useConversationStore(
+    (s) => s.selectedConversationId,
+  );
+  const streamingConversationIds = useConversationStore(
+    (s) => s.streamingConversationIds,
+  );
   const activeConversationId = conversationId || selectedConversationId;
   const resolvedIsStreaming = Boolean(
-    activeConversationId && streamingConversationIds.has(activeConversationId)
+    activeConversationId && streamingConversationIds.has(activeConversationId),
   );
 
   const [searchTerm, setSearchTerm] = useState('');
@@ -57,7 +78,10 @@ export const IntermediateSteps: React.FC<IntermediateStepsProps> = ({ steps, cla
     normalizedSteps.forEach((step) => {
       if (step?.payload?.UUID) {
         const existing = deduplicatedMap.get(step.payload.UUID);
-        if (!existing || step.payload.event_timestamp > existing.payload.event_timestamp) {
+        if (
+          !existing ||
+          step.payload.event_timestamp > existing.payload.event_timestamp
+        ) {
           deduplicatedMap.set(step.payload.UUID, step);
         }
       }
@@ -68,7 +92,9 @@ export const IntermediateSteps: React.FC<IntermediateStepsProps> = ({ steps, cla
         if (!step?.payload?.event_type) {
           return false;
         }
-        return getEventState(step.payload.event_type) !== IntermediateStepState.CHUNK;
+        return (
+          getEventState(step.payload.event_type) !== IntermediateStepState.CHUNK
+        );
       })
       .sort((a, b) => a.payload.event_timestamp - b.payload.event_timestamp);
   }, [steps]);
@@ -78,7 +104,9 @@ export const IntermediateSteps: React.FC<IntermediateStepsProps> = ({ steps, cla
     if (conversationId || selectedConversationId) {
       const convId = conversationId || selectedConversationId;
       if (convId && migratedSteps.length > 0) {
-        saveIntermediateSteps(convId, migratedSteps).catch(err => logger.error('Failed to save intermediate steps:', err));
+        saveIntermediateSteps(convId, migratedSteps).catch((err) =>
+          logger.error('Failed to save intermediate steps:', err),
+        );
         setTotalStepsCount(migratedSteps.length);
         setDisplayedSteps(migratedSteps);
         setLoadedCount(migratedSteps.length);
@@ -100,7 +128,11 @@ export const IntermediateSteps: React.FC<IntermediateStepsProps> = ({ steps, cla
           setTotalStepsCount(count);
 
           if (count > 0) {
-            const loaded = await loadIntermediateSteps(convId, Math.max(0, count - INITIAL_STEPS_TO_SHOW), INITIAL_STEPS_TO_SHOW);
+            const loaded = await loadIntermediateSteps(
+              convId,
+              Math.max(0, count - INITIAL_STEPS_TO_SHOW),
+              INITIAL_STEPS_TO_SHOW,
+            );
             setDisplayedSteps(loaded);
             setLoadedCount(loaded.length);
           }
@@ -126,16 +158,30 @@ export const IntermediateSteps: React.FC<IntermediateStepsProps> = ({ steps, cla
 
     setIsLoadingMore(true);
     try {
-      const startIndex = Math.max(0, totalStepsCount - loadedCount - STEPS_TO_LOAD_MORE);
-      const countToLoad = Math.min(STEPS_TO_LOAD_MORE, totalStepsCount - loadedCount);
+      const startIndex = Math.max(
+        0,
+        totalStepsCount - loadedCount - STEPS_TO_LOAD_MORE,
+      );
+      const countToLoad = Math.min(
+        STEPS_TO_LOAD_MORE,
+        totalStepsCount - loadedCount,
+      );
 
-      const olderSteps = await loadIntermediateSteps(convId, startIndex, countToLoad);
+      const olderSteps = await loadIntermediateSteps(
+        convId,
+        startIndex,
+        countToLoad,
+      );
 
-      const existingUUIDs = new Set(displayedSteps.map(s => s.payload?.UUID).filter(Boolean));
-      const newSteps = olderSteps.filter(step => !existingUUIDs.has(step.payload?.UUID));
+      const existingUUIDs = new Set(
+        displayedSteps.map((s) => s.payload?.UUID).filter(Boolean),
+      );
+      const newSteps = olderSteps.filter(
+        (step) => !existingUUIDs.has(step.payload?.UUID),
+      );
 
-      setDisplayedSteps(prev => [...newSteps, ...prev]);
-      setLoadedCount(prev => prev + newSteps.length);
+      setDisplayedSteps((prev) => [...newSteps, ...prev]);
+      setLoadedCount((prev) => prev + newSteps.length);
     } catch (error) {
       logger.error('Failed to load more steps:', error);
     } finally {
@@ -144,7 +190,8 @@ export const IntermediateSteps: React.FC<IntermediateStepsProps> = ({ steps, cla
   };
 
   const hasSteps = migratedSteps && migratedSteps.length > 0;
-  const hasMoreSteps = migratedSteps.length === 0 && loadedCount < totalStepsCount;
+  const hasMoreSteps =
+    migratedSteps.length === 0 && loadedCount < totalStepsCount;
 
   if (!hasSteps && !resolvedIsStreaming) {
     return null;
@@ -160,7 +207,9 @@ export const IntermediateSteps: React.FC<IntermediateStepsProps> = ({ steps, cla
           className="group w-full px-3 py-2 sm:px-4 sm:py-2.5 text-left text-sm font-medium text-white/90 hover:bg-white/5 transition-all flex items-center justify-between backdrop-blur-sm"
         >
           <span className="flex items-center gap-2.5">
-            <span className="text-sm font-semibold tracking-tight">Agent Activity</span>
+            <span className="text-sm font-semibold tracking-tight">
+              Agent Activity
+            </span>
             <span
               className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium transition-all ${
                 resolvedIsStreaming
@@ -170,7 +219,10 @@ export const IntermediateSteps: React.FC<IntermediateStepsProps> = ({ steps, cla
             >
               {resolvedIsStreaming && (
                 <span className="relative flex h-1.5 w-1.5">
-                  <span className="absolute inline-flex h-full w-full rounded-full bg-nvidia-green opacity-75 animate-ping" aria-hidden />
+                  <span
+                    className="absolute inline-flex h-full w-full rounded-full bg-nvidia-green opacity-75 animate-ping"
+                    aria-hidden
+                  />
                   <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-nvidia-green" />
                 </span>
               )}
@@ -178,7 +230,9 @@ export const IntermediateSteps: React.FC<IntermediateStepsProps> = ({ steps, cla
             </span>
           </span>
           <svg
-            className={`w-4 h-4 transition-transform duration-200 ease-out text-white/40 ${isExpanded ? 'rotate-180' : ''}`}
+            className={`w-4 h-4 transition-transform duration-200 ease-out text-white/40 ${
+              isExpanded ? 'rotate-180' : ''
+            }`}
             fill="currentColor"
             viewBox="0 0 20 20"
           >
@@ -205,7 +259,11 @@ export const IntermediateSteps: React.FC<IntermediateStepsProps> = ({ steps, cla
 
           <div className="flex-1 min-h-0 overflow-y-auto">
             <StepTimeline
-              steps={searchTerm ? searchSteps(displayedSteps, searchTerm) : displayedSteps}
+              steps={
+                searchTerm
+                  ? searchSteps(displayedSteps, searchTerm)
+                  : displayedSteps
+              }
               isStreaming={resolvedIsStreaming}
             />
 
@@ -215,7 +273,9 @@ export const IntermediateSteps: React.FC<IntermediateStepsProps> = ({ steps, cla
                   onClick={handleLoadMore}
                   className="px-3 py-1.5 text-xs font-medium text-white/50 bg-white/[0.06] hover:bg-white/10 rounded-lg transition-colors border border-white/[0.06]"
                 >
-                  Load {Math.min(STEPS_TO_LOAD_MORE, totalStepsCount - loadedCount)} older
+                  Load{' '}
+                  {Math.min(STEPS_TO_LOAD_MORE, totalStepsCount - loadedCount)}{' '}
+                  older
                 </button>
               </div>
             )}

@@ -23,11 +23,15 @@ export function setErrorReporter(reporter: Reporter | null): void {
   externalReporter = reporter;
 }
 
-export function reportError(error: unknown, context: Partial<ErrorContext> = {}): void {
+export function reportError(
+  error: unknown,
+  context: Partial<ErrorContext> = {},
+): void {
   const enriched: ErrorContext = {
     source: 'manual',
     url: typeof window !== 'undefined' ? window.location.href : undefined,
-    userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : undefined,
+    userAgent:
+      typeof navigator !== 'undefined' ? navigator.userAgent : undefined,
     ...context,
   };
 
@@ -43,7 +47,8 @@ export function reportError(error: unknown, context: Partial<ErrorContext> = {})
   }
 }
 
-const SAFE_PROD_MESSAGE = 'An unexpected error occurred. Please try again or reload.';
+const SAFE_PROD_MESSAGE =
+  'An unexpected error occurred. Please try again or reload.';
 
 export function userFacingMessage(error: unknown): string {
   if (process.env.NODE_ENV !== 'production') {

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+
 import { throttle } from '@/utils/data/throttle';
 
 export const useVisualViewport = () => {
@@ -9,20 +10,24 @@ export const useVisualViewport = () => {
       return;
     }
 
-    const updateKeyboardOffset = throttle(() => {
-      if (!window.visualViewport) return;
+    const updateKeyboardOffset = throttle(
+      () => {
+        if (!window.visualViewport) return;
 
-      const visualViewportHeight = window.visualViewport.height;
-      const layoutViewportHeight = window.innerHeight;
-      const offset = layoutViewportHeight - visualViewportHeight;
+        const visualViewportHeight = window.visualViewport.height;
+        const layoutViewportHeight = window.innerHeight;
+        const offset = layoutViewportHeight - visualViewportHeight;
 
-      setKeyboardOffset(Math.max(0, offset));
+        setKeyboardOffset(Math.max(0, offset));
 
-      document.documentElement.style.setProperty(
-        '--keyboard-offset',
-        `${Math.max(0, offset)}px`
-      );
-    }, 150, { leading: true, trailing: true });
+        document.documentElement.style.setProperty(
+          '--keyboard-offset',
+          `${Math.max(0, offset)}px`,
+        );
+      },
+      150,
+      { leading: true, trailing: true },
+    );
 
     updateKeyboardOffset();
 
@@ -32,8 +37,14 @@ export const useVisualViewport = () => {
     return () => {
       updateKeyboardOffset.cancel();
       if (window.visualViewport) {
-        window.visualViewport.removeEventListener('resize', updateKeyboardOffset);
-        window.visualViewport.removeEventListener('scroll', updateKeyboardOffset);
+        window.visualViewport.removeEventListener(
+          'resize',
+          updateKeyboardOffset,
+        );
+        window.visualViewport.removeEventListener(
+          'scroll',
+          updateKeyboardOffset,
+        );
       }
     };
   }, []);

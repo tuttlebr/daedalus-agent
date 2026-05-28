@@ -64,8 +64,8 @@ export async function uploadImage(
         response.status === 413
           ? 'File exceeds the size limit.'
           : response.status === 415
-            ? 'Unsupported image type.'
-            : `Failed to upload image (HTTP ${response.status})`;
+          ? 'Unsupported image type.'
+          : `Failed to upload image (HTTP ${response.status})`;
       throw new Error(message);
     }
 
@@ -370,7 +370,9 @@ export function cleanMessagesForLLM(messages: any[]): Message[] {
           const targetCollection = message.metadata?.targetCollection;
           const ingestInstruction = targetCollection
             ? `\n\n**Ingestion Target:** Use user_document_tool with operation="ingest" to ingest ${
-                allDocumentRefs.length === 1 ? 'this document' : 'these documents'
+                allDocumentRefs.length === 1
+                  ? 'this document'
+                  : 'these documents'
               } into the "${targetCollection}" collection.`
             : '';
 

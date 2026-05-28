@@ -1,5 +1,14 @@
+import {
+  ApiError,
+  ConflictError,
+  apiGet,
+  apiPut,
+  apiPost,
+  apiDelete,
+  apiBase,
+} from '@/utils/app/api';
+
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { ApiError, ConflictError, apiGet, apiPut, apiPost, apiDelete, apiBase } from '@/utils/app/api';
 
 // --- Mock fetch ---
 
@@ -77,7 +86,9 @@ describe('apiGet', () => {
     const responseBody = { id: 'conv-1', name: 'Test' };
     mockFetch.mockResolvedValue(mockResponse(200, responseBody));
 
-    const result = await apiGet<typeof responseBody>('/api/conversations/conv-1');
+    const result = await apiGet<typeof responseBody>(
+      '/api/conversations/conv-1',
+    );
 
     expect(result).toEqual(responseBody);
     expect(mockFetch).toHaveBeenCalledWith(
@@ -100,7 +111,9 @@ describe('apiGet', () => {
       expect(error).toBeInstanceOf(ApiError);
       expect((error as ApiError).status).toBe(500);
       expect((error as ApiError).kind).toBe('server');
-      expect((error as ApiError).message).toContain('GET /api/test failed: 500');
+      expect((error as ApiError).message).toContain(
+        'GET /api/test failed: 500',
+      );
     }
   });
 
@@ -151,7 +164,9 @@ describe('apiPut', () => {
     const responseBody = { success: true };
     mockFetch.mockResolvedValue(mockResponse(200, responseBody));
 
-    const result = await apiPut('/api/conversations/conv-1', { name: 'Updated' });
+    const result = await apiPut('/api/conversations/conv-1', {
+      name: 'Updated',
+    });
 
     expect(result).toEqual(responseBody);
     expect(mockFetch).toHaveBeenCalledWith(
@@ -176,7 +191,9 @@ describe('apiPut', () => {
     } catch (error) {
       expect(error).toBeInstanceOf(ConflictError);
       expect((error as ConflictError).serverState).toEqual(serverState);
-      expect((error as ConflictError).message).toBe('Conflict: server has newer data');
+      expect((error as ConflictError).message).toBe(
+        'Conflict: server has newer data',
+      );
     }
   });
 

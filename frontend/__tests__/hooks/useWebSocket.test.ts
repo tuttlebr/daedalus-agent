@@ -10,6 +10,14 @@
  * We also exercise the module-level getWebSocketManager singleton and
  * verify that the mock wiring used by consumers of this hook is sound.
  */
+import type {
+  UseWebSocketCallbacks,
+  UseWebSocketOptions,
+  UseWebSocketReturn,
+  StreamingStateInfo,
+} from '@/hooks/useWebSocket';
+
+import { getWebSocketManager } from '@/services/websocket';
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
@@ -42,14 +50,6 @@ vi.mock('@/utils/logger', () => ({
     debug: vi.fn(),
   })),
 }));
-
-import { getWebSocketManager } from '@/services/websocket';
-import type {
-  UseWebSocketCallbacks,
-  UseWebSocketOptions,
-  UseWebSocketReturn,
-  StreamingStateInfo,
-} from '@/hooks/useWebSocket';
 
 describe('useWebSocket module', () => {
   beforeEach(() => {

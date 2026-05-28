@@ -6,13 +6,13 @@ import {
 } from '@tabler/icons-react';
 import React, { useState, useEffect, useRef, memo, useCallback } from 'react';
 
+import { getBlobCacheKey } from '@/utils/app/imageBlobCache';
 import {
   ImageReference,
   getImageUrl,
   fetchImageAsBlob,
   revokeImageBlob,
 } from '@/utils/app/imageHandler';
-import { getBlobCacheKey } from '@/utils/app/imageBlobCache';
 import { Logger } from '@/utils/logger';
 
 import { Skeleton } from '@/components/primitives/Skeleton';

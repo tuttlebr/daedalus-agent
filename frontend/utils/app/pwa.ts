@@ -12,7 +12,7 @@ export const registerServiceWorker = async () => {
   if ('serviceWorker' in navigator && typeof window !== 'undefined') {
     try {
       const registration = await navigator.serviceWorker.register('/sw.js', {
-        scope: '/'
+        scope: '/',
       });
 
       console.log('Service Worker registered successfully:', registration);
@@ -25,10 +25,10 @@ export const registerServiceWorker = async () => {
         },
         {
           interval: 2 * 60 * 60 * 1000, // Check every 2 hours (increased from 1 hour)
-          mobileMultiplier: 2,          // 4 hours on mobile
-          pauseWhenHidden: true,        // Don't check when app is backgrounded
+          mobileMultiplier: 2, // 4 hours on mobile
+          pauseWhenHidden: true, // Don't check when app is backgrounded
           runImmediatelyOnVisible: false,
-        }
+        },
       );
 
       // Handle updates
@@ -36,7 +36,10 @@ export const registerServiceWorker = async () => {
         const newWorker = registration.installing;
         if (newWorker) {
           newWorker.addEventListener('statechange', () => {
-            if (newWorker.state === 'activated' && navigator.serviceWorker.controller) {
+            if (
+              newWorker.state === 'activated' &&
+              navigator.serviceWorker.controller
+            ) {
               // New service worker activated, notify via callback
               onUpdateAvailable?.();
             }
@@ -63,7 +66,10 @@ export const checkOnlineStatus = () => {
   return navigator.onLine;
 };
 
-export const setupOfflineDetection = (onOffline?: () => void, onOnline?: () => void) => {
+export const setupOfflineDetection = (
+  onOffline?: () => void,
+  onOnline?: () => void,
+) => {
   window.addEventListener('offline', () => {
     console.log('App is offline');
     onOffline?.();
@@ -99,8 +105,10 @@ export const showInstallPrompt = async () => {
 };
 
 export const isPWAInstalled = () => {
-  return window.matchMedia('(display-mode: standalone)').matches ||
-         (window.navigator as any).standalone === true;
+  return (
+    window.matchMedia('(display-mode: standalone)').matches ||
+    (window.navigator as any).standalone === true
+  );
 };
 
 /**
@@ -108,7 +116,8 @@ export const isPWAInstalled = () => {
  * Sends the subscription to the server for storage.
  */
 export const subscribeToPush = async (): Promise<boolean> => {
-  if (!('serviceWorker' in navigator) || !('PushManager' in window)) return false;
+  if (!('serviceWorker' in navigator) || !('PushManager' in window))
+    return false;
 
   const vapidKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
   if (!vapidKey) return false;

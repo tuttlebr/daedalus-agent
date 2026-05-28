@@ -41,12 +41,7 @@
     "scene": "A close-up studio shot of a classical sculpture against a black background.",
     "setting_type": "studio",
     "detected_text": [],
-    "dominant_colors": [
-      "white",
-      "gray",
-      "black",
-      "off-white"
-    ],
+    "dominant_colors": ["white", "gray", "black", "off-white"],
     "people": [
       {
         "count_estimate": 1,
@@ -54,13 +49,7 @@
         "activity": "hammering metal on an anvil"
       }
     ],
-    "objects": [
-      "hammer",
-      "anvil",
-      "sculpture",
-      "toga",
-      "beard"
-    ],
+    "objects": ["hammer", "anvil", "sculpture", "toga", "beard"],
     "quality": {
       "sharpness": "sharp",
       "exposure": "balanced",

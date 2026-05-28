@@ -1,8 +1,12 @@
 /**
- * Prompt presets for the image panel, distilled from OpenAI's gpt-image-1.5
- * prompting guide. Each preset seeds the prompt and picks tuned defaults so
- * a user can click once and get guide-shaped output.
+ * Prompt presets for the image panel. Each preset seeds the prompt and picks
+ * tuned defaults that are cleaned against the active model capabilities.
  */
+import {
+  DEFAULT_IMAGE_MODEL,
+  cleanImageParamsForModel,
+  type ImageModel,
+} from '@/utils/app/imageModelCapabilities';
 
 import type { ImageMode, ImageParams } from '@/state/imagePanelStore';
 
@@ -38,7 +42,6 @@ export const IMAGE_PRESETS: ImagePreset[] = [
     params: {
       quality: 'high',
       size: '1024x1024',
-      background: 'transparent',
       n: 4,
     },
   },
@@ -52,7 +55,7 @@ export const IMAGE_PRESETS: ImagePreset[] = [
       'Render the provided sketch as a finished image of {{subject}}. Preserve the exact layout, composition, and perspective of the sketch. Add realistic materials, lighting, and color; do not introduce any new elements or objects.',
     preserveList:
       'layout, composition, perspective, line-art proportions, object count',
-    params: { quality: 'high', input_fidelity: 'high', size: '1024x1024' },
+    params: { quality: 'high', size: '1024x1024' },
   },
   {
     id: 'virtual-try-on',
@@ -64,12 +67,13 @@ export const IMAGE_PRESETS: ImagePreset[] = [
       'Dress the person in Image 1 in the garment shown in Image 2. Realistic fabric behavior, natural draping, correct fit. Match the lighting, shadows, and color temperature of Image 1.',
     preserveList:
       'face, facial features, skin tone, hair, body shape, pose, expression, identity, camera angle, background',
-    params: { quality: 'high', input_fidelity: 'high', size: '1024x1536' },
+    params: { quality: 'high', size: '1024x1536' },
   },
   {
     id: 'infographic',
     label: 'Infographic',
-    description: 'Dense, text-heavy explanatory graphic. High quality required.',
+    description:
+      'Dense, text-heavy explanatory graphic. High quality required.',
     modes: ['generate'],
     promptTemplate:
       'Detailed infographic explaining {{subject}}. Use clear sectioning, labeled arrows, icons, and concise callouts. Legible sans-serif typography. Neutral background, restrained color palette. All text spelled correctly.',
@@ -99,7 +103,7 @@ export const IMAGE_PRESETS: ImagePreset[] = [
       'Change only {{subject}} in the provided image. Keep everything else exactly the same — camera angle, composition, lighting, shadows, reflections, and all surrounding objects.',
     preserveList:
       'camera angle, composition, lighting, shadows, reflections, every object except the target',
-    params: { quality: 'high', input_fidelity: 'high' },
+    params: { quality: 'high' },
   },
   {
     id: 'lighting-weather',
@@ -111,19 +115,20 @@ export const IMAGE_PRESETS: ImagePreset[] = [
       'Change the lighting/weather of the provided image to {{subject}}. Modify only environmental conditions (time of day, season, precipitation, atmosphere). Preserve all geometry, subjects, and layout.',
     preserveList:
       'geometry, subjects, identity, layout, camera angle, composition',
-    params: { quality: 'high', input_fidelity: 'high' },
+    params: { quality: 'high' },
   },
 ];
 
 export function applyPreset(
   preset: ImagePreset,
   userSubject: string,
+  model: ImageModel = DEFAULT_IMAGE_MODEL,
 ): { prompt: string; preserveList?: string; params: ImageParams } {
   const subject = userSubject.trim() || '[describe your subject]';
   return {
     prompt: preset.promptTemplate.replace(/\{\{subject\}\}/g, subject),
     preserveList: preset.preserveList,
-    params: preset.params,
+    params: cleanImageParamsForModel(preset.params, model),
   };
 }
 

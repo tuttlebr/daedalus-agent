@@ -1,7 +1,18 @@
 import { NextApiRequest, NextApiResponse } from 'next';
-import { getRedis, sessionKey, jsonGet, jsonDel, jsonSetWithExpiry } from '@/server/session/redis';
-import { getOrSetSessionId, requireAuthenticatedUser } from '@/server/session/_utils';
+
 import { validateMagicBytes } from '@/utils/app/magicBytes';
+
+import {
+  getOrSetSessionId,
+  requireAuthenticatedUser,
+} from '@/server/session/_utils';
+import {
+  getRedis,
+  sessionKey,
+  jsonGet,
+  jsonDel,
+  jsonSetWithExpiry,
+} from '@/server/session/redis';
 import crypto from 'crypto';
 
 const DOCUMENT_EXPIRY_SECONDS = 60 * 60 * 24 * 7; // 7 days
@@ -31,7 +42,7 @@ export async function storeDocument(
   userId: string | undefined,
   base64Data: string,
   filename: string,
-  mimeType: string = 'application/octet-stream'
+  mimeType: string = 'application/octet-stream',
 ): Promise<string> {
   const redis = getRedis();
   const documentId = generateDocumentId();
@@ -58,7 +69,7 @@ export async function storeDocument(
     size,
     createdAt: Date.now(),
     sessionId,
-    userId
+    userId,
   };
 
   const key = sessionKey(['document', sessionId, documentId]);
@@ -75,7 +86,7 @@ export async function storeDocument(
 // Retrieve document from Redis
 export async function getDocument(
   sessionId: string,
-  documentId: string
+  documentId: string,
 ): Promise<StoredDocument | null> {
   const key = sessionKey(['document', sessionId, documentId]);
   const data = await jsonGet(key);
@@ -85,7 +96,7 @@ export async function getDocument(
 // Delete a specific document
 export async function deleteDocument(
   sessionId: string,
-  documentId: string
+  documentId: string,
 ): Promise<boolean> {
   const redis = getRedis();
   const key = sessionKey(['document', sessionId, documentId]);
@@ -103,7 +114,9 @@ export async function deleteDocument(
 }
 
 // Clean up all documents for a session
-export async function cleanupSessionDocuments(sessionId: string): Promise<number> {
+export async function cleanupSessionDocuments(
+  sessionId: string,
+): Promise<number> {
   const redis = getRedis();
   const sessionDocumentsKey = sessionKey(['session-documents', sessionId]);
 
@@ -125,7 +138,10 @@ export async function cleanupSessionDocuments(sessionId: string): Promise<number
   return deletedCount;
 }
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+export default async function handler(
+  req: NextApiRequest,
+  res: NextApiResponse,
+) {
   const session = await requireAuthenticatedUser(req, res);
   if (!session) return;
 
@@ -145,17 +161,24 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         return res.status(400).json({ error: 'No filename provided' });
       }
 
-      const documentId = await storeDocument(sessionId, userId, base64Data, filename, mimeType);
+      const documentId = await storeDocument(
+        sessionId,
+        userId,
+        base64Data,
+        filename,
+        mimeType,
+      );
 
       return res.status(200).json({ documentId, sessionId, userId });
     } catch (error) {
       console.error('Error storing document:', error);
-      const message = error instanceof Error ? error.message : 'Failed to store document';
+      const message =
+        error instanceof Error ? error.message : 'Failed to store document';
       const status = message.includes(DOCUMENT_SIZE_ERROR)
         ? 413
         : message.includes(DOCUMENT_TYPE_ERROR)
-          ? 415
-          : 500;
+        ? 415
+        : 500;
       return res.status(status).json({ error: message });
     }
   } else if (req.method === 'GET') {
@@ -167,9 +190,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     // Allow retrieving documents from other sessions (for cross-device persistence)
-    const targetSessionId = (typeof querySessionId === 'string' && querySessionId)
-      ? querySessionId
-      : sessionId;
+    const targetSessionId =
+      typeof querySessionId === 'string' && querySessionId
+        ? querySessionId
+        : sessionId;
 
     try {
       const document = await getDocument(targetSessionId, documentId);
@@ -184,7 +208,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
       // Return document data
       res.setHeader('Content-Type', document.mimeType);
-      res.setHeader('Content-Disposition', `attachment; filename="${document.filename}"`);
+      res.setHeader(
+        'Content-Disposition',
+        `attachment; filename="${document.filename}"`,
+      );
       res.setHeader('Cache-Control', 'private, max-age=3600');
 
       const buffer = Buffer.from(document.data, 'base64');

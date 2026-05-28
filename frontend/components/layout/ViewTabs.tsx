@@ -1,9 +1,14 @@
 'use client';
 
+import {
+  IconMessageCircle,
+  IconRobot,
+  IconSparkles,
+} from '@tabler/icons-react';
 import React from 'react';
-import classNames from 'classnames';
-import { IconMessageCircle, IconRobot, IconSparkles } from '@tabler/icons-react';
+
 import { useUISettingsStore, type AppView } from '@/state/uiSettingsStore';
+import classNames from 'classnames';
 
 const TABS: { id: AppView; label: string; icon: React.ReactNode }[] = [
   { id: 'chat', label: 'Chat', icon: <IconMessageCircle size={16} /> },

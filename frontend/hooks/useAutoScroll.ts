@@ -8,8 +8,8 @@
  * - Handles PWA keyboard interactions
  * - Throttled scrolling during streaming to prevent jank
  */
-
 import { useCallback, useRef, useState, useEffect, RefObject } from 'react';
+
 import { throttle } from '@/utils/data/throttle';
 
 export interface UseAutoScrollOptions {
@@ -55,14 +55,16 @@ export interface UseAutoScrollReturn {
  */
 function detectMobile(): boolean {
   if (typeof window === 'undefined') return false;
-  return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(
-    navigator.userAgent
-  ) || window.innerWidth <= 768;
+  return (
+    /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(
+      navigator.userAgent,
+    ) || window.innerWidth <= 768
+  );
 }
 
 export function useAutoScroll(
   containerRef: RefObject<HTMLDivElement>,
-  options: UseAutoScrollOptions = {}
+  options: UseAutoScrollOptions = {},
 ): UseAutoScrollReturn {
   const {
     threshold = 50,
@@ -104,7 +106,7 @@ export function useAutoScroll(
       const th = customThreshold ?? effectiveThreshold;
       return getDistanceFromBottom() <= th;
     },
-    [getDistanceFromBottom, effectiveThreshold]
+    [getDistanceFromBottom, effectiveThreshold],
   );
 
   /**
@@ -114,7 +116,8 @@ export function useAutoScroll(
     const container = containerRef.current;
     if (!container) return;
 
-    const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+    const distanceFromBottom =
+      container.scrollHeight - container.scrollTop - container.clientHeight;
     const atBottom = distanceFromBottom <= effectiveThreshold;
 
     // Immediate reaction to user scroll to avoid race with auto-scroll
@@ -204,7 +207,14 @@ export function useAutoScroll(
         });
       }
     }
-  }, [userScrollLocked, isPWA, keyboardOffset, autoScrollEnabled, containerRef, effectiveThreshold]);
+  }, [
+    userScrollLocked,
+    isPWA,
+    keyboardOffset,
+    autoScrollEnabled,
+    containerRef,
+    effectiveThreshold,
+  ]);
 
   /**
    * Throttled scroll down for streaming
@@ -223,7 +233,13 @@ export function useAutoScroll(
     if (isNearBottom(streamingThreshold)) {
       throttledScrollDown();
     }
-  }, [autoScrollEnabled, userScrollLocked, isNearBottom, throttledScrollDown, isMobile]);
+  }, [
+    autoScrollEnabled,
+    userScrollLocked,
+    isNearBottom,
+    throttledScrollDown,
+    isMobile,
+  ]);
 
   /**
    * Reset scroll state (for conversation changes)
@@ -295,7 +311,9 @@ export function useAutoScroll(
     }, 100);
 
     container.addEventListener('wheel', lockOnUserScroll, { passive: true });
-    container.addEventListener('touchmove', lockOnUserScroll, { passive: true });
+    container.addEventListener('touchmove', lockOnUserScroll, {
+      passive: true,
+    });
 
     return () => {
       container.removeEventListener('wheel', lockOnUserScroll);

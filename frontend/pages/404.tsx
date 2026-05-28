@@ -1,4 +1,5 @@
 import Link from 'next/link';
+
 import { GalaxyBackground } from '@/components/auth/GalaxyBackground';
 
 export default function Custom404() {
@@ -7,7 +8,11 @@ export default function Custom404() {
       <GalaxyBackground />
       <div className="relative z-10 animate-morph-in text-center">
         <div className="mb-8">
-          <img src="/main-logo.png" alt="Daedalus" className="h-16 w-auto mx-auto animate-galaxy-float" />
+          <img
+            src="/main-logo.png"
+            alt="Daedalus"
+            className="h-16 w-auto mx-auto animate-galaxy-float"
+          />
         </div>
         <h1 className="mb-2 text-6xl font-bold text-dark-text-primary">404</h1>
         <p className="mb-8 text-lg text-dark-text-muted">Page Not Found</p>

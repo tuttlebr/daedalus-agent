@@ -1,7 +1,12 @@
 import { useEffect, useRef, useCallback, useState } from 'react';
-import { v4 as uuidv4 } from 'uuid';
+
+import {
+  createVisibilityAwareInterval,
+  type ManagedTimer,
+} from '@/utils/app/visibilityAwareTimer';
 import { Logger } from '@/utils/logger';
-import { createVisibilityAwareInterval, type ManagedTimer } from '@/utils/app/visibilityAwareTimer';
+
+import { v4 as uuidv4 } from 'uuid';
 
 const logger = new Logger('SessionRegistry');
 
@@ -25,7 +30,9 @@ export interface UseSessionRegistryReturn {
 
 const HEARTBEAT_INTERVAL = 60000; // 60 seconds
 
-export const useSessionRegistry = (options: UseSessionRegistryOptions = {}): UseSessionRegistryReturn => {
+export const useSessionRegistry = (
+  options: UseSessionRegistryOptions = {},
+): UseSessionRegistryReturn => {
   const { enabled = true, heartbeatInterval = HEARTBEAT_INTERVAL } = options;
 
   const [sessionId] = useState(() => {
@@ -43,15 +50,17 @@ export const useSessionRegistry = (options: UseSessionRegistryOptions = {}): Use
   const isUnmountingRef = useRef(false);
 
   const getDeviceInfo = useCallback((): DeviceInfo => {
-    if (typeof window === 'undefined' || typeof navigator === 'undefined') return {};
+    if (typeof window === 'undefined' || typeof navigator === 'undefined')
+      return {};
     return {
       userAgent: navigator.userAgent,
       platform: navigator.platform,
       screenWidth: window.screen.width,
       screenHeight: window.screen.height,
-      isMobile: /android|webos|iphone|ipad|ipod|blackberry|iemobile|opera mini/i.test(
-        navigator.userAgent.toLowerCase()
-      ),
+      isMobile:
+        /android|webos|iphone|ipad|ipod|blackberry|iemobile|opera mini/i.test(
+          navigator.userAgent.toLowerCase(),
+        ),
     };
   }, []);
 
@@ -107,7 +116,7 @@ export const useSessionRegistry = (options: UseSessionRegistryOptions = {}): Use
       if (typeof navigator !== 'undefined' && navigator.sendBeacon) {
         navigator.sendBeacon(
           `/api/session/registry?sessionId=${sessionId}`,
-          JSON.stringify({ _method: 'DELETE' })
+          JSON.stringify({ _method: 'DELETE' }),
         );
       } else {
         // Fallback to fetch with keepalive
@@ -177,7 +186,8 @@ export const useSessionRegistry = (options: UseSessionRegistryOptions = {}): Use
     };
 
     document.addEventListener('visibilitychange', handleVisibilityChange);
-    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+    return () =>
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
   }, [enabled, isRegistered, registerSession]);
 
   return {

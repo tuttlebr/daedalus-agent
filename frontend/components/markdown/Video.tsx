@@ -1,8 +1,10 @@
-// First, define the Video component at module level
-'use client'
+'use client';
 
-import { memo, useRef } from "react";
-import Loading from "@/components/markdown/Loading";
+import { memo, useRef } from 'react';
+
+import Loading from '@/components/markdown/Loading';
+
+// First, define the Video component at module level
 
 interface VideoProps {
   src?: string;
@@ -11,17 +13,13 @@ interface VideoProps {
   [key: string]: any;
 }
 
-export const Video = memo(({
-    src,
-    controls = true,
-    muted = false,
-    ...props
-  }: VideoProps) => {
+export const Video = memo(
+  ({ src, controls = true, muted = false, ...props }: VideoProps) => {
     // Use ref to maintain stable reference for video element
     const videoRef = useRef(null);
 
     if (src === 'loading') {
-      return <Loading message='Loading...' type='image' />;
+      return <Loading message="Loading..." type="image" />;
     }
 
     return (
@@ -39,6 +37,8 @@ export const Video = memo(({
         Your browser does not support the video tag.
       </video>
     );
-  }, (prevProps: VideoProps, nextProps: VideoProps) => {
+  },
+  (prevProps: VideoProps, nextProps: VideoProps) => {
     return prevProps.src === nextProps.src;
-  });
+  },
+);

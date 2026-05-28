@@ -1,13 +1,18 @@
 import { NextApiRequest, NextApiResponse } from 'next';
-import { getAllUsageStats } from '@/utils/usage/tracking';
-import { getRedis } from '@/server/session/redis';
+
 import { getSession } from '@/utils/auth/session';
+import { getAllUsageStats } from '@/utils/usage/tracking';
+
+import { getRedis } from '@/server/session/redis';
 
 /**
  * Debug endpoint to check usage tracking status
  * GET /api/usage/debug
  */
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+export default async function handler(
+  req: NextApiRequest,
+  res: NextApiResponse,
+) {
   if (req.method !== 'GET') {
     res.setHeader('Allow', ['GET']);
     return res.status(405).json({ error: 'Method not allowed' });
@@ -18,7 +23,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const adminUsername = process.env.ADMIN_USERNAME || 'admin';
     if (session?.username !== adminUsername) {
       return res.status(session ? 403 : 401).json({
-        error: session ? 'Forbidden: Admin access required' : 'Not authenticated',
+        error: session
+          ? 'Forbidden: Admin access required'
+          : 'Not authenticated',
       });
     }
 
@@ -34,7 +41,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     let sampleData = null;
     if (usageKeys.length > 0) {
       const firstKey = usageKeys[0];
-      sampleData = await redis.call('JSON.GET', firstKey) as string;
+      sampleData = (await redis.call('JSON.GET', firstKey)) as string;
     }
 
     return res.status(200).json({
@@ -46,7 +53,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         allStats: allStats,
         sampleKey: usageKeys[0] || null,
         sampleData: sampleData ? JSON.parse(sampleData) : null,
-      }
+      },
     });
   } catch (error) {
     console.error('Error in debug endpoint:', error);

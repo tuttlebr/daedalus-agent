@@ -1,5 +1,12 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { NextApiRequest, NextApiResponse } from 'next';
+
+import { getSession } from '@/utils/auth/session';
+
+// --- Import handler and mocked modules ---
+import handler from '@/pages/api/conversations/[id]';
+
+import { jsonGet, jsonSetWithExpiry, jsonDel } from '@/server/session/redis';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // --- Mocks ---
 
@@ -34,12 +41,6 @@ vi.mock('@/utils/app/imageHandler', () => ({
 vi.mock('@/server/session/sanitize', () => ({
   clampConversations: vi.fn((arr: any[]) => arr),
 }));
-
-// --- Import handler and mocked modules ---
-
-import handler from '@/pages/api/conversations/[id]';
-import { getSession } from '@/utils/auth/session';
-import { jsonGet, jsonSetWithExpiry, jsonDel } from '@/server/session/redis';
 
 // --- Helpers ---
 
@@ -83,7 +84,9 @@ describe('conversations/[id] API handler', () => {
       await handler(req, res);
 
       expect(res.status).toHaveBeenCalledWith(400);
-      expect(res.json).toHaveBeenCalledWith({ error: 'Invalid conversation ID' });
+      expect(res.json).toHaveBeenCalledWith({
+        error: 'Invalid conversation ID',
+      });
     });
 
     it('returns 400 for non-string conversation ID (array)', async () => {
@@ -92,7 +95,9 @@ describe('conversations/[id] API handler', () => {
       await handler(req, res);
 
       expect(res.status).toHaveBeenCalledWith(400);
-      expect(res.json).toHaveBeenCalledWith({ error: 'Invalid conversation ID' });
+      expect(res.json).toHaveBeenCalledWith({
+        error: 'Invalid conversation ID',
+      });
     });
 
     it('returns 405 for unsupported methods', async () => {
@@ -100,7 +105,11 @@ describe('conversations/[id] API handler', () => {
 
       await handler(req, res);
 
-      expect(res.setHeader).toHaveBeenCalledWith('Allow', ['GET', 'PUT', 'DELETE']);
+      expect(res.setHeader).toHaveBeenCalledWith('Allow', [
+        'GET',
+        'PUT',
+        'DELETE',
+      ]);
       expect(res.status).toHaveBeenCalledWith(405);
       expect(res.json).toHaveBeenCalledWith({ error: 'Method not allowed' });
     });
@@ -170,7 +179,9 @@ describe('conversations/[id] API handler', () => {
       await handler(req, res);
 
       expect(res.status).toHaveBeenCalledWith(404);
-      expect(res.json).toHaveBeenCalledWith({ error: 'Conversation not found' });
+      expect(res.json).toHaveBeenCalledWith({
+        error: 'Conversation not found',
+      });
     });
 
     it('returns job data when conversation not found but job exists', async () => {
@@ -323,7 +334,9 @@ describe('conversations/[id] API handler', () => {
       await handler(req, res);
 
       expect(res.status).toHaveBeenCalledWith(500);
-      expect(res.json).toHaveBeenCalledWith({ error: 'Failed to save conversation' });
+      expect(res.json).toHaveBeenCalledWith({
+        error: 'Failed to save conversation',
+      });
     });
   });
 
@@ -365,7 +378,9 @@ describe('conversations/[id] API handler', () => {
       await handler(req, res);
 
       expect(res.status).toHaveBeenCalledWith(500);
-      expect(res.json).toHaveBeenCalledWith({ error: 'Failed to delete conversation' });
+      expect(res.json).toHaveBeenCalledWith({
+        error: 'Failed to delete conversation',
+      });
     });
   });
 });

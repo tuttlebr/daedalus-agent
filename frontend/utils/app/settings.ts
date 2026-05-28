@@ -1,4 +1,5 @@
 import { Settings } from '@/types/settings';
+
 import { getUserSessionItem, setUserSessionItem } from './storage';
 
 const STORAGE_KEY = 'settings';

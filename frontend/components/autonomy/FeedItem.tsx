@@ -1,12 +1,13 @@
 'use client';
 
 import { IconArrowUpRight, IconChevronRight } from '@tabler/icons-react';
-import classNames from 'classnames';
 import { memo } from 'react';
 
 import type { AutonomyFeedItem } from '@/types/autonomy';
 
 import { laneAccent, LANE_LABELS, normalizeLane, timeOfDay } from './utils';
+
+import classNames from 'classnames';
 
 interface FeedItemProps {
   item: AutonomyFeedItem;
@@ -68,11 +69,15 @@ function FeedItemImpl({
       <header className="flex items-baseline gap-2 font-mono text-[10px] uppercase tracking-[0.16em] text-dark-text-subtle">
         <span className="text-dark-text-muted">{LANE_LABELS[lane]}</span>
         <span>·</span>
-        <time dateTime={new Date(item.createdAt).toISOString()}>{timeOfDay(item.createdAt)}</time>
+        <time dateTime={new Date(item.createdAt).toISOString()}>
+          {timeOfDay(item.createdAt)}
+        </time>
         {item.confidence && item.confidence !== 'high' && (
           <>
             <span>·</span>
-            <span title={item.confidenceReason || undefined}>{item.confidence}</span>
+            <span title={item.confidenceReason || undefined}>
+              {item.confidence}
+            </span>
           </>
         )}
       </header>
@@ -102,7 +107,9 @@ function FeedItemImpl({
           id={`feed-body-${item.id}`}
           className={classNames(
             'grid overflow-hidden transition-[grid-template-rows,opacity] duration-300 ease-out motion-reduce:transition-none',
-            expanded ? 'mt-3 grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-70',
+            expanded
+              ? 'mt-3 grid-rows-[1fr] opacity-100'
+              : 'grid-rows-[0fr] opacity-70',
           )}
         >
           <div className="min-h-0">
@@ -119,13 +126,16 @@ function FeedItemImpl({
             type="button"
             onClick={() => onToggle(item.id)}
             className={classNames(
-              'inline-flex items-center gap-0.5 text-dark-text-muted transition hover:text-dark-text-primary',
+              '-mx-2 -my-1 inline-flex min-h-[36px] items-center gap-0.5 rounded-md px-2 py-1 text-dark-text-muted transition hover:text-dark-text-primary',
               'focus-visible:outline-none focus-visible:text-dark-text-primary',
             )}
           >
             <IconChevronRight
               size={12}
-              className={classNames('transition-transform', expanded && 'rotate-90')}
+              className={classNames(
+                'transition-transform',
+                expanded && 'rotate-90',
+              )}
             />
             <span>{expanded ? 'collapse' : 'read more'}</span>
           </button>
@@ -142,7 +152,9 @@ function FeedItemImpl({
           </a>
         )}
         {expanded && item.confidenceReason && (
-          <span className="italic text-dark-text-subtle">{item.confidenceReason}</span>
+          <span className="italic text-dark-text-subtle">
+            {item.confidenceReason}
+          </span>
         )}
       </footer>
     </article>

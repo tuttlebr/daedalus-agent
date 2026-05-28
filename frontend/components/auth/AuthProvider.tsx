@@ -1,10 +1,22 @@
-import React, { createContext, useContext, useEffect, ReactNode, useCallback } from 'react';
-import { useRouter } from 'next/router';
 import { useQueryClient } from '@tanstack/react-query';
-import { setStorageUser, clearUserSessionData, migrateLegacyStorage } from '@/utils/app/storage';
-import { Logger } from '@/utils/logger';
+import React, {
+  createContext,
+  useContext,
+  useEffect,
+  ReactNode,
+  useCallback,
+} from 'react';
+
+import { useRouter } from 'next/router';
+
 import { useAuthMe, type AuthMeUser } from '@/utils/app/queries';
 import { queryKeys } from '@/utils/app/queries/keys';
+import {
+  setStorageUser,
+  clearUserSessionData,
+  migrateLegacyStorage,
+} from '@/utils/app/storage';
+import { Logger } from '@/utils/logger';
 
 const logger = new Logger('AuthProvider');
 
@@ -71,12 +83,15 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       migrateLegacyStorage(data.user.username);
       router.push('/');
     },
-    [queryClient, router]
+    [queryClient, router],
   );
 
   const logout = useCallback(async () => {
     try {
-      await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
+      await fetch('/api/auth/logout', {
+        method: 'POST',
+        credentials: 'include',
+      });
     } catch (error) {
       logger.error('Logout error:', error);
     } finally {
@@ -89,7 +104,16 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   }, [queryClient, router]);
 
   return (
-    <AuthContext.Provider value={{ user, isLoading, isAuthenticated: !!user, login, logout, checkAuth }}>
+    <AuthContext.Provider
+      value={{
+        user,
+        isLoading,
+        isAuthenticated: !!user,
+        login,
+        logout,
+        checkAuth,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );

@@ -1,13 +1,18 @@
 import { NextApiRequest, NextApiResponse } from 'next';
-import http from 'http';
-import { getOrSetSessionId, requireAuthenticatedUser } from '@/server/session/_utils';
+
+import { getBackendHost, buildBackendUrl } from '@/utils/app/backendApi';
+import { resolveMilvusCollectionTarget } from '@/utils/app/milvusCollections';
+import { withInternalBackendAuth } from '@/utils/server/backendAuth';
+
+import {
+  getOrSetSessionId,
+  requireAuthenticatedUser,
+} from '@/server/session/_utils';
 import {
   DocumentRefAccessError,
   validateDocumentRefsForUser,
 } from '@/server/session/documentRefs';
-import { getBackendHost, buildBackendUrl } from '@/utils/app/backendApi';
-import { resolveMilvusCollectionTarget } from '@/utils/app/milvusCollections';
-import { withInternalBackendAuth } from '@/utils/server/backendAuth';
+import http from 'http';
 
 export const config = {
   api: {
@@ -66,7 +71,10 @@ function postToBackend(
   });
 }
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+export default async function handler(
+  req: NextApiRequest,
+  res: NextApiResponse,
+) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
@@ -170,8 +178,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     // Ingest mode: collection resolution + synthetic chat message as before.
     const collectionTarget = resolveMilvusCollectionTarget({
-      targetCollection:
-        typeof collection === 'string' ? collection : undefined,
+      targetCollection: typeof collection === 'string' ? collection : undefined,
       username,
       source: 'document.process',
     });
@@ -187,20 +194,35 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     });
 
     // Send a message to the chat endpoint that will trigger the ingest op
-    const messageContent = documentsToProcess.length === 1
-      ? `Process the document "${filename || 'document'}" using user_document_tool with operation="ingest", documentRef=${JSON.stringify(documentsToProcess[0])}, username="${username}", collection_name="${targetCollection}", collection_scope="${collectionTarget.collectionScope}", and provenance=${JSON.stringify(collectionTarget.provenance)}.`
-      : `Process ${documentsToProcess.length} documents using user_document_tool with operation="ingest", documentRefs=${JSON.stringify(documentsToProcess)}, username="${username}", collection_name="${targetCollection}", collection_scope="${collectionTarget.collectionScope}", and provenance=${JSON.stringify(collectionTarget.provenance)}.`;
+    const messageContent =
+      documentsToProcess.length === 1
+        ? `Process the document "${
+            filename || 'document'
+          }" using user_document_tool with operation="ingest", documentRef=${JSON.stringify(
+            documentsToProcess[0],
+          )}, username="${username}", collection_name="${targetCollection}", collection_scope="${
+            collectionTarget.collectionScope
+          }", and provenance=${JSON.stringify(collectionTarget.provenance)}.`
+        : `Process ${
+            documentsToProcess.length
+          } documents using user_document_tool with operation="ingest", documentRefs=${JSON.stringify(
+            documentsToProcess,
+          )}, username="${username}", collection_name="${targetCollection}", collection_scope="${
+            collectionTarget.collectionScope
+          }", and provenance=${JSON.stringify(collectionTarget.provenance)}.`;
 
     const chatMessage = {
-      messages: [{
-        role: 'user',
-        content: messageContent
-      }],
+      messages: [
+        {
+          role: 'user',
+          content: messageContent,
+        },
+      ],
       additionalProps: {
         username: username,
         enableIntermediateSteps: false,
-        isDocumentProcessing: true  // Flag to indicate this is a document processing request
-      }
+        isDocumentProcessing: true, // Flag to indicate this is a document processing request
+      },
     };
 
     // Document processing uses the default backend with non-streaming /chat endpoint
@@ -219,7 +241,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     );
 
     if (backendResponse.statusCode < 200 || backendResponse.statusCode >= 300) {
-      console.error('Failed to process document via chat:', backendResponse.body);
+      console.error(
+        'Failed to process document via chat:',
+        backendResponse.body,
+      );
       return res.status(backendResponse.statusCode).json({
         error: 'Failed to process document',
         details: backendResponse.body,
@@ -247,22 +272,41 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         if (typeof parsed === 'string') return parsed;
         if (typeof parsed === 'object' && parsed !== null) {
           const obj = parsed as Record<string, unknown>;
-          if (obj.output_text && typeof obj.output_text === 'string') return obj.output_text;
+          if (obj.output_text && typeof obj.output_text === 'string')
+            return obj.output_text;
           if (Array.isArray(obj.output)) {
             const outputText = obj.output
-              .flatMap((item: unknown) => (item as Record<string, unknown>)?.content || [])
-              .map((content: unknown) => (content as Record<string, unknown>)?.text)
+              .flatMap(
+                (item: unknown) =>
+                  (item as Record<string, unknown>)?.content || [],
+              )
+              .map(
+                (content: unknown) =>
+                  (content as Record<string, unknown>)?.text,
+              )
               .filter((text: unknown) => typeof text === 'string')
               .join('');
             if (outputText) return outputText;
           }
           const choices = Array.isArray(obj.choices) ? obj.choices : [];
-          const messageContent = (choices[0] as Record<string, unknown>)?.message as Record<string, unknown> | undefined;
-          if (typeof messageContent?.content === 'string' && (messageContent.content as string).trim()) {
+          const messageContent = (choices[0] as Record<string, unknown>)
+            ?.message as Record<string, unknown> | undefined;
+          if (
+            typeof messageContent?.content === 'string' &&
+            (messageContent.content as string).trim()
+          ) {
             return messageContent.content as string;
           }
           const deltaContent = choices
-            .map((choice: unknown) => ((choice as Record<string, unknown>)?.delta as Record<string, unknown>)?.content)
+            .map(
+              (choice: unknown) =>
+                (
+                  (choice as Record<string, unknown>)?.delta as Record<
+                    string,
+                    unknown
+                  >
+                )?.content,
+            )
             .filter((text: unknown) => typeof text === 'string')
             .join('');
           return deltaContent;
@@ -313,7 +357,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     // Try to extract metadata from the response
     let metadata = {
       documentsIndexed: 0,
-      extractedPages: 0
+      extractedPages: 0,
     };
 
     // Extract number of documents indexed
@@ -333,8 +377,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     try {
       const parsed = JSON.parse(fullResponse);
       if (parsed && typeof parsed === 'object') {
-        const errorMessage = (parsed as Record<string, unknown>).error as Record<string, unknown> | undefined;
-        if (typeof errorMessage?.message === 'string' && (errorMessage.message as string).trim()) {
+        const errorMessage = (parsed as Record<string, unknown>).error as
+          | Record<string, unknown>
+          | undefined;
+        if (
+          typeof errorMessage?.message === 'string' &&
+          (errorMessage.message as string).trim()
+        ) {
           return res.status(400).json({
             error: 'Document processing failed',
             details: errorMessage.message,
@@ -365,12 +414,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     // Only flag as error if the response STARTS with an error message
     // This prevents false positives from document content containing "error" somewhere
-    const hasError = errorPrefixes.some((prefix) =>
-      normalizedResponse.startsWith(prefix),
-    ) || (
+    const hasError =
+      errorPrefixes.some((prefix) => normalizedResponse.startsWith(prefix)) ||
       // Also check for Python tracebacks which indicate backend errors
-      normalizedResponse.includes('traceback (most recent call last)')
-    );
+      normalizedResponse.includes('traceback (most recent call last)');
 
     if (hasError) {
       return res.status(400).json({
@@ -389,7 +436,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         collection: targetCollection,
       },
     });
-
   } catch (error) {
     if (error instanceof DocumentRefAccessError) {
       console.warn('Rejected document processing request:', {
@@ -405,20 +451,25 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     console.error('Error processing document:', error);
 
     const message = error instanceof Error ? error.message : 'Unknown error';
-    const isTimeout = message.includes('timed out') || message.includes('ETIMEDOUT') || message.includes('ESOCKETTIMEDOUT');
+    const isTimeout =
+      message.includes('timed out') ||
+      message.includes('ETIMEDOUT') ||
+      message.includes('ESOCKETTIMEDOUT');
     const isConnRefused = message.includes('ECONNREFUSED');
 
     if (isTimeout) {
       return res.status(504).json({
         error: 'Document processing timed out',
-        message: 'The backend did not respond within the allowed time. The document may be too large or the backend is under heavy load.',
+        message:
+          'The backend did not respond within the allowed time. The document may be too large or the backend is under heavy load.',
       });
     }
 
     if (isConnRefused) {
       return res.status(502).json({
         error: 'Backend unavailable',
-        message: 'Could not connect to the backend service. Please verify the backend is running.',
+        message:
+          'Could not connect to the backend service. Please verify the backend is running.',
       });
     }
 

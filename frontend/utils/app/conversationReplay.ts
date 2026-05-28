@@ -1,5 +1,6 @@
-import { Message } from '@/types/chat';
 import { Logger } from '@/utils/logger';
+
+import { Message } from '@/types/chat';
 
 const logger = new Logger('ReplaySanitizer');
 
@@ -16,18 +17,17 @@ function getAssistantContent(message: any): string {
 }
 
 function stripSeparatorsAtStart(content: string): string {
-  return content
-    .replace(/^(\s*(?:[-*_]{3,})\s*)+/, '')
-    .trimStart();
+  return content.replace(/^(\s*(?:[-*_]{3,})\s*)+/, '').trimStart();
 }
 
 function stripSeparatorsAtEnd(content: string): string {
-  return content
-    .replace(/(\s*(?:[-*_]{3,})\s*)+$/, '')
-    .trimEnd();
+  return content.replace(/(\s*(?:[-*_]{3,})\s*)+$/, '').trimEnd();
 }
 
-function stripReplayedAssistantBoundary(rawOutput: string, previousContent: string): string {
+function stripReplayedAssistantBoundary(
+  rawOutput: string,
+  previousContent: string,
+): string {
   const outputStart = rawOutput.trimStart();
 
   if (outputStart.startsWith(previousContent)) {
@@ -40,7 +40,10 @@ function stripReplayedAssistantBoundary(rawOutput: string, previousContent: stri
 
   const outputEnd = rawOutput.trimEnd();
   if (outputEnd.endsWith(previousContent)) {
-    const remainder = outputEnd.slice(0, outputEnd.length - previousContent.length);
+    const remainder = outputEnd.slice(
+      0,
+      outputEnd.length - previousContent.length,
+    );
     if (remainder && /\s$/.test(remainder)) {
       const stripped = stripSeparatorsAtEnd(remainder);
       if (stripped) return stripped;
@@ -66,7 +69,13 @@ const FUZZY_MIN_REMAINDER_CHARS = 20;
 function endsSentence(token: string): boolean {
   if (!token) return false;
   const last = token[token.length - 1];
-  return last === '.' || last === '!' || last === '?' || last === ':' || last === '\n';
+  return (
+    last === '.' ||
+    last === '!' ||
+    last === '?' ||
+    last === ':' ||
+    last === '\n'
+  );
 }
 
 function tokenize(text: string): string[] {
@@ -74,7 +83,11 @@ function tokenize(text: string): string[] {
 }
 
 function findFuzzyPrefixMatchLength(output: string, prior: string): number {
-  if (prior.length < FUZZY_MIN_PRIOR_CHARS || output.length < FUZZY_MIN_OUTPUT_CHARS) return 0;
+  if (
+    prior.length < FUZZY_MIN_PRIOR_CHARS ||
+    output.length < FUZZY_MIN_OUTPUT_CHARS
+  )
+    return 0;
 
   const outTokens = tokenize(output);
   const priorTokens = tokenize(prior);
@@ -115,7 +128,11 @@ function findFuzzyPrefixMatchLength(output: string, prior: string): number {
     break;
   }
 
-  if (lastBoundaryWordCount < FUZZY_MIN_MATCH_WORDS || lastBoundaryCharPos < FUZZY_MIN_MATCH_CHARS) return 0;
+  if (
+    lastBoundaryWordCount < FUZZY_MIN_MATCH_WORDS ||
+    lastBoundaryCharPos < FUZZY_MIN_MATCH_CHARS
+  )
+    return 0;
 
   const remainder = stripSeparatorsAtStart(output.slice(lastBoundaryCharPos));
   if (remainder.length < FUZZY_MIN_REMAINDER_CHARS) return 0;
@@ -127,7 +144,11 @@ function findFuzzyPrefixMatchLength(output: string, prior: string): number {
 }
 
 function findFuzzySuffixMatchLength(output: string, prior: string): number {
-  if (prior.length < FUZZY_MIN_PRIOR_CHARS || output.length < FUZZY_MIN_OUTPUT_CHARS) return 0;
+  if (
+    prior.length < FUZZY_MIN_PRIOR_CHARS ||
+    output.length < FUZZY_MIN_OUTPUT_CHARS
+  )
+    return 0;
 
   const outTokens = tokenize(output);
   const priorTokens = tokenize(prior);
@@ -162,15 +183,24 @@ function findFuzzySuffixMatchLength(output: string, prior: string): number {
     break;
   }
 
-  if (lastBoundaryWordCount < FUZZY_MIN_MATCH_WORDS || lastBoundaryCharPos < FUZZY_MIN_MATCH_CHARS) return 0;
+  if (
+    lastBoundaryWordCount < FUZZY_MIN_MATCH_WORDS ||
+    lastBoundaryCharPos < FUZZY_MIN_MATCH_CHARS
+  )
+    return 0;
 
-  const remainder = stripSeparatorsAtEnd(output.slice(0, output.length - lastBoundaryCharPos));
+  const remainder = stripSeparatorsAtEnd(
+    output.slice(0, output.length - lastBoundaryCharPos),
+  );
   if (remainder.length < FUZZY_MIN_REMAINDER_CHARS) return 0;
 
   return lastBoundaryCharPos;
 }
 
-function stripFuzzyReplayedAssistantBoundary(rawOutput: string, previousContent: string): string {
+function stripFuzzyReplayedAssistantBoundary(
+  rawOutput: string,
+  previousContent: string,
+): string {
   const prefixLen = findFuzzyPrefixMatchLength(rawOutput, previousContent);
   if (prefixLen > 0) {
     const remainder = stripSeparatorsAtStart(rawOutput.slice(prefixLen));
@@ -178,7 +208,9 @@ function stripFuzzyReplayedAssistantBoundary(rawOutput: string, previousContent:
   }
   const suffixLen = findFuzzySuffixMatchLength(rawOutput, previousContent);
   if (suffixLen > 0) {
-    const remainder = stripSeparatorsAtEnd(rawOutput.slice(0, rawOutput.length - suffixLen));
+    const remainder = stripSeparatorsAtEnd(
+      rawOutput.slice(0, rawOutput.length - suffixLen),
+    );
     if (remainder) return remainder;
   }
   return rawOutput;
@@ -261,9 +293,9 @@ export function stripReplayedAssistantPrefix(
   return normalizeAssistantResponseBoundaries(rawOutput, priorMessages);
 }
 
-export function sanitizeConversationAssistantReplays<T extends { messages?: Message[] }>(
-  conversation: T,
-): T {
+export function sanitizeConversationAssistantReplays<
+  T extends { messages?: Message[] },
+>(conversation: T): T {
   if (!conversation || !Array.isArray(conversation.messages)) {
     return conversation;
   }
@@ -273,7 +305,10 @@ export function sanitizeConversationAssistantReplays<T extends { messages?: Mess
 
   for (const message of conversation.messages) {
     if (message?.role === 'assistant' && typeof message.content === 'string') {
-      const content = normalizeAssistantResponseBoundaries(message.content, sanitizedMessages);
+      const content = normalizeAssistantResponseBoundaries(
+        message.content,
+        sanitizedMessages,
+      );
       if (content !== message.content) {
         changed = true;
         sanitizedMessages.push({ ...message, content });
@@ -291,9 +326,9 @@ export function sanitizeConversationAssistantReplays<T extends { messages?: Mess
   };
 }
 
-export function sanitizeConversationsAssistantReplays<T extends { messages?: Message[] }>(
-  conversations: T[],
-): T[] {
+export function sanitizeConversationsAssistantReplays<
+  T extends { messages?: Message[] },
+>(conversations: T[]): T[] {
   if (!Array.isArray(conversations)) return conversations;
 
   let changed = false;

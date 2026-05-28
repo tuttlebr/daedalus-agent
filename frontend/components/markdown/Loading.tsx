@@ -6,10 +6,13 @@ interface LoadingProps {
   type?: 'text' | 'code' | 'chart' | 'image';
 }
 
-const Loading: React.FC<LoadingProps> = ({ message = "Loading", type = 'text' }) => {
+const Loading: React.FC<LoadingProps> = ({
+  message = 'Loading',
+  type = 'text',
+}) => {
   return (
     <>
-      { type === 'code' ? (
+      {type === 'code' ? (
         <div className="codeblock relative text-[16px] animate-pulse">
           <div className="flex items-center justify-between py-1.5 px-4 bg-gray-800">
             <span className="w-16 h-4 bg-gray-600 rounded"></span>
@@ -28,7 +31,9 @@ const Loading: React.FC<LoadingProps> = ({ message = "Loading", type = 'text' })
         <div className="relative w-full max-w-[600px] h-[300px] sm:h-[400px] bg-gray-100 dark:bg-gray-800 flex items-center justify-center rounded-md shadow-md animate-pulse">
           <div className="text-center">
             <IconLoader className="w-8 h-8 text-gray-400 dark:text-gray-600 animate-spin mx-auto" />
-            <p className="mt-2 text-gray-500 dark:text-gray-400 text-sm">{message}</p>
+            <p className="mt-2 text-gray-500 dark:text-gray-400 text-sm">
+              {message}
+            </p>
           </div>
         </div>
       ) : type === 'text' ? (
@@ -56,8 +61,10 @@ const Loading: React.FC<LoadingProps> = ({ message = "Loading", type = 'text' })
         </div>
       ) : (
         <div className="relative w-full max-w-[600px] h-[300px] sm:h-[400px] bg-gray-100 flex items-center justify-center rounded-md shadow-md animate-none">
-          <span className={`font-medium focus:outline-none transition-colors duration-300 dark:text-white text-center`}>
-          Loading
+          <span
+            className={`font-medium focus:outline-none transition-colors duration-300 dark:text-white text-center`}
+          >
+            Loading
             <div className="relative mt-1 mb-2">
               <div className="h-1 w-32 bg-gray-200 rounded-full overflow-hidden">
                 <div className="h-full bg-green-500 animate-loadingBar"></div>

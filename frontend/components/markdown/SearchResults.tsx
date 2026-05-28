@@ -1,4 +1,3 @@
-import React, { useState } from 'react';
 import {
   IconSearch,
   IconWorld,
@@ -14,6 +13,7 @@ import {
   IconClock,
   IconBuildingStore,
 } from '@tabler/icons-react';
+import React, { useState } from 'react';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -199,7 +199,10 @@ const StarRating: React.FC<{ rating: number; reviews?: number }> = ({
       );
     } else {
       stars.push(
-        <IconStar key={i} className="w-3.5 h-3.5 text-gray-300 dark:text-gray-600" />,
+        <IconStar
+          key={i}
+          className="w-3.5 h-3.5 text-gray-300 dark:text-gray-600"
+        />,
       );
     }
   }
@@ -242,12 +245,17 @@ const AnswerBoxCard: React.FC<{ data: AnswerBox }> = ({ data }) => {
                 data.price_movement.movement === 'Up'
                   ? 'text-green-600'
                   : data.price_movement.movement === 'Down'
-                    ? 'text-red-600'
-                    : 'text-gray-600'
+                  ? 'text-red-600'
+                  : 'text-gray-600'
               }`}
             >
-              {data.price_movement.movement === 'Up' ? '+' : data.price_movement.movement === 'Down' ? '-' : ''}
-              {data.price_movement.percentage != null && `${data.price_movement.percentage}%`}
+              {data.price_movement.movement === 'Up'
+                ? '+'
+                : data.price_movement.movement === 'Down'
+                ? '-'
+                : ''}
+              {data.price_movement.percentage != null &&
+                `${data.price_movement.percentage}%`}
             </span>
           )}
           <div className="text-sm text-gray-500 dark:text-gray-400 mt-1">
@@ -325,16 +333,18 @@ const KnowledgeGraphCard: React.FC<{ data: KnowledgeGraph }> = ({ data }) => (
     {/* Facts */}
     {data.facts && Object.keys(data.facts).length > 0 && (
       <div className="mt-3 pt-3 border-t border-gray-100 dark:border-gray-700 grid grid-cols-2 gap-x-4 gap-y-1">
-        {Object.entries(data.facts).slice(0, 6).map(([k, v]) => (
-          <div key={k} className="text-sm">
-            <span className="text-gray-500 dark:text-gray-400">
-              {k.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())}:{' '}
-            </span>
-            <span className="text-gray-900 dark:text-gray-100 font-medium">
-              {String(v)}
-            </span>
-          </div>
-        ))}
+        {Object.entries(data.facts)
+          .slice(0, 6)
+          .map(([k, v]) => (
+            <div key={k} className="text-sm">
+              <span className="text-gray-500 dark:text-gray-400">
+                {k.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())}:{' '}
+              </span>
+              <span className="text-gray-900 dark:text-gray-100 font-medium">
+                {String(v)}
+              </span>
+            </div>
+          ))}
       </div>
     )}
 
@@ -380,9 +390,7 @@ const KnowledgeGraphCard: React.FC<{ data: KnowledgeGraph }> = ({ data }) => (
 // Section: Organic Results
 // ---------------------------------------------------------------------------
 
-const OrganicResultCard: React.FC<{ result: OrganicResult }> = ({
-  result,
-}) => (
+const OrganicResultCard: React.FC<{ result: OrganicResult }> = ({ result }) => (
   <div className="group py-3 first:pt-0">
     {/* URL line */}
     <div className="flex items-center gap-2 mb-0.5">
@@ -592,9 +600,7 @@ const VideoCard: React.FC<{ item: VideoResult }> = ({ item }) => (
 // Section: Related Questions (People Also Ask)
 // ---------------------------------------------------------------------------
 
-const RelatedQuestionItem: React.FC<{ item: RelatedQuestion }> = ({
-  item,
-}) => {
+const RelatedQuestionItem: React.FC<{ item: RelatedQuestion }> = ({ item }) => {
   const [open, setOpen] = useState(false);
   return (
     <div className="border-b border-gray-100 dark:border-gray-700 last:border-b-0">
@@ -731,7 +737,10 @@ const SearchResults: React.FC<SearchResultsProps> = ({ payload }) => {
       {/* Top Stories */}
       {payload.top_stories && payload.top_stories.length > 0 && (
         <div>
-          <SectionHeader icon={<IconNews className="w-4 h-4" />} title="Top Stories" />
+          <SectionHeader
+            icon={<IconNews className="w-4 h-4" />}
+            title="Top Stories"
+          />
           <div className="flex gap-3 overflow-x-auto pb-2 -mx-1 px-1 scrollbar-hide">
             {payload.top_stories.map((s, i) => (
               <StoryCard key={i} item={s} />
@@ -755,7 +764,10 @@ const SearchResults: React.FC<SearchResultsProps> = ({ payload }) => {
       {/* Images */}
       {payload.images && payload.images.length > 0 && (
         <div>
-          <SectionHeader icon={<IconPhoto className="w-4 h-4" />} title="Images" />
+          <SectionHeader
+            icon={<IconPhoto className="w-4 h-4" />}
+            title="Images"
+          />
           <ImageGrid images={payload.images} />
         </div>
       )}

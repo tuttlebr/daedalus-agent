@@ -13,10 +13,16 @@ function formatInterval(seconds?: number): string {
   if (seconds < 3600) return `${Math.round(seconds / 60)} minutes`;
   const hours = Math.round(seconds / 3600);
   if (hours < 48) return `${hours} hour${hours === 1 ? '' : 's'}`;
-  return `${Math.round(hours / 24)} day${Math.round(hours / 24) === 1 ? '' : 's'}`;
+  return `${Math.round(hours / 24)} day${
+    Math.round(hours / 24) === 1 ? '' : 's'
+  }`;
 }
 
-export function EmptyState({ intervalSeconds, enabled, filtered }: EmptyStateProps) {
+export function EmptyState({
+  intervalSeconds,
+  enabled,
+  filtered,
+}: EmptyStateProps) {
   if (filtered) {
     return (
       <div className="mx-auto max-w-md py-24 text-center">
@@ -37,8 +43,8 @@ export function EmptyState({ intervalSeconds, enabled, filtered }: EmptyStatePro
       </span>
       <p className="font-serif text-[18px] leading-relaxed text-dark-text-secondary">
         {enabled
-          ? 'Aurora hasn’t surfaced anything yet.'
-          : 'Aurora is paused.'}
+          ? 'Daedalus hasn’t surfaced anything yet.'
+          : 'Daedalus is paused.'}
       </p>
       <p className="mt-2 font-mono text-[11px] uppercase tracking-[0.18em] text-dark-text-subtle">
         {enabled

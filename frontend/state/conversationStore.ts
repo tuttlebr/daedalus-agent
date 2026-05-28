@@ -16,14 +16,15 @@
  *
  * @requires zustand - Run: npm install zustand
  */
+import { Logger } from '@/utils/logger';
 
+import { Conversation, Message } from '@/types/chat';
+import { IntermediateStep } from '@/types/intermediateSteps';
+
+import { enableMapSet } from 'immer';
 import { create } from 'zustand';
 import { subscribeWithSelector } from 'zustand/middleware';
 import { immer } from 'zustand/middleware/immer';
-import { enableMapSet } from 'immer';
-import { Conversation, Message } from '@/types/chat';
-import { IntermediateStep } from '@/types/intermediateSteps';
-import { Logger } from '@/utils/logger';
 
 // Enable immer support for Set and Map (required for streamingConversationIds)
 enableMapSet();
@@ -72,13 +73,16 @@ export interface ConversationActions {
   updateMessage: (
     conversationId: string,
     messageId: string,
-    updates: Partial<Message>
+    updates: Partial<Message>,
   ) => void;
-  updateLastMessage: (conversationId: string, updates: Partial<Message>) => void;
+  updateLastMessage: (
+    conversationId: string,
+    updates: Partial<Message>,
+  ) => void;
   updateMessageIntermediateSteps: (
     conversationId: string,
     messageIndex: number,
-    steps: IntermediateStep[]
+    steps: IntermediateStep[],
   ) => void;
 
   // Streaming
@@ -140,7 +144,9 @@ export const useConversationStore = create<ConversationStore>()(
             }
           }
 
-          const incomingIds = new Set(conversations.map((c: Conversation) => c.id));
+          const incomingIds = new Set(
+            conversations.map((c: Conversation) => c.id),
+          );
 
           // Replace with incoming data, but keep local copies for streaming conversations
           state.conversations = conversations.map((c: Conversation) => {
@@ -157,7 +163,9 @@ export const useConversationStore = create<ConversationStore>()(
           // Clear selection if selected conversation no longer exists
           if (
             state.selectedConversationId &&
-            !state.conversations.some((c: Conversation) => c.id === state.selectedConversationId)
+            !state.conversations.some(
+              (c: Conversation) => c.id === state.selectedConversationId,
+            )
           ) {
             state.selectedConversationId = null;
           }
@@ -170,12 +178,17 @@ export const useConversationStore = create<ConversationStore>()(
           // Add to beginning (most recent first)
           state.conversations.unshift(conversation);
         });
-        logger.debug('Added conversation', { id: conversation.id, name: conversation.name });
+        logger.debug('Added conversation', {
+          id: conversation.id,
+          name: conversation.name,
+        });
       },
 
       updateConversation: (id, updates) => {
         set((state) => {
-          const index = state.conversations.findIndex((c: Conversation) => c.id === id);
+          const index = state.conversations.findIndex(
+            (c: Conversation) => c.id === id,
+          );
           if (index !== -1) {
             state.conversations[index] = {
               ...state.conversations[index],
@@ -188,7 +201,9 @@ export const useConversationStore = create<ConversationStore>()(
 
       deleteConversation: (id) => {
         set((state) => {
-          state.conversations = state.conversations.filter((c: Conversation) => c.id !== id);
+          state.conversations = state.conversations.filter(
+            (c: Conversation) => c.id !== id,
+          );
           if (state.selectedConversationId === id) {
             state.selectedConversationId = null;
           }
@@ -223,7 +238,9 @@ export const useConversationStore = create<ConversationStore>()(
 
       addMessage: (conversationId, message) => {
         set((state) => {
-          const conv = state.conversations.find((c: Conversation) => c.id === conversationId);
+          const conv = state.conversations.find(
+            (c: Conversation) => c.id === conversationId,
+          );
           if (conv) {
             conv.messages.push(message);
             if (conv.messages.length > MAX_MESSAGES) {
@@ -236,10 +253,14 @@ export const useConversationStore = create<ConversationStore>()(
 
       updateMessage: (conversationId, messageId, updates) => {
         set((state) => {
-          const conv = state.conversations.find((c: Conversation) => c.id === conversationId);
+          const conv = state.conversations.find(
+            (c: Conversation) => c.id === conversationId,
+          );
           if (!conv) return;
 
-          const index = conv.messages.findIndex((message: Message) => message.id === messageId);
+          const index = conv.messages.findIndex(
+            (message: Message) => message.id === messageId,
+          );
           if (index === -1) return;
 
           conv.messages[index] = {
@@ -252,7 +273,9 @@ export const useConversationStore = create<ConversationStore>()(
 
       updateLastMessage: (conversationId, updates) => {
         set((state) => {
-          const conv = state.conversations.find((c: Conversation) => c.id === conversationId);
+          const conv = state.conversations.find(
+            (c: Conversation) => c.id === conversationId,
+          );
           if (conv && conv.messages.length > 0) {
             const lastIndex = conv.messages.length - 1;
             conv.messages[lastIndex] = {
@@ -266,7 +289,9 @@ export const useConversationStore = create<ConversationStore>()(
 
       updateMessageIntermediateSteps: (conversationId, messageIndex, steps) => {
         set((state) => {
-          const conv = state.conversations.find((c: Conversation) => c.id === conversationId);
+          const conv = state.conversations.find(
+            (c: Conversation) => c.id === conversationId,
+          );
           if (conv && conv.messages[messageIndex]) {
             conv.messages[messageIndex].intermediateSteps = steps;
           }
@@ -323,7 +348,9 @@ export const useConversationStore = create<ConversationStore>()(
 
       replaceConversation: (id, conversation) => {
         set((state) => {
-          const index = state.conversations.findIndex((c: Conversation) => c.id === id);
+          const index = state.conversations.findIndex(
+            (c: Conversation) => c.id === id,
+          );
           if (index !== -1) {
             state.conversations[index] = conversation;
           }
@@ -332,7 +359,9 @@ export const useConversationStore = create<ConversationStore>()(
 
       upsertConversation: (conversation) => {
         set((state) => {
-          const index = state.conversations.findIndex((c: Conversation) => c.id === conversation.id);
+          const index = state.conversations.findIndex(
+            (c: Conversation) => c.id === conversation.id,
+          );
           if (index !== -1) {
             state.conversations[index] = conversation;
           } else {
@@ -349,8 +378,8 @@ export const useConversationStore = create<ConversationStore>()(
         set(initialState);
         logger.debug('Store reset');
       },
-    }))
-  )
+    })),
+  ),
 );
 
 // ============================================================================
@@ -361,7 +390,7 @@ export const useConversationStore = create<ConversationStore>()(
  * Get the currently selected conversation
  */
 export const selectSelectedConversation = (
-  state: ConversationStore
+  state: ConversationStore,
 ): Conversation | undefined => {
   if (!state.selectedConversationId) return undefined;
   return state.conversations.find((c) => c.id === state.selectedConversationId);
@@ -370,7 +399,9 @@ export const selectSelectedConversation = (
 /**
  * Check if selected conversation is streaming
  */
-export const selectIsSelectedStreaming = (state: ConversationStore): boolean => {
+export const selectIsSelectedStreaming = (
+  state: ConversationStore,
+): boolean => {
   if (!state.selectedConversationId) return false;
   return state.streamingConversationIds.has(state.selectedConversationId);
 };
@@ -387,7 +418,7 @@ export const selectIsAnyStreaming = (state: ConversationStore): boolean => {
  */
 export const selectConversationById = (
   state: ConversationStore,
-  id: string
+  id: string,
 ): Conversation | undefined => {
   return state.conversations.find((c) => c.id === id);
 };
@@ -397,7 +428,7 @@ export const selectConversationById = (
  */
 export const selectStreamingStatus = (
   state: ConversationStore,
-  id: string
+  id: string,
 ): boolean => {
   return state.streamingConversationIds.has(id);
 };
@@ -407,7 +438,7 @@ export const selectStreamingStatus = (
  */
 export const selectConversationsByFolder = (
   state: ConversationStore,
-  folderId: string | null
+  folderId: string | null,
 ): Conversation[] => {
   return state.conversations.filter((c) => c.folderId === folderId);
 };
@@ -423,10 +454,10 @@ export const selectConversationCount = (state: ConversationStore): number => {
  * Get conversations sorted by update time
  */
 export const selectSortedConversations = (
-  state: ConversationStore
+  state: ConversationStore,
 ): Conversation[] => {
   return [...state.conversations].sort(
-    (a, b) => (b.updatedAt || 0) - (a.updatedAt || 0)
+    (a, b) => (b.updatedAt || 0) - (a.updatedAt || 0),
   );
 };
 

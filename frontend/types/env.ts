@@ -1,3 +1,1 @@
-export interface ProcessEnv {
-
-}
+export interface ProcessEnv {}

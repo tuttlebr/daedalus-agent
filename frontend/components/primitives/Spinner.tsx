@@ -1,6 +1,7 @@
 'use client';
 
 import React, { memo } from 'react';
+
 import classNames from 'classnames';
 
 export interface SpinnerProps {
@@ -16,13 +17,24 @@ const sizeClasses: Record<NonNullable<SpinnerProps['size']>, string> = {
 
 export const Spinner = memo(({ size = 'md', className = '' }: SpinnerProps) => (
   <svg
-    className={classNames('animate-spin text-nvidia-green', sizeClasses[size], className)}
+    className={classNames(
+      'animate-spin text-nvidia-green',
+      sizeClasses[size],
+      className,
+    )}
     fill="none"
     viewBox="0 0 24 24"
     role="status"
     aria-label="Loading"
   >
-    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+    <circle
+      className="opacity-25"
+      cx="12"
+      cy="12"
+      r="10"
+      stroke="currentColor"
+      strokeWidth="4"
+    />
     <path
       className="opacity-75"
       fill="currentColor"

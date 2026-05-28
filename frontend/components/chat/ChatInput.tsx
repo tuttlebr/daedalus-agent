@@ -408,12 +408,15 @@ export const ChatInput = memo(
           if (!response.ok || !payload.success) {
             toast.dismiss(loadingToast);
             toast.error(
-              payload?.error || payload?.details || 'Failed to extract document',
+              payload?.error ||
+                payload?.details ||
+                'Failed to extract document',
             );
             return;
           }
           const markdown: string = payload.markdown || '';
-          const filename: string = payload.filename || docAtt.content || 'document';
+          const filename: string =
+            payload.filename || docAtt.content || 'document';
           const truncated: boolean = payload.truncated === true;
           const originalChars: number =
             typeof payload.originalChars === 'number'
@@ -429,8 +432,9 @@ export const ChatInput = memo(
             attrs.push('truncated="true"');
             attrs.push(`original_chars="${originalChars}"`);
           }
-          const docBlock =
-            `<attached_document ${attrs.join(' ')}>\n${markdown}\n</attached_document>`;
+          const docBlock = `<attached_document ${attrs.join(
+            ' ',
+          )}>\n${markdown}\n</attached_document>`;
           messageContent = messageContent
             ? `${messageContent}\n\n${docBlock}`
             : docBlock;
@@ -700,7 +704,7 @@ export const ChatInput = memo(
                   icon={<IconSquare />}
                   aria-label="Stop generating"
                   variant="danger"
-                  size="sm"
+                  size="md"
                   onClick={onStop}
                   className="flex-shrink-0 mb-0.5"
                 />
@@ -709,7 +713,7 @@ export const ChatInput = memo(
                   icon={<IconSend />}
                   aria-label="Send message"
                   variant={canSend ? 'accent' : 'ghost'}
-                  size="sm"
+                  size="md"
                   onClick={handleSend}
                   disabled={!canSend}
                   className="flex-shrink-0 mb-0.5"

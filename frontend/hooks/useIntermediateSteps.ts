@@ -8,10 +8,11 @@
  * - Filters out stale steps created after job completion
  * - Maintains insertion order for already-sorted data
  */
-
 import { useCallback, useRef } from 'react';
-import { IntermediateStep } from '@/types/intermediateSteps';
+
 import { Logger } from '@/utils/logger';
+
+import { IntermediateStep } from '@/types/intermediateSteps';
 
 const logger = new Logger('IntermediateSteps');
 
@@ -33,7 +34,7 @@ export interface UseIntermediateStepsReturn {
   mergeSteps: (
     existingSteps: IntermediateStep[],
     incomingSteps: IntermediateStep[],
-    completionTimestamp?: number
+    completionTimestamp?: number,
   ) => IntermediateStep[];
 
   /**
@@ -44,14 +45,17 @@ export interface UseIntermediateStepsReturn {
   /**
    * Get step by UUID from a list
    */
-  getStepByUUID: (steps: IntermediateStep[], uuid: string) => IntermediateStep | undefined;
+  getStepByUUID: (
+    steps: IntermediateStep[],
+    uuid: string,
+  ) => IntermediateStep | undefined;
 
   /**
    * Filter steps by event type pattern
    */
   filterStepsByType: (
     steps: IntermediateStep[],
-    typePattern: string | RegExp
+    typePattern: string | RegExp,
   ) => IntermediateStep[];
 
   /**
@@ -66,7 +70,7 @@ export interface UseIntermediateStepsReturn {
 }
 
 export function useIntermediateSteps(
-  options: UseIntermediateStepsOptions = {}
+  options: UseIntermediateStepsOptions = {},
 ): UseIntermediateStepsReturn {
   const { debug = false } = options;
 
@@ -96,7 +100,7 @@ export function useIntermediateSteps(
     (
       existingSteps: IntermediateStep[] = [],
       incomingSteps: IntermediateStep[] = [],
-      completionTimestamp?: number
+      completionTimestamp?: number,
     ): IntermediateStep[] => {
       // Fast path: no incoming steps
       if (!incomingSteps.length) {
@@ -109,7 +113,9 @@ export function useIntermediateSteps(
         // Sort only if needed
         if (needsSort(filtered)) {
           return filtered.sort(
-            (a, b) => (a.payload?.event_timestamp ?? 0) - (b.payload?.event_timestamp ?? 0)
+            (a, b) =>
+              (a.payload?.event_timestamp ?? 0) -
+              (b.payload?.event_timestamp ?? 0),
           );
         }
         return filtered;
@@ -138,11 +144,14 @@ export function useIntermediateSteps(
           const completionTimestampSeconds = completionTimestamp / 1000;
           if (step.payload.event_timestamp > completionTimestampSeconds) {
             if (debug) {
-              logger.warn('Filtering out stale intermediate step created after completion', {
-                stepName: step.payload.name,
-                stepTimestamp: step.payload.event_timestamp,
-                completionTimestamp: completionTimestampSeconds,
-              });
+              logger.warn(
+                'Filtering out stale intermediate step created after completion',
+                {
+                  stepName: step.payload.name,
+                  stepTimestamp: step.payload.event_timestamp,
+                  completionTimestamp: completionTimestampSeconds,
+                },
+              );
             }
             continue;
           }
@@ -170,13 +179,15 @@ export function useIntermediateSteps(
       // Optimization: skip sort if already sorted
       if (needsSort(merged)) {
         merged.sort(
-          (a, b) => (a.payload?.event_timestamp ?? 0) - (b.payload?.event_timestamp ?? 0)
+          (a, b) =>
+            (a.payload?.event_timestamp ?? 0) -
+            (b.payload?.event_timestamp ?? 0),
         );
       }
 
       return merged;
     },
-    [needsSort, debug]
+    [needsSort, debug],
   );
 
   /**
@@ -186,22 +197,29 @@ export function useIntermediateSteps(
     (steps: IntermediateStep[], uuid: string): IntermediateStep | undefined => {
       return steps.find((step) => step?.payload?.UUID === uuid);
     },
-    []
+    [],
   );
 
   /**
    * Filter steps by event type
    */
   const filterStepsByType = useCallback(
-    (steps: IntermediateStep[], typePattern: string | RegExp): IntermediateStep[] => {
+    (
+      steps: IntermediateStep[],
+      typePattern: string | RegExp,
+    ): IntermediateStep[] => {
       if (typeof typePattern === 'string') {
-        return steps.filter((step) => step?.payload?.event_type === typePattern);
+        return steps.filter(
+          (step) => step?.payload?.event_type === typePattern,
+        );
       }
-      return steps.filter((step) =>
-        step?.payload?.event_type && typePattern.test(step.payload.event_type)
+      return steps.filter(
+        (step) =>
+          step?.payload?.event_type &&
+          typePattern.test(step.payload.event_type),
       );
     },
-    []
+    [],
   );
 
   /**
@@ -212,7 +230,7 @@ export function useIntermediateSteps(
       if (steps.length <= n) return steps;
       return steps.slice(-n);
     },
-    []
+    [],
   );
 
   /**
@@ -237,7 +255,7 @@ export function useIntermediateSteps(
  */
 function mergeStepData(
   current: IntermediateStep,
-  incoming: IntermediateStep
+  incoming: IntermediateStep,
 ): IntermediateStep {
   return {
     ...current,
@@ -247,7 +265,8 @@ function mergeStepData(
       ...current.payload,
       ...incoming.payload,
       span_event_timestamp:
-        incoming.payload?.span_event_timestamp ?? current.payload?.span_event_timestamp,
+        incoming.payload?.span_event_timestamp ??
+        current.payload?.span_event_timestamp,
       metadata: incoming.payload?.metadata ?? current.payload?.metadata,
       data: incoming.payload?.data ?? current.payload?.data,
       usage_info: incoming.payload?.usage_info ?? current.payload?.usage_info,
@@ -260,7 +279,7 @@ function mergeStepData(
  */
 function filterStaleSteps(
   steps: IntermediateStep[],
-  completionTimestamp?: number
+  completionTimestamp?: number,
 ): IntermediateStep[] {
   if (!completionTimestamp) {
     return steps;

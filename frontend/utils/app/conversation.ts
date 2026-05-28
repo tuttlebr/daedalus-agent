@@ -1,17 +1,31 @@
-import { Conversation, Message } from '@/types/chat';
 import toast from 'react-hot-toast';
+
 import { apiGet, apiPut, apiPost, ConflictError } from '@/utils/app/api';
-import { restoreMessageImages, cleanMessagesForStorage, stripBase64Content } from './imageHandler';
-import { sanitizeConversationAssistantReplays, sanitizeConversationsAssistantReplays } from './conversationReplay';
-import { getUserSessionItem, setUserSessionItem, removeUserSessionItem } from './storage';
+
+import { Conversation, Message } from '@/types/chat';
+
 import {
   paginateConversation,
   loadConversationMessages,
   enforceConversationSizeLimit,
   cleanupOldConversations as cleanupOldConversationChunks,
   MESSAGES_IN_MEMORY,
-  MAX_CONVERSATION_MESSAGES
+  MAX_CONVERSATION_MESSAGES,
 } from './conversationPagination';
+import {
+  sanitizeConversationAssistantReplays,
+  sanitizeConversationsAssistantReplays,
+} from './conversationReplay';
+import {
+  restoreMessageImages,
+  cleanMessagesForStorage,
+  stripBase64Content,
+} from './imageHandler';
+import {
+  getUserSessionItem,
+  setUserSessionItem,
+  removeUserSessionItem,
+} from './storage';
 
 // Memory optimization constants
 const MAX_MESSAGES_IN_MEMORY = 50; // Keep only last 50 messages in memory
@@ -23,10 +37,16 @@ const conversationCache = new WeakMap<Conversation, any>();
  * Fire-and-forget notification to other devices/sessions via Redis pub/sub.
  * Failures are silently logged -- sync is best-effort.
  */
-function notifySync(type: string, conversationId?: string, conversation?: Conversation) {
-  apiPost('/api/sync/notify', { type, conversationId, conversation }).catch(err => {
-    console.warn('Sync notification failed (best-effort):', err);
-  });
+function notifySync(
+  type: string,
+  conversationId?: string,
+  conversation?: Conversation,
+) {
+  apiPost('/api/sync/notify', { type, conversationId, conversation }).catch(
+    (err) => {
+      console.warn('Sync notification failed (best-effort):', err);
+    },
+  );
 }
 
 export const updateConversation = (
@@ -36,7 +56,7 @@ export const updateConversation = (
   // Limit messages in the conversation
   const limitedConversation = {
     ...updatedConversation,
-    messages: updatedConversation.messages.slice(-MAX_MESSAGES_IN_MEMORY)
+    messages: updatedConversation.messages.slice(-MAX_MESSAGES_IN_MEMORY),
   };
 
   const updatedConversations = allConversations.map((c) => {
@@ -50,7 +70,7 @@ export const updateConversation = (
   // Using Promise.all to ensure both saves complete, but not blocking the return
   Promise.all([
     saveConversation(limitedConversation),
-    saveConversations(updatedConversations)
+    saveConversations(updatedConversations),
   ]).catch((error) => {
     console.error('Failed to save conversation updates:', error);
   });
@@ -81,11 +101,17 @@ export const saveConversation = async (conversation: Conversation) => {
     );
 
     // Cache in sessionStorage (best-effort — data is persisted server-side)
-    setUserSessionItem('selectedConversation', JSON.stringify(cleanedConversation));
+    setUserSessionItem(
+      'selectedConversation',
+      JSON.stringify(cleanedConversation),
+    );
 
     // Save to individual conversation endpoint
     try {
-      await apiPut(`/api/conversations/${conversation.id}`, cleanedConversation);
+      await apiPut(
+        `/api/conversations/${conversation.id}`,
+        cleanedConversation,
+      );
     } catch (error) {
       if (error instanceof ConflictError && error.serverState) {
         const { reportError } = await import('@/utils/errorReporter');
@@ -93,9 +119,11 @@ export const saveConversation = async (conversation: Conversation) => {
         const merged = {
           ...cleanedConversation,
           ...error.serverState,
-          messages: error.serverState.messages?.length >= cleanedConversation.messages.length
-            ? error.serverState.messages
-            : cleanedConversation.messages,
+          messages:
+            error.serverState.messages?.length >=
+            cleanedConversation.messages.length
+              ? error.serverState.messages
+              : cleanedConversation.messages,
         };
         await apiPut(`/api/conversations/${conversation.id}`, merged);
         setUserSessionItem('selectedConversation', JSON.stringify(merged));
@@ -127,9 +155,11 @@ export const saveConversations = async (conversations: Conversation[]) => {
       .slice(0, MAX_CONVERSATIONS_IN_MEMORY);
 
     // Clean all conversations to remove base64 content before storing
-    let cleanedConversations = recentConversations.map(conversation => ({
+    let cleanedConversations = recentConversations.map((conversation) => ({
       ...conversation,
-      messages: cleanMessagesForStorage(conversation.messages.slice(-MAX_MESSAGES_IN_MEMORY)),
+      messages: cleanMessagesForStorage(
+        conversation.messages.slice(-MAX_MESSAGES_IN_MEMORY),
+      ),
     }));
 
     // Aggressively strip any remaining base64 content as a safety measure
@@ -173,7 +203,7 @@ function cacheConversationsToSession(conversations: Conversation[]): void {
   if (write(data(conversations.slice(0, 2), 10))) return;
 
   // 4. Metadata only — sidebar labels still render
-  const metadataOnly = conversations.map(c => ({
+  const metadataOnly = conversations.map((c) => ({
     ...c,
     messages: [],
   }));
@@ -181,15 +211,19 @@ function cacheConversationsToSession(conversations: Conversation[]): void {
 }
 
 function data(conversations: Conversation[], msgLimit: number): Conversation[] {
-  return conversations.map(c => ({
+  return conversations.map((c) => ({
     ...c,
     messages: c.messages.slice(-msgLimit),
   }));
 }
 
-export const loadConversation = async (loadAllMessages: boolean = false): Promise<Conversation | null> => {
+export const loadConversation = async (
+  loadAllMessages: boolean = false,
+): Promise<Conversation | null> => {
   try {
-    let conversation = await apiGet<Conversation | null>('/api/session/selectedConversation');
+    let conversation = await apiGet<Conversation | null>(
+      '/api/session/selectedConversation',
+    );
     if (conversation) {
       // Strip any base64 content that might have been stored
       const cleanedConversation = sanitizeConversationAssistantReplays(
@@ -198,15 +232,27 @@ export const loadConversation = async (loadAllMessages: boolean = false): Promis
 
       if (cleanedConversation && cleanedConversation.messages) {
         // Restore image references in loaded messages
-        cleanedConversation.messages = restoreMessageImages(cleanedConversation.messages);
+        cleanedConversation.messages = restoreMessageImages(
+          cleanedConversation.messages,
+        );
 
         // If requested, load all messages from IndexedDB
-        if (loadAllMessages && cleanedConversation.messages.length === MESSAGES_IN_MEMORY) {
+        if (
+          loadAllMessages &&
+          cleanedConversation.messages.length === MESSAGES_IN_MEMORY
+        ) {
           try {
-            const allMessages = await loadConversationMessages(cleanedConversation.id, 0, MAX_CONVERSATION_MESSAGES);
+            const allMessages = await loadConversationMessages(
+              cleanedConversation.id,
+              0,
+              MAX_CONVERSATION_MESSAGES,
+            );
             if (allMessages.length > 0) {
               // Combine stored messages with recent messages
-              cleanedConversation.messages = [...allMessages, ...cleanedConversation.messages];
+              cleanedConversation.messages = [
+                ...allMessages,
+                ...cleanedConversation.messages,
+              ];
             }
           } catch (error) {
             console.error('Failed to load paginated messages:', error);
@@ -224,12 +270,14 @@ export const loadConversation = async (loadAllMessages: boolean = false): Promis
 
 export const loadConversations = async (): Promise<Conversation[]> => {
   try {
-    let conversations = await apiGet<Conversation[]>('/api/session/conversationHistory');
+    let conversations = await apiGet<Conversation[]>(
+      '/api/session/conversationHistory',
+    );
     // Strip any base64 content and restore image references in all loaded conversations
     conversations = sanitizeConversationsAssistantReplays(
       stripBase64Content(conversations),
     );
-    return conversations.map(conv => {
+    return conversations.map((conv) => {
       if (conv.messages) {
         conv.messages = restoreMessageImages(conv.messages);
       }
@@ -241,7 +289,9 @@ export const loadConversations = async (): Promise<Conversation[]> => {
 };
 
 // Cleanup function for old messages and conversations
-export const cleanupOldConversations = (conversations: Conversation[]): Conversation[] => {
+export const cleanupOldConversations = (
+  conversations: Conversation[],
+): Conversation[] => {
   return conversations
     .sort((a, b) => {
       const aTime = a.messages[a.messages.length - 1]?.id || a.id;
@@ -249,9 +299,9 @@ export const cleanupOldConversations = (conversations: Conversation[]): Conversa
       return bTime.localeCompare(aTime);
     })
     .slice(0, MAX_CONVERSATIONS_IN_MEMORY)
-    .map(conversation => ({
+    .map((conversation) => ({
       ...conversation,
-      messages: conversation.messages.slice(-MAX_MESSAGES_IN_MEMORY)
+      messages: conversation.messages.slice(-MAX_MESSAGES_IN_MEMORY),
     }));
 };
 
@@ -261,22 +311,27 @@ if (typeof window !== 'undefined') {
   // Import dynamically to avoid circular dependencies
   import('./visibilityAwareTimer').then(({ createVisibilityAwareInterval }) => {
     // Run cleanup on page load
-    cleanupOldConversationChunks().then(deletedCount => {
+    cleanupOldConversationChunks().then((deletedCount) => {
       if (deletedCount > 0) {
         console.log(`Cleaned up ${deletedCount} old conversation chunks`);
       }
     });
 
     // Run cleanup every 12 hours, pauses when app is hidden
-    createVisibilityAwareInterval(async () => {
-      const deletedCount = await cleanupOldConversationChunks();
-      if (deletedCount > 0) {
-        console.log(`Periodic cleanup: removed ${deletedCount} old conversation chunks`);
-      }
-    }, {
-      interval: 12 * 60 * 60 * 1000, // 12 hours
-      pauseWhenHidden: true,
-      runImmediatelyOnVisible: false,
-    });
+    createVisibilityAwareInterval(
+      async () => {
+        const deletedCount = await cleanupOldConversationChunks();
+        if (deletedCount > 0) {
+          console.log(
+            `Periodic cleanup: removed ${deletedCount} old conversation chunks`,
+          );
+        }
+      },
+      {
+        interval: 12 * 60 * 60 * 1000, // 12 hours
+        pauseWhenHidden: true,
+        runImmediatelyOnVisible: false,
+      },
+    );
   });
 }

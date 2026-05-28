@@ -1,3 +1,7 @@
+import {
+  DocumentRefAccessError,
+  validateDocumentRefsForUser,
+} from '@/server/session/documentRefs';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
@@ -9,11 +13,6 @@ vi.mock('@/pages/api/session/documentStorage', () => ({
   getDocument: mocks.getDocument,
   canAccessStoredDocument: mocks.canAccessStoredDocument,
 }));
-
-import {
-  DocumentRefAccessError,
-  validateDocumentRefsForUser,
-} from '@/server/session/documentRefs';
 
 describe('documentRefs validation', () => {
   beforeEach(() => {
@@ -58,22 +57,26 @@ describe('documentRefs validation', () => {
     });
     mocks.canAccessStoredDocument.mockReturnValue(false);
 
-    await expect(validateDocumentRefsForUser(
-      [{ documentId: 'doc-a', sessionId: 'other-session' }],
-      'current-session',
-      'alice',
-    )).rejects.toMatchObject({
+    await expect(
+      validateDocumentRefsForUser(
+        [{ documentId: 'doc-a', sessionId: 'other-session' }],
+        'current-session',
+        'alice',
+      ),
+    ).rejects.toMatchObject({
       status: 403,
       reason: 'document_ref_forbidden',
     } satisfies Partial<DocumentRefAccessError>);
   });
 
   it('rejects malformed ids before hitting Redis', async () => {
-    await expect(validateDocumentRefsForUser(
-      [{ documentId: 'doc:a', sessionId: 'sess-1' }],
-      'current-session',
-      'alice',
-    )).rejects.toMatchObject({
+    await expect(
+      validateDocumentRefsForUser(
+        [{ documentId: 'doc:a', sessionId: 'sess-1' }],
+        'current-session',
+        'alice',
+      ),
+    ).rejects.toMatchObject({
       status: 400,
       reason: 'document_ref_invalid',
     } satisfies Partial<DocumentRefAccessError>);

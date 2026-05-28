@@ -48,9 +48,9 @@ export async function verifyIdentityCookieEdge(
   const encodedPayload = value.substring(0, dotIdx);
   const providedSignature = value.substring(dotIdx + 1);
 
-  const secret = process.env.SESSION_SECRET || (
-    process.env.NODE_ENV === 'production' ? '' : DEV_IDENTITY_SECRET
-  );
+  const secret =
+    process.env.SESSION_SECRET ||
+    (process.env.NODE_ENV === 'production' ? '' : DEV_IDENTITY_SECRET);
   if (!secret) return null;
 
   // Compute expected HMAC-SHA256 using Web Crypto API
@@ -76,7 +76,8 @@ export async function verifyIdentityCookieEdge(
   if (providedSignature.length !== expectedSignature.length) return null;
   let mismatch = 0;
   for (let i = 0; i < providedSignature.length; i++) {
-    mismatch |= providedSignature.charCodeAt(i) ^ expectedSignature.charCodeAt(i);
+    mismatch |=
+      providedSignature.charCodeAt(i) ^ expectedSignature.charCodeAt(i);
   }
   if (mismatch !== 0) return null;
 

@@ -1,6 +1,7 @@
 import { Conversation } from '@/types/chat';
-import { cleanMessagesForStorage, restoreMessageImages } from './imageHandler';
+
 import { sanitizeConversationAssistantReplays } from './conversationReplay';
+import { cleanMessagesForStorage, restoreMessageImages } from './imageHandler';
 
 export const cleanSelectedConversation = (conversation: Conversation) => {
   const cleanedMessages = cleanMessagesForStorage(conversation.messages || []);
@@ -12,7 +13,9 @@ export const cleanSelectedConversation = (conversation: Conversation) => {
   });
 };
 
-export const cleanConversationHistory = (history: Conversation[]): Conversation[] => {
+export const cleanConversationHistory = (
+  history: Conversation[],
+): Conversation[] => {
   if (!Array.isArray(history)) {
     console.warn('history is not an array. Returning an empty array.');
     return [];

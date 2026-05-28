@@ -10,7 +10,7 @@ export const useIOSKeyboardFix = (): UseIOSKeyboardFixReturn => {
   const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
   const [viewportHeight, setViewportHeight] = useState(
-    typeof window !== 'undefined' ? window.innerHeight : 0
+    typeof window !== 'undefined' ? window.innerHeight : 0,
   );
 
   useEffect(() => {
@@ -38,15 +38,20 @@ export const useIOSKeyboardFix = (): UseIOSKeyboardFixReturn => {
       const target = e.target as HTMLElement;
       if (target.tagName === 'TEXTAREA' || target.tagName === 'INPUT') {
         // In PWA mode, don't use scrollTo - let visualViewport handle positioning
-        const isPWA = window.matchMedia('(display-mode: standalone)').matches ||
-                      (window.navigator as any).standalone === true;
+        const isPWA =
+          window.matchMedia('(display-mode: standalone)').matches ||
+          (window.navigator as any).standalone === true;
 
         // Delay to let keyboard animation start
         const timer = setTimeout(() => {
           handleViewportChange();
 
           // Ensure input is visible (browser mode only)
-          if (!isPWA && window.visualViewport && window.visualViewport.offsetTop > 0) {
+          if (
+            !isPWA &&
+            window.visualViewport &&
+            window.visualViewport.offsetTop > 0
+          ) {
             window.scrollTo(0, 0);
           }
         }, 300);
@@ -75,8 +80,14 @@ export const useIOSKeyboardFix = (): UseIOSKeyboardFixReturn => {
       pendingTimers.forEach(clearTimeout);
 
       if (window.visualViewport) {
-        window.visualViewport.removeEventListener('resize', handleViewportChange);
-        window.visualViewport.removeEventListener('scroll', handleViewportChange);
+        window.visualViewport.removeEventListener(
+          'resize',
+          handleViewportChange,
+        );
+        window.visualViewport.removeEventListener(
+          'scroll',
+          handleViewportChange,
+        );
       }
       window.removeEventListener('resize', handleViewportChange);
       document.removeEventListener('focusin', handleFocusIn);

@@ -21,8 +21,9 @@ function collectApiSourceFiles(dir: string): string[] {
 
 describe('pages/api route inventory', () => {
   it('keeps non-route helpers out of the routable API tree', () => {
-    const relativeRoutes = collectApiSourceFiles(apiDir)
-      .map((file) => path.relative(apiDir, file).split(path.sep).join('/'));
+    const relativeRoutes = collectApiSourceFiles(apiDir).map((file) =>
+      path.relative(apiDir, file).split(path.sep).join('/'),
+    );
 
     for (const pattern of blockedApiRoutePatterns) {
       expect(relativeRoutes).not.toEqual(
@@ -34,7 +35,9 @@ describe('pages/api route inventory', () => {
   it('only contains files that intentionally export an API route handler', () => {
     for (const file of collectApiSourceFiles(apiDir)) {
       const source = fs.readFileSync(file, 'utf8');
-      expect(source, path.relative(process.cwd(), file)).toMatch(/export\s+default/);
+      expect(source, path.relative(process.cwd(), file)).toMatch(
+        /export\s+default/,
+      );
     }
   });
 });

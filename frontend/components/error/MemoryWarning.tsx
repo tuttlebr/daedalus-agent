@@ -1,7 +1,7 @@
 'use client';
 
-import { memo, useEffect, useState } from 'react';
 import { IconAlertTriangle } from '@tabler/icons-react';
+import { memo, useEffect, useState } from 'react';
 
 /**
  * Monitors heap usage and shows a warning when memory pressure is high.
@@ -35,13 +35,19 @@ export const MemoryWarning = memo(() => {
 
   return (
     <div className="fixed top-safe-top left-1/2 -translate-x-1/2 z-[95] mt-14 animate-slide-up">
-      <div className={`flex items-center gap-2 px-4 py-2 rounded-full text-xs font-medium backdrop-blur-xl border shadow-lg ${
-        level === 'critical'
-          ? 'bg-nvidia-red/15 border-nvidia-red/30 text-nvidia-red'
-          : 'bg-nvidia-orange/15 border-nvidia-orange/30 text-nvidia-orange'
-      }`}>
+      <div
+        className={`flex items-center gap-2 px-4 py-2 rounded-full text-xs font-medium backdrop-blur-xl border shadow-lg ${
+          level === 'critical'
+            ? 'bg-nvidia-red/15 border-nvidia-red/30 text-nvidia-red'
+            : 'bg-nvidia-orange/15 border-nvidia-orange/30 text-nvidia-orange'
+        }`}
+      >
         <IconAlertTriangle size={14} />
-        <span>{level === 'critical' ? 'High memory usage. Performance may be affected.' : 'Memory usage is elevated.'}</span>
+        <span>
+          {level === 'critical'
+            ? 'High memory usage. Performance may be affected.'
+            : 'Memory usage is elevated.'}
+        </span>
       </div>
     </div>
   );

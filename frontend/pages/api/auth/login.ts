@@ -1,11 +1,17 @@
 import { NextApiRequest, NextApiResponse } from 'next';
-import { createHash } from 'crypto';
-import { verifyCredentials, initializeUsers } from '@/utils/auth/users';
-import { createSession } from '@/utils/auth/session';
-import { getRedis, sessionKey } from '@/server/session/redis';
 
-const LOGIN_WINDOW_SECONDS = Number(process.env.AUTH_LOGIN_WINDOW_SECONDS || 300);
-const LOGIN_LOCKOUT_SECONDS = Number(process.env.AUTH_LOGIN_LOCKOUT_SECONDS || 900);
+import { createSession } from '@/utils/auth/session';
+import { verifyCredentials, initializeUsers } from '@/utils/auth/users';
+
+import { getRedis, sessionKey } from '@/server/session/redis';
+import { createHash } from 'crypto';
+
+const LOGIN_WINDOW_SECONDS = Number(
+  process.env.AUTH_LOGIN_WINDOW_SECONDS || 300,
+);
+const LOGIN_LOCKOUT_SECONDS = Number(
+  process.env.AUTH_LOGIN_LOCKOUT_SECONDS || 900,
+);
 const LOGIN_MAX_ATTEMPTS = Number(process.env.AUTH_LOGIN_MAX_ATTEMPTS || 5);
 
 function firstHeaderValue(value: string | string[] | undefined): string {
@@ -15,7 +21,9 @@ function firstHeaderValue(value: string | string[] | undefined): string {
 
 function clientIp(req: NextApiRequest): string {
   const forwarded = firstHeaderValue(req.headers['x-forwarded-for']);
-  return forwarded.split(',')[0]?.trim() || req.socket.remoteAddress || 'unknown';
+  return (
+    forwarded.split(',')[0]?.trim() || req.socket.remoteAddress || 'unknown'
+  );
 }
 
 function loginAttemptKey(username: string, ip: string): string {
@@ -26,7 +34,10 @@ function loginAttemptKey(username: string, ip: string): string {
   return sessionKey(['auth-login-attempts', digest]);
 }
 
-async function getLockoutSeconds(username: string, ip: string): Promise<number> {
+async function getLockoutSeconds(
+  username: string,
+  ip: string,
+): Promise<number> {
   const redis = getRedis();
   const key = loginAttemptKey(username, ip);
   const attempts = Number((await redis.get(key)) || 0);
@@ -51,19 +62,28 @@ async function clearFailedLogins(username: string, ip: string): Promise<void> {
   await getRedis().del(loginAttemptKey(username, ip));
 }
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+export default async function handler(
+  req: NextApiRequest,
+  res: NextApiResponse,
+) {
   // SECURITY: Explicitly reject GET requests with credential parameters
   if (req.method === 'GET') {
     const hasCredentials = req.query.username || req.query.password;
     if (hasCredentials) {
       // Log security event without exposing credentials
-      console.warn('[SECURITY] Attempted credential exposure via GET parameters', {
-        ip: req.headers['x-forwarded-for'] || req.socket.remoteAddress,
-        userAgent: req.headers['user-agent'],
-        timestamp: new Date().toISOString(),
-      });
+      console.warn(
+        '[SECURITY] Attempted credential exposure via GET parameters',
+        {
+          ip: req.headers['x-forwarded-for'] || req.socket.remoteAddress,
+          userAgent: req.headers['user-agent'],
+          timestamp: new Date().toISOString(),
+        },
+      );
       res.setHeader('Allow', ['POST']);
-      return res.status(405).json({ error: 'Method not allowed. Credentials must be sent via POST request body.' });
+      return res.status(405).json({
+        error:
+          'Method not allowed. Credentials must be sent via POST request body.',
+      });
     }
     res.setHeader('Allow', ['POST']);
     return res.status(405).json({ error: 'Method not allowed' });
@@ -76,12 +96,17 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   // SECURITY: Additional check - reject if credentials are in query string even for POST
   if (req.query.username || req.query.password) {
-    console.warn('[SECURITY] Attempted credential exposure via query parameters in POST request', {
-      ip: req.headers['x-forwarded-for'] || req.socket.remoteAddress,
-      userAgent: req.headers['user-agent'],
-      timestamp: new Date().toISOString(),
+    console.warn(
+      '[SECURITY] Attempted credential exposure via query parameters in POST request',
+      {
+        ip: req.headers['x-forwarded-for'] || req.socket.remoteAddress,
+        userAgent: req.headers['user-agent'],
+        timestamp: new Date().toISOString(),
+      },
+    );
+    return res.status(400).json({
+      error: 'Credentials must be sent in request body, not query parameters.',
     });
-    return res.status(400).json({ error: 'Credentials must be sent in request body, not query parameters.' });
   }
 
   try {
@@ -95,7 +120,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const ip = clientIp(req);
 
     if (!normalizedUsername || !normalizedPassword) {
-      return res.status(400).json({ error: 'Username and password are required' });
+      return res
+        .status(400)
+        .json({ error: 'Username and password are required' });
     }
 
     const lockoutSeconds = await getLockoutSeconds(normalizedUsername, ip);
@@ -107,13 +134,21 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     // Verify credentials
-    const user = await verifyCredentials(normalizedUsername, normalizedPassword);
+    const user = await verifyCredentials(
+      normalizedUsername,
+      normalizedPassword,
+    );
 
     if (!user) {
       await recordFailedLogin(normalizedUsername, ip);
       // SECURITY: Log failed login attempt with masked username
       console.warn('[AUTH] Failed login attempt', {
-        username: normalizedUsername.length > 2 ? normalizedUsername[0] + '***' + normalizedUsername[normalizedUsername.length - 1] : '***',
+        username:
+          normalizedUsername.length > 2
+            ? normalizedUsername[0] +
+              '***' +
+              normalizedUsername[normalizedUsername.length - 1]
+            : '***',
         ip,
         userAgent: req.headers['user-agent'],
         timestamp: new Date().toISOString(),

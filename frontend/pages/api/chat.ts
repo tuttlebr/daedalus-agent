@@ -7,11 +7,14 @@ export const config = {
 };
 
 export default async function handler(req: Request): Promise<Response> {
-  logger.error('legacy /api/chat called; this route has been retired in favor of /api/chat/async', {
-    method: req.method,
-    referer: req.headers.get('referer') ?? null,
-    userAgent: req.headers.get('user-agent') ?? null,
-  });
+  logger.error(
+    'legacy /api/chat called; this route has been retired in favor of /api/chat/async',
+    {
+      method: req.method,
+      referer: req.headers.get('referer') ?? null,
+      userAgent: req.headers.get('user-agent') ?? null,
+    },
+  );
 
   return new Response(
     JSON.stringify({

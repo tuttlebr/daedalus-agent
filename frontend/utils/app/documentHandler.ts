@@ -33,11 +33,13 @@ export async function uploadDocument(
     if (!response.ok) {
       if (contentType.includes('application/json')) {
         const errorData = await response.json();
-        throw new Error(errorData.error || `Upload failed (${response.status})`);
+        throw new Error(
+          errorData.error || `Upload failed (${response.status})`,
+        );
       }
       if (response.status === 413) {
         throw new Error(
-          `File "${filename}" is too large to upload. Please reduce the file size and try again.`
+          `File "${filename}" is too large to upload. Please reduce the file size and try again.`,
         );
       }
       throw new Error(`Upload failed with status ${response.status}`);
@@ -45,7 +47,7 @@ export async function uploadDocument(
 
     if (!contentType.includes('application/json')) {
       throw new Error(
-        'Server returned an unexpected response. The file may be too large to process.'
+        'Server returned an unexpected response. The file may be too large to process.',
       );
     }
 

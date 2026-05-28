@@ -1,14 +1,18 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
 import { IconUser, IconLock, IconAlertCircle } from '@tabler/icons-react';
-import { useRouter } from 'next/router';
+import React, { useState, useEffect } from 'react';
 import toast from 'react-hot-toast';
-import { GalaxyBackground } from './GalaxyBackground';
-import { GlassCard } from '@/components/surfaces';
+
+import { useRouter } from 'next/router';
+
+import { Logger } from '@/utils/logger';
+
 import { Button } from '@/components/primitives';
 import { Input } from '@/components/primitives';
-import { Logger } from '@/utils/logger';
+import { GlassCard } from '@/components/surfaces';
+
+import { GalaxyBackground } from './GalaxyBackground';
 
 const logger = new Logger('LoginPage');
 
@@ -23,12 +27,20 @@ export const LoginPage: React.FC = () => {
   useEffect(() => {
     const { query } = router;
     if (query.username || query.password) {
-      logger.warn('[SECURITY] Credentials detected in URL query parameters. Clearing.');
-      toast.error('Security: Credentials should not be in the URL. Please use the login form.');
+      logger.warn(
+        '[SECURITY] Credentials detected in URL query parameters. Clearing.',
+      );
+      toast.error(
+        'Security: Credentials should not be in the URL. Please use the login form.',
+      );
       const cleanQuery = { ...query };
       delete cleanQuery.username;
       delete cleanQuery.password;
-      router.replace({ pathname: router.pathname, query: cleanQuery }, undefined, { shallow: true });
+      router.replace(
+        { pathname: router.pathname, query: cleanQuery },
+        undefined,
+        { shallow: true },
+      );
     }
   }, [router]);
 
@@ -82,7 +94,9 @@ export const LoginPage: React.FC = () => {
           {/* Form */}
           <form className="space-y-4" onSubmit={handleSubmit}>
             <div className="space-y-3">
-              <label htmlFor="username" className="sr-only">Username</label>
+              <label htmlFor="username" className="sr-only">
+                Username
+              </label>
               <Input
                 id="username"
                 type="text"
@@ -96,7 +110,9 @@ export const LoginPage: React.FC = () => {
                 error={!!error}
               />
 
-              <label htmlFor="password" className="sr-only">Password</label>
+              <label htmlFor="password" className="sr-only">
+                Password
+              </label>
               <Input
                 id="password"
                 type="password"
@@ -114,7 +130,10 @@ export const LoginPage: React.FC = () => {
             {/* Error */}
             {error && (
               <div className="flex items-start gap-3 p-3 rounded-lg bg-nvidia-red/10 border border-nvidia-red/20 animate-shake">
-                <IconAlertCircle size={18} className="text-nvidia-red flex-shrink-0 mt-0.5" />
+                <IconAlertCircle
+                  size={18}
+                  className="text-nvidia-red flex-shrink-0 mt-0.5"
+                />
                 <p className="text-sm text-nvidia-red-light">{error}</p>
               </div>
             )}

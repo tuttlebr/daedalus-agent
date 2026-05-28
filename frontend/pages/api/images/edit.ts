@@ -1,6 +1,11 @@
 import { NextApiRequest, NextApiResponse } from 'next';
 
 import { buildBackendUrl, getBackendHost } from '@/utils/app/backendApi';
+import {
+  cleanImageParamsForModel,
+  removeImageParamKeys,
+  resolveImageModel,
+} from '@/utils/app/imageModelCapabilities';
 import { withInternalBackendAuth } from '@/utils/server/backendAuth';
 import { postJsonToBackend } from '@/utils/server/httpProxy';
 
@@ -43,8 +48,12 @@ export default async function handler(
       pathOverride: '/v1/images/edit',
     });
 
+    const body = typeof req.body === 'object' && req.body ? req.body : {};
+    const model = resolveImageModel((body as Record<string, unknown>).model);
     const payload = {
-      ...req.body,
+      ...removeImageParamKeys(body as Record<string, unknown>),
+      ...cleanImageParamsForModel(body as Record<string, unknown>, model),
+      model,
       sessionId,
       user: userId,
     };

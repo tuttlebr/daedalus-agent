@@ -13,6 +13,7 @@
  * Node.js-only imports (crypto, cookie) out of the Edge bundle.
  */
 import type { NextApiResponse } from 'next';
+
 import cookie from 'cookie';
 import crypto from 'crypto';
 
@@ -50,7 +51,9 @@ export function setIdentityCookie(
     name: user.name,
   };
 
-  const encodedPayload = Buffer.from(JSON.stringify(payload)).toString('base64url');
+  const encodedPayload = Buffer.from(JSON.stringify(payload)).toString(
+    'base64url',
+  );
   const signature = crypto
     .createHmac('sha256', secret)
     .update(encodedPayload)
@@ -62,8 +65,8 @@ export function setIdentityCookie(
   const cookies: string[] = Array.isArray(existing)
     ? [...existing]
     : existing
-      ? [String(existing)]
-      : [];
+    ? [String(existing)]
+    : [];
 
   cookies.push(
     cookie.serialize(COOKIE_NAME, cookieValue, {
@@ -86,8 +89,8 @@ export function clearIdentityCookie(res: NextApiResponse): void {
   const cookies: string[] = Array.isArray(existing)
     ? [...existing]
     : existing
-      ? [String(existing)]
-      : [];
+    ? [String(existing)]
+    : [];
 
   cookies.push(
     cookie.serialize(COOKIE_NAME, '', {

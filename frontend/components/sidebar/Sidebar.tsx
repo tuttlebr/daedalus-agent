@@ -1,28 +1,46 @@
 'use client';
 
+import {
+  IconPlus,
+  IconSearch,
+  IconLogout,
+  IconTrash,
+  IconX,
+  IconCheck,
+  IconRobot,
+} from '@tabler/icons-react';
 import React, { memo, useCallback, useState } from 'react';
-import { IconPlus, IconSearch, IconLogout, IconTrash, IconX, IconCheck, IconRobot } from '@tabler/icons-react';
-import { v4 as uuidv4 } from 'uuid';
+
 import { useTranslation } from 'next-i18next';
 
-import { useConversationStore, useUISettingsStore } from '@/state';
-import { useAuth } from '@/components/auth';
-import { GlassPanel } from '@/components/surfaces';
-import { Button, IconButton, Input } from '@/components/primitives';
-import { saveConversation, saveConversations } from '@/utils/app/conversation';
 import { apiDelete } from '@/utils/app/api';
+import { saveConversation, saveConversations } from '@/utils/app/conversation';
+
 import { Conversation } from '@/types/chat';
+
+import { useAuth } from '@/components/auth';
+import { Button, IconButton, Input } from '@/components/primitives';
+import { GlassPanel } from '@/components/surfaces';
+
+import { useConversationStore, useUISettingsStore } from '@/state';
+import { v4 as uuidv4 } from 'uuid';
 
 export const Sidebar = memo(() => {
   const { t } = useTranslation('sidebar');
   const { logout } = useAuth();
 
   const conversations = useConversationStore((s) => s.conversations);
-  const selectedConversationId = useConversationStore((s) => s.selectedConversationId);
+  const selectedConversationId = useConversationStore(
+    (s) => s.selectedConversationId,
+  );
   const selectConversation = useConversationStore((s) => s.selectConversation);
   const addConversation = useConversationStore((s) => s.addConversation);
-  const deleteConversationFromStore = useConversationStore((s) => s.deleteConversation);
-  const clearConversationsFromStore = useConversationStore((s) => s.clearConversations);
+  const deleteConversationFromStore = useConversationStore(
+    (s) => s.deleteConversation,
+  );
+  const clearConversationsFromStore = useConversationStore(
+    (s) => s.clearConversations,
+  );
 
   const searchTerm = useUISettingsStore((s) => s.searchTerm);
   const setSearchTerm = useUISettingsStore((s) => s.setSearchTerm);
@@ -50,44 +68,53 @@ export const Sidebar = memo(() => {
     closeSidebarOnMobile();
   }, [addConversation, selectConversation, t, closeSidebarOnMobile]);
 
-  const handleSelect = useCallback((id: string) => {
-    selectConversation(id);
-    closeSidebarOnMobile();
-  }, [selectConversation, closeSidebarOnMobile]);
+  const handleSelect = useCallback(
+    (id: string) => {
+      selectConversation(id);
+      closeSidebarOnMobile();
+    },
+    [selectConversation, closeSidebarOnMobile],
+  );
 
-  const handleDelete = useCallback(async (id: string) => {
-    const wasSelected = useConversationStore.getState().selectedConversationId === id;
+  const handleDelete = useCallback(
+    async (id: string) => {
+      const wasSelected =
+        useConversationStore.getState().selectedConversationId === id;
 
-    // Remove from store (also clears selectedConversationId if it matches)
-    deleteConversationFromStore(id);
+      // Remove from store (also clears selectedConversationId if it matches)
+      deleteConversationFromStore(id);
 
-    // Persist deletion to Redis
-    try {
-      await apiDelete(`/api/conversations/${id}`);
-    } catch (err) {
-      console.error('Failed to delete conversation from server:', err);
-    }
-
-    // If we deleted the active conversation, select another or create new
-    if (wasSelected) {
-      const remaining = useConversationStore.getState().conversations;
-      if (remaining.length > 0) {
-        selectConversation(remaining[remaining.length - 1].id);
-      } else {
-        handleNewConversation();
+      // Persist deletion to Redis
+      try {
+        await apiDelete(`/api/conversations/${id}`);
+      } catch (err) {
+        console.error('Failed to delete conversation from server:', err);
       }
-    }
-  }, [deleteConversationFromStore, selectConversation, handleNewConversation]);
+
+      // If we deleted the active conversation, select another or create new
+      if (wasSelected) {
+        const remaining = useConversationStore.getState().conversations;
+        if (remaining.length > 0) {
+          selectConversation(remaining[remaining.length - 1].id);
+        } else {
+          handleNewConversation();
+        }
+      }
+    },
+    [deleteConversationFromStore, selectConversation, handleNewConversation],
+  );
 
   const handleClearAll = useCallback(async () => {
     // Grab IDs before clearing (exclude autonomous agent)
-    const ids = useConversationStore.getState().conversations
-      .filter((c) => c.id !== 'autonomous-agent-thoughts')
+    const ids = useConversationStore
+      .getState()
+      .conversations.filter((c) => c.id !== 'autonomous-agent-thoughts')
       .map((c) => c.id);
 
     // Preserve autonomous agent conversation
-    const autonomousConv = useConversationStore.getState().conversations
-      .find((c) => c.id === 'autonomous-agent-thoughts');
+    const autonomousConv = useConversationStore
+      .getState()
+      .conversations.find((c) => c.id === 'autonomous-agent-thoughts');
 
     // Clear store
     clearConversationsFromStore();
@@ -110,10 +137,14 @@ export const Sidebar = memo(() => {
   }, [clearConversationsFromStore, handleNewConversation]);
 
   const filtered = searchTerm
-    ? conversations.filter((c) => c.name.toLowerCase().includes(searchTerm.toLowerCase()))
+    ? conversations.filter((c) =>
+        c.name.toLowerCase().includes(searchTerm.toLowerCase()),
+      )
     : conversations;
 
-  const sorted = [...filtered].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+  const sorted = [...filtered].sort(
+    (a, b) => (b.updatedAt || 0) - (a.updatedAt || 0),
+  );
 
   return (
     <GlassPanel className="w-full h-full flex flex-col">
@@ -155,18 +186,22 @@ export const Sidebar = memo(() => {
               className={`
                 group w-full text-left px-3 py-2.5 rounded-lg
                 transition-all duration-150 min-h-touch-min
-                ${isActive
-                  ? isAutonomous
-                    ? 'bg-nvidia-purple/10 border-l-2 border-nvidia-purple text-dark-text-primary'
-                    : 'bg-nvidia-green/10 border-l-2 border-nvidia-green text-dark-text-primary'
-                  : 'text-dark-text-secondary hover:bg-white/[0.04] border-l-2 border-transparent'
+                ${
+                  isActive
+                    ? isAutonomous
+                      ? 'bg-nvidia-purple/10 border-l-2 border-nvidia-purple text-dark-text-primary'
+                      : 'bg-nvidia-green/10 border-l-2 border-nvidia-green text-dark-text-primary'
+                    : 'text-dark-text-secondary hover:bg-white/[0.04] border-l-2 border-transparent'
                 }
               `}
             >
               <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-2 min-w-0">
                   {isAutonomous && (
-                    <IconRobot size={14} className="text-nvidia-purple flex-shrink-0" />
+                    <IconRobot
+                      size={14}
+                      className="text-nvidia-purple flex-shrink-0"
+                    />
                   )}
                   <span className="truncate text-sm">{conv.name}</span>
                 </div>

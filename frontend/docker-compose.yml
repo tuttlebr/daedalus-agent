@@ -4,7 +4,7 @@ services:
   frontend:
     build: .
     ports:
-      - "3000:3000"
+      - '3000:3000'
     environment:
       # Redis configuration
       - REDIS_URL=${REDIS_URL:-redis://redis:6379}

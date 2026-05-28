@@ -1,10 +1,19 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { sessionKey, jsonSetWithExpiry, jsonDel, jsonGet } from '@/server/session/redis';
+
 import { requireAuthenticatedUser } from '@/server/session/_utils';
+import {
+  sessionKey,
+  jsonSetWithExpiry,
+  jsonDel,
+  jsonGet,
+} from '@/server/session/redis';
 
 const PUSH_SUBSCRIPTION_EXPIRY = 60 * 60 * 24 * 30; // 30 days
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+export default async function handler(
+  req: NextApiRequest,
+  res: NextApiResponse,
+) {
   const session = await requireAuthenticatedUser(req, res);
   if (!session) return;
 
@@ -23,7 +32,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const subscriptions = Array.isArray(existing) ? existing : [];
 
       // Replace if same endpoint exists, otherwise add
-      const filtered = subscriptions.filter((s: any) => s.endpoint !== subscription.endpoint);
+      const filtered = subscriptions.filter(
+        (s: any) => s.endpoint !== subscription.endpoint,
+      );
       filtered.push(subscription);
 
       await jsonSetWithExpiry(key, filtered, PUSH_SUBSCRIPTION_EXPIRY);
@@ -43,7 +54,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     try {
       const existing = (await jsonGet(key)) || [];
       const subscriptions = Array.isArray(existing) ? existing : [];
-      const filtered = subscriptions.filter((s: any) => s.endpoint !== endpoint);
+      const filtered = subscriptions.filter(
+        (s: any) => s.endpoint !== endpoint,
+      );
       if (filtered.length > 0) {
         await jsonSetWithExpiry(key, filtered, PUSH_SUBSCRIPTION_EXPIRY);
       } else {

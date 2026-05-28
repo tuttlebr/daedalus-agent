@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
 import { IconSearch, IconX } from '@tabler/icons-react';
+import React, { useState } from 'react';
 
 interface ViewToggleProps {
   searchTerm: string;
@@ -30,7 +30,10 @@ export const ViewToggle: React.FC<ViewToggleProps> = ({
             "
           />
           <button
-            onClick={() => { onSearchChange(''); setShowSearch(false); }}
+            onClick={() => {
+              onSearchChange('');
+              setShowSearch(false);
+            }}
             className="p-1 hover:bg-white/10 rounded transition-colors text-white/40 hover:text-white/60"
           >
             <IconX size={14} />

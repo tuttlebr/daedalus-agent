@@ -36,11 +36,7 @@
     "scene": "A studio-style photograph of a classical sculpture.",
     "setting_type": "studio",
     "detected_text": [],
-    "dominant_colors": [
-      "black",
-      "white",
-      "gray"
-    ],
+    "dominant_colors": ["black", "white", "gray"],
     "people": [
       {
         "count_estimate": 1,
@@ -48,12 +44,7 @@
         "activity": "sculpting"
       }
     ],
-    "objects": [
-      "hammer",
-      "chisel",
-      "stone block",
-      "drapery"
-    ],
+    "objects": ["hammer", "chisel", "stone block", "drapery"],
     "quality": {
       "sharpness": "sharp",
       "exposure": "balanced",

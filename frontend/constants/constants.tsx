@@ -1,1 +1,1 @@
-export const botHeader = 'Scout Bot'
+export const botHeader = 'Scout Bot';

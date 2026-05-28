@@ -1,26 +1,32 @@
 'use client';
 
-import React, { memo } from 'react';
-import classNames from 'classnames';
 import { IconGift } from '@tabler/icons-react';
-import { Popover } from '@/components/primitives';
+import React, { memo } from 'react';
+
 import {
   presetsForMode,
   applyPreset,
   type ImagePreset,
 } from '@/utils/app/imagePresets';
+
+import { Popover } from '@/components/primitives';
+
 import {
   useImagePanelStore,
   selectMode,
   type ImageParams,
 } from '@/state/imagePanelStore';
+import classNames from 'classnames';
 
 interface PresetsPopoverProps {
   disabled?: boolean;
 }
 
-export const PresetsPopover = memo(function PresetsPopover({ disabled }: PresetsPopoverProps) {
+export const PresetsPopover = memo(function PresetsPopover({
+  disabled,
+}: PresetsPopoverProps) {
   const mode = useImagePanelStore(selectMode);
+  const model = useImagePanelStore((s) => s.model);
 
   const handleApply = (preset: ImagePreset) => {
     const { prompt, setPrompt, setPreserveList, setParam } =
@@ -29,7 +35,7 @@ export const PresetsPopover = memo(function PresetsPopover({ disabled }: Presets
       prompt: nextPrompt,
       preserveList: nextPreserve,
       params: nextParams,
-    } = applyPreset(preset, prompt);
+    } = applyPreset(preset, prompt, model);
     setPrompt(nextPrompt);
     if (nextPreserve !== undefined) setPreserveList(nextPreserve);
     (Object.keys(nextParams) as (keyof ImageParams)[]).forEach((k) => {
@@ -84,10 +90,10 @@ export const DockIconTrigger = React.forwardRef<
       type="button"
       disabled={disabled}
       className={classNames(
-        'inline-flex items-center justify-center w-8 h-8 rounded-full',
+        'inline-flex items-center justify-center w-11 h-11 rounded-full touch-manipulation',
         'text-neutral-400 hover:text-neutral-100 hover:bg-white/5',
         'transition-colors',
-        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nvidia-green/40',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nvidia-green/40 md:w-8 md:h-8',
         disabled && 'opacity-40 cursor-not-allowed pointer-events-none',
         className,
       )}

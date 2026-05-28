@@ -1,7 +1,14 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { getRedis, sessionKey, jsonSetWithExpiry, jsonGet } from '@/server/session/redis';
+
 import { getSession } from '@/utils/auth/session';
 import { publishSyncEvent } from '@/utils/sync/publish';
+
+import {
+  getRedis,
+  sessionKey,
+  jsonSetWithExpiry,
+  jsonGet,
+} from '@/server/session/redis';
 
 export interface DeviceInfo {
   userAgent?: string;
@@ -26,7 +33,7 @@ const MAX_SESSIONS_PER_USER = 10;
 export async function registerSession(
   userId: string,
   sessionId: string,
-  deviceInfo: DeviceInfo
+  deviceInfo: DeviceInfo,
 ): Promise<void> {
   const redis = getRedis();
   const sessionKey_ = sessionKey(['user', userId, 'session', sessionId]);
@@ -57,7 +64,7 @@ export async function registerSession(
 // Unregister a session
 export async function unregisterSession(
   userId: string,
-  sessionId: string
+  sessionId: string,
 ): Promise<void> {
   const redis = getRedis();
   const sessionKey_ = sessionKey(['user', userId, 'session', sessionId]);
@@ -79,12 +86,12 @@ export async function unregisterSession(
 // Update session heartbeat
 export async function heartbeatSession(
   userId: string,
-  sessionId: string
+  sessionId: string,
 ): Promise<boolean> {
   const redis = getRedis();
   const sessionKey_ = sessionKey(['user', userId, 'session', sessionId]);
 
-  const sessionInfo = await jsonGet(sessionKey_) as SessionInfo | null;
+  const sessionInfo = (await jsonGet(sessionKey_)) as SessionInfo | null;
   if (!sessionInfo) {
     return false;
   }
@@ -96,7 +103,9 @@ export async function heartbeatSession(
 }
 
 // Get all active sessions for a user
-export async function getActiveSessions(userId: string): Promise<SessionInfo[]> {
+export async function getActiveSessions(
+  userId: string,
+): Promise<SessionInfo[]> {
   const redis = getRedis();
   const userSessionsKey = sessionKey(['user', userId, 'sessions']);
 
@@ -110,7 +119,7 @@ export async function getActiveSessions(userId: string): Promise<SessionInfo[]> 
 
   for (const sessionId of sessionIds) {
     const sessionKey_ = sessionKey(['user', userId, 'session', sessionId]);
-    const sessionInfo = await jsonGet(sessionKey_) as SessionInfo | null;
+    const sessionInfo = (await jsonGet(sessionKey_)) as SessionInfo | null;
 
     if (sessionInfo) {
       // Check if session is still valid (heartbeat within TTL)
@@ -130,7 +139,10 @@ export async function getActiveSessions(userId: string): Promise<SessionInfo[]> 
   return sessions;
 }
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+export default async function handler(
+  req: NextApiRequest,
+  res: NextApiResponse,
+) {
   const session = await getSession(req, res);
   if (!session) {
     return res.status(401).json({ error: 'Not authenticated' });

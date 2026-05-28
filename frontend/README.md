@@ -70,23 +70,23 @@ See [`../.env.template`](../.env.template), [`env.example`](env.example), and th
 
 ## Key Areas
 
-| Path                          | Responsibility                                                                   |
-| ----------------------------- | -------------------------------------------------------------------------------- |
-| `pages/api/chat.ts`           | Legacy direct streaming route that returns 410; async chat is the supported path |
-| `pages/api/chat/async.ts`     | Async job submission, status polling, stream capture, finalization               |
-| `pages/api/autonomy/`         | Autonomy dashboard API (config, goals, runs, feed items, approvals)              |
-| `pages/api/conversations/`    | Conversation CRUD and persistence                                                |
-| `pages/api/document/`         | Document upload, lookup, and ingestion progress                                  |
-| `pages/api/session/`          | Session and attachment API routes                                                |
-| `pages/api/sync/notify.ts`    | Best-effort cross-session sync notification publisher                            |
-| `server/autonomy/store.ts`    | Redis-backed autonomous agent state store                                        |
-| `server/session/`             | Redis, session, sanitization, and documentRef validation helpers                 |
-| `ws-server.ts`                | WebSocket sidecar backed by Redis Pub/Sub                                        |
-| `components/chat/`            | Main chat UI, async job integration, intermediate step rendering                 |
-| `components/autonomy/`        | Autonomy dashboard UI                                                            |
-| `hooks/useAsyncChat.ts`       | Job lifecycle, polling, WebSocket subscription, recovery                         |
-| `hooks/useWebSocket.ts`       | WebSocket sync and token delivery                                                |
-| `utils/app/`                  | Backend URL building, attachment helpers, conversation utilities                 |
+| Path                       | Responsibility                                                                   |
+| -------------------------- | -------------------------------------------------------------------------------- |
+| `pages/api/chat.ts`        | Legacy direct streaming route that returns 410; async chat is the supported path |
+| `pages/api/chat/async.ts`  | Async job submission, status polling, stream capture, finalization               |
+| `pages/api/autonomy/`      | Autonomy dashboard API (config, goals, runs, feed items, approvals)              |
+| `pages/api/conversations/` | Conversation CRUD and persistence                                                |
+| `pages/api/document/`      | Document upload, lookup, and ingestion progress                                  |
+| `pages/api/session/`       | Session and attachment API routes                                                |
+| `pages/api/sync/notify.ts` | Best-effort cross-session sync notification publisher                            |
+| `server/autonomy/store.ts` | Redis-backed autonomous agent state store                                        |
+| `server/session/`          | Redis, session, sanitization, and documentRef validation helpers                 |
+| `ws-server.ts`             | WebSocket sidecar backed by Redis Pub/Sub                                        |
+| `components/chat/`         | Main chat UI, async job integration, intermediate step rendering                 |
+| `components/autonomy/`     | Autonomy dashboard UI                                                            |
+| `hooks/useAsyncChat.ts`    | Job lifecycle, polling, WebSocket subscription, recovery                         |
+| `hooks/useWebSocket.ts`    | WebSocket sync and token delivery                                                |
+| `utils/app/`               | Backend URL building, attachment helpers, conversation utilities                 |
 
 ## Major Features
 

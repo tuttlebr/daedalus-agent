@@ -1,3 +1,5 @@
+import handler from '@/pages/api/images/history';
+
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
@@ -27,8 +29,6 @@ vi.mock('@/server/session/redis', () => ({
     parts.filter(Boolean).join(':'),
   ),
 }));
-
-import handler from '@/pages/api/images/history';
 
 function createMockReqRes(
   method: string,
@@ -85,7 +85,9 @@ describe('/api/images/history', () => {
 
     await handler(req, res);
 
-    expect(mocks.jsonGet).toHaveBeenCalledWith('user:testuser:imagePanelHistory');
+    expect(mocks.jsonGet).toHaveBeenCalledWith(
+      'user:testuser:imagePanelHistory',
+    );
     expect(res.status).toHaveBeenCalledWith(200);
     expect(res.json).toHaveBeenCalledWith({ history: stored });
   });
@@ -130,7 +132,9 @@ describe('/api/images/history', () => {
         },
       ]),
     );
-    const { req, res } = createMockReqRes('POST', { entry: entry('new-entry') });
+    const { req, res } = createMockReqRes('POST', {
+      entry: entry('new-entry'),
+    });
 
     await handler(req, res);
 
@@ -168,7 +172,9 @@ describe('/api/images/history', () => {
       await handler(req, res);
 
       expect(mocks.jsonDel).toHaveBeenCalledTimes(1);
-      expect(mocks.jsonDel).toHaveBeenCalledWith('user:testuser:imagePanelHistory');
+      expect(mocks.jsonDel).toHaveBeenCalledWith(
+        'user:testuser:imagePanelHistory',
+      );
       expect(mocks.jsonSetWithExpiry).not.toHaveBeenCalled();
       expect(res.status).toHaveBeenCalledWith(200);
       expect(res.json).toHaveBeenCalledWith({ history: [] });
@@ -207,7 +213,9 @@ describe('/api/images/history', () => {
       await handler(req, res);
 
       expect(mocks.jsonDel).toHaveBeenCalledTimes(1);
-      expect(mocks.jsonDel).toHaveBeenCalledWith('user:testuser:imagePanelHistory');
+      expect(mocks.jsonDel).toHaveBeenCalledWith(
+        'user:testuser:imagePanelHistory',
+      );
       expect(mocks.jsonSetWithExpiry).not.toHaveBeenCalled();
       expect(res.status).toHaveBeenCalledWith(200);
       expect(res.json).toHaveBeenCalledWith({ history: [] });

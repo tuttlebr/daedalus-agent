@@ -1,8 +1,14 @@
 'use client';
 
-import classNames from 'classnames';
+import {
+  laneAccent,
+  LANE_LABELS,
+  laneOrder,
+  type Lane,
+  type LaneFilter,
+} from './utils';
 
-import { laneAccent, LANE_LABELS, laneOrder, type Lane, type LaneFilter } from './utils';
+import classNames from 'classnames';
 
 interface LaneFilterChipsProps {
   value: LaneFilter;
@@ -12,7 +18,11 @@ interface LaneFilterChipsProps {
 
 const FILTERS: LaneFilter[] = ['all', ...laneOrder()];
 
-export function LaneFilterChips({ value, counts, onChange }: LaneFilterChipsProps) {
+export function LaneFilterChips({
+  value,
+  counts,
+  onChange,
+}: LaneFilterChipsProps) {
   return (
     <div
       role="radiogroup"
@@ -32,7 +42,7 @@ export function LaneFilterChips({ value, counts, onChange }: LaneFilterChipsProp
             aria-checked={active}
             onClick={() => onChange(filter)}
             className={classNames(
-              'group inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[11px] font-medium tracking-wide transition',
+              'group inline-flex min-h-[36px] items-center gap-1.5 rounded-full px-3 py-2 text-[11px] font-medium tracking-wide transition',
               'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nvidia-green/40',
               active
                 ? 'bg-white/[0.07] text-dark-text-primary'
@@ -42,7 +52,11 @@ export function LaneFilterChips({ value, counts, onChange }: LaneFilterChipsProp
             {accent && (
               <span
                 aria-hidden
-                className={classNames('h-1.5 w-1.5 rounded-full', accent.dot, active && accent.glow)}
+                className={classNames(
+                  'h-1.5 w-1.5 rounded-full',
+                  accent.dot,
+                  active && accent.glow,
+                )}
               />
             )}
             <span>{label}</span>

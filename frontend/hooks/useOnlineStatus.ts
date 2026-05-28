@@ -9,7 +9,8 @@ export interface OnlineStatusInfo {
 
 export const useOnlineStatus = (): OnlineStatusInfo => {
   const [isOnline, setIsOnline] = useState(() => {
-    if (typeof window === 'undefined' || typeof navigator === 'undefined') return true;
+    if (typeof window === 'undefined' || typeof navigator === 'undefined')
+      return true;
     return navigator.onLine;
   });
   const [wasOffline, setWasOffline] = useState(false);
@@ -64,7 +65,10 @@ export const useOnlineStatus = (): OnlineStatusInfo => {
 
 // Utility function to send cache invalidation message to service worker
 export function invalidateServiceWorkerCache(conversationId: string): void {
-  if (typeof navigator === 'undefined' || !navigator.serviceWorker?.controller) {
+  if (
+    typeof navigator === 'undefined' ||
+    !navigator.serviceWorker?.controller
+  ) {
     return;
   }
 

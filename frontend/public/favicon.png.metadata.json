@@ -38,11 +38,7 @@
     "scene": "A close-up studio shot of a classical sculpture against a black background.",
     "setting_type": "studio",
     "detected_text": [],
-    "dominant_colors": [
-      "white",
-      "gray",
-      "black"
-    ],
+    "dominant_colors": ["white", "gray", "black"],
     "people": [
       {
         "count_estimate": 1,
@@ -50,13 +46,7 @@
         "activity": "carving wood"
       }
     ],
-    "objects": [
-      "hammer",
-      "chisel",
-      "wood block",
-      "work stand",
-      "draped cloth"
-    ],
+    "objects": ["hammer", "chisel", "wood block", "work stand", "draped cloth"],
     "quality": {
       "sharpness": "sharp",
       "exposure": "balanced",

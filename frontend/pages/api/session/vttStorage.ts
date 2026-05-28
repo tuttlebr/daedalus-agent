@@ -1,6 +1,16 @@
 import { NextApiRequest, NextApiResponse } from 'next';
-import { getRedis, sessionKey, jsonGet, jsonDel, jsonSetWithExpiry } from '@/server/session/redis';
-import { getOrSetSessionId, requireAuthenticatedUser } from '@/server/session/_utils';
+
+import {
+  getOrSetSessionId,
+  requireAuthenticatedUser,
+} from '@/server/session/_utils';
+import {
+  getRedis,
+  sessionKey,
+  jsonGet,
+  jsonDel,
+  jsonSetWithExpiry,
+} from '@/server/session/redis';
 import crypto from 'crypto';
 
 const VTT_EXPIRY_SECONDS = 60 * 60 * 24 * 7; // 7 days
@@ -29,7 +39,7 @@ export async function storeVTT(
   userId: string | undefined,
   content: string,
   filename: string,
-  mimeType: string = 'text/vtt'
+  mimeType: string = 'text/vtt',
 ): Promise<string> {
   const redis = getRedis();
   const vttId = generateVTTId();
@@ -48,7 +58,7 @@ export async function storeVTT(
     size,
     createdAt: Date.now(),
     sessionId,
-    userId
+    userId,
   };
 
   const key = sessionKey(['vtt', sessionId, vttId]);
@@ -65,7 +75,7 @@ export async function storeVTT(
 // Retrieve VTT from Redis
 export async function getVTT(
   sessionId: string,
-  vttId: string
+  vttId: string,
 ): Promise<StoredVTT | null> {
   const key = sessionKey(['vtt', sessionId, vttId]);
   const data = await jsonGet(key);
@@ -75,7 +85,7 @@ export async function getVTT(
 // Delete a specific VTT file
 export async function deleteVTT(
   sessionId: string,
-  vttId: string
+  vttId: string,
 ): Promise<boolean> {
   const redis = getRedis();
   const key = sessionKey(['vtt', sessionId, vttId]);
@@ -116,12 +126,21 @@ export async function cleanupSessionVTTs(sessionId: string): Promise<number> {
 }
 
 // List all VTT files for a session
-export async function listSessionVTTs(sessionId: string): Promise<Array<{ id: string; filename: string; size: number; createdAt: number }>> {
+export async function listSessionVTTs(
+  sessionId: string,
+): Promise<
+  Array<{ id: string; filename: string; size: number; createdAt: number }>
+> {
   const redis = getRedis();
   const sessionVTTsKey = sessionKey(['session-vtts', sessionId]);
 
   const vttIds = await redis.smembers(sessionVTTsKey);
-  const vtts: Array<{ id: string; filename: string; size: number; createdAt: number }> = [];
+  const vtts: Array<{
+    id: string;
+    filename: string;
+    size: number;
+    createdAt: number;
+  }> = [];
 
   for (const vttId of vttIds) {
     const vtt = await getVTT(sessionId, vttId);
@@ -138,7 +157,10 @@ export async function listSessionVTTs(sessionId: string): Promise<Array<{ id: st
   return vtts.sort((a, b) => b.createdAt - a.createdAt);
 }
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+export default async function handler(
+  req: NextApiRequest,
+  res: NextApiResponse,
+) {
   const session = await requireAuthenticatedUser(req, res);
   if (!session) return;
 
@@ -158,13 +180,22 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         return res.status(400).json({ error: 'No filename provided' });
       }
 
-      const vttId = await storeVTT(sessionId, userId, content, filename, mimeType || 'text/vtt');
+      const vttId = await storeVTT(
+        sessionId,
+        userId,
+        content,
+        filename,
+        mimeType || 'text/vtt',
+      );
 
       return res.status(200).json({ vttId, sessionId });
     } catch (error) {
       console.error('Error storing VTT:', error);
-      const message = error instanceof Error ? error.message : 'Failed to store VTT';
-      return res.status(message.includes(VTT_SIZE_ERROR) ? 413 : 500).json({ error: message });
+      const message =
+        error instanceof Error ? error.message : 'Failed to store VTT';
+      return res
+        .status(message.includes(VTT_SIZE_ERROR) ? 413 : 500)
+        .json({ error: message });
     }
   } else if (req.method === 'GET') {
     const { vttId, sessionId: querySessionId, list } = req.query;
@@ -186,9 +217,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     // Allow retrieving VTT from other sessions (for cross-device persistence)
-    const targetSessionId = (typeof querySessionId === 'string' && querySessionId)
-      ? querySessionId
-      : sessionId;
+    const targetSessionId =
+      typeof querySessionId === 'string' && querySessionId
+        ? querySessionId
+        : sessionId;
 
     try {
       const vtt = await getVTT(targetSessionId, vttId);
@@ -203,7 +235,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
       // Return VTT content as text
       res.setHeader('Content-Type', vtt.mimeType);
-      res.setHeader('Content-Disposition', `attachment; filename="${vtt.filename}"`);
+      res.setHeader(
+        'Content-Disposition',
+        `attachment; filename="${vtt.filename}"`,
+      );
       res.setHeader('Cache-Control', 'private, max-age=3600');
 
       return res.status(200).send(vtt.data);

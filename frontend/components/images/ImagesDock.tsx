@@ -1,14 +1,14 @@
 'use client';
 
+import { IconArrowUp } from '@tabler/icons-react';
 import React, { memo, useCallback, useEffect, useRef } from 'react';
-import classNames from 'classnames';
-import { IconArrowUp, IconPhotoUp } from '@tabler/icons-react';
-import { useImagePanelStore, selectMode } from '@/state/imagePanelStore';
-import { PresetsPopover, DockIconTrigger } from './PresetsPopover';
-import { ParamsPopover } from './ParamsPopover';
-import { AttachmentsPopover } from './AttachmentsPopover';
 
-const N_CYCLE = [1, 2, 4, 8] as const;
+import { AttachmentsPopover } from './AttachmentsPopover';
+import { ParamsPopover } from './ParamsPopover';
+import { PresetsPopover } from './PresetsPopover';
+
+import { useImagePanelStore, selectMode } from '@/state/imagePanelStore';
+import classNames from 'classnames';
 
 interface ImagesDockProps {
   onSubmit: () => void;
@@ -16,24 +16,20 @@ interface ImagesDockProps {
 
 /**
  * Bottom prompt bar. Flex-none so the canvas above it takes the rest.
- * Textarea auto-grows. Four icon popovers + submit live in a memoized
- * actions row so prompt keystrokes don't re-render the controls.
+ * Textarea auto-grows. The actions row is memoized so prompt keystrokes
+ * don't re-render the controls.
  */
-export const ImagesDock = memo(function ImagesDock({ onSubmit }: ImagesDockProps) {
+export const ImagesDock = memo(function ImagesDock({
+  onSubmit,
+}: ImagesDockProps) {
   const prompt = useImagePanelStore((s) => s.prompt);
   const setPrompt = useImagePanelStore((s) => s.setPrompt);
   const loading = useImagePanelStore((s) => s.loading);
-  const n = useImagePanelStore((s) => s.params.n ?? 1);
-  const setParam = useImagePanelStore((s) => s.setParam);
   const mode = useImagePanelStore(selectMode);
+  const inputCount = useImagePanelStore((s) => s.inputImages.length);
 
-  const submitDisabled = loading || !prompt.trim();
-
-  const cycleN = useCallback(() => {
-    const idx = N_CYCLE.indexOf(n as (typeof N_CYCLE)[number]);
-    const next = N_CYCLE[(idx + 1) % N_CYCLE.length];
-    setParam('n', next === 1 ? undefined : next);
-  }, [n, setParam]);
+  const submitDisabled =
+    loading || !prompt.trim() || (mode === 'edit' && inputCount === 0);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   useEffect(() => {
@@ -52,7 +48,7 @@ export const ImagesDock = memo(function ImagesDock({ onSubmit }: ImagesDockProps
   };
 
   return (
-    <div className="flex-none px-2 md:px-4 pt-2 pb-safe-bottom">
+    <div className="flex-none px-2 md:px-4 pt-2 pb-2 md:pb-safe-bottom">
       <div
         className={classNames(
           'w-full md:max-w-3xl md:mx-auto',
@@ -66,7 +62,11 @@ export const ImagesDock = memo(function ImagesDock({ onSubmit }: ImagesDockProps
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="Describe what you want to see…"
+          placeholder={
+            mode === 'edit'
+              ? 'Describe the edit to apply to Image 1…'
+              : 'Describe what you want to see…'
+          }
           rows={1}
           disabled={loading}
           className={classNames(
@@ -79,9 +79,7 @@ export const ImagesDock = memo(function ImagesDock({ onSubmit }: ImagesDockProps
 
         <DockActionsRow
           loading={loading}
-          n={n}
           mode={mode}
-          onCycleN={cycleN}
           onSubmit={onSubmit}
           submitDisabled={submitDisabled}
         />
@@ -92,18 +90,14 @@ export const ImagesDock = memo(function ImagesDock({ onSubmit }: ImagesDockProps
 
 interface DockActionsRowProps {
   loading: boolean;
-  n: number;
   mode: 'generate' | 'edit';
-  onCycleN: () => void;
   onSubmit: () => void;
   submitDisabled: boolean;
 }
 
 const DockActionsRow = memo(function DockActionsRow({
   loading,
-  n,
   mode,
-  onCycleN,
   onSubmit,
   submitDisabled,
 }: DockActionsRowProps) {
@@ -111,13 +105,14 @@ const DockActionsRow = memo(function DockActionsRow({
     <div className="flex items-center justify-between px-2 pb-2">
       <div className="flex items-center gap-0.5">
         <PresetsPopover disabled={loading} />
-        <ParamsPopover disabled={loading} />
-        <NButton n={n} onClick={onCycleN} disabled={loading} />
-        <AttachmentsPopover disabled={loading} />
+        <ParamsPopover disabled={loading} triggerClassName="lg:hidden" />
+        {mode === 'edit' && (
+          <AttachmentsPopover disabled={loading} triggerClassName="lg:hidden" />
+        )}
       </div>
 
       <div className="flex items-center gap-2 pr-1">
-        <ModeIndicator mode={mode} />
+        <SettingsSummary />
         <SubmitButton
           onClick={onSubmit}
           disabled={submitDisabled}
@@ -128,44 +123,25 @@ const DockActionsRow = memo(function DockActionsRow({
   );
 });
 
-function NButton({
-  n,
-  onClick,
-  disabled,
-}: {
-  n: number;
-  onClick: () => void;
-  disabled?: boolean;
-}) {
-  return (
-    <DockIconTrigger
-      onClick={onClick}
-      disabled={disabled}
-      aria-label={`${n} variation${n === 1 ? '' : 's'}`}
-    >
-      <span className="text-xs font-medium tabular-nums">{n}x</span>
-    </DockIconTrigger>
-  );
-}
+function SettingsSummary() {
+  const model = useImagePanelStore((s) => s.model);
+  const params = useImagePanelStore((s) => s.params);
+  const mode = useImagePanelStore(selectMode);
+  const parts = [
+    model,
+    mode,
+    `${params.n ?? 1}x`,
+    params.size ?? 'auto',
+    params.quality ?? 'auto',
+  ];
 
-function ModeIndicator({ mode }: { mode: 'generate' | 'edit' }) {
   return (
     <span
       className={classNames(
-        'text-[10px] uppercase tracking-wider font-medium px-2 py-0.5 rounded-full',
-        mode === 'edit'
-          ? 'bg-nvidia-green/10 text-nvidia-green'
-          : 'bg-white/5 text-neutral-500',
+        'hidden rounded-full bg-white/5 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-neutral-500 sm:inline-flex',
       )}
     >
-      {mode === 'edit' ? (
-        <span className="inline-flex items-center gap-1">
-          <IconPhotoUp size={10} />
-          Edit
-        </span>
-      ) : (
-        'Generate'
-      )}
+      {parts.join(' · ')}
     </span>
   );
 }
@@ -186,7 +162,7 @@ function SubmitButton({
       disabled={disabled}
       aria-label="Submit"
       className={classNames(
-        'inline-flex items-center justify-center w-9 h-9 rounded-full',
+        'inline-flex items-center justify-center w-11 h-11 rounded-full touch-manipulation',
         'transition-all',
         disabled
           ? 'bg-white/5 text-neutral-600 cursor-not-allowed'
@@ -195,7 +171,7 @@ function SubmitButton({
       )}
     >
       {loading ? (
-        <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none">
+        <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24" fill="none">
           <circle
             cx="12"
             cy="12"
@@ -212,7 +188,7 @@ function SubmitButton({
           />
         </svg>
       ) : (
-        <IconArrowUp size={18} strokeWidth={2.5} />
+        <IconArrowUp size={20} strokeWidth={2.5} />
       )}
     </button>
   );

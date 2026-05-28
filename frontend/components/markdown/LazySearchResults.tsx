@@ -1,5 +1,7 @@
-import dynamic from 'next/dynamic';
 import { FC } from 'react';
+
+import dynamic from 'next/dynamic';
+
 import Loading from './Loading';
 
 interface Props {
@@ -7,13 +9,10 @@ interface Props {
   children?: any;
 }
 
-const SearchResults = dynamic(
-  () => import('./SearchResults'),
-  {
-    loading: () => <Loading message="Loading search results..." type="chart" />,
-    ssr: false,
-  }
-);
+const SearchResults = dynamic(() => import('./SearchResults'), {
+  loading: () => <Loading message="Loading search results..." type="chart" />,
+  ssr: false,
+});
 
 export const LazySearchResults: FC<Props> = ({ payload }) => {
   return <SearchResults payload={payload} />;

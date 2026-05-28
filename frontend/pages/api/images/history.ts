@@ -1,7 +1,16 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 
-import { getOrSetSessionId, requireAuthenticatedUser } from '@/server/session/_utils';
-import { getRedis, jsonDel, jsonGet, jsonSetWithExpiry, sessionKey } from '@/server/session/redis';
+import {
+  getOrSetSessionId,
+  requireAuthenticatedUser,
+} from '@/server/session/_utils';
+import {
+  getRedis,
+  jsonDel,
+  jsonGet,
+  jsonSetWithExpiry,
+  sessionKey,
+} from '@/server/session/redis';
 
 const IMAGE_HISTORY_TTL_SECONDS = 60 * 60 * 24 * 7;
 const MAX_HISTORY_ENTRIES = 50;
@@ -14,6 +23,9 @@ interface ImageRef {
   sessionId: string;
   userId?: string;
   mimeType?: string;
+  width?: number;
+  height?: number;
+  hasAlpha?: boolean;
 }
 
 interface ImageHistoryEntry {
@@ -26,6 +38,7 @@ interface ImageHistoryEntry {
   outputImageIds: string[];
   model: string;
   createdAt: number;
+  usage?: Record<string, unknown>;
 }
 
 interface GeneratedImageRecord {
@@ -58,7 +71,10 @@ function isImageRef(value: unknown): value is ImageRef {
     typeof value.imageId === 'string' &&
     typeof value.sessionId === 'string' &&
     (value.userId === undefined || typeof value.userId === 'string') &&
-    (value.mimeType === undefined || typeof value.mimeType === 'string')
+    (value.mimeType === undefined || typeof value.mimeType === 'string') &&
+    (value.width === undefined || typeof value.width === 'number') &&
+    (value.height === undefined || typeof value.height === 'number') &&
+    (value.hasAlpha === undefined || typeof value.hasAlpha === 'boolean')
   );
 }
 
@@ -148,6 +164,7 @@ function parseEntry(value: unknown): ImageHistoryEntry | null {
     outputImageIds: value.outputImageIds,
     model: value.model,
     createdAt: value.createdAt,
+    ...(isObject(value.usage) && { usage: value.usage }),
   };
 }
 

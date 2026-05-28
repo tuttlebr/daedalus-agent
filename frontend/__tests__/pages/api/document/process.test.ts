@@ -1,3 +1,5 @@
+import handler from '@/pages/api/document/process';
+
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => {
@@ -30,8 +32,6 @@ vi.mock('@/server/session/documentRefs', () => ({
   validateDocumentRefsForUser: mocks.validateDocumentRefsForUser,
   DocumentRefAccessError: mocks.DocumentRefAccessError,
 }));
-
-import handler from '@/pages/api/document/process';
 
 describe('/api/document/process', () => {
   beforeEach(() => {

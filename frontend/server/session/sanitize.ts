@@ -16,14 +16,17 @@ export function stripBase64FromObject<T>(obj: T): T {
   }
 
   if (Array.isArray(obj)) {
-    return obj.map(item => stripBase64FromObject(item)) as T;
+    return obj.map((item) => stripBase64FromObject(item)) as T;
   }
 
   const cleaned = { ...obj } as Record<string, unknown>;
 
   for (const [key, value] of Object.entries(cleaned)) {
     if (typeof value === 'string') {
-      if (value.startsWith('data:image/') || (value.length > 1000 && value.includes('base64'))) {
+      if (
+        value.startsWith('data:image/') ||
+        (value.length > 1000 && value.includes('base64'))
+      ) {
         cleaned[key] = '';
       }
     } else if (typeof value === 'object' && value !== null) {
@@ -40,7 +43,9 @@ export function stripBase64FromObject<T>(obj: T): T {
  *  - At most MAX_MESSAGES_PER_CONV messages per conversation (keep most recent).
  *  - All base64 content stripped.
  */
-export function clampConversations<T extends { messages?: unknown[] }>(conversations: T[]): T[] {
+export function clampConversations<T extends { messages?: unknown[] }>(
+  conversations: T[],
+): T[] {
   const trimmed = (conversations || []).slice(-MAX_CONVERSATIONS);
   return trimmed.map((c) => {
     const clamped = {

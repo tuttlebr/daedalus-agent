@@ -36,11 +36,7 @@
     "scene": "A close-up studio shot of a classical statue against a black background.",
     "setting_type": "studio",
     "detected_text": [],
-    "dominant_colors": [
-      "black",
-      "white",
-      "gray"
-    ],
+    "dominant_colors": ["black", "white", "gray"],
     "people": [
       {
         "count_estimate": 1,
@@ -48,13 +44,7 @@
         "activity": "working with a hammer"
       }
     ],
-    "objects": [
-      "hammer",
-      "chisel",
-      "table",
-      "drapery",
-      "statue"
-    ],
+    "objects": ["hammer", "chisel", "table", "drapery", "statue"],
     "quality": {
       "sharpness": "sharp",
       "exposure": "balanced",

@@ -16,19 +16,35 @@ function openDB(): Promise<IDBDatabase> {
   });
 }
 
-export async function enqueueMessage(message: any, conversationId?: string): Promise<void> {
+export async function enqueueMessage(
+  message: any,
+  conversationId?: string,
+): Promise<void> {
   const db = await openDB();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, 'readwrite');
     const store = tx.objectStore(STORE_NAME);
     const id = `msg-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
     store.put({ id, message, conversationId, timestamp: Date.now() });
-    tx.oncomplete = () => { db.close(); resolve(); };
-    tx.onerror = () => { db.close(); reject(tx.error); };
+    tx.oncomplete = () => {
+      db.close();
+      resolve();
+    };
+    tx.onerror = () => {
+      db.close();
+      reject(tx.error);
+    };
   });
 }
 
-export async function dequeueAllMessages(): Promise<Array<{ id: string; message: any; conversationId?: string; timestamp: number }>> {
+export async function dequeueAllMessages(): Promise<
+  Array<{
+    id: string;
+    message: any;
+    conversationId?: string;
+    timestamp: number;
+  }>
+> {
   const db = await openDB();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, 'readwrite');
@@ -38,9 +54,15 @@ export async function dequeueAllMessages(): Promise<Array<{ id: string; message:
       const items = getAll.result;
       // Clear all items
       store.clear();
-      tx.oncomplete = () => { db.close(); resolve(items); };
+      tx.oncomplete = () => {
+        db.close();
+        resolve(items);
+      };
     };
-    getAll.onerror = () => { db.close(); reject(getAll.error); };
+    getAll.onerror = () => {
+      db.close();
+      reject(getAll.error);
+    };
   });
 }
 
@@ -50,7 +72,13 @@ export async function getQueueLength(): Promise<number> {
     const tx = db.transaction(STORE_NAME, 'readonly');
     const store = tx.objectStore(STORE_NAME);
     const count = store.count();
-    count.onsuccess = () => { db.close(); resolve(count.result); };
-    count.onerror = () => { db.close(); reject(count.error); };
+    count.onsuccess = () => {
+      db.close();
+      resolve(count.result);
+    };
+    count.onerror = () => {
+      db.close();
+      reject(count.error);
+    };
   });
 }

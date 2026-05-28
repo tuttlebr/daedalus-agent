@@ -1,11 +1,5 @@
-import { v4 as uuidv4 } from 'uuid';
+import { publishSyncEvent } from '@/utils/sync/publish';
 
-import {
-  getRedis,
-  jsonGet,
-  jsonSet,
-  sessionKey,
-} from '@/server/session/redis';
 import {
   AutonomyApproval,
   AutonomyConfig,
@@ -15,7 +9,9 @@ import {
   AutonomyQueuedRequest,
   AutonomyRun,
 } from '@/types/autonomy';
-import { publishSyncEvent } from '@/utils/sync/publish';
+
+import { getRedis, jsonGet, jsonSet, sessionKey } from '@/server/session/redis';
+import { v4 as uuidv4 } from 'uuid';
 
 const DEFAULT_INTERVAL_SECONDS = 14_400;
 
@@ -49,7 +45,11 @@ async function getList<T>(userId: string, name: string): Promise<T[]> {
   return Array.isArray(value) ? value : [];
 }
 
-async function setValue(userId: string, name: string, value: unknown): Promise<void> {
+async function setValue(
+  userId: string,
+  name: string,
+  value: unknown,
+): Promise<void> {
   await jsonSet(autonomyKey(userId, name), '$', value);
 }
 
@@ -130,19 +130,21 @@ function normalizeQueuedRequest(
 ): AutonomyQueuedRequest | null {
   if (!value || typeof value !== 'object') return null;
   const request = value as Partial<AutonomyQueuedRequest>;
-  const id = typeof request.id === 'string' && request.id.trim()
-    ? request.id
-    : `queued_${position}`;
+  const id =
+    typeof request.id === 'string' && request.id.trim()
+      ? request.id
+      : `queued_${position}`;
 
   return {
     id,
     trigger: typeof request.trigger === 'string' ? request.trigger : 'manual',
     goalId: typeof request.goalId === 'string' ? request.goalId : null,
     prompt: typeof request.prompt === 'string' ? request.prompt : '',
-    requestedBy: typeof request.requestedBy === 'string'
-      ? request.requestedBy
-      : 'unknown',
-    createdAt: Number.isFinite(request.createdAt) ? Number(request.createdAt) : 0,
+    requestedBy:
+      typeof request.requestedBy === 'string' ? request.requestedBy : 'unknown',
+    createdAt: Number.isFinite(request.createdAt)
+      ? Number(request.createdAt)
+      : 0,
     position,
   };
 }
@@ -242,18 +244,18 @@ export async function updateApproval(
     const originalPrompt = pausedRun?.prompt?.trim();
     const prompt = isOAuthAuthorization
       ? (
-        `OAuth authorization has been completed for target ${approved.target || '*'}. ` +
-        `Retry the paused autonomous run ${approved.runId}. ` +
-        (originalPrompt ? `Original manual prompt: ${originalPrompt}` : '')
-      ).trim()
-      : (
-        `Continue the paused autonomous run ${approved.runId}. ` +
+          `OAuth authorization has been completed for target ${
+            approved.target || '*'
+          }. ` +
+          `Retry the paused autonomous run ${approved.runId}. ` +
+          (originalPrompt ? `Original manual prompt: ${originalPrompt}` : '')
+        ).trim()
+      : `Continue the paused autonomous run ${approved.runId}. ` +
         `The user approved action ${approved.actionType} ` +
         `for target ${approved.target || '*'}. ` +
         (approved.approvalToken
           ? `Use approval_token="${approved.approvalToken}".`
-          : 'Proceed only if the backend can validate approval.')
-      );
+          : 'Proceed only if the backend can validate approval.');
 
     await enqueueRun(userId, {
       trigger: 'approval',
@@ -276,8 +278,14 @@ export async function cancelRun(userId: string, runId: string): Promise<void> {
   await redis.set(autonomyKey(userId, `cancel:${runId}`), '1', 'EX', 3600);
   const runs = await listRuns(userId);
   const next = runs.map((run) =>
-    run.id === runId && ['queued', 'running', 'waiting_approval'].includes(run.status)
-      ? { ...run, status: 'cancelled' as const, updatedAt: nowMs(), completedAt: nowMs() }
+    run.id === runId &&
+    ['queued', 'running', 'waiting_approval'].includes(run.status)
+      ? {
+          ...run,
+          status: 'cancelled' as const,
+          updatedAt: nowMs(),
+          completedAt: nowMs(),
+        }
       : run,
   );
   await setValue(userId, 'runs', next);

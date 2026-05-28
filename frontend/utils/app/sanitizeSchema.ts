@@ -129,5 +129,15 @@ export const sanitizeSchema = {
     href: ['http', 'https', 'mailto'],
   },
   // Strip dangerous elements entirely
-  strip: ['script', 'style', 'iframe', 'object', 'embed', 'form', 'input', 'textarea', 'button'],
+  strip: [
+    'script',
+    'style',
+    'iframe',
+    'object',
+    'embed',
+    'form',
+    'input',
+    'textarea',
+    'button',
+  ],
 };

@@ -2,7 +2,13 @@ import { IntermediateStep } from './intermediateSteps';
 
 export interface MessageError {
   message: string;
-  category?: 'network' | 'timeout' | 'server' | 'rate_limit' | 'authentication' | 'unknown';
+  category?:
+    | 'network'
+    | 'timeout'
+    | 'server'
+    | 'rate_limit'
+    | 'authentication'
+    | 'unknown';
   details?: string;
   timestamp: number;
   recoverable: boolean;
@@ -75,14 +81,14 @@ export interface UserContext {
 }
 
 export interface ChatBody {
-  chatCompletionURL?: string,
-  messages?: Message[],
+  chatCompletionURL?: string;
+  messages?: Message[];
   additionalProps?: {
     enableIntermediateSteps?: boolean;
     username?: string;
     userContext?: UserContext;
     [key: string]: any;
-  }
+  };
 }
 
 export interface Conversation {

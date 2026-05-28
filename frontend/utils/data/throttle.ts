@@ -13,8 +13,8 @@ export function throttle<T extends (...args: any[]) => any>(
   limit: number,
   options?: ThrottleOptions,
 ): ThrottledFunction<T> {
-  const leading = options?.leading !== false;   // default true
-  const trailing = options?.trailing !== false;  // default true
+  const leading = options?.leading !== false; // default true
+  const trailing = options?.trailing !== false; // default true
 
   let timeoutId: ReturnType<typeof setTimeout> | null = null;
   let lastRan = 0;

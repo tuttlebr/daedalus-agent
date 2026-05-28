@@ -1,4 +1,5 @@
 import { Prompt } from '@/types/prompt';
+
 import { setUserSessionItem } from './storage';
 
 export const updatePrompt = (updatedPrompt: Prompt, allPrompts: Prompt[]) => {

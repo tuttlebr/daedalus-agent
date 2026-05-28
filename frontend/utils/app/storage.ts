@@ -119,9 +119,9 @@ export function clearUserSessionData(): void {
       'expandIntermediateSteps',
       'intermediateStepOverride',
       'chatHistory',
-      'sessionId'
+      'sessionId',
     ];
-    keysToRemove.forEach(key => sessionStorage.removeItem(key));
+    keysToRemove.forEach((key) => sessionStorage.removeItem(key));
     return;
   }
 
@@ -136,7 +136,7 @@ export function clearUserSessionData(): void {
     }
   }
 
-  keysToRemove.forEach(key => sessionStorage.removeItem(key));
+  keysToRemove.forEach((key) => sessionStorage.removeItem(key));
 }
 
 /**
@@ -153,7 +153,7 @@ export function clearAllUserData(): void {
     }
   }
 
-  keysToRemove.forEach(key => sessionStorage.removeItem(key));
+  keysToRemove.forEach((key) => sessionStorage.removeItem(key));
 
   // Also clear legacy non-prefixed keys
   const legacyKeys = [
@@ -167,9 +167,9 @@ export function clearAllUserData(): void {
     'expandIntermediateSteps',
     'intermediateStepOverride',
     'chatHistory',
-    'sessionId'
+    'sessionId',
   ];
-  legacyKeys.forEach(key => sessionStorage.removeItem(key));
+  legacyKeys.forEach((key) => sessionStorage.removeItem(key));
 }
 
 /**
@@ -187,10 +187,10 @@ export function migrateLegacyStorage(username: string): void {
     'enableIntermediateSteps',
     'expandIntermediateSteps',
     'intermediateStepOverride',
-    'chatHistory'
+    'chatHistory',
   ];
 
-  legacyKeys.forEach(key => {
+  legacyKeys.forEach((key) => {
     const value = sessionStorage.getItem(key);
     if (value !== null) {
       // Copy to user-specific key

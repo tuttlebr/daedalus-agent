@@ -28,22 +28,29 @@ export interface ManagedTimer {
 }
 
 // Track all managed timers for global visibility handling
-const managedTimers = new Map<string, {
-  callback: TimerCallback;
-  options: TimerOptions;
-  intervalId: ReturnType<typeof setInterval> | null;
-  isPaused: boolean;
-  isMobile: boolean;
-}>();
+const managedTimers = new Map<
+  string,
+  {
+    callback: TimerCallback;
+    options: TimerOptions;
+    intervalId: ReturnType<typeof setInterval> | null;
+    isPaused: boolean;
+    isMobile: boolean;
+  }
+>();
 
 let visibilityListenerInitialized = false;
 let globalTimerIdCounter = 0;
 
 // Detect mobile device
 function isMobile(): boolean {
-  if (typeof window === 'undefined' || typeof navigator === 'undefined') return false;
+  if (typeof window === 'undefined' || typeof navigator === 'undefined')
+    return false;
   const userAgent = navigator.userAgent.toLowerCase();
-  const isMobileUA = /android|webos|iphone|ipad|ipod|blackberry|iemobile|opera mini/i.test(userAgent);
+  const isMobileUA =
+    /android|webos|iphone|ipad|ipod|blackberry|iemobile|opera mini/i.test(
+      userAgent,
+    );
   const isSmallScreen = window.innerWidth <= 768;
   return isMobileUA || isSmallScreen;
 }
@@ -142,7 +149,7 @@ function initVisibilityListener(): void {
  */
 export function createVisibilityAwareInterval(
   callback: TimerCallback,
-  options: TimerOptions
+  options: TimerOptions,
 ): ManagedTimer {
   initVisibilityListener();
 
@@ -215,7 +222,7 @@ export function createVisibilityAwareInterval(
  */
 export function createVisibilityAwareTimeout(
   callback: TimerCallback,
-  delay: number
+  delay: number,
 ): { cancel: () => void } {
   let timeoutId: ReturnType<typeof setTimeout> | null = null;
   let remainingTime = delay;
@@ -247,7 +254,10 @@ export function createVisibilityAwareTimeout(
   };
 
   // Start immediately if visible
-  if (typeof document === 'undefined' || document.visibilityState === 'visible') {
+  if (
+    typeof document === 'undefined' ||
+    document.visibilityState === 'visible'
+  ) {
     start();
   }
 
@@ -286,14 +296,21 @@ export async function shouldRunExpensiveOperation(): Promise<boolean> {
   if (typeof navigator === 'undefined') return true;
 
   // Check if page is visible
-  if (typeof document !== 'undefined' && document.visibilityState !== 'visible') {
+  if (
+    typeof document !== 'undefined' &&
+    document.visibilityState !== 'visible'
+  ) {
     return false;
   }
 
   // Check battery level on mobile
   if ('getBattery' in navigator) {
     try {
-      const battery = await (navigator as unknown as { getBattery: () => Promise<{ level: number; charging: boolean }> }).getBattery();
+      const battery = await (
+        navigator as unknown as {
+          getBattery: () => Promise<{ level: number; charging: boolean }>;
+        }
+      ).getBattery();
       const batteryLevel = battery.level * 100;
 
       // Skip expensive operations if battery is low and not charging

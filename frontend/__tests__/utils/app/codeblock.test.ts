@@ -1,4 +1,7 @@
-import { generateRandomString, programmingLanguages } from '@/utils/app/codeblock';
+import {
+  generateRandomString,
+  programmingLanguages,
+} from '@/utils/app/codeblock';
 
 import { describe, expect, it } from 'vitest';
 
@@ -21,7 +24,9 @@ describe('generateRandomString', () => {
   });
 
   it('should produce different results on different calls', () => {
-    const results = new Set(Array.from({ length: 10 }, () => generateRandomString(10)));
+    const results = new Set(
+      Array.from({ length: 10 }, () => generateRandomString(10)),
+    );
     // With 30 possible chars and length 10, collisions are astronomically unlikely
     expect(results.size).toBeGreaterThan(1);
   });

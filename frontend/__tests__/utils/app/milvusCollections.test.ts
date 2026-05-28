@@ -1,9 +1,9 @@
-import { describe, expect, it } from 'vitest';
-
 import {
   classifyMilvusCollectionScope,
   resolveMilvusCollectionTarget,
 } from '@/utils/app/milvusCollections';
+
+import { describe, expect, it } from 'vitest';
 
 describe('milvus collection policy helpers', () => {
   it('classifies allow-listed domain collections as shared', () => {
@@ -40,11 +40,13 @@ describe('milvus collection policy helpers', () => {
   });
 
   it('rejects accidental shared-target scope mismatches', () => {
-    expect(() => resolveMilvusCollectionTarget({
-      targetCollection: 'nvidia',
-      username: 'alice',
-      requestedScope: 'user',
-      source: 'test',
-    })).toThrow('does not match');
+    expect(() =>
+      resolveMilvusCollectionTarget({
+        targetCollection: 'nvidia',
+        username: 'alice',
+        requestedScope: 'user',
+        source: 'test',
+      }),
+    ).toThrow('does not match');
   });
 });

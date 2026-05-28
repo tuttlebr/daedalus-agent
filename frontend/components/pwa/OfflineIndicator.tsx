@@ -1,7 +1,8 @@
 'use client';
 
-import { memo, useState, useEffect } from 'react';
 import { IconWifi, IconWifiOff } from '@tabler/icons-react';
+import { memo, useState, useEffect } from 'react';
+
 import classNames from 'classnames';
 
 /**
@@ -43,7 +44,7 @@ export const OfflineIndicator = memo(() => {
         'backdrop-blur-xl border shadow-lg animate-slide-up',
         isOffline
           ? 'bg-nvidia-red/15 border-nvidia-red/30 text-nvidia-red'
-          : 'bg-nvidia-green/15 border-nvidia-green/30 text-nvidia-green'
+          : 'bg-nvidia-green/15 border-nvidia-green/30 text-nvidia-green',
       )}
     >
       {isOffline ? (

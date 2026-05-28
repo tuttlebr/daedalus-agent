@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+
 import { Logger } from '@/utils/logger';
 
 const logger = new Logger('BackgroundProcessing');
@@ -51,11 +52,13 @@ export const useBackgroundProcessing = (): UseBackgroundProcessingReturn => {
       });
     };
 
-    openDB().then(db => {
-      dbRef.current = db;
-    }).catch(err => {
-      logger.error('Failed to open IndexedDB', err);
-    });
+    openDB()
+      .then((db) => {
+        dbRef.current = db;
+      })
+      .catch((err) => {
+        logger.error('Failed to open IndexedDB', err);
+      });
 
     return () => {
       if (dbRef.current) {
@@ -132,7 +135,9 @@ export const useBackgroundProcessing = (): UseBackgroundProcessingReturn => {
       try {
         wakeLockRef.current = await navigator.wakeLock.request('screen');
         setWakeLockActive(true);
-        logger.info('Wake lock acquired - screen will stay on during streaming');
+        logger.info(
+          'Wake lock acquired - screen will stay on during streaming',
+        );
 
         // Set up safety timeout to auto-release wake lock after max duration
         // This prevents indefinite battery drain if release is never called
@@ -199,7 +204,9 @@ export const useBackgroundProcessing = (): UseBackgroundProcessingReturn => {
         logger.error('Failed to release wake lock', err);
       }
     } else if (requestCountRef.current > 0) {
-      logger.debug('Wake lock retained', { activeRequests: requestCountRef.current });
+      logger.debug('Wake lock retained', {
+        activeRequests: requestCountRef.current,
+      });
     }
   };
 
@@ -211,7 +218,10 @@ export const useBackgroundProcessing = (): UseBackgroundProcessingReturn => {
     }
 
     return new Promise<void>((resolve, reject) => {
-      const transaction = dbRef.current!.transaction(['streamingState'], 'readwrite');
+      const transaction = dbRef.current!.transaction(
+        ['streamingState'],
+        'readwrite',
+      );
       const store = transaction.objectStore('streamingState');
       const request = store.put(state, 'current');
 
@@ -221,21 +231,27 @@ export const useBackgroundProcessing = (): UseBackgroundProcessingReturn => {
   };
 
   // Retrieve streaming state from IndexedDB
-  const getStreamingState = async (): Promise<BackgroundProcessingState | null> => {
-    if (!dbRef.current) {
-      logger.warn('IndexedDB not initialized');
-      return null;
-    }
+  const getStreamingState =
+    async (): Promise<BackgroundProcessingState | null> => {
+      if (!dbRef.current) {
+        logger.warn('IndexedDB not initialized');
+        return null;
+      }
 
-    return new Promise<BackgroundProcessingState | null>((resolve, reject) => {
-      const transaction = dbRef.current!.transaction(['streamingState'], 'readonly');
-      const store = transaction.objectStore('streamingState');
-      const request = store.get('current');
+      return new Promise<BackgroundProcessingState | null>(
+        (resolve, reject) => {
+          const transaction = dbRef.current!.transaction(
+            ['streamingState'],
+            'readonly',
+          );
+          const store = transaction.objectStore('streamingState');
+          const request = store.get('current');
 
-      request.onsuccess = () => resolve(request.result || null);
-      request.onerror = () => reject(request.error);
-    });
-  };
+          request.onsuccess = () => resolve(request.result || null);
+          request.onerror = () => reject(request.error);
+        },
+      );
+    };
 
   // Clear streaming state from IndexedDB
   const clearStreamingState = async () => {
@@ -245,7 +261,10 @@ export const useBackgroundProcessing = (): UseBackgroundProcessingReturn => {
     }
 
     return new Promise<void>((resolve, reject) => {
-      const transaction = dbRef.current!.transaction(['streamingState'], 'readwrite');
+      const transaction = dbRef.current!.transaction(
+        ['streamingState'],
+        'readwrite',
+      );
       const store = transaction.objectStore('streamingState');
       const request = store.delete('current');
 

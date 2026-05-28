@@ -5,6 +5,8 @@
  * connections are made. Each test creates a fresh WebSocketManager
  * to avoid cross-test leakage.
  */
+// Import after mocks are set up (dynamic import to avoid module-level side effects)
+import { WebSocketManager } from '@/services/websocket';
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
@@ -43,12 +45,20 @@ class MockWebSocket {
   onerror: ((ev: Event) => void) | null = null;
 
   send = vi.fn();
-  close = vi.fn().mockImplementation(function (this: MockWebSocket, code?: number, reason?: string) {
-    this.readyState = MockWebSocket.CLOSED;
-    if (this.onclose) {
-      this.onclose(new CloseEvent('close', { code: code || 1000, reason: reason || '' }));
-    }
-  });
+  close = vi
+    .fn()
+    .mockImplementation(function (
+      this: MockWebSocket,
+      code?: number,
+      reason?: string,
+    ) {
+      this.readyState = MockWebSocket.CLOSED;
+      if (this.onclose) {
+        this.onclose(
+          new CloseEvent('close', { code: code || 1000, reason: reason || '' }),
+        );
+      }
+    });
 
   constructor(url: string) {
     this.url = url;
@@ -65,7 +75,9 @@ class MockWebSocket {
   // Test helper: simulate receiving a message
   simulateMessage(data: any): void {
     if (this.onmessage) {
-      this.onmessage(new MessageEvent('message', { data: JSON.stringify(data) }));
+      this.onmessage(
+        new MessageEvent('message', { data: JSON.stringify(data) }),
+      );
     }
   }
 
@@ -120,9 +132,6 @@ afterEach(() => {
   vi.useRealTimers();
   vi.restoreAllMocks();
 });
-
-// Import after mocks are set up (dynamic import to avoid module-level side effects)
-import { WebSocketManager } from '@/services/websocket';
 
 describe('WebSocketManager', () => {
   // ---------- connect() ----------
@@ -224,7 +233,10 @@ describe('WebSocketManager', () => {
 
       mgr.disconnect();
 
-      expect(wsInstances[0].close).toHaveBeenCalledWith(1000, 'Client disconnect');
+      expect(wsInstances[0].close).toHaveBeenCalledWith(
+        1000,
+        'Client disconnect',
+      );
     });
 
     it('sets isConnected to false', () => {
@@ -280,7 +292,10 @@ describe('WebSocketManager', () => {
       });
 
       expect(handler).toHaveBeenCalledTimes(1);
-      expect(handler).toHaveBeenCalledWith({ conversationId: 'c-1', conversation: { id: 'c-1' } });
+      expect(handler).toHaveBeenCalledWith({
+        conversationId: 'c-1',
+        conversation: { id: 'c-1' },
+      });
     });
 
     it('does not invoke handler for non-matching message types', () => {
@@ -405,8 +420,12 @@ describe('WebSocketManager', () => {
       mgr.connect();
       wsInstances[0].simulateOpen();
 
-      const sentMessages = wsInstances[0].send.mock.calls.map((c: any[]) => JSON.parse(c[0]));
-      const jobSubs = sentMessages.filter((m: any) => m.type === 'subscribe_job');
+      const sentMessages = wsInstances[0].send.mock.calls.map((c: any[]) =>
+        JSON.parse(c[0]),
+      );
+      const jobSubs = sentMessages.filter(
+        (m: any) => m.type === 'subscribe_job',
+      );
       expect(jobSubs).toHaveLength(0);
     });
   });
@@ -443,7 +462,10 @@ describe('WebSocketManager', () => {
       mgr.unsubscribeFromChat('conv-abc');
 
       expect(wsInstances[0].send).toHaveBeenCalledWith(
-        JSON.stringify({ type: 'unsubscribe_chat', conversationId: 'conv-abc' }),
+        JSON.stringify({
+          type: 'unsubscribe_chat',
+          conversationId: 'conv-abc',
+        }),
       );
     });
   });
@@ -489,11 +511,13 @@ describe('WebSocketManager', () => {
 
       vi.advanceTimersByTime(60_000);
 
-      const pingCalls = wsInstances[0].send.mock.calls.filter(
-        (c: any[]) => {
-          try { return JSON.parse(c[0]).type === 'ping'; } catch { return false; }
-        },
-      );
+      const pingCalls = wsInstances[0].send.mock.calls.filter((c: any[]) => {
+        try {
+          return JSON.parse(c[0]).type === 'ping';
+        } catch {
+          return false;
+        }
+      });
       expect(pingCalls).toHaveLength(0);
     });
 
@@ -586,7 +610,10 @@ describe('WebSocketManager', () => {
       wsInstances[0].simulateOpen();
       wsInstances[0].simulateMessage({
         type: 'conversation_updated',
-        data: { conversationId: 'c-1', conversation: { id: 'c-1', name: 'Test' } },
+        data: {
+          conversationId: 'c-1',
+          conversation: { id: 'c-1', name: 'Test' },
+        },
       });
 
       expect(handler).toHaveBeenCalledWith({
@@ -626,7 +653,9 @@ describe('WebSocketManager', () => {
       // Send raw invalid JSON string
       if (wsInstances[0].onmessage) {
         expect(() => {
-          wsInstances[0].onmessage!(new MessageEvent('message', { data: 'not valid json{' }));
+          wsInstances[0].onmessage!(
+            new MessageEvent('message', { data: 'not valid json{' }),
+          );
         }).not.toThrow();
       }
     });
@@ -659,7 +688,9 @@ describe('WebSocketManager', () => {
   describe('handler error isolation', () => {
     it('a throwing handler does not prevent other handlers from firing', () => {
       const mgr = new WebSocketManager('/ws');
-      const h1 = vi.fn(() => { throw new Error('boom'); });
+      const h1 = vi.fn(() => {
+        throw new Error('boom');
+      });
       const h2 = vi.fn();
       mgr.on('conversation_list_changed', h1);
       mgr.on('conversation_list_changed', h2);

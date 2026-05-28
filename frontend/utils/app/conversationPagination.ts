@@ -39,7 +39,10 @@ class ConversationPaginationDB {
       const request = indexedDB.open(DB_NAME, DB_VERSION);
 
       request.onerror = () => {
-        console.error('Failed to open ConversationPaginationDB:', request.error);
+        console.error(
+          'Failed to open ConversationPaginationDB:',
+          request.error,
+        );
         reject(request.error);
       };
 
@@ -53,15 +56,25 @@ class ConversationPaginationDB {
 
         // Messages store
         if (!db.objectStoreNames.contains(MESSAGES_STORE)) {
-          const messagesStore = db.createObjectStore(MESSAGES_STORE, { keyPath: 'id' });
-          messagesStore.createIndex('conversationId', 'conversationId', { unique: false });
-          messagesStore.createIndex('updatedAt', 'updatedAt', { unique: false });
+          const messagesStore = db.createObjectStore(MESSAGES_STORE, {
+            keyPath: 'id',
+          });
+          messagesStore.createIndex('conversationId', 'conversationId', {
+            unique: false,
+          });
+          messagesStore.createIndex('updatedAt', 'updatedAt', {
+            unique: false,
+          });
         }
 
         // Metadata store
         if (!db.objectStoreNames.contains(METADATA_STORE)) {
-          const metadataStore = db.createObjectStore(METADATA_STORE, { keyPath: 'id' });
-          metadataStore.createIndex('lastAccessed', 'lastAccessed', { unique: false });
+          const metadataStore = db.createObjectStore(METADATA_STORE, {
+            keyPath: 'id',
+          });
+          metadataStore.createIndex('lastAccessed', 'lastAccessed', {
+            unique: false,
+          });
         }
       };
     });
@@ -78,7 +91,9 @@ class ConversationPaginationDB {
   /**
    * Save older messages to IndexedDB and return only recent messages
    */
-  async paginateConversation(conversation: Conversation): Promise<Conversation> {
+  async paginateConversation(
+    conversation: Conversation,
+  ): Promise<Conversation> {
     const messages = conversation.messages;
 
     if (messages.length <= MESSAGES_IN_MEMORY) {
@@ -99,14 +114,17 @@ class ConversationPaginationDB {
     // Return conversation with only recent messages
     return {
       ...conversation,
-      messages: recentMessages
+      messages: recentMessages,
     };
   }
 
   /**
    * Store messages in chunks
    */
-  private async storeMessageChunks(conversationId: string, messages: Message[]): Promise<void> {
+  private async storeMessageChunks(
+    conversationId: string,
+    messages: Message[],
+  ): Promise<void> {
     const db = await this.ensureDB();
     const transaction = db.transaction([MESSAGES_STORE], 'readwrite');
     const store = transaction.objectStore(MESSAGES_STORE);
@@ -124,7 +142,7 @@ class ConversationPaginationDB {
         chunkIndex: i,
         messages: chunkMessages,
         createdAt: Date.now(),
-        updatedAt: Date.now()
+        updatedAt: Date.now(),
       };
 
       await new Promise((resolve, reject) => {
@@ -138,7 +156,10 @@ class ConversationPaginationDB {
   /**
    * Update conversation metadata
    */
-  private async updateMetadata(conversationId: string, messages: Message[]): Promise<void> {
+  private async updateMetadata(
+    conversationId: string,
+    messages: Message[],
+  ): Promise<void> {
     const db = await this.ensureDB();
     const transaction = db.transaction([METADATA_STORE], 'readwrite');
     const store = transaction.objectStore(METADATA_STORE);
@@ -148,7 +169,7 @@ class ConversationPaginationDB {
       totalMessages: messages.length,
       oldestMessageDate: Date.now(), // Should extract from first message if available
       newestMessageDate: Date.now(), // Should extract from last message if available
-      lastAccessed: Date.now()
+      lastAccessed: Date.now(),
     };
 
     await new Promise((resolve, reject) => {
@@ -161,7 +182,11 @@ class ConversationPaginationDB {
   /**
    * Load messages with pagination
    */
-  async loadMessages(conversationId: string, offset: number = 0, limit: number = MESSAGES_IN_MEMORY): Promise<Message[]> {
+  async loadMessages(
+    conversationId: string,
+    offset: number = 0,
+    limit: number = MESSAGES_IN_MEMORY,
+  ): Promise<Message[]> {
     const db = await this.ensureDB();
     const transaction = db.transaction([MESSAGES_STORE], 'readonly');
     const store = transaction.objectStore(MESSAGES_STORE);
@@ -193,7 +218,8 @@ class ConversationPaginationDB {
    */
   async cleanupOldConversations(): Promise<number> {
     const db = await this.ensureDB();
-    const cutoffTime = Date.now() - (CONVERSATION_RETENTION_DAYS * 24 * 60 * 60 * 1000);
+    const cutoffTime =
+      Date.now() - CONVERSATION_RETENTION_DAYS * 24 * 60 * 60 * 1000;
     let deletedCount = 0;
 
     // Clean up message chunks
@@ -202,7 +228,9 @@ class ConversationPaginationDB {
     const updatedAtIndex = messagesStore.index('updatedAt');
 
     await new Promise((resolve, reject) => {
-      const request = updatedAtIndex.openCursor(IDBKeyRange.upperBound(cutoffTime));
+      const request = updatedAtIndex.openCursor(
+        IDBKeyRange.upperBound(cutoffTime),
+      );
 
       request.onsuccess = (event) => {
         const cursor = (event.target as IDBRequest).result;
@@ -232,7 +260,11 @@ class ConversationPaginationDB {
     }
 
     // Load all messages
-    const allMessages = await this.loadMessages(conversationId, 0, metadata.totalMessages);
+    const allMessages = await this.loadMessages(
+      conversationId,
+      0,
+      metadata.totalMessages,
+    );
 
     // Keep only the most recent messages
     const messagesToKeep = allMessages.slice(-MAX_CONVERSATION_MESSAGES);
@@ -241,13 +273,18 @@ class ConversationPaginationDB {
     await this.clearConversationMessages(conversationId);
 
     // Store the limited messages
-    await this.storeMessageChunks(conversationId, messagesToKeep.slice(0, -MESSAGES_IN_MEMORY));
+    await this.storeMessageChunks(
+      conversationId,
+      messagesToKeep.slice(0, -MESSAGES_IN_MEMORY),
+    );
   }
 
   /**
    * Get conversation metadata
    */
-  private async getMetadata(conversationId: string): Promise<ConversationMetadata | null> {
+  private async getMetadata(
+    conversationId: string,
+  ): Promise<ConversationMetadata | null> {
     const db = await this.ensureDB();
     const transaction = db.transaction([METADATA_STORE], 'readonly');
     const store = transaction.objectStore(METADATA_STORE);
@@ -262,7 +299,9 @@ class ConversationPaginationDB {
   /**
    * Clear all messages for a conversation (internal use)
    */
-  private async clearConversationMessages(conversationId: string): Promise<void> {
+  private async clearConversationMessages(
+    conversationId: string,
+  ): Promise<void> {
     const db = await this.ensureDB();
     const transaction = db.transaction([MESSAGES_STORE], 'readwrite');
     const store = transaction.objectStore(MESSAGES_STORE);
@@ -343,14 +382,16 @@ class ConversationPaginationDB {
 const paginationDB = new ConversationPaginationDB();
 
 // Export functions
-export async function paginateConversation(conversation: Conversation): Promise<Conversation> {
+export async function paginateConversation(
+  conversation: Conversation,
+): Promise<Conversation> {
   return paginationDB.paginateConversation(conversation);
 }
 
 export async function loadConversationMessages(
   conversationId: string,
   offset: number = 0,
-  limit: number = MESSAGES_IN_MEMORY
+  limit: number = MESSAGES_IN_MEMORY,
 ): Promise<Message[]> {
   return paginationDB.loadMessages(conversationId, offset, limit);
 }
@@ -359,11 +400,15 @@ export async function cleanupOldConversations(): Promise<number> {
   return paginationDB.cleanupOldConversations();
 }
 
-export async function enforceConversationSizeLimit(conversationId: string): Promise<void> {
+export async function enforceConversationSizeLimit(
+  conversationId: string,
+): Promise<void> {
   return paginationDB.enforceConversationLimit(conversationId);
 }
 
-export async function deleteConversationFromDB(conversationId: string): Promise<void> {
+export async function deleteConversationFromDB(
+  conversationId: string,
+): Promise<void> {
   return paginationDB.deleteConversation(conversationId);
 }
 
@@ -371,4 +416,8 @@ export async function clearAllConversationsFromDB(): Promise<void> {
   return paginationDB.clearAllConversations();
 }
 
-export { MESSAGES_IN_MEMORY, MAX_CONVERSATION_MESSAGES, CONVERSATION_RETENTION_DAYS };
+export {
+  MESSAGES_IN_MEMORY,
+  MAX_CONVERSATION_MESSAGES,
+  CONVERSATION_RETENTION_DAYS,
+};

@@ -1,7 +1,16 @@
 import { IconCheck, IconClipboard, IconDownload } from '@tabler/icons-react';
-import { FC, memo, useCallback, useEffect, useId, useRef, useState } from 'react';
-import mermaid from 'mermaid';
+import {
+  FC,
+  memo,
+  useCallback,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+} from 'react';
+
 import { toPng } from 'html-to-image';
+import mermaid from 'mermaid';
 
 interface Props {
   value: string;
@@ -28,7 +37,10 @@ export const MermaidChart: FC<Props> = memo(({ value }) => {
       try {
         // Validate first
         await mermaid.parse(value);
-        const { svg: renderedSvg } = await mermaid.render(`mermaid-${uniqueId}`, value);
+        const { svg: renderedSvg } = await mermaid.render(
+          `mermaid-${uniqueId}`,
+          value,
+        );
         if (!cancelled) {
           setSvg(renderedSvg);
           setError('');
@@ -42,7 +54,9 @@ export const MermaidChart: FC<Props> = memo(({ value }) => {
     };
 
     renderDiagram();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [value, uniqueId]);
 
   const copySource = useCallback(() => {
@@ -55,7 +69,9 @@ export const MermaidChart: FC<Props> = memo(({ value }) => {
   const downloadPng = useCallback(async () => {
     if (!containerRef.current) return;
     try {
-      const dataUrl = await toPng(containerRef.current, { backgroundColor: '#1e1e1e' });
+      const dataUrl = await toPng(containerRef.current, {
+        backgroundColor: '#1e1e1e',
+      });
       const link = document.createElement('a');
       link.download = 'mermaid-diagram.png';
       link.href = dataUrl;
@@ -74,7 +90,10 @@ export const MermaidChart: FC<Props> = memo(({ value }) => {
 
   if (error) {
     return (
-      <div className="codeblock relative text-[16px]" style={{ fontFamily: "'JetBrains Mono', monospace" }}>
+      <div
+        className="codeblock relative text-[16px]"
+        style={{ fontFamily: "'JetBrains Mono', monospace" }}
+      >
         <div className="flex items-center justify-between py-1.5 px-4">
           <span className="text-xs lowercase text-white">mermaid (error)</span>
         </div>
@@ -88,7 +107,10 @@ export const MermaidChart: FC<Props> = memo(({ value }) => {
   }
 
   return (
-    <div className="codeblock relative text-[16px]" style={{ fontFamily: "'JetBrains Mono', monospace" }}>
+    <div
+      className="codeblock relative text-[16px]"
+      style={{ fontFamily: "'JetBrains Mono', monospace" }}
+    >
       <div className="flex items-center justify-between py-1.5 px-4">
         <span className="text-xs lowercase text-white">mermaid</span>
         <div className="flex items-center">

@@ -1,6 +1,7 @@
 import { NextApiRequest, NextApiResponse } from 'next';
-import { listUsers, createUser, updateUserPassword } from '@/utils/auth/users';
+
 import { requireAuth, getSession } from '@/utils/auth/session';
+import { listUsers, createUser, updateUserPassword } from '@/utils/auth/users';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   const session = await getSession(req, res);
@@ -26,7 +27,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       const { username, password, name } = req.body;
 
       if (!username || !password || !name) {
-        return res.status(400).json({ error: 'Username, password, and name are required' });
+        return res
+          .status(400)
+          .json({ error: 'Username, password, and name are required' });
       }
 
       const user = await createUser(username, password, name);
@@ -46,7 +49,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       const { username, newPassword } = req.body;
 
       if (!username || !newPassword) {
-        return res.status(400).json({ error: 'Username and new password are required' });
+        return res
+          .status(400)
+          .json({ error: 'Username and new password are required' });
       }
 
       const updated = await updateUserPassword(username, newPassword);

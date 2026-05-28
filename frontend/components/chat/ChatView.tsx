@@ -537,7 +537,7 @@ export const ChatView = memo(() => {
       {/* Messages */}
       <div
         ref={scrollContainerRef}
-        className="flex-1 overflow-y-auto scrollbar-hide"
+        className="flex-1 overflow-y-auto overscroll-contain scrollbar-hide [-webkit-overflow-scrolling:touch]"
       >
         {!hasMessages ? (
           <EmptyState />
@@ -657,15 +657,6 @@ const EmptyState = memo(() => (
         alt="Daedalus"
         className="h-20 w-auto mx-auto opacity-60"
       />
-      <div>
-        <h2 className="text-xl font-semibold text-dark-text-primary">
-          Daedalus
-        </h2>
-        <p className="mt-2 text-sm text-dark-text-muted leading-relaxed">
-          Your AI agent with access to 50+ tools including web search, image
-          generation, document analysis, code review, and more.
-        </p>
-      </div>
     </div>
   </div>
 ));

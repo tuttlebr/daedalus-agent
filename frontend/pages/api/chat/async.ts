@@ -1,42 +1,58 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { resolve4 } from 'node:dns/promises';
-import { createHash } from 'node:crypto';
-import { getPublisher, getRedis, sessionKey, jsonGet, jsonSetWithExpiry, jsonDel, setStreamingState, clearStreamingState } from '@/server/session/redis';
-import { publishStreamingState, publishConversationUpdate } from '@/utils/sync/publish';
-import { v4 as uuidv4 } from 'uuid';
-import { Message } from '@/types/chat';
-import { Logger } from '@/utils/logger';
+
 import {
   buildBackendBaseUrl,
   buildBackendBaseUrlForMode,
   buildBackendUrlFromBase,
   getBackendPodDiscoveryHost,
 } from '@/utils/app/backendApi';
-import { withInternalBackendAuth } from '@/utils/server/backendAuth';
-import { fetchWithTimeout } from '@/utils/fetchWithTimeout';
-import { getSession } from '@/utils/auth/session';
-import { getOrSetSessionId } from '@/server/session/_utils';
 import {
-  DocumentRefAccessError,
-  validateDocumentRefsForUser,
-} from '@/server/session/documentRefs';
-import { canAccessStoredVTT, getVTT } from '../session/vttStorage';
+  sanitizeConversationAssistantReplays,
+  stripReplayedAssistantPrefix,
+} from '@/utils/app/conversationReplay';
 import {
   resolveMilvusCollectionTarget,
   type MilvusCollectionProvenance,
   type MilvusCollectionScope,
 } from '@/utils/app/milvusCollections';
+import { getSession } from '@/utils/auth/session';
+import { fetchWithTimeout } from '@/utils/fetchWithTimeout';
+import { Logger } from '@/utils/logger';
+import { withInternalBackendAuth } from '@/utils/server/backendAuth';
 import {
-  sanitizeConversationAssistantReplays,
-  stripReplayedAssistantPrefix,
-} from '@/utils/app/conversationReplay';
+  publishStreamingState,
+  publishConversationUpdate,
+} from '@/utils/sync/publish';
+
+import { Message } from '@/types/chat';
+
+import { canAccessStoredVTT, getVTT } from '../session/vttStorage';
+
+import { getOrSetSessionId } from '@/server/session/_utils';
+import {
+  DocumentRefAccessError,
+  validateDocumentRefsForUser,
+} from '@/server/session/documentRefs';
+import {
+  getPublisher,
+  getRedis,
+  sessionKey,
+  jsonGet,
+  jsonSetWithExpiry,
+  jsonDel,
+  setStreamingState,
+  clearStreamingState,
+} from '@/server/session/redis';
+import { createHash } from 'node:crypto';
+import { resolve4 } from 'node:dns/promises';
+import { v4 as uuidv4 } from 'uuid';
 
 const logger = new Logger('AsyncJob');
 
 export const config = {
   api: {
     bodyParser: {
-      sizeLimit: '300mb',  // Support large document processing payloads
+      sizeLimit: '300mb', // Support large document processing payloads
     },
   },
   maxDuration: 900, // 15 minutes
@@ -99,7 +115,10 @@ interface AsyncJobStatus {
   assistantMessageId?: string;
 }
 
-function clearOAuthStatusFields(): Pick<AsyncJobStatus, 'authUrl' | 'oauthState'> {
+function clearOAuthStatusFields(): Pick<
+  AsyncJobStatus,
+  'authUrl' | 'oauthState'
+> {
   return {
     authUrl: undefined,
     oauthState: undefined,
@@ -138,9 +157,15 @@ function debugReplayLog(label: string, fields: Record<string, any>): void {
 const JOB_EXPIRY_SECONDS = 60 * 60; // 1 hour
 const NAT_SUBMIT_MAX_RETRIES = Number(process.env.NAT_SUBMIT_MAX_RETRIES || 2);
 const NAT_RETRY_DELAY_MS = Number(process.env.NAT_RETRY_DELAY_MS || 3_000);
-const NAT_CONNECTIVITY_TIMEOUT_MS = Number(process.env.NAT_CONNECTIVITY_TIMEOUT_MS || 2_000);
-const NAT_SUBMIT_TIMEOUT_MS = Number(process.env.NAT_SUBMIT_TIMEOUT_MS || 45_000);
-const DOCUMENT_INGEST_TIMEOUT_MS = Number(process.env.DOCUMENT_INGEST_TIMEOUT_MS || 60 * 60 * 1000);
+const NAT_CONNECTIVITY_TIMEOUT_MS = Number(
+  process.env.NAT_CONNECTIVITY_TIMEOUT_MS || 2_000,
+);
+const NAT_SUBMIT_TIMEOUT_MS = Number(
+  process.env.NAT_SUBMIT_TIMEOUT_MS || 45_000,
+);
+const DOCUMENT_INGEST_TIMEOUT_MS = Number(
+  process.env.DOCUMENT_INGEST_TIMEOUT_MS || 60 * 60 * 1000,
+);
 const NAT_BACKEND_CACHE_TTL_MS = 30_000;
 const STREAM_STATUS_FLUSH_INTERVAL_MS = 750;
 const STREAM_STEPS_FLUSH_INTERVAL_MS = 750;
@@ -154,8 +179,10 @@ const FINALIZER_MAX_RUNTIME_MS = 60 * 60 * 1000; // match async expiry window
 // Set by handleGet before calling finalizeSuccess/finalizeError so the
 // background stream reader stops publishing events and status updates.
 const abortKey = (jobId: string) => sessionKey(['async-job-abort', jobId]);
-const finalizerLockKey = (jobId: string) => sessionKey(['async-job-finalizer-lock', jobId]);
-const statusLockKey = (jobId: string) => sessionKey(['async-job-status-lock', jobId]);
+const finalizerLockKey = (jobId: string) =>
+  sessionKey(['async-job-finalizer-lock', jobId]);
+const statusLockKey = (jobId: string) =>
+  sessionKey(['async-job-status-lock', jobId]);
 
 const backgroundFinalizers = new Set<string>();
 let cachedStreamBackend: { baseUrl: string; expiresAt: number } | null = null;
@@ -188,9 +215,10 @@ function resolveDocumentCollectionTarget(
   try {
     return resolveMilvusCollectionTarget(options);
   } catch (error) {
-    const message = error instanceof Error
-      ? error.message
-      : 'Invalid document collection target.';
+    const message =
+      error instanceof Error
+        ? error.message
+        : 'Invalid document collection target.';
     throw new ApiRouteError(400, message, 'collection_scope_mismatch');
   }
 }
@@ -257,7 +285,8 @@ function mapNatStatus(natStatus: string): AsyncJobStatus['status'] {
 function extractNatOutput(output: { value: string } | string | null): string {
   if (!output) return '';
   if (typeof output === 'string') return output;
-  if (typeof output === 'object' && 'value' in output) return String(output.value);
+  if (typeof output === 'object' && 'value' in output)
+    return String(output.value);
   return JSON.stringify(output);
 }
 
@@ -308,9 +337,8 @@ export function buildBoundedMessagesForNat(messages: any[]): any[] {
         return null;
       }
 
-      const content = typeof message.content === 'string'
-        ? message.content
-        : '';
+      const content =
+        typeof message.content === 'string' ? message.content : '';
       // Drop assistant messages with empty content — Bedrock/Claude reject
       // ContentBlock entries whose `text` field is blank.
       if (role === 'assistant' && !content.trim()) {
@@ -334,7 +362,10 @@ export function buildNatSessionId(
     turnId || 'no-turn',
     jobId,
   ].join(':');
-  return `daedalus-${createHash('sha256').update(seed).digest('hex').slice(0, 32)}`;
+  return `daedalus-${createHash('sha256')
+    .update(seed)
+    .digest('hex')
+    .slice(0, 32)}`;
 }
 
 function collectDocumentRefs(attachments: any[]): any[] {
@@ -380,10 +411,12 @@ async function validateDocumentAttachmentsForMessage(
 
     try {
       const [validatedRef] = await validateDocumentRefsForUser(
-        [{
-          ...attachment.documentRef,
-          filename: attachment.content || attachment.documentRef.filename,
-        }],
+        [
+          {
+            ...attachment.documentRef,
+            filename: attachment.content || attachment.documentRef.filename,
+          },
+        ],
         currentSessionId,
         verifiedUsername,
       );
@@ -507,7 +540,9 @@ function getLastUserMessage(messages: any[]): any | null {
 
 export function isDocumentIngestionRequest(messages: any[]): boolean {
   const lastUserMessage = getLastUserMessage(messages);
-  return Boolean(lastUserMessage && isDocumentIngestionMessage(lastUserMessage));
+  return Boolean(
+    lastUserMessage && isDocumentIngestionMessage(lastUserMessage),
+  );
 }
 
 export function compactDocumentIngestionMessage(
@@ -573,7 +608,8 @@ function buildDocumentIngestNatMessages(
     documentIngest.documentRefs.length === 1
       ? `documentRef=${JSON.stringify(documentIngest.documentRefs[0])}`
       : `documentRefs=${JSON.stringify(documentIngest.documentRefs)}`;
-  const noun = documentIngest.documentRefs.length === 1 ? 'document' : 'documents';
+  const noun =
+    documentIngest.documentRefs.length === 1 ? 'document' : 'documents';
 
   return [
     {
@@ -589,7 +625,10 @@ function buildDocumentIngestNatMessages(
   ];
 }
 
-export function extractAsyncStreamContentDelta(parsed: any, accumulatedText: string): string {
+export function extractAsyncStreamContentDelta(
+  parsed: any,
+  accumulatedText: string,
+): string {
   const deltaContent = parsed?.choices?.[0]?.delta?.content;
   if (deltaContent !== null && deltaContent !== undefined) {
     return stringifyContent(deltaContent);
@@ -649,8 +688,10 @@ function extractOAuthRequiredPayload(
   parsed: any,
 ): { authUrl: string; oauthState?: string } | null {
   const eventType = parsed?.event_type || parsed?.type || parsed?.event;
-  const isOAuthEvent = eventName === 'oauth_required' || eventType === 'oauth_required';
-  const authUrl = parsed?.auth_url || parsed?.authUrl || parsed?.authorization_url;
+  const isOAuthEvent =
+    eventName === 'oauth_required' || eventType === 'oauth_required';
+  const authUrl =
+    parsed?.auth_url || parsed?.authUrl || parsed?.authorization_url;
   if (!isOAuthEvent || typeof authUrl !== 'string' || !authUrl) {
     return null;
   }
@@ -679,7 +720,8 @@ function getNatBaseUrl(jobRequest: AsyncJobRequest): string {
 export async function resolveAsyncBackendBaseUrls(): Promise<string[]> {
   const fallbackBaseUrl = buildBackendBaseUrlForMode();
   const isKubernetes =
-    process.env.KUBERNETES_SERVICE_HOST || process.env.DEPLOYMENT_MODE === 'kubernetes';
+    process.env.KUBERNETES_SERVICE_HOST ||
+    process.env.DEPLOYMENT_MODE === 'kubernetes';
 
   if (!isKubernetes) {
     return [fallbackBaseUrl];
@@ -697,7 +739,9 @@ export async function resolveAsyncBackendBaseUrls(): Promise<string[]> {
       return [fallbackBaseUrl];
     }
 
-    return shuffleItems(uniqueIps).map((backendHost) => buildBackendBaseUrl({ backendHost }));
+    return shuffleItems(uniqueIps).map((backendHost) =>
+      buildBackendBaseUrl({ backendHost }),
+    );
   } catch (error: any) {
     logger.warn(
       `Backend pod discovery failed; falling back to service URL ${fallbackBaseUrl}`,
@@ -735,7 +779,10 @@ async function selectStreamBackendBaseUrl(
   for (let attempt = 1; attempt <= NAT_SUBMIT_MAX_RETRIES; attempt++) {
     for (const natBaseUrl of candidates) {
       const healthUrl = buildBackendUrlFromBase(natBaseUrl, '/docs');
-      const streamUrl = buildBackendUrlFromBase(natBaseUrl, '/v1/chat/completions');
+      const streamUrl = buildBackendUrlFromBase(
+        natBaseUrl,
+        '/v1/chat/completions',
+      );
 
       logger.info(`Job ${jobId}: Checking stream backend at ${streamUrl}`, {
         attempt,
@@ -746,7 +793,10 @@ async function selectStreamBackendBaseUrl(
       try {
         const healthResponse = await fetchWithTimeout(
           healthUrl,
-          { method: 'HEAD', headers: buildNatRequestHeaders(verifiedUsername, {}, natSessionId) },
+          {
+            method: 'HEAD',
+            headers: buildNatRequestHeaders(verifiedUsername, {}, natSessionId),
+          },
           NAT_CONNECTIVITY_TIMEOUT_MS,
         );
         if (!healthResponse.ok) {
@@ -761,7 +811,9 @@ async function selectStreamBackendBaseUrl(
         if (cachedStreamBackend?.baseUrl === natBaseUrl) {
           cachedStreamBackend = null;
         }
-        lastError = `connectivity check failed for ${natBaseUrl}: ${err.message || 'Unknown fetch error'}`;
+        lastError = `connectivity check failed for ${natBaseUrl}: ${
+          err.message || 'Unknown fetch error'
+        }`;
         logger.warn(
           `Job ${jobId}: Stream backend check failed on ${natBaseUrl} (attempt ${attempt}/${NAT_SUBMIT_MAX_RETRIES}): ${lastError}`,
         );
@@ -832,7 +884,13 @@ export async function fetchNatJobStatus(
   );
   const natResponse = await fetchWithTimeout(
     natStatusUrl,
-    { headers: buildNatRequestHeaders(jobRequest.userId, {}, jobRequest.natSessionId) },
+    {
+      headers: buildNatRequestHeaders(
+        jobRequest.userId,
+        {},
+        jobRequest.natSessionId,
+      ),
+    },
     30_000,
   );
 
@@ -872,31 +930,40 @@ async function finalizeFromNatStatus(
     finalizerLockKey(jobId),
     FINALIZER_LOCK_TTL_MS,
     async () => {
-      const current = await jsonGet(statusKey) as AsyncJobStatus | null;
+      const current = (await jsonGet(statusKey)) as AsyncJobStatus | null;
       if (!current) return null;
       if (current.finalizedAt || isTerminalJobStatus(current.status)) {
         return current;
       }
 
-      await jsonSetWithExpiry(abortKey(jobId), true, JOB_EXPIRY_SECONDS).catch(() => {});
+      await jsonSetWithExpiry(abortKey(jobId), true, JOB_EXPIRY_SECONDS).catch(
+        () => {},
+      );
 
       if (mapped === 'error') {
-        await finalizeError(jobId, jobRequest, natStatus.error || 'Backend job failed');
+        await finalizeError(
+          jobId,
+          jobRequest,
+          natStatus.error || 'Backend job failed',
+        );
       } else if (mapped === 'completed') {
         const rawOutput = extractNatOutput(natStatus.output);
         await finalizeSuccess(jobId, jobRequest, rawOutput);
       }
 
-      return await jsonGet(statusKey) as AsyncJobStatus | null;
+      return (await jsonGet(statusKey)) as AsyncJobStatus | null;
     },
     { retries: 3, retryDelayMs: 50 },
   );
 
   if (finalized) return finalized;
-  return await jsonGet(statusKey) as AsyncJobStatus | null;
+  return (await jsonGet(statusKey)) as AsyncJobStatus | null;
 }
 
-function launchBackgroundFinalizer(jobId: string, jobRequest: AsyncJobRequest): void {
+function launchBackgroundFinalizer(
+  jobId: string,
+  jobRequest: AsyncJobRequest,
+): void {
   if (backgroundFinalizers.has(jobId)) return;
   backgroundFinalizers.add(jobId);
   startBackgroundFinalizer(jobId, jobRequest)
@@ -912,7 +979,8 @@ function formatIngestPartialResponse(
   collectionName: string,
   ingestProgress: DocumentIngestProgress,
 ): string {
-  const { completed, total, currentDoc, currentIndex, message, phase } = ingestProgress;
+  const { completed, total, currentDoc, currentIndex, message, phase } =
+    ingestProgress;
   if (message) {
     return `${message} (${completed}/${total} into "${collectionName}").`;
   }
@@ -920,16 +988,22 @@ function formatIngestPartialResponse(
     return `Finalizing ingestion into "${collectionName}".`;
   }
   if (phase === 'fetching') {
-    return `Fetching ${currentDoc || 'document'} for ingestion into "${collectionName}".`;
+    return `Fetching ${
+      currentDoc || 'document'
+    } for ingestion into "${collectionName}".`;
   }
   if (phase === 'indexing') {
     return `Writing ${currentDoc || 'document'} chunks to "${collectionName}".`;
   }
   if (currentDoc) {
-    const indexText = currentIndex ? `document ${currentIndex} of ${total}` : `${completed} of ${total}`;
+    const indexText = currentIndex
+      ? `document ${currentIndex} of ${total}`
+      : `${completed} of ${total}`;
     return `Ingesting ${indexText} into "${collectionName}" (${currentDoc}).`;
   }
-  return `Ingesting ${total} document${total === 1 ? '' : 's'} into "${collectionName}".`;
+  return `Ingesting ${total} document${
+    total === 1 ? '' : 's'
+  } into "${collectionName}".`;
 }
 
 function optionalNumber(value: unknown): number | undefined {
@@ -964,7 +1038,10 @@ async function streamDocumentIngestJob(
   };
 
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), DOCUMENT_INGEST_TIMEOUT_MS);
+  const timeoutId = setTimeout(
+    () => controller.abort(),
+    DOCUMENT_INGEST_TIMEOUT_MS,
+  );
 
   let response: Response;
   try {
@@ -981,7 +1058,9 @@ async function streamDocumentIngestJob(
   } catch (err: any) {
     clearTimeout(timeoutId);
     if (err?.name === 'AbortError') {
-      throw new Error(`Document ingest timed out after ${DOCUMENT_INGEST_TIMEOUT_MS}ms`);
+      throw new Error(
+        `Document ingest timed out after ${DOCUMENT_INGEST_TIMEOUT_MS}ms`,
+      );
     }
     throw err;
   }
@@ -989,7 +1068,11 @@ async function streamDocumentIngestJob(
   if (!response.ok) {
     clearTimeout(timeoutId);
     const errBody = await response.text().catch(() => '');
-    throw new Error(`Document ingest failed (${response.status}): ${errBody || response.statusText}`);
+    throw new Error(
+      `Document ingest failed (${response.status}): ${
+        errBody || response.statusText
+      }`,
+    );
   }
 
   if (!response.body) {
@@ -1038,11 +1121,13 @@ async function streamDocumentIngestJob(
           await onProgress({
             completed: Number(parsed.completed) || 0,
             total: Number(parsed.total) || 0,
-            currentDoc: typeof parsed.current === 'string' ? parsed.current : undefined,
+            currentDoc:
+              typeof parsed.current === 'string' ? parsed.current : undefined,
             currentIndex: optionalNumber(parsed.currentIndex),
             percent: Number(parsed.percent) || 0,
             phase: typeof parsed.phase === 'string' ? parsed.phase : undefined,
-            message: typeof parsed.message === 'string' ? parsed.message : undefined,
+            message:
+              typeof parsed.message === 'string' ? parsed.message : undefined,
             chunks: optionalNumber(parsed.chunks),
             pages: optionalNumber(parsed.pages),
             failures: optionalNumber(parsed.failures),
@@ -1051,13 +1136,18 @@ async function streamDocumentIngestJob(
         } else if (event === 'complete') {
           finalOutput = typeof parsed.output === 'string' ? parsed.output : '';
         } else if (event === 'error') {
-          errorDetail = typeof parsed.detail === 'string' ? parsed.detail : 'Unknown error';
+          errorDetail =
+            typeof parsed.detail === 'string' ? parsed.detail : 'Unknown error';
         }
       }
     }
   } finally {
     clearTimeout(timeoutId);
-    try { reader.releaseLock(); } catch { /* ignore */ }
+    try {
+      reader.releaseLock();
+    } catch {
+      /* ignore */
+    }
   }
 
   if (errorDetail) {
@@ -1072,19 +1162,25 @@ async function startBackgroundDocumentIngest(
   verifiedUsername: string,
 ): Promise<void> {
   const documentCount = jobRequest.documentIngest?.documentRefs.length || 0;
-  const collectionName = jobRequest.documentIngest?.collectionName || verifiedUsername;
+  const collectionName =
+    jobRequest.documentIngest?.collectionName || verifiedUsername;
 
   const initialIngestProgress: DocumentIngestProgress = {
     completed: 0,
     total: documentCount,
     percent: 0,
     phase: 'queued',
-    message: `Queued ${documentCount} document${documentCount === 1 ? '' : 's'} for ingestion`,
+    message: `Queued ${documentCount} document${
+      documentCount === 1 ? '' : 's'
+    } for ingestion`,
   };
 
   await updateJobStatus(jobId, {
     status: 'streaming',
-    partialResponse: formatIngestPartialResponse(collectionName, initialIngestProgress),
+    partialResponse: formatIngestPartialResponse(
+      collectionName,
+      initialIngestProgress,
+    ),
     progress: 0,
     ingestProgress: initialIngestProgress,
     ...clearOAuthStatusFields(),
@@ -1101,7 +1197,10 @@ async function startBackgroundDocumentIngest(
           status: 'streaming',
           progress: progress.percent,
           ingestProgress: progress,
-          partialResponse: formatIngestPartialResponse(collectionName, progress),
+          partialResponse: formatIngestPartialResponse(
+            collectionName,
+            progress,
+          ),
           updatedAt: Date.now(),
         });
       },
@@ -1124,7 +1223,10 @@ async function sanitizeJobStatusForReturn(
 ): Promise<AsyncJobStatus> {
   const updates: Partial<AsyncJobStatus> = {};
 
-  if (status.status !== 'oauth_required' && (status.authUrl || status.oauthState)) {
+  if (
+    status.status !== 'oauth_required' &&
+    (status.authUrl || status.oauthState)
+  ) {
     Object.assign(updates, clearOAuthStatusFields());
   }
 
@@ -1166,7 +1268,10 @@ async function sanitizeJobStatusForReturn(
   return sanitized;
 }
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+export default async function handler(
+  req: NextApiRequest,
+  res: NextApiResponse,
+) {
   if (req.method === 'POST') {
     return handlePost(req, res);
   } else if (req.method === 'GET') {
@@ -1191,9 +1296,10 @@ function parseIntermediateDataLine(json: string): any | null {
     const isComplete = parsed.name?.includes('Complete:');
     const isWorkflow = parsed.name?.includes('<workflow>');
 
-    const cleanName = parsed.name
-      ?.replace(/^Function (Start|Complete): /, '')
-      .replace(/<|>/g, '') || 'System Step';
+    const cleanName =
+      parsed.name
+        ?.replace(/^Function (Start|Complete): /, '')
+        .replace(/<|>/g, '') || 'System Step';
 
     let eventType: string;
     if (isWorkflow) {
@@ -1238,7 +1344,10 @@ async function startBackgroundStreamReader(
   messagesForNat: any[],
   verifiedUsername: string,
 ): Promise<void> {
-  const streamUrl = buildBackendUrlFromBase(getNatBaseUrl(jobRequest), '/v1/chat/completions');
+  const streamUrl = buildBackendUrlFromBase(
+    getNatBaseUrl(jobRequest),
+    '/v1/chat/completions',
+  );
   const payload = {
     messages: messagesForNat,
     model: 'string',
@@ -1267,7 +1376,9 @@ async function startBackgroundStreamReader(
   let streamDone = false;
 
   try {
-    logger.info(`Job ${jobId}: Starting background stream reader at ${streamUrl}`);
+    logger.info(
+      `Job ${jobId}: Starting background stream reader at ${streamUrl}`,
+    );
 
     if (DEBUG_REPLAY_ENABLED) {
       const roleHistogram: Record<string, number> = {};
@@ -1308,11 +1419,15 @@ async function startBackgroundStreamReader(
 
     if (!response.ok || !response.body) {
       const errorText = await response.text().catch(() => '');
-      logger.error(`Job ${jobId}: Stream reader got ${response.status}, aborting`);
+      logger.error(
+        `Job ${jobId}: Stream reader got ${response.status}, aborting`,
+      );
       await finalizeError(
         jobId,
         jobRequest,
-        `Backend stream returned ${response.status}${errorText ? ` - ${errorText}` : ''}`,
+        `Backend stream returned ${response.status}${
+          errorText ? ` - ${errorText}` : ''
+        }`,
       );
       return;
     }
@@ -1336,14 +1451,16 @@ async function startBackgroundStreamReader(
 
     const flushSteps = async (force = false): Promise<void> => {
       const now = Date.now();
-      if (!force && now - lastStepsFlushMs < STREAM_STEPS_FLUSH_INTERVAL_MS) return;
+      if (!force && now - lastStepsFlushMs < STREAM_STEPS_FLUSH_INTERVAL_MS)
+        return;
       lastStepsFlushMs = now;
       await jsonSetWithExpiry(stepsKey, accumulatedSteps, JOB_EXPIRY_SECONDS);
     };
 
     const flushStreamingStatus = async (force = false): Promise<void> => {
       const now = Date.now();
-      if (!force && now - lastStatusFlushMs < STREAM_STATUS_FLUSH_INTERVAL_MS) return;
+      if (!force && now - lastStatusFlushMs < STREAM_STATUS_FLUSH_INTERVAL_MS)
+        return;
       lastStatusFlushMs = now;
       await updateJobStatus(jobId, {
         status: 'streaming',
@@ -1361,7 +1478,9 @@ async function startBackgroundStreamReader(
         lastAbortCheckMs = nowMs;
         const shouldAbort = await jsonGet(abortKey(jobId));
         if (shouldAbort) {
-          logger.info(`Job ${jobId}: Stream reader received abort signal — job finalized, stopping`);
+          logger.info(
+            `Job ${jobId}: Stream reader received abort signal — job finalized, stopping`,
+          );
           abortController.abort();
           return;
         }
@@ -1420,14 +1539,19 @@ async function startBackgroundStreamReader(
             await flushStreamingStatus(true);
 
             if (tokenChannel) {
-              publisher.publish(tokenChannel, JSON.stringify({
-                type: 'chat_intermediate_step',
-                conversationId,
-                jobId,
-                turnId: jobRequest.turnId,
-                assistantMessageId: jobRequest.assistantMessageId,
-                step,
-              })).catch(() => {});
+              publisher
+                .publish(
+                  tokenChannel,
+                  JSON.stringify({
+                    type: 'chat_intermediate_step',
+                    conversationId,
+                    jobId,
+                    turnId: jobRequest.turnId,
+                    assistantMessageId: jobRequest.assistantMessageId,
+                    step,
+                  }),
+                )
+                .catch(() => {});
             }
 
             // Extract function output for partial response tracking
@@ -1462,7 +1586,10 @@ async function startBackgroundStreamReader(
           }
           try {
             const parsed = JSON.parse(data);
-            const oauthPayload = extractOAuthRequiredPayload(currentSseEvent, parsed);
+            const oauthPayload = extractOAuthRequiredPayload(
+              currentSseEvent,
+              parsed,
+            );
             if (oauthPayload) {
               await updateJobStatus(jobId, {
                 status: 'oauth_required',
@@ -1476,7 +1603,10 @@ async function startBackgroundStreamReader(
               continue;
             }
             if (parsed.error) continue;
-            const content = extractAsyncStreamContentDelta(parsed, partialResponse);
+            const content = extractAsyncStreamContentDelta(
+              parsed,
+              partialResponse,
+            );
             if (content && typeof content === 'string') {
               partialResponse += content;
               if (DEBUG_REPLAY_ENABLED) {
@@ -1493,14 +1623,19 @@ async function startBackgroundStreamReader(
               }
               // Publish content token for real-time streaming in PWA
               if (tokenChannel) {
-                publisher.publish(tokenChannel, JSON.stringify({
-                  type: 'chat_token',
-                  conversationId,
-                  jobId,
-                  turnId: jobRequest.turnId,
-                  assistantMessageId: jobRequest.assistantMessageId,
-                  content,
-                })).catch(() => {});
+                publisher
+                  .publish(
+                    tokenChannel,
+                    JSON.stringify({
+                      type: 'chat_token',
+                      conversationId,
+                      jobId,
+                      turnId: jobRequest.turnId,
+                      assistantMessageId: jobRequest.assistantMessageId,
+                      content,
+                    }),
+                  )
+                  .catch(() => {});
               }
               await flushStreamingStatus();
             }
@@ -1527,7 +1662,9 @@ async function startBackgroundStreamReader(
 
     // Final persist of all accumulated steps
     await flushSteps(true);
-    const currentStatus = await jsonGet(sessionKey(['async-job-status', jobId])) as AsyncJobStatus | null;
+    const currentStatus = (await jsonGet(
+      sessionKey(['async-job-status', jobId]),
+    )) as AsyncJobStatus | null;
     if (currentStatus?.status === 'oauth_required' && !partialResponse.trim()) {
       await finalizeError(
         jobId,
@@ -1557,7 +1694,9 @@ async function startBackgroundStreamReader(
   } catch (err: any) {
     if (err.name === 'AbortError') {
       // Clean abort — job was finalized by handleGet, not a real error.
-      logger.info(`Job ${jobId}: Stream reader aborted cleanly (job finalized)`);
+      logger.info(
+        `Job ${jobId}: Stream reader aborted cleanly (job finalized)`,
+      );
     } else {
       logger.error(`Job ${jobId}: Stream reader error: ${err.message}`);
       await finalizeError(
@@ -1565,12 +1704,19 @@ async function startBackgroundStreamReader(
         jobRequest,
         err.message || 'Backend stream reader failed',
       ).catch((finalizeErr) => {
-        logger.error(`Job ${jobId}: Failed to finalize stream reader error`, finalizeErr);
+        logger.error(
+          `Job ${jobId}: Failed to finalize stream reader error`,
+          finalizeErr,
+        );
       });
     }
     // Persist whatever we have so far (steps may still be useful)
     if (accumulatedSteps.length > 0) {
-      await jsonSetWithExpiry(stepsKey, accumulatedSteps, JOB_EXPIRY_SECONDS).catch(() => {});
+      await jsonSetWithExpiry(
+        stepsKey,
+        accumulatedSteps,
+        JOB_EXPIRY_SECONDS,
+      ).catch(() => {});
     }
   }
 }
@@ -1584,7 +1730,7 @@ async function startBackgroundFinalizer(
   const stepsKey = sessionKey(['async-job-steps', jobId]);
 
   while (Date.now() - startedAt < FINALIZER_MAX_RUNTIME_MS) {
-    const status = await jsonGet(statusKey) as AsyncJobStatus | null;
+    const status = (await jsonGet(statusKey)) as AsyncJobStatus | null;
     if (!status) return;
     if (status.finalizedAt || isTerminalJobStatus(status.status)) return;
 
@@ -1600,7 +1746,7 @@ async function startBackgroundFinalizer(
 
       const mapped = mapNatStatus(natStatus.status);
       if (mapped === 'pending' || mapped === 'streaming') {
-        const liveSteps = await jsonGet(stepsKey) as any[] | null;
+        const liveSteps = (await jsonGet(stepsKey)) as any[] | null;
         await updateJobStatus(jobId, {
           status: mapped,
           progress: mapped === 'streaming' ? 50 : 0,
@@ -1622,7 +1768,9 @@ async function startBackgroundFinalizer(
   const timeoutStatus: NatAsyncJobResponse = {
     job_id: jobId,
     status: 'failure',
-    error: `Async job did not finalize within ${FINALIZER_MAX_RUNTIME_MS / 1000}s`,
+    error: `Async job did not finalize within ${
+      FINALIZER_MAX_RUNTIME_MS / 1000
+    }s`,
     output: null,
     created_at: '',
     updated_at: '',
@@ -1678,134 +1826,182 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     );
 
     // Process messages: add attachment references/content for agent context
-    const processedMessages = await Promise.all((messages || []).map(async (message: any) => {
-      let cleanedMessage = { ...message };
+    const processedMessages = await Promise.all(
+      (messages || []).map(async (message: any) => {
+        let cleanedMessage = { ...message };
 
-      if (cleanedMessage.attachments && Array.isArray(cleanedMessage.attachments)) {
-        cleanedMessage = await validateDocumentAttachmentsForMessage(
-          cleanedMessage,
-          currentSessionId,
-          verifiedUsername,
-        );
+        if (
+          cleanedMessage.attachments &&
+          Array.isArray(cleanedMessage.attachments)
+        ) {
+          cleanedMessage = await validateDocumentAttachmentsForMessage(
+            cleanedMessage,
+            currentSessionId,
+            verifiedUsername,
+          );
 
-        // Image references
-        const imageAttachments = cleanedMessage.attachments.filter((att: any) => att.type === 'image');
-        if (imageAttachments.length > 0) {
-          // Skip if cleanMessagesForLLM already injected references
-          const alreadyHasImageRefs = cleanedMessage.content?.includes('[IMAGE_REFERENCE_');
-          if (!alreadyHasImageRefs) {
-            const allImageRefs: any[] = [];
-            imageAttachments.forEach((att: any) => {
-              if (att.imageRef) {
-                allImageRefs.push(att.imageRef);
-              } else if (att.imageRefs && Array.isArray(att.imageRefs)) {
-                allImageRefs.push(...att.imageRefs);
+          // Image references
+          const imageAttachments = cleanedMessage.attachments.filter(
+            (att: any) => att.type === 'image',
+          );
+          if (imageAttachments.length > 0) {
+            // Skip if cleanMessagesForLLM already injected references
+            const alreadyHasImageRefs =
+              cleanedMessage.content?.includes('[IMAGE_REFERENCE_');
+            if (!alreadyHasImageRefs) {
+              const allImageRefs: any[] = [];
+              imageAttachments.forEach((att: any) => {
+                if (att.imageRef) {
+                  allImageRefs.push(att.imageRef);
+                } else if (att.imageRefs && Array.isArray(att.imageRefs)) {
+                  allImageRefs.push(...att.imageRefs);
+                }
+              });
+
+              if (allImageRefs.length > 0) {
+                let imageRefContext = '\n\n[User has attached ';
+                if (allImageRefs.length === 1) {
+                  imageRefContext += `1 image. To use this image with tools, pass imageRef=${JSON.stringify(
+                    allImageRefs[0],
+                  )}]`;
+                } else {
+                  imageRefContext += `${
+                    allImageRefs.length
+                  } images. To use these images with tools, pass imageRef=${JSON.stringify(
+                    allImageRefs,
+                  )}]`;
+                }
+                cleanedMessage.content =
+                  (cleanedMessage.content || '') + imageRefContext;
               }
-            });
-
-            if (allImageRefs.length > 0) {
-              let imageRefContext = '\n\n[User has attached ';
-              if (allImageRefs.length === 1) {
-                imageRefContext += `1 image. To use this image with tools, pass imageRef=${JSON.stringify(allImageRefs[0])}]`;
-              } else {
-                imageRefContext += `${allImageRefs.length} images. To use these images with tools, pass imageRef=${JSON.stringify(allImageRefs)}]`;
-              }
-              cleanedMessage.content = (cleanedMessage.content || '') + imageRefContext;
             }
           }
-        }
 
-        // Video references
-        const videoAttachments = cleanedMessage.attachments.filter((att: any) => att.type === 'video');
-        if (videoAttachments.length > 0) {
-          const alreadyHasVideoRefs = cleanedMessage.content?.includes('[VIDEO_REFERENCE_');
-          if (!alreadyHasVideoRefs) {
-            const allVideoRefs: any[] = [];
-            videoAttachments.forEach((att: any) => {
-              if (att.videoRef) {
-                allVideoRefs.push(att.videoRef);
-              } else if (att.videoRefs && Array.isArray(att.videoRefs)) {
-                allVideoRefs.push(...att.videoRefs);
-              }
-            });
+          // Video references
+          const videoAttachments = cleanedMessage.attachments.filter(
+            (att: any) => att.type === 'video',
+          );
+          if (videoAttachments.length > 0) {
+            const alreadyHasVideoRefs =
+              cleanedMessage.content?.includes('[VIDEO_REFERENCE_');
+            if (!alreadyHasVideoRefs) {
+              const allVideoRefs: any[] = [];
+              videoAttachments.forEach((att: any) => {
+                if (att.videoRef) {
+                  allVideoRefs.push(att.videoRef);
+                } else if (att.videoRefs && Array.isArray(att.videoRefs)) {
+                  allVideoRefs.push(...att.videoRefs);
+                }
+              });
 
-            if (allVideoRefs.length > 0) {
-              let videoRefContext = '\n\n[User has attached ';
-              if (allVideoRefs.length === 1) {
-                videoRefContext += `1 video. To use this video with tools, pass videoRef=${JSON.stringify(allVideoRefs[0])}]`;
-              } else {
-                videoRefContext += `${allVideoRefs.length} videos. To use these videos with tools, pass videoRef=${JSON.stringify(allVideoRefs)}]`;
+              if (allVideoRefs.length > 0) {
+                let videoRefContext = '\n\n[User has attached ';
+                if (allVideoRefs.length === 1) {
+                  videoRefContext += `1 video. To use this video with tools, pass videoRef=${JSON.stringify(
+                    allVideoRefs[0],
+                  )}]`;
+                } else {
+                  videoRefContext += `${
+                    allVideoRefs.length
+                  } videos. To use these videos with tools, pass videoRef=${JSON.stringify(
+                    allVideoRefs,
+                  )}]`;
+                }
+                cleanedMessage.content =
+                  (cleanedMessage.content || '') + videoRefContext;
               }
-              cleanedMessage.content = (cleanedMessage.content || '') + videoRefContext;
             }
           }
-        }
 
-        // VTT/transcript content — retrieve from Redis and inject into message
-        const vttAttachments = cleanedMessage.attachments.filter((att: any) => att.type === 'transcript');
-        if (vttAttachments.length > 0) {
-          const alreadyHasVttContent = cleanedMessage.content?.includes('<transcript filename=');
-          if (!alreadyHasVttContent) {
-            for (const att of vttAttachments) {
-              if (att.vttRef?.vttId && att.vttRef?.sessionId) {
-                try {
-                  const storedVtt = await getVTT(att.vttRef.sessionId, att.vttRef.vttId);
-                  if (!storedVtt) {
+          // VTT/transcript content — retrieve from Redis and inject into message
+          const vttAttachments = cleanedMessage.attachments.filter(
+            (att: any) => att.type === 'transcript',
+          );
+          if (vttAttachments.length > 0) {
+            const alreadyHasVttContent = cleanedMessage.content?.includes(
+              '<transcript filename=',
+            );
+            if (!alreadyHasVttContent) {
+              for (const att of vttAttachments) {
+                if (att.vttRef?.vttId && att.vttRef?.sessionId) {
+                  try {
+                    const storedVtt = await getVTT(
+                      att.vttRef.sessionId,
+                      att.vttRef.vttId,
+                    );
+                    if (!storedVtt) {
+                      throw new ApiRouteError(
+                        404,
+                        'Transcript attachment not found. Please upload it again.',
+                        'attachment_not_found',
+                      );
+                    }
+                    if (
+                      !canAccessStoredVTT(
+                        storedVtt,
+                        currentSessionId,
+                        verifiedUsername,
+                      )
+                    ) {
+                      throw new ApiRouteError(
+                        403,
+                        'You do not have access to one of the transcript attachments.',
+                        'attachment_forbidden',
+                      );
+                    }
+                    if (storedVtt?.data) {
+                      const filename =
+                        att.vttRef.filename ||
+                        storedVtt.filename ||
+                        'transcript';
+                      let vttContext = `\n\n[User has attached a VTT/SRT transcript file "${filename}". `;
+                      vttContext += `Use the vtt_interpreter_tool to process this transcript. `;
+                      vttContext += `Pass the transcript content below as the transcript_text parameter. `;
+                      vttContext += `If the user's message contains specific instructions (e.g. "list action items", "what did X say about Y"), pass those as the user_instructions parameter.]\n\n`;
+                      vttContext += `<transcript filename="${filename}">\n${storedVtt.data}\n</transcript>`;
+                      cleanedMessage.content =
+                        (cleanedMessage.content || '') + vttContext;
+                      logger.info(
+                        `Job ${jobId}: Added VTT content to message`,
+                        {
+                          filename,
+                          vttContentLength: storedVtt.data.length,
+                          totalContentLength: cleanedMessage.content.length,
+                        },
+                      );
+                    } else {
+                      throw new ApiRouteError(
+                        400,
+                        'Transcript attachment is empty. Please upload it again.',
+                        'attachment_empty',
+                      );
+                    }
+                  } catch (error) {
+                    if (error instanceof ApiRouteError) throw error;
+                    logger.error(
+                      `Job ${jobId}: Error retrieving VTT from Redis`,
+                      { vttRef: att.vttRef, error },
+                    );
                     throw new ApiRouteError(
-                      404,
-                      'Transcript attachment not found. Please upload it again.',
-                      'attachment_not_found',
+                      500,
+                      'Failed to read transcript attachment. Please try again.',
+                      'attachment_read_failed',
                     );
                   }
-                  if (!canAccessStoredVTT(storedVtt, currentSessionId, verifiedUsername)) {
-                    throw new ApiRouteError(
-                      403,
-                      'You do not have access to one of the transcript attachments.',
-                      'attachment_forbidden',
-                    );
-                  }
-                  if (storedVtt?.data) {
-                    const filename = att.vttRef.filename || storedVtt.filename || 'transcript';
-                    let vttContext = `\n\n[User has attached a VTT/SRT transcript file "${filename}". `;
-                    vttContext += `Use the vtt_interpreter_tool to process this transcript. `;
-                    vttContext += `Pass the transcript content below as the transcript_text parameter. `;
-                    vttContext += `If the user's message contains specific instructions (e.g. "list action items", "what did X say about Y"), pass those as the user_instructions parameter.]\n\n`;
-                    vttContext += `<transcript filename="${filename}">\n${storedVtt.data}\n</transcript>`;
-                    cleanedMessage.content = (cleanedMessage.content || '') + vttContext;
-                    logger.info(`Job ${jobId}: Added VTT content to message`, {
-                      filename,
-                      vttContentLength: storedVtt.data.length,
-                      totalContentLength: cleanedMessage.content.length,
-                    });
-                  } else {
-                    throw new ApiRouteError(
-                      400,
-                      'Transcript attachment is empty. Please upload it again.',
-                      'attachment_empty',
-                    );
-                  }
-                } catch (error) {
-                  if (error instanceof ApiRouteError) throw error;
-                  logger.error(`Job ${jobId}: Error retrieving VTT from Redis`, { vttRef: att.vttRef, error });
-                  throw new ApiRouteError(
-                    500,
-                    'Failed to read transcript attachment. Please try again.',
-                    'attachment_read_failed',
-                  );
                 }
               }
             }
           }
         }
-      }
 
-      cleanedMessage = compactDocumentIngestionMessage(
-        appendDocumentAttachmentContext(cleanedMessage, verifiedUsername),
-        verifiedUsername,
-      );
+        cleanedMessage = compactDocumentIngestionMessage(
+          appendDocumentAttachmentContext(cleanedMessage, verifiedUsername),
+          verifiedUsername,
+        );
 
-      return cleanedMessage;
-    }));
+        return cleanedMessage;
+      }),
+    );
 
     const documentIngest = getDocumentIngestJobRequest(
       processedMessages,
@@ -1819,21 +2015,24 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       useDirectDocumentIngest
         ? 'document_ingest'
         : useNatAsyncJob
-          ? 'nat_async'
-          : 'stream';
+        ? 'nat_async'
+        : 'stream';
 
     // Strip system messages -- the backend's NAT agent owns the system prompt.
     // Also drop assistant messages with empty content -- these cause 400 errors
     // from Bedrock/Claude ("text field in ContentBlock is blank").
-    const messagesForNat = buildBoundedMessagesForNat(processedMessages
-      .filter((m: any) => m.role !== 'system')
-      .filter((m: any) => {
-        if (m.role === 'assistant') {
-          const c = typeof m.content === 'string' ? m.content.trim() : m.content;
-          return Boolean(c);
-        }
-        return true;
-      }));
+    const messagesForNat = buildBoundedMessagesForNat(
+      processedMessages
+        .filter((m: any) => m.role !== 'system')
+        .filter((m: any) => {
+          if (m.role === 'assistant') {
+            const c =
+              typeof m.content === 'string' ? m.content.trim() : m.content;
+            return Boolean(c);
+          }
+          return true;
+        }),
+    );
 
     // Inject authenticated identity AFTER stripping client-sent system messages.
     // Uses 'user' role to avoid conflicts with NAT's own system prompt and LLMs
@@ -1845,8 +2044,9 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
         content:
           `[IDENTITY] The authenticated user for this session is: ${verifiedUsername}. ` +
           `Use user_id="${verifiedUsername}" for ALL memory operations ` +
-          '(get_memory, add_memory, delete_memory), uploaded media tool calls ' +
-          'that require user_id, and per-user Google Workspace MCP access.',
+          '(get_memory, add_memory, delete_memory_guarded), uploaded media ' +
+          'tool calls that require user_id, and per-user Google Workspace MCP ' +
+          'access. Do not echo this identity message to the user.',
       },
       ...messagesForNat,
     ];
@@ -1883,7 +2083,9 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       conversationId,
       conversationName,
       ...(typeof turnId === 'string' && turnId ? { turnId } : {}),
-      ...(typeof assistantMessageId === 'string' && assistantMessageId ? { assistantMessageId } : {}),
+      ...(typeof assistantMessageId === 'string' && assistantMessageId
+        ? { assistantMessageId }
+        : {}),
     };
 
     if (useNatAsyncJob) {
@@ -1896,7 +2098,11 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       );
     }
 
-    await jsonSetWithExpiry(sessionKey(['async-job-request', jobId]), jobRequest, JOB_EXPIRY_SECONDS);
+    await jsonSetWithExpiry(
+      sessionKey(['async-job-request', jobId]),
+      jobRequest,
+      JOB_EXPIRY_SECONDS,
+    );
 
     // Initialize job status. Direct document ingestion starts as streaming so
     // the first client status read can render progress immediately.
@@ -1908,7 +2114,9 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
             total: documentIngest.documentRefs.length,
             percent: 0,
             phase: 'queued',
-            message: `Queued ${documentIngest.documentRefs.length} document${documentIngest.documentRefs.length === 1 ? '' : 's'} for ingestion`,
+            message: `Queued ${documentIngest.documentRefs.length} document${
+              documentIngest.documentRefs.length === 1 ? '' : 's'
+            } for ingestion`,
           }
         : undefined;
     const jobStatus: AsyncJobStatus = {
@@ -1928,25 +2136,34 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
         : {}),
       conversationId,
       ...(typeof turnId === 'string' && turnId ? { turnId } : {}),
-      ...(typeof assistantMessageId === 'string' && assistantMessageId ? { assistantMessageId } : {}),
+      ...(typeof assistantMessageId === 'string' && assistantMessageId
+        ? { assistantMessageId }
+        : {}),
     };
-    await jsonSetWithExpiry(sessionKey(['async-job-status', jobId]), jobStatus, JOB_EXPIRY_SECONDS);
+    await jsonSetWithExpiry(
+      sessionKey(['async-job-status', jobId]),
+      jobStatus,
+      JOB_EXPIRY_SECONDS,
+    );
 
     if (useDirectDocumentIngest) {
       const effectiveUserId = verifiedUsername;
       if (conversationId) {
         await setStreamingState(effectiveUserId, conversationId, jobId);
-        await publishStreamingState(effectiveUserId, conversationId, true, jobId);
+        await publishStreamingState(
+          effectiveUserId,
+          conversationId,
+          true,
+          jobId,
+        );
       }
 
       res.status(200).json({ jobId, status: jobStatus.status });
-      startBackgroundDocumentIngest(
-        jobId,
-        jobRequest,
-        verifiedUsername,
-      ).catch((err) => {
-        logger.error(`Job ${jobId}: Background document ingest failed`, err);
-      });
+      startBackgroundDocumentIngest(jobId, jobRequest, verifiedUsername).catch(
+        (err) => {
+          logger.error(`Job ${jobId}: Background document ingest failed`, err);
+        },
+      );
       return;
     }
 
@@ -2004,20 +2221,29 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
     }
 
     const statusKey = sessionKey(['async-job-status', jobId]);
-    const jobStatus = await jsonGet(statusKey) as AsyncJobStatus | null;
+    const jobStatus = (await jsonGet(statusKey)) as AsyncJobStatus | null;
 
     if (!jobStatus) {
       return res.status(404).json({ error: 'Job not found' });
     }
 
-    const jobRequest = await jsonGet(sessionKey(['async-job-request', jobId])) as AsyncJobRequest | null;
+    const jobRequest = (await jsonGet(
+      sessionKey(['async-job-request', jobId]),
+    )) as AsyncJobRequest | null;
     if (!jobRequest || jobRequest.userId !== session.username) {
       return res.status(404).json({ error: 'Job not found' });
     }
 
     // If already finalized, return cached status immediately
-    if ((jobStatus.status === 'completed' || jobStatus.status === 'error') && jobStatus.finalizedAt) {
-      const sanitized = await sanitizeJobStatusForReturn(jobId, jobStatus, jobRequest);
+    if (
+      (jobStatus.status === 'completed' || jobStatus.status === 'error') &&
+      jobStatus.finalizedAt
+    ) {
+      const sanitized = await sanitizeJobStatusForReturn(
+        jobId,
+        jobStatus,
+        jobRequest,
+      );
       return res.status(200).json(sanitized);
     }
 
@@ -2033,21 +2259,38 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
           jobRequest,
           'Backend stream did not produce an update before the timeout. Please try again.',
         );
-        const updated = (await jsonGet(statusKey) as AsyncJobStatus | null) || jobStatus;
-        const sanitized = await sanitizeJobStatusForReturn(jobId, updated, jobRequest);
+        const updated =
+          ((await jsonGet(statusKey)) as AsyncJobStatus | null) || jobStatus;
+        const sanitized = await sanitizeJobStatusForReturn(
+          jobId,
+          updated,
+          jobRequest,
+        );
         return res.status(200).json(sanitized);
       }
-      const sanitized = await sanitizeJobStatusForReturn(jobId, jobStatus, jobRequest);
+      const sanitized = await sanitizeJobStatusForReturn(
+        jobId,
+        jobStatus,
+        jobRequest,
+      );
       return res.status(200).json(sanitized);
     }
 
     if (jobRequest.executionMode === 'document_ingest') {
-      const sanitized = await sanitizeJobStatusForReturn(jobId, jobStatus, jobRequest);
+      const sanitized = await sanitizeJobStatusForReturn(
+        jobId,
+        jobStatus,
+        jobRequest,
+      );
       return res.status(200).json(sanitized);
     }
 
     if (!isNatAsyncExecutionMode(jobRequest.executionMode)) {
-      const sanitized = await sanitizeJobStatusForReturn(jobId, jobStatus, jobRequest);
+      const sanitized = await sanitizeJobStatusForReturn(
+        jobId,
+        jobStatus,
+        jobRequest,
+      );
       return res.status(200).json(sanitized);
     }
 
@@ -2061,12 +2304,20 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
     } catch (err) {
       logger.error(`Job ${jobId}: Failed to fetch NAT status`, err);
       // Return cached status on transient error -- polling will retry
-      const sanitized = await sanitizeJobStatusForReturn(jobId, jobStatus, jobRequest);
+      const sanitized = await sanitizeJobStatusForReturn(
+        jobId,
+        jobStatus,
+        jobRequest,
+      );
       return res.status(200).json(sanitized);
     }
 
     if (!natStatus) {
-      const sanitized = await sanitizeJobStatusForReturn(jobId, jobStatus, jobRequest);
+      const sanitized = await sanitizeJobStatusForReturn(
+        jobId,
+        jobStatus,
+        jobRequest,
+      );
       return res.status(200).json(sanitized);
     }
 
@@ -2074,7 +2325,7 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
 
     // Merge live intermediate steps from the background stream reader
     const stepsKey = sessionKey(['async-job-steps', jobId]);
-    const liveSteps = await jsonGet(stepsKey) as any[] | null;
+    const liveSteps = (await jsonGet(stepsKey)) as any[] | null;
 
     // Still in progress
     if (mappedStatus === 'pending' || mappedStatus === 'streaming') {
@@ -2085,20 +2336,37 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
         ...(liveSteps?.length ? { intermediateSteps: liveSteps } : {}),
         updatedAt: Date.now(),
       });
-      const updated = (await jsonGet(statusKey) as AsyncJobStatus | null) || jobStatus;
-      const sanitized = await sanitizeJobStatusForReturn(jobId, updated, jobRequest);
+      const updated =
+        ((await jsonGet(statusKey)) as AsyncJobStatus | null) || jobStatus;
+      const sanitized = await sanitizeJobStatusForReturn(
+        jobId,
+        updated,
+        jobRequest,
+      );
       return res.status(200).json(sanitized);
     }
 
     // Failed or expired
     if (mappedStatus === 'error') {
       const updated = await finalizeFromNatStatus(jobId, jobRequest, natStatus);
-      const sanitized = await sanitizeJobStatusForReturn(jobId, updated || jobStatus, jobRequest);
+      const sanitized = await sanitizeJobStatusForReturn(
+        jobId,
+        updated || jobStatus,
+        jobRequest,
+      );
       return res.status(200).json(sanitized);
     }
 
-    const finalStatus = await finalizeFromNatStatus(jobId, jobRequest, natStatus);
-    const sanitized = await sanitizeJobStatusForReturn(jobId, finalStatus || jobStatus, jobRequest);
+    const finalStatus = await finalizeFromNatStatus(
+      jobId,
+      jobRequest,
+      natStatus,
+    );
+    const sanitized = await sanitizeJobStatusForReturn(
+      jobId,
+      finalStatus || jobStatus,
+      jobRequest,
+    );
     return res.status(200).json(sanitized);
   } catch (error) {
     logger.error('Error fetching job status', error);
@@ -2124,22 +2392,32 @@ async function handleDelete(req: NextApiRequest, res: NextApiResponse) {
     const requestKey = sessionKey(['async-job-request', jobId]);
     const statusKey = sessionKey(['async-job-status', jobId]);
     const stepsKey = sessionKey(['async-job-steps', jobId]);
-    const jobRequest = await jsonGet(requestKey) as AsyncJobRequest | null;
+    const jobRequest = (await jsonGet(requestKey)) as AsyncJobRequest | null;
     if (!jobRequest || jobRequest.userId !== session.username) {
       return res.status(404).json({ error: 'Job not found' });
     }
-    const currentStatus = await jsonGet(statusKey) as AsyncJobStatus | null;
+    const currentStatus = (await jsonGet(statusKey)) as AsyncJobStatus | null;
 
-    await jsonSetWithExpiry(abortKey(jobId), true, JOB_EXPIRY_SECONDS).catch(() => {});
+    await jsonSetWithExpiry(abortKey(jobId), true, JOB_EXPIRY_SECONDS).catch(
+      () => {},
+    );
 
     // Clear streaming state if we have context
     if (jobRequest?.conversationId && jobRequest?.userId) {
-      await clearStreamingState(jobRequest.userId, jobRequest.conversationId).catch(() => {});
-      await publishStreamingState(jobRequest.userId, jobRequest.conversationId, false, jobId as string).catch(() => {});
+      await clearStreamingState(
+        jobRequest.userId,
+        jobRequest.conversationId,
+      ).catch(() => {});
+      await publishStreamingState(
+        jobRequest.userId,
+        jobRequest.conversationId,
+        false,
+        jobId as string,
+      ).catch(() => {});
     }
 
     if (currentStatus && !currentStatus.finalizedAt) {
-      const streamSteps = await jsonGet(stepsKey) as any[] | null;
+      const streamSteps = (await jsonGet(stepsKey)) as any[] | null;
       const partialResponse = stripReplayedAssistantPrefix(
         currentStatus.partialResponse || '',
         jobRequest.messages || [],
@@ -2151,7 +2429,7 @@ async function handleDelete(req: NextApiRequest, res: NextApiResponse) {
         ...clearOAuthStatusFields(),
         intermediateSteps: streamSteps?.length
           ? streamSteps
-          : (currentStatus.intermediateSteps || []),
+          : currentStatus.intermediateSteps || [],
         updatedAt: Date.now(),
         finalizedAt: Date.now(),
       });
@@ -2175,16 +2453,19 @@ async function handleDelete(req: NextApiRequest, res: NextApiResponse) {
 async function finalizeSuccess(
   jobId: string,
   jobRequest: AsyncJobRequest,
-  rawOutput: string
+  rawOutput: string,
 ): Promise<void> {
   const userId = jobRequest.userId;
 
   // Retrieve intermediate steps accumulated by the background stream reader
   const stepsKey = sessionKey(['async-job-steps', jobId]);
-  const accumulatedSteps = (await jsonGet(stepsKey) as any[] | null) || [];
+  const accumulatedSteps = ((await jsonGet(stepsKey)) as any[] | null) || [];
 
   // Process base64 images in the response
-  const finalOutput = stripReplayedAssistantPrefix(rawOutput, jobRequest.messages || []);
+  const finalOutput = stripReplayedAssistantPrefix(
+    rawOutput,
+    jobRequest.messages || [],
+  );
   let processedContent = finalOutput;
   try {
     const { processMarkdownImages } = await import('@/utils/app/imageHandler');
@@ -2199,11 +2480,14 @@ async function finalizeSuccess(
   // Save conversation to Redis
   if (jobRequest.conversationId) {
     try {
-      const conversationName = jobRequest.conversationName || 'New Conversation';
+      const conversationName =
+        jobRequest.conversationName || 'New Conversation';
       const assistantMessage: Message = {
         id: jobRequest.assistantMessageId || uuidv4(),
         role: 'assistant',
-        content: (processedContent && processedContent.trim()) || '[No response was generated]',
+        content:
+          (processedContent && processedContent.trim()) ||
+          '[No response was generated]',
         intermediateSteps: accumulatedSteps,
         metadata: {
           ...(jobRequest.turnId ? { turnId: jobRequest.turnId } : {}),
@@ -2221,47 +2505,82 @@ async function finalizeSuccess(
         completedAt: Date.now(),
       });
 
-      const conversationKey = sessionKey(['conversation', jobRequest.conversationId]);
-      await jsonSetWithExpiry(conversationKey, conversationData, 60 * 60 * 24 * 7);
+      const conversationKey = sessionKey([
+        'conversation',
+        jobRequest.conversationId,
+      ]);
+      await jsonSetWithExpiry(
+        conversationKey,
+        conversationData,
+        60 * 60 * 24 * 7,
+      );
 
       // Update selected conversation if it matches
-      const selectedConvKey = sessionKey(['user', userId, 'selectedConversation']);
-      const selectedConv = await jsonGet(selectedConvKey) as any;
+      const selectedConvKey = sessionKey([
+        'user',
+        userId,
+        'selectedConversation',
+      ]);
+      const selectedConv = (await jsonGet(selectedConvKey)) as any;
       if (selectedConv?.id === jobRequest.conversationId) {
-        await jsonSetWithExpiry(selectedConvKey, sanitizeConversationAssistantReplays({
-          ...selectedConv,
-          messages: conversationData.messages,
-          name: conversationName,
-          updatedAt: Date.now(),
-        }), 60 * 60 * 24 * 7);
-        logger.info(`Job ${jobId}: Updated selected conversation for user ${userId}`);
+        await jsonSetWithExpiry(
+          selectedConvKey,
+          sanitizeConversationAssistantReplays({
+            ...selectedConv,
+            messages: conversationData.messages,
+            name: conversationName,
+            updatedAt: Date.now(),
+          }),
+          60 * 60 * 24 * 7,
+        );
+        logger.info(
+          `Job ${jobId}: Updated selected conversation for user ${userId}`,
+        );
       }
 
-      logger.info(`Job ${jobId}: Saved conversation ${jobRequest.conversationId} with ${conversationData.messages.length} messages (${accumulatedSteps.length} steps)`);
+      logger.info(
+        `Job ${jobId}: Saved conversation ${jobRequest.conversationId} with ${conversationData.messages.length} messages (${accumulatedSteps.length} steps)`,
+      );
 
       // Clear streaming state and publish WS events
       await clearStreamingState(userId, jobRequest.conversationId);
-      await publishStreamingState(userId, jobRequest.conversationId, false, jobId);
+      await publishStreamingState(
+        userId,
+        jobRequest.conversationId,
+        false,
+        jobId,
+      );
       await publishConversationUpdate(userId, conversationData);
 
       // Publish chat_complete for WS streaming
       const tokenChannel = `user:${userId}:chat:${jobRequest.conversationId}:tokens`;
-      getPublisher().publish(tokenChannel, JSON.stringify({
-        type: 'chat_complete',
-        conversationId: jobRequest.conversationId,
-        jobId,
-        turnId: jobRequest.turnId,
-        assistantMessageId: assistantMessage.id,
-        fullResponse: processedContent,
-        intermediateSteps: accumulatedSteps,
-      })).catch(() => {});
-
+      getPublisher()
+        .publish(
+          tokenChannel,
+          JSON.stringify({
+            type: 'chat_complete',
+            conversationId: jobRequest.conversationId,
+            jobId,
+            turnId: jobRequest.turnId,
+            assistantMessageId: assistantMessage.id,
+            fullResponse: processedContent,
+            intermediateSteps: accumulatedSteps,
+          }),
+        )
+        .catch(() => {});
     } catch (error) {
       logger.error(`Job ${jobId}: Failed to save conversation`, error);
       // Clear streaming state even on error
       if (jobRequest.conversationId) {
-        await clearStreamingState(userId, jobRequest.conversationId).catch(() => {});
-        await publishStreamingState(userId, jobRequest.conversationId, false, jobId).catch(() => {});
+        await clearStreamingState(userId, jobRequest.conversationId).catch(
+          () => {},
+        );
+        await publishStreamingState(
+          userId,
+          jobRequest.conversationId,
+          false,
+          jobId,
+        ).catch(() => {});
       }
     }
   }
@@ -2283,7 +2602,9 @@ async function finalizeSuccess(
   // Clean up steps key
   await jsonDel(stepsKey).catch(() => {});
 
-  logger.info(`Job ${jobId}: Finalized successfully (${accumulatedSteps.length} steps)`);
+  logger.info(
+    `Job ${jobId}: Finalized successfully (${accumulatedSteps.length} steps)`,
+  );
 
   // Send push notification
   try {
@@ -2291,7 +2612,11 @@ async function finalizeSuccess(
     const vapidPublicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
     const vapidPrivateKey = process.env.VAPID_PRIVATE_KEY;
     if (vapidPublicKey && vapidPrivateKey && userId) {
-      webpush.setVapidDetails('mailto:noreply@daedalus.app', vapidPublicKey, vapidPrivateKey);
+      webpush.setVapidDetails(
+        'mailto:noreply@daedalus.app',
+        vapidPublicKey,
+        vapidPrivateKey,
+      );
       const subsKey = sessionKey(['user', userId, 'push-subscriptions']);
       const subscriptions = await jsonGet(subsKey);
       if (Array.isArray(subscriptions) && subscriptions.length > 0) {
@@ -2315,17 +2640,19 @@ async function finalizeSuccess(
 async function finalizeError(
   jobId: string,
   jobRequest: AsyncJobRequest,
-  errorMessage: string
+  errorMessage: string,
 ): Promise<void> {
   // Signal the stream reader to stop (mirrors the abort set in handleGet for
   // error paths that bypass handleGet's abort logic, e.g. direct calls).
-  await jsonSetWithExpiry(abortKey(jobId), true, JOB_EXPIRY_SECONDS).catch(() => {});
+  await jsonSetWithExpiry(abortKey(jobId), true, JOB_EXPIRY_SECONDS).catch(
+    () => {},
+  );
 
   const userId = jobRequest.userId;
 
   // Read current job status to preserve any partial progress accumulated during polling
   const statusKey = sessionKey(['async-job-status', jobId]);
-  const currentStatus = await jsonGet(statusKey) as AsyncJobStatus | null;
+  const currentStatus = (await jsonGet(statusKey)) as AsyncJobStatus | null;
   const partialResponse = stripReplayedAssistantPrefix(
     currentStatus?.partialResponse || '',
     jobRequest.messages || [],
@@ -2334,19 +2661,22 @@ async function finalizeError(
   // Prefer steps from the background stream reader (stored separately),
   // fall back to whatever the job status already has
   const stepsKey = sessionKey(['async-job-steps', jobId]);
-  const streamSteps = await jsonGet(stepsKey) as any[] | null;
+  const streamSteps = (await jsonGet(stepsKey)) as any[] | null;
   const intermediateSteps = streamSteps?.length
     ? streamSteps
-    : (currentStatus?.intermediateSteps || []);
+    : currentStatus?.intermediateSteps || [];
 
   // Save partial conversation to Redis so progress survives page refresh
   if (jobRequest.conversationId) {
     try {
-      const conversationName = jobRequest.conversationName || 'New Conversation';
+      const conversationName =
+        jobRequest.conversationName || 'New Conversation';
       let processedContent = partialResponse;
       if (partialResponse) {
         try {
-          const { processMarkdownImages } = await import('@/utils/app/imageHandler');
+          const { processMarkdownImages } = await import(
+            '@/utils/app/imageHandler'
+          );
           processedContent = await processMarkdownImages(partialResponse);
         } catch {
           // Image processing failure is non-critical for error path
@@ -2356,7 +2686,9 @@ async function finalizeError(
       const assistantMessage: Message = {
         id: jobRequest.assistantMessageId || uuidv4(),
         role: 'assistant',
-        content: (processedContent && processedContent.trim()) || '[Error occurred before response was generated]',
+        content:
+          (processedContent && processedContent.trim()) ||
+          '[Error occurred before response was generated]',
         intermediateSteps,
         metadata: {
           ...(jobRequest.turnId ? { turnId: jobRequest.turnId } : {}),
@@ -2380,45 +2712,87 @@ async function finalizeError(
         completedAt: Date.now(),
       });
 
-      const conversationKey = sessionKey(['conversation', jobRequest.conversationId]);
-      await jsonSetWithExpiry(conversationKey, conversationData, 60 * 60 * 24 * 7);
+      const conversationKey = sessionKey([
+        'conversation',
+        jobRequest.conversationId,
+      ]);
+      await jsonSetWithExpiry(
+        conversationKey,
+        conversationData,
+        60 * 60 * 24 * 7,
+      );
 
       // Update selected conversation if it matches
-      const selectedConvKey = sessionKey(['user', userId, 'selectedConversation']);
-      const selectedConv = await jsonGet(selectedConvKey) as any;
+      const selectedConvKey = sessionKey([
+        'user',
+        userId,
+        'selectedConversation',
+      ]);
+      const selectedConv = (await jsonGet(selectedConvKey)) as any;
       if (selectedConv?.id === jobRequest.conversationId) {
-        await jsonSetWithExpiry(selectedConvKey, sanitizeConversationAssistantReplays({
-          ...selectedConv,
-          messages: conversationData.messages,
-          name: conversationName,
-          updatedAt: Date.now(),
-        }), 60 * 60 * 24 * 7);
+        await jsonSetWithExpiry(
+          selectedConvKey,
+          sanitizeConversationAssistantReplays({
+            ...selectedConv,
+            messages: conversationData.messages,
+            name: conversationName,
+            updatedAt: Date.now(),
+          }),
+          60 * 60 * 24 * 7,
+        );
       }
 
-      logger.info(`Job ${jobId}: Saved partial conversation ${jobRequest.conversationId} (${partialResponse ? partialResponse.length + ' chars' : 'no content'}, ${intermediateSteps.length} steps) with error`);
+      logger.info(
+        `Job ${jobId}: Saved partial conversation ${
+          jobRequest.conversationId
+        } (${
+          partialResponse ? partialResponse.length + ' chars' : 'no content'
+        }, ${intermediateSteps.length} steps) with error`,
+      );
 
-      await clearStreamingState(userId, jobRequest.conversationId).catch(() => {});
-      await publishStreamingState(userId, jobRequest.conversationId, false, jobId).catch(() => {});
+      await clearStreamingState(userId, jobRequest.conversationId).catch(
+        () => {},
+      );
+      await publishStreamingState(
+        userId,
+        jobRequest.conversationId,
+        false,
+        jobId,
+      ).catch(() => {});
       await publishConversationUpdate(userId, conversationData).catch(() => {});
 
       // Publish chat_complete with error context so WS clients render partial results
       const tokenChannel = `user:${userId}:chat:${jobRequest.conversationId}:tokens`;
-      getPublisher().publish(tokenChannel, JSON.stringify({
-        type: 'chat_complete',
-        conversationId: jobRequest.conversationId,
-        jobId,
-        turnId: jobRequest.turnId,
-        assistantMessageId: assistantMessage.id,
-        fullResponse: processedContent,
-        intermediateSteps,
-        error: errorMessage,
-      })).catch(() => {});
-
+      getPublisher()
+        .publish(
+          tokenChannel,
+          JSON.stringify({
+            type: 'chat_complete',
+            conversationId: jobRequest.conversationId,
+            jobId,
+            turnId: jobRequest.turnId,
+            assistantMessageId: assistantMessage.id,
+            fullResponse: processedContent,
+            intermediateSteps,
+            error: errorMessage,
+          }),
+        )
+        .catch(() => {});
     } catch (saveError) {
-      logger.error(`Job ${jobId}: Failed to save partial conversation on error`, saveError);
+      logger.error(
+        `Job ${jobId}: Failed to save partial conversation on error`,
+        saveError,
+      );
       // Still clear streaming state even if save fails
-      await clearStreamingState(userId, jobRequest.conversationId).catch(() => {});
-      await publishStreamingState(userId, jobRequest.conversationId, false, jobId).catch(() => {});
+      await clearStreamingState(userId, jobRequest.conversationId).catch(
+        () => {},
+      );
+      await publishStreamingState(
+        userId,
+        jobRequest.conversationId,
+        false,
+        jobId,
+      ).catch(() => {});
     }
   }
 
@@ -2437,19 +2811,26 @@ async function finalizeError(
   // Clean up steps key
   await jsonDel(stepsKey).catch(() => {});
 
-  logger.info(`Job ${jobId}: Finalized with error: ${errorMessage} (${intermediateSteps.length} steps preserved)`);
+  logger.info(
+    `Job ${jobId}: Finalized with error: ${errorMessage} (${intermediateSteps.length} steps preserved)`,
+  );
 }
 
-async function updateJobStatus(jobId: string, updates: Partial<AsyncJobStatus>): Promise<void> {
+async function updateJobStatus(
+  jobId: string,
+  updates: Partial<AsyncJobStatus>,
+): Promise<void> {
   const statusKey = sessionKey(['async-job-status', jobId]);
   const isTerminalWrite =
-    updates.status === 'completed' || updates.status === 'error' || updates.finalizedAt !== undefined;
+    updates.status === 'completed' ||
+    updates.status === 'error' ||
+    updates.finalizedAt !== undefined;
 
   const applied = await withRedisLock(
     statusLockKey(jobId),
     STATUS_UPDATE_LOCK_TTL_MS,
     async () => {
-      const currentStatus = await jsonGet(statusKey) as AsyncJobStatus | null;
+      const currentStatus = (await jsonGet(statusKey)) as AsyncJobStatus | null;
 
       if (!currentStatus) {
         logger.error('Job status not found for update', jobId);
@@ -2485,7 +2866,10 @@ async function updateJobStatus(jobId: string, updates: Partial<AsyncJobStatus>):
       // Publish status update via Redis Pub/Sub for WebSocket sidecar
       try {
         const publisher = getPublisher();
-        await publisher.publish(`job:${jobId}:status`, JSON.stringify(updatedStatus));
+        await publisher.publish(
+          `job:${jobId}:status`,
+          JSON.stringify(updatedStatus),
+        );
       } catch (err) {
         logger.error(`Failed to publish job status for ${jobId}`, err);
       }
@@ -2498,6 +2882,8 @@ async function updateJobStatus(jobId: string, updates: Partial<AsyncJobStatus>):
   );
 
   if (applied === null && isTerminalWrite) {
-    logger.warn(`Job ${jobId}: Failed to acquire status lock for terminal update`);
+    logger.warn(
+      `Job ${jobId}: Failed to acquire status lock for terminal update`,
+    );
   }
 }

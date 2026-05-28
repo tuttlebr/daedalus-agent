@@ -1,3 +1,5 @@
+import handler from '@/pages/api/session/selectedConversation';
+
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
@@ -22,8 +24,6 @@ vi.mock('@/server/session/_utils', () => ({
 vi.mock('@/utils/sync/publish', () => ({
   publishSyncEvent: mocks.publishSyncEvent,
 }));
-
-import handler from '@/pages/api/session/selectedConversation';
 
 function createMockReqRes(method: string, body: any = {}) {
   const req = { method, body } as any;

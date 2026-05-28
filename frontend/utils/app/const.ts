@@ -1,7 +1,7 @@
 export const nextEndPoints = {
-    chat: '/api/chat/async',
+  chat: '/api/chat/async',
 };
 
 export const appConfig = {
-    fileUploadEnabled : true
-}
+  fileUploadEnabled: true,
+};

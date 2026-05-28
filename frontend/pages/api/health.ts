@@ -1,4 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
+
 import { getRedis } from '@/server/session/redis';
 
 const READY_TIMEOUT_MS = Number(process.env.FRONTEND_READY_TIMEOUT_MS || 1_000);

@@ -1,32 +1,46 @@
 'use client';
 
 import { useCallback, useEffect, useRef } from 'react';
-import { useTranslation } from 'next-i18next';
-import { GetServerSideProps } from 'next';
-import Head from 'next/head';
-import { serverSideTranslations } from 'next-i18next/serverSideTranslations';
-import { v4 as uuidv4 } from 'uuid';
 
-import { useWebSocket } from '@/hooks/useWebSocket';
-import { useKeyboardShortcuts, commonShortcuts } from '@/hooks/useKeyboardShortcuts';
+import { GetServerSideProps } from 'next';
+import { useTranslation } from 'next-i18next';
+import { serverSideTranslations } from 'next-i18next/serverSideTranslations';
+import Head from 'next/head';
+
+import {
+  useKeyboardShortcuts,
+  commonShortcuts,
+} from '@/hooks/useKeyboardShortcuts';
 import { useTheme } from '@/hooks/useTheme';
-import { getUserSessionItem, setUserSessionItem } from '@/utils/app/storage';
-import { cleanConversationHistory, cleanSelectedConversation } from '@/utils/app/clean';
-import { sanitizeConversationAssistantReplays } from '@/utils/app/conversationReplay';
-import { saveConversation, saveConversations, loadConversation } from '@/utils/app/conversation';
-import { getWorkflowName } from '@/utils/app/helper';
+import { useWebSocket } from '@/hooks/useWebSocket';
+
 import { apiGet } from '@/utils/app/api';
+import {
+  cleanConversationHistory,
+  cleanSelectedConversation,
+} from '@/utils/app/clean';
+import {
+  saveConversation,
+  saveConversations,
+  loadConversation,
+} from '@/utils/app/conversation';
+import { sanitizeConversationAssistantReplays } from '@/utils/app/conversationReplay';
+import { getWorkflowName } from '@/utils/app/helper';
+import { getUserSessionItem, setUserSessionItem } from '@/utils/app/storage';
+
 import { Conversation } from '@/types/chat';
 
-import { useConversationStore, useUISettingsStore } from '@/state';
 import { useAuth } from '@/components/auth';
 import { ProtectedRoute } from '@/components/auth';
-import { AppShell, ViewTabs } from '@/components/layout';
-import { Sidebar } from '@/components/sidebar/Sidebar';
-import { BottomNav } from '@/components/mobile/BottomNav';
+import { AutonomyDashboard } from '@/components/autonomy';
 import { ChatView } from '@/components/chat/ChatView';
 import { ImagePanel } from '@/components/images';
-import { AutonomyDashboard } from '@/components/autonomy';
+import { AppShell, ViewTabs } from '@/components/layout';
+import { BottomNav } from '@/components/mobile/BottomNav';
+import { Sidebar } from '@/components/sidebar/Sidebar';
+
+import { useConversationStore, useUISettingsStore } from '@/state';
+import { v4 as uuidv4 } from 'uuid';
 
 const Home = () => {
   const { t } = useTranslation('chat');
@@ -42,7 +56,13 @@ const Home = () => {
     shortcuts: [
       commonShortcuts.toggleSidebar(() => toggleChatbar()),
       commonShortcuts.newItem(() => {
-        const newConv: Conversation = { id: uuidv4(), name: t('New Conversation'), messages: [], folderId: null, updatedAt: Date.now() };
+        const newConv: Conversation = {
+          id: uuidv4(),
+          name: t('New Conversation'),
+          messages: [],
+          folderId: null,
+          updatedAt: Date.now(),
+        };
         useConversationStore.getState().addConversation(newConv);
         useConversationStore.getState().selectConversation(newConv.id);
         saveConversation(newConv);
@@ -52,11 +72,17 @@ const Home = () => {
 
   const conversations = useConversationStore((s) => s.conversations);
   const setConversations = useConversationStore((s) => s.setConversations);
-  const selectedConversationId = useConversationStore((s) => s.selectedConversationId);
+  const selectedConversationId = useConversationStore(
+    (s) => s.selectedConversationId,
+  );
   const selectConversation = useConversationStore((s) => s.selectConversation);
   const addConversation = useConversationStore((s) => s.addConversation);
-  const updateConversationInStore = useConversationStore((s) => s.updateConversation);
-  const deleteConversationFromStore = useConversationStore((s) => s.deleteConversation);
+  const updateConversationInStore = useConversationStore(
+    (s) => s.updateConversation,
+  );
+  const deleteConversationFromStore = useConversationStore(
+    (s) => s.deleteConversation,
+  );
 
   const conversationsRef = useRef(conversations);
   conversationsRef.current = conversations;
@@ -73,7 +99,9 @@ const Home = () => {
     }
 
     try {
-      const serverConversations = await apiGet<Conversation[]>('/api/session/conversationHistory');
+      const serverConversations = await apiGet<Conversation[]>(
+        '/api/session/conversationHistory',
+      );
       if (Array.isArray(serverConversations)) {
         const cleaned = cleanConversationHistory(serverConversations);
         setConversations(cleaned);
@@ -86,44 +114,72 @@ const Home = () => {
 
   useWebSocket({
     enabled: true,
-    onConversationUpdated: useCallback((conversation: Conversation) => {
-      const sanitizedConversation = sanitizeConversationAssistantReplays(conversation);
-      // Never overwrite a conversation that is actively streaming —
-      // the frontend is the authority on its messages during streaming.
-      if (useConversationStore.getState().streamingConversationIds.has(sanitizedConversation.id)) {
-        return;
-      }
+    onConversationUpdated: useCallback(
+      (conversation: Conversation) => {
+        const sanitizedConversation =
+          sanitizeConversationAssistantReplays(conversation);
+        // Never overwrite a conversation that is actively streaming —
+        // the frontend is the authority on its messages during streaming.
+        if (
+          useConversationStore
+            .getState()
+            .streamingConversationIds.has(sanitizedConversation.id)
+        ) {
+          return;
+        }
 
-      const current = conversationsRef.current.find((c) => c.id === sanitizedConversation.id);
-      if (current) {
-        // Only apply if incoming data is at least as recent as local state
-        // to prevent stale sync events from overwriting newer local updates
-        // (e.g. auto-naming that happened after the initial save started)
-        const incomingTime = sanitizedConversation.updatedAt || 0;
-        const currentTime = current.updatedAt || 0;
-        if (incomingTime >= currentTime) {
-          updateConversationInStore(sanitizedConversation.id, sanitizedConversation);
-        }
-      } else {
-        addConversation(sanitizedConversation);
-      }
-    }, [updateConversationInStore, addConversation]),
-    onConversationDeleted: useCallback((conversationId: string) => {
-      deleteConversationFromStore(conversationId);
-      if (selectedIdRef.current === conversationId) {
-        const remaining = conversationsRef.current.filter((c) => c.id !== conversationId);
-        const next = remaining[remaining.length - 1];
-        if (next) {
-          selectConversation(next.id);
+        const current = conversationsRef.current.find(
+          (c) => c.id === sanitizedConversation.id,
+        );
+        if (current) {
+          // Only apply if incoming data is at least as recent as local state
+          // to prevent stale sync events from overwriting newer local updates
+          // (e.g. auto-naming that happened after the initial save started)
+          const incomingTime = sanitizedConversation.updatedAt || 0;
+          const currentTime = current.updatedAt || 0;
+          if (incomingTime >= currentTime) {
+            updateConversationInStore(
+              sanitizedConversation.id,
+              sanitizedConversation,
+            );
+          }
         } else {
-          const newConv: Conversation = { id: uuidv4(), name: t('New Conversation'), messages: [], folderId: null, updatedAt: Date.now() };
-          addConversation(newConv);
-          selectConversation(newConv.id);
+          addConversation(sanitizedConversation);
         }
-      }
-    }, [deleteConversationFromStore, selectConversation, addConversation, t]),
-    onConversationListChanged: useCallback(() => { refreshConversationList(); }, [refreshConversationList]),
-    onConnected: useCallback(() => { refreshConversationList(); }, [refreshConversationList]),
+      },
+      [updateConversationInStore, addConversation],
+    ),
+    onConversationDeleted: useCallback(
+      (conversationId: string) => {
+        deleteConversationFromStore(conversationId);
+        if (selectedIdRef.current === conversationId) {
+          const remaining = conversationsRef.current.filter(
+            (c) => c.id !== conversationId,
+          );
+          const next = remaining[remaining.length - 1];
+          if (next) {
+            selectConversation(next.id);
+          } else {
+            const newConv: Conversation = {
+              id: uuidv4(),
+              name: t('New Conversation'),
+              messages: [],
+              folderId: null,
+              updatedAt: Date.now(),
+            };
+            addConversation(newConv);
+            selectConversation(newConv.id);
+          }
+        }
+      },
+      [deleteConversationFromStore, selectConversation, addConversation, t],
+    ),
+    onConversationListChanged: useCallback(() => {
+      refreshConversationList();
+    }, [refreshConversationList]),
+    onConnected: useCallback(() => {
+      refreshConversationList();
+    }, [refreshConversationList]),
   });
 
   useEffect(() => {
@@ -131,7 +187,8 @@ const Home = () => {
       if (document.visibilityState === 'visible') refreshConversationList();
     };
     document.addEventListener('visibilitychange', handleVisibilityChange);
-    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+    return () =>
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
   }, [refreshConversationList]);
 
   // Clear stale async jobs from previous sessions (prevents 404 polling spam)
@@ -142,7 +199,9 @@ const Home = () => {
       if (stored) {
         const jobs = JSON.parse(stored);
         // Clear jobs older than 1 hour
-        const fresh = Array.isArray(jobs) ? jobs.filter((j: any) => Date.now() - (j.timestamp || 0) < 3600000) : [];
+        const fresh = Array.isArray(jobs)
+          ? jobs.filter((j: any) => Date.now() - (j.timestamp || 0) < 3600000)
+          : [];
         if (fresh.length !== jobs.length) {
           localStorage.setItem(key, JSON.stringify(fresh));
         }
@@ -154,7 +213,9 @@ const Home = () => {
   useEffect(() => {
     const folders = getUserSessionItem('folders');
     if (folders) {
-      try { useUISettingsStore.getState().setFolders(JSON.parse(folders)); } catch {}
+      try {
+        useUISettingsStore.getState().setFolders(JSON.parse(folders));
+      } catch {}
     }
 
     const savedWidth = getUserSessionItem('chatbarWidth');
@@ -167,18 +228,22 @@ const Home = () => {
 
     const fetchConversations = async () => {
       try {
-        const serverConversations = await apiGet('/api/session/conversationHistory');
+        const serverConversations = await apiGet(
+          '/api/session/conversationHistory',
+        );
         if (Array.isArray(serverConversations)) {
           const cleaned = cleanConversationHistory(serverConversations);
           useConversationStore.getState().setConversations(cleaned);
           setUserSessionItem('conversationHistory', JSON.stringify(cleaned));
         } else {
           const local = getUserSessionItem('conversationHistory');
-          if (local) useConversationStore.getState().setConversations(JSON.parse(local));
+          if (local)
+            useConversationStore.getState().setConversations(JSON.parse(local));
         }
       } catch {
         const local = getUserSessionItem('conversationHistory');
-        if (local) useConversationStore.getState().setConversations(JSON.parse(local));
+        if (local)
+          useConversationStore.getState().setConversations(JSON.parse(local));
       }
     };
 
@@ -195,7 +260,13 @@ const Home = () => {
             const parsed = cleanSelectedConversation(JSON.parse(local));
             useConversationStore.getState().selectConversation(parsed.id);
           } else {
-            const newConv: Conversation = { id: uuidv4(), name: t('New Conversation'), messages: [], folderId: null, updatedAt: Date.now() };
+            const newConv: Conversation = {
+              id: uuidv4(),
+              name: t('New Conversation'),
+              messages: [],
+              folderId: null,
+              updatedAt: Date.now(),
+            };
             useConversationStore.getState().addConversation(newConv);
             useConversationStore.getState().selectConversation(newConv.id);
           }
@@ -224,17 +295,29 @@ const Home = () => {
       <Head>
         <title>{workflow}</title>
         <meta name="description" content={workflow} />
-        <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-        <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)" />
-        <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
+        <meta
+          name="viewport"
+          content="width=device-width, initial-scale=1, viewport-fit=cover"
+        />
+        <meta name="format-detection" content="telephone=no" />
+        <meta
+          name="theme-color"
+          content="#000000"
+          media="(prefers-color-scheme: dark)"
+        />
+        <meta
+          name="theme-color"
+          content="#ffffff"
+          media="(prefers-color-scheme: light)"
+        />
         <link rel="icon" href="/favicon.png" />
       </Head>
 
-      <main className="flex h-screen w-screen flex-col text-sm text-dark-text-primary bg-dark-bg-primary" id="main-content">
-        <AppShell
-          sidebar={<Sidebar />}
-          bottomNav={<BottomNav />}
-        >
+      <main
+        className="flex h-screen min-h-screen w-screen flex-col text-sm text-dark-text-primary bg-dark-bg-primary supports-[height:100dvh]:h-[100dvh] supports-[height:100dvh]:min-h-[100dvh]"
+        id="main-content"
+      >
+        <AppShell sidebar={<Sidebar />} bottomNav={<BottomNav />}>
           <div className="flex h-full w-full min-w-0 flex-col">
             <ViewTabs />
             <div className="flex-1 min-h-0 w-full overflow-hidden">

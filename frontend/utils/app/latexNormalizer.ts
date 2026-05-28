@@ -31,22 +31,34 @@ export function normalizeLatexDelimiters(text: string): string {
   });
 
   // Handle equation environments if present
-  normalized = normalized.replace(/\\begin\{equation\}([\s\S]*?)\\end\{equation\}/g, (match, content) => {
-    return `$$${content}$$`;
-  });
+  normalized = normalized.replace(
+    /\\begin\{equation\}([\s\S]*?)\\end\{equation\}/g,
+    (match, content) => {
+      return `$$${content}$$`;
+    },
+  );
 
-  normalized = normalized.replace(/\\begin\{equation\*\}([\s\S]*?)\\end\{equation\*\}/g, (match, content) => {
-    return `$$${content}$$`;
-  });
+  normalized = normalized.replace(
+    /\\begin\{equation\*\}([\s\S]*?)\\end\{equation\*\}/g,
+    (match, content) => {
+      return `$$${content}$$`;
+    },
+  );
 
   // Handle align environments
-  normalized = normalized.replace(/\\begin\{align\}([\s\S]*?)\\end\{align\}/g, (match, content) => {
-    return `$$\\begin{aligned}${content}\\end{aligned}$$`;
-  });
+  normalized = normalized.replace(
+    /\\begin\{align\}([\s\S]*?)\\end\{align\}/g,
+    (match, content) => {
+      return `$$\\begin{aligned}${content}\\end{aligned}$$`;
+    },
+  );
 
-  normalized = normalized.replace(/\\begin\{align\*\}([\s\S]*?)\\end\{align\*\}/g, (match, content) => {
-    return `$$\\begin{aligned}${content}\\end{aligned}$$`;
-  });
+  normalized = normalized.replace(
+    /\\begin\{align\*\}([\s\S]*?)\\end\{align\*\}/g,
+    (match, content) => {
+      return `$$\\begin{aligned}${content}\\end{aligned}$$`;
+    },
+  );
 
   return normalized;
 }
@@ -61,19 +73,19 @@ export function containsLatex(text: string): boolean {
 
   // Check for various LaTeX delimiters
   const patterns = [
-    /\$\$[\s\S]*?\$\$/,        // $$...$$
-    /\$[^\$\n]+\$/,             // $...$
-    /\\\[[\s\S]*?\\\]/,         // \[...\]
-    /\\\([\s\S]*?\\\)/,         // \(...\)
-    /\\begin\{equation\*?\}/,   // equation environments
-    /\\begin\{align\*?\}/,      // align environments
-    /\\frac\{/,                 // \frac command
-    /\\sqrt\{/,                 // \sqrt command
-    /\\sum/,                    // \sum command
-    /\\int/,                    // \int command
+    /\$\$[\s\S]*?\$\$/, // $$...$$
+    /\$[^\$\n]+\$/, // $...$
+    /\\\[[\s\S]*?\\\]/, // \[...\]
+    /\\\([\s\S]*?\\\)/, // \(...\)
+    /\\begin\{equation\*?\}/, // equation environments
+    /\\begin\{align\*?\}/, // align environments
+    /\\frac\{/, // \frac command
+    /\\sqrt\{/, // \sqrt command
+    /\\sum/, // \sum command
+    /\\int/, // \int command
   ];
 
-  return patterns.some(pattern => pattern.test(text));
+  return patterns.some((pattern) => pattern.test(text));
 }
 
 /**

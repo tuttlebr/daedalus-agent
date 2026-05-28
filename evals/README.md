@@ -38,14 +38,14 @@ eval harness against that forwarded backend.
 
 Useful Kubernetes defaults:
 
-| Variable                             | Default                    | Purpose                                                             |
-| ------------------------------------ | -------------------------- | ------------------------------------------------------------------- |
-| `DAEDALUS_KUBE_NAMESPACE`            | `daedalus`                 | Namespace containing the backend Service                            |
-| `DAEDALUS_KUBE_BACKEND_SERVICE`      | `daedalus-backend-default` | Backend Service name                                                |
-| `DAEDALUS_KUBE_BACKEND_PORT`         | `8000`                     | Backend Service port                                                |
-| `DAEDALUS_EVAL_LOCAL_PORT`           | `18000`                    | Local port used for `kubectl port-forward`                          |
+| Variable                             | Default                    | Purpose                                                                   |
+| ------------------------------------ | -------------------------- | ------------------------------------------------------------------------- |
+| `DAEDALUS_KUBE_NAMESPACE`            | `daedalus`                 | Namespace containing the backend Service                                  |
+| `DAEDALUS_KUBE_BACKEND_SERVICE`      | `daedalus-backend-default` | Backend Service name                                                      |
+| `DAEDALUS_KUBE_BACKEND_PORT`         | `8000`                     | Backend Service port                                                      |
+| `DAEDALUS_EVAL_LOCAL_PORT`           | `18000`                    | Local port used for `kubectl port-forward`                                |
 | `DAEDALUS_EVAL_PORT_FORWARD_ADDRESS` | `0.0.0.0`                  | Bind address for `kubectl port-forward`; Docker needs a non-loopback bind |
-| `DAEDALUS_KUBE_CONTEXT`              | unset                      | Optional kubectl context                                            |
+| `DAEDALUS_KUBE_CONTEXT`              | unset                      | Optional kubectl context                                                  |
 
 To bypass Kubernetes discovery and hit a specific backend directly:
 

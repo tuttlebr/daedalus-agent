@@ -1,5 +1,11 @@
-import { getAdaptiveMemoryManager, DeviceCapabilities } from './mobileOptimizations';
+// Import React for the hook
+import React from 'react';
+
 import { Logger } from '../logger';
+import {
+  getAdaptiveMemoryManager,
+  DeviceCapabilities,
+} from './mobileOptimizations';
 import { createVisibilityAwareInterval } from './visibilityAwareTimer';
 
 const logger = new Logger('MemoryMonitor');
@@ -21,7 +27,10 @@ interface MemoryMonitorConfig {
   onNormal?: (info: MemoryInfo) => void;
 }
 
-type MemoryListener = (info: MemoryInfo, state: 'normal' | 'warning' | 'critical') => void;
+type MemoryListener = (
+  info: MemoryInfo,
+  state: 'normal' | 'warning' | 'critical',
+) => void;
 
 interface ManagedTimer {
   stop: () => void;
@@ -43,7 +52,7 @@ class MemoryMonitor {
       warningThreshold: 80,
       criticalThreshold: 90,
       checkInterval: 60000, // Check every 60 seconds (increased from 30s for battery)
-      ...config
+      ...config,
     };
 
     // Adjust thresholds based on device capabilities
@@ -80,7 +89,7 @@ class MemoryMonitor {
       totalJSHeapSize: memory.totalJSHeapSize,
       jsHeapSizeLimit: memory.jsHeapSizeLimit,
       percentUsed,
-      timestamp: Date.now()
+      timestamp: Date.now(),
     };
   }
 
@@ -110,7 +119,7 @@ class MemoryMonitor {
       currentState = 'critical';
       logger.error(`Memory usage critical at ${info.percentUsed.toFixed(1)}%`, {
         used: this.formatBytes(info.usedJSHeapSize),
-        limit: this.formatBytes(info.jsHeapSizeLimit)
+        limit: this.formatBytes(info.jsHeapSizeLimit),
       });
 
       if (this.config.onCritical) {
@@ -120,7 +129,7 @@ class MemoryMonitor {
       currentState = 'warning';
       logger.warn(`Memory usage high at ${info.percentUsed.toFixed(1)}%`, {
         used: this.formatBytes(info.usedJSHeapSize),
-        limit: this.formatBytes(info.jsHeapSizeLimit)
+        limit: this.formatBytes(info.jsHeapSizeLimit),
       });
 
       if (this.config.onWarning) {
@@ -137,7 +146,7 @@ class MemoryMonitor {
     }
 
     this.lastState = currentState;
-    this.listeners.forEach(listener => listener(info, currentState));
+    this.listeners.forEach((listener) => listener(info, currentState));
   }
 
   start(): void {
@@ -160,7 +169,7 @@ class MemoryMonitor {
         interval: this.config.checkInterval,
         mobileMultiplier: 1.5, // Even slower on mobile
         pauseWhenHidden: true, // Don't check memory when app is backgrounded
-      }
+      },
     );
 
     logger.info('Memory monitoring started (visibility-aware)');
@@ -187,11 +196,11 @@ class MemoryMonitor {
         current,
         average: current?.percentUsed || 0,
         max: current?.percentUsed || 0,
-        trend: 'stable'
+        trend: 'stable',
       };
     }
 
-    const percentages = this.measurements.map(m => m.percentUsed);
+    const percentages = this.measurements.map((m) => m.percentUsed);
     const average = percentages.reduce((a, b) => a + b, 0) / percentages.length;
     const max = Math.max(...percentages);
 
@@ -199,11 +208,12 @@ class MemoryMonitor {
     let trend: 'increasing' | 'decreasing' | 'stable' = 'stable';
     if (this.measurements.length >= 5) {
       const recent = this.measurements.slice(-5);
-      const firstHalf = recent.slice(0, 2).map(m => m.percentUsed);
-      const secondHalf = recent.slice(-2).map(m => m.percentUsed);
+      const firstHalf = recent.slice(0, 2).map((m) => m.percentUsed);
+      const secondHalf = recent.slice(-2).map((m) => m.percentUsed);
 
       const firstAvg = firstHalf.reduce((a, b) => a + b, 0) / firstHalf.length;
-      const secondAvg = secondHalf.reduce((a, b) => a + b, 0) / secondHalf.length;
+      const secondAvg =
+        secondHalf.reduce((a, b) => a + b, 0) / secondHalf.length;
 
       if (secondAvg > firstAvg + 5) {
         trend = 'increasing';
@@ -230,9 +240,13 @@ class MemoryMonitor {
 export const memoryMonitor = new MemoryMonitor();
 
 // Helper functions for easy usage
-export function startMemoryMonitoring(config?: Partial<MemoryMonitorConfig>): void {
+export function startMemoryMonitoring(
+  config?: Partial<MemoryMonitorConfig>,
+): void {
   if (config) {
-    Object.assign(memoryMonitor, { config: { ...memoryMonitor['config'], ...config } });
+    Object.assign(memoryMonitor, {
+      config: { ...memoryMonitor['config'], ...config },
+    });
   }
   memoryMonitor.start();
 }
@@ -258,20 +272,20 @@ export function useMemoryMonitor(config?: Partial<MemoryMonitorConfig>) {
   React.useEffect(() => {
     // Update global config if provided
     if (config) {
-       // Note: This updates the global singleton config which might affect other components
-       // For a strictly local monitor, we would need a separate instance, but the goal is efficiency
-       startMemoryMonitoring(config);
+      // Note: This updates the global singleton config which might affect other components
+      // For a strictly local monitor, we would need a separate instance, but the goal is efficiency
+      startMemoryMonitoring(config);
     } else {
-       memoryMonitor.start();
+      memoryMonitor.start();
     }
 
     const listener: MemoryListener = (info, state) => {
-       setMemoryInfo(info);
-       setIsHighMemory(state !== 'normal');
+      setMemoryInfo(info);
+      setIsHighMemory(state !== 'normal');
 
-       if (state === 'warning') config?.onWarning?.(info);
-       if (state === 'critical') config?.onCritical?.(info);
-       if (state === 'normal') config?.onNormal?.(info);
+      if (state === 'warning') config?.onWarning?.(info);
+      if (state === 'critical') config?.onCritical?.(info);
+      if (state === 'normal') config?.onNormal?.(info);
     };
 
     memoryMonitor.addListener(listener);
@@ -284,6 +298,3 @@ export function useMemoryMonitor(config?: Partial<MemoryMonitorConfig>) {
 
   return { memoryInfo, isHighMemory };
 }
-
-// Import React for the hook
-import React from 'react';

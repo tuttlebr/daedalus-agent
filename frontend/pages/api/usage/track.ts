@@ -1,7 +1,9 @@
 import { NextApiRequest, NextApiResponse } from 'next';
-import { timingSafeEqual } from 'crypto';
-import { trackUserUsage, UsageData } from '@/utils/usage/tracking';
+
 import { getSession } from '@/utils/auth/session';
+import { trackUserUsage, UsageData } from '@/utils/usage/tracking';
+
+import { timingSafeEqual } from 'crypto';
 
 function isValidInternalToken(req: NextApiRequest): boolean {
   const expected =
@@ -22,7 +24,10 @@ function isValidInternalToken(req: NextApiRequest): boolean {
  * POST /api/usage/track
  * Body: { username: string, usage: UsageData }
  */
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+export default async function handler(
+  req: NextApiRequest,
+  res: NextApiResponse,
+) {
   if (req.method !== 'POST') {
     res.setHeader('Allow', ['POST']);
     return res.status(405).json({ error: 'Method not allowed' });
@@ -42,15 +47,20 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     if (!username || typeof username !== 'string') {
-      return res.status(400).json({ error: 'Username is required and must be a string' });
+      return res
+        .status(400)
+        .json({ error: 'Username is required and must be a string' });
     }
 
     if (!usage || typeof usage !== 'object') {
-      return res.status(400).json({ error: 'Usage data is required and must be an object' });
+      return res
+        .status(400)
+        .json({ error: 'Usage data is required and must be an object' });
     }
 
     // Validate usage data structure
-    const { prompt_tokens, completion_tokens, total_tokens } = usage as UsageData;
+    const { prompt_tokens, completion_tokens, total_tokens } =
+      usage as UsageData;
 
     if (
       typeof prompt_tokens !== 'number' ||
@@ -58,12 +68,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       typeof total_tokens !== 'number'
     ) {
       return res.status(400).json({
-        error: 'Usage data must contain numeric values for prompt_tokens, completion_tokens, and total_tokens',
+        error:
+          'Usage data must contain numeric values for prompt_tokens, completion_tokens, and total_tokens',
         received: {
           prompt_tokens: typeof prompt_tokens,
           completion_tokens: typeof completion_tokens,
           total_tokens: typeof total_tokens,
-        }
+        },
       });
     }
 

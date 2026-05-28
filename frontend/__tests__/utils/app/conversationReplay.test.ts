@@ -1,14 +1,15 @@
-import { describe, expect, it } from 'vitest';
-
 import {
   sanitizeConversationAssistantReplays,
   sanitizeConversationsAssistantReplays,
   stripReplayedAssistantPrefix,
 } from '@/utils/app/conversationReplay';
 
+import { describe, expect, it } from 'vitest';
+
 describe('conversation replay sanitization', () => {
   it('strips an exact prior assistant replay plus the new answer', () => {
-    const prior = 'Daily summary for May 13, 2026.\n\n## 1. Date\nCurrent timestamp: 2026-05-13 15:26 UTC.';
+    const prior =
+      'Daily summary for May 13, 2026.\n\n## 1. Date\nCurrent timestamp: 2026-05-13 15:26 UTC.';
     const next = 'The `nemotron-omni` namespace is healthy overall.';
 
     expect(
@@ -71,7 +72,8 @@ describe('conversation replay sanitization', () => {
 
   it('preserves responses that reference the prior answer without exact-prefix replay', () => {
     const prior = 'Daily summary for May 13, 2026.';
-    const next = 'Compared with the prior daily summary, the namespace is now healthy.';
+    const next =
+      'Compared with the prior daily summary, the namespace is now healthy.';
 
     expect(
       stripReplayedAssistantPrefix(next, [
@@ -128,15 +130,22 @@ describe('conversation replay sanitization', () => {
       ],
     };
 
-    expect(sanitizeConversationAssistantReplays(conversation)).toBe(conversation);
-    expect(sanitizeConversationsAssistantReplays([conversation])).toBeInstanceOf(Array);
-    expect(sanitizeConversationsAssistantReplays([conversation])[0]).toBe(conversation);
+    expect(sanitizeConversationAssistantReplays(conversation)).toBe(
+      conversation,
+    );
+    expect(
+      sanitizeConversationsAssistantReplays([conversation]),
+    ).toBeInstanceOf(Array);
+    expect(sanitizeConversationsAssistantReplays([conversation])[0]).toBe(
+      conversation,
+    );
   });
 
   it('fuzzy: strips a prior replay even when the exact join uses different whitespace', () => {
     const prior =
       'The nemotron-omni namespace is healthy. All pods are running and the queue depth is steady.';
-    const next = 'For the next deploy, focus on the auth-proxy memory limits and the new rollout strategy.';
+    const next =
+      'For the next deploy, focus on the auth-proxy memory limits and the new rollout strategy.';
 
     expect(
       stripReplayedAssistantPrefix(`${prior}    \n  ${next}`, [
@@ -147,7 +156,8 @@ describe('conversation replay sanitization', () => {
 
   it('fuzzy: does not strip when the shared prefix is below the word/char threshold', () => {
     const prior = 'OK, sure thing.';
-    const next = 'OK, here is the current status for the namespace today. All pods are running.';
+    const next =
+      'OK, here is the current status for the namespace today. All pods are running.';
 
     expect(
       stripReplayedAssistantPrefix(next, [
@@ -174,7 +184,8 @@ describe('conversation replay sanitization', () => {
   it('fuzzy: strips a prior replay appended after the new answer with mild punctuation drift', () => {
     const prior =
       'Daily summary: every team finished their planned work today. The release branch is clean and the rollout is on schedule.';
-    const next = 'New question: which deploys are still pending for tomorrow morning?';
+    const next =
+      'New question: which deploys are still pending for tomorrow morning?';
 
     expect(
       stripReplayedAssistantPrefix(`${next}\n\n${prior}  `, [
@@ -186,7 +197,8 @@ describe('conversation replay sanitization', () => {
   it('fuzzy: preserves a response that quotes a small fragment of prior content', () => {
     const prior =
       'The deployment uses the auth-proxy sidecar with a 512Mi memory limit on each pod.';
-    const next = 'Yes, the auth-proxy sidecar is the right place to apply the patch this sprint.';
+    const next =
+      'Yes, the auth-proxy sidecar is the right place to apply the patch this sprint.';
 
     expect(
       stripReplayedAssistantPrefix(next, [

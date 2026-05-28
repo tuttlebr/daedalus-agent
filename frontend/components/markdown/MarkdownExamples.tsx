@@ -4,8 +4,8 @@
  * This component demonstrates all the markdown and LaTeX features
  * supported by the application. Use this for testing and as a reference.
  */
-
 import { FC, useState } from 'react';
+
 import { MarkdownRenderer, MARKDOWN_EXAMPLES } from './MarkdownRenderer';
 
 type ExampleType = 'basic' | 'math' | 'advanced' | 'scientific';
@@ -15,24 +15,25 @@ export const MarkdownExamples: FC = () => {
   const [customContent, setCustomContent] = useState('');
   const [showCustom, setShowCustom] = useState(false);
 
-  const examples: Record<ExampleType, { title: string; description: string }> = {
-    basic: {
-      title: 'Basic Markdown',
-      description: 'Headings, lists, bold, italic, and more',
-    },
-    math: {
-      title: 'Math & LaTeX',
-      description: 'Inline and display math equations',
-    },
-    advanced: {
-      title: 'Advanced Features',
-      description: 'Tables, code blocks, task lists, blockquotes',
-    },
-    scientific: {
-      title: 'Scientific Notation',
-      description: 'Physics, statistics, and complex equations',
-    },
-  };
+  const examples: Record<ExampleType, { title: string; description: string }> =
+    {
+      basic: {
+        title: 'Basic Markdown',
+        description: 'Headings, lists, bold, italic, and more',
+      },
+      math: {
+        title: 'Math & LaTeX',
+        description: 'Inline and display math equations',
+      },
+      advanced: {
+        title: 'Advanced Features',
+        description: 'Tables, code blocks, task lists, blockquotes',
+      },
+      scientific: {
+        title: 'Scientific Notation',
+        description: 'Physics, statistics, and complex equations',
+      },
+    };
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 p-4 md:p-8">
@@ -43,7 +44,8 @@ export const MarkdownExamples: FC = () => {
             Markdown & LaTeX Examples
           </h1>
           <p className="text-gray-600 dark:text-gray-400 text-lg">
-            Comprehensive demonstration of markdown and math rendering capabilities
+            Comprehensive demonstration of markdown and math rendering
+            capabilities
           </p>
         </div>
 
@@ -107,7 +109,9 @@ export const MarkdownExamples: FC = () => {
             </h2>
             <div className="bg-gray-900 dark:bg-black rounded-lg p-4 overflow-auto">
               <pre className="text-green-400 text-sm font-mono whitespace-pre-wrap">
-                {showCustom ? customContent : MARKDOWN_EXAMPLES[selectedExample]}
+                {showCustom
+                  ? customContent
+                  : MARKDOWN_EXAMPLES[selectedExample]}
               </pre>
             </div>
           </div>
@@ -119,7 +123,11 @@ export const MarkdownExamples: FC = () => {
             </h2>
             <div className="bg-white dark:bg-gray-800 rounded-lg p-6 border border-gray-200 dark:border-gray-700 overflow-auto">
               <MarkdownRenderer
-                content={showCustom ? customContent : MARKDOWN_EXAMPLES[selectedExample]}
+                content={
+                  showCustom
+                    ? customContent
+                    : MARKDOWN_EXAMPLES[selectedExample]
+                }
               />
             </div>
           </div>
@@ -152,8 +160,10 @@ export const MarkdownExamples: FC = () => {
                 Code Blocks
               </h3>
               <code className="text-sm bg-gray-100 dark:bg-gray-900 px-2 py-1 rounded">
-                ```python<br />
-                def hello():<br />
+                ```python
+                <br />
+                def hello():
+                <br />
                 &nbsp;&nbsp;print("Hello")
                 <br />
                 ```
@@ -165,8 +175,8 @@ export const MarkdownExamples: FC = () => {
               </h3>
               <code className="text-sm bg-gray-100 dark:bg-gray-900 px-2 py-1 rounded">
                 | Col1 | Col2 |<br />
-                |------|------|<br />
-                | A | B |
+                |------|------|
+                <br />| A | B |
               </code>
             </div>
           </div>

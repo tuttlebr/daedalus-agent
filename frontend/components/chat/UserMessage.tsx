@@ -27,7 +27,8 @@ interface InlineDocument {
   markdown: string;
 }
 
-const ATTACHED_DOC_RE = /<attached_document\s+([^>]*)>([\s\S]*?)<\/attached_document>/g;
+const ATTACHED_DOC_RE =
+  /<attached_document\s+([^>]*)>([\s\S]*?)<\/attached_document>/g;
 
 function getAttr(attrs: string, name: string): string | undefined {
   const re = new RegExp(`${name}\\s*=\\s*"([^"]*)"`);
@@ -43,9 +44,10 @@ function decodeXmlAttr(value: string): string {
     .replace(/&amp;/g, '&');
 }
 
-function parseInlineDocuments(
-  raw: string,
-): { cleanedContent: string; inlineDocs: InlineDocument[] } {
+function parseInlineDocuments(raw: string): {
+  cleanedContent: string;
+  inlineDocs: InlineDocument[];
+} {
   const inlineDocs: InlineDocument[] = [];
   let cleanedContent = raw.replace(ATTACHED_DOC_RE, (_match, attrs, body) => {
     const filename = decodeXmlAttr(getAttr(attrs, 'filename') || 'document');
@@ -82,7 +84,8 @@ export const UserMessage = memo(
       setTimeout(() => setCopied(false), 2000);
     };
 
-    const rawContent = typeof message.content === 'string' ? message.content : '';
+    const rawContent =
+      typeof message.content === 'string' ? message.content : '';
     const { cleanedContent: content, inlineDocs } = useMemo(
       () => parseInlineDocuments(rawContent),
       [rawContent],
@@ -131,13 +134,13 @@ export const UserMessage = memo(
                 />
               </div>
 
-              {/* Copy button */}
-              <div className="absolute -bottom-1 -left-8 opacity-0 group-hover:opacity-100 transition-opacity">
+              {/* Copy button — always visible on touch, hover-only on desktop */}
+              <div className="absolute -bottom-1 -left-10 opacity-100 transition-opacity md:opacity-0 md:group-hover:opacity-100">
                 <IconButton
                   icon={copied ? <IconCheck /> : <IconCopy />}
                   aria-label="Copy message"
                   variant="ghost"
-                  size="xs"
+                  size="sm"
                   onClick={handleCopy}
                 />
               </div>

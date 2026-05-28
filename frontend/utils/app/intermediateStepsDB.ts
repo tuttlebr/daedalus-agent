@@ -29,10 +29,12 @@ async function compressData(data: string): Promise<string> {
         start(controller) {
           controller.enqueue(encoder.encode(data));
           controller.close();
-        }
+        },
       });
 
-      const compressedStream = stream.pipeThrough(new (window as any).CompressionStream('gzip'));
+      const compressedStream = stream.pipeThrough(
+        new (window as any).CompressionStream('gzip'),
+      );
       const reader = compressedStream.getReader();
       const chunks: Uint8Array[] = [];
 
@@ -42,7 +44,9 @@ async function compressData(data: string): Promise<string> {
         chunks.push(value as Uint8Array);
       }
 
-      const compressed = new Uint8Array(chunks.reduce((acc, chunk) => acc + chunk.length, 0));
+      const compressed = new Uint8Array(
+        chunks.reduce((acc, chunk) => acc + chunk.length, 0),
+      );
       let offset = 0;
       for (const chunk of chunks) {
         compressed.set(chunk, offset);
@@ -55,7 +59,7 @@ async function compressData(data: string): Promise<string> {
       for (let i = 0; i < compressed.length; i += CHUNK_SIZE) {
         binary += String.fromCharCode.apply(
           null,
-          Array.from(compressed.subarray(i, i + CHUNK_SIZE))
+          Array.from(compressed.subarray(i, i + CHUNK_SIZE)),
         );
       }
 
@@ -71,15 +75,17 @@ async function compressData(data: string): Promise<string> {
 async function decompressData(data: string): Promise<string> {
   if ('DecompressionStream' in window) {
     try {
-      const compressed = Uint8Array.from(atob(data), c => c.charCodeAt(0));
+      const compressed = Uint8Array.from(atob(data), (c) => c.charCodeAt(0));
       const stream = new ReadableStream({
         start(controller) {
           controller.enqueue(compressed);
           controller.close();
-        }
+        },
       });
 
-      const decompressedStream = stream.pipeThrough(new (window as any).DecompressionStream('gzip'));
+      const decompressedStream = stream.pipeThrough(
+        new (window as any).DecompressionStream('gzip'),
+      );
       const reader = decompressedStream.getReader();
       const chunks: Uint8Array[] = [];
 
@@ -90,7 +96,7 @@ async function decompressData(data: string): Promise<string> {
       }
 
       const decoder = new TextDecoder();
-      return chunks.map(chunk => decoder.decode(chunk)).join('');
+      return chunks.map((chunk) => decoder.decode(chunk)).join('');
     } catch (error) {
       console.error('Decompression failed:', error);
       return data;
@@ -125,7 +131,9 @@ class IntermediateStepsDB {
 
         if (!db.objectStoreNames.contains(STORE_NAME)) {
           const store = db.createObjectStore(STORE_NAME, { keyPath: 'id' });
-          store.createIndex('conversationId', 'conversationId', { unique: false });
+          store.createIndex('conversationId', 'conversationId', {
+            unique: false,
+          });
           store.createIndex('createdAt', 'createdAt', { unique: false });
         }
       };
@@ -142,7 +150,7 @@ class IntermediateStepsDB {
 
   async saveSteps(
     conversationId: string,
-    steps: IntermediateStep[]
+    steps: IntermediateStep[],
   ): Promise<void> {
     const db = await this.ensureDB();
 
@@ -187,25 +195,28 @@ class IntermediateStepsDB {
       }
 
       const chunk: StepChunk = {
-        id: `${conversationId}_chunk_${Math.floor(i / CHUNK_SIZE)}_${Date.now()}`,
+        id: `${conversationId}_chunk_${Math.floor(
+          i / CHUNK_SIZE,
+        )}_${Date.now()}`,
         conversationId,
         chunkIndex: Math.floor(i / CHUNK_SIZE),
         steps: processedSteps,
         createdAt: Date.now(),
         updatedAt: Date.now(),
         compressed,
-        size: compressed ? compressedSize : chunkSize
+        size: compressed ? compressedSize : chunkSize,
       };
       chunks.push(chunk);
     }
 
     // Save all chunks
-    const promises = chunks.map(chunk =>
-      new Promise<void>((resolve, reject) => {
-        const request = store.put(chunk);
-        request.onsuccess = () => resolve();
-        request.onerror = () => reject(request.error);
-      })
+    const promises = chunks.map(
+      (chunk) =>
+        new Promise<void>((resolve, reject) => {
+          const request = store.put(chunk);
+          request.onsuccess = () => resolve();
+          request.onerror = () => reject(request.error);
+        }),
     );
 
     await Promise.all(promises);
@@ -214,7 +225,7 @@ class IntermediateStepsDB {
   async loadSteps(
     conversationId: string,
     startIndex: number = 0,
-    count: number = CHUNK_SIZE
+    count: number = CHUNK_SIZE,
   ): Promise<IntermediateStep[]> {
     const db = await this.ensureDB();
     const transaction = db.transaction([STORE_NAME], 'readonly');
@@ -233,7 +244,9 @@ class IntermediateStepsDB {
           cursor.continue();
         } else {
           // Process all chunks
-          for (const chunk of chunks.sort((a, b) => a.chunkIndex - b.chunkIndex)) {
+          for (const chunk of chunks.sort(
+            (a, b) => a.chunkIndex - b.chunkIndex,
+          )) {
             if (chunk.compressed) {
               try {
                 const decompressed = await decompressData(chunk.steps as any);
@@ -288,7 +301,7 @@ class IntermediateStepsDB {
     const store = transaction.objectStore(STORE_NAME);
     const index = store.index('createdAt');
 
-    const cutoffTime = Date.now() - (MAX_AGE_HOURS * 60 * 60 * 1000);
+    const cutoffTime = Date.now() - MAX_AGE_HOURS * 60 * 60 * 1000;
     let deletedCount = 0;
 
     return new Promise((resolve, reject) => {
@@ -357,7 +370,10 @@ class IntermediateStepsDB {
     });
   }
 
-  async cleanupOldestChunks(conversationId: string, requiredSpace: number): Promise<void> {
+  async cleanupOldestChunks(
+    conversationId: string,
+    requiredSpace: number,
+  ): Promise<void> {
     const db = await this.ensureDB();
     const transaction = db.transaction([STORE_NAME], 'readwrite');
     const store = transaction.objectStore(STORE_NAME);
@@ -425,7 +441,7 @@ export const intermediateStepsDB = new IntermediateStepsDB();
 // Helper functions for easy usage
 export async function saveIntermediateSteps(
   conversationId: string,
-  steps: IntermediateStep[]
+  steps: IntermediateStep[],
 ): Promise<void> {
   return intermediateStepsDB.saveSteps(conversationId, steps);
 }
@@ -433,13 +449,13 @@ export async function saveIntermediateSteps(
 export async function loadIntermediateSteps(
   conversationId: string,
   startIndex: number = 0,
-  count: number = CHUNK_SIZE
+  count: number = CHUNK_SIZE,
 ): Promise<IntermediateStep[]> {
   return intermediateStepsDB.loadSteps(conversationId, startIndex, count);
 }
 
 export async function getIntermediateStepCount(
-  conversationId: string
+  conversationId: string,
 ): Promise<number> {
   return intermediateStepsDB.getStepCount(conversationId);
 }
@@ -449,7 +465,7 @@ export async function cleanupOldIntermediateSteps(): Promise<number> {
 }
 
 export async function clearConversationIntermediateSteps(
-  conversationId: string
+  conversationId: string,
 ): Promise<void> {
   return intermediateStepsDB.clearConversationSteps(conversationId);
 }

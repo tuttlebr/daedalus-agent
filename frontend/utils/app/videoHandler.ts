@@ -7,10 +7,14 @@ export interface VideoReference {
   url?: string;
 }
 
-// Supported video formats (from image_comprehension_function.py)
+// Supported video formats (from visual_media_function.py analyze path)
 // Codecs: H264, H265, VP8, VP9, FLV
 // Formats: MP4, FLV, 3GP
-export const SUPPORTED_VIDEO_FORMATS = ['video/mp4', 'video/x-flv', 'video/3gpp'];
+export const SUPPORTED_VIDEO_FORMATS = [
+  'video/mp4',
+  'video/x-flv',
+  'video/3gpp',
+];
 export const SUPPORTED_VIDEO_EXTENSIONS = ['.mp4', '.flv', '.3gp'];
 export const MAX_VIDEO_SIZE = 100 * 1024 * 1024; // 100MB limit for videos
 
@@ -27,7 +31,7 @@ export function isVideoFile(file: File): boolean {
   }
 
   // Also check by extension as a fallback
-  return SUPPORTED_VIDEO_EXTENSIONS.some(ext => fileName.endsWith(ext));
+  return SUPPORTED_VIDEO_EXTENSIONS.some((ext) => fileName.endsWith(ext));
 }
 
 /**
@@ -68,7 +72,9 @@ export async function uploadVideo(
     });
 
     if (!response.ok) {
-      const error = await response.json().catch(() => ({ error: 'Unknown error' }));
+      const error = await response
+        .json()
+        .catch(() => ({ error: 'Unknown error' }));
       throw new Error(error.error || 'Failed to upload video');
     }
 
@@ -109,9 +115,12 @@ export function getVideoUrl(videoRef: VideoReference): string {
  */
 export async function deleteVideo(videoId: string): Promise<void> {
   try {
-    const response = await fetch(`/api/session/videoStorage?videoId=${videoId}`, {
-      method: 'DELETE',
-    });
+    const response = await fetch(
+      `/api/session/videoStorage?videoId=${videoId}`,
+      {
+        method: 'DELETE',
+      },
+    );
 
     if (!response.ok) {
       throw new Error('Failed to delete video');
@@ -125,7 +134,10 @@ export async function deleteVideo(videoId: string): Promise<void> {
 /**
  * Validate video file before upload
  */
-export function validateVideoFile(file: File): { valid: boolean; error?: string } {
+export function validateVideoFile(file: File): {
+  valid: boolean;
+  error?: string;
+} {
   // Check if it's a video file
   if (!isVideoFile(file)) {
     return {
@@ -138,7 +150,9 @@ export function validateVideoFile(file: File): { valid: boolean; error?: string 
   if (file.size > MAX_VIDEO_SIZE) {
     return {
       valid: false,
-      error: `Video size exceeds maximum allowed (${MAX_VIDEO_SIZE / (1024 * 1024)}MB)`,
+      error: `Video size exceeds maximum allowed (${
+        MAX_VIDEO_SIZE / (1024 * 1024)
+      }MB)`,
     };
   }
 

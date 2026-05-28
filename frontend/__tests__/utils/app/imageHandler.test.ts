@@ -1,6 +1,6 @@
-import { describe, expect, it } from 'vitest';
-
 import { cleanMessagesForLLM } from '@/utils/app/imageHandler';
+
+import { describe, expect, it } from 'vitest';
 
 describe('cleanMessagesForLLM document attachments', () => {
   it('adds a documentRefs JSON array for multi-document ingestion', () => {
@@ -24,7 +24,9 @@ describe('cleanMessagesForLLM document attachments', () => {
       },
     ]);
 
-    expect(message.content).toContain('Use this documentRefs parameter: documentRefs=[');
+    expect(message.content).toContain(
+      'Use this documentRefs parameter: documentRefs=[',
+    );
     expect(message.content).toContain('"documentId":"doc-a"');
     expect(message.content).toContain('"filename":"a.md"');
     expect(message.content).toContain('these documents');

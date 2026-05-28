@@ -1,5 +1,6 @@
-import { describe, it, expect } from 'vitest';
 import { sanitizeSchema } from '@/utils/app/sanitizeSchema';
+
+import { describe, it, expect } from 'vitest';
 
 describe('sanitizeSchema', () => {
   const tags = sanitizeSchema.tagNames ?? [];
@@ -40,13 +41,26 @@ describe('sanitizeSchema', () => {
   });
 
   describe('media elements', () => {
-    it.each(['img', 'video', 'source'])('includes media element <%s>', (tag) => {
-      expect(tags).toContain(tag);
-    });
+    it.each(['img', 'video', 'source'])(
+      'includes media element <%s>',
+      (tag) => {
+        expect(tags).toContain(tag);
+      },
+    );
   });
 
   describe('GFM elements', () => {
-    const gfmTags = ['table', 'thead', 'tbody', 'tfoot', 'tr', 'th', 'td', 'details', 'summary'];
+    const gfmTags = [
+      'table',
+      'thead',
+      'tbody',
+      'tfoot',
+      'tr',
+      'th',
+      'td',
+      'details',
+      'summary',
+    ];
 
     it.each(gfmTags)('includes GFM element <%s>', (tag) => {
       expect(tags).toContain(tag);
@@ -61,7 +75,14 @@ describe('sanitizeSchema', () => {
 
   describe('semantic sectioning elements', () => {
     const sectioningTags = [
-      'section', 'article', 'aside', 'nav', 'header', 'footer', 'main', 'address',
+      'section',
+      'article',
+      'aside',
+      'nav',
+      'header',
+      'footer',
+      'main',
+      'address',
     ];
 
     it.each(sectioningTags)('includes sectioning element <%s>', (tag) => {
@@ -70,9 +91,12 @@ describe('sanitizeSchema', () => {
   });
 
   describe('additional text-level elements', () => {
-    it.each(['u', 'bdi', 'data', 'output'])('includes text-level element <%s>', (tag) => {
-      expect(tags).toContain(tag);
-    });
+    it.each(['u', 'bdi', 'data', 'output'])(
+      'includes text-level element <%s>',
+      (tag) => {
+        expect(tags).toContain(tag);
+      },
+    );
   });
 
   describe('interactive/presentational elements', () => {
@@ -133,13 +157,33 @@ describe('sanitizeSchema', () => {
 
     it('allows src, alt, title, width, height, loading on img', () => {
       const imgAttrs = sanitizeSchema.attributes?.img ?? [];
-      expect(imgAttrs).toEqual(expect.arrayContaining(['src', 'alt', 'title', 'width', 'height', 'loading']));
+      expect(imgAttrs).toEqual(
+        expect.arrayContaining([
+          'src',
+          'alt',
+          'title',
+          'width',
+          'height',
+          'loading',
+        ]),
+      );
     });
 
     it('allows media attributes on video', () => {
       const videoAttrs = sanitizeSchema.attributes?.video ?? [];
       expect(videoAttrs).toEqual(
-        expect.arrayContaining(['src', 'controls', 'controlsList', 'preload', 'poster', 'width', 'height', 'muted', 'loop', 'playsinline']),
+        expect.arrayContaining([
+          'src',
+          'controls',
+          'controlsList',
+          'preload',
+          'poster',
+          'width',
+          'height',
+          'muted',
+          'loop',
+          'playsinline',
+        ]),
       );
     });
 
@@ -150,14 +194,26 @@ describe('sanitizeSchema', () => {
 
     it('allows href, title, target, rel on anchor', () => {
       const aAttrs = sanitizeSchema.attributes?.a ?? [];
-      expect(aAttrs).toEqual(expect.arrayContaining(['href', 'title', 'target', 'rel']));
+      expect(aAttrs).toEqual(
+        expect.arrayContaining(['href', 'title', 'target', 'rel']),
+      );
     });
 
     it('allows table cell attributes on td and th', () => {
       const tdAttrs = sanitizeSchema.attributes?.td ?? [];
       const thAttrs = sanitizeSchema.attributes?.th ?? [];
-      expect(tdAttrs).toEqual(expect.arrayContaining(['align', 'valign', 'colSpan', 'rowSpan']));
-      expect(thAttrs).toEqual(expect.arrayContaining(['align', 'valign', 'colSpan', 'rowSpan', 'scope']));
+      expect(tdAttrs).toEqual(
+        expect.arrayContaining(['align', 'valign', 'colSpan', 'rowSpan']),
+      );
+      expect(thAttrs).toEqual(
+        expect.arrayContaining([
+          'align',
+          'valign',
+          'colSpan',
+          'rowSpan',
+          'scope',
+        ]),
+      );
     });
 
     it('allows xmlns and display on math', () => {
@@ -167,7 +223,8 @@ describe('sanitizeSchema', () => {
 
     it('allows encoding on annotation and annotation-xml', () => {
       const annotationAttrs = sanitizeSchema.attributes?.annotation ?? [];
-      const annotationXmlAttrs = sanitizeSchema.attributes?.['annotation-xml'] ?? [];
+      const annotationXmlAttrs =
+        sanitizeSchema.attributes?.['annotation-xml'] ?? [];
       expect(annotationAttrs).toContain('encoding');
       expect(annotationXmlAttrs).toContain('encoding');
     });
@@ -194,7 +251,16 @@ describe('sanitizeSchema', () => {
 
     it('allows value, min, max, low, high, optimum on meter', () => {
       const meterAttrs = sanitizeSchema.attributes?.meter ?? [];
-      expect(meterAttrs).toEqual(expect.arrayContaining(['value', 'min', 'max', 'low', 'high', 'optimum']));
+      expect(meterAttrs).toEqual(
+        expect.arrayContaining([
+          'value',
+          'min',
+          'max',
+          'low',
+          'high',
+          'optimum',
+        ]),
+      );
     });
 
     it('allows span on col and colgroup', () => {

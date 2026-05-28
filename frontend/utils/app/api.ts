@@ -1,13 +1,25 @@
-import { nextEndPoints } from "./const";
+import { nextEndPoints } from './const';
 
-export type ApiErrorKind = 'client' | 'server' | 'network' | 'auth' | 'conflict' | 'timeout' | 'unknown';
+export type ApiErrorKind =
+  | 'client'
+  | 'server'
+  | 'network'
+  | 'auth'
+  | 'conflict'
+  | 'timeout'
+  | 'unknown';
 
 export class ApiError extends Error {
   status: number;
   kind: ApiErrorKind;
   body?: unknown;
 
-  constructor(message: string, status: number, kind: ApiErrorKind, body?: unknown) {
+  constructor(
+    message: string,
+    status: number,
+    kind: ApiErrorKind,
+    body?: unknown,
+  ) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
@@ -16,7 +28,11 @@ export class ApiError extends Error {
   }
 
   get isRetryable(): boolean {
-    return this.kind === 'server' || this.kind === 'network' || this.kind === 'timeout';
+    return (
+      this.kind === 'server' ||
+      this.kind === 'network' ||
+      this.kind === 'timeout'
+    );
   }
 }
 
@@ -45,11 +61,20 @@ async function readBody(res: Response): Promise<unknown> {
   }
 }
 
-async function throwForStatus(method: string, path: string, res: Response): Promise<never> {
+async function throwForStatus(
+  method: string,
+  path: string,
+  res: Response,
+): Promise<never> {
   const body = await readBody(res);
   const kind = kindFromStatus(res.status);
   const statusText = res.statusText ? ` ${res.statusText}` : '';
-  throw new ApiError(`${method} ${path} failed: ${res.status}${statusText}`, res.status, kind, body);
+  throw new ApiError(
+    `${method} ${path} failed: ${res.status}${statusText}`,
+    res.status,
+    kind,
+    body,
+  );
 }
 
 function networkError(method: string, path: string, err: unknown): never {
@@ -63,7 +88,9 @@ export const apiBase = () => {
   return process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000';
 };
 
-export const getEndpoint = ({ service = 'chat' as keyof typeof nextEndPoints }) => {
+export const getEndpoint = ({
+  service = 'chat' as keyof typeof nextEndPoints,
+}) => {
   return nextEndPoints[service];
 };
 
@@ -82,7 +109,10 @@ export async function apiGet<T>(path: string): Promise<T> {
   return res!.json() as Promise<T>;
 }
 
-export async function apiPut<TBody extends object, TResp = void>(path: string, body: TBody): Promise<TResp> {
+export async function apiPut<TBody extends object, TResp = void>(
+  path: string,
+  body: TBody,
+): Promise<TResp> {
   let res: Response;
   try {
     res = await fetch(`${apiBase()}${path}`, {
@@ -103,7 +133,10 @@ export async function apiPut<TBody extends object, TResp = void>(path: string, b
   return res!.json() as Promise<TResp>;
 }
 
-export async function apiPost<TBody extends object, TResp = void>(path: string, body: TBody): Promise<TResp> {
+export async function apiPost<TBody extends object, TResp = void>(
+  path: string,
+  body: TBody,
+): Promise<TResp> {
   let res: Response;
   try {
     res = await fetch(`${apiBase()}${path}`, {

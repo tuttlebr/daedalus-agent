@@ -1,5 +1,6 @@
-import { getPublisher, channels } from '@/server/session/redis';
 import { Conversation } from '@/types/chat';
+
+import { getPublisher, channels } from '@/server/session/redis';
 
 export type SyncEventType =
   | 'conversation_updated'
@@ -42,7 +43,7 @@ export interface StreamingStateEvent extends SyncEvent {
 // Publish a conversation update to all user sessions
 export async function publishConversationUpdate(
   userId: string,
-  conversation: Conversation
+  conversation: Conversation,
 ): Promise<void> {
   try {
     const publisher = getPublisher();
@@ -68,7 +69,7 @@ export async function publishStreamingState(
   userId: string,
   conversationId: string,
   isStreaming: boolean,
-  sessionId: string = ''
+  sessionId: string = '',
 ): Promise<void> {
   try {
     const publisher = getPublisher();
@@ -93,7 +94,7 @@ export async function publishStreamingState(
 // Publish a generic sync event
 export async function publishSyncEvent(
   userId: string,
-  event: SyncEvent
+  event: SyncEvent,
 ): Promise<void> {
   try {
     const publisher = getPublisher();

@@ -23,7 +23,11 @@ export interface AutonomyConfig {
   userId: string;
   mode: 'hybrid' | 'research_feed' | 'task_executor' | string;
   runtime: 'dedicated_worker' | string;
-  actionPolicy: 'broad_autonomy' | 'read_memory_only' | 'low_risk_writes' | string;
+  actionPolicy:
+    | 'broad_autonomy'
+    | 'read_memory_only'
+    | 'low_risk_writes'
+    | string;
   intervalSeconds: number;
   maxRunsStored: number;
   maxFeedItems: number;

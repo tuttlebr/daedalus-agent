@@ -26,7 +26,12 @@ export function AutonomyFeed({ items, config }: AutonomyFeedProps) {
   const sentinelRef = useRef<HTMLDivElement | null>(null);
 
   const counts = useMemo(() => {
-    const acc: Record<LaneFilter, number> = { all: 0, known: 0, adjacent: 0, scout: 0 };
+    const acc: Record<LaneFilter, number> = {
+      all: 0,
+      known: 0,
+      adjacent: 0,
+      scout: 0,
+    };
     for (const item of items) {
       const l = normalizeLane(item.lane);
       acc.all += 1;
@@ -40,7 +45,10 @@ export function AutonomyFeed({ items, config }: AutonomyFeedProps) {
     return items.filter((item) => normalizeLane(item.lane) === lane);
   }, [items, lane]);
 
-  const visibleItems = useMemo(() => filtered.slice(0, visibleCount), [filtered, visibleCount]);
+  const visibleItems = useMemo(
+    () => filtered.slice(0, visibleCount),
+    [filtered, visibleCount],
+  );
   const grouped = useMemo(() => groupByDay(visibleItems), [visibleItems]);
 
   useEffect(() => {
@@ -65,10 +73,14 @@ export function AutonomyFeed({ items, config }: AutonomyFeedProps) {
     return () => observer.disconnect();
   }, [filtered.length, visibleCount]);
 
-  const flatIds = useMemo(() => visibleItems.map((item) => item.id), [visibleItems]);
+  const flatIds = useMemo(
+    () => visibleItems.map((item) => item.id),
+    [visibleItems],
+  );
 
   useEffect(() => {
-    if (focusedId && !flatIds.includes(focusedId)) setFocusedId(flatIds[0] ?? null);
+    if (focusedId && !flatIds.includes(focusedId))
+      setFocusedId(flatIds[0] ?? null);
   }, [flatIds, focusedId]);
 
   const registerRef = useCallback((id: string, el: HTMLElement | null) => {
@@ -88,7 +100,11 @@ export function AutonomyFeed({ items, config }: AutonomyFeedProps) {
   useEffect(() => {
     function handleKey(event: KeyboardEvent) {
       const tag = (event.target as HTMLElement | null)?.tagName?.toLowerCase();
-      if (tag === 'input' || tag === 'textarea' || (event.target as HTMLElement | null)?.isContentEditable) {
+      if (
+        tag === 'input' ||
+        tag === 'textarea' ||
+        (event.target as HTMLElement | null)?.isContentEditable
+      ) {
         return;
       }
       if (event.metaKey || event.ctrlKey || event.altKey) return;
@@ -97,7 +113,8 @@ export function AutonomyFeed({ items, config }: AutonomyFeedProps) {
       event.preventDefault();
       const currentIndex = focusedId ? flatIds.indexOf(focusedId) : -1;
       if (event.key === 'j') {
-        const nextIdx = currentIndex < 0 ? 0 : Math.min(flatIds.length - 1, currentIndex + 1);
+        const nextIdx =
+          currentIndex < 0 ? 0 : Math.min(flatIds.length - 1, currentIndex + 1);
         focusItem(flatIds[nextIdx]);
       } else if (event.key === 'k') {
         const nextIdx = currentIndex <= 0 ? 0 : currentIndex - 1;
@@ -122,18 +139,34 @@ export function AutonomyFeed({ items, config }: AutonomyFeedProps) {
   }, [flatIds, focusedId, toggleExpanded]);
 
   if (!items.length) {
-    return <EmptyState intervalSeconds={config?.intervalSeconds} enabled={!!config?.enabled} filtered={false} />;
+    return (
+      <EmptyState
+        intervalSeconds={config?.intervalSeconds}
+        enabled={!!config?.enabled}
+        filtered={false}
+      />
+    );
   }
 
   return (
     <div>
       <LaneFilterChips value={lane} counts={counts} onChange={setLane} />
       {filtered.length === 0 ? (
-        <EmptyState intervalSeconds={config?.intervalSeconds} enabled={!!config?.enabled} filtered />
+        <EmptyState
+          intervalSeconds={config?.intervalSeconds}
+          enabled={!!config?.enabled}
+          filtered
+        />
       ) : (
-        <div role="feed" aria-busy={false} className="mx-auto max-w-[720px] px-1">
+        <div
+          role="feed"
+          aria-busy={false}
+          className="mx-auto max-w-[720px] px-1"
+        >
           {grouped.map((bucket, bucketIdx) => {
-            let posCounter = grouped.slice(0, bucketIdx).reduce((sum, b) => sum + b.items.length, 0);
+            let posCounter = grouped
+              .slice(0, bucketIdx)
+              .reduce((sum, b) => sum + b.items.length, 0);
             return (
               <DayGroup key={bucket.dayStart} label={bucket.label}>
                 {bucket.items.map((item) => {

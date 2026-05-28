@@ -1,13 +1,16 @@
 import { FC, memo } from 'react';
 import ReactMarkdown, { Options } from 'react-markdown';
-import remarkGfm from 'remark-gfm';
-import remarkMath from 'remark-math';
+
+import { normalizeLatexDelimiters } from '@/utils/app/latexNormalizer';
+import { sanitizeSchema } from '@/utils/app/sanitizeSchema';
+
+import { getReactMarkDownCustomComponents } from './CustomComponents';
+
 import rehypeKatex from 'rehype-katex';
 import rehypeRaw from 'rehype-raw';
 import rehypeSanitize from 'rehype-sanitize';
-import { sanitizeSchema } from '@/utils/app/sanitizeSchema';
-import { getReactMarkDownCustomComponents } from './CustomComponents';
-import { normalizeLatexDelimiters } from '@/utils/app/latexNormalizer';
+import remarkGfm from 'remark-gfm';
+import remarkMath from 'remark-math';
 
 interface MarkdownRendererProps extends Omit<Options, 'children'> {
   content: string;
@@ -56,10 +59,14 @@ export const MarkdownRenderer: FC<MarkdownRendererProps> = memo(
     ...props
   }) => {
     // Normalize LaTeX delimiters before processing
-    const normalizedContent = enableMath ? normalizeLatexDelimiters(content) : content;
+    const normalizedContent = enableMath
+      ? normalizeLatexDelimiters(content)
+      : content;
 
     // Build rehype plugins
-    const rehypePlugins: any[] = allowHtml ? [rehypeRaw, [rehypeSanitize, sanitizeSchema]] : [];
+    const rehypePlugins: any[] = allowHtml
+      ? [rehypeRaw, [rehypeSanitize, sanitizeSchema]]
+      : [];
     if (enableMath) {
       rehypePlugins.push(rehypeKatex);
     }
@@ -90,7 +97,7 @@ export const MarkdownRenderer: FC<MarkdownRendererProps> = memo(
       prevProps.messageId === nextProps.messageId &&
       prevProps.className === nextProps.className
     );
-  }
+  },
 );
 
 MarkdownRenderer.displayName = 'MarkdownRenderer';

@@ -70,9 +70,10 @@ export const AssistantMessage = memo(
     const errorMessages = message.errorMessages;
     const hasError = Boolean(errorMessages?.message);
     const isRecoverable = errorMessages?.recoverable === true;
-    const htmlPreviewContent = !isStreaming && !isAutonomousFeedHtml
-      ? extractStandaloneHtmlResponse(content)
-      : null;
+    const htmlPreviewContent =
+      !isStreaming && !isAutonomousFeedHtml
+        ? extractStandaloneHtmlResponse(content)
+        : null;
 
     // After render, check if the actual rendered height exceeds the threshold
     useEffect(() => {
@@ -265,14 +266,14 @@ export const AssistantMessage = memo(
                 )}
               </div>
 
-              {/* Action buttons */}
+              {/* Action buttons — always visible on touch, hover-only on desktop */}
               {!isStreaming && content && (
-                <div className="flex items-center gap-1 mt-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                <div className="flex items-center gap-1 mt-1 opacity-100 transition-opacity md:opacity-0 md:group-hover:opacity-100">
                   <IconButton
                     icon={copied ? <IconCheck /> : <IconCopy />}
                     aria-label="Copy message"
                     variant="ghost"
-                    size="xs"
+                    size="sm"
                     onClick={handleCopy}
                   />
                   {onRetry && (
@@ -280,7 +281,7 @@ export const AssistantMessage = memo(
                       icon={<IconRefresh />}
                       aria-label="Regenerate response"
                       variant="ghost"
-                      size="xs"
+                      size="sm"
                       onClick={onRetry}
                     />
                   )}
@@ -294,7 +295,7 @@ export const AssistantMessage = memo(
         {isFullscreen && (
           <div className="fixed inset-0 z-[200] bg-dark-bg-primary/95 backdrop-blur-xl flex flex-col">
             {/* Toolbar */}
-            <div className="flex-shrink-0 flex items-center justify-between px-6 py-3 border-b border-white/[0.06]">
+            <div className="safe-top flex-shrink-0 flex items-center justify-between px-6 py-3 border-b border-white/[0.06]">
               <div className="flex items-center gap-2 text-sm text-dark-text-muted">
                 <IconFileText size={16} className="text-nvidia-green" />
                 <span>Document View</span>
@@ -318,7 +319,7 @@ export const AssistantMessage = memo(
             </div>
 
             {/* Scrollable content */}
-            <div className="flex-1 overflow-y-auto px-6 py-6 md:px-12 lg:px-24">
+            <div className="safe-bottom flex-1 overflow-y-auto px-6 py-6 md:px-12 lg:px-24">
               <div className="max-w-4xl mx-auto">
                 <MarkdownRenderer
                   content={content}

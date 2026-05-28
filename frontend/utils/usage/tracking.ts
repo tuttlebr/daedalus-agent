@@ -1,5 +1,6 @@
-import { getRedis, sessionKey, jsonGet, jsonSet } from '@/server/session/redis';
 import { Logger } from '@/utils/logger';
+
+import { getRedis, sessionKey, jsonGet, jsonSet } from '@/server/session/redis';
 
 const logger = new Logger('UsageTracking');
 
@@ -23,7 +24,7 @@ export interface UserUsageStats {
   request_count: number;
   first_request_at: number;
   last_request_at: number;
-  daily_usage: Record<string, UsageData>;  // Date string (YYYY-MM-DD) -> usage
+  daily_usage: Record<string, UsageData>; // Date string (YYYY-MM-DD) -> usage
   monthly_usage: Record<string, UsageData>; // Month string (YYYY-MM) -> usage
 }
 
@@ -53,7 +54,9 @@ function getCurrentMonthString(): string {
 /**
  * Initialize user usage stats if they don't exist
  */
-async function initializeUserUsageStats(username: string): Promise<UserUsageStats> {
+async function initializeUserUsageStats(
+  username: string,
+): Promise<UserUsageStats> {
   const stats: UserUsageStats = {
     username,
     total_prompt_tokens: 0,
@@ -76,21 +79,27 @@ async function initializeUserUsageStats(username: string): Promise<UserUsageStat
  * @param username - The username to track usage for
  * @param usage - Usage data from the API response
  */
-export async function trackUserUsage(username: string, usage: UsageData): Promise<void> {
+export async function trackUserUsage(
+  username: string,
+  usage: UsageData,
+): Promise<void> {
   const redis = getRedis();
   const key = getUserUsageKey(username);
 
   logger.debug('trackUserUsage called', {
     username,
     key,
-    usage
+    usage,
   });
 
   try {
     // Get existing stats or initialize new ones
-    let stats = await jsonGet(key) as UserUsageStats | null;
+    let stats = (await jsonGet(key)) as UserUsageStats | null;
 
-    logger.debug('existing stats', stats ? 'found' : 'not found, will initialize');
+    logger.debug(
+      'existing stats',
+      stats ? 'found' : 'not found, will initialize',
+    );
 
     if (!stats) {
       logger.info('initializing new user stats for', username);
@@ -108,7 +117,7 @@ export async function trackUserUsage(username: string, usage: UsageData): Promis
       total_prompt_tokens: stats.total_prompt_tokens,
       total_completion_tokens: stats.total_completion_tokens,
       total_tokens: stats.total_tokens,
-      request_count: stats.request_count
+      request_count: stats.request_count,
     });
 
     // Update total usage
@@ -139,7 +148,8 @@ export async function trackUserUsage(username: string, usage: UsageData): Promis
       };
     }
     stats.monthly_usage[monthString].prompt_tokens += usage.prompt_tokens;
-    stats.monthly_usage[monthString].completion_tokens += usage.completion_tokens;
+    stats.monthly_usage[monthString].completion_tokens +=
+      usage.completion_tokens;
     stats.monthly_usage[monthString].total_tokens += usage.total_tokens;
 
     // Log after update
@@ -147,14 +157,16 @@ export async function trackUserUsage(username: string, usage: UsageData): Promis
       total_prompt_tokens: stats.total_prompt_tokens,
       total_completion_tokens: stats.total_completion_tokens,
       total_tokens: stats.total_tokens,
-      request_count: stats.request_count
+      request_count: stats.request_count,
     });
 
     // Save updated stats
     logger.debug('saving updated stats to Redis key', key);
     await jsonSet(key, '.', stats);
 
-    logger.info(`usage tracked successfully for user ${username}: ${usage.total_tokens} total tokens (${usage.prompt_tokens} prompt + ${usage.completion_tokens} completion)`);
+    logger.info(
+      `usage tracked successfully for user ${username}: ${usage.total_tokens} total tokens (${usage.prompt_tokens} prompt + ${usage.completion_tokens} completion)`,
+    );
   } catch (error) {
     logger.error('error in trackUserUsage', error);
     throw error;
@@ -166,11 +178,13 @@ export async function trackUserUsage(username: string, usage: UsageData): Promis
  * @param username - The username to get stats for
  * @returns User usage statistics or null if not found
  */
-export async function getUserUsageStats(username: string): Promise<UserUsageStats | null> {
+export async function getUserUsageStats(
+  username: string,
+): Promise<UserUsageStats | null> {
   const key = getUserUsageKey(username);
 
   try {
-    const stats = await jsonGet(key) as UserUsageStats | null;
+    const stats = (await jsonGet(key)) as UserUsageStats | null;
     return stats;
   } catch (error) {
     logger.error('Error getting user usage stats', error);
@@ -192,7 +206,7 @@ export async function getAllUsageStats(): Promise<UserUsageStats[]> {
 
     if (keys.length > 0) {
       for (const key of keys) {
-        const userStats = await jsonGet(key) as UserUsageStats | null;
+        const userStats = (await jsonGet(key)) as UserUsageStats | null;
         if (userStats) {
           stats.push(userStats);
         }
@@ -230,7 +244,7 @@ export async function cleanupOldUsageData(username: string): Promise<void> {
   const key = getUserUsageKey(username);
 
   try {
-    const stats = await jsonGet(key) as UserUsageStats | null;
+    const stats = (await jsonGet(key)) as UserUsageStats | null;
     if (!stats) return;
 
     const cutoffDate = new Date();

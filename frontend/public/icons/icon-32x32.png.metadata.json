@@ -36,11 +36,7 @@
     "scene": "A solitary figure seated at a desk or table, head bowed.",
     "setting_type": "indoor",
     "detected_text": [],
-    "dominant_colors": [
-      "black",
-      "white",
-      "gray"
-    ],
+    "dominant_colors": ["black", "white", "gray"],
     "people": [
       {
         "count_estimate": 1,
@@ -48,11 +44,7 @@
         "activity": "seated and hunched over a surface"
       }
     ],
-    "objects": [
-      "table",
-      "desk",
-      "figure"
-    ],
+    "objects": ["table", "desk", "figure"],
     "quality": {
       "sharpness": "blurry",
       "exposure": "balanced",

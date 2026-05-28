@@ -119,7 +119,7 @@ export function useKeyboardShortcuts({
         return;
       }
     },
-    [enabled, shortcuts]
+    [enabled, shortcuts],
   );
 
   useEffect(() => {

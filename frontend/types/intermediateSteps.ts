@@ -1,47 +1,47 @@
 // TypeScript definitions matching backend NAT intermediate steps structure
 
 export enum IntermediateStepType {
-  LLM_START = "LLM_START",
-  LLM_END = "LLM_END",
-  LLM_NEW_TOKEN = "LLM_NEW_TOKEN",
-  TOOL_START = "TOOL_START",
-  TOOL_END = "TOOL_END",
-  WORKFLOW_START = "WORKFLOW_START",
-  WORKFLOW_END = "WORKFLOW_END",
-  TASK_START = "TASK_START",
-  TASK_END = "TASK_END",
-  TTC_START = "TTC_START",
-  TTC_END = "TTC_END",
-  FUNCTION_START = "FUNCTION_START",
-  FUNCTION_END = "FUNCTION_END",
-  CUSTOM_START = "CUSTOM_START",
-  CUSTOM_END = "CUSTOM_END",
-  SPAN_START = "SPAN_START",
-  SPAN_CHUNK = "SPAN_CHUNK",
-  SPAN_END = "SPAN_END"
+  LLM_START = 'LLM_START',
+  LLM_END = 'LLM_END',
+  LLM_NEW_TOKEN = 'LLM_NEW_TOKEN',
+  TOOL_START = 'TOOL_START',
+  TOOL_END = 'TOOL_END',
+  WORKFLOW_START = 'WORKFLOW_START',
+  WORKFLOW_END = 'WORKFLOW_END',
+  TASK_START = 'TASK_START',
+  TASK_END = 'TASK_END',
+  TTC_START = 'TTC_START',
+  TTC_END = 'TTC_END',
+  FUNCTION_START = 'FUNCTION_START',
+  FUNCTION_END = 'FUNCTION_END',
+  CUSTOM_START = 'CUSTOM_START',
+  CUSTOM_END = 'CUSTOM_END',
+  SPAN_START = 'SPAN_START',
+  SPAN_CHUNK = 'SPAN_CHUNK',
+  SPAN_END = 'SPAN_END',
 }
 
 export enum IntermediateStepCategory {
-  LLM = "LLM",
-  TOOL = "TOOL",
-  WORKFLOW = "WORKFLOW",
-  TASK = "TASK",
-  TTC = "TTC",
-  FUNCTION = "FUNCTION",
-  CUSTOM = "CUSTOM",
-  SPAN = "SPAN"
+  LLM = 'LLM',
+  TOOL = 'TOOL',
+  WORKFLOW = 'WORKFLOW',
+  TASK = 'TASK',
+  TTC = 'TTC',
+  FUNCTION = 'FUNCTION',
+  CUSTOM = 'CUSTOM',
+  SPAN = 'SPAN',
 }
 
 export enum IntermediateStepState {
-  START = "START",
-  CHUNK = "CHUNK",
-  END = "END"
+  START = 'START',
+  CHUNK = 'CHUNK',
+  END = 'END',
 }
 
 export enum LLMFrameworkEnum {
-  LANGCHAIN = "LANGCHAIN",
-  LLAMA_INDEX = "LLAMA_INDEX",
-  CUSTOM = "CUSTOM"
+  LANGCHAIN = 'LANGCHAIN',
+  LLAMA_INDEX = 'LLAMA_INDEX',
+  CUSTOM = 'CUSTOM',
 }
 
 export interface StreamEventData {
@@ -70,7 +70,7 @@ export interface UsageInfo {
 export interface ToolParameters {
   properties: Record<string, any>;
   required: string[];
-  type: "object";
+  type: 'object';
   additionalProperties?: boolean;
   strict?: boolean;
 }
@@ -82,7 +82,7 @@ export interface ToolDetails {
 }
 
 export interface ToolSchema {
-  type: "function";
+  type: 'function';
   function: ToolDetails;
 }
 
@@ -128,7 +128,9 @@ export interface IntermediateStep {
 }
 
 // Helper functions to get event category and state
-export function getEventCategory(eventType: IntermediateStepType): IntermediateStepCategory {
+export function getEventCategory(
+  eventType: IntermediateStepType,
+): IntermediateStepCategory {
   switch (eventType) {
     case IntermediateStepType.LLM_START:
     case IntermediateStepType.LLM_END:
@@ -161,7 +163,9 @@ export function getEventCategory(eventType: IntermediateStepType): IntermediateS
   }
 }
 
-export function getEventState(eventType: IntermediateStepType): IntermediateStepState {
+export function getEventState(
+  eventType: IntermediateStepType,
+): IntermediateStepState {
   switch (eventType) {
     case IntermediateStepType.LLM_START:
     case IntermediateStepType.TOOL_START:

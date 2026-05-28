@@ -34,11 +34,7 @@
     "scene": "Abstract icon representation",
     "setting_type": "unknown",
     "detected_text": [],
-    "dominant_colors": [
-      "black",
-      "gray",
-      "white"
-    ],
+    "dominant_colors": ["black", "gray", "white"],
     "people": [
       {
         "count_estimate": 1,
@@ -46,10 +42,7 @@
         "activity": "sitting"
       }
     ],
-    "objects": [
-      "desk",
-      "chair"
-    ],
+    "objects": ["desk", "chair"],
     "quality": {
       "sharpness": "blurry",
       "exposure": "balanced",

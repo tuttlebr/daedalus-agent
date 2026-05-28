@@ -1,4 +1,9 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
+
+import handler from '@/pages/api/autonomy/queue';
+
+import { listQueuedRequests } from '@/server/autonomy/store';
+import { requireAuthenticatedUser } from '@/server/session/_utils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/server/session/_utils', () => ({
@@ -8,10 +13,6 @@ vi.mock('@/server/session/_utils', () => ({
 vi.mock('@/server/autonomy/store', () => ({
   listQueuedRequests: vi.fn(),
 }));
-
-import handler from '@/pages/api/autonomy/queue';
-import { listQueuedRequests } from '@/server/autonomy/store';
-import { requireAuthenticatedUser } from '@/server/session/_utils';
 
 function createMockReqRes(method: string) {
   const req = { method } as NextApiRequest;

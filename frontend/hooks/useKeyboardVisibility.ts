@@ -4,7 +4,7 @@ export const useKeyboardVisibility = () => {
   const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
   const [viewportHeight, setViewportHeight] = useState(
-    typeof window !== 'undefined' ? window.innerHeight : 0
+    typeof window !== 'undefined' ? window.innerHeight : 0,
   );
 
   useEffect(() => {
@@ -44,12 +44,24 @@ export const useKeyboardVisibility = () => {
         setViewportHeight(visualViewport.height);
       };
 
-      window.visualViewport.addEventListener('resize', handleVisualViewportChange);
-      window.visualViewport.addEventListener('scroll', handleVisualViewportChange);
+      window.visualViewport.addEventListener(
+        'resize',
+        handleVisualViewportChange,
+      );
+      window.visualViewport.addEventListener(
+        'scroll',
+        handleVisualViewportChange,
+      );
 
       return () => {
-        window.visualViewport?.removeEventListener('resize', handleVisualViewportChange);
-        window.visualViewport?.removeEventListener('scroll', handleVisualViewportChange);
+        window.visualViewport?.removeEventListener(
+          'resize',
+          handleVisualViewportChange,
+        );
+        window.visualViewport?.removeEventListener(
+          'scroll',
+          handleVisualViewportChange,
+        );
       };
     } else {
       // Fallback for browsers without Visual Viewport API

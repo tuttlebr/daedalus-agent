@@ -9,9 +9,13 @@ import {
 } from '@/types/export';
 import { FolderInterface } from '@/types/folder';
 import { Prompt } from '@/types/prompt';
-import { getUserSessionItem, setUserSessionItem, removeUserSessionItem } from './storage';
 
 import { cleanConversationHistory } from './clean';
+import {
+  getUserSessionItem,
+  setUserSessionItem,
+  removeUserSessionItem,
+} from './storage';
 
 export function isExportFormatV1(obj: any): obj is ExportFormatV1 {
   return Array.isArray(obj);

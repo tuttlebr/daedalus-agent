@@ -1,3 +1,8 @@
+// --- Import handler and mocked modules ---
+import handler from '@/pages/api/push/subscribe';
+
+import { requireAuthenticatedUser } from '@/server/session/_utils';
+import { jsonGet, jsonSetWithExpiry, jsonDel } from '@/server/session/redis';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // --- Mocks ---
@@ -18,12 +23,6 @@ vi.mock('@/server/session/_utils', () => ({
   requireAuthenticatedUser: authMocks.requireAuthenticatedUser,
 }));
 
-// --- Import handler and mocked modules ---
-
-import handler from '@/pages/api/push/subscribe';
-import { requireAuthenticatedUser } from '@/server/session/_utils';
-import { jsonGet, jsonSetWithExpiry, jsonDel } from '@/server/session/redis';
-
 // --- Helpers ---
 
 function createMockReqRes(method: string, body: any = {}) {
@@ -42,7 +41,9 @@ function createMockReqRes(method: string, body: any = {}) {
 describe('push/subscribe API handler', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    (requireAuthenticatedUser as any).mockResolvedValue({ username: 'user-123' });
+    (requireAuthenticatedUser as any).mockResolvedValue({
+      username: 'user-123',
+    });
   });
 
   // ----- Authentication -----
@@ -129,12 +130,16 @@ describe('push/subscribe API handler', () => {
     });
 
     it('returns 400 for invalid subscription (missing endpoint)', async () => {
-      const { req, res } = createMockReqRes('POST', { keys: { p256dh: 'k', auth: 'a' } });
+      const { req, res } = createMockReqRes('POST', {
+        keys: { p256dh: 'k', auth: 'a' },
+      });
 
       await handler(req, res);
 
       expect(res.status).toHaveBeenCalledWith(400);
-      expect(res.json).toHaveBeenCalledWith({ error: 'Invalid push subscription' });
+      expect(res.json).toHaveBeenCalledWith({
+        error: 'Invalid push subscription',
+      });
     });
 
     it('returns 400 for empty body', async () => {
@@ -143,7 +148,9 @@ describe('push/subscribe API handler', () => {
       await handler(req, res);
 
       expect(res.status).toHaveBeenCalledWith(400);
-      expect(res.json).toHaveBeenCalledWith({ error: 'Invalid push subscription' });
+      expect(res.json).toHaveBeenCalledWith({
+        error: 'Invalid push subscription',
+      });
     });
 
     it('returns 500 when Redis fails during POST', async () => {
@@ -154,7 +161,9 @@ describe('push/subscribe API handler', () => {
       await handler(req, res);
 
       expect(res.status).toHaveBeenCalledWith(500);
-      expect(res.json).toHaveBeenCalledWith({ error: 'Failed to store subscription' });
+      expect(res.json).toHaveBeenCalledWith({
+        error: 'Failed to store subscription',
+      });
     });
   });
 
@@ -193,7 +202,9 @@ describe('push/subscribe API handler', () => {
       await handler(req, res);
 
       // When no subscriptions remain, should delete the key entirely
-      expect(jsonDel).toHaveBeenCalledWith('daedalus:user:user-123:push-subscriptions');
+      expect(jsonDel).toHaveBeenCalledWith(
+        'daedalus:user:user-123:push-subscriptions',
+      );
       expect(jsonSetWithExpiry).not.toHaveBeenCalled();
       expect(res.status).toHaveBeenCalledWith(200);
     });
@@ -216,7 +227,9 @@ describe('push/subscribe API handler', () => {
       await handler(req, res);
 
       expect(res.status).toHaveBeenCalledWith(500);
-      expect(res.json).toHaveBeenCalledWith({ error: 'Failed to remove subscription' });
+      expect(res.json).toHaveBeenCalledWith({
+        error: 'Failed to remove subscription',
+      });
     });
   });
 
