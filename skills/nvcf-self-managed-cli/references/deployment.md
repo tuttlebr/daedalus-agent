@@ -57,37 +57,37 @@ If `--function-id` and `--version-id` are omitted, the CLI uses the saved state 
 
 ### Required Fields
 
-| Field | Flag | JSON Key | Default | Description |
-|-------|------|----------|---------|-------------|
-| GPU | `--gpu` | `gpu` | `H100` | GPU type |
-| Instance Type | `--instance-type` | `instanceType` | `NCP.GPU.H100_1x` | Instance type |
-| Min Instances | `--min-instances` | `minInstances` | `1` | Minimum number of instances |
-| Max Instances | `--max-instances` | `maxInstances` | `1` | Maximum number of instances |
+| Field         | Flag              | JSON Key       | Default           | Description                 |
+| ------------- | ----------------- | -------------- | ----------------- | --------------------------- |
+| GPU           | `--gpu`           | `gpu`          | `H100`            | GPU type                    |
+| Instance Type | `--instance-type` | `instanceType` | `NCP.GPU.H100_1x` | Instance type               |
+| Min Instances | `--min-instances` | `minInstances` | `1`               | Minimum number of instances |
+| Max Instances | `--max-instances` | `maxInstances` | `1`               | Maximum number of instances |
 
 ### Optional Fields
 
-| Field | Flag | JSON Key | Description |
-|-------|------|----------|-------------|
-| Concurrency | `--max-request-concurrency` | `maxRequestConcurrency` | Max concurrent requests per instance (1-1024) |
-| Backend | `--backend` | `backend` | Cloud provider / backend |
-| Clusters | `--clusters` | `clusters` | Specific clusters to deploy to |
-| Regions | `--regions` | `regions` | Allowed regions |
-| Availability Zones | `--availability-zones` | `availabilityZones` | Availability zones within cluster group |
-| Attributes | `--attributes` | `attributes` | Specific attribute capabilities |
-| Preferred Order | `--preferred-order` | `preferredOrder` | Deployment priority for multi-spec |
-| Timeout | `--timeout` | N/A | Deployment timeout in seconds (default: 900) |
-| Cluster Name | `--cluster-name` | `clusterName` | Legacy cluster name (default: `GFN`, prefer `--backend`) |
+| Field              | Flag                        | JSON Key                | Description                                              |
+| ------------------ | --------------------------- | ----------------------- | -------------------------------------------------------- |
+| Concurrency        | `--max-request-concurrency` | `maxRequestConcurrency` | Max concurrent requests per instance (1-1024)            |
+| Backend            | `--backend`                 | `backend`               | Cloud provider / backend                                 |
+| Clusters           | `--clusters`                | `clusters`              | Specific clusters to deploy to                           |
+| Regions            | `--regions`                 | `regions`               | Allowed regions                                          |
+| Availability Zones | `--availability-zones`      | `availabilityZones`     | Availability zones within cluster group                  |
+| Attributes         | `--attributes`              | `attributes`            | Specific attribute capabilities                          |
+| Preferred Order    | `--preferred-order`         | `preferredOrder`        | Deployment priority for multi-spec                       |
+| Timeout            | `--timeout`                 | N/A                     | Deployment timeout in seconds (default: 900)             |
+| Cluster Name       | `--cluster-name`            | `clusterName`           | Legacy cluster name (default: `GFN`, prefer `--backend`) |
 
 ### Hardware Specification Fields
 
-| Field | Flag | Description |
-|-------|------|-------------|
-| CPU Architecture | `--cpu-arch` | CPU architecture details |
-| Driver Version | `--driver-version` | GPU driver version |
-| GPU Memory | `--gpu-memory` | Amount of GPU memory |
-| OS | `--os` | Operating system details |
-| Storage | `--storage` | Available storage (e.g., `80G`) |
-| System Memory | `--system-memory` | Amount of RAM |
+| Field            | Flag               | Description                     |
+| ---------------- | ------------------ | ------------------------------- |
+| CPU Architecture | `--cpu-arch`       | CPU architecture details        |
+| Driver Version   | `--driver-version` | GPU driver version              |
+| GPU Memory       | `--gpu-memory`     | Amount of GPU memory            |
+| OS               | `--os`             | Operating system details        |
+| Storage          | `--storage`        | Available storage (e.g., `80G`) |
+| System Memory    | `--system-memory`  | Amount of RAM                   |
 
 ### Multi-Spec Deployments
 
@@ -181,13 +181,13 @@ The `nvca.nvcf.nvidia.io/instance-type` label on each node determines which `--i
 
 Common GPU types and instance type formats:
 
-| GPU | Instance Type Example | Description |
-|-----|----------------------|-------------|
-| `H100` | `NCP.GPU.H100_1x` | NVIDIA H100, large-scale workloads |
-| `A100` | `NCP.GPU.A100_1x` | NVIDIA A100, training and inference |
-| `A10G` | `NCP.GPU.A10G_1x` | NVIDIA A10G, cost-effective inference |
-| `L40S` | `NCP.GPU.L40S_1x` | NVIDIA L40S, enhanced inference |
-| `L40` | `NCP.GPU.L40_1x` | NVIDIA L40, inference and light training |
+| GPU    | Instance Type Example | Description                              |
+| ------ | --------------------- | ---------------------------------------- |
+| `H100` | `NCP.GPU.H100_1x`     | NVIDIA H100, large-scale workloads       |
+| `A100` | `NCP.GPU.A100_1x`     | NVIDIA A100, training and inference      |
+| `A10G` | `NCP.GPU.A10G_1x`     | NVIDIA A10G, cost-effective inference    |
+| `L40S` | `NCP.GPU.L40S_1x`     | NVIDIA L40S, enhanced inference          |
+| `L40`  | `NCP.GPU.L40_1x`      | NVIDIA L40, inference and light training |
 
 Instance type naming convention: `NCP.GPU.<GPU_TYPE>_<count>x` where `<count>` is the number of GPUs allocated to each function instance. For example, `NCP.GPU.H100_1x` allocates 1 H100 GPU, while `NCP.GPU.H100_4x` allocates 4 H100 GPUs.
 

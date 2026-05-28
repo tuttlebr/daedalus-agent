@@ -18,6 +18,7 @@ Detailed reference for invoking NVCF functions via HTTP and gRPC.
 ```
 
 **Do NOT use** commands that could leak the key:
+
 - `echo $NGC_API_KEY` - exposes the key
 - `printenv NGC_API_KEY` - exposes the key
 - `env | grep NGC` - may expose the key
@@ -186,11 +187,11 @@ for line in response.iter_lines():
 
 For gRPC functions, use host `grpc.nvcf.nvidia.com:443` with metadata:
 
-| Metadata Key | Value | Required |
-|--------------|-------|----------|
-| `function-id` | Your function ID | Yes |
-| `authorization` | `Bearer nvapi-<token>` | Yes |
-| `function-version-id` | Specific version ID | No |
+| Metadata Key          | Value                  | Required |
+| --------------------- | ---------------------- | -------- |
+| `function-id`         | Your function ID       | Yes      |
+| `authorization`       | `Bearer nvapi-<token>` | Yes      |
+| `function-version-id` | Specific version ID    | No       |
 
 ### Python gRPC example
 
@@ -230,12 +231,12 @@ curl -s --request GET \
 
 ### Common spec paths
 
-| Path | Framework |
-|------|-----------|
+| Path            | Framework                             |
+| --------------- | ------------------------------------- |
 | `/openapi.json` | FastAPI, vLLM, most Python frameworks |
-| `/swagger.json` | Swagger/OpenAPI 2.0 |
-| `/docs` | FastAPI interactive docs (HTML) |
-| `/redoc` | ReDoc documentation (HTML) |
+| `/swagger.json` | Swagger/OpenAPI 2.0                   |
+| `/docs`         | FastAPI interactive docs (HTML)       |
+| `/redoc`        | ReDoc documentation (HTML)            |
 
 ### Discovering available endpoints
 
@@ -249,25 +250,25 @@ curl -s --request GET \
 
 NVCF includes useful headers in responses:
 
-| Header | Description |
-|--------|-------------|
-| `NVCF-REQID` | Unique request ID for debugging |
-| `NVCF-STATUS` | Request status |
-| `NVCF-FUNCTION-ID` | Function that handled the request |
-| `NVCF-FUNCTION-VERSION-ID` | Version that handled the request |
+| Header                     | Description                       |
+| -------------------------- | --------------------------------- |
+| `NVCF-REQID`               | Unique request ID for debugging   |
+| `NVCF-STATUS`              | Request status                    |
+| `NVCF-FUNCTION-ID`         | Function that handled the request |
+| `NVCF-FUNCTION-VERSION-ID` | Version that handled the request  |
 
 ## Error Handling
 
 ### Common HTTP status codes
 
-| Code | Meaning | Action |
-|------|---------|--------|
-| 401 | Unauthorized | Check API key format and permissions |
-| 403 | Forbidden | Verify function authorization |
-| 404 | Not found | Check function ID and inference URL path |
-| 429 | Rate limited | Reduce request rate or request exemption |
-| 500 | Server error | Check function logs |
-| 503 | Service unavailable | Function may be scaling or unhealthy |
+| Code | Meaning             | Action                                   |
+| ---- | ------------------- | ---------------------------------------- |
+| 401  | Unauthorized        | Check API key format and permissions     |
+| 403  | Forbidden           | Verify function authorization            |
+| 404  | Not found           | Check function ID and inference URL path |
+| 429  | Rate limited        | Reduce request rate or request exemption |
+| 500  | Server error        | Check function logs                      |
+| 503  | Service unavailable | Function may be scaling or unhealthy     |
 
 ### Debugging failed requests
 

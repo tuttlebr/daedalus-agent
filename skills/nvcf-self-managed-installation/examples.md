@@ -201,7 +201,7 @@ Edit `environments/<env>.yaml` and replace the `domain` value:
 
 ```yaml
 global:
-  domain: "NEW_GATEWAY_ADDR"
+  domain: 'NEW_GATEWAY_ADDR'
 ```
 
 ### Step 3: Re-sync affected releases
@@ -240,12 +240,12 @@ HELMFILE_ENV=<env> helmfile --selector name=cassandra sync
 
 ### Selector reference
 
-| Selector | Releases |
-|----------|----------|
-| `release-group=dependencies` | nats, cassandra, openbao-server |
-| `release-group=services` | api-keys, sis, api, invocation-service, grpc-proxy, ess-api, notary-service |
-| `release-group=ingress` | ingress (gateway routes) |
-| `release-group=workers` | nvca-operator |
-| `name=<release>` | Any individual release by name |
+| Selector                     | Releases                                                                    |
+| ---------------------------- | --------------------------------------------------------------------------- |
+| `release-group=dependencies` | nats, cassandra, openbao-server                                             |
+| `release-group=services`     | api-keys, sis, api, invocation-service, grpc-proxy, ess-api, notary-service |
+| `release-group=ingress`      | ingress (gateway routes)                                                    |
+| `release-group=workers`      | nvca-operator                                                               |
+| `name=<release>`             | Any individual release by name                                              |
 
 Note: `admin-issuer-proxy` does not have a release-group label. Target it with `--selector name=admin-issuer-proxy`.

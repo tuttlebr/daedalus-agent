@@ -37,13 +37,13 @@ ngc cf fn create \
 
 ### Container image formats
 
-| Registry | Format | Example |
-|----------|--------|---------|
-| NGC | `<org>/[<team>/]<image>:<tag>` | `nvidia/pytorch:24.01-py3` |
-| Docker Hub | `docker.io/<org>/<image>:<tag>` | `docker.io/vllm/vllm-openai:latest` |
+| Registry          | Format                                                     | Example                                                      |
+| ----------------- | ---------------------------------------------------------- | ------------------------------------------------------------ |
+| NGC               | `<org>/[<team>/]<image>:<tag>`                             | `nvidia/pytorch:24.01-py3`                                   |
+| Docker Hub        | `docker.io/<org>/<image>:<tag>`                            | `docker.io/vllm/vllm-openai:latest`                          |
 | AWS ECR (private) | `<account_id>.dkr.ecr.<region>.amazonaws.com/<repo>:<tag>` | `123456789012.dkr.ecr.us-east-1.amazonaws.com/my-app:latest` |
-| AWS ECR (public) | `public.ecr.aws/<alias>/<repo>:<tag>` | `public.ecr.aws/my-alias/my-app:latest` |
-| Other registries | Full URL with registry | `ghcr.io/org/image:tag` |
+| AWS ECR (public)  | `public.ecr.aws/<alias>/<repo>:<tag>`                      | `public.ecr.aws/my-alias/my-app:latest`                      |
+| Other registries  | Full URL with registry                                     | `ghcr.io/org/image:tag`                                      |
 
 **Important:** Third-party images require the full registry path. Using short forms will fail with "Invalid artifact provided".
 
@@ -66,6 +66,7 @@ NVCF uses a health endpoint to determine when a container is ready to receive tr
 **Agent instructions:** When creating a function, always consider whether the container exposes the default health endpoint. If the container is not Triton-based, you should set `--health-uri` (and `--health-port` if needed) at function creation time. Do not modify the user's application code to add a `/v2/health/ready` endpoint -- use the CLI flags to match the container's actual health endpoint instead.
 
 Common patterns:
+
 - **FastAPI / uvicorn apps**: Typically serve a health route like `/health` or `/` on port `8000`
 - **vLLM**: Uses `/health` on port `8000`
 - **Triton Inference Server**: Uses the default `/v2/health/ready` on port `8000` (no flags needed)
@@ -127,17 +128,17 @@ ngc cf fn deploy create <function-id>:<version-id> \
 
 All fields after `max` are optional and positional. Use commas for multiple values within a field. Skip middle fields with empty colons (`::`). Can be specified multiple times for multi-spec deployments.
 
-| Field | Position | Format | Example |
-|-------|----------|--------|---------|
-| gpu | 1 (required) | GPU type | `A100` |
-| instance_type | 2 (required) | Instance type | `OCI.GPU.A100_1x` |
-| min | 3 (required) | Min instances | `1` |
-| max | 4 (required) | Max instances | `3` |
-| concurrency | 5 | Max request concurrency | `10` |
-| clusters | 6 | Comma-separated cluster names | `cluster-a,cluster-b` |
-| regions | 7 | Comma-separated regions | `us-east-1,eu-west-1` |
-| attributes | 8 | Comma-separated attributes | `attr1,attr2` |
-| preferredOrder | 9 | Integer priority (for multi-spec) | `1` |
+| Field          | Position     | Format                            | Example               |
+| -------------- | ------------ | --------------------------------- | --------------------- |
+| gpu            | 1 (required) | GPU type                          | `A100`                |
+| instance_type  | 2 (required) | Instance type                     | `OCI.GPU.A100_1x`     |
+| min            | 3 (required) | Min instances                     | `1`                   |
+| max            | 4 (required) | Max instances                     | `3`                   |
+| concurrency    | 5            | Max request concurrency           | `10`                  |
+| clusters       | 6            | Comma-separated cluster names     | `cluster-a,cluster-b` |
+| regions        | 7            | Comma-separated regions           | `us-east-1,eu-west-1` |
+| attributes     | 8            | Comma-separated attributes        | `attr1,attr2`         |
+| preferredOrder | 9            | Integer priority (for multi-spec) | `1`                   |
 
 **Warning:** The CLI `--help` shows wrapper syntax like `clusters(c1,c2)` and `regions(r1,r2)`, but the CLI does not parse these wrappers. Always use plain values in the positional colon-separated format shown above.
 **Note:** The CLI requires clusters for non-GFN instance types (OCI/DGX). If you see `FAILED_MISSING_CLUSTERS`, add a cluster in the 6th field.
@@ -145,36 +146,42 @@ All fields after `max` are optional and positional. Use commas for multiple valu
 #### Examples
 
 Basic (no cluster/region targeting):
+
 ```bash
 ngc cf fn deploy create abc123:v1 \
   --targeted-dep-spec L40:gl40_1.br20_2xlarge:1:3:10
 ```
 
 Single cluster:
+
 ```bash
 ngc cf fn deploy create abc123:v1 \
   --targeted-dep-spec A100:OCI.GPU.A100_1x:1:1:1:nvcf-dgxc-k8s-oci-ord-dev1
 ```
 
 Multiple clusters:
+
 ```bash
 ngc cf fn deploy create abc123:v1 \
   --targeted-dep-spec L40:gl40_1.br20_2xlarge:1:3:10:cluster-west,cluster-east
 ```
 
 Cluster + region:
+
 ```bash
 ngc cf fn deploy create abc123:v1 \
   --targeted-dep-spec A100:OCI.GPU.A100_1x:1:2:5:my-cluster:us-east-1
 ```
 
 Region only (skip cluster with empty field when allowed):
+
 ```bash
 ngc cf fn deploy create abc123:v1 \
   --targeted-dep-spec L40:gl40_1.br20_2xlarge:1:2:5::us-east-1
 ```
 
 Multiple deployment specs with priority ordering:
+
 ```bash
 ngc cf fn deploy create abc123:v1 \
   --targeted-dep-spec A100:OCI.GPU.A100_1x:1:1:1:cluster-primary:::1 \
@@ -303,6 +310,7 @@ ngc cf fn remove-rate-limit <function-id>:<version-id>
 ```
 
 Rate limit patterns:
+
 - `10-S` - 10 requests per second
 - `100-M` - 100 requests per minute
 - `1000-H` - 1000 requests per hour

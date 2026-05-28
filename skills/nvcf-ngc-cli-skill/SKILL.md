@@ -7,7 +7,11 @@ description: Comprehensive skill for NVIDIA Cloud Functions (NVCF) on the cloud-
 
 > **Related skills:** `nvcf-self-managed-cli` (function ops on a self-hosted control plane via nvcf-cli), `nvcf-self-managed-installation` (install the self-managed control plane via helmfile).
 
-Complete reference for managing NVIDIA Cloud Functions (NVCF) via NGC CLI.
+## Goal
+
+Manage NVIDIA Cloud Functions (NVCF) on the cloud-hosted control plane through
+the NGC CLI. Success means the active org, auth state, target function/task or
+registry resource, and validation command are explicit before any operation.
 
 ## Before You Start
 
@@ -94,12 +98,12 @@ ngc cf <subcommand> [options]  # shorthand
 
 ## Common Options
 
-| Option | Description |
-|--------|-------------|
-| `--org <id>` | Specify organization by ID (overrides config default). Use `ngc org list` to find org IDs. |
-| `--team <name>` | Specify team (use `--team no-team` for no team) |
-| `--format_type <fmt>` | Output format: `ascii` (default), `csv`, `json` |
-| `--debug` | Enable debug mode for troubleshooting |
+| Option                | Description                                                                                |
+| --------------------- | ------------------------------------------------------------------------------------------ |
+| `--org <id>`          | Specify organization by ID (overrides config default). Use `ngc org list` to find org IDs. |
+| `--team <name>`       | Specify team (use `--team no-team` for no team)                                            |
+| `--format_type <fmt>` | Output format: `ascii` (default), `csv`, `json`                                            |
+| `--debug`             | Enable debug mode for troubleshooting                                                      |
 
 ## Quick Reference
 
@@ -208,7 +212,7 @@ Manage container images, Helm charts, models, and resources in the NGC registry 
 
 **Critical:** Images must exist in the registry before creating a function or task that references them. If you build an image locally, you must push it to nvcr.io (or another accessible registry) first. Do not create a function referencing an image that has not been pushed.
 
-**Cross-org pushes:** if the *target* org for this image is not the org currently in `ngc config current`, tag with the **target** org's slug (not the configured one) and pass `--org <TARGET_ORG_ID>` to subsequent `ngc registry image ...` commands. Discover slugs and IDs with `ngc org list`.
+**Cross-org pushes:** if the _target_ org for this image is not the org currently in `ngc config current`, tag with the **target** org's slug (not the configured one) and pass `--org <TARGET_ORG_ID>` to subsequent `ngc registry image ...` commands. Discover slugs and IDs with `ngc org list`.
 
 ```bash
 # Authenticate Docker to NGC registry (works for any org you have access to)
@@ -244,11 +248,11 @@ ngc registry resource list
 
 ### Container Image Formats
 
-| Registry | Format |
-|----------|--------|
-| NGC | `<org>/[<team>/]<image>:<tag>` |
-| Docker Hub | `docker.io/<org>/<image>:<tag>` |
-| AWS ECR | `<account_id>.dkr.ecr.<region>.amazonaws.com/<repo>:<tag>` |
+| Registry   | Format                                                     |
+| ---------- | ---------------------------------------------------------- |
+| NGC        | `<org>/[<team>/]<image>:<tag>`                             |
+| Docker Hub | `docker.io/<org>/<image>:<tag>`                            |
+| AWS ECR    | `<account_id>.dkr.ecr.<region>.amazonaws.com/<repo>:<tag>` |
 
 **Important:** Third-party images require the full registry path.
 
@@ -262,19 +266,20 @@ ngc registry resource list
 
 All fields after max are optional and positional. Use commas for multiple values within a field. Skip middle fields with empty colons (`::`).
 
-| Field | Position | Format | Example |
-|-------|----------|--------|---------|
-| gpu | 1 (required) | GPU type | `A100` |
-| instance_type | 2 (required) | Instance type | `OCI.GPU.A100_1x` |
-| min | 3 (required) | Min instances | `1` |
-| max | 4 (required) | Max instances | `3` |
-| concurrency | 5 | Max request concurrency | `10` |
-| clusters | 6 | Comma-separated cluster names | `cluster-a,cluster-b` |
-| regions | 7 | Comma-separated regions | `us-east-1,eu-west-1` |
-| attributes | 8 | Comma-separated attributes | `attr1,attr2` |
-| preferredOrder | 9 | Integer priority (for multi-spec) | `1` |
+| Field          | Position     | Format                            | Example               |
+| -------------- | ------------ | --------------------------------- | --------------------- |
+| gpu            | 1 (required) | GPU type                          | `A100`                |
+| instance_type  | 2 (required) | Instance type                     | `OCI.GPU.A100_1x`     |
+| min            | 3 (required) | Min instances                     | `1`                   |
+| max            | 4 (required) | Max instances                     | `3`                   |
+| concurrency    | 5            | Max request concurrency           | `10`                  |
+| clusters       | 6            | Comma-separated cluster names     | `cluster-a,cluster-b` |
+| regions        | 7            | Comma-separated regions           | `us-east-1,eu-west-1` |
+| attributes     | 8            | Comma-separated attributes        | `attr1,attr2`         |
+| preferredOrder | 9            | Integer priority (for multi-spec) | `1`                   |
 
 Examples:
+
 - Basic: `L40:gl40_1.br20_2xlarge:1:3:10`
 - Cluster: `A100:OCI.GPU.A100_1x:1:1:1:my-cluster`
 - Cluster + region: `A100:OCI.GPU.A100_1x:1:1:1:my-cluster:us-east-1`
@@ -316,14 +321,14 @@ Example: `A100:ga100_1.br20_4xlarge`
 
 ### Task Status Values
 
-| Status | Description |
-|--------|-------------|
-| `QUEUED` | Waiting for resources |
-| `RUNNING` | Currently executing |
-| `COMPLETED` | Finished successfully |
-| `CANCELED` | Manually canceled |
-| `ERRORED` | Failed with error |
-| `EXCEEDED_MAX_RUNTIME_DURATION` | Timed out |
+| Status                          | Description           |
+| ------------------------------- | --------------------- |
+| `QUEUED`                        | Waiting for resources |
+| `RUNNING`                       | Currently executing   |
+| `COMPLETED`                     | Finished successfully |
+| `CANCELED`                      | Manually canceled     |
+| `ERRORED`                       | Failed with error     |
+| `EXCEEDED_MAX_RUNTIME_DURATION` | Timed out             |
 
 ### Duration Format (ISO 8601)
 
@@ -334,23 +339,23 @@ Example: `A100:ga100_1.br20_4xlarge`
 
 ## GPU Types
 
-| GPU | Description | Use Cases |
-|-----|-------------|-----------|
-| `GB200` | NVIDIA GB200 | Next-gen AI workloads |
-| `H100` | NVIDIA H100 | Large-scale training, LLMs |
-| `A100` | NVIDIA A100 | Training, large models |
-| `L40S` | NVIDIA L40S | Enhanced inference, media |
-| `L40` | NVIDIA L40 | Inference, light training |
-| `T10` | NVIDIA T10 | Cost-effective inference |
+| GPU     | Description  | Use Cases                  |
+| ------- | ------------ | -------------------------- |
+| `GB200` | NVIDIA GB200 | Next-gen AI workloads      |
+| `H100`  | NVIDIA H100  | Large-scale training, LLMs |
+| `A100`  | NVIDIA A100  | Training, large models     |
+| `L40S`  | NVIDIA L40S  | Enhanced inference, media  |
+| `L40`   | NVIDIA L40   | Inference, light training  |
+| `T10`   | NVIDIA T10   | Cost-effective inference   |
 
 ## Instance Type Formats
 
-| Format | Example | Description |
-|--------|---------|-------------|
-| OCI format | `OCI.GPU.H100_1x` | 1x H100 on OCI |
-| OCI multi-node | `OCI.GPU.H100_8x.x4` | 4 nodes of 8x H100 |
-| DGX Cloud | `DGX-CLOUD.GPU.L40_1x` | 1x L40 on DGX Cloud |
-| GFN format | `gl40_1.br20_2xlarge` | 1x L40 (GFN backend) |
+| Format         | Example                | Description          |
+| -------------- | ---------------------- | -------------------- |
+| OCI format     | `OCI.GPU.H100_1x`      | 1x H100 on OCI       |
+| OCI multi-node | `OCI.GPU.H100_8x.x4`   | 4 nodes of 8x H100   |
+| DGX Cloud      | `DGX-CLOUD.GPU.L40_1x` | 1x L40 on DGX Cloud  |
+| GFN format     | `gl40_1.br20_2xlarge`  | 1x L40 (GFN backend) |
 
 Use `ngc cf gpu info <gpu-type>` to see all available instance types.
 
@@ -358,14 +363,14 @@ Use `ngc cf gpu info <gpu-type>` to see all available instance types.
 
 ### Supported Cloud Providers
 
-| Provider | Description |
-|----------|-------------|
-| `AWS` | Amazon Web Services |
-| `AZURE` | Microsoft Azure |
-| `GCP` | Google Cloud Platform |
-| `OCI` | Oracle Cloud Infrastructure |
-| `DGX-CLOUD` | NVIDIA DGX Cloud |
-| `ON-PREM` | On-premise infrastructure |
+| Provider    | Description                 |
+| ----------- | --------------------------- |
+| `AWS`       | Amazon Web Services         |
+| `AZURE`     | Microsoft Azure             |
+| `GCP`       | Google Cloud Platform       |
+| `OCI`       | Oracle Cloud Infrastructure |
+| `DGX-CLOUD` | NVIDIA DGX Cloud            |
+| `ON-PREM`   | On-premise infrastructure   |
 
 ### Supported Regions
 

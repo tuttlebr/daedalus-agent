@@ -206,19 +206,25 @@ lib/parsers/src/tool_calling/
 ## Testing Strategy
 
 ### Unit Tests
+
 Test individual functions in the parser file:
+
 - `detect_tool_call_start_*`
 - `try_tool_call_parse_*`
 - `find_tool_call_end_position_*`
 
 ### Integration Tests
+
 Test through the main API in `tests.rs`:
+
 - `detect_and_parse_tool_call()` with parser name
 - Streaming behavior
 - Tool validation
 
 ### Example Output Tests
+
 Use real model outputs when possible:
+
 - Get actual tool call from model
 - Verify parsing produces correct structure
 - Check normal text extraction
@@ -226,22 +232,26 @@ Use real model outputs when possible:
 ## Common Issues
 
 ### Issue: Parser not found
+
 **Solution**: Check registration in `get_tool_parser_map()`
 
 ### Issue: Detection works but parsing fails
+
 **Solution**: Check regex patterns and JSON structure keys
 
 ### Issue: Streaming produces wrong results
+
 **Solution**: Verify `find_tool_call_end_position_*` implementation
 
 ### Issue: Tests fail with "unknown tool"
+
 **Solution**: Either provide tools list or remove validation
 
 ## Documentation
 
 Add doc comments to your parser:
 
-```rust
+````rust
 //! ModelName tool call parser
 //!
 //! Format: <start>JSON</start>
@@ -252,7 +262,7 @@ Add doc comments to your parser:
 //! ```
 //!
 //! Models: ModelName family
-```
+````
 
 ## Checklist
 

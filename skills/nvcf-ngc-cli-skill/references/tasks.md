@@ -46,6 +46,7 @@ ngc cf task create \
 ```
 
 Examples:
+
 - `L40:gl40_1.br20_2xlarge` - L40 GPU with specific instance type
 - `A100:ga100_1.br20_4xlarge:GFN` - A100 on GFN backend
 - `T10:g6.full:GFN` - T10 on GFN
@@ -54,6 +55,7 @@ Examples:
 ### Duration format
 
 Durations use ISO 8601 format: `[nD][nH][nM][nS]`
+
 - `1H` - 1 hour
 - `30M` - 30 minutes
 - `1H30M` - 1 hour 30 minutes
@@ -82,14 +84,14 @@ ngc cf task info <task-id>
 
 ## Task Status Values
 
-| Status | Description |
-|--------|-------------|
-| `QUEUED` | Waiting for resources |
-| `RUNNING` | Currently executing |
-| `COMPLETED` | Finished successfully |
-| `CANCELED` | Manually canceled |
-| `ERRORED` | Failed with error |
-| `EXCEEDED_MAX_RUNTIME_DURATION` | Timed out |
+| Status                          | Description           |
+| ------------------------------- | --------------------- |
+| `QUEUED`                        | Waiting for resources |
+| `RUNNING`                       | Currently executing   |
+| `COMPLETED`                     | Finished successfully |
+| `CANCELED`                      | Manually canceled     |
+| `ERRORED`                       | Failed with error     |
+| `EXCEEDED_MAX_RUNTIME_DURATION` | Timed out             |
 
 ## Monitoring Tasks
 
@@ -102,6 +104,7 @@ ngc cf task events <task-id>
 Shows status transitions and error messages.
 
 Example output:
+
 ```
 +--------------------------------------+--------------------------+------------------------------------------+
 | Event Id                             | Created At               | Message                                  |

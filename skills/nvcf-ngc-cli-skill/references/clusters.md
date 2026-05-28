@@ -38,13 +38,13 @@ ngc cf cluster create \
 
 ### Required parameters
 
-| Parameter | Description |
-|-----------|-------------|
-| `--cluster-name` | Unique name for the cluster (immutable after creation) |
-| `--cluster-group-name` | Group name for deploying across multiple clusters |
-| `--cloud-provider` | Cloud platform: `AWS`, `AZURE`, `GCP`, `OCI`, `DGX-CLOUD`, `ON-PREM` |
-| `--region` | Deployment region (see supported regions below) |
-| `--ssa-client-id` | SSA client ID for authentication |
+| Parameter              | Description                                                          |
+| ---------------------- | -------------------------------------------------------------------- |
+| `--cluster-name`       | Unique name for the cluster (immutable after creation)               |
+| `--cluster-group-name` | Group name for deploying across multiple clusters                    |
+| `--cloud-provider`     | Cloud platform: `AWS`, `AZURE`, `GCP`, `OCI`, `DGX-CLOUD`, `ON-PREM` |
+| `--region`             | Deployment region (see supported regions below)                      |
+| `--ssa-client-id`      | SSA client ID for authentication                                     |
 
 ### Supported regions
 
@@ -59,14 +59,14 @@ ngc cf cluster create \
 
 ### Cloud providers
 
-| Provider | Description |
-|----------|-------------|
-| `AWS` | Amazon Web Services |
-| `AZURE` | Microsoft Azure |
-| `GCP` | Google Cloud Platform |
-| `OCI` | Oracle Cloud Infrastructure |
-| `DGX-CLOUD` | NVIDIA DGX Cloud |
-| `ON-PREM` | On-premise infrastructure |
+| Provider    | Description                 |
+| ----------- | --------------------------- |
+| `AWS`       | Amazon Web Services         |
+| `AZURE`     | Microsoft Azure             |
+| `GCP`       | Google Cloud Platform       |
+| `OCI`       | Oracle Cloud Infrastructure |
+| `DGX-CLOUD` | NVIDIA DGX Cloud            |
+| `ON-PREM`   | On-premise infrastructure   |
 
 ### Capabilities
 
@@ -107,18 +107,21 @@ ngc cf fn deploy create <function-id>:<version-id> \
 **Warning:** The CLI `--help` shows `clusters(c1,c2)` wrapper syntax, but the CLI does not parse it. Always use plain cluster names directly as positional colon-separated values.
 
 Single cluster:
+
 ```bash
 ngc cf fn deploy create abc123:v1 \
   --targeted-dep-spec A100:OCI.GPU.A100_1x:1:1:1:nvcf-dgxc-k8s-oci-ord-dev1
 ```
 
 Multiple clusters:
+
 ```bash
 ngc cf fn deploy create abc123:v1 \
   --targeted-dep-spec L40:gl40_1.br20_2xlarge:1:3:10:cluster-west,cluster-east
 ```
 
 Cluster + region:
+
 ```bash
 ngc cf fn deploy create abc123:v1 \
   --targeted-dep-spec A100:OCI.GPU.A100_1x:1:2:5:my-cluster:us-east-1

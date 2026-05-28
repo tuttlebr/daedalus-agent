@@ -50,18 +50,18 @@ spec:
     - name: add-imagepullsecret-to-nvcf-pods
       match:
         any:
-        - resources:
-            kinds:
-            - Pod
-            namespaces:
-            - "nvcf"
-            - "api-keys"
-            - "sis"
-            - "ess"
-            - "nvca-operator"
-            - "nats-system"
-            - "cassandra-system"
-            - "vault-system"
+          - resources:
+              kinds:
+                - Pod
+              namespaces:
+                - 'nvcf'
+                - 'api-keys'
+                - 'sis'
+                - 'ess'
+                - 'nvca-operator'
+                - 'nats-system'
+                - 'cassandra-system'
+                - 'vault-system'
       mutate:
         patchStrategicMerge:
           metadata:
@@ -69,7 +69,7 @@ spec:
               nvcf.nvidia.com/imagepullsecret-injected-by: kyverno
           spec:
             imagePullSecrets:
-            - name: nvcr-pull-secret
+              - name: nvcr-pull-secret
 ```
 
 ```bash

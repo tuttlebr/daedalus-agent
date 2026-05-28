@@ -8,7 +8,12 @@ user-invocable: true
 
 > **Related skills:** `debug-session` (set up a worklog and investigation before filing), `dynamo-docs` (update Dynamo Fern docs with workarounds once the bug is understood).
 
-Use the current conversation context to file a well-structured bug report against `ai-dynamo/dynamo` via the `gh` CLI.
+## Goal
+
+Use the current conversation context to prepare and file a well-structured bug
+report against `ai-dynamo/dynamo` via the `gh` CLI. Success means the issue has
+a specific title, environment, reproduction steps, expected/actual behavior,
+evidence, and a user-approved draft before submission.
 
 ## Instructions
 
@@ -17,6 +22,7 @@ Use the current conversation context to file a well-structured bug report agains
 2. **Collect environment info.** First determine deployment type from the conversation; then gather the relevant details.
 
    **Detect deployment type by keyword scan of the conversation:**
+
    - Keywords pointing to **Kubernetes**: `kubectl`, `helm`, `pod`, `manifest`, `namespace`, `EKS`, `GKE`, `kind`, `helmfile`, `kustomize`, `daemonset`, image-tag references in YAML
    - Keywords pointing to **local**: `python -m`, `pip install`, `./launch`, `uv run`, local file paths (`~/`, `/home/`), `cargo run`, `maturin develop`
    - If both surfaces appear, ask the user one targeted question rather than guessing.
@@ -24,6 +30,7 @@ Use the current conversation context to file a well-structured bug report agains
    **Field collection per type:**
 
    For **Kubernetes** environments:
+
    - K8s version / distribution (e.g., EKS, GKE, kind)
    - Dynamo runtime version / container image tag
    - Node OS and CPU architecture
@@ -32,6 +39,7 @@ Use the current conversation context to file a well-structured bug report agains
    - Helm chart version or manifest details
 
    For **local development** environments:
+
    - OS and version
    - Dynamo runtime version
    - CPU architecture
@@ -43,12 +51,14 @@ Use the current conversation context to file a well-structured bug report agains
    Useful detection commands when needed: `uname -a`, `python3 --version`, `nvidia-smi --query-gpu=name,driver_version --format=csv,noheader`, `nvcc --version`, `kubectl version --short`. Mark genuinely unknown fields as "N/A".
 
    **Ask-if-missing checklist** (for fields critical to triage that you can't infer):
+
    - Exact reproduction command or manifest path
    - Measured-vs-expected metric (for perf/throughput bugs)
    - Relevant logs / stack trace (paste or path)
    - Bisect status — is there a last-known-good release tag?
 
 3. **Construct the title.** Pattern: `[<backend or component>] <one-line symptom> (<key env>)`. Examples:
+
    - `[trtllm] 30% throughput drop on disagg launch (H100, dynamo 0.3.0)`
    - `[k8s/router] KV-aware router panics on empty cluster manifest`
 

@@ -7,7 +7,12 @@ description: Manage NVIDIA Cloud Functions on a self-managed (self-hosted) contr
 
 > **Related skills:** `nvcf-self-managed-installation` (install the self-managed control plane via helmfile), `nvcf-ngc-cli-skill` (function ops on the cloud-hosted NVCF via NGC CLI).
 
+## Goal
+
 Manage NVIDIA Cloud Functions on self-managed deployments via `nvcf-cli`.
+Success means the target config file, auth state, function or deployment IDs,
+and validation command are explicit before any create, deploy, invoke, or delete
+operation.
 
 ## Before You Start
 
@@ -71,20 +76,20 @@ For self-hosted deployments, the CLI must communicate with your Envoy Gateway. T
 
 ```yaml
 # .nvcf-cli.yaml
-base_http_url: "http://<GATEWAY_ADDR>"
-invoke_url: "http://<GATEWAY_ADDR>"
-base_grpc_url: "<GATEWAY_ADDR>:10081"
-api_keys_service_url: "http://<GATEWAY_ADDR>"
+base_http_url: 'http://<GATEWAY_ADDR>'
+invoke_url: 'http://<GATEWAY_ADDR>'
+base_grpc_url: '<GATEWAY_ADDR>:10081'
+api_keys_service_url: 'http://<GATEWAY_ADDR>'
 
-api_keys_host: "api-keys.<GATEWAY_ADDR>"
-api_host: "api.<GATEWAY_ADDR>"
-invoke_host: "invocation.<GATEWAY_ADDR>"
+api_keys_host: 'api-keys.<GATEWAY_ADDR>'
+api_host: 'api.<GATEWAY_ADDR>'
+invoke_host: 'invocation.<GATEWAY_ADDR>'
 
-api_keys_service_id: "nvidia-cloud-functions-ncp-service-id-aketm"
-api_keys_issuer_service: "nvcf-api"
-api_keys_owner_id: "svc@nvcf-api.local"
+api_keys_service_id: 'nvidia-cloud-functions-ncp-service-id-aketm'
+api_keys_issuer_service: 'nvcf-api'
+api_keys_owner_id: 'svc@nvcf-api.local'
 
-client_id: "nvcf-default"
+client_id: 'nvcf-default'
 ```
 
 For production with DNS/HTTPS, host header overrides are not needed. See [Configuration Reference](references/configuration.md) for full details including environment variables, multi-environment setup, and staging endpoints.
@@ -93,10 +98,10 @@ For production with DNS/HTTPS, host header overrides are not needed. See [Config
 
 The CLI uses two token types:
 
-| Token | Env Var | Purpose | Command |
-|-------|---------|---------|---------|
-| Admin Token (JWT) | `NVCF_TOKEN` | create, deploy, update, delete | `nvcf-cli init` |
-| API Key | `NVCF_API_KEY` | invoke, list, queue status | `nvcf-cli api-key generate` |
+| Token             | Env Var        | Purpose                        | Command                     |
+| ----------------- | -------------- | ------------------------------ | --------------------------- |
+| Admin Token (JWT) | `NVCF_TOKEN`   | create, deploy, update, delete | `nvcf-cli init`             |
+| API Key           | `NVCF_API_KEY` | invoke, list, queue status     | `nvcf-cli api-key generate` |
 
 ```bash
 nvcf-cli init                  # generate admin token (clears ALL state including API key)
@@ -134,11 +139,11 @@ nvcf-cli [--config <path>] [--debug] <command> [subcommand] [flags]
 nvcf-cli --debug function list
 ```
 
-| Symptom | Fix |
-|---------|-----|
-| 401 Unauthorized | `nvcf-cli init --debug` |
-| 403 Forbidden | `nvcf-cli api-key generate --validate` |
-| Token expired | `nvcf-cli refresh` then `nvcf-cli api-key generate` |
+| Symptom            | Fix                                                                                                        |
+| ------------------ | ---------------------------------------------------------------------------------------------------------- |
+| 401 Unauthorized   | `nvcf-cli init --debug`                                                                                    |
+| 403 Forbidden      | `nvcf-cli api-key generate --validate`                                                                     |
+| Token expired      | `nvcf-cli refresh` then `nvcf-cli api-key generate`                                                        |
 | 404 on self-hosted | Verify host headers match HTTPRoute hostnames. See [Configuration Reference](references/configuration.md). |
 
 ## Worked Examples

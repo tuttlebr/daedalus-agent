@@ -31,6 +31,7 @@ cassandra-0    0/1     ImagePullBackOff   0          5m
 ```
 
 Events show:
+
 ```
 Failed to pull image "nvcr.io/.../image:tag": 401 Unauthorized
 ```
@@ -54,6 +55,7 @@ kubectl get sa <sa-name> -n <namespace> -o jsonpath='{.imagePullSecrets}'
 ### Fixes
 
 1. **Secret missing in namespace**: Create it
+
    ```bash
    kubectl create secret docker-registry nvcr-creds \
      --docker-server=nvcr.io \
@@ -78,6 +80,7 @@ kubectl get sa <sa-name> -n <namespace> -o jsonpath='{.imagePullSecrets}'
 ### Symptoms
 
 Service pods stuck in `Init:0/1` for minutes:
+
 ```
 NAME                        READY   STATUS     RESTARTS   AGE
 nvcf-api-7f4c76f788-44vlt  0/2     Init:0/1   0          10m
@@ -106,6 +109,7 @@ kubectl logs -n <namespace> <pod-name> -c vault-agent-init
 1. **OpenBao pods not running**: Check their events for image pull issues, resource issues, etc.
 
 2. **OpenBao migration job didn't run**: This happens when `helmfile sync` was interrupted. Destroy and re-sync openbao:
+
    ```bash
    HELMFILE_ENV=<env> helmfile --selector name=openbao-server destroy
    kubectl delete namespace vault-system
@@ -142,10 +146,10 @@ Override Cassandra resources via helmfile values. See Example 1 in [examples.md]
 - cassandra:
     resources:
       limits:
-        cpu: "8"
+        cpu: '8'
         memory: 8192Mi
       requests:
-        cpu: "2"
+        cpu: '2'
         memory: 4096Mi
 ```
 
@@ -175,11 +179,13 @@ kubectl describe pod -n <namespace> <pod-name>
 ### Fixes
 
 1. **Node selector mismatch**: Check `nodeSelectors` in environment file
+
    ```bash
    kubectl get nodes --show-labels | grep nvcf
    ```
 
 2. **Storage class not found**: Check storage class exists
+
    ```bash
    kubectl get storageclass
    ```
@@ -241,6 +247,7 @@ kubectl logs -n nvcf -l app.kubernetes.io/name=nvcf-api --tail=100
 ### Common Causes
 
 1. **Wrong base64 credentials**: Credentials in `secrets/<env>-secrets.yaml` must be `$oauthtoken:API_KEY` base64-encoded, not just the API key
+
    ```bash
    # Verify your encoded credential
    echo 'YOUR_BASE64_STRING' | base64 -d
@@ -309,15 +316,15 @@ See Example 4 in [examples.md](../examples.md): update domain in environment fil
 
 Quick reference for which services run in which namespace:
 
-| Namespace | Services |
-|-----------|----------|
-| nats-system | nats |
-| cassandra-system | cassandra |
-| vault-system | openbao-server |
-| nvcf | api, invocation-service, grpc-proxy, notary-service |
-| api-keys | api-keys, admin-issuer-proxy |
-| ess | ess-api |
-| sis | sis |
-| nvca-operator | nvca-operator |
-| envoy-gateway-system | envoy gateway (ingress controller) |
-| envoy-gateway | gateway resource + routes |
+| Namespace            | Services                                            |
+| -------------------- | --------------------------------------------------- |
+| nats-system          | nats                                                |
+| cassandra-system     | cassandra                                           |
+| vault-system         | openbao-server                                      |
+| nvcf                 | api, invocation-service, grpc-proxy, notary-service |
+| api-keys             | api-keys, admin-issuer-proxy                        |
+| ess                  | ess-api                                             |
+| sis                  | sis                                                 |
+| nvca-operator        | nvca-operator                                       |
+| envoy-gateway-system | envoy gateway (ingress controller)                  |
+| envoy-gateway        | gateway resource + routes                           |

@@ -49,20 +49,20 @@ Replace `<GATEWAY_ADDR>` with your gateway address (e.g., an AWS ELB hostname li
 ```yaml
 # .nvcf-cli.yaml
 
-base_http_url: "http://<GATEWAY_ADDR>"
-invoke_url: "http://<GATEWAY_ADDR>"
-base_grpc_url: "<GATEWAY_ADDR>:10081"
-api_keys_service_url: "http://<GATEWAY_ADDR>"
+base_http_url: 'http://<GATEWAY_ADDR>'
+invoke_url: 'http://<GATEWAY_ADDR>'
+base_grpc_url: '<GATEWAY_ADDR>:10081'
+api_keys_service_url: 'http://<GATEWAY_ADDR>'
 
-api_keys_host: "api-keys.<GATEWAY_ADDR>"
-api_host: "api.<GATEWAY_ADDR>"
-invoke_host: "invocation.<GATEWAY_ADDR>"
+api_keys_host: 'api-keys.<GATEWAY_ADDR>'
+api_host: 'api.<GATEWAY_ADDR>'
+invoke_host: 'invocation.<GATEWAY_ADDR>'
 
-api_keys_service_id: "nvidia-cloud-functions-ncp-service-id-aketm"
-api_keys_issuer_service: "nvcf-api"
-api_keys_owner_id: "svc@nvcf-api.local"
+api_keys_service_id: 'nvidia-cloud-functions-ncp-service-id-aketm'
+api_keys_issuer_service: 'nvcf-api'
+api_keys_owner_id: 'svc@nvcf-api.local'
 
-client_id: "nvcf-default"
+client_id: 'nvcf-default'
 ```
 
 ### Production Setup (DNS/HTTPS)
@@ -72,10 +72,10 @@ With proper DNS and TLS configured, host header overrides are not needed. DNS re
 ```yaml
 # .nvcf-cli.yaml (production with DNS/HTTPS)
 
-base_http_url: "https://api.nvcf.example.com"
-invoke_url: "https://invocation.nvcf.example.com"
-base_grpc_url: "grpc.nvcf.example.com:443"
-api_keys_service_url: "https://api-keys.nvcf.example.com"
+base_http_url: 'https://api.nvcf.example.com'
+invoke_url: 'https://invocation.nvcf.example.com'
+base_grpc_url: 'grpc.nvcf.example.com:443'
+api_keys_service_url: 'https://api-keys.nvcf.example.com'
 ```
 
 ### Why Host Headers?
@@ -99,23 +99,23 @@ nvcf-cli init
 
 Config keys map to environment variables. Environment variables override config file values.
 
-| Config Key | Environment Variable | Default |
-|-----------|---------------------|---------|
-| `base_http_url` | `NVCF_BASE_HTTP_URL` | `https://api.nvcf.nvidia.com` |
-| `invoke_url` | `NVCF_INVOKE` / `NVCF_BASE_INVOKE_URL` | Same as `base_http_url` |
-| `base_grpc_url` | `NVCF_BASE_GRPC_URL` | `grpc.nvcf.nvidia.com:443` |
-| `api_keys_service_url` | `API_KEYS_SERVICE_URL` | `https://api-keys.nvcf.nvidia.com` |
-| `api_key` | `NVCF_API_KEY` | -- |
-| `token` | `NVCF_TOKEN` | -- |
-| `client_id` | `NVCF_CLIENT_ID` | `nvcf-default` |
-| `api_keys_host` | `API_KEYS_HOST` | -- |
-| `api_host` | `API_HOST` | -- |
-| `invoke_host` | `INVOKE_HOST` | -- |
-| `api_keys_service_id` | `API_KEYS_SERVICE_ID` | `nvidia-cloud-functions-ncp-service-id-aketm` |
-| `api_keys_issuer_service` | `API_KEYS_ISSUER_SERVICE` | `nvcf-api` |
-| `api_keys_owner_id` | `API_KEYS_OWNER_ID` | `svc@nvcf-api.local` |
-| `debug` | `NVCF_DEBUG` | `false` |
-| `default_timeout` | `NVCF_DEFAULT_TIMEOUT` | -- |
+| Config Key                | Environment Variable                   | Default                                       |
+| ------------------------- | -------------------------------------- | --------------------------------------------- |
+| `base_http_url`           | `NVCF_BASE_HTTP_URL`                   | `https://api.nvcf.nvidia.com`                 |
+| `invoke_url`              | `NVCF_INVOKE` / `NVCF_BASE_INVOKE_URL` | Same as `base_http_url`                       |
+| `base_grpc_url`           | `NVCF_BASE_GRPC_URL`                   | `grpc.nvcf.nvidia.com:443`                    |
+| `api_keys_service_url`    | `API_KEYS_SERVICE_URL`                 | `https://api-keys.nvcf.nvidia.com`            |
+| `api_key`                 | `NVCF_API_KEY`                         | --                                            |
+| `token`                   | `NVCF_TOKEN`                           | --                                            |
+| `client_id`               | `NVCF_CLIENT_ID`                       | `nvcf-default`                                |
+| `api_keys_host`           | `API_KEYS_HOST`                        | --                                            |
+| `api_host`                | `API_HOST`                             | --                                            |
+| `invoke_host`             | `INVOKE_HOST`                          | --                                            |
+| `api_keys_service_id`     | `API_KEYS_SERVICE_ID`                  | `nvidia-cloud-functions-ncp-service-id-aketm` |
+| `api_keys_issuer_service` | `API_KEYS_ISSUER_SERVICE`              | `nvcf-api`                                    |
+| `api_keys_owner_id`       | `API_KEYS_OWNER_ID`                    | `svc@nvcf-api.local`                          |
+| `debug`                   | `NVCF_DEBUG`                           | `false`                                       |
+| `default_timeout`         | `NVCF_DEFAULT_TIMEOUT`                 | --                                            |
 
 Note: API Keys and host header environment variables do not use the `NVCF_` prefix.
 
@@ -138,10 +138,10 @@ Each configuration maintains separate state files (e.g., `~/.nvcf-cli.dev.state`
 ## Staging Environment
 
 ```yaml
-base_http_url: "https://api.shqa.stg.nvcf.nvidia.com"
-base_grpc_url: "grpc.shqa.stg.nvcf.nvidia.com:443"
-api_keys_service_url: "https://api-keys.shqa.stg.nvcf.nvidia.com"
-invoke_url: "https://invocation.shqa.stg.nvcf.nvidia.com"
+base_http_url: 'https://api.shqa.stg.nvcf.nvidia.com'
+base_grpc_url: 'grpc.shqa.stg.nvcf.nvidia.com:443'
+api_keys_service_url: 'https://api-keys.shqa.stg.nvcf.nvidia.com'
+invoke_url: 'https://invocation.shqa.stg.nvcf.nvidia.com'
 ```
 
 ## State File

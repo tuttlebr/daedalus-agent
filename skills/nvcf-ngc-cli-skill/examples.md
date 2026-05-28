@@ -21,6 +21,7 @@ ngc cf fn create \
 ```
 
 Output:
+
 ```
 Function Information
   Name: my-inference-service
@@ -65,6 +66,7 @@ ngc cf fn create \
 ```
 
 Deploy:
+
 ```bash
 ngc cf fn deploy create <function-id>:<version-id> \
   --targeted-dep-spec H100:OCI.GPU.H100_1x:1:1:1
@@ -574,6 +576,7 @@ ngc cf gpu quota --format_type json
 ```
 
 Example output (abbreviated):
+
 ```json
 {
   "gpus": [
@@ -604,6 +607,7 @@ Example output (abbreviated):
 ```
 
 How to read this:
+
 - **L40**: 100 GPU quota, any instance type, no cluster/region restrictions. Deploy without specifying cluster or region.
 - **A100**: `quota: 0` means no shared-cluster quota, but 4 GPUs on the dedicated cluster `nvcf-dgxc-k8s-oci-ord-dev1`. You **must** include the cluster in `--targeted-dep-spec`.
 - **H100**: 50 GPU quota, restricted to `H100_1x` and `H100_2x` instance types, with region limits (30 in us-east-1, 20 in eu-west-1). You should include the region in `--targeted-dep-spec`.
@@ -629,18 +633,21 @@ This shows valid cluster names, instance types, and regions for A100 GPUs.
 #### Step 4: Deploy based on quota rules
 
 For L40 (no cluster/region restrictions):
+
 ```bash
 ngc cf fn deploy create <function-id>:<version-id> \
   --targeted-dep-spec L40:gl40_1.br20_2xlarge:1:3:10
 ```
 
 For A100 (dedicated cluster required):
+
 ```bash
 ngc cf fn deploy create <function-id>:<version-id> \
   --targeted-dep-spec A100:OCI.GPU.A100_1x:1:1:1:nvcf-dgxc-k8s-oci-ord-dev1
 ```
 
 For H100 (region required):
+
 ```bash
 ngc cf fn deploy create <function-id>:<version-id> \
   --targeted-dep-spec H100:OCI.GPU.H100_1x:1:2:5::us-east-1
@@ -649,6 +656,7 @@ ngc cf fn deploy create <function-id>:<version-id> \
 #### GPU counting
 
 Quota is in GPUs, not instances. Multi-GPU instance types use more quota:
+
 - `H100_1x` = 1 GPU
 - `H100_4x` = 4 GPUs
 - `H100_8x` = 8 GPUs
@@ -658,11 +666,11 @@ With `quota: 50` for H100, deploying `max: 2` of `H100_8x` uses 16 GPUs (2 x 8).
 
 #### Common quota errors
 
-| Error | What to do |
-|-------|------------|
-| `FAILED_MISSING_CLUSTERS` | Quota has cluster limits -- add cluster to `--targeted-dep-spec` (6th field) |
+| Error                                   | What to do                                                                   |
+| --------------------------------------- | ---------------------------------------------------------------------------- |
+| `FAILED_MISSING_CLUSTERS`               | Quota has cluster limits -- add cluster to `--targeted-dep-spec` (6th field) |
 | `EXCEED_DEDICATED_CLUSTER_QUOTA_LIMITS` | Cluster's GPU limit reached -- reduce instances or free up other deployments |
-| `Insufficient quota for ... in region` | Region limit reached -- reduce instances or try another region |
+| `Insufficient quota for ... in region`  | Region limit reached -- reduce instances or try another region               |
 
 ---
 

@@ -11,6 +11,7 @@ When creating a function or task with `--container-image`, the image must alread
 **Common mistake:** Building a container image locally, then immediately running `ngc cf fn create --container-image nvcr.io/<org>/<image>:<tag>` without pushing the image first. The function creation may succeed (it does not validate the image exists), but the deployment will fail when NVCF cannot pull the image.
 
 **Correct workflow:**
+
 1. Build the image locally
 2. Tag it for the target registry
 3. Push it to the registry
@@ -28,6 +29,7 @@ docker login nvcr.io
 ```
 
 When prompted:
+
 - **Username:** `$oauthtoken` (literal string, always this value)
 - **Password:** Your NGC API key (the `nvapi-...` token)
 
@@ -139,14 +141,14 @@ ngc registry image remove <org>/<image>:<tag>
 
 When referencing images in `--container-image` for functions and tasks:
 
-| Image location | Format | Example |
-|----------------|--------|---------|
-| NGC registry (same org) | `nvcr.io/<org>/<image>:<tag>` | `nvcr.io/myorg/my-app:v1.0` |
-| NGC registry (short form) | `<org>/<image>:<tag>` | `myorg/my-app:v1.0` |
-| NGC registry (with team) | `nvcr.io/<org>/<team>/<image>:<tag>` | `nvcr.io/myorg/myteam/my-app:v1.0` |
-| Docker Hub | `docker.io/<org>/<image>:<tag>` | `docker.io/vllm/vllm-openai:latest` |
-| AWS ECR (private) | `<account>.dkr.ecr.<region>.amazonaws.com/<repo>:<tag>` | `123456789.dkr.ecr.us-east-1.amazonaws.com/my-app:v1` |
-| Other registries | Full URL | `ghcr.io/org/image:tag` |
+| Image location            | Format                                                  | Example                                               |
+| ------------------------- | ------------------------------------------------------- | ----------------------------------------------------- |
+| NGC registry (same org)   | `nvcr.io/<org>/<image>:<tag>`                           | `nvcr.io/myorg/my-app:v1.0`                           |
+| NGC registry (short form) | `<org>/<image>:<tag>`                                   | `myorg/my-app:v1.0`                                   |
+| NGC registry (with team)  | `nvcr.io/<org>/<team>/<image>:<tag>`                    | `nvcr.io/myorg/myteam/my-app:v1.0`                    |
+| Docker Hub                | `docker.io/<org>/<image>:<tag>`                         | `docker.io/vllm/vllm-openai:latest`                   |
+| AWS ECR (private)         | `<account>.dkr.ecr.<region>.amazonaws.com/<repo>:<tag>` | `123456789.dkr.ecr.us-east-1.amazonaws.com/my-app:v1` |
+| Other registries          | Full URL                                                | `ghcr.io/org/image:tag`                               |
 
 **Short form for NGC images:** When deploying a function from your own org's registry, you can use the short form `<org>/<image>:<tag>` without the `nvcr.io/` prefix. NVCF resolves this to the NGC registry automatically. However, using the full `nvcr.io/` path is recommended for clarity.
 
@@ -339,6 +341,7 @@ The image path format is wrong. Ensure third-party images include the full regis
 ### Image exists locally but NVCF cannot pull it
 
 A locally-built image is not accessible to NVCF. You must push it to a registry that NVCF can access:
+
 - **NGC registry (nvcr.io):** Tag and push the image (see steps above)
 - **Third-party registry:** Push to your registry and register credentials with NVCF
 - **BYOC clusters:** Even bring-your-own-cloud clusters pull images from a registry, not from the local Docker daemon

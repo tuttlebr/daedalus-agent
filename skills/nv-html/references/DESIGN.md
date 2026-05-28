@@ -12,30 +12,30 @@ NVIDIA Brand Studio maintains the public brand system. This document mirrors the
 
 ### Primary
 
-| Token | Hex | Use |
-| --- | --- | --- |
-| `--nv-green` | `#76B900` | The NVIDIA accent. One or two hero moments per page — a logo, a single CTA, an active state. Never as section background repeated more than once. Never as body text. Never as the only signal of meaning. |
-| `--nv-green-dark` | `#5A8F00` | Hover/active state of green elements. |
+| Token             | Hex       | Use                                                                                                                                                                                                        |
+| ----------------- | --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--nv-green`      | `#76B900` | The NVIDIA accent. One or two hero moments per page — a logo, a single CTA, an active state. Never as section background repeated more than once. Never as body text. Never as the only signal of meaning. |
+| `--nv-green-dark` | `#5A8F00` | Hover/active state of green elements.                                                                                                                                                                      |
 
 ### Surfaces
 
-| Token | Hex | Use |
-| --- | --- | --- |
-| `--nv-black` | `#000000` | Hero, keynote, featured dark sections. Default for high-contrast backgrounds. |
-| `--nv-dark` | `#1A1A1A` | Card backgrounds inside dark sections. Code blocks inside dark sections. |
-| `--nv-gray-dark` | `#333333` | Secondary dark surfaces, carousels, inline `<code>` inside dark sections. |
-| `--nv-gray-med` | `#666666` | Secondary text. Tags, labels, captions. Not for body copy. |
-| `--nv-gray-border` | `#CCCCCC` | Separators, borders, hairlines. |
-| `--nv-gray-light` | `#EEEEEE` | Sponsor row backgrounds, subtle separation, default code-block backgrounds on light sections. |
-| `--nv-bg-light` | `#F7F7F7` | Default light section background. Slightly warmer than pure white. |
-| `--nv-white` | `#FFFFFF` | Card surfaces on light sections, alternate light section background. |
+| Token              | Hex       | Use                                                                                           |
+| ------------------ | --------- | --------------------------------------------------------------------------------------------- |
+| `--nv-black`       | `#000000` | Hero, keynote, featured dark sections. Default for high-contrast backgrounds.                 |
+| `--nv-dark`        | `#1A1A1A` | Card backgrounds inside dark sections. Code blocks inside dark sections.                      |
+| `--nv-gray-dark`   | `#333333` | Secondary dark surfaces, carousels, inline `<code>` inside dark sections.                     |
+| `--nv-gray-med`    | `#666666` | Secondary text. Tags, labels, captions. Not for body copy.                                    |
+| `--nv-gray-border` | `#CCCCCC` | Separators, borders, hairlines.                                                               |
+| `--nv-gray-light`  | `#EEEEEE` | Sponsor row backgrounds, subtle separation, default code-block backgrounds on light sections. |
+| `--nv-bg-light`    | `#F7F7F7` | Default light section background. Slightly warmer than pure white.                            |
+| `--nv-white`       | `#FFFFFF` | Card surfaces on light sections, alternate light section background.                          |
 
 ### Complementary
 
 Use these for variety or categorization (event tracks, pill colors, content tags). Never as a primary accent in place of green.
 
-| Token | Hex | Use |
-| --- | --- | --- |
+| Token         | Hex       | Use              |
+| ------------- | --------- | ---------------- |
 | `--nv-purple` | `#952FC6` | Category accent. |
 | `--nv-orange` | `#EF9100` | Category accent. |
 
@@ -43,18 +43,18 @@ Use these for variety or categorization (event tracks, pill colors, content tags
 
 Use these only for status, callouts, and meaning. Not decorative.
 
-| Token | Hex | Use |
-| --- | --- | --- |
-| `--nv-red` | `#E52020` | Errors, failure status, destructive actions. |
+| Token         | Hex       | Use                                                                                                                   |
+| ------------- | --------- | --------------------------------------------------------------------------------------------------------------------- |
+| `--nv-red`    | `#E52020` | Errors, failure status, destructive actions.                                                                          |
 | `--nv-yellow` | `#9C5000` | Warnings, degraded status. (This is the brand-accessible amber — not the canvas yellow `#F9C500` used for live dots.) |
-| `--nv-blue` | `#0074DF` | Information, tutorial pills, links inside dark contexts. |
+| `--nv-blue`   | `#0074DF` | Information, tutorial pills, links inside dark contexts.                                                              |
 
 ### Supporting
 
-| Token | Hex | Use |
-| --- | --- | --- |
+| Token          | Hex       | Use                                                |
+| -------------- | --------- | -------------------------------------------------- |
 | `--nv-magenta` | `#D2308E` | Reserved for event branding and editorial accents. |
-| `--nv-teal` | `#1D8BA4` | Reserved for event branding and editorial accents. |
+| `--nv-teal`    | `#1D8BA4` | Reserved for event branding and editorial accents. |
 
 ## Typography
 
@@ -65,12 +65,15 @@ NVIDIA Sans is the only correct typeface. Load the variable font:
 ```html
 <style>
   @font-face {
-    font-family: "NVIDIA Sans";
-    src: url("https://images.nvidia.com/etc/designs/nvidiaGDC/clientlibs_base/fonts/nvidia-sans/NALA/var/NVIDIASansVF_NALA_W_Wght.woff2") format("woff2-variations");
+    font-family: 'NVIDIA Sans';
+    src: url('https://images.nvidia.com/etc/designs/nvidiaGDC/clientlibs_base/fonts/nvidia-sans/NALA/var/NVIDIASansVF_NALA_W_Wght.woff2')
+      format('woff2-variations');
     font-weight: 100 900;
     font-display: swap;
   }
-  body { font-family: "NVIDIA Sans", system-ui, sans-serif; }
+  body {
+    font-family: 'NVIDIA Sans', system-ui, sans-serif;
+  }
 </style>
 ```
 
@@ -80,15 +83,15 @@ Do not substitute Inter, system-ui alone, or `"sans-serif"` alone. Those fall ba
 
 ### Scale
 
-| Element | Size | Weight | Case |
-| --- | --- | --- | --- |
-| H1 (hero) | `clamp(2.5rem, 6vw, 5rem)` | 700 | Title Case |
-| H2 (section) | `clamp(2rem, 4vw, 3rem)` | 700 | Title Case |
-| H3 (subsection) | `clamp(1.5rem, 3vw, 2rem)` | 700 | Title Case |
-| H4 (card) | `1.25rem` | 700 | Title Case |
-| Body | `1rem` (16px) | 400 | Sentence case |
-| Small / pill / label | `0.75rem` (12px) | 500 | Title Case |
-| Pretitle / category | `0.625rem` (10px), uppercase, letter-spaced | 500 | UPPERCASE |
+| Element              | Size                                        | Weight | Case          |
+| -------------------- | ------------------------------------------- | ------ | ------------- |
+| H1 (hero)            | `clamp(2.5rem, 6vw, 5rem)`                  | 700    | Title Case    |
+| H2 (section)         | `clamp(2rem, 4vw, 3rem)`                    | 700    | Title Case    |
+| H3 (subsection)      | `clamp(1.5rem, 3vw, 2rem)`                  | 700    | Title Case    |
+| H4 (card)            | `1.25rem`                                   | 700    | Title Case    |
+| Body                 | `1rem` (16px)                               | 400    | Sentence case |
+| Small / pill / label | `0.75rem` (12px)                            | 500    | Title Case    |
+| Pretitle / category  | `0.625rem` (10px), uppercase, letter-spaced | 500    | UPPERCASE     |
 
 Line height `1.6` for body, `1.2` for headings.
 

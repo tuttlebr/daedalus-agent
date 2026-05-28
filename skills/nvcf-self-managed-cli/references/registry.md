@@ -49,15 +49,15 @@ nvcf-cli registry add \
 
 ### Flags
 
-| Flag | Required | Description |
-|------|----------|-------------|
-| `--hostname` | Yes | Registry hostname (e.g., `nvcr.io`, `myregistry.example.com`) |
-| `--artifact-type` | Yes | Artifact types: `CONTAINER`, `HELM`, `MODEL`, `RESOURCE` (repeatable) |
-| `--username` | One of username/password or secret | Registry username |
-| `--password` | One of username/password or secret | Registry password |
-| `--secret` | One of username/password or secret | Base64 encoded `username:password` |
-| `--description` | No | Description of the credential |
-| `--tag` | No | Tags for the credential (repeatable) |
+| Flag              | Required                           | Description                                                           |
+| ----------------- | ---------------------------------- | --------------------------------------------------------------------- |
+| `--hostname`      | Yes                                | Registry hostname (e.g., `nvcr.io`, `myregistry.example.com`)         |
+| `--artifact-type` | Yes                                | Artifact types: `CONTAINER`, `HELM`, `MODEL`, `RESOURCE` (repeatable) |
+| `--username`      | One of username/password or secret | Registry username                                                     |
+| `--password`      | One of username/password or secret | Registry password                                                     |
+| `--secret`        | One of username/password or secret | Base64 encoded `username:password`                                    |
+| `--description`   | No                                 | Description of the credential                                         |
+| `--tag`           | No                                 | Tags for the credential (repeatable)                                  |
 
 ## Listing Credentials
 
@@ -77,10 +77,10 @@ nvcf-cli registry list --artifact-type CONTAINER --artifact-type MODEL
 
 ### Filter Flags
 
-| Flag | Values | Description |
-|------|--------|-------------|
-| `--artifact-type` | `CONTAINER`, `HELM`, `MODEL`, `RESOURCE` | Filter by artifact type (repeatable) |
-| `--provisioned-by` | `SYSTEM`, `USER` | Filter by who created the credential |
+| Flag               | Values                                   | Description                          |
+| ------------------ | ---------------------------------------- | ------------------------------------ |
+| `--artifact-type`  | `CONTAINER`, `HELM`, `MODEL`, `RESOURCE` | Filter by artifact type (repeatable) |
+| `--provisioned-by` | `SYSTEM`, `USER`                         | Filter by who created the credential |
 
 ## Getting Credential Details
 
@@ -114,11 +114,11 @@ nvcf-cli registry update <credential-id> \
 
 ### Flags
 
-| Flag | Description |
-|------|-------------|
-| `--username` | New registry username (must be provided with `--password`) |
-| `--password` | New registry password (must be provided with `--username`) |
-| `--artifact-type` | Artifact type(s) to add (repeatable, additive) |
+| Flag              | Description                                                |
+| ----------------- | ---------------------------------------------------------- |
+| `--username`      | New registry username (must be provided with `--password`) |
+| `--password`      | New registry password (must be provided with `--username`) |
+| `--artifact-type` | Artifact type(s) to add (repeatable, additive)             |
 
 ## Deleting Credentials
 

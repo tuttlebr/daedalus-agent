@@ -6,12 +6,12 @@ Read this file when you're writing copy that will appear on an NVIDIA-branded pa
 
 Every line of copy should pass PACE:
 
-| Letter | Attribute      | Test                                                                            |
-| ------ | -------------- | ------------------------------------------------------------------------------- |
-| P      | Professional   | Would a credible NVIDIA expert say this? No hype, no fluff.                     |
-| A      | Active         | Is the subject doing the verb? (vs. "is being done by")                         |
-| C      | Conversational | Would you say this out loud to a colleague?                                     |
-| E      | Engaging       | Does it speak directly to the reader ("you") and offer a clear next step?       |
+| Letter | Attribute      | Test                                                                      |
+| ------ | -------------- | ------------------------------------------------------------------------- |
+| P      | Professional   | Would a credible NVIDIA expert say this? No hype, no fluff.               |
+| A      | Active         | Is the subject doing the verb? (vs. "is being done by")                   |
+| C      | Conversational | Would you say this out loud to a colleague?                               |
+| E      | Engaging       | Does it speak directly to the reader ("you") and offer a clear next step? |
 
 ## Voice (constant) vs. tone (varies)
 
@@ -19,35 +19,41 @@ The voice is steady across all NVIDIA copy. The tone shifts with the context —
 
 **Be this, not this:**
 
-| Be             | Not            |
-| -------------- | -------------- |
-| Conversational | Complicated    |
-| Aspirational   | Grandiose      |
-| Confident      | Arrogant       |
-| Clever         | Silly          |
-| Intelligent    | Condescending  |
+| Be             | Not           |
+| -------------- | ------------- |
+| Conversational | Complicated   |
+| Aspirational   | Grandiose     |
+| Confident      | Arrogant      |
+| Clever         | Silly         |
+| Intelligent    | Condescending |
 
 ## The rules that bite most in HTML
 
 ### Active voice
+
 - ✅ "If you discover any issues, report them."
 - ❌ "If any issues are discovered, they should be reported."
 
 ### Sentences
+
 - Aim for under 30 words.
 - Use more periods. If you can replace a semicolon with a period, do.
 - If you can cut a word, cut it.
 - Read it out loud. If it doesn't sound like speech, rewrite it.
 
 ### Contractions
+
 Use them. They're how people talk.
+
 - ✅ "It's important to understand how generative AI works."
 - ❌ "It is important to understand how generative AI works."
 
 ### No exclamation marks
+
 Not in headings, not in body, not anywhere. Use a period.
 
 ### Title case in headings, sentence case in subheadings
+
 - Headings (H1, H2, H3, H4): Title Case With Every Major Word Capitalized.
 - Subheadings (small labels under a heading): Sentence case with ending punctuation.
 - CTA buttons: Title Case (Learn More, Register Now).
@@ -55,33 +61,41 @@ Not in headings, not in body, not anywhere. Use a period.
 - Compound words in titles: capitalize the second word (Multi-Display).
 
 ### No terminal punctuation in headings, simple list items, or table cells
+
 A heading ending in a period feels off. So does a 3-word list item.
 
 ### Quotation marks
+
 - Double quotes (`"`) in most content.
 - Closing quotes go outside commas and periods: he said "go." not he said "go".
 
 ### Oxford commas
+
 Always.
+
 - ✅ "NeMo, NIM, and Cosmos"
 - ❌ "NeMo, NIM and Cosmos"
 
 ### Em dash vs. en dash
+
 - Em dash (`—`): set off parenthetical phrases. No spaces around it. ("The result — surprising — held up.")
 - En dash (`–`): ranges of numbers, dates, times. No spaces. ("12:30–1 p.m.")
 - A hyphen (`-`) is none of the above. Don't use it for either.
 
 ### No Latinisms
+
 Write them out:
+
 - e.g. → "for example" or "such as"
 - i.e. → "that is"
 - etc. → "and so on"
 - vs. → "compared to"
 - via → "by" or "through"
 
-(Exceptions for industry-standard *in silico*, *in vitro*, *in vivo* — italicized.)
+(Exceptions for industry-standard _in silico_, _in vitro_, _in vivo_ — italicized.)
 
 ### No "leverage" as a synonym for "use"
+
 "Use" is fine. "Leverage" sounds pretentious.
 
 ## NVIDIA name usage
@@ -112,6 +126,7 @@ Write them out:
 ## Common term spellings
 
 A few that come up constantly:
+
 - AI (no need to spell out)
 - data center (two words)
 - email (no hyphen)

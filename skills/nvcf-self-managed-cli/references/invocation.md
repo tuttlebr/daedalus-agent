@@ -34,16 +34,16 @@ nvcf-cli function invoke --input-file invoke-config.json
 
 ### All Flags
 
-| Flag | Required | Default | Description |
-|------|----------|---------|-------------|
-| `--function-id` | Yes (or from state) | From state | Function ID |
-| `--version-id` | Yes (or from state) | From state | Version ID |
-| `--request-body` | Yes | None | JSON request body |
-| `--input-file` | No | None | JSON config file (overrides flags) |
-| `--timeout` | No | `60` | Request timeout in seconds |
-| `--poll-duration` | No | `5` | Initial polling duration in seconds |
-| `--poll-rate` | No | `3` | Polling rate in seconds |
-| `--input-asset-references` | No | None | Input asset references |
+| Flag                       | Required            | Default    | Description                         |
+| -------------------------- | ------------------- | ---------- | ----------------------------------- |
+| `--function-id`            | Yes (or from state) | From state | Function ID                         |
+| `--version-id`             | Yes (or from state) | From state | Version ID                          |
+| `--request-body`           | Yes                 | None       | JSON request body                   |
+| `--input-file`             | No                  | None       | JSON config file (overrides flags)  |
+| `--timeout`                | No                  | `60`       | Request timeout in seconds          |
+| `--poll-duration`          | No                  | `5`        | Initial polling duration in seconds |
+| `--poll-rate`              | No                  | `3`        | Polling rate in seconds             |
+| `--input-asset-references` | No                  | None       | Input asset references              |
 
 ## gRPC Invocation
 
@@ -99,11 +99,11 @@ grpcurl -plaintext \
 
 ### gRPC-Specific Flags
 
-| Flag | Description |
-|------|-------------|
-| `--grpc` | Enable gRPC invocation (native Go client with JSON encoding) |
-| `--grpc-service` | gRPC service name (required for non-default services) |
-| `--grpc-method` | gRPC method name (required for non-default methods) |
+| Flag               | Description                                                         |
+| ------------------ | ------------------------------------------------------------------- |
+| `--grpc`           | Enable gRPC invocation (native Go client with JSON encoding)        |
+| `--grpc-service`   | gRPC service name (required for non-default services)               |
+| `--grpc-method`    | gRPC method name (required for non-default methods)                 |
 | `--grpc-plaintext` | Use plaintext (insecure) gRPC connection (required for self-hosted) |
 
 ## Polling Behavior

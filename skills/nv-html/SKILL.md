@@ -28,31 +28,31 @@ These are the rules that make a page recognizably NVIDIA. If you find yourself s
 ```css
 :root {
   /* Brand */
-  --nv-green: #76B900;        /* Primary accent — use sparingly */
-  --nv-green-dark: #5A8F00;   /* Hover/active state for green */
+  --nv-green: #76b900; /* Primary accent — use sparingly */
+  --nv-green-dark: #5a8f00; /* Hover/active state for green */
 
   /* Surfaces */
-  --nv-black: #000000;        /* Hero, keynote, featured dark sections */
-  --nv-dark: #1A1A1A;         /* Card backgrounds on dark sections */
-  --nv-gray-dark: #333333;    /* Secondary dark surfaces, carousels */
-  --nv-gray-med: #666666;     /* Secondary text */
-  --nv-gray-border: #CCCCCC;  /* Separators, borders */
-  --nv-gray-light: #EEEEEE;   /* Sponsor / subtle separation */
-  --nv-bg-light: #F7F7F7;     /* Light section backgrounds */
-  --nv-white: #FFFFFF;        /* Card surfaces, light backgrounds */
+  --nv-black: #000000; /* Hero, keynote, featured dark sections */
+  --nv-dark: #1a1a1a; /* Card backgrounds on dark sections */
+  --nv-gray-dark: #333333; /* Secondary dark surfaces, carousels */
+  --nv-gray-med: #666666; /* Secondary text */
+  --nv-gray-border: #cccccc; /* Separators, borders */
+  --nv-gray-light: #eeeeee; /* Sponsor / subtle separation */
+  --nv-bg-light: #f7f7f7; /* Light section backgrounds */
+  --nv-white: #ffffff; /* Card surfaces, light backgrounds */
 
   /* Complementary (use sparingly, for variety/categorization) */
-  --nv-purple: #952FC6;
-  --nv-orange: #EF9100;
+  --nv-purple: #952fc6;
+  --nv-orange: #ef9100;
 
   /* Functional (status, callouts) */
-  --nv-yellow: #9C5000;
-  --nv-blue: #0074DF;
-  --nv-red: #E52020;
+  --nv-yellow: #9c5000;
+  --nv-blue: #0074df;
+  --nv-red: #e52020;
 
   /* Supporting */
-  --nv-magenta: #D2308E;
-  --nv-teal: #1D8BA4;
+  --nv-magenta: #d2308e;
+  --nv-teal: #1d8ba4;
 }
 ```
 
@@ -63,12 +63,15 @@ Load NVIDIA Sans as a variable font:
 ```html
 <style>
   @font-face {
-    font-family: "NVIDIA Sans";
-    src: url("https://images.nvidia.com/etc/designs/nvidiaGDC/clientlibs_base/fonts/nvidia-sans/NALA/var/NVIDIASansVF_NALA_W_Wght.woff2") format("woff2-variations");
+    font-family: 'NVIDIA Sans';
+    src: url('https://images.nvidia.com/etc/designs/nvidiaGDC/clientlibs_base/fonts/nvidia-sans/NALA/var/NVIDIASansVF_NALA_W_Wght.woff2')
+      format('woff2-variations');
     font-weight: 100 900;
     font-display: swap;
   }
-  body { font-family: "NVIDIA Sans", system-ui, sans-serif; }
+  body {
+    font-family: 'NVIDIA Sans', system-ui, sans-serif;
+  }
 </style>
 ```
 
@@ -76,15 +79,15 @@ A shorter alternative is the hosted CSS bundle: `https://images.nvidia.com/etc/d
 
 ### Typography scale
 
-| Element | Size pattern | Weight | Case |
-| --- | --- | --- | --- |
-| H1 (hero) | `clamp(2.5rem, 6vw, 5rem)` | 700 | Title Case |
-| H2 (section) | `clamp(2rem, 4vw, 3rem)` | 700 | Title Case |
-| H3 (subsection) | `clamp(1.5rem, 3vw, 2rem)` | 700 | Title Case |
-| H4 (card) | `1.25rem` | 700 | Title Case |
-| Body | `1rem` (16px) | 400 | Sentence case |
-| Small / pill / label | `0.75rem` (12px) | 500 | Title Case |
-| Pretitle / category | `0.625rem` (10px), uppercase, letter-spaced | 500 | UPPERCASE |
+| Element              | Size pattern                                | Weight | Case          |
+| -------------------- | ------------------------------------------- | ------ | ------------- |
+| H1 (hero)            | `clamp(2.5rem, 6vw, 5rem)`                  | 700    | Title Case    |
+| H2 (section)         | `clamp(2rem, 4vw, 3rem)`                    | 700    | Title Case    |
+| H3 (subsection)      | `clamp(1.5rem, 3vw, 2rem)`                  | 700    | Title Case    |
+| H4 (card)            | `1.25rem`                                   | 700    | Title Case    |
+| Body                 | `1rem` (16px)                               | 400    | Sentence case |
+| Small / pill / label | `0.75rem` (12px)                            | 500    | Title Case    |
+| Pretitle / category  | `0.625rem` (10px), uppercase, letter-spaced | 500    | UPPERCASE     |
 
 Line height `1.6` for body, `1.2` for headings.
 

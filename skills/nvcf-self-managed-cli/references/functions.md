@@ -26,12 +26,12 @@ JSON file structure:
     "expectedStatusCode": 200
   },
   "containerEnvironment": [
-    {"key": "MODEL_PATH", "value": "/models"},
-    {"key": "BATCH_SIZE", "value": "32"}
+    { "key": "MODEL_PATH", "value": "/models" },
+    { "key": "BATCH_SIZE", "value": "32" }
   ],
   "secrets": [
-    {"name": "API_KEY", "value": "sk-12345"},
-    {"name": "DB_PASSWORD", "value": "secret"}
+    { "name": "API_KEY", "value": "sk-12345" },
+    { "name": "DB_PASSWORD", "value": "secret" }
   ]
 }
 ```
@@ -72,12 +72,12 @@ When both `--input-file` and CLI flags are provided, CLI flags override the JSON
 
 ### Required Fields
 
-| Field | Flag | JSON Key | Description |
-|-------|------|----------|-------------|
-| Name | `--name` | `name` | Function name |
-| Image | `--image` | `containerImage` | Container image path |
-| Inference URL | `--inference-url` | `inferenceUrl` | Endpoint path for inference requests (see note below) |
-| Inference Port | `--inference-port` | `inferencePort` | Port the container listens on |
+| Field          | Flag               | JSON Key         | Description                                           |
+| -------------- | ------------------ | ---------------- | ----------------------------------------------------- |
+| Name           | `--name`           | `name`           | Function name                                         |
+| Image          | `--image`          | `containerImage` | Container image path                                  |
+| Inference URL  | `--inference-url`  | `inferenceUrl`   | Endpoint path for inference requests (see note below) |
+| Inference Port | `--inference-port` | `inferencePort`  | Port the container listens on                         |
 
 **Note on gRPC functions:** `--inference-url` is required by the API but is not used for gRPC routing. Set it to a placeholder value such as `/grpc`. gRPC traffic is routed via the dedicated gRPC listener (port 10081) on the gateway, not by HTTP path.
 
@@ -85,15 +85,15 @@ When both `--input-file` and CLI flags are provided, CLI flags override the JSON
 
 Health checks determine when a deployed function instance is ready to serve traffic. When any health field is specified, `--health-timeout` is **required** (ISO 8601 duration, e.g., `PT30S`).
 
-| Flag | JSON Key | Required | Default | Description |
-|------|----------|----------|---------|-------------|
-| `--health-uri` | `health.uri` | Yes* | None | Health endpoint path |
-| `--health-port` | `health.port` | No | Same as inference port | Health endpoint port |
-| `--health-timeout` | `health.timeout` | Yes | None | Health check timeout (ISO 8601: `PT10S`, `PT30S`, `PT1M`) |
-| `--health-protocol` | `health.protocol` | No | `HTTP` | Health check protocol (`HTTP` or `gRPC`) |
-| `--health-expected-status` | `health.expectedStatusCode` | No | `200` | Expected HTTP status code |
+| Flag                       | JSON Key                    | Required | Default                | Description                                               |
+| -------------------------- | --------------------------- | -------- | ---------------------- | --------------------------------------------------------- |
+| `--health-uri`             | `health.uri`                | Yes\*    | None                   | Health endpoint path                                      |
+| `--health-port`            | `health.port`               | No       | Same as inference port | Health endpoint port                                      |
+| `--health-timeout`         | `health.timeout`            | Yes      | None                   | Health check timeout (ISO 8601: `PT10S`, `PT30S`, `PT1M`) |
+| `--health-protocol`        | `health.protocol`           | No       | `HTTP`                 | Health check protocol (`HTTP` or `gRPC`)                  |
+| `--health-expected-status` | `health.expectedStatusCode` | No       | `200`                  | Expected HTTP status code                                 |
 
-*Required for non-Triton containers. Without `--health-uri`, deployments will fail or get stuck in a non-ready state.
+\*Required for non-Triton containers. Without `--health-uri`, deployments will fail or get stuck in a non-ready state.
 
 ### Container Environment Variables
 
@@ -114,8 +114,8 @@ Or in JSON:
 ```json
 {
   "containerEnvironment": [
-    {"key": "MODEL_PATH", "value": "/models"},
-    {"key": "BATCH_SIZE", "value": "32"}
+    { "key": "MODEL_PATH", "value": "/models" },
+    { "key": "BATCH_SIZE", "value": "32" }
   ]
 }
 ```
@@ -140,18 +140,18 @@ Or in JSON:
 ```json
 {
   "secrets": [
-    {"name": "API_KEY", "value": "secret123"},
-    {"name": "DB_PASSWORD", "value": "pass456"}
+    { "name": "API_KEY", "value": "secret123" },
+    { "name": "DB_PASSWORD", "value": "pass456" }
   ]
 }
 ```
 
 ### Function Types
 
-| Type | Description |
-|------|-------------|
-| `DEFAULT` | Standard request-response (default) |
-| `STREAMING` | Streaming response |
+| Type        | Description                         |
+| ----------- | ----------------------------------- |
+| `DEFAULT`   | Standard request-response (default) |
+| `STREAMING` | Streaming response                  |
 
 ```bash
 nvcf-cli function create --function-type STREAMING ...

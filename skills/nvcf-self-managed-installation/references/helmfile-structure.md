@@ -21,34 +21,34 @@ nvcf-self-managed-installation/
 
 ### 01-dependencies.yaml.gotmpl
 
-| Release | Chart | Namespace | Notes |
-|---------|-------|-----------|-------|
-| nats | helm-nvcf-nats | nats-system | Messaging |
-| openbao-server | helm-nvcf-openbao-server | vault-system | Secrets management, depends on nats |
-| cassandra | helm-nvcf-cassandra | cassandra-system | Database |
+| Release        | Chart                    | Namespace        | Notes                               |
+| -------------- | ------------------------ | ---------------- | ----------------------------------- |
+| nats           | helm-nvcf-nats           | nats-system      | Messaging                           |
+| openbao-server | helm-nvcf-openbao-server | vault-system     | Secrets management, depends on nats |
+| cassandra      | helm-nvcf-cassandra      | cassandra-system | Database                            |
 
 Uses `<<: *dependency` template inheritance with `release-group: dependencies` label.
 
 ### 02-core.yaml.gotmpl
 
-| Release | Chart | Namespace | Label |
-|---------|-------|-----------|-------|
-| api-keys | helm-nvcf-api-keys | api-keys | services |
-| sis | helm-nvcf-sis | sis | services |
-| api | helm-nvcf-api | nvcf | services |
-| invocation-service | helm-nvcf-invocation-service | nvcf | services |
-| grpc-proxy | helm-nvcf-grpc-proxy | nvcf | services |
-| ess-api | helm-nvcf-ess-api | ess | services |
-| notary-service | helm-nvcf-notary-service | nvcf | services |
-| admin-issuer-proxy | helm-admin-token-issuer-proxy | api-keys | (no release-group label) |
-| ingress | nvcf-gateway-routes | envoy-gateway-system | ingress |
+| Release            | Chart                         | Namespace            | Label                    |
+| ------------------ | ----------------------------- | -------------------- | ------------------------ |
+| api-keys           | helm-nvcf-api-keys            | api-keys             | services                 |
+| sis                | helm-nvcf-sis                 | sis                  | services                 |
+| api                | helm-nvcf-api                 | nvcf                 | services                 |
+| invocation-service | helm-nvcf-invocation-service  | nvcf                 | services                 |
+| grpc-proxy         | helm-nvcf-grpc-proxy          | nvcf                 | services                 |
+| ess-api            | helm-nvcf-ess-api             | ess                  | services                 |
+| notary-service     | helm-nvcf-notary-service      | nvcf                 | services                 |
+| admin-issuer-proxy | helm-admin-token-issuer-proxy | api-keys             | (no release-group label) |
+| ingress            | nvcf-gateway-routes           | envoy-gateway-system | ingress                  |
 
 Uses `inherit: [{template: service}]` for services. `admin-issuer-proxy` and `ingress` have standalone `values:` blocks.
 
 ### 03-worker.yaml.gotmpl
 
-| Release | Chart | Namespace | Label |
-|---------|-------|-----------|-------|
+| Release       | Chart         | Namespace     | Label   |
+| ------------- | ------------- | ------------- | ------- |
 | nvca-operator | nvca-operator | nvca-operator | workers |
 
 Standalone `values:` block with explicit image path construction.
@@ -111,6 +111,7 @@ From lowest to highest priority:
 `global.yaml.gotmpl` reads from `.Values` (the merged environment + env-specific YAML) and constructs chart-specific values. It only passes through keys it explicitly references:
 
 ### Cassandra
+
 - `cassandra.replicaCount`
 - `cassandra.image.*` (registry, repository)
 - `cassandra.migrations.image.*`
@@ -119,6 +120,7 @@ From lowest to highest priority:
 - `cassandra.global.defaultStorageClass`
 
 ### NATS
+
 - `nats.container.image.*`
 - `nats.reloader.image.*`
 - `nats.natsBox.container.image.*`
@@ -126,6 +128,7 @@ From lowest to highest priority:
 - `nats.podTemplate.merge.spec.nodeSelector` (if enabled)
 
 ### OpenBao
+
 - `openbao.migrations.image.*` and `openbao.migrations.env`
 - `openbao.injector.image.*`
 - `openbao.server.image.*`
@@ -133,6 +136,7 @@ From lowest to highest priority:
 - Node selectors (if enabled)
 
 ### Services (API, SIS, etc.)
+
 - `<service>.image.*` (registry, repository)
 - `<service>.nodeSelector` (if enabled)
 - `<service>.env.*` (observability settings)

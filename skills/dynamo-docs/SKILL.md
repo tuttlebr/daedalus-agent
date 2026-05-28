@@ -39,7 +39,7 @@ title: <Page Title>
   contents:
     - page: Existing Page
       path: guides/existing-page.md
-    - page: <Page Title>          # <- your new entry, 6-space indent
+    - page: <Page Title> # <- your new entry, 6-space indent
       path: <subdirectory>/<filename>.md
 ```
 
@@ -47,18 +47,18 @@ title: <Page Title>
 
 These are the canonical homes for each section in `docs/index.yml`:
 
-| Section banner | Canonical subdirectory under `docs/` |
-|---|---|
-| Getting Started | `getting-started/` |
-| Kubernetes Deployment | `kubernetes/` |
-| User Guides | `guides/` |
-| Backends | `backends/` |
-| Components | `components/` |
-| Integrations | `integrations/` |
-| Documentation | `documentation/` |
-| Design Docs | `design-docs/` |
-| Blog | `blog/` |
-| Hidden Pages | `hidden/` |
+| Section banner        | Canonical subdirectory under `docs/` |
+| --------------------- | ------------------------------------ |
+| Getting Started       | `getting-started/`                   |
+| Kubernetes Deployment | `kubernetes/`                        |
+| User Guides           | `guides/`                            |
+| Backends              | `backends/`                          |
+| Components            | `components/`                        |
+| Integrations          | `integrations/`                      |
+| Documentation         | `documentation/`                     |
+| Design Docs           | `design-docs/`                       |
+| Blog                  | `blog/`                              |
+| Hidden Pages          | `hidden/`                            |
 
 If the section banner is present but the subdirectory above doesn't exist yet (rare — usually only for a brand-new section), inspect an existing page's `path:` field for that section in `index.yml` to find the truth; the map can drift from real layout.
 
@@ -82,19 +82,20 @@ If the section banner is present but the subdirectory above doesn't exist yet (r
 
 Use GitHub-flavored markdown. CI auto-converts callouts to Fern format:
 
-| GitHub Syntax | Fern Component |
-|---|---|
-| `> [!NOTE]` | `<Note>` |
-| `> [!TIP]` | `<Tip>` |
-| `> [!IMPORTANT]` | `<Info>` |
-| `> [!WARNING]` | `<Warning>` |
-| `> [!CAUTION]` | `<Error>` |
+| GitHub Syntax    | Fern Component |
+| ---------------- | -------------- |
+| `> [!NOTE]`      | `<Note>`       |
+| `> [!TIP]`       | `<Tip>`        |
+| `> [!IMPORTANT]` | `<Info>`       |
+| `> [!WARNING]`   | `<Warning>`    |
+| `> [!CAUTION]`   | `<Error>`      |
 
 Reference images from `docs/assets/`.
 
 ## Section Banners in `index.yml`
 
 Search for:
+
 - `# ==================== Getting Started ====================`
 - `# ==================== Kubernetes Deployment ====================`
 - `# ==================== User Guides ====================`
@@ -124,21 +125,21 @@ git commit -s -m "docs: <add|update|remove> <page-title>"
 
 ## Debugging
 
-| Symptom | Fix |
-|---|---|
-| `fern check` YAML error | Check 2-space indent; `- page:` must be inside `contents:` |
-| Missing/orphaned file | `path:` in `index.yml` must match actual file location |
-| Broken links in CI | `grep -r "<filename>" docs/` and fix stale references |
-| MDX parse error | Replace `<https://...>` with `[text](https://...)` |
-| Page missing from site | Ensure nav entry exists in `index.yml`; allow a few minutes for sync |
+| Symptom                 | Fix                                                                  |
+| ----------------------- | -------------------------------------------------------------------- |
+| `fern check` YAML error | Check 2-space indent; `- page:` must be inside `contents:`           |
+| Missing/orphaned file   | `path:` in `index.yml` must match actual file location               |
+| Broken links in CI      | `grep -r "<filename>" docs/` and fix stale references                |
+| MDX parse error         | Replace `<https://...>` with `[text](https://...)`                   |
+| Page missing from site  | Ensure nav entry exists in `index.yml`; allow a few minutes for sync |
 
 ## Key References
 
-| File | Purpose |
-|---|---|
-| `docs/index.yml` | Navigation tree |
-| `docs/` | Content directory |
-| `docs/assets/` | Images, SVGs, fonts |
-| `fern/docs.yml` | Fern site configuration |
+| File                       | Purpose                             |
+| -------------------------- | ----------------------------------- |
+| `docs/index.yml`           | Navigation tree                     |
+| `docs/`                    | Content directory                   |
+| `docs/assets/`             | Images, SVGs, fonts                 |
+| `fern/docs.yml`            | Fern site configuration             |
 | `fern/convert_callouts.py` | Callout conversion (GitHub -> Fern) |
-| `docs/README.md` | Full architecture guide |
+| `docs/README.md`           | Full architecture guide             |

@@ -20,7 +20,6 @@
     12. Logo strip (sponsor row)
 -->
 
-
 <!-- ===== 1. Pill / badge ===== -->
 <style>
   .pill {
@@ -33,16 +32,28 @@
     font-weight: 500;
     line-height: 1;
   }
-  .pill-outline { border: 1.5px solid #898989; background: #FFF; color: #000; }
-  .pill-orange  { background: var(--nv-orange); color: #000; }
-  .pill-blue    { background: var(--nv-blue); color: #FFF; }
-  .pill-green   { background: var(--nv-green); color: #000; }
+  .pill-outline {
+    border: 1.5px solid #898989;
+    background: #fff;
+    color: #000;
+  }
+  .pill-orange {
+    background: var(--nv-orange);
+    color: #000;
+  }
+  .pill-blue {
+    background: var(--nv-blue);
+    color: #fff;
+  }
+  .pill-green {
+    background: var(--nv-green);
+    color: #000;
+  }
 </style>
 <span class="pill pill-outline">Outline</span>
 <span class="pill pill-orange">Talk</span>
 <span class="pill pill-blue">Tutorial</span>
 <span class="pill pill-green">Featured</span>
-
 
 <!-- ===== 2. Stat block ===== -->
 <style>
@@ -85,7 +96,6 @@
   </div>
 </div>
 
-
 <!-- ===== 3. Two-column feature row (alternating image/text) ===== -->
 <style>
   .feature-row {
@@ -94,25 +104,36 @@
     gap: 60px;
     align-items: center;
   }
-  .feature-row.reverse { direction: rtl; }
-  .feature-row.reverse > * { direction: ltr; }
-  @media (max-width: 768px) {
-    .feature-row { grid-template-columns: 1fr; gap: 32px; }
+  .feature-row.reverse {
+    direction: rtl;
   }
-  .feature-row img { width: 100%; }
+  .feature-row.reverse > * {
+    direction: ltr;
+  }
+  @media (max-width: 768px) {
+    .feature-row {
+      grid-template-columns: 1fr;
+      gap: 32px;
+    }
+  }
+  .feature-row img {
+    width: 100%;
+  }
 </style>
 <div class="feature-row">
   <div>
     <p class="kicker">Capability</p>
     <h3>What This Feature Does</h3>
-    <p>One paragraph explaining the feature. Lead with the benefit, then the mechanism.</p>
+    <p>
+      One paragraph explaining the feature. Lead with the benefit, then the
+      mechanism.
+    </p>
     <a href="#" class="btn btn-primary">Learn More</a>
   </div>
   <div>
-    <img src="placeholder.jpg" alt="Description of the image">
+    <img src="placeholder.jpg" alt="Description of the image" />
   </div>
 </div>
-
 
 <!-- ===== 4. Mission/feature card grid (3-4 cards) ===== -->
 <style>
@@ -134,7 +155,10 @@
   <div class="card">
     <div class="card-icon">1</div>
     <h4>Production Deployments</h4>
-    <p>Help customers get NVIDIA inference software running in production at scale.</p>
+    <p>
+      Help customers get NVIDIA inference software running in production at
+      scale.
+    </p>
   </div>
   <div class="card">
     <div class="card-icon">2</div>
@@ -147,7 +171,6 @@
     <p>Teach the rest of the field how to position and support inference.</p>
   </div>
 </div>
-
 
 <!-- ===== 5. Pricing / engagement-tier card ===== -->
 <style>
@@ -167,7 +190,9 @@
   .tier.featured {
     border: 2px solid var(--nv-green);
   }
-  .tier h3 { margin-bottom: 4px; }
+  .tier h3 {
+    margin-bottom: 4px;
+  }
   .tier .tier-tagline {
     color: var(--nv-gray-med);
     font-size: 0.875rem;
@@ -184,8 +209,13 @@
     border-bottom: 1px solid var(--nv-gray-light);
     font-size: 0.9375rem;
   }
-  .tier ul li:last-child { border-bottom: none; }
-  .tier .btn { width: 100%; text-align: center; }
+  .tier ul li:last-child {
+    border-bottom: none;
+  }
+  .tier .btn {
+    width: 100%;
+    text-align: center;
+  }
 </style>
 <div class="tier-grid">
   <div class="tier">
@@ -210,14 +240,12 @@
   </div>
 </div>
 
-
 <!-- ===== 6. Pretitled section header ===== -->
 <header class="section-header">
   <p class="kicker">Strategy</p>
   <h2>What We Build, Together</h2>
   <p>Optional supporting sentence under the header.</p>
 </header>
-
 
 <!-- ===== 7. Data table ===== -->
 <style>
@@ -266,7 +294,6 @@
   </tbody>
 </table>
 
-
 <!-- ===== 8. Quote / testimonial ===== -->
 <style>
   .quote {
@@ -289,7 +316,6 @@
   <cite>— Engineering Director, customer</cite>
 </blockquote>
 
-
 <!-- ===== 9. Inline status badge (live dot) ===== -->
 <style>
   .live-dot {
@@ -301,13 +327,16 @@
     vertical-align: middle;
     margin-right: 6px;
   }
-  .live-dot.green { background: var(--nv-green); }
-  .live-dot.yellow { background: #F9C500; }
+  .live-dot.green {
+    background: var(--nv-green);
+  }
+  .live-dot.yellow {
+    background: #f9c500;
+  }
 </style>
 <span><span class="live-dot"></span> Live</span>
 <span><span class="live-dot green"></span> Healthy</span>
 <span><span class="live-dot yellow"></span> Degraded</span>
-
 
 <!-- ===== 10. Sticky in-page nav ===== -->
 <style>
@@ -330,7 +359,9 @@
     font-size: 1.125rem;
     color: var(--nv-white);
   }
-  .nv-nav .brand .accent { color: var(--nv-green); }
+  .nv-nav .brand .accent {
+    color: var(--nv-green);
+  }
   .nv-nav ul {
     display: flex;
     gap: 24px;
@@ -343,11 +374,15 @@
     font-size: 0.875rem;
     font-weight: 500;
   }
-  .nv-nav a:hover { color: var(--nv-green); }
+  .nv-nav a:hover {
+    color: var(--nv-green);
+  }
 </style>
 <nav class="nv-nav">
   <div class="container">
-    <span class="brand">NVIDIA <span class="accent">|</span> Inference Ops</span>
+    <span class="brand"
+      >NVIDIA <span class="accent">|</span> Inference Ops</span
+    >
     <ul>
       <li><a href="#mission">Mission</a></li>
       <li><a href="#team">Team</a></li>
@@ -355,7 +390,6 @@
     </ul>
   </div>
 </nav>
-
 
 <!-- ===== 11. Dashboard metric card ===== -->
 <style>
@@ -387,7 +421,9 @@
     font-size: 0.875rem;
     color: var(--nv-green);
   }
-  .metric .metric-delta.negative { color: var(--nv-red); }
+  .metric .metric-delta.negative {
+    color: var(--nv-red);
+  }
 </style>
 <div class="metric-grid">
   <div class="metric">
@@ -406,7 +442,6 @@
     <div class="metric-delta negative">↑ 0.01%</div>
   </div>
 </div>
-
 
 <!-- ===== 12. Logo strip (partner / sponsor row) ===== -->
 <style>
@@ -428,13 +463,15 @@
     opacity: 0.7;
     transition: opacity var(--nv-transition);
   }
-  .logo-strip img:hover { opacity: 1; }
+  .logo-strip img:hover {
+    opacity: 1;
+  }
 </style>
 <div class="logo-strip">
   <div class="container">
-    <img src="partner-1.svg" alt="Partner 1">
-    <img src="partner-2.svg" alt="Partner 2">
-    <img src="partner-3.svg" alt="Partner 3">
-    <img src="partner-4.svg" alt="Partner 4">
+    <img src="partner-1.svg" alt="Partner 1" />
+    <img src="partner-2.svg" alt="Partner 2" />
+    <img src="partner-3.svg" alt="Partner 3" />
+    <img src="partner-4.svg" alt="Partner 4" />
   </div>
 </div>

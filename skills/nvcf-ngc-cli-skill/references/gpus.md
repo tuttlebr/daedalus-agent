@@ -67,9 +67,7 @@ The JSON output contains an array of GPU entries. Each entry defines the quota r
       "name": "L40",
       "quota": 100,
       "instance-types": "*",
-      "clusters": [
-        { "names": "cluster-a", "limit": 40 }
-      ]
+      "clusters": [{ "names": "cluster-a", "limit": 40 }]
     },
     {
       "name": "A100",
@@ -94,24 +92,24 @@ The JSON output contains an array of GPU entries. Each entry defines the quota r
 
 ### Quota fields
 
-| Field | Meaning |
-|-------|---------|
-| `name` | GPU hardware type (e.g., `L40`, `H100`, `A100`) |
-| `quota` | Total GPU count allowed for this type across all deployments |
-| `instance-types` | Allowed instance types. `*` means all; otherwise a comma-separated list (e.g., `H100_1x,H100_2x`) |
-| `clusters` | Optional cluster-level limits. Each entry has `names` (comma-separated) and `limit` (max GPUs across those clusters) |
+| Field                | Meaning                                                                                                                       |
+| -------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `name`               | GPU hardware type (e.g., `L40`, `H100`, `A100`)                                                                               |
+| `quota`              | Total GPU count allowed for this type across all deployments                                                                  |
+| `instance-types`     | Allowed instance types. `*` means all; otherwise a comma-separated list (e.g., `H100_1x,H100_2x`)                             |
+| `clusters`           | Optional cluster-level limits. Each entry has `names` (comma-separated) and `limit` (max GPUs across those clusters)          |
 | `dedicated-clusters` | Same as `clusters` but for dedicated/managed clusters. When present, the deployment spec **must** include an explicit cluster |
-| `regions` | Optional region-level limits. Each entry has `names` (comma-separated) and `limit` (max GPUs across those regions) |
+| `regions`            | Optional region-level limits. Each entry has `names` (comma-separated) and `limit` (max GPUs across those regions)            |
 
 ### How GPU counting works
 
 Quota is counted in **GPUs, not instances**, and is evaluated against **maxInstances** (the autoscaling ceiling), not minInstances. A multi-GPU instance type counts each GPU individually:
 
-| Instance Type | GPU Count per Instance |
-|---------------|----------------------|
-| `OCI.GPU.H100_1x` | 1 GPU |
-| `OCI.GPU.H100_4x` | 4 GPUs |
-| `OCI.GPU.H100_8x` | 8 GPUs |
+| Instance Type        | GPU Count per Instance     |
+| -------------------- | -------------------------- |
+| `OCI.GPU.H100_1x`    | 1 GPU                      |
+| `OCI.GPU.H100_4x`    | 4 GPUs                     |
+| `OCI.GPU.H100_8x`    | 8 GPUs                     |
 | `OCI.GPU.H100_8x.x4` | 32 GPUs (4 nodes x 8 GPUs) |
 
 **Quota usage per deployment = maxInstances x GPUs per instance type.**
@@ -131,12 +129,12 @@ Example: With `quota: 16` for H100, you could deploy 16x `H100_1x`, or 4x `H100_
 
 ### Common quota errors and resolution
 
-| Error | Meaning | Fix |
-|-------|---------|-----|
-| `FAILED_MISSING_CLUSTERS: Cluster quota Limits are set; clusters is required in input` | Org has cluster-level quota limits but deployment spec has no cluster | Add cluster to `--targeted-dep-spec` (6th field) |
-| `EXCEED_DEDICATED_CLUSTER_QUOTA_LIMITS: Quota exceeded for GPU 'A100' and dedicated clusters 'my-cluster'` | Not enough GPUs left on the dedicated cluster | Reduce instances, free up other deployments on that cluster, or use a different cluster |
-| `Insufficient quota for H100 in region us-west-2` | Region limit reached | Reduce instances or deploy to a different region |
-| `GPU type X and instance type Y not found in cluster Z` | Cluster doesn't have that GPU/instance type | Check `ngc cf gpu info <gpu>` for valid cluster + instance type combos |
+| Error                                                                                                      | Meaning                                                               | Fix                                                                                     |
+| ---------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| `FAILED_MISSING_CLUSTERS: Cluster quota Limits are set; clusters is required in input`                     | Org has cluster-level quota limits but deployment spec has no cluster | Add cluster to `--targeted-dep-spec` (6th field)                                        |
+| `EXCEED_DEDICATED_CLUSTER_QUOTA_LIMITS: Quota exceeded for GPU 'A100' and dedicated clusters 'my-cluster'` | Not enough GPUs left on the dedicated cluster                         | Reduce instances, free up other deployments on that cluster, or use a different cluster |
+| `Insufficient quota for H100 in region us-west-2`                                                          | Region limit reached                                                  | Reduce instances or deploy to a different region                                        |
+| `GPU type X and instance type Y not found in cluster Z`                                                    | Cluster doesn't have that GPU/instance type                           | Check `ngc cf gpu info <gpu>` for valid cluster + instance type combos                  |
 
 ### Pre-deployment quota check workflow
 
@@ -182,26 +180,26 @@ ngc cf available-gpus
 
 ## Common GPU Types
 
-| GPU | Description | Use Cases |
-|-----|-------------|-----------|
-| `GB200` | NVIDIA GB200 | Next-gen AI workloads |
-| `H100` | NVIDIA H100 | Large-scale training, LLMs |
-| `A100` | NVIDIA A100 | Training, large models |
-| `L40S` | NVIDIA L40S | Enhanced inference, media |
-| `L40` | NVIDIA L40 | Inference, light training |
-| `T10` | NVIDIA T10 | Cost-effective inference |
+| GPU     | Description  | Use Cases                  |
+| ------- | ------------ | -------------------------- |
+| `GB200` | NVIDIA GB200 | Next-gen AI workloads      |
+| `H100`  | NVIDIA H100  | Large-scale training, LLMs |
+| `A100`  | NVIDIA A100  | Training, large models     |
+| `L40S`  | NVIDIA L40S  | Enhanced inference, media  |
+| `L40`   | NVIDIA L40   | Inference, light training  |
+| `T10`   | NVIDIA T10   | Cost-effective inference   |
 
 ## Instance Types
 
 Instance types combine GPU and compute specifications. Format varies by backend/cloud provider:
 
-| Format | Example | Description |
-|--------|---------|-------------|
-| OCI format | `OCI.GPU.H100_1x` | 1x H100 on OCI |
-| OCI multi-node | `OCI.GPU.H100_8x.x4` | 4 nodes of 8x H100 (32 GPUs) |
-| DGX Cloud | `DGX-CLOUD.GPU.L40_1x` | 1x L40 on DGX Cloud |
-| GFN format | `gl40_1.br20_2xlarge` | 1x L40 GPU (GFN backend) |
-| GFN legacy | `g6.full` | Full instance (GFN backend) |
+| Format         | Example                | Description                  |
+| -------------- | ---------------------- | ---------------------------- |
+| OCI format     | `OCI.GPU.H100_1x`      | 1x H100 on OCI               |
+| OCI multi-node | `OCI.GPU.H100_8x.x4`   | 4 nodes of 8x H100 (32 GPUs) |
+| DGX Cloud      | `DGX-CLOUD.GPU.L40_1x` | 1x L40 on DGX Cloud          |
+| GFN format     | `gl40_1.br20_2xlarge`  | 1x L40 GPU (GFN backend)     |
+| GFN legacy     | `g6.full`              | Full instance (GFN backend)  |
 
 Use `ngc cf gpu info <gpu-type>` to see all available instance types for a GPU.
 
@@ -226,6 +224,7 @@ ngc cf task create \
 ```
 
 Example:
+
 ```bash
 ngc cf task create \
   --name training \

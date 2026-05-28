@@ -7,7 +7,15 @@ description: Install, deploy, upgrade, and tear down the nvcf-self-managed-stack
 
 > **Related skills:** `nvcf-self-managed-cli` (function operations on the deployed self-managed control plane via nvcf-cli), `nvcf-ngc-cli-skill` (function ops on the cloud-hosted NVCF via NGC CLI).
 
-Operational guide for the `nvcf-self-managed-stack` helmfile bundle used to deploy the NVCF control plane.
+## Goal
+
+Operate the `nvcf-self-managed-stack` helmfile bundle with enough context to
+avoid damaging a cluster. Success means the target environment, kube context,
+values source, secret requirements, and validation command are explicit before
+any install, upgrade, or teardown.
+
+Stop before destructive teardown, namespace deletion, or production-cluster
+mutation unless the user explicitly confirms the target context and action.
 
 ## Before You Start
 
@@ -97,12 +105,12 @@ HELMFILE_ENV=<env-name> helmfile sync       # Deploy
 
 Helmfile deploys in order with dependencies:
 
-| Phase | Selector | Services | Wait time |
-|-------|----------|----------|-----------|
-| 1 | `release-group=dependencies` | NATS, OpenBao, Cassandra | 5-10 min |
-| 2 | `release-group=services` | API, SIS, ESS, invocation, grpc-proxy, notary, api-keys | 5-10 min |
-| 3 | `release-group=ingress` | Gateway routes | 1-2 min |
-| 4 | `release-group=workers` | NVCA operator | 1-2 min |
+| Phase | Selector                     | Services                                                | Wait time |
+| ----- | ---------------------------- | ------------------------------------------------------- | --------- |
+| 1     | `release-group=dependencies` | NATS, OpenBao, Cassandra                                | 5-10 min  |
+| 2     | `release-group=services`     | API, SIS, ESS, invocation, grpc-proxy, notary, api-keys | 5-10 min  |
+| 3     | `release-group=ingress`      | Gateway routes                                          | 1-2 min   |
+| 4     | `release-group=workers`      | NVCA operator                                           | 1-2 min   |
 
 Monitor in a separate terminal:
 
@@ -217,10 +225,10 @@ HELMFILE_ENV=<env> helmfile --selector name=cassandra sync      # Apply
 
 There are two distinct credential types:
 
-| | Control Plane Pull Secrets | API Bootstrap Registry Creds |
-|---|---|---|
-| Purpose | K8s pulls NVCF service images | NVCF API pulls user function images |
-| Config | K8s Secrets + Kyverno ClusterPolicy | `secrets/<env>-secrets.yaml` |
+|         | Control Plane Pull Secrets          | API Bootstrap Registry Creds        |
+| ------- | ----------------------------------- | ----------------------------------- |
+| Purpose | K8s pulls NVCF service images       | NVCF API pulls user function images |
+| Config  | K8s Secrets + Kyverno ClusterPolicy | `secrets/<env>-secrets.yaml`        |
 
 ### Configuring with Kyverno (recommended)
 
@@ -340,6 +348,7 @@ kubectl get nodes -o custom-columns="NAME:.metadata.name,GPU:.status.allocatable
 The NVCA operator auto-creates `nvca-system` and `nvcf-backend` namespaces. These are **not** in the initial namespace list for pull secrets or Kyverno policy. After the first `helmfile sync`:
 
 1. Create pull secrets in operator-managed namespaces:
+
    ```bash
    for ns in nvca-system nvcf-backend; do
      kubectl create namespace "$ns" --dry-run=client -o yaml | kubectl apply -f -
@@ -396,18 +405,18 @@ kubectl get events -n <ns> --sort-by='.lastTimestamp'  # Recent events
 
 ### Common failure patterns
 
-| Symptom | Cause | Fix |
-|---------|-------|-----|
-| `ImagePullBackOff` + `401 Unauthorized` | Missing or wrong pull secret | Check secret exists, check SA has imagePullSecrets |
-| `Init:0/1` stuck on service pods | Vault-agent waiting for OpenBao | Check OpenBao pods + migration job status |
-| `OOMKilled` on Cassandra | Default resources too small | Override `cassandra.resources` via values block |
-| `Pending` pods | Node selector mismatch or no storage class | `kubectl describe pod`, check labels and storage |
-| Helm release in `failed` state | First install failed partway | `helmfile destroy` the release, then `sync` again |
-| Account bootstrap timeout | Wrong base64 credentials in secrets file | Check `kubectl logs job/nvcf-api-account-bootstrap -n nvcf` |
-| NVCA agent `CrashLoopBackOff` + "no backend GPUs found" | No GPU operator or fake GPUs on cluster | Install fake-gpu-operator, see [Fake GPU Operator](#fake-gpu-operator-non-gpu-clusters) |
-| `ImagePullBackOff` in `nvca-system` | Pull secret missing in operator-created namespace | Create secret + update Kyverno policy to include `nvca-system` |
-| Services fail to read vault secrets; `secrets.json` not found | Vault path hardcoded to `/home/app/vault/` in `_helpers.tpl`; Kaizen strips leading `/` | Override `podAnnotations` and set `JAVA_TOOL_OPTIONS: "-Duser.dir=/"` in release values |
-| NATS connection fails at startup; placement tag mismatch | NATS server tags hardcoded to `dc:ncp`; app derives tag from `AWS_REGION` (e.g., `us-gov-west-1`) | Set `AWS_REGION=ncp` and `NVCF_AWS_REGION=ncp` in env config |
+| Symptom                                                       | Cause                                                                                             | Fix                                                                                     |
+| ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| `ImagePullBackOff` + `401 Unauthorized`                       | Missing or wrong pull secret                                                                      | Check secret exists, check SA has imagePullSecrets                                      |
+| `Init:0/1` stuck on service pods                              | Vault-agent waiting for OpenBao                                                                   | Check OpenBao pods + migration job status                                               |
+| `OOMKilled` on Cassandra                                      | Default resources too small                                                                       | Override `cassandra.resources` via values block                                         |
+| `Pending` pods                                                | Node selector mismatch or no storage class                                                        | `kubectl describe pod`, check labels and storage                                        |
+| Helm release in `failed` state                                | First install failed partway                                                                      | `helmfile destroy` the release, then `sync` again                                       |
+| Account bootstrap timeout                                     | Wrong base64 credentials in secrets file                                                          | Check `kubectl logs job/nvcf-api-account-bootstrap -n nvcf`                             |
+| NVCA agent `CrashLoopBackOff` + "no backend GPUs found"       | No GPU operator or fake GPUs on cluster                                                           | Install fake-gpu-operator, see [Fake GPU Operator](#fake-gpu-operator-non-gpu-clusters) |
+| `ImagePullBackOff` in `nvca-system`                           | Pull secret missing in operator-created namespace                                                 | Create secret + update Kyverno policy to include `nvca-system`                          |
+| Services fail to read vault secrets; `secrets.json` not found | Vault path hardcoded to `/home/app/vault/` in `_helpers.tpl`; Kaizen strips leading `/`           | Override `podAnnotations` and set `JAVA_TOOL_OPTIONS: "-Duser.dir=/"` in release values |
+| NATS connection fails at startup; placement tag mismatch      | NATS server tags hardcoded to `dc:ncp`; app derives tag from `AWS_REGION` (e.g., `us-gov-west-1`) | Set `AWS_REGION=ncp` and `NVCF_AWS_REGION=ncp` in env config                            |
 
 For expanded debugging recipes, see [references/debugging.md](references/debugging.md).
 

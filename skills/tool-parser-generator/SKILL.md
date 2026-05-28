@@ -22,11 +22,13 @@ Follow this systematic workflow when the user provides a HuggingFace model name.
 ### Phase 1: Fetch and Extract Chat Template
 
 1. **Fetch tokenizer config from HuggingFace Hub**:
+
    ```
    URL: https://huggingface.co/{model_id}/resolve/main/tokenizer_config.json
    ```
 
 2. **Extract chat template**:
+
    - Parse the JSON response
    - Look for `chat_template` field
    - Handle two formats:
@@ -45,11 +47,13 @@ Follow this systematic workflow when the user provides a HuggingFace model name.
 The chat template is a Jinja template. Analyze it to identify tool call patterns:
 
 1. **Find tool-related sections**:
+
    - Look for conditional blocks with keywords: `tools`, `tool_call`, `function`, `available_tools`
    - Extract content within `{% if tools %}...{% endif %}` blocks
    - Find `{% for tool in tools %}` loops
 
 2. **Identify markers and format**:
+
    - **Start markers**: Tokens/strings before tool calls
      - Examples: `<tool_call>`, `[TOOL_CALLS]`, `<|python_tag|>`, `<｜tool▁call▁begin｜>`
    - **End markers**: Tokens/strings after tool calls
@@ -72,19 +76,23 @@ The chat template is a Jinja template. Analyze it to identify tool call patterns
 **Read existing parser implementations** in `/lib/parsers/src/tool_calling/`:
 
 1. **Check JSON parsers** (`json/` directory):
+
    - `base_json_parser.rs` - Generic JSON with markers
    - `deepseek_v3_parser.rs` - DeepSeek V3 format
    - `deepseek_v3_1_parser.rs` - DeepSeek V3.1 format
 
 2. **Check XML parsers** (`xml/` directory):
+
    - `parser.rs` - Qwen3 Coder XML format
 
 3. **Check other formats**:
+
    - `pythonic/pythonic_parser.rs` - Python syntax
    - `harmony/harmony_parser.rs` - Harmony protocol
    - `dsml/parser.rs` - DeepSeek V3.2 DSML
 
 4. **Review config presets** in `config.rs`:
+
    - Look at `ToolCallConfig::hermes()`, `mistral()`, `llama3_json()`, etc.
    - Each preset defines start/end tokens, key names, parser type
 
@@ -93,6 +101,7 @@ The chat template is a Jinja template. Analyze it to identify tool call patterns
    - Understand the `ParserType` enum and routing logic
 
 **Match the analyzed format**:
+
 - If start/end tokens and format match existing parser → Use existing parser with config
 - If similar but different tokens → Adapt existing parser config
 - If completely different format → Generate new parser
@@ -104,6 +113,7 @@ The chat template is a Jinja template. Analyze it to identify tool call patterns
 If a match is found, create a configuration preset:
 
 1. Add a new preset function to `/lib/parsers/src/tool_calling/config.rs`:
+
    ```rust
    impl ToolCallConfig {
        pub fn new_model_name() -> Self {
@@ -129,11 +139,13 @@ If a match is found, create a configuration preset:
 If no existing parser fits, generate new parser code:
 
 1. **Choose parser template** based on format:
+
    - JSON format → Use `base_json_parser.rs` as template
    - XML format → Use `xml/parser.rs` as template
    - Custom format → Implement three core functions
 
 2. **Implement required functions**:
+
    ```rust
    // Detection
    pub fn detect_tool_call_start_<name>(chunk: &str, config: &Config) -> bool
@@ -150,11 +162,13 @@ If no existing parser fits, generate new parser code:
    ```
 
 3. **Use regex for token matching**:
+
    - Use `OnceLock<Regex>` for compiled regexes
    - Escape special characters properly
    - Handle partial tokens for streaming
 
 4. **Parse JSON/XML content**:
+
    - Use `serde_json` for JSON parsing
    - Use regex for XML extraction (or XML parser if complex)
    - Build `ToolCallResponse` structs
@@ -169,22 +183,26 @@ If no existing parser fits, generate new parser code:
 For any new parser or configuration, generate comprehensive tests:
 
 1. **Basic tests**:
+
    - Detection of start markers
    - Parsing single tool call
    - Parsing multiple tool calls
    - Normal text extraction
 
 2. **Edge cases**:
+
    - Empty arguments
    - Missing fields
    - Malformed JSON/XML
    - Partial tokens (streaming)
 
 3. **Integration tests**:
+
    - End-to-end with real model outputs (if available)
    - Tool validation (if tools list provided)
 
 4. **Add tests** to appropriate location:
+
    - Inline in parser file (in `#[cfg(test)]` module)
    - Or in `/lib/parsers/src/tool_calling/tests.rs`
 
@@ -195,10 +213,12 @@ For any new parser or configuration, generate comprehensive tests:
 ### Phase 6: Integration
 
 1. **Update module exports**:
+
    - Add `mod` declaration in parent `mod.rs`
    - Export functions as needed
 
 2. **Register parser** in `parsers.rs` if new parser:
+
    - Add to `get_tool_parser_map()` function
    - **Register both names**: register the short preset name (`qwen2_5`) AND the canonical HuggingFace id (`Qwen/Qwen2.5-72B-Instruct`) as aliases — dynamo backends typically route by HF id, so omitting the alias leaves the parser unreachable from real model invocations.
    - **CRITICAL**: confirm Phase 5 step 5 (the `test_get_available_tool_parsers()` update) was done. If you went straight to Phase 6, do it now.
@@ -206,11 +226,13 @@ For any new parser or configuration, generate comprehensive tests:
    For the **config-preset-only path** (Phase 4 Option A — no new parser file): no `mod` declaration is needed. Skip step 1 above and only do the dispatch wiring in `config.rs` + the registry add in `parsers.rs`.
 
 3. **Document the parser**:
+
    - Add doc comments explaining format
    - Include example input/output
    - Reference model family
 
 4. **Run tests**:
+
    ```bash
    cd lib/parsers
    cargo test tool_calling
@@ -224,6 +246,7 @@ For any new parser or configuration, generate comprehensive tests:
 ## Key Reference Files
 
 **Dynamo Codebase**:
+
 - `/lib/parsers/src/tool_calling/` - All tool call parsers
 - `/lib/parsers/src/tool_calling/config.rs` - Configuration presets
 - `/lib/parsers/src/tool_calling/parsers.rs` - Parser registry
@@ -231,6 +254,7 @@ For any new parser or configuration, generate comprehensive tests:
 - `/lib/llm/src/preprocessor/prompt/template.rs` - Template loading
 
 **Reference Implementations**:
+
 - **sglang**: https://github.com/sgl-project/sglang/tree/main/python/sglang/srt/function_call
   - Look at detector pattern (base_format_detector.py)
   - Model-specific detectors (qwen25_detector.py, deepseekv3_detector.py, etc.)
@@ -244,28 +268,34 @@ For any new parser or configuration, generate comprehensive tests:
 User: "Add tool calling support for Qwen/Qwen2.5-72B-Instruct"
 
 **Step 1**: Fetch tokenizer config
+
 - Use WebFetch to get `https://huggingface.co/Qwen/Qwen2.5-72B-Instruct/resolve/main/tokenizer_config.json`
 
 **Step 2**: Analyze chat template
+
 - Extract `chat_template` field
 - Identify `{% if tools %}` block
 - Find markers: Likely `<tool_call>` and `</tool_call>`
 - Identify format: Check for JSON with `tojson` filter
 
 **Step 3**: Compare with existing parsers
+
 - Read `/lib/parsers/src/tool_calling/config.rs`
 - Check `ToolCallConfig::hermes()` - uses `<tool_call>` markers
 - Check if Qwen format matches hermes format
 
 **Step 4**: Use or adapt existing parser
+
 - If matches hermes: Create `qwen2_5()` config preset
 - If different: Generate new parser or adapt base_json_parser
 
 **Step 5**: Generate tests
+
 - Create test cases with example Qwen tool calls
 - Test detection, parsing, and edge cases
 
 **Step 6**: Integrate
+
 - Add config preset to `config.rs`
 - Register in parser map (`get_tool_parser_map()`)
 - Update `test_get_available_tool_parsers()` test
@@ -284,20 +314,25 @@ User: "Add tool calling support for Qwen/Qwen2.5-72B-Instruct"
 ## Common Patterns
 
 ### JSON with Brackets
+
 ```
 [TOOL_CALLS] [{"name": "func", "arguments": {}}]
 ```
+
 → Use `base_json_parser` with bracket markers
 
 ### JSON with XML Tags
+
 ```xml
 <tool_call>
 {"name": "func", "arguments": {}}
 </tool_call>
 ```
+
 → Use `base_json_parser` with XML-style markers
 
 ### XML Structure
+
 ```xml
 <tool_call>
 <function=name>
@@ -305,12 +340,15 @@ User: "Add tool calling support for Qwen/Qwen2.5-72B-Instruct"
 </function>
 </tool_call>
 ```
+
 → Use `xml/parser.rs` or create variant
 
 ### Nested Tokens
+
 ```
 <｜tool▁call▁begin｜>name<｜tool▁sep｜>args<｜tool▁call▁end｜>
 ```
+
 → Create specialized parser (see DeepSeek parsers)
 
 ## Minimal Changes Philosophy
