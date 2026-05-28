@@ -490,7 +490,7 @@ def test_research_agent_has_optional_exa_search():
 
         exa = config["functions"]["exa_internet_search_tool"]
         assert exa["_type"] == "exa_internet_search", path
-        assert exa["api_key"] == "${EXA_API_KEY}", path
+        assert "api_key" not in exa, path
         assert exa["search_type"] == "auto", path
         assert exa["livecrawl"] == "fallback", path
 
