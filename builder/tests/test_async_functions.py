@@ -7,6 +7,7 @@ simple utility function imports.
 """
 
 import asyncio
+import inspect
 from unittest.mock import AsyncMock, MagicMock, patch
 
 # ---------------------------------------------------------------------------
@@ -464,6 +465,10 @@ class TestWebscrapeFunctionResponseFn:
         assert fn_info is not None
         assert fn_info.fn is not None
 
+    def test_registered_argument_name_matches_tool_description(self):
+        fn_info = self._get_response_fn()
+        assert "url" in inspect.signature(fn_info.fn).parameters
+
     def test_invalid_url_returns_error(self):
         async def _run():
             from webscrape.webscrape_function import (
@@ -480,7 +485,7 @@ class TestWebscrapeFunctionResponseFn:
             return result
 
         result = run(_run())
-        assert "Scrape failed" in result or "scheme" in result.lower()
+        assert result.startswith("Error: ") or "scheme" in result.lower()
 
     def test_non_string_input_returns_error(self):
         async def _run():
@@ -498,7 +503,7 @@ class TestWebscrapeFunctionResponseFn:
             return result
 
         result = run(_run())
-        assert "Scrape failed" in result
+        assert result.startswith("Error: ")
 
     def test_strategy1_success(self):
         """When MarkItDown succeeds and content is valid, return it directly."""
@@ -607,7 +612,7 @@ class TestWebscrapeFunctionResponseFn:
                     return result
 
         result = run(_run())
-        assert "Scrape failed" in result or "disallows" in result
+        assert result.startswith("Error: ") or "disallows" in result
 
 
 # ---------------------------------------------------------------------------
@@ -940,7 +945,7 @@ class TestRssFeedInnerFunctions:
         return RssFeedFunctionConfig(**defaults)
 
     def _get_search_fn(self, config):
-        """Run rss_feed_function and return the rss_feed_search inner function."""
+        """Run rss_feed_function and return the registered search_rss inner function."""
 
         async def _run():
             import rss_feed.rss_feed_function as rss_mod
@@ -960,13 +965,13 @@ class TestRssFeedInnerFunctions:
 
         return run(_run())
 
-    def test_generator_yields_two_functions(self):
+    def test_generator_yields_single_function(self):
         config = self._make_config()
         fn_infos = self._get_search_fn(config)
-        assert len(fn_infos) == 2
+        assert len(fn_infos) == 1
 
     def test_rss_search_no_feed_url(self):
-        """Returns error when feed_url not configured."""
+        """Returns an Error: string when feed_url is not configured."""
 
         async def _run():
             import rss_feed.rss_feed_function as rss_mod
@@ -986,45 +991,16 @@ class TestRssFeedInnerFunctions:
                 async for item in rss_feed_function(config, MagicMock()):
                     fn_infos.append(item)
 
-            # Call rss_feed_search (first function) with a query
             search_fn = fn_infos[0].fn
-            result = await search_fn({"query": "test query"})
-            return result
+            return await search_fn("test query")
 
         result = run(_run())
-        assert result["success"] is False
-        assert (
-            "feed_url" in result.get("error", "").lower()
-            or "not configured" in result.get("error", "").lower()
-        )
-
-    def test_rss_search_invalid_request_format(self):
-        """Returns error for non-dict request."""
-
-        async def _run():
-            import rss_feed.rss_feed_function as rss_mod
-            from rss_feed.rss_feed_function import rss_feed_function
-
-            config = self._make_config()
-            real_cache = {}
-
-            def fake_ttlcache(maxsize, ttl):
-                return real_cache
-
-            with patch.object(rss_mod, "TTLCache", side_effect=fake_ttlcache):
-                fn_infos = []
-                async for item in rss_feed_function(config, MagicMock()):
-                    fn_infos.append(item)
-
-            search_fn = fn_infos[0].fn
-            result = await search_fn("not a dict")  # should fail
-            return result
-
-        result = run(_run())
-        assert result["success"] is False
+        assert isinstance(result, str)
+        assert result.startswith("Error: ")
+        assert "feed_url" in result.lower() or "not configured" in result.lower()
 
     def test_rss_search_empty_entries(self):
-        """Returns success with no entries when parse_rss_feed returns empty."""
+        """Returns an Error: string when no entries are found in the feed."""
 
         async def _run():
             import rss_feed.rss_feed_function as rss_mod
@@ -1052,7 +1028,6 @@ class TestRssFeedInnerFunctions:
             mock_cm.__aenter__ = AsyncMock(return_value=mock_client)
             mock_cm.__aexit__ = AsyncMock(return_value=None)
 
-            # fastfeedparser.parse returns empty entries
             mock_parsed = MagicMock()
             mock_parsed.entries = []
 
@@ -1064,42 +1039,15 @@ class TestRssFeedInnerFunctions:
                     return_value=mock_parsed,
                 ):
                     search_fn = fn_infos[0].fn
-                    result = await search_fn({"query": "test"})
-                    return result
+                    return await search_fn("test")
 
         result = run(_run())
-        assert result["success"] is True
-        assert result["entries_count"] == 0
+        # search_rss returns an Error string when entries are empty
+        assert isinstance(result, str)
+        assert result.startswith("Error: ")
 
-    def test_rss_search_wrapped_request(self):
-        """Handles request wrapped in 'request' key."""
-
-        async def _run():
-            import rss_feed.rss_feed_function as rss_mod
-            from rss_feed.rss_feed_function import rss_feed_function
-
-            config = self._make_config(feed_url=None)
-            real_cache = {}
-
-            def fake_ttlcache(maxsize, ttl):
-                return real_cache
-
-            with patch.object(rss_mod, "TTLCache", side_effect=fake_ttlcache):
-                fn_infos = []
-                async for item in rss_feed_function(config, MagicMock()):
-                    fn_infos.append(item)
-
-            search_fn = fn_infos[0].fn
-            # Wrapped request format
-            result = await search_fn({"request": {"query": "test wrapped"}})
-            return result
-
-        result = run(_run())
-        # Should fail due to no feed_url, but request should be parsed
-        assert result["query"] == "test wrapped" or result["success"] is False
-
-    def test_search_rss_simple_wrapper(self):
-        """search_rss (2nd yielded function) wraps rss_feed_search."""
+    def test_search_rss_returns_error_string_on_failure(self):
+        """search_rss returns an Error: string when the feed is not configured."""
 
         async def _run():
             import rss_feed.rss_feed_function as rss_mod
@@ -1119,18 +1067,15 @@ class TestRssFeedInnerFunctions:
                 async for item in rss_feed_function(config, MagicMock()):
                     fn_infos.append(item)
 
-            # search_rss is the second function
-            search_rss_fn = fn_infos[1].fn
-            result = await search_rss_fn("AI news")
-            return result
+            search_fn = fn_infos[0].fn
+            return await search_fn("AI news")
 
         result = run(_run())
-        # Should return an error string about feed_url
         assert isinstance(result, str)
-        assert "Error" in result or "not configured" in result.lower() or result
+        assert result.startswith("Error: ")
 
     def test_rss_search_reranker_missing_api_key(self):
-        """Returns error when no API key provided for reranker."""
+        """Returns an Error: string when no API key is configured for reranker."""
 
         async def _run():
             import os
@@ -1173,15 +1118,12 @@ class TestRssFeedInnerFunctions:
                 ):
                     with patch.dict(os.environ, env_no_key, clear=True):
                         search_fn = fn_infos[0].fn
-                        result = await search_fn({"query": "AI news"})
-                        return result
+                        return await search_fn("AI news")
 
         result = run(_run())
-        assert result["success"] is False
-        assert (
-            "api key" in result.get("error", "").lower()
-            or "key" in result.get("error", "").lower()
-        )
+        assert isinstance(result, str)
+        assert result.startswith("Error: ")
+        assert "api key" in result.lower() or "key" in result.lower()
 
     def test_rss_search_sends_compact_reranker_passages(self):
         """Large RSS descriptions are compacted before reranking."""
@@ -1249,15 +1191,16 @@ class TestRssFeedInnerFunctions:
                         return_value=("# Relevant", False),
                     ):
                         search_fn = fn_infos[0].fn
-                        result = await search_fn({"query": "AI news"})
+                        result = await search_fn("AI news")
 
             payload = mock_client.post.call_args.kwargs["json"]
             return result, payload
 
         result, payload = run(_run())
 
-        assert result["success"] is True
-        assert result["top_result"]["title"] == "Relevant article"
+        # search_rss returns the scraped markdown string on success
+        assert isinstance(result, str)
+        assert "Relevant" in result
         assert len(payload["passages"]) == 2
         assert "<p>" not in payload["passages"][0]["text"]
         assert len(payload["passages"][0]["text"]) <= 32 * 4

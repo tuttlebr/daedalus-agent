@@ -20,26 +20,26 @@ If a `_type` you expect isn't listed, the relevant extra is not installed — fi
 
 ## Running and validating workflows
 
-| Command                                                  | Use                                                       |
-| -------------------------------------------------------- | --------------------------------------------------------- |
-| `nat validate --config_file <path>`                      | Catch config errors before executing                      |
-| `nat run --config_file <path> --input <query>`           | One-off execution                                         |
-| `nat run --config_file <path> --input_file <json>`       | Batch execution from a JSON file                          |
-| `nat run ... --override <path> <value>`                  | Change a config value without editing YAML                |
-| `nat run ... --result_json_path <jsonpath>`              | Extract a nested result (default `$`)                     |
+| Command                                            | Use                                        |
+| -------------------------------------------------- | ------------------------------------------ |
+| `nat validate --config_file <path>`                | Catch config errors before executing       |
+| `nat run --config_file <path> --input <query>`     | One-off execution                          |
+| `nat run --config_file <path> --input_file <json>` | Batch execution from a JSON file           |
+| `nat run ... --override <path> <value>`            | Change a config value without editing YAML |
+| `nat run ... --result_json_path <jsonpath>`        | Extract a nested result (default `$`)      |
 
 ## Serving workflows
 
 `nat serve` is the FastAPI shorthand. `nat start <frontend>` selects a specific protocol — use it when the frontend matters (MCP, FastMCP, A2A).
 
-| Command                                                       | Use                                |
-| ------------------------------------------------------------- | ---------------------------------- |
-| `nat serve --config_file <path> --host 0.0.0.0 --port 8000`   | FastAPI — the typical dev path     |
-| `nat start console --config_file <path>`                      | Interactive console / REPL         |
-| `nat start fastapi --config_file <path>`                      | Same as `nat serve`                |
-| `nat start mcp --config_file <path>`                          | Expose workflow as an MCP server   |
-| `nat start fastmcp --config_file <path>`                      | FastMCP variant                    |
-| `nat start a2a --config_file <path>`                          | Agent-to-Agent protocol            |
+| Command                                                     | Use                              |
+| ----------------------------------------------------------- | -------------------------------- |
+| `nat serve --config_file <path> --host 0.0.0.0 --port 8000` | FastAPI — the typical dev path   |
+| `nat start console --config_file <path>`                    | Interactive console / REPL       |
+| `nat start fastapi --config_file <path>`                    | Same as `nat serve`              |
+| `nat start mcp --config_file <path>`                        | Expose workflow as an MCP server |
+| `nat start fastmcp --config_file <path>`                    | FastMCP variant                  |
+| `nat start a2a --config_file <path>`                        | Agent-to-Agent protocol          |
 
 `nat mcp …`, `nat fastmcp …`, `nat a2a …` are protocol-specific subcommand groups (client + server utilities, e.g. `nat mcp install`).
 
@@ -65,11 +65,11 @@ Useful flags: `--dataset`, `--endpoint`, `--result_json_path`, `--endpoint_timeo
 
 ## Workflow scaffolding
 
-| Command                          | Use                                                                   |
-| -------------------------------- | --------------------------------------------------------------------- |
-| `nat workflow create <name>`     | Scaffold a new workflow package (rarely needed for in-app YAML edits) |
-| `nat workflow reinstall <name>`  | Re-run install steps for a workflow package                           |
-| `nat workflow delete <name>`     | Remove a scaffolded workflow                                          |
+| Command                         | Use                                                                   |
+| ------------------------------- | --------------------------------------------------------------------- |
+| `nat workflow create <name>`    | Scaffold a new workflow package (rarely needed for in-app YAML edits) |
+| `nat workflow reinstall <name>` | Re-run install steps for a workflow package                           |
+| `nat workflow delete <name>`    | Remove a scaffolded workflow                                          |
 
 For ordinary YAML edits inside an existing app, prefer adapting an example over `nat workflow create`. Full scaffolding flow in [`workflow-creation.md`](workflow-creation.md).
 
@@ -83,18 +83,18 @@ nat registry --help
 
 ## Common flags
 
-| Flag                  | Where                                                     | Description                                            |
-| --------------------- | --------------------------------------------------------- | ------------------------------------------------------ |
-| `--config_file`       | most subcommands                                          | Path to workflow YAML                                  |
-| `--input`             | `nat run`                                                 | Single query string                                    |
-| `--input_file`        | `nat run`                                                 | JSON batch input                                       |
-| `--override`          | `nat run`                                                 | `--override <path> <value>` — change config inline     |
-| `--result_json_path`  | `nat run`, `nat eval`, `nat optimize`                     | JSONPath to extract from output (default `$`)          |
-| `--dataset`           | `nat eval`, `nat optimize`                                | Override dataset path (prefer setting it in config)    |
-| `--endpoint`          | `nat eval`, `nat optimize`                                | Run against a served endpoint                          |
-| `--reps`              | `nat eval`                                                | Multiple repetitions                                   |
-| `--skip_workflow`     | `nat eval`                                                | Re-run evaluators on cached generated answers          |
-| `--host`, `--port`    | `nat serve`, `nat start *`                                | Bind address                                           |
+| Flag                 | Where                                 | Description                                         |
+| -------------------- | ------------------------------------- | --------------------------------------------------- |
+| `--config_file`      | most subcommands                      | Path to workflow YAML                               |
+| `--input`            | `nat run`                             | Single query string                                 |
+| `--input_file`       | `nat run`                             | JSON batch input                                    |
+| `--override`         | `nat run`                             | `--override <path> <value>` — change config inline  |
+| `--result_json_path` | `nat run`, `nat eval`, `nat optimize` | JSONPath to extract from output (default `$`)       |
+| `--dataset`          | `nat eval`, `nat optimize`            | Override dataset path (prefer setting it in config) |
+| `--endpoint`         | `nat eval`, `nat optimize`            | Run against a served endpoint                       |
+| `--reps`             | `nat eval`                            | Multiple repetitions                                |
+| `--skip_workflow`    | `nat eval`                            | Re-run evaluators on cached generated answers       |
+| `--host`, `--port`   | `nat serve`, `nat start *`            | Bind address                                        |
 
 ## Picking a command
 

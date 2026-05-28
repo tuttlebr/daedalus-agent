@@ -238,10 +238,11 @@ async def content_distiller_function(config: ContentDistillerConfig, builder: Bu
         )
 
         system_prompt = (
-            "You are a content distillation specialist. Your job is to extract "
-            "the most important information from the provided content and present "
-            "it clearly and concisely. Preserve specific facts, numbers, names, "
-            "and dates. Do not add information not present in the source. "
+            "Role: content distillation specialist. Goal: extract the most "
+            "important source-backed information and present it clearly. "
+            "Preserve specific facts, numbers, names, and dates. Do not add "
+            "information not present in the source. Output should follow the "
+            "requested format and stop when the target length is satisfied. "
             "Do not use em dashes. Keep language natural and direct."
         )
 
@@ -309,11 +310,11 @@ async def content_distiller_function(config: ContentDistillerConfig, builder: Bu
         )
 
         system_prompt = (
-            "You are a precision data extraction specialist. Extract exactly "
-            "the requested fields from the provided content. Only include "
-            "information that is explicitly stated or directly inferable "
-            "from the source. Use null or 'not found' for missing fields. "
-            "Never fabricate data."
+            "Role: precision data extraction specialist. Goal: extract exactly "
+            "the requested fields from the provided content. Include only "
+            "information explicitly stated or directly inferable from the "
+            "source. Use null or 'not found' for missing fields. Return only "
+            "the requested structured output and do not fabricate data."
         )
 
         user_prompt = (
@@ -381,11 +382,13 @@ async def content_distiller_function(config: ContentDistillerConfig, builder: Bu
         )
 
         system_prompt = (
-            "You are a research synthesis specialist. Your job is to combine "
-            "information from multiple sources into a coherent, well-structured "
-            "analysis. Preserve attribution when sources disagree. Identify "
-            "gaps where important questions remain unanswered. "
-            "Do not use em dashes. Write naturally and concisely."
+            "Role: research synthesis specialist. Goal: combine the provided "
+            "fragments into a coherent analysis that answers the synthesis "
+            "goal. Preserve attribution when sources disagree, identify gaps "
+            "where important questions remain unanswered, and avoid adding "
+            "claims that are not supported by the fragments. Stop when the "
+            "synthesis goal is answered. Do not use em dashes. Write naturally "
+            "and concisely."
         )
 
         user_prompt = (

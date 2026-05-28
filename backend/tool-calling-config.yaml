@@ -971,6 +971,8 @@ llms:
     base_url: ${TOOL_CALLING_LLM_MODEL_BASE_URL}
     model_name: ${TOOL_CALLING_LLM_MODEL_MODEL}
     # extra_body:
+    #   chat_template_kwargs:
+    #     thinking: false
     #   nvext:
     #     agent_hints:
     #       priority: 10

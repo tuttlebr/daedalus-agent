@@ -12,35 +12,35 @@
 
 ## Config fields
 
-| Field | Required | Default | Description |
-| --- | --- | --- | --- |
-| `prompt` | Yes | — | Prebuilt openevals name (e.g., `correctness`, `hallucination`) **or** a custom f-string template |
-| `llm_name` | Yes | — | Judge LLM from `llms:`. **Must support structured output (JSON schema mode).** |
-| `feedback_key` | No | `score` | Name of the metric in output files |
-| `continuous` | No | `false` | `true` = float 0–1 score; `false` = boolean pass/fail |
-| `choices` | No | `null` | Explicit list of allowed scores, e.g. `[0, 0.5, 1]`. Mutually exclusive with `continuous` |
-| `use_reasoning` | No | `true` | Include chain-of-thought reasoning in output |
-| `system` | No | `null` | Optional system message prepended to the prompt |
-| `few_shot_examples` | No | `null` | List of calibration examples with `inputs`, `outputs`, `score`, `reasoning` |
-| `output_schema` | No | `null` | Python dotted path to a custom output structure |
-| `score_field` | No | `score` | Dot-notation path to the score within the output schema |
-| `judge_kwargs` | No | `null` | Additional arguments passed to the judge factory |
-| `extra_fields` | No | `null` | Map of dataset field names → evaluator kwarg names |
-| `do_auto_retry` | No | `true` | Automatic retry on transient errors |
-| `num_retries` | No | `5` | Maximum retry attempts |
-| `retry_on_status_codes` | No | `[429, 500, 502, 503, 504]` | HTTP codes triggering retry |
-| `retry_on_errors` | No | `["Too Many Requests", "429"]` | Error messages triggering retry |
+| Field                   | Required | Default                        | Description                                                                                      |
+| ----------------------- | -------- | ------------------------------ | ------------------------------------------------------------------------------------------------ |
+| `prompt`                | Yes      | —                              | Prebuilt openevals name (e.g., `correctness`, `hallucination`) **or** a custom f-string template |
+| `llm_name`              | Yes      | —                              | Judge LLM from `llms:`. **Must support structured output (JSON schema mode).**                   |
+| `feedback_key`          | No       | `score`                        | Name of the metric in output files                                                               |
+| `continuous`            | No       | `false`                        | `true` = float 0–1 score; `false` = boolean pass/fail                                            |
+| `choices`               | No       | `null`                         | Explicit list of allowed scores, e.g. `[0, 0.5, 1]`. Mutually exclusive with `continuous`        |
+| `use_reasoning`         | No       | `true`                         | Include chain-of-thought reasoning in output                                                     |
+| `system`                | No       | `null`                         | Optional system message prepended to the prompt                                                  |
+| `few_shot_examples`     | No       | `null`                         | List of calibration examples with `inputs`, `outputs`, `score`, `reasoning`                      |
+| `output_schema`         | No       | `null`                         | Python dotted path to a custom output structure                                                  |
+| `score_field`           | No       | `score`                        | Dot-notation path to the score within the output schema                                          |
+| `judge_kwargs`          | No       | `null`                         | Additional arguments passed to the judge factory                                                 |
+| `extra_fields`          | No       | `null`                         | Map of dataset field names → evaluator kwarg names                                               |
+| `do_auto_retry`         | No       | `true`                         | Automatic retry on transient errors                                                              |
+| `num_retries`           | No       | `5`                            | Maximum retry attempts                                                                           |
+| `retry_on_status_codes` | No       | `[429, 500, 502, 503, 504]`    | HTTP codes triggering retry                                                                      |
+| `retry_on_errors`       | No       | `["Too Many Requests", "429"]` | Error messages triggering retry                                                                  |
 
 ## Prebuilt openevals prompts
 
 Use these by name in the `prompt` field — no custom template needed:
 
-| Name | What it measures | Reference needed? |
-| --- | --- | --- |
-| `correctness` | Factual accuracy vs. expected answer | Yes |
-| `hallucination` | Claims not supported by context | No |
-| `helpfulness` | How useful and actionable the response is | No |
-| `conciseness` | Whether the response is appropriately concise | No |
+| Name            | What it measures                              | Reference needed? |
+| --------------- | --------------------------------------------- | ----------------- |
+| `correctness`   | Factual accuracy vs. expected answer          | Yes               |
+| `hallucination` | Claims not supported by context               | No                |
+| `helpfulness`   | How useful and actionable the response is     | No                |
+| `conciseness`   | Whether the response is appropriately concise | No                |
 
 ## Example — prebuilt prompt
 

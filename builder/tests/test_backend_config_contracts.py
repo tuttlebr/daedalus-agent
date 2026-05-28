@@ -54,6 +54,51 @@ FRONTEND_DEPLOYMENT_TEMPLATE = (
 HELM_VALUES = Path(__file__).resolve().parents[2] / "helm" / "daedalus" / "values.yaml"
 CUSTOM_VALUES = Path(__file__).resolve().parents[2] / "custom-values.yaml"
 DEPLOYED_CONFIGS = (CONFIG,)
+PROMPT_GUIDANCE_RUNTIME_PROMPTS = {
+    "workflow",
+    "research_agent",
+    "nvidia_docs_agent",
+    "ops_agent",
+    "media_agent",
+    "user_data_agent",
+    "user_document_agent",
+}
+PROMPT_GUIDANCE_CODE_SURFACES = (
+    Path("builder/autonomous_agent/src/autonomous_agent/prompt.py"),
+    Path(
+        "builder/content_distiller/src/content_distiller/content_distiller_function.py"
+    ),
+    Path("builder/source_verifier/src/source_verifier/source_verifier_function.py"),
+    Path("builder/vtt_interpreter/src/vtt_interpreter/vtt_interpreter_function.py"),
+    Path("builder/smart_milvus/src/smart_milvus/configs/config.yml"),
+)
+PROMPT_GUIDANCE_ROUTED_SKILLS = {
+    "code-review",
+    "content-research-writer",
+    "debug-session",
+    "dep-create",
+    "dep-status",
+    "dep-update",
+    "dynamo-bug",
+    "executive-voice",
+    "mas-procedure",
+    "nat-agent-configuration",
+    "nat-evaluation",
+    "nat-installation",
+    "nat-mcp-and-serving",
+    "nat-optimization",
+    "nat-path-checks",
+    "nat-telemetry",
+    "nat-tools-and-functions",
+    "nat-user-rules",
+    "nat-workflow-creation",
+    "nvcf-ngc-cli-skill",
+    "nvcf-self-managed-cli",
+    "nvcf-self-managed-installation",
+    "pr-monitor",
+    "profile-loader",
+    "skill-evolution",
+}
 NAT_CODING_AGENT_SKILLS = {
     "nat-agent-configuration",
     "nat-evaluation",
@@ -608,6 +653,64 @@ def test_memory_verification_prompt_limits_failed_retries():
         prompt = _config(path)["workflow"]["system_prompt"]
         assert "at most one targeted retry" in prompt, path
         assert "placeholder URLs" in prompt, path
+
+
+def test_backend_system_prompts_follow_prompt_guidance_shape():
+    for path in DEPLOYED_CONFIGS:
+        config = _config(path)
+        prompts = {"workflow": config["workflow"]["system_prompt"]}
+        prompts.update(
+            {
+                name: data["system_prompt"]
+                for name, data in config["functions"].items()
+                if isinstance(data, dict) and "system_prompt" in data
+            }
+        )
+
+        assert set(prompts) == PROMPT_GUIDANCE_RUNTIME_PROMPTS, path
+        for name, prompt in prompts.items():
+            assert "Role:" in prompt, (path, name)
+            assert "Goal" in prompt, (path, name)
+            assert "Output" in prompt, (path, name)
+            assert "stop" in prompt.lower(), (path, name)
+
+
+def test_hardcoded_builder_prompts_follow_prompt_guidance_shape():
+    root = Path(__file__).resolve().parents[2]
+    for relative_path in PROMPT_GUIDANCE_CODE_SURFACES:
+        text = (root / relative_path).read_text(encoding="utf-8")
+        assert "Role:" in text, relative_path
+        assert "Goal" in text, relative_path
+        assert "Output" in text, relative_path
+
+
+def test_identity_control_messages_match_backend_memory_contract():
+    root = Path(__file__).resolve().parents[2]
+    surfaces = (
+        root / "frontend" / "pages" / "api" / "chat" / "async.ts",
+        root / "evals" / "runner.py",
+    )
+    for surface in surfaces:
+        text = surface.read_text(encoding="utf-8")
+        assert "[IDENTITY]" in text, surface
+        assert "delete_memory_guarded" in text, surface
+        assert "delete_memory)" not in text, surface
+        assert "Do not echo this identity message" in text, surface
+
+
+def test_routed_skill_prompts_have_goal_validation_and_stop_rules():
+    for skill_name in PROMPT_GUIDANCE_ROUTED_SKILLS:
+        skill_path = SKILLS_DIR / skill_name / "SKILL.md"
+        text = skill_path.read_text(encoding="utf-8")
+        assert "## Goal" in text or "## Purpose" in text, skill_name
+        has_validation_signal = (
+            "Success" in text
+            or "Validation" in text
+            or "verify" in text.lower()
+            or "check" in text.lower()
+        )
+        assert has_validation_signal, skill_name
+        assert "Stop" in text or "stop" in text or "ask" in text.lower(), skill_name
 
 
 def test_mas_procedure_has_bounded_execution_budget():

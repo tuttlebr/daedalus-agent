@@ -1,6 +1,8 @@
 import asyncio
+import json
 import logging
 import os
+import re
 import tempfile
 from urllib.parse import ParseResult, urljoin, urlparse
 from urllib.robotparser import RobotFileParser
@@ -28,6 +30,10 @@ except ImportError:
     PLAYWRIGHT_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
+
+_HTTP_URL_RE = re.compile(r"https?://[^\s<>\]\)\"']+", re.IGNORECASE)
+_URL_FIELD_NAMES = ("url", "link", "href", "source_url", "input_message")
+_TRAILING_URL_PUNCTUATION = ".,;:"
 
 _BROWSER_USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -128,7 +134,7 @@ class WebscrapeFunctionConfig(FunctionBaseConfig, name="webscrape"):
 
 
 def _format_error(message: str) -> str:
-    return f"**Scrape failed:** {message}"
+    return f"Error: {message}"
 
 
 def _count_tokens(text: str, encoding_name: str = "cl100k_base") -> int:
@@ -402,17 +408,49 @@ async def _check_robots(
         )
 
 
+def _extract_url_candidate(url_candidate: str) -> str:
+    normalized_url = url_candidate.strip()
+    if not normalized_url:
+        raise ValueError("No URL supplied.")
+
+    try:
+        parsed_json = json.loads(normalized_url)
+    except json.JSONDecodeError:
+        parsed_json = None
+
+    if isinstance(parsed_json, dict):
+        for field_name in _URL_FIELD_NAMES:
+            field_value = parsed_json.get(field_name)
+            if isinstance(field_value, str) and field_value.strip():
+                return field_value.strip()
+    elif isinstance(parsed_json, str) and parsed_json.strip():
+        return parsed_json.strip()
+
+    match = _HTTP_URL_RE.search(normalized_url)
+    if match:
+        return match.group(0).rstrip(_TRAILING_URL_PUNCTUATION)
+
+    if normalized_url.startswith("<") and normalized_url.endswith(">"):
+        normalized_url = normalized_url[1:-1].strip()
+
+    return normalized_url
+
+
 def _validate_url(
     url_candidate: str, allowed_schemes: list[str]
 ) -> tuple[str, ParseResult]:
     if not url_candidate:
         raise ValueError("No URL supplied.")
 
-    normalized_url = url_candidate.strip()
-    if "//" not in normalized_url:
-        normalized_url = f"https://{normalized_url}"
-
+    normalized_url = _extract_url_candidate(url_candidate)
     parsed = urlparse(normalized_url)
+
+    if normalized_url.startswith("//"):
+        normalized_url = f"https:{normalized_url}"
+        parsed = urlparse(normalized_url)
+    elif not parsed.scheme:
+        normalized_url = f"https://{normalized_url}"
+        parsed = urlparse(normalized_url)
 
     if not parsed.scheme or parsed.scheme.lower() not in {
         scheme.lower() for scheme in allowed_schemes
@@ -433,7 +471,7 @@ def _validate_url(
 async def webscrape_function(config: WebscrapeFunctionConfig, builder: Builder):
     headers = {"User-Agent": config.user_agent}
 
-    async def _response_fn(input_message: str) -> str:
+    async def _response_fn(url: str) -> str:
         """Scrape a URL and return its content as markdown.
 
         Three strategies are tried in order, escalating when the prior one
@@ -443,7 +481,7 @@ async def webscrape_function(config: WebscrapeFunctionConfig, builder: Builder):
           3. Headless Chromium via Playwright (handles JS & Cloudflare challenges)
         """
         try:
-            sanitized_input = input_message.strip()
+            sanitized_input = url.strip()
         except AttributeError:
             return _format_error("Input must be a URL string.")
 

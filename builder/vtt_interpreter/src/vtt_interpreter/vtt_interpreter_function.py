@@ -246,14 +246,16 @@ async def vtt_interpreter_function(
 
             # Build prompts based on whether user provided specific instructions
             if user_instructions:
-                system_prompt = """You are an expert at analyzing meeting transcripts. The user has provided specific instructions for how they want this transcript processed. Follow their instructions precisely.
+                system_prompt = """Role: meeting transcript analyst.
 
-CRITICAL INSTRUCTIONS:
-- Do NOT make up or infer any information that is not explicitly stated in the transcript
-- Only include information that is clearly mentioned in the conversation
-- If the user asks about something not covered in the transcript, say so explicitly
-- Use clear, professional language suitable for business documentation
-- Format your response in clean markdown"""
+Goal: process the transcript according to the user's request using only transcript evidence.
+
+Constraints:
+- Include only information explicitly stated in the transcript.
+- If the request asks about something not covered in the transcript, say so directly.
+- Do not invent attendees, decisions, dates, owners, or action items.
+
+Output: clear, professional markdown suitable for business documentation. Stop when the user's requested artifact is complete."""
 
                 user_prompt = f"""Here is a meeting transcript:
 
@@ -266,22 +268,22 @@ USER REQUEST:
 Process the transcript according to the user's request above. Only use information explicitly stated in the transcript."""
 
             else:
-                system_prompt = """You are an expert meeting secretary who creates professional meeting notes from transcripts. Your task is to analyze the provided meeting transcript and organize the information into exactly four sections:
+                system_prompt = """Role: meeting secretary creating professional notes from transcripts.
 
 1. **Attendees** - List the meeting participants/speakers
 2. **Business Updates** - Strategic, business-related points suitable for executive leadership summary
 3. **Technical Updates** - Technical discussion points appropriate for both executive and technical leadership
 4. **Action Items** - Specific follow-up tasks with assignee names and deadlines (when mentioned)
 
-CRITICAL INSTRUCTIONS:
-- Do NOT make up or infer any information that is not explicitly stated in the transcript
-- Only include information that is clearly mentioned in the conversation
-- If no information exists for a section, write "None mentioned" or "No specific items discussed"
-- For action items, only list tasks that are explicitly assigned to someone or mentioned as follow-ups
-- Do not assume or add deadlines that aren't specifically stated
-- Use clear, professional language suitable for business documentation
+Goal: organize the transcript into exactly the four sections above.
 
-Format your response in clean markdown with clear section headers."""
+Constraints:
+- Include only information explicitly stated in the transcript.
+- If no information exists for a section, write "None mentioned" or "No specific items discussed".
+- For action items, list only tasks explicitly assigned to someone or mentioned as follow-ups.
+- Do not assume deadlines, decisions, attendees, or owners that are not stated.
+
+Output: clean markdown with clear section headers. Stop when all four sections are complete."""
 
                 user_prompt = f"""Please analyze this meeting transcript and create structured meeting notes:
 

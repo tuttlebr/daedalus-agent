@@ -1,6 +1,6 @@
 global:
-  nameOverride: ""
-  fullnameOverride: ""
+  nameOverride: ''
+  fullnameOverride: ''
   networkName: daedalus-network
   # Restrict pod scheduling to these nodes; leave empty to allow any node
   # nodePlacement:
@@ -25,11 +25,11 @@ images:
     pullPolicy: Always
   redis:
     repository: redis/redis-stack-server
-    tag: "7.4.0-v8"
+    tag: '7.4.0-v8'
     pullPolicy: Always
   redisinsight:
     repository: redis/redisinsight
-    tag: "3.2"
+    tag: '3.2'
     pullPolicy: Always
 
 backend:
@@ -48,7 +48,7 @@ backend:
       fsGroupChangePolicy: OnRootMismatch
     env:
       # Name of an existing Secret to load via envFrom (external secret)
-      fromSecret: "daedalus-backend-env"
+      fromSecret: 'daedalus-backend-env'
       # If you prefer Helm to create the Secret, set createSecret=true and provide key/value pairs under data
       createSecret: false
       data: {}
@@ -57,14 +57,14 @@ backend:
         SSL_CERT_FILE: /etc/ssl/certs/ca-certificates.crt
         # Trust nginx proxy headers so OAuth callbacks reconstruct the public
         # https://... redirect URI during token exchange.
-        FORWARDED_ALLOW_IPS: "*"
+        FORWARDED_ALLOW_IPS: '*'
         HOME: /tmp
         XDG_CACHE_HOME: /tmp/.cache
     config:
       enabled: true
       # Contents of backend/tool-calling-config.yaml; set with --set-file.
       # If empty, the ConfigMap renders an empty config.yaml.
-      data: ""
+      data: ''
     service:
       type: ClusterIP
       port: 8000
@@ -80,16 +80,16 @@ backend:
       extraFQDNs: []
   persistence:
     enabled: true
-    storageClassName: ""
+    storageClassName: ''
     create: true
-    existingClaimName: ""
+    existingClaimName: ''
   # Agent Skills directory — skills are baked into the Docker image at /skills by default.
   # Set enabled: true to override with a PVC (useful for hot-swapping skills without rebuilding).
   # When enabled without a pvcName, an emptyDir is used (skills from the image are shadowed).
   skills:
     enabled: false
     mountPath: /skills
-    pvcName: ""
+    pvcName: ''
 
 frontend:
   enabled: true
@@ -101,7 +101,7 @@ frontend:
     runAsGroup: 1001
     fsGroup: 1001
   env:
-    fromSecret: "daedalus-frontend-env"
+    fromSecret: 'daedalus-frontend-env'
     createSecret: false
     data: {}
     overrides:
@@ -109,10 +109,10 @@ frontend:
       # Supported values: /chat, /chat/stream, /generate, /generate/stream, /v1/chat/completions
       # Uploaded document ingestion uses the direct streaming endpoint by default.
       # Set to "0" only to force the legacy NAT async fallback.
-      DAEDALUS_DIRECT_DOCUMENT_INGEST_STREAM: "1"
+      DAEDALUS_DIRECT_DOCUMENT_INGEST_STREAM: '1'
       # V8 heap ceiling — sized under the pod memory limit to leave headroom for off-heap Buffers
       # during large-document base64 decode (200MB doc ≈ 267MB base64 + multiple copies in flight)
-      NODE_OPTIONS: "--max-old-space-size=8192"
+      NODE_OPTIONS: '--max-old-space-size=8192'
   service:
     type: ClusterIP
     port: 3000
@@ -123,7 +123,7 @@ nginx:
   httpPort: 80
   https:
     enabled: true
-    tlsSecretName: "daedalus-tls"
+    tlsSecretName: 'daedalus-tls'
   config:
     useTemplate: true
     restrictedMode: true # Set to true to block direct API access through nginx
@@ -131,13 +131,13 @@ nginx:
     rawConf: |
       # Provide nginx conf if not using template
     # Leave empty to default to the in-cluster FQDN of the backend Service
-    backendHost: ""
+    backendHost: ''
     backendPort: 8000
   imageVolume:
     enabled: true
-    storageClassName: ""
+    storageClassName: ''
     create: true
-    existingClaimName: ""
+    existingClaimName: ''
   service:
     type: NodePort
     nodePorts:
@@ -185,9 +185,9 @@ autonomousAgent:
   # Poll timeout for async workflow completion
   requestTimeout: 3600
   # Which backend API path to use (/v1/workflow/async for submit+poll, /chat/stream for SSE)
-  backendApiPath: "/v1/workflow/async"
+  backendApiPath: '/v1/workflow/async'
   # User whose memory and conversation history the agent operates on
-  userId: "tuttlebr"
+  userId: 'tuttlebr'
   worker:
     pollIntervalSeconds: 10
     leaseTtlSeconds: 60
@@ -196,19 +196,19 @@ autonomousAgent:
     # Load API keys from the same secret as the backend (needed if backend
     # requires auth headers; usually not needed since the agent calls the
     # in-cluster backend service directly)
-    fromSecret: "daedalus-backend-env"
+    fromSecret: 'daedalus-backend-env'
     overrides: {}
 
 ingress:
   enabled: true
-  className: ""
+  className: ''
   annotations:
-    nginx.ingress.kubernetes.io/proxy-connect-timeout: "900"
-    nginx.ingress.kubernetes.io/proxy-send-timeout: "900"
-    nginx.ingress.kubernetes.io/proxy-read-timeout: "900"
-    nginx.ingress.kubernetes.io/proxy-body-size: "300m" # Support document uploads up to 200MB (base64 adds ~33% overhead)
-    nginx.ingress.kubernetes.io/proxy-buffering: "off"
-    nginx.ingress.kubernetes.io/proxy-request-buffering: "off"
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: '900'
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '900'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '900'
+    nginx.ingress.kubernetes.io/proxy-body-size: '300m' # Support document uploads up to 200MB (base64 adds ~33% overhead)
+    nginx.ingress.kubernetes.io/proxy-buffering: 'off'
+    nginx.ingress.kubernetes.io/proxy-request-buffering: 'off'
   hosts:
     - host: daedalus.ddns.me
   tls:

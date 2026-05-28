@@ -30,33 +30,33 @@ Default example config lives in [`src/smart_milvus/configs/config.yml`](src/smar
 ```yaml
 retrievers:
   - _type: smart_milvus
-    uri: "http://localhost:19530"
-    embedding_model: "milvus_embedder"
-    database_name: "default"
+    uri: 'http://localhost:19530'
+    embedding_model: 'milvus_embedder'
+    database_name: 'default'
     collection_name: null
     content_field: null
     top_k: 5
-    vector_field_name: "vector"
+    vector_field_name: 'vector'
     use_reranker: false
 ```
 
 Important fields:
 
-| Field                  | Purpose                                                                                              |
-| ---------------------- | ---------------------------------------------------------------------------------------------------- |
-| `uri`                  | Milvus endpoint                                                                                      |
-| `connection_args`      | Optional Milvus connection or auth arguments; defaults from `MILVUS_USERNAME` / `MILVUS_PASSWORD` or `MILVUS_TOKEN` |
-| `embedding_model`      | Query embedder used before search                                                                    |
-| `database_name`        | Optional Milvus database prefix                                                                      |
-| `collection_name`      | Bound default collection name, if any                                                                |
-| `content_field`        | Field containing returned text content                                                               |
-| `vector_field_name`    | Vector column name in the collection                                                                 |
-| `top_k`                | Number of retrieved candidates                                                                       |
-| `distance_cutoff`      | Optional distance threshold; hits above the cutoff are dropped before reranking                      |
-| `output_fields`        | Optional list of fields to return                                                                    |
-| `search_params`        | Vector search parameters (defaults to `{"metric_type": "L2"}`)                                       |
-| `use_reranker`         | Enables external reranking                                                                           |
-| `reranker_*`           | Endpoint, model, key, and result count for reranking                                                 |
+| Field               | Purpose                                                                                                             |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `uri`               | Milvus endpoint                                                                                                     |
+| `connection_args`   | Optional Milvus connection or auth arguments; defaults from `MILVUS_USERNAME` / `MILVUS_PASSWORD` or `MILVUS_TOKEN` |
+| `embedding_model`   | Query embedder used before search                                                                                   |
+| `database_name`     | Optional Milvus database prefix                                                                                     |
+| `collection_name`   | Bound default collection name, if any                                                                               |
+| `content_field`     | Field containing returned text content                                                                              |
+| `vector_field_name` | Vector column name in the collection                                                                                |
+| `top_k`             | Number of retrieved candidates                                                                                      |
+| `distance_cutoff`   | Optional distance threshold; hits above the cutoff are dropped before reranking                                     |
+| `output_fields`     | Optional list of fields to return                                                                                   |
+| `search_params`     | Vector search parameters (defaults to `{"metric_type": "L2"}`)                                                      |
+| `use_reranker`      | Enables external reranking                                                                                          |
+| `reranker_*`        | Endpoint, model, key, and result count for reranking                                                                |
 
 The companion `domain_retriever` function adds a `domain_collections` map
 that translates logical domain names into Milvus collections.

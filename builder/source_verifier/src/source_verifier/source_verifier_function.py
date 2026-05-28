@@ -317,11 +317,12 @@ def _parse_llm_json(raw: str) -> dict:
 # LLM prompts
 # ---------------------------------------------------------------------------
 _VERIFY_CLAIM_SYSTEM = """\
-You are a source verification specialist. Your job is to determine whether a
-given claim is supported by the provided source content.
+Role: source verification specialist.
+
+Goal: determine whether the provided source content supports the given claim.
 
 Rules:
-- Only mark a claim as "supported" if the source EXPLICITLY states or DIRECTLY
+- Mark a claim as "supported" only when the source explicitly states or directly
   implies the claim with specific evidence.
 - Absence of contradiction is NOT support. The source must actively confirm.
 - For claims about "current", "latest", "officially disclosed", leadership,
@@ -330,7 +331,7 @@ Rules:
 - A version-specific release note is not proof of latest/current unless the
   source itself says it is latest/current. Prefer official latest/ docs pages,
   release indexes, or package indexes for latest/current claims.
-- Placeholder URLs such as example.com are never valid support.
+- Placeholder URLs such as example.com are not valid support.
 - "partially_supported" means the source confirms some aspects but not others,
   or the source's numbers/details differ slightly from the claim. A partially
   supported claim is not safe to store as a durable finding.
@@ -339,7 +340,7 @@ Rules:
 - "insufficient_context" means the source content is too short, generic, or
   off-topic to make a determination.
 
-Return your assessment as JSON (no markdown fences) with exactly these fields:
+Output: return JSON only, with no markdown fences, using exactly these fields:
 {
   "verdict": "supported" | "partially_supported" | "unsupported" | "insufficient_context",
   "confidence": <float 0.0-1.0>,
@@ -349,8 +350,10 @@ Return your assessment as JSON (no markdown fences) with exactly these fields:
 }"""
 
 _VERIFY_SYNTHESIS_SYSTEM = """\
-You are a synthesis verification specialist. You are given a synthesis memory
-that claims to connect findings across multiple domains or sources.
+Role: synthesis verification specialist.
+
+Goal: assess whether a synthesis memory's cross-domain conclusions are logically
+warranted by its constituent claims.
 
 Assess whether:
 1. The stated connections follow logically from the constituent claims.
@@ -358,7 +361,7 @@ Assess whether:
 3. There are any logical leaps, unsupported generalizations, or spurious
    connections.
 
-Return your assessment as JSON (no markdown fences) with exactly these fields:
+Output: return JSON only, with no markdown fences, using exactly these fields:
 {
   "verdict": "sound" | "partially_sound" | "unsound",
   "confidence": <float 0.0-1.0>,

@@ -15,13 +15,13 @@ If `nat optimize` returns `Error: No such command 'optimize'`, the extra isn't i
 
 Tuned by **Optuna** (Bayesian search). Fast and cheap — always try this first.
 
-| Parameter | What it controls | Default search space | Provider |
-| --- | --- | --- | --- |
-| `temperature` | Randomness of output — higher values produce more varied responses | 0.1 → 0.8, step 0.2 | openai, nim |
-| `top_p` | Nucleus sampling threshold — lower values focus on the most probable tokens | 0.5 → 1.0, step 0.1 | openai, nim |
-| `max_tokens` | Maximum output length | 128 → 2176, step 512 | nim only |
-| `model_name` | Which model to use — categorical choice across a list of candidates | custom `values` list | any |
-| Custom fields | Any numeric or categorical field in your config class | custom `low`/`high` or `values` | any |
+| Parameter     | What it controls                                                            | Default search space            | Provider    |
+| ------------- | --------------------------------------------------------------------------- | ------------------------------- | ----------- |
+| `temperature` | Randomness of output — higher values produce more varied responses          | 0.1 → 0.8, step 0.2             | openai, nim |
+| `top_p`       | Nucleus sampling threshold — lower values focus on the most probable tokens | 0.5 → 1.0, step 0.1             | openai, nim |
+| `max_tokens`  | Maximum output length                                                       | 128 → 2176, step 512            | nim only    |
+| `model_name`  | Which model to use — categorical choice across a list of candidates         | custom `values` list            | any         |
+| Custom fields | Any numeric or categorical field in your config class                       | custom `low`/`high` or `values` | any         |
 
 **What it needs:**
 
@@ -41,29 +41,29 @@ llms:
 To override the search space, use a custom range, or optimize a categorical parameter:
 
 ```yaml
-    optimizable_params: [temperature, model_name]
-    search_space:
-      temperature:
-        low: 0.1
-        high: 0.8
-        step: 0.2
-        log: false      # set true to sample on a log scale
-      model_name:
-        values: ["model-a", "model-b"]   # categorical choices
+optimizable_params: [temperature, model_name]
+search_space:
+  temperature:
+    low: 0.1
+    high: 0.8
+    step: 0.2
+    log: false # set true to sample on a log scale
+  model_name:
+    values: ['model-a', 'model-b'] # categorical choices
 ```
 
 **SearchSpace fields:**
 
-| Field | Type | When to use |
-| --- | --- | --- |
-| `low` | float | Lower bound for numeric parameter |
-| `high` | float | Upper bound for numeric parameter |
-| `step` | float | Sampling step size (optional) |
-| `log` | bool | Sample on a log scale — useful for learning rates |
-| `values` | list | Categorical choices (mutually exclusive with low/high) |
-| `is_prompt` | bool | `true` for string fields tuned by the GA |
-| `prompt` | str | Base prompt text to evolve (optional if using field default) |
-| `prompt_purpose` | str | Guides the LLM during mutation — be specific |
+| Field            | Type  | When to use                                                  |
+| ---------------- | ----- | ------------------------------------------------------------ |
+| `low`            | float | Lower bound for numeric parameter                            |
+| `high`           | float | Upper bound for numeric parameter                            |
+| `step`           | float | Sampling step size (optional)                                |
+| `log`            | bool  | Sample on a log scale — useful for learning rates            |
+| `values`         | list  | Categorical choices (mutually exclusive with low/high)       |
+| `is_prompt`      | bool  | `true` for string fields tuned by the GA                     |
+| `prompt`         | str   | Base prompt text to evolve (optional if using field default) |
+| `prompt_purpose` | str   | Guides the LLM during mutation — be specific                 |
 
 > **Note:** Some models do not support `temperature` and `top_p` together. Setting both can cause validation errors. If trials fail, start with `temperature` only and add `top_p` separately once you confirm the model accepts it.
 
@@ -99,22 +99,22 @@ File-loaded prompts (`file://prompts/system.j2`) are also supported and automati
 
 The GA can use an LLM to explain why specific outputs failed and incorporate that feedback into subsequent mutations:
 
-| Mode | Behavior |
-| --- | --- |
-| `never` | No oracle feedback (default) |
-| `always` | Gather feedback on every sample |
-| `failing_only` | Gather feedback only on failing samples |
-| `adaptive` | Dynamically decides when feedback is needed |
+| Mode           | Behavior                                    |
+| -------------- | ------------------------------------------- |
+| `never`        | No oracle feedback (default)                |
+| `always`       | Gather feedback on every sample             |
+| `failing_only` | Gather feedback only on failing samples     |
+| `adaptive`     | Dynamically decides when feedback is needed |
 
-| Field | Default | Description |
-| --- | --- | --- |
-| `oracle_feedback_mode` | `never` | When to gather feedback: `never`, `always`, `failing_only`, `adaptive` |
-| `oracle_feedback_worst_n` | `5` | Number of worst-performing samples to extract feedback from |
-| `oracle_feedback_max_chars` | `4000` | Character limit for feedback injected into the mutation prompt |
-| `oracle_feedback_fitness_threshold` | `0.3` | Fitness ceiling that triggers `failing_only` mode |
-| `oracle_feedback_stagnation_generations` | `3` | Generations without improvement before `adaptive` triggers |
-| `oracle_feedback_fitness_variance_threshold` | `0.01` | Variance threshold for `adaptive` collapse detection |
-| `oracle_feedback_diversity_threshold` | `0.5` | Prompt duplication ratio threshold for `adaptive` mode |
+| Field                                        | Default | Description                                                            |
+| -------------------------------------------- | ------- | ---------------------------------------------------------------------- |
+| `oracle_feedback_mode`                       | `never` | When to gather feedback: `never`, `always`, `failing_only`, `adaptive` |
+| `oracle_feedback_worst_n`                    | `5`     | Number of worst-performing samples to extract feedback from            |
+| `oracle_feedback_max_chars`                  | `4000`  | Character limit for feedback injected into the mutation prompt         |
+| `oracle_feedback_fitness_threshold`          | `0.3`   | Fitness ceiling that triggers `failing_only` mode                      |
+| `oracle_feedback_stagnation_generations`     | `3`     | Generations without improvement before `adaptive` triggers             |
+| `oracle_feedback_fitness_variance_threshold` | `0.01`  | Variance threshold for `adaptive` collapse detection                   |
+| `oracle_feedback_diversity_threshold`        | `0.5`   | Prompt duplication ratio threshold for `adaptive` mode                 |
 
 ## Next: sizing the run
 

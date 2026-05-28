@@ -41,7 +41,7 @@ services:
       - REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
       - SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
     ports:
-      - "${BACKEND_PORT:-8000}:8000"
+      - '${BACKEND_PORT:-8000}:8000'
     networks:
       - ${NETWORK_NAME:-daedalus-network}
     volumes:
@@ -51,8 +51,8 @@ services:
   nginx:
     image: nginx:alpine
     ports:
-      - "${NGINX_HTTP_PORT:-80}:80"
-      - "${NGINX_HTTPS_PORT:-443}:443"
+      - '${NGINX_HTTP_PORT:-80}:80'
+      - '${NGINX_HTTPS_PORT:-443}:443'
     volumes:
       - ./nginx/conf.d:/etc/nginx/conf.d:ro
       - ./nginx/logs:/var/log/nginx
@@ -89,7 +89,7 @@ services:
       - BACKEND_PORT=${BACKEND_PORT:-8000}
       - BACKEND_API_PATH=${BACKEND_API_PATH:-/v1/chat/completions}
     ports:
-      - "3000:3000"
+      - '3000:3000'
     networks:
       - ${NETWORK_NAME:-daedalus-network}
     image: ${DOCKER_REGISTRY:-docker.io/library}/daedalus:frontend-${DAEDALUS_VERSION:-0.1.0}
@@ -103,13 +103,23 @@ services:
 
   redis:
     image: redis/redis-stack:7.2.0-v19
-    command: [ "redis-server", "--save", "60", "1", "--appendonly", "yes", "--loadmodule", "/opt/redis-stack/lib/rejson.so" ]
+    command:
+      [
+        'redis-server',
+        '--save',
+        '60',
+        '1',
+        '--appendonly',
+        'yes',
+        '--loadmodule',
+        '/opt/redis-stack/lib/rejson.so',
+      ]
     restart: unless-stopped
     volumes:
       - ${DOCKER_VOLUME_DIRECTORY:-.}/redis/data:/data
     ports:
-      - "6379:6379"
-      - "8001:8001"  # RedisInsight web UI (optional, remove in production)
+      - '6379:6379'
+      - '8001:8001' # RedisInsight web UI (optional, remove in production)
     networks:
       - ${NETWORK_NAME:-daedalus-network}
 
@@ -120,7 +130,7 @@ services:
     image: ${DOCKER_REGISTRY:-docker.io/library}/daedalus:evals-${DAEDALUS_VERSION:-0.1.0}
     profiles: [evals]
     extra_hosts:
-      - "host.docker.internal:host-gateway"
+      - 'host.docker.internal:host-gateway'
     networks:
       - ${NETWORK_NAME:-daedalus-network}
     volumes:

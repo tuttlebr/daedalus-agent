@@ -30,13 +30,13 @@ Default config lives in [`src/nat_nv_ingest/configs/config.yml`](src/nat_nv_inge
 functions:
   list_collections:
     _type: nat_nv_ingest
-    redis_url: "redis://daedalus-redis.daedalus.svc.cluster.local:6379"
-    nv_ingest_host: "0.0.0.0"
+    redis_url: 'redis://daedalus-redis.daedalus.svc.cluster.local:6379'
+    nv_ingest_host: '0.0.0.0'
     nv_ingest_port: 7670
-    milvus_uri: "http://0.0.0.0:32073"
-    minio_endpoint: "0.0.0.0:9000"
-    minio_access_key: "minioadmin"
-    minio_secret_key: "minioadmin"
+    milvus_uri: 'http://0.0.0.0:32073'
+    minio_endpoint: '0.0.0.0:9000'
+    minio_access_key: 'minioadmin'
+    minio_secret_key: 'minioadmin'
     chunk_size: 1024
     chunk_overlap: 150
     embedder_dim: 2048
@@ -44,13 +44,13 @@ functions:
 
   nat_nv_ingest:
     _type: nat_nv_ingest
-    redis_url: "redis://daedalus-redis.daedalus.svc.cluster.local:6379"
-    nv_ingest_host: "0.0.0.0"
+    redis_url: 'redis://daedalus-redis.daedalus.svc.cluster.local:6379'
+    nv_ingest_host: '0.0.0.0'
     nv_ingest_port: 7670
-    milvus_uri: "http://0.0.0.0:32073"
-    minio_endpoint: "0.0.0.0:9000"
-    minio_access_key: "minioadmin"
-    minio_secret_key: "minioadmin"
+    milvus_uri: 'http://0.0.0.0:32073'
+    minio_endpoint: '0.0.0.0:9000'
+    minio_access_key: 'minioadmin'
+    minio_secret_key: 'minioadmin'
     chunk_size: 1024
     chunk_overlap: 150
     embedder_dim: 2048
@@ -59,28 +59,28 @@ functions:
 
 Important fields:
 
-| Field                                   | Purpose                                                                                            |
-| --------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| `redis_url`                             | Source document storage                                                                            |
-| `nv_ingest_host` / `nv_ingest_port`     | NvIngest service                                                                                   |
-| `milvus_uri`                            | Milvus destination                                                                                 |
-| `milvus_username` / `milvus_password`   | Optional Milvus auth for direct clients and NV-Ingest VDB upload                                   |
-| `milvus_token`                          | Optional Milvus token; `username:password` tokens are also split for NV-Ingest VDB upload          |
-| `minio_endpoint` / keys / `bucket`      | MinIO target for extracted assets                                                                  |
-| `chunk_size` / `chunk_overlap`          | Chunking behavior                                                                                  |
-| `embedder_dim` / `tokenizer`            | Embedding dimension and tokenizer used during chunking                                             |
-| `recreate_collection`                   | Rebuild collection on ingestion                                                                    |
-| `default_collection_name`               | Fallback collection when caller does not provide one                                               |
-| `database_name`                         | Milvus database name used by the user-document retriever                                           |
-| `use_v2_api` / `pdf_pages_per_chunk`    | Enables NV-Ingest V2 server-side PDF chunking                                                      |
-| `enable_image_filter` / `enable_captioning` | Image pipeline toggles                                                                         |
-| `caption_*`                             | VLM endpoint and credentials for image captioning                                                  |
-| `worker_pool_size`                      | NvIngestClient worker pool size                                                                    |
-| `batch_concurrency` / `max_documents_per_batch` | Concurrency limits for batch ingestion                                                      |
-| `ingest_max_retries` / `ingest_retry_delay` / `ingest_timeout_seconds` | Robustness controls                                                  |
-| `embedder_name` / `content_field` / `vector_field` | Retrieval wiring for the `search` operation                                            |
-| `top_k` / `distance_cutoff` / `output_fields` / `search_params` | Search defaults                                                       |
-| `use_reranker` / `reranker_*`           | Optional reranking for search                                                                      |
+| Field                                                                  | Purpose                                                                                   |
+| ---------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| `redis_url`                                                            | Source document storage                                                                   |
+| `nv_ingest_host` / `nv_ingest_port`                                    | NvIngest service                                                                          |
+| `milvus_uri`                                                           | Milvus destination                                                                        |
+| `milvus_username` / `milvus_password`                                  | Optional Milvus auth for direct clients and NV-Ingest VDB upload                          |
+| `milvus_token`                                                         | Optional Milvus token; `username:password` tokens are also split for NV-Ingest VDB upload |
+| `minio_endpoint` / keys / `bucket`                                     | MinIO target for extracted assets                                                         |
+| `chunk_size` / `chunk_overlap`                                         | Chunking behavior                                                                         |
+| `embedder_dim` / `tokenizer`                                           | Embedding dimension and tokenizer used during chunking                                    |
+| `recreate_collection`                                                  | Rebuild collection on ingestion                                                           |
+| `default_collection_name`                                              | Fallback collection when caller does not provide one                                      |
+| `database_name`                                                        | Milvus database name used by the user-document retriever                                  |
+| `use_v2_api` / `pdf_pages_per_chunk`                                   | Enables NV-Ingest V2 server-side PDF chunking                                             |
+| `enable_image_filter` / `enable_captioning`                            | Image pipeline toggles                                                                    |
+| `caption_*`                                                            | VLM endpoint and credentials for image captioning                                         |
+| `worker_pool_size`                                                     | NvIngestClient worker pool size                                                           |
+| `batch_concurrency` / `max_documents_per_batch`                        | Concurrency limits for batch ingestion                                                    |
+| `ingest_max_retries` / `ingest_retry_delay` / `ingest_timeout_seconds` | Robustness controls                                                                       |
+| `embedder_name` / `content_field` / `vector_field`                     | Retrieval wiring for the `search` operation                                               |
+| `top_k` / `distance_cutoff` / `output_fields` / `search_params`        | Search defaults                                                                           |
+| `use_reranker` / `reranker_*`                                          | Optional reranking for search                                                             |
 
 ## Function Signature
 

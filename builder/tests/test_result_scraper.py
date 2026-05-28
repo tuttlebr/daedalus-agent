@@ -38,6 +38,30 @@ class TestValidateUrl:
         url, _ = _validate_url("  https://example.com  ", ["https", "http"])
         assert url == "https://example.com"
 
+    def test_extracts_url_from_json_wrapper(self):
+        url, parsed = _validate_url(
+            '{"url": "https://example.com/article"}', ["https", "http"]
+        )
+        assert url == "https://example.com/article"
+        assert parsed.netloc == "example.com"
+
+    def test_extracts_url_from_markdown_link(self):
+        url, parsed = _validate_url(
+            "[Example](https://example.com/article)", ["https", "http"]
+        )
+        assert url == "https://example.com/article"
+        assert parsed.scheme == "https"
+
+    def test_adds_https_to_scheme_relative_url(self):
+        url, parsed = _validate_url("//example.com/article", ["https", "http"])
+        assert url == "https://example.com/article"
+        assert parsed.netloc == "example.com"
+
+    def test_adds_https_when_path_contains_double_slash(self):
+        url, parsed = _validate_url("example.com/path//section", ["https", "http"])
+        assert url == "https://example.com/path//section"
+        assert parsed.netloc == "example.com"
+
     def test_invalid_scheme_raises(self):
         with pytest.raises(ValueError, match="scheme is not allowed"):
             _validate_url("ftp://example.com", ["https", "http"])

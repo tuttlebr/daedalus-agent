@@ -15,7 +15,7 @@ functions:
     _type: react_agent
     tool_names: [query_database, plot_chart]
     llm_name: nim_llm
-    description: "Handles data analysis, SQL queries, and chart generation"
+    description: 'Handles data analysis, SQL queries, and chart generation'
     verbose: true
 
   # Sub-agent 2: handles research tasks
@@ -23,7 +23,7 @@ functions:
     _type: react_agent
     tool_names: [wikipedia_search, web_search]
     llm_name: nim_llm
-    description: "Handles research questions using web and encyclopedia sources"
+    description: 'Handles research questions using web and encyclopedia sources'
     verbose: true
 
   # Sub-agent 3: handles code tasks
@@ -31,7 +31,7 @@ functions:
     _type: tool_calling_agent
     tool_names: [code_execution]
     llm_name: nim_llm
-    description: "Writes and executes Python code"
+    description: 'Writes and executes Python code'
     verbose: true
 
   # Individual tools used by the sub-agents
@@ -58,7 +58,7 @@ workflow:
   _type: router_agent
   branches: [data_analyst, researcher, coder]
   llm_name: nim_llm
-  description: "Routes incoming requests to the appropriate specialist agent"
+  description: 'Routes incoming requests to the appropriate specialist agent'
 ```
 
 ## Pattern: Reasoning Agent Wrapping a Tool-Rich Agent
@@ -103,24 +103,24 @@ functions:
     _type: react_agent
     tool_names: [current_datetime]
     llm_name: nim_llm
-    description: "Analyzes the sentiment of the input text"
+    description: 'Analyzes the sentiment of the input text'
 
   summary_agent:
     _type: react_agent
     tool_names: [current_datetime]
     llm_name: nim_llm
-    description: "Summarizes the input text"
+    description: 'Summarizes the input text'
 
   keyword_agent:
     _type: react_agent
     tool_names: [current_datetime]
     llm_name: nim_llm
-    description: "Extracts keywords from the input text"
+    description: 'Extracts keywords from the input text'
 
 workflow:
   _type: parallel_executor
   tool_list: [sentiment_agent, summary_agent, keyword_agent]
-  description: "Runs sentiment, summary, and keyword extraction in parallel"
+  description: 'Runs sentiment, summary, and keyword extraction in parallel'
   detailed_logs: true
 ```
 
@@ -134,19 +134,19 @@ functions:
     _type: react_agent
     tool_names: [web_search, wikipedia_search]
     llm_name: nim_llm
-    description: "Gathers research on the input topic"
+    description: 'Gathers research on the input topic'
 
   analysis_agent:
     _type: react_agent
     tool_names: [calculator]
     llm_name: nim_llm
-    description: "Analyzes the research findings"
+    description: 'Analyzes the research findings'
 
   report_agent:
     _type: react_agent
     tool_names: [current_datetime]
     llm_name: nim_llm
-    description: "Generates a final report from the analysis"
+    description: 'Generates a final report from the analysis'
 
 workflow:
   _type: sequential_executor

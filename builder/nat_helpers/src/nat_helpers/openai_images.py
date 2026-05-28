@@ -1,8 +1,8 @@
 """Shared client wrappers for OpenAI's /v1/images/* endpoints.
 
-Both the agent tools (image_generation, image_augmentation) and the
-dedicated user-facing panel's FastAPI routes use these helpers so the
-SDK surface is consumed in exactly one place.
+The unified visual_media agent tool and the dedicated user-facing panel's
+FastAPI routes both call these helpers so the SDK surface is consumed in
+exactly one place.
 
 Targets the gpt-image-2 schema — all optional kwargs listed in that
 schema are forwarded verbatim when the caller sets them, and dropped

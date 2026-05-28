@@ -3,6 +3,7 @@
 import json
 import logging
 import os
+from typing import Literal
 
 import httpx
 from nat.builder.builder import Builder
@@ -488,18 +489,30 @@ async def serpapi_search_function(config: SerpApiSearchConfig, builder: Builder)
 
     async def _search(
         query: str,
-        search_type: str = "google",
+        search_type: Literal[
+            "google",
+            "google_news",
+            "google_images",
+            "google_shopping",
+            "google_videos",
+            "organic",
+            "news",
+            "images",
+            "shopping",
+            "videos",
+        ] = "google",
         location: str = "",
         num_results: int = 10,
-        time_period: str = "",
+        time_period: Literal["", "qdr:h", "qdr:d", "qdr:w", "qdr:m", "qdr:y"] = "",
     ) -> str:
         """Search the web and return structured results with rich visual cards.
 
         Args:
             query: The search query string.
-            search_type: Search engine to use. One of: "google" (default),
-                         "google_news", "google_images", "google_shopping",
-                         "google_videos".
+            search_type: Search engine to use. Canonical names ("google",
+                "google_news", "google_images", "google_shopping",
+                "google_videos") or short aliases ("organic", "news",
+                "images", "shopping", "videos") are both accepted.
             location: Geographic location for localized results (e.g., "Austin, Texas").
             num_results: Number of results to request (default 10, max 20).
             time_period: Time filter. One of: "" (any time), "qdr:h" (past hour),
@@ -507,21 +520,16 @@ async def serpapi_search_function(config: SerpApiSearchConfig, builder: Builder)
                          "qdr:y" (past year).
         """
         if not api_key:
-            return "**Error:** No SerpAPI key configured. Set the SERPAPI_KEY environment variable."
+            return "Error: No SerpAPI key configured. Set the SERPAPI_KEY environment variable."
 
-        engine_map = {
+        _ALIASES = {
             "organic": "google",
             "news": "google_news",
             "images": "google_images",
             "shopping": "google_shopping",
             "videos": "google_videos",
-            "google": "google",
-            "google_news": "google_news",
-            "google_images": "google_images",
-            "google_shopping": "google_shopping",
-            "google_videos": "google_videos",
         }
-        engine = engine_map.get(search_type.lower().strip(), "google")
+        engine = _ALIASES.get(search_type, search_type)
         num_results = max(1, min(num_results, 20))
 
         params: dict[str, str | int] = {
@@ -546,10 +554,10 @@ async def serpapi_search_function(config: SerpApiSearchConfig, builder: Builder)
                 exc.response.status_code,
                 exc.response.text[:500],
             )
-            return f"**Error:** SerpAPI returned status {exc.response.status_code}."
+            return f"Error: SerpAPI returned status {exc.response.status_code}."
         except httpx.RequestError as exc:
             logger.error("SerpAPI request failed: %s", exc)
-            return f"**Error:** Could not reach SerpAPI: {exc}"
+            return f"Error: Could not reach SerpAPI: {exc}"
 
         # Extract structured payload
         payload = _build_payload(data, query)

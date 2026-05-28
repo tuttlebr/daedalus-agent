@@ -112,13 +112,6 @@ class RssFeedFunctionConfig(FunctionBaseConfig, name="rss_feed"):
             "tool can search one named feed or all feeds with feed_scope='auto'."
         ),
     )
-    enabled_operations: list[str] | None = Field(
-        default=None,
-        description=(
-            "Optional allow-list of operations to register. Supported values: "
-            "rss_feed_search, search_rss. When omitted, both operations are registered."
-        ),
-    )
 
     # Web scraping configuration
     scrape_max_output_tokens: int = Field(
@@ -325,10 +318,6 @@ async def rss_feed_function(
 
     # Initialize HTTP client
     headers = {"User-Agent": config.user_agent}
-    enabled = set(config.enabled_operations or [])
-
-    def _enabled(operation: str) -> bool:
-        return not enabled or operation in enabled
 
     def _configured_feeds() -> dict[str, str]:
         feeds = {k: v for k, v in (config.feeds or {}).items() if k and v}
@@ -462,41 +451,15 @@ async def rss_feed_function(
             logger.error("Reranking failed: %s", str(e))
             raise
 
-    async def rss_feed_search(request: dict[str, Any]) -> dict[str, Any]:
-        """
-        Search RSS feed entries using reranking and scrape the top result.
+    async def _perform_search(query: str, feed_scope: str) -> dict[str, Any]:
+        """Internal helper: rerank RSS entries and scrape the top result.
 
-        Args:
-            request: Dictionary containing:
-                - query: Search query to rerank entries against
-                - feed_url: RSS feed URL
-                - description: Optional description
-
-        Returns:
-            Dictionary containing search results and scraped content
+        Returns the structured RssSearchResponse as a dict. Errors are reported
+        via the `success`/`error` fields rather than raised, so callers (the
+        public `search_rss` tool) can format them for the LLM.
         """
         try:
-            # Parse request - handle potential wrapper
-            if isinstance(request, dict):
-                # Check if the request is wrapped in a 'request' key
-                if "request" in request and isinstance(request["request"], dict):
-                    logger.debug("Unwrapping request from 'request' key")
-                    actual_request = request["request"]
-                else:
-                    actual_request = request
-
-                logger.debug("Parsed request: %s", actual_request)
-                search_request = RssSearchRequest(**actual_request)
-            else:
-                return RssSearchResponse(
-                    success=False,
-                    query="",
-                    feed_url="",
-                    error=(
-                        "Invalid request format. Expected dictionary with "
-                        "query field."
-                    ),
-                ).model_dump()
+            search_request = RssSearchRequest(query=query, feed_scope=feed_scope)
 
             feeds = _configured_feeds()
             if not feeds:
@@ -629,14 +592,6 @@ async def rss_feed_function(
 
         except ValueError as e:
             # Reranker configuration errors
-            # Extract query from potentially wrapped request
-            query = ""
-            if isinstance(request, dict):
-                if "request" in request and isinstance(request["request"], dict):
-                    query = request["request"].get("query", "")
-                else:
-                    query = request.get("query", "")
-
             return RssSearchResponse(
                 success=False,
                 query=query,
@@ -645,14 +600,6 @@ async def rss_feed_function(
             ).model_dump()
         except Exception as e:
             logger.error("RSS feed search error: %s", str(e), exc_info=True)
-            # Extract query from potentially wrapped request
-            query = ""
-            if isinstance(request, dict):
-                if "request" in request and isinstance(request["request"], dict):
-                    query = request["request"].get("query", "")
-                else:
-                    query = request.get("query", "")
-
             return RssSearchResponse(
                 success=False,
                 query=query,
@@ -660,52 +607,39 @@ async def rss_feed_function(
                 error=f"Unexpected error: {str(e)}",
             ).model_dump()
 
-    # Simple wrapper for convenience
     async def search_rss(
         query: str,
         feed_scope: str = "auto",
     ) -> str:
-        """
-        Simple RSS feed search that returns formatted results.
+        """Search configured RSS feeds and return scraped content of the top
+        reranked entry.
 
         Args:
-            query: Search query to rerank RSS entries against
-            feed_scope: Named feed scope to search, or auto for every configured feed
+            query: Search query to rerank RSS entries against.
+            feed_scope: Named feed scope to search, or "auto" to search every
+                configured feed and pick the single best entry across them.
 
         Returns:
-            Formatted string with search results or scraped content
+            Scraped markdown of the top entry, or an "Error: <reason>"
+            string when no feed is reachable or no relevant entry is found.
         """
-        result = await rss_feed_search({"query": query, "feed_scope": feed_scope})
-
+        result = await _perform_search(query, feed_scope)
         if not result["success"]:
-            return f"RSS Feed Search Error: {result['error']}"
-
+            return f"Error: {result['error']}"
         if result["scraped_content"]:
             return result["scraped_content"]
-        else:
-            return f"No relevant content found for query: '{query}'"
+        return f"Error: No relevant content found for query '{query}'."
 
     try:
-        if _enabled("rss_feed_search"):
-            yield FunctionInfo.create(
-                single_fn=rss_feed_search,
-                description=(
-                    "Search configured RSS feed entries using AI-powered reranking "
-                    "and scrape the most relevant result. Supports one feed_url or "
-                    "a feeds map with named feed_scope values. Caches RSS feeds for "
-                    "4 hours to improve performance."
-                ),
-            )
-
-        if _enabled("search_rss"):
-            yield FunctionInfo.from_fn(
-                search_rss,
-                description=(
-                    "Search configured RSS feeds and return the scraped content of "
-                    "the most relevant entry. Args: query and optional feed_scope "
-                    "('auto' or one configured feed name)."
-                ),
-            )
+        yield FunctionInfo.from_fn(
+            search_rss,
+            description=(
+                "Search configured RSS feeds and return the scraped content of "
+                "the most relevant entry. Args: query and optional feed_scope "
+                "('auto' or one configured feed name). Returns markdown of the "
+                "top-ranked article, or 'Error: ...' if no feed yields a match."
+            ),
+        )
 
     except GeneratorExit:
         logger.warning("RSS feed function exited early!")

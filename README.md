@@ -326,28 +326,26 @@ NeMo Agent Toolkit implementation requests route through `nat-user-rules` first,
 then the focused skill for workflow YAML, custom functions/tools, evals,
 telemetry, MCP, or serving work.
 
-| Name                  | Type    | Purpose                                                               |
-| --------------------- | ------- | --------------------------------------------------------------------- |
-| `agent_skills`        | package | Discovers and runs repo-packaged skills                               |
-| `autonomous_agent`    | package | Long-running autonomous worker, Redis state store, and prompt runtime |
-| `content_distiller`   | package | Summarization and extraction helpers                                  |
-| `image_augmentation`  | package | OpenAI image-edits wrapper for uploaded images                        |
-| `image_comprehension` | package | Vision-language analysis for images and videos                        |
-| `image_generation`    | package | OpenAI text-to-image generation                                       |
-| `json_repair_agent`   | package | Repairs malformed JSON outputs                                        |
-| `mas_optimizer`       | package | Multi-agent vs single-agent routing and verification                  |
-| `nat_helpers`         | package | Shared helpers such as geolocation and image utilities                |
-| `nat_nv_ingest`       | package | Unified user-document ingestion, search, and listing                  |
-| `rss_feed`            | package | RSS fetching, reranking, and scraping                                 |
-| `serpapi_search`      | package | Search integration                                                    |
-| `smart_milvus`        | package | Milvus retrieval, domain routing, and reranking                       |
-| `source_verifier`     | package | Claim verification before findings are persisted                      |
-| `user_interaction`    | package | Structured clarification and confirmation prompts                     |
-| `vtt_interpreter`     | package | Transcript-to-notes processing                                        |
-| `webscrape`           | package | Web page extraction                                                   |
-| `entrypoint.py`       | module  | Custom NAT entrypoint with Starlette compatibility shims              |
-| `llm_diagnostics.py`  | module  | OpenAI SDK logging and timeout enforcement for LLM client resilience  |
-| `mcp_patches.py`      | module  | MCP StreamableHTTP timeout, reconnection, and error-logging patches   |
+| Name                 | Type    | Purpose                                                               |
+| -------------------- | ------- | --------------------------------------------------------------------- |
+| `agent_skills`       | package | Discovers and runs repo-packaged skills                               |
+| `autonomous_agent`   | package | Long-running autonomous worker, Redis state store, and prompt runtime |
+| `content_distiller`  | package | Summarization and extraction helpers                                  |
+| `visual_media`       | package | Unified text-to-image, image edit, and image/video analysis           |
+| `json_repair_agent`  | package | Repairs malformed JSON outputs                                        |
+| `mas_optimizer`      | package | Multi-agent vs single-agent routing and verification                  |
+| `nat_helpers`        | package | Shared helpers such as geolocation and image utilities                |
+| `nat_nv_ingest`      | package | Unified user-document ingestion, search, and listing                  |
+| `rss_feed`           | package | RSS fetching, reranking, and scraping                                 |
+| `serpapi_search`     | package | Search integration                                                    |
+| `smart_milvus`       | package | Milvus retrieval, domain routing, and reranking                       |
+| `source_verifier`    | package | Claim verification before findings are persisted                      |
+| `user_interaction`   | package | Structured clarification and confirmation prompts                     |
+| `vtt_interpreter`    | package | Transcript-to-notes processing                                        |
+| `webscrape`          | package | Web page extraction                                                   |
+| `entrypoint.py`      | module  | Custom NAT entrypoint with Starlette compatibility shims              |
+| `llm_diagnostics.py` | module  | OpenAI SDK logging and timeout enforcement for LLM client resilience  |
+| `mcp_patches.py`     | module  | MCP StreamableHTTP timeout, reconnection, and error-logging patches   |
 
 Several packages include their own README files under `builder/`.
 
@@ -539,18 +537,16 @@ If NvIngest document ingestion fails with `StatusCode.UNAUTHENTICATED` and `auth
 
 Use these docs when you want more component-level detail than this top-level guide provides.
 
-| Document                                                                         | Focus                                                          |
-| -------------------------------------------------------------------------------- | -------------------------------------------------------------- |
-| [`frontend/README.md`](frontend/README.md)                                       | Frontend architecture, async job flow, Redis state, and PWA    |
-| [`helm/daedalus/README.md`](helm/daedalus/README.md)                             | Helm chart footprint, values, and Kubernetes traffic model     |
-| [`evals/README.md`](evals/README.md)                                             | Local evaluation harness for routing, factuality, and workflow |
-| [`frontend/pages/api/milvus/README.md`](frontend/pages/api/milvus/README.md)     | Frontend-side Milvus collection helper                         |
-| [`builder/image_augmentation/README.md`](builder/image_augmentation/README.md)   | OpenAI image edits for uploaded images                         |
-| [`builder/image_comprehension/README.md`](builder/image_comprehension/README.md) | Vision-language analysis of images and videos                  |
-| [`builder/image_generation/README.md`](builder/image_generation/README.md)       | OpenAI text-to-image generation                                |
-| [`builder/nat_nv_ingest/README.md`](builder/nat_nv_ingest/README.md)             | User-document ingestion, search, and listing                   |
-| [`builder/rss_feed/README.md`](builder/rss_feed/README.md)                       | Feed-specific RSS retrieval and scraping                       |
-| [`builder/smart_milvus/README.md`](builder/smart_milvus/README.md)               | Milvus retrieval and reranking behavior                        |
+| Document                                                                     | Focus                                                          |
+| ---------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| [`frontend/README.md`](frontend/README.md)                                   | Frontend architecture, async job flow, Redis state, and PWA    |
+| [`helm/daedalus/README.md`](helm/daedalus/README.md)                         | Helm chart footprint, values, and Kubernetes traffic model     |
+| [`evals/README.md`](evals/README.md)                                         | Local evaluation harness for routing, factuality, and workflow |
+| [`frontend/pages/api/milvus/README.md`](frontend/pages/api/milvus/README.md) | Frontend-side Milvus collection helper                         |
+| [`builder/visual_media/README.md`](builder/visual_media/README.md)           | Unified image generate / edit / analyze tool                   |
+| [`builder/nat_nv_ingest/README.md`](builder/nat_nv_ingest/README.md)         | User-document ingestion, search, and listing                   |
+| [`builder/rss_feed/README.md`](builder/rss_feed/README.md)                   | Feed-specific RSS retrieval and scraping                       |
+| [`builder/smart_milvus/README.md`](builder/smart_milvus/README.md)           | Milvus retrieval and reranking behavior                        |
 
 ## Repository Layout
 

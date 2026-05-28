@@ -62,10 +62,7 @@ def start_queue_monitor(
                     next_summary = _request_summary(
                         next_request[0] if next_request else None
                     )
-                    log(
-                        "queue status: "
-                        f"depth={depth} next={next_summary}"
-                    )
+                    log("queue status: " f"depth={depth} next={next_summary}")
                     last_depth = depth
             except Exception as exc:
                 log(f"queue monitor error: {exc}")

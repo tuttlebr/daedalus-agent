@@ -2,7 +2,7 @@ import base64
 import json
 import logging
 import os
-from typing import Any
+from typing import Any, Literal
 
 import httpx
 import redis
@@ -61,23 +61,53 @@ class VisualMediaFunctionConfig(FunctionBaseConfig, name="visual_media"):
     edit_model: str = Field(
         "gpt-image-1.5", description="Model used for image editing."
     )
-    quality: str | None = Field(default=None, description="Optional image quality.")
-    input_fidelity: str | None = Field(
-        default=None, description="Optional image-edit fidelity setting."
+    quality: Literal["low", "medium", "high", "auto"] | None = Field(
+        default=None,
+        description=(
+            "Optional rendering quality. 'low' for fast drafts, 'medium' as "
+            "a balance, 'high' for detail-heavy scenes, 'auto' for SDK default."
+        ),
     )
-    size: str | None = Field(default=None, description="Optional output image size.")
-    n: int | None = Field(default=None, description="Optional number of images.")
-    moderation: str | None = Field(
-        default=None, description="Optional generation moderation setting."
+    input_fidelity: Literal["low", "high"] | None = Field(
+        default=None,
+        description=(
+            "Optional image-edit fidelity. 'high' preserves the source "
+            "subject's likeness, geometry, and layout (try-on, sketch-to-render, "
+            "targeted swaps); 'low' allows freer interpretation."
+        ),
     )
-    output_format: str | None = Field(
-        default=None, description="Optional generation output format."
+    size: str | None = Field(
+        default=None,
+        description=(
+            "Optional output size in pixels, e.g. '1024x1024', '1024x1536', "
+            "'1536x1024', '2048x2048', '3840x2160', or 'auto'. Any size "
+            "satisfying the model constraints (both edges multiple of 16, max "
+            "edge <= 3840, aspect ratio <= 3:1) is accepted."
+        ),
+    )
+    n: int | None = Field(
+        default=None,
+        ge=1,
+        le=10,
+        description="Optional number of variations to produce (1-10).",
+    )
+    moderation: Literal["auto", "low"] | None = Field(
+        default=None,
+        description="Optional content moderation strictness. 'auto' is standard; 'low' is less restrictive.",
+    )
+    output_format: Literal["png", "jpeg", "webp"] | None = Field(
+        default=None,
+        description="Optional output file format. 'jpeg' is faster than 'png'.",
     )
     output_compression: int | None = Field(
-        default=None, description="Optional generation output compression."
+        default=None,
+        ge=0,
+        le=100,
+        description="Optional compression level 0-100 for jpeg/webp outputs (ignored for png).",
     )
-    background: str | None = Field(
-        default=None, description="Optional generation background setting."
+    background: Literal["auto", "opaque"] | None = Field(
+        default=None,
+        description="Optional background. gpt-image-2 does NOT support 'transparent'.",
     )
     user: str | None = Field(
         default=None, description="Optional end-user identifier for image API calls."
@@ -362,7 +392,7 @@ async def visual_media_function(config: VisualMediaFunctionConfig, builder: Buil
         return "Error: Unexpected response format from the Vision Language Model."
 
     async def visual_media(
-        operation: str,
+        operation: Literal["generate", "edit", "analyze"],
         prompt: str = "",
         imageRef: str | dict | list[dict] | None = None,
         image_url: str | None = None,
@@ -375,7 +405,7 @@ async def visual_media_function(config: VisualMediaFunctionConfig, builder: Buil
         """Generate, edit, or analyze visual media.
 
         Args:
-            operation: generate, edit, or analyze.
+            operation: One of "generate", "edit", or "analyze".
             prompt: Text prompt for generate/edit. Used as question fallback
                 for analyze.
             imageRef: Uploaded image reference for edit/analyze.
@@ -384,8 +414,8 @@ async def visual_media_function(config: VisualMediaFunctionConfig, builder: Buil
             video_url: Public video URL for analyze.
             question: Analysis question. Falls back to prompt.
             max_tokens: Optional analysis response token limit.
-            user_id: Authenticated username from the [IDENTITY] message. Required
-                for generate and for user-scoped edit/analyze inputs.
+            user_id: Authenticated username from the [IDENTITY] message.
+                Required for generate and for user-scoped edit/analyze inputs.
         """
         op = (operation or "").strip().lower()
         try:

@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 import logging
+import re
 from collections.abc import Mapping, Sequence
 from typing import Union
 from urllib.parse import ParseResult, urljoin, urlparse
@@ -20,6 +22,10 @@ except ImportError:  # pragma: no cover - optional dependency
     TIKTOKEN_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
+
+_HTTP_URL_RE = re.compile(r"https?://[^\s<>\]\)\"']+", re.IGNORECASE)
+_URL_FIELD_NAMES = ("url", "link", "href", "source_url", "input_message")
+_TRAILING_URL_PUNCTUATION = ".,;:"
 
 if not logger.handlers:
     # Fallback configuration when module is executed directly
@@ -241,14 +247,47 @@ def _extract_link_and_title(entry: SerpEntry) -> tuple[str | None, str | None]:
     return link, title
 
 
+def _extract_url_candidate(url_candidate: str) -> str:
+    normalized = url_candidate.strip()
+    if not normalized:
+        raise ValueError("No URL supplied.")
+
+    try:
+        parsed_json = json.loads(normalized)
+    except json.JSONDecodeError:
+        parsed_json = None
+
+    if isinstance(parsed_json, dict):
+        for field_name in _URL_FIELD_NAMES:
+            field_value = parsed_json.get(field_name)
+            if isinstance(field_value, str) and field_value.strip():
+                return field_value.strip()
+    elif isinstance(parsed_json, str) and parsed_json.strip():
+        return parsed_json.strip()
+
+    match = _HTTP_URL_RE.search(normalized)
+    if match:
+        return match.group(0).rstrip(_TRAILING_URL_PUNCTUATION)
+
+    if normalized.startswith("<") and normalized.endswith(">"):
+        normalized = normalized[1:-1].strip()
+
+    return normalized
+
+
 def _validate_url(
     url_candidate: str, allowed_schemes: list[str]
 ) -> tuple[str, ParseResult]:
-    normalized = url_candidate.strip()
-    if "//" not in normalized:
-        normalized = f"https://{normalized}"
+    normalized = _extract_url_candidate(url_candidate)
 
     parsed = urlparse(normalized)
+    if normalized.startswith("//"):
+        normalized = f"https:{normalized}"
+        parsed = urlparse(normalized)
+    elif not parsed.scheme:
+        normalized = f"https://{normalized}"
+        parsed = urlparse(normalized)
+
     allowed_lower = {scheme.lower() for scheme in allowed_schemes}
 
     if not parsed.scheme or parsed.scheme.lower() not in allowed_lower:

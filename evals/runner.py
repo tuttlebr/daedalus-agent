@@ -17,7 +17,9 @@ import importlib
 import json
 import os
 import re
-import subprocess
+
+# The Phoenix export path invokes a fixed Python module with shell=False.
+import subprocess  # nosec B404
 import sys
 import time
 import uuid
@@ -642,8 +644,7 @@ def build_atof_events(case: dict[str, Any], dataset_name: str) -> list[dict[str,
             "category": "unknown",
             "category_profile": None,
             "data": {
-                "response": case.get("response")
-                or case.get("response_preview", "")
+                "response": case.get("response") or case.get("response_preview", "")
             },
             "data_schema": None,
             "metadata": {**metadata, "metrics": case.get("metrics") or {}},
@@ -668,7 +669,9 @@ def write_atof_exports(results: dict[str, Any], export_dir: Path) -> list[Path]:
     return written
 
 
-def convert_atof_exports_to_atif(atof_files: list[Path], export_dir: Path) -> list[Path]:
+def convert_atof_exports_to_atif(
+    atof_files: list[Path], export_dir: Path
+) -> list[Path]:
     try:
         from nat.atof.scripts.atof_to_atif_converter import convert_file
     except ImportError as exc:
@@ -685,9 +688,7 @@ def convert_atof_exports_to_atif(atof_files: list[Path], export_dir: Path) -> li
     return written
 
 
-def export_atif_to_phoenix(
-    atif_files: list[Path], endpoint: str, project: str
-) -> None:
+def export_atif_to_phoenix(atif_files: list[Path], endpoint: str, project: str) -> None:
     module = (
         "nat.plugins.phoenix.scripts.export_trajectory_to_phoenix."
         "export_atif_trajectory_to_phoenix"
@@ -702,7 +703,8 @@ def export_atif_to_phoenix(
         "--project",
         project,
     ]
-    proc = subprocess.run(cmd, check=False, capture_output=True, text=True)
+    # Fixed argv with shell=False; dataset paths and CLI values are passed as arguments.
+    proc = subprocess.run(cmd, check=False, capture_output=True, text=True)  # nosec B603
     if proc.returncode != 0:
         raise RuntimeError(
             "Phoenix export failed:\n"
@@ -933,7 +935,9 @@ def main() -> int:
                 all_results["artifact_error"] = str(exc)
                 write_results_file(out_path, all_results)
                 print(f"\n# Eval Artifact Export Failed\n\n{exc}", file=sys.stderr)
-                print(f"\nEval results were still written to {out_path}", file=sys.stderr)
+                print(
+                    f"\nEval results were still written to {out_path}", file=sys.stderr
+                )
                 return 2
 
     if artifact_paths:

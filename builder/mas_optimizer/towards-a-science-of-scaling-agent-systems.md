@@ -75,17 +75,17 @@ Formally, each agent a_i is defined as a tuple S_i = (Phi_i, A_i, M_i, pi_i), wh
 - M_i is the internal memory
 - pi_i : H -> A_i is the decision function mapping observation histories to actions
 
-The observation history space H contains sequences of action-observation pairs. The decision function pi_i is instantiated by the reasoning policy Phi_i (the LLM): given a history h_{i,t}, the LLM generates a reasoning trace and selects the next action.
+The observation history space H contains sequences of action-observation pairs. The decision function pi*i is instantiated by the reasoning policy Phi_i (the LLM): given a history h*{i,t}, the LLM generates a reasoning trace and selects the next action.
 
-For instance, a history h_{i,t} = [(search(query='pandas'), "Found 5 files"), ...] is processed by Phi_i to produce the next tool call alpha_{i,t+1}.
+For instance, a history h*{i,t} = [(search(query='pandas'), "Found 5 files"), ...] is processed by Phi_i to produce the next tool call alpha*{i,t+1}.
 
-At timestep t, agent a_i selects an action alpha_{i,t} in A_i according to:
+At timestep t, agent a*i selects an action alpha*{i,t} in A_i according to:
 
 ```
 alpha_{i,t} = pi_i(h_{i,t}),  o_{i,t} = E(alpha_{i,t}),  h_{i,t+1} = f_i(h_{i,t}, alpha_{i,t}, o_{i,t}),
 ```
 
-where E denotes the environment and h_{i,0} = {s_0} contains the initial task specification. The history update function f_i : H x A_i x O -> H appends the new action-observation pair to the agent's history: h_{i,t+1} = f_i(h_{i,t}, alpha_{i,t}, o_{i,t}) = h_{i,t} + (alpha_{i,t}, o_{i,t}), subject to context window truncation when |h_{i,t+1}| > MAX_TOKENS. This update mechanism applies uniformly to both SAS and MAS configurations. Communication between agents occurs through explicit message passing in the orchestration layer.
+where E denotes the environment and h*{i,0} = {s_0} contains the initial task specification. The history update function f_i : H x A_i x O -> H appends the new action-observation pair to the agent's history: h*{i,t+1} = f*i(h*{i,t}, alpha*{i,t}, o*{i,t}) = h*{i,t} + (alpha*{i,t}, o*{i,t}), subject to context window truncation when |h*{i,t+1}| > MAX_TOKENS. This update mechanism applies uniformly to both SAS and MAS configurations. Communication between agents occurs through explicit message passing in the orchestration layer.
 
 #### Single-Agent System (SAS)
 
@@ -123,13 +123,13 @@ This design allows causal attribution of performance gains to specific coordinat
 
 #### Communication vs. Coordination
 
-The authors distinguish *communication* (message passing between agents) from *coordination* (strategic direction of agent activities). In centralized systems, "coordination occurs through the orchestrator's task decomposition and progress monitoring, while communication involves passing findings between orchestrator and workers." In decentralized systems, communication and coordination are intertwined through debate rounds where agents both exchange information and collectively steer problem-solving direction.
+The authors distinguish _communication_ (message passing between agents) from _coordination_ (strategic direction of agent activities). In centralized systems, "coordination occurs through the orchestrator's task decomposition and progress monitoring, while communication involves passing findings between orchestrator and workers." In decentralized systems, communication and coordination are intertwined through debate rounds where agents both exchange information and collectively steer problem-solving direction.
 
-Thus, SAS represents the minimal unit of agentic computation (O(k)), while MAS configurations explore the scaling frontier of coordination complexity -- ranging from fully parallel and communication-free (Independent) to fully coupled with peer consensus (Decentralized). These configurations allow testing whether performance gains arise from *agent coordination and specialization* or merely from increased compute through ensembling. The taxonomy covers coordination patterns common in LLM-based agentic systems, focusing on communication topology as one of several orthogonal MAS design dimensions including agent specialization, memory architecture, and aggregation strategy.
+Thus, SAS represents the minimal unit of agentic computation (O(k)), while MAS configurations explore the scaling frontier of coordination complexity -- ranging from fully parallel and communication-free (Independent) to fully coupled with peer consensus (Decentralized). These configurations allow testing whether performance gains arise from _agent coordination and specialization_ or merely from increased compute through ensembling. The taxonomy covers coordination patterns common in LLM-based agentic systems, focusing on communication topology as one of several orthogonal MAS design dimensions including agent specialization, memory architecture, and aggregation strategy.
 
 ### 3.2 Agentic Tasks and Benchmarks
 
-Following and extending prior frameworks, a task T is operationalized as agentic when optimal performance *substantially* benefits from adaptive interaction. Formally, if tau = {(a_t, o_t)}_{t=0}^T represents an interaction trajectory, then:
+Following and extending prior frameworks, a task T is operationalized as agentic when optimal performance _substantially_ benefits from adaptive interaction. Formally, if tau = {(a*t, o_t)}*{t=0}^T represents an interaction trajectory, then:
 
 ```
 (max_pi E[R(tau)] - max_g E[R(g(x))]) / max_pi E[R(tau)] > delta,
@@ -151,7 +151,7 @@ Real-world deployments such as coding assistants, financial analysts, and embodi
 
 #### Benchmark Design Principles
 
-Extending prior frameworks, additional criteria are introduced to isolate *architectural effects*:
+Extending prior frameworks, additional criteria are introduced to isolate _architectural effects_:
 
 - **Controlled Tool Interface:** identical tool APIs and observation structures for all architectures to eliminate confounds from external feedback quality.
 - **Controlled for Parametric Knowledge:** within each model family, evaluation emphasizes adaptive reasoning over memorized facts. Cross-family comparisons account for inherent knowledge base differences through baseline normalization.
@@ -244,7 +244,7 @@ This trade-off is directly quantified by benchmark complexity, operationalized a
 
 #### Architecture-LLM Family Interactions Reveal Vendor-Specific Coordination Mechanisms
 
-While domain complexity broadly moderates MAS effectiveness, the architecture-domain interaction reveals *non-uniform* preferences even within similar complexity regimes: no single architecture dominates across all domains and vendors. Architecture effectiveness depends critically on domain structure: Finance Agent benefits most from Centralized (+80.9%) and Decentralized (+74.5%), Workbench from MAS-Decentralized (+5.6%), and BrowseComp-Plus from MAS-Decentralized (+9.2%). In degrading domains, architecture selection becomes a least-worst optimization: PlanCraft shows Hybrid as relatively best (-39.0%) compared to MAS-Centralized (-50.4%) and MAS-Independent (-70.0%).
+While domain complexity broadly moderates MAS effectiveness, the architecture-domain interaction reveals _non-uniform_ preferences even within similar complexity regimes: no single architecture dominates across all domains and vendors. Architecture effectiveness depends critically on domain structure: Finance Agent benefits most from Centralized (+80.9%) and Decentralized (+74.5%), Workbench from MAS-Decentralized (+5.6%), and BrowseComp-Plus from MAS-Decentralized (+9.2%). In degrading domains, architecture selection becomes a least-worst optimization: PlanCraft shows Hybrid as relatively best (-39.0%) compared to MAS-Centralized (-50.4%) and MAS-Independent (-70.0%).
 
 Family-specific coordination preferences emerge within improvement-positive domains. On Finance Agent, Anthropic's MAS-Centralized achieves +127.5% (0.636 vs. 0.280 SAS), whereas Google's MAS-Centralized reaches +164.3% (0.740 vs. 0.280 SAS), suggesting stronger attention-mechanism alignment with hierarchical message exchange; OpenAI's MAS-Centralized achieves +69.9% (0.79 vs. 0.465 SAS). On Workbench, where multi-agent overhead is less tolerable (efficiency degrades from E_c = 0.466 for SAS to E_c = 0.074 for Hybrid), Anthropic's best variant (MAS-Decentralized, +10.8%) remains superior to Google (+9.5%) and OpenAI (+8.6%).
 
@@ -278,7 +278,7 @@ where all predictors are standardized (mu = 0, sigma = 1) for interpretability. 
 
 #### The Efficiency-Tools Interaction Dominates Multi-Agent Performance (beta_hat = -0.267, p < 0.001)
 
-Among the critical interactions, the efficiency-tools trade-off exhibits the second-largest effect size: beta_hat_{Ec x T} = -0.267 (95% CI: [-0.355, -0.178], p < 0.001). This interaction reveals that tool-heavy tasks suffer disproportionately from multi-agent inefficiency. Empirically, single-agent systems achieve E_c = 0.466, while multi-agent architectures range from E_c = 0.074 (hybrid) to E_c = 0.234 (independent), a 2-6x efficiency penalty.
+Among the critical interactions, the efficiency-tools trade-off exhibits the second-largest effect size: beta*hat*{Ec x T} = -0.267 (95% CI: [-0.355, -0.178], p < 0.001). This interaction reveals that tool-heavy tasks suffer disproportionately from multi-agent inefficiency. Empirically, single-agent systems achieve E_c = 0.466, while multi-agent architectures range from E_c = 0.074 (hybrid) to E_c = 0.234 (independent), a 2-6x efficiency penalty.
 
 For a task with T = 16 tools (e.g., workbench benchmark), this translates to:
 
@@ -297,7 +297,7 @@ Dramatic variance in error amplification factors: single-agent (A_e = 1.0), cent
 
 #### Overhead Scales Non-Linearly with Task Complexity via the O% x T Interaction
 
-Multi-agent architectures incur substantial overhead: independent (58%), centralized (285%), decentralized (263%), and hybrid (515%), representing 1.6-6.2x token budgets relative to single-agent at matched performance. The scaling law reveals this overhead interacts with tool count (beta_hat_{O% x T} = -0.162, p < 0.001), creating a compounding cost for complex tasks. The functional form implies a critical threshold:
+Multi-agent architectures incur substantial overhead: independent (58%), centralized (285%), decentralized (263%), and hybrid (515%), representing 1.6-6.2x token budgets relative to single-agent at matched performance. The scaling law reveals this overhead interacts with tool count (beta*hat*{O% x T} = -0.162, p < 0.001), creating a compounding cost for complex tasks. The functional form implies a critical threshold:
 
 ```
 O%_max(T) = beta_hat_5 / (beta_hat_13 * T * log(1 + O%)) ~ 0.034 / (0.162 * T * log(1 + O%))
@@ -309,15 +309,15 @@ beyond which overhead cost exceeds any coordination benefit. For T = 16, this th
 
 After centering intelligence scores to address multicollinearity (VIF reduced from 200 to 1.1), the linear capability effect becomes significant: higher-capability models achieve proportionally better performance across all architectures. The quadratic term (I^2) is not significant (p = 0.509), indicating that capability scaling follows a linear rather than accelerating pattern within the tested range (I in [42, 71]).
 
-#### Redundancy Provides Marginal Benefit at Scale (beta_hat_{R x n_a} = 0.047, p = 0.001)
+#### Redundancy Provides Marginal Benefit at Scale (beta*hat*{R x n_a} = 0.047, p = 0.001)
 
-Work redundancy ranges from 0.41 (centralized) to 0.50 (decentralized) for multi-agent systems. The scaling law identifies a weak positive interaction with agent count (beta_hat_{R x n_a} = 0.047, 95% CI: [0.019, 0.075], p = 0.001). For a 4-agent system with R = 0.50:
+Work redundancy ranges from 0.41 (centralized) to 0.50 (decentralized) for multi-agent systems. The scaling law identifies a weak positive interaction with agent count (beta*hat*{R x n_a} = 0.047, 95% CI: [0.019, 0.075], p = 0.001). For a 4-agent system with R = 0.50:
 
 ```
 Delta P_redundancy = 0.047 x 0.50 x 4 = 0.094
 ```
 
-equivalent to an ~8% performance boost (in standardized units). However, this effect is minor compared to overhead penalties (|beta_hat_{O% x T}| = 0.162, 3.4x larger) and efficiency losses (|beta_hat_{Ec x T}| = 0.267, 5.7x larger), indicating redundancy cannot compensate for architectural inefficiency.
+equivalent to an ~8% performance boost (in standardized units). However, this effect is minor compared to overhead penalties (|beta*hat*{O% x T}| = 0.162, 3.4x larger) and efficiency losses (|beta*hat*{Ec x T}| = 0.267, 5.7x larger), indicating redundancy cannot compensate for architectural inefficiency.
 
 #### The Scaling Principle Enables Quantitative Architecture Selection
 
@@ -407,11 +407,11 @@ Success rate follows a logarithmic relationship with message density across all 
 S = 0.73 + 0.28 ln(c),  R^2 = 0.68,  p < 0.001
 ```
 
-where c is messages per reasoning turn. Performance plateaus near c* = 0.39 messages/turn (achieved by Decentralized and Centralized architectures at 0.41 and 0.39 respectively), corresponding to success rates of 47.7% and 46.3%. Beyond this point, additional messages yield diminishing returns: Hybrid systems (515% coordination overhead, T = 44.3) show -2.4% versus Centralized (285% overhead, T = 27.7), a difference that is not statistically significant (t(178) = 0.61, p = 0.542).
+where c is messages per reasoning turn. Performance plateaus near c\* = 0.39 messages/turn (achieved by Decentralized and Centralized architectures at 0.41 and 0.39 respectively), corresponding to success rates of 47.7% and 46.3%. Beyond this point, additional messages yield diminishing returns: Hybrid systems (515% coordination overhead, T = 44.3) show -2.4% versus Centralized (285% overhead, T = 27.7), a difference that is not statistically significant (t(178) = 0.61, p = 0.542).
 
 #### Error absorption mechanisms
 
-Error absorption is formalized as Absorb = (E_SAS - E_MAS) / E_SAS, where E is factual error rate. The absorption mechanism operates through *iterative verification*: in Centralized and Hybrid architectures, sub-agent outputs pass through an orchestrator that cross-checks reasoning steps before aggregation. In Decentralized architectures, peer debate rounds provide similar verification through explicit challenge-response exchanges. These architectures achieve 22.7% average error reduction (95% CI: [20.1%, 25.3%]), peaking at 31.4% for Finance Agent where structured numerical outputs facilitate verification. Independent MAS shows no error correction (+4.6% amplification) due to absence of any inter-agent verification mechanism.
+Error absorption is formalized as Absorb = (E*SAS - E_MAS) / E_SAS, where E is factual error rate. The absorption mechanism operates through \_iterative verification*: in Centralized and Hybrid architectures, sub-agent outputs pass through an orchestrator that cross-checks reasoning steps before aggregation. In Decentralized architectures, peer debate rounds provide similar verification through explicit challenge-response exchanges. These architectures achieve 22.7% average error reduction (95% CI: [20.1%, 25.3%]), peaking at 31.4% for Finance Agent where structured numerical outputs facilitate verification. Independent MAS shows no error correction (+4.6% amplification) due to absence of any inter-agent verification mechanism.
 
 The correction mechanism is revealed through token-overlap analysis. High-performing runs exhibit: (i) increased shared-token entropy (mean ~1.8 bits for Finance Agent; p < 0.001 vs. low-performing runs); (ii) dramatically reduced contradictory mass (median 2.3% in successes vs. 8.1% in failures), evidence that messages converge toward mutually consistent sub-proofs rather than self-reinforcing errors. High redundancy (R > 0.50) correlates negatively with success (r = -0.136, p = 0.004), implying an emergent diversity-efficiency trade-off: optimal redundancy occurs at R ~ 0.41 (Centralized median), balancing information fusion with reasoning independence.
 
@@ -513,7 +513,7 @@ Four of the five primary scaling principles transferred to GPT-5.2. The consiste
 
 ## Appendix C: Domain Complexity
 
-*Note: Appendix C (subsections C.1 Complexity Metric Construction, C.2 Domain Characterisation, C.3 Critical Threshold) was not available in the HTML rendering of this paper. Refer to the [PDF version](https://arxiv.org/pdf/2512.08296v2) for the complete appendix.*
+_Note: Appendix C (subsections C.1 Complexity Metric Construction, C.2 Domain Characterisation, C.3 Critical Threshold) was not available in the HTML rendering of this paper. Refer to the [PDF version](https://arxiv.org/pdf/2512.08296v2) for the complete appendix._
 
 ## Appendix D: Datasets
 
@@ -551,4 +551,4 @@ PlanCraft includes 45 task instances. Performance exhibits moderate variance acr
 
 ## Appendix E: Implementation Details
 
-*Note: Appendix E (subsections E.1 Technical Infrastructure, E.2 Agent Configuration, E.3 Prompt Compilation System, E.4 Evaluation Methodology, E.5 Information Gain Computation) was not available in the HTML rendering of this paper. Refer to the [PDF version](https://arxiv.org/pdf/2512.08296v2) for the complete appendix.*
+_Note: Appendix E (subsections E.1 Technical Infrastructure, E.2 Agent Configuration, E.3 Prompt Compilation System, E.4 Evaluation Methodology, E.5 Information Gain Computation) was not available in the HTML rendering of this paper. Refer to the [PDF version](https://arxiv.org/pdf/2512.08296v2) for the complete appendix._

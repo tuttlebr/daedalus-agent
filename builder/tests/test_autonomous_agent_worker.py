@@ -245,7 +245,9 @@ def test_extract_oauth_required_payload_from_sse_event():
 
 def test_extract_async_job_id_accepts_common_response_shapes():
     assert extract_async_job_id({"job_id": "server-job"}, "local-job") == "server-job"
-    assert extract_async_job_id({"job": {"id": "nested-job"}}, "local-job") == "nested-job"
+    assert (
+        extract_async_job_id({"job": {"id": "nested-job"}}, "local-job") == "nested-job"
+    )
     assert extract_async_job_id({}, "local-job") == "local-job"
 
 

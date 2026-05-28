@@ -1,0 +1,37 @@
+general:
+  telemetry:
+    logging:
+      console:
+        _type: console
+        level: INFO
+
+  front_end:
+    _type: fastapi
+
+workflow:
+  _type: visual_media
+  redis_url: redis://redis:6379
+  # Generation (text-to-image)
+  generation_api_endpoint: null # Optional: override OpenAI base URL
+  generation_api_key: null # Falls back to OPENAI_API_KEY env var
+  generation_model: 'gpt-image-2'
+  # Editing (image-to-image)
+  edit_api_endpoint: null # Falls back to generation_api_endpoint
+  edit_api_key: null # Falls back to generation_api_key
+  edit_model: 'gpt-image-2'
+  # Analysis (VLM)
+  comprehension_api_endpoint: http://localhost:8000
+  comprehension_api_key: null # Falls back to NVIDIA_API_KEY
+  comprehension_model: 'gpt-image-2'
+  # Shared options
+  quality: low # "low" (fast drafts), "medium", "high", or "auto"
+  size: null # "1024x1024", "1536x1024", "1024x1536", "2048x2048", "3840x2160", "auto", or any spec-compliant resolution
+  n: 1 # 1-10 variations
+  # moderation: low # "auto" (default) or "low"
+  # output_format: jpeg # "png" (default), "jpeg", or "webp"
+  # output_compression: 80 # 0-100 for jpeg / webp
+  # background: opaque # "auto" or "opaque"
+  # input_fidelity: high # "low" or "high" — preserves source identity during edits
+  # user: null # End-user identifier forwarded for abuse monitoring
+  image_timeout: 120.0
+  comprehension_timeout: 120.0

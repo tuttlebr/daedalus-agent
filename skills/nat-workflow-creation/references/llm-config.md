@@ -30,7 +30,7 @@ llms:
     temperature: 0.0
     base_url: ${INSTRUCT_LLM_BASE_URL:-http://nim-llm:8000/v1}
     max_tokens: 20000
-    api_key: not-needed    # local NIM doesn't require an API key
+    api_key: not-needed # local NIM doesn't require an API key
 ```
 
 ## Multiple LLMs for Different Roles

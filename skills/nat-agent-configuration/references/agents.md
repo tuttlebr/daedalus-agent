@@ -8,17 +8,17 @@ The nine built-in NeMo Agent Toolkit agent types: when to pick which, key traits
 - Research, analyze, decide, summarize, RAG, MCP, iterative tool use, "build an agent that…" → an agent type below.
 - **If ambiguous, ask one clarifying question before writing YAML.**
 
-| Agent | `_type` | LLM Required | Uses Tools | Key Trait |
-| --- | --- | --- | --- | --- |
-| ReAct | `react_agent` | Yes | Yes | Interleaved reason + act loop |
-| Reasoning | `reasoning_agent` | Yes (thinking-capable) | Via inner agent | Plan-then-delegate wrapper |
-| ReWOO | `rewoo_agent` | Yes | Yes | Separate plan / execute / solve phases |
-| Responses API | `responses_api_agent` | Yes (Responses API) | NeMo Agent Toolkit + built-in + MCP | Direct LLM tool binding with MCP support |
-| Router | `router_agent` | Yes | No (routes to branches) | LLM-based single-branch dispatch |
-| Tool Calling | `tool_calling_agent` | Yes | Yes | Standard tool-calling API, direct output |
-| Auto Memory Wrapper | `auto_memory_agent` | Yes | Via inner agent | Persistent memory across turns |
-| Parallel Executor | `parallel_executor` | No | Yes (fixed list) | Concurrent fan-out/fan-in pipeline |
-| Sequential Executor | `sequential_executor` | No | Yes (fixed list) | Deterministic linear pipeline |
+| Agent               | `_type`               | LLM Required           | Uses Tools                          | Key Trait                                |
+| ------------------- | --------------------- | ---------------------- | ----------------------------------- | ---------------------------------------- |
+| ReAct               | `react_agent`         | Yes                    | Yes                                 | Interleaved reason + act loop            |
+| Reasoning           | `reasoning_agent`     | Yes (thinking-capable) | Via inner agent                     | Plan-then-delegate wrapper               |
+| ReWOO               | `rewoo_agent`         | Yes                    | Yes                                 | Separate plan / execute / solve phases   |
+| Responses API       | `responses_api_agent` | Yes (Responses API)    | NeMo Agent Toolkit + built-in + MCP | Direct LLM tool binding with MCP support |
+| Router              | `router_agent`        | Yes                    | No (routes to branches)             | LLM-based single-branch dispatch         |
+| Tool Calling        | `tool_calling_agent`  | Yes                    | Yes                                 | Standard tool-calling API, direct output |
+| Auto Memory Wrapper | `auto_memory_agent`   | Yes                    | Via inner agent                     | Persistent memory across turns           |
+| Parallel Executor   | `parallel_executor`   | No                     | Yes (fixed list)                    | Concurrent fan-out/fan-in pipeline       |
+| Sequential Executor | `sequential_executor` | No                     | Yes (fixed list)                    | Deterministic linear pipeline            |
 
 ## ReAct Agent (`react_agent`)
 
@@ -78,7 +78,7 @@ workflow:
   tool_names: [kb_tools]
   llm_name: nvidia_llm
   verbose: true
-  handle_tool_errors: true   # catch tool exceptions and pass them back to the LLM for recovery
+  handle_tool_errors: true # catch tool exceptions and pass them back to the LLM for recovery
 ```
 
 ## Sequential Executor (`sequential_executor`)

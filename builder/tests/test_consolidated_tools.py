@@ -1,13 +1,13 @@
 """Tests for consolidated production tool configs."""
 
-from image_generation.visual_media_function import (
+from nat_nv_ingest.nat_nv_ingest import NvIngestFunctionConfig
+from rss_feed.rss_feed_function import RssFeedFunctionConfig
+from smart_milvus.register import DomainRetrieverConfig
+from visual_media.visual_media_function import (
     VisualMediaFunctionConfig,
     _chat_completions_url,
     _validated_user_id,
 )
-from nat_nv_ingest.nat_nv_ingest import NvIngestFunctionConfig
-from rss_feed.rss_feed_function import RssFeedFunctionConfig
-from smart_milvus.register import DomainRetrieverConfig
 
 
 def test_visual_media_config_groups_image_and_vlm_settings():
@@ -97,15 +97,13 @@ def test_user_document_tool_config_contains_ingest_and_search_settings():
     assert config.use_reranker is True
 
 
-def test_rss_feed_config_accepts_feed_map_and_operation_filter():
+def test_rss_feed_config_accepts_feed_map():
     config = RssFeedFunctionConfig(
         feeds={
             "nvidia_blog": "https://feeds.feedburner.com/nvidiablog",
             "semianalysis": "https://newsletter.semianalysis.com/feed",
         },
-        enabled_operations=["search_rss"],
     )
 
     assert "nvidia_blog" in config.feeds
     assert "semianalysis" in config.feeds
-    assert config.enabled_operations == ["search_rss"]

@@ -58,7 +58,7 @@ WORKDIR /workspace
 RUN source /workspace/.venv/bin/activate
 
 COPY nat_helpers /workspace/nat_helpers
-COPY image_generation /workspace/image_generation
+COPY visual_media /workspace/visual_media
 COPY nat_nv_ingest /workspace/nat_nv_ingest
 COPY smart_milvus /workspace/smart_milvus
 COPY webscrape /workspace/webscrape
@@ -77,7 +77,7 @@ COPY --from=skills . /skills
 RUN --mount=type=cache,id=uv_cache,target=/root/.cache/uv,sharing=locked \
     uv pip install --prerelease=allow \
     -e nat_helpers \
-    -e image_generation \
+    -e visual_media \
     -e nat_nv_ingest \
     -e smart_milvus \
     -e webscrape \
@@ -93,7 +93,7 @@ RUN --mount=type=cache,id=uv_cache,target=/root/.cache/uv,sharing=locked \
     -e autonomous_agent
 
 RUN --mount=type=cache,id=uv_cache,target=/root/.cache/uv,sharing=locked \
-    NAT_VERSION= nat workflow reinstall image_generation && \
+    NAT_VERSION= nat workflow reinstall visual_media && \
     NAT_VERSION= nat workflow reinstall nat_nv_ingest && \
     NAT_VERSION= nat workflow reinstall smart_milvus && \
     NAT_VERSION= nat workflow reinstall webscrape && \

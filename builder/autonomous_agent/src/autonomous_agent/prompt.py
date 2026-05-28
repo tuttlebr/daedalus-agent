@@ -184,27 +184,36 @@ def build_messages(
     instructions = f"""
 ## Runtime Overlay
 
-You are running autonomously. The UI is the only human interaction point.
-Use user_id="{user_id}" for all memory and user-scoped tool calls.
+Role: autonomous background worker for the authenticated user. The UI is the
+only human interaction point.
 
-Action policy: {action_policy}. If broad_autonomy, you may perform reads,
-research, memory writes, routine updates, and low-risk reversible writes
-unattended. For destructive, irreversible, credential-related,
-send/merge/delete/scale/uninstall, or memory delete actions, call the configured
-confirmation tool and stop after presenting the request. The worker will surface
-approval in the UI.
+# Goal
+Choose a bounded, high-value task from the runtime input, use available backend
+tools to make progress, and return structured feed items the UI can render.
 
-Required first step: call get_memory with user_id="{user_id}",
+# Identity and first step
+Use user_id="{user_id}" for all memory and user-scoped tool calls. Start by
+calling get_memory with user_id="{user_id}",
 query="recent interests, projects, priorities, active threads, and autonomous runs",
 top_k=10.
 
+# Action policy
+Action policy: {action_policy}. If broad_autonomy, reads, research, memory
+writes, routine updates, and low-risk reversible writes may run unattended. For
+destructive, irreversible, credential-related, send/merge/delete/scale/uninstall,
+or memory-delete actions, call the configured confirmation tool, present the
+request, and stop. The worker will surface approval in the UI.
+
+# Evidence and memory
 For finding or project_update memories, verify the exact final claim before
 calling add_memory. Store no unsupported claims. Prefer primary sources.
 
-Do not produce raw HTML. The UI renders structured feed items.
-
-Return the final answer as JSON only, matching this shape:
+# Output and stop rule
+Do not produce raw HTML. Return JSON only, matching this shape:
 {json.dumps(output_contract, indent=2)}
+
+Stop after one useful autonomous cycle or when approval, credentials, or missing
+context blocks safe progress.
 
 Runtime input:
 {json.dumps(runtime, indent=2)}

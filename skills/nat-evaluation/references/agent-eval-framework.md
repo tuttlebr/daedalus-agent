@@ -28,7 +28,7 @@ This document provides a comprehensive framework for evaluating AI agents and mu
 
 ### 1.1 The Deterministic Fallacy
 
-Traditional software testing operates on a fundamental assumption: *given the same input, the system will always produce the same output*. This deterministic worldview has shaped decades of quality assurance practices \- unit tests assert exact return values, integration tests verify precise API responses, and end-to-end tests follow scripted user journeys with predictable outcomes.
+Traditional software testing operates on a fundamental assumption: _given the same input, the system will always produce the same output_. This deterministic worldview has shaped decades of quality assurance practices \- unit tests assert exact return values, integration tests verify precise API responses, and end-to-end tests follow scripted user journeys with predictable outcomes.
 
 AI agents shatter this assumption entirely.
 
@@ -54,13 +54,13 @@ def test_summarize_article():
 
 Unlike traditional applications that transform inputs to outputs through fixed logic, agents exhibit complex behaviors across five distinct dimensions:
 
-| Dimension | Traditional App | AI Agent |
-| :---- | :---- | :---- |
-| **Reasoning** | Hardcoded logic | Dynamic chain-of-thought |
-| **Planning** | Predefined workflows | Emergent multi-step strategies |
-| **Tool Use** | Fixed function calls | Dynamic tool selection and sequencing |
-| **Memory** | Stateless or simple state | Context accumulation and retrieval |
-| **Adaptation** | Version-based updates | In-context learning |
+| Dimension      | Traditional App           | AI Agent                              |
+| :------------- | :------------------------ | :------------------------------------ |
+| **Reasoning**  | Hardcoded logic           | Dynamic chain-of-thought              |
+| **Planning**   | Predefined workflows      | Emergent multi-step strategies        |
+| **Tool Use**   | Fixed function calls      | Dynamic tool selection and sequencing |
+| **Memory**     | Stateless or simple state | Context accumulation and retrieval    |
+| **Adaptation** | Version-based updates     | In-context learning                   |
 
 Each dimension introduces new failure modes that traditional testing cannot capture:
 
@@ -80,17 +80,17 @@ Two agents might reach the same correct answer through vastly different paths \-
 
 Moving from traditional testing to agent evaluation requires a fundamental mindset shift:
 
-| Traditional Mindset | Agent Evaluation Mindset |
-| :---- | :---- |
-| Binary pass/fail | Continuous quality scores |
-| Exact match assertions | Semantic equivalence checks |
-| Edge case coverage | Distribution coverage |
-| Bug-free goal | Acceptable error rate goal |
-| Test once, deploy | Continuous monitoring |
-| Developer-written tests | Human \+ LLM evaluators |
-| "This test failed" | "This run scored 0.7 on quality" |
-| "Add more unit tests" | "Improve evaluator coverage" |
-| "100% code coverage" | "Comprehensive evaluator coverage" |
+| Traditional Mindset     | Agent Evaluation Mindset           |
+| :---------------------- | :--------------------------------- |
+| Binary pass/fail        | Continuous quality scores          |
+| Exact match assertions  | Semantic equivalence checks        |
+| Edge case coverage      | Distribution coverage              |
+| Bug-free goal           | Acceptable error rate goal         |
+| Test once, deploy       | Continuous monitoring              |
+| Developer-written tests | Human \+ LLM evaluators            |
+| "This test failed"      | "This run scored 0.7 on quality"   |
+| "Add more unit tests"   | "Improve evaluator coverage"       |
+| "100% code coverage"    | "Comprehensive evaluator coverage" |
 
 **This transformation isn't just technical \- it's philosophical**. We must accept that agents will sometimes fail, and our goal shifts from preventing all failures to:
 
@@ -214,12 +214,12 @@ Production agents rarely operate in single-turn interactions. Users engage in ex
 
 Traditional evaluation approaches focus on isolated traces or individual steps, creating critical visibility gaps:
 
-| Single-Turn Limitation | Multi-Turn Advantage |
-| :---- | :---- |
-| Evaluates responses in isolation | Measures goal achievement across full conversation |
-| Misses context accumulation errors | Captures memory and state management issues |
-| Cannot detect conversation derailment | Identifies when agents lose track of objectives |
-| Ignores user clarification handling | Tests adaptation to refined requirements |
+| Single-Turn Limitation                | Multi-Turn Advantage                               |
+| :------------------------------------ | :------------------------------------------------- |
+| Evaluates responses in isolation      | Measures goal achievement across full conversation |
+| Misses context accumulation errors    | Captures memory and state management issues        |
+| Cannot detect conversation derailment | Identifies when agents lose track of objectives    |
+| Ignores user clarification handling   | Tests adaptation to refined requirements           |
 
 **The Three Dimensions of Multi-Turn Evaluation:**
 
@@ -243,13 +243,13 @@ Traditional evaluation approaches focus on isolated traces or individual steps, 
 
 **Multi-Turn Evaluation Characteristics:**
 
-| Aspect | Details |
-| :---- | :---- |
-| **Unit of Evaluation** | Complete conversation thread, not individual messages |
-| **Timing** | Evaluated upon conversation completion |
-| **Primary Method** | LLM-as-Judge with conversation-aware prompts |
-| **Key Metrics** | Goal completion rate, turns to resolution, context retention accuracy |
-| **Complexity** | Higher than single-turn due to state dependencies |
+| Aspect                 | Details                                                               |
+| :--------------------- | :-------------------------------------------------------------------- |
+| **Unit of Evaluation** | Complete conversation thread, not individual messages                 |
+| **Timing**             | Evaluated upon conversation completion                                |
+| **Primary Method**     | LLM-as-Judge with conversation-aware prompts                          |
+| **Key Metrics**        | Goal completion rate, turns to resolution, context retention accuracy |
+| **Complexity**         | Higher than single-turn due to state dependencies                     |
 
 **What to Test in Multi-Turn Scenarios:**
 
@@ -308,24 +308,24 @@ Before building evaluations, establish clear criteria for what constitutes succe
 
 Identify the 3-5 most critical quality dimensions for your specific agent. Common dimensions include:
 
-| Quality Dimension | Description | Example Metrics |
-| :---- | :---- | :---- |
-| **Correctness** | Does the agent produce accurate, factually correct outputs? | Accuracy rate, factual error count |
-| **Helpfulness** | Does the output actually address the user's need? | Task completion rate, user satisfaction |
-| **Safety** | Does the agent avoid harmful or inappropriate outputs? | Policy violation rate, safety score |
-| **Efficiency** | Does the agent complete tasks with minimal steps/resources? | Steps to completion, token usage, latency |
-| **Consistency** | Does the agent produce stable results across similar inputs? | Variance across runs, behavior drift |
-| **Tool Accuracy** | Does the agent select and use tools correctly? | Tool selection precision, parameter accuracy |
+| Quality Dimension | Description                                                  | Example Metrics                              |
+| :---------------- | :----------------------------------------------------------- | :------------------------------------------- |
+| **Correctness**   | Does the agent produce accurate, factually correct outputs?  | Accuracy rate, factual error count           |
+| **Helpfulness**   | Does the output actually address the user's need?            | Task completion rate, user satisfaction      |
+| **Safety**        | Does the agent avoid harmful or inappropriate outputs?       | Policy violation rate, safety score          |
+| **Efficiency**    | Does the agent complete tasks with minimal steps/resources?  | Steps to completion, token usage, latency    |
+| **Consistency**   | Does the agent produce stable results across similar inputs? | Variance across runs, behavior drift         |
+| **Tool Accuracy** | Does the agent select and use tools correctly?               | Tool selection precision, parameter accuracy |
 
 **Establish Success Thresholds:**
 
 For each quality dimension, define concrete thresholds (subjective to each agent):
 
-| Threshold Level | Purpose | Example |
-| :---- | :---- | :---- |
+| Threshold Level        | Purpose                                 | Example            |
+| :--------------------- | :-------------------------------------- | :----------------- |
 | **Minimum Acceptable** | Below this, the agent should not deploy | Correctness \> 85% |
-| **Target** | The goal for production readiness | Correctness \> 95% |
-| **Stretch** | Aspirational quality level | Correctness \> 99% |
+| **Target**             | The goal for production readiness       | Correctness \> 95% |
+| **Stretch**            | Aspirational quality level              | Correctness \> 99% |
 
 **Identify Critical Failure Modes:**
 
@@ -352,11 +352,13 @@ Datasets form the foundation of systematic agent evaluation. A well-constructed 
 **Dataset Construction Strategy:**
 
 1. **Start Small, Iterate Often**
+
    - Begin with 10-20 manually curated examples
    - Cover core scenarios and known edge cases
    - Prioritize quality over quantity initially
 
 2. **Structure Your Examples**
+
    - **Inputs**: The user query or task for the agent
    - **Reference Outputs** (optional): Expected correct responses
    - **Metadata**: Tags for categorization, difficulty levels, scenario types
@@ -397,47 +399,47 @@ Agents require evaluation approaches beyond simple input-output testing. Modern 
 
 Treats the agent as a black box, assessing only the end result.
 
-| Aspect | Details |
-| :---- | :---- |
-| **Inputs** | User query, available tool list |
-| **Outputs** | Agent's final response |
+| Aspect         | Details                               |
+| :------------- | :------------------------------------ |
+| **Inputs**     | User query, available tool list       |
+| **Outputs**    | Agent's final response                |
 | **Evaluators** | LLM-as-judge for quality, helpfulness |
-| **Limitation** | No visibility into internal failures |
-| **Best For** | High-level quality assurance |
+| **Limitation** | No visibility into internal failures  |
+| **Best For**   | High-level quality assurance          |
 
 **B. Single Step Evaluation:**
 
 Tests individual agent decisions in isolation.
 
-| Aspect | Details |
-| :---- | :---- |
-| **Inputs** | Single step context (with or without prior steps) |
-| **Outputs** | Tool selection and arguments |
-| **Evaluators** | Binary scoring on correct tool choice |
-| **Advantage** | Fast execution (single LLM call per test) |
-| **Best For** | Tool selection accuracy, parameter extraction |
+| Aspect         | Details                                           |
+| :------------- | :------------------------------------------------ |
+| **Inputs**     | Single step context (with or without prior steps) |
+| **Outputs**    | Tool selection and arguments                      |
+| **Evaluators** | Binary scoring on correct tool choice             |
+| **Advantage**  | Fast execution (single LLM call per test)         |
+| **Best For**   | Tool selection accuracy, parameter extraction     |
 
 **C. Trajectory Evaluation:**
 
 Assesses the complete sequence of actions taken by the agent.
 
-| Aspect | Details |
-| :---- | :---- |
-| **Inputs** | User query, tool list |
-| **Outputs** | Full sequence of tool calls |
-| **Evaluators** | Exact match, edit distance, LLM-as-judge |
+| Aspect         | Details                                           |
+| :------------- | :------------------------------------------------ |
+| **Inputs**     | User query, tool list                             |
+| **Outputs**    | Full sequence of tool calls                       |
+| **Evaluators** | Exact match, edit distance, LLM-as-judge          |
 | **Complexity** | Most challenging to create reference trajectories |
-| **Best For** | Efficiency analysis, path optimality |
+| **Best For**   | Efficiency analysis, path optimality              |
 
 **Evaluation Strategy Matrix:**
 
-| What You Want to Measure | Evaluation Approach |
-| :---- | :---- |
-| Does the agent solve the task? | Final Response |
-| Does the agent pick the right tools? | Single Step |
-| Does the agent take an efficient path? | Trajectory |
-| Does the agent reason correctly? | Trajectory \+ Single Step |
-| Does the agent recover from errors? | Trajectory |
+| What You Want to Measure               | Evaluation Approach       |
+| :------------------------------------- | :------------------------ |
+| Does the agent solve the task?         | Final Response            |
+| Does the agent pick the right tools?   | Single Step               |
+| Does the agent take an efficient path? | Trajectory                |
+| Does the agent reason correctly?       | Trajectory \+ Single Step |
+| Does the agent recover from errors?    | Trajectory                |
 
 ### 3.5 Step 5: Run Experiments and Capture Results
 
@@ -467,12 +469,12 @@ Use experiment results to drive systematic improvement of your agent.
 
 **Comparison Dimensions:**
 
-| Dimension | What to Compare |
-| :---- | :---- |
-| **Version vs. Version** | How did changes affect performance? |
-| **Time-Based** | Is performance stable or degrading? |
-| **Segment-Based** | Which query types perform best/worst? |
-| **Evaluator-Based** | Which quality dimensions need work? |
+| Dimension               | What to Compare                       |
+| :---------------------- | :------------------------------------ |
+| **Version vs. Version** | How did changes affect performance?   |
+| **Time-Based**          | Is performance stable or degrading?   |
+| **Segment-Based**       | Which query types perform best/worst? |
+| **Evaluator-Based**     | Which quality dimensions need work?   |
 
 **Iteration Process:**
 
@@ -496,23 +498,23 @@ Production-ready agents require both pre-deployment testing (offline) and live m
 
 **Offline Evaluation (Pre-Deployment):**
 
-| Aspect | Details |
-| :---- | :---- |
-| **Purpose** | Validate changes before release |
-| **Data Source** | Curated datasets with reference outputs |
-| **Evaluators** | Full suite including reference-based metrics |
-| **Frequency** | On pre-release |
-| **Decision** | Gate release on quality thresholds |
+| Aspect          | Details                                      |
+| :-------------- | :------------------------------------------- |
+| **Purpose**     | Validate changes before release              |
+| **Data Source** | Curated datasets with reference outputs      |
+| **Evaluators**  | Full suite including reference-based metrics |
+| **Frequency**   | On pre-release                               |
+| **Decision**    | Gate release on quality thresholds           |
 
 **Online Evaluation (Production):**
 
-| Aspect | Details |
-| :---- | :---- |
-| **Purpose** | Monitor live agent behavior |
+| Aspect          | Details                                    |
+| :-------------- | :----------------------------------------- |
+| **Purpose**     | Monitor live agent behavior                |
 | **Data Source** | Real production traffic (runs and threads) |
-| **Evaluators** | Reference-free metrics only |
-| **Frequency** | Continuous or sampled |
-| **Decision** | Alert on anomalies, trigger investigations |
+| **Evaluators**  | Reference-free metrics only                |
+| **Frequency**   | Continuous or sampled                      |
+| **Decision**    | Alert on anomalies, trigger investigations |
 
 ### 3.8 Step 8: Scale Your Evaluation Practice
 
@@ -520,12 +522,12 @@ As your agent matures, evolve your evaluation practice to match.
 
 **Maturity Stages:**
 
-| Stage | Dataset Size\* (subjective) | Evaluator Coverage | Automation Level |
-| :---- | :---- | :---- | :---- |
-| **Prototype** | 10-20 examples | Basic correctness | Manual runs |
-| **Alpha** | 50-100 examples | Multi-dimensional | PR-triggered |
-| **Beta** | 200-500 examples | Comprehensive | CI/CD integrated |
-| **Production** | 500+ examples | Full pyramid | Continuous \+ alerts |
+| Stage          | Dataset Size\* (subjective) | Evaluator Coverage | Automation Level     |
+| :------------- | :-------------------------- | :----------------- | :------------------- |
+| **Prototype**  | 10-20 examples              | Basic correctness  | Manual runs          |
+| **Alpha**      | 50-100 examples             | Multi-dimensional  | PR-triggered         |
+| **Beta**       | 200-500 examples            | Comprehensive      | CI/CD integrated     |
+| **Production** | 500+ examples               | Full pyramid       | Continuous \+ alerts |
 
 **Scaling Checklist:**
 
@@ -551,13 +553,13 @@ As your agent matures, evolve your evaluation practice to match.
 
 ### 4.2 Common Pitfalls to Avoid
 
-| Pitfall | Why It's Problematic | Better Approach |
-| :---- | :---- | :---- |
-| Testing only happy paths | Misses critical failure modes | Include adversarial and edge cases |
-| Over-relying on LLM-as-Judge | Expensive and potentially biased | Layer with static and code evaluators |
-| Infrequent evaluation | Issues accumulate undetected | Continuous offline \+ online evaluation |
-| Ignoring trajectories | Hides inefficiency and reasoning failures | Evaluate paths, not just outputs |
-| Static datasets | Become stale and miss new patterns | Continuously add production failures |
+| Pitfall                      | Why It's Problematic                      | Better Approach                         |
+| :--------------------------- | :---------------------------------------- | :-------------------------------------- |
+| Testing only happy paths     | Misses critical failure modes             | Include adversarial and edge cases      |
+| Over-relying on LLM-as-Judge | Expensive and potentially biased          | Layer with static and code evaluators   |
+| Infrequent evaluation        | Issues accumulate undetected              | Continuous offline \+ online evaluation |
+| Ignoring trajectories        | Hides inefficiency and reasoning failures | Evaluate paths, not just outputs        |
+| Static datasets              | Become stale and miss new patterns        | Continuously add production failures    |
 
 ---
 
@@ -577,4 +579,4 @@ As your agent matures, evolve your evaluation practice to match.
 
 6. **Human judgment remains crucial**: LLM-as-Judge augments but doesn't replace human evaluation for nuanced quality assessment.
 
-*This document provides a framework for evaluating AI agents and multi-agentic workflows. Implementations should be adapted to specific use cases, agent architectures, and organizational requirements.*
+_This document provides a framework for evaluating AI agents and multi-agentic workflows. Implementations should be adapted to specific use cases, agent architectures, and organizational requirements._

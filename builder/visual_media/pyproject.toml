@@ -3,7 +3,7 @@ build-backend = "setuptools.build_meta"
 requires = ["setuptools>=64.0.0", "wheel"]
 
 [project]
-name = "image_comprehension"
+name = "visual_media"
 dynamic = ["version"]
 dependencies = [
   "nvidia-nat[redis,mcp,langchain,phoenix,async_endpoints]==1.7.0",
@@ -11,18 +11,18 @@ dependencies = [
   "redis~=4.3.6"
 ]
 requires-python = ">=3.11,<3.14"
-description = "Image comprehension function for NeMo Agent Toolkit using Vision Language Models"
+description = "Custom NeMo Agent Toolkit Workflow"
 classifiers = ["Programming Language :: Python"]
 
 [project.entry-points.'nat.components']
-image_comprehension = "image_comprehension.register"
+visual_media = "visual_media.register"
 
 [tool.setuptools]
-packages = ["image_comprehension"]
+packages = ["visual_media"]
 package-dir = {"" = "src"}
 
 [tool.setuptools.package-data]
-image_comprehension = ["configs/*.yml", "configs/*.yaml"]
+visual_media = ["configs/*.yml", "configs/*.yaml"]
 
 [tool.uv]
 config-settings = { editable_mode = "compat" }

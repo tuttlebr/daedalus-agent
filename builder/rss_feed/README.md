@@ -1,8 +1,8 @@
 # RSS Feed Function
 
-This package registers feed-specific search functions that fetch RSS entries,
-rerank them against a user query, scrape the best match with MarkItDown, and
-return either structured metadata or the scraped article body.
+This package registers a single feed search function that fetches RSS entries,
+reranks them against a user query, scrapes the best match with MarkItDown, and
+returns the article body as markdown.
 
 ## What It Does
 
@@ -23,19 +23,18 @@ Default config lives in [`src/rss_feed/configs/config.yml`](src/rss_feed/configs
 workflow:
   _type: rss_feed
   feed_url: null
-  feeds: {}  # optional map of feed_scope name -> RSS URL
+  feeds: {} # optional map of feed_scope name -> RSS URL
   reranker_endpoint: null
   reranker_model: null
   reranker_api_key: null
   reranker_max_passage_tokens: 192
   reranker_max_total_tokens: 7000
   cache_ttl_hours: 4.0
-  cache_backend: "memory"
+  cache_backend: 'memory'
   timeout: 30.0
-  user_agent: "daedalus-rss-reader/1.0"
+  user_agent: 'daedalus-rss-reader/1.0'
   max_entries: 20
   scrape_max_output_tokens: 64000
-  enabled_operations: null  # optional allow-list: rss_feed_search, search_rss
 ```
 
 Required inputs:
@@ -45,27 +44,12 @@ Required inputs:
 - `reranker_model`
 - reranker API key through `reranker_api_key` or `NVIDIA_API_KEY`
 
-## Function Signatures
-
-Two functions are registered by default. Pass `enabled_operations` to limit
-which ones are registered.
-
-Structured search:
-
-```python
-result = await rss_feed_search({
-    "query": "latest AI infrastructure announcements",
-    "feed_scope": "auto",  # or one named feed in `feeds`
-    "description": "Search the configured feed for relevant news",
-})
-```
-
-Simple wrapper:
+## Function Signature
 
 ```python
 content = await search_rss(
-    "latest AI infrastructure announcements",
-    feed_scope="auto",
+    query="latest AI infrastructure announcements",
+    feed_scope="auto",  # or one named feed in `feeds`
 )
 ```
 
@@ -74,20 +58,10 @@ restricts the search to that feed.
 
 ## Response Shape
 
-`rss_feed_search` returns a dictionary with fields such as:
-
-- `success`
-- `query`
-- `feed_url`
-- `feed_scope`
-- `top_result`
-- `scraped_content`
-- `entries_count`
-- `cached`
-- `error`
-
-`search_rss` returns the scraped content directly, or a short error message
-when nothing relevant could be retrieved.
+`search_rss` returns the scraped article markdown directly when a relevant
+entry is found, or an `"Error: <reason>"` prefixed string when nothing can be
+retrieved (missing feed config, empty results, reranker error, or scrape
+failure).
 
 ## Processing Flow
 
@@ -101,9 +75,12 @@ when nothing relevant could be retrieved.
 
 ## Failure Modes
 
-- If the RSS feed fails to load or parse, the function returns empty results.
-- If reranker configuration is missing, the function returns a configuration error.
-- If scraping fails, the function can still return the selected RSS entry metadata with an error string.
+All failure modes surface as `"Error: <reason>"` strings:
+
+- RSS feed not configured or unreachable.
+- Reranker configuration or API key missing.
+- No entries returned by the feed or reranker.
+- Scrape of the chosen URL fails.
 
 ## Relationship To Daedalus
 

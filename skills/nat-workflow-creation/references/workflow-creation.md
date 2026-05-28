@@ -40,16 +40,16 @@ A workflow YAML always needs three top-level sections — `functions:` (tools th
 
 functions:
   current_datetime:
-    _type: current_datetime              # confirm via `nat info components -t function`
+    _type: current_datetime # confirm via `nat info components -t function`
 
 llms:
   base_llm:
-    _type: nim                            # confirm via `nat info components -t llm_provider`
+    _type: nim # confirm via `nat info components -t llm_provider`
     model_name: meta/llama-3.1-70b-instruct
     temperature: 0.0
 
 workflow:
-  _type: react_agent                      # confirm via `nat info components -t agent`
+  _type: react_agent # confirm via `nat info components -t agent`
   tool_names: [current_datetime]
   llm_name: base_llm
   verbose: true
