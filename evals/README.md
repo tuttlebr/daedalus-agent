@@ -24,6 +24,7 @@ and per-dataset p50/p95/p99 summaries.
 ./run-eval.sh                                  # default routing + factuality suite
 ./run-eval.sh --dataset routing                # one dataset
 ./run-eval.sh --dataset workflows              # broader audit suite; may invoke live tools
+./run-eval.sh --dataset routing --export-atof  # also emit ATOF JSONL traces
 ./run-eval.sh --case ops-001                   # one case
 DAEDALUS_KUBE_NAMESPACE=daedalus ./run-eval.sh
 DAEDALUS_KUBE_CONTEXT=my-context ./run-eval.sh
@@ -70,6 +71,35 @@ Validate dataset and evaluator wiring without calling the backend:
 python3 evals/runner.py --validate-only --dataset routing --dataset factuality --dataset workflows
 ```
 
+### ATOF, ATIF, and Phoenix Exports
+
+The runner can emit one NeMo Agent Toolkit ATOF v0.1 JSONL event stream per eval
+case. This makes Daedalus traces usable with the toolkit's ATOF-to-ATIF
+converter and Phoenix trajectory exporter.
+
+```bash
+./run-eval.sh --dataset routing --export-atof
+python3 evals/runner.py --dataset routing --export-atof --export-atof-dir /tmp/daedalus-atof
+```
+
+Add `--export-atif` to convert those JSONL files to ATIF JSON. The native
+runner environment needs `nvidia-nat-atif[full]` installed for this path.
+The default Docker eval image stays lightweight and only supports direct ATOF
+JSONL export unless you extend it with the optional NeMo Agent Toolkit ATIF and
+Phoenix packages.
+
+```bash
+python3 evals/runner.py --dataset routing --export-atof --export-atif
+```
+
+Add `--export-phoenix` to send the converted ATIF files to Phoenix. Configure
+the target with `--phoenix-endpoint`, `--phoenix-project`,
+`DAEDALUS_PHOENIX_ENDPOINT`, or `PHOENIX_PROJECT_NAME`.
+
+```bash
+python3 evals/runner.py --dataset routing --export-phoenix
+```
+
 ### Native Python (Optional)
 
 If you already have Python and don't want Docker:
@@ -81,12 +111,14 @@ python3 evals/runner.py --dataset routing
 
 ## Environment
 
-| Variable                          | Default                                                                    | Purpose                                          |
-| --------------------------------- | -------------------------------------------------------------------------- | ------------------------------------------------ |
-| `DAEDALUS_BACKEND_URL`            | unset for `run-eval.sh`; `http://localhost:8000` for the native runner     | Backend base URL                                 |
-| `DAEDALUS_EVAL_USER`              | `eval_user`                                                                | user_id injected via `[IDENTITY]`                |
-| `DAEDALUS_EVAL_TIMEOUT`           | `900`                                                                      | Per-request timeout in seconds                   |
-| `DAEDALUS_EVAL_PREFLIGHT_TIMEOUT` | `5`                                                                        | Backend reachability check timeout in seconds    |
+| Variable                          | Default                                                                | Purpose                                       |
+| --------------------------------- | ---------------------------------------------------------------------- | --------------------------------------------- |
+| `DAEDALUS_BACKEND_URL`            | unset for `run-eval.sh`; `http://localhost:8000` for the native runner | Backend base URL                              |
+| `DAEDALUS_EVAL_USER`              | `eval_user`                                                            | user_id injected via `[IDENTITY]`             |
+| `DAEDALUS_EVAL_TIMEOUT`           | `900`                                                                  | Per-request timeout in seconds                |
+| `DAEDALUS_EVAL_PREFLIGHT_TIMEOUT` | `5`                                                                    | Backend reachability check timeout in seconds |
+| `DAEDALUS_PHOENIX_ENDPOINT`       | `http://localhost:6006/v1/traces` for native Phoenix export            | Phoenix OTLP endpoint for `--export-phoenix`  |
+| `PHOENIX_PROJECT_NAME`            | `daedalus-evals` for native Phoenix export                             | Phoenix project for `--export-phoenix`        |
 
 The fixed eval user means memory accumulates across runs for that id.
 If that becomes noisy, purge the user's memory between runs or switch

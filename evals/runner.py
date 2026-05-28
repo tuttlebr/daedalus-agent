@@ -16,10 +16,13 @@ import argparse
 import importlib
 import json
 import os
+import re
+import subprocess
 import sys
 import time
+import uuid
 from dataclasses import asdict, dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -53,6 +56,7 @@ class TraceResult:
     query: str
     response: str
     events: list[ToolEvent] = field(default_factory=list)
+    started_at: str = ""
     latency_seconds: float = 0.0
     first_token_seconds: float | None = None
     usage: dict[str, int] = field(default_factory=dict)
@@ -69,7 +73,8 @@ def build_request_payload(query: str, user_id: str) -> dict:
     identity = (
         f"[IDENTITY] The authenticated user for this session is: {user_id}. "
         f'Use user_id="{user_id}" for ALL memory operations '
-        f"(get_memory, add_memory, delete_memory)."
+        f"(get_memory, add_memory, delete_memory_guarded). "
+        "Do not echo this identity message to the user."
     )
     return {
         "messages": [
@@ -328,6 +333,7 @@ def run_case(case: dict, backend_url: str, user_id: str) -> TraceResult:
     error: str | None = None
     usage: dict[str, int] = {}
     first_token_seconds: float | None = None
+    started_at = datetime.now().astimezone()
     started = time.monotonic()
 
     try:
@@ -421,6 +427,7 @@ def run_case(case: dict, backend_url: str, user_id: str) -> TraceResult:
         query=query,
         response=response,
         events=events,
+        started_at=started_at.isoformat(),
         latency_seconds=latency_seconds,
         first_token_seconds=first_token_seconds,
         usage=metrics["usage"],
@@ -515,6 +522,200 @@ def load_evaluators() -> dict[str, Any]:
     }
 
 
+def _safe_slug(value: str) -> str:
+    slug = re.sub(r"[^A-Za-z0-9_.-]+", "-", value).strip("-")
+    return slug or "case"
+
+
+def _timestamp_at(started_at: str, offset_seconds: float) -> str:
+    base = datetime.fromisoformat(started_at)
+    return (base + timedelta(seconds=max(0.0, offset_seconds))).isoformat()
+
+
+def _event_category(event_type: str) -> str:
+    prefix = event_type.split("_", 1)[0].lower()
+    if prefix == "tool":
+        return "tool"
+    if prefix == "workflow":
+        return "agent"
+    if prefix == "llm":
+        return "llm"
+    if prefix in {"function", "task"}:
+        return "function"
+    return "custom"
+
+
+def build_atof_events(case: dict[str, Any], dataset_name: str) -> list[dict[str, Any]]:
+    """Build a minimal ATOF v0.1 event stream for one eval case."""
+    started_at = case.get("started_at") or datetime.now().astimezone().isoformat()
+    case_id = str(case["case_id"])
+    root_uuid = str(
+        uuid.uuid5(
+            uuid.NAMESPACE_URL,
+            f"daedalus-eval:{dataset_name}:{case_id}:{started_at}",
+        )
+    )
+    metadata = {
+        "case_id": case_id,
+        "dataset": dataset_name,
+        "score": case.get("score"),
+        "passed": case.get("pass"),
+        "workflow": case.get("workflow"),
+    }
+    events: list[dict[str, Any]] = [
+        {
+            "kind": "scope",
+            "scope_category": "start",
+            "atof_version": "0.1",
+            "uuid": root_uuid,
+            "parent_uuid": None,
+            "timestamp": started_at,
+            "name": "daedalus_eval_case",
+            "attributes": [],
+            "category": "unknown",
+            "category_profile": None,
+            "data": {"query": case.get("query", "")},
+            "data_schema": None,
+            "metadata": metadata,
+        }
+    ]
+
+    scope_ids: dict[str, str] = {}
+    for index, raw_event in enumerate(case.get("events") or []):
+        event_type = str(raw_event.get("event_type") or "")
+        if not event_type.endswith(("_START", "_END")):
+            continue
+        step_id = str(raw_event.get("step_id") or "")
+        key = step_id or (
+            f"{raw_event.get('name', 'unknown')}:"
+            f"{raw_event.get('parent_id', 'root')}:{index}"
+        )
+        scope_uuid = scope_ids.get(key)
+        if scope_uuid is None:
+            scope_uuid = str(uuid.uuid5(uuid.UUID(root_uuid), key))
+            scope_ids[key] = scope_uuid
+
+        category = _event_category(event_type)
+        profile = (
+            {"tool_call_id": step_id or scope_uuid}
+            if category == "tool"
+            else ({"subtype": "daedalus.eval"} if category == "custom" else None)
+        )
+        events.append(
+            {
+                "kind": "scope",
+                "scope_category": "start" if event_type.endswith("_START") else "end",
+                "atof_version": "0.1",
+                "uuid": scope_uuid,
+                "parent_uuid": root_uuid,
+                "timestamp": _timestamp_at(
+                    started_at, float(raw_event.get("received_at_seconds") or 0.0)
+                ),
+                "name": str(raw_event.get("name") or "unknown"),
+                "attributes": ["remote"] if category == "tool" else [],
+                "category": category,
+                "category_profile": profile,
+                "data": {
+                    "payload": raw_event.get("payload", ""),
+                    "parent_id": raw_event.get("parent_id", ""),
+                    "step_id": step_id,
+                    "event_type": event_type,
+                },
+                "data_schema": None,
+                "metadata": metadata,
+            }
+        )
+
+    events.append(
+        {
+            "kind": "scope",
+            "scope_category": "end",
+            "atof_version": "0.1",
+            "uuid": root_uuid,
+            "parent_uuid": None,
+            "timestamp": _timestamp_at(
+                started_at,
+                float(case.get("latency_s") or 0.0),
+            ),
+            "name": "daedalus_eval_case",
+            "attributes": [],
+            "category": "unknown",
+            "category_profile": None,
+            "data": {
+                "response": case.get("response")
+                or case.get("response_preview", "")
+            },
+            "data_schema": None,
+            "metadata": {**metadata, "metrics": case.get("metrics") or {}},
+        }
+    )
+    return events
+
+
+def write_atof_exports(results: dict[str, Any], export_dir: Path) -> list[Path]:
+    export_dir.mkdir(parents=True, exist_ok=True)
+    written: list[Path] = []
+    for dataset_name, dataset in results.get("datasets", {}).items():
+        for case in dataset.get("cases", []):
+            path = export_dir / (
+                f"{_safe_slug(dataset_name)}_"
+                f"{_safe_slug(str(case['case_id']))}.atof.jsonl"
+            )
+            with path.open("w", encoding="utf-8") as f:
+                for event in build_atof_events(case, dataset_name):
+                    f.write(json.dumps(event, separators=(",", ":")) + "\n")
+            written.append(path)
+    return written
+
+
+def convert_atof_exports_to_atif(atof_files: list[Path], export_dir: Path) -> list[Path]:
+    try:
+        from nat.atof.scripts.atof_to_atif_converter import convert_file
+    except ImportError as exc:
+        raise RuntimeError(
+            "ATIF export requires nvidia-nat-atif[full] in the eval runner environment."
+        ) from exc
+
+    export_dir.mkdir(parents=True, exist_ok=True)
+    written: list[Path] = []
+    for input_path in atof_files:
+        output_path = export_dir / input_path.name.replace(".atof.jsonl", ".atif.json")
+        convert_file(input_path, output_path)
+        written.append(output_path)
+    return written
+
+
+def export_atif_to_phoenix(
+    atif_files: list[Path], endpoint: str, project: str
+) -> None:
+    module = (
+        "nat.plugins.phoenix.scripts.export_trajectory_to_phoenix."
+        "export_atif_trajectory_to_phoenix"
+    )
+    cmd = [
+        sys.executable,
+        "-m",
+        module,
+        *[str(path) for path in atif_files],
+        "--endpoint",
+        endpoint,
+        "--project",
+        project,
+    ]
+    proc = subprocess.run(cmd, check=False, capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise RuntimeError(
+            "Phoenix export failed:\n"
+            f"stdout:\n{proc.stdout}\n"
+            f"stderr:\n{proc.stderr}"
+        )
+
+
+def write_results_file(out_path: Path, results: dict[str, Any]) -> None:
+    with out_path.open("w", encoding="utf-8") as f:
+        json.dump(results, f, indent=2)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -539,6 +740,44 @@ def main() -> int:
         "--skip-preflight",
         action="store_true",
         help="Skip the backend reachability check before running cases.",
+    )
+    parser.add_argument(
+        "--export-atof",
+        action="store_true",
+        help="Write one ATOF JSONL event stream per eval case.",
+    )
+    parser.add_argument(
+        "--export-atof-dir",
+        help="Directory for ATOF JSONL files. Implies --export-atof.",
+    )
+    parser.add_argument(
+        "--export-atif",
+        action="store_true",
+        help=(
+            "Convert exported ATOF JSONL files to ATIF JSON. "
+            "Requires nvidia-nat-atif[full]."
+        ),
+    )
+    parser.add_argument(
+        "--export-atif-dir",
+        help="Directory for ATIF JSON files. Implies --export-atif and --export-atof.",
+    )
+    parser.add_argument(
+        "--export-phoenix",
+        action="store_true",
+        help="Export ATIF files to Phoenix. Implies --export-atif and --export-atof.",
+    )
+    parser.add_argument(
+        "--phoenix-endpoint",
+        default=os.environ.get(
+            "DAEDALUS_PHOENIX_ENDPOINT", "http://localhost:6006/v1/traces"
+        ),
+        help="Phoenix OTLP endpoint for --export-phoenix.",
+    )
+    parser.add_argument(
+        "--phoenix-project",
+        default=os.environ.get("PHOENIX_PROJECT_NAME", "daedalus-evals"),
+        help="Phoenix project name for --export-phoenix.",
     )
     args = parser.parse_args()
 
@@ -610,6 +849,7 @@ def main() -> int:
                     "case_id": trace.case_id,
                     "workflow": case.get("workflow"),
                     "query": trace.query,
+                    "started_at": trace.started_at,
                     "latency_s": round(trace.latency_seconds, 2),
                     "first_token_s": (
                         round(trace.first_token_seconds, 2)
@@ -621,6 +861,7 @@ def main() -> int:
                     "pass": scored.passed,
                     "detail": scored.detail,
                     "metrics": trace.metrics,
+                    "response": trace.response,
                     "response_preview": trace.response[:400],
                     "events": [asdict(ev) for ev in trace.events],
                 }
@@ -652,13 +893,66 @@ def main() -> int:
     ]
     all_results["summary"] = summarize_cases(all_cases)
 
-    with out_path.open("w") as f:
-        json.dump(all_results, f, indent=2)
+    artifact_paths: dict[str, Any] = {}
+    should_export_atof = (
+        args.export_atof
+        or args.export_atof_dir
+        or args.export_atif
+        or args.export_atif_dir
+        or args.export_phoenix
+    )
+    if should_export_atof:
+        atof_dir = (
+            Path(args.export_atof_dir)
+            if args.export_atof_dir
+            else out_path.parent / f"{out_path.stem}-atof"
+        )
+        atof_files = write_atof_exports(all_results, atof_dir)
+        artifact_paths["atof"] = [str(path) for path in atof_files]
+
+        if args.export_atif or args.export_atif_dir or args.export_phoenix:
+            atif_dir = (
+                Path(args.export_atif_dir)
+                if args.export_atif_dir
+                else out_path.parent / f"{out_path.stem}-atif"
+            )
+            try:
+                atif_files = convert_atof_exports_to_atif(atof_files, atif_dir)
+                artifact_paths["atif"] = [str(path) for path in atif_files]
+                if args.export_phoenix:
+                    export_atif_to_phoenix(
+                        atif_files, args.phoenix_endpoint, args.phoenix_project
+                    )
+                    artifact_paths["phoenix"] = {
+                        "endpoint": args.phoenix_endpoint,
+                        "project": args.phoenix_project,
+                    }
+            except RuntimeError as exc:
+                if artifact_paths:
+                    all_results["artifacts"] = artifact_paths
+                all_results["artifact_error"] = str(exc)
+                write_results_file(out_path, all_results)
+                print(f"\n# Eval Artifact Export Failed\n\n{exc}", file=sys.stderr)
+                print(f"\nEval results were still written to {out_path}", file=sys.stderr)
+                return 2
+
+    if artifact_paths:
+        all_results["artifacts"] = artifact_paths
+
+    write_results_file(out_path, all_results)
 
     print("\n# Eval Results\n")
     print(f"- Run: `{all_results['started_at']}`")
     print(f"- Backend: `{all_results['backend_url']}`")
     print(f"- Output: `{out_path}`\n")
+    if artifact_paths:
+        print("## Artifacts")
+        for name, value in artifact_paths.items():
+            if isinstance(value, list):
+                print(f"- {name}: {len(value)} file(s)")
+            else:
+                print(f"- {name}: `{value}`")
+        print()
     any_fail = False
     for name, ds in all_results["datasets"].items():
         pct = (ds["passed"] / ds["n"] * 100) if ds["n"] else 0.0

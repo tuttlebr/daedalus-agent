@@ -92,8 +92,14 @@ Useful optional keys:
 
 ```bash
 SERPAPI_KEY=...
+EXA_API_KEY=...
 GITHUB_PAT=...
 ```
+
+`EXA_API_KEY` enables the NeMo Agent Toolkit Exa search tool for semantic web
+research. Without it, the tool returns a soft unavailable message and the
+research agent can continue with curated retrieval, SerpAPI, or known-URL
+scraping.
 
 ### 2. Optionally choose a backend config for local Compose
 
@@ -314,6 +320,11 @@ For frontend-specific details, see [`frontend/README.md`](frontend/README.md).
 ## Custom Builder Packages
 
 The `builder/` directory contains reusable NeMo Agent functions, helpers, and standalone modules that patch NAT at startup.
+The `skills/` directory includes Daedalus runtime skills plus the upstream
+NeMo Agent Toolkit v1.7 coding-agent skills (`nat-*` and `skill-evolution`).
+NeMo Agent Toolkit implementation requests route through `nat-user-rules` first,
+then the focused skill for workflow YAML, custom functions/tools, evals,
+telemetry, MCP, or serving work.
 
 | Name                 | Type    | Purpose                                                               |
 | -------------------- | ------- | --------------------------------------------------------------------- |
@@ -383,6 +394,18 @@ The worker seeds its first-run workspace from built-in defaults in
 [`builder/autonomous_agent/src/autonomous_agent/prompt.py`](builder/autonomous_agent/src/autonomous_agent/prompt.py).
 After that, mutable workspace sections live in Redis and are updated by the
 worker itself.
+
+## Observability
+
+`backend/tool-calling-config.yaml` sends traces to Phoenix by default through
+`general.telemetry.tracing.phoenix`, using `DAEDALUS_PHOENIX_ENDPOINT` and
+`PHOENIX_PROJECT_NAME`.
+
+`.env.template` also documents the v1.7 Arize AX exporter variables
+(`ARIZE_SPACE_ID`, `ARIZE_API_KEY`, `ARIZE_PROJECT_NAME`, and
+`ARIZE_USE_EU_REGION`). Use those in an Arize-specific backend config or CLI
+override; the default config stays on Phoenix so deployments without hosted
+Arize credentials still start cleanly.
 
 ## Network Security
 
@@ -539,7 +562,7 @@ daedalus-agent/
   frontend/         Next.js application
   helm/daedalus/    Helm chart and embedded agent assets
   nginx/            Reverse-proxy configuration
-  skills/           Repo-packaged agent skills
+  skills/           Repo-packaged agent skills, including NeMo Agent Toolkit v1.7 coding skills
 ```
 
 ## License

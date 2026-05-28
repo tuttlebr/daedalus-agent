@@ -4,6 +4,10 @@
 
 Daedalus is a full-stack agent platform. The Next.js UI lives in `frontend/`: routes in `frontend/pages/`, components in `frontend/components/`, shared logic in `frontend/utils/`, `frontend/services/`, and `frontend/hooks/`, and Vitest tests in `frontend/__tests__/`. Python NeMo Agent Toolkit tools live under `builder/`, with shared tests in `builder/tests/`. Runtime backend config is in `backend/tool-calling-config.yaml`. Helm assets are in `helm/daedalus/`, nginx config is in `nginx/`, evals are in `evals/`, and skills are in `skills/`.
 
+## NeMo Agent Toolkit Skills
+
+For NeMo Agent Toolkit implementation work, read `skills/nat-user-rules/SKILL.md` first, then the focused toolkit skill it routes to. Use `skills/nat-workflow-creation/` for workflow YAML, `skills/nat-tools-and-functions/` for custom functions, `skills/nat-evaluation/` for evals, `skills/nat-telemetry/` for tracing/profiling, and `skills/nat-mcp-and-serving/` for MCP or serving changes.
+
 ## Build, Test, and Development Commands
 
 - `cp .env.template .env`: create local configuration; never commit populated secrets.

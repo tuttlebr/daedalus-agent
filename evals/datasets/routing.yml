@@ -80,6 +80,15 @@
     sub_agent: null
     skill: pr-monitor
 
+- id: skill-nat-001
+  query: Use the NeMo Agent Toolkit skill to add a custom toolkit function for support-ticket lookup.
+  expected:
+    architecture: SAS
+    sub_agent: null
+    skill: nat-user-rules
+  forbidden_tools:
+    - mas_evaluate
+
 - id: conversational-001
   query: Hey, thanks for the help earlier.
   conversational_only: true

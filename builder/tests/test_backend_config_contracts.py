@@ -6,6 +6,7 @@ import yaml
 
 CONFIG = Path(__file__).resolve().parents[2] / "backend" / "tool-calling-config.yaml"
 ENV_TEMPLATE = Path(__file__).resolve().parents[2] / ".env.template"
+AGENTS_GUIDE = Path(__file__).resolve().parents[2] / "AGENTS.md"
 SKILLS_DIR = Path(__file__).resolve().parents[2] / "skills"
 DOCKERFILE = Path(__file__).resolve().parents[1] / "Dockerfile"
 NGINX_TEMPLATE = (
@@ -53,13 +54,25 @@ FRONTEND_DEPLOYMENT_TEMPLATE = (
 HELM_VALUES = Path(__file__).resolve().parents[2] / "helm" / "daedalus" / "values.yaml"
 CUSTOM_VALUES = Path(__file__).resolve().parents[2] / "custom-values.yaml"
 DEPLOYED_CONFIGS = (CONFIG,)
+NAT_CODING_AGENT_SKILLS = {
+    "nat-agent-configuration",
+    "nat-evaluation",
+    "nat-installation",
+    "nat-mcp-and-serving",
+    "nat-optimization",
+    "nat-path-checks",
+    "nat-telemetry",
+    "nat-tools-and-functions",
+    "nat-user-rules",
+    "nat-workflow-creation",
+    "skill-evolution",
+}
 LEGACY_RERANKER_PREFIX = "REA" + "NKER_"
 LEGACY_CLUSTER_LOCAL_PORT = "cluster.local" + ".:"
 MULTI_OPERATION_TYPES = {
     "agent_skills": ["list_skills", "load_skill", "run_skill_script"],
     "content_distiller": ["distill_content", "extract_structured", "synthesize"],
     "mas_optimizer": ["mas_evaluate", "mas_verify", "mas_log_outcome"],
-    "rss_feed": ["rss_feed_search", "search_rss"],
     "source_verifier": ["verify_claim", "verify_memory", "audit_memories"],
     "user_interaction": [
         "clarify",
@@ -222,7 +235,7 @@ def test_deployed_tool_surface_is_optimized():
             _effective_operation_count(
                 config, functions["research_agent"]["tool_names"]
             )
-            <= 7
+            <= 8
         ), path
         assert (
             _effective_operation_count(config, functions["ops_agent"]["tool_names"])
@@ -441,7 +454,6 @@ def test_multi_operation_tools_are_filtered_in_production():
     expected = {
         "agent_skills_tool": ["load_skill"],
         "content_distiller_tool": ["distill_content"],
-        "curated_feed_search_tool": ["search_rss"],
         "mas_optimizer_tool": ["mas_evaluate"],
         "ops_confirmation_tool": ["confirm_action"],
         "source_verifier_tool": ["verify_claim"],
@@ -460,6 +472,32 @@ def test_multi_operation_tools_are_filtered_in_production():
 def test_serpapi_documented_aliases_are_configured():
     desc = _config()["functions"]["serpapi_search_tool"]["description"]
     assert "search_type (organic, news, images, shopping)" in desc
+
+
+def test_research_agent_has_optional_exa_search():
+    for path in DEPLOYED_CONFIGS:
+        config = _config(path)
+        research_agent = config["functions"]["research_agent"]
+        tools = research_agent["tool_names"]
+
+        assert "exa_internet_search_tool" in tools, path
+        assert tools.index("curated_feed_search_tool") < tools.index(
+            "exa_internet_search_tool"
+        ), path
+        assert tools.index("exa_internet_search_tool") < tools.index(
+            "serpapi_search_tool"
+        ), path
+
+        exa = config["functions"]["exa_internet_search_tool"]
+        assert exa["_type"] == "exa_internet_search", path
+        assert exa["api_key"] == "${EXA_API_KEY}", path
+        assert exa["search_type"] == "auto", path
+        assert exa["livecrawl"] == "fallback", path
+
+        prompt = research_agent["system_prompt"]
+        assert prompt.index("exa_internet_search_tool") < prompt.index(
+            "serpapi_search_tool"
+        ), path
 
 
 def test_source_verifier_fast_llm_has_no_unsupported_extra_args():
@@ -535,6 +573,21 @@ def test_skill_routing_precedes_generic_mas_gate():
         assert "open PRs" in prompt, path
         assert "merged PR listings/history" in prompt, path
         assert "pr-monitor" in prompt, path
+
+
+def test_nat_coding_agent_skills_are_available_and_routed():
+    guide = AGENTS_GUIDE.read_text(encoding="utf-8")
+    assert "skills/nat-user-rules/SKILL.md" in guide
+
+    for skill_name in NAT_CODING_AGENT_SKILLS:
+        assert (SKILLS_DIR / skill_name / "SKILL.md").is_file(), skill_name
+
+    for path in DEPLOYED_CONFIGS:
+        prompt = _config(path)["workflow"]["system_prompt"]
+        for skill_name in NAT_CODING_AGENT_SKILLS:
+            assert skill_name in prompt, (path, skill_name)
+        assert "load nat-user-rules first" in prompt, path
+        assert "workflow YAML, custom functions/tools" in prompt, path
 
 
 def test_memory_findings_require_supported_exact_claims():
