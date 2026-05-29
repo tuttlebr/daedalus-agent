@@ -2,35 +2,36 @@
 
 ## Project Structure & Module Organization
 
-Daedalus is a full-stack agent platform. The Next.js UI lives in `frontend/`: routes in `frontend/pages/`, components in `frontend/components/`, shared logic in `frontend/utils/`, `frontend/services/`, and `frontend/hooks/`, and Vitest tests in `frontend/__tests__/`. Python NeMo Agent Toolkit tools live under `builder/`, with shared tests in `builder/tests/`. Runtime backend config is in `backend/tool-calling-config.yaml`. Helm assets are in `helm/daedalus/`, nginx config is in `nginx/`, evals are in `evals/`, and skills are in `skills/`.
+Daedalus is a deployable AI agent platform. `backend/` contains the NeMo Agent Toolkit workflow config. `builder/` holds Python tool packages and services; tests are in `builder/tests/`. `frontend/` is the Next.js TypeScript UI; tests are in `frontend/__tests__/`. `evals/` contains runners, evaluators, and YAML datasets. Deployment lives in `helm/daedalus/`, `nginx/`, `docker-compose.yaml`, `custom-values.yaml`, and `deploy.sh`. Local agent skills live in `skills/`. Follow nested guides in `builder/AGENTS.md` and `frontend/AGENTS.md`.
 
-## NeMo Agent Toolkit Skills
+## Agent-Specific Instructions
 
-For NeMo Agent Toolkit implementation work, read `skills/nat-user-rules/SKILL.md` first, then the focused toolkit skill it routes to. Use `skills/nat-workflow-creation/` for workflow YAML, `skills/nat-tools-and-functions/` for custom functions, `skills/nat-evaluation/` for evals, `skills/nat-telemetry/` for tracing/profiling, and `skills/nat-mcp-and-serving/` for MCP or serving changes.
+For NeMo Agent Toolkit work, read `skills/nat-user-rules/SKILL.md` first, then the relevant `skills/nat-*` guide for workflow YAML, tools, evals, telemetry, MCP, or serving.
 
 ## Build, Test, and Development Commands
 
-- `cp .env.template .env`: create local configuration; never commit populated secrets.
-- `docker compose up --build`: start the local stack; by default Compose mounts `backend/tool-calling-config.yaml`, or use `BACKEND_CONFIG_FILE=./path/to/config.yaml` to override it.
-- `cd frontend && npm ci --legacy-peer-deps`: install frontend dependencies; use Node.js 22.
-- `cd frontend && npm run dev`: run the frontend on port `5000`.
-- `cd frontend && npm run lint && npm test -- --run && npm run build`: validate lint, Vitest tests, and production build.
-- `cd builder && python3 -m pytest tests`: run builder tests.
-- `./run-eval.sh --dataset routing`: run the eval harness against a configured backend.
-- `helm lint helm/daedalus`: validate chart templates.
+Use the root `Makefile` as the local CI mirror.
+
+- `make ci`: runs builder, frontend, Helm, Docker, security, and eval checks.
+- `make builder`: installs builder test dependencies and runs pytest with coverage.
+- `make frontend`: runs install, lint, typecheck, Vitest, and build.
+- `make helm`: lints and renders the Helm chart.
+- `make docker`: validates Compose config and builds runtime images.
+- `make evals`: compiles the eval harness and validates datasets.
+- `docker compose up --build`: starts the local stack after creating `.env`.
 
 ## Coding Style & Naming Conventions
 
-Frontend code uses TypeScript `strict` mode, Next.js ESLint, and Prettier. Use single quotes, trailing commas, sorted imports, Tailwind class sorting, and the `@/*` path alias when useful. Name React components in PascalCase, hooks as `useSomething`, and tests as `*.test.ts` or `*.test.tsx`. Python targets 3.11+, is formatted by Ruff and isort, and uses `test_*.py` pytest naming.
+Python targets 3.11+ and is formatted by Ruff, Ruff format, isort, and pyupgrade. Name Python tests `test_*.py`. Frontend code uses TypeScript, React, Prettier, ESLint, and Tailwind; components are PascalCase and utilities/hooks are camelCase. Keep changes scoped and avoid unrelated formatting churn.
 
 ## Testing Guidelines
 
-Put frontend tests under the matching `frontend/__tests__/pages`, `hooks`, `services`, or `utils` area. Put Python tests in `builder/tests/` and follow `test_<behavior>.py`. Run checks for the area changed; use `npm run coverage` for coverage-sensitive UI changes and `python3 -m pytest tests -k <name>` for focused builder validation.
+Run focused tests before the full target, then use the matching `make` target before a PR. Builder tests use pytest and existing fakes instead of real external services. Frontend tests use Vitest in `jsdom`; name files `*.test.ts` or `*.test.tsx`. Update eval datasets when routing, factuality, or workflow behavior changes.
 
 ## Commit & Pull Request Guidelines
 
-Recent commits use short, imperative summaries such as `Fix RSS feed tool schema validation`. Keep commits focused and avoid unrelated formatting churn. Pull requests should describe the behavior change, link issues, list validation, include screenshots for UI changes, and update docs when config, deployment, or public APIs change.
+Recent commits use short, imperative subjects such as `Fix optional Exa search config validation`. PRs should include the problem, implementation summary, linked issue, and exact verification commands. Include screenshots for UI changes and call out changes to env vars, auth, Redis state, MCP config, or deployment manifests.
 
 ## Security & Configuration Tips
 
-Do not commit `.env`, generated runtime state, API keys, or private credentials. Use `.env.template` for new variables, generate production `SESSION_SECRET` values with `openssl rand -base64 32`, and run `pre-commit run --all-files` before broad changes.
+Do not commit secrets, `.env` contents, local virtualenvs, coverage files, or scan artifacts. Use `.env.template`, `frontend/env.example`, and `frontend/auth-passwords.json.template` as references. Run `pre-commit run --all-files` before broad changes; it checks formatting, syntax, secrets, shell, Ruff, Bandit, and Helm.
