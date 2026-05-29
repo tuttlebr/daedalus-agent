@@ -24,6 +24,7 @@ export default defineConfig({
         'services/**/*.ts',
         'hooks/**/*.ts',
         'pages/api/**/*.ts',
+        'server/chat/**/*.ts',
       ],
       exclude: [
         '**/*.test.ts',

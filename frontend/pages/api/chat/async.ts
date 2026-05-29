@@ -1121,5 +1121,3 @@ async function handleDelete(req: NextApiRequest, res: NextApiResponse) {
     return res.status(500).json({ error: 'Failed to cancel job' });
   }
 }
-
-// ── Finalization is handled in server/chat/finalization.ts ──
