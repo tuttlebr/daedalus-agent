@@ -15,11 +15,14 @@ export default async function handler(
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  try {
-    const session = await requireAuthenticatedUser(req, res);
-    if (!session) return;
-    const username = session.username;
+  // Authenticate once, before the try, so the catch never re-auths a
+  // possibly-already-responded request (which could double-send) and never
+  // masks a real failure behind a silent 200 fallback (F-018).
+  const session = await requireAuthenticatedUser(req, res);
+  if (!session) return;
+  const username = session.username;
 
+  try {
     // This is a lightweight helper for the upload UI. Shared collections are
     // intentional first-class corpora in the same Milvus database as
     // user-scoped collections, but they are explicitly labeled for ingestion
@@ -43,24 +46,6 @@ export default async function handler(
     });
   } catch (error) {
     console.error('Error fetching collections:', error);
-
-    const session = await requireAuthenticatedUser(req, res);
-    if (!session) return;
-    const username = session.username;
-
-    // Return minimal fallback
-    const collections = [username, 'nvidia'];
-    res.status(200).json({
-      collections,
-      collectionOptions: collections.map((name) => ({
-        name,
-        scope: classifyMilvusCollectionScope(name),
-      })),
-      collectionPolicy: {
-        databaseName: 'default',
-        sharedCollections: SHARED_MILVUS_COLLECTIONS,
-        userCollection: username,
-      },
-    });
+    res.status(500).json({ error: 'Failed to fetch collections' });
   }
 }

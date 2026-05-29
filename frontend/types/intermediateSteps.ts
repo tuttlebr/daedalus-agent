@@ -159,7 +159,10 @@ export function getEventCategory(
     case IntermediateStepType.SPAN_END:
       return IntermediateStepCategory.SPAN;
     default:
-      throw new Error(`Unknown event type: ${eventType}`);
+      // Resilience: the backend (NAT) is versioned independently and may emit
+      // step types this UI doesn't know yet. Returning a safe fallback keeps
+      // the whole steps panel from crashing on a single unknown event (F-007).
+      return IntermediateStepCategory.CUSTOM;
   }
 }
 
@@ -189,6 +192,9 @@ export function getEventState(
     case IntermediateStepType.SPAN_END:
       return IntermediateStepState.END;
     default:
-      throw new Error(`Unknown event type: ${eventType}`);
+      // Resilience: treat unknown event types as a terminal step rather than
+      // throwing, so one unrecognized backend event can't blow up the render
+      // or step consolidation (F-007).
+      return IntermediateStepState.END;
   }
 }

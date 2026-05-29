@@ -2,7 +2,6 @@ import { Logger } from '@/utils/logger';
 
 import { Message } from '@/types/chat';
 
-import { apiBase } from './api';
 import {
   type ImageReference,
   getImageUrl,
@@ -473,6 +472,18 @@ export function cleanMessagesForLLM(messages: any[]): Message[] {
   });
 }
 
+// Detect stored blob/base64 attachment content that should be stripped to avoid
+// storage bloat. Matches data URLs and the `;base64,` marker, and treats a long
+// string as base64 only if it is pure base64 charset — so long legitimate
+// content (captions/filenames) isn't silently destroyed (F-020).
+function isStrippableBlobContent(content: string, dataPrefix: string): boolean {
+  return (
+    content.startsWith(dataPrefix) ||
+    content.includes(';base64,') ||
+    (content.length > 1000 && /^[A-Za-z0-9+/=\s]+$/.test(content))
+  );
+}
+
 // Clean messages for storage (remove base64 content but keep image/video references for UI)
 export function cleanMessagesForStorage(messages: any[]): any[] {
   return messages.map((message) => {
@@ -486,8 +497,7 @@ export function cleanMessagesForStorage(messages: any[]): any[] {
         // If attachment has base64 content, remove it but keep the reference
         if (
           attachment.content &&
-          (attachment.content.startsWith('data:image/') ||
-            attachment.content.length > 1000) // Any large content is likely base64
+          isStrippableBlobContent(attachment.content, 'data:image/')
         ) {
           return {
             ...attachment,
@@ -499,8 +509,7 @@ export function cleanMessagesForStorage(messages: any[]): any[] {
         // If attachment has base64 content, remove it but keep the reference
         if (
           attachment.content &&
-          (attachment.content.startsWith('data:video/') ||
-            attachment.content.length > 1000) // Any large content is likely base64
+          isStrippableBlobContent(attachment.content, 'data:video/')
         ) {
           return {
             ...attachment,
@@ -540,8 +549,7 @@ export function restoreMessageImages(messages: any[]): any[] {
         // Remove any base64 content that might have been stored
         if (
           attachment.content &&
-          (attachment.content.startsWith('data:image/') ||
-            attachment.content.length > 1000)
+          isStrippableBlobContent(attachment.content, 'data:image/')
         ) {
           return {
             ...attachment,
@@ -554,8 +562,7 @@ export function restoreMessageImages(messages: any[]): any[] {
         // Remove any base64 content that might have been stored
         if (
           attachment.content &&
-          (attachment.content.startsWith('data:video/') ||
-            attachment.content.length > 1000)
+          isStrippableBlobContent(attachment.content, 'data:video/')
         ) {
           return {
             ...attachment,
@@ -611,25 +618,6 @@ export function stripBase64Content(obj: any): any {
   }
 
   return cleaned;
-}
-
-// Delete image from storage
-export async function deleteImage(imageId: string): Promise<void> {
-  try {
-    const response = await fetch(
-      `/api/session/imageStorage?imageId=${imageId}`,
-      {
-        method: 'DELETE',
-      },
-    );
-
-    if (!response.ok) {
-      throw new Error('Failed to delete image');
-    }
-  } catch (error) {
-    logger.error('Error deleting image', error);
-    throw error;
-  }
 }
 
 // Process markdown content to extract and store base64 images, replacing them with references

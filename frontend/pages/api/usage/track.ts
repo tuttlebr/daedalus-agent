@@ -87,7 +87,6 @@ export default async function handler(
     console.error('Usage tracking error:', error);
     return res.status(500).json({
       error: 'Internal server error while tracking usage',
-      details: error instanceof Error ? error.message : 'Unknown error',
     });
   }
 }

@@ -32,11 +32,26 @@ export default async function handler(
     if (!id || typeof id !== 'string') {
       return res.status(400).json({ error: 'id is required' });
     }
+    // Whitelist updatable fields and validate them — never spread arbitrary
+    // client keys into the persisted goal (F-009).
+    const sanitized: Partial<AutonomyGoal> = {};
+    if (typeof updates.title === 'string') {
+      sanitized.title = updates.title.trim() || 'Untitled goal';
+    }
+    if (typeof updates.description === 'string') {
+      sanitized.description = updates.description.trim();
+    }
+    if (['active', 'paused', 'completed'].includes(updates.status)) {
+      sanitized.status = updates.status;
+    }
+    if (Number.isFinite(updates.priority)) {
+      sanitized.priority = Number(updates.priority);
+    }
     const goals = await listGoals(userId);
     const next = goals.map(
       (goal): AutonomyGoal =>
         goal.id === id
-          ? { ...goal, ...updates, id: goal.id, updatedAt: nowMs() }
+          ? { ...goal, ...sanitized, id: goal.id, updatedAt: nowMs() }
           : goal,
     );
     await saveGoals(userId, next);

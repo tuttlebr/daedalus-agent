@@ -23,9 +23,13 @@ export function stripBase64FromObject<T>(obj: T): T {
 
   for (const [key, value] of Object.entries(cleaned)) {
     if (typeof value === 'string') {
+      // Strip embedded image data URLs and long base64 blobs, but match the
+      // actual data-URL marker (`;base64,`) rather than the substring "base64"
+      // so long legitimate prose that merely mentions base64 isn't destroyed
+      // (F-020).
       if (
         value.startsWith('data:image/') ||
-        (value.length > 1000 && value.includes('base64'))
+        (value.length > 1000 && value.includes(';base64,'))
       ) {
         cleaned[key] = '';
       }

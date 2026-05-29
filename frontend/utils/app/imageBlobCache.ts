@@ -61,7 +61,6 @@ export function getImageUrl(
 
 class ImageBlobCache {
   private cache = new Map<string, BlobCacheEntry>();
-  private weakCache = new WeakMap<object, string>();
   private temporaryUrls = new Set<string>();
   private totalSize = 0;
   private readonly maxSize = this.isMobile()
@@ -127,8 +126,6 @@ class ImageBlobCache {
       this.temporaryUrls.add(blobUrl);
       return blobUrl;
     }
-
-    this.weakCache.set(imageRef as any, blobUrl);
 
     return blobUrl;
   }

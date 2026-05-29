@@ -35,6 +35,53 @@ function getUserUsageKey(username: string): string {
   return sessionKey(['usage', 'user', username]);
 }
 
+const USAGE_LOCK_TTL_MS = 5_000;
+
+/**
+ * Serialize the read-modify-write on a user's usage doc with a short-lived
+ * Redis lock so concurrent /api/usage/track calls (multi-device sync is a core
+ * feature) don't clobber each other's increments (F-004). Works in both
+ * RedisJSON and plain-Redis modes (unlike JSON.NUMINCRBY). Falls back to an
+ * unlocked write if the lock can't be acquired, preserving availability.
+ */
+async function withUsageLock<T>(
+  username: string,
+  fn: () => Promise<T>,
+): Promise<T> {
+  const redis = getRedis();
+  const lockKey = sessionKey(['usage', 'lock', username]);
+  const token = `${Date.now()}-${Math.random()}`;
+  for (let attempt = 0; attempt < 50; attempt++) {
+    const acquired = await redis.set(
+      lockKey,
+      token,
+      'PX',
+      USAGE_LOCK_TTL_MS,
+      'NX',
+    );
+    if (acquired === 'OK') {
+      try {
+        return await fn();
+      } finally {
+        try {
+          await redis.eval(
+            "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end",
+            1,
+            lockKey,
+            token,
+          );
+        } catch {
+          // best-effort unlock; the PX TTL prevents a permanent deadlock
+        }
+      }
+    }
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  // Lock contention exceeded the budget — proceed unlocked rather than dropping
+  // the update (matches the prior last-writer-wins behavior).
+  return fn();
+}
+
 /**
  * Get the current date string (YYYY-MM-DD)
  */
@@ -93,76 +140,53 @@ export async function trackUserUsage(
   });
 
   try {
-    // Get existing stats or initialize new ones
-    let stats = (await jsonGet(key)) as UserUsageStats | null;
+    await withUsageLock(username, async () => {
+      // Get existing stats or initialize new ones
+      let stats = (await jsonGet(key)) as UserUsageStats | null;
+      if (!stats) {
+        logger.info('initializing new user stats for', username);
+        stats = await initializeUserUsageStats(username);
+      }
 
-    logger.debug(
-      'existing stats',
-      stats ? 'found' : 'not found, will initialize',
-    );
+      const dateString = getCurrentDateString();
+      const monthString = getCurrentMonthString();
 
-    if (!stats) {
-      logger.info('initializing new user stats for', username);
-      stats = await initializeUserUsageStats(username);
-      logger.debug('initialized stats', stats);
-    }
+      // Update total usage
+      stats.total_prompt_tokens += usage.prompt_tokens;
+      stats.total_completion_tokens += usage.completion_tokens;
+      stats.total_tokens += usage.total_tokens;
+      stats.request_count += 1;
+      stats.last_request_at = Date.now();
 
-    const dateString = getCurrentDateString();
-    const monthString = getCurrentMonthString();
+      // Update daily usage
+      if (!stats.daily_usage[dateString]) {
+        stats.daily_usage[dateString] = {
+          prompt_tokens: 0,
+          completion_tokens: 0,
+          total_tokens: 0,
+        };
+      }
+      stats.daily_usage[dateString].prompt_tokens += usage.prompt_tokens;
+      stats.daily_usage[dateString].completion_tokens +=
+        usage.completion_tokens;
+      stats.daily_usage[dateString].total_tokens += usage.total_tokens;
 
-    logger.debug('date/month strings', { dateString, monthString });
+      // Update monthly usage
+      if (!stats.monthly_usage[monthString]) {
+        stats.monthly_usage[monthString] = {
+          prompt_tokens: 0,
+          completion_tokens: 0,
+          total_tokens: 0,
+        };
+      }
+      stats.monthly_usage[monthString].prompt_tokens += usage.prompt_tokens;
+      stats.monthly_usage[monthString].completion_tokens +=
+        usage.completion_tokens;
+      stats.monthly_usage[monthString].total_tokens += usage.total_tokens;
 
-    // Log before update
-    logger.debug('stats before update', {
-      total_prompt_tokens: stats.total_prompt_tokens,
-      total_completion_tokens: stats.total_completion_tokens,
-      total_tokens: stats.total_tokens,
-      request_count: stats.request_count,
+      // Save updated stats
+      await jsonSet(key, '.', stats);
     });
-
-    // Update total usage
-    stats.total_prompt_tokens += usage.prompt_tokens;
-    stats.total_completion_tokens += usage.completion_tokens;
-    stats.total_tokens += usage.total_tokens;
-    stats.request_count += 1;
-    stats.last_request_at = Date.now();
-
-    // Update daily usage
-    if (!stats.daily_usage[dateString]) {
-      stats.daily_usage[dateString] = {
-        prompt_tokens: 0,
-        completion_tokens: 0,
-        total_tokens: 0,
-      };
-    }
-    stats.daily_usage[dateString].prompt_tokens += usage.prompt_tokens;
-    stats.daily_usage[dateString].completion_tokens += usage.completion_tokens;
-    stats.daily_usage[dateString].total_tokens += usage.total_tokens;
-
-    // Update monthly usage
-    if (!stats.monthly_usage[monthString]) {
-      stats.monthly_usage[monthString] = {
-        prompt_tokens: 0,
-        completion_tokens: 0,
-        total_tokens: 0,
-      };
-    }
-    stats.monthly_usage[monthString].prompt_tokens += usage.prompt_tokens;
-    stats.monthly_usage[monthString].completion_tokens +=
-      usage.completion_tokens;
-    stats.monthly_usage[monthString].total_tokens += usage.total_tokens;
-
-    // Log after update
-    logger.debug('stats after update', {
-      total_prompt_tokens: stats.total_prompt_tokens,
-      total_completion_tokens: stats.total_completion_tokens,
-      total_tokens: stats.total_tokens,
-      request_count: stats.request_count,
-    });
-
-    // Save updated stats
-    logger.debug('saving updated stats to Redis key', key);
-    await jsonSet(key, '.', stats);
 
     logger.info(
       `usage tracked successfully for user ${username}: ${usage.total_tokens} total tokens (${usage.prompt_tokens} prompt + ${usage.completion_tokens} completion)`,
@@ -201,7 +225,22 @@ export async function getAllUsageStats(): Promise<UserUsageStats[]> {
   const pattern = sessionKey(['usage', 'user', '*']);
 
   try {
-    const keys = await redis.keys(pattern);
+    // SCAN instead of KEYS — KEYS is O(N) and blocks the Redis event loop on
+    // large keyspaces (F-018).
+    const keys: string[] = [];
+    let cursor = '0';
+    do {
+      const [next, batch] = await redis.scan(
+        cursor,
+        'MATCH',
+        pattern,
+        'COUNT',
+        100,
+      );
+      cursor = next;
+      keys.push(...batch);
+    } while (cursor !== '0');
+
     const stats: UserUsageStats[] = [];
 
     if (keys.length > 0) {
@@ -244,23 +283,25 @@ export async function cleanupOldUsageData(username: string): Promise<void> {
   const key = getUserUsageKey(username);
 
   try {
-    const stats = (await jsonGet(key)) as UserUsageStats | null;
-    if (!stats) return;
+    await withUsageLock(username, async () => {
+      const stats = (await jsonGet(key)) as UserUsageStats | null;
+      if (!stats) return;
 
-    const cutoffDate = new Date();
-    cutoffDate.setDate(cutoffDate.getDate() - 90);
-    const cutoffString = cutoffDate.toISOString().split('T')[0];
+      const cutoffDate = new Date();
+      cutoffDate.setDate(cutoffDate.getDate() - 90);
+      const cutoffString = cutoffDate.toISOString().split('T')[0];
 
-    // Remove old daily usage entries
-    for (const dateString in stats.daily_usage) {
-      if (dateString < cutoffString) {
-        delete stats.daily_usage[dateString];
+      // Remove old daily usage entries
+      for (const dateString in stats.daily_usage) {
+        if (dateString < cutoffString) {
+          delete stats.daily_usage[dateString];
+        }
       }
-    }
 
-    // Save updated stats
-    await jsonSet(key, '.', stats);
-    logger.info(`Cleaned up old usage data for user ${username}`);
+      // Save updated stats
+      await jsonSet(key, '.', stats);
+      logger.info(`Cleaned up old usage data for user ${username}`);
+    });
   } catch (error) {
     logger.error('Error cleaning up old usage data', error);
     throw error;

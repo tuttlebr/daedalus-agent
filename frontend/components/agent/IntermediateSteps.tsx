@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 
 import {
   searchSteps,
@@ -99,19 +99,28 @@ export const IntermediateSteps: React.FC<IntermediateStepsProps> = ({
       .sort((a, b) => a.payload.event_timestamp - b.payload.event_timestamp);
   }, [steps]);
 
-  // Save steps to IndexedDB when they change
+  // Persist steps to IndexedDB, debounced so a streaming run doesn't trigger a
+  // full-array write on every streamed step (F-015). UI state updates stay
+  // immediate; only the IndexedDB write is coalesced to the settle window.
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
-    if (conversationId || selectedConversationId) {
-      const convId = conversationId || selectedConversationId;
-      if (convId && migratedSteps.length > 0) {
-        saveIntermediateSteps(convId, migratedSteps).catch((err) =>
-          logger.error('Failed to save intermediate steps:', err),
-        );
-        setTotalStepsCount(migratedSteps.length);
-        setDisplayedSteps(migratedSteps);
-        setLoadedCount(migratedSteps.length);
-      }
-    }
+    const convId = conversationId || selectedConversationId;
+    if (!convId || migratedSteps.length === 0) return;
+
+    setTotalStepsCount(migratedSteps.length);
+    setDisplayedSteps(migratedSteps);
+    setLoadedCount(migratedSteps.length);
+
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(() => {
+      saveIntermediateSteps(convId, migratedSteps).catch((err) =>
+        logger.error('Failed to save intermediate steps:', err),
+      );
+    }, 500);
+
+    return () => {
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    };
   }, [migratedSteps, conversationId, selectedConversationId]);
 
   // Load initial steps from DB only when switching conversations

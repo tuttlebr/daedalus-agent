@@ -1,9 +1,3 @@
-import {
-  getUserSessionItem,
-  setUserSessionItem,
-  removeUserSessionItem,
-} from './storage';
-
 import { v4 as uuidv4 } from 'uuid';
 
 export const getInitials = (fullName = '') => {
@@ -17,71 +11,6 @@ export const getInitials = (fullName = '') => {
     .toUpperCase();
   return initials;
 };
-export const compressImage = (
-  base64: string,
-  mimeType: string | undefined,
-  shouldCompress: boolean,
-  callback: { (compressedBase64: string): void; (arg0: string): void },
-) => {
-  const MAX_SIZE = 200 * 1024; // 200 KB maximum size
-  const MIN_SIZE = 100 * 1024; // 100 KB minimum size, to avoid under compression
-  const canvas = document.createElement('canvas');
-  const ctx = canvas.getContext('2d');
-  const img = new Image();
-
-  img.onload = () => {
-    let width = img.width;
-    let height = img.height;
-    const maxSize = 800; // Start with a larger size for initial scaling
-
-    if (width > maxSize || height > maxSize) {
-      if (width > height) {
-        height *= maxSize / width;
-        width = maxSize;
-      } else {
-        width *= maxSize / height;
-        height = maxSize;
-      }
-    }
-
-    canvas.width = width;
-    canvas.height = height;
-    if (ctx) ctx.drawImage(img, 0, 0, width, height);
-
-    let quality = 0.9; // Start with high quality
-    let newDataUrl = canvas.toDataURL(mimeType, quality);
-
-    if (shouldCompress) {
-      while (newDataUrl.length > MAX_SIZE && quality > 0.1) {
-        quality -= 0.05; // Gradually reduce quality
-        newDataUrl = canvas.toDataURL(mimeType, quality);
-      }
-
-      // Check if overly compressed, then adjust quality slightly back up
-      while (newDataUrl.length < MIN_SIZE && quality <= 0.9) {
-        quality += 0.05; // Increment quality slightly
-        newDataUrl = canvas.toDataURL(mimeType, quality);
-      }
-
-      // Further dimension reduction if still too large
-      while (newDataUrl.length > MAX_SIZE && (width > 50 || height > 50)) {
-        width *= 0.75; // Reduce dimensions
-        height *= 0.75;
-        canvas.width = width;
-        canvas.height = height;
-        if (ctx) ctx.drawImage(img, 0, 0, width, height);
-        newDataUrl = canvas.toDataURL(mimeType, quality);
-      }
-    }
-
-    // console.log(`Original Base64 Size: ${base64.length / 1024} KB`);
-    // console.log(`Compressed Base64 Size: ${newDataUrl.length / 1024} KB`);
-    callback(newDataUrl);
-  };
-
-  img.src = base64;
-};
-
 export const getURLQueryParam = ({ param = '' }) => {
   // SSR guard: window is not available during server-side rendering
   if (typeof window === 'undefined') return param ? null : {};
@@ -107,27 +36,6 @@ export const getWorkflowName = () => {
     process?.env?.NEXT_PUBLIC_WORKFLOW ||
     'Daedalus';
   return workflow;
-};
-
-export const setSessionError = (message = 'unknown error') => {
-  // Use user-specific storage keys to prevent data leakage between users
-  setUserSessionItem('error', 'true');
-  setUserSessionItem('errorMessage', message);
-};
-
-export const removeSessionError = () => {
-  // Use user-specific storage keys to prevent data leakage between users
-  removeUserSessionItem('error');
-  removeUserSessionItem('errorMessage');
-};
-
-export const isInsideIframe = () => {
-  try {
-    return window?.self !== window?.top;
-  } catch (e) {
-    // If a security error occurs (cross-origin), assume it's in an iframe
-    return true;
-  }
 };
 
 export const fetchLastMessage = ({

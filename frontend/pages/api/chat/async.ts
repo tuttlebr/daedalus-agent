@@ -11,10 +11,12 @@ import {
   stripReplayedAssistantPrefix,
 } from '@/utils/app/conversationReplay';
 import {
+  MilvusCollectionOwnershipError,
   resolveMilvusCollectionTarget,
   type MilvusCollectionProvenance,
   type MilvusCollectionScope,
 } from '@/utils/app/milvusCollections';
+import { sanitizeForPromptInterpolation } from '@/utils/app/promptSafety';
 import { getSession } from '@/utils/auth/session';
 import { fetchWithTimeout } from '@/utils/fetchWithTimeout';
 import { Logger } from '@/utils/logger';
@@ -215,6 +217,15 @@ function resolveDocumentCollectionTarget(
   try {
     return resolveMilvusCollectionTarget(options);
   } catch (error) {
+    // Cross-tenant collection targeting is an authorization failure (403),
+    // distinct from a scope-label mismatch (400). See F-001.
+    if (error instanceof MilvusCollectionOwnershipError) {
+      throw new ApiRouteError(
+        403,
+        'You do not have access to the target collection.',
+        'collection_forbidden',
+      );
+    }
     const message =
       error instanceof Error
         ? error.message
@@ -1348,6 +1359,10 @@ async function startBackgroundStreamReader(
     getNatBaseUrl(jobRequest),
     '/v1/chat/completions',
   );
+  // NOTE: model / collection_name / max_tokens / temperature / top_p / top_k
+  // are OpenAPI placeholder values. The backend NAT agent owns model and
+  // generation config and ignores these; they exist only to satisfy the
+  // request schema. Do not rely on them to control generation (F-024).
   const payload = {
     messages: messagesForNat,
     model: 'string',
@@ -1950,10 +1965,12 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
                       );
                     }
                     if (storedVtt?.data) {
+                      // Untrusted filename embedded in an agent instruction
+                      // and a <transcript> tag attribute — defang it (F-008).
                       const filename =
-                        att.vttRef.filename ||
-                        storedVtt.filename ||
-                        'transcript';
+                        sanitizeForPromptInterpolation(
+                          att.vttRef.filename || storedVtt.filename,
+                        ) || 'transcript';
                       let vttContext = `\n\n[User has attached a VTT/SRT transcript file "${filename}". `;
                       vttContext += `Use the vtt_interpreter_tool to process this transcript. `;
                       vttContext += `Pass the transcript content below as the transcript_text parameter. `;
@@ -2437,8 +2454,9 @@ async function handleDelete(req: NextApiRequest, res: NextApiResponse) {
 
     await Promise.all([jsonDel(requestKey), jsonDel(stepsKey)]);
 
-    // NOTE: NAT async does not expose a cancel endpoint.
-    // The Dask job runs to completion but the job is marked as canceled in Redis.
+    // NOTE: NAT async does not expose a cancel endpoint. The backend run (an
+    // asyncio task) continues to completion; we mark the job canceled in Redis
+    // and set the abort flag so the stream reader stops publishing.
     // NAT's expiry_seconds ensures backend cleanup.
 
     return res.status(200).json({ success: true, canceled: true });

@@ -209,10 +209,14 @@ export const getReactMarkDownCustomComponents = (
 
       a: memo(
         ({ href, children, ...props }: MarkdownComponentProps) => (
+          // react-markdown sets target="_blank" (linkTarget) but never rel —
+          // force rel after {...props} to prevent reverse-tabnabbing on
+          // model/tool-generated links (F-022).
           <a
             href={href}
             className="text-nvidia-green dark:text-nvidia-green-bright no-underline hover:underline font-medium transition-colors"
             {...props}
+            rel="noopener noreferrer"
           >
             {children}
           </a>

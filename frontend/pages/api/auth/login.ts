@@ -13,6 +13,8 @@ const LOGIN_LOCKOUT_SECONDS = Number(
   process.env.AUTH_LOGIN_LOCKOUT_SECONDS || 900,
 );
 const LOGIN_MAX_ATTEMPTS = Number(process.env.AUTH_LOGIN_MAX_ATTEMPTS || 5);
+// Number of trusted reverse proxies in front of the app (default: nginx only).
+const TRUSTED_PROXY_HOPS = Number(process.env.AUTH_TRUSTED_PROXY_HOPS || 1);
 
 function firstHeaderValue(value: string | string[] | undefined): string {
   if (Array.isArray(value)) return value[0] || '';
@@ -21,9 +23,19 @@ function firstHeaderValue(value: string | string[] | undefined): string {
 
 function clientIp(req: NextApiRequest): string {
   const forwarded = firstHeaderValue(req.headers['x-forwarded-for']);
-  return (
-    forwarded.split(',')[0]?.trim() || req.socket.remoteAddress || 'unknown'
-  );
+  const chain = forwarded
+    .split(',')
+    .map((part) => part.trim())
+    .filter(Boolean);
+  if (chain.length > 0) {
+    // Use the address the closest trusted proxy (nginx) observed — i.e.
+    // TRUSTED_PROXY_HOPS entries from the RIGHT. The leftmost entries are
+    // client-supplied and spoofable; keying the login lockout on them would let
+    // an attacker evade it by rotating forged X-Forwarded-For values (F-016).
+    const idx = Math.max(0, chain.length - TRUSTED_PROXY_HOPS);
+    return chain[idx] || req.socket.remoteAddress || 'unknown';
+  }
+  return req.socket.remoteAddress || 'unknown';
 }
 
 function loginAttemptKey(username: string, ip: string): string {

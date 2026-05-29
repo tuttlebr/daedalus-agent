@@ -1,4 +1,5 @@
 import {
+  MilvusCollectionOwnershipError,
   classifyMilvusCollectionScope,
   resolveMilvusCollectionTarget,
 } from '@/utils/app/milvusCollections';
@@ -48,5 +49,44 @@ describe('milvus collection policy helpers', () => {
         source: 'test',
       }),
     ).toThrow('does not match');
+  });
+
+  it('defaults a user-scoped target to the caller username', () => {
+    const target = resolveMilvusCollectionTarget({
+      username: 'alice',
+      source: 'test',
+    });
+    expect(target.collectionName).toBe('alice');
+    expect(target.collectionScope).toBe('user');
+  });
+
+  it('allows a user to target their own collection', () => {
+    const target = resolveMilvusCollectionTarget({
+      targetCollection: 'alice',
+      username: 'alice',
+      source: 'test',
+    });
+    expect(target.collectionName).toBe('alice');
+    expect(target.collectionScope).toBe('user');
+  });
+
+  it('rejects ingesting into another user`s collection (F-001 IDOR)', () => {
+    expect(() =>
+      resolveMilvusCollectionTarget({
+        targetCollection: 'bob',
+        username: 'alice',
+        source: 'test',
+      }),
+    ).toThrow(MilvusCollectionOwnershipError);
+  });
+
+  it('rejects an arbitrary user-scoped collection name', () => {
+    expect(() =>
+      resolveMilvusCollectionTarget({
+        targetCollection: 'project-notes',
+        username: 'alice',
+        source: 'test',
+      }),
+    ).toThrow(MilvusCollectionOwnershipError);
   });
 });

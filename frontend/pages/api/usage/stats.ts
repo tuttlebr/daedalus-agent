@@ -71,7 +71,6 @@ export default async function handler(
     console.error('Error retrieving usage stats:', error);
     return res.status(500).json({
       error: 'Internal server error while retrieving usage statistics',
-      details: error instanceof Error ? error.message : 'Unknown error',
     });
   }
 }

@@ -45,13 +45,16 @@ export async function fetchWithTimeout(
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
+  let signal: AbortSignal = controller.signal;
+  let cleanupCombined: (() => void) | undefined;
+  if (options.signal) {
+    const combined = combineAbortSignals(options.signal, controller.signal);
+    signal = combined.signal;
+    cleanupCombined = combined.cleanup;
+  }
+
   try {
-    const response = await fetch(url, {
-      ...options,
-      signal: options.signal
-        ? combineAbortSignals(options.signal, controller.signal)
-        : controller.signal,
-    });
+    const response = await fetch(url, { ...options, signal });
     return response;
   } catch (error) {
     if (error instanceof Error && error.name === 'AbortError') {
@@ -63,6 +66,9 @@ export async function fetchWithTimeout(
     throw error;
   } finally {
     clearTimeout(timeoutId);
+    // Remove the abort listeners registered on the caller's signal so they
+    // don't accumulate when a long-lived signal is reused across calls (F-023).
+    cleanupCombined?.();
   }
 }
 
@@ -72,20 +78,25 @@ export async function fetchWithTimeout(
 function combineAbortSignals(
   signal1: AbortSignal,
   signal2: AbortSignal,
-): AbortSignal {
+): { signal: AbortSignal; cleanup: () => void } {
   const controller = new AbortController();
 
   const abort = () => controller.abort();
 
   if (signal1.aborted || signal2.aborted) {
     controller.abort();
-    return controller.signal;
+    return { signal: controller.signal, cleanup: () => {} };
   }
 
   signal1.addEventListener('abort', abort);
   signal2.addEventListener('abort', abort);
 
-  return controller.signal;
+  const cleanup = () => {
+    signal1.removeEventListener('abort', abort);
+    signal2.removeEventListener('abort', abort);
+  };
+
+  return { signal: controller.signal, cleanup };
 }
 
 /**

@@ -14,13 +14,6 @@ export function setStorageUser(username: string | null) {
 }
 
 /**
- * Get the current storage username
- */
-export function getStorageUser(): string | null {
-  return currentUsername;
-}
-
-/**
  * Generate a user-specific storage key
  * Format: user:<username>:<key>
  * If no user is logged in, uses 'anon:<key>' for backwards compatibility
@@ -137,39 +130,6 @@ export function clearUserSessionData(): void {
   }
 
   keysToRemove.forEach((key) => sessionStorage.removeItem(key));
-}
-
-/**
- * Clear ALL user data from sessionStorage (all users)
- * This is useful for complete cleanup or debugging
- */
-export function clearAllUserData(): void {
-  const keysToRemove: string[] = [];
-
-  for (let i = 0; i < sessionStorage.length; i++) {
-    const key = sessionStorage.key(i);
-    if (key && key.startsWith('user:')) {
-      keysToRemove.push(key);
-    }
-  }
-
-  keysToRemove.forEach((key) => sessionStorage.removeItem(key));
-
-  // Also clear legacy non-prefixed keys
-  const legacyKeys = [
-    'conversationHistory',
-    'selectedConversation',
-    'folders',
-    'prompts',
-    'showChatbar',
-    'chatCompletionURL',
-    'enableIntermediateSteps',
-    'expandIntermediateSteps',
-    'intermediateStepOverride',
-    'chatHistory',
-    'sessionId',
-  ];
-  legacyKeys.forEach((key) => sessionStorage.removeItem(key));
 }
 
 /**

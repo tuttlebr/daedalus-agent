@@ -31,8 +31,21 @@ export default async function handler(
 
     const redis = getRedis();
 
-    // Get all keys matching usage pattern
-    const usageKeys = await redis.keys('usage:user:*');
+    // Get all keys matching usage pattern via SCAN — KEYS is O(N) and blocks
+    // the Redis event loop on large keyspaces (F-018).
+    const usageKeys: string[] = [];
+    let cursor = '0';
+    do {
+      const [next, batch] = await redis.scan(
+        cursor,
+        'MATCH',
+        'usage:user:*',
+        'COUNT',
+        100,
+      );
+      cursor = next;
+      usageKeys.push(...batch);
+    } while (cursor !== '0');
 
     // Get all usage stats
     const allStats = await getAllUsageStats();
@@ -59,7 +72,6 @@ export default async function handler(
     console.error('Error in debug endpoint:', error);
     return res.status(500).json({
       error: 'Internal server error',
-      details: error instanceof Error ? error.message : 'Unknown error',
     });
   }
 }

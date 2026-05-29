@@ -14,6 +14,67 @@ import { getRedis, jsonGet, jsonSet, sessionKey } from '@/server/session/redis';
 import { v4 as uuidv4 } from 'uuid';
 
 const DEFAULT_INTERVAL_SECONDS = 14_400;
+const MIN_INTERVAL_SECONDS = 300; // 5 min floor — block degenerate tight worker loops
+const MAX_INTERVAL_SECONDS = 7 * 24 * 60 * 60; // 7 days
+const VALID_MODES = new Set(['hybrid', 'research_feed', 'task_executor']);
+const VALID_RUNTIMES = new Set(['dedicated_worker']);
+const VALID_ACTION_POLICIES = new Set([
+  'broad_autonomy',
+  'read_memory_only',
+  'low_risk_writes',
+]);
+
+function clampInt(
+  value: unknown,
+  min: number,
+  max: number,
+): number | undefined {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return undefined;
+  return Math.min(Math.max(Math.floor(n), min), max);
+}
+
+/**
+ * Whitelist + validate a client-supplied config patch before it is persisted
+ * and consumed by the autonomous worker. Unknown keys and invalid values are
+ * dropped, and numeric fields are clamped, so a client cannot drive the worker
+ * into a tight loop (intervalSeconds=0) or set an unrecognized policy (F-009).
+ */
+export function sanitizeConfigPatch(
+  patch: Partial<AutonomyConfig>,
+): Partial<AutonomyConfig> {
+  const clean: Partial<AutonomyConfig> = {};
+  if (!patch || typeof patch !== 'object') return clean;
+
+  if (typeof patch.enabled === 'boolean') clean.enabled = patch.enabled;
+  if (typeof patch.mode === 'string' && VALID_MODES.has(patch.mode)) {
+    clean.mode = patch.mode;
+  }
+  if (typeof patch.runtime === 'string' && VALID_RUNTIMES.has(patch.runtime)) {
+    clean.runtime = patch.runtime;
+  }
+  if (
+    typeof patch.actionPolicy === 'string' &&
+    VALID_ACTION_POLICIES.has(patch.actionPolicy)
+  ) {
+    clean.actionPolicy = patch.actionPolicy;
+  }
+
+  const interval = clampInt(
+    patch.intervalSeconds,
+    MIN_INTERVAL_SECONDS,
+    MAX_INTERVAL_SECONDS,
+  );
+  if (interval !== undefined) clean.intervalSeconds = interval;
+
+  const maxRuns = clampInt(patch.maxRunsStored, 1, 1000);
+  if (maxRuns !== undefined) clean.maxRunsStored = maxRuns;
+
+  const maxFeed = clampInt(patch.maxFeedItems, 1, 2000);
+  if (maxFeed !== undefined) clean.maxFeedItems = maxFeed;
+
+  return clean;
+}
 
 export function autonomyKey(userId: string, name: string): string {
   return sessionKey(['autonomy', userId, name]);
@@ -70,7 +131,7 @@ export async function saveConfig(
   const current = await getConfig(userId);
   const next: AutonomyConfig = {
     ...current,
-    ...patch,
+    ...sanitizeConfigPatch(patch),
     userId,
     updatedAt: nowMs(),
   };

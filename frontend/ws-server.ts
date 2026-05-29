@@ -284,6 +284,7 @@ interface ClientConnection {
   timeoutTimer: NodeJS.Timeout | null;
   subscribedJobs: Set<string>;
   subscribedChats: Set<string>; // conversationIds for token streaming
+  closed: boolean;
 }
 
 // userId → Set<ClientConnection>
@@ -305,6 +306,13 @@ function addConnection(conn: ClientConnection): void {
 }
 
 function removeConnection(conn: ClientConnection): void {
+  // Idempotent: a socket commonly emits both 'error' and 'close'. Running this
+  // twice would double-decrement ref-counted Redis subscribers and tear down
+  // channels other live connections (e.g. another browser tab of the same
+  // user) still depend on (F-006).
+  if (conn.closed) return;
+  conn.closed = true;
+
   const userConns = connectionsByUser.get(conn.userId);
   if (userConns) {
     userConns.delete(conn);
@@ -317,11 +325,16 @@ function removeConnection(conn: ClientConnection): void {
   for (const jobId of conn.subscribedJobs) {
     unsubscribeFromJob(jobId);
   }
+  conn.subscribedJobs.clear();
 
   // Clean up chat subscriptions
   for (const convId of conn.subscribedChats) {
     unsubscribeFromChat(conn.userId, convId);
   }
+  conn.subscribedChats.clear();
+
+  // Release this connection's hold on the user channel (exactly once)
+  unsubscribeFromUserChannel(conn.userId);
 
   // Clean up timers
   if (conn.heartbeatTimer) clearInterval(conn.heartbeatTimer);
@@ -656,6 +669,7 @@ wss.on('connection', async (ws: WebSocket, req: IncomingMessage) => {
     timeoutTimer: null,
     subscribedJobs: new Set(),
     subscribedChats: new Set(),
+    closed: false,
   };
 
   addConnection(conn);
@@ -748,13 +762,11 @@ wss.on('connection', async (ws: WebSocket, req: IncomingMessage) => {
   ws.on('close', () => {
     console.log(`[WS] Client disconnected: ${userId}`);
     removeConnection(conn);
-    unsubscribeFromUserChannel(userId);
   });
 
   ws.on('error', (err) => {
     console.error(`[WS] WebSocket error for ${userId}:`, err);
     removeConnection(conn);
-    unsubscribeFromUserChannel(userId);
   });
 });
 

@@ -99,8 +99,25 @@ function loadAuthConfig(): AuthConfig {
   }
 }
 
-// Initialize users in Redis if they don't exist
-export async function initializeUsers() {
+// Initialize users in Redis if they don't exist.
+//
+// Memoized so it runs at most once per process. Previously this ran on EVERY
+// login attempt, which re-ran a bcrypt.compare per configured user before the
+// real credential check (login-cost amplification / DoS surface — F-014). On
+// failure the cache is cleared so the next login can retry.
+let initializeUsersPromise: Promise<void> | null = null;
+
+export function initializeUsers(): Promise<void> {
+  if (!initializeUsersPromise) {
+    initializeUsersPromise = runInitializeUsers().catch((error) => {
+      initializeUsersPromise = null;
+      throw error;
+    });
+  }
+  return initializeUsersPromise;
+}
+
+async function runInitializeUsers(): Promise<void> {
   const config = loadAuthConfig();
 
   for (const configUser of config.users) {

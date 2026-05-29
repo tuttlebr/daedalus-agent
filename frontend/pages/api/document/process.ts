@@ -1,7 +1,11 @@
 import { NextApiRequest, NextApiResponse } from 'next';
 
 import { getBackendHost, buildBackendUrl } from '@/utils/app/backendApi';
-import { resolveMilvusCollectionTarget } from '@/utils/app/milvusCollections';
+import {
+  MilvusCollectionOwnershipError,
+  resolveMilvusCollectionTarget,
+} from '@/utils/app/milvusCollections';
+import { sanitizeForPromptInterpolation } from '@/utils/app/promptSafety';
 import { withInternalBackendAuth } from '@/utils/server/backendAuth';
 
 import {
@@ -177,11 +181,33 @@ export default async function handler(
     }
 
     // Ingest mode: collection resolution + synthetic chat message as before.
-    const collectionTarget = resolveMilvusCollectionTarget({
-      targetCollection: typeof collection === 'string' ? collection : undefined,
-      username,
-      source: 'document.process',
-    });
+    let collectionTarget;
+    try {
+      collectionTarget = resolveMilvusCollectionTarget({
+        targetCollection:
+          typeof collection === 'string' ? collection : undefined,
+        username,
+        source: 'document.process',
+      });
+    } catch (resolveError) {
+      if (resolveError instanceof MilvusCollectionOwnershipError) {
+        console.warn('Rejected cross-tenant collection ingest:', {
+          username,
+          requestedCollection: resolveError.requestedCollection,
+        });
+        return res.status(403).json({
+          error: 'You do not have access to the target collection.',
+          reason: 'collection_forbidden',
+        });
+      }
+      return res.status(400).json({
+        error:
+          resolveError instanceof Error
+            ? resolveError.message
+            : 'Invalid collection target.',
+        reason: 'collection_scope_mismatch',
+      });
+    }
     const targetCollection = collectionTarget.collectionName;
 
     console.info('Processing documents:', {
@@ -193,12 +219,13 @@ export default async function handler(
       provenance: collectionTarget.provenance,
     });
 
-    // Send a message to the chat endpoint that will trigger the ingest op
+    // Send a message to the chat endpoint that will trigger the ingest op.
+    // The filename is untrusted user input embedded in an agent instruction —
+    // defang it to reduce prompt-injection surface (F-008).
+    const safeFilename = sanitizeForPromptInterpolation(filename) || 'document';
     const messageContent =
       documentsToProcess.length === 1
-        ? `Process the document "${
-            filename || 'document'
-          }" using user_document_tool with operation="ingest", documentRef=${JSON.stringify(
+        ? `Process the document "${safeFilename}" using user_document_tool with operation="ingest", documentRef=${JSON.stringify(
             documentsToProcess[0],
           )}, username="${username}", collection_name="${targetCollection}", collection_scope="${
             collectionTarget.collectionScope
@@ -247,7 +274,6 @@ export default async function handler(
       );
       return res.status(backendResponse.statusCode).json({
         error: 'Failed to process document',
-        details: backendResponse.body,
       });
     }
 
@@ -475,7 +501,6 @@ export default async function handler(
 
     return res.status(500).json({
       error: 'Internal server error',
-      message,
     });
   }
 }

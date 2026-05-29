@@ -15,6 +15,16 @@ import {
 } from '@tabler/icons-react';
 import React, { useState } from 'react';
 
+// Tool results are untrusted backend data — a malformed/relative `link` must
+// not throw `new URL()` and crash the whole results render (F-007).
+function safeHostname(link: string): string {
+  try {
+    return new URL(link).hostname;
+  } catch {
+    return link || '';
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -396,7 +406,7 @@ const OrganicResultCard: React.FC<{ result: OrganicResult }> = ({ result }) => (
     <div className="flex items-center gap-2 mb-0.5">
       <FaviconImg src={result.favicon} alt={result.displayed_link} />
       <span className="text-xs text-gray-500 dark:text-gray-400 truncate">
-        {result.displayed_link || new URL(result.link).hostname}
+        {result.displayed_link || safeHostname(result.link)}
       </span>
     </div>
     {/* Title */}

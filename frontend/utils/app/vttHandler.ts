@@ -5,13 +5,6 @@ export interface VTTReference {
   mimeType?: string;
 }
 
-export interface VTTListItem {
-  id: string;
-  filename: string;
-  size: number;
-  createdAt: number;
-}
-
 // Upload VTT content to Redis and return reference
 export async function uploadVTT(
   content: string,
@@ -102,38 +95,6 @@ export async function uploadVTTFile(
   });
 }
 
-// Get VTT content URL from reference
-export function getVTTUrl(vttRef: VTTReference): string {
-  return `/api/session/vttStorage?vttId=${vttRef.vttId}&sessionId=${vttRef.sessionId}`;
-}
-
-// Fetch VTT content from reference
-export async function fetchVTTContent(vttRef: VTTReference): Promise<string> {
-  const response = await fetch(getVTTUrl(vttRef));
-  if (!response.ok) {
-    throw new Error('Failed to fetch VTT content');
-  }
-  return response.text();
-}
-
-// List all VTT files for the current session
-export async function listVTTFiles(): Promise<VTTListItem[]> {
-  const response = await fetch('/api/session/vttStorage?list=true');
-  if (!response.ok) {
-    throw new Error('Failed to list VTT files');
-  }
-  const { vtts } = await response.json();
-  return vtts;
-}
-
-// Delete a VTT file
-export async function deleteVTT(vttId: string): Promise<boolean> {
-  const response = await fetch(`/api/session/vttStorage?vttId=${vttId}`, {
-    method: 'DELETE',
-  });
-  return response.ok;
-}
-
 // Check if a file is a VTT file
 export function isVTTFile(file: File): boolean {
   const vttExtensions = ['.vtt', '.webvtt', '.srt'];
@@ -145,15 +106,4 @@ export function isVTTFile(file: File): boolean {
   const isVTTMimeType = vttMimeTypes.includes(mimeType);
 
   return isVTTExtension || isVTTMimeType;
-}
-
-// Convert VTT reference to format expected by the backend tool
-export function toVttRef(vttRef: VTTReference): {
-  vttId: string;
-  sessionId: string;
-} {
-  return {
-    vttId: vttRef.vttId,
-    sessionId: vttRef.sessionId,
-  };
 }

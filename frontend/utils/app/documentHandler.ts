@@ -58,8 +58,3 @@ export async function uploadDocument(
     throw error;
   }
 }
-
-// Get document URL from reference
-export function getDocumentUrl(documentRef: DocumentReference): string {
-  return `/api/session/documentStorage?documentId=${documentRef.documentId}&sessionId=${documentRef.sessionId}`;
-}

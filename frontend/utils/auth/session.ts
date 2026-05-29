@@ -1,6 +1,5 @@
 import { NextApiRequest, NextApiResponse } from 'next';
 
-import { setIdentityCookie, clearIdentityCookie } from './identity-cookie';
 import { User } from './users';
 
 import { getOrSetSessionId } from '@/server/session/_utils';
@@ -12,6 +11,9 @@ import {
 } from '@/server/session/redis';
 
 const SESSION_EXPIRY = 60 * 60 * 24; // 24 hours
+// Throttle the lastActivity/TTL write-back so we don't issue a Redis write on
+// every authenticated request (F-015).
+const ACTIVITY_REFRESH_INTERVAL_MS = 60_000;
 
 export interface SessionData {
   userId: string;
@@ -41,14 +43,6 @@ export async function createSession(
   const key = sessionKey(['auth-session', sessionId]);
   await jsonSetWithExpiry(key, sessionData, SESSION_EXPIRY);
 
-  // Set signed identity cookie for Edge-compatible verification (e.g. /api/chat/async)
-  const isSecure =
-    req.headers['x-forwarded-proto'] === 'https' ||
-    (req.connection as any)?.encrypted ||
-    process.env.FORCE_SECURE_COOKIES === 'true' ||
-    process.env.NODE_ENV === 'production';
-  setIdentityCookie(res, user, isSecure);
-
   return sessionId;
 }
 
@@ -63,9 +57,14 @@ export async function getSession(
   const session = (await jsonGet(key)) as SessionData | null;
   if (!session) return null;
 
-  // Update last activity
-  session.lastActivity = Date.now();
-  await jsonSetWithExpiry(key, session, SESSION_EXPIRY);
+  // Refresh lastActivity + sliding TTL at most once per interval rather than on
+  // every request. With a 60s interval and 24h TTL the session still slides for
+  // active users, but we avoid a Redis write on every authenticated call.
+  const now = Date.now();
+  if (now - (session.lastActivity || 0) > ACTIVITY_REFRESH_INTERVAL_MS) {
+    session.lastActivity = now;
+    await jsonSetWithExpiry(key, session, SESSION_EXPIRY);
+  }
 
   return session;
 }
@@ -89,9 +88,6 @@ export async function destroySession(
 
   const key = sessionKey(['auth-session', sessionId]);
   await redis.del(key);
-
-  // Clear the signed identity cookie
-  clearIdentityCookie(res);
 }
 
 // Middleware to protect API routes
