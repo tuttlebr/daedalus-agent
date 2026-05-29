@@ -1301,7 +1301,7 @@ export default async function handler(
  * Parse a NAT v1.6.0+ `intermediate_data:` JSON line into the
  * IntermediateStep shape the frontend expects.
  */
-function parseIntermediateDataLine(json: string): any | null {
+export function parseIntermediateDataLine(json: string): any | null {
   try {
     const parsed = JSON.parse(json);
     const isComplete = parsed.name?.includes('Complete:');

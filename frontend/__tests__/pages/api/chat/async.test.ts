@@ -10,10 +10,16 @@ import handler, {
   fetchNatJobStatus,
   getDocumentIngestJobRequest,
   isDocumentIngestionRequest,
+  parseIntermediateDataLine,
   resolveAsyncBackendBaseUrls,
 } from '@/pages/api/chat/async';
 
-import { jsonGet, jsonSetWithExpiry } from '@/server/session/redis';
+import {
+  clearStreamingState,
+  jsonDel,
+  jsonGet,
+  jsonSetWithExpiry,
+} from '@/server/session/redis';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => {
@@ -29,11 +35,19 @@ const mocks = vi.hoisted(() => {
     }
   }
 
+  // Stable publisher singleton so .publish call history accumulates across the
+  // many getPublisher() calls inside the stream reader + finalize paths.
+  const publisher = { publish: vi.fn().mockResolvedValue(undefined) };
+
   return {
     resolve4: vi.fn(),
     fetchWithTimeout: vi.fn(),
     validateDocumentRefsForUser: vi.fn(async (refs: any[]) => refs),
     DocumentRefAccessError: MockDocumentRefAccessError,
+    publisher,
+    processMarkdownImages: vi.fn(async (s: string) => s),
+    setVapidDetails: vi.fn(),
+    sendNotification: vi.fn().mockResolvedValue(undefined),
   };
 });
 
@@ -45,9 +59,7 @@ vi.mock('node:dns/promises', () => ({
 }));
 
 vi.mock('@/server/session/redis', () => ({
-  getPublisher: vi.fn(() => ({
-    publish: vi.fn().mockResolvedValue(undefined),
-  })),
+  getPublisher: vi.fn(() => mocks.publisher),
   getRedis: vi.fn(() => ({
     set: vi.fn().mockResolvedValue('OK'),
     eval: vi.fn().mockResolvedValue(1),
@@ -56,8 +68,8 @@ vi.mock('@/server/session/redis', () => ({
   jsonGet: vi.fn(),
   jsonSetWithExpiry: vi.fn(),
   jsonDel: vi.fn().mockResolvedValue(0),
-  setStreamingState: vi.fn(),
-  clearStreamingState: vi.fn(),
+  setStreamingState: vi.fn().mockResolvedValue(undefined),
+  clearStreamingState: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock('@/utils/sync/publish', () => ({
@@ -76,6 +88,22 @@ vi.mock('@/utils/auth/session', () => ({
 vi.mock('@/server/session/documentRefs', () => ({
   validateDocumentRefsForUser: mocks.validateDocumentRefsForUser,
   DocumentRefAccessError: mocks.DocumentRefAccessError,
+}));
+
+// finalizeSuccess/finalizeError dynamically import these. Identity passthrough
+// for image processing so output is asserted unchanged; web-push is stubbed so
+// the (always-executed) dynamic import doesn't load the real native module.
+vi.mock('@/utils/app/imageHandler', () => ({
+  processMarkdownImages: mocks.processMarkdownImages,
+}));
+
+vi.mock('web-push', () => ({
+  default: {
+    setVapidDetails: mocks.setVapidDetails,
+    sendNotification: mocks.sendNotification,
+  },
+  setVapidDetails: mocks.setVapidDetails,
+  sendNotification: mocks.sendNotification,
 }));
 
 describe('chat/async backend pinning helpers', () => {
@@ -1454,5 +1482,884 @@ describe('chat/async response boundary helpers', () => {
         { role: 'user', content: 'status?' },
       ]),
     ).toBe('OK, here is the current status.');
+  });
+});
+
+// ── Characterization tests for the streaming / finalize / cancel hot paths ──
+// These drive the real handler with a finite fake SSE stream so the previously
+// untested background reader, finalize, finalizer, OAuth and DELETE paths run
+// end-to-end. They lock current behavior ahead of the F-003 decomposition.
+
+// A finite, resolving fake of the backend stream Response. read() yields each
+// scripted chunk (encoded) then {done:true}; the reader terminates naturally.
+function makeSseResponse(
+  chunks: string[],
+  init: { ok?: boolean; status?: number } = {},
+) {
+  const encoder = new TextEncoder();
+  let i = 0;
+  return {
+    ok: init.ok ?? true,
+    status: init.status ?? 200,
+    text: async () => '',
+    body: {
+      getReader: () => ({
+        read: async () =>
+          i < chunks.length
+            ? { done: false, value: encoder.encode(chunks[i++]) }
+            : { done: true, value: undefined },
+        releaseLock: () => {},
+        cancel: async () => {},
+      }),
+    },
+  };
+}
+
+// Back jsonGet/jsonSetWithExpiry/jsonDel with an in-memory map (the existing
+// pattern, factored out) so background writes are observable after draining.
+function wireRedisStore(initial: Record<string, any> = {}) {
+  const store = new Map<string, any>(Object.entries(initial));
+  (jsonGet as any).mockImplementation(async (key: string) =>
+    store.has(key) ? store.get(key) : null,
+  );
+  (jsonSetWithExpiry as any).mockImplementation(
+    async (key: string, value: any) => {
+      store.set(key, value);
+    },
+  );
+  (jsonDel as any).mockImplementation(async (key: string) => {
+    const had = store.delete(key);
+    return had ? 1 : 0;
+  });
+  return store;
+}
+
+function stubFetch(impl: (...args: any[]) => any) {
+  const spy = vi.fn(impl);
+  vi.stubGlobal('fetch', spy);
+  Object.defineProperty(window, 'fetch', { configurable: true, value: spy });
+  return spy;
+}
+
+function makeRes() {
+  return {
+    status: vi.fn().mockReturnThis(),
+    json: vi.fn().mockReturnThis(),
+    setHeader: vi.fn(),
+  } as any;
+}
+
+// Flush the microtask/macrotask queue until `predicate` holds (background work
+// done) or a tick budget is exhausted. The fake reader resolves immediately, so
+// the whole chain settles within a few ticks.
+async function drainUntil(
+  predicate: () => boolean,
+  maxTicks = 100,
+): Promise<void> {
+  for (let i = 0; i < maxTicks; i += 1) {
+    if (predicate()) return;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+}
+
+function publishedEvents(): { channel: string; data: any }[] {
+  return (mocks.publisher.publish as any).mock.calls.map(
+    ([channel, payload]: [string, string]) => ({
+      channel,
+      data: JSON.parse(payload),
+    }),
+  );
+}
+
+function eventsOfType(type: string): any[] {
+  return publishedEvents()
+    .map((e) => e.data)
+    .filter((d) => d && d.type === type);
+}
+
+// Drive one POST chat turn through the handler against a scripted SSE stream and
+// (by default) wait until the background reader finalizes the job.
+async function runStreamTurn(
+  script: string[],
+  opts: {
+    messages?: any[];
+    conversationId?: string | null;
+    seedStore?: Record<string, any>;
+    responseInit?: { ok?: boolean; status?: number };
+    fetchImpl?: (...a: any[]) => any;
+    expectNoFinalize?: boolean;
+    drainPredicate?: () => boolean;
+  } = {},
+) {
+  mocks.resolve4.mockResolvedValue(['10.0.2.61']);
+  mocks.fetchWithTimeout.mockResolvedValue({ ok: true, status: 200 });
+  const store = wireRedisStore(opts.seedStore);
+  const conversationId =
+    opts.conversationId === undefined ? 'conv-1' : opts.conversationId;
+  const fetchSpy = stubFetch(
+    opts.fetchImpl ?? (async () => makeSseResponse(script, opts.responseInit)),
+  );
+  const req = {
+    method: 'POST',
+    headers: { cookie: 'sid=current-session' },
+    body: {
+      ...(conversationId ? { conversationId } : {}),
+      messages: opts.messages ?? [{ role: 'user', content: 'hello?' }],
+    },
+  } as any;
+  const res = makeRes();
+  try {
+    await handler(req, res);
+    const jobId = res.json.mock.calls[0]?.[0]?.jobId as string;
+    const statusKey = `daedalus:async-job-status:${jobId}`;
+    if (opts.drainPredicate) {
+      await drainUntil(opts.drainPredicate);
+    } else if (opts.expectNoFinalize) {
+      await drainUntil(() => false, 15);
+    } else {
+      await drainUntil(() => Boolean(store.get(statusKey)?.finalizedAt));
+    }
+    return { jobId, store, res, fetchSpy, statusKey };
+  } finally {
+    vi.unstubAllGlobals();
+  }
+}
+
+const TOKEN_CHANNEL = 'user:testuser:chat:conv-1:tokens';
+
+describe('chat/async streaming + finalize (characterization)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.validateDocumentRefsForUser.mockImplementation(
+      async (refs: any[]) => refs,
+    );
+    mocks.processMarkdownImages.mockImplementation(async (s: string) => s);
+    mocks.publisher.publish.mockResolvedValue(undefined);
+    mocks.sendNotification.mockResolvedValue(undefined);
+    process.env.BACKEND_HOST = 'daedalus-backend';
+    process.env.BACKEND_NAMESPACE = 'daedalus';
+    process.env.BACKEND_PORT = '8000';
+    process.env.KUBERNETES_SERVICE_HOST = '10.0.0.1';
+    delete process.env.DEPLOYMENT_MODE;
+    delete process.env.DAEDALUS_INTERNAL_API_TOKEN;
+    delete process.env.DAEDALUS_DIRECT_DOCUMENT_INGEST_STREAM;
+    delete process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
+    delete process.env.VAPID_PRIVATE_KEY;
+  });
+
+  it('accumulates token deltas across reads and publishes chat_token per delta', async () => {
+    const { statusKey, store } = await runStreamTurn([
+      'data: {"choices":[{"delta":{"content":"Hel"}}]}\n',
+      'data: {"choices":[{"delta":{"content":"lo"}}]}\n',
+      'data: [DONE]\n',
+    ]);
+
+    const tokens = eventsOfType('chat_token');
+    expect(tokens.map((t) => t.content)).toEqual(['Hel', 'lo']);
+    expect(tokens.every((t) => t.conversationId === 'conv-1')).toBe(true);
+    expect(
+      (mocks.publisher.publish as any).mock.calls.some(
+        ([channel]: [string]) => channel === TOKEN_CHANNEL,
+      ),
+    ).toBe(true);
+    expect(store.get(statusKey)?.fullResponse).toBe('Hello');
+  });
+
+  it('finalizes to completed with the concatenated response after [DONE]', async () => {
+    const { statusKey, store } = await runStreamTurn([
+      'data: {"choices":[{"delta":{"content":"Done"}}]}\n',
+      'data: [DONE]\n',
+    ]);
+
+    const status = store.get(statusKey);
+    expect(status?.status).toBe('completed');
+    expect(status?.fullResponse).toBe('Done');
+    expect(status?.progress).toBe(100);
+    expect(typeof status?.finalizedAt).toBe('number');
+
+    const complete = eventsOfType('chat_complete');
+    expect(complete).toHaveLength(1);
+    expect(complete[0].fullResponse).toBe('Done');
+  });
+
+  it('parses intermediate_data frames, persists steps, and publishes chat_intermediate_step', async () => {
+    const { statusKey, store } = await runStreamTurn([
+      'intermediate_data: {"name":"Function Start: <search>","id":"s1","parent_id":"root","payload":"the query"}\n',
+      'intermediate_data: {"name":"Function Complete: <search>","id":"s1","parent_id":"root","payload":"a result"}\n',
+      'data: [DONE]\n',
+    ]);
+
+    const steps = eventsOfType('chat_intermediate_step');
+    expect(steps).toHaveLength(2);
+    expect(steps[0].step.payload.event_type).toBe('TOOL_START');
+    expect(steps[1].step.payload.event_type).toBe('TOOL_END');
+
+    const status = store.get(statusKey);
+    expect(status?.status).toBe('completed');
+    expect(status?.intermediateSteps).toHaveLength(2);
+  });
+
+  it('sanitizes completion-event step output against prior replay but leaves TOOL_END raw', async () => {
+    const prior = 'Daily summary for May 13, 2026.';
+    await runStreamTurn(
+      [
+        `intermediate_data: {"name":"Function Complete: <workflow>","id":"w1","parent_id":"root","payload":"${prior}\\n\\nWorkflow result."}\n`,
+        `intermediate_data: {"name":"Function Complete: <search>","id":"t1","parent_id":"root","payload":"${prior}\\n\\nTool snippet."}\n`,
+        'data: [DONE]\n',
+      ],
+      {
+        messages: [
+          { role: 'user', content: 'daily summary' },
+          { role: 'assistant', content: prior },
+          { role: 'user', content: 'run the workflow' },
+        ],
+      },
+    );
+
+    const steps = eventsOfType('chat_intermediate_step');
+    const workflowEnd = steps.find(
+      (s) => s.step.payload.event_type === 'WORKFLOW_END',
+    );
+    const toolEnd = steps.find((s) => s.step.payload.event_type === 'TOOL_END');
+    expect(workflowEnd.step.payload.data.output).toBe('Workflow result.');
+    expect(toolEnd.step.payload.data.output).toBe(`${prior}\n\nTool snippet.`);
+  });
+
+  it('promotes the last tool output when the stream produced no content tokens', async () => {
+    const { statusKey, store } = await runStreamTurn([
+      'intermediate_data: {"name":"Function Complete: <calc>","id":"t1","parent_id":"root","payload":"Preamble\\n**Function Output:**\\n```\\nThe answer is 42.\\n```"}\n',
+      'data: [DONE]\n',
+    ]);
+    const status = store.get(statusKey);
+    expect(status?.status).toBe('completed');
+    expect(status?.fullResponse).toBe('The answer is 42.');
+  });
+
+  it('transitions to oauth_required then finalizes error when the stream closes without content', async () => {
+    const { jobId, statusKey, store } = await runStreamTurn([
+      'event: oauth_required\n',
+      'data: {"auth_url":"https://accounts.google.com/auth","oauth_state":"xyz"}\n',
+      'data: [DONE]\n',
+    ]);
+
+    const oauthUpdate = publishedEvents()
+      .filter((e) => e.channel === `job:${jobId}:status`)
+      .map((e) => e.data)
+      .find((d) => d.status === 'oauth_required');
+    expect(oauthUpdate).toBeDefined();
+    expect(oauthUpdate.authUrl).toBe('https://accounts.google.com/auth');
+    expect(oauthUpdate.oauthState).toBe('xyz');
+    expect(oauthUpdate.progress).toBe(0);
+
+    const status = store.get(statusKey);
+    expect(status?.status).toBe('error');
+    expect(status?.error).toContain('OAuth');
+  });
+
+  it('short-circuits without publishing or finalizing when the abort key is already set', async () => {
+    mocks.resolve4.mockResolvedValue(['10.0.2.61']);
+    mocks.fetchWithTimeout.mockResolvedValue({ ok: true, status: 200 });
+    const store = wireRedisStore();
+    (jsonGet as any).mockImplementation(async (key: string) => {
+      if (key.includes('async-job-abort')) return true;
+      return store.has(key) ? store.get(key) : null;
+    });
+    stubFetch(async () =>
+      makeSseResponse([
+        'data: {"choices":[{"delta":{"content":"hi"}}]}\n',
+        'data: [DONE]\n',
+      ]),
+    );
+    const req = {
+      method: 'POST',
+      headers: { cookie: 'sid=current-session' },
+      body: {
+        conversationId: 'conv-1',
+        messages: [{ role: 'user', content: 'go' }],
+      },
+    } as any;
+    const res = makeRes();
+    try {
+      await handler(req, res);
+      const jobId = res.json.mock.calls[0][0].jobId;
+      await drainUntil(() => false, 15);
+      expect(eventsOfType('chat_token')).toHaveLength(0);
+      const status = store.get(`daedalus:async-job-status:${jobId}`);
+      expect(status?.status).toBe('pending');
+      expect(status?.finalizedAt).toBeUndefined();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('finalizes error when the backend stream responds non-ok', async () => {
+    const { jobId, statusKey, store } = await runStreamTurn([], {
+      responseInit: { ok: false, status: 502 },
+    });
+    const status = store.get(statusKey);
+    expect(status?.status).toBe('error');
+    expect(status?.error).toContain('Backend stream returned 502');
+    expect(store.get(`daedalus:async-job-abort:${jobId}`)).toBe(true);
+  });
+
+  it('finalizes error and preserves accumulated steps when the reader throws mid-stream', async () => {
+    let n = 0;
+    const { statusKey, store } = await runStreamTurn([], {
+      fetchImpl: async () => ({
+        ok: true,
+        status: 200,
+        text: async () => '',
+        body: {
+          getReader: () => ({
+            read: async () => {
+              n += 1;
+              if (n === 1) {
+                return {
+                  done: false,
+                  value: new TextEncoder().encode(
+                    'intermediate_data: {"name":"Function Start: <x>","id":"a1","parent_id":"root","payload":"p"}\n',
+                  ),
+                };
+              }
+              throw new Error('socket reset');
+            },
+            releaseLock: () => {},
+            cancel: async () => {},
+          }),
+        },
+      }),
+    });
+    const status = store.get(statusKey);
+    expect(status?.status).toBe('error');
+    expect(status?.error).toContain('socket reset');
+    expect(status?.intermediateSteps).toHaveLength(1);
+  });
+
+  it('finalizeSuccess saves the conversation, updates the selected conversation, and publishes chat_complete', async () => {
+    const { jobId, statusKey, store } = await runStreamTurn(
+      [
+        'data: {"choices":[{"delta":{"content":"Answer."}}]}\n',
+        'data: [DONE]\n',
+      ],
+      {
+        conversationId: 'conv-1',
+        seedStore: {
+          'daedalus:user:testuser:selectedConversation': {
+            id: 'conv-1',
+            name: 'Old name',
+            messages: [],
+          },
+        },
+      },
+    );
+
+    const conversation = store.get('daedalus:conversation:conv-1');
+    expect(conversation.messages).toHaveLength(2);
+    const assistant = conversation.messages[1];
+    expect(assistant.role).toBe('assistant');
+    expect(assistant.content).toBe('Answer.');
+    expect(assistant.metadata.jobId).toBe(jobId);
+
+    const selected = store.get('daedalus:user:testuser:selectedConversation');
+    expect(selected.messages).toHaveLength(2);
+
+    const complete = eventsOfType('chat_complete');
+    expect(complete).toHaveLength(1);
+    expect(complete[0].fullResponse).toBe('Answer.');
+
+    expect(clearStreamingState).toHaveBeenCalledWith('testuser', 'conv-1');
+    expect(store.get(statusKey)?.status).toBe('completed');
+  });
+
+  it('falls back to a placeholder when finalizing with no generated content', async () => {
+    const { store } = await runStreamTurn(['data: [DONE]\n'], {
+      conversationId: 'conv-1',
+    });
+    const conversation = store.get('daedalus:conversation:conv-1');
+    expect(conversation.messages[1].content).toBe(
+      '[No response was generated]',
+    );
+  });
+
+  it('sends a push notification per subscription when VAPID keys are configured', async () => {
+    process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY = 'pub';
+    process.env.VAPID_PRIVATE_KEY = 'priv';
+    await runStreamTurn(
+      ['data: {"choices":[{"delta":{"content":"Done"}}]}\n', 'data: [DONE]\n'],
+      {
+        conversationId: 'conv-1',
+        seedStore: {
+          'daedalus:user:testuser:push-subscriptions': [
+            { endpoint: 'e1' },
+            { endpoint: 'e2' },
+          ],
+        },
+        drainPredicate: () =>
+          (mocks.sendNotification as any).mock.calls.length >= 2,
+      },
+    );
+    expect(mocks.setVapidDetails).toHaveBeenCalledTimes(1);
+    expect(mocks.sendNotification).toHaveBeenCalledTimes(2);
+  });
+
+  it('finalizeError saves a partial conversation with the error context', async () => {
+    let n = 0;
+    const { statusKey, store } = await runStreamTurn([], {
+      conversationId: 'conv-1',
+      fetchImpl: async () => ({
+        ok: true,
+        status: 200,
+        text: async () => '',
+        body: {
+          getReader: () => ({
+            read: async () => {
+              n += 1;
+              if (n === 1) {
+                return {
+                  done: false,
+                  value: new TextEncoder().encode(
+                    'data: {"choices":[{"delta":{"content":"Partial answer."}}]}\n',
+                  ),
+                };
+              }
+              throw new Error('boom');
+            },
+            releaseLock: () => {},
+            cancel: async () => {},
+          }),
+        },
+      }),
+    });
+
+    const conversation = store.get('daedalus:conversation:conv-1');
+    expect(conversation.isPartial).toBe(true);
+    expect(conversation.error).toBe('boom');
+    const assistant = conversation.messages[conversation.messages.length - 1];
+    expect(assistant.content).toBe('Partial answer.');
+    expect(assistant.errorMessages.message).toBe('boom');
+
+    const status = store.get(statusKey);
+    expect(status?.status).toBe('error');
+    expect(status?.partialResponse).toBe('Partial answer.');
+    expect(status?.error).toBe('boom');
+  });
+
+  it('finalizeError sanitizes the partial response against prior assistant replay', async () => {
+    const prior = 'Daily summary for May 13, 2026.';
+    let n = 0;
+    const { statusKey, store } = await runStreamTurn([], {
+      conversationId: 'conv-1',
+      messages: [
+        { role: 'user', content: 'daily summary' },
+        { role: 'assistant', content: prior },
+        { role: 'user', content: 'continue' },
+      ],
+      fetchImpl: async () => ({
+        ok: true,
+        status: 200,
+        text: async () => '',
+        body: {
+          getReader: () => ({
+            read: async () => {
+              n += 1;
+              if (n === 1) {
+                return {
+                  done: false,
+                  value: new TextEncoder().encode(
+                    `data: {"choices":[{"delta":{"content":"${prior}\\n\\nNew partial."}}]}\n`,
+                  ),
+                };
+              }
+              throw new Error('boom');
+            },
+            releaseLock: () => {},
+            cancel: async () => {},
+          }),
+        },
+      }),
+    });
+    expect(store.get(statusKey)?.partialResponse).toBe('New partial.');
+  });
+
+  it('document ingest reports progress then finalizes success on the complete event', async () => {
+    mocks.resolve4.mockResolvedValue(['10.0.2.61']);
+    mocks.fetchWithTimeout.mockResolvedValue({ ok: true, status: 200 });
+    const store = wireRedisStore();
+    stubFetch(async () =>
+      makeSseResponse([
+        'event: progress\ndata: {"completed":1,"total":2,"percent":50,"current":"a.md"}\n\n',
+        'event: complete\ndata: {"output":"Ingested 2 documents."}\n\n',
+      ]),
+    );
+    const req = {
+      method: 'POST',
+      headers: { cookie: 'sid=current-session' },
+      body: {
+        messages: [
+          {
+            role: 'user',
+            content: 'Ingest these docs',
+            metadata: { targetCollection: 'nvidia' },
+            attachments: [
+              {
+                type: 'document',
+                content: 'a.md',
+                documentRef: { documentId: 'doc-a', sessionId: 'sess-1' },
+              },
+            ],
+          },
+        ],
+      },
+    } as any;
+    const res = makeRes();
+    try {
+      await handler(req, res);
+      const jobId = res.json.mock.calls[0][0].jobId;
+      const statusKey = `daedalus:async-job-status:${jobId}`;
+      await drainUntil(() => Boolean(store.get(statusKey)?.finalizedAt));
+      const status = store.get(statusKey);
+      expect(status?.status).toBe('completed');
+      expect(status?.fullResponse).toBe('Ingested 2 documents.');
+      const progressUpdate = publishedEvents()
+        .filter((e) => e.channel === `job:${jobId}:status`)
+        .map((e) => e.data)
+        .find((d) => d.ingestProgress?.percent === 50);
+      expect(progressUpdate).toBeDefined();
+      expect(progressUpdate.ingestProgress.completed).toBe(1);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('document ingest finalizes error on an error event', async () => {
+    mocks.resolve4.mockResolvedValue(['10.0.2.61']);
+    mocks.fetchWithTimeout.mockResolvedValue({ ok: true, status: 200 });
+    const store = wireRedisStore();
+    stubFetch(async () =>
+      makeSseResponse(['event: error\ndata: {"detail":"ingest exploded"}\n\n']),
+    );
+    const req = {
+      method: 'POST',
+      headers: { cookie: 'sid=current-session' },
+      body: {
+        messages: [
+          {
+            role: 'user',
+            content: 'Ingest these docs',
+            metadata: { targetCollection: 'nvidia' },
+            attachments: [
+              {
+                type: 'document',
+                content: 'a.md',
+                documentRef: { documentId: 'doc-a', sessionId: 'sess-1' },
+              },
+            ],
+          },
+        ],
+      },
+    } as any;
+    const res = makeRes();
+    try {
+      await handler(req, res);
+      const jobId = res.json.mock.calls[0][0].jobId;
+      const statusKey = `daedalus:async-job-status:${jobId}`;
+      await drainUntil(() => Boolean(store.get(statusKey)?.finalizedAt));
+      const status = store.get(statusKey);
+      expect(status?.status).toBe('error');
+      expect(status?.error).toContain('ingest exploded');
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('GET on a nat_async job finalizes completed when NAT reports success', async () => {
+    const jobId = 'nat-success-1';
+    const store = wireRedisStore({
+      [`daedalus:async-job-status:${jobId}`]: {
+        jobId,
+        status: 'streaming',
+        createdAt: 1,
+        updatedAt: 2,
+        conversationId: 'conv-1',
+      },
+      [`daedalus:async-job-request:${jobId}`]: {
+        jobId,
+        executionMode: 'nat_async',
+        natBaseUrl: 'http://10.0.2.61:8000',
+        messages: [{ role: 'user', content: 'hi' }],
+        additionalProps: {},
+        userId: 'testuser',
+        conversationId: 'conv-1',
+      },
+    });
+    mocks.fetchWithTimeout.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        job_id: jobId,
+        status: 'success',
+        error: null,
+        output: { value: 'NAT answer.' },
+        created_at: '',
+        updated_at: '',
+        expires_at: '',
+      }),
+    });
+    const req = { method: 'GET', query: { jobId } } as any;
+    const res = makeRes();
+    await handler(req, res);
+    await drainUntil(() =>
+      Boolean(store.get(`daedalus:async-job-status:${jobId}`)?.finalizedAt),
+    );
+    const status = store.get(`daedalus:async-job-status:${jobId}`);
+    expect(status?.status).toBe('completed');
+    expect(status?.fullResponse).toBe('NAT answer.');
+    expect(res.json).toHaveBeenCalledWith(
+      expect.objectContaining({ status: 'completed' }),
+    );
+  });
+
+  it('GET on a nat_async job finalizes error when NAT reports failure', async () => {
+    const jobId = 'nat-failure-1';
+    const store = wireRedisStore({
+      [`daedalus:async-job-status:${jobId}`]: {
+        jobId,
+        status: 'streaming',
+        createdAt: 1,
+        updatedAt: 2,
+      },
+      [`daedalus:async-job-request:${jobId}`]: {
+        jobId,
+        executionMode: 'nat_async',
+        natBaseUrl: 'http://10.0.2.61:8000',
+        messages: [],
+        additionalProps: {},
+        userId: 'testuser',
+      },
+    });
+    mocks.fetchWithTimeout.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        job_id: jobId,
+        status: 'failure',
+        error: 'backend boom',
+        output: null,
+        created_at: '',
+        updated_at: '',
+        expires_at: '',
+      }),
+    });
+    const req = { method: 'GET', query: { jobId } } as any;
+    const res = makeRes();
+    await handler(req, res);
+    await drainUntil(() =>
+      Boolean(store.get(`daedalus:async-job-status:${jobId}`)?.finalizedAt),
+    );
+    const status = store.get(`daedalus:async-job-status:${jobId}`);
+    expect(status?.status).toBe('error');
+    expect(status?.error).toContain('backend boom');
+  });
+
+  it('GET returns 404 without finalizing when the caller does not own the job', async () => {
+    const jobId = 'owned-by-other';
+    wireRedisStore({
+      [`daedalus:async-job-status:${jobId}`]: {
+        jobId,
+        status: 'streaming',
+        createdAt: 1,
+        updatedAt: 2,
+      },
+      [`daedalus:async-job-request:${jobId}`]: {
+        jobId,
+        userId: 'attacker',
+        messages: [],
+        additionalProps: {},
+      },
+    });
+    const req = { method: 'GET', query: { jobId } } as any;
+    const res = makeRes();
+    await handler(req, res);
+    expect(res.status).toHaveBeenCalledWith(404);
+    expect(mocks.fetchWithTimeout).not.toHaveBeenCalled();
+  });
+
+  it('GET on a running nat_async job merges live steps and reports progress 50', async () => {
+    vi.useFakeTimers();
+    try {
+      const jobId = 'nat-running-1';
+      const store = wireRedisStore({
+        [`daedalus:async-job-status:${jobId}`]: {
+          jobId,
+          status: 'pending',
+          createdAt: 1,
+          updatedAt: 2,
+        },
+        [`daedalus:async-job-request:${jobId}`]: {
+          jobId,
+          executionMode: 'nat_async',
+          natBaseUrl: 'http://10.0.2.61:8000',
+          messages: [],
+          additionalProps: {},
+          userId: 'testuser',
+        },
+        [`daedalus:async-job-steps:${jobId}`]: [
+          { payload: { event_type: 'TOOL_START' } },
+        ],
+      });
+      mocks.fetchWithTimeout.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          job_id: jobId,
+          status: 'running',
+          error: null,
+          output: null,
+          created_at: '',
+          updated_at: '',
+          expires_at: '',
+        }),
+      });
+      const req = { method: 'GET', query: { jobId } } as any;
+      const res = makeRes();
+      const p = handler(req, res);
+      await vi.advanceTimersByTimeAsync(0);
+      await p;
+      await vi.advanceTimersByTimeAsync(0);
+      const status = store.get(`daedalus:async-job-status:${jobId}`);
+      expect(status?.status).toBe('streaming');
+      expect(status?.progress).toBe(50);
+      expect(status?.intermediateSteps).toHaveLength(1);
+    } finally {
+      vi.clearAllTimers();
+      vi.useRealTimers();
+    }
+  });
+
+  it('DELETE cancels an in-flight job, finalizes it, and cleans up', async () => {
+    const jobId = 'del-1';
+    const store = wireRedisStore({
+      [`daedalus:async-job-request:${jobId}`]: {
+        jobId,
+        userId: 'testuser',
+        conversationId: 'conv-1',
+        messages: [{ role: 'user', content: 'hi' }],
+      },
+      [`daedalus:async-job-status:${jobId}`]: {
+        jobId,
+        status: 'streaming',
+        partialResponse: 'partial',
+        createdAt: 1,
+        updatedAt: 2,
+      },
+      [`daedalus:async-job-steps:${jobId}`]: [
+        { payload: { event_type: 'TOOL_END' } },
+      ],
+    });
+    const req = { method: 'DELETE', query: { jobId } } as any;
+    const res = makeRes();
+    await handler(req, res);
+    expect(res.json).toHaveBeenCalledWith({ success: true, canceled: true });
+    expect(store.get(`daedalus:async-job-abort:${jobId}`)).toBe(true);
+    const status = store.get(`daedalus:async-job-status:${jobId}`);
+    expect(status?.status).toBe('error');
+    expect(status?.error).toBe('Job canceled by user');
+    expect(typeof status?.finalizedAt).toBe('number');
+    expect(status?.intermediateSteps).toHaveLength(1);
+    expect(store.has(`daedalus:async-job-request:${jobId}`)).toBe(false);
+    expect(store.has(`daedalus:async-job-steps:${jobId}`)).toBe(false);
+    expect(clearStreamingState).toHaveBeenCalledWith('testuser', 'conv-1');
+  });
+
+  it('DELETE returns 404 and sets no abort flag for a job owned by another user', async () => {
+    const jobId = 'del-other';
+    const store = wireRedisStore({
+      [`daedalus:async-job-request:${jobId}`]: {
+        jobId,
+        userId: 'attacker',
+        messages: [],
+      },
+      [`daedalus:async-job-status:${jobId}`]: {
+        jobId,
+        status: 'streaming',
+        createdAt: 1,
+        updatedAt: 2,
+      },
+    });
+    const req = { method: 'DELETE', query: { jobId } } as any;
+    const res = makeRes();
+    await handler(req, res);
+    expect(res.status).toHaveBeenCalledWith(404);
+    expect(store.get(`daedalus:async-job-abort:${jobId}`)).toBeUndefined();
+  });
+
+  it('DELETE on an already-finalized job leaves its status intact but still cleans up', async () => {
+    const jobId = 'del-done';
+    const store = wireRedisStore({
+      [`daedalus:async-job-request:${jobId}`]: {
+        jobId,
+        userId: 'testuser',
+        conversationId: 'conv-1',
+        messages: [],
+      },
+      [`daedalus:async-job-status:${jobId}`]: {
+        jobId,
+        status: 'completed',
+        fullResponse: 'done',
+        finalizedAt: 123,
+        createdAt: 1,
+        updatedAt: 2,
+      },
+    });
+    const req = { method: 'DELETE', query: { jobId } } as any;
+    const res = makeRes();
+    await handler(req, res);
+    expect(res.json).toHaveBeenCalledWith({ success: true, canceled: true });
+    const status = store.get(`daedalus:async-job-status:${jobId}`);
+    expect(status?.status).toBe('completed');
+    expect(status?.fullResponse).toBe('done');
+    expect(store.has(`daedalus:async-job-request:${jobId}`)).toBe(false);
+  });
+});
+
+describe('parseIntermediateDataLine', () => {
+  it('maps a workflow completion to WORKFLOW_END with a cleaned name', () => {
+    const step = parseIntermediateDataLine(
+      JSON.stringify({
+        name: 'Function Complete: <workflow>',
+        id: 'w1',
+        parent_id: 'root',
+        payload: 'final',
+      }),
+    );
+    expect(step.payload.event_type).toBe('WORKFLOW_END');
+    expect(step.payload.name).toBe('workflow');
+    expect(step.payload.data.output).toBe('final');
+  });
+
+  it('maps a function start to TOOL_START with payload as output', () => {
+    const step = parseIntermediateDataLine(
+      JSON.stringify({
+        name: 'Function Start: <search>',
+        id: 's1',
+        parent_id: 'p1',
+        payload: 'query',
+      }),
+    );
+    expect(step.payload.event_type).toBe('TOOL_START');
+    expect(step.payload.name).toBe('search');
+    expect(step.parent_id).toBe('p1');
+    expect(step.payload.data.output).toBe('query');
+  });
+
+  it('returns null for invalid JSON', () => {
+    expect(parseIntermediateDataLine('{not json')).toBeNull();
+  });
+
+  it('falls back to root parent and a generated id when fields are missing', () => {
+    const step = parseIntermediateDataLine(JSON.stringify({ name: 'Bare' }));
+    expect(step.parent_id).toBe('root');
+    expect(step.function_ancestry.node_id).toEqual(expect.any(String));
+    expect(step.payload.UUID).toEqual(expect.any(String));
   });
 });
