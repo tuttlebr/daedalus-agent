@@ -250,7 +250,7 @@ function_groups:
 functions:
   research_agent:
     _type: tool_calling_agent_resilient
-    llm_name: default_llm
+    llm_name: reasoning_llm
     max_iterations: 12
     handle_tool_errors: true
     verbose: true
@@ -315,7 +315,7 @@ functions:
       workflow handles voice and follow-up.
   nvidia_docs_agent:
     _type: tool_calling_agent_resilient
-    llm_name: reasoning_llm
+    llm_name: default_llm
     max_iterations: 6
     handle_tool_errors: true
     verbose: true
@@ -357,7 +357,7 @@ functions:
       name the unavailable product docs plainly.
   ops_agent:
     _type: tool_calling_agent_resilient
-    llm_name: reasoning_llm
+    llm_name: default_llm
     max_iterations: 8
     handle_tool_errors: true
     verbose: true
@@ -747,7 +747,7 @@ functions:
   content_distiller_tool:
     _type: content_distiller
     fast_llm_name: distill_llm
-    llm_name: reasoning_llm
+    llm_name: distill_llm
     max_input_chars: 100000
     max_output_tokens: 4096
     temperature: 0.1
@@ -869,8 +869,8 @@ functions:
     verbose: true
   source_verifier_tool:
     _type: source_verifier
-    fast_llm_name: distill_llm
-    llm_name: reasoning_llm
+    fast_llm_name: react_llm
+    llm_name: react_llm
     max_source_chars: 80000
     max_output_tokens: 4096
     temperature: 0.0
@@ -940,7 +940,7 @@ llms:
       nvext:
         agent_hints:
           priority: 10
-          osl: 1024
+          osl: 2048
         extra_fields:
           - worker_id
           - timing
@@ -954,7 +954,7 @@ llms:
     model_name: ${REACT_LLM_MODEL_MODEL}
     extra_body:
       chat_template_kwargs:
-        preserve_thinking: false
+        preserve_thinking: true
       nvext:
         agent_hints:
           priority: 10
@@ -970,19 +970,17 @@ llms:
     api_key: ${TOOL_CALLING_LLM_MODEL_API_KEY}
     base_url: ${TOOL_CALLING_LLM_MODEL_BASE_URL}
     model_name: ${TOOL_CALLING_LLM_MODEL_MODEL}
-    # extra_body:
-    #   chat_template_kwargs:
-    #     thinking: false
-    #   nvext:
-    #     agent_hints:
-    #       priority: 10
-    #       osl: 1024
-    #     extra_fields:
-    #       - worker_id
-    #       - timing
-    #     cache_control:
-    #       type: ephemeral
-    #       ttl: 8h
+    extra_body:
+      nvext:
+        agent_hints:
+          priority: 10
+          osl: 1024
+        extra_fields:
+          - worker_id
+          - timing
+        cache_control:
+          type: ephemeral
+          ttl: 8h
   distill_llm:
     _type: openai
     api_key: ${DISTILL_LLM_MODEL_API_KEY}
@@ -991,10 +989,11 @@ llms:
     extra_body:
       chat_template_kwargs:
         preserve_thinking: false
+        enable_thinking: false
       nvext:
         agent_hints:
           priority: 10
-          osl: 1024
+          osl: 4096
         extra_fields:
           - worker_id
           - timing

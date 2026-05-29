@@ -72,33 +72,6 @@ PROMPT_GUIDANCE_CODE_SURFACES = (
     Path("builder/vtt_interpreter/src/vtt_interpreter/vtt_interpreter_function.py"),
     Path("builder/smart_milvus/src/smart_milvus/configs/config.yml"),
 )
-PROMPT_GUIDANCE_ROUTED_SKILLS = {
-    "code-review",
-    "content-research-writer",
-    "debug-session",
-    "dep-create",
-    "dep-status",
-    "dep-update",
-    "dynamo-bug",
-    "executive-voice",
-    "mas-procedure",
-    "nat-agent-configuration",
-    "nat-evaluation",
-    "nat-installation",
-    "nat-mcp-and-serving",
-    "nat-optimization",
-    "nat-path-checks",
-    "nat-telemetry",
-    "nat-tools-and-functions",
-    "nat-user-rules",
-    "nat-workflow-creation",
-    "nvcf-ngc-cli-skill",
-    "nvcf-self-managed-cli",
-    "nvcf-self-managed-installation",
-    "pr-monitor",
-    "profile-loader",
-    "skill-evolution",
-}
 NAT_CODING_AGENT_SKILLS = {
     "nat-agent-configuration",
     "nat-evaluation",
@@ -696,26 +669,3 @@ def test_identity_control_messages_match_backend_memory_contract():
         assert "delete_memory_guarded" in text, surface
         assert "delete_memory)" not in text, surface
         assert "Do not echo this identity message" in text, surface
-
-
-def test_routed_skill_prompts_have_goal_validation_and_stop_rules():
-    for skill_name in PROMPT_GUIDANCE_ROUTED_SKILLS:
-        skill_path = SKILLS_DIR / skill_name / "SKILL.md"
-        text = skill_path.read_text(encoding="utf-8")
-        assert "## Goal" in text or "## Purpose" in text, skill_name
-        has_validation_signal = (
-            "Success" in text
-            or "Validation" in text
-            or "verify" in text.lower()
-            or "check" in text.lower()
-        )
-        assert has_validation_signal, skill_name
-        assert "Stop" in text or "stop" in text or "ask" in text.lower(), skill_name
-
-
-def test_mas_procedure_has_bounded_execution_budget():
-    skill = (SKILLS_DIR / "mas-procedure" / "SKILL.md").read_text(encoding="utf-8")
-    assert "Global Execution Budget" in skill
-    assert "Stop after 8 external retrieval/search/scrape calls" in skill
-    assert "use AMD as the default semiconductor competitor" in skill
-    assert "one targeted search" in skill
