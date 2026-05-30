@@ -1,17 +1,20 @@
 [run]
 source =
     agent_skills/src
-
-    image_augmentation/src
-    image_comprehension/src
-    image_generation/src
+    autonomous_agent/src
+    content_distiller/src
     json_repair_agent/src
+    mas_optimizer/src
     nat_helpers/src
     nat_nv_ingest/src
+    rss_feed/src
+    serpapi_search/src
     smart_milvus/src
+    source_verifier/src
+    user_interaction/src
+    visual_media/src
     vtt_interpreter/src
     webscrape/src
-    rss_feed/src
 
 omit =
     */register.py

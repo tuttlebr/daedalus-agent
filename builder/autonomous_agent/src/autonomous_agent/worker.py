@@ -292,6 +292,11 @@ def main() -> int:
 
     store = RedisStore()
     store.ping()
+    # F-013: re-queue any request a previous worker popped but did not finish
+    # (crash / OOM / SIGKILL mid-run) so it is retried rather than silently lost.
+    reclaimed = store.reclaim_processing(user_id)
+    if reclaimed:
+        log(f"reclaimed {reclaimed} in-flight request(s) from a previous worker")
     backend = make_backend(user_id)
     start_queue_monitor(store, user_id)
     log(f"worker starting for user={user_id}")
@@ -318,6 +323,10 @@ def main() -> int:
                     request=request,
                     lease_ttl=lease_ttl,
                 )
+                # F-013: the run has been recorded (incl. recorded failures), so
+                # remove it from the processing list. If the worker had crashed
+                # before reaching here, reclaim_processing() would have re-queued it.
+                store.complete(user_id)
                 if run_once_only:
                     return 0
             else:

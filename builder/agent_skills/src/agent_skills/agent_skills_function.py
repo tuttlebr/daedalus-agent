@@ -9,6 +9,7 @@ import asyncio
 import json
 import logging
 import os
+import signal
 
 from agent_skills.skill_parser import SkillParser
 from nat.builder.builder import Builder
@@ -23,30 +24,64 @@ logger = logging.getLogger(__name__)
 # Prevents OOM if a script produces unbounded output.
 _MAX_SCRIPT_OUTPUT_BYTES = 1_048_576  # 1 MB
 
-# Environment variables stripped before executing skill scripts.
-# Prevents accidental secret leakage to untrusted skill code.
-_SENSITIVE_ENV_PREFIXES = (
-    "NVIDIA_API",
-    "OPENROUTER_API",
-    "SERPAPI_",
-    "API_KEY",
-    "SECRET",
-    "TOKEN",
-    "PASSWORD",
-    "CREDENTIAL",
-    "AWS_SECRET",
-    "AZURE_",
-    "GCP_",
+# Environment variables forwarded to skill scripts. This is an ALLOWLIST, not a
+# denylist: only these explicitly-safe, non-secret names are passed through. A
+# denylist is unsafe here because almost every secret this stack injects uses a
+# suffix/service convention (DAEDALUS_INTERNAL_API_TOKEN, *_API_KEY, MINIO_*,
+# REDIS_URL, GITHUB_PAT, ...) that a prefix/substring match misses. An allowlist
+# guarantees a newly-introduced secret cannot leak to untrusted skill code,
+# regardless of how it is named.
+_ALLOWED_ENV_VARS = frozenset(
+    {
+        "PATH",
+        "HOME",
+        "USER",
+        "LOGNAME",
+        "SHELL",
+        "PWD",
+        "TMPDIR",
+        "TEMP",
+        "TMP",
+        "TZ",
+        "LANG",
+        "LANGUAGE",
+        "LC_ALL",
+        "LC_CTYPE",
+        "TERM",
+        "PYTHONPATH",
+        "PYTHONUNBUFFERED",
+        "PYTHONDONTWRITEBYTECODE",
+        "PYTHONIOENCODING",
+        "VIRTUAL_ENV",
+    }
 )
 
 
 def _sanitized_env() -> dict[str, str]:
-    """Return a copy of the process environment with sensitive variables removed."""
-    return {
-        k: v
-        for k, v in os.environ.items()
-        if not any(k.upper().startswith(prefix) for prefix in _SENSITIVE_ENV_PREFIXES)
-    }
+    """Return a minimal child environment containing only allowlisted, non-secret vars.
+
+    Built as an allowlist so secrets (API keys, tokens, Redis/MinIO/DB
+    credentials, the internal API token) are never exposed to untrusted skill
+    code, even if a new secret env var is added later under any naming scheme.
+    """
+    return {k: v for k, v in os.environ.items() if k in _ALLOWED_ENV_VARS}
+
+
+def _terminate_process_group(proc) -> None:
+    """Kill the script's entire process group.
+
+    Skill scripts (especially .sh) may spawn child processes; ``proc.kill()``
+    only signals the direct child and can orphan grandchildren. Because the
+    process is launched with ``start_new_session=True`` it is its own process
+    group leader, so we can signal the whole group.
+    """
+    try:
+        os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+    except (ProcessLookupError, PermissionError, OSError):
+        try:
+            proc.kill()
+        except ProcessLookupError:
+            pass
 
 
 class AgentSkillsConfig(FunctionBaseConfig, name="agent_skills"):
@@ -212,13 +247,18 @@ async def agent_skills_function(config: AgentSkillsConfig, builder: Builder):
                 stderr=asyncio.subprocess.PIPE,
                 cwd=str(resolved.parent),
                 env=_sanitized_env(),
+                start_new_session=True,
             )
             stdout, stderr = await asyncio.wait_for(
                 proc.communicate(),
                 timeout=config.script_timeout,
             )
         except TimeoutError:
-            proc.kill()
+            _terminate_process_group(proc)
+            try:
+                await proc.wait()
+            except Exception:  # noqa: BLE001  # nosec B110 - best-effort reap of killed child
+                pass
             return f"Error: Script timed out after {config.script_timeout}s"
         except OSError as exc:
             return f"Error executing script: {exc}"

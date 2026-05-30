@@ -220,7 +220,6 @@ class TestTaskAnalyzer:
             "research_agent",
             "nvidia_docs_agent",
             "ops_agent",
-            "media_agent",
             "user_data_agent",
             "agent_skills_tool",
             "get_memory",
@@ -235,9 +234,12 @@ class TestTaskAnalyzer:
             "content_distiller_tool",
             "source_verifier_tool",
             "visual_media_tool",
+            "vtt_interpreter_tool",
             "user_document_tool",
         ]
-        assert TaskAnalyzer.count_tools(tools) == 5
+        # vtt_interpreter_tool is a top-level *leaf* tool, not a routing domain,
+        # so the four agent domains are the only ones counted.
+        assert TaskAnalyzer.count_tools(tools) == 4
 
     # -- Sequential interdependence tests --------------------------------
 
@@ -373,7 +375,7 @@ class TestTaskAnalyzer:
             "call transcript and the competitor 10-Ks, produce a structured "
             "comparison table of revenue growth, operating margin, and capex, "
             "then cross-check your findings against analyst notes.",
-            ["research_agent", "ops_agent", "media_agent", "user_data_agent"],
+            ["research_agent", "ops_agent", "user_data_agent"],
         )
         assert result.mas_eligible is True
         assert result.recommended_architecture == "centralized"
@@ -388,7 +390,7 @@ class TestTaskAnalyzer:
             "earnings call, and two analyst notes, then produce a structured "
             "comparison of revenue growth, margin, capex, and AI infrastructure "
             "positioning.",
-            ["research_agent", "ops_agent", "media_agent", "user_data_agent"],
+            ["research_agent", "ops_agent", "user_data_agent"],
         )
         assert result.mas_eligible is True
         assert result.recommended_architecture == "centralized"
@@ -412,7 +414,7 @@ class TestTaskAnalyzer:
         result = analyzer.evaluate(
             "Investigate failing backend tests, identify root cause, implement "
             "a fix, and add regression coverage.",
-            ["research_agent", "ops_agent", "media_agent", "user_data_agent"],
+            ["research_agent", "ops_agent", "user_data_agent"],
         )
         assert result.mas_eligible is False
         assert result.recommended_architecture == "centralized"
@@ -510,7 +512,7 @@ class TestMasOptimizerFunction:
                     "accelerator roadmaps and summarize implications concurrently"
                 ),
                 active_tool_names=(
-                    "research_agent,ops_agent,media_agent,user_data_agent,"
+                    "research_agent,ops_agent,user_data_agent,"
                     "nvidia_docs_agent,"
                     "agent_skills_tool,get_memory,add_memory,user_interaction_tool,"
                     "ops_confirmation_tool,current_datetime_tool,domain_retriever_tool,"
@@ -524,7 +526,7 @@ class TestMasOptimizerFunction:
             assert data["recommendation"] == "MAS"
             assert data["capability_gate"]["has_calibration"] is False
             assert data["capability_gate"]["sample_count"] == 0
-            assert data["task_analysis"]["tool_count"] == 5
+            assert data["task_analysis"]["tool_count"] == 4
             assert data["architecture"]["skill_name"] == "mas-procedure"
             return data
 
@@ -553,9 +555,7 @@ class TestMasOptimizerFunction:
                     "comparison table of revenue growth, operating margin, and capex, "
                     "then cross-check your findings against analyst notes."
                 ),
-                active_tool_names=(
-                    "research_agent,ops_agent,media_agent,user_data_agent"
-                ),
+                active_tool_names=("research_agent,ops_agent,user_data_agent"),
                 memory_results="[]",
             )
             data = json.loads(result)
@@ -593,9 +593,7 @@ class TestMasOptimizerFunction:
                     "comparison of revenue growth, margin, capex, and AI infrastructure "
                     "positioning."
                 ),
-                active_tool_names=(
-                    "research_agent,ops_agent,media_agent,user_data_agent"
-                ),
+                active_tool_names=("research_agent,ops_agent,user_data_agent"),
                 memory_results="[]",
             )
             data = json.loads(result)
@@ -628,7 +626,7 @@ class TestMasOptimizerFunction:
             evaluate_fn = items[0].fn
             result = await evaluate_fn(
                 task_description="Describe the Kubernetes networking configuration",
-                active_tool_names="research_agent,ops_agent,media_agent,user_data_agent",
+                active_tool_names="research_agent,ops_agent,user_data_agent",
                 memory_results="[]",
             )
             data = json.loads(result)

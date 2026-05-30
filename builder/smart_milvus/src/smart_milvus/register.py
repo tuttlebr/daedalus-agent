@@ -72,6 +72,11 @@ class MilvusRetrieverConfig(RetrieverBaseConfig, name="smart_milvus"):
         default={"metric_type": "L2"},
         description="Search parameters to use when performing vector search",
     )
+    search_timeout: float | None = Field(
+        default=30.0,
+        description="Per-request timeout (seconds) applied to every Milvus call "
+        "and bounding the overall search. None disables the timeout.",
+    )
     vector_field_name: str = Field(
         default="vector",
         description="Name of the field to compare with the vectorized query",
@@ -151,6 +156,11 @@ class DomainRetrieverConfig(FunctionBaseConfig, name="domain_retriever"):
         default_factory=lambda: {"metric_type": "L2"},
         description="Milvus search params",
     )
+    search_timeout: float | None = Field(
+        default=30.0,
+        description="Per-request timeout (seconds) applied to every Milvus call "
+        "and bounding the overall search. None disables the timeout.",
+    )
     use_reranker: bool = Field(
         default=True,
         description="Whether to rerank retrieved chunks",
@@ -219,6 +229,7 @@ async def smart_milvus_client(config: MilvusRetrieverConfig, builder: Builder):
         ),
         vector_field_name=config.vector_field_name,
         reranker_config=reranker_config,
+        search_timeout=config.search_timeout,
     )
 
     # Using parameters in the config to set default values which can be
@@ -276,6 +287,7 @@ async def domain_retriever_function(config: DomainRetrieverConfig, builder: Buil
                 ),
                 vector_field_name=config.vector_field_name,
                 reranker_config=reranker_config,
+                search_timeout=config.search_timeout,
             )
         return _retriever_cache["instance"]
 

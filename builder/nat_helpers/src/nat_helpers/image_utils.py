@@ -205,6 +205,96 @@ async def fetch_video_from_redis(
         return (None, f"Error: Failed to parse video data from storage: {e}")
 
 
+def parse_stored_vtt(
+    raw_json: str | bytes | None,
+    expected_user_id: str | None = None,
+) -> tuple[str, None] | tuple[None, str]:
+    """Validate a stored VTT/SRT record and return its transcript text.
+
+    The frontend stores transcripts as a RedisJSON document (see
+    ``frontend/pages/api/session/vttStorage.ts``) with a ``data`` field holding
+    the raw transcript and an optional ``userId`` owner. This is the pure,
+    network-free half of :func:`fetch_vtt_from_redis` so the ownership and
+    parsing rules are unit-testable.
+
+    Returns ``(transcript_text, None)`` on success or ``(None, error_message)``.
+    """
+    if not raw_json:
+        return (
+            None,
+            "Error: Transcript not found. It may have expired (transcripts are "
+            "kept for 7 days); please re-upload it.",
+        )
+
+    try:
+        record = json.loads(raw_json)
+    except (json.JSONDecodeError, TypeError) as exc:
+        return (None, f"Error: Failed to parse stored transcript: {exc}")
+
+    # RedisJSON returns the bare object for ``JSON.GET key`` and a single-element
+    # list for ``JSON.GET key $``. Accept either shape.
+    if isinstance(record, list):
+        record = record[0] if record else None
+    if not isinstance(record, dict):
+        return (None, "Error: Stored transcript is malformed.")
+
+    # SECURITY: a transcript stored under an authenticated owner may only be
+    # read back by that same user. The vtt_id/session_id reach this tool via an
+    # LLM tool call and must not be trusted to grant cross-user access; the
+    # stored ``userId`` is the authority. (Mirrors canAccessStoredVTT.)
+    owner_user_id = str(record.get("userId") or "").strip()
+    expected = (expected_user_id or "").strip()
+    if owner_user_id and owner_user_id != expected:
+        return (
+            None,
+            "Error: Transcript belongs to a different authenticated user.",
+        )
+
+    data = record.get("data")
+    if not data or not str(data).strip():
+        return (None, "Error: Stored transcript is empty; please re-upload it.")
+    return (str(data), None)
+
+
+async def fetch_vtt_from_redis(
+    redis_client: redis_lib.Redis,
+    session_id: str | None,
+    vtt_id: str | None,
+    expected_user_id: str | None = None,
+) -> tuple[str, None] | tuple[None, str]:
+    """Fetch an uploaded VTT/SRT transcript from Redis by id.
+
+    Transcripts live at ``vtt:{session_id}:{vtt_id}`` (no user-scoped key —
+    ownership is enforced from the stored ``userId`` via :func:`parse_stored_vtt`).
+
+    Returns ``(transcript_text, None)`` on success or ``(None, error_message)``.
+    """
+    if not vtt_id or not session_id:
+        return (
+            None,
+            "Error: both vtt_id and session_id are required to fetch an uploaded "
+            "transcript.",
+        )
+
+    redis_key = f"vtt:{session_id}:{vtt_id}"
+    logger.info(
+        "Fetching transcript %s from session %s (user: %s) via Redis",
+        vtt_id,
+        session_id,
+        expected_user_id or "anonymous",
+    )
+
+    try:
+        raw_json = await asyncio.to_thread(
+            redis_client.execute_command, "JSON.GET", redis_key
+        )
+    except redis_lib.RedisError as exc:
+        logger.error("Redis error fetching transcript %s: %s", vtt_id, exc)
+        return (None, "Error: transcript storage is temporarily unavailable.")
+
+    return parse_stored_vtt(raw_json, expected_user_id)
+
+
 async def store_image_in_redis(
     redis_client: redis_lib.Redis,
     b64_data: str,

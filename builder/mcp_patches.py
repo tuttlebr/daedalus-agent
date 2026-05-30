@@ -122,6 +122,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import traceback
 from contextlib import asynccontextmanager
 
@@ -130,6 +131,13 @@ import httpx
 logger = logging.getLogger("daedalus.mcp_patches")
 
 _patched = False
+
+# F-006: fail-closed tracking for the MCP approval gate. The gate is enforced by
+# the wrapper installed in _patch_tool_client(); if NAT renames/moves its tool
+# execution method the wrapper would silently not install, leaving destructive
+# MCP calls ungated. These flags let patch() detect that and refuse to start.
+_mcp_client_available = False
+_approval_gate_installed = False
 
 # Function groups that were skipped during startup due to connection errors.
 # Populated by _patch_startup_resilience, read by the get_tools filter.
@@ -148,17 +156,69 @@ _CONNECTION_ERROR_TYPES = (
     ConnectionError,  # includes ConnectionRefusedError, ConnectionResetError
 )
 
+# Destructive/mutating verbs that gate an MCP tool call behind human approval.
+#
+# NOTE: this denylist is DEFENSE-IN-DEPTH only. The primary, robust control is
+# restricting each MCP server to an explicit read-only `include:` allowlist in
+# backend/tool-calling-config.yaml (every server there already does this EXCEPT
+# k8s_mcp_server, which exposes its full tool surface) and/or honoring MCP tool
+# annotations (readOnlyHint/destructiveHint). A denylist cannot enumerate every
+# dangerous verb, so prefer the allowlist; this list is the backstop.
+#
+# Distinctive verbs — safe to match anywhere in the tool name (low risk of
+# appearing inside a read-only tool name).
 _MUTATING_TOOL_FRAGMENTS = (
     "apply",
     "create",
     "delete",
+    "deletecollection",
     "patch",
     "replace",
     "rollback",
+    "rollout",
     "scale",
+    "autoscale",
     "uninstall",
     "update",
+    "upgrade",
+    "cordon",
+    "drain",
+    "evict",
+    "taint",
+    "terminate",
+    "destroy",
+    "revoke",
+    "restart",
+    "annotate",
+    "remove",
+    "disable",
 )
+
+# Short/ambiguous verbs matched as WHOLE tokens (the tool name is split on
+# non-alphanumeric chars) to avoid false positives such as "asset"/"subset"/
+# "reset"/"output"/"list_labels" that a substring match would wrongly gate.
+_MUTATING_TOOL_TOKENS = frozenset(
+    {
+        "exec",
+        "set",
+        "put",
+        "post",
+        "cp",
+        "edit",
+        "kill",
+        "drop",
+        "debug",
+        "expose",
+        "attach",
+        "label",
+        "write",
+        "send",
+        "move",
+        "rename",
+    }
+)
+
+_WORD_SPLIT_RE = re.compile(r"[^a-z0-9]+")
 
 _NON_DESTRUCTIVE_MCP_TOOLS = {
     # A Gmail draft is reversible and is not sent to a recipient. The remote
@@ -203,7 +263,12 @@ def _is_mutating_mcp_call(tool_name: str, payload: dict) -> bool:
         if isinstance(val, str):
             text_parts.append(val)
     text = " ".join(text_parts).lower()
-    return any(fragment in text for fragment in _MUTATING_TOOL_FRAGMENTS)
+
+    if any(fragment in text for fragment in _MUTATING_TOOL_FRAGMENTS):
+        return True
+
+    tokens = set(_WORD_SPLIT_RE.split(text))
+    return bool(tokens & _MUTATING_TOOL_TOKENS)
 
 
 def _validate_mcp_approval(tool_name: str, payload: dict) -> tuple[bool, str]:
@@ -630,8 +695,10 @@ def patch():
     except Exception as exc:
         logger.warning("Unexpected error patching MCP client: %s", exc)
 
-    # Patch MCPToolClient to add diagnostic logging around tool calls
+    # Patch MCPToolClient to add the approval gate + diagnostic logging, then
+    # fail closed if the security gate did not attach to an available MCP client.
     _patch_tool_client()
+    _verify_approval_gate_installed()
 
     # Prevent McpError (application errors) from triggering reconnection
     _patch_mcp_error_no_reconnect()
@@ -652,7 +719,8 @@ def patch():
 
 
 def _patch_tool_client():
-    """Wrap MCPToolClient tool execution with verbose error logging."""
+    """Wrap MCPToolClient tool execution with the approval gate + error logging."""
+    global _mcp_client_available, _approval_gate_installed
     try:
         try:
             from nat.plugins.mcp.client.tool_client import MCPToolClient
@@ -661,6 +729,10 @@ def _patch_tool_client():
                 from nat.plugins.mcp.client.client_base import MCPToolClient
             except ImportError:
                 from nat.plugins.mcp.tool_client import MCPToolClient
+
+        # MCP client class imported successfully: the approval gate is now
+        # REQUIRED to attach. If it does not, patch() fails closed (F-006).
+        _mcp_client_available = True
 
         # Find the method that executes tool calls -- try common names
         original_fn = None
@@ -733,17 +805,51 @@ def _patch_tool_client():
                 )
                 raise
 
+        wrapped._daedalus_approval_gate = True
         setattr(MCPToolClient, method_name, wrapped)
+        _approval_gate_installed = True
         logger.info(
-            "MCPToolClient diagnostic patch applied on %s.%s",
+            "MCPToolClient approval-gate + diagnostic patch applied on %s.%s",
             MCPToolClient.__name__,
             method_name,
         )
 
     except ImportError as exc:
+        # MCP client not importable: MCP is not in use, nothing to gate.
         logger.warning("Could not patch MCPToolClient: %s", exc)
     except Exception as exc:
+        # Leave _approval_gate_installed False so patch() can fail closed.
         logger.warning("Unexpected error patching MCPToolClient: %s", exc)
+
+
+def _verify_approval_gate_installed():
+    """Fail closed if the MCP approval gate did not attach (F-006).
+
+    The gate is the only thing forcing destructive MCP tool calls through human
+    approval. If the MCP client class is importable but the gate failed to wrap
+    its tool-execution method (e.g. a NAT upgrade renamed it), continuing would
+    silently leave destructive MCP calls ungated. Refuse to start instead, unless
+    an operator explicitly opts out (MCP_APPROVAL_GATE_OPTIONAL=1) for a
+    deployment that intentionally exposes no mutating MCP tools.
+    """
+    if _approval_gate_installed or not _mcp_client_available:
+        return
+    if (os.getenv("MCP_APPROVAL_GATE_OPTIONAL") or "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+    ):
+        logger.warning(
+            "MCP approval gate did NOT install, but MCP_APPROVAL_GATE_OPTIONAL is "
+            "set; continuing with destructive MCP calls UNGATED."
+        )
+        return
+    logger.critical(
+        "MCP approval gate failed to install on the MCP tool client. Refusing to "
+        "start so destructive MCP tool calls cannot run without approval. Set "
+        "MCP_APPROVAL_GATE_OPTIONAL=1 only if no mutating MCP tools are exposed."
+    )
+    raise RuntimeError("MCP approval gate failed to install (fail-closed)")
 
 
 class _McpAppError(BaseException):

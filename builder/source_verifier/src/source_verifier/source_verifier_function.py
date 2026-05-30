@@ -35,6 +35,7 @@ from nat.builder.builder import Builder, LLMFrameworkEnum
 from nat.builder.function_info import FunctionInfo
 from nat.cli.register_workflow import register_function
 from nat.data_models.function import FunctionBaseConfig
+from nat_helpers.url_guard import UnsafeURLError, validate_public_url
 from pydantic import Field
 from webscrape.webscrape_function import (
     _is_valid_content,
@@ -226,6 +227,14 @@ async def _fetch_source(url: str, config: SourceVerifierConfig) -> FetchResult:
     try:
         normalized_url, _ = _validate_url(url, ["http", "https"])
     except ValueError as exc:
+        return FetchResult(status="invalid_url", error=str(exc))
+
+    # F-001: source URLs come from LLM output / stored memories. Reject non-http(s)
+    # schemes and literal internal IPs before fetching (network policy covers the
+    # hostname-resolves-to-internal case).
+    try:
+        validate_public_url(normalized_url, check_dns=False)
+    except UnsafeURLError as exc:
         return FetchResult(status="invalid_url", error=str(exc))
 
     truncation_msg = "\n\n[Source content truncated for verification]"

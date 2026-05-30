@@ -33,6 +33,54 @@ _POOL_TIMEOUT = 10.0
 # Registry: maps id(client._client) -> diagnostic label
 _client_registry: dict[int, str] = {}
 
+# F-007: recover from a poisoned httpx connection pool. An MCP-timeout async
+# cancellation cascade can leave the OpenAI client's pool holding dead sockets,
+# after which every LLM call returns "Connection error" until the pod restarts.
+# We hold a reference to each client's inner httpx client (keyed by base_url) and,
+# after N consecutive connection errors, swap in a fresh transport so subsequent
+# calls use a clean pool — no restart required.
+_RECYCLE_THRESHOLD = int(os.environ.get("DAEDALUS_LLM_POOL_RECYCLE_THRESHOLD", "3"))
+_http_client_registry: dict[str, object] = {}  # base_url -> httpx (Async)Client
+_connection_error_counts: dict[str, int] = {}
+
+
+def _recycle_client_pool(http_client) -> bool:
+    """Swap in a fresh httpx transport so the next request uses new connections.
+
+    Synchronous and safe to call from the logging filter: the old transport's
+    sockets close on garbage collection, and in-flight requests already hold
+    their transport reference, so only *new* requests pick up the clean pool.
+    """
+    try:
+        is_async = "Async" in type(http_client).__name__
+        transport_cls = httpx.AsyncHTTPTransport if is_async else httpx.HTTPTransport
+        http_client._transport = transport_cls()
+        return True
+    except Exception as exc:  # noqa: BLE001 - recovery must never raise into logging
+        logger.warning("Failed to recycle OpenAI httpx pool: %s", exc)
+        return False
+
+
+def _note_connection_error(base_url: str) -> None:
+    """Count connection errors per upstream and recycle the pool on threshold."""
+    if _RECYCLE_THRESHOLD <= 0:
+        return
+    count = _connection_error_counts.get(base_url, 0) + 1
+    _connection_error_counts[base_url] = count
+    if count < _RECYCLE_THRESHOLD:
+        return
+    http_client = _http_client_registry.get(base_url)
+    if http_client is None:
+        return
+    if _recycle_client_pool(http_client):
+        logger.warning(
+            "Recycled OpenAI httpx connection pool for base_url=%s after %d "
+            "consecutive connection errors (F-007 pool-poisoning recovery)",
+            base_url,
+            count,
+        )
+        _connection_error_counts[base_url] = 0
+
 
 class _OpenAIRetryFilter(logging.Filter):
     """Enriches openai._base_client log records with diagnostic context.
@@ -53,6 +101,7 @@ class _OpenAIRetryFilter(logging.Filter):
 
         extras: list[str] = []
         found_base_url = False
+        detected_base_url: str | None = None
 
         try:
             for frame_info in inspect.stack():
@@ -64,6 +113,7 @@ class _OpenAIRetryFilter(logging.Filter):
                     if local_self is not None and hasattr(local_self, "_base_url"):
                         base_url = str(local_self._base_url).rstrip("/")
                         extras.append(f"base_url={base_url}")
+                        detected_base_url = base_url
                         found_base_url = True
 
                 # Find HTTP status code from the response that triggered the retry
@@ -93,6 +143,10 @@ class _OpenAIRetryFilter(logging.Filter):
 
         except Exception:  # nosec B110 — intentional; diagnostic extras are non-critical
             pass
+
+        # F-007: drive the pool-recycle circuit breaker on repeated conn errors.
+        if "Connection error" in msg and detected_base_url:
+            _note_connection_error(detected_base_url)
 
         if extras:
             # Deduplicate while preserving order
@@ -144,6 +198,9 @@ def _wrap_init(original_init, client_kind: str):
             if http_client is not None and isinstance(
                 http_client, (httpx.Client, httpx.AsyncClient)
             ):
+                # F-007: keep a reference so the circuit breaker can recycle this
+                # client's pool after repeated connection errors.
+                _http_client_registry[base_url.rstrip("/")] = http_client
                 desired = httpx.Timeout(
                     connect=_CONNECT_TIMEOUT,
                     read=timeout_seconds,

@@ -59,7 +59,6 @@ PROMPT_GUIDANCE_RUNTIME_PROMPTS = {
     "research_agent",
     "nvidia_docs_agent",
     "ops_agent",
-    "media_agent",
     "user_data_agent",
     "user_document_agent",
 }
@@ -266,10 +265,6 @@ def test_deployed_tool_surface_is_optimized():
             <= 14
         ), path
         assert (
-            _effective_operation_count(config, functions["media_agent"]["tool_names"])
-            <= 2
-        ), path
-        assert (
             _effective_operation_count(
                 config, functions["user_data_agent"]["tool_names"]
             )
@@ -282,7 +277,6 @@ def test_tool_calling_agents_use_resilient_runner():
         "research_agent",
         "nvidia_docs_agent",
         "ops_agent",
-        "media_agent",
         "user_document_agent",
         "user_data_agent",
     ]
@@ -322,10 +316,22 @@ def test_visual_media_tool_is_direct_return_for_latency():
 
         assert "visual_media_tool" in workflow_tools, path
         assert "visual_media_tool" in return_direct, path
-        assert "media_agent" in workflow_tools, path
-        assert config["functions"]["media_agent"]["tool_names"] == [
-            "vtt_interpreter_tool"
-        ], path
+
+
+def test_vtt_interpreter_tool_is_top_level_and_not_return_direct():
+    """Transcripts are handled by a top-level leaf tool (no media_agent hop), and
+    its output is NOT return_direct so the agent can act on it (e.g. draft a
+    follow-up) in the same turn."""
+    for path in DEPLOYED_CONFIGS:
+        config = _config(path)
+        workflow_tools = set(config["workflow"]["tool_names"])
+        return_direct = set(config["workflow"].get("return_direct", []))
+
+        assert "vtt_interpreter_tool" in workflow_tools, path
+        assert "vtt_interpreter_tool" not in return_direct, path
+        # The retired media_agent sub-agent must be gone entirely.
+        assert "media_agent" not in config["functions"], path
+        assert "media_agent" not in workflow_tools, path
 
 
 def test_user_data_agent_does_not_advertise_unconfigured_gmail_writes():
@@ -542,7 +548,7 @@ def test_top_level_workflow_exposes_source_verifier_when_add_memory_requires_it(
 def test_mas_evaluate_uses_effective_routing_domains_not_global_tool_catalog():
     expected = (
         'active_tool_names="research_agent,nvidia_docs_agent,ops_agent,'
-        'media_agent,user_document_agent,user_data_agent"'
+        'user_document_agent,user_data_agent"'
     )
     forbidden = "nvidia_retriever_tool,semianalysis_retriever_tool"
     for path in DEPLOYED_CONFIGS:
@@ -559,7 +565,18 @@ def test_direct_specialist_routing_precedes_generic_mas_gate():
         assert prompt.index("Direct specialist requests") < prompt.index(
             "MAS candidate requests"
         ), path
-        assert "without get_memory or mas_evaluate" in prompt, path
+
+
+def test_workflow_runs_get_memory_first_unconditionally():
+    # get_memory must be the first action on every turn, with no exceptions
+    # (greetings and direct-specialist routing included). This replaces the
+    # prior "direct specialists skip get_memory" carve-out, which contradicted
+    # the session-start memory requirement and let get_memory be skipped.
+    for path in DEPLOYED_CONFIGS:
+        prompt = _config(path)["workflow"]["system_prompt"]
+        assert "get_memory FIRST" in prompt, path
+        assert "No exceptions" in prompt, path
+        assert "without get_memory" not in prompt, path
 
 
 def test_research_agent_rejects_stale_curated_memory_store_alias():
@@ -600,9 +617,16 @@ def test_nat_coding_agent_skills_are_available_and_routed():
     for skill_name in NAT_CODING_AGENT_SKILLS:
         assert (SKILLS_DIR / skill_name / "SKILL.md").is_file(), skill_name
 
+    # The orchestrator prompt routes the focused nat-* docs skills through
+    # nat-user-rules rather than enumerating each one, to keep the skill list
+    # lean. So the prompt names only the entry points (nat-user-rules,
+    # skill-evolution) plus the routing rule; the focused nat-* skills are
+    # reached via nat-user-rules, and their availability is asserted on disk
+    # above.
+    prompt_named_nat_skills = {"nat-user-rules", "skill-evolution"}
     for path in DEPLOYED_CONFIGS:
         prompt = _config(path)["workflow"]["system_prompt"]
-        for skill_name in NAT_CODING_AGENT_SKILLS:
+        for skill_name in prompt_named_nat_skills:
             assert skill_name in prompt, (path, skill_name)
         assert "load nat-user-rules first" in prompt, path
         assert "workflow YAML, custom functions/tools" in prompt, path

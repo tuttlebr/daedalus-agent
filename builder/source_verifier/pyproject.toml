@@ -7,6 +7,7 @@ name = "source_verifier"
 dynamic = ["version"]
 dependencies = [
   "nvidia-nat[redis,mcp,langchain,phoenix,async_endpoints]==1.7.0",
+  "nat_helpers",
   "webscrape",
 ]
 requires-python = ">=3.11,<3.14"

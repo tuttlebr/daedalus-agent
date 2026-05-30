@@ -216,3 +216,46 @@ class TestCollectionNotFoundError:
         err = CollectionNotFoundError("Collection 'foo' not found")
         assert isinstance(err, Exception)
         assert "foo" in str(err)
+
+
+# ---------------------------------------------------------------------------
+# F-008 — search timeouts
+# ---------------------------------------------------------------------------
+
+
+class TestSearchTimeout:
+    def _retriever(self, search_timeout, embed=None):
+        client = MagicMock()
+        client.list_collections.return_value = ["col"]
+        client.describe_collection.return_value = {
+            "fields": [{"name": "text"}, {"name": "vector"}]
+        }
+        client.search.return_value = [[]]
+        embedder = MagicMock()
+        if embed is not None:
+            embedder.embed_query = embed
+        retriever = MilvusRetriever(
+            client=client,
+            embedder=embedder,
+            content_field="text",
+            search_timeout=search_timeout,
+        )
+        return retriever, client
+
+    def test_timeout_passed_to_all_milvus_calls(self):
+        retriever, client = self._retriever(7.0)
+        asyncio.run(retriever.search(query="q", collection_name="col", top_k=3))
+        assert client.search.call_args.kwargs["timeout"] == 7.0
+        assert client.describe_collection.call_args.kwargs["timeout"] == 7.0
+        assert client.list_collections.call_args.kwargs["timeout"] == 7.0
+
+    def test_overall_search_is_time_bounded(self):
+        import time
+
+        def _slow_embed(_q):
+            time.sleep(0.5)
+            return [0.1, 0.2]
+
+        retriever, _ = self._retriever(0.05, embed=_slow_embed)
+        with pytest.raises(TimeoutError):
+            asyncio.run(retriever.search(query="q", collection_name="col", top_k=3))

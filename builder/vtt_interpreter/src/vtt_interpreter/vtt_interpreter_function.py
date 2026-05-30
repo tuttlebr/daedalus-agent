@@ -2,10 +2,12 @@ import logging
 import os
 import re
 
+import redis
 from nat.builder.builder import Builder
 from nat.builder.function_info import FunctionInfo
 from nat.cli.register_workflow import register_function
 from nat.data_models.function import FunctionBaseConfig
+from nat_helpers.image_utils import fetch_vtt_from_redis
 from openai import AsyncOpenAI
 from pydantic import BaseModel, Field
 
@@ -38,13 +40,35 @@ class VttInterpreterFunctionConfig(
         4096,
         description="Maximum number of tokens in the response",
     )
+    redis_url: str = Field(
+        "redis://redis:6379",
+        description="Redis connection URL for retrieving uploaded transcripts by id.",
+    )
 
 
 class VttInterpreterInput(BaseModel):
     """Input model for the VTT interpreter function."""
 
-    transcript_text: str = Field(
-        ..., description="The raw VTT transcript text to be processed"
+    vtt_id: str | None = Field(
+        None,
+        description="Id of an uploaded transcript stored in Redis. Preferred for "
+        "uploaded VTT/SRT files: the tool fetches the transcript itself instead of "
+        "receiving the full text through the model. Requires session_id.",
+    )
+    session_id: str | None = Field(
+        None,
+        description="Session id that scopes the uploaded transcript. Required when "
+        "vtt_id is provided.",
+    )
+    user_id: str | None = Field(
+        None,
+        description="Authenticated user id from the [IDENTITY] message. Used to "
+        "verify ownership of the stored transcript.",
+    )
+    transcript_text: str | None = Field(
+        None,
+        description="Raw VTT/SRT transcript text. Use only for transcripts pasted "
+        "directly into the conversation; for uploaded files pass vtt_id instead.",
     )
     user_instructions: str | None = Field(
         None,
@@ -202,13 +226,26 @@ async def vtt_interpreter_function(
         timeout=config.timeout,
     )
 
+    # Redis client for retrieving uploaded transcripts by id, so large
+    # transcripts are never copied through the model as a tool-call argument.
+    redis_client = redis.from_url(config.redis_url, decode_responses=False)
+
     async def interpret_vtt_transcript(
-        transcript_text: str,
+        transcript_text: str | None = None,
         user_instructions: str | None = None,
+        vtt_id: str | None = None,
+        session_id: str | None = None,
+        user_id: str | None = None,
         max_tokens: int | None = None,
     ) -> str:
         """
         Process a VTT/SRT transcript according to the user's instructions.
+
+        The transcript may be supplied two ways: pass ``vtt_id`` (plus
+        ``session_id``) for an uploaded file — the tool fetches the transcript
+        from Redis itself — or pass ``transcript_text`` for a transcript pasted
+        directly into the conversation. Prefer ``vtt_id`` for uploads so large
+        transcripts are not pushed through the model.
 
         When user_instructions are provided, the transcript is processed according
         to those specific instructions (e.g. summarize, extract action items, answer
@@ -218,16 +255,31 @@ async def vtt_interpreter_function(
         with four sections: Attendees, Business Updates, Technical Updates, Action Items.
 
         Args:
-            transcript_text: Raw VTT or SRT transcript text
+            transcript_text: Raw VTT or SRT transcript text (for pasted transcripts)
             user_instructions: Optional instructions for how to process the transcript
+            vtt_id: Id of an uploaded transcript stored in Redis
+            session_id: Session id scoping the uploaded transcript (with vtt_id)
+            user_id: Authenticated user id, used to verify transcript ownership
             max_tokens: Maximum number of tokens in the response
 
         Returns:
             Processed transcript output in markdown format
         """
         try:
+            # Prefer the uploaded-transcript ref: fetch from Redis rather than
+            # receiving the full transcript through the model.
+            if vtt_id:
+                transcript_text, fetch_error = await fetch_vtt_from_redis(
+                    redis_client, session_id, vtt_id, user_id
+                )
+                if fetch_error:
+                    return fetch_error
+
             if not transcript_text or not transcript_text.strip():
-                return "Error: No transcript text provided."
+                return (
+                    "Error: No transcript provided. Pass vtt_id (with session_id) "
+                    "for an uploaded transcript, or transcript_text for a pasted one."
+                )
 
             # Parse the VTT transcript
             logger.info("Parsing VTT transcript...")
@@ -327,9 +379,13 @@ Please organize this into the four required sections, being careful not to add a
         logger.info("Registering function interpret_vtt_transcript")
 
         description = (
-            "Processes VTT (WebVTT) or SRT transcript text according to the user's instructions. "
+            "Processes VTT (WebVTT) or SRT meeting transcripts according to the user's instructions. "
             "Can summarize, extract action items, answer questions about the content, list decisions, "
             "identify what a specific person said, or any other analysis the user requests. "
+            "For an uploaded transcript, pass vtt_id and session_id (from the attachment instruction) "
+            "and the tool fetches the transcript itself — do NOT paste the transcript text. "
+            "For a transcript pasted directly into the chat, pass transcript_text. "
+            "Pass any specific user asks as user_instructions. "
             "When no specific instructions are provided, produces default structured meeting notes "
             "with four sections: Attendees, Business Updates, Technical Updates, and Action Items. "
             "Only extracts information explicitly mentioned in the transcript without adding or "

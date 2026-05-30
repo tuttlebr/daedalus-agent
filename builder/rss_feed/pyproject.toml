@@ -7,6 +7,7 @@ name = "rss_feed"
 dynamic = ["version"]
 dependencies = [
   "nvidia-nat[redis,mcp,langchain,phoenix,async_endpoints]==1.7.0",
+  "nat_helpers",
   "fastfeedparser~=0.4.4",
   "httpx>=0.28",
   "cachetools>=6.2.1",

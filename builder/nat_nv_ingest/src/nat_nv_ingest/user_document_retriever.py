@@ -76,6 +76,11 @@ class UserDocumentRetrieverConfig(FunctionBaseConfig, name="user_document_retrie
         default_factory=lambda: {"metric_type": "L2"},
         description="Search parameters passed to Milvus.",
     )
+    search_timeout: float | None = Field(
+        default=30.0,
+        description="Per-request timeout (seconds) applied to every Milvus call "
+        "and bounding the overall search. None disables the timeout.",
+    )
     use_reranker: bool = Field(
         default=True,
         description="Whether to rerank retrieved chunks.",
@@ -159,6 +164,7 @@ async def user_document_retriever_function(
                 ),
                 vector_field_name=config.vector_field,
                 reranker_config=reranker_config,
+                search_timeout=config.search_timeout,
             )
         return _retriever_cache["instance"]
 

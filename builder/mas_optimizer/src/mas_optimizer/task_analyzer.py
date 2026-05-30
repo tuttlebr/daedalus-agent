@@ -252,7 +252,6 @@ ROUTING_DOMAIN_TOOLS: frozenset[str] = frozenset(
         "research_agent",
         "nvidia_docs_agent",
         "ops_agent",
-        "media_agent",
         "user_data_agent",
     }
 )

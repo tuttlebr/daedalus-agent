@@ -395,15 +395,18 @@ export async function processMessages(
           }
         }
 
-        // VTT/transcript content — retrieve from Redis and inject into message
+        // VTT/transcript content — validate the stored attachment and inject a
+        // *reference* (vtt_id + session_id). vtt_interpreter_tool fetches the
+        // transcript from Redis itself, so the full transcript is never copied
+        // through the model as a tool-call argument (which broke on large files).
         const vttAttachments = cleanedMessage.attachments.filter(
           (att: any) => att.type === 'transcript',
         );
         if (vttAttachments.length > 0) {
-          const alreadyHasVttContent = cleanedMessage.content?.includes(
-            '<transcript filename=',
+          const alreadyHasVttRef = cleanedMessage.content?.includes(
+            'vtt_interpreter_tool with vtt_id=',
           );
-          if (!alreadyHasVttContent) {
+          if (!alreadyHasVttRef) {
             for (const att of vttAttachments) {
               if (att.vttRef?.vttId && att.vttRef?.sessionId) {
                 try {
@@ -432,24 +435,28 @@ export async function processMessages(
                     );
                   }
                   if (storedVtt?.data) {
-                    // Untrusted filename embedded in an agent instruction
-                    // and a <transcript> tag attribute — defang it (F-008).
+                    // Untrusted filename embedded in an agent instruction — defang
+                    // it (F-008). vttId/sessionId are passed verbatim: getVTT +
+                    // canAccessStoredVTT above already proved they resolve to a
+                    // record this user owns, so they are validated ids, not prose.
                     const filename =
                       sanitizeForPromptInterpolation(
                         att.vttRef.filename || storedVtt.filename,
                       ) || 'transcript';
-                    let vttContext = `\n\n[User has attached a VTT/SRT transcript file "${filename}". `;
-                    vttContext += `Use the vtt_interpreter_tool to process this transcript. `;
-                    vttContext += `Pass the transcript content below as the transcript_text parameter. `;
-                    vttContext += `If the user's message contains specific instructions (e.g. "list action items", "what did X say about Y"), pass those as the user_instructions parameter.]\n\n`;
-                    vttContext += `<transcript filename="${filename}">\n${storedVtt.data}\n</transcript>`;
+                    let vttContext = `\n\n[User attached a meeting transcript "${filename}" (VTT/SRT). `;
+                    vttContext += `To process it, call vtt_interpreter_tool with vtt_id="${att.vttRef.vttId}" and session_id="${att.vttRef.sessionId}". `;
+                    vttContext += `The tool fetches the transcript itself — do not ask for or paste the transcript text. `;
+                    vttContext += `If the user's message contains specific instructions (e.g. "list action items", "what did X say about Y"), pass those as the user_instructions parameter.]`;
                     cleanedMessage.content =
                       (cleanedMessage.content || '') + vttContext;
-                    logger.info(`Job ${jobId}: Added VTT content to message`, {
-                      filename,
-                      vttContentLength: storedVtt.data.length,
-                      totalContentLength: cleanedMessage.content.length,
-                    });
+                    logger.info(
+                      `Job ${jobId}: Added transcript reference to message`,
+                      {
+                        filename,
+                        vttId: att.vttRef.vttId,
+                        transcriptSize: storedVtt.size ?? storedVtt.data.length,
+                      },
+                    );
                   } else {
                     throw new ApiRouteError(
                       400,

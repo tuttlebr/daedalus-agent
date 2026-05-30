@@ -1,15 +1,19 @@
 """Unit tests for nat_nv_ingest configuration and pure helpers."""
 
+import pytest
 from nat_nv_ingest.nat_nv_ingest import (
     IngestResult,
     NvIngestFunctionConfig,
     _build_ingestor,
     _can_access_stored_document,
+    _dedup_document_refs,
     _dedup_entries,
+    _extract_dense_dim,
     _milvus_client_kwargs,
     _milvus_vdb_auth_kwargs,
     _normalize_for_dedup,
     _text_quality_score,
+    _validate_embedding_dimension,
     classify_collection_scope,
     clean_markdown,
     clean_table_markdown,
@@ -243,8 +247,87 @@ class TestStoredDocumentAccess:
     def test_denies_other_document_owner(self):
         assert _can_access_stored_document({"userId": "alice"}, "brandon") is False
 
-    def test_allows_legacy_documents_without_owner(self):
-        assert _can_access_stored_document({}, "brandon") is True
+    def test_denies_authenticated_user_access_to_ownerless_document(self):
+        # F-011 regression: an authenticated user must not read an un-owned
+        # (legacy/anonymous) upload that could belong to someone else.
+        assert _can_access_stored_document({}, "brandon") is False
+        assert _can_access_stored_document({"userId": ""}, "brandon") is False
+
+    def test_allows_anonymous_access_to_ownerless_document(self):
+        # Anonymous/unauthenticated self-access to an un-owned upload is allowed
+        # (the frontend session-scoped check is the primary gate).
+        assert _can_access_stored_document({}, "") is True
+        assert _can_access_stored_document({}, None) is True
+        assert _can_access_stored_document({}, "anonymous") is True
+
+
+class TestDedupDocumentRefs:
+    def test_drops_repeated_document_ids_keeping_first(self):
+        refs = [
+            {"documentId": "a", "sessionId": "s1"},
+            {"documentId": "b", "sessionId": "s1"},
+            {"documentId": "a", "sessionId": "s2"},  # repeat of "a"
+        ]
+        out = _dedup_document_refs(refs)
+        assert [r["documentId"] for r in out] == ["a", "b"]
+        assert out[0]["sessionId"] == "s1"  # first occurrence wins
+
+    def test_keeps_refs_without_document_id(self):
+        refs = [{"sessionId": "s1"}, {"sessionId": "s2"}]
+        assert _dedup_document_refs(refs) == refs
+
+    def test_empty(self):
+        assert _dedup_document_refs([]) == []
+
+
+class TestEmbeddingDimensionValidation:
+    class _Client:
+        def __init__(self, collections, desc):
+            self._collections = collections
+            self._desc = desc
+
+        def list_collections(self):
+            return self._collections
+
+        def describe_collection(self, _name):
+            return self._desc
+
+    def test_extract_dense_dim_prefers_named_field(self):
+        desc = {
+            "fields": [
+                {"name": "id", "params": {}},
+                {"name": "vector", "params": {"dim": 1024}},
+            ]
+        }
+        assert _extract_dense_dim(desc, "vector") == 1024
+
+    def test_extract_dense_dim_falls_back_to_first_dim(self):
+        desc = {"fields": [{"name": "emb", "params": {"dim": 768}}]}
+        assert _extract_dense_dim(desc, "vector") == 768
+
+    def test_extract_dense_dim_none_when_absent(self):
+        assert _extract_dense_dim({"fields": []}, "vector") is None
+
+    def test_mismatch_raises(self):
+        # F-010 regression: existing collection dim != configured embedder_dim.
+        client = self._Client(
+            ["nvidia"], {"fields": [{"name": "vector", "params": {"dim": 1024}}]}
+        )
+        config = NvIngestFunctionConfig(embedder_dim=2048)
+        with pytest.raises(ValueError, match="dimension mismatch"):
+            _validate_embedding_dimension(config, "nvidia", client=client)
+
+    def test_matching_dim_does_not_raise(self):
+        client = self._Client(
+            ["nvidia"], {"fields": [{"name": "vector", "params": {"dim": 2048}}]}
+        )
+        config = NvIngestFunctionConfig(embedder_dim=2048)
+        _validate_embedding_dimension(config, "nvidia", client=client)
+
+    def test_absent_collection_is_noop(self):
+        client = self._Client([], {})
+        config = NvIngestFunctionConfig(embedder_dim=2048)
+        _validate_embedding_dimension(config, "nvidia", client=client)
 
 
 # ---------------------------------------------------------------------------

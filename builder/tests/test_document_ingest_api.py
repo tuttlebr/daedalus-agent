@@ -24,51 +24,58 @@ from document_ingest_api import (  # noqa: E402
 from pydantic import ValidationError  # noqa: E402
 
 
+class _FakeHTTPException(Exception):
+    def __init__(self, status_code, detail):
+        super().__init__(detail)
+        self.status_code = status_code
+        self.detail = detail
+
+
+def _raises_status(monkeypatch, *args):
+    """Call _require_trusted_user with fastapi.HTTPException swapped for a real
+    exception class (it is a MagicMock under conftest), returning the status."""
+    monkeypatch.setattr(document_ingest_api, "HTTPException", _FakeHTTPException)
+    with pytest.raises(_FakeHTTPException) as exc_info:
+        _require_trusted_user(*args)
+    return exc_info.value.status_code
+
+
 class TestRouter:
     def test_router_exists(self):
         # FastAPI is mocked in conftest, so we can't introspect routes here -
         # just confirm the module imported and exposed a router object.
         assert router is not None
 
-    def test_requires_trusted_user_header(self):
-        class FakeHTTPException(Exception):
-            def __init__(self, status_code, detail):
-                super().__init__(detail)
-                self.status_code = status_code
-                self.detail = detail
 
-        original = document_ingest_api.HTTPException
-        document_ingest_api.HTTPException = FakeHTTPException
-        try:
-            with pytest.raises(FakeHTTPException) as exc_info:
-                _require_trusted_user(None)
-        finally:
-            document_ingest_api.HTTPException = original
-        assert exc_info.value.status_code == 401
+class TestInternalAuth:
+    def test_fails_closed_when_token_unconfigured(self, monkeypatch):
+        # F-003 regression: no internal token + no explicit opt-out must REFUSE
+        # (503), never fall through to trusting the caller-supplied x-user-id.
+        monkeypatch.delenv("DAEDALUS_INTERNAL_API_TOKEN", raising=False)
+        monkeypatch.delenv("ALLOW_INSECURE_INTERNAL", raising=False)
+        assert _raises_status(monkeypatch, "alice", None) == 503
 
-    def test_accepts_trusted_user_header(self):
+    def test_insecure_optout_allows_when_unconfigured(self, monkeypatch):
+        monkeypatch.delenv("DAEDALUS_INTERNAL_API_TOKEN", raising=False)
+        monkeypatch.setenv("ALLOW_INSECURE_INTERNAL", "1")
         assert _require_trusted_user(" alice ") == "alice"
 
-    def test_requires_internal_token_when_configured(self, monkeypatch):
-        class FakeHTTPException(Exception):
-            def __init__(self, status_code, detail):
-                super().__init__(detail)
-                self.status_code = status_code
-                self.detail = detail
+    def test_rejects_missing_user_under_optout(self, monkeypatch):
+        monkeypatch.delenv("DAEDALUS_INTERNAL_API_TOKEN", raising=False)
+        monkeypatch.setenv("ALLOW_INSECURE_INTERNAL", "1")
+        assert _raises_status(monkeypatch, None) == 401
 
+    def test_requires_internal_token_when_configured(self, monkeypatch):
         monkeypatch.setenv("DAEDALUS_INTERNAL_API_TOKEN", "secret-token")
-        original = document_ingest_api.HTTPException
-        document_ingest_api.HTTPException = FakeHTTPException
-        try:
-            with pytest.raises(FakeHTTPException) as exc_info:
-                _require_trusted_user("alice", None)
-        finally:
-            document_ingest_api.HTTPException = original
-        assert exc_info.value.status_code == 401
+        assert _raises_status(monkeypatch, "alice", None) == 401
 
     def test_accepts_matching_internal_token(self, monkeypatch):
         monkeypatch.setenv("DAEDALUS_INTERNAL_API_TOKEN", "secret-token")
         assert _require_trusted_user(" alice ", "secret-token") == "alice"
+
+    def test_rejects_missing_user_with_token(self, monkeypatch):
+        monkeypatch.setenv("DAEDALUS_INTERNAL_API_TOKEN", "secret-token")
+        assert _raises_status(monkeypatch, None, "secret-token") == 401
 
     def test_sse_serializes_structured_progress_events(self):
         chunk = document_ingest_api._sse(
@@ -114,12 +121,12 @@ class TestIngestRequest:
         assert req.provenance["uploader"] == "alice"
         assert req.username == "alice"
 
-    def test_resolve_request_rejects_collection_scope_mismatch(self):
-        class FakeHTTPException(Exception):
-            def __init__(self, status_code, detail):
-                super().__init__(detail)
-                self.status_code = status_code
-                self.detail = detail
+    def test_resolve_request_rejects_collection_scope_mismatch(self, monkeypatch):
+        # Auth is covered separately (TestInternalAuth); opt out here so the test
+        # reaches the collection-scope validation it actually exercises.
+        monkeypatch.delenv("DAEDALUS_INTERNAL_API_TOKEN", raising=False)
+        monkeypatch.setenv("ALLOW_INSECURE_INTERNAL", "1")
+        monkeypatch.setattr(document_ingest_api, "HTTPException", _FakeHTTPException)
 
         req = IngestRequest(
             documentRef=DocumentRef(documentId="doc-a", sessionId="sess-1"),
@@ -127,13 +134,8 @@ class TestIngestRequest:
             collection_scope="user",
             username="alice",
         )
-        original = document_ingest_api.HTTPException
-        document_ingest_api.HTTPException = FakeHTTPException
-        try:
-            with pytest.raises(FakeHTTPException) as exc_info:
-                _resolve_request(req, "alice")
-        finally:
-            document_ingest_api.HTTPException = original
+        with pytest.raises(_FakeHTTPException) as exc_info:
+            _resolve_request(req, "alice")
 
         assert exc_info.value.status_code == 400
         assert "does not match" in exc_info.value.detail

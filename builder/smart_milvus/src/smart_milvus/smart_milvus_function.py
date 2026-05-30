@@ -35,6 +35,7 @@ class MilvusRetriever(Retriever):
         database_name: str | None = None,
         vector_field_name: str = "vector",
         reranker_config: dict | None = None,
+        search_timeout: float | None = None,
     ) -> None:
         """
         Initialize the Milvus Retriever using a preconfigured MilvusClient.
@@ -59,6 +60,9 @@ class MilvusRetriever(Retriever):
         self._database_name = database_name
         self._vector_field_name = vector_field_name
         self._reranker_config = reranker_config
+        # F-008: bound every Milvus/embedder round-trip so a slow or wedged
+        # Milvus cannot hang an agent turn indefinitely. None => unbounded.
+        self._search_timeout = search_timeout
         self._session = None  # Lazy-loaded requests session
 
         # Note: For MilvusClient, database switching is handled by prefixing
@@ -115,19 +119,19 @@ class MilvusRetriever(Retriever):
         # If database is specified, check with database prefix
         if self._database_name and self._database_name != "default":
             full_name = f"{self._database_name}.{collection_name}"
+            collections = self._client.list_collections(timeout=self._search_timeout)
             # Try both with and without database prefix
-            return (
-                full_name in self._client.list_collections()
-                or collection_name in self._client.list_collections()
-            )
-        return collection_name in self._client.list_collections()
+            return full_name in collections or collection_name in collections
+        return collection_name in self._client.list_collections(
+            timeout=self._search_timeout
+        )
 
     def _get_collection_name(self, collection_name: str) -> str:
         """Get the full collection name with database prefix if needed."""
         if self._database_name and self._database_name != "default":
             # Check if collection exists with database prefix
             full_name = f"{self._database_name}.{collection_name}"
-            if full_name in self._client.list_collections():
+            if full_name in self._client.list_collections(timeout=self._search_timeout):
                 return full_name
         return collection_name
 
@@ -239,7 +243,13 @@ class MilvusRetriever(Retriever):
         if not query:
             raise ValueError("The 'query' parameter is required and cannot be empty.")
 
-        return await self._search_func(query=query, **kwargs)
+        coro = self._search_func(query=query, **kwargs)
+        # F-008: hard ceiling on the whole search (embed + Milvus + rerank). The
+        # per-call Milvus timeout is honored server-side; this also bounds the
+        # embedder round-trip, which runs in a thread and has no server timeout.
+        if self._search_timeout is not None:
+            return await asyncio.wait_for(coro, timeout=self._search_timeout)
+        return await coro
 
     async def _search_with_iterator(
         self,
@@ -274,6 +284,8 @@ class MilvusRetriever(Retriever):
         # Use instance default if not provided
         if vector_field_name is None:
             vector_field_name = self._vector_field_name
+        if timeout is None:
+            timeout = self._search_timeout
 
         if not self._validate_collection(collection_name):
             raise CollectionNotFoundError(
@@ -285,7 +297,9 @@ class MilvusRetriever(Retriever):
 
         # If no output fields are specified, return all of them
         if not output_fields:
-            collection_schema = self._client.describe_collection(actual_collection_name)
+            collection_schema = self._client.describe_collection(
+                actual_collection_name, timeout=timeout
+            )
             output_fields = [
                 field["name"]
                 for field in collection_schema.get("fields")
@@ -387,6 +401,8 @@ class MilvusRetriever(Retriever):
         # Use instance default if not provided
         if vector_field_name is None:
             vector_field_name = self._vector_field_name
+        if timeout is None:
+            timeout = self._search_timeout
 
         if not self._validate_collection(collection_name):
             raise CollectionNotFoundError(
@@ -398,9 +414,9 @@ class MilvusRetriever(Retriever):
 
         available_fields = [
             v.get("name")
-            for v in self._client.describe_collection(actual_collection_name).get(
-                "fields", {}
-            )
+            for v in self._client.describe_collection(
+                actual_collection_name, timeout=timeout
+            ).get("fields", {})
         ]
 
         if self.content_field not in available_fields:

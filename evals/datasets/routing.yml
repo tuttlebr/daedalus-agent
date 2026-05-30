@@ -12,7 +12,7 @@
 #   query: user message sent to /chat/stream
 #   expected:
 #     architecture: SAS | MAS-centralized | MAS-decentralized
-#     sub_agent: research_agent | ops_agent | media_agent | user_data_agent | null
+#     sub_agent: research_agent | ops_agent | visual_media_tool | vtt_interpreter_tool | user_data_agent | null
 #     skill: <skill_name> | null
 #   forbidden_tools: [...]    # optional
 #   conversational_only: true # optional; expects NO routing tool calls
@@ -49,7 +49,7 @@
   query: Generate an image of a street art-style portrait of a Roman senator.
   expected:
     architecture: SAS
-    sub_agent: media_agent
+    sub_agent: visual_media_tool
     skill: null
 
 - id: user-data-001
@@ -100,5 +100,5 @@
     - mas_evaluate
     - research_agent
     - ops_agent
-    - media_agent
+    - vtt_interpreter_tool
     - user_data_agent

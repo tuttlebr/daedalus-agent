@@ -60,3 +60,32 @@ def test_script_tool_registered_only_when_enabled(tmp_path):
         return [item.fn.__name__ for item in items]
 
     assert "run_skill_script" in run(_run())
+
+
+def test_sanitized_env_is_allowlist(monkeypatch):
+    # F-002 regression: secrets must never reach skill scripts regardless of
+    # naming convention. _sanitized_env is an allowlist, so only known-safe
+    # names survive and every secret-shaped var is dropped.
+    from agent_skills.agent_skills_function import _sanitized_env
+
+    secrets = (
+        "DAEDALUS_INTERNAL_API_TOKEN",
+        "DEFAULT_LLM_MODEL_API_KEY",
+        "MINIO_SECRET_KEY",
+        "MINIO_ACCESS_KEY",
+        "REDIS_URL",
+        "GITHUB_PAT",
+        "MILVUS_PASSWORD",
+        "NVIDIA_API_KEY",
+    )
+    for name in secrets:
+        monkeypatch.setenv(name, "leak-me")
+    monkeypatch.setenv("PATH", "/usr/bin")
+    monkeypatch.setenv("HOME", "/home/agent")
+
+    env = _sanitized_env()
+
+    assert env.get("PATH") == "/usr/bin"
+    assert env.get("HOME") == "/home/agent"
+    for name in secrets:
+        assert name not in env

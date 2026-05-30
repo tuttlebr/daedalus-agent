@@ -6,7 +6,9 @@ import json
 import redis
 from nat_helpers.image_utils import (
     fetch_image_from_redis,
+    fetch_vtt_from_redis,
     parse_ref,
+    parse_stored_vtt,
     store_image_in_redis,
 )
 
@@ -264,3 +266,113 @@ class TestStoreImageInRedis:
             assert "write failed" in str(exc)
         else:
             raise AssertionError("expected RedisError")
+
+
+# ---------------------------------------------------------------------------
+# parse_stored_vtt — pure validation/ownership of a stored transcript record
+# ---------------------------------------------------------------------------
+
+
+def _vtt_record(**overrides) -> dict:
+    record = {
+        "id": "abc123",
+        "data": "WEBVTT\n\n00:00:01.000 --> 00:00:02.000\n<v Alice>Hi</v>",
+        "mimeType": "text/vtt",
+        "filename": "meeting.vtt",
+        "size": 42,
+        "createdAt": 1,
+        "sessionId": "sess-1",
+        "userId": "brandon",
+    }
+    record.update(overrides)
+    return record
+
+
+class TestParseStoredVtt:
+    def test_none_returns_not_found_error(self):
+        text, err = parse_stored_vtt(None, "brandon")
+        assert text is None
+        assert "not found" in err.lower()
+
+    def test_owner_match_returns_transcript(self):
+        text, err = parse_stored_vtt(json.dumps(_vtt_record()), "brandon")
+        assert err is None
+        assert "WEBVTT" in text
+
+    def test_redisjson_list_shape_is_unwrapped(self):
+        # JSON.GET key $ returns a single-element list.
+        text, err = parse_stored_vtt(json.dumps([_vtt_record()]), "brandon")
+        assert err is None
+        assert "WEBVTT" in text
+
+    def test_owner_mismatch_is_rejected(self):
+        text, err = parse_stored_vtt(json.dumps(_vtt_record()), "someone_else")
+        assert text is None
+        assert "different authenticated user" in err
+
+    def test_owned_record_requires_matching_user(self):
+        # An owned transcript cannot be read with no authenticated user.
+        text, err = parse_stored_vtt(json.dumps(_vtt_record()), None)
+        assert text is None
+        assert "different authenticated user" in err
+
+    def test_unowned_record_is_capability_scoped(self):
+        # No stored userId -> the unguessable key itself is the capability.
+        record = _vtt_record()
+        record.pop("userId")
+        text, err = parse_stored_vtt(json.dumps(record), "anyone")
+        assert err is None
+        assert "WEBVTT" in text
+
+    def test_empty_data_is_rejected(self):
+        text, err = parse_stored_vtt(json.dumps(_vtt_record(data="")), "brandon")
+        assert text is None
+        assert "empty" in err.lower()
+
+    def test_invalid_json_is_reported(self):
+        text, err = parse_stored_vtt("not-json{{{", "brandon")
+        assert text is None
+        assert "parse" in err.lower()
+
+    def test_non_object_is_malformed(self):
+        text, err = parse_stored_vtt("5", "brandon")
+        assert text is None
+        assert "malformed" in err.lower()
+
+
+# ---------------------------------------------------------------------------
+# fetch_vtt_from_redis — key construction + ownership delegation
+# ---------------------------------------------------------------------------
+
+
+class TestFetchVttFromRedis:
+    def test_missing_ids_returns_error(self):
+        text, err = _run(fetch_vtt_from_redis(_FakeRedis({}), None, "abc", "brandon"))
+        assert text is None
+        assert "required" in err
+
+        text, err = _run(fetch_vtt_from_redis(_FakeRedis({}), "sess", None, "brandon"))
+        assert text is None
+        assert "required" in err
+
+    def test_fetches_session_scoped_key(self):
+        key = "vtt:sess-1:abc123"
+        fake = _FakeRedis({key: json.dumps(_vtt_record())})
+        text, err = _run(fetch_vtt_from_redis(fake, "sess-1", "abc123", "brandon"))
+        assert err is None
+        assert "WEBVTT" in text
+        assert fake.requested_keys == [key]
+
+    def test_not_found_returns_error(self):
+        text, err = _run(
+            fetch_vtt_from_redis(_FakeRedis({}), "sess-1", "missing", "brandon")
+        )
+        assert text is None
+        assert "not found" in err.lower()
+
+    def test_redis_error_is_handled(self):
+        text, err = _run(
+            fetch_vtt_from_redis(_FailingRedis(), "sess-1", "abc123", "brandon")
+        )
+        assert text is None
+        assert "unavailable" in err.lower()

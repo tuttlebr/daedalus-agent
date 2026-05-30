@@ -15,7 +15,6 @@ _IGNORED_ARG_TOOLS = {
     "current_datetime_tool": "unused",
 }
 _USER_SCOPED_AGENT_TOOLS = {
-    "media_agent",
     "ops_agent",
     "user_document_agent",
     "user_data_agent",
@@ -23,6 +22,8 @@ _USER_SCOPED_AGENT_TOOLS = {
 _USER_SCOPED_DIRECT_TOOLS = {
     "visual_media",
     "visual_media_tool",
+    "vtt_interpreter",
+    "vtt_interpreter_tool",
 }
 
 
@@ -44,7 +45,13 @@ def _message_content_to_text(content) -> str:
 
 
 def _extract_identity_user_id(messages) -> str | None:
-    for message in reversed(messages):
+    # SECURITY: scan forward (oldest -> newest) and accept the FIRST [IDENTITY]
+    # marker only. The trusted marker is injected by the frontend at index 0,
+    # ahead of any user-authored turns. Scanning in reverse (newest first) would
+    # let a user spoof identity by typing their own `[IDENTITY] ... user_id="x"`
+    # line, which sits at a higher index and would otherwise win. Identity must
+    # not be derived from later, user-controlled message prose.
+    for message in messages:
         raw_content = (
             message.get("content")
             if isinstance(message, dict)
@@ -61,6 +68,9 @@ def _extract_identity_user_id(messages) -> str | None:
         match = _IDENTITY_AUTHENTICATED_USER_RE.search(content)
         if match:
             return match.group(1).strip().strip(",;")
+        # First [IDENTITY] marker found but unparseable: stop rather than
+        # falling through to a later, user-controlled marker.
+        return None
     return None
 
 

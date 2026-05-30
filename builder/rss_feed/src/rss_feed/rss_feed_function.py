@@ -14,6 +14,7 @@ from nat.builder.builder import Builder
 from nat.builder.function_info import FunctionInfo
 from nat.cli.register_workflow import register_function
 from nat.data_models.function import FunctionBaseConfig
+from nat_helpers.url_guard import UnsafeURLError, validate_public_url
 from pydantic import BaseModel, Field, HttpUrl
 
 try:
@@ -284,6 +285,16 @@ def _build_reranker_passages(
 
 def _scrape_content(url: str, max_tokens: int, truncation_msg: str) -> tuple[str, bool]:
     """Scrape content from URL using markitdown."""
+    # F-001: feed-supplied links are attacker-influenceable. Reject non-http(s)
+    # schemes (blocks file:// local-file reads) and literal internal IPs before
+    # handing the URL to MarkItDown. The cluster network policy covers the
+    # hostname-resolves-to-internal case.
+    try:
+        validate_public_url(url, check_dns=False)
+    except UnsafeURLError as exc:
+        logger.warning("Blocked SSRF-unsafe feed link '%s': %s", url, exc)
+        return f"Error: {exc}", False
+
     try:
         md = MarkItDown(enable_plugins=True)
         url_markdown = md.convert(url)

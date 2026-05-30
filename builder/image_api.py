@@ -176,10 +176,31 @@ def _configured_internal_token() -> str:
     return (os.getenv("DAEDALUS_INTERNAL_API_TOKEN") or "").strip()
 
 
+def _allow_insecure_internal() -> bool:
+    """True only when an operator has explicitly opted out of token auth.
+
+    Intended for local development (Docker Compose) where no internal token is
+    provisioned. Production must leave this unset so a missing token fails closed.
+    """
+    return (os.getenv("ALLOW_INSECURE_INTERNAL") or "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+    )
+
+
 def _require_internal_token(x_daedalus_internal_token: str | None) -> None:
     expected = _configured_internal_token()
     if not expected:
-        return
+        # Fail closed: a missing token means trusted frontend->backend auth is
+        # unconfigured. Refuse rather than trusting an arbitrary caller's
+        # x-user-id header. Local/dev opts out explicitly via ALLOW_INSECURE_INTERNAL=1.
+        if _allow_insecure_internal():
+            return
+        raise HTTPException(
+            status_code=503,
+            detail="Internal API authentication is not configured",
+        )
 
     provided = (x_daedalus_internal_token or "").strip()
     if not provided or not hmac.compare_digest(provided, expected):

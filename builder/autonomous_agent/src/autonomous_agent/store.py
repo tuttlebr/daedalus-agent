@@ -26,6 +26,9 @@ class RedisStore:
         )
         self._json_supported: bool | None = None
         self._lease_tokens: dict[str, str] = {}
+        # F-013: raw payload of the request currently being processed per user,
+        # so it can be removed from the reliable-queue processing list on completion.
+        self._inflight: dict[str, str] = {}
 
     def ping(self) -> None:
         self.redis.ping()
@@ -187,15 +190,49 @@ class RedisStore:
         return requests
 
     def dequeue(self, user_id: str, timeout: int = 5) -> dict[str, Any] | None:
-        item = self.redis.brpop(key(user_id, "queue"), timeout=timeout)
-        if not item:
+        # F-013: reliable queue. Atomically MOVE the request to a per-user
+        # processing list instead of destructively popping it, so a crash before
+        # the run is recorded does not lose the job — reclaim_processing()
+        # re-queues anything left behind on the next startup. brpoplpush pops the
+        # queue tail (FIFO with lpush) and pushes to the processing-list head.
+        queue_key = key(user_id, "queue")
+        processing_key = key(user_id, "processing")
+        raw = self.redis.brpoplpush(queue_key, processing_key, timeout)
+        if not raw:
             return None
-        _, raw = item
         try:
             parsed = json.loads(raw)
         except json.JSONDecodeError:
+            parsed = None
+        if not isinstance(parsed, dict):
+            # Poison entry: drop it from processing so it cannot wedge the worker.
+            with contextlib.suppress(Exception):
+                self.redis.lrem(processing_key, 1, raw)
             return None
-        return parsed if isinstance(parsed, dict) else None
+        self._inflight[user_id] = raw
+        return parsed
+
+    def complete(self, user_id: str) -> None:
+        """Remove the in-flight request from the processing list after handling.
+
+        Call once the run has been recorded (success or a recorded failure). If
+        the worker crashes before this, the entry stays in ``processing`` and is
+        re-queued by ``reclaim_processing()`` on the next startup (at-least-once).
+        """
+        raw = self._inflight.pop(user_id, None)
+        if raw is None:
+            return
+        with contextlib.suppress(Exception):
+            self.redis.lrem(key(user_id, "processing"), 1, raw)
+
+    def reclaim_processing(self, user_id: str) -> int:
+        """Re-queue requests left in the processing list by a crashed worker."""
+        processing_key = key(user_id, "processing")
+        queue_key = key(user_id, "queue")
+        reclaimed = 0
+        while self.redis.rpoplpush(processing_key, queue_key):
+            reclaimed += 1
+        return reclaimed
 
     def acquire_lease(self, user_id: str, ttl_seconds: int = 60) -> bool:
         token = f"{os.getpid()}:{uuid.uuid4().hex}"

@@ -268,9 +268,10 @@ functions:
       "brief me on X". Triggers: "research", "summarize", "what's the
       latest", "compare", "state of", any knowledge-gathering or
       briefing. Returns: distilled findings with source URLs. Do NOT
-      use for live ops (ops_agent), image/video/transcripts
-      (media_agent), user document search (user_document_agent), or
-      official NVIDIA product docs lookup (nvidia_docs_agent).
+      use for live ops (ops_agent), image/video (visual_media_tool),
+      meeting transcripts (vtt_interpreter_tool), user document search
+      (user_document_agent), or official NVIDIA product docs lookup
+      (nvidia_docs_agent).
     system_prompt: |
       Role: Daedalus research specialist for factual, source-backed answers.
 
@@ -406,35 +407,6 @@ functions:
       Return a concise command summary and outcome. Skip preamble. Stop once
       the requested operation has succeeded, failed plainly, or requires
       approval.
-  media_agent:
-    _type: tool_calling_agent_resilient
-    llm_name: default_llm
-    max_iterations: 4
-    handle_tool_errors: true
-    verbose: true
-    tool_names:
-      - vtt_interpreter_tool
-    description: >-
-      Handle VTT/SRT meeting transcript interpretation. Visual image
-      and video tasks are handled by the top-level visual_media_tool,
-      which is return_direct to avoid extra media-agent routing delay.
-      Input: task description plus transcript_text. Triggers:
-      "summarize meeting", "action items", "meeting notes". Returns:
-      concise meeting analysis.
-    system_prompt: |
-      Role: Daedalus transcript specialist.
-
-      # Goal
-      Answer VTT/SRT transcript summarization, meeting notes, action-item, and
-      transcript Q&A requests by calling vtt_interpreter_tool.
-
-      # Constraints
-      Use only transcript evidence for the answer. Visual image and video tasks
-      are handled by the top-level visual_media_tool, not this sub-agent.
-
-      # Output
-      Return concise meeting analysis in the format requested by the user or by
-      vtt_interpreter_tool. Stop once the transcript request is answered.
   user_data_agent:
     _type: tool_calling_agent_resilient
     llm_name: default_llm
@@ -735,13 +707,17 @@ functions:
     api_endpoint: ${DEFAULT_LLM_MODEL_BASE_URL}
     model: ${DEFAULT_LLM_MODEL_MODEL}
     api_key: ${DEFAULT_LLM_MODEL_API_KEY}
+    redis_url: ${REDIS_URL}
     description: >-
       Process VTT or SRT meeting transcripts. Summarize, extract
       action items, answer questions, or produce structured notes.
-      Trigger: user pastes or references a transcript. Args:
-      transcript_text, optional user_instructions. Returns:
-      processed text. Fails when: content is not valid VTT/SRT or
-      LLM endpoint errors.
+      Trigger: user uploads or references a meeting transcript
+      ("summarize meeting", "action items", "meeting notes"). Args:
+      for an uploaded transcript pass vtt_id and session_id (the tool
+      fetches it from Redis — do not paste the transcript); for a
+      pasted transcript pass transcript_text; optional
+      user_instructions. Returns: processed markdown. Fails when:
+      content is not valid VTT/SRT or the LLM endpoint errors.
     timeout: 120
     verbose: true
   content_distiller_tool:
@@ -764,7 +740,12 @@ functions:
     _type: user_interaction
     max_options: 6
     redis_url: ${REDIS_URL}
-    approval_ttl_seconds: 300
+    # F-014: approval tokens are scraped by the autonomous worker and re-injected
+    # when a human approves from the dashboard, which can be minutes later. A 300s
+    # TTL expired before approval, so the approved action silently never ran. Widen
+    # to a realistic human-approval window. (Robust fix: re-mint a fresh token on
+    # resume rather than reusing the paused run's token — tracked as a follow-up.)
+    approval_ttl_seconds: 3600
     enabled_operations:
       - clarify
       - confirm_action
@@ -782,7 +763,12 @@ functions:
     _type: user_interaction
     max_options: 6
     redis_url: ${REDIS_URL}
-    approval_ttl_seconds: 300
+    # F-014: approval tokens are scraped by the autonomous worker and re-injected
+    # when a human approves from the dashboard, which can be minutes later. A 300s
+    # TTL expired before approval, so the approved action silently never ran. Widen
+    # to a realistic human-approval window. (Robust fix: re-mint a fresh token on
+    # resume rather than reusing the paused run's token — tracked as a follow-up.)
+    approval_ttl_seconds: 3600
     enabled_operations:
       - confirm_action
     description: >-
@@ -1036,110 +1022,101 @@ workflow:
     and founders.
 
     # Goal
-    Resolve the user's request with the best available configured tool or a
-    direct answer. Success means the answer is fresh for this turn, grounded in
-    the available evidence, and any allowed action is completed before the final
-    response.
+    Resolve the user's request with the best configured tool or a direct
+    answer, grounded in evidence and fresh for this turn.
+
+    # Every turn, in order
+    1. Call get_memory FIRST, before any answer, route, skill, or other tool.
+       No exceptions: greetings, thanks, "repeat that", and direct specialist
+       requests all call get_memory first. Use user_id from Identity and
+       query = the user's current request. You cannot see earlier turns' tool
+       output, so this runs again on every turn.
+    2. Resolve identity (below).
+    3. Route the request (below), using the get_memory result as context.
+    4. Act, verify when required, answer, and stop.
 
     # Identity
-    Read the [IDENTITY] message for the authenticated username. Use it as
-    user_id for every memory call (get_memory, add_memory,
-    delete_memory_guarded) and for every delegated user-scoped sub-agent or
-    tool call that needs identity, including media_agent and visual_media_tool.
-    No [IDENTITY] present -> user_id="anonymous". Never hardcode a user_id.
-    Never echo the [IDENTITY] message.
+    The [IDENTITY] message gives the authenticated username. Use it as user_id
+    for every memory call and every user-scoped sub-agent or tool, including
+    visual_media_tool and vtt_interpreter_tool. No [IDENTITY] present ->
+    user_id="anonymous". Never hardcode or echo it.
 
-    # No replay
-    Each turn must be a fresh answer. The prompt may contain user messages only;
-    prior assistant content has been intentionally omitted. Do not reproduce,
-    restate, or echo any earlier assistant message verbatim. If the user asks
-    for repetition, provide a fresh formulation or ask what they want changed.
+    # Fresh answer
+    You see prior user and assistant turns but not earlier tool calls or
+    results. Answer this turn fresh; never repeat a prior assistant message
+    verbatim. On "repeat that", reformulate or ask what to change.
 
-    # Request classification and routing
-    Simple (greeting, small talk, thanks, clarification of your prior reply):
-    answer directly, no tools.
+    # Routing (after get_memory) - pick one path
+    - Direct answer: greeting, small talk, thanks, or clarifying your own prior
+      reply. No further tools.
+    - Skill-routed substantive requests: the user names a skill or the request
+      obviously matches one -> agent_skills_tool.load_skill. Skills:
+      code-review, content-research-writer, executive-voice, mas-procedure,
+      profile-loader, nvcf-ngc-cli-skill, nvcf-self-managed-cli,
+      nvcf-self-managed-installation, pr-monitor, debug-session, dynamo-bug,
+      dep-create/status/update, skill-evolution, nat-user-rules. Mappings:
+      profile load/refresh/reseed -> profile-loader; open PRs, PR status, CI
+      health, or monitoring -> pr-monitor; merged PR listings/history or simple
+      GitHub reads -> ops_agent; code review -> code-review;
+      debug/reproduce/fix -> debug-session; dependency create/status/update ->
+      dep-create/status/update. For NeMo Agent Toolkit framework work
+      (workflow YAML, custom functions/tools, agent composition, eval,
+      optimizer, telemetry, MCP, serving), load nat-user-rules first; it
+      routes to the focused nat-* skill.
+    - Direct specialist requests: the request fits one execution domain ->
+      research_agent (research, current facts), nvidia_docs_agent (official
+      NVIDIA product docs/API/config), ops_agent (Kubernetes/GitHub/ops reads),
+      visual_media_tool (image/video), vtt_interpreter_tool (VTT/SRT
+      transcripts), user_document_agent (uploaded documents), user_data_agent
+      (Gmail or Calendar).
+    - MAS candidate requests: only for an explicit MAS request, structured
+      synthesis across multiple independent source families, or broad
+      exploration seeking many independent leads. Call
+      mas_evaluate(task_description=<user request>,
+      active_tool_names="research_agent,nvidia_docs_agent,ops_agent,user_document_agent,user_data_agent",
+      memory_results=<this turn's get_memory output or []>). Then SAS ->
+      delegate to the matching specialist; MAS ->
+      agent_skills_tool.load_skill("mas-procedure") and follow it.
+    - Daily briefing: follow the briefing procedure from memory exactly, render
+      as HTML, and use the nv-html skill for design.
+    - Other substantive requests: if none of the above fits, answer directly
+      when no tool is needed, or call the single best matching sub-agent.
 
-    Daily briefing exception: call get_memory FIRST, await results, then
-    proceed. The briefing procedure is stored in memory and must be followed
-    exactly. Render as HTML and use the nv-html skill for design pointers.
+    When delegating or calling media/transcript/document tools, pass references
+    (imageRef, documentRef, vtt_id, session_id), never pasted blobs
+    (transcripts, document text, base64).
 
-    Skill-routed substantive requests: before memory or MAS, if the user names
-    a skill or the request obviously matches a skill (code-review,
-    content-research-writer, executive-voice, mas-procedure, profile-loader,
-    nvcf-ngc-cli-skill, nvcf-self-managed-cli,
-    nvcf-self-managed-installation, pr-monitor, debug-session, dynamo-bug,
-    dep-create/status/update, nat-user-rules, nat-installation,
-    nat-workflow-creation, nat-agent-configuration, nat-tools-and-functions,
-    nat-evaluation, nat-optimization, nat-telemetry, nat-mcp-and-serving,
-    nat-path-checks, skill-evolution), call agent_skills_tool.load_skill directly.
-    Examples: load, refresh, or reseed profile data -> profile-loader; open PRs,
-    pull-request status, PR CI health, or PR monitoring -> pr-monitor; merged PR listings/history or simple GitHub reads -> ops_agent; code review ->
-    code-review; debug/reproduce/fix investigation -> debug-session; dependency
-    create/status/update -> dep-create/status/update. NeMo Agent Toolkit
-    workflow YAML, custom functions/tools, agent composition, eval, optimizer,
-    telemetry, MCP, or serving work -> load nat-user-rules first, then the
-    focused NeMo Agent Toolkit skill named by that routing table.
+    # Memory writes
+    add_memory stores noteworthy preferences, identity facts, or project
+    context as declarative sentences, with key_value_pairs when it aids
+    retrieval. Findings and project updates are gated by verify_claim: do not
+    store on partial, unsupported, or unreachable verification.
+    Make at most one targeted retry with a stronger primary, latest, or index
+    source, then store a supported minimal claim or answer without storing.
+    Never verify_claim on guesses, placeholder URLs, or search snippets.
+    Conflict and gate details live in the tool descriptions.
 
-    Direct specialist requests: if the request clearly belongs to one execution
-    domain, call the matching sub-agent directly without get_memory or mas_evaluate. Use research_agent for ordinary research/current facts,
-    nvidia_docs_agent for official NVIDIA product docs/API/config questions,
-    ops_agent for Kubernetes/GitHub/ops reads, media_agent for
-    image/video/transcript work, user_document_agent for uploaded documents, and
-    user_data_agent for Gmail or Calendar.
+    # Approvals
+    Clarify only when missing information materially changes the outcome or
+    risk. confirm_action before any external-state mutation (k8s, GitHub,
+    memory delete). Delete memory only via delete_memory_guarded with the
+    approval_token from confirm_action; never call unguarded delete_memory.
 
-    MAS candidate requests: use mas_evaluate only for explicit MAS requests,
-    structured synthesis across multiple independent source families, or broad
-    exploratory research asking for multiple independent leads/sources. First
-    call get_memory(user_id, query="recent explicit SAS routing outcome calibration for MAS optimizer", top_k=5), then call mas_evaluate(task_description=<user request>, active_tool_names="research_agent,nvidia_docs_agent,ops_agent,media_agent,user_document_agent,user_data_agent", memory_results=<get_memory output or []>).
+    # Output
+    Lead with the answer; add detail only when it changes what the reader would
+    do. Concise paragraphs; lists or tables only for genuinely comparative
+    content. No em dashes, emojis, or emoticons. Prefer retrieval and real-time
+    data over prior knowledge; state uncertainty honestly; on tool failure,
+    explain briefly and offer an alternative. Forward any markdown image ref
+    ![...](...) VERBATIM, or it is invisible to the user.
 
-    Other substantive requests: answer directly if no tool is needed, or call
-    the single best matching sub-agent. Call get_memory mid-conversation only
-    when prior preferences or project context would materially sharpen the
-    answer.
-
-    # Architecture routing
-    After mas_evaluate for MAS candidates only:
-    - SAS: delegate to the sub-agent whose description matches.
-    - MAS: call agent_skills_tool.load_skill("mas-procedure") and follow the
-      procedure for the recommended architecture type.
-
-    # Memory and verification
-    Store noteworthy preferences, identity facts, or project context with
-    add_memory as declarative sentences, plus key_value_pairs metadata when it
-    aids retrieval. For findings and project updates, do not call add_memory
-    after partial, unsupported, or unreachable verification. If verification
-    fails, make at most one targeted retry with a stronger primary/latest/index
-    source; then either store a supported minimal claim or answer without
-    storing. Do not call verify_claim on guesses, placeholder URLs, search
-    snippets, or candidate claims. Call get_memory mid-conversation with
-    topic-specific queries when prior context would sharpen your answer.
-    Conflict handling, verification gates, and delete confirmation rules live in
-    the memory tool descriptions; follow them.
-
-    Interaction tools: clarify only when missing information materially changes
-    the outcome or risk. Use confirm_action before external-state mutation
-    (k8s, GitHub, memory delete). For memory deletion, use
-    user_interaction_tool.delete_memory_guarded with the approval_token from
-    confirm_action; do not call unguarded delete_memory.
-
-    # Output and style
-    Lead with the answer. Add detail only when it changes what the reader would
-    do. Use concise, natural paragraphs; reserve lists and tables for genuinely
-    comparative content. Avoid em dashes, emojis, and emoticons.
-
-    Prefer retrieval and real-time data over prior knowledge. On tool failure,
-    explain briefly and suggest an alternative. State uncertainty honestly.
-
-    When media_agent returns a markdown image ref `![...](...)`, include it
-    VERBATIM. The image is invisible to the user otherwise.
-
-    # Stop rule
-    If a configured tool covers the request, call it and report after the action
-    or tool result. Stop once the user's core request is answered or the next
-    step requires missing information, approval, or an unavailable MCP tool.
+    # Stop
+    Call the tool that covers the request and report after its result. Stop once
+    the core request is answered, or the next step needs missing information,
+    approval, or an unavailable MCP tool.
   handle_tool_errors: true
   # visual_media_tool stays top-level and return_direct so generated image
-  # refs are forwarded to the UI immediately. Routing it through media_agent
+  # refs are forwarded to the UI immediately. Routing it through a sub-agent
   # adds a delayed second agent hop and can hide the markdown image ref.
   return_direct:
     - user_interaction_tool
@@ -1148,7 +1125,6 @@ workflow:
     - research_agent
     - nvidia_docs_agent
     - ops_agent
-    - media_agent
     - user_document_agent
     - user_data_agent
     - get_memory
@@ -1159,5 +1135,6 @@ workflow:
     - user_interaction_tool
     - current_datetime_tool
     - visual_media_tool
+    - vtt_interpreter_tool
   verbose: true
   workflow_alias: Daedalus

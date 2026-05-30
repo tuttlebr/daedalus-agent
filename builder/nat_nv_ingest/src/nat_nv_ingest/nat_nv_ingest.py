@@ -187,11 +187,20 @@ def _can_access_stored_document(
     document_record: dict[str, Any],
     username: str | None,
 ) -> bool:
-    """Return whether a stored document record is usable by the current user."""
+    """Return whether a stored document record is usable by the current user.
+
+    F-011: an authenticated user may only reach documents they own. A record
+    stored without a userId (legacy/anonymous upload) is reachable only by an
+    unauthenticated/anonymous requester — an authenticated user must NOT read
+    another party's un-owned upload. The frontend session-scoped ownership check
+    remains the primary gate; this is defense-in-depth at the backend boundary.
+    """
     document_user_id = str(document_record.get("userId") or "").strip()
-    if not document_user_id:
-        return True
-    return document_user_id == (username or "")
+    requester = (username or "").strip()
+    if document_user_id:
+        return document_user_id == requester
+    # Owner-less document: only an anonymous/unauthenticated caller may access it.
+    return requester == "" or requester.lower() == "anonymous"
 
 
 def format_user_document_search_results(output: object, collection_name: str) -> str:
@@ -799,6 +808,100 @@ def format_batch_response(
     return msg
 
 
+def _extract_dense_dim(
+    collection_desc: Any, vector_field: str = "vector"
+) -> int | None:
+    """Pull the dense-vector dimension from a Milvus describe_collection result.
+
+    Prefers the configured vector field; falls back to the first field that
+    declares a ``dim``. Returns None when it cannot be determined.
+    """
+    fields = (collection_desc or {}).get("fields") or []
+    fallback: int | None = None
+    for field in fields:
+        if not isinstance(field, dict):
+            continue
+        params = field.get("params") or {}
+        dim = params.get("dim")
+        if dim is None:
+            continue
+        try:
+            dim_int = int(dim)
+        except (TypeError, ValueError):
+            continue
+        if field.get("name") == vector_field:
+            return dim_int
+        if fallback is None:
+            fallback = dim_int
+    return fallback
+
+
+def _validate_embedding_dimension(
+    config: "NvIngestFunctionConfig",
+    collection_name: str,
+    client: Any = None,
+) -> None:
+    """F-010: fail fast if the target collection exists with a mismatched dim.
+
+    Writing vectors of one dimension into a collection created at another
+    dimension fails at insert time or silently corrupts retrieval. We check
+    before ingest and raise a clear error. No-op when the collection does not
+    yet exist (vdb_upload creates it at the right dim) or when the dimension
+    cannot be read (we log and let vdb_upload surface any real error).
+    """
+    try:
+        if client is None:
+            from pymilvus import MilvusClient
+
+            client = MilvusClient(**_milvus_client_kwargs(config))
+        if collection_name not in client.list_collections():
+            return
+        desc = client.describe_collection(collection_name)
+    except Exception as exc:  # noqa: BLE001 - never block ingest on a probe error
+        logger.warning(
+            "Could not verify embedding dimension for collection '%s': %s",
+            collection_name,
+            exc,
+        )
+        return
+
+    actual = _extract_dense_dim(desc, getattr(config, "vector_field", "vector"))
+    expected = getattr(config, "embedder_dim", None)
+    if actual is not None and expected and actual != expected:
+        raise ValueError(
+            f"Embedding dimension mismatch for Milvus collection "
+            f"'{collection_name}': existing dim={actual}, configured "
+            f"embedder_dim={expected}. Re-ingesting would corrupt retrieval; "
+            f"use a matching embedder or a different collection."
+        )
+
+
+def _dedup_document_refs(document_refs: list) -> list:
+    """Drop repeated documentIds within a single ingest batch (F-009).
+
+    Re-embedding the same uploaded document is expensive and duplicates chunks
+    in the collection, so a batch that contains the same documentId more than
+    once (client retry, UI duplication) should embed it only once. Order is
+    preserved and the first occurrence wins. Refs without a documentId are kept
+    as-is because they cannot be de-duplicated safely.
+
+    NOTE: this only de-duplicates *within one request*. Cross-request dedup
+    (re-uploading / re-ingesting the same document later) requires upsert-by-key
+    or a describe/skip against Milvus and must be validated against a live
+    NV-Ingest + Milvus deployment before being enabled.
+    """
+    seen: set[str] = set()
+    deduped: list = []
+    for ref in document_refs:
+        doc_id = ref.get("documentId") if isinstance(ref, dict) else None
+        if doc_id:
+            if doc_id in seen:
+                continue
+            seen.add(doc_id)
+        deduped.append(ref)
+    return deduped
+
+
 def _build_ingestor(
     *,
     nv_client: NvIngestClient,
@@ -874,6 +977,10 @@ def _build_ingestor(
 
     if extract_only:
         return ingestor
+
+    # F-010: verify the collection's existing embedding dimension matches the
+    # configured embedder before writing to it.
+    _validate_embedding_dimension(config, collection_name)
 
     vdb_auth_kwargs = _milvus_vdb_auth_kwargs(config)
 
@@ -1579,6 +1686,10 @@ class NvIngestDocumentProcessor:
         if not username:
             logger.error("No username provided")
             return "Error: Valid username required for document processing."
+
+        # F-009: drop repeated documentIds within this batch so the same upload
+        # is not embedded (and billed) twice.
+        documentRefs = _dedup_document_refs(documentRefs)
 
         max_batch = max(1, config.max_documents_per_batch)
         if len(documentRefs) > max_batch:
@@ -2498,6 +2609,10 @@ async def nv_ingest_function(
         if not username:
             logger.error("No username provided")
             return "Error: Valid username required for document processing."
+
+        # F-009: drop repeated documentIds within this batch so the same upload
+        # is not embedded (and billed) twice.
+        documentRefs = _dedup_document_refs(documentRefs)
 
         max_batch = max(1, config.max_documents_per_batch)
         if len(documentRefs) > max_batch:

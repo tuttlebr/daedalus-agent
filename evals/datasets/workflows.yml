@@ -19,7 +19,7 @@
       - mas_evaluate
       - research_agent
       - ops_agent
-      - media_agent
+      - vtt_interpreter_tool
       - user_data_agent
     max_tool_calls: 0
     max_latency_s: 10
@@ -35,7 +35,7 @@
       - research_agent
     forbidden_tools:
       - ops_agent
-      - media_agent
+      - vtt_interpreter_tool
       - user_data_agent
     requires_citation: true
     max_latency_s: 120
@@ -63,7 +63,7 @@
       - ops_agent
     forbidden_tools:
       - research_agent
-      - media_agent
+      - vtt_interpreter_tool
       - user_data_agent
       - user_interaction_tool
     max_latency_s: 120
@@ -79,7 +79,7 @@
       - ops_agent
     forbidden_tools:
       - user_interaction_tool
-      - media_agent
+      - vtt_interpreter_tool
       - user_data_agent
     max_latency_s: 120
     max_total_tokens: 25000
@@ -95,7 +95,7 @@
     forbidden_tools:
       - research_agent
       - ops_agent
-      - media_agent
+      - vtt_interpreter_tool
     max_latency_s: 120
     max_total_tokens: 25000
 
@@ -106,7 +106,7 @@
   success_criteria: Media route and verbatim markdown image reference.
   expected:
     required_tools:
-      - media_agent
+      - visual_media_tool
     forbidden_tools:
       - research_agent
       - ops_agent
@@ -129,10 +129,10 @@
 
     00:00:05.000 --> 00:00:10.000
     Bob: I will own the latency dashboard and p95 budget.
-  success_criteria: Media/transcript route with decisions and action items.
+  success_criteria: Transcript route with decisions and action items.
   expected:
     required_tools:
-      - media_agent
+      - vtt_interpreter_tool
     response_contains:
       - eval gate
       - latency dashboard

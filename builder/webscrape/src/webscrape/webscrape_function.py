@@ -13,6 +13,7 @@ from nat.builder.builder import Builder
 from nat.builder.function_info import FunctionInfo
 from nat.cli.register_workflow import register_function
 from nat.data_models.function import FunctionBaseConfig
+from nat_helpers.url_guard import UnsafeURLError, validate_public_url
 from pydantic import Field
 
 try:
@@ -489,6 +490,17 @@ async def webscrape_function(config: WebscrapeFunctionConfig, builder: Builder):
             url, parsed_url = _validate_url(sanitized_input, config.allowed_schemes)
         except ValueError as exc:
             logger.info("URL validation failed for '%s': %s", sanitized_input, exc)
+            return _format_error(str(exc))
+
+        # F-001: block SSRF-unsafe targets (non-http(s) schemes, literal internal
+        # IPs / cloud-metadata) before any fetch strategy runs. The cluster
+        # network policy covers the hostname-resolves-to-internal case.
+        try:
+            validate_public_url(
+                url, allowed_schemes=config.allowed_schemes, check_dns=False
+            )
+        except UnsafeURLError as exc:
+            logger.warning("Blocked SSRF-unsafe URL '%s': %s", sanitized_input, exc)
             return _format_error(str(exc))
 
         if config.respect_robots_txt:
