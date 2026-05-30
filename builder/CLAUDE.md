@@ -61,7 +61,7 @@ The `name=` on the config class is the `_type` referenced in workflow YAML. Retr
 
 ### Tools are composed into a workflow elsewhere — not here
 
-These packages only *register* tools. They are assembled into a running agent by `backend/tool-calling-config.yaml` (repo root), whose `workflow._type` is `tool_calling_agent_resilient` — a custom resilient agent registered by **`json_repair_agent/`** (`resilient_agent_register.py`), not a stock NAT agent. That config also defines MCP servers, embedders, retrievers, and the system prompt. To trace how a tool is used at runtime, match its config `name=` against the `_type:` entries in that file.
+These packages only _register_ tools. They are assembled into a running agent by `backend/tool-calling-config.yaml` (repo root), whose `workflow._type` is `tool_calling_agent_resilient` — a custom resilient agent registered by **`json_repair_agent/`** (`resilient_agent_register.py`), not a stock NAT agent. That config also defines MCP servers, embedders, retrievers, and the system prompt. To trace how a tool is used at runtime, match its config `name=` against the `_type:` entries in that file.
 
 ### Runtime entrypoint and monkeypatch ordering (entrypoint.py)
 
@@ -90,6 +90,7 @@ Uploaded documents (`document:<sessionId>:<documentId>`, 7-day TTL), generated i
 ### Test harness (conftest.py) — read before writing tests
 
 `conftest.py` makes the whole suite runnable without NAT or heavy deps installed:
+
 - Adds every `*/src` to `sys.path`, so tests import e.g. `from webscrape.webscrape_function import _fn` directly.
 - Installs `MagicMock` modules for the entire `nat.*` framework plus `pymilvus`, `playwright`, `openai`, `redis`, `markitdown`, `optuna`, `kubernetes`, `fastapi`, etc. `FunctionBaseConfig`/`FunctionInfo`/`register_function` get lightweight fakes; `httpx` and `pymilvus...Hit` get **real** classes because code does `isinstance()` on them.
 
@@ -108,4 +109,4 @@ Consequence: unit tests exercise the **pure helper functions** inside each `*_fu
 
 - A package's user-facing contract usually lives in its `README.md` and `src/<pkg>/configs/config.yml` — check both before changing a tool's signature or config fields.
 - Tools generally return human-readable strings (often `Error: <reason>` on failure) rather than raising, because the agent consumes the text.
-- Config field names map directly to env-var interpolation in the backend YAML; adding a field means adding it to the package config class *and* threading it through `config.yml`/the backend config.
+- Config field names map directly to env-var interpolation in the backend YAML; adding a field means adding it to the package config class _and_ threading it through `config.yml`/the backend config.

@@ -8,15 +8,15 @@ Daedalus is a full-stack AI agent platform built on the **NVIDIA NeMo Agent Tool
 
 This is a polyglot monorepo. Each major component has its own scoped guidance — **read the component file before working in that area:**
 
-| Path | What it is | Scoped guide |
-| --- | --- | --- |
-| `frontend/` | Next.js 14 TypeScript app (auth, chat orchestration, uploads, real-time sync, PWA) | [`frontend/CLAUDE.md`](frontend/CLAUDE.md) |
-| `builder/` | Python NAT tool packages + tests (one `pip install -e`-able plugin per subdir) | [`builder/CLAUDE.md`](builder/CLAUDE.md) |
-| `backend/` | Runtime NAT workflow config — `tool-calling-config.yaml` wires builder tools into the agent | README "Backend Workflows" |
-| `evals/` | Local eval harness (routing / factuality / workflow audit) | [`evals/README.md`](evals/README.md) |
-| `helm/daedalus/` | Helm chart (backend, frontend, nginx, redis, autonomous worker, policies) | `helm/daedalus/README.md` |
-| `skills/` | Agent runtime skills + upstream NAT v1.7 coding skills (`nat-*`) | see "NAT skills" below |
-| `nginx/` | Reverse proxy config | — |
+| Path             | What it is                                                                                  | Scoped guide                               |
+| ---------------- | ------------------------------------------------------------------------------------------- | ------------------------------------------ |
+| `frontend/`      | Next.js 14 TypeScript app (auth, chat orchestration, uploads, real-time sync, PWA)          | [`frontend/CLAUDE.md`](frontend/CLAUDE.md) |
+| `builder/`       | Python NAT tool packages + tests (one `pip install -e`-able plugin per subdir)              | [`builder/CLAUDE.md`](builder/CLAUDE.md)   |
+| `backend/`       | Runtime NAT workflow config — `tool-calling-config.yaml` wires builder tools into the agent | README "Backend Workflows"                 |
+| `evals/`         | Local eval harness (routing / factuality / workflow audit)                                  | [`evals/README.md`](evals/README.md)       |
+| `helm/daedalus/` | Helm chart (backend, frontend, nginx, redis, autonomous worker, policies)                   | `helm/daedalus/README.md`                  |
+| `skills/`        | Agent runtime skills + upstream NAT v1.7 coding skills (`nat-*`)                            | see "NAT skills" below                     |
+| `nginx/`         | Reverse proxy config                                                                        | —                                          |
 
 ## Commands
 
@@ -66,29 +66,35 @@ App via nginx at `http://localhost`; frontend `:3000`, backend `:8000`, RedisIns
 The pieces only make sense together — this is the big picture that spans multiple files.
 
 ### Redis is the shared data plane between frontend and backend
-There is no direct request/response coupling for the main chat path. The frontend writes job/session/conversation/autonomy state to Redis; the backend reads/writes memory, uploaded documents, generated images, and the autonomous queue in the *same* Redis. Tools fetch large payloads (document refs, images) from Redis by id rather than receiving blobs through the LLM. Both `frontend/server/session/redis.ts` and the Python packages assume this.
+
+There is no direct request/response coupling for the main chat path. The frontend writes job/session/conversation/autonomy state to Redis; the backend reads/writes memory, uploaded documents, generated images, and the autonomous queue in the _same_ Redis. Tools fetch large payloads (document refs, images) from Redis by id rather than receiving blobs through the LLM. Both `frontend/server/session/redis.ts` and the Python packages assume this.
 
 ### The chat path is async + streamed, not request/response
-`frontend/pages/api/chat/async.ts` (`POST /api/chat/async`) stores job metadata, returns a `jobId` immediately, then opens a *pinned* backend stream (`/v1/chat/completions`, or `/v1/documents/ingest/stream` for ingest) and persists tokens/steps/status to Redis. Backend tokens fan out via Redis Pub/Sub → WebSocket sidecar → browser, with HTTP polling (`GET /api/chat/async?jobId=`) as fallback. The legacy synchronous `pages/api/chat.ts` returns HTTP 410.
 
-### The backend is *assembled by config*, not by code in `backend/`
-`builder/` packages only *register* NAT tools (via `@register_function`; the config class `name=` is the YAML `_type`). They are composed into a running agent entirely by [`backend/tool-calling-config.yaml`](backend/tool-calling-config.yaml), which also defines MCP servers, embedders, retrievers, auth, and the system prompt. To trace how a tool runs, match its `name=` against `_type:` in that file. The top-level `workflow._type` is `tool_calling_agent_resilient` — a **custom** resilient agent from `builder/json_repair_agent/`, not a stock NAT agent.
+`frontend/pages/api/chat/async.ts` (`POST /api/chat/async`) stores job metadata, returns a `jobId` immediately, then opens a _pinned_ backend stream (`/v1/chat/completions`, or `/v1/documents/ingest/stream` for ingest) and persists tokens/steps/status to Redis. Backend tokens fan out via Redis Pub/Sub → WebSocket sidecar → browser, with HTTP polling (`GET /api/chat/async?jobId=`) as fallback. The legacy synchronous `pages/api/chat.ts` returns HTTP 410.
+
+### The backend is _assembled by config_, not by code in `backend/`
+
+`builder/` packages only _register_ NAT tools (via `@register_function`; the config class `name=` is the YAML `_type`). They are composed into a running agent entirely by [`backend/tool-calling-config.yaml`](backend/tool-calling-config.yaml), which also defines MCP servers, embedders, retrievers, auth, and the system prompt. To trace how a tool runs, match its `name=` against `_type:` in that file. The top-level `workflow._type` is `tool_calling_agent_resilient` — a **custom** resilient agent from `builder/json_repair_agent/`, not a stock NAT agent.
 
 ### The backend container runs a custom entrypoint, not `nat serve`
-The image runs `python entrypoint.py` (`builder/entrypoint.py`), which applies **load-bearing, order-dependent** pre-import monkeypatches (Starlette compat shims, FastAPI route injection for `image_api.py`/`document_ingest_api.py`, OpenAI client timeout/logging via `llm_diagnostics.py`, MCP timeout + approval-gate via `mcp_patches.py`) *before* invoking NAT in-process. See `builder/CLAUDE.md` for the exact ordering before touching startup.
+
+The image runs `python entrypoint.py` (`builder/entrypoint.py`), which applies **load-bearing, order-dependent** pre-import monkeypatches (Starlette compat shims, FastAPI route injection for `image_api.py`/`document_ingest_api.py`, OpenAI client timeout/logging via `llm_diagnostics.py`, MCP timeout + approval-gate via `mcp_patches.py`) _before_ invoking NAT in-process. See `builder/CLAUDE.md` for the exact ordering before touching startup.
 
 ### Routing: single-agent by default, MAS gated
+
 Routine single-domain requests go straight to the matching specialist. Only multi-source-synthesis / broad-exploration candidates are escalated through `builder/mas_optimizer/` (`mas_evaluate`), against thresholds in `backend/tool-calling-config.yaml` under `mas_optimizer_tool`. The eval harness asserts this routing behavior.
 
 ### The autonomous worker is a separate process
+
 `builder/autonomous_agent/worker.py` runs as its own Deployment (`python -m autonomous_agent.worker`), polling a Redis queue, calling the agent over HTTP, and surfacing runs/feed/approvals to the frontend Autonomy dashboard. It is not a NAT tool. Destructive/irreversible/credential/send/delete actions pause for UI approval.
 
 ## NAT (NeMo Agent Toolkit) work
 
-For any NAT *framework* implementation work (workflow YAML, custom functions/tools, evals, telemetry, MCP, serving), **read [`skills/nat-user-rules/SKILL.md`](skills/nat-user-rules/SKILL.md) first** — it routes to the focused `nat-*` skill for the task. NAT is **not** pip-installable locally (it comes from a git ref baked into the container), so builder tests run against mocks defined in `builder/conftest.py`; keep testable logic in standalone helpers, not inside `@register_function` generators.
+For any NAT _framework_ implementation work (workflow YAML, custom functions/tools, evals, telemetry, MCP, serving), **read [`skills/nat-user-rules/SKILL.md`](skills/nat-user-rules/SKILL.md) first** — it routes to the focused `nat-*` skill for the task. NAT is **not** pip-installable locally (it comes from a git ref baked into the container), so builder tests run against mocks defined in `builder/conftest.py`; keep testable logic in standalone helpers, not inside `@register_function` generators.
 
 ## Conventions
 
 - **Secrets:** never commit `.env` (or `frontend/auth-passwords.json`). Add new vars to `.env.template`. Generate `SESSION_SECRET` with `openssl rand -base64 32`; it signs identity cookies and must be unique per deployment. `DAEDALUS_INTERNAL_API_TOKEN` protects trusted frontend→backend identity headers (Helm manages it automatically).
-- **A tool's contract** lives in its package `README.md` and `src/<pkg>/configs/config.yml`, and a config field maps to env-var interpolation in `backend/tool-calling-config.yaml` — changing a field means updating the package config class *and* threading it through both YAMLs.
+- **A tool's contract** lives in its package `README.md` and `src/<pkg>/configs/config.yml`, and a config field maps to env-var interpolation in `backend/tool-calling-config.yaml` — changing a field means updating the package config class _and_ threading it through both YAMLs.
 - **Commits:** short imperative summaries (e.g. `Fix optional Exa search config validation`); keep them scoped, avoid unrelated formatting churn. Do not add AI/bot attribution to commit messages.
