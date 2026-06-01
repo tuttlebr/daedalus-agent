@@ -67,7 +67,7 @@ These packages only _register_ tools. They are assembled into a running agent by
 
 The container runs `python entrypoint.py`, which replaces `nat serve` so that **pre-import patches survive**. Order is load-bearing — these run before any NAT import:
 
-1. Seed optional env defaults (e.g. `EXA_API_KEY`) so NAT `${...}` interpolation doesn't emit `None`.
+1. Seed optional env defaults declared in `OPTIONAL_STRING_ENV_DEFAULTS` so NAT `${...}` interpolation doesn't emit `None`.
 2. `_patch_starlette_compat` — re-adds `add_event_handler`/`add_route`/`add_websocket_route` removed in Starlette 1.0 but still called by NAT 1.4.x/1.7.
 3. `_patch_fastapi_daedalus_routes` — wraps `FastAPI.__init__` to `include_router` the Daedalus HTTP routers (below) onto NAT's app.
 4. `llm_diagnostics.patch()` — forces timeout/`max_retries` on every OpenAI client and enriches retry/connection-error logs with base_url + status (works around NAT passing `timeout=None`).

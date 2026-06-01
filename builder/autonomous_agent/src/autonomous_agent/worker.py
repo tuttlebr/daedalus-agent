@@ -13,7 +13,7 @@ from .backend_client import BackendClient, OAuthRequiredError
 from .models import new_approval, new_run, now_ms
 from .prompt import (
     build_messages,
-    extract_approval_token,
+    extract_approval_metadata,
     feed_items_from_output,
     load_workspace,
     output_requests_approval,
@@ -155,11 +155,15 @@ def run_once(
             return run
 
         if output_requests_approval(response):
+            approval_metadata = extract_approval_metadata(response)
             approval = new_approval(
                 run_id=run["id"],
-                action="Backend requested confirmation for an external-state mutation.",
+                action=approval_metadata["action"],
                 reason=response[:1800],
-                approval_token=extract_approval_token(response),
+                action_type=approval_metadata["action_type"],
+                target=approval_metadata["target"],
+                risk=approval_metadata["risk"],
+                approval_token=approval_metadata["approval_token"],
             )
             store.append_approval(user_id, approval)
             run["status"] = "waiting_approval"

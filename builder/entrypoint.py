@@ -10,7 +10,7 @@ import logging
 import os
 import sys
 
-OPTIONAL_STRING_ENV_DEFAULTS = ("EXA_API_KEY",)
+OPTIONAL_STRING_ENV_DEFAULTS: tuple[str, ...] = ()
 
 
 def _configure_optional_tool_env(logger):

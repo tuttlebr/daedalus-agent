@@ -12,7 +12,7 @@
 #   query: user message sent to /chat/stream
 #   expected:
 #     architecture: SAS | MAS-centralized | MAS-decentralized
-#     sub_agent: research_agent | ops_agent | visual_media_tool | vtt_interpreter_tool | user_data_agent | null
+#     sub_agent: research_agent | deep_research_agent | ops_agent | visual_media_tool | vtt_interpreter_tool | user_data_agent | null
 #     skill: <skill_name> | null
 #   forbidden_tools: [...]    # optional
 #   conversational_only: true # optional; expects NO routing tool calls
@@ -29,6 +29,17 @@
   expected:
     architecture: SAS
     sub_agent: research_agent
+    skill: null
+
+- id: deep-research-001
+  query: |
+    Produce a comprehensive report comparing AI inference optimization
+    strategies across NVIDIA Dynamo, KV-cache reuse, speculative decoding,
+    and model routing. Use at least six independent sources and include
+    practical recommendations for a production agent platform.
+  expected:
+    architecture: SAS
+    sub_agent: deep_research_agent
     skill: null
 
 - id: ops-001

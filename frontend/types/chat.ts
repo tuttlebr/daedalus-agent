@@ -1,4 +1,5 @@
 import { IntermediateStep } from './intermediateSteps';
+import type { SourcePolicy } from './sourcePolicy';
 
 export interface MessageError {
   message: string;
@@ -87,6 +88,7 @@ export interface ChatBody {
     enableIntermediateSteps?: boolean;
     username?: string;
     userContext?: UserContext;
+    sourcePolicy?: SourcePolicy;
     [key: string]: any;
   };
 }

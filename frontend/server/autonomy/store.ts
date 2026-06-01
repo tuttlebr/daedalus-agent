@@ -10,6 +10,7 @@ import {
   AutonomyRun,
 } from '@/types/autonomy';
 
+import { sanitizeSourcePolicy } from '@/server/chat/sourcePolicy';
 import { getRedis, jsonGet, jsonSet, sessionKey } from '@/server/session/redis';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -73,6 +74,9 @@ export function sanitizeConfigPatch(
   const maxFeed = clampInt(patch.maxFeedItems, 1, 2000);
   if (maxFeed !== undefined) clean.maxFeedItems = maxFeed;
 
+  const sourcePolicy = sanitizeSourcePolicy(patch.sourcePolicy);
+  if (sourcePolicy) clean.sourcePolicy = sourcePolicy;
+
   return clean;
 }
 
@@ -95,6 +99,12 @@ function defaultConfig(userId: string): AutonomyConfig {
     intervalSeconds: DEFAULT_INTERVAL_SECONDS,
     maxRunsStored: 100,
     maxFeedItems: 200,
+    sourcePolicy: {
+      disabledSources: [],
+      enabledSources: [],
+      maxResearchToolCalls: 6,
+      requirePlanApproval: true,
+    },
     lastScheduledRunAt: null,
     createdAt: timestamp,
     updatedAt: timestamp,

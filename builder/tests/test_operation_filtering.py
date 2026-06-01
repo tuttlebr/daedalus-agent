@@ -94,6 +94,40 @@ def test_source_verifier_enabled_operations_filters_registration():
     assert run(_run()) == ["verify_claim"]
 
 
+def test_source_verifier_audit_citations_operation_can_be_exposed_alone():
+    async def _run():
+        from source_verifier.source_verifier_function import (
+            SourceVerifierConfig,
+            source_verifier_function,
+        )
+
+        return await _names(
+            source_verifier_function(
+                SourceVerifierConfig(enabled_operations=["audit_citations"]),
+                MagicMock(),
+            )
+        )
+
+    assert run(_run()) == ["audit_citations"]
+
+
+def test_source_verifier_plan_sources_operation_can_be_exposed_alone():
+    async def _run():
+        from source_verifier.source_verifier_function import (
+            SourceVerifierConfig,
+            source_verifier_function,
+        )
+
+        return await _names(
+            source_verifier_function(
+                SourceVerifierConfig(enabled_operations=["plan_sources"]),
+                MagicMock(),
+            )
+        )
+
+    assert run(_run()) == ["plan_sources"]
+
+
 def test_user_interaction_enabled_operations_filters_registration():
     async def _run():
         from user_interaction.user_interaction_function import (
@@ -109,6 +143,23 @@ def test_user_interaction_enabled_operations_filters_registration():
         )
 
     assert run(_run()) == ["clarify", "confirm_action"]
+
+
+def test_user_interaction_confirm_research_plan_operation_can_be_exposed_alone():
+    async def _run():
+        from user_interaction.user_interaction_function import (
+            UserInteractionConfig,
+            user_interaction_function,
+        )
+
+        return await _names(
+            user_interaction_function(
+                UserInteractionConfig(enabled_operations=["confirm_research_plan"]),
+                MagicMock(),
+            )
+        )
+
+    assert run(_run()) == ["confirm_research_plan"]
 
 
 def test_rss_feed_enabled_operations_filters_registration():

@@ -92,14 +92,11 @@ Useful optional keys:
 
 ```bash
 SERPAPI_KEY=...
-EXA_API_KEY=...
 GITHUB_PAT=...
 ```
 
-`EXA_API_KEY` enables the NeMo Agent Toolkit Exa search tool for semantic web
-research. Without it, the tool returns a soft unavailable message and the
-research agent can continue with curated retrieval, SerpAPI, or known-URL
-scraping.
+`SERPAPI_KEY` enables the configured internet search provider used by the
+research agents for web discovery, news, images, shopping, and URL lookup.
 
 ### 2. Optionally choose a backend config for local Compose
 
@@ -299,7 +296,22 @@ and [`builder/nat_nv_ingest/README.md`](builder/nat_nv_ingest/README.md).
 
 The backend configuration lives at [`backend/tool-calling-config.yaml`](backend/tool-calling-config.yaml) and covers tool use, retrieval, memory, MCP integrations, image tooling, and reasoning. It includes the custom packages from `builder/` and relies heavily on environment-variable substitution for secrets and endpoints. Local Compose mounts this file directly, and Helm deployments should pass the same file with `--set-file backend.default.config.data=backend/tool-calling-config.yaml`.
 
-The `mas_optimizer` package implements the escalation gate between single-agent and multi-agent handling. Routine single-domain requests bypass it and go directly to the matching specialist; MAS candidates such as structured multi-source synthesis or broad independent-source exploration are evaluated against routing thresholds configured in [`backend/tool-calling-config.yaml`](backend/tool-calling-config.yaml) under `mas_optimizer_tool`.
+The workflow separates quick research from AIQ-style deep research. Concise
+factual questions route to `research_agent`; comprehensive reports, broad
+surveys, strategy work, and multi-section comparisons route to
+`deep_research_agent`, which plans first, selects from a source registry,
+requests plan approval for expensive/open-ended research, tracks a source
+ledger, verifies a small number of decision-critical claims, and audits final
+citations before returning a report. The frontend can pass per-message
+`sourcePolicy` metadata that becomes a hidden `[SOURCE_POLICY]` control message
+for source inclusion/exclusion, retrieval budget, and plan-approval
+requirements. The `mas_optimizer` package implements the escalation gate
+between single-agent and multi-agent handling. Routine single-domain requests
+bypass it and go directly to the matching specialist; MAS candidates such as
+structured multi-source synthesis or broad independent-source exploration are
+evaluated against routing thresholds configured in
+[`backend/tool-calling-config.yaml`](backend/tool-calling-config.yaml) under
+`mas_optimizer_tool`.
 
 ## Frontend Capabilities
 
@@ -339,8 +351,8 @@ telemetry, MCP, or serving work.
 | `rss_feed`           | package | RSS fetching, reranking, and scraping                                 |
 | `serpapi_search`     | package | Search integration                                                    |
 | `smart_milvus`       | package | Milvus retrieval, domain routing, and reranking                       |
-| `source_verifier`    | package | Claim verification before findings are persisted                      |
-| `user_interaction`   | package | Structured clarification and confirmation prompts                     |
+| `source_verifier`    | package | Source planning, claim verification, and citation auditing            |
+| `user_interaction`   | package | Structured clarification, plan approval, and confirmation prompts     |
 | `vtt_interpreter`    | package | Transcript-to-notes processing                                        |
 | `webscrape`          | package | Web page extraction                                                   |
 | `entrypoint.py`      | module  | Custom NAT entrypoint with Starlette compatibility shims              |

@@ -1,3 +1,5 @@
+import type { SourcePolicy } from './sourcePolicy';
+
 export type AutonomyRunStatus =
   | 'queued'
   | 'running'
@@ -31,6 +33,7 @@ export interface AutonomyConfig {
   intervalSeconds: number;
   maxRunsStored: number;
   maxFeedItems: number;
+  sourcePolicy?: SourcePolicy;
   lastScheduledRunAt?: number | null;
   createdAt: number;
   updatedAt: number;

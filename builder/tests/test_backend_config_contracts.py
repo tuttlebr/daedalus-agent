@@ -57,6 +57,7 @@ DEPLOYED_CONFIGS = (CONFIG,)
 PROMPT_GUIDANCE_RUNTIME_PROMPTS = {
     "workflow",
     "research_agent",
+    "deep_research_agent",
     "nvidia_docs_agent",
     "ops_agent",
     "user_data_agent",
@@ -90,10 +91,17 @@ MULTI_OPERATION_TYPES = {
     "agent_skills": ["list_skills", "load_skill", "run_skill_script"],
     "content_distiller": ["distill_content", "extract_structured", "synthesize"],
     "mas_optimizer": ["mas_evaluate", "mas_verify", "mas_log_outcome"],
-    "source_verifier": ["verify_claim", "verify_memory", "audit_memories"],
+    "source_verifier": [
+        "verify_claim",
+        "verify_memory",
+        "audit_memories",
+        "audit_citations",
+        "plan_sources",
+    ],
     "user_interaction": [
         "clarify",
         "confirm_action",
+        "confirm_research_plan",
         "present_options",
         "delete_memory_guarded",
     ],
@@ -247,12 +255,18 @@ def test_deployed_tool_surface_is_optimized():
         # visual_media_tool is intentionally exposed at the top level and marked
         # return_direct so generated image refs are delivered without the
         # additional media-agent routing delay.
-        assert _effective_operation_count(config, workflow_tools) <= 16, path
+        assert _effective_operation_count(config, workflow_tools) <= 17, path
         assert (
             _effective_operation_count(
                 config, functions["research_agent"]["tool_names"]
             )
-            <= 8
+            <= 10
+        ), path
+        assert (
+            _effective_operation_count(
+                config, functions["deep_research_agent"]["tool_names"]
+            )
+            <= 11
         ), path
         assert (
             _effective_operation_count(config, functions["ops_agent"]["tool_names"])
@@ -275,6 +289,7 @@ def test_deployed_tool_surface_is_optimized():
 def test_tool_calling_agents_use_resilient_runner():
     agent_names = [
         "research_agent",
+        "deep_research_agent",
         "nvidia_docs_agent",
         "ops_agent",
         "user_document_agent",
@@ -292,6 +307,7 @@ def test_tool_calling_agents_use_resilient_runner():
 def test_return_direct_tools_are_exposed_to_their_agents():
     expected = {
         "workflow": ["user_interaction_tool", "visual_media_tool"],
+        "deep_research_agent": ["research_plan_approval_tool"],
         "ops_agent": ["ops_confirmation_tool"],
     }
     for path in DEPLOYED_CONFIGS:
@@ -300,6 +316,14 @@ def test_return_direct_tools_are_exposed_to_their_agents():
         for tool_name in expected["workflow"]:
             assert tool_name in workflow_tools, path
         assert config["workflow"]["return_direct"] == expected["workflow"], path
+
+        deep_research_agent = config["functions"]["deep_research_agent"]
+        deep_tools = set(deep_research_agent["tool_names"])
+        for tool_name in expected["deep_research_agent"]:
+            assert tool_name in deep_tools, path
+        assert (
+            deep_research_agent["return_direct"] == expected["deep_research_agent"]
+        ), path
 
         ops_agent = config["functions"]["ops_agent"]
         ops_tools = set(ops_agent["tool_names"])
@@ -478,8 +502,11 @@ def test_multi_operation_tools_are_filtered_in_production():
     expected = {
         "agent_skills_tool": ["load_skill"],
         "content_distiller_tool": ["distill_content"],
+        "citation_auditor_tool": ["audit_citations"],
         "mas_optimizer_tool": ["mas_evaluate"],
         "ops_confirmation_tool": ["confirm_action"],
+        "research_plan_approval_tool": ["confirm_research_plan"],
+        "source_policy_tool": ["plan_sources"],
         "source_verifier_tool": ["verify_claim"],
         "user_interaction_tool": [
             "clarify",
@@ -498,30 +525,37 @@ def test_serpapi_documented_aliases_are_configured():
     assert "search_type (organic, news, images, shopping)" in desc
 
 
-def test_research_agent_has_optional_exa_search():
+def test_research_agents_use_serpapi_as_only_internet_search_provider():
     for path in DEPLOYED_CONFIGS:
         config = _config(path)
         research_agent = config["functions"]["research_agent"]
-        tools = research_agent["tool_names"]
+        deep_research_agent = config["functions"]["deep_research_agent"]
+        functions = config["functions"]
+        research_tools = research_agent["tool_names"]
+        deep_tools = deep_research_agent["tool_names"]
 
-        assert "exa_internet_search_tool" in tools, path
-        assert tools.index("curated_feed_search_tool") < tools.index(
-            "exa_internet_search_tool"
-        ), path
-        assert tools.index("exa_internet_search_tool") < tools.index(
+        assert "exa_internet_search_tool" not in functions, path
+        assert "exa_internet_search_tool" not in research_tools, path
+        assert "exa_internet_search_tool" not in deep_tools, path
+        assert "serpapi_search_tool" in research_tools, path
+        assert "serpapi_search_tool" in deep_tools, path
+        assert research_tools.index("curated_feed_search_tool") < research_tools.index(
             "serpapi_search_tool"
         ), path
-
-        exa = config["functions"]["exa_internet_search_tool"]
-        assert exa["_type"] == "exa_internet_search", path
-        assert "api_key" not in exa, path
-        assert exa["search_type"] == "auto", path
-        assert exa["livecrawl"] == "fallback", path
+        source_registry = functions["source_policy_tool"]["source_registry"]
+        assert {source["id"] for source in source_registry}.isdisjoint(
+            {"semantic_web"}
+        ), path
+        assert all(
+            "exa_internet_search_tool" not in source.get("tools", [])
+            for source in source_registry
+        ), path
 
         prompt = research_agent["system_prompt"]
-        assert prompt.index("exa_internet_search_tool") < prompt.index(
-            "serpapi_search_tool"
-        ), path
+        deep_prompt = deep_research_agent["system_prompt"]
+        assert "exa_internet_search_tool" not in prompt, path
+        assert "exa_internet_search_tool" not in deep_prompt, path
+        assert "only internet search provider" in prompt, path
 
 
 def test_source_verifier_fast_llm_has_no_unsupported_extra_args():
@@ -547,8 +581,8 @@ def test_top_level_workflow_exposes_source_verifier_when_add_memory_requires_it(
 
 def test_mas_evaluate_uses_effective_routing_domains_not_global_tool_catalog():
     expected = (
-        'active_tool_names="research_agent,nvidia_docs_agent,ops_agent,'
-        'user_document_agent,user_data_agent"'
+        'active_tool_names="research_agent,deep_research_agent,'
+        'nvidia_docs_agent,ops_agent,user_document_agent,user_data_agent"'
     )
     forbidden = "nvidia_retriever_tool,semianalysis_retriever_tool"
     for path in DEPLOYED_CONFIGS:
@@ -565,6 +599,21 @@ def test_direct_specialist_routing_precedes_generic_mas_gate():
         assert prompt.index("Direct specialist requests") < prompt.index(
             "MAS candidate requests"
         ), path
+
+
+def test_source_policy_metadata_is_propagated_to_research_agents():
+    for path in DEPLOYED_CONFIGS:
+        config = _config(path)
+        workflow_prompt = config["workflow"]["system_prompt"]
+        research_prompt = config["functions"]["research_agent"]["system_prompt"]
+        deep_prompt = config["functions"]["deep_research_agent"]["system_prompt"]
+
+        assert "[SOURCE_POLICY]" in workflow_prompt, path
+        assert "enabled_source_ids" in workflow_prompt, path
+        assert "source_policy_tool.plan_sources" in research_prompt, path
+        assert "selected_sources_json" in research_prompt, path
+        assert "disabled_sources_json" in deep_prompt, path
+        assert "require_deep_research_plan_approval" in deep_prompt, path
 
 
 def test_workflow_runs_get_memory_first_unconditionally():

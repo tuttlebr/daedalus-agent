@@ -1,6 +1,6 @@
 """Source citation verification for NeMo Agent Toolkit.
 
-Registers three tools with NAT:
+Registers source-governance tools with NAT:
 
   verify_claim      Fetch a source URL and assess whether it actually
                     supports a specific claim.  Returns a structured
@@ -15,6 +15,13 @@ Registers three tools with NAT:
                     Returns a structured audit report with per-memory
                     verdicts and an aggregate summary.
 
+  audit_citations   Deterministically audit a markdown answer's inline
+                    citations and reference URLs against an optional source
+                    ledger captured from tool results.
+
+  plan_sources      Choose an allowed source/tool strategy from a small
+                    source registry before research begins.
+
 Designed to combat hallucination compounding in autonomous agent cycles
 where uncited or incorrectly cited claims accumulate in memory over time.
 
@@ -28,7 +35,8 @@ import json
 import logging
 import re
 from dataclasses import dataclass
-from urllib.parse import urlparse
+from typing import Any
+from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 import httpx
 from nat.builder.builder import Builder, LLMFrameworkEnum
@@ -49,6 +57,99 @@ logger = logging.getLogger(__name__)
 # Regex to extract markdown links: [text](url)
 _MARKDOWN_LINK_RE = re.compile(r"\[([^\]]*)\]\((https?://[^)]+)\)")
 _PLACEHOLDER_HOSTS = {"example.com", "example.org", "example.net"}
+_TRACKING_PARAMS = {
+    "utm_source",
+    "utm_medium",
+    "utm_campaign",
+    "utm_term",
+    "utm_content",
+    "ref",
+    "source",
+}
+_URL_RE = re.compile(r"https?://[^\s<>\"'\]]+")
+_URL_TRIM_CHARS = ".,;)]>"
+_REFERENCE_SECTION_RE = re.compile(
+    r"^(?:#{2,3}\s+(?:Sources|References)|\*\*References:?\*\*)",
+    re.MULTILINE | re.IGNORECASE,
+)
+_CITATION_LINE_RE = re.compile(r"^(\s*[-*]?\s*)\[(\d+)\](\s+.+)$")
+_INLINE_CITATION_RE = re.compile(r"(?<!\w)\[(\d+)\](?!\w)")
+
+
+def _default_source_registry() -> list[dict[str, Any]]:
+    """Default Daedalus source registry used by plan_sources."""
+    return [
+        {
+            "id": "curated_domains",
+            "name": "Curated Knowledge Domains",
+            "description": (
+                "Milvus-backed curated corpora for established reference " "questions."
+            ),
+            "tools": ["domain_retriever_tool"],
+            "default_enabled": True,
+            "requires_auth": False,
+        },
+        {
+            "id": "curated_feeds",
+            "name": "Curated Recent Feeds",
+            "description": (
+                "Trusted RSS feeds for current source-specific updates and "
+                "announcements."
+            ),
+            "tools": ["curated_feed_search_tool"],
+            "default_enabled": True,
+            "requires_auth": False,
+        },
+        {
+            "id": "google_search",
+            "name": "Internet Search (SerpAPI)",
+            "description": (
+                "SerpAPI results for internet research, news, discovery, "
+                "shopping, images, and quick URL lookup."
+            ),
+            "tools": ["serpapi_search_tool"],
+            "default_enabled": True,
+            "requires_auth": False,
+        },
+        {
+            "id": "known_url_scrape",
+            "name": "Known URL Scrape",
+            "description": "Fetch and convert a specific URL already known.",
+            "tools": ["webscrape_tool"],
+            "default_enabled": True,
+            "requires_auth": False,
+        },
+        {
+            "id": "uploaded_documents",
+            "name": "Uploaded Documents",
+            "description": (
+                "Authenticated user's uploaded documents and shared upload "
+                "collections."
+            ),
+            "tools": ["user_document_agent"],
+            "default_enabled": False,
+            "requires_auth": True,
+        },
+        {
+            "id": "workspace_data",
+            "name": "Workspace Data",
+            "description": "Authenticated user's Gmail and Calendar data.",
+            "tools": ["user_data_agent"],
+            "default_enabled": False,
+            "requires_auth": True,
+        },
+        {
+            "id": "nvidia_docs",
+            "name": "Official NVIDIA Docs",
+            "description": (
+                "Official NVIDIA product documentation via configured MCP "
+                "docs servers."
+            ),
+            "tools": ["nvidia_docs_agent"],
+            "default_enabled": True,
+            "requires_auth": False,
+        },
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -123,8 +224,15 @@ class SourceVerifierConfig(FunctionBaseConfig, name="source_verifier"):
         default=None,
         description=(
             "Optional allow-list of operations to register. Supported values: "
-            "verify_claim, verify_memory, audit_memories. When omitted, all "
-            "operations are registered."
+            "verify_claim, verify_memory, audit_memories, audit_citations, "
+            "plan_sources. When omitted, all operations are registered."
+        ),
+    )
+    source_registry: list[dict[str, Any]] = Field(
+        default_factory=_default_source_registry,
+        description=(
+            "Source registry used by plan_sources. Entries support id, name, "
+            "description, tools, default_enabled, and requires_auth."
         ),
     )
 
@@ -322,6 +430,365 @@ def _parse_llm_json(raw: str) -> dict:
         return {}
 
 
+def _normalize_audit_url(url: str) -> str:
+    """Normalize a URL for citation-audit comparison."""
+    parsed = urlparse(url.strip())
+    query = urlencode(
+        sorted(
+            (key, value)
+            for key, value in parse_qsl(parsed.query, keep_blank_values=True)
+            if key.lower() not in _TRACKING_PARAMS
+        )
+    )
+    return urlunparse(
+        (
+            parsed.scheme.lower(),
+            parsed.netloc.lower(),
+            parsed.path.rstrip("/") or "/",
+            "",
+            query,
+            "",
+        )
+    )
+
+
+def _extract_urls(text: str) -> list[str]:
+    """Extract HTTP(S) URLs from markdown or plain text."""
+    urls: list[str] = []
+    seen: set[str] = set()
+    for match in _URL_RE.finditer(text):
+        url = match.group(0).rstrip(_URL_TRIM_CHARS)
+        normalized = _normalize_audit_url(url)
+        if normalized not in seen:
+            seen.add(normalized)
+            urls.append(url)
+    return urls
+
+
+def _parse_source_urls(source_urls_json: str) -> list[str]:
+    """Parse a source ledger passed as JSON, newline text, or comma text."""
+    if not source_urls_json or not source_urls_json.strip():
+        return []
+
+    text = source_urls_json.strip()
+    try:
+        raw = json.loads(text)
+    except json.JSONDecodeError:
+        return _extract_urls(text)
+
+    urls: list[str] = []
+    if isinstance(raw, list):
+        for item in raw:
+            if isinstance(item, str):
+                urls.extend(_extract_urls(item))
+            elif isinstance(item, dict):
+                for key in ("url", "source_url", "href"):
+                    value = item.get(key)
+                    if isinstance(value, str):
+                        urls.extend(_extract_urls(value))
+                        break
+    elif isinstance(raw, dict):
+        for key in ("urls", "source_urls", "sources", "references"):
+            value = raw.get(key)
+            if isinstance(value, list):
+                urls.extend(_parse_source_urls(json.dumps(value)))
+                break
+        else:
+            for key in ("url", "source_url", "href"):
+                value = raw.get(key)
+                if isinstance(value, str):
+                    urls.extend(_extract_urls(value))
+                    break
+
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for url in urls:
+        normalized = _normalize_audit_url(url)
+        if normalized not in seen:
+            seen.add(normalized)
+            deduped.append(url)
+    return deduped
+
+
+def _source_entry_value(entry: dict[str, Any], key: str, default: Any) -> Any:
+    value = entry.get(key, default)
+    return default if value is None else value
+
+
+def _normalize_source_entry(entry: dict[str, Any]) -> dict[str, Any]:
+    source_id = str(_source_entry_value(entry, "id", "")).strip().lower()
+    tools = _source_entry_value(entry, "tools", [])
+    if isinstance(tools, str):
+        tools = [item.strip() for item in tools.split(",") if item.strip()]
+    elif isinstance(tools, list):
+        tools = [str(item).strip() for item in tools if str(item).strip()]
+    else:
+        tools = []
+
+    name = str(
+        _source_entry_value(
+            entry,
+            "name",
+            source_id.replace("_", " ").title(),
+        )
+    ).strip()
+    description = str(_source_entry_value(entry, "description", "")).strip()
+
+    return {
+        "id": source_id,
+        "name": name,
+        "description": description,
+        "tools": tools,
+        "default_enabled": bool(_source_entry_value(entry, "default_enabled", True)),
+        "requires_auth": bool(_source_entry_value(entry, "requires_auth", False)),
+    }
+
+
+def _parse_source_ids(raw: str) -> tuple[set[str] | None, list[str]]:
+    """Parse source IDs from JSON, comma text, or newline text.
+
+    Returns None when the caller omitted the value, preserving the distinction
+    between "use defaults" and "explicitly use no data sources".
+    """
+    if raw is None or not str(raw).strip():
+        return None, []
+
+    text = str(raw).strip()
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError:
+        parsed = re.split(r"[\n,]", text)
+
+    values: list[Any]
+    if isinstance(parsed, dict):
+        for key in ("sources", "source_ids", "selected_sources", "disabled_sources"):
+            value = parsed.get(key)
+            if isinstance(value, list):
+                values = value
+                break
+        else:
+            values = [parsed.get("id", "")]
+    elif isinstance(parsed, list):
+        values = parsed
+    else:
+        values = [parsed]
+
+    source_ids = {str(value).strip().lower() for value in values if str(value).strip()}
+    return source_ids, sorted(source_ids)
+
+
+def _question_flags(question: str) -> dict[str, bool]:
+    q = question.lower()
+    return {
+        "has_url": bool(_extract_urls(question)),
+        "current": any(
+            token in q
+            for token in (
+                "latest",
+                "current",
+                "today",
+                "this week",
+                "recent",
+                "news",
+                "released",
+                "version",
+            )
+        ),
+        "broad": any(
+            token in q
+            for token in (
+                "comprehensive",
+                "deep research",
+                "report",
+                "roadmap",
+                "strategy",
+                "survey",
+                "compare across",
+                "market",
+                "landscape",
+            )
+        ),
+        "docs": any(
+            token in q
+            for token in (
+                "nvidia docs",
+                "api",
+                "configuration",
+                "deployment",
+                "troubleshoot",
+                "dynamo",
+                "openshell",
+                "aiperf",
+                "nvcf",
+                "dsx",
+            )
+        ),
+        "uploaded": any(
+            token in q
+            for token in (
+                "uploaded",
+                "my document",
+                "my pdf",
+                "the pdf",
+                "documentref",
+            )
+        ),
+        "workspace": any(
+            token in q
+            for token in (
+                "my email",
+                "gmail",
+                "inbox",
+                "my calendar",
+                "schedule",
+                "free time",
+            )
+        ),
+        "news_or_cards": any(
+            token in q for token in ("news", "image", "shopping", "google")
+        ),
+    }
+
+
+def _preferred_source_ids(question: str, depth: str) -> list[str]:
+    flags = _question_flags(question)
+    preferred: list[str] = []
+
+    if flags["uploaded"]:
+        preferred.append("uploaded_documents")
+    if flags["workspace"]:
+        preferred.append("workspace_data")
+    if flags["docs"]:
+        preferred.append("nvidia_docs")
+    if flags["has_url"]:
+        preferred.append("known_url_scrape")
+    if flags["current"]:
+        preferred.extend(["curated_feeds", "google_search"])
+    if flags["broad"] or depth == "deep":
+        preferred.extend(["curated_domains", "google_search"])
+    if flags["news_or_cards"]:
+        preferred.append("google_search")
+
+    preferred.append("curated_domains")
+    preferred.append("google_search")
+
+    ordered: list[str] = []
+    seen: set[str] = set()
+    for source_id in preferred:
+        if source_id not in seen:
+            seen.add(source_id)
+            ordered.append(source_id)
+    return ordered
+
+
+def _source_reason(source_id: str, question: str, depth: str) -> str:
+    flags = _question_flags(question)
+    reasons = {
+        "curated_domains": "Use curated corpora for stable background and primary reference passages.",
+        "curated_feeds": "Use recent trusted feeds for current announcements or latest-source checks.",
+        "google_search": "Use SerpAPI internet search for discovery, news cards, images, shopping, or corroboration.",
+        "known_url_scrape": "Use only after a specific URL is already known.",
+        "uploaded_documents": "Use when the question is about authenticated uploaded documents.",
+        "workspace_data": "Use when the question is about authenticated email or calendar data.",
+        "nvidia_docs": "Route official NVIDIA product documentation questions to the docs specialist.",
+    }
+    reason = reasons.get(
+        source_id, "Use this selected source when it matches the user's constraints."
+    )
+    if depth == "deep" and source_id == "google_search":
+        reason += " Deep research should pair internet search with independent curated or known-URL sources when available."
+    if flags["current"] and source_id == "curated_domains":
+        reason += " Pair with a current source before making latest/current claims."
+    return reason
+
+
+def _tool_hints(source_id: str, question: str) -> list[dict[str, str]]:
+    q = question.lower()
+    if source_id == "curated_domains":
+        domain = "nvidia"
+        if any(token in q for token in ("kubernetes", "k8s", "helm", "pod")):
+            domain = "kubernetes"
+        elif any(token in q for token in ("semianalysis", "gpu market", "capex")):
+            domain = "semianalysis"
+        elif any(token in q for token in ("veterinary", "clinic", "vet")):
+            domain = "veterinarian"
+        elif any(token in q for token in ("mental health", "therapy", "clinical")):
+            domain = "mentalhealth"
+        return [{"tool": "domain_retriever_tool", "domain": domain}]
+
+    if source_id == "curated_feeds":
+        feed_scope = "auto"
+        if "nvidia" in q:
+            feed_scope = "nvidia_blog"
+        if any(token in q for token in ("developer", "cuda", "nemo", "inference")):
+            feed_scope = "nvidia_developer"
+        if any(token in q for token in ("press", "partnership", "earnings")):
+            feed_scope = "nvidia_newsroom"
+        if "semianalysis" in q:
+            feed_scope = "semianalysis"
+        return [{"tool": "curated_feed_search_tool", "feed_scope": feed_scope}]
+
+    if source_id == "google_search":
+        search_type = "organic"
+        if "news" in q or "latest" in q or "recent" in q:
+            search_type = "news"
+        elif "image" in q:
+            search_type = "images"
+        elif "shopping" in q:
+            search_type = "shopping"
+        return [{"tool": "serpapi_search_tool", "search_type": search_type}]
+
+    if source_id == "known_url_scrape":
+        return [{"tool": "webscrape_tool"}]
+    if source_id == "uploaded_documents":
+        return [{"tool": "user_document_agent"}]
+    if source_id == "workspace_data":
+        return [{"tool": "user_data_agent"}]
+    if source_id == "nvidia_docs":
+        return [{"tool": "nvidia_docs_agent"}]
+    return []
+
+
+def _safe_audit_url(url: str) -> tuple[bool, str | None]:
+    parsed = urlparse(url.strip())
+    hostname = (parsed.hostname or "").lower()
+    if hostname in _PLACEHOLDER_HOSTS:
+        return False, "placeholder_url"
+    try:
+        validate_public_url(url, check_dns=False)
+    except UnsafeURLError as exc:
+        return False, f"unsafe_url: {exc}"
+    return True, None
+
+
+def _renumber_markdown_citations(
+    body: str,
+    reference_lines: list[str],
+    valid_numbers: set[int],
+) -> tuple[str, str, dict[int, int]]:
+    ordered = sorted(valid_numbers)
+    mapping = {old: new for new, old in enumerate(ordered, 1)}
+
+    def replace_inline(match: re.Match[str]) -> str:
+        old = int(match.group(1))
+        if old not in mapping:
+            return ""
+        return f"[{mapping[old]}]"
+
+    repaired_body = _INLINE_CITATION_RE.sub(replace_inline, body)
+    repaired_ref_lines: list[str] = []
+    for line in reference_lines:
+        match = _CITATION_LINE_RE.match(line)
+        if not match:
+            repaired_ref_lines.append(line)
+            continue
+        old = int(match.group(2))
+        if old not in mapping:
+            continue
+        repaired_ref_lines.append(f"{match.group(1)}[{mapping[old]}]{match.group(3)}")
+    return repaired_body, "\n".join(repaired_ref_lines).strip(), mapping
+
+
 # ---------------------------------------------------------------------------
 # LLM prompts
 # ---------------------------------------------------------------------------
@@ -516,7 +983,311 @@ async def source_verifier_function(config: SourceVerifierConfig, builder: Builde
         return json.dumps(parsed, indent=2)
 
     # ------------------------------------------------------------------
-    # Tool 2 -- verify_memory
+    # Tool 2 -- plan_sources
+    # ------------------------------------------------------------------
+    async def plan_sources(
+        research_question: str,
+        selected_sources_json: str = "",
+        disabled_sources_json: str = "",
+        depth: str = "auto",
+    ) -> str:
+        """Plan the source strategy for a research request.
+
+        Args:
+            research_question: The user's research request.
+            selected_sources_json: Optional JSON/list/comma source IDs to use.
+                When omitted, default-enabled sources are available.
+            disabled_sources_json: Optional JSON/list/comma source IDs to
+                exclude for this request.
+            depth: auto, quick, or deep.
+
+        Returns:
+            JSON source plan with selected sources, recommended tool sequence,
+            unknown source IDs, blocked tools, and citation-ledger contract.
+        """
+        question = (research_question or "").strip()
+        normalized_depth = (depth or "auto").strip().lower()
+        if normalized_depth not in {"auto", "quick", "deep"}:
+            normalized_depth = "auto"
+
+        if not question:
+            return json.dumps(
+                {
+                    "passed": False,
+                    "reason": "research_question is required",
+                    "selected_sources": [],
+                    "recommended_tool_sequence": [],
+                },
+                indent=2,
+            )
+
+        registry = [
+            entry
+            for entry in (
+                _normalize_source_entry(item) for item in config.source_registry
+            )
+            if entry["id"]
+        ]
+        by_id = {entry["id"]: entry for entry in registry}
+        default_ids = {
+            entry["id"] for entry in registry if entry.get("default_enabled", True)
+        }
+
+        selected, requested_ids = _parse_source_ids(selected_sources_json)
+        disabled, disabled_ids = _parse_source_ids(disabled_sources_json)
+        selected_ids = set(default_ids if selected is None else selected)
+        disabled = disabled or set()
+
+        unknown_sources = sorted((selected_ids | disabled) - set(by_id))
+        selected_ids = (selected_ids - disabled) & set(by_id)
+
+        preferred_depth = (
+            "deep"
+            if normalized_depth == "auto" and _question_flags(question)["broad"]
+            else normalized_depth
+        )
+        preferred_ids = _preferred_source_ids(question, preferred_depth)
+        ordered_ids = [
+            source_id for source_id in preferred_ids if source_id in selected_ids
+        ]
+        ordered_ids.extend(
+            sorted(
+                source_id for source_id in selected_ids if source_id not in ordered_ids
+            )
+        )
+
+        selected_sources = [by_id[source_id] for source_id in ordered_ids]
+        recommended = [
+            {
+                "source_id": source["id"],
+                "name": source["name"],
+                "tools": source["tools"],
+                "reason": _source_reason(source["id"], question, preferred_depth),
+                "hints": _tool_hints(source["id"], question),
+            }
+            for source in selected_sources
+        ]
+        blocked_tools = [
+            tool
+            for source_id in sorted(disabled & set(by_id))
+            for tool in by_id[source_id]["tools"]
+        ]
+        warnings: list[str] = []
+        if requested_ids:
+            warnings.append(f"selected source override applied: {requested_ids}")
+        if disabled_ids:
+            warnings.append(f"disabled source override applied: {disabled_ids}")
+        if unknown_sources:
+            warnings.append(f"unknown source ids ignored: {unknown_sources}")
+        if not selected_sources:
+            warnings.append("no usable sources selected")
+
+        broad = _question_flags(question)["broad"] or preferred_depth == "deep"
+        approval_recommended = broad and len(recommended) >= 3
+
+        return json.dumps(
+            {
+                "passed": bool(selected_sources),
+                "depth": preferred_depth,
+                "available_sources": registry,
+                "selected_sources": selected_sources,
+                "recommended_tool_sequence": recommended,
+                "blocked_tools": blocked_tools,
+                "unknown_sources": unknown_sources,
+                "warnings": warnings,
+                "approval_recommended": approval_recommended,
+                "source_ledger_contract": {
+                    "capture_fields": ["url", "title", "tool", "source_id"],
+                    "audit_tool": "citation_auditor_tool.audit_citations",
+                    "rule": (
+                        "Only final URLs observed from selected source tools may "
+                        "appear in the References section."
+                    ),
+                },
+            },
+            indent=2,
+        )
+
+    # ------------------------------------------------------------------
+    # Tool 3 -- audit_citations
+    # ------------------------------------------------------------------
+    async def audit_citations(
+        answer_markdown: str,
+        source_urls_json: str = "",
+        require_references: bool = True,
+    ) -> str:
+        """Audit markdown citations against an optional source URL ledger.
+
+        This is a deterministic guard inspired by AI-Q's source registry:
+        the agent provides its draft answer and the URLs it actually saw in
+        tool results. The audit validates reference URLs, strips orphaned
+        inline citations, and returns repaired markdown for one revision pass.
+
+        Args:
+            answer_markdown: Draft answer or report with inline [N] citations.
+            source_urls_json: Optional JSON/list/text of source URLs observed in
+                tool outputs. When provided, every reference URL must match it
+                after lightweight normalization.
+            require_references: If true, fail when a references/sources section
+                is missing or no valid citations remain.
+
+        Returns:
+            JSON with passed, valid_citations, invalid_citations, warnings, and
+            repaired_markdown.
+        """
+        if not answer_markdown or not answer_markdown.strip():
+            return json.dumps(
+                {
+                    "passed": False,
+                    "valid_citations": [],
+                    "invalid_citations": [
+                        {
+                            "reason": "missing_answer_markdown",
+                            "detail": "No answer_markdown was provided.",
+                        }
+                    ],
+                    "warnings": [],
+                    "repaired_markdown": "",
+                },
+                indent=2,
+            )
+
+        allowed_urls = _parse_source_urls(source_urls_json)
+        allowed_norms = {_normalize_audit_url(url): url for url in allowed_urls}
+        invalid: list[dict] = []
+        warnings: list[str] = []
+        valid: list[dict] = []
+
+        match = _REFERENCE_SECTION_RE.search(answer_markdown)
+        if not match:
+            if require_references:
+                invalid.append(
+                    {
+                        "reason": "missing_references_section",
+                        "detail": "No References or Sources section was found.",
+                    }
+                )
+            for url in _extract_urls(answer_markdown):
+                safe, reason = _safe_audit_url(url)
+                if not safe:
+                    invalid.append({"reason": reason, "url": url})
+            return json.dumps(
+                {
+                    "passed": not invalid,
+                    "allowed_source_count": len(allowed_urls),
+                    "valid_citations": valid,
+                    "invalid_citations": invalid,
+                    "warnings": warnings,
+                    "repaired_markdown": answer_markdown.strip(),
+                },
+                indent=2,
+            )
+
+        body = answer_markdown[: match.start()]
+        ref_section = answer_markdown[match.start() :]
+        reference_lines = ref_section.splitlines()
+        valid_numbers: set[int] = set()
+        seen_ref_urls: dict[str, int] = {}
+
+        for line in reference_lines:
+            line_match = _CITATION_LINE_RE.match(line)
+            if not line_match:
+                continue
+            number = int(line_match.group(2))
+            urls = _extract_urls(line_match.group(3))
+            if not urls:
+                invalid.append(
+                    {
+                        "number": number,
+                        "reason": "missing_reference_url",
+                        "line": line.strip(),
+                    }
+                )
+                continue
+            url = urls[0]
+            normalized = _normalize_audit_url(url)
+            safe, reason = _safe_audit_url(url)
+            if not safe:
+                invalid.append(
+                    {
+                        "number": number,
+                        "reason": reason,
+                        "url": url,
+                        "line": line.strip(),
+                    }
+                )
+                continue
+            if allowed_norms and normalized not in allowed_norms:
+                invalid.append(
+                    {
+                        "number": number,
+                        "reason": "url_not_in_source_ledger",
+                        "url": url,
+                        "line": line.strip(),
+                    }
+                )
+                continue
+            if normalized in seen_ref_urls:
+                canonical = seen_ref_urls[normalized]
+                invalid.append(
+                    {
+                        "number": number,
+                        "reason": f"duplicate_of_citation_{canonical}",
+                        "url": url,
+                        "line": line.strip(),
+                    }
+                )
+                continue
+
+            seen_ref_urls[normalized] = number
+            valid_numbers.add(number)
+            valid.append({"number": number, "url": url})
+
+        inline_numbers = {int(value) for value in _INLINE_CITATION_RE.findall(body)}
+        orphaned = sorted(inline_numbers - valid_numbers)
+        if orphaned:
+            invalid.append(
+                {
+                    "reason": "orphaned_inline_citations",
+                    "numbers": orphaned,
+                }
+            )
+        uncited = sorted(valid_numbers - inline_numbers)
+        if uncited:
+            warnings.append(f"references not cited in body: {uncited}")
+
+        if require_references and not valid_numbers:
+            invalid.append(
+                {
+                    "reason": "no_valid_citations",
+                    "detail": "No reference entries survived validation.",
+                }
+            )
+
+        repaired_body, repaired_refs, renumber_map = _renumber_markdown_citations(
+            body,
+            reference_lines,
+            valid_numbers,
+        )
+        repaired = repaired_body.rstrip()
+        if repaired_refs:
+            repaired = f"{repaired}\n\n{repaired_refs}".strip()
+
+        return json.dumps(
+            {
+                "passed": not invalid,
+                "allowed_source_count": len(allowed_urls),
+                "valid_citations": valid,
+                "invalid_citations": invalid,
+                "warnings": warnings,
+                "renumber_map": renumber_map,
+                "repaired_markdown": repaired,
+            },
+            indent=2,
+        )
+
+    # ------------------------------------------------------------------
+    # Tool 4 -- verify_memory
     # ------------------------------------------------------------------
     async def verify_memory(
         memory_text: str,
@@ -701,7 +1472,7 @@ async def source_verifier_function(config: SourceVerifierConfig, builder: Builde
         )
 
     # ------------------------------------------------------------------
-    # Tool 3 -- audit_memories
+    # Tool 5 -- audit_memories
     # ------------------------------------------------------------------
     async def audit_memories(
         memories_json: str,
@@ -893,7 +1664,7 @@ async def source_verifier_function(config: SourceVerifierConfig, builder: Builde
         )
 
     # ------------------------------------------------------------------
-    # Register all three tools with NAT
+    # Register all tools with NAT
     # ------------------------------------------------------------------
     try:
         if _enabled("verify_claim"):
@@ -908,6 +1679,34 @@ async def source_verifier_function(config: SourceVerifierConfig, builder: Builde
                     "in memory to prevent citation hallucination. Store memory only "
                     "when verdict is 'supported'; do not store partially_supported, "
                     "unsupported, or source_unreachable claims."
+                ),
+            )
+
+        if _enabled("plan_sources"):
+            yield FunctionInfo.from_fn(
+                plan_sources,
+                description=(
+                    "Plan a research source strategy from Daedalus's source "
+                    "registry. Args: research_question, optional "
+                    "selected_sources_json, disabled_sources_json, and depth "
+                    "(auto/quick/deep). Returns selected sources, recommended "
+                    "tool sequence, blocked tools, warnings, approval hint, and "
+                    "the citation source-ledger contract. Use before deep "
+                    "research and when the user requests source inclusions or "
+                    "exclusions."
+                ),
+            )
+
+        if _enabled("audit_citations"):
+            yield FunctionInfo.from_fn(
+                audit_citations,
+                description=(
+                    "Deterministically audit a markdown answer's [N] citations "
+                    "and References/Sources URLs against an optional JSON source "
+                    "ledger captured from tool results. Returns passed, "
+                    "invalid_citations, warnings, and repaired_markdown. Use before "
+                    "finalizing citation-backed research reports; revise once when "
+                    "passed is false."
                 ),
             )
 

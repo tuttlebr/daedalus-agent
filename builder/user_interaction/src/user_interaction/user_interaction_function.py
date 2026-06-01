@@ -10,6 +10,10 @@ Registers three tools with NAT:
                       consequential or irreversible action. Presents the
                       action, rationale, risks, and alternatives.
 
+  confirm_research_plan
+                      Present a deep-research plan, source strategy, and
+                      expected cost/risk before expensive research begins.
+
   present_options     Present a structured comparison of options for the
                       user to choose from. Each option includes a label,
                       description, and trade-offs.
@@ -65,8 +69,8 @@ class UserInteractionConfig(FunctionBaseConfig, name="user_interaction"):
         default=None,
         description=(
             "Optional allow-list of operations to register. Supported values: "
-            "clarify, confirm_action, present_options, delete_memory_guarded. "
-            "When omitted, all operations are registered."
+            "clarify, confirm_action, confirm_research_plan, present_options, "
+            "delete_memory_guarded. When omitted, all operations are registered."
         ),
     )
 
@@ -229,7 +233,122 @@ async def user_interaction_function(config: UserInteractionConfig, builder: Buil
         return "\n".join(parts)
 
     # ------------------------------------------------------------------
-    # Tool 3 -- present_options
+    # Tool 3 -- confirm_research_plan
+    # ------------------------------------------------------------------
+    async def confirm_research_plan(
+        title: str,
+        sections_json: str,
+        source_strategy_json: str = "",
+        estimated_tool_calls: int = 0,
+        risks: str = "",
+        user_id: str = "",
+        target: str = "",
+    ) -> str:
+        """Request approval for an expensive deep-research plan.
+
+        Use this after planning and before broad/deep research starts. The
+        output is intended to pause the run and let the user approve, reject,
+        or revise the plan in their next message.
+
+        Args:
+            title: Short title for the research plan.
+            sections_json: JSON list of report sections, or object with a
+                sections field.
+            source_strategy_json: Optional JSON from plan_sources.
+            estimated_tool_calls: Estimated retrieval/search calls.
+            risks: Material risks, gaps, or cost concerns.
+            user_id: Authenticated user id. Optional; when present, records an
+                approval token scoped to deep_research_plan.
+            target: Optional plan target. Defaults to title.
+        """
+        resolved_title = (title or "Deep research plan").strip()
+        try:
+            parsed_sections = json.loads(sections_json or "[]")
+            if isinstance(parsed_sections, dict):
+                parsed_sections = parsed_sections.get("sections", [])
+            if not isinstance(parsed_sections, list):
+                parsed_sections = [str(parsed_sections)]
+        except (json.JSONDecodeError, TypeError):
+            parsed_sections = [
+                item.strip()
+                for item in (sections_json or "").split("|")
+                if item.strip()
+            ]
+
+        sections = [str(item).strip() for item in parsed_sections if str(item).strip()]
+
+        strategy_lines: list[str] = []
+        if source_strategy_json:
+            try:
+                strategy = json.loads(source_strategy_json)
+                recommended = strategy.get("recommended_tool_sequence", [])
+                for item in recommended[: config.max_options]:
+                    name = item.get("name") or item.get("source_id") or "Source"
+                    tools = ", ".join(item.get("tools") or [])
+                    reason = item.get("reason", "")
+                    line = f"- {name}"
+                    if tools:
+                        line += f" ({tools})"
+                    if reason:
+                        line += f": {reason}"
+                    strategy_lines.append(line)
+                for warning in strategy.get("warnings", [])[: config.max_options]:
+                    strategy_lines.append(f"- Warning: {warning}")
+            except (json.JSONDecodeError, TypeError, AttributeError):
+                strategy_lines.append(source_strategy_json.strip())
+
+        parts = [f"**Deep research plan approval:** {resolved_title}"]
+
+        if sections:
+            parts.append("\n**Planned report sections:**")
+            parts.extend(f"{idx}. {section}" for idx, section in enumerate(sections, 1))
+
+        if strategy_lines:
+            parts.append("\n**Source strategy:**")
+            parts.extend(strategy_lines)
+
+        if estimated_tool_calls > 0:
+            parts.append(f"\n**Estimated tool calls:** {estimated_tool_calls}")
+
+        if risks:
+            parts.append(f"\n**Risks or trade-offs:** {risks}")
+        elif estimated_tool_calls >= 6:
+            parts.append(
+                "\n**Risks or trade-offs:** This may take longer and consume more "
+                "tool/LLM budget than a quick research answer."
+            )
+
+        token: str | None = None
+        if user_id:
+            try:
+                token = issue_approval_token(
+                    _get_redis(),
+                    ApprovalRequest(
+                        user_id=user_id,
+                        action_type="deep_research_plan",
+                        target=target or resolved_title,
+                    ),
+                    config.approval_ttl_seconds,
+                )
+            except Exception as exc:
+                logger.error("Failed to issue research-plan approval token: %s", exc)
+                parts.append(f"\n**Approval token error:** {exc}")
+
+        parts.append(
+            "\nReply yes to approve this plan, or describe changes to revise scope, "
+            "sections, sources, or depth."
+        )
+        if token:
+            parts.append("\nApproval token recorded for this plan: " f"`{token}`")
+            parts.append(
+                f"\nToken scope: action_type=`deep_research_plan`, target=`{target or resolved_title}`, "
+                f"expires_in={config.approval_ttl_seconds}s."
+            )
+
+        return "\n".join(parts)
+
+    # ------------------------------------------------------------------
+    # Tool 4 -- present_options
     # ------------------------------------------------------------------
     async def present_options(
         decision: str,
@@ -288,7 +407,7 @@ async def user_interaction_function(config: UserInteractionConfig, builder: Buil
         return "\n".join(parts)
 
     # ------------------------------------------------------------------
-    # Tool 4 -- delete_memory_guarded
+    # Tool 5 -- delete_memory_guarded
     # ------------------------------------------------------------------
     async def delete_memory_guarded(
         user_id: str,
@@ -333,7 +452,7 @@ async def user_interaction_function(config: UserInteractionConfig, builder: Buil
         return f"Deleted {deleted} memory key(s) for user_id='{resolved_user}'."
 
     # ------------------------------------------------------------------
-    # Register all three tools with NAT
+    # Register all tools with NAT
     # ------------------------------------------------------------------
     try:
         if _enabled("clarify"):
@@ -355,6 +474,19 @@ async def user_interaction_function(config: UserInteractionConfig, builder: Buil
                     "action. Use before modifying external state (Kubernetes, GitHub, "
                     "memory), irreversible actions, or actions with significant costs. "
                     "Presents the action, reason, risks, and alternatives."
+                ),
+            )
+
+        if _enabled("confirm_research_plan"):
+            yield FunctionInfo.from_fn(
+                confirm_research_plan,
+                description=(
+                    "Request explicit approval before starting an expensive "
+                    "AIQ-style deep research plan. Args: title, sections_json, "
+                    "optional source_strategy_json, estimated_tool_calls, risks, "
+                    "user_id, and target. Presents sections, source strategy, "
+                    "cost/risk trade-offs, and records a scoped approval token "
+                    "when user_id is provided."
                 ),
             )
 

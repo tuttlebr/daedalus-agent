@@ -52,9 +52,9 @@ async def _get_tools(config_overrides=None):
 
 
 class TestUserInteractionRegistration:
-    def test_yields_four_function_infos(self):
+    def test_yields_five_function_infos(self):
         items = run(_get_tools())
-        assert len(items) == 4
+        assert len(items) == 5
 
     def test_all_have_fn_and_description(self):
         items = run(_get_tools())
@@ -67,6 +67,7 @@ class TestUserInteractionRegistration:
         fn_names = [item.fn.__name__ for item in items]
         assert "clarify" in fn_names
         assert "confirm_action" in fn_names
+        assert "confirm_research_plan" in fn_names
         assert "present_options" in fn_names
         assert "delete_memory_guarded" in fn_names
 
@@ -273,6 +274,68 @@ class TestPresentOptions:
             assert "Option 2" not in result
 
         run(_run())
+
+
+class TestConfirmResearchPlan:
+    def test_formats_plan_and_source_strategy(self):
+        async def _run():
+            items = await _get_tools()
+            confirm_fn = next(
+                i.fn for i in items if i.fn.__name__ == "confirm_research_plan"
+            )
+            strategy = json.dumps(
+                {
+                    "recommended_tool_sequence": [
+                        {
+                            "name": "Curated Recent Feeds",
+                            "tools": ["curated_feed_search_tool"],
+                            "reason": "Current announcements.",
+                        }
+                    ],
+                    "warnings": ["disabled source override applied"],
+                }
+            )
+            return await confirm_fn(
+                title="Inference Landscape",
+                sections_json=json.dumps(["Scope", "Findings", "Recommendations"]),
+                source_strategy_json=strategy,
+                estimated_tool_calls=7,
+            )
+
+        result = run(_run())
+
+        assert "Deep research plan approval" in result
+        assert "Inference Landscape" in result
+        assert "Curated Recent Feeds" in result
+        assert "Estimated tool calls" in result
+        assert "Reply yes" in result
+
+    def test_records_scoped_approval_token(self):
+        async def _run():
+            import user_interaction.user_interaction_function as mod
+
+            fake_redis = FakeRedis()
+            with patch.object(mod, "make_redis_client", return_value=fake_redis):
+                items = await _get_tools()
+                confirm_fn = next(
+                    i.fn for i in items if i.fn.__name__ == "confirm_research_plan"
+                )
+                result = await confirm_fn(
+                    title="Deep report",
+                    sections_json=json.dumps(["Plan", "Evidence"]),
+                    user_id="brandon",
+                    target="report:aiq",
+                )
+            return result, fake_redis
+
+        result, fake_redis = run(_run())
+
+        assert "Approval token recorded" in result
+        assert "deep_research_plan" in result
+        assert len(fake_redis.store) == 1
+        payload = json.loads(next(iter(fake_redis.store.values())))
+        assert payload["action_type"] == "deep_research_plan"
+        assert payload["target"] == "report:aiq"
 
 
 class TestDeleteMemoryGuarded:

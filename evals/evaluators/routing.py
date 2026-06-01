@@ -12,7 +12,7 @@ Dataset schema per case:
       query: <string>
       expected:
         architecture: SAS | MAS-centralized | MAS-decentralized
-        sub_agent: research_agent | ops_agent | vtt_interpreter_tool | user_data_agent | null
+        sub_agent: expected specialist tool name, or null
         skill: <skill_name> | null
       forbidden_tools: [<tool_name>, ...]   # optional
       conversational_only: true             # optional; expects NO routing tool calls
@@ -26,6 +26,7 @@ from evaluators._common import EvalScore, find_tool_event, parse_json_blob
 # sub-agent) but is the expected route for transcript work, so it is tracked here.
 SUB_AGENTS = {
     "research_agent",
+    "deep_research_agent",
     "ops_agent",
     "vtt_interpreter_tool",
     "user_data_agent",

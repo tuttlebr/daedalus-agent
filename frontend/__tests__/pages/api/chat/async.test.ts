@@ -879,6 +879,77 @@ describe('chat/async backend pinning helpers', () => {
     expect(storedJobRequest.natMessages[1].content).toBe('What is the status?');
   });
 
+  it('injects a sanitized source policy after identity for NAT chat turns', async () => {
+    mocks.resolve4.mockResolvedValue(['10.0.2.61']);
+    mocks.fetchWithTimeout.mockResolvedValue({ ok: true, status: 200 });
+    const fetchSpy = vi.fn(() => new Promise(() => {}) as any);
+    vi.stubGlobal('fetch', fetchSpy);
+    Object.defineProperty(window, 'fetch', {
+      configurable: true,
+      value: fetchSpy,
+    });
+    const redisStore = new Map<string, any>();
+    (jsonSetWithExpiry as any).mockImplementation(
+      async (key: string, value: any) => {
+        redisStore.set(key, value);
+      },
+    );
+    (jsonGet as any).mockImplementation(async (key: string) =>
+      redisStore.has(key) ? redisStore.get(key) : null,
+    );
+
+    const req = {
+      method: 'POST',
+      headers: { cookie: 'sid=current-session' },
+      body: {
+        conversationId: 'conv-1',
+        additionalProps: {
+          sourcePolicy: {
+            enabledSources: ['curated_domains', 'missing'],
+            disabledSources: ['google_search'],
+            maxResearchToolCalls: 6,
+            requirePlanApproval: true,
+          },
+        },
+        messages: [
+          {
+            role: 'user',
+            content: 'Research inference tooling.',
+          },
+        ],
+      },
+    } as any;
+    const res = {
+      status: vi.fn().mockReturnThis(),
+      json: vi.fn().mockReturnThis(),
+      setHeader: vi.fn(),
+    } as any;
+
+    try {
+      await handler(req, res);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+
+    expect(res.status).toHaveBeenCalledWith(200);
+    const storedJobRequest = (jsonSetWithExpiry as any).mock.calls.find(
+      ([key]: [string]) => key.includes('async-job-request'),
+    )?.[1];
+    expect(storedJobRequest.natMessages[0].content).toContain('[IDENTITY]');
+    expect(storedJobRequest.natMessages[1].content).toContain(
+      '[SOURCE_POLICY]',
+    );
+    expect(storedJobRequest.natMessages[1].content).toContain(
+      'enabled_source_ids=["curated_domains"]',
+    );
+    expect(storedJobRequest.natMessages[1].content).toContain(
+      'disabled_source_ids=["google_search"]',
+    );
+    expect(storedJobRequest.natMessages[2].content).toBe(
+      'Research inference tooling.',
+    );
+  });
+
   it('routes follow-up messages through stream mode even when prior turns contained document ingestion', async () => {
     mocks.resolve4.mockResolvedValue(['10.0.2.61']);
     mocks.fetchWithTimeout.mockResolvedValue({ ok: true, status: 200 });

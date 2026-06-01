@@ -7,6 +7,8 @@ from autonomous_agent.backend_client import (
     extract_oauth_required_payload,
 )
 from autonomous_agent.prompt import (
+    build_messages,
+    extract_approval_metadata,
     feed_items_from_output,
     load_workspace,
     output_requests_approval,
@@ -201,7 +203,76 @@ def test_run_once_pauses_when_backend_requests_approval():
 
     assert run["status"] == "waiting_approval"
     assert store.approvals[0]["approvalToken"] == "tok_123"
+    assert store.approvals[0]["actionType"] == "mcp_mutation"
     assert output_requests_approval(backend.response)
+
+
+def test_run_once_preserves_deep_research_plan_approval_metadata():
+    store = FakeStore()
+    backend = FakeBackend(
+        "**Deep research plan approval:** AIQ follow-up report\n\n"
+        "**Planned report sections:**\n"
+        "1. Source Registry\n"
+        "2. Plan Approval\n\n"
+        "Reply yes to approve this plan, or describe changes.\n"
+        "Approval token recorded for this plan: `tok_plan`\n"
+        "Token scope: action_type=`deep_research_plan`, target=`aiq-report`, "
+        "expires_in=3600s."
+    )
+
+    run = run_once(
+        store=store,
+        backend=backend,
+        user_id="test-user",
+        request={"trigger": "manual"},
+    )
+
+    assert run["status"] == "waiting_approval"
+    approval = store.approvals[0]
+    assert approval["approvalToken"] == "tok_plan"
+    assert approval["actionType"] == "deep_research_plan"
+    assert approval["target"] == "aiq-report"
+    assert approval["risk"] == "low"
+    assert "AIQ follow-up report" in approval["action"]
+    assert output_requests_approval(backend.response)
+
+
+def test_build_messages_includes_sanitized_source_policy_message():
+    messages = build_messages(
+        user_id="test-user",
+        config={
+            "actionPolicy": "broad_autonomy",
+            "sourcePolicy": {
+                "enabledSources": ["curated_domains", "missing"],
+                "disabledSources": ["google_search"],
+                "maxResearchToolCalls": 50,
+                "requirePlanApproval": True,
+            },
+        },
+        workspace={},
+        goals=[],
+        recent_runs=[],
+        request={"trigger": "manual"},
+    )
+
+    assert messages[0]["content"].startswith("[IDENTITY]")
+    assert messages[1]["content"].startswith("[SOURCE_POLICY]")
+    assert 'enabled_source_ids=["curated_domains"]' in messages[1]["content"]
+    assert 'disabled_source_ids=["google_search"]' in messages[1]["content"]
+    assert "max_research_tool_calls=20" in messages[1]["content"]
+    assert "require_deep_research_plan_approval=true" in messages[1]["content"]
+
+
+def test_extract_approval_metadata_defaults_to_mcp_mutation():
+    metadata = extract_approval_metadata(
+        "**Action requiring confirmation:**\n\nDelete thing\n\n"
+        "Proceed? (yes/no)\n"
+        "If approved, use this single-use approval token with the destructive "
+        "tool call: `tok_123`"
+    )
+
+    assert metadata["approval_token"] == "tok_123"
+    assert metadata["action_type"] == "mcp_mutation"
 
 
 def test_run_once_pauses_when_backend_requires_oauth():

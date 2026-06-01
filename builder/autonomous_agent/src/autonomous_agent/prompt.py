@@ -82,6 +82,21 @@ Start each run with a small, bounded plan and record the next useful follow-up.
 _JSON_FENCE_RE = re.compile(r"```(?:json)?\s*([\s\S]*?)\s*```", re.IGNORECASE)
 _THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL)
 _TOKEN_RE = re.compile(r"approval token[^`]*`([^`]+)`", re.IGNORECASE)
+_ACTION_TYPE_RE = re.compile(r"action_type=`([^`]+)`", re.IGNORECASE)
+_TARGET_RE = re.compile(r"target=`([^`]+)`", re.IGNORECASE)
+_ACTION_HEADING_RE = re.compile(
+    r"\*\*(?:Action requiring confirmation|Deep research plan approval):\*\*\s*([^\n]+)?",
+    re.IGNORECASE,
+)
+_SOURCE_POLICY_IDS = {
+    "curated_domains",
+    "curated_feeds",
+    "google_search",
+    "known_url_scrape",
+    "nvidia_docs",
+    "uploaded_documents",
+    "workspace_data",
+}
 
 
 def read_seed(name: str, path: str) -> str:
@@ -170,10 +185,12 @@ def build_messages(
     }
 
     action_policy = str(config.get("actionPolicy") or "broad_autonomy")
+    source_policy = sanitize_source_policy(config.get("sourcePolicy"))
     runtime = {
         "current_time": time.strftime("%Y-%m-%d %H:%M:%S %Z"),
         "user_id": user_id,
         "action_policy": action_policy,
+        "source_policy": source_policy,
         "trigger": request.get("trigger", "scheduled"),
         "goal_id": request.get("goalId"),
         "manual_prompt": request.get("prompt", ""),
@@ -222,10 +239,76 @@ Runtime input:
     prompt = "\n\n".join(section for section in stable_sections if section.strip())
     prompt = f"{prompt}\n\n{instructions}"
 
-    return [
+    messages = [
         {"role": "user", "content": f"[IDENTITY] username={user_id}"},
-        {"role": "user", "content": prompt},
     ]
+    source_policy_message = render_source_policy_message(source_policy)
+    if source_policy_message:
+        messages.append({"role": "user", "content": source_policy_message})
+    messages.append({"role": "user", "content": prompt})
+    return messages
+
+
+def _coerce_source_ids(value: Any) -> list[str]:
+    raw_values = value if isinstance(value, list) else []
+    seen: set[str] = set()
+    result: list[str] = []
+    for raw in raw_values:
+        source_id = str(raw).strip().lower()
+        if source_id not in _SOURCE_POLICY_IDS or source_id in seen:
+            continue
+        seen.add(source_id)
+        result.append(source_id)
+    return result
+
+
+def sanitize_source_policy(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+
+    policy: dict[str, Any] = {}
+    enabled = _coerce_source_ids(value.get("enabledSources"))
+    disabled = _coerce_source_ids(value.get("disabledSources"))
+    if enabled:
+        policy["enabledSources"] = enabled
+    if disabled:
+        policy["disabledSources"] = disabled
+    if isinstance(value.get("requirePlanApproval"), bool):
+        policy["requirePlanApproval"] = value["requirePlanApproval"]
+
+    try:
+        max_calls = int(value.get("maxResearchToolCalls"))
+    except (TypeError, ValueError):
+        max_calls = 0
+    if max_calls > 0:
+        policy["maxResearchToolCalls"] = max(1, min(20, max_calls))
+
+    notes = str(value.get("notes") or "").strip()
+    if notes:
+        policy["notes"] = notes[:500]
+    return policy
+
+
+def render_source_policy_message(policy: dict[str, Any]) -> str:
+    if not policy:
+        return ""
+
+    lines = ["[SOURCE_POLICY] Per-message source policy for this autonomous run."]
+    if policy.get("enabledSources"):
+        lines.append(f"enabled_source_ids={json.dumps(policy['enabledSources'])}")
+    if policy.get("disabledSources"):
+        lines.append(f"disabled_source_ids={json.dumps(policy['disabledSources'])}")
+    if policy.get("maxResearchToolCalls") is not None:
+        lines.append(f"max_research_tool_calls={policy['maxResearchToolCalls']}")
+    if policy.get("requirePlanApproval") is not None:
+        lines.append(
+            "require_deep_research_plan_approval="
+            f"{str(policy['requirePlanApproval']).lower()}"
+        )
+    if policy.get("notes"):
+        lines.append(f"notes={json.dumps(policy['notes'])}")
+    lines.append("Do not echo this source policy message to the user.")
+    return "\n".join(lines)
 
 
 def strip_reasoning(text: str) -> str:
@@ -313,6 +396,40 @@ def extract_approval_token(text: str) -> str:
     return match.group(1).strip() if match else ""
 
 
+def extract_approval_metadata(text: str) -> dict[str, str]:
+    """Extract approval metadata from user_interaction tool output."""
+    raw = text or ""
+    action_match = _ACTION_HEADING_RE.search(raw)
+    action = (action_match.group(1) or "").strip() if action_match else ""
+    if not action and "deep research plan approval" in raw.lower():
+        action = "Deep research plan approval requested."
+    if not action:
+        action = "Backend requested confirmation."
+
+    action_type_match = _ACTION_TYPE_RE.search(raw)
+    target_match = _TARGET_RE.search(raw)
+    action_type = (
+        action_type_match.group(1).strip() if action_type_match else "mcp_mutation"
+    )
+    target = target_match.group(1).strip() if target_match else ""
+    risk = "medium"
+    if action_type == "deep_research_plan":
+        risk = "low"
+
+    return {
+        "action": action,
+        "action_type": action_type,
+        "target": target,
+        "risk": risk,
+        "approval_token": extract_approval_token(raw),
+    }
+
+
 def output_requests_approval(text: str) -> bool:
     lowered = (text or "").lower()
-    return "action requiring confirmation" in lowered or "proceed? (yes/no)" in lowered
+    return (
+        "action requiring confirmation" in lowered
+        or "proceed? (yes/no)" in lowered
+        or "deep research plan approval" in lowered
+        or "reply yes to approve this plan" in lowered
+    )

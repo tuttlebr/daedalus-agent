@@ -41,6 +41,7 @@ import {
   buildBoundedMessagesForNat,
   buildNatSessionId,
 } from '@/server/chat/natMessages';
+import { buildSourcePolicyMessage } from '@/server/chat/sourcePolicy';
 import { startBackgroundStreamReader } from '@/server/chat/streamReader';
 import {
   ApiRouteError,
@@ -259,6 +260,9 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     // Uses 'user' role to avoid conflicts with NAT's own system prompt and LLMs
     // that reject multiple system messages (e.g. Qwen, certain NIM endpoints).
     // The [IDENTITY] tag lets the agent distinguish this from real user input.
+    const sourcePolicyMessage = buildSourcePolicyMessage(
+      additionalProps?.sourcePolicy,
+    );
     const messagesWithIdentity = [
       {
         role: 'user',
@@ -269,12 +273,17 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
           'tool calls that require user_id, and per-user Google Workspace MCP ' +
           'access. Do not echo this identity message to the user.',
       },
+      ...(sourcePolicyMessage ? [sourcePolicyMessage] : []),
       ...messagesForNat,
+    ];
+    const controlMessagesForNat = [
+      messagesWithIdentity[0],
+      ...(sourcePolicyMessage ? [sourcePolicyMessage] : []),
     ];
     const durableMessagesForNat =
       documentIngest && !useDirectDocumentIngest
         ? [
-            messagesWithIdentity[0],
+            ...controlMessagesForNat,
             ...buildDocumentIngestNatMessages(documentIngest),
           ]
         : messagesWithIdentity;

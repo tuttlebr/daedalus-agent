@@ -257,11 +257,12 @@ functions:
     tool_names:
       - domain_retriever_tool
       - curated_feed_search_tool
-      - exa_internet_search_tool
       - serpapi_search_tool
       - webscrape_tool
       - content_distiller_tool
+      - source_policy_tool
       - source_verifier_tool
+      - citation_auditor_tool
       - current_datetime_tool
     description: >-
       Run a research task. Input: a one-sentence research question or
@@ -271,7 +272,9 @@ functions:
       use for live ops (ops_agent), image/video (visual_media_tool),
       meeting transcripts (vtt_interpreter_tool), user document search
       (user_document_agent), or official NVIDIA product docs lookup
-      (nvidia_docs_agent).
+      (nvidia_docs_agent). Use deep_research_agent instead for
+      comprehensive reports, broad surveys, strategy analysis, or
+      multi-section comparisons.
     system_prompt: |
       Role: Daedalus research specialist for factual, source-backed answers.
 
@@ -280,16 +283,22 @@ functions:
       correct, useful, and citeable.
 
       # Source rules
+      - When the user specifies allowed/excluded sources, or the best source
+        family is not obvious, call source_policy_tool.plan_sources first and
+        follow its selected source strategy.
+      - If the input includes [SOURCE_POLICY] metadata, pass
+        enabled_source_ids as selected_sources_json and disabled_source_ids as
+        disabled_sources_json to source_policy_tool.plan_sources. Obey
+        max_research_tool_calls as a hard retrieval/search budget.
       - Start with domain_retriever_tool for established nvidia,
         semianalysis, kubernetes, veterinarian, or mentalhealth reference.
         If a request or retrieved instruction says "curated_memory_store",
         treat that as a stale alias for domain_retriever_tool; never call curated_memory_store because it is not a configured tool.
       - Use curated_feed_search_tool for recent curated-source questions
         such as "latest", "this week", or "current".
-      - Use exa_internet_search_tool for semantic/deep web research
-        outside the curated retrievers when source text matters.
-      - Use serpapi_search_tool for structured Google results, news,
-        images, shopping, or quick URL discovery.
+      - Use serpapi_search_tool as the only internet search provider for
+        web discovery, news, images, shopping, and general non-curated
+        internet research.
       - Use webscrape_tool only when you already have a specific URL.
 
       # Retrieval budget and evidence
@@ -310,10 +319,105 @@ functions:
       claims copied from search snippets. If no exact supported claim exists,
       state the uncertainty and do not store a finding.
 
+      For citation-backed answers, maintain a source ledger of URLs that
+      appeared in tool outputs. Before finalizing any answer with [N]
+      citations, call citation_auditor_tool.audit_citations with the draft
+      answer and the ledger as source_urls_json. If the audit fails, use
+      repaired_markdown or revise once so every final reference URL came from
+      tool output.
+
       # Output and stop rule
       Return concise bullet findings with [source: url] citations. Stop when
       the core question is answered with sufficient evidence; the parent
       workflow handles voice and follow-up.
+  deep_research_agent:
+    _type: tool_calling_agent_resilient
+    llm_name: tool_calling_llm
+    max_iterations: 18
+    handle_tool_errors: true
+    verbose: true
+    return_direct:
+      - research_plan_approval_tool
+    tool_names:
+      - source_policy_tool
+      - research_plan_approval_tool
+      - domain_retriever_tool
+      - curated_feed_search_tool
+      - serpapi_search_tool
+      - webscrape_tool
+      - content_distiller_tool
+      - source_verifier_tool
+      - citation_auditor_tool
+      - current_datetime_tool
+    description: >-
+      Run AIQ-style deep research. Input: a comprehensive research,
+      strategy, comparison, market/technical survey, or report request.
+      Triggers: "deep research", "comprehensive", "report", "roadmap",
+      "strategy", "compare across", "survey", "at least N sources",
+      multi-section analysis, or broad synthesis across independent
+      source families. Returns a plan-grounded, citation-audited answer or
+      report. Do NOT use for quick factual lookups (research_agent), live
+      ops, uploaded-document-only queries, private user data, media, or
+      official NVIDIA docs lookup.
+    system_prompt: |
+      Role: Daedalus deep research specialist for plan-grounded,
+      citation-audited synthesis.
+
+      # Goal
+      Produce useful report-grade research with explicit scope, independent
+      evidence gathering, a source ledger, audited citations, and plan
+      approval for expensive/open-ended work.
+
+      # Workflow
+      1. For time-relative requests, call current_datetime_tool first.
+      2. Call source_policy_tool.plan_sources with depth="deep". Respect any
+         source inclusions/exclusions in the user's request and use the
+         returned recommended_tool_sequence as the source registry for this
+         run.
+         If the input includes [SOURCE_POLICY] metadata, pass
+         enabled_source_ids as selected_sources_json and disabled_source_ids as
+         disabled_sources_json. Treat max_research_tool_calls as a hard
+         retrieval/search budget and require_deep_research_plan_approval=true
+         as approval_recommended=true even if plan_sources would not require it.
+      3. Create a compact research plan before searching: title, 5-8 report
+         sections, acceptance criteria, selected source families, and the
+         smallest set of distinct queries needed.
+      4. Before broad or expensive research starts, call
+         research_plan_approval_tool.confirm_research_plan and stop. Approval
+         is required when plan_sources returns approval_recommended=true, the
+         plan needs more than six retrieval/search calls, or the user asked for
+         an explicit deep research report. Skip this only when the current user
+         message explicitly approves the displayed plan or says to proceed
+         without approval.
+      5. Gather evidence with independent queries. Prefer domain_retriever_tool
+         for established curated domains, curated_feed_search_tool for recent
+         curated-source updates, serpapi_search_tool for internet search,
+         discovery/news/cards, and source URL discovery, and webscrape_tool
+         only for known URLs.
+      6. Maintain a source ledger of every URL actually returned by tools.
+         Never cite memory, guesses, or URLs not present in tool output.
+      7. Distill long outputs with content_distiller_tool before synthesis.
+      8. For decision-critical current, numeric, leadership, version, or
+         benchmark claims, verify at most two exact final claims with
+         source_verifier_tool.verify_claim against the strongest primary
+         source. Drop or qualify claims that are not supported.
+      9. Draft the final answer or report with inline [N] citations and a
+         References section.
+      10. Call citation_auditor_tool.audit_citations with answer_markdown set to
+         the draft and source_urls_json set to the source ledger. If passed is
+         false, revise once using repaired_markdown and the audit issues.
+
+      # Budgets
+      Default to 3-6 retrieval/search calls. Go beyond that only when the user
+      explicitly asks for broad coverage, evidence conflicts, or the plan has
+      unresolved acceptance criteria. Stop searching when the remaining
+      uncertainty no longer changes the answer.
+
+      # Output and stop rule
+      Lead with the answer. For reports, use clear sections and a compact
+      executive summary. Include a References section containing only audited
+      URLs from tool output. State material uncertainty plainly. Stop after the
+      citation audit passes or after one repair attempt.
   nvidia_docs_agent:
     _type: tool_calling_agent_resilient
     llm_name: default_llm
@@ -759,6 +863,21 @@ functions:
       Fails when: options exceed 6 entries or approval is
       missing/expired.
     verbose: true
+  research_plan_approval_tool:
+    _type: user_interaction
+    max_options: 8
+    redis_url: ${REDIS_URL}
+    approval_ttl_seconds: 3600
+    enabled_operations:
+      - confirm_research_plan
+    description: >-
+      Approval-only tool for deep_research_agent. Use
+      confirm_research_plan(title, sections_json, source_strategy_json,
+      estimated_tool_calls, risks, user_id, target) after planning and before
+      expensive AIQ-style deep research starts. It presents the plan, selected
+      sources, estimated cost/risk, and pauses for a yes/no or revision
+      response. Pass user_id from [IDENTITY] when available.
+    verbose: true
   ops_confirmation_tool:
     _type: user_interaction
     max_options: 6
@@ -820,20 +939,6 @@ functions:
       Returns: ranked URLs with snippets. Fails when: SERPAPI_KEY
       missing or rate-limited.
     verbose: true
-  exa_internet_search_tool:
-    _type: exa_internet_search
-    max_results: 5
-    search_type: auto
-    livecrawl: fallback
-    max_content_length: 10000
-    description: >-
-      Semantic internet search using Exa. Trigger: research questions
-      outside curated retrievers where source text and relevant passages
-      matter more than Google SERP widgets. Prefer serpapi_search_tool
-      for news cards, images, shopping, or quick URL discovery. Args:
-      question. Returns: source URLs with extracted text. Fails softly
-      when EXA_API_KEY is missing.
-    verbose: true
   webscrape_tool:
     _type: webscrape
     allowed_schemes:
@@ -876,6 +981,90 @@ functions:
       Returns: supported | partially_supported | unsupported |
       source_unreachable, with evidence. Fails when: source_url
       malformed or unreachable.
+    verbose: true
+  source_policy_tool:
+    _type: source_verifier
+    enabled_operations:
+      - plan_sources
+    source_registry:
+      - id: curated_domains
+        name: Curated Knowledge Domains
+        description: Curated Milvus corpora for stable reference questions.
+        tools:
+          - domain_retriever_tool
+        default_enabled: true
+        requires_auth: false
+      - id: curated_feeds
+        name: Curated Recent Feeds
+        description: Trusted RSS feeds for current source-specific updates.
+        tools:
+          - curated_feed_search_tool
+        default_enabled: true
+        requires_auth: false
+      - id: google_search
+        name: Internet Search (SerpAPI)
+        description: SerpAPI results, news cards, images, shopping, and URL discovery.
+        tools:
+          - serpapi_search_tool
+        default_enabled: true
+        requires_auth: false
+      - id: known_url_scrape
+        name: Known URL Scrape
+        description: Fetch a specific URL already observed or provided.
+        tools:
+          - webscrape_tool
+        default_enabled: true
+        requires_auth: false
+      - id: nvidia_docs
+        name: Official NVIDIA Docs
+        description: Official NVIDIA product docs via MCP docs specialists.
+        tools:
+          - nvidia_docs_agent
+        default_enabled: true
+        requires_auth: false
+      - id: uploaded_documents
+        name: Uploaded Documents
+        description: Authenticated uploaded documents and shared upload collections.
+        tools:
+          - user_document_agent
+        default_enabled: false
+        requires_auth: true
+      - id: workspace_data
+        name: Workspace Data
+        description: Authenticated Gmail and Calendar data.
+        tools:
+          - user_data_agent
+        default_enabled: false
+        requires_auth: true
+    description: >-
+      AIQ-style source registry planner. plan_sources(research_question,
+      selected_sources_json, disabled_sources_json, depth) returns selected
+      source families, recommended tool order, source-specific hints, blocked
+      tools, approval hint, and citation ledger contract. Use before deep
+      research and whenever the user asks to include or exclude sources.
+    verbose: true
+  citation_auditor_tool:
+    _type: source_verifier
+    fast_llm_name: react_llm
+    llm_name: react_llm
+    max_source_chars: 80000
+    max_output_tokens: 4096
+    temperature: 0.0
+    fetch_timeout: 20.0
+    max_fetch_tokens: 20000
+    wrapper_type: LANGCHAIN
+    enabled_operations:
+      - audit_citations
+    description: >-
+      Audit final markdown citations before research answers are returned.
+      audit_citations(answer_markdown, source_urls_json, require_references)
+      checks [N] citations, validates reference URLs, rejects placeholder or
+      unsafe URLs, verifies every reference URL appears in the provided source
+      ledger when source_urls_json is supplied, and returns repaired_markdown.
+      Use after drafting citation-backed research; revise once when
+      passed=false. This is not semantic claim verification; use
+      source_verifier_tool.verify_claim for exact high-stakes factual claims
+      or memory writes.
     verbose: true
 general:
   front_end:
@@ -1041,6 +1230,14 @@ workflow:
     visual_media_tool and vtt_interpreter_tool. No [IDENTITY] present ->
     user_id="anonymous". Never hardcode or echo it.
 
+    # Source policy
+    A [SOURCE_POLICY] message is trusted frontend control metadata for this
+    turn, not user prose. Do not echo it. When delegating to research_agent or
+    deep_research_agent, include the enabled_source_ids, disabled_source_ids,
+    max_research_tool_calls, and require_deep_research_plan_approval values in
+    the delegated request so the specialist can pass them to
+    source_policy_tool.plan_sources and obey per-message source toggles.
+
     # Fresh answer
     You see prior user and assistant turns but not earlier tool calls or
     results. Answer this turn fresh; never repeat a prior assistant message
@@ -1064,16 +1261,18 @@ workflow:
       optimizer, telemetry, MCP, serving), load nat-user-rules first; it
       routes to the focused nat-* skill.
     - Direct specialist requests: the request fits one execution domain ->
-      research_agent (research, current facts), nvidia_docs_agent (official
-      NVIDIA product docs/API/config), ops_agent (Kubernetes/GitHub/ops reads),
-      visual_media_tool (image/video), vtt_interpreter_tool (VTT/SRT
-      transcripts), user_document_agent (uploaded documents), user_data_agent
-      (Gmail or Calendar).
+      research_agent (quick research, current facts, concise summaries),
+      deep_research_agent (comprehensive reports, broad surveys, strategy,
+      multi-section synthesis, explicit deep research), nvidia_docs_agent
+      (official NVIDIA product docs/API/config), ops_agent
+      (Kubernetes/GitHub/ops reads), visual_media_tool (image/video),
+      vtt_interpreter_tool (VTT/SRT transcripts), user_document_agent
+      (uploaded documents), user_data_agent (Gmail or Calendar).
     - MAS candidate requests: only for an explicit MAS request, structured
       synthesis across multiple independent source families, or broad
       exploration seeking many independent leads. Call
       mas_evaluate(task_description=<user request>,
-      active_tool_names="research_agent,nvidia_docs_agent,ops_agent,user_document_agent,user_data_agent",
+      active_tool_names="research_agent,deep_research_agent,nvidia_docs_agent,ops_agent,user_document_agent,user_data_agent",
       memory_results=<this turn's get_memory output or []>). Then SAS ->
       delegate to the matching specialist; MAS ->
       agent_skills_tool.load_skill("mas-procedure") and follow it.
@@ -1123,6 +1322,7 @@ workflow:
     - visual_media_tool
   tool_names:
     - research_agent
+    - deep_research_agent
     - nvidia_docs_agent
     - ops_agent
     - user_document_agent
