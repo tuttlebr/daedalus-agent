@@ -10,11 +10,15 @@
  * We also exercise the module-level getWebSocketManager singleton and
  * verify that the mock wiring used by consumers of this hook is sound.
  */
-import type {
-  UseWebSocketCallbacks,
-  UseWebSocketOptions,
-  UseWebSocketReturn,
-  StreamingStateInfo,
+import React, { useEffect } from 'react';
+import { createRoot, type Root } from 'react-dom/client';
+import { act } from 'react-dom/test-utils';
+
+import {
+  useWebSocket,
+  type StreamingStateInfo,
+  type UseWebSocketCallbacks,
+  type UseWebSocketOptions,
 } from '@/hooks/useWebSocket';
 
 import { getWebSocketManager } from '@/services/websocket';
@@ -51,10 +55,41 @@ vi.mock('@/utils/logger', () => ({
   })),
 }));
 
+function ConnectionProbe({
+  onState,
+}: {
+  onState: (connected: boolean) => void;
+}) {
+  const { isConnected } = useWebSocket({ enabled: true });
+
+  useEffect(() => {
+    onState(isConnected);
+  }, [isConnected, onState]);
+
+  return null;
+}
+
+function renderWithRoot(element: React.ReactElement): {
+  root: Root;
+  container: HTMLDivElement;
+} {
+  const container = document.createElement('div');
+  document.body.appendChild(container);
+  const root = createRoot(container);
+  root.render(element);
+  return { root, container };
+}
+
 describe('useWebSocket module', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockManager.isConnected = false;
+    mockManager.on.mockImplementation(() => vi.fn());
+    (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
+  });
+
+  afterEach(() => {
+    document.body.innerHTML = '';
   });
 
   describe('getWebSocketManager integration', () => {
@@ -206,6 +241,62 @@ describe('useWebSocket module', () => {
       expect(handler).toHaveBeenCalledTimes(1);
 
       document.removeEventListener('visibilitychange', handler);
+    });
+  });
+
+  describe('hook connection lifecycle', () => {
+    it('reports connected when the singleton was already connected before mount', async () => {
+      mockManager.isConnected = true;
+      const states: boolean[] = [];
+      let root: Root | null = null;
+
+      await act(async () => {
+        ({ root } = renderWithRoot(
+          React.createElement(ConnectionProbe, {
+            onState: (connected) => states.push(connected),
+          }),
+        ));
+      });
+
+      expect(states[states.length - 1]).toBe(true);
+      expect(mockManager.connect).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        root?.unmount();
+      });
+      expect(mockManager.disconnect).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not disconnect the singleton while another hook still uses it', async () => {
+      function Probes({ showSecond }: { showSecond: boolean }) {
+        const noop = () => {};
+        return React.createElement(
+          React.Fragment,
+          null,
+          React.createElement(ConnectionProbe, { onState: noop }),
+          showSecond
+            ? React.createElement(ConnectionProbe, { onState: noop })
+            : null,
+        );
+      }
+
+      let root: Root | null = null;
+      await act(async () => {
+        ({ root } = renderWithRoot(
+          React.createElement(Probes, { showSecond: true }),
+        ));
+      });
+      mockManager.disconnect.mockClear();
+
+      await act(async () => {
+        root?.render(React.createElement(Probes, { showSecond: false }));
+      });
+      expect(mockManager.disconnect).not.toHaveBeenCalled();
+
+      await act(async () => {
+        root?.unmount();
+      });
+      expect(mockManager.disconnect).toHaveBeenCalledTimes(1);
     });
   });
 });

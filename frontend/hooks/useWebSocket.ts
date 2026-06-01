@@ -17,6 +17,7 @@ import { Conversation } from '@/types/chat';
 import { invalidateServiceWorkerCache } from './useOnlineStatus';
 
 const logger = new Logger('useWebSocket');
+let activeConnectionUsers = 0;
 
 export interface StreamingStateInfo {
   conversationId: string;
@@ -98,6 +99,7 @@ export const useWebSocket = (
   >({});
   const managerRef = useRef<WebSocketManager | null>(null);
   const cleanupRef = useRef<Array<() => void>>([]);
+  const connectionActiveRef = useRef(false);
   const isPageVisibleRef = useRef(true);
 
   // Use refs for callbacks to avoid re-subscribing on every render
@@ -107,12 +109,21 @@ export const useWebSocket = (
   const connect = useCallback(() => {
     const manager = getWebSocketManager();
     managerRef.current = manager;
+    if (!connectionActiveRef.current) {
+      connectionActiveRef.current = true;
+      activeConnectionUsers += 1;
+    }
     manager.connect();
   }, []);
 
   const disconnect = useCallback(() => {
     const manager = managerRef.current;
-    if (manager) {
+    if (manager && connectionActiveRef.current) {
+      connectionActiveRef.current = false;
+      activeConnectionUsers = Math.max(0, activeConnectionUsers - 1);
+      if (activeConnectionUsers > 0) {
+        return;
+      }
       manager.disconnect();
     }
   }, []);
@@ -315,14 +326,17 @@ export const useWebSocket = (
 
     cleanupRef.current = unsubs;
 
-    // Connect
-    manager.connect();
+    // If the singleton was already connected before this hook mounted, this
+    // subscriber missed the original `connected` event.
+    setIsConnected(manager.isConnected);
+    connect();
 
     return () => {
       unsubs.forEach((unsub) => unsub());
       cleanupRef.current = [];
+      disconnect();
     };
-  }, [enabled]);
+  }, [enabled, connect, disconnect]);
 
   // Visibility-aware connection lifecycle
   useEffect(() => {
@@ -361,13 +375,6 @@ export const useWebSocket = (
     return () =>
       document.removeEventListener('visibilitychange', handleVisibilityChange);
   }, [enabled, connect, disconnect, streamingStates]);
-
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => {
-      disconnect();
-    };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   return {
     isConnected,
