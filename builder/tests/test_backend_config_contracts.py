@@ -601,6 +601,32 @@ def test_direct_specialist_routing_precedes_generic_mas_gate():
         ), path
 
 
+def test_daily_briefing_routes_to_raw_html_before_visual_media():
+    for path in DEPLOYED_CONFIGS:
+        config = _config(path)
+        prompt = config["workflow"]["system_prompt"]
+        visual_media_desc = config["functions"]["visual_media_tool"]["description"]
+
+        assert "Daily briefing" in prompt, path
+        assert "set top_k=12" in prompt, path
+        assert "daedalus-feed nv-html weather" in prompt, path
+        assert "Direct specialist requests" in prompt, path
+        assert prompt.index("Daily briefing") < prompt.index(
+            "Direct specialist requests"
+        ), path
+        assert 'agent_skills_tool.load_skill("nv-html")' in prompt, path
+        assert "local weather for the Saline, Michigan area" in prompt, path
+        assert "read-only Kubernetes cluster status" in prompt, path
+        assert "relevant in-season sports" in prompt, path
+        assert "Return raw" in prompt, path
+        assert "HTML only: one renderable HTML fragment" in prompt, path
+        assert "`<article class=\"daedalus-feed\"`" in prompt, path
+        assert "Do not call visual_media_tool for" in prompt, path
+        assert "daily briefings unless the user explicitly asks" in prompt, path
+        assert "Never use this tool for a" in visual_media_desc, path
+        assert "daily summary or daily briefing" in visual_media_desc, path
+
+
 def test_source_policy_metadata_is_propagated_to_research_agents():
     for path in DEPLOYED_CONFIGS:
         config = _config(path)

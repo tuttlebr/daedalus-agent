@@ -3,8 +3,8 @@ global:
   fullnameOverride: ''
   networkName: daedalus-network
   # Restrict pod scheduling to these nodes; leave empty to allow any node
-  # nodePlacement:
-  #   allowedNodes: ["daedalus-02", "daedalus-03"]
+  nodePlacement:
+    allowedNodes: ["daedalus-04"]
 
 images:
   builder:

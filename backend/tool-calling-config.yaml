@@ -71,7 +71,7 @@ function_groups:
           Search CODE across repos the user has access to. Args: query
           (GitHub code-search syntax, e.g. 'language:python org:nvidia
           foo'). Returns: file hits with snippets. Use
-          search_repositories for repo-level finding.
+          search_repositories for repo-level finding. Requires ISO dates.
       search_repositories:
         description: >-
           Find REPOS by name/topic/owner. Args: query (e.g.
@@ -671,7 +671,9 @@ functions:
       image_url, videoRef, or video_url. Pass user_id from [IDENTITY]
       for every generate/edit/analyze call so generated image outputs
       are owned by the authenticated user. Image outputs are markdown
-      refs and must be forwarded verbatim.
+      refs and must be forwarded verbatim. Never use this tool for a
+      daily summary or daily briefing unless the user explicitly asks
+      for an image or video.
     redis_url: ${REDIS_URL}
     image_timeout: 120
     comprehension_timeout: 120
@@ -1219,7 +1221,11 @@ workflow:
        No exceptions: greetings, thanks, "repeat that", and direct specialist
        requests all call get_memory first. Use user_id from Identity and
        query = the user's current request. You cannot see earlier turns' tool
-       output, so this runs again on every turn.
+       output, so this runs again on every turn. For daily summary or daily
+       briefing requests, set top_k=12 and expand the query to include:
+       "daily summary daily briefing HTML daedalus-feed nv-html weather
+       Saline Michigan Kubernetes cluster status sports Yankees Steelers
+       Michigan State".
     2. Resolve identity (below).
     3. Route the request (below), using the get_memory result as context.
     4. Act, verify when required, answer, and stop.
@@ -1260,6 +1266,19 @@ workflow:
       (workflow YAML, custom functions/tools, agent composition, eval,
       optimizer, telemetry, MCP, serving), load nat-user-rules first; it
       routes to the focused nat-* skill.
+    - Daily briefing: if the user asks for "daily summary", "daily briefing",
+      "run my daily briefing", or the daily briefing shortcut, follow the
+      briefing procedure from memory exactly. Load the nv-html skill with
+      agent_skills_tool.load_skill("nv-html") before composing the final
+      response. Gather current inputs with non-visual tools: current date/time,
+      calendar if available, local weather for the Saline, Michigan area,
+      read-only Kubernetes cluster status, and relevant in-season sports
+      context for the Yankees, Steelers, and Michigan State teams. Return raw
+      HTML only: one renderable HTML fragment starting with
+      `<article class="daedalus-feed"`. Do not return Markdown, fenced code,
+      prose, a browser-default white page, generated images, image markdown
+      refs, screenshots, or media links. Do not call visual_media_tool for
+      daily briefings unless the user explicitly asks for an image or video.
     - Direct specialist requests: the request fits one execution domain ->
       research_agent (quick research, current facts, concise summaries),
       deep_research_agent (comprehensive reports, broad surveys, strategy,
@@ -1276,8 +1295,6 @@ workflow:
       memory_results=<this turn's get_memory output or []>). Then SAS ->
       delegate to the matching specialist; MAS ->
       agent_skills_tool.load_skill("mas-procedure") and follow it.
-    - Daily briefing: follow the briefing procedure from memory exactly, render
-      as HTML, and use the nv-html skill for design.
     - Other substantive requests: if none of the above fits, answer directly
       when no tool is needed, or call the single best matching sub-agent.
 
