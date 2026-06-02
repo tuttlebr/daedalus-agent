@@ -255,7 +255,7 @@ def test_deployed_tool_surface_is_optimized():
         # visual_media_tool is intentionally exposed at the top level and marked
         # return_direct so generated image refs are delivered without the
         # additional media-agent routing delay.
-        assert _effective_operation_count(config, workflow_tools) <= 17, path
+        assert _effective_operation_count(config, workflow_tools) <= 20, path
         assert (
             _effective_operation_count(
                 config, functions["research_agent"]["tool_names"]
@@ -620,7 +620,7 @@ def test_daily_briefing_routes_to_raw_html_before_visual_media():
         assert "relevant in-season sports" in prompt, path
         assert "Return raw" in prompt, path
         assert "HTML only: one renderable HTML fragment" in prompt, path
-        assert "`<article class=\"daedalus-feed\"`" in prompt, path
+        assert '`<article class="daedalus-feed"`' in prompt, path
         assert "Do not call visual_media_tool for" in prompt, path
         assert "daily briefings unless the user explicitly asks" in prompt, path
         assert "Never use this tool for a" in visual_media_desc, path

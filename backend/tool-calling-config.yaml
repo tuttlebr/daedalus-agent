@@ -965,7 +965,7 @@ functions:
       browser fallback for JS or bot-protected sites. Trigger: you
       already have the URL (from serpapi, an RSS entry, or the
       user). Args: url (http/https only). Returns: markdown up to
-      20000 tokens. Fails when: URL unknown (use serpapi_search_tool
+      n tokens. Fails when: URL unknown (use serpapi_search_tool
       first), non-http scheme, or 60s timeout.
     max_output_tokens: 20000
     respect_robots_txt: false

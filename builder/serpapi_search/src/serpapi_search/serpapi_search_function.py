@@ -18,9 +18,9 @@ logger = logging.getLogger(__name__)
 # Limits for extraction (keeps LLM context compact)
 # ---------------------------------------------------------------------------
 MAX_ORGANIC = 3
-MAX_TOP_STORIES = 3
-MAX_NEWS = 3
-MAX_IMAGES = 3
+MAX_TOP_STORIES = 1
+MAX_NEWS = 1
+MAX_IMAGES = 1
 MAX_SHOPPING = 1
 MAX_VIDEOS = 1
 MAX_RELATED_QUESTIONS = 1
