@@ -9,6 +9,7 @@ import React, {
 
 import { useRouter } from 'next/router';
 
+import { clearPrivateCaches } from '@/utils/app/pwa';
 import { useAuthMe, type AuthMeUser } from '@/utils/app/queries';
 import { queryKeys } from '@/utils/app/queries/keys';
 import {
@@ -78,6 +79,9 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       if (!response.ok) throw new Error(data.error || 'Login failed');
 
       clearUserSessionData();
+      // Drop any prior user's offline-cached private data before loading this
+      // user's data (shared-device protection).
+      void clearPrivateCaches();
       queryClient.setQueryData(queryKeys.auth.me, data.user as AuthMeUser);
       setStorageUser(data.user.username);
       migrateLegacyStorage(data.user.username);
@@ -96,6 +100,9 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       logger.error('Logout error:', error);
     } finally {
       clearUserSessionData();
+      // Drop offline-cached private data so it cannot be served to the next
+      // user on a shared device.
+      void clearPrivateCaches();
       queryClient.setQueryData(queryKeys.auth.me, null);
       queryClient.clear();
       setStorageUser(null);

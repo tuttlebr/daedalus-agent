@@ -1,5 +1,6 @@
 import { NextApiRequest, NextApiResponse } from 'next';
 
+import { enforceRateLimit, ruleFromEnv } from '@/server/rateLimit';
 import {
   getOrSetSessionId,
   requireAuthenticatedUser,
@@ -378,6 +379,15 @@ export async function touchImage(
   return false;
 }
 
+// Generous backstop above legitimate batch uploads (batch max ~15 images);
+// the per-image decode/VLM re-encode is CPU/memory heavy, so cap floods.
+const IMAGE_UPLOAD_RATE_LIMIT = ruleFromEnv(
+  'image-upload',
+  'RATE_LIMIT_IMAGE_UPLOAD',
+  200,
+  60,
+);
+
 export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse,
@@ -389,6 +399,7 @@ export default async function handler(
   const userId = session.username;
 
   if (req.method === 'POST') {
+    if (!(await enforceRateLimit(res, IMAGE_UPLOAD_RATE_LIMIT, userId))) return;
     // Store image
     try {
       const { base64Data, mimeType } = req.body;

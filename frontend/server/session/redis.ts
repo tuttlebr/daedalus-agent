@@ -110,7 +110,14 @@ function isRedisJsonUnsupportedError(error: unknown): boolean {
 function isWrongTypeError(error: unknown): boolean {
   const message = redisErrorMessage(error).toLowerCase();
   return (
-    message.includes('wrongtype') || message.includes('wrong kind of value')
+    message.includes('wrongtype') ||
+    message.includes('wrong kind of value') ||
+    // RedisJSON surfaces a non-standard message when JSON.SET hits a key that
+    // already exists as a plain (non-JSON) type, e.g.
+    // "Existing key has wrong Redis type". Match it so the del+retry recovery
+    // in setRedisJsonRootWithExpiry / jsonSet actually fires on the RedisJSON
+    // deployment instead of rethrowing.
+    message.includes('wrong redis type')
   );
 }
 
@@ -140,19 +147,31 @@ async function getPlainJson(client: Redis, key: string): Promise<any> {
   }
 }
 
-async function setRedisJsonRoot(
+// Atomically write a RedisJSON root document and set its TTL in a single
+// round-trip. A separate JSON.SET + EXPIRE risks leaving a TTL-less key if the
+// EXPIRE fails (timeout/disconnect) after the write succeeds; EVAL runs the two
+// commands as one atomic unit so the key never persists without its expiry.
+const JSON_SET_WITH_EXPIRY_LUA = [
+  "redis.call('JSON.SET', KEYS[1], '$', ARGV[1])",
+  "return redis.call('EXPIRE', KEYS[1], ARGV[2])",
+].join('\n');
+
+async function setRedisJsonRootWithExpiry(
   client: Redis,
   key: string,
   value: any,
+  ttl: number,
 ): Promise<void> {
+  const serialized = JSON.stringify(value);
   try {
-    await client.call('JSON.SET', key, '$', JSON.stringify(value));
+    await client.eval(JSON_SET_WITH_EXPIRY_LUA, 1, key, serialized, ttl);
   } catch (error) {
     if (!isWrongTypeError(error)) {
       throw error;
     }
+    // Key exists as a non-JSON type: drop it and retry the atomic write.
     await client.del(key);
-    await client.call('JSON.SET', key, '$', JSON.stringify(value));
+    await client.eval(JSON_SET_WITH_EXPIRY_LUA, 1, key, serialized, ttl);
   }
 }
 
@@ -349,9 +368,7 @@ export async function jsonSetWithExpiry(
   }
 
   try {
-    await setRedisJsonRoot(client, key, value);
-    // Set expiry
-    await client.expire(key, ttl);
+    await setRedisJsonRootWithExpiry(client, key, value, ttl);
   } catch (error) {
     console.error('Error in jsonSetWithExpiry:', error);
     throw error;

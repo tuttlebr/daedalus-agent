@@ -2,7 +2,12 @@ import { NextApiRequest, NextApiResponse } from 'next';
 
 import { User } from './users';
 
-import { getOrSetSessionId } from '@/server/session/_utils';
+import {
+  clearSessionCookie,
+  getOrSetSessionId,
+  readSessionId,
+  rotateSessionId,
+} from '@/server/session/_utils';
 import {
   getRedis,
   sessionKey,
@@ -29,8 +34,9 @@ export async function createSession(
   res: NextApiResponse,
   user: Omit<User, 'passwordHash'>,
 ): Promise<string> {
-  const redis = getRedis();
-  const sessionId = getOrSetSessionId(req, res);
+  // SECURITY (session fixation): never reuse a pre-auth / client-supplied sid
+  // as the authenticated session id. Mint a fresh sid and drop the old record.
+  const { sid: sessionId, previousSid } = rotateSessionId(req, res);
 
   const sessionData: SessionData = {
     userId: user.id,
@@ -42,6 +48,12 @@ export async function createSession(
 
   const key = sessionKey(['auth-session', sessionId]);
   await jsonSetWithExpiry(key, sessionData, SESSION_EXPIRY);
+
+  if (previousSid && previousSid !== sessionId) {
+    await getRedis()
+      .del(sessionKey(['auth-session', previousSid]))
+      .catch(() => {});
+  }
 
   return sessionId;
 }
@@ -83,11 +95,13 @@ export async function destroySession(
   req: NextApiRequest,
   res: NextApiResponse,
 ): Promise<void> {
-  const redis = getRedis();
-  const sessionId = getOrSetSessionId(req, res);
-
-  const key = sessionKey(['auth-session', sessionId]);
-  await redis.del(key);
+  const sessionId = readSessionId(req);
+  if (sessionId) {
+    await getRedis().del(sessionKey(['auth-session', sessionId]));
+  }
+  // Expire the cookie too, so the browser does not keep presenting a sid that a
+  // subsequent login would otherwise rebind to a new session.
+  clearSessionCookie(req, res);
 }
 
 // Middleware to protect API routes

@@ -54,6 +54,49 @@ export const registerServiceWorker = async () => {
   }
 };
 
+// Names of the Cache Storage buckets that may hold user-private data. These
+// MUST match CONVERSATION_CACHE / RUNTIME_CACHE in public/sw.js.
+const PRIVATE_CACHE_NAMES = ['daedalus-conversations-v1', 'daedalus-runtime'];
+
+/**
+ * Drop caches that may contain user-private data (conversation history /
+ * per-conversation responses, runtime-cached HTML). Call on login and logout so
+ * a previous user's offline-cached data cannot be served to the next user on a
+ * shared device. Fire-and-forget; never throws.
+ */
+export const clearPrivateCaches = async (): Promise<void> => {
+  if (typeof window === 'undefined') return;
+
+  // 1) Delete the caches directly from the page. The page shares Cache Storage
+  //    with the service worker, and this works regardless of which SW version
+  //    controls the page — critical right after a deploy, when a returning user
+  //    is still controlled by the OLD worker that has no CLEAR_PRIVATE_CACHES
+  //    handler and would silently drop the message below.
+  if ('caches' in window) {
+    await Promise.all(
+      PRIVATE_CACHE_NAMES.map((name) => window.caches.delete(name)),
+    ).catch((error) => {
+      console.error('Failed to clear private caches from page:', error);
+    });
+  }
+
+  // 2) Also notify the service worker so it resets its in-memory LRU accounting
+  //    (and any future SW-side cleanup) when one is controlling the page.
+  if ('serviceWorker' in navigator) {
+    try {
+      const controller = navigator.serviceWorker.controller;
+      if (controller) {
+        controller.postMessage({ type: 'CLEAR_PRIVATE_CACHES' });
+      } else {
+        const registration = await navigator.serviceWorker.getRegistration();
+        registration?.active?.postMessage({ type: 'CLEAR_PRIVATE_CACHES' });
+      }
+    } catch (error) {
+      console.error('Failed to request private cache clear:', error);
+    }
+  }
+};
+
 export const requestNotificationPermission = async () => {
   if ('Notification' in window && 'serviceWorker' in navigator) {
     const permission = await Notification.requestPermission();

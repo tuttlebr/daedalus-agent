@@ -1,7 +1,15 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 
-import { enqueueRun, listRuns } from '@/server/autonomy/store';
+import { enqueueRun, listRuns, QueueFullError } from '@/server/autonomy/store';
+import { enforceRateLimit, ruleFromEnv } from '@/server/rateLimit';
 import { requireAuthenticatedUser } from '@/server/session/_utils';
+
+const AUTONOMY_RUN_RATE_LIMIT = ruleFromEnv(
+  'autonomy-run',
+  'RATE_LIMIT_AUTONOMY_RUN',
+  30,
+  60,
+);
 
 export default async function handler(
   req: NextApiRequest,
@@ -16,7 +24,20 @@ export default async function handler(
   }
 
   if (req.method === 'POST') {
-    return res.status(202).json(await enqueueRun(userId, req.body || {}));
+    if (!(await enforceRateLimit(res, AUTONOMY_RUN_RATE_LIMIT, userId))) return;
+    try {
+      return res
+        .status(202)
+        .json(
+          await enqueueRun(userId, req.body || {}, { enforceDepthCap: true }),
+        );
+    } catch (error) {
+      if (error instanceof QueueFullError) {
+        res.setHeader('Retry-After', '60');
+        return res.status(429).json({ error: error.message });
+      }
+      throw error;
+    }
   }
 
   res.setHeader('Allow', ['GET', 'POST']);

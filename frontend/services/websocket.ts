@@ -164,6 +164,9 @@ export class WebSocketManager {
         if (!this.intentionalClose) {
           // Don't retry on authentication failures — the session is invalid
           // and reconnecting will just fail again until the user re-authenticates.
+          // Note: mid-session revocation uses 4003 (not 4001) and intentionally
+          // falls through to reconnect, so a re-login re-establishes the channel
+          // with the current cookie (a true logout then gets 4001 at handshake).
           if (event.code === 4001) {
             logger.warn('WebSocket auth failed (4001) — not reconnecting');
           } else {

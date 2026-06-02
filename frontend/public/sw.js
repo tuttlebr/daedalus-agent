@@ -790,10 +790,52 @@ async function invalidateConversationCache(conversationId) {
   }
 }
 
+// Clear caches that may hold user-private data so one user's offline-cached
+// data is never served to the next user on a shared device. CONVERSATION_CACHE
+// holds the per-user conversation list and per-conversation responses;
+// RUNTIME_CACHE holds runtime-cached HTML navigations. The precache
+// (CACHE_NAME) is the generic app shell/static assets and is left intact.
+async function clearPrivateCaches() {
+  try {
+    await Promise.all([
+      caches.delete(CONVERSATION_CACHE),
+      caches.delete(RUNTIME_CACHE),
+    ]);
+    // RUNTIME_CACHE was just dropped — reset the in-memory LRU accounting so it
+    // does not reference evicted entries.
+    cacheManager.cacheMetadata.clear();
+    // Also wipe the persisted LRU metadata so the in-memory clear is not undone
+    // when the worker reloads metadata from IndexedDB on next startup.
+    if ('indexedDB' in self) {
+      try {
+        const db = await cacheManager.openDB();
+        const tx = db.transaction(['cache-metadata'], 'readwrite');
+        tx.objectStore('cache-metadata').clear();
+      } catch (err) {
+        swLog.warn('Failed to clear persisted cache metadata', err);
+      }
+    }
+    swLog.info('Cleared private caches on identity change');
+  } catch (error) {
+    swLog.error('Error clearing private caches', error);
+  }
+}
+
 // Message event handler for cache management
 self.addEventListener('message', (event) => {
   if (event.data && event.data.type === 'SKIP_WAITING') {
     self.skipWaiting();
+  }
+
+  // Clear user-private caches on login/logout (shared-device PII protection)
+  if (event.data && event.data.type === 'CLEAR_PRIVATE_CACHES') {
+    event.waitUntil(
+      clearPrivateCaches().then(() => {
+        if (event.ports && event.ports[0]) {
+          event.ports[0].postMessage({ success: true });
+        }
+      }),
+    );
   }
 
   // Handle conversation cache invalidation from real-time sync

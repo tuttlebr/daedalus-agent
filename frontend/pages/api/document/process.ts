@@ -8,6 +8,7 @@ import {
 import { sanitizeForPromptInterpolation } from '@/utils/app/promptSafety';
 import { withInternalBackendAuth } from '@/utils/server/backendAuth';
 
+import { enforceRateLimit, ruleFromEnv } from '@/server/rateLimit';
 import {
   getOrSetSessionId,
   requireAuthenticatedUser,
@@ -75,6 +76,15 @@ function postToBackend(
   });
 }
 
+// Generous backstop on the (NV-Ingest-bearing) document processing path; sized
+// above legitimate batch ingests but caps runaway/abusive floods.
+const DOC_PROCESS_RATE_LIMIT = ruleFromEnv(
+  'document-process',
+  'RATE_LIMIT_DOC_PROCESS',
+  120,
+  60,
+);
+
 export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse,
@@ -88,6 +98,10 @@ export default async function handler(
     if (!session) return;
     const sessionId = getOrSetSessionId(req, res);
     const username = session.username;
+
+    if (!(await enforceRateLimit(res, DOC_PROCESS_RATE_LIMIT, username))) {
+      return;
+    }
 
     const { documentRef, documentRefs, filename, collection, mode } = req.body;
     const requestMode: 'ingest' | 'extract' =

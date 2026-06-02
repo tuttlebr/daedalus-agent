@@ -33,6 +33,13 @@ vi.mock('@/server/session/documentRefs', () => ({
   DocumentRefAccessError: mocks.DocumentRefAccessError,
 }));
 
+// Stub the rate limiter so the route test stays deterministic and never opens a
+// real Redis connection (the limiter is covered by __tests__/server/rateLimit).
+vi.mock('@/server/rateLimit', () => ({
+  enforceRateLimit: vi.fn().mockResolvedValue(true),
+  ruleFromEnv: vi.fn(() => ({ name: 'test', limit: 1000, windowSeconds: 60 })),
+}));
+
 describe('/api/document/process', () => {
   beforeEach(() => {
     vi.clearAllMocks();

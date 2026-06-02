@@ -2,6 +2,7 @@ import { NextApiRequest, NextApiResponse } from 'next';
 
 import { validateMagicBytes } from '@/utils/app/magicBytes';
 
+import { enforceRateLimit, ruleFromEnv } from '@/server/rateLimit';
 import {
   getOrSetSessionId,
   requireAuthenticatedUser,
@@ -138,6 +139,15 @@ export async function cleanupSessionDocuments(
   return deletedCount;
 }
 
+// Generous backstop above legitimate batch uploads (batch max ~500 docs);
+// caps runaway/abusive upload floods.
+const DOC_UPLOAD_RATE_LIMIT = ruleFromEnv(
+  'document-upload',
+  'RATE_LIMIT_DOC_UPLOAD',
+  600,
+  60,
+);
+
 export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse,
@@ -149,6 +159,7 @@ export default async function handler(
   const userId = session.username;
 
   if (req.method === 'POST') {
+    if (!(await enforceRateLimit(res, DOC_UPLOAD_RATE_LIMIT, userId))) return;
     // Store document
     try {
       const { base64Data, filename, mimeType } = req.body;

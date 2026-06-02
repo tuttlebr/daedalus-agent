@@ -27,6 +27,10 @@ const REDIS_URL = process.env.REDIS_URL || 'redis://redis:6379';
 const HEARTBEAT_INTERVAL = 45_000; // Server sends pong every 45s
 const CLIENT_TIMEOUT = 90_000; // Close if no ping received in 90s
 const SESSION_EXPIRY = 60 * 60 * 24; // 24 hours (match session.ts)
+// Re-check the session key on a live socket so logout / TTL expiry / sid
+// rotation revokes the realtime channel, not just the next HTTP request.
+const SESSION_REVALIDATE_INTERVAL =
+  positiveIntegerFromEnv('WS_SESSION_REVALIDATE_SECONDS', 60) * 1000;
 const CHANNEL_ID_PATTERN = /^[A-Za-z0-9._-]{1,128}$/;
 
 const MAX_WS_MESSAGE_BYTES = positiveIntegerFromEnv(
@@ -279,9 +283,11 @@ async function getStreamingStates(
 interface ClientConnection {
   ws: WebSocket;
   userId: string;
+  sid: string;
   lastPing: number;
   heartbeatTimer: NodeJS.Timeout | null;
   timeoutTimer: NodeJS.Timeout | null;
+  revalidateTimer: NodeJS.Timeout | null;
   subscribedJobs: Set<string>;
   subscribedChats: Set<string>; // conversationIds for token streaming
   closed: boolean;
@@ -339,6 +345,7 @@ function removeConnection(conn: ClientConnection): void {
   // Clean up timers
   if (conn.heartbeatTimer) clearInterval(conn.heartbeatTimer);
   if (conn.timeoutTimer) clearTimeout(conn.timeoutTimer);
+  if (conn.revalidateTimer) clearInterval(conn.revalidateTimer);
 }
 
 function sendToUser(userId: string, message: object): void {
@@ -661,12 +668,15 @@ wss.on('connection', async (ws: WebSocket, req: IncomingMessage) => {
   }
 
   const userId = session.username;
+  const sid = parseCookie(req.headers.cookie || '')['sid'] || '';
   const conn: ClientConnection = {
     ws,
     userId,
+    sid,
     lastPing: Date.now(),
     heartbeatTimer: null,
     timeoutTimer: null,
+    revalidateTimer: null,
     subscribedJobs: new Set(),
     subscribedChats: new Set(),
     closed: false,
@@ -705,6 +715,29 @@ wss.on('connection', async (ws: WebSocket, req: IncomingMessage) => {
     }, CLIENT_TIMEOUT);
   };
   resetTimeout();
+
+  // Revoke this socket if its session is deleted (logout), expires, or its sid
+  // is rotated (re-login). Without this, a connection authenticated once keeps
+  // receiving the user's fanout indefinitely even after the session ends.
+  conn.revalidateTimer = setInterval(async () => {
+    try {
+      const current = await getJsonOrPlain<SessionData>(
+        getRedis(),
+        sessionKey(['auth-session', sid]),
+      );
+      if (!current || current.username !== userId) {
+        console.log(`[WS] Session ended for ${userId}; closing socket`);
+        // 4003 (not 4001) = mid-session revocation. The client treats 4001 as
+        // terminal (no reconnect) but reconnects on other codes, so 4003 lets a
+        // re-login restore the channel with the current cookie; a genuine
+        // logout/expiry then gets 4001 at the reconnect handshake and stops.
+        ws.close(4003, 'Session ended');
+      }
+    } catch (err) {
+      // Transient Redis error — don't mass-disconnect on a blip; re-check next tick.
+      console.error('[WS] Session revalidation error:', err);
+    }
+  }, SESSION_REVALIDATE_INTERVAL);
 
   // Handle messages from client
   ws.on('message', async (raw: Buffer) => {

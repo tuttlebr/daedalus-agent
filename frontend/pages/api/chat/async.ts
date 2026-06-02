@@ -13,6 +13,7 @@ import {
 } from '@/server/chat/backendSelection';
 import { launchBackgroundFinalizer } from '@/server/chat/backgroundFinalizer';
 import {
+  FINALIZER_LOCK_TTL_MS,
   JOB_EXPIRY_SECONDS,
   STREAM_JOB_STALE_TIMEOUT_MS,
 } from '@/server/chat/constants';
@@ -27,10 +28,12 @@ import {
 import {
   abortKey,
   clearOAuthStatusFields,
+  finalizerLockKey,
   isPlausibleUnixMs,
   isTerminalJobStatus,
   mapNatStatus,
   updateJobStatus,
+  withRedisLock,
 } from '@/server/chat/jobState';
 import {
   buildDocumentIngestNatMessages,
@@ -44,6 +47,10 @@ import {
 import { buildSourcePolicyMessage } from '@/server/chat/sourcePolicy';
 import { startBackgroundStreamReader } from '@/server/chat/streamReader';
 import {
+  ensureStreamJobWatchdog,
+  registerStreamJob,
+} from '@/server/chat/streamWatchdog';
+import {
   ApiRouteError,
   type AsyncJobRequest,
   type AsyncJobStatus,
@@ -51,6 +58,7 @@ import {
   type DocumentIngestProgress,
   type NatAsyncJobResponse,
 } from '@/server/chat/types';
+import { enforceRateLimit, ruleFromEnv } from '@/server/rateLimit';
 import { getOrSetSessionId } from '@/server/session/_utils';
 import {
   sessionKey,
@@ -85,6 +93,15 @@ export {
 } from '@/server/chat/backendSelection';
 
 const logger = new Logger('AsyncJob');
+
+// Per-user throttle on the (LLM-cost-bearing) async chat submit path. Generous
+// enough for normal interactive use; caps runaway/abusive submission floods.
+const CHAT_ASYNC_RATE_LIMIT = ruleFromEnv(
+  'chat-async',
+  'RATE_LIMIT_CHAT',
+  40,
+  60,
+);
 
 export const config = {
   api: {
@@ -161,6 +178,11 @@ export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse,
 ) {
+  // Arm the stale-stream-job watchdog on any request to this route (idempotent
+  // singleton) so a freshly restarted pod sweeps orphans left by the previous
+  // process generation without waiting for a new stream submission (H3).
+  ensureStreamJobWatchdog();
+
   if (req.method === 'POST') {
     return handlePost(req, res);
   } else if (req.method === 'GET') {
@@ -193,6 +215,13 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       return res.status(401).json({ error: 'Not authenticated' });
     }
     const verifiedUsername = session.username;
+
+    if (
+      !(await enforceRateLimit(res, CHAT_ASYNC_RATE_LIMIT, verifiedUsername))
+    ) {
+      return;
+    }
+
     const currentSessionId = getOrSetSessionId(req, res);
 
     if (!messages || !Array.isArray(messages)) {
@@ -408,6 +437,12 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     res.status(200).json({ jobId, status: jobStatus.status });
 
     if (!useNatAsyncJob) {
+      // Index this stream job BEFORE starting the reader so the watchdog can
+      // finalize it even if this reader's process dies mid-stream and no client
+      // ever polls (H3). Awaited (one cheap Redis round-trip; the response was
+      // already sent above) so a missed SADD doesn't silently un-index the very
+      // orphan the watchdog exists to recover.
+      await registerStreamJob(jobId);
       startBackgroundStreamReader(
         jobId,
         jobRequest,
@@ -484,10 +519,25 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
         isPlausibleUnixMs(lastActivityAt) &&
         Date.now() - lastActivityAt > STREAM_JOB_STALE_TIMEOUT_MS
       ) {
-        await finalizeError(
-          jobId,
-          jobRequest,
-          'Backend stream did not produce an update before the timeout. Please try again.',
+        // Serialize with the stream watchdog / other finalizers and re-check
+        // inside the lock so a stale stream job is finalized exactly once (no
+        // double conversation write or duplicate chat_complete event).
+        await withRedisLock(
+          finalizerLockKey(jobId),
+          FINALIZER_LOCK_TTL_MS,
+          async () => {
+            const fresh =
+              ((await jsonGet(statusKey)) as AsyncJobStatus | null) ||
+              jobStatus;
+            if (fresh.finalizedAt || isTerminalJobStatus(fresh.status)) {
+              return;
+            }
+            await finalizeError(
+              jobId,
+              jobRequest,
+              'Backend stream did not produce an update before the timeout. Please try again.',
+            );
+          },
         );
         const updated =
           ((await jsonGet(statusKey)) as AsyncJobStatus | null) || jobStatus;

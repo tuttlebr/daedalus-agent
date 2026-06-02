@@ -2,6 +2,7 @@ import { NextApiRequest, NextApiResponse } from 'next';
 
 import { validateVideoMagicBytes } from '@/utils/app/magicBytes';
 
+import { enforceRateLimit, ruleFromEnv } from '@/server/rateLimit';
 import {
   getOrSetSessionId,
   requireAuthenticatedUser,
@@ -193,6 +194,14 @@ export async function getUserVideos(userId: string): Promise<string[]> {
   return await redis.smembers(userVideosKey);
 }
 
+// Backstop on the (large, single-file) video upload path; caps abusive floods.
+const VIDEO_UPLOAD_RATE_LIMIT = ruleFromEnv(
+  'video-upload',
+  'RATE_LIMIT_VIDEO_UPLOAD',
+  60,
+  60,
+);
+
 export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse,
@@ -204,6 +213,7 @@ export default async function handler(
   const userId = session.username;
 
   if (req.method === 'POST') {
+    if (!(await enforceRateLimit(res, VIDEO_UPLOAD_RATE_LIMIT, userId))) return;
     // Store video
     try {
       const { base64Data, filename, mimeType } = req.body;

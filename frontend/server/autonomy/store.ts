@@ -11,6 +11,7 @@ import {
 } from '@/types/autonomy';
 
 import { sanitizeSourcePolicy } from '@/server/chat/sourcePolicy';
+import { positiveIntegerFromEnv } from '@/server/config/env';
 import { getRedis, jsonGet, jsonSet, sessionKey } from '@/server/session/redis';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -259,6 +260,24 @@ export async function getRun(
   return (await listRuns(userId)).find((run) => run.id === runId) || null;
 }
 
+// Bound the per-user autonomy queue so a stalled/slow worker cannot grow Redis
+// without limit, and cap prompt size to keep queue entries small.
+const MAX_QUEUE_DEPTH = positiveIntegerFromEnv('AUTONOMY_MAX_QUEUE_DEPTH', 100);
+const MAX_PROMPT_CHARS = positiveIntegerFromEnv(
+  'AUTONOMY_MAX_PROMPT_CHARS',
+  8000,
+);
+
+export class QueueFullError extends Error {
+  constructor(public readonly maxDepth: number) {
+    super(
+      `Autonomy queue is full (max ${maxDepth} pending requests). ` +
+        'Try again once queued runs drain.',
+    );
+    this.name = 'QueueFullError';
+  }
+}
+
 export async function enqueueRun(
   userId: string,
   input: {
@@ -267,18 +286,30 @@ export async function enqueueRun(
     prompt?: string;
     requestedBy?: string;
   },
+  options: { enforceDepthCap?: boolean } = {},
 ): Promise<{ id: string; queuedAt: number }> {
+  const redis = getRedis();
+  const queueKey = autonomyKey(userId, 'queue');
+
+  // Apply backpressure on the user-facing enqueue path only; internal
+  // continuations (e.g. approval re-enqueue) must not be dropped when deep.
+  if (options.enforceDepthCap) {
+    const depth = await redis.llen(queueKey);
+    if (depth >= MAX_QUEUE_DEPTH) {
+      throw new QueueFullError(MAX_QUEUE_DEPTH);
+    }
+  }
+
   const queuedAt = nowMs();
   const request = {
     id: `request_${uuidv4().replace(/-/g, '')}`,
     trigger: input.trigger || (input.goalId ? 'goal' : 'manual'),
     goalId: input.goalId || null,
-    prompt: input.prompt || '',
+    prompt: (input.prompt || '').slice(0, MAX_PROMPT_CHARS),
     requestedBy: input.requestedBy || 'ui',
     createdAt: queuedAt,
   };
-  const redis = getRedis();
-  await redis.lpush(autonomyKey(userId, 'queue'), JSON.stringify(request));
+  await redis.lpush(queueKey, JSON.stringify(request));
   await publishSyncEvent(userId, {
     type: 'autonomy_status',
     timestamp: queuedAt,

@@ -1416,6 +1416,8 @@ describe('chat/async backend pinning helpers', () => {
     (jsonGet as any)
       .mockResolvedValueOnce(jobStatus)
       .mockResolvedValueOnce(jobRequest)
+      // in-lock re-check before the stale finalizeError (finalizer-lock guard)
+      .mockResolvedValueOnce(jobStatus)
       .mockResolvedValueOnce(jobStatus)
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce(jobStatus)
