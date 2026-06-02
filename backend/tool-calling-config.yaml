@@ -48,6 +48,15 @@ embedders:
     model_name: ${EMBEDDING_MODEL}
     truncate: END
 function_groups:
+  x_mcp_server:
+    _type: mcp_client
+    tool_call_timeout: 45
+    reconnect_enabled: true
+    reconnect_max_attempts: 3
+    session_idle_timeout: 600
+    server:
+      transport: streamable-http
+      url: http://xmcp.xmcp.svc.cluster.local:8000/mcp
   github_mcp_server:
     _type: mcp_client
     include:
@@ -264,6 +273,7 @@ functions:
       - source_verifier_tool
       - citation_auditor_tool
       - current_datetime_tool
+      - x_mcp_server
     description: >-
       Run a research task. Input: a one-sentence research question or
       "brief me on X". Triggers: "research", "summarize", "what's the
@@ -296,7 +306,7 @@ functions:
         treat that as a stale alias for domain_retriever_tool; never call curated_memory_store because it is not a configured tool.
       - Use curated_feed_search_tool for recent curated-source questions
         such as "latest", "this week", or "current".
-      - Use serpapi_search_tool as the only internet search provider for
+      - Use serpapi_search_tool and/or x_mcp_server as the only internet search provider for
         web discovery, news, images, shopping, and general non-curated
         internet research.
       - Use webscrape_tool only when you already have a specific URL.
@@ -344,6 +354,7 @@ functions:
       - domain_retriever_tool
       - curated_feed_search_tool
       - serpapi_search_tool
+      - x_mcp_server
       - webscrape_tool
       - content_distiller_tool
       - source_verifier_tool
@@ -518,6 +529,7 @@ functions:
     handle_tool_errors: true
     verbose: true
     tool_names:
+      - current_datetime_tool
       - gmail_mcp_server
       - calendar_mcp_server
     description: >-
@@ -533,7 +545,8 @@ functions:
 
       # Goal
       Answer email and calendar questions from the user's connected Google
-      Workspace data.
+      Workspace data. Always ground searches in the current date and time from
+      current_datetime_tool if the user doesn't specify a date range.
 
       # Tool rules
       For Gmail questions, use search_threads before get_thread unless the user
@@ -1038,6 +1051,13 @@ functions:
           - user_data_agent
         default_enabled: false
         requires_auth: true
+      - id: x_mcp
+        name: X AI MCP
+        description: X (Twitter) API access via MCP for social media signals and updates.
+        tools:
+          - x_mcp_server
+        default_enabled: true
+        requires_auth: false
     description: >-
       AIQ-style source registry planner. plan_sources(research_question,
       selected_sources_json, disabled_sources_json, depth) returns selected
@@ -1353,5 +1373,6 @@ workflow:
     - current_datetime_tool
     - visual_media_tool
     - vtt_interpreter_tool
+    - x_mcp_server
   verbose: true
   workflow_alias: Daedalus
