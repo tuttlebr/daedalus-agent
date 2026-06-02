@@ -6,6 +6,8 @@ from autonomous_agent.backend_client import (
     extract_async_job_id,
     extract_oauth_required_payload,
 )
+from autonomous_agent.dedupe import dedupe_feed_items
+from autonomous_agent.models import now_ms
 from autonomous_agent.prompt import (
     build_messages,
     extract_approval_metadata,
@@ -57,8 +59,15 @@ class FakeStore:
             }
         )
 
+    def list_feed(self, user_id, limit=None):
+        return self.feed[:limit] if limit is not None else self.feed
+
     def append_feed_items(self, user_id, items):
-        self.feed.extend(items)
+        # Mirror the real store: de-duplicate against the existing feed and
+        # return only the items that were actually stored.
+        kept, _dropped = dedupe_feed_items(items, self.feed, now=now_ms())
+        self.feed = kept + self.feed
+        return kept
 
     def append_approval(self, user_id, approval):
         self.approvals.append(approval)
@@ -184,6 +193,67 @@ def test_run_once_stores_structured_feed_and_completed_run():
     assert store.feed[0]["title"] == "Signal"
     assert store.runs[0]["summary"] == "Found a durable signal."
     assert backend.messages[0]["content"].startswith("[IDENTITY]")
+
+
+def test_build_messages_includes_already_surfaced_digest():
+    messages = build_messages(
+        user_id="test-user",
+        config={"actionPolicy": "broad_autonomy", "feedDedupeWindowDays": 14},
+        workspace={},
+        goals=[],
+        recent_runs=[],
+        recent_feed=[
+            {
+                "title": "NVIDIA announces new GPU",
+                "bluf": "Shipped today.",
+                "sourceUrl": "https://nvidia.com/gpu",
+                "createdAt": now_ms(),
+            }
+        ],
+        request={"trigger": "scheduled"},
+    )
+
+    prompt = messages[-1]["content"]
+    assert "already_surfaced" in prompt
+    assert "NVIDIA announces new GPU" in prompt
+    assert "Avoid redundancy" in prompt
+
+
+def test_run_once_dedupes_feed_items_already_surfaced():
+    item = {
+        "lane": "known",
+        "title": "NVIDIA announces new GPU",
+        "bluf": "A new data center GPU shipped today.",
+        "body": "Targets AI training workloads.",
+        "source_url": "https://nvidia.com/gpu",
+        "confidence": "high",
+    }
+    response = json.dumps({"summary": "Found a signal.", "feed_items": [item]})
+    store = FakeStore()
+    backend = FakeBackend(response)
+
+    first = run_once(
+        store=store,
+        backend=backend,
+        user_id="test-user",
+        request={"trigger": "scheduled"},
+    )
+    assert first["metrics"]["feedItemsStored"] == 1
+    assert first["metrics"]["feedItemsDeduped"] == 0
+    assert len(store.feed) == 1
+
+    # A later scheduled cycle rediscovers the same announcement.
+    second = run_once(
+        store=store,
+        backend=backend,
+        user_id="test-user",
+        request={"trigger": "scheduled"},
+    )
+    assert second["metrics"]["feedItemsStored"] == 0
+    assert second["metrics"]["feedItemsDeduped"] == 1
+    assert second["feedItemIds"] == []
+    # The feed did not grow — no redundant item was appended.
+    assert len(store.feed) == 1
 
 
 def test_run_once_pauses_when_backend_requests_approval():

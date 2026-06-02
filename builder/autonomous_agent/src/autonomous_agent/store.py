@@ -9,6 +9,7 @@ import time
 import uuid
 from typing import Any
 
+from .dedupe import dedupe_feed_items, window_ms_for_days
 from .models import default_config, new_event, now_ms
 
 
@@ -151,16 +152,46 @@ class RedisStore:
             return [event for event in events if event.get("runId") == run_id]
         return events
 
-    def append_feed_items(self, user_id: str, items: list[dict[str, Any]]) -> None:
+    def list_feed(self, user_id: str, limit: int | None = None) -> list[dict[str, Any]]:
+        feed = self.json_get(key(user_id, "feed"), [])
+        if not isinstance(feed, list):
+            return []
+        return feed[:limit] if limit is not None else feed
+
+    def append_feed_items(
+        self, user_id: str, items: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        """Store new feed items, dropping ones that repeat recent feed entries.
+
+        Returns the items that were actually stored (post de-duplication) so the
+        caller can record accurate ``feedItemIds`` and surface a dropped count.
+        """
         if not items:
-            return
+            return []
+        config = self.get_config(user_id)
         feed = self.json_get(key(user_id, "feed"), [])
         if not isinstance(feed, list):
             feed = []
-        feed = items + feed
-        max_items = int(self.get_config(user_id).get("maxFeedItems") or 200)
-        self.json_set(key(user_id, "feed"), feed[:max_items])
-        self.publish(user_id, "autonomy_feed_updated", {"items": items})
+
+        if config.get("feedDedupeEnabled", True):
+            kept, _dropped = dedupe_feed_items(
+                items,
+                feed,
+                now=now_ms(),
+                window_ms=window_ms_for_days(config.get("feedDedupeWindowDays")),
+            )
+        else:
+            kept = items
+        if not kept:
+            return []
+
+        max_items = int(config.get("maxFeedItems") or 200)
+        self.json_set(key(user_id, "feed"), (kept + feed)[:max_items])
+        # Return only the items that survived the cap so the caller's
+        # feedItemIds never reference items that were truncated out of the feed.
+        stored = kept[:max_items]
+        self.publish(user_id, "autonomy_feed_updated", {"items": stored})
+        return stored
 
     def append_approval(self, user_id: str, approval: dict[str, Any]) -> None:
         approvals = self.json_get(key(user_id, "approvals"), [])

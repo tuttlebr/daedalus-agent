@@ -31,6 +31,8 @@ def default_config(user_id: str) -> dict[str, Any]:
         "intervalSeconds": 14_400,
         "maxRunsStored": 100,
         "maxFeedItems": 200,
+        "feedDedupeEnabled": True,
+        "feedDedupeWindowDays": 14,
         "sourcePolicy": {
             "disabledSources": [],
             "enabledSources": [],

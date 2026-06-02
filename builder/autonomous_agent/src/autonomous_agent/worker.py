@@ -132,12 +132,14 @@ def run_once(
             for existing in store.list_runs(user_id)
             if existing.get("id") != run["id"]
         ]
+        recent_feed = store.list_feed(user_id, limit=60)
         messages = build_messages(
             user_id=user_id,
             config=config,
             workspace=workspace,
             goals=goals,
             recent_runs=recent_runs,
+            recent_feed=recent_feed,
             request=request,
         )
         store.log_event(user_id, run["id"], "backend_call", "Calling backend workflow.")
@@ -183,14 +185,19 @@ def run_once(
         output = parse_structured_output(response)
         changed = apply_workspace_updates(store, user_id, output)
         feed_items = feed_items_from_output(run["id"], output)
-        store.append_feed_items(user_id, feed_items)
+        stored_items = store.append_feed_items(user_id, feed_items)
+        if stored_items is None:  # defensive: legacy stores returned None
+            stored_items = feed_items
+        deduped = max(0, len(feed_items) - len(stored_items))
 
         run["status"] = "completed"
         run["summary"] = str(
             output.get("summary") or output.get("executive_summary") or ""
         )
-        run["feedItemIds"] = [item["id"] for item in feed_items]
+        run["feedItemIds"] = [item["id"] for item in stored_items]
         run["metrics"]["workspaceUpdated"] = changed
+        run["metrics"]["feedItemsStored"] = len(stored_items)
+        run["metrics"]["feedItemsDeduped"] = deduped
         run["completedAt"] = now_ms()
         store.upsert_run(user_id, run)
         store.log_event(
@@ -198,7 +205,11 @@ def run_once(
             run["id"],
             "run_completed",
             "Autonomous run completed.",
-            data={"feedItems": len(feed_items), "workspaceUpdated": changed},
+            data={
+                "feedItems": len(stored_items),
+                "feedItemsDeduped": deduped,
+                "workspaceUpdated": changed,
+            },
         )
         return run
     except OAuthRequiredError as exc:

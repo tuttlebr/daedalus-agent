@@ -2,6 +2,7 @@
 
 import json
 
+from autonomous_agent.models import now_ms
 from autonomous_agent.store import RedisStore, key
 
 
@@ -10,6 +11,21 @@ class _FakeRedis:
 
     def __init__(self):
         self.lists: dict[str, list[str]] = {}
+        self.kv: dict[str, str] = {}
+
+    def execute_command(self, *_args, **_kwargs):
+        # Force the store onto its plain GET/SET (non-RedisJSON) code path.
+        raise RuntimeError("JSON module unavailable")
+
+    def get(self, k):
+        return self.kv.get(k)
+
+    def set(self, k, v, **_kwargs):
+        self.kv[k] = v
+        return True
+
+    def publish(self, *_args, **_kwargs):
+        return 0
 
     def lpush(self, k, v):
         self.lists.setdefault(k, []).insert(0, v)
@@ -82,3 +98,66 @@ def test_poison_message_is_dropped_from_processing():
     store.redis.lpush(key("u", "queue"), "{not valid json")
     assert store.dequeue("u", timeout=0) is None
     assert store.redis.llen(key("u", "processing")) == 0
+
+
+def test_append_feed_items_dedupes_against_recent_feed():
+    store = _store()
+    item = {
+        "id": "feed_1",
+        "title": "NVIDIA announces new GPU",
+        "bluf": "Shipped today.",
+        "body": "Targets AI training.",
+        "sourceUrl": "https://nvidia.com/gpu",
+        "createdAt": now_ms(),
+    }
+
+    first = store.append_feed_items("u", [dict(item)])
+    assert len(first) == 1
+    assert first[0]["fingerprint"].startswith("url:")
+    assert len(store.list_feed("u")) == 1
+
+    # Same announcement, slightly different URL decoration → dropped.
+    repeat = dict(item, id="feed_2", sourceUrl="https://www.nvidia.com/gpu/")
+    second = store.append_feed_items("u", [repeat])
+    assert second == []
+    assert len(store.list_feed("u")) == 1
+
+
+def test_append_feed_items_returns_only_items_that_survive_max_cap():
+    store = _store()
+    store.save_config("u", {**store.get_config("u"), "maxFeedItems": 2})
+    items = [
+        {
+            "id": f"feed_{n}",
+            "title": f"Distinct finding {n}",
+            "bluf": f"Takeaway {n}.",
+            "body": f"Body {n}.",
+            "sourceUrl": f"https://example.com/{n}",
+            "createdAt": now_ms(),
+        }
+        for n in range(4)
+    ]
+    stored = store.append_feed_items("u", items)
+    # Only the items actually retained after the cap are returned, so a caller's
+    # feedItemIds never point at items truncated out of the feed.
+    assert len(stored) == 2
+    assert len(store.list_feed("u")) == 2
+    assert {item["id"] for item in stored} == {
+        item["id"] for item in store.list_feed("u")
+    }
+
+
+def test_append_feed_items_respects_disabled_dedupe():
+    store = _store()
+    store.save_config("u", {**store.get_config("u"), "feedDedupeEnabled": False})
+    item = {
+        "id": "feed_1",
+        "title": "Repeated",
+        "bluf": "Same",
+        "body": "Same body",
+        "sourceUrl": "https://example.com/x",
+        "createdAt": None,
+    }
+    store.append_feed_items("u", [dict(item)])
+    store.append_feed_items("u", [dict(item, id="feed_2")])
+    assert len(store.list_feed("u")) == 2

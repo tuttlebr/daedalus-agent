@@ -8,7 +8,8 @@ import time
 from pathlib import Path
 from typing import Any
 
-from .models import new_feed_item
+from .dedupe import summarize_recent_feed, window_ms_for_days
+from .models import new_feed_item, now_ms
 
 WORKSPACE_FILES = {
     "identity": "/config/identity.md",
@@ -133,6 +134,7 @@ def build_messages(
     goals: list[dict[str, Any]],
     recent_runs: list[dict[str, Any]],
     request: dict[str, Any],
+    recent_feed: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, str]]:
     """Build a stable-prefix autonomous prompt for the NAT workflow."""
 
@@ -147,6 +149,12 @@ def build_messages(
         }
         for r in recent_runs[:5]
     ]
+
+    already_surfaced = summarize_recent_feed(
+        recent_feed or [],
+        now=now_ms(),
+        window_ms=window_ms_for_days(config.get("feedDedupeWindowDays")),
+    )
 
     stable_sections = [
         "# Daedalus Autonomous Runtime",
@@ -196,6 +204,7 @@ def build_messages(
         "manual_prompt": request.get("prompt", ""),
         "active_goals": active_goals,
         "recent_runs": recent_summaries,
+        "already_surfaced": already_surfaced,
     }
 
     instructions = f"""
@@ -224,6 +233,15 @@ request, and stop. The worker will surface approval in the UI.
 # Evidence and memory
 For finding or project_update memories, verify the exact final claim before
 calling add_memory. Store no unsupported claims. Prefer primary sources.
+
+# Avoid redundancy
+The "already_surfaced" list in the runtime input is what you reported in recent
+runs. Do NOT emit a feed item that repeats the same event, announcement, paper,
+release, or finding already on that list. Surface an item only when it is
+genuinely new, or a material update to a prior one — and if it is an update,
+state plainly in the bluf what changed since it was last reported. If a run
+turns up nothing beyond what is already surfaced, return an empty feed_items
+list rather than restating known items.
 
 # Output and stop rule
 Do not produce raw HTML. Return JSON only, matching this shape:

@@ -17,6 +17,9 @@ import { v4 as uuidv4 } from 'uuid';
 const DEFAULT_INTERVAL_SECONDS = 14_400;
 const MIN_INTERVAL_SECONDS = 300; // 5 min floor — block degenerate tight worker loops
 const MAX_INTERVAL_SECONDS = 7 * 24 * 60 * 60; // 7 days
+const DEFAULT_DEDUPE_WINDOW_DAYS = 14;
+const MIN_DEDUPE_WINDOW_DAYS = 1;
+const MAX_DEDUPE_WINDOW_DAYS = 90;
 const VALID_MODES = new Set(['hybrid', 'research_feed', 'task_executor']);
 const VALID_RUNTIMES = new Set(['dedicated_worker']);
 const VALID_ACTION_POLICIES = new Set([
@@ -74,6 +77,16 @@ export function sanitizeConfigPatch(
   const maxFeed = clampInt(patch.maxFeedItems, 1, 2000);
   if (maxFeed !== undefined) clean.maxFeedItems = maxFeed;
 
+  if (typeof patch.feedDedupeEnabled === 'boolean') {
+    clean.feedDedupeEnabled = patch.feedDedupeEnabled;
+  }
+  const dedupeWindow = clampInt(
+    patch.feedDedupeWindowDays,
+    MIN_DEDUPE_WINDOW_DAYS,
+    MAX_DEDUPE_WINDOW_DAYS,
+  );
+  if (dedupeWindow !== undefined) clean.feedDedupeWindowDays = dedupeWindow;
+
   const sourcePolicy = sanitizeSourcePolicy(patch.sourcePolicy);
   if (sourcePolicy) clean.sourcePolicy = sourcePolicy;
 
@@ -99,6 +112,8 @@ function defaultConfig(userId: string): AutonomyConfig {
     intervalSeconds: DEFAULT_INTERVAL_SECONDS,
     maxRunsStored: 100,
     maxFeedItems: 200,
+    feedDedupeEnabled: true,
+    feedDedupeWindowDays: DEFAULT_DEDUPE_WINDOW_DAYS,
     sourcePolicy: {
       disabledSources: [],
       enabledSources: [],

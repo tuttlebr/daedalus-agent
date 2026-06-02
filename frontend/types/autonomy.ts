@@ -33,6 +33,10 @@ export interface AutonomyConfig {
   intervalSeconds: number;
   maxRunsStored: number;
   maxFeedItems: number;
+  /** Drop feed items that repeat something surfaced within the window. */
+  feedDedupeEnabled?: boolean;
+  /** Recency window (days) the worker dedupes new feed items against. */
+  feedDedupeWindowDays?: number;
   sourcePolicy?: SourcePolicy;
   lastScheduledRunAt?: number | null;
   createdAt: number;
@@ -88,6 +92,8 @@ export interface AutonomyFeedItem {
   sourceUrl?: string;
   confidence: 'high' | 'medium' | 'low' | string;
   confidenceReason?: string;
+  /** Stable content fingerprint stamped by the worker for de-duplication. */
+  fingerprint?: string;
   createdAt: number;
 }
 
