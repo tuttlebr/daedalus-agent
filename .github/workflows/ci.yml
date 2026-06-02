@@ -35,6 +35,41 @@ jobs:
           name: coverage-xml
           path: builder/coverage.xml
 
+  builder-integration:
+    name: Builder Integration Tests
+    runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install uv
+        run: pip install uv
+
+      - name: Install dependencies
+        working-directory: builder
+        run: uv pip install --system -e ".[test]" redis
+
+      - name: Run integration tests against real Redis
+        working-directory: builder
+        env:
+          PYTEST_USE_REAL_REDIS: '1'
+          REDIS_URL: redis://localhost:6379
+        run: pytest -m integration -v
+
   frontend:
     name: Frontend Checks
     runs-on: ubuntu-latest

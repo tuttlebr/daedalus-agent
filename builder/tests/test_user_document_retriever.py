@@ -86,3 +86,63 @@ def test_retriever_config_defaults_milvus_auth_from_env(monkeypatch):
     config = UserDocumentRetrieverConfig(milvus_uri="http://milvus:19530")
 
     assert config.connection_args == {"token": "root:Milvus"}
+
+
+def test_retriever_closes_milvus_client_on_teardown():
+    async def _run():
+        import nat_nv_ingest.user_document_retriever as mod
+        from nat_nv_ingest.user_document_retriever import (
+            UserDocumentRetrieverConfig,
+            user_document_retriever_function,
+        )
+
+        fake_retriever = FakeRetriever()
+        fake_client = MagicMock()
+        builder = MagicMock()
+        builder.get_embedder = AsyncMock(return_value=MagicMock())
+
+        with (
+            patch.object(mod, "MilvusRetriever", return_value=fake_retriever),
+            patch.object(mod, "MilvusClient", return_value=fake_client),
+        ):
+            gen = user_document_retriever_function(
+                UserDocumentRetrieverConfig(milvus_uri="http://milvus:19530"),
+                builder,
+            )
+            item = await gen.__anext__()
+            # Trigger lazy client creation, then tear the generator down.
+            await item.fn(query="summarize", username="Brandon Smith")
+            await gen.aclose()
+
+        fake_client.close.assert_called_once()
+
+    run(_run())
+
+
+def test_retriever_teardown_without_client_is_noop():
+    async def _run():
+        import nat_nv_ingest.user_document_retriever as mod
+        from nat_nv_ingest.user_document_retriever import (
+            UserDocumentRetrieverConfig,
+            user_document_retriever_function,
+        )
+
+        fake_client = MagicMock()
+        builder = MagicMock()
+        builder.get_embedder = AsyncMock(return_value=MagicMock())
+
+        with (
+            patch.object(mod, "MilvusRetriever", return_value=FakeRetriever()),
+            patch.object(mod, "MilvusClient", return_value=fake_client),
+        ):
+            gen = user_document_retriever_function(
+                UserDocumentRetrieverConfig(milvus_uri="http://milvus:19530"),
+                builder,
+            )
+            await gen.__anext__()
+            # No retrieve call -> client never created -> close not attempted.
+            await gen.aclose()
+
+        fake_client.close.assert_not_called()
+
+    run(_run())

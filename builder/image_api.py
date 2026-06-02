@@ -18,7 +18,6 @@ Env var contract (same as the agent tools):
 from __future__ import annotations
 
 import base64
-import hmac
 import logging
 import os
 from typing import Annotated, Any, Literal
@@ -26,7 +25,9 @@ from typing import Annotated, Any, Literal
 import redis
 from fastapi import APIRouter, Header, HTTPException
 from nat_helpers.image_utils import fetch_image_from_redis, store_image_in_redis
+from nat_helpers.internal_auth import require_trusted_user as _require_trusted_user
 from nat_helpers.openai_images import edit_images, generate_images
+from nat_helpers.redis_url import redis_url_from_env
 from openai import AsyncOpenAI, OpenAIError
 from pydantic import BaseModel, Field
 
@@ -121,10 +122,7 @@ _redis_client: redis.Redis | None = None
 def _get_redis() -> redis.Redis:
     global _redis_client
     if _redis_client is None:
-        url = os.getenv(
-            "REDIS_URL", "redis://daedalus-redis.daedalus.svc.cluster.local:6379"
-        )
-        _redis_client = redis.from_url(url, decode_responses=False)
+        _redis_client = redis.from_url(redis_url_from_env(), decode_responses=False)
     return _redis_client
 
 
@@ -172,52 +170,6 @@ async def _store_results(
     return ids
 
 
-def _configured_internal_token() -> str:
-    return (os.getenv("DAEDALUS_INTERNAL_API_TOKEN") or "").strip()
-
-
-def _allow_insecure_internal() -> bool:
-    """True only when an operator has explicitly opted out of token auth.
-
-    Intended for local development (Docker Compose) where no internal token is
-    provisioned. Production must leave this unset so a missing token fails closed.
-    """
-    return (os.getenv("ALLOW_INSECURE_INTERNAL") or "").strip().lower() in (
-        "1",
-        "true",
-        "yes",
-    )
-
-
-def _require_internal_token(x_daedalus_internal_token: str | None) -> None:
-    expected = _configured_internal_token()
-    if not expected:
-        # Fail closed: a missing token means trusted frontend->backend auth is
-        # unconfigured. Refuse rather than trusting an arbitrary caller's
-        # x-user-id header. Local/dev opts out explicitly via ALLOW_INSECURE_INTERNAL=1.
-        if _allow_insecure_internal():
-            return
-        raise HTTPException(
-            status_code=503,
-            detail="Internal API authentication is not configured",
-        )
-
-    provided = (x_daedalus_internal_token or "").strip()
-    if not provided or not hmac.compare_digest(provided, expected):
-        raise HTTPException(status_code=401, detail="Internal API token is required")
-
-
-def _require_trusted_user(
-    x_user_id: str | None,
-    x_daedalus_internal_token: str | None = None,
-) -> str:
-    _require_internal_token(x_daedalus_internal_token)
-    user_id = (x_user_id or "").strip()
-    if not user_id:
-        raise HTTPException(status_code=401, detail="Authenticated user is required")
-    return user_id
-
-
 # ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
@@ -244,7 +196,11 @@ async def generate(
         )
     except OpenAIError as e:
         logger.exception("images.generate failed")
-        raise HTTPException(status_code=502, detail=f"OpenAI error: {e}") from e
+        # F-022: log the full upstream error server-side; return a generic
+        # message so provider/model/endpoint details are not leaked to callers.
+        raise HTTPException(
+            status_code=502, detail="Upstream image service error"
+        ) from e
 
     if not results:
         raise HTTPException(status_code=502, detail="No image returned by the model")
@@ -327,7 +283,11 @@ async def edit(
         )
     except OpenAIError as e:
         logger.exception("images.edit failed")
-        raise HTTPException(status_code=502, detail=f"OpenAI error: {e}") from e
+        # F-022: log the full upstream error server-side; return a generic
+        # message so provider/model/endpoint details are not leaked to callers.
+        raise HTTPException(
+            status_code=502, detail="Upstream image service error"
+        ) from e
 
     if not results:
         raise HTTPException(status_code=502, detail="No image returned by the model")

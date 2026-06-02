@@ -110,6 +110,64 @@ class ExtractResult(TypedDict):
 
 INLINE_MARKDOWN_CHAR_LIMIT = 50_000
 
+# Cap the length of per-document error text echoed back to the client (both the
+# batch summary and the streamed progress message). The full error is logged
+# server-side; only this prefix is surfaced to the user/LLM.
+ERROR_MESSAGE_CHAR_LIMIT = 100
+
+# Default per-document ingest size cap (bytes) applied before base64 decoding.
+# Overridable via the DOCUMENT_INGEST_MAX_SIZE_BYTES env var.
+DEFAULT_DOCUMENT_INGEST_MAX_SIZE_BYTES = 100 * 1024 * 1024
+
+
+def _truncate_error(error: object, limit: int = ERROR_MESSAGE_CHAR_LIMIT) -> str:
+    """Cap error text surfaced to the client to ``limit`` characters."""
+    text = str(error)
+    if len(text) <= limit:
+        return text
+    return f"{text[:limit]}..."
+
+
+def document_ingest_max_size_bytes() -> int:
+    """Resolve the per-document ingest size cap (bytes) from the environment.
+
+    Falls back to ``DEFAULT_DOCUMENT_INGEST_MAX_SIZE_BYTES`` when the env var is
+    unset, empty, non-numeric, or non-positive.
+    """
+    raw = (os.getenv("DOCUMENT_INGEST_MAX_SIZE_BYTES") or "").strip()
+    if not raw:
+        return DEFAULT_DOCUMENT_INGEST_MAX_SIZE_BYTES
+    try:
+        value = int(raw)
+    except ValueError:
+        return DEFAULT_DOCUMENT_INGEST_MAX_SIZE_BYTES
+    return value if value > 0 else DEFAULT_DOCUMENT_INGEST_MAX_SIZE_BYTES
+
+
+def _estimated_decoded_size(document_base64: str) -> int:
+    """Estimate the decoded byte length of a base64 string without decoding.
+
+    Base64 encodes 3 bytes per 4 characters; padding ('=') reduces the count.
+    Used to reject oversized uploads before allocating the decoded bytes.
+    """
+    encoded = document_base64.strip()
+    padding = encoded.count("=")
+    return (len(encoded) * 3) // 4 - padding
+
+
+def _document_size_error(document_base64: str, max_bytes: int) -> str | None:
+    """Return an error string when the base64 payload exceeds ``max_bytes``.
+
+    Returns None when the payload is within the limit.
+    """
+    estimated = _estimated_decoded_size(document_base64)
+    if estimated > max_bytes:
+        return (
+            f"Error: Document exceeds the maximum allowed size "
+            f"({max_bytes} bytes). Please upload a smaller file."
+        )
+    return None
+
 
 def normalize_collection_part(value: str | None, fallback: str = "anonymous") -> str:
     """Return a Milvus-safe collection name component."""
@@ -1281,6 +1339,17 @@ class NvIngestDocumentProcessor:
                         filename=filename,
                     )
 
+                max_bytes = document_ingest_max_size_bytes()
+                size_error = _document_size_error(document_base64, max_bytes)
+                if size_error is not None:
+                    logger.warning(
+                        "Document %s (%s) exceeds max ingest size %d bytes",
+                        document_id,
+                        filename,
+                        max_bytes,
+                    )
+                    return _failure(size_error, filename=filename)
+
                 document_bytes = base64.b64decode(document_base64)
             except redis.RedisError as e:
                 logger.error("Redis error retrieving document: %s", e)
@@ -1562,6 +1631,16 @@ class NvIngestDocumentProcessor:
                         "Error: Retrieved document data is empty.",
                         filename=filename,
                     )
+                max_bytes = document_ingest_max_size_bytes()
+                size_error = _document_size_error(document_base64, max_bytes)
+                if size_error is not None:
+                    logger.warning(
+                        "Document %s (%s) exceeds max ingest size %d bytes",
+                        document_id,
+                        filename,
+                        max_bytes,
+                    )
+                    return _failure(size_error, filename=filename)
                 document_bytes = base64.b64decode(document_base64)
             except redis.RedisError as e:
                 logger.error("Redis error retrieving document: %s", e)
@@ -1859,10 +1938,11 @@ class NvIngestDocumentProcessor:
             nonlocal total_chunks, total_pages
             if isinstance(outcome, Exception):
                 failed_documents.append({"id": ref_filename, "error": str(outcome)})
+                logger.warning("Document %s failed: %s", ref_filename, outcome)
                 return {
                     "filename": ref_filename,
                     "phase": "failed",
-                    "message": f"Failed {ref_filename}: {outcome}",
+                    "message": f"Failed {ref_filename}: {_truncate_error(outcome)}",
                 }
             filename = outcome["filename"] or ref_filename
             if outcome["status"] in ("success", "partial"):
@@ -1893,7 +1973,7 @@ class NvIngestDocumentProcessor:
                 return {
                     "filename": filename,
                     "phase": "failed",
-                    "message": f"Failed {filename}: {outcome['error']}",
+                    "message": f"Failed {filename}: {_truncate_error(outcome['error'])}",
                 }
 
         def _metric_kwargs(status_event: dict[str, Any]) -> dict[str, Any]:
@@ -2301,6 +2381,17 @@ async def nv_ingest_function(
                         filename=filename,
                     )
 
+                max_bytes = document_ingest_max_size_bytes()
+                size_error = _document_size_error(document_base64, max_bytes)
+                if size_error is not None:
+                    logger.warning(
+                        "Document %s (%s) exceeds max ingest size %d bytes",
+                        document_id,
+                        filename,
+                        max_bytes,
+                    )
+                    return _failure(size_error, filename=filename)
+
                 document_bytes = base64.b64decode(document_base64)
             except redis.RedisError as e:
                 logger.error("Redis error retrieving document: %s", e)
@@ -2494,6 +2585,16 @@ async def nv_ingest_function(
                         "Error: Retrieved document data is empty.",
                         filename=filename,
                     )
+                max_bytes = document_ingest_max_size_bytes()
+                size_error = _document_size_error(document_base64, max_bytes)
+                if size_error is not None:
+                    logger.warning(
+                        "Document %s (%s) exceeds max ingest size %d bytes",
+                        document_id,
+                        filename,
+                        max_bytes,
+                    )
+                    return _failure(size_error, filename=filename)
                 document_bytes = base64.b64decode(document_base64)
             except redis.RedisError as e:
                 logger.error("Redis error retrieving document: %s", e)

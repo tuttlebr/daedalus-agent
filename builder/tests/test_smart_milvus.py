@@ -259,3 +259,173 @@ class TestSearchTimeout:
         retriever, _ = self._retriever(0.05, embed=_slow_embed)
         with pytest.raises(TimeoutError):
             asyncio.run(retriever.search(query="q", collection_name="col", top_k=3))
+
+
+# ---------------------------------------------------------------------------
+# F-004 — iterator search tolerates schema with no 'fields'
+# ---------------------------------------------------------------------------
+
+
+class TestIteratorSchemaWithoutFields:
+    def _make_iterator_retriever(self, describe_return):
+        client = MagicMock()
+        client.list_collections.return_value = ["col"]
+        client.describe_collection.return_value = describe_return
+        client.search_iterator = MagicMock()
+        # Iterator immediately returns an empty batch so the search completes.
+        empty_batch = MagicMock()
+        empty_batch.get_res.return_value = [[]]
+        empty_batch.__len__.return_value = 0
+        client.search_iterator.return_value.next.return_value = empty_batch
+        embedder = MagicMock()
+        embedder.embed_query.return_value = [0.1, 0.2]
+        retriever = MilvusRetriever(
+            client=client,
+            embedder=embedder,
+            content_field="text",
+            use_iterator=True,
+        )
+        return retriever, client
+
+    def test_schema_missing_fields_does_not_crash(self):
+        # describe_collection returns a schema with NO 'fields' key.
+        retriever, client = self._make_iterator_retriever({})
+        result = asyncio.run(
+            retriever.search(query="q", collection_name="col", top_k=3)
+        )
+        assert result.results == []
+        # output_fields ended up empty because schema had no fields
+        assert client.search_iterator.call_args.kwargs["output_fields"] == []
+
+    def test_schema_fields_none_does_not_crash(self):
+        # describe_collection returns {"fields": None}.
+        retriever, _ = self._make_iterator_retriever({"fields": None})
+        result = asyncio.run(
+            retriever.search(query="q", collection_name="col", top_k=3)
+        )
+        assert result.results == []
+
+
+# ---------------------------------------------------------------------------
+# F-012 — single list_collections() round-trip per search
+# ---------------------------------------------------------------------------
+
+
+class TestSingleListCollectionsRoundTrip:
+    def _make_retriever(self, database_name=None):
+        client = MagicMock()
+        client.list_collections.return_value = ["col"]
+        client.describe_collection.return_value = {
+            "fields": [{"name": "text"}, {"name": "vector"}]
+        }
+        client.search.return_value = [[]]
+        embedder = MagicMock()
+        embedder.embed_query.return_value = [0.1, 0.2]
+        retriever = MilvusRetriever(
+            client=client,
+            embedder=embedder,
+            content_field="text",
+            database_name=database_name,
+        )
+        return retriever, client
+
+    def test_default_db_calls_list_collections_once(self):
+        retriever, client = self._make_retriever()
+        asyncio.run(retriever.search(query="q", collection_name="col", top_k=3))
+        assert client.list_collections.call_count == 1
+
+    def test_non_default_db_calls_list_collections_once(self):
+        retriever, client = self._make_retriever(database_name="mydb")
+        # Collection exists under the database prefix.
+        client.list_collections.return_value = ["mydb.col"]
+        asyncio.run(retriever.search(query="q", collection_name="col", top_k=3))
+        assert client.list_collections.call_count == 1
+        # Resolved name carries the database prefix.
+        assert client.search.call_args.kwargs["collection_name"] == "mydb.col"
+
+    def test_resolve_collection_returns_exists_and_name(self):
+        retriever, _ = self._make_retriever()
+        exists, name = retriever._resolve_collection("col")
+        assert exists is True
+        assert name == "col"
+
+    def test_resolve_collection_missing(self):
+        retriever, client = self._make_retriever()
+        client.list_collections.return_value = []
+        exists, name = retriever._resolve_collection("nope")
+        assert exists is False
+        assert name == "nope"
+
+    def test_resolve_collection_prefixed_db(self):
+        retriever, client = self._make_retriever(database_name="mydb")
+        client.list_collections.return_value = ["mydb.col"]
+        exists, name = retriever._resolve_collection("col")
+        assert exists is True
+        assert name == "mydb.col"
+
+    def test_resolve_collection_unprefixed_in_db(self):
+        retriever, client = self._make_retriever(database_name="mydb")
+        # Only the unprefixed form exists.
+        client.list_collections.return_value = ["col"]
+        exists, name = retriever._resolve_collection("col")
+        assert exists is True
+        assert name == "col"
+
+
+# ---------------------------------------------------------------------------
+# F-013a — connection-pool cleanup
+# ---------------------------------------------------------------------------
+
+
+class TestRetrieverClose:
+    def _make_retriever(self):
+        client = MagicMock()
+        client.list_collections.return_value = []
+        return MilvusRetriever(
+            client=client,
+            embedder=MagicMock(),
+            content_field="text",
+        )
+
+    def test_close_with_no_session_is_noop(self):
+        retriever = self._make_retriever()
+        # Should not raise even though no session was created.
+        retriever.close()
+        assert retriever._session is None
+
+    def test_close_closes_existing_session(self):
+        retriever = self._make_retriever()
+        session = MagicMock()
+        retriever._session = session
+        retriever.close()
+        session.close.assert_called_once()
+        assert retriever._session is None
+
+
+class TestCloseMilvusClient:
+    def test_close_none_is_noop(self):
+        from smart_milvus.register import _close_milvus_client
+
+        # Should not raise.
+        _close_milvus_client(None)
+
+    def test_close_calls_client_close(self):
+        from smart_milvus.register import _close_milvus_client
+
+        client = MagicMock()
+        _close_milvus_client(client)
+        client.close.assert_called_once()
+
+    def test_close_swallows_errors(self):
+        from smart_milvus.register import _close_milvus_client
+
+        client = MagicMock()
+        client.close.side_effect = RuntimeError("boom")
+        # Must not propagate from cleanup.
+        _close_milvus_client(client)
+
+    def test_close_tolerates_client_without_close(self):
+        from smart_milvus.register import _close_milvus_client
+
+        client = object()  # no close attribute
+        _close_milvus_client(client)

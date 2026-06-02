@@ -36,7 +36,7 @@ import logging
 import re
 from dataclasses import dataclass
 from typing import Any
-from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
+from urllib.parse import parse_qsl, urlencode, urljoin, urlparse, urlunparse
 
 import httpx
 from nat.builder.builder import Builder, LLMFrameworkEnum
@@ -46,8 +46,12 @@ from nat.data_models.function import FunctionBaseConfig
 from nat_helpers.url_guard import UnsafeURLError, validate_public_url
 from pydantic import Field
 from webscrape.webscrape_function import (
+    _BROWSER_HEADERS,
+    _BROWSER_USER_AGENT,
+    _get_following_safe_redirects,
+    _html_to_markdown,
+    _is_challenge_page,
     _is_valid_content,
-    _scrape_with_httpx,
     _scrape_with_markitdown,
     _validate_url,
 )
@@ -68,6 +72,8 @@ _TRACKING_PARAMS = {
 }
 _URL_RE = re.compile(r"https?://[^\s<>\"'\]]+")
 _URL_TRIM_CHARS = ".,;)]>"
+# Max redirects to follow (with per-hop SSRF revalidation) for link reachability.
+_MAX_LINK_REDIRECTS = 10
 _REFERENCE_SECTION_RE = re.compile(
     r"^(?:#{2,3}\s+(?:Sources|References)|\*\*References:?\*\*)",
     re.MULTILINE | re.IGNORECASE,
@@ -325,6 +331,41 @@ async def _call_llm(
 # ---------------------------------------------------------------------------
 # URL fetching helper
 # ---------------------------------------------------------------------------
+async def _scrape_with_httpx_safe(
+    url: str, max_tokens: int | None = None, truncation_msg: str = ""
+) -> str | None:
+    """httpx scrape that SSRF-validates every redirect hop (F-002a).
+
+    Mirrors webscrape's httpx strategy but follows redirects manually via
+    ``_get_following_safe_redirects`` so a redirect to an internal/metadata
+    address is rejected (``UnsafeURLError``) instead of silently fetched.
+    """
+    headers = {**_BROWSER_HEADERS, "User-Agent": _BROWSER_USER_AGENT}
+    async with httpx.AsyncClient(
+        headers=headers, follow_redirects=False, timeout=30.0
+    ) as client:
+        response = await _get_following_safe_redirects(
+            client, url, allowed_schemes=["http", "https"]
+        )
+
+    if not response.is_success:
+        logger.info("httpx returned status %d for %s", response.status_code, url)
+        return None
+
+    html = response.text
+    if _is_challenge_page(html):
+        logger.info("httpx response for %s is a challenge page", url)
+        return None
+
+    return await asyncio.to_thread(
+        _html_to_markdown,
+        html,
+        url,
+        max_tokens=max_tokens,
+        truncation_msg=truncation_msg,
+    )
+
+
 async def _fetch_source(url: str, config: SourceVerifierConfig) -> FetchResult:
     """Fetch a URL using webscrape strategies (markitdown -> httpx).
 
@@ -360,10 +401,10 @@ async def _fetch_source(url: str, config: SourceVerifierConfig) -> FetchResult:
     except Exception as exc:
         logger.debug("markitdown failed for %s: %s", normalized_url, exc)
 
-    # Strategy 2: httpx with browser-like headers
+    # Strategy 2: httpx with browser-like headers (redirect hops SSRF-validated)
     try:
         content = await asyncio.wait_for(
-            _scrape_with_httpx(
+            _scrape_with_httpx_safe(
                 normalized_url,
                 max_tokens=config.max_fetch_tokens,
                 truncation_msg=truncation_msg,
@@ -377,6 +418,9 @@ async def _fetch_source(url: str, config: SourceVerifierConfig) -> FetchResult:
         return FetchResult(
             status="challenge_page", error="Content appears to be a challenge page"
         )
+    except UnsafeURLError as exc:
+        # F-002a: a redirect pointed at a non-public address; refuse to follow it.
+        return FetchResult(status="invalid_url", error=str(exc))
     except httpx.HTTPStatusError as exc:
         code = exc.response.status_code
         if code == 403:
@@ -405,11 +449,31 @@ def _extract_markdown_links(text: str) -> list[dict]:
 
 
 async def _check_link_reachable(url: str, timeout: float = 10.0) -> bool:
-    """Check if a URL is reachable via HEAD request."""
+    """Check if a URL is reachable via HEAD request.
+
+    F-002b: the URL comes from memory text (LLM/attacker-influenceable) via regex,
+    so SSRF-validate it before fetching and treat an unsafe target as unreachable.
+    Redirects are followed manually so each hop is revalidated, closing the
+    ``https://attacker.com -> http://169.254.169.254/`` bypass.
+    """
     try:
-        async with httpx.AsyncClient(follow_redirects=True, timeout=timeout) as client:
-            resp = await client.head(url)
-            return resp.is_success
+        validate_public_url(url, check_dns=False)
+    except UnsafeURLError:
+        return False
+    try:
+        async with httpx.AsyncClient(follow_redirects=False, timeout=timeout) as client:
+            current_url = url
+            for _ in range(_MAX_LINK_REDIRECTS + 1):
+                resp = await client.head(current_url)
+                if not resp.is_redirect:
+                    return resp.is_success
+                location = resp.headers.get("location")
+                if not location:
+                    return resp.is_success
+                next_url = urljoin(current_url, location)
+                validate_public_url(next_url, check_dns=False)
+                current_url = next_url
+            return False
     except Exception:
         return False
 

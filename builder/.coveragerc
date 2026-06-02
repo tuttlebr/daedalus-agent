@@ -20,7 +20,6 @@ omit =
     */register.py
     */resilient_agent_register.py
     */resilient_agent.py
-    */agent_skills_function.py
     tests/*
     conftest.py
 

@@ -249,7 +249,63 @@ def _flatten_tool_payload(args, kwargs) -> dict:
     return payload
 
 
-def _is_mutating_mcp_call(tool_name: str, payload: dict) -> bool:
+def _annotation_hint(annotations, name: str):
+    """Read a boolean MCP tool annotation by *name* (e.g. destructiveHint).
+
+    MCP annotations may arrive as a pydantic model (attribute access) or as a
+    plain dict (key access).  Returns the bool value, or None when the hint is
+    absent / not a bool.
+    """
+    if annotations is None:
+        return None
+    val = None
+    if isinstance(annotations, dict):
+        val = annotations.get(name)
+    else:
+        val = getattr(annotations, name, None)
+    return val if isinstance(val, bool) else None
+
+
+def _extract_tool_annotations(tool_client):
+    """Best-effort read of MCP tool annotations from an MCPToolClient instance.
+
+    The MCP SDK exposes per-tool annotations (readOnlyHint / destructiveHint /
+    idempotentHint / openWorldHint) on the Tool definition. NAT's tool client
+    stores that definition under a few possible attribute names depending on
+    version. Returns the annotations object (pydantic model or dict), or None
+    when the client/version does not expose them.
+    """
+    if tool_client is None:
+        return None
+    # Direct annotations attribute on the client (some NAT versions surface it).
+    direct = getattr(tool_client, "annotations", None)
+    if direct is not None:
+        return direct
+    # Otherwise look for the underlying MCP Tool definition.
+    for attr in ("_tool", "tool", "_tool_def", "tool_def"):
+        tool = getattr(tool_client, attr, None)
+        if tool is not None:
+            ann = getattr(tool, "annotations", None)
+            if ann is not None:
+                return ann
+    return None
+
+
+def _is_mutating_mcp_call(tool_name: str, payload: dict, annotations=None) -> bool:
+    # F-009: honor MCP tool annotations when the server/client exposes them, in
+    # ADDITION to the verb heuristic below. destructiveHint=True forces the call
+    # to be treated as mutating even if its name carries no listed verb (closing
+    # the denylist gap); readOnlyHint=True trusts the server's declaration that
+    # the tool cannot mutate state. The robust, per-server read-only `include:`
+    # allowlist still lives in backend/tool-calling-config.yaml and is the
+    # primary control — see the _MUTATING_TOOL_FRAGMENTS note above.
+    destructive_hint = _annotation_hint(annotations, "destructiveHint")
+    if destructive_hint is True:
+        return True
+    read_only_hint = _annotation_hint(annotations, "readOnlyHint")
+    if read_only_hint is True:
+        return False
+
     normalized_tool_name = tool_name.lower().replace(".", "_").replace("-", "_")
     if (
         normalized_tool_name in _NON_DESTRUCTIVE_MCP_TOOLS
@@ -271,8 +327,10 @@ def _is_mutating_mcp_call(tool_name: str, payload: dict) -> bool:
     return bool(tokens & _MUTATING_TOOL_TOKENS)
 
 
-def _validate_mcp_approval(tool_name: str, payload: dict) -> tuple[bool, str]:
-    if not _is_mutating_mcp_call(tool_name, payload):
+def _validate_mcp_approval(
+    tool_name: str, payload: dict, annotations=None
+) -> tuple[bool, str]:
+    if not _is_mutating_mcp_call(tool_name, payload, annotations):
         return True, "read-only"
 
     token = str(payload.get("approval_token") or "").strip()
@@ -774,7 +832,10 @@ def _patch_tool_client():
             tool_name = getattr(self, "_tool_name", getattr(self, "name", "unknown"))
             url = getattr(self, "_url", getattr(self, "url", "unknown"))
             payload = _flatten_tool_payload(args, kwargs)
-            approved, approval_reason = _validate_mcp_approval(tool_name, payload)
+            annotations = _extract_tool_annotations(self)
+            approved, approval_reason = _validate_mcp_approval(
+                tool_name, payload, annotations
+            )
             if not approved:
                 logger.warning(
                     "MCP tool call blocked by approval gate: tool=%s reason=%s",
@@ -853,12 +914,13 @@ def _verify_approval_gate_installed():
 
 
 class _McpAppError(BaseException):
-    """Sentinel wrapper to smuggle McpError past _with_reconnect.
+    """Sentinel wrapper to smuggle application errors past _with_reconnect.
 
     _with_reconnect catches ``Exception`` and triggers reconnection.
-    We wrap McpError (an application-level error, NOT a connection issue)
-    in this BaseException subclass so it escapes the ``except Exception``
-    block.  The outer wrapper unwraps it immediately.
+    We wrap application-level errors (McpError, or the approval gate's
+    PermissionError) — which are NOT connection issues — in this
+    BaseException subclass so they escape the ``except Exception`` block.
+    The outer wrapper unwraps them immediately.
     """
 
     def __init__(self, original):
@@ -867,7 +929,7 @@ class _McpAppError(BaseException):
 
 
 def _patch_mcp_error_no_reconnect():
-    """Prevent McpError from triggering MCP session reconnection.
+    """Prevent application-level errors from triggering MCP reconnection.
 
     NAT's MCPBaseClient._with_reconnect() catches ALL exceptions and
     attempts reconnection.  McpError is an application-level error from
@@ -875,9 +937,16 @@ def _patch_mcp_error_no_reconnect():
     the connection is healthy.  The spurious reconnect fails, triggers
     cancel-scope cascades, and crashes the job.
 
+    The approval gate's PermissionError (F-018) is the same shape: a
+    denied mutating call is an application/policy decision, not a
+    connection fault.  Left unwrapped it would be caught by
+    ``except Exception`` and trigger a spurious reconnect/cancel-scope
+    cascade instead of returning cleanly to the agent.
+
     Fix: Patch MCPBaseClient._with_reconnect() so the inner coro wraps
-    McpError in a BaseException sentinel that escapes the ``except
-    Exception`` reconnect handler.  The outer wrapper unwraps it.
+    McpError and PermissionError in a BaseException sentinel that escapes
+    the ``except Exception`` reconnect handler.  The outer wrapper
+    unwraps it and re-raises the original.
     """
     try:
         import functools
@@ -889,12 +958,12 @@ def _patch_mcp_error_no_reconnect():
 
         @functools.wraps(original_with_reconnect)
         async def patched_with_reconnect(self, coro, *args, **kwargs):
-            # Wrap the coro so McpError escapes _with_reconnect's
-            # ``except Exception`` block.
+            # Wrap the coro so application-level errors escape
+            # _with_reconnect's ``except Exception`` block.
             async def coro_with_mcp_bypass():
                 try:
                     return await coro()
-                except McpError as e:
+                except (McpError, PermissionError) as e:
                     raise _McpAppError(e) from e
 
             try:
@@ -1239,6 +1308,35 @@ _inflight_submissions: set[str] = set()
 _background_tasks: set[asyncio.Task] = set()
 
 
+def _max_concurrent_jobs() -> int:
+    """Bound on concurrently-executing background workflow runs (F-010).
+
+    Configurable via MCP_MAX_CONCURRENT_JOBS; defaults to 8. A burst of job
+    submissions must not spawn unbounded concurrent workflow runs (each one
+    loads a workflow + holds MCP/LLM connections), which can exhaust memory
+    and connection pools. Values <= 0 fall back to the default.
+    """
+    raw = (os.getenv("MCP_MAX_CONCURRENT_JOBS") or "").strip()
+    try:
+        value = int(raw)
+    except ValueError:
+        return 8
+    return value if value > 0 else 8
+
+
+# Bounds concurrent background job execution. Lazily created on the running
+# event loop inside the submit patch so it binds to the correct loop.
+_job_semaphore: asyncio.Semaphore | None = None
+
+
+def _get_job_semaphore() -> asyncio.Semaphore:
+    """Return the process-wide job concurrency semaphore (lazy init)."""
+    global _job_semaphore
+    if _job_semaphore is None:
+        _job_semaphore = asyncio.Semaphore(_max_concurrent_jobs())
+    return _job_semaphore
+
+
 def _patch_async_job_submit():
     """Bypass Dask for job submission — run jobs as asyncio tasks.
 
@@ -1292,18 +1390,28 @@ def _patch_async_job_submit():
 
             _inflight_submissions.add(job_id)
 
+            # Bound concurrent workflow runs (F-010). Acquired INSIDE the
+            # background task so submit_job still returns immediately; a burst
+            # of submissions queues here rather than spawning unbounded
+            # concurrent runs. NOTE (residual): this bound is per-process and
+            # in-memory only — it does not survive a pod restart, and durable
+            # resume of queued/in-flight jobs across restarts is broader work
+            # tracked separately (see Fix 11 / async-job durability).
+            semaphore = _get_job_semaphore()
+
             async def _run_job():
                 """Execute the job function directly, bypassing Dask."""
                 try:
-                    if asyncio.iscoroutinefunction(job_fn):
-                        result = await job_fn(*job_args, **job_kwargs)
-                    else:
-                        result = await asyncio.to_thread(
-                            job_fn, *job_args, **job_kwargs
-                        )
-                    if asyncio.iscoroutine(result):
-                        result = await result
-                    return result
+                    async with semaphore:
+                        if asyncio.iscoroutinefunction(job_fn):
+                            result = await job_fn(*job_args, **job_kwargs)
+                        else:
+                            result = await asyncio.to_thread(
+                                job_fn, *job_args, **job_kwargs
+                            )
+                        if asyncio.iscoroutine(result):
+                            result = await result
+                        return result
                 except Exception as exc:
                     _msg = f"Job {job_id} failed: {exc}"
                     logger.error(_msg)

@@ -10,6 +10,7 @@ if str(_BUILDER_ROOT) not in sys.path:
     sys.path.insert(0, str(_BUILDER_ROOT))
 
 import image_api  # noqa: E402
+import nat_helpers.internal_auth as internal_auth  # noqa: E402
 import pytest  # noqa: E402  (path tweak must precede these imports)
 from image_api import (  # noqa: E402
     EditRequest,
@@ -30,8 +31,10 @@ class _FakeHTTPException(Exception):
 
 def _raises_status(monkeypatch, *args):
     """Call _require_trusted_user with fastapi.HTTPException swapped for a real
-    exception class (it is a MagicMock under conftest), returning the status."""
-    monkeypatch.setattr(image_api, "HTTPException", _FakeHTTPException)
+    exception class (it is a MagicMock under conftest), returning the status.
+    The auth helpers now live in nat_helpers.internal_auth (F-019), so patch
+    HTTPException there."""
+    monkeypatch.setattr(internal_auth, "HTTPException", _FakeHTTPException)
     with pytest.raises(_FakeHTTPException) as exc_info:
         _require_trusted_user(*args)
     return exc_info.value.status_code

@@ -2,21 +2,27 @@
 
 import pytest
 from nat_nv_ingest.nat_nv_ingest import (
+    DEFAULT_DOCUMENT_INGEST_MAX_SIZE_BYTES,
+    ERROR_MESSAGE_CHAR_LIMIT,
     IngestResult,
     NvIngestFunctionConfig,
     _build_ingestor,
     _can_access_stored_document,
     _dedup_document_refs,
     _dedup_entries,
+    _document_size_error,
+    _estimated_decoded_size,
     _extract_dense_dim,
     _milvus_client_kwargs,
     _milvus_vdb_auth_kwargs,
     _normalize_for_dedup,
     _text_quality_score,
+    _truncate_error,
     _validate_embedding_dimension,
     classify_collection_scope,
     clean_markdown,
     clean_table_markdown,
+    document_ingest_max_size_bytes,
     format_batch_response,
     format_single_doc_response,
     normalize_collection_part,
@@ -790,6 +796,109 @@ class TestProcessMultipleDocumentsProgress:
 
         assert "Successfully processed all 1 documents" in output
 
+    def test_streamed_failure_message_is_truncated(self):
+        """Per-document streamed error text is capped (F-017b)."""
+        import asyncio
+        from unittest.mock import patch
+
+        from nat_nv_ingest.nat_nv_ingest import (
+            ERROR_MESSAGE_CHAR_LIMIT,
+            NvIngestDocumentProcessor,
+            NvIngestFunctionConfig,
+        )
+
+        processor = NvIngestDocumentProcessor(NvIngestFunctionConfig())
+
+        long_error = "boom " * 200  # well over the cap
+
+        async def fake_process_document(documentRef, username, collection_name, **_):
+            return {
+                "status": "failure",
+                "filename": documentRef["filename"],
+                "chunks": 0,
+                "failures": 0,
+                "pages": 0,
+                "collection": collection_name,
+                "markdown": "",
+                "error": long_error,
+            }
+
+        events: list[dict] = []
+
+        async def progress_cb(progress: dict) -> None:
+            events.append(progress)
+
+        refs = [{"documentId": "d1", "sessionId": "s", "filename": "a.pdf"}]
+
+        with patch.object(
+            processor, "process_document", side_effect=fake_process_document
+        ):
+            asyncio.run(
+                processor.process_multiple_documents(
+                    documentRefs=refs,
+                    username="alice",
+                    collection_name="alice",
+                    progress_callback=progress_cb,
+                )
+            )
+
+        failed_events = [
+            e
+            for e in events
+            if e.get("phase") == "failed" and e.get("current") == "a.pdf"
+        ]
+        assert failed_events, "expected a streamed failure event"
+        message = failed_events[-1]["message"]
+        # The full untruncated error must not leak into the streamed message.
+        assert long_error not in message
+        assert "..." in message
+        # Bounded: prefix + filename framing only.
+        assert len(message) <= len("Failed a.pdf: ") + ERROR_MESSAGE_CHAR_LIMIT + 3
+
+    def test_streamed_exception_message_is_truncated(self):
+        """An exception (not a failure result) is also truncated when streamed."""
+        import asyncio
+        from unittest.mock import patch
+
+        from nat_nv_ingest.nat_nv_ingest import (
+            ERROR_MESSAGE_CHAR_LIMIT,
+            NvIngestDocumentProcessor,
+            NvIngestFunctionConfig,
+        )
+
+        processor = NvIngestDocumentProcessor(NvIngestFunctionConfig())
+
+        long_text = "kaboom " * 100
+
+        async def raising_process_document(*_args, **_kwargs):
+            raise RuntimeError(long_text)
+
+        events: list[dict] = []
+
+        async def progress_cb(progress: dict) -> None:
+            events.append(progress)
+
+        refs = [{"documentId": "d1", "sessionId": "s", "filename": "a.pdf"}]
+
+        with patch.object(
+            processor, "process_document", side_effect=raising_process_document
+        ):
+            asyncio.run(
+                processor.process_multiple_documents(
+                    documentRefs=refs,
+                    username="alice",
+                    collection_name="alice",
+                    progress_callback=progress_cb,
+                )
+            )
+
+        failed_events = [e for e in events if e.get("phase") == "failed"]
+        assert failed_events
+        message = failed_events[-1]["message"]
+        assert long_text.strip() not in message
+        assert "..." in message
+        assert len(message) <= len("Failed a.pdf: ") + ERROR_MESSAGE_CHAR_LIMIT + 3
+
 
 # ---------------------------------------------------------------------------
 # html_to_markdown_udf module importability
@@ -802,3 +911,128 @@ class TestHtmlToMarkdownUdfImport:
         import nat_nv_ingest.html_to_markdown_udf as html_mod  # noqa: F401
 
         assert html_mod is not None
+
+
+# ---------------------------------------------------------------------------
+# Error truncation (F-017b) — surfaced error text is capped
+# ---------------------------------------------------------------------------
+
+
+class TestTruncateError:
+    def test_short_error_passes_through(self):
+        assert _truncate_error("boom") == "boom"
+
+    def test_long_error_is_capped_with_ellipsis(self):
+        long = "x" * (ERROR_MESSAGE_CHAR_LIMIT + 50)
+        out = _truncate_error(long)
+        assert out == "x" * ERROR_MESSAGE_CHAR_LIMIT + "..."
+        assert len(out) == ERROR_MESSAGE_CHAR_LIMIT + 3
+
+    def test_exactly_at_limit_not_truncated(self):
+        exact = "y" * ERROR_MESSAGE_CHAR_LIMIT
+        assert _truncate_error(exact) == exact
+
+    def test_coerces_exception_to_string(self):
+        assert _truncate_error(ValueError("nope")) == "nope"
+
+    def test_honors_custom_limit(self):
+        assert _truncate_error("abcdef", limit=3) == "abc..."
+
+
+# ---------------------------------------------------------------------------
+# Document size cap (F-020) — oversized uploads rejected before decode
+# ---------------------------------------------------------------------------
+
+
+class TestDocumentSizeCap:
+    def test_default_max_size_from_env_when_unset(self, monkeypatch):
+        monkeypatch.delenv("DOCUMENT_INGEST_MAX_SIZE_BYTES", raising=False)
+        assert (
+            document_ingest_max_size_bytes()
+            == DEFAULT_DOCUMENT_INGEST_MAX_SIZE_BYTES
+        )
+
+    def test_env_override_is_respected(self, monkeypatch):
+        monkeypatch.setenv("DOCUMENT_INGEST_MAX_SIZE_BYTES", "12345")
+        assert document_ingest_max_size_bytes() == 12345
+
+    def test_invalid_env_falls_back_to_default(self, monkeypatch):
+        monkeypatch.setenv("DOCUMENT_INGEST_MAX_SIZE_BYTES", "not-a-number")
+        assert (
+            document_ingest_max_size_bytes()
+            == DEFAULT_DOCUMENT_INGEST_MAX_SIZE_BYTES
+        )
+
+    def test_non_positive_env_falls_back_to_default(self, monkeypatch):
+        monkeypatch.setenv("DOCUMENT_INGEST_MAX_SIZE_BYTES", "0")
+        assert (
+            document_ingest_max_size_bytes()
+            == DEFAULT_DOCUMENT_INGEST_MAX_SIZE_BYTES
+        )
+
+    def test_estimated_decoded_size_matches_real_decode(self):
+        import base64
+
+        raw = b"hello world, this is a small document payload"
+        encoded = base64.b64encode(raw).decode("ascii")
+        assert _estimated_decoded_size(encoded) == len(raw)
+
+    def test_size_error_none_when_within_limit(self):
+        import base64
+
+        encoded = base64.b64encode(b"tiny").decode("ascii")
+        assert _document_size_error(encoded, max_bytes=1_000) is None
+
+    def test_size_error_returned_when_over_limit(self):
+        import base64
+
+        encoded = base64.b64encode(b"x" * 500).decode("ascii")
+        err = _document_size_error(encoded, max_bytes=100)
+        assert err is not None
+        assert err.startswith("Error:")
+        assert "maximum allowed size" in err
+
+    def test_process_document_rejects_oversized_payload(self, monkeypatch):
+        """Oversized uploads fail cleanly before base64 decoding."""
+        import asyncio
+        import base64
+        import json
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        from nat_nv_ingest.nat_nv_ingest import (
+            NvIngestDocumentProcessor,
+        )
+
+        monkeypatch.setenv("DOCUMENT_INGEST_MAX_SIZE_BYTES", "100")
+
+        processor = NvIngestDocumentProcessor(NvIngestFunctionConfig())
+
+        oversized = base64.b64encode(b"x" * 500).decode("ascii")
+        document_record = json.dumps(
+            {"data": oversized, "filename": "big.pdf", "userId": "alice"}
+        )
+
+        fake_redis = MagicMock()
+        fake_redis.execute_command.return_value = document_record
+
+        with (
+            patch.object(
+                processor, "_get_redis", AsyncMock(return_value=fake_redis)
+            ),
+            patch.object(
+                processor, "_get_nv_client", AsyncMock()
+            ) as get_nv_client,
+        ):
+            result = asyncio.run(
+                processor.process_document(
+                    documentRef={"documentId": "d1", "sessionId": "s"},
+                    username="alice",
+                    collection_name="alice",
+                )
+            )
+
+        assert result["status"] == "failure"
+        assert "maximum allowed size" in result["error"]
+        assert result["filename"] == "big.pdf"
+        # Rejected before any NV-Ingest work began.
+        get_nv_client.assert_not_called()

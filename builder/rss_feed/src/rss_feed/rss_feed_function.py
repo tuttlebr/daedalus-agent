@@ -283,6 +283,21 @@ def _build_reranker_passages(
     return passages, entry_indexes
 
 
+def _feed_url_rejection_reason(url: str) -> str | None:
+    """Return an SSRF rejection reason for a feed URL, or None when safe.
+
+    F-002d: feed URLs can be influenced by tool input (feed_scope selection and
+    any agent-supplied feed map), so validate them before fetching. Reject
+    non-http(s) schemes and literal internal IPs; the cluster network policy
+    covers the hostname-resolves-to-internal case (hence check_dns=False).
+    """
+    try:
+        validate_public_url(url, check_dns=False)
+    except UnsafeURLError as exc:
+        return str(exc)
+    return None
+
+
 def _scrape_content(url: str, max_tokens: int, truncation_msg: str) -> tuple[str, bool]:
     """Scrape content from URL using markitdown."""
     # F-001: feed-supplied links are attacker-influenceable. Reject non-http(s)
@@ -338,6 +353,18 @@ async def rss_feed_function(
 
     async def parse_rss_feed(feed_url: str, feed_scope: str) -> list[RssEntry]:
         """Parse RSS feed and extract entries."""
+        # F-002d: validate the (input-influenced) feed URL before fetching and
+        # skip the feed on an SSRF-unsafe target.
+        rejection = _feed_url_rejection_reason(feed_url)
+        if rejection is not None:
+            logger.warning(
+                "Skipping SSRF-unsafe feed URL '%s' (scope %s): %s",
+                feed_url,
+                feed_scope,
+                rejection,
+            )
+            return []
+
         try:
             # Check cache first
             cache_key = f"rss_feed:{feed_url}"

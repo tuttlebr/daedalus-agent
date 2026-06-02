@@ -115,31 +115,41 @@ class MilvusRetriever(Retriever):
             if param not in self._bound_params
         ]
 
-    def _validate_collection(self, collection_name: str) -> bool:
+    def _resolve_collection(self, collection_name: str) -> tuple[bool, str]:
+        """Validate and resolve a collection name in a single round-trip.
+
+        Returns a ``(exists, resolved_name)`` tuple. ``resolved_name`` carries
+        the database prefix (e.g. ``db.collection``) when the prefixed form is
+        the one that exists; otherwise it is the original name. Combining the
+        validate and resolve steps avoids two ``list_collections()`` calls per
+        search (F-012).
+        """
         # If database is specified, check with database prefix
         if self._database_name and self._database_name != "default":
             full_name = f"{self._database_name}.{collection_name}"
             collections = self._client.list_collections(timeout=self._search_timeout)
             # Try both with and without database prefix
-            return full_name in collections or collection_name in collections
-        return collection_name in self._client.list_collections(
-            timeout=self._search_timeout
-        )
-
-    def _get_collection_name(self, collection_name: str) -> str:
-        """Get the full collection name with database prefix if needed."""
-        if self._database_name and self._database_name != "default":
-            # Check if collection exists with database prefix
-            full_name = f"{self._database_name}.{collection_name}"
-            if full_name in self._client.list_collections(timeout=self._search_timeout):
-                return full_name
-        return collection_name
+            if full_name in collections:
+                return True, full_name
+            return collection_name in collections, collection_name
+        collections = self._client.list_collections(timeout=self._search_timeout)
+        return collection_name in collections, collection_name
 
     def _get_session(self) -> requests.Session:
         """Get or create a requests session for connection reuse."""
         if self._session is None:
             self._session = requests.Session()
         return self._session
+
+    def close(self) -> None:
+        """Release the reranker HTTP session's connection pool (F-013a).
+
+        Safe to call when no session was ever created. Does not own the
+        MilvusClient, which is closed by whoever constructed it.
+        """
+        if self._session is not None:
+            self._session.close()
+            self._session = None
 
     async def _rerank(self, query: str, documents: list[Document]) -> list[Document]:
         """
@@ -287,13 +297,11 @@ class MilvusRetriever(Retriever):
         if timeout is None:
             timeout = self._search_timeout
 
-        if not self._validate_collection(collection_name):
+        exists, actual_collection_name = self._resolve_collection(collection_name)
+        if not exists:
             raise CollectionNotFoundError(
                 f"Collection: {collection_name} does not exist"
             )
-
-        # Get the actual collection name (with database prefix if needed)
-        actual_collection_name = self._get_collection_name(collection_name)
 
         # If no output fields are specified, return all of them
         if not output_fields:
@@ -302,7 +310,7 @@ class MilvusRetriever(Retriever):
             )
             output_fields = [
                 field["name"]
-                for field in collection_schema.get("fields")
+                for field in (collection_schema.get("fields") or [])
                 if field["name"] != vector_field_name
             ]
 
@@ -404,13 +412,11 @@ class MilvusRetriever(Retriever):
         if timeout is None:
             timeout = self._search_timeout
 
-        if not self._validate_collection(collection_name):
+        exists, actual_collection_name = self._resolve_collection(collection_name)
+        if not exists:
             raise CollectionNotFoundError(
                 f"Collection: {collection_name} does not exist"
             )
-
-        # Get the actual collection name (with database prefix if needed)
-        actual_collection_name = self._get_collection_name(collection_name)
 
         available_fields = [
             v.get("name")

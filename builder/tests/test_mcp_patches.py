@@ -1209,6 +1209,44 @@ class TestMcpErrorNoReconnect:
 
         assert reconnect_called, "ConnectionError should still trigger reconnect"
 
+    def test_permission_error_escapes_reconnect(self):
+        """F-018: a denied mutating call (PermissionError from the approval
+        gate) must escape _with_reconnect's ``except Exception`` reconnect
+        handler the same way McpError does, and be re-raised unchanged."""
+        reconnect_called = False
+
+        async def fake_with_reconnect(coro):
+            """Simulates NAT's _with_reconnect: catches Exception → reconnects."""
+            nonlocal reconnect_called
+            try:
+                return await coro()
+            except Exception:
+                reconnect_called = True  # must NOT happen for PermissionError
+                raise
+
+        async def tool_call_denied():
+            # Mirrors the approval gate raising PermissionError in wrapped().
+            raise PermissionError("requires approval_token")
+
+        async def _run():
+            # Mirrors patched_with_reconnect's coro_with_mcp_bypass, which now
+            # wraps both McpError and PermissionError.
+            async def coro_with_bypass():
+                try:
+                    return await tool_call_denied()
+                except (FakeMcpError, PermissionError) as e:
+                    raise _McpAppError(e) from e
+
+            try:
+                return await fake_with_reconnect(coro_with_bypass)
+            except _McpAppError as wrapper:
+                raise wrapper.original from wrapper.__cause__
+
+        with pytest.raises(PermissionError, match="requires approval_token"):
+            run(_run())
+
+        assert not reconnect_called, "PermissionError should NOT trigger reconnect"
+
 
 # ---------------------------------------------------------------------------
 # Tests: submit_job asyncio task execution (Fix 11 — Dask removed)
@@ -1453,6 +1491,64 @@ class TestSubmitJobAsyncioExecution:
             assert "j6" not in mcp_patches._inflight_submissions
 
         run(_run())
+
+    def test_max_concurrent_jobs_default(self, monkeypatch):
+        """F-010: default bound is 8 when the env var is unset/invalid/<=0."""
+        import mcp_patches
+
+        monkeypatch.delenv("MCP_MAX_CONCURRENT_JOBS", raising=False)
+        assert mcp_patches._max_concurrent_jobs() == 8
+        monkeypatch.setenv("MCP_MAX_CONCURRENT_JOBS", "not-a-number")
+        assert mcp_patches._max_concurrent_jobs() == 8
+        monkeypatch.setenv("MCP_MAX_CONCURRENT_JOBS", "0")
+        assert mcp_patches._max_concurrent_jobs() == 8
+        monkeypatch.setenv("MCP_MAX_CONCURRENT_JOBS", "-3")
+        assert mcp_patches._max_concurrent_jobs() == 8
+
+    def test_max_concurrent_jobs_configurable(self, monkeypatch):
+        """F-010: bound is configurable via MCP_MAX_CONCURRENT_JOBS."""
+        import mcp_patches
+
+        monkeypatch.setenv("MCP_MAX_CONCURRENT_JOBS", "2")
+        assert mcp_patches._max_concurrent_jobs() == 2
+
+    def test_semaphore_bounds_concurrent_jobs(self, monkeypatch):
+        """F-010: a burst of submissions must not run unbounded in parallel.
+
+        Drives the real semaphore (_get_job_semaphore) with a bound of 2 and
+        verifies that no more than 2 jobs ever execute simultaneously, even
+        when many are submitted at once.
+        """
+        import mcp_patches
+
+        monkeypatch.setenv("MCP_MAX_CONCURRENT_JOBS", "2")
+        monkeypatch.setattr(mcp_patches, "_job_semaphore", None)
+
+        running = 0
+        peak = 0
+
+        async def _job():
+            nonlocal running, peak
+            async with mcp_patches._get_job_semaphore():
+                running += 1
+                peak = max(peak, running)
+                await asyncio.sleep(0.01)
+                running -= 1
+
+        async def _run():
+            await asyncio.gather(*[_job() for _ in range(10)])
+
+        run(_run())
+        assert peak <= 2, f"peak concurrency {peak} exceeded bound of 2"
+
+    def test_get_job_semaphore_is_singleton(self, monkeypatch):
+        """The semaphore is created once and reused across submissions."""
+        import mcp_patches
+
+        monkeypatch.setattr(mcp_patches, "_job_semaphore", None)
+        sem1 = mcp_patches._get_job_semaphore()
+        sem2 = mcp_patches._get_job_semaphore()
+        assert sem1 is sem2
 
     def test_real_patch_marks_jobstore_submit_job(self, monkeypatch):
         """The actual monkey patch replaces JobStore.submit_job and is idempotent."""

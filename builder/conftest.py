@@ -5,9 +5,19 @@ Sets up sys.path for all package src/ directories and mocks NAT framework
 and other heavy external dependencies before any test module is imported.
 """
 
+import os
 import sys
 from pathlib import Path
 from unittest.mock import MagicMock
+
+# F-007: integration mode. When enabled (PYTEST_USE_REAL_REDIS=1) the `redis`
+# module is left UNMOCKED so tests exercise the real client, and tests marked
+# `integration` are collected; otherwise integration-marked tests are skipped.
+_USE_REAL_REDIS = (os.environ.get("PYTEST_USE_REAL_REDIS") or "").strip().lower() in (
+    "1",
+    "true",
+    "yes",
+)
 
 # ---------------------------------------------------------------------------
 # sys.path: add every package's src/ directory so imports work without install
@@ -197,6 +207,8 @@ _EXTERNAL_MOCKS = [
     "fastapi.responses",
     "uvicorn",
 ]
+if _USE_REAL_REDIS and "redis" in _EXTERNAL_MOCKS:
+    _EXTERNAL_MOCKS.remove("redis")
 for _mod_name in _EXTERNAL_MOCKS:
     sys.modules.setdefault(_mod_name, MagicMock())
 
@@ -242,3 +254,29 @@ sys.modules.setdefault("httpx", _httpx_mod)
 
 # pymilvus.client.abstract needs a real Hit class for isinstance() checks
 sys.modules.setdefault("pymilvus.client.abstract", _pymilvus_abstract_mod)
+
+
+# ---------------------------------------------------------------------------
+# Integration-test gating (F-007)
+# ---------------------------------------------------------------------------
+import pytest  # noqa: E402
+
+
+def pytest_configure(config):
+    config.addinivalue_line(
+        "markers",
+        "integration: test requires real backing services (e.g. Redis); "
+        "skipped unless PYTEST_USE_REAL_REDIS=1 (run via `make test-integration`).",
+    )
+
+
+def pytest_collection_modifyitems(config, items):
+    """Skip `integration`-marked tests unless integration mode is enabled."""
+    if _USE_REAL_REDIS:
+        return
+    skip_integration = pytest.mark.skip(
+        reason="integration test: set PYTEST_USE_REAL_REDIS=1 (make test-integration)"
+    )
+    for item in items:
+        if "integration" in item.keywords:
+            item.add_marker(skip_integration)

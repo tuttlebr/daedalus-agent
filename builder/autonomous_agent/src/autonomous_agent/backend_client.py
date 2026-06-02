@@ -275,6 +275,7 @@ class BackendClient:
         deadline = time.monotonic() + self.request_timeout
         last_error: str | None = None
         consecutive_not_found = 0
+        consecutive_network_errors = 0
         while time.monotonic() < deadline:
             time.sleep(self.poll_interval)
             try:
@@ -284,6 +285,7 @@ class BackendClient:
                     timeout=30,
                 )
                 if status_resp.status_code == 404:
+                    consecutive_network_errors = 0
                     consecutive_not_found += 1
                     last_error = (
                         f"backend async job {job_id} was not found after "
@@ -295,10 +297,18 @@ class BackendClient:
                 consecutive_not_found = 0
                 status_resp.raise_for_status()
                 job = status_resp.json()
+                consecutive_network_errors = 0
             except RuntimeError:
                 raise
             except requests.RequestException as exc:
+                # F-014: an unreachable backend would otherwise keep retrying
+                # until the ~1h deadline, pinning a worker thread on one job.
+                # Fast-fail after a few consecutive connection errors (mirrors
+                # the 404 fast-fail); the counter resets on any successful poll.
+                consecutive_network_errors += 1
                 last_error = str(exc)
+                if consecutive_network_errors >= 3:
+                    raise
                 continue
 
             status = job.get("status")

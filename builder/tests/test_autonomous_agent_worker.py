@@ -15,8 +15,14 @@ from autonomous_agent.prompt import (
     load_workspace,
     output_requests_approval,
     parse_structured_output,
+    request_approval_key,
 )
-from autonomous_agent.worker import apply_workspace_updates, make_backend, run_once
+from autonomous_agent.worker import (
+    _approval_reason,
+    apply_workspace_updates,
+    make_backend,
+    run_once,
+)
 
 
 class FakeStore:
@@ -35,6 +41,7 @@ class FakeStore:
         self.events = []
         self.feed = []
         self.approvals = []
+        self.applied_approvals = set()
 
     def get_config(self, user_id):
         return self.config
@@ -74,6 +81,12 @@ class FakeStore:
 
     def cancel_requested(self, user_id, run_id):
         return False
+
+    def is_approval_applied(self, user_id, approval_key):
+        return approval_key in self.applied_approvals
+
+    def mark_approval_applied(self, user_id, approval_key, **kwargs):
+        self.applied_approvals.add(approval_key)
 
     def get_text(self, key):
         return self.text.get(key)
@@ -480,3 +493,244 @@ def test_make_backend_uses_canonical_base_url_env(monkeypatch):
 
     assert backend.base_url == "http://backend:8000"
     assert backend.api_path == "/v1/workflow/async"
+
+
+def test_backend_client_fails_fast_after_repeated_network_errors(monkeypatch):
+    # F-014: an unreachable backend must fast-fail after a few consecutive
+    # connection errors instead of retrying until the long request deadline.
+    import requests as _requests
+
+    class FakeResponse:
+        status_code = 202
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"job_id": "job-1"}
+
+    attempts = {"get": 0}
+
+    def fake_get(*args, **kwargs):
+        attempts["get"] += 1
+        raise _requests.RequestException("connection refused")
+
+    monkeypatch.setattr(
+        "autonomous_agent.backend_client.requests.post",
+        lambda *a, **k: FakeResponse(),
+    )
+    monkeypatch.setattr("autonomous_agent.backend_client.requests.get", fake_get)
+    monkeypatch.setattr("autonomous_agent.backend_client.time.sleep", lambda _: None)
+
+    backend = BackendClient(
+        base_url="http://backend:8000",
+        api_path="/v1/workflow/async",
+        user_id="test-user",
+        request_timeout=3600,
+        poll_interval=1,
+    )
+
+    try:
+        backend.call([{"role": "user", "content": "go"}])
+    except _requests.RequestException as exc:
+        assert "connection refused" in str(exc)
+    else:
+        raise AssertionError("expected repeated network errors to fail fast")
+
+    # Stops at the 3rd consecutive failure rather than draining the deadline.
+    assert attempts["get"] == 3
+
+
+def test_backend_client_recovers_when_network_error_is_transient(monkeypatch):
+    # F-014: a single blip must NOT fail the job — the counter resets on a
+    # successful poll, so a later success still returns the output.
+    import requests as _requests
+
+    class FakeResponse:
+        def __init__(self, payload, status_code=200):
+            self.payload = payload
+            self.status_code = status_code
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return self.payload
+
+    calls = {"get": 0}
+
+    def fake_get(*args, **kwargs):
+        calls["get"] += 1
+        if calls["get"] == 1:
+            raise _requests.RequestException("transient blip")
+        return FakeResponse({"status": "success", "output": {"value": "done"}})
+
+    monkeypatch.setattr(
+        "autonomous_agent.backend_client.requests.post",
+        lambda *a, **k: FakeResponse({"job_id": "job-1"}, status_code=202),
+    )
+    monkeypatch.setattr("autonomous_agent.backend_client.requests.get", fake_get)
+    monkeypatch.setattr("autonomous_agent.backend_client.time.sleep", lambda _: None)
+
+    backend = BackendClient(
+        base_url="http://backend:8000",
+        api_path="/v1/workflow/async",
+        user_id="test-user",
+        request_timeout=3600,
+        poll_interval=1,
+    )
+
+    assert backend.call([{"role": "user", "content": "go"}]) == "done"
+
+
+def test_output_requests_approval_requires_structured_marker():
+    # F-011: a bare advisory phrase (no structured bold marker) must NOT trip
+    # the gate, while the structured markers extract_approval_metadata parses do.
+    assert not output_requests_approval("Proceed? (yes/no) before I continue.")
+    assert not output_requests_approval(
+        "I will reply yes to approve this plan once ready."
+    )
+    assert output_requests_approval("**Action requiring confirmation:** Delete it")
+    assert output_requests_approval("**Deep research plan approval:** Topic X")
+
+
+def test_run_once_does_not_pause_on_advisory_phrase_without_marker():
+    # F-011: an LLM that merely echoes "proceed? (yes/no)" without the structured
+    # marker should complete normally, not be parked as waiting_approval.
+    store = FakeStore()
+    backend = FakeBackend(
+        json.dumps(
+            {
+                "summary": "Considered options. Proceed? (yes/no) is just narration.",
+                "feed_items": [{"title": "Finding", "bluf": "Something useful."}],
+            }
+        )
+    )
+
+    run = run_once(
+        store=store,
+        backend=backend,
+        user_id="test-user",
+        request={"trigger": "scheduled"},
+    )
+
+    assert run["status"] == "completed"
+    assert store.approvals == []
+
+
+def test_approval_reason_is_structured_not_raw_llm_text():
+    # F-017a: the stored approval reason is built from parsed metadata only.
+    metadata = extract_approval_metadata(
+        "**Action requiring confirmation:**\n\nDelete prod table\n\n"
+        "Proceed? (yes/no)\n"
+        "Token scope: action_type=`mcp_mutation`, target=`prod-db`.\n"
+        "If approved, use this single-use approval token: `tok_x`"
+    )
+    reason = _approval_reason(metadata)
+
+    assert "action_type=mcp_mutation" in reason
+    assert "target=prod-db" in reason
+    assert "risk=medium" in reason
+
+
+def test_run_once_stores_structured_reason_not_raw_response():
+    # F-017a: the raw LLM body must not be persisted as the approval reason.
+    store = FakeStore()
+    raw = (
+        "**Action requiring confirmation:** Delete the production index\n\n"
+        "SECRET INTERNAL CHAIN OF THOUGHT THAT SHOULD NOT BE PUBLISHED\n\n"
+        "Proceed? (yes/no)\n"
+        "Token scope: action_type=`mcp_mutation`, target=`prod-index`.\n"
+        "If approved, use this single-use approval token: `tok_999`"
+    )
+    backend = FakeBackend(raw)
+
+    run = run_once(
+        store=store,
+        backend=backend,
+        user_id="test-user",
+        request={"trigger": "manual"},
+    )
+
+    assert run["status"] == "waiting_approval"
+    approval = store.approvals[0]
+    assert "SECRET INTERNAL CHAIN OF THOUGHT" not in approval["reason"]
+    assert "action_type=mcp_mutation" in approval["reason"]
+    assert "target=prod-index" in approval["reason"]
+
+
+def test_request_approval_key_only_for_approval_follow_ups():
+    # F-015: the idempotency key is the granted token, only for approval reruns.
+    assert (
+        request_approval_key(
+            {"trigger": "approval", "prompt": 'Use approval_token="tok_abc".'}
+        )
+        == "tok_abc"
+    )
+    # A normal manual/scheduled request is never treated as a rerun.
+    assert (
+        request_approval_key(
+            {"trigger": "manual", "prompt": 'Use approval_token="tok_abc".'}
+        )
+        == ""
+    )
+    assert request_approval_key({"trigger": "approval", "prompt": "no token"}) == ""
+
+
+def test_run_once_skips_already_applied_approval():
+    # F-015: an approved-then-re-enqueued request must not execute twice.
+    store = FakeStore()
+    response = json.dumps(
+        {
+            "summary": "Sent the email.",
+            "feed_items": [{"title": "Done", "bluf": "Email sent."}],
+        }
+    )
+    backend = FakeBackend(response)
+    request = {"trigger": "approval", "prompt": 'Use approval_token="tok_send".'}
+
+    first = run_once(store=store, backend=backend, user_id="test-user", request=request)
+    assert first["status"] == "completed"
+    assert "tok_send" in store.applied_approvals
+
+    # A re-enqueue of the same approved request is skipped, not re-run.
+    second_backend = FakeBackend(response)
+    second = run_once(
+        store=store,
+        backend=second_backend,
+        user_id="test-user",
+        request=dict(request),
+    )
+    assert second["status"] == "skipped"
+    assert second_backend.messages is None  # backend was never called again
+    # The feed did not grow from a duplicate execution.
+    assert len(store.feed) == 1
+
+
+def test_run_once_aborts_when_lease_lost():
+    # F-016: a set abort event (lost lease) stops the run before it writes any
+    # shared state (feed/workspace), so a second worker is not clobbered.
+    import threading
+
+    store = FakeStore()
+    backend = FakeBackend(
+        json.dumps(
+            {
+                "summary": "Found something.",
+                "feed_items": [{"title": "X", "bluf": "Y"}],
+            }
+        )
+    )
+    abort = threading.Event()
+    abort.set()
+
+    run = run_once(
+        store=store,
+        backend=backend,
+        user_id="test-user",
+        request={"trigger": "scheduled"},
+        abort=abort,
+    )
+
+    assert run["status"] == "aborted"
+    assert store.feed == []

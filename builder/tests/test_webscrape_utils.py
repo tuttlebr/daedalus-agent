@@ -9,16 +9,51 @@ import asyncio
 from unittest.mock import AsyncMock, MagicMock
 from urllib.parse import urlparse
 
+import httpx
 import pytest
 import webscrape.webscrape_function as webscrape_mod
+from nat_helpers.url_guard import UnsafeURLError
 from webscrape.webscrape_function import (
     _count_tokens,
     _format_error,
+    _get_following_safe_redirects,
     _is_challenge_page,
     _is_valid_content,
     _truncate_to_token_limit,
     _validate_url,
 )
+
+
+def _mk_response(status_code, *, location=None, text="", is_success=False):
+    """Build a mock HTTP response.
+
+    ``httpx`` is a MagicMock in the test harness, so we construct responses
+    explicitly with the attributes the code reads: ``is_redirect``,
+    ``headers.get('location')``, ``status_code``, ``is_success``, ``text``.
+    """
+    resp = MagicMock()
+    resp.status_code = status_code
+    resp.is_redirect = location is not None
+    resp.is_success = is_success
+    resp.text = text
+    resp.headers = {"location": location} if location is not None else {}
+    return resp
+
+
+class _QueuedClient:
+    """Minimal async stand-in for httpx.AsyncClient that replays responses.
+
+    Each ``get`` returns the next queued response regardless of URL, so tests
+    can model a redirect chain ending at a private/metadata target.
+    """
+
+    def __init__(self, responses):
+        self._responses = list(responses)
+        self.requested_urls = []
+
+    async def get(self, url):
+        self.requested_urls.append(url)
+        return self._responses.pop(0)
 
 # ---------------------------------------------------------------------------
 # _format_error
@@ -314,6 +349,7 @@ class TestCheckRobots:
 
             mock_response = MagicMock()
             mock_response.status_code = 404
+            mock_response.is_redirect = False
 
             mock_client = AsyncMock()
             mock_client.get = AsyncMock(return_value=mock_response)
@@ -333,6 +369,7 @@ class TestCheckRobots:
 
             mock_response = MagicMock()
             mock_response.status_code = 401
+            mock_response.is_redirect = False
 
             mock_client = AsyncMock()
             mock_client.get = AsyncMock(return_value=mock_response)
@@ -353,6 +390,7 @@ class TestCheckRobots:
 
             mock_response = MagicMock()
             mock_response.status_code = 403
+            mock_response.is_redirect = False
 
             mock_client = AsyncMock()
             mock_client.get = AsyncMock(return_value=mock_response)
@@ -373,6 +411,7 @@ class TestCheckRobots:
 
             mock_response = MagicMock()
             mock_response.status_code = 500
+            mock_response.is_redirect = False
 
             mock_client = AsyncMock()
             mock_client.get = AsyncMock(return_value=mock_response)
@@ -395,6 +434,7 @@ class TestCheckRobots:
             mock_response = MagicMock()
             mock_response.status_code = 200
             mock_response.text = robots_content
+            mock_response.is_redirect = False
 
             mock_client = AsyncMock()
             mock_client.get = AsyncMock(return_value=mock_response)
@@ -417,6 +457,7 @@ class TestCheckRobots:
             mock_response = MagicMock()
             mock_response.status_code = 200
             mock_response.text = robots_content
+            mock_response.is_redirect = False
 
             mock_client = AsyncMock()
             mock_client.get = AsyncMock(return_value=mock_response)
@@ -428,5 +469,176 @@ class TestCheckRobots:
                 client=mock_client,
                 user_agent="test-agent",
             )
+
+        asyncio.run(_run())
+
+    def test_robots_redirect_to_metadata_raises_permission_error(self):
+        # F-002a: a robots.txt fetch that redirects to a cloud-metadata address
+        # must be rejected, not followed.
+        async def _run():
+            from webscrape.webscrape_function import _check_robots
+
+            redirect = _mk_response(
+                302, location="http://169.254.169.254/latest/meta-data/"
+            )
+            client = _QueuedClient([redirect])
+
+            with pytest.raises(PermissionError):
+                await _check_robots(
+                    url="https://example.com/page",
+                    parsed_url=urlparse("https://example.com/page"),
+                    client=client,
+                    user_agent="test-agent",
+                    allowed_schemes=["https", "http"],
+                )
+
+        asyncio.run(_run())
+
+
+# ---------------------------------------------------------------------------
+# _get_following_safe_redirects (F-002a SSRF redirect guard)
+# ---------------------------------------------------------------------------
+
+
+class TestGetFollowingSafeRedirects:
+    def test_no_redirect_returns_response(self):
+        async def _run():
+            final = _mk_response(200, text="ok", is_success=True)
+            client = _QueuedClient([final])
+            result = await _get_following_safe_redirects(
+                client, "https://example.com/page"
+            )
+            assert result is final
+            assert client.requested_urls == ["https://example.com/page"]
+
+        asyncio.run(_run())
+
+    def test_public_redirect_is_followed(self):
+        async def _run():
+            redirect = _mk_response(301, location="https://example.org/elsewhere")
+            final = _mk_response(200, text="ok", is_success=True)
+            client = _QueuedClient([redirect, final])
+            result = await _get_following_safe_redirects(
+                client, "https://example.com/page"
+            )
+            assert result is final
+            assert client.requested_urls == [
+                "https://example.com/page",
+                "https://example.org/elsewhere",
+            ]
+
+        asyncio.run(_run())
+
+    def test_relative_redirect_resolved_against_current_url(self):
+        async def _run():
+            redirect = _mk_response(302, location="/other")
+            final = _mk_response(200, text="ok", is_success=True)
+            client = _QueuedClient([redirect, final])
+            await _get_following_safe_redirects(client, "https://example.com/page")
+            assert client.requested_urls[-1] == "https://example.com/other"
+
+        asyncio.run(_run())
+
+    def test_redirect_to_metadata_address_rejected(self):
+        async def _run():
+            redirect = _mk_response(
+                302, location="http://169.254.169.254/latest/meta-data/"
+            )
+            client = _QueuedClient([redirect])
+            with pytest.raises(UnsafeURLError):
+                await _get_following_safe_redirects(
+                    client, "https://attacker.com/start"
+                )
+            # The unsafe target must never be fetched.
+            assert (
+                "http://169.254.169.254/latest/meta-data/" not in client.requested_urls
+            )
+
+        asyncio.run(_run())
+
+    def test_redirect_to_loopback_rejected(self):
+        async def _run():
+            redirect = _mk_response(302, location="http://127.0.0.1:8000/admin")
+            client = _QueuedClient([redirect])
+            with pytest.raises(UnsafeURLError):
+                await _get_following_safe_redirects(
+                    client, "https://attacker.com/start"
+                )
+
+        asyncio.run(_run())
+
+    def test_redirect_to_private_rfc1918_rejected(self):
+        async def _run():
+            redirect = _mk_response(302, location="http://10.0.0.5/internal")
+            client = _QueuedClient([redirect])
+            with pytest.raises(UnsafeURLError):
+                await _get_following_safe_redirects(
+                    client, "https://attacker.com/start"
+                )
+
+        asyncio.run(_run())
+
+    def test_redirect_to_disallowed_scheme_rejected(self):
+        async def _run():
+            redirect = _mk_response(302, location="file:///etc/passwd")
+            client = _QueuedClient([redirect])
+            with pytest.raises(UnsafeURLError):
+                await _get_following_safe_redirects(
+                    client, "https://attacker.com/start"
+                )
+
+        asyncio.run(_run())
+
+    def test_too_many_redirects_rejected(self):
+        async def _run():
+            # A chain of public redirects that never terminates within the cap.
+            responses = [
+                _mk_response(302, location="https://example.com/next")
+                for _ in range(20)
+            ]
+            client = _QueuedClient(responses)
+            with pytest.raises(UnsafeURLError, match="maximum"):
+                await _get_following_safe_redirects(
+                    client, "https://example.com/start", max_redirects=3
+                )
+
+        asyncio.run(_run())
+
+
+# ---------------------------------------------------------------------------
+# _scrape_with_httpx SSRF redirect guard (F-002a)
+# ---------------------------------------------------------------------------
+
+
+class TestScrapeWithHttpxRedirect:
+    def test_redirect_to_metadata_address_rejected(self, monkeypatch):
+        # The scrape path must reject a redirect to an internal/metadata target
+        # rather than fetching it.
+        async def _run():
+            from webscrape.webscrape_function import _scrape_with_httpx
+
+            redirect = _mk_response(
+                302, location="http://169.254.169.254/latest/meta-data/"
+            )
+            client = _QueuedClient([redirect])
+
+            class _FakeAsyncClient:
+                def __init__(self, *args, **kwargs):
+                    # The client must disable auto-redirects so each hop is
+                    # validated manually (F-002a).
+                    assert kwargs.get("follow_redirects") is False
+
+                async def __aenter__(self):
+                    return client
+
+                async def __aexit__(self, *exc):
+                    return False
+
+            monkeypatch.setattr(httpx, "AsyncClient", _FakeAsyncClient)
+
+            with pytest.raises(UnsafeURLError):
+                await _scrape_with_httpx(
+                    "https://attacker.com/start", allowed_schemes=["https", "http"]
+                )
 
         asyncio.run(_run())

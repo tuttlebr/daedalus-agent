@@ -8,16 +8,16 @@ copying hundreds of references into a tool call.
 from __future__ import annotations
 
 import asyncio
-import hmac
 import json
 import logging
 import os
 from functools import lru_cache
 from typing import Annotated, Any
-from urllib.parse import urlparse
 
 from fastapi import APIRouter, Header, HTTPException
 from fastapi.responses import StreamingResponse
+from nat_helpers.internal_auth import require_trusted_user as _require_trusted_user
+from nat_helpers.redis_url import redis_url_from_env
 from nat_nv_ingest.nat_nv_ingest import (
     INLINE_MARKDOWN_CHAR_LIMIT,
     NvIngestDocumentProcessor,
@@ -97,15 +97,7 @@ def _env_float(name: str, default: float) -> float:
 
 
 def _redis_url() -> str:
-    raw = os.getenv(
-        "REDIS_URL",
-        "redis://daedalus-redis.daedalus.svc.cluster.local",
-    ).strip()
-    port = os.getenv("REDIS_PORT", "").strip()
-    parsed = urlparse(raw)
-    if port and parsed.scheme and parsed.hostname and parsed.port is None:
-        return f"{raw.rstrip('/')}:{port}"
-    return raw
+    return redis_url_from_env()
 
 
 def _default_config() -> NvIngestFunctionConfig:
@@ -153,52 +145,6 @@ def _default_config() -> NvIngestFunctionConfig:
 @lru_cache(maxsize=1)
 def _processor() -> NvIngestDocumentProcessor:
     return NvIngestDocumentProcessor(_default_config())
-
-
-def _configured_internal_token() -> str:
-    return (os.getenv("DAEDALUS_INTERNAL_API_TOKEN") or "").strip()
-
-
-def _allow_insecure_internal() -> bool:
-    """True only when an operator has explicitly opted out of token auth.
-
-    Intended for local development (Docker Compose) where no internal token is
-    provisioned. Production must leave this unset so a missing token fails closed.
-    """
-    return (os.getenv("ALLOW_INSECURE_INTERNAL") or "").strip().lower() in (
-        "1",
-        "true",
-        "yes",
-    )
-
-
-def _require_internal_token(x_daedalus_internal_token: str | None) -> None:
-    expected = _configured_internal_token()
-    if not expected:
-        # Fail closed: a missing token means trusted frontend->backend auth is
-        # unconfigured. Refuse rather than trusting an arbitrary caller's
-        # x-user-id header. Local/dev opts out explicitly via ALLOW_INSECURE_INTERNAL=1.
-        if _allow_insecure_internal():
-            return
-        raise HTTPException(
-            status_code=503,
-            detail="Internal API authentication is not configured",
-        )
-
-    provided = (x_daedalus_internal_token or "").strip()
-    if not provided or not hmac.compare_digest(provided, expected):
-        raise HTTPException(status_code=401, detail="Internal API token is required")
-
-
-def _require_trusted_user(
-    x_user_id: str | None,
-    x_daedalus_internal_token: str | None = None,
-) -> str:
-    _require_internal_token(x_daedalus_internal_token)
-    user_id = (x_user_id or "").strip()
-    if not user_id:
-        raise HTTPException(status_code=401, detail="Authenticated user is required")
-    return user_id
 
 
 def _resolve_request(

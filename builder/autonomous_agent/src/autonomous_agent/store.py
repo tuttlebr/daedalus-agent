@@ -67,6 +67,55 @@ class RedisStore:
                 return
         self.redis.set(redis_key, serialized)
 
+    def atomic_update(self, redis_key: str, mutate: Any, *, retries: int = 5) -> Any:
+        """Optimistically read-modify-write a JSON value under WATCH/MULTI.
+
+        F-016: shared per-user state (runs/feed/approvals) is read-modify-written
+        from the worker, and a lease that expires lets a second worker run
+        concurrently. A plain ``json_get`` + ``json_set`` would then let one
+        writer clobber the other's update. ``atomic_update`` guards the key with
+        WATCH and retries on a concurrent change so updates compose instead of
+        racing. ``mutate`` receives the current decoded value (already defaulted
+        to ``[]``) and returns ``(new_value, result)``; ``result`` is returned to
+        the caller. Falls back to a plain read-modify-write when the Redis client
+        does not expose ``pipeline`` (keeps non-transactional fakes working).
+        """
+        pipeline_factory = getattr(self.redis, "pipeline", None)
+        if not callable(pipeline_factory):
+            current = self.json_get(redis_key, [])
+            new_value, result = mutate(current if isinstance(current, list) else [])
+            self.json_set(redis_key, new_value)
+            return result
+
+        for _ in range(max(1, retries)):
+            pipe = pipeline_factory()
+            try:
+                pipe.watch(redis_key)
+                raw = pipe.get(redis_key)
+                current: Any = []
+                if raw:
+                    try:
+                        decoded = json.loads(raw)
+                    except (json.JSONDecodeError, TypeError):
+                        decoded = []
+                    current = decoded if isinstance(decoded, list) else []
+                new_value, result = mutate(current)
+                pipe.multi()
+                pipe.set(redis_key, json.dumps(new_value))
+                pipe.execute()
+                return result
+            except Exception:  # nosec B112 - intentional: retry on WATCH conflict
+                continue
+            finally:
+                with contextlib.suppress(Exception):
+                    pipe.reset()
+
+        # Best-effort fallback after exhausting retries so the update is not lost.
+        current = self.json_get(redis_key, [])
+        new_value, result = mutate(current if isinstance(current, list) else [])
+        self.json_set(redis_key, new_value)
+        return result
+
     def get_text(self, redis_key: str) -> str | None:
         value = self.redis.get(redis_key)
         return str(value) if value is not None else None
@@ -107,10 +156,15 @@ class RedisStore:
         self.json_set(key(user_id, "runs"), runs[:max_runs])
 
     def upsert_run(self, user_id: str, run: dict[str, Any]) -> None:
-        runs = [r for r in self.list_runs(user_id) if r.get("id") != run.get("id")]
         run["updatedAt"] = now_ms()
-        runs.insert(0, run)
-        self.save_runs(user_id, runs)
+        max_runs = int(self.get_config(user_id).get("maxRunsStored") or 100)
+
+        def mutate(current: list[dict[str, Any]]):
+            runs = [r for r in current if r.get("id") != run.get("id")]
+            runs.insert(0, run)
+            return runs[:max_runs], None
+
+        self.atomic_update(key(user_id, "runs"), mutate)
         self.publish(user_id, "autonomy_status", {"run": run})
 
     def append_event(self, user_id: str, event: dict[str, Any]) -> None:
@@ -169,36 +223,40 @@ class RedisStore:
         if not items:
             return []
         config = self.get_config(user_id)
-        feed = self.json_get(key(user_id, "feed"), [])
-        if not isinstance(feed, list):
-            feed = []
-
-        if config.get("feedDedupeEnabled", True):
-            kept, _dropped = dedupe_feed_items(
-                items,
-                feed,
-                now=now_ms(),
-                window_ms=window_ms_for_days(config.get("feedDedupeWindowDays")),
-            )
-        else:
-            kept = items
-        if not kept:
-            return []
-
+        dedupe_enabled = config.get("feedDedupeEnabled", True)
+        window_ms = window_ms_for_days(config.get("feedDedupeWindowDays"))
         max_items = int(config.get("maxFeedItems") or 200)
-        self.json_set(key(user_id, "feed"), (kept + feed)[:max_items])
-        # Return only the items that survived the cap so the caller's
-        # feedItemIds never reference items that were truncated out of the feed.
-        stored = kept[:max_items]
-        self.publish(user_id, "autonomy_feed_updated", {"items": stored})
+
+        # F-016: de-dupe and cap inside an atomic read-modify-write so a
+        # concurrent writer (e.g. after a lease expiry) cannot clobber the feed.
+        def mutate(feed: list[dict[str, Any]]):
+            if dedupe_enabled:
+                kept, _dropped = dedupe_feed_items(
+                    items,
+                    feed,
+                    now=now_ms(),
+                    window_ms=window_ms,
+                )
+            else:
+                kept = items
+            if not kept:
+                return feed, []
+            # Return only the items that survived the cap so the caller's
+            # feedItemIds never reference items that were truncated out of the feed.
+            stored = kept[:max_items]
+            return (kept + feed)[:max_items], stored
+
+        stored = self.atomic_update(key(user_id, "feed"), mutate)
+        if stored:
+            self.publish(user_id, "autonomy_feed_updated", {"items": stored})
         return stored
 
     def append_approval(self, user_id: str, approval: dict[str, Any]) -> None:
-        approvals = self.json_get(key(user_id, "approvals"), [])
-        if not isinstance(approvals, list):
-            approvals = []
-        approvals.insert(0, approval)
-        self.json_set(key(user_id, "approvals"), approvals[:100])
+        def mutate(approvals: list[dict[str, Any]]):
+            approvals.insert(0, approval)
+            return approvals[:100], None
+
+        self.atomic_update(key(user_id, "approvals"), mutate)
         self.publish(user_id, "autonomy_approval_requested", approval)
 
     def enqueue(self, user_id: str, request: dict[str, Any]) -> None:
@@ -309,6 +367,31 @@ class RedisStore:
 
     def cancel_requested(self, user_id: str, run_id: str) -> bool:
         return bool(self.redis.get(key(user_id, f"cancel:{run_id}")))
+
+    def is_approval_applied(self, user_id: str, approval_key: str) -> bool:
+        """F-015: report whether an approval has already been executed.
+
+        Guards against an approved-then-re-enqueued request running a
+        non-idempotent action twice. ``approval_key`` is a stable identifier for
+        the approval (its single-use approval token, falling back to the
+        approval id) carried by the re-enqueued request.
+        """
+        if not approval_key:
+            return False
+        return bool(
+            self.redis.sismember(key(user_id, "applied_approvals"), approval_key)
+        )
+
+    def mark_approval_applied(
+        self, user_id: str, approval_key: str, *, ttl_seconds: int = 7 * 24 * 3600
+    ) -> None:
+        """F-015: record that an approval has been executed so re-runs skip it."""
+        if not approval_key:
+            return
+        applied_key = key(user_id, "applied_approvals")
+        self.redis.sadd(applied_key, approval_key)
+        with contextlib.suppress(Exception):
+            self.redis.expire(applied_key, ttl_seconds)
 
     def maybe_enqueue_scheduled(self, user_id: str) -> dict[str, Any] | None:
         config = self.get_config(user_id)

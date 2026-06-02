@@ -6,10 +6,14 @@ extract_unique_speakers, and VttTranscriptEntry.
 """
 
 from vtt_interpreter.vtt_interpreter_function import (
+    MAX_CONSOLIDATED_CHARS,
+    MAX_TRANSCRIPT_BYTES,
     VttTranscriptEntry,
+    check_transcript_size,
     consolidate_transcript_entries,
     extract_unique_speakers,
     parse_vtt_transcript,
+    truncate_for_prompt,
 )
 
 # ---------------------------------------------------------------------------
@@ -286,3 +290,100 @@ class TestExtractUniqueSpeakers:
         entries = [VttTranscriptEntry("ts", "Alice", "hi")]
         result = extract_unique_speakers(entries)
         assert isinstance(result, set)
+
+
+# ---------------------------------------------------------------------------
+# check_transcript_size (size-limit rejection / DoS guard)
+# ---------------------------------------------------------------------------
+
+
+class TestCheckTranscriptSize:
+    def test_small_transcript_accepted(self):
+        assert check_transcript_size("WEBVTT\n\nhello") is None
+
+    def test_empty_transcript_accepted(self):
+        assert check_transcript_size("") is None
+
+    def test_at_limit_accepted(self):
+        # Exactly at the limit is allowed (only strictly-greater is rejected).
+        text = "a" * MAX_TRANSCRIPT_BYTES
+        assert check_transcript_size(text) is None
+
+    def test_oversized_transcript_rejected(self):
+        text = "a" * (MAX_TRANSCRIPT_BYTES + 1)
+        result = check_transcript_size(text)
+        assert result is not None
+        assert result.startswith("Error:")
+        assert "exceeds" in result
+        assert "limit" in result
+
+    def test_multibyte_chars_counted_as_bytes(self):
+        # Each "é" is 2 bytes in UTF-8, so half the char count exceeds the limit.
+        char_count = (MAX_TRANSCRIPT_BYTES // 2) + 1
+        text = "é" * char_count
+        # Fewer chars than the byte limit, but more bytes than the byte limit.
+        assert len(text) <= MAX_TRANSCRIPT_BYTES
+        result = check_transcript_size(text)
+        assert result is not None
+        assert result.startswith("Error:")
+
+
+# ---------------------------------------------------------------------------
+# parse_vtt_transcript entry cap
+# ---------------------------------------------------------------------------
+
+
+class TestParseVttTranscriptEntryCap:
+    def _build_vtt(self, n: int) -> str:
+        blocks = ["WEBVTT\n"]
+        for idx in range(n):
+            blocks.append(
+                f"00:00:0{idx % 10}.000 --> 00:00:0{(idx + 1) % 10}.000\n"
+                f"<v Speaker{idx}>line {idx}</v>\n"
+            )
+        return "\n".join(blocks)
+
+    def test_entry_cap_truncates_parse(self):
+        vtt = self._build_vtt(20)
+        entries = parse_vtt_transcript(vtt, max_entries=5)
+        assert len(entries) == 5
+
+    def test_under_cap_returns_all_entries(self):
+        vtt = self._build_vtt(3)
+        entries = parse_vtt_transcript(vtt, max_entries=100)
+        assert len(entries) == 3
+
+    def test_default_cap_does_not_truncate_small_input(self):
+        vtt = self._build_vtt(4)
+        entries = parse_vtt_transcript(vtt)
+        assert len(entries) == 4
+
+
+# ---------------------------------------------------------------------------
+# truncate_for_prompt (prompt size bound)
+# ---------------------------------------------------------------------------
+
+
+class TestTruncateForPrompt:
+    def test_short_text_unchanged(self):
+        text = "short transcript"
+        assert truncate_for_prompt(text) == text
+
+    def test_at_limit_unchanged(self):
+        text = "a" * MAX_CONSOLIDATED_CHARS
+        assert truncate_for_prompt(text) == text
+
+    def test_long_text_truncated_with_marker(self):
+        marker = "\n\n[transcript truncated due to length]"
+        text = "a" * (MAX_CONSOLIDATED_CHARS + 1000)
+        result = truncate_for_prompt(text)
+        assert result.endswith(marker)
+        # The retained transcript body is capped at the limit.
+        body = result[: -len(marker)]
+        assert body == "a" * MAX_CONSOLIDATED_CHARS
+
+    def test_respects_custom_max_chars(self):
+        text = "abcdefghij"
+        result = truncate_for_prompt(text, max_chars=4)
+        assert result.startswith("abcd")
+        assert "[transcript truncated due to length]" in result

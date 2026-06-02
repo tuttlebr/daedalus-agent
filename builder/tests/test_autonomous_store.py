@@ -12,6 +12,7 @@ class _FakeRedis:
     def __init__(self):
         self.lists: dict[str, list[str]] = {}
         self.kv: dict[str, str] = {}
+        self.sets: dict[str, set[str]] = {}
 
     def execute_command(self, *_args, **_kwargs):
         # Force the store onto its plain GET/SET (non-RedisJSON) code path.
@@ -22,6 +23,16 @@ class _FakeRedis:
 
     def set(self, k, v, **_kwargs):
         self.kv[k] = v
+        return True
+
+    def sadd(self, k, *members):
+        self.sets.setdefault(k, set()).update(members)
+        return len(members)
+
+    def sismember(self, k, member):
+        return member in self.sets.get(k, set())
+
+    def expire(self, *_args, **_kwargs):
         return True
 
     def publish(self, *_args, **_kwargs):
@@ -161,3 +172,110 @@ def test_append_feed_items_respects_disabled_dedupe():
     store.append_feed_items("u", [dict(item)])
     store.append_feed_items("u", [dict(item, id="feed_2")])
     assert len(store.list_feed("u")) == 2
+
+
+def test_applied_approval_round_trip():
+    # F-015: applied-approval keys are recorded and read back.
+    store = _store()
+    assert store.is_approval_applied("u", "tok_1") is False
+    store.mark_approval_applied("u", "tok_1")
+    assert store.is_approval_applied("u", "tok_1") is True
+    # An empty key is never treated as applied (and is a no-op to record).
+    store.mark_approval_applied("u", "")
+    assert store.is_approval_applied("u", "") is False
+
+
+class _TxnRedis(_FakeRedis):
+    """Fake Redis supporting WATCH/MULTI/EXEC so atomic_update can be tested.
+
+    A WATCHed key whose value changed between WATCH and EXEC aborts the
+    transaction (raising WatchError), exactly like real Redis optimistic locking.
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.on_watch = None  # optional hook to simulate a concurrent writer
+
+    def pipeline(self):
+        return _TxnPipeline(self)
+
+
+class _WatchError(Exception):
+    pass
+
+
+class _TxnPipeline:
+    def __init__(self, redis):
+        self.redis = redis
+        self.watched_key = None
+        self.watched_version = None
+        self.queued = []
+        self.buffering = False
+
+    def watch(self, redis_key):
+        self.watched_key = redis_key
+        self.watched_version = self.redis.kv.get(redis_key)
+        # Allow a test to mutate the value once, simulating a racing writer.
+        if callable(self.redis.on_watch):
+            self.redis.on_watch()
+
+    def get(self, redis_key):
+        return self.redis.kv.get(redis_key)
+
+    def multi(self):
+        self.buffering = True
+
+    def set(self, redis_key, value):
+        if self.buffering:
+            self.queued.append((redis_key, value))
+        else:
+            self.redis.kv[redis_key] = value
+
+    def execute(self):
+        if self.redis.kv.get(self.watched_key) != self.watched_version:
+            raise _WatchError("watched key changed")
+        for redis_key, value in self.queued:
+            self.redis.kv[redis_key] = value
+        self.queued = []
+        self.buffering = False
+
+    def reset(self):
+        self.queued = []
+        self.buffering = False
+
+
+def _txn_store():
+    store = RedisStore()
+    store.redis = _TxnRedis()
+    return store
+
+
+def test_atomic_update_commits_under_watch_multi():
+    store = _txn_store()
+    run = {"id": "r1", "status": "running"}
+    store.upsert_run("u", run)
+    assert store.list_runs("u")[0]["id"] == "r1"
+
+
+def test_atomic_update_retries_on_concurrent_writer_without_losing_updates():
+    # F-016: a concurrent writer mutates the key between WATCH and EXEC on the
+    # first attempt; atomic_update must retry and compose, not clobber.
+    store = _txn_store()
+    runs_key = key("u", "runs")
+
+    state = {"fired": False}
+
+    def racing_writer():
+        if state["fired"]:
+            return
+        state["fired"] = True
+        # Another worker appended its own run after our WATCH.
+        store.redis.kv[runs_key] = json.dumps([{"id": "other"}])
+
+    store.redis.on_watch = racing_writer
+
+    store.upsert_run("u", {"id": "mine"})
+
+    ids = {r["id"] for r in store.list_runs("u")}
+    # Both the concurrent run and ours survive — no lost update.
+    assert ids == {"other", "mine"}

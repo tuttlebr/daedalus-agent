@@ -11,6 +11,7 @@ from rss_feed.rss_feed_function import (
     _build_reranker_passages,
     _can_use_tiktoken,
     _count_tokens,
+    _feed_url_rejection_reason,
     _normalize_reranker_text,
     _reranker_error_message,
     _reranker_passage_token_limit,
@@ -262,6 +263,37 @@ class TestRssSearchResponse:
     def test_cached_flag(self):
         resp = RssSearchResponse(success=True, query="q", feed_url="url", cached=True)
         assert resp.cached is True
+
+
+# ---------------------------------------------------------------------------
+# _feed_url_rejection_reason (F-002d SSRF guard for feed-fetch path)
+# ---------------------------------------------------------------------------
+
+
+class TestFeedUrlRejectionReason:
+    def test_public_https_feed_allowed(self):
+        assert _feed_url_rejection_reason("https://feeds.example.com/rss") is None
+
+    def test_public_http_feed_allowed(self):
+        assert _feed_url_rejection_reason("http://feeds.example.com/rss") is None
+
+    def test_non_http_scheme_rejected(self):
+        reason = _feed_url_rejection_reason("file:///etc/passwd")
+        assert reason is not None
+        assert "scheme" in reason.lower()
+
+    def test_literal_internal_ip_rejected(self):
+        reason = _feed_url_rejection_reason("http://127.0.0.1/rss")
+        assert reason is not None
+        assert "non-public" in reason.lower()
+
+    def test_cloud_metadata_ip_rejected(self):
+        reason = _feed_url_rejection_reason("http://169.254.169.254/latest/meta-data/")
+        assert reason is not None
+        assert "non-public" in reason.lower()
+
+    def test_empty_url_rejected(self):
+        assert _feed_url_rejection_reason("") is not None
 
 
 # ---------------------------------------------------------------------------

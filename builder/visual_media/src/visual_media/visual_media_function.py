@@ -17,6 +17,7 @@ from nat_helpers.image_utils import (
     store_image_in_redis,
 )
 from nat_helpers.openai_images import edit_images, generate_images
+from nat_helpers.url_guard import UnsafeURLError, validate_public_url
 from openai import AsyncOpenAI
 from pydantic import Field
 
@@ -142,6 +143,24 @@ def _chat_completions_url(base_url: str) -> str:
     if base.endswith("/chat/completions"):
         return base
     return base + "/chat/completions"
+
+
+def _validate_analyze_url(url: str | None) -> str | None:
+    """Reject caller-supplied analyze URLs that target non-public hosts.
+
+    The VLM server fetches ``image_url``/``video_url`` server-side, so an
+    internal/metadata target is an SSRF vector. Returns an ``Error: ...`` string
+    on rejection (the agent consumes the text) or ``None`` when the URL is safe
+    (or absent — ref-based inputs are validated by their own Redis scoping).
+    """
+    if not url:
+        return None
+    try:
+        validate_public_url(url)
+    except UnsafeURLError as exc:
+        logger.warning("Rejected unsafe analyze URL: %s", exc)
+        return f"Error: media URL is not allowed: {exc}"
+    return None
 
 
 def _ref_requires_user_id(media_ref: str | dict | list[dict] | None) -> bool:
@@ -279,7 +298,8 @@ async def visual_media_function(config: VisualMediaFunctionConfig, builder: Buil
             try:
                 image_bytes = base64.b64decode(image_base64)
             except (ValueError, TypeError) as exc:
-                return f"Error decoding image {idx + 1}: {exc}"
+                logger.warning("Failed to decode image %d: %s", idx + 1, exc)
+                return f"Error: image {idx + 1} could not be decoded."
             mime_type = mime_type_or_error
             extension = "jpg" if "jpeg" in mime_type else mime_type.split("/")[-1]
             source_files.append((f"image_{idx}.{extension}", image_bytes, mime_type))
@@ -326,6 +346,10 @@ async def visual_media_function(config: VisualMediaFunctionConfig, builder: Buil
                 "Error: media is required for operation='analyze'. Provide imageRef, "
                 "image_url, videoRef, or video_url."
             )
+
+        url_error = _validate_analyze_url(video_url) or _validate_analyze_url(image_url)
+        if url_error:
+            return url_error
 
         expected_user_id, user_error = _validated_user_id(
             parsed_video_ref or parsed_image_ref, user_id

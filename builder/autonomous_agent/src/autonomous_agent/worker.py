@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import contextlib
 import os
 import signal
 import sys
 import threading
 import time
+import traceback
 from typing import Any
 
 from .backend_client import BackendClient, OAuthRequiredError
@@ -18,6 +20,7 @@ from .prompt import (
     load_workspace,
     output_requests_approval,
     parse_structured_output,
+    request_approval_key,
     workspace_key,
 )
 from .store import RedisStore
@@ -42,6 +45,23 @@ def _request_summary(request: dict[str, Any] | None) -> str:
         f"createdAt={request.get('createdAt') or 'unknown'} "
         f"prompt={prompt!r}"
     )
+
+
+def _approval_reason(metadata: dict[str, str]) -> str:
+    """F-017a: build a brief structured approval reason from parsed metadata.
+
+    Uses only the action/target/risk fields extract_approval_metadata derived
+    from the structured marker, never the raw LLM response, so unreviewed model
+    text is not persisted or published as the approval reason.
+    """
+    action = (metadata.get("action") or "Backend requested confirmation.").strip()
+    parts = [action]
+    target = (metadata.get("target") or "").strip()
+    if target:
+        parts.append(f"target={target}")
+    parts.append(f"action_type={metadata.get('action_type') or 'mcp_mutation'}")
+    parts.append(f"risk={metadata.get('risk') or 'medium'}")
+    return " | ".join(parts)
 
 
 def start_queue_monitor(
@@ -110,6 +130,7 @@ def run_once(
     backend: BackendClient,
     user_id: str,
     request: dict[str, Any],
+    abort: threading.Event | None = None,
 ) -> dict[str, Any]:
     run = new_run(
         user_id=user_id,
@@ -118,6 +139,26 @@ def run_once(
         prompt=str(request.get("prompt") or ""),
         requested_by=str(request.get("requestedBy") or "worker"),
     )
+
+    # F-015: an approved request can be re-enqueued (UI re-click, reclaim of an
+    # in-flight job, manual replay). Re-running it would execute a possibly
+    # non-idempotent action twice. If the granted approval token was already
+    # applied, record a skipped run and return instead of calling the backend.
+    approval_key = request_approval_key(request)
+    if approval_key and store.is_approval_applied(user_id, approval_key):
+        run["status"] = "skipped"
+        run["completedAt"] = now_ms()
+        run["summary"] = "Approval already applied; skipped duplicate execution."
+        store.upsert_run(user_id, run)
+        store.log_event(
+            user_id,
+            run["id"],
+            "approval_already_applied",
+            "Skipped duplicate execution of an already-applied approval.",
+            level="warn",
+        )
+        return run
+
     run["status"] = "running"
     run["startedAt"] = now_ms()
     store.upsert_run(user_id, run)
@@ -146,6 +187,19 @@ def run_once(
         response = backend.call(messages)
         run["metrics"]["responseChars"] = len(response or "")
 
+        # F-016: the lease was lost while this run was in flight, so another
+        # worker may now own this user. Abort before writing any shared state
+        # (feed / workspace / approvals) to avoid clobbering the new owner.
+        if abort is not None and abort.is_set():
+            run["status"] = "aborted"
+            run["completedAt"] = now_ms()
+            run["summary"] = "Run aborted after losing the worker lease."
+            store.upsert_run(user_id, run)
+            store.log_event(
+                user_id, run["id"], "run_aborted", run["summary"], level="warn"
+            )
+            return run
+
         if store.cancel_requested(user_id, run["id"]):
             run["status"] = "cancelled"
             run["completedAt"] = now_ms()
@@ -161,7 +215,10 @@ def run_once(
             approval = new_approval(
                 run_id=run["id"],
                 action=approval_metadata["action"],
-                reason=response[:1800],
+                # F-017a: store a brief STRUCTURED summary as the reason, not the
+                # raw LLM text, so we do not publish unreviewed model output to
+                # Redis / the UI approval banner.
+                reason=_approval_reason(approval_metadata),
                 action_type=approval_metadata["action_type"],
                 target=approval_metadata["target"],
                 risk=approval_metadata["risk"],
@@ -199,6 +256,10 @@ def run_once(
         run["metrics"]["feedItemsStored"] = len(stored_items)
         run["metrics"]["feedItemsDeduped"] = deduped
         run["completedAt"] = now_ms()
+        # F-015: the approved action has now executed; record its token so a
+        # re-enqueue of the same approval is skipped above rather than re-run.
+        if approval_key:
+            store.mark_approval_applied(user_id, approval_key)
         store.upsert_run(user_id, run)
         store.log_event(
             user_id,
@@ -275,6 +336,10 @@ def run_with_lease_heartbeat(
     lease_ttl: int,
 ) -> dict[str, Any]:
     stop = threading.Event()
+    # F-016: if the lease heartbeat fails the lease can expire and a second
+    # worker may start the same user concurrently, racing the non-atomic shared
+    # state. Signal the in-progress run to abort instead of ignoring the error.
+    abort = threading.Event()
     heartbeat_interval = max(1, min(20, lease_ttl // 3 or 1))
 
     def heartbeat() -> None:
@@ -282,7 +347,9 @@ def run_with_lease_heartbeat(
             try:
                 store.refresh_lease(user_id, ttl_seconds=lease_ttl)
             except Exception as exc:
-                log(f"lease heartbeat failed: {exc}")
+                log(f"lease heartbeat failed; aborting current run: {exc}")
+                abort.set()
+                return
 
     store.refresh_lease(user_id, ttl_seconds=lease_ttl)
     thread = threading.Thread(
@@ -290,7 +357,13 @@ def run_with_lease_heartbeat(
     )
     thread.start()
     try:
-        return run_once(store=store, backend=backend, user_id=user_id, request=request)
+        return run_once(
+            store=store,
+            backend=backend,
+            user_id=user_id,
+            request=request,
+            abort=abort,
+        )
     finally:
         stop.set()
         thread.join(timeout=1)
@@ -316,6 +389,12 @@ def main() -> int:
     start_queue_monitor(store, user_id)
     log(f"worker starting for user={user_id}")
 
+    # F-001: a transient Redis error must not kill the worker for every queued
+    # job. Errors are caught, logged with a full traceback, the lease is always
+    # released, and the loop continues with an exponential backoff so a sustained
+    # outage does not spin into a tight error loop.
+    consecutive_errors = 0
+    max_backoff = max(poll_interval, 60)
     while not STOP:
         if not store.acquire_lease(user_id, ttl_seconds=lease_ttl):
             time.sleep(poll_interval)
@@ -346,8 +425,21 @@ def main() -> int:
                     return 0
             else:
                 store.refresh_lease(user_id, ttl_seconds=lease_ttl)
+            consecutive_errors = 0
+        except Exception:
+            consecutive_errors += 1
+            log(
+                "worker loop error (continuing); "
+                f"consecutive_errors={consecutive_errors}\n"
+                f"{traceback.format_exc()}"
+            )
+            backoff = min(max_backoff, poll_interval * (2 ** (consecutive_errors - 1)))
+            time.sleep(backoff)
         finally:
-            store.release_lease(user_id)
+            # Always release the lease so a failed iteration cannot strand it,
+            # and never let a release error mask the original loop error.
+            with contextlib.suppress(Exception):
+                store.release_lease(user_id)
 
     log("worker stopped")
     return 0

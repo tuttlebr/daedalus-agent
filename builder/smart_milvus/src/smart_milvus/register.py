@@ -1,3 +1,4 @@
+import logging
 import os
 
 from nat.builder.builder import Builder, LLMFrameworkEnum
@@ -11,6 +12,25 @@ from nat.cli.register_workflow import (
 from nat.data_models.function import FunctionBaseConfig
 from nat.data_models.retriever import RetrieverBaseConfig
 from pydantic import Field, HttpUrl
+
+logger = logging.getLogger(__name__)
+
+
+def _close_milvus_client(client) -> None:
+    """Best-effort close of a MilvusClient connection pool (F-013a).
+
+    Tolerates clients that predate the ``close`` method and never raises so it
+    is safe to call from generator-cleanup ``finally`` blocks.
+    """
+    if client is None:
+        return
+    close = getattr(client, "close", None)
+    if not callable(close):
+        return
+    try:
+        close()
+    except Exception as exc:  # pragma: no cover - defensive cleanup
+        logger.debug("Error closing MilvusClient: %s", exc)
 
 
 def _milvus_connection_args_from_env() -> dict[str, str]:
@@ -251,7 +271,13 @@ async def smart_milvus_client(config: MilvusRetrieverConfig, builder: Builder):
 
     retriever.bind(**optional_args)
 
-    yield retriever
+    try:
+        yield retriever
+    finally:
+        # F-013a: release the reranker HTTP session and Milvus connection pool
+        # so long-running processes don't leak sockets on reconfiguration.
+        retriever.close()
+        _close_milvus_client(milvus_client)
 
 
 @register_function(config_type=DomainRetrieverConfig)
@@ -262,6 +288,7 @@ async def domain_retriever_function(config: DomainRetrieverConfig, builder: Buil
     from smart_milvus.smart_milvus_function import MilvusRetriever
 
     _retriever_cache: dict[str, MilvusRetriever] = {}
+    _client_cache: dict[str, MilvusClient] = {}
 
     async def _get_retriever() -> MilvusRetriever:
         if "instance" not in _retriever_cache:
@@ -270,6 +297,7 @@ async def domain_retriever_function(config: DomainRetrieverConfig, builder: Buil
                 wrapper_type=LLMFrameworkEnum.LANGCHAIN,
             )
             milvus_client = MilvusClient(uri=str(config.uri), **config.connection_args)
+            _client_cache["instance"] = milvus_client
             reranker_config = None
             if config.use_reranker and config.reranker_endpoint:
                 reranker_config = {
@@ -326,11 +354,19 @@ async def domain_retriever_function(config: DomainRetrieverConfig, builder: Buil
         )
         return _format_domain_results(output, normalized_domain)
 
-    yield FunctionInfo.from_fn(
-        search_domain,
-        description=(
-            "Search one curated Milvus knowledge domain. Args: query, domain "
-            "(nvidia, semianalysis, kubernetes, veterinarian, mentalhealth), "
-            "optional top_k and filters. Returns reranked passages with metadata."
-        ),
-    )
+    try:
+        yield FunctionInfo.from_fn(
+            search_domain,
+            description=(
+                "Search one curated Milvus knowledge domain. Args: query, domain "
+                "(nvidia, semianalysis, kubernetes, veterinarian, mentalhealth), "
+                "optional top_k and filters. Returns reranked passages with metadata."
+            ),
+        )
+    finally:
+        # F-013a: release the reranker HTTP session and Milvus connection pool
+        # so long-running processes don't leak sockets on reconfiguration.
+        retriever = _retriever_cache.get("instance")
+        if retriever is not None:
+            retriever.close()
+        _close_milvus_client(_client_cache.get("instance"))

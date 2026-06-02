@@ -6,6 +6,7 @@ from smart_milvus.register import DomainRetrieverConfig
 from visual_media.visual_media_function import (
     VisualMediaFunctionConfig,
     _chat_completions_url,
+    _validate_analyze_url,
     _validated_user_id,
 )
 
@@ -58,6 +59,44 @@ def test_visual_media_accepts_authenticated_user_id_for_user_scoped_refs():
 
     assert user_id == "alice"
     assert error is None
+
+
+def test_visual_media_analyze_url_allows_none():
+    # No URL supplied -> nothing to validate (ref-based input handles its own).
+    assert _validate_analyze_url(None) is None
+    assert _validate_analyze_url("") is None
+
+
+def test_visual_media_analyze_url_rejects_metadata_ip():
+    # F-002c: SSRF to the cloud metadata service must be rejected.
+    error = _validate_analyze_url("http://169.254.169.254/latest/meta-data/")
+    assert error is not None
+    assert error.startswith("Error:")
+
+
+def test_visual_media_analyze_url_rejects_loopback():
+    # F-002c: SSRF to an internal/loopback service must be rejected.
+    error = _validate_analyze_url("http://127.0.0.1:8000/internal")
+    assert error is not None
+    assert error.startswith("Error:")
+
+
+def test_visual_media_analyze_url_rejects_private_ip():
+    # F-002c: SSRF to an RFC1918 internal host must be rejected.
+    error = _validate_analyze_url("http://10.0.0.5/secret")
+    assert error is not None
+    assert error.startswith("Error:")
+
+
+def test_visual_media_analyze_url_rejects_file_scheme():
+    # F-002c: non-http(s) schemes (file:/data:) must be rejected.
+    assert _validate_analyze_url("file:///etc/passwd") is not None
+    assert _validate_analyze_url("data:image/png;base64,AAAA") is not None
+
+
+def test_visual_media_analyze_url_allows_public_literal_ip():
+    # A public literal IP is accepted (no DNS needed, keeps the suite offline).
+    assert _validate_analyze_url("https://8.8.8.8/photo.png") is None
 
 
 def test_domain_retriever_config_defaults_to_curated_domains():

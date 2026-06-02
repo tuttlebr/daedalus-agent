@@ -83,10 +83,20 @@ Start each run with a small, bounded plan and record the next useful follow-up.
 _JSON_FENCE_RE = re.compile(r"```(?:json)?\s*([\s\S]*?)\s*```", re.IGNORECASE)
 _THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL)
 _TOKEN_RE = re.compile(r"approval token[^`]*`([^`]+)`", re.IGNORECASE)
+# F-015: the frontend re-enqueues an approved request with the granted token
+# embedded as approval_token="..." in the prompt; used as the idempotency key.
+_REQUEST_TOKEN_RE = re.compile(r'approval_token\s*=\s*"([^"]+)"', re.IGNORECASE)
 _ACTION_TYPE_RE = re.compile(r"action_type=`([^`]+)`", re.IGNORECASE)
 _TARGET_RE = re.compile(r"target=`([^`]+)`", re.IGNORECASE)
 _ACTION_HEADING_RE = re.compile(
     r"\*\*(?:Action requiring confirmation|Deep research plan approval):\*\*\s*([^\n]+)?",
+    re.IGNORECASE,
+)
+# F-011: the structured approval marker that extract_approval_metadata keys on.
+# Detection requires this exact bold heading (not merely an advisory phrase like
+# "proceed? (yes/no)") so a model casually echoing the words cannot trip the gate.
+_APPROVAL_MARKER_RE = re.compile(
+    r"\*\*(?:Action requiring confirmation|Deep research plan approval):\*\*",
     re.IGNORECASE,
 )
 _SOURCE_POLICY_IDS = {
@@ -443,11 +453,30 @@ def extract_approval_metadata(text: str) -> dict[str, str]:
     }
 
 
+def request_approval_key(request: dict[str, Any] | None) -> str:
+    """F-015: stable idempotency key for an approved, re-enqueued request.
+
+    The frontend embeds the granted single-use ``approval_token`` in the prompt
+    when it re-enqueues a request after the user approves. That token is the
+    safest "already applied" key. Returns "" when the request is not an approval
+    follow-up (so it is never treated as a re-run).
+    """
+    if not isinstance(request, dict):
+        return ""
+    if str(request.get("trigger") or "") != "approval":
+        return ""
+    match = _REQUEST_TOKEN_RE.search(str(request.get("prompt") or ""))
+    return match.group(1).strip() if match else ""
+
+
 def output_requests_approval(text: str) -> bool:
-    lowered = (text or "").lower()
-    return (
-        "action requiring confirmation" in lowered
-        or "proceed? (yes/no)" in lowered
-        or "deep research plan approval" in lowered
-        or "reply yes to approve this plan" in lowered
-    )
+    # F-011: require the structured approval MARKER (the bold heading that
+    # extract_approval_metadata parses), not any advisory phrase. This keeps the
+    # worker-side pause aligned with the structured metadata it records.
+    #
+    # RESIDUAL (out of scope): this gate is advisory — it pauses the *worker*
+    # but does not stop the backend agent from having already executed a
+    # mutation before emitting the marker. A fully ENFORCED gate (the agent must
+    # obtain a valid approval token from the backend before any destructive tool
+    # call runs) requires backend changes and is tracked separately.
+    return bool(_APPROVAL_MARKER_RE.search(text or ""))

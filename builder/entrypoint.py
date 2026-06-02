@@ -10,6 +10,12 @@ import logging
 import os
 import sys
 
+# Optional string env vars to seed with "" when unset, so NAT ${...}
+# interpolation does not emit None for tools that reference them.
+# Currently empty: no tool needs a seeded default right now. Add var
+# names here as optional tool config fields are introduced; the
+# _configure_optional_tool_env mechanism below is intentionally kept
+# wired up for that future use.
 OPTIONAL_STRING_ENV_DEFAULTS: tuple[str, ...] = ()
 
 
@@ -90,8 +96,17 @@ def _patch_fastapi_daedalus_routes(logger):
     attach our router via include_router. The patch runs exactly once
     per FastAPI instance (guarded by a marker attribute) so it's safe
     if NAT, uvicorn, or any other code also constructs FastAPI apps.
+
+    The routers are imported once here at patch-setup time. A failed
+    import is fatal (we raise) so the container does not start silently
+    without the /v1/images/* and /v1/documents/* endpoints.
     """
     from fastapi import FastAPI
+
+    # Import the routers up front so a broken import fails boot loudly
+    # instead of silently leaving the endpoints unregistered (404).
+    from document_ingest_api import router as document_ingest_router
+    from image_api import router as image_router
 
     original_init = FastAPI.__init__
 
@@ -99,16 +114,10 @@ def _patch_fastapi_daedalus_routes(logger):
         original_init(self, *args, **kwargs)
         if getattr(self, "_daedalus_routes_attached", False):
             return
-        try:
-            from document_ingest_api import router as document_ingest_router
-            from image_api import router as image_router
-
-            self.include_router(image_router)
-            self.include_router(document_ingest_router)
-            self._daedalus_routes_attached = True
-            logger.info("Attached Daedalus HTTP routers to FastAPI app")
-        except Exception:
-            logger.exception("Failed to attach Daedalus HTTP routers")
+        self.include_router(image_router)
+        self.include_router(document_ingest_router)
+        self._daedalus_routes_attached = True
+        logger.info("Attached Daedalus HTTP routers to FastAPI app")
 
     FastAPI.__init__ = patched_init
 

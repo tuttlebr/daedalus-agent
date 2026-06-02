@@ -85,6 +85,12 @@ _CHALLENGE_TITLE_MARKERS = [
     "please wait",
 ]
 
+# Cap on redirect hops we will manually follow while re-validating each target.
+_MAX_REDIRECTS = 10
+
+# Default schemes accepted for fetched (including redirected) URLs.
+_ALLOWED_FETCH_SCHEMES = ("https", "http")
+
 
 class WebscrapeFunctionConfig(FunctionBaseConfig, name="webscrape"):
     """Configuration for the webscrape function."""
@@ -254,6 +260,50 @@ def _html_to_markdown(
 
 
 # ---------------------------------------------------------------------------
+# Redirect-safe fetch
+# ---------------------------------------------------------------------------
+
+
+async def _get_following_safe_redirects(
+    client: httpx.AsyncClient,
+    url: str,
+    *,
+    allowed_schemes: list[str] | None = None,
+    max_redirects: int = _MAX_REDIRECTS,
+) -> httpx.Response:
+    """GET *url*, manually following redirects after SSRF-validating each hop.
+
+    The supplied *client* must be configured with ``follow_redirects=False`` so
+    redirects surface here; every redirect target is checked with
+    ``validate_public_url`` before it is fetched, closing the
+    ``https://attacker.com -> http://169.254.169.254/`` bypass. Raises
+    ``UnsafeURLError`` if any hop targets a non-public address or disallowed
+    scheme.
+    """
+    current_url = url
+    for _ in range(max_redirects + 1):
+        response = await client.get(current_url)
+        if not response.is_redirect:
+            return response
+
+        location = response.headers.get("location")
+        if not location:
+            return response
+
+        next_url = urljoin(current_url, location)
+        validate_public_url(
+            next_url,
+            allowed_schemes=allowed_schemes or list(_ALLOWED_FETCH_SCHEMES),
+            check_dns=False,
+        )
+        current_url = next_url
+
+    raise UnsafeURLError(
+        f"Exceeded maximum of {max_redirects} redirects while fetching '{url}'."
+    )
+
+
+# ---------------------------------------------------------------------------
 # Scraping strategies (ordered from fastest to most capable)
 # ---------------------------------------------------------------------------
 
@@ -280,14 +330,21 @@ def _scrape_with_markitdown(
 
 
 async def _scrape_with_httpx(
-    url: str, max_tokens: int | None = None, truncation_msg: str = ""
+    url: str,
+    max_tokens: int | None = None,
+    truncation_msg: str = "",
+    allowed_schemes: list[str] | None = None,
 ) -> str | None:
     """Strategy 2: httpx with browser-like headers (handles simple UA checks)."""
     headers = {**_BROWSER_HEADERS, "User-Agent": _BROWSER_USER_AGENT}
+    # follow_redirects=False so _get_following_safe_redirects can SSRF-validate
+    # every hop before following it (F-002a).
     async with httpx.AsyncClient(
-        headers=headers, follow_redirects=True, timeout=30.0
+        headers=headers, follow_redirects=False, timeout=30.0
     ) as client:
-        response = await client.get(url)
+        response = await _get_following_safe_redirects(
+            client, url, allowed_schemes=allowed_schemes
+        )
 
     if not response.is_success:
         logger.info("httpx returned status %d for %s", response.status_code, url)
@@ -378,10 +435,24 @@ async def _check_robots(
     parsed_url: ParseResult,
     client: httpx.AsyncClient,
     user_agent: str,
+    allowed_schemes: list[str] | None = None,
 ) -> None:
     robots_url = urljoin(f"{parsed_url.scheme}://{parsed_url.netloc}", "/robots.txt")
     try:
-        response = await client.get(robots_url)
+        # Manually follow redirects so each hop is SSRF-validated (F-002a); the
+        # client is configured with follow_redirects=False at the call site.
+        response = await _get_following_safe_redirects(
+            client, robots_url, allowed_schemes=allowed_schemes
+        )
+    except UnsafeURLError as exc:
+        logger.warning(
+            "robots.txt fetch for %s redirected to an unsafe target: %s",
+            robots_url,
+            exc,
+        )
+        raise PermissionError(
+            "robots.txt redirected to a disallowed target; scraping is not permitted."
+        ) from exc
     except httpx.RequestError as exc:
         logger.warning("Failed to retrieve robots.txt from %s: %s", robots_url, exc)
         return
@@ -505,14 +576,17 @@ async def webscrape_function(config: WebscrapeFunctionConfig, builder: Builder):
 
         if config.respect_robots_txt:
             try:
+                # follow_redirects=False so each redirect hop is SSRF-validated
+                # inside _check_robots before being followed (F-002a).
                 async with httpx.AsyncClient(
-                    headers=headers, follow_redirects=True
+                    headers=headers, follow_redirects=False
                 ) as client:
                     await _check_robots(
                         url=url,
                         parsed_url=parsed_url,
                         client=client,
                         user_agent=config.user_agent,
+                        allowed_schemes=config.allowed_schemes,
                     )
             except PermissionError as exc:
                 logger.info("robots.txt disallowed scraping for %s: %s", url, exc)
@@ -546,6 +620,7 @@ async def webscrape_function(config: WebscrapeFunctionConfig, builder: Builder):
                 url,
                 max_tokens=config.max_output_tokens,
                 truncation_msg=config.truncation_message,
+                allowed_schemes=config.allowed_schemes,
             )
             if httpx_output and _is_valid_content(httpx_output):
                 return httpx_output

@@ -111,10 +111,17 @@ async def fetch_image_from_redis(
     try:
         image_record = json.loads(image_data_json)
         if matched_key.startswith("generated:image:"):
+            # SECURITY: the generated:image:{id} key is unscoped, so the
+            # ownership check is the only barrier protecting an owned generated
+            # image. An owned image may ONLY be read back by its owner. Fail
+            # closed when the caller did not present a matching authenticated
+            # user (None/empty expected_user_id or a mismatch) — an unowned
+            # generated image stays capability-scoped via its unguessable id.
             owner_user_id = str(
                 image_record.get("userId") or image_record.get("user") or ""
             ).strip()
-            if expected_user_id and owner_user_id and owner_user_id != expected_user_id:
+            expected = (expected_user_id or "").strip()
+            if owner_user_id and owner_user_id != expected:
                 return (
                     None,
                     "Error: Generated image belongs to a different authenticated user.",

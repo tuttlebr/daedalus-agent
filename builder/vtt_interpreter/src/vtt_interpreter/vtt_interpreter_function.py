@@ -13,6 +13,47 @@ from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
 
+# Safety bounds to prevent a single oversized upload from blowing up memory or
+# stalling the event loop before the HTTP timeout applies (DoS for co-tenants).
+# Reject any transcript larger than this (in bytes) before parsing.
+MAX_TRANSCRIPT_BYTES = 10 * 1024 * 1024  # ~10 MB
+# Stop parsing after this many entries to bound the parse loop.
+MAX_TRANSCRIPT_ENTRIES = 100_000
+# Truncate the consolidated transcript to this many chars before embedding it
+# in the LLM prompt.
+MAX_CONSOLIDATED_CHARS = 500_000  # ~500 KB
+
+
+def check_transcript_size(vtt_text: str) -> str | None:
+    """
+    Reject an oversized transcript before parsing.
+
+    Returns a human-readable error string if the transcript exceeds
+    ``MAX_TRANSCRIPT_BYTES`` (measured as UTF-8 bytes), otherwise ``None``.
+    """
+    size_bytes = len(vtt_text.encode("utf-8", errors="ignore"))
+    if size_bytes > MAX_TRANSCRIPT_BYTES:
+        return (
+            f"Error: transcript exceeds the {MAX_TRANSCRIPT_BYTES // (1024 * 1024)} MB "
+            f"size limit ({size_bytes} bytes). Please upload a smaller transcript."
+        )
+    return None
+
+
+def truncate_for_prompt(
+    text: str, max_chars: int = MAX_CONSOLIDATED_CHARS
+) -> str:
+    """
+    Truncate consolidated transcript text to a safe size for the LLM prompt.
+
+    Appends a clear truncation marker when the text is shortened so the model
+    knows the transcript was cut off.
+    """
+    if len(text) <= max_chars:
+        return text
+    marker = "\n\n[transcript truncated due to length]"
+    return text[:max_chars] + marker
+
 
 class VttInterpreterFunctionConfig(
     FunctionBaseConfig,
@@ -96,12 +137,16 @@ class VttTranscriptEntry:
         )
 
 
-def parse_vtt_transcript(vtt_text: str) -> list[VttTranscriptEntry]:
+def parse_vtt_transcript(
+    vtt_text: str, max_entries: int = MAX_TRANSCRIPT_ENTRIES
+) -> list[VttTranscriptEntry]:
     """
     Parse VTT transcript text into structured entries.
 
     Args:
         vtt_text: Raw VTT transcript text
+        max_entries: Stop parsing once this many entries are collected, to
+            bound the parse loop for pathologically large inputs.
 
     Returns:
         List of VttTranscriptEntry objects
@@ -111,6 +156,12 @@ def parse_vtt_transcript(vtt_text: str) -> list[VttTranscriptEntry]:
 
     i = 0
     while i < len(lines):
+        if len(entries) >= max_entries:
+            logger.warning(
+                "Transcript entry cap (%d) reached; truncating parse.", max_entries
+            )
+            break
+
         line = lines[i].strip()
 
         # Skip empty lines, WEBVTT header, and UUID lines
@@ -281,6 +332,13 @@ async def vtt_interpreter_function(
                     "for an uploaded transcript, or transcript_text for a pasted one."
                 )
 
+            # Reject oversized transcripts before parsing so a multi-GB upload
+            # can't blow up memory / stall the event loop for co-tenants.
+            size_error = check_transcript_size(transcript_text)
+            if size_error:
+                logger.warning("Rejecting oversized VTT transcript.")
+                return size_error
+
             # Parse the VTT transcript
             logger.info("Parsing VTT transcript...")
             entries = parse_vtt_transcript(transcript_text)
@@ -291,6 +349,8 @@ async def vtt_interpreter_function(
             # Extract speakers and consolidate text
             speakers = extract_unique_speakers(entries)
             consolidated_transcript = consolidate_transcript_entries(entries)
+            # Bound the text embedded in the LLM prompt to a safe size.
+            consolidated_transcript = truncate_for_prompt(consolidated_transcript)
 
             logger.info(
                 f"Parsed {len(entries)} transcript entries with {len(speakers)} speakers"

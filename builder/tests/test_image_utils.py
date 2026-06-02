@@ -229,6 +229,58 @@ class TestFetchImageFromRedis:
         assert result[0] is None
         assert "different authenticated user" in result[1]
 
+    def test_owned_generated_image_denied_when_no_expected_user(self):
+        # F-006: an owned generated image must fail closed when the caller
+        # presents no authenticated user (e.g. an imageRef carrying only an
+        # imageId, expected_user_id=None) — otherwise it leaks cross-user.
+        payload = json.dumps(
+            {"data": "Z2Vu", "mimeType": "image/png", "userId": "alice"}
+        )
+        redis_client = _FakeRedis({"generated:image:xyz": payload})
+
+        result = _run(
+            fetch_image_from_redis(
+                redis_client,
+                {"imageId": "xyz", "sessionId": "generated"},
+            )
+        )
+
+        assert result[0] is None
+        assert "different authenticated user" in result[1]
+
+    def test_owned_generated_image_allowed_for_matching_user(self):
+        # F-006: the legitimate path (trusted user id matching the owner) still
+        # succeeds.
+        payload = json.dumps(
+            {"data": "Z2Vu", "mimeType": "image/png", "userId": "alice"}
+        )
+        redis_client = _FakeRedis({"generated:image:xyz": payload})
+
+        result = _run(
+            fetch_image_from_redis(
+                redis_client,
+                {"imageId": "xyz", "sessionId": "generated"},
+                expected_user_id="alice",
+            )
+        )
+
+        assert result == ("Z2Vu", "image/png")
+
+    def test_unowned_generated_image_is_capability_scoped(self):
+        # F-006: an unowned generated image (no stored userId) stays readable
+        # via its unguessable id — the panel-generate-without-owner / reuse flow.
+        payload = json.dumps({"data": "Z2Vu", "mimeType": "image/png"})
+        redis_client = _FakeRedis({"generated:image:xyz": payload})
+
+        result = _run(
+            fetch_image_from_redis(
+                redis_client,
+                {"imageId": "xyz", "sessionId": "generated"},
+            )
+        )
+
+        assert result == ("Z2Vu", "image/png")
+
 
 class TestStoreImageInRedis:
     def test_stores_owner_metadata_when_provided(self):

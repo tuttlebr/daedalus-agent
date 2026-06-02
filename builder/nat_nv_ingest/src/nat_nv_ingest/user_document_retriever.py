@@ -134,6 +134,7 @@ async def user_document_retriever_function(
     # Lazy initialization - embedder and retriever are created on first use
     # This avoids dependency ordering issues with the workflow builder
     _retriever_cache: dict[str, MilvusRetriever] = {}
+    _client_cache: dict[str, MilvusClient] = {}
 
     async def _get_retriever() -> MilvusRetriever:
         """Get or create the retriever instance lazily."""
@@ -145,6 +146,7 @@ async def user_document_retriever_function(
             milvus_client = MilvusClient(
                 uri=str(config.milvus_uri), **config.connection_args
             )
+            _client_cache["instance"] = milvus_client
 
             reranker_config = None
             if config.use_reranker and config.reranker_endpoint:
@@ -219,10 +221,18 @@ async def user_document_retriever_function(
         output = await retriever.search(query=resolved_query, **search_kwargs)
         return _serialize_output(output)
 
-    yield FunctionInfo.from_fn(
-        _retrieve,
-        description=(
-            "Retrieve relevant chunks from user-uploaded documents stored in Milvus. "
-            "Provide query plus collection_name (or username) to target the user collection."
-        ),
-    )
+    try:
+        yield FunctionInfo.from_fn(
+            _retrieve,
+            description=(
+                "Retrieve relevant chunks from user-uploaded documents stored in Milvus. "
+                "Provide query plus collection_name (or username) to target the user collection."
+            ),
+        )
+    finally:
+        milvus_client = _client_cache.pop("instance", None)
+        if milvus_client is not None:
+            try:
+                milvus_client.close()
+            except Exception:
+                logger.warning("Failed to close Milvus client", exc_info=True)

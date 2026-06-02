@@ -24,7 +24,7 @@ SHELL := /bin/bash
 
 .DEFAULT_GOAL := help
 
-.PHONY: help ci builder frontend helm docker security evals tools-check clean
+.PHONY: help ci builder test-integration frontend helm docker security evals tools-check clean
 
 help: ## show available targets
 	@awk 'BEGIN {FS = ":.*##"} /^[a-zA-Z_-]+:.*##/ { printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
@@ -34,6 +34,10 @@ ci: tools-check builder frontend helm docker security evals ## run every CI job 
 builder: ## Python builder pytest with coverage  (CI job: builder)
 	cd builder && uv pip install -e ".[test]"
 	cd builder && uv run python -m pytest --cov --cov-report=xml --cov-report=term-missing
+
+test-integration: ## builder integration tests vs real Redis, opt-in  (CI job: builder-integration)
+	cd builder && uv pip install -e ".[test]" redis
+	cd builder && PYTEST_USE_REAL_REDIS=1 REDIS_URL=$${REDIS_URL:-redis://localhost:6379} uv run python -m pytest -m integration -v
 
 frontend: ## frontend lint, typecheck, test, build  (CI job: frontend)
 	cd frontend && npm ci --legacy-peer-deps
