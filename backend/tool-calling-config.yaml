@@ -272,7 +272,6 @@ functions:
       - source_policy_tool
       - source_verifier_tool
       - citation_auditor_tool
-      - current_datetime_tool
       - x_mcp_server
     description: >-
       Run a research task. Input: a one-sentence research question or
@@ -359,7 +358,6 @@ functions:
       - content_distiller_tool
       - source_verifier_tool
       - citation_auditor_tool
-      - current_datetime_tool
     description: >-
       Run AIQ-style deep research. Input: a comprehensive research,
       strategy, comparison, market/technical survey, or report request.
@@ -529,7 +527,6 @@ functions:
     handle_tool_errors: true
     verbose: true
     tool_names:
-      - current_datetime_tool
       - gmail_mcp_server
       - calendar_mcp_server
     description: >-
@@ -1370,9 +1367,9 @@ workflow:
     - mas_optimizer_tool
     - agent_skills_tool
     - user_interaction_tool
-    - current_datetime_tool
     - visual_media_tool
     - vtt_interpreter_tool
     - x_mcp_server
+    - current_datetime_tool
   verbose: true
   workflow_alias: Daedalus
