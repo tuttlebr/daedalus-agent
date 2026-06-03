@@ -260,9 +260,9 @@ functions:
   research_agent:
     _type: tool_calling_agent_resilient
     llm_name: reasoning_llm
-    max_iterations: 12
+    max_iterations: 25
     handle_tool_errors: true
-    verbose: true
+    verbose: false
     tool_names:
       - domain_retriever_tool
       - curated_feed_search_tool
@@ -342,9 +342,9 @@ functions:
   deep_research_agent:
     _type: tool_calling_agent_resilient
     llm_name: tool_calling_llm
-    max_iterations: 18
+    max_iterations: 25
     handle_tool_errors: true
-    verbose: true
+    verbose: false
     return_direct:
       - research_plan_approval_tool
     tool_names:
@@ -430,9 +430,9 @@ functions:
   nvidia_docs_agent:
     _type: tool_calling_agent_resilient
     llm_name: default_llm
-    max_iterations: 6
+    max_iterations: 25
     handle_tool_errors: true
-    verbose: true
+    verbose: false
     tool_names:
       - dynamo_mcp_server
       - openshell_mcp_server
@@ -472,9 +472,9 @@ functions:
   ops_agent:
     _type: tool_calling_agent_resilient
     llm_name: default_llm
-    max_iterations: 8
+    max_iterations: 25
     handle_tool_errors: true
-    verbose: true
+    verbose: false
     return_direct:
       - ops_confirmation_tool
     tool_names:
@@ -523,9 +523,9 @@ functions:
   user_data_agent:
     _type: tool_calling_agent_resilient
     llm_name: default_llm
-    max_iterations: 6
+    max_iterations: 25
     handle_tool_errors: true
-    verbose: true
+    verbose: false
     tool_names:
       - gmail_mcp_server
       - calendar_mcp_server
@@ -560,9 +560,9 @@ functions:
   user_document_agent:
     _type: tool_calling_agent_resilient
     llm_name: default_llm
-    max_iterations: 6
+    max_iterations: 25
     handle_tool_errors: true
-    verbose: true
+    verbose: false
     tool_names:
       - user_document_tool
     description: >-
@@ -613,7 +613,7 @@ functions:
       need a procedure you don't yet know. Args: skill_name and optional
       resource. Returns: skill instructions or resource content. Fails
       when: skill not found or requested resource path escapes skill dir.
-    verbose: true
+    verbose: false
   add_memory:
     _type: add_memory
     description: >-
@@ -632,7 +632,7 @@ functions:
       when: memory empty, user_id missing, or a finding lacks a prior
       verify_claim pass.
     memory: redis_memory
-    verbose: true
+    verbose: false
   current_datetime_tool:
     _type: current_datetime
     description: >-
@@ -640,7 +640,7 @@ functions:
       time-relative query ("today", "this week", "how old is X").
       Args: none. Returns: ISO datetime + timezone. Fails when:
       never.
-    verbose: true
+    verbose: false
   delete_memory:
     _type: delete_memory
     description: >-
@@ -650,7 +650,7 @@ functions:
       deletion count. Fails when: called without prior
       user_interaction_tool.confirm_action (you MUST confirm first).
     memory: redis_memory
-    verbose: true
+    verbose: false
   get_memory:
     _type: get_memory
     description: >-
@@ -662,7 +662,7 @@ functions:
       Fails: never; anonymous with no prior memories returns an empty list.
     memory: redis_memory
     top_k: 5
-    verbose: true
+    verbose: false
   visual_media_tool:
     _type: visual_media
     generation_api_endpoint: ${IMAGE_GENERATION_BASE_URL}
@@ -687,7 +687,7 @@ functions:
     redis_url: ${REDIS_URL}
     image_timeout: 120
     comprehension_timeout: 120
-    verbose: true
+    verbose: false
   domain_retriever_tool:
     _type: domain_retriever
     description: >-
@@ -713,7 +713,7 @@ functions:
       kubernetes: kubernetes
       veterinarian: vetpartner
       mentalhealth: mentalhealth
-    verbose: true
+    verbose: false
   user_document_tool:
     _type: nat_nv_ingest
     chunk_overlap: 150
@@ -768,7 +768,7 @@ functions:
     top_k: 10
     use_reranker: true
     vector_field: vector
-    verbose: true
+    verbose: false
   curated_feed_search_tool:
     _type: rss_feed
     description: >-
@@ -817,7 +817,7 @@ functions:
     reranker_model: ${RERANKER_MODEL}
     reranker_max_passage_tokens: 192
     reranker_max_total_tokens: 7000
-    verbose: true
+    verbose: false
   vtt_interpreter_tool:
     _type: vtt_interpreter
     api_endpoint: ${DEFAULT_LLM_MODEL_BASE_URL}
@@ -835,7 +835,7 @@ functions:
       user_instructions. Returns: processed markdown. Fails when:
       content is not valid VTT/SRT or the LLM endpoint errors.
     timeout: 120
-    verbose: true
+    verbose: false
   content_distiller_tool:
     _type: content_distiller
     fast_llm_name: distill_llm
@@ -851,7 +851,7 @@ functions:
       ~5000 tokens; for shorter outputs incorporate directly. Args:
       content, optional focus, max_words, and output_format. Returns:
       distilled text. Fails when: input exceeds 100000 chars.
-    verbose: true
+    verbose: false
   user_interaction_tool:
     _type: user_interaction
     max_options: 6
@@ -874,7 +874,7 @@ functions:
       operation. Returns: formatted prompt or guarded action result.
       Fails when: options exceed 6 entries or approval is
       missing/expired.
-    verbose: true
+    verbose: false
   research_plan_approval_tool:
     _type: user_interaction
     max_options: 8
@@ -889,7 +889,7 @@ functions:
       expensive AIQ-style deep research starts. It presents the plan, selected
       sources, estimated cost/risk, and pauses for a yes/no or revision
       response. Pass user_id from [IDENTITY] when available.
-    verbose: true
+    verbose: false
   ops_confirmation_tool:
     _type: user_interaction
     max_options: 6
@@ -907,7 +907,7 @@ functions:
       confirmation before destructive Kubernetes operations or GitHub
       writes and return an approval token scoped to the requested
       mutation.
-    verbose: true
+    verbose: false
   mas_optimizer_tool:
     _type: mas_optimizer
     sas_accuracy_threshold: 0.45
@@ -937,7 +937,7 @@ functions:
       explicit SAS routing outcome calibration. Returns: routing verdict,
       architecture type, skill_name, routing_basis, and matched_signals.
       Fails when: task_description is under 8 chars.
-    verbose: true
+    verbose: false
   serpapi_search_tool:
     _type: serpapi_search
     description: >-
@@ -950,7 +950,7 @@ functions:
       optional search_type (organic, news, images, shopping).
       Returns: ranked URLs with snippets. Fails when: SERPAPI_KEY
       missing or rate-limited.
-    verbose: true
+    verbose: false
   webscrape_tool:
     _type: webscrape
     allowed_schemes:
@@ -969,7 +969,7 @@ functions:
     timeout: 60
     use_browser_fallback: true
     user_agent: daedalus-webscraper/0.1.0
-    verbose: true
+    verbose: false
   source_verifier_tool:
     _type: source_verifier
     fast_llm_name: react_llm
@@ -993,7 +993,7 @@ functions:
       Returns: supported | partially_supported | unsupported |
       source_unreachable, with evidence. Fails when: source_url
       malformed or unreachable.
-    verbose: true
+    verbose: false
   source_policy_tool:
     _type: source_verifier
     enabled_operations:
@@ -1061,7 +1061,7 @@ functions:
       source families, recommended tool order, source-specific hints, blocked
       tools, approval hint, and citation ledger contract. Use before deep
       research and whenever the user asks to include or exclude sources.
-    verbose: true
+    verbose: false
   citation_auditor_tool:
     _type: source_verifier
     fast_llm_name: react_llm
@@ -1084,7 +1084,7 @@ functions:
       passed=false. This is not semantic claim verification; use
       source_verifier_tool.verify_claim for exact high-stakes factual claims
       or memory writes.
-    verbose: true
+    verbose: false
 general:
   front_end:
     _type: fastapi
@@ -1220,10 +1220,10 @@ memory:
     host: ${REDIS_HOST}
     key_prefix: nat
     port: ${REDIS_PORT}
-    verbose: true
+    verbose: false
 workflow:
   _type: tool_calling_agent_resilient
-  max_iterations: 8
+  max_iterations: 50
   llm_name: tool_calling_llm
   system_prompt: |
     Role: Daedalus, an executive-grade agent for senior technology executives
