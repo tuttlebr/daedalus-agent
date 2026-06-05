@@ -101,11 +101,10 @@ def _patch_fastapi_daedalus_routes(logger):
     import is fatal (we raise) so the container does not start silently
     without the /v1/images/* and /v1/documents/* endpoints.
     """
-    from fastapi import FastAPI
-
     # Import the routers up front so a broken import fails boot loudly
     # instead of silently leaving the endpoints unregistered (404).
     from document_ingest_api import router as document_ingest_router
+    from fastapi import FastAPI
     from image_api import router as image_router
 
     original_init = FastAPI.__init__

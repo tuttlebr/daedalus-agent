@@ -232,7 +232,31 @@ class _FakeReadTimeout(_FakeTimeoutException):
     pass
 
 
-class _FakeConnectError(_FakeHTTPError):
+class _FakeNetworkError(_FakeHTTPError):
+    pass
+
+
+class _FakeConnectError(_FakeNetworkError):
+    pass
+
+
+class _FakeReadError(_FakeNetworkError):
+    pass
+
+
+class _FakeWriteError(_FakeNetworkError):
+    pass
+
+
+class _FakeCloseError(_FakeNetworkError):
+    pass
+
+
+class _FakeRemoteProtocolError(_FakeHTTPError):
+    pass
+
+
+class _FakeProxyError(_FakeHTTPError):
     pass
 
 
@@ -248,6 +272,12 @@ _httpx_mod.ConnectTimeout = _FakeConnectTimeout
 _httpx_mod.ConnectError = _FakeConnectError
 _httpx_mod.ReadTimeout = _FakeReadTimeout
 _httpx_mod.TimeoutException = _FakeTimeoutException
+_httpx_mod.NetworkError = _FakeNetworkError
+_httpx_mod.ReadError = _FakeReadError
+_httpx_mod.WriteError = _FakeWriteError
+_httpx_mod.CloseError = _FakeCloseError
+_httpx_mod.RemoteProtocolError = _FakeRemoteProtocolError
+_httpx_mod.ProxyError = _FakeProxyError
 _httpx_mod.HTTPError = _FakeHTTPError
 _httpx_mod.HTTPStatusError = _FakeHTTPStatusError
 sys.modules.setdefault("httpx", _httpx_mod)

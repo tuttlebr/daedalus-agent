@@ -118,9 +118,7 @@ def test_run_skill_script_returns_stdout(tmp_path):
 
     parser = _skill_with_script(tmp_path, "hello.py", "print('hello world')\n")
 
-    out = run(
-        _run_skill_script(parser, [".py", ".sh"], 30, "runner-skill", "hello.py")
-    )
+    out = run(_run_skill_script(parser, [".py", ".sh"], 30, "runner-skill", "hello.py"))
 
     assert "hello world" in out
 
@@ -128,14 +126,10 @@ def test_run_skill_script_returns_stdout(tmp_path):
 def test_run_skill_script_timeout(tmp_path):
     from agent_skills.agent_skills_function import _run_skill_script
 
-    parser = _skill_with_script(
-        tmp_path, "slow.py", "import time\ntime.sleep(10)\n"
-    )
+    parser = _skill_with_script(tmp_path, "slow.py", "import time\ntime.sleep(10)\n")
 
     # 1s timeout against a 10s sleep — must report the timeout, not hang.
-    out = run(
-        _run_skill_script(parser, [".py", ".sh"], 1, "runner-skill", "slow.py")
-    )
+    out = run(_run_skill_script(parser, [".py", ".sh"], 1, "runner-skill", "slow.py"))
 
     assert "timed out after 1s" in out
 
@@ -151,9 +145,7 @@ def test_run_skill_script_truncates_stdout(tmp_path, monkeypatch):
         tmp_path, "loud.py", "import sys\nsys.stdout.write('A' * 100)\n"
     )
 
-    out = run(
-        _run_skill_script(parser, [".py", ".sh"], 30, "runner-skill", "loud.py")
-    )
+    out = run(_run_skill_script(parser, [".py", ".sh"], 30, "runner-skill", "loud.py"))
 
     assert "stdout truncated: 100 bytes total, showing first 16" in out
     # Only the first 16 bytes of payload survive (plus the truncation notice).
@@ -170,9 +162,7 @@ def test_run_skill_script_truncates_stderr(tmp_path, monkeypatch):
         tmp_path, "err.py", "import sys\nsys.stderr.write('B' * 100)\n"
     )
 
-    out = run(
-        _run_skill_script(parser, [".py", ".sh"], 30, "runner-skill", "err.py")
-    )
+    out = run(_run_skill_script(parser, [".py", ".sh"], 30, "runner-skill", "err.py"))
 
     assert "[stderr]" in out
     assert "stderr truncated: 100 bytes total, showing first 16" in out
@@ -183,9 +173,7 @@ def test_run_skill_script_extension_not_allowed(tmp_path):
 
     parser = _skill_with_script(tmp_path, "data.txt", "not a script\n")
 
-    out = run(
-        _run_skill_script(parser, [".py", ".sh"], 30, "runner-skill", "data.txt")
-    )
+    out = run(_run_skill_script(parser, [".py", ".sh"], 30, "runner-skill", "data.txt"))
 
     assert "Extension '.txt' is not allowed" in out
 
@@ -205,9 +193,7 @@ def test_run_skill_script_env_allowlist_strips_secrets(tmp_path, monkeypatch):
     )
     parser = _skill_with_script(tmp_path, "env.py", body)
 
-    out = run(
-        _run_skill_script(parser, [".py", ".sh"], 30, "runner-skill", "env.py")
-    )
+    out = run(_run_skill_script(parser, [".py", ".sh"], 30, "runner-skill", "env.py"))
 
     assert "True" not in out
     assert out.count("False") == 2

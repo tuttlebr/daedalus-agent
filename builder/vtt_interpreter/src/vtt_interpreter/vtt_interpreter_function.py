@@ -40,9 +40,7 @@ def check_transcript_size(vtt_text: str) -> str | None:
     return None
 
 
-def truncate_for_prompt(
-    text: str, max_chars: int = MAX_CONSOLIDATED_CHARS
-) -> str:
+def truncate_for_prompt(text: str, max_chars: int = MAX_CONSOLIDATED_CHARS) -> str:
     """
     Truncate consolidated transcript text to a safe size for the LLM prompt.
 

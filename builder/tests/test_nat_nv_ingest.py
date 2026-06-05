@@ -948,8 +948,7 @@ class TestDocumentSizeCap:
     def test_default_max_size_from_env_when_unset(self, monkeypatch):
         monkeypatch.delenv("DOCUMENT_INGEST_MAX_SIZE_BYTES", raising=False)
         assert (
-            document_ingest_max_size_bytes()
-            == DEFAULT_DOCUMENT_INGEST_MAX_SIZE_BYTES
+            document_ingest_max_size_bytes() == DEFAULT_DOCUMENT_INGEST_MAX_SIZE_BYTES
         )
 
     def test_env_override_is_respected(self, monkeypatch):
@@ -959,15 +958,13 @@ class TestDocumentSizeCap:
     def test_invalid_env_falls_back_to_default(self, monkeypatch):
         monkeypatch.setenv("DOCUMENT_INGEST_MAX_SIZE_BYTES", "not-a-number")
         assert (
-            document_ingest_max_size_bytes()
-            == DEFAULT_DOCUMENT_INGEST_MAX_SIZE_BYTES
+            document_ingest_max_size_bytes() == DEFAULT_DOCUMENT_INGEST_MAX_SIZE_BYTES
         )
 
     def test_non_positive_env_falls_back_to_default(self, monkeypatch):
         monkeypatch.setenv("DOCUMENT_INGEST_MAX_SIZE_BYTES", "0")
         assert (
-            document_ingest_max_size_bytes()
-            == DEFAULT_DOCUMENT_INGEST_MAX_SIZE_BYTES
+            document_ingest_max_size_bytes() == DEFAULT_DOCUMENT_INGEST_MAX_SIZE_BYTES
         )
 
     def test_estimated_decoded_size_matches_real_decode(self):
@@ -999,9 +996,7 @@ class TestDocumentSizeCap:
         import json
         from unittest.mock import AsyncMock, MagicMock, patch
 
-        from nat_nv_ingest.nat_nv_ingest import (
-            NvIngestDocumentProcessor,
-        )
+        from nat_nv_ingest.nat_nv_ingest import NvIngestDocumentProcessor
 
         monkeypatch.setenv("DOCUMENT_INGEST_MAX_SIZE_BYTES", "100")
 
@@ -1016,12 +1011,8 @@ class TestDocumentSizeCap:
         fake_redis.execute_command.return_value = document_record
 
         with (
-            patch.object(
-                processor, "_get_redis", AsyncMock(return_value=fake_redis)
-            ),
-            patch.object(
-                processor, "_get_nv_client", AsyncMock()
-            ) as get_nv_client,
+            patch.object(processor, "_get_redis", AsyncMock(return_value=fake_redis)),
+            patch.object(processor, "_get_nv_client", AsyncMock()) as get_nv_client,
         ):
             result = asyncio.run(
                 processor.process_document(

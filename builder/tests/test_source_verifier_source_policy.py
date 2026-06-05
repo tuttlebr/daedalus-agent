@@ -16,9 +16,7 @@ def run(coro):
 # model a redirect chain that ends at a private/metadata target.
 # ---------------------------------------------------------------------------
 class _FakeResponse:
-    def __init__(
-        self, *, is_redirect=False, location=None, status_code=200, text=""
-    ):
+    def __init__(self, *, is_redirect=False, location=None, status_code=200, text=""):
         self.is_redirect = is_redirect
         self.headers = {"location": location} if location else {}
         self.status_code = status_code
@@ -140,7 +138,9 @@ def test_check_link_reachable_rejects_metadata_url_without_fetch():
 
     with pytest.MonkeyPatch.context() as mp:
         mp.setattr(mod.httpx, "AsyncClient", _client_factory)
-        result = run(mod._check_link_reachable("http://169.254.169.254/latest/meta-data/"))
+        result = run(
+            mod._check_link_reachable("http://169.254.169.254/latest/meta-data/")
+        )
 
     # Unsafe target rejected up front; no HEAD request was ever issued.
     assert result is False

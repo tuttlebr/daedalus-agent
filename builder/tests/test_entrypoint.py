@@ -3,10 +3,9 @@
 import logging
 import os
 
+import entrypoint
 import fastapi
 import pytest
-
-import entrypoint
 
 
 def test_optional_tool_env_defaults_do_not_seed_unlisted_keys(monkeypatch):

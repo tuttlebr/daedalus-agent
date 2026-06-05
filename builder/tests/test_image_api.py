@@ -9,7 +9,6 @@ _BUILDER_ROOT = Path(__file__).resolve().parent.parent
 if str(_BUILDER_ROOT) not in sys.path:
     sys.path.insert(0, str(_BUILDER_ROOT))
 
-import image_api  # noqa: E402
 import nat_helpers.internal_auth as internal_auth  # noqa: E402
 import pytest  # noqa: E402  (path tweak must precede these imports)
 from image_api import (  # noqa: E402

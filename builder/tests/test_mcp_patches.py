@@ -19,8 +19,14 @@ from mcp_patches import (  # noqa: E402
     _connect_with_graceful_teardown,
     _extract_root_connection_error,
     _is_connection_error,
+    _is_no_tools_after_degradation_error,
+    _known_mcp_function_groups,
     _McpAppError,
+    _record_possible_mcp_group,
+    _record_skipped_function_group,
+    _should_skip_tool_resolution_error,
     _skipped_function_groups,
+    _tool_ref_text,
 )
 
 
@@ -274,6 +280,13 @@ class TestIsConnectionError:
         wrapper.__cause__ = cause
         assert _is_connection_error(wrapper)
 
+    def test_in_context_chain(self):
+        """Async context managers often preserve the transport error in __context__."""
+        context = httpx.RemoteProtocolError("server disconnected")
+        wrapper = RuntimeError("generator didn't yield")
+        wrapper.__context__ = context
+        assert _is_connection_error(wrapper)
+
     def test_value_error_not_connection_error(self):
         assert not _is_connection_error(ValueError("bad input"))
 
@@ -287,6 +300,16 @@ class TestIsConnectionError:
     def test_read_timeout_is_connection_error(self):
         """ReadTimeout IS a connection error — server accepts TCP but never responds."""
         assert _is_connection_error(httpx.ReadTimeout("slow response"))
+
+    def test_remote_protocol_error_is_connection_error(self):
+        """GitHub MCP can disconnect mid-response as RemoteProtocolError."""
+        assert _is_connection_error(
+            httpx.RemoteProtocolError("server disconnected without sending a response")
+        )
+
+    def test_httpx_network_error_base_is_connection_error(self):
+        """NetworkError subclasses should be treated as transport instability."""
+        assert _is_connection_error(httpx.ReadError("stream reset"))
 
     def test_read_timeout_in_exception_group(self):
         """ReadTimeout wrapped in ExceptionGroup (anyio TaskGroup cleanup pattern)."""
@@ -348,11 +371,22 @@ class TestExtractRootConnectionError:
         eg = ExceptionGroup("group", [inner])  # noqa: F821
         assert _extract_root_connection_error(eg) is inner
 
+    def test_extracts_connection_error_from_mixed_exception_group(self):
+        inner = httpx.RemoteProtocolError("server disconnected")
+        eg = ExceptionGroup("group", [ValueError("noise"), inner])  # noqa: F821
+        assert _extract_root_connection_error(eg) is inner
+
     def test_extracts_from_cause_chain(self):
         cause = httpx.ConnectError("refused")
         wrapper = RuntimeError("build failed")
         wrapper.__cause__ = cause
         assert _extract_root_connection_error(wrapper) is cause
+
+    def test_extracts_from_context_chain(self):
+        context = httpx.RemoteProtocolError("server disconnected")
+        wrapper = RuntimeError("generator didn't yield")
+        wrapper.__context__ = context
+        assert _extract_root_connection_error(wrapper) is context
 
     def test_non_connection_returns_original(self):
         err = ValueError("bad")
@@ -399,17 +433,22 @@ class TestStartupResilience:
         import functools
 
         _skipped_function_groups.clear()
+        _known_mcp_function_groups.clear()
 
         original_add_fg = builder_cls.add_function_group
 
         @functools.wraps(original_add_fg)
         async def resilient(self, name, *args, **kwargs):
+            _record_possible_mcp_group(name, args, kwargs)
             try:
                 return await original_add_fg(self, name, *args, **kwargs)
             except Exception as exc:
+                if _is_no_tools_after_degradation_error(exc):
+                    _record_skipped_function_group(name)
+                    return None
                 if _is_connection_error(exc):
                     _extract_root_connection_error(exc)  # for logging
-                    _skipped_function_groups.add(name)
+                    _record_skipped_function_group(name)
                     return None
                 raise
 
@@ -417,13 +456,42 @@ class TestStartupResilience:
 
         original_get_tools = builder_cls.get_tools
 
+        async def _resolve_individually(self, tool_names, args, kwargs):
+            resolved = []
+            for tool_name in tool_names:
+                try:
+                    result = await original_get_tools(
+                        self, [tool_name], *args, **kwargs
+                    )
+                except Exception as exc:
+                    if _should_skip_tool_resolution_error(exc, tool_name):
+                        _record_skipped_function_group(tool_name)
+                        continue
+                    raise
+                if result:
+                    resolved.extend(result)
+            return resolved
+
         @functools.wraps(original_get_tools)
         async def resilient_get_tools(self, tool_names=None, *args, **kwargs):
             if tool_names and _skipped_function_groups:
                 tool_names = [
-                    n for n in tool_names if n not in _skipped_function_groups
+                    n
+                    for n in tool_names
+                    if _tool_ref_text(n) not in _skipped_function_groups
                 ]
-            return await original_get_tools(self, tool_names, *args, **kwargs)
+            try:
+                return await original_get_tools(self, tool_names, *args, **kwargs)
+            except Exception as exc:
+                if tool_names and (
+                    _is_connection_error(exc)
+                    or any(
+                        _should_skip_tool_resolution_error(exc, tool_name)
+                        for tool_name in tool_names
+                    )
+                ):
+                    return await _resolve_individually(self, tool_names, args, kwargs)
+                raise
 
         builder_cls.get_tools = resilient_get_tools
 
@@ -431,9 +499,15 @@ class TestStartupResilience:
 
         @functools.wraps(original_get_function)
         async def resilient_get_function(self, name, *args, **kwargs):
-            if name in _skipped_function_groups:
+            if _tool_ref_text(name) in _skipped_function_groups:
                 return None
-            return await original_get_function(self, name, *args, **kwargs)
+            try:
+                return await original_get_function(self, name, *args, **kwargs)
+            except Exception as exc:
+                if _should_skip_tool_resolution_error(exc, name):
+                    _record_skipped_function_group(name)
+                    return None
+                raise
 
         builder_cls.get_function = resilient_get_function
 
@@ -442,6 +516,7 @@ class TestStartupResilience:
     def _restore(self, cls, originals):
         cls.add_function_group, cls.get_tools, cls.get_function = originals
         _skipped_function_groups.clear()
+        _known_mcp_function_groups.clear()
 
     def test_successful_registration_unchanged(self):
         """Normal function group registration passes through."""
@@ -566,21 +641,26 @@ class TestStartupResilience:
         import functools
 
         _skipped_function_groups.clear()
+        _known_mcp_function_groups.clear()
 
         original_add_fg = builder_cls.add_function_group
 
         @functools.wraps(original_add_fg)
         async def resilient(self, name, *args, **kwargs):
+            _record_possible_mcp_group(name, args, kwargs)
             for attempt in range(_MCP_STARTUP_MAX_RETRIES + 1):
                 try:
                     return await original_add_fg(self, name, *args, **kwargs)
                 except Exception as exc:
+                    if _is_no_tools_after_degradation_error(exc):
+                        _record_skipped_function_group(name)
+                        return None
                     if not _is_connection_error(exc):
                         raise
                     if attempt < _MCP_STARTUP_MAX_RETRIES:
                         # Skip the actual sleep in tests
                         continue
-            _skipped_function_groups.add(name)
+            _record_skipped_function_group(name)
             return None
 
         builder_cls.add_function_group = resilient
@@ -588,13 +668,42 @@ class TestStartupResilience:
         # Reuse the same get_tools/get_function wrappers
         original_get_tools = builder_cls.get_tools
 
+        async def _resolve_individually(self, tool_names, args, kwargs):
+            resolved = []
+            for tool_name in tool_names:
+                try:
+                    result = await original_get_tools(
+                        self, [tool_name], *args, **kwargs
+                    )
+                except Exception as exc:
+                    if _should_skip_tool_resolution_error(exc, tool_name):
+                        _record_skipped_function_group(tool_name)
+                        continue
+                    raise
+                if result:
+                    resolved.extend(result)
+            return resolved
+
         @functools.wraps(original_get_tools)
         async def resilient_get_tools(self, tool_names=None, *args, **kwargs):
             if tool_names and _skipped_function_groups:
                 tool_names = [
-                    n for n in tool_names if n not in _skipped_function_groups
+                    n
+                    for n in tool_names
+                    if _tool_ref_text(n) not in _skipped_function_groups
                 ]
-            return await original_get_tools(self, tool_names, *args, **kwargs)
+            try:
+                return await original_get_tools(self, tool_names, *args, **kwargs)
+            except Exception as exc:
+                if tool_names and (
+                    _is_connection_error(exc)
+                    or any(
+                        _should_skip_tool_resolution_error(exc, tool_name)
+                        for tool_name in tool_names
+                    )
+                ):
+                    return await _resolve_individually(self, tool_names, args, kwargs)
+                raise
 
         builder_cls.get_tools = resilient_get_tools
 
@@ -602,9 +711,15 @@ class TestStartupResilience:
 
         @functools.wraps(original_get_function)
         async def resilient_get_function(self, name, *args, **kwargs):
-            if name in _skipped_function_groups:
+            if _tool_ref_text(name) in _skipped_function_groups:
                 return None
-            return await original_get_function(self, name, *args, **kwargs)
+            try:
+                return await original_get_function(self, name, *args, **kwargs)
+            except Exception as exc:
+                if _should_skip_tool_resolution_error(exc, name):
+                    _record_skipped_function_group(name)
+                    return None
+                raise
 
         builder_cls.get_function = resilient_get_function
 
@@ -683,6 +798,89 @@ class TestStartupResilience:
             run(_run())
         finally:
             self._restore(FailingBuilder, originals)
+
+    def test_get_tools_omits_deferred_mcp_connection_failure(self):
+        """If NAT defers MCP discovery until get_tools(), omit only that MCP group."""
+
+        class DeferredFailBuilder(FakeWorkflowBuilder):
+            async def get_tools(self, tool_names=None, wrapper_type=None):
+                if tool_names and "github_mcp_server" in tool_names:
+                    raise httpx.RemoteProtocolError("GitHub MCP disconnected")
+                return await super().get_tools(tool_names, wrapper_type)
+
+        originals = self._apply_patch(DeferredFailBuilder)
+        try:
+            builder = DeferredFailBuilder()
+
+            async def _run():
+                await builder.add_function_group("domain_retriever_tool")
+                await builder.add_function_group("ops_confirmation_tool")
+                await builder.add_function_group("github_mcp_server")
+
+                tools = await builder.get_tools(
+                    tool_names=[
+                        "domain_retriever_tool",
+                        "github_mcp_server",
+                        "ops_confirmation_tool",
+                    ]
+                )
+
+                assert len(tools) == 2
+                assert "github_mcp_server" in _skipped_function_groups
+
+            run(_run())
+        finally:
+            self._restore(DeferredFailBuilder, originals)
+
+    def test_get_tools_omits_missing_mcp_reference_only(self):
+        """A missing MCP group is degraded, while registered non-MCP tools remain."""
+
+        originals = self._apply_patch(FakeWorkflowBuilder)
+        try:
+            builder = FakeWorkflowBuilder()
+
+            async def _run():
+                await builder.add_function_group("domain_retriever_tool")
+
+                tools = await builder.get_tools(
+                    tool_names=["domain_retriever_tool", "github_mcp_server"]
+                )
+
+                assert len(tools) == 1
+                assert "github_mcp_server" in _skipped_function_groups
+
+            run(_run())
+        finally:
+            self._restore(FakeWorkflowBuilder, originals)
+
+    def test_get_tools_non_mcp_connection_failure_still_raises(self):
+        """Do not hide non-MCP startup failures as degraded MCP availability."""
+
+        class DeferredFailBuilder(FakeWorkflowBuilder):
+            async def get_tools(self, tool_names=None, wrapper_type=None):
+                if tool_names and "domain_retriever_tool" in tool_names:
+                    raise httpx.ConnectTimeout("retriever unreachable")
+                return await super().get_tools(tool_names, wrapper_type)
+
+        originals = self._apply_patch(DeferredFailBuilder)
+        try:
+            builder = DeferredFailBuilder()
+
+            async def _run():
+                await builder.add_function_group("domain_retriever_tool")
+                await builder.add_function_group("ops_confirmation_tool")
+
+                with pytest.raises(httpx.ConnectTimeout):
+                    await builder.get_tools(
+                        tool_names=[
+                            "domain_retriever_tool",
+                            "ops_confirmation_tool",
+                        ]
+                    )
+
+            run(_run())
+        finally:
+            self._restore(DeferredFailBuilder, originals)
 
     def test_get_tools_all_available_unchanged(self):
         """get_tools passes through normally when no groups were skipped."""
@@ -779,6 +977,56 @@ class TestStartupResilience:
             run(_run())
         finally:
             self._restore(FailingBuilder, originals)
+
+    def test_get_function_omits_deferred_mcp_connection_failure(self):
+        """get_function also degrades MCP connection failures to unavailable."""
+
+        class DeferredFailBuilder(FakeWorkflowBuilder):
+            async def get_function(self, name, *args, **kwargs):
+                if name == "github_mcp_server":
+                    raise httpx.RemoteProtocolError("GitHub MCP disconnected")
+                return await super().get_function(name, *args, **kwargs)
+
+        originals = self._apply_patch(DeferredFailBuilder)
+        try:
+            builder = DeferredFailBuilder()
+
+            async def _run():
+                await builder.add_function_group("github_mcp_server")
+                result = await builder.get_function("github_mcp_server")
+                assert result is None
+                assert "github_mcp_server" in _skipped_function_groups
+
+            run(_run())
+        finally:
+            self._restore(DeferredFailBuilder, originals)
+
+    def test_no_tools_after_mcp_degradation_skips_agent_group(self):
+        """An agent left with zero tools after MCP skips should not kill startup."""
+
+        class AgentBuilder(FakeWorkflowBuilder):
+            async def add_function_group(self, name, *args, **kwargs):
+                if name == "github_mcp_server":
+                    raise httpx.ConnectTimeout("GitHub MCP unavailable")
+                if name == "ops_agent":
+                    raise ValueError(
+                        "No tools specified for Resilient Tool Calling Agent"
+                    )
+                return await super().add_function_group(name, *args, **kwargs)
+
+        originals = self._apply_patch(AgentBuilder)
+        try:
+            builder = AgentBuilder()
+
+            async def _run():
+                assert await builder.add_function_group("github_mcp_server") is None
+                assert await builder.add_function_group("ops_agent") is None
+                assert "github_mcp_server" in _skipped_function_groups
+                assert "ops_agent" in _skipped_function_groups
+
+            run(_run())
+        finally:
+            self._restore(AgentBuilder, originals)
 
     def test_get_function_available_unchanged(self):
         """get_function passes through normally when no groups were skipped."""

@@ -151,8 +151,8 @@
       - visual_media_tool
     response_regex:
       - "^\\s*<article class=\"daedalus-feed\" aria-label=\"Daily Summary\">"
-      - "<section class=\"daedalus-feed__grid\">"
-      - "Next Best Actions"
+      - '<section class="daedalus-feed__grid">'
+      - 'Next Best Actions'
     max_latency_s: 240
     max_total_tokens: 50000
 

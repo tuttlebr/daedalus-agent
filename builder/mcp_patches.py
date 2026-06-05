@@ -143,17 +143,38 @@ _approval_gate_installed = False
 # Populated by _patch_startup_resilience, read by the get_tools filter.
 _skipped_function_groups: set[str] = set()
 
+# MCP function groups seen during startup. Used as a second line of defense
+# when NAT defers remote tool discovery until get_tools()/get_function().
+_known_mcp_function_groups: set[str] = set()
+
 # Retry settings for MCP server connections during startup.
 _MCP_STARTUP_MAX_RETRIES = 3
 _MCP_STARTUP_RETRY_DELAY = 5  # seconds between retries
 
-# Connection error types that indicate an unreachable server (not a logic bug).
-# Kept narrow to avoid masking real configuration or authentication errors.
-_CONNECTION_ERROR_TYPES = (
-    httpx.ConnectTimeout,
-    httpx.ConnectError,
-    httpx.ReadTimeout,  # server accepts TCP but never sends HTTP response
-    ConnectionError,  # includes ConnectionRefusedError, ConnectionResetError
+
+def _httpx_exception_type(name: str):
+    cls = getattr(httpx, name, None)
+    return cls if isinstance(cls, type) else None
+
+
+# Connection error types that indicate an unreachable/unstable server (not a
+# logic bug). Keep HTTPStatusError 4xx out of this path so bad auth/config still
+# fails loudly. GitHub Copilot MCP can surface transient disconnects as
+# RemoteProtocolError instead of ConnectError/ReadTimeout, so include the
+# transport/protocol shapes that represent remote/network instability.
+_CONNECTION_ERROR_TYPES = tuple(
+    cls
+    for cls in (
+        _httpx_exception_type("TimeoutException"),
+        _httpx_exception_type("NetworkError"),
+        _httpx_exception_type("RemoteProtocolError"),
+        _httpx_exception_type("ProxyError"),
+        _httpx_exception_type("ConnectTimeout"),
+        _httpx_exception_type("ConnectError"),
+        _httpx_exception_type("ReadTimeout"),
+        ConnectionError,  # includes ConnectionRefusedError, ConnectionResetError
+    )
+    if cls is not None
 )
 
 # Destructive/mutating verbs that gate an MCP tool call behind human approval.
@@ -387,6 +408,65 @@ def _strip_approval_token(args, kwargs) -> None:
                 nested.pop("approval_token", None)
 
 
+def _tool_ref_text(tool_ref) -> str:
+    """Return a stable string name for NAT FunctionRef/FunctionGroupRef values."""
+    if isinstance(tool_ref, str):
+        return tool_ref
+    for attr in ("root", "__root__", "name", "value"):
+        value = getattr(tool_ref, attr, None)
+        if isinstance(value, str) and value:
+            return value
+    return str(tool_ref)
+
+
+def _looks_like_mcp_config(args, kwargs) -> bool:
+    """Best-effort detection of a NAT mcp_client config object."""
+    for candidate in list(args) + list(kwargs.values()):
+        if isinstance(candidate, dict) and candidate.get("_type") == "mcp_client":
+            return True
+        if getattr(candidate, "_type", None) == "mcp_client":
+            return True
+    return False
+
+
+def _is_mcp_tool_ref(tool_ref) -> bool:
+    name = _tool_ref_text(tool_ref).lower()
+    return (
+        name in {group.lower() for group in _known_mcp_function_groups} or "mcp" in name
+    )
+
+
+def _record_possible_mcp_group(name, args, kwargs) -> None:
+    if _is_mcp_tool_ref(name) or _looks_like_mcp_config(args, kwargs):
+        _known_mcp_function_groups.add(_tool_ref_text(name))
+
+
+def _record_skipped_function_group(name) -> str:
+    text = _tool_ref_text(name)
+    _skipped_function_groups.add(text)
+    return text
+
+
+def _is_missing_function_reference_error(exc) -> bool:
+    if not isinstance(exc, ValueError):
+        return False
+    message = str(exc).lower()
+    return "function" in message and "not found" in message
+
+
+def _is_no_tools_after_degradation_error(exc) -> bool:
+    if not isinstance(exc, ValueError):
+        return False
+    return bool(_skipped_function_groups) and "no tools specified" in str(exc).lower()
+
+
+def _should_skip_tool_resolution_error(exc, tool_ref) -> bool:
+    """Return True when an MCP tool reference should degrade to unavailable."""
+    if not _is_mcp_tool_ref(tool_ref):
+        return False
+    return _is_connection_error(exc) or _is_missing_function_reference_error(exc)
+
+
 def _is_transient_http_error(exc) -> bool:
     """Return True for httpx.HTTPStatusError with a 5xx status code.
 
@@ -411,6 +491,10 @@ def _is_connection_error(exc):
     # Check the __cause__ chain (e.g. framework re-raises wrapping the original)
     if exc.__cause__ is not None:
         return _is_connection_error(exc.__cause__)
+    # Context managers often re-raise cleanup failures with the original
+    # transport exception in __context__ rather than __cause__.
+    if exc.__context__ is not None and exc.__context__ is not exc:
+        return _is_connection_error(exc.__context__)
     return False
 
 
@@ -420,11 +504,16 @@ def _extract_root_connection_error(exc):
         return exc
     if isinstance(exc, ExceptionGroup):  # noqa: F821 (builtin in 3.11+)
         for e in exc.exceptions:
+            if not _is_connection_error(e):
+                continue
             root = _extract_root_connection_error(e)
             if root is not None:
                 return root
+        return exc
     if exc.__cause__ is not None:
         return _extract_root_connection_error(exc.__cause__)
+    if exc.__context__ is not None and exc.__context__ is not exc:
+        return _extract_root_connection_error(exc.__context__)
     return exc
 
 
@@ -645,8 +734,7 @@ async def _connect_with_graceful_teardown(
     except Exception as exc:
         if _in_teardown and _is_connection_error(exc):
             logger.info(
-                "MCP transport cleanup error suppressed during teardown "
-                "(url=%s): %s",
+                "MCP transport cleanup error suppressed during teardown (url=%s): %s",
                 url,
                 type(_extract_root_connection_error(exc)).__name__,
             )
@@ -1018,11 +1106,22 @@ def _patch_startup_resilience():
 
         @functools.wraps(original_add_fg)
         async def resilient_add_function_group(self, name, *args, **kwargs):
+            _record_possible_mcp_group(name, args, kwargs)
             last_exc = None
             for attempt in range(_MCP_STARTUP_MAX_RETRIES + 1):
                 try:
                     return await original_add_fg(self, name, *args, **kwargs)
                 except Exception as exc:
+                    if _is_no_tools_after_degradation_error(exc):
+                        skipped_name = _record_skipped_function_group(name)
+                        logger.warning(
+                            "Startup resilience: function_group '%s' skipped "
+                            "because all of its tools were unavailable after "
+                            "MCP degradation: %s",
+                            skipped_name,
+                            exc,
+                        )
+                        return None
                     if not _is_connection_error(exc):
                         raise
                     last_exc = exc
@@ -1042,12 +1141,12 @@ def _patch_startup_resilience():
                         await asyncio.sleep(_MCP_STARTUP_RETRY_DELAY)
             # All retries exhausted
             root = _extract_root_connection_error(last_exc)
-            _skipped_function_groups.add(name)
+            skipped_name = _record_skipped_function_group(name)
             logger.warning(
                 "Startup resilience: function_group '%s' skipped after "
                 "%d attempts — %s(%s). Tools from this server will be "
                 "unavailable until restart.",
-                name,
+                skipped_name,
                 _MCP_STARTUP_MAX_RETRIES + 1,
                 type(root).__name__,
                 root,
@@ -1060,20 +1159,80 @@ def _patch_startup_resilience():
 
         original_get_tools = WorkflowBuilder.get_tools
 
+        async def _resolve_tools_individually(self, tool_names, args, kwargs):
+            resolved = []
+            skipped = []
+            for tool_name in tool_names:
+                try:
+                    result = await original_get_tools(
+                        self, [tool_name], *args, **kwargs
+                    )
+                except Exception as exc:
+                    if _should_skip_tool_resolution_error(exc, tool_name):
+                        skipped_name = _record_skipped_function_group(tool_name)
+                        skipped.append(skipped_name)
+                        root = _extract_root_connection_error(exc)
+                        logger.warning(
+                            "Startup resilience: omitting MCP tool/group '%s' "
+                            "during deferred tool resolution — %s(%s).",
+                            skipped_name,
+                            type(root).__name__,
+                            root,
+                        )
+                        continue
+                    raise
+                if result:
+                    resolved.extend(result)
+            if skipped:
+                logger.warning(
+                    "Startup resilience: resolved reduced tool set after "
+                    "omitting unavailable MCP tools/groups: %s",
+                    skipped,
+                )
+            return resolved
+
         @functools.wraps(original_get_tools)
         async def resilient_get_tools(self, tool_names=None, *args, **kwargs):
             if tool_names and _skipped_function_groups:
-                skipped = [n for n in tool_names if n in _skipped_function_groups]
+                skipped = [
+                    n
+                    for n in tool_names
+                    if _tool_ref_text(n) in _skipped_function_groups
+                ]
                 if skipped:
                     tool_names = [
-                        n for n in tool_names if n not in _skipped_function_groups
+                        n
+                        for n in tool_names
+                        if _tool_ref_text(n) not in _skipped_function_groups
                     ]
                     logger.warning(
                         "Startup resilience: omitting tools %s from agent — "
                         "their function groups were unreachable at startup.",
-                        skipped,
+                        [_tool_ref_text(n) for n in skipped],
                     )
-            result = await original_get_tools(self, tool_names, *args, **kwargs)
+            try:
+                result = await original_get_tools(self, tool_names, *args, **kwargs)
+            except Exception as exc:
+                if tool_names and (
+                    _is_connection_error(exc)
+                    or any(
+                        _should_skip_tool_resolution_error(exc, tool_name)
+                        for tool_name in tool_names
+                    )
+                ):
+                    root = _extract_root_connection_error(exc)
+                    logger.warning(
+                        "Startup resilience: get_tools() failed while resolving "
+                        "a tool batch — %s(%s). Retrying per tool to omit only "
+                        "unavailable MCP groups.",
+                        type(root).__name__,
+                        root,
+                    )
+                    result = await _resolve_tools_individually(
+                        self, tool_names, args, kwargs
+                    )
+                else:
+                    raise
             resolved_names = (
                 [t.name if hasattr(t, "name") else str(t) for t in result]
                 if result
@@ -1107,14 +1266,29 @@ def _patch_startup_resilience():
 
         @functools.wraps(original_get_function)
         async def resilient_get_function(self, name, *args, **kwargs):
-            if name in _skipped_function_groups:
+            name_text = _tool_ref_text(name)
+            if name_text in _skipped_function_groups:
                 logger.warning(
                     "Startup resilience: get_function('%s') skipped — "
                     "function group was unreachable at startup.",
-                    name,
+                    name_text,
                 )
                 return None
-            return await original_get_function(self, name, *args, **kwargs)
+            try:
+                return await original_get_function(self, name, *args, **kwargs)
+            except Exception as exc:
+                if _should_skip_tool_resolution_error(exc, name):
+                    skipped_name = _record_skipped_function_group(name)
+                    root = _extract_root_connection_error(exc)
+                    logger.warning(
+                        "Startup resilience: get_function('%s') degraded to "
+                        "unavailable — %s(%s).",
+                        skipped_name,
+                        type(root).__name__,
+                        root,
+                    )
+                    return None
+                raise
 
         WorkflowBuilder.get_function = resilient_get_function
 
@@ -1382,8 +1556,7 @@ def _patch_async_job_submit():
             # ── Deduplication guard ──────────────────────────────────────
             if job_id in _inflight_submissions:
                 logger.warning(
-                    "Job submission already in flight for job %s, "
-                    "skipping duplicate",
+                    "Job submission already in flight for job %s, skipping duplicate",
                     job_id,
                 )
                 return (job_id, None)

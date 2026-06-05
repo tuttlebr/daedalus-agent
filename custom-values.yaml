@@ -4,7 +4,7 @@ global:
   networkName: daedalus-network
   # Restrict pod scheduling to these nodes; leave empty to allow any node
   nodePlacement:
-    allowedNodes: ["daedalus-04"]
+    allowedNodes: ['daedalus-04']
 
 images:
   builder:

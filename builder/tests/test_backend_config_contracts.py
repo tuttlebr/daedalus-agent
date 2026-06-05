@@ -696,8 +696,7 @@ def test_daily_summary_agent_contracts_raw_nv_html_fragment():
         assert "curated_feed_search_tool" in prompt, path
         assert "raw HTML only" in prompt, path
         assert (
-            '<article class="daedalus-feed" aria-label="Daily Summary">'
-            in prompt
+            '<article class="daedalus-feed" aria-label="Daily Summary">' in prompt
         ), path
         assert "Do not return Markdown" in prompt, path
         assert "fenced code" in prompt, path
