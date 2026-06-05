@@ -275,6 +275,34 @@ class TestIdentityPropagation:
         assert 'Use user_id="brandon"' in input_message
         assert input_message.endswith("What's on my calendar tomorrow?")
 
+    def test_prepends_identity_to_daily_summary_agent_call(self):
+        message = _Message(
+            content="",
+            tool_calls=[
+                {
+                    "name": "daily_summary_agent",
+                    "args": {"input_message": "Run my daily briefing"},
+                    "id": "call-1",
+                    "type": "tool_call",
+                }
+            ],
+        )
+        state_messages = [
+            _Message(
+                content=(
+                    "[IDENTITY] The authenticated user for this session is: "
+                    'brandon. Use user_id="brandon" for ALL memory operations.'
+                )
+            )
+        ]
+
+        propagate_identity_to_tool_calls(message, state_messages)
+
+        input_message = message.tool_calls[0]["args"]["input_message"]
+        assert input_message.startswith("[IDENTITY]")
+        assert 'Use user_id="brandon"' in input_message
+        assert input_message.endswith("Run my daily briefing")
+
     def test_sets_visual_media_user_id_from_identity(self):
         message = _Message(
             content="",

@@ -60,6 +60,7 @@ PROMPT_GUIDANCE_RUNTIME_PROMPTS = {
     "deep_research_agent",
     "nvidia_docs_agent",
     "ops_agent",
+    "daily_summary_agent",
     "user_data_agent",
     "user_document_agent",
 }
@@ -260,13 +261,13 @@ def test_deployed_tool_surface_is_optimized():
             _effective_operation_count(
                 config, functions["research_agent"]["tool_names"]
             )
-            <= 10
+            <= 15
         ), path
         assert (
             _effective_operation_count(
                 config, functions["deep_research_agent"]["tool_names"]
             )
-            <= 11
+            <= 16
         ), path
         assert (
             _effective_operation_count(config, functions["ops_agent"]["tool_names"])
@@ -284,6 +285,12 @@ def test_deployed_tool_surface_is_optimized():
             )
             <= 10
         ), path
+        assert (
+            _effective_operation_count(
+                config, functions["daily_summary_agent"]["tool_names"]
+            )
+            <= 10
+        ), path
 
 
 def test_tool_calling_agents_use_resilient_runner():
@@ -292,6 +299,7 @@ def test_tool_calling_agents_use_resilient_runner():
         "deep_research_agent",
         "nvidia_docs_agent",
         "ops_agent",
+        "daily_summary_agent",
         "user_document_agent",
         "user_data_agent",
     ]
@@ -304,9 +312,30 @@ def test_tool_calling_agents_use_resilient_runner():
             ), (path, name)
 
 
+def test_nvidia_docs_agent_exposes_configured_docs_servers():
+    for path in DEPLOYED_CONFIGS:
+        config = _config(path)
+        agent = config["functions"]["nvidia_docs_agent"]
+        tools = set(agent["tool_names"])
+        source_registry = config["functions"]["source_policy_tool"]["source_registry"]
+        nvidia_docs = next(
+            source for source in source_registry if source["id"] == "nvidia_docs"
+        )
+
+        assert "aistore_mcp_server" in config["function_groups"], path
+        assert "aistore_mcp_server" in tools, path
+        assert "AIStore" in agent["description"], path
+        assert "AIStore -> aistore_mcp_server" in agent["system_prompt"], path
+        assert "AIStore" in nvidia_docs["description"], path
+
+
 def test_return_direct_tools_are_exposed_to_their_agents():
     expected = {
-        "workflow": ["user_interaction_tool", "visual_media_tool"],
+        "workflow": [
+            "user_interaction_tool",
+            "visual_media_tool",
+            "daily_summary_agent",
+        ],
         "deep_research_agent": ["research_plan_approval_tool"],
         "ops_agent": ["ops_confirmation_tool"],
     }
@@ -605,6 +634,7 @@ def test_daily_briefing_routes_to_raw_html_before_visual_media():
     for path in DEPLOYED_CONFIGS:
         config = _config(path)
         prompt = config["workflow"]["system_prompt"]
+        normalized_prompt = " ".join(prompt.split())
         visual_media_desc = config["functions"]["visual_media_tool"]["description"]
 
         assert "Daily briefing" in prompt, path
@@ -614,17 +644,69 @@ def test_daily_briefing_routes_to_raw_html_before_visual_media():
         assert prompt.index("Daily briefing") < prompt.index(
             "Direct specialist requests"
         ), path
+        assert "call daily_summary_agent" in normalized_prompt, path
+        assert "Return the tool output" in prompt, path
         assert 'agent_skills_tool.load_skill("nv-html")' in prompt, path
-        assert "local weather for the Saline, Michigan area" in prompt, path
-        assert "read-only Kubernetes cluster status" in prompt, path
-        assert "relevant in-season sports" in prompt, path
-        assert "Return raw" in prompt, path
-        assert "HTML only: one renderable HTML fragment" in prompt, path
+        assert "memory-derived local weather and logistics" in prompt, path
+        assert "read-only operations status" in normalized_prompt, path
+        assert "teams, leagues, and events found in memory" in normalized_prompt, path
+        assert "raw HTML only: one renderable HTML" in normalized_prompt, path
         assert '`<article class="daedalus-feed"`' in prompt, path
-        assert "Do not call visual_media_tool for" in prompt, path
-        assert "daily briefings unless the user explicitly asks" in prompt, path
+        assert "Do not call visual_media_tool for" in normalized_prompt, path
+        assert (
+            "daily briefings unless the user explicitly asks" in normalized_prompt
+        ), path
         assert "Never use this tool for a" in visual_media_desc, path
         assert "daily summary or daily briefing" in visual_media_desc, path
+        assert "Saline" not in prompt, path
+        assert "Yankees" not in prompt, path
+        assert "Steelers" not in prompt, path
+
+
+def test_daily_summary_agent_contracts_raw_nv_html_fragment():
+    for path in DEPLOYED_CONFIGS:
+        config = _config(path)
+        daily = config["functions"]["daily_summary_agent"]
+        prompt = daily["system_prompt"]
+        tools = set(daily["tool_names"])
+
+        assert daily["_type"] == "tool_calling_agent_resilient", path
+        assert "daily_summary_agent" in config["workflow"]["tool_names"], path
+        assert "daily_summary_agent" in config["workflow"]["return_direct"], path
+        assert "visual_media_tool" not in tools, path
+        assert "current_datetime_tool" in tools, path
+        assert "get_memory" in tools, path
+        assert "agent_skills_tool" in tools, path
+        assert "user_data_agent" in tools, path
+        assert "ops_agent" in tools, path
+        assert "curated_feed_search_tool" in tools, path
+        assert "serpapi_search_tool" in tools, path
+
+        assert "Call current_datetime_tool first" in prompt, path
+        assert "Call get_memory with top_k=12" in prompt, path
+        assert "daedalus-feed nv-html weather" in prompt, path
+        assert "personalization source of truth" in prompt, path
+        assert "Do not fall back to hardcoded names" in prompt, path
+        assert "Build a memory profile" in prompt, path
+        assert 'agent_skills_tool.load_skill("nv-html")' in prompt, path
+        assert "Calendar: call user_data_agent" in prompt, path
+        assert "Operations: call ops_agent" in prompt, path
+        assert "Weather and logistics: call serpapi_search_tool" in prompt, path
+        assert "Sports and live events: call serpapi_search_tool" in prompt, path
+        assert "curated_feed_search_tool" in prompt, path
+        assert "raw HTML only" in prompt, path
+        assert (
+            '<article class="daedalus-feed" aria-label="Daily Summary">'
+            in prompt
+        ), path
+        assert "Do not return Markdown" in prompt, path
+        assert "fenced code" in prompt, path
+        assert "<img>" in prompt, path
+        assert "Stop after returning the single HTML fragment" in prompt, path
+        assert "Brandon" not in prompt, path
+        assert "Saline" not in prompt, path
+        assert "Yankees" not in prompt, path
+        assert "Steelers" not in prompt, path
 
 
 def test_source_policy_metadata_is_propagated_to_research_agents():

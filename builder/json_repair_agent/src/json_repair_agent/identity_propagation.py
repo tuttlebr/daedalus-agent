@@ -15,6 +15,7 @@ _IGNORED_ARG_TOOLS = {
     "current_datetime_tool": "unused",
 }
 _USER_SCOPED_AGENT_TOOLS = {
+    "daily_summary_agent",
     "ops_agent",
     "user_document_agent",
     "user_data_agent",

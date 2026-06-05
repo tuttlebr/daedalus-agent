@@ -28,6 +28,7 @@ SUB_AGENTS = {
     "research_agent",
     "deep_research_agent",
     "ops_agent",
+    "daily_summary_agent",
     "vtt_interpreter_tool",
     "user_data_agent",
 }

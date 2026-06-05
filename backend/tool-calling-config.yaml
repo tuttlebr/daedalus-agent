@@ -50,6 +50,14 @@ embedders:
 function_groups:
   x_mcp_server:
     _type: mcp_client
+    include:
+      - searchSpaces
+      - searchPostsRecent
+      - searchPostsAll
+      - searchNews
+      - searchEligiblePosts
+      - searchCommunities
+      - searchCommunityNotesWritten
     tool_call_timeout: 45
     reconnect_enabled: true
     reconnect_max_attempts: 3
@@ -259,8 +267,8 @@ function_groups:
 functions:
   research_agent:
     _type: tool_calling_agent_resilient
-    llm_name: reasoning_llm
-    max_iterations: 25
+    llm_name: tool_calling_llm
+    max_iterations: 16
     handle_tool_errors: true
     verbose: false
     tool_names:
@@ -342,7 +350,7 @@ functions:
   deep_research_agent:
     _type: tool_calling_agent_resilient
     llm_name: tool_calling_llm
-    max_iterations: 25
+    max_iterations: 16
     handle_tool_errors: true
     verbose: false
     return_direct:
@@ -429,21 +437,22 @@ functions:
       citation audit passes or after one repair attempt.
   nvidia_docs_agent:
     _type: tool_calling_agent_resilient
-    llm_name: default_llm
-    max_iterations: 25
+    llm_name: tool_calling_llm
+    max_iterations: 12
     handle_tool_errors: true
     verbose: false
     tool_names:
       - dynamo_mcp_server
       - openshell_mcp_server
+      - aistore_mcp_server
       - aiperf_mcp_server
       - nvcf_mcp_server
       - dsx_mcp_server
     description: >-
       Search official NVIDIA product documentation through MCP. Input:
       a docs, API, configuration, deployment, or troubleshooting question
-      about Dynamo, OpenShell, AIPerf, NVIDIA Cloud Functions, or DSX. Returns a
-      concise doc-grounded answer. Do NOT use for live Kubernetes/GitHub
+      about Dynamo, OpenShell, AIStore, AIPerf, NVIDIA Cloud Functions, or DSX.
+      Returns a concise doc-grounded answer. Do NOT use for live Kubernetes/GitHub
       ops, private user data, media tasks, or general web research.
     system_prompt: |
       Role: Daedalus NVIDIA product documentation specialist.
@@ -455,6 +464,7 @@ functions:
       # Product routing
       - Dynamo -> dynamo_mcp_server
       - OpenShell -> openshell_mcp_server
+      - AIStore -> aistore_mcp_server
       - AIPerf -> aiperf_mcp_server
       - NVIDIA Cloud Functions or NVCF -> nvcf_mcp_server
       - DSX -> dsx_mcp_server
@@ -471,8 +481,8 @@ functions:
       name the unavailable product docs plainly.
   ops_agent:
     _type: tool_calling_agent_resilient
-    llm_name: default_llm
-    max_iterations: 25
+    llm_name: tool_calling_llm
+    max_iterations: 16
     handle_tool_errors: true
     verbose: false
     return_direct:
@@ -522,8 +532,8 @@ functions:
       approval.
   user_data_agent:
     _type: tool_calling_agent_resilient
-    llm_name: default_llm
-    max_iterations: 25
+    llm_name: tool_calling_llm
+    max_iterations: 16
     handle_tool_errors: true
     verbose: false
     tool_names:
@@ -557,10 +567,99 @@ functions:
       smallest useful answer with the matching thread, event, or availability
       details. Stop when the requested email or calendar fact is answered, or
       when a specific missing identifier or permission blocks lookup.
+  daily_summary_agent:
+    _type: tool_calling_agent_resilient
+    llm_name: tool_calling_llm
+    max_iterations: 20
+    handle_tool_errors: true
+    verbose: false
+    tool_names:
+      - get_memory
+      - agent_skills_tool
+      - current_datetime_tool
+      - user_data_agent
+      - ops_agent
+      - curated_feed_search_tool
+      - serpapi_search_tool
+      - webscrape_tool
+    description: >-
+      Create the authenticated user's memory-personalized daily summary as a
+      raw Daedalus feed HTML fragment. Input: a daily summary, daily briefing,
+      or "run my daily briefing" request. Returns: one renderable HTML fragment
+      rooted at
+      <article class="daedalus-feed" aria-label="Daily Summary">. Do NOT use
+      for general research, media generation, document search, email-only
+      questions, or ops-only requests.
+    system_prompt: |
+      Return all HTML code aligned with the nv-html skill design specification
+      Role: Daedalus daily briefing specialist for personalized, current,
+      NVIDIA-styled HTML summaries.
+
+      # Goal
+      Create a reliable daily summary from the authenticated user's durable
+      interests, preferences, locale, work context, and fresh non-visual data.
+      The answer must always be raw HTML that the Daedalus UI can render
+      directly.
+
+      # Required workflow
+      1. Resolve identity from [IDENTITY]. Use that user_id for get_memory and
+         for delegated user-scoped tools. If no [IDENTITY] is present, use
+         user_id="anonymous".
+      2. Call current_datetime_tool first for the current date, time, and
+         timezone.
+      3. Call get_memory with top_k=12 and this expanded query:
+         "daily summary daily briefing HTML daedalus-feed nv-html weather
+         locale location timezone commute calendar commitments work projects
+         AI infrastructure NVIDIA LLM inference optimization robotics
+         Kubernetes cluster status sports teams leagues hobbies media reading
+         sources preferences routines priorities recommendations".
+         Treat the returned memories as the personalization source of truth.
+         Do not fall back to hardcoded names, places, teams, employers, hobbies,
+         or topics unless they appear in the current request or this get_memory
+         result.
+      4. Build a memory profile before choosing current-data tools. Extract:
+         location or locale; timezone if remembered; work domains and active
+         projects; tools or systems the user operates; sports teams, leagues,
+         creators, publications, or media interests; preferred sources; explicit
+         exclusions; and recurring routines or decision criteria.
+      5. Gather current inputs with non-visual tools only when they fit the
+         memory profile or the current request:
+         - Calendar: call user_data_agent for today's schedule and near-term
+           commitments, passing the date and timezone from current_datetime_tool.
+         - Operations: call ops_agent for a read-only cluster, GitHub, or ops
+           status check only when memory or the request shows the user cares
+           about those systems. Use only list, get, describe, or status
+           language. Never request mutations.
+         - Weather and logistics: call serpapi_search_tool for current
+           conditions and practical impact only when memory provides a locale
+           or the request provides one. Use the remembered city/region, not a
+           default location.
+         - Sports and live events: call serpapi_search_tool only for teams,
+           leagues, sports, venues, or event categories found in memory or the
+           request. Prefer in-season or upcoming context over generic facts.
+         - Work, research, and personal interests: call curated_feed_search_tool
+           with feed_scope="auto" for recent updates that match memory-derived
+           topics, organizations, products, sources, and reading preferences.
+           Include NVIDIA, AI infrastructure, LLM inference, optimization,
+           robotics, OpenAI, Hugging Face, MIT Technology Review, or
+           SemiAnalysis only when they match memory or the request.
+         - Recommendations: use search only when memory supplies enough
+           non-sensitive context to make a relevant local, media, reading, or
+           activity suggestion.
+         Use webscrape_tool only for a specific URL already returned by search
+         or feeds when the snippet is not enough.
+      6. Synthesize only reliable data. Omit sections with no useful data
+         unless a short "Data Gaps" card is needed to explain unavailable
+         required inputs. Do not invent sources, scores, dates, weather,
+         calendar events, cluster status, or recommendations.
+      7. Call agent_skills_tool.load_skill("nv-html") after drafting. Apply
+         the skill's NVIDIA Sans, sparse NVIDIA Green, high contrast, Title
+         Case headings, and PACE voice guidance through the Daedalus feed
+         classes.
   user_document_agent:
     _type: tool_calling_agent_resilient
-    llm_name: default_llm
-    max_iterations: 25
+    llm_name: tool_calling_llm
+    max_iterations: 16
     handle_tool_errors: true
     verbose: false
     tool_names:
@@ -1029,7 +1128,8 @@ functions:
         requires_auth: false
       - id: nvidia_docs
         name: Official NVIDIA Docs
-        description: Official NVIDIA product docs via MCP docs specialists.
+        description: Official NVIDIA product docs via MCP docs specialists,
+          including Dynamo, OpenShell, AIStore, AIPerf, NVCF, and DSX.
         tools:
           - nvidia_docs_agent
         default_enabled: true
@@ -1092,7 +1192,7 @@ general:
     max_running_async_jobs: 8
     dask_workers: processes
     dask_threads_per_worker: 1
-    dask_worker_memory_limit: '6GiB'
+    dask_worker_memory_limit: "6GiB"
     dask_log_level: WARNING
     step_adaptor:
       mode: custom
@@ -1130,17 +1230,18 @@ llms:
     model_name: ${REASONING_LLM_MODEL_MODEL}
     extra_body:
       chat_template_kwargs:
-        preserve_thinking: false
+        force_nonempty_content: true
+        enable_thinking: true
+        medium_effort: false
+        truncate_history_thinking: false
       nvext:
         agent_hints:
-          priority: 10
+          priority: 9
           osl: 2048
-        extra_fields:
-          - worker_id
-          - timing
+          speculative_prefill: true
         cache_control:
           type: ephemeral
-          ttl: 8h
+          ttl: 30m
   react_llm:
     _type: openai
     api_key: ${REACT_LLM_MODEL_API_KEY}
@@ -1148,17 +1249,18 @@ llms:
     model_name: ${REACT_LLM_MODEL_MODEL}
     extra_body:
       chat_template_kwargs:
-        preserve_thinking: true
+        force_nonempty_content: true
+        enable_thinking: false
+        medium_effort: true
+        truncate_history_thinking: true
       nvext:
         agent_hints:
-          priority: 10
+          priority: 6
           osl: 1024
-        extra_fields:
-          - worker_id
-          - timing
+          speculative_prefill: true
         cache_control:
           type: ephemeral
-          ttl: 8h
+          ttl: 1h
   tool_calling_llm:
     _type: openai
     api_key: ${TOOL_CALLING_LLM_MODEL_API_KEY}
@@ -1169,12 +1271,10 @@ llms:
         agent_hints:
           priority: 10
           osl: 1024
-        extra_fields:
-          - worker_id
-          - timing
+          speculative_prefill: true
         cache_control:
           type: ephemeral
-          ttl: 8h
+          ttl: 1h
   distill_llm:
     _type: openai
     api_key: ${DISTILL_LLM_MODEL_API_KEY}
@@ -1182,18 +1282,18 @@ llms:
     model_name: ${DISTILL_LLM_MODEL_MODEL}
     extra_body:
       chat_template_kwargs:
-        preserve_thinking: false
-        enable_thinking: false
+        force_nonempty_content: true
+        enable_thinking: true
+        medium_effort: false
+        truncate_history_thinking: true
       nvext:
         agent_hints:
-          priority: 10
-          osl: 4096
-        extra_fields:
-          - worker_id
-          - timing
+          priority: 2
+          osl: 512
+          speculative_prefill: true
         cache_control:
           type: ephemeral
-          ttl: 8h
+          ttl: 2m
   default_llm:
     _type: openai
     api_key: ${DEFAULT_LLM_MODEL_API_KEY}
@@ -1201,17 +1301,18 @@ llms:
     model_name: ${DEFAULT_LLM_MODEL_MODEL}
     extra_body:
       chat_template_kwargs:
-        preserve_thinking: false
+        force_nonempty_content: true
+        enable_thinking: false
+        medium_effort: true
+        truncate_history_thinking: true
       nvext:
         agent_hints:
-          priority: 10
-          osl: 1024
-        extra_fields:
-          - worker_id
-          - timing
+          priority: 1
+          osl: 512
+          speculative_prefill: true
         cache_control:
           type: ephemeral
-          ttl: 8h
+          ttl: 2m
 memory:
   redis_memory:
     _type: nat.plugins.redis/redis_memory
@@ -1223,7 +1324,7 @@ memory:
     verbose: false
 workflow:
   _type: tool_calling_agent_resilient
-  max_iterations: 50
+  max_iterations: 32
   llm_name: tool_calling_llm
   system_prompt: |
     Role: Daedalus, an executive-grade agent for senior technology executives
@@ -1234,18 +1335,20 @@ workflow:
     answer, grounded in evidence and fresh for this turn.
 
     # Every turn, in order
-    1. Call get_memory FIRST, before any answer, route, skill, or other tool.
-       No exceptions: greetings, thanks, "repeat that", and direct specialist
-       requests all call get_memory first. Use user_id from Identity and
+    1. Resolve identity from [IDENTITY], then call get_memory FIRST, before any
+       answer, route, skill, or other tool. No exceptions: greetings, thanks,
+       "repeat that", and direct specialist requests all call get_memory first.
+       Use user_id from Identity and
        query = the user's current request. You cannot see earlier turns' tool
        output, so this runs again on every turn. For daily summary or daily
        briefing requests, set top_k=12 and expand the query to include:
        "daily summary daily briefing HTML daedalus-feed nv-html weather
-       Saline Michigan Kubernetes cluster status sports Yankees Steelers
-       Michigan State".
-    2. Resolve identity (below).
-    3. Route the request (below), using the get_memory result as context.
-    4. Act, verify when required, answer, and stop.
+       locale location timezone commute calendar commitments work projects
+       AI infrastructure NVIDIA LLM inference optimization robotics
+       Kubernetes cluster status sports teams leagues hobbies media reading
+       sources preferences routines priorities recommendations".
+    2. Route the request (below), using the get_memory result as context.
+    3. Act, verify when required, answer, and stop.
 
     # Identity
     The [IDENTITY] message gives the authenticated username. Use it as user_id
@@ -1284,18 +1387,22 @@ workflow:
       optimizer, telemetry, MCP, serving), load nat-user-rules first; it
       routes to the focused nat-* skill.
     - Daily briefing: if the user asks for "daily summary", "daily briefing",
-      "run my daily briefing", or the daily briefing shortcut, follow the
-      briefing procedure from memory exactly. Load the nv-html skill with
-      agent_skills_tool.load_skill("nv-html") before composing the final
-      response. Gather current inputs with non-visual tools: current date/time,
-      calendar if available, local weather for the Saline, Michigan area,
-      read-only Kubernetes cluster status, and relevant in-season sports
-      context for the Yankees, Steelers, and Michigan State teams. Return raw
-      HTML only: one renderable HTML fragment starting with
-      `<article class="daedalus-feed"`. Do not return Markdown, fenced code,
-      prose, a browser-default white page, generated images, image markdown
-      refs, screenshots, or media links. Do not call visual_media_tool for
-      daily briefings unless the user explicitly asks for an image or video.
+      "run my daily briefing", or the daily briefing shortcut, call
+      daily_summary_agent with the original request, this turn's memory
+      context, and any [SOURCE_POLICY] metadata. Return the tool output
+      directly and do not compose the briefing at the top level. The
+      daily_summary_agent loads the nv-html skill with
+      agent_skills_tool.load_skill("nv-html"), gathers current inputs with
+      non-visual tools including current date/time, calendar if available,
+      memory-derived local weather and logistics, read-only operations status
+      when the user's memory or request shows it is relevant, and in-season
+      sports or live-event context for teams, leagues, and events found in
+      memory. It returns raw HTML only: one renderable HTML fragment starting
+      with `<article class="daedalus-feed"`. Do not return Markdown, fenced
+      code, prose, a browser-default white page, generated images, image
+      markdown refs, screenshots, or media links. Do not call visual_media_tool
+      for daily briefings unless the user explicitly asks for an image or
+      video.
     - Direct specialist requests: the request fits one execution domain ->
       research_agent (quick research, current facts, concise summaries),
       deep_research_agent (comprehensive reports, broad surveys, strategy,
@@ -1354,6 +1461,7 @@ workflow:
   return_direct:
     - user_interaction_tool
     - visual_media_tool
+    - daily_summary_agent
   tool_names:
     - research_agent
     - deep_research_agent
@@ -1361,6 +1469,7 @@ workflow:
     - ops_agent
     - user_document_agent
     - user_data_agent
+    - daily_summary_agent
     - get_memory
     - add_memory
     - source_verifier_tool
@@ -1369,7 +1478,6 @@ workflow:
     - user_interaction_tool
     - visual_media_tool
     - vtt_interpreter_tool
-    - x_mcp_server
     - current_datetime_tool
   verbose: true
   workflow_alias: Daedalus

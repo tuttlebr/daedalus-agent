@@ -139,6 +139,23 @@
     max_latency_s: 120
     max_total_tokens: 25000
 
+- id: daily-summary-html-001
+  workflow: daily_summary
+  audience: internal-only
+  query: Run my daily briefing.
+  success_criteria: Daily summary route returns raw Daedalus feed HTML and does not use visual media.
+  expected:
+    required_tools:
+      - daily_summary_agent
+    forbidden_tools:
+      - visual_media_tool
+    response_regex:
+      - "^\\s*<article class=\"daedalus-feed\" aria-label=\"Daily Summary\">"
+      - "<section class=\"daedalus-feed__grid\">"
+      - "Next Best Actions"
+    max_latency_s: 240
+    max_total_tokens: 50000
+
 - id: mas-centralized-001
   workflow: mas_workflows
   audience: customer-facing

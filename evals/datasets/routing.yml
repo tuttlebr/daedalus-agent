@@ -12,7 +12,7 @@
 #   query: user message sent to /chat/stream
 #   expected:
 #     architecture: SAS | MAS-centralized | MAS-decentralized
-#     sub_agent: research_agent | deep_research_agent | ops_agent | visual_media_tool | vtt_interpreter_tool | user_data_agent | null
+#     sub_agent: research_agent | deep_research_agent | ops_agent | daily_summary_agent | visual_media_tool | vtt_interpreter_tool | user_data_agent | null
 #     skill: <skill_name> | null
 #   forbidden_tools: [...]    # optional
 #   conversational_only: true # optional; expects NO routing tool calls
@@ -69,6 +69,16 @@
     architecture: SAS
     sub_agent: user_data_agent
     skill: null
+
+- id: daily-summary-001
+  query: Run my daily briefing.
+  expected:
+    architecture: SAS
+    sub_agent: daily_summary_agent
+    skill: null
+  forbidden_tools:
+    - visual_media_tool
+    - mas_evaluate
 
 - id: mas-centralized-001
   query: Analyze our Q3 financial filing alongside the latest earnings call transcript and the competitor 10-Ks, produce a structured comparison table of revenue growth, operating margin, and capex, then cross-check your findings against analyst notes.
