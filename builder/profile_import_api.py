@@ -197,10 +197,11 @@ class OpenAICompatibleEmbeddings:
         self._sync_client = OpenAI(api_key=api_key, base_url=base_url)
         self._async_client = AsyncOpenAI(api_key=api_key, base_url=base_url)
 
-    def _extra_body(self) -> dict[str, Any] | None:
-        if not self._truncate:
-            return None
-        return {"truncate": self._truncate}
+    def _extra_body(self, input_type: Literal["passage", "query"]) -> dict[str, Any]:
+        body: dict[str, Any] = {"input_type": input_type}
+        if self._truncate:
+            body["truncate"] = self._truncate
+        return body
 
     @staticmethod
     def _extract_embeddings(response: Any) -> list[list[float]]:
@@ -217,25 +218,27 @@ class OpenAICompatibleEmbeddings:
 
     def embed_documents(self, texts: list[str]) -> list[list[float]]:
         kwargs: dict[str, Any] = {"model": self._model, "input": texts}
-        extra_body = self._extra_body()
-        if extra_body:
-            kwargs["extra_body"] = extra_body
+        kwargs["extra_body"] = self._extra_body("passage")
         response = self._sync_client.embeddings.create(**kwargs)
         return self._extract_embeddings(response)
 
     def embed_query(self, text: str) -> list[float]:
-        return self.embed_documents([text])[0]
+        kwargs: dict[str, Any] = {"model": self._model, "input": [text]}
+        kwargs["extra_body"] = self._extra_body("query")
+        response = self._sync_client.embeddings.create(**kwargs)
+        return self._extract_embeddings(response)[0]
 
     async def aembed_documents(self, texts: list[str]) -> list[list[float]]:
         kwargs: dict[str, Any] = {"model": self._model, "input": texts}
-        extra_body = self._extra_body()
-        if extra_body:
-            kwargs["extra_body"] = extra_body
+        kwargs["extra_body"] = self._extra_body("passage")
         response = await self._async_client.embeddings.create(**kwargs)
         return self._extract_embeddings(response)
 
     async def aembed_query(self, text: str) -> list[float]:
-        return (await self.aembed_documents([text]))[0]
+        kwargs: dict[str, Any] = {"model": self._model, "input": [text]}
+        kwargs["extra_body"] = self._extra_body("query")
+        response = await self._async_client.embeddings.create(**kwargs)
+        return self._extract_embeddings(response)[0]
 
 
 @lru_cache(maxsize=1)

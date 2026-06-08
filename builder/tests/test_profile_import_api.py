@@ -171,3 +171,19 @@ def test_embedding_config_resolves_env_indirection(monkeypatch):
         "model": "example/model",
         "truncate": "END",
     }
+
+
+def test_embedding_extra_body_sets_nvidia_input_type():
+    adapter = profile_import_api.OpenAICompatibleEmbeddings.__new__(
+        profile_import_api.OpenAICompatibleEmbeddings
+    )
+    adapter._truncate = "END"
+
+    assert adapter._extra_body("passage") == {
+        "input_type": "passage",
+        "truncate": "END",
+    }
+    assert adapter._extra_body("query") == {
+        "input_type": "query",
+        "truncate": "END",
+    }
