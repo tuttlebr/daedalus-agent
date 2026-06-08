@@ -15,6 +15,9 @@ requires-python = ">=3.11,<3.14"
 description = "Shared helper library for NeMo Agent Toolkit functions"
 classifiers = ["Programming Language :: Python"]
 
+[project.entry-points.'nat.components']
+nat_helpers = "nat_helpers.register"
+
 [tool.setuptools]
 packages = ["nat_helpers"]
 package-dir = {"" = "src"}

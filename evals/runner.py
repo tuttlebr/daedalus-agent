@@ -74,8 +74,12 @@ def estimate_tokens(text: str) -> int:
 def build_request_payload(query: str, user_id: str) -> dict:
     identity = (
         f"[IDENTITY] The authenticated user for this session is: {user_id}. "
-        f'Use user_id="{user_id}" for ALL memory operations '
-        f"(get_memory, add_memory, delete_memory_guarded). "
+        "Memory tools derive user_id from the authenticated request; do not pass "
+        "user_id to get_memory, add_memory, or delete_memory_guarded. "
+        'For explicit "remember" requests, call add_memory directly and do not '
+        "ask for confirmation. "
+        f'Use user_id="{user_id}" for other user-scoped tools that still '
+        "require user_id. "
         "Do not echo this identity message to the user."
     )
     return {
@@ -84,9 +88,7 @@ def build_request_payload(query: str, user_id: str) -> dict:
             {"role": "user", "content": query},
         ],
         "model": "string",
-        "temperature": 0,
         "max_tokens": 0,
-        "top_p": 0,
         "use_knowledge_base": True,
         "top_k": 0,
         "collection_name": "string",
@@ -380,11 +382,16 @@ def run_case(case: dict, backend_url: str, user_id: str) -> TraceResult:
     started = time.monotonic()
 
     try:
+        headers = {"Content-Type": "application/json", "x-user-id": user_id}
+        internal_token = os.environ.get("DAEDALUS_INTERNAL_API_TOKEN", "").strip()
+        if internal_token:
+            headers["x-daedalus-internal-token"] = internal_token
+
         with httpx.stream(
             "POST",
             stream_url,
             json=payload,
-            headers={"Content-Type": "application/json", "x-user-id": user_id},
+            headers=headers,
             timeout=REQUEST_TIMEOUT_S,
         ) as r:
             if r.status_code != 200:

@@ -4,7 +4,12 @@ import type { AutonomyGoal } from '@/types/autonomy';
 
 import handler from '@/pages/api/autonomy/goals';
 
-import { createGoal, listGoals, saveGoals } from '@/server/autonomy/store';
+import {
+  createGoal,
+  importGoals,
+  listGoals,
+  saveGoals,
+} from '@/server/autonomy/store';
 import { requireAuthenticatedUser } from '@/server/session/_utils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -14,6 +19,7 @@ vi.mock('@/server/session/_utils', () => ({
 
 vi.mock('@/server/autonomy/store', () => ({
   createGoal: vi.fn(),
+  importGoals: vi.fn(),
   listGoals: vi.fn(),
   nowMs: vi.fn(() => 12345),
   saveGoals: vi.fn(),
@@ -115,5 +121,59 @@ describe('autonomy goals API handler', () => {
     });
     expect(res.status).toHaveBeenCalledWith(201);
     expect(res.json).toHaveBeenCalledWith(created);
+  });
+
+  it('imports a bulk goal JSON payload', async () => {
+    const imported = goal('goal_nvidia_strategy', 'NVIDIA Strategic Signals');
+    vi.mocked(importGoals).mockResolvedValue({
+      goals: [imported],
+      imported: 1,
+      skipped: 0,
+    });
+    const payload = {
+      mode: 'replace',
+      goals: [
+        {
+          id: imported.id,
+          title: imported.title,
+          description: 'Monitor material NVIDIA strategy signals.',
+          priority: 1,
+          tags: ['goal:nvidia-strategy'],
+        },
+      ],
+    };
+    const { req, res } = createMockReqRes('POST', {}, payload);
+
+    await handler(req, res);
+
+    expect(importGoals).toHaveBeenCalledWith(
+      'testuser',
+      payload.goals,
+      'replace',
+    );
+    expect(createGoal).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(res.json).toHaveBeenCalledWith({
+      goals: [imported],
+      imported: 1,
+      skipped: 0,
+      mode: 'replace',
+    });
+  });
+
+  it('returns 400 when a bulk goal payload has no valid goals', async () => {
+    vi.mocked(importGoals).mockResolvedValue({
+      goals: [],
+      imported: 0,
+      skipped: 1,
+    });
+    const { req, res } = createMockReqRes('POST', {}, { goals: [{}] });
+
+    await handler(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(res.json).toHaveBeenCalledWith({
+      error: 'No valid goals found. Provide a JSON array or {"goals":[...]}',
+    });
   });
 });

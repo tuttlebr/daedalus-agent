@@ -7,6 +7,7 @@ name = "user_interaction"
 dynamic = ["version"]
 dependencies = [
   "nvidia-nat[redis,mcp,langchain,phoenix,async_endpoints]==1.7.0",
+  "nat_helpers",
 ]
 requires-python = ">=3.11,<3.14"
 description = "Structured user interaction tools for NeMo Agent Toolkit. Provides frameworks for clarification, confirmation, and preference gathering."

@@ -152,6 +152,36 @@ def extract_async_job_id(payload: Any, fallback: str) -> str:
     return fallback
 
 
+def messages_to_input_message(messages: list[dict[str, str]]) -> str:
+    """Flatten chat-style messages for the async generate endpoint.
+
+    ``/v1/workflow/async`` accepts a single ``input_message`` string, unlike
+    the OpenAI-compatible chat route. Keep role labels so any non-user context
+    remains legible if future callers pass mixed roles.
+    """
+    parts: list[str] = []
+    for message in messages:
+        if not isinstance(message, dict):
+            continue
+        content = str(message.get("content") or "").strip()
+        if not content:
+            continue
+        role = str(message.get("role") or "user").strip().upper() or "USER"
+        parts.append(f"[{role}]\n{content}")
+    return "\n\n".join(parts)
+
+
+def raise_for_status_with_body(resp: requests.Response) -> None:
+    try:
+        resp.raise_for_status()
+    except requests.HTTPError as exc:
+        body = (resp.text or "").strip()
+        if len(body) > 1000:
+            body = f"{body[:997]}..."
+        detail = f"{exc}; response={body}" if body else str(exc)
+        raise requests.HTTPError(detail, response=resp) from exc
+
+
 class BackendClient:
     def __init__(
         self,
@@ -254,7 +284,7 @@ class BackendClient:
         job_id = str(uuid.uuid4())
         submit_url = f"{self.base_url}{self.api_path}"
         payload = {
-            "messages": messages,
+            "input_message": messages_to_input_message(messages),
             "job_id": job_id,
             "sync_timeout": 0,
             "expiry_seconds": self.expiry_seconds,
@@ -265,7 +295,7 @@ class BackendClient:
             headers=self._headers(),
             timeout=45,
         )
-        resp.raise_for_status()
+        raise_for_status_with_body(resp)
         try:
             job_id = extract_async_job_id(resp.json(), job_id)
         except ValueError:

@@ -4,6 +4,7 @@ import { AutonomyGoal } from '@/types/autonomy';
 
 import {
   createGoal,
+  importGoals,
   listGoals,
   nowMs,
   saveGoals,
@@ -23,6 +24,24 @@ export default async function handler(
   }
 
   if (req.method === 'POST') {
+    const body = req.body || {};
+    const rawGoals = Array.isArray(body)
+      ? body
+      : Array.isArray(body.goals)
+      ? body.goals
+      : null;
+    if (rawGoals) {
+      const mode = body.mode === 'append' ? 'append' : 'replace';
+      const result = await importGoals(userId, rawGoals, mode);
+      if (result.imported === 0) {
+        return res.status(400).json({
+          error:
+            'No valid goals found. Provide a JSON array or {"goals":[...]}',
+        });
+      }
+      return res.status(200).json({ ...result, mode });
+    }
+
     const goal = await createGoal(userId, req.body || {});
     return res.status(201).json(goal);
   }

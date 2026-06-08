@@ -197,6 +197,30 @@ class TestConfirmAction:
 
         run(_run())
 
+    def test_memory_update_redirects_to_add_memory_without_confirmation(self):
+        async def _run():
+            items = await _get_tools()
+            confirm_fn = next(i.fn for i in items if i.fn.__name__ == "confirm_action")
+            result = await confirm_fn(
+                action="Store a memory that the user's name is Brandon Tuttle.",
+                reason="The user explicitly asked me to remember it.",
+                action_type="memory_update",
+                target="user profile",
+            )
+
+            assert "No confirmation is required" in result
+            assert "Call add_memory directly" in result
+            assert "Proceed?" not in result
+
+            inferred_result = await confirm_fn(
+                action="Store a memory that the user's name is Brandon Tuttle.",
+                reason="The user explicitly asked me to remember it.",
+            )
+            assert "Call add_memory directly" in inferred_result
+            assert "Proceed?" not in inferred_result
+
+        run(_run())
+
 
 class TestPresentOptions:
     def test_basic_options(self):
@@ -387,5 +411,49 @@ class TestDeleteMemoryGuarded:
             assert "nat:memory:brandon:1" not in fake_redis.store
             assert "nat:memory:someoneelse:1" in fake_redis.store
             assert "denied" in second
+
+        run(_run())
+
+    def test_uses_authenticated_user_over_llm_supplied_user_id(self):
+        async def _run():
+            from user_interaction.approval_tokens import (
+                ApprovalRequest,
+                issue_approval_token,
+            )
+
+            fake_redis = FakeRedis()
+            token = issue_approval_token(
+                fake_redis,
+                ApprovalRequest(
+                    user_id="tuttlebr",
+                    action_type="delete_memory",
+                    target="tuttlebr",
+                ),
+            )
+            fake_redis.store["nat:memory:tuttlebr:1"] = "a"
+            fake_redis.store["nat:memory:Brandon Tuttle:1"] = "b"
+
+            import user_interaction.user_interaction_function as mod
+
+            with (
+                patch.object(mod, "make_redis_client", return_value=fake_redis),
+                patch.object(
+                    mod,
+                    "_authenticated_user_or_fallback",
+                    return_value="tuttlebr",
+                ),
+            ):
+                items = await _get_tools()
+                delete_fn = next(
+                    i.fn for i in items if i.fn.__name__ == "delete_memory_guarded"
+                )
+                result = await delete_fn(
+                    user_id="Brandon Tuttle",
+                    approval_token=token,
+                )
+
+            assert "Deleted 1" in result
+            assert "nat:memory:tuttlebr:1" not in fake_redis.store
+            assert "nat:memory:Brandon Tuttle:1" in fake_redis.store
 
         run(_run())

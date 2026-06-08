@@ -64,12 +64,6 @@ class ContentDistillerConfig(FunctionBaseConfig, name="content_distiller"):
         le=16384,
         description="Maximum tokens for the secondary LLM response.",
     )
-    temperature: float = Field(
-        default=0.1,
-        ge=0.0,
-        le=1.0,
-        description="Temperature for secondary LLM calls. Low values for factual extraction.",
-    )
     wrapper_type: str = Field(
         default="LANGCHAIN",
         description="LLM wrapper type: LANGCHAIN or OPENAI.",
@@ -106,7 +100,6 @@ async def _call_llm(
 
     llm_kwargs = {
         "max_tokens": config.max_output_tokens,
-        "temperature": config.temperature,
     }
 
     target_llm = llm_name or config.llm_name

@@ -188,7 +188,9 @@ Temporary Items
 test*.sh
 
 profile.md
+profile.json
 goals.md
+goals.json
 ncp-research.md
 
 # Planning artifacts (Claude Code / GSD)

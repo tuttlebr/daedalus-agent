@@ -69,16 +69,14 @@ export async function startBackgroundStreamReader(
     getNatBaseUrl(jobRequest),
     '/v1/chat/completions',
   );
-  // NOTE: model / collection_name / max_tokens / temperature / top_p / top_k
-  // are OpenAPI placeholder values. The backend NAT agent owns model and
-  // generation config and ignores these; they exist only to satisfy the
-  // request schema. Do not rely on them to control generation (F-024).
+  // NOTE: model / collection_name / max_tokens / top_k are OpenAPI
+  // placeholder values. The backend NAT agent owns model and generation config
+  // and ignores these; they exist only to satisfy the request schema. Do not
+  // rely on them to control generation (F-024).
   const payload = {
     messages: messagesForNat,
     model: 'string',
-    temperature: 0,
     max_tokens: 0,
-    top_p: 0,
     use_knowledge_base: true,
     top_k: 0,
     collection_name: 'string',

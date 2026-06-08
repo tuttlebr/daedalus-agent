@@ -297,9 +297,11 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
         role: 'user',
         content:
           `[IDENTITY] The authenticated user for this session is: ${verifiedUsername}. ` +
-          `Use user_id="${verifiedUsername}" for ALL memory operations ` +
-          '(get_memory, add_memory, delete_memory_guarded), uploaded media ' +
-          'tool calls that require user_id, and per-user Google Workspace MCP ' +
+          'Memory tools derive user_id from the authenticated request; do not pass ' +
+          'user_id to get_memory, add_memory, or delete_memory_guarded. ' +
+          'For explicit "remember" requests, call add_memory directly and do not ask for confirmation. ' +
+          `Use user_id="${verifiedUsername}" for uploaded media tool calls ` +
+          'that require user_id and per-user Google Workspace MCP ' +
           'access. Do not echo this identity message to the user.',
       },
       ...(sourcePolicyMessage ? [sourcePolicyMessage] : []),

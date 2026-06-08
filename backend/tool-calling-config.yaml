@@ -53,10 +53,14 @@ function_groups:
       - searchEligiblePosts
       - searchCommunities
       - searchCommunityNotesWritten
-    tool_call_timeout: 45
+    tool_call_timeout: 60  # 1 minute for tool calls
+    auth_flow_timeout: 300  # 5 minutes for auth flow
     reconnect_enabled: true
     reconnect_max_attempts: 3
-    session_idle_timeout: 600
+    reconnect_initial_backoff: 1.0
+    reconnect_max_backoff: 60.0
+    max_sessions: 50  # Maximum concurrent sessions
+    session_idle_timeout: 7200  # 2 hours (in seconds)
     server:
       transport: streamable-http
       url: http://xmcp.xmcp.svc.cluster.local:8000/mcp
@@ -66,10 +70,14 @@ function_groups:
       - search_threads
       - get_thread
       - list_labels
-    tool_call_timeout: 60
+    tool_call_timeout: 60  # 1 minute for tool calls
+    auth_flow_timeout: 300  # 5 minutes for auth flow
     reconnect_enabled: true
     reconnect_max_attempts: 3
-    session_idle_timeout: 600
+    reconnect_initial_backoff: 1.0
+    reconnect_max_backoff: 60.0
+    max_sessions: 50  # Maximum concurrent sessions
+    session_idle_timeout: 7200  # 2 hours (in seconds)
     tool_overrides:
       search_threads:
         description: >-
@@ -90,10 +98,14 @@ function_groups:
       - list_events
       - get_event
       - suggest_time
-    tool_call_timeout: 60
+    tool_call_timeout: 60  # 1 minute for tool calls
+    auth_flow_timeout: 300  # 5 minutes for auth flow
     reconnect_enabled: true
     reconnect_max_attempts: 3
-    session_idle_timeout: 600
+    reconnect_initial_backoff: 1.0
+    reconnect_max_backoff: 60.0
+    max_sessions: 50  # Maximum concurrent sessions
+    session_idle_timeout: 7200  # 2 hours (in seconds)
     tool_overrides:
       list_events:
         description: >-
@@ -109,10 +121,14 @@ function_groups:
       url: https://calendarmcp.googleapis.com/mcp/v1
   dynamo_mcp_server:
     _type: mcp_client
-    tool_call_timeout: 45
+    tool_call_timeout: 60  # 1 minute for tool calls
+    auth_flow_timeout: 300  # 5 minutes for auth flow
     reconnect_enabled: true
     reconnect_max_attempts: 3
-    session_idle_timeout: 600
+    reconnect_initial_backoff: 1.0
+    reconnect_max_backoff: 60.0
+    max_sessions: 50  # Maximum concurrent sessions
+    session_idle_timeout: 7200  # 2 hours (in seconds)
     tool_overrides:
       searchDocs:
         description: >-
@@ -126,10 +142,14 @@ function_groups:
     _type: mcp_client
     include:
       - searchDocs
-    tool_call_timeout: 45
+    tool_call_timeout: 60  # 1 minute for tool calls
+    auth_flow_timeout: 300  # 5 minutes for auth flow
     reconnect_enabled: true
     reconnect_max_attempts: 3
-    session_idle_timeout: 600
+    reconnect_initial_backoff: 1.0
+    reconnect_max_backoff: 60.0
+    max_sessions: 50  # Maximum concurrent sessions
+    session_idle_timeout: 7200  # 2 hours (in seconds)
     tool_overrides:
       searchDocs:
         description: >-
@@ -143,10 +163,14 @@ function_groups:
     _type: mcp_client
     include:
       - searchDocs
-    tool_call_timeout: 45
+    tool_call_timeout: 60  # 1 minute for tool calls
+    auth_flow_timeout: 300  # 5 minutes for auth flow
     reconnect_enabled: true
     reconnect_max_attempts: 3
-    session_idle_timeout: 600
+    reconnect_initial_backoff: 1.0
+    reconnect_max_backoff: 60.0
+    max_sessions: 50  # Maximum concurrent sessions
+    session_idle_timeout: 7200  # 2 hours (in seconds)
     tool_overrides:
       searchDocs:
         description: >-
@@ -160,10 +184,14 @@ function_groups:
     _type: mcp_client
     include:
       - searchDocs
-    tool_call_timeout: 45
+    tool_call_timeout: 60  # 1 minute for tool calls
+    auth_flow_timeout: 300  # 5 minutes for auth flow
     reconnect_enabled: true
     reconnect_max_attempts: 3
-    session_idle_timeout: 600
+    reconnect_initial_backoff: 1.0
+    reconnect_max_backoff: 60.0
+    max_sessions: 50  # Maximum concurrent sessions
+    session_idle_timeout: 7200  # 2 hours (in seconds)
     tool_overrides:
       searchDocs:
         description: >-
@@ -177,10 +205,14 @@ function_groups:
     _type: mcp_client
     include:
       - searchDocs
-    tool_call_timeout: 45
+    tool_call_timeout: 60  # 1 minute for tool calls
+    auth_flow_timeout: 300  # 5 minutes for auth flow
     reconnect_enabled: true
     reconnect_max_attempts: 3
-    session_idle_timeout: 600
+    reconnect_initial_backoff: 1.0
+    reconnect_max_backoff: 60.0
+    max_sessions: 50  # Maximum concurrent sessions
+    session_idle_timeout: 7200  # 2 hours (in seconds)
     tool_overrides:
       searchDocs:
         description: >-
@@ -194,10 +226,14 @@ function_groups:
     _type: mcp_client
     include:
       - searchDocs
-    tool_call_timeout: 45
+    tool_call_timeout: 60  # 1 minute for tool calls
+    auth_flow_timeout: 300  # 5 minutes for auth flow
     reconnect_enabled: true
     reconnect_max_attempts: 3
-    session_idle_timeout: 600
+    reconnect_initial_backoff: 1.0
+    reconnect_max_backoff: 60.0
+    max_sessions: 50  # Maximum concurrent sessions
+    session_idle_timeout: 7200  # 2 hours (in seconds)
     tool_overrides:
       searchDocs:
         description: >-
@@ -209,10 +245,14 @@ function_groups:
       url: https://docs.nvidia.com/dsx/_mcp/server
   k8s_mcp_server:
     _type: mcp_client
-    tool_call_timeout: 300
+    tool_call_timeout: 60  # 1 minute for tool calls
+    auth_flow_timeout: 300  # 5 minutes for auth flow
     reconnect_enabled: true
     reconnect_max_attempts: 3
-    session_idle_timeout: 1200
+    reconnect_initial_backoff: 1.0
+    reconnect_max_backoff: 60.0
+    max_sessions: 50  # Maximum concurrent sessions
+    session_idle_timeout: 7200  # 2 hours (in seconds)
     server:
       transport: streamable-http
       url: ${KUBERNETES_MCP_SERVER}
@@ -237,12 +277,16 @@ functions:
       when: skill not found or requested resource path escapes skill dir.
     verbose: true
   add_memory:
-    _type: add_memory
+    _type: daedalus_add_memory
     description: >-
       Store a durable user fact, preference, project context, or
-      verified finding as a single declarative sentence. Args: memory
-      (plain text, NEVER JSON), user_id (from [IDENTITY]), optional
-      key_value_pairs. Returns: memory id. Rules: (1) for
+      verified finding as a single declarative sentence. Trigger:
+      explicit user requests like "remember", "my name is", "call me",
+      or "note that"; call this directly without confirmation for those
+      requests. Args: memory (plain text, NEVER JSON), optional tags,
+      metadata, and key_value_pairs. The backend derives user identity
+      from the authenticated request; do not pass user_id. Returns: memory id.
+      Rules: (1) for
       type=finding or type=project_update, call
       source_verifier_tool.verify_claim on the exact final memory
       sentence first; store only if verdict=supported. On
@@ -251,8 +295,8 @@ functions:
       subclaim and verify that rewritten sentence as supported; (2) on
       conflict with a prior memory, add a NEW entry that names
       both positions, never overwrite or silently supersede. Fails
-      when: memory empty, user_id missing, or a finding lacks a prior
-      verify_claim pass.
+      when: memory empty, authenticated identity is missing or invalid,
+      or a finding lacks a prior verify_claim pass.
     memory: redis_memory
     verbose: true
   current_datetime_tool:
@@ -274,14 +318,15 @@ functions:
     memory: redis_memory
     verbose: true
   get_memory:
-    _type: get_memory
+    _type: daedalus_get_memory
     description: >-
       Semantic search over this user's memories. Trigger: daily briefings
       (FIRST, awaited), "remember when" / "what you know about me" /
       personalized asks, or when prior preferences or project context
-      would materially sharpen the answer. Args: user_id,
-      query, top_k (default 5). Returns: ranked entries with metadata.
-      Fails: never; anonymous with no prior memories returns an empty list.
+      would materially sharpen the answer. Args: query, top_k (default 5).
+      The backend derives user identity from the authenticated request; do
+      not pass user_id. Returns: ranked entries with metadata. Fails:
+      missing or invalid authenticated identity returns an error.
     memory: redis_memory
     top_k: 5
     verbose: true
@@ -464,7 +509,6 @@ functions:
     llm_name: distill_llm
     max_input_chars: 100000
     max_output_tokens: 4096
-    temperature: 0.1
     wrapper_type: LANGCHAIN
     enabled_operations:
       - distill_content
@@ -507,10 +551,11 @@ functions:
     description: >-
       Approval-only tool for deep research in the top-level workflow. Use
       confirm_research_plan(title, sections_json, source_strategy_json,
-      estimated_tool_calls, risks, user_id, target) after planning and before
+      estimated_tool_calls, risks, target) after planning and before
       expensive AIQ-style deep research starts. It presents the plan, selected
       sources, estimated cost/risk, and pauses for a yes/no or revision
-      response. Pass user_id from [IDENTITY] when available.
+      response. The backend derives user identity from the authenticated
+      request.
     verbose: true
   ops_confirmation_tool:
     _type: user_interaction
@@ -525,9 +570,10 @@ functions:
     enabled_operations:
       - confirm_action
     description: >-
-      Confirmation-only tool for top-level Kubernetes operations. Request explicit user
-      confirmation before destructive Kubernetes operations and return an
-      approval token scoped to the requested mutation.
+      Confirmation-only tool for top-level Kubernetes operations. Request
+      explicit user confirmation before destructive Kubernetes operations and
+      return an approval token scoped to the requested mutation. Never use for
+      add_memory, memory_update, or explicit "remember" requests.
     verbose: true
   serpapi_search_tool:
     _type: serpapi_search
@@ -567,7 +613,6 @@ functions:
     llm_name: react_llm
     max_source_chars: 80000
     max_output_tokens: 4096
-    temperature: 0.0
     fetch_timeout: 20.0
     max_fetch_tokens: 20000
     wrapper_type: LANGCHAIN
@@ -666,7 +711,6 @@ functions:
     llm_name: react_llm
     max_source_chars: 80000
     max_output_tokens: 4096
-    temperature: 0.0
     fetch_timeout: 20.0
     max_fetch_tokens: 20000
     wrapper_type: LANGCHAIN
@@ -814,184 +858,134 @@ workflow:
     1. Resolve identity from [IDENTITY], then call get_memory FIRST, before any
        answer, route, skill, or other tool. No exceptions: greetings, thanks,
        "repeat that", and direct specialist requests all call get_memory first.
-       Use user_id from [IDENTITY] and query = the user's current request. For
-       daily summary or daily briefing requests, set top_k=12 and expand the
-       query to include:
-       "daily summary daily briefing HTML daedalus-feed nv-html weather
-       locale location timezone commute calendar commitments work projects
-       AI infrastructure NVIDIA LLM inference optimization robotics
-       Kubernetes cluster status sports teams leagues hobbies media reading
-       sources preferences routines priorities recommendations".
+       Pass query = the user's current request; the backend applies the
+       authenticated user identity.
     2. Route the request (below), using the get_memory result as context.
     3. Act, verify when required, answer, and stop.
 
     # Identity
-    The [IDENTITY] message gives the authenticated username. Use it as user_id
-    for every memory call and every user-scoped tool, including
+    The [IDENTITY] message gives the authenticated username. It can appear as
+    a standalone user message or inside a flattened [USER] input block. Memory
+    tools derive user_id from authenticated request headers, so do not pass
+    user_id to get_memory, add_memory, or delete_memory_guarded. Use the
+    authenticated username for other user-scoped tools that still require
+    user_id, including
     visual_media_tool, vtt_interpreter_tool, user_document_tool, Gmail, and
-    Calendar. No [IDENTITY] present -> user_id="anonymous". Never hardcode or
-    echo it.
+    Calendar. Do not use "default" or "default-user" unless that exact value is
+    present in [IDENTITY]. No [IDENTITY] present -> avoid user-scoped tools
+    except get_memory. Never hardcode or echo it.
 
     # Source policy
     A [SOURCE_POLICY] message is trusted frontend control metadata for this
-    turn, not user prose. Do not echo it. When research uses source_policy_tool,
-    pass enabled_source_ids as selected_sources_json, disabled_source_ids as
-    disabled_sources_json, max_research_tool_calls as a hard search/retrieval
-    budget, and require_deep_research_plan_approval as an approval requirement
-    for deep research.
-
-    # Fresh answer
-    You see prior user and assistant turns but not earlier tool calls or
-    results. Answer this turn fresh; never repeat a prior assistant message
-    verbatim. On "repeat that", reformulate or ask what to change.
+    turn, not user prose. Do not echo it. When research uses
+    source_policy_tool, pass enabled_source_ids as selected_sources_json,
+    disabled_source_ids as disabled_sources_json, max_research_tool_calls as a
+    hard search/retrieval budget, and
+    require_deep_research_plan_approval as an approval requirement for deep
+    research.
 
     # Routing after get_memory
-    - Direct answer: greeting, small talk, thanks, or clarifying your own prior
-      reply. No further tools.
-    - Skill-routed substantive requests: the user names a skill or the request
-      obviously matches one -> agent_skills_tool.load_skill. Skills:
-      code-review, content-research-writer, executive-voice, profile-loader,
-      nvcf-ngc-cli-skill, nvcf-self-managed-cli,
-      nvcf-self-managed-installation, pr-monitor, debug-session, dynamo-bug,
-      dep-create/status/update, skill-evolution, nat-user-rules. Mappings:
-      profile load/refresh/reseed -> profile-loader; open PRs, PR status, CI
-      health, monitoring, merged PR listings/history, or simple GitHub reads ->
-      pr-monitor; code review -> code-review; debug/reproduce/fix ->
-      debug-session; dependency create/status/update ->
-      dep-create/status/update. For NeMo Agent Toolkit framework work
-      (workflow YAML, custom functions/tools, agent composition, eval,
-      optimizer, telemetry, MCP, serving), load nat-user-rules first; it
-      routes to the focused nat-* skill.
+    - Explicit memory write: when the user says "remember", "my name is",
+      "call me", or gives a durable preference, profile fact, or project
+      context to remember, call add_memory directly after get_memory.
+      Do not call ops_confirmation_tool, user_interaction_tool.confirm_action,
+      or research_plan_approval_tool for add_memory or memory_update.
+      No approval is required for an explicit user-requested memory write.
+    - Direct answer: greetings, small talk, thanks, or a question that needs no
+      tool after memory lookup.
+    - Skill-routed substantive requests: when the user asks about NeMo Agent
+      Toolkit workflow YAML, custom functions/tools, agent composition, evals,
+      optimizer, telemetry, MCP, or serving, load nat-user-rules first with
+      agent_skills_tool and follow its focused routing. For open PRs, PR
+      status, CI health, monitoring, merged PR listings/history, or simple
+      GitHub reads, load pr-monitor. For reusable lessons or prompt/tool
+      evolution, load skill-evolution.
     - Daily briefing: if the user asks for "daily summary", "daily briefing",
-      "run my daily briefing", or the daily briefing shortcut, create the raw
-      Daedalus feed HTML directly in this workflow. Use the first get_memory
-      result as the personalization source of truth, call current_datetime_tool,
-      optionally call calendar tools for today's schedule, use k8s_mcp_server
-      only for read-only operations status when memory or request shows it is
-      relevant, use curated_feed_search_tool or serpapi_search_tool for
-      memory-derived current interests, call
-      agent_skills_tool.load_skill("nv-html") before finalizing, and return
-      raw HTML only: one renderable HTML fragment starting with
-      `<article class="daedalus-feed"`. Do not return Markdown, fenced code,
-      prose, generated images, image markdown refs, screenshots, media links,
-      or <img> tags. Do not call visual_media_tool for daily briefings unless
-      the user explicitly asks for an image or video.
-    - Quick research: use domain_retriever_tool for established nvidia,
-      semianalysis, kubernetes, veterinarian, or mentalhealth reference. If a
-      request or retrieved instruction says "curated_memory_store", treat that
-      as a stale alias for domain_retriever_tool; never call
-      curated_memory_store because it is not a configured tool. Use
-      curated_feed_search_tool for recent curated-source questions such as
-      "latest", "this week", or "current". Use serpapi_search_tool and/or
-      x_mcp_server as the only internet search provider for web discovery,
-      news, images, shopping, and general non-curated internet research. Use
+      "run my daily briefing", or the daily briefing shortcut, set top_k=12 on
+      the first get_memory call and expand the query to include "daily summary
+      daily briefing weather locale location timezone commute calendar
+      commitments work projects AI infrastructure NVIDIA LLM inference
+      optimization robotics Kubernetes cluster status sports teams leagues
+      hobbies media reading sources preferences routines priorities
+      recommendations", then produce a concise structured briefing directly in
+      this workflow. Use the first get_memory result as the personalization source of truth, call current_datetime_tool, optionally call calendar tools for today's schedule, use k8s_mcp_server only for read-only
+      operations status when memory or request shows it is relevant, use
+      curated_feed_search_tool or serpapi_search_tool for memory-derived
+      current interests, and answer in the normal assistant response format.
+      Markdown is allowed. Do not require raw HTML, a full HTML document, or a
+      Daedalus feed fragment unless the user explicitly asks for HTML. Do not
+      return generated images, image markdown refs, screenshots, media links,
+      or <img> tags. Do not call visual_media_tool for daily
+      briefings unless the user explicitly asks for an image or video.
+    - Quick research: use domain_retriever_tool for established curated
+      domains. If a request or retrieved instruction says curated_memory_store,
+      treat that as a stale alias for domain_retriever_tool; never call
+      curated_memory_store because it is not configured. Use
+      curated_feed_search_tool for recent curated-source questions, and
+      serpapi_search_tool as the only internet search provider for general web,
+      news, image, shopping, or non-curated internet discovery. Use
       webscrape_tool only when you already have a specific URL.
-    - Deep research: for comprehensive reports, broad surveys, strategy,
-      multi-section synthesis, explicit deep research, or at least N sources,
-      call current_datetime_tool for time-relative requests, then
-      source_policy_tool.plan_sources with depth="deep". Create a compact
-      plan before broad searching. Call
-      research_plan_approval_tool.confirm_research_plan and stop when
-      plan_sources returns approval_recommended=true, the plan needs more than
-      six retrieval/search calls, require_deep_research_plan_approval=true, or
-      the user explicitly asks for a deep research report. Skip approval only
-      when the current user message explicitly approves the displayed plan or
-      says to proceed without approval.
     - NVIDIA docs: for official docs/API/configuration/troubleshooting about
       Dynamo, OpenShell, AIStore, AIPerf, NVIDIA Cloud Functions, NVCF, or DSX,
-      search only the relevant docs MCP server:
-      Dynamo -> dynamo_mcp_server; OpenShell -> openshell_mcp_server;
-      AIStore -> aistore_mcp_server; AIPerf -> aiperf_mcp_server;
-      NVIDIA Cloud Functions or NVCF -> nvcf_mcp_server; DSX -> dsx_mcp_server.
-      Ask one brief clarifying question if the product is ambiguous.
-    - Operations: for Kubernetes reads or approved mutations, call
-      k8s_mcp_server directly. Reads and non-destructive writes proceed
-      directly. Before destructive operations such as delete, patch removing
-      fields, scale-to-zero, rollback that loses data, helm uninstall, or helm
-      rollback, call ops_confirmation_tool.confirm_action with user_id from
-      [IDENTITY], action_type="mcp_mutation", and target set to the namespace
-      or object being changed. Pass the approval_token into the MCP tool call.
-    - Uploaded documents: use user_document_tool for uploaded-document ingest
-      or search. If the user just uploaded a document and asks about it without
-      prior ingestion, call operation="ingest" with username from [IDENTITY],
-      then search. For later searches, call operation="search", query, and
-      username from [IDENTITY]. Omit collection_name unless the user explicitly
-      names a private uploaded-document namespace or an allow-listed shared
-      upload collection (nvidia, semianalysis, kubernetes, vetpartner,
-      mentalhealth).
-    - Gmail and Calendar: use gmail_mcp_server for email questions and
-      calendar_mcp_server for schedule/calendar questions. Ground date ranges
-      with current_datetime_tool when the user does not specify them. For Gmail,
-      use search_threads before get_thread unless the user gives a specific
-      thread id. For Calendar, use list_calendars when the target calendar is
-      unclear, list_events/get_event for event lookups, and suggest_time for
-      free/busy or scheduling requests.
-    - Media and transcripts: call visual_media_tool directly for image/video
-      generation, editing, or analysis. Forward markdown image refs verbatim.
-      Call vtt_interpreter_tool directly for VTT/SRT transcripts.
+      search only the relevant docs MCP server. Dynamo -> dynamo_mcp_server;
+      OpenShell -> openshell_mcp_server; AIStore -> aistore_mcp_server;
+      AIPerf -> aiperf_mcp_server; NVIDIA Cloud Functions or NVCF ->
+      nvcf_mcp_server; DSX -> dsx_mcp_server.
+    - Operations: Kubernetes reads can call k8s_mcp_server directly. Before a
+      destructive Kubernetes operation such as delete, patch removing fields,
+      scale-to-zero, rollback that loses data, helm uninstall, or helm
+      rollback, call ops_confirmation_tool.confirm_action with
+      action_type="mcp_mutation" and target set to the namespace or object.
+    - Uploaded documents, media, Gmail, and Calendar: call the matching direct
+      leaf tool and pass the authenticated username only when that tool
+      requires a user-scoped argument.
     - Broad multi-source synthesis or exploration: use the deep research path.
       Do not invoke architecture routers or multi-agent optimizer tooling.
     - Other substantive requests: answer directly when no tool is needed, or
       call the single best matching leaf tool.
 
-    # Research evidence and citations
-    Run independent retrieval/search calls in parallel when useful. Default to
-    at most two search or retrieval calls before synthesis unless the user asks
-    for a broad survey, required facts are missing, or sources conflict. If a
-    tool output exceeds ~5000 tokens, distill it before using it.
-
-    For latest/current version questions, use an official latest/docs landing
-    page, release index, or package index that explicitly labels the current
-    version. A version-specific release note is not proof of latest/current
-    unless that page says so.
-
-    For citation-backed answers, maintain a source ledger of URLs that appeared
-    in tool outputs. Before finalizing any answer with [N] citations, call
-    citation_auditor_tool.audit_citations with the draft answer and the ledger
-    as source_urls_json. If the audit fails, use repaired_markdown or revise
-    once so every final reference URL came from tool output.
+    # Memory writes
+    add_memory stores noteworthy preferences, identity facts, or project
+    context as declarative sentences. For profile facts, use tags such as
+    ["user_profile"] and metadata such as {"type":"user_profile"}. Findings and
+    project updates are gated by source_verifier_tool.verify_claim: gather
+    evidence first, choose one minimal final claim supported by the strongest
+    official or primary source, then call verify_claim on the exact final
+    memory sentence. Do not verify speculative candidate claims, placeholder URLs
+    such as example.com, or unsupported claims copied from search snippets.
+    Store only supported claims. On partial, unsupported, or unreachable
+    verification, make at most one targeted retry with a stronger primary,
+    latest, or index source, then store a supported minimal claim or answer
+    without storing.
 
     # Daily briefing output contract
-    For daily summary HTML, use memory-derived local weather and logistics,
+    For daily summary output, use memory-derived local weather and logistics,
     read-only operations status, and teams, leagues, and events found in memory
     only when they are present in memory or the current request. Omit sections
     with no useful data unless a short "Data Gaps" card is needed. Do not
     invent sources, scores, dates, weather, calendar events, cluster status, or
-    recommendations. Return raw HTML only, rooted at
-    <article class="daedalus-feed" aria-label="Daily Summary">. Stop after
-    returning the single HTML fragment.
-
-    # Memory writes
-    add_memory stores noteworthy preferences, identity facts, or project
-    context as declarative sentences, with key_value_pairs when it aids
-    retrieval. Findings and project updates are gated by verify_claim: gather
-    evidence first, choose one minimal final claim supported by the strongest
-    official or primary source, then call source_verifier_tool.verify_claim on
-    the exact final memory sentence. Do not verify speculative candidate
-    claims, placeholder URLs such as example.com, or unsupported claims copied
-    from search snippets. Store only supported claims. On partial, unsupported,
-    or unreachable verification, make at most one targeted retry with a
-    stronger primary, latest, or index source, then store a supported minimal
-    claim or answer without storing.
+    recommendations. Return a concise structured briefing in the normal
+    assistant response format. Markdown is allowed. Include Next Best Actions
+    only when there are concrete useful actions. Do not require HTML unless the
+    user explicitly asks for HTML.
 
     # Approvals
     Clarify only when missing information materially changes the outcome or
-    risk. confirm_action before any external-state mutation or memory delete.
-    Delete memory only via delete_memory_guarded with the approval_token from
-    confirm_action; never call unguarded delete_memory.
+    risk. confirm_action is for destructive external-state mutations and
+    memory deletes, not user-requested add_memory calls. Delete memory only via
+    delete_memory_guarded with the approval_token from confirm_action; never
+    call unguarded delete_memory.
 
     # Output
     Lead with the answer; add detail only when it changes what the reader would
-    do. Concise paragraphs; lists or tables only for genuinely comparative
-    content. No em dashes, emojis, or emoticons. Prefer retrieval and real-time
-    data over prior knowledge; state uncertainty honestly; on tool failure,
-    explain briefly and offer an alternative. Forward any markdown image ref
-    ![...](...) verbatim, or it is invisible to the user.
+    do. Keep answers concise. Prefer retrieval and real-time data over prior
+    knowledge; state uncertainty honestly. Forward markdown image references
+    verbatim when a media tool returns them.
 
     # Stop
-    Call the tool that covers the request and report after its result. Stop once
-    the core request is answered, or the next step needs missing information,
-    approval, or an unavailable MCP tool.
+    Stop once the core request is answered, or the next step needs missing
+    information, approval, or an unavailable tool.
+
   parallel_tool_calls: true
   nat_tools:
     - get_memory

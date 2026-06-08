@@ -1,5 +1,6 @@
 import {
   enqueueRun,
+  normalizeImportedGoals,
   QueueFullError,
   sanitizeConfigPatch,
 } from '@/server/autonomy/store';
@@ -54,6 +55,47 @@ describe('autonomy store config sanitization', () => {
         },
       }),
     ).toEqual({});
+  });
+});
+
+describe('normalizeImportedGoals', () => {
+  it('normalizes bulk goal uploads and preserves safe ids and tags', () => {
+    vi.spyOn(Date, 'now').mockReturnValue(1700000000000);
+
+    const goals = normalizeImportedGoals(
+      [
+        {
+          id: 'goal:nvidia-strategy',
+          title: 'NVIDIA Strategic Signals',
+          description: 'Monitor material NVIDIA strategy signals.',
+          status: 'active',
+          priority: 1,
+          tags: ['goal:nvidia-strategy', 'goal:nvidia-strategy', ''],
+          unexpected: 'ignored',
+        },
+        {
+          title: '',
+          description: 'invalid',
+        },
+      ],
+      [],
+    );
+
+    expect(goals).toEqual([
+      {
+        id: 'goal_nvidia-strategy',
+        title: 'NVIDIA Strategic Signals',
+        description: 'Monitor material NVIDIA strategy signals.',
+        status: 'active',
+        priority: 1,
+        tags: ['goal:nvidia-strategy'],
+        createdAt: 1700000000000,
+        updatedAt: 1700000000000,
+        lastRunAt: null,
+      },
+    ]);
+
+    vi.spyOn(Date, 'now').mockRestore();
   });
 });
 

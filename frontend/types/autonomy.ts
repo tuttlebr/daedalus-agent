@@ -49,6 +49,7 @@ export interface AutonomyGoal {
   description: string;
   status: 'active' | 'paused' | 'completed';
   priority: number;
+  tags?: string[];
   createdAt: number;
   updatedAt: number;
   lastRunAt?: number | null;

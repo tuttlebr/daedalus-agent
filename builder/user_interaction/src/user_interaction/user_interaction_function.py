@@ -75,6 +75,12 @@ class UserInteractionConfig(FunctionBaseConfig, name="user_interaction"):
     )
 
 
+def _authenticated_user_or_fallback(fallback_user_id: str = "") -> str:
+    from nat_helpers.identity import authenticated_user_id_from_context_or_fallback
+
+    return authenticated_user_id_from_context_or_fallback(fallback_user_id)
+
+
 @register_function(config_type=UserInteractionConfig)
 async def user_interaction_function(config: UserInteractionConfig, builder: Builder):
     _redis_client: Any | None = None
@@ -161,10 +167,11 @@ async def user_interaction_function(config: UserInteractionConfig, builder: Buil
         """Request user confirmation before taking a consequential action.
 
         Use this before any action that:
-        - Modifies external state (Kubernetes, GitHub, memory)
+        - Modifies external state (Kubernetes, GitHub)
         - Is difficult or impossible to reverse
         - Has significant resource costs
         - Could have unintended side effects
+        - Deletes memory
 
         This tool formats the confirmation request. The user will approve
         or deny in their next message.
@@ -180,13 +187,31 @@ async def user_interaction_function(config: UserInteractionConfig, builder: Buil
             alternatives: Other approaches you considered. Helps the user
                 understand the decision space. Separate with " | ".
             reversible: Whether this action can be easily undone.
-            user_id: Authenticated user id. Required to issue an approval token.
+            user_id: Legacy fallback user id. Authenticated HTTP requests
+                derive the user from trusted request headers.
             action_type: Consequential action category, e.g. "delete_memory".
             target: Action target the approval applies to.
 
         Returns:
             Formatted confirmation request to present to the user.
         """
+        normalized_action_type = action_type.strip().lower()
+        normalized_action = action.strip().lower()
+        looks_like_memory_write = "memory" in normalized_action and any(
+            verb in normalized_action
+            for verb in ("add", "store", "remember", "save", "persist")
+        )
+        if normalized_action_type in {
+            "memory_update",
+            "add_memory",
+        } or looks_like_memory_write:
+            return (
+                "No confirmation is required for an explicit user-requested "
+                "memory write. Call add_memory directly now, without a user_id "
+                "argument. Use confirm_action only for destructive external "
+                "mutations or memory deletes."
+            )
+
         parts = [f"**Action requiring confirmation:**\n\n{action}"]
 
         parts.append(f"\n**Reason:** {reason}")
@@ -203,13 +228,14 @@ async def user_interaction_function(config: UserInteractionConfig, builder: Buil
                 alts_formatted = ", ".join(alt_list)
                 parts.append(f"\n**Alternatives considered:** {alts_formatted}")
 
+        resolved_user_id = _authenticated_user_or_fallback(user_id)
         token: str | None = None
-        if user_id and action_type and action_type != "unspecified":
+        if resolved_user_id and action_type and action_type != "unspecified":
             try:
                 token = issue_approval_token(
                     _get_redis(),
                     ApprovalRequest(
-                        user_id=user_id,
+                        user_id=resolved_user_id,
                         action_type=action_type,
                         target=target or "*",
                     ),
@@ -257,8 +283,8 @@ async def user_interaction_function(config: UserInteractionConfig, builder: Buil
             source_strategy_json: Optional JSON from plan_sources.
             estimated_tool_calls: Estimated retrieval/search calls.
             risks: Material risks, gaps, or cost concerns.
-            user_id: Authenticated user id. Optional; when present, records an
-                approval token scoped to deep_research_plan.
+            user_id: Legacy fallback user id. Authenticated HTTP requests
+                derive the user from trusted request headers.
             target: Optional plan target. Defaults to title.
         """
         resolved_title = (title or "Deep research plan").strip()
@@ -318,13 +344,14 @@ async def user_interaction_function(config: UserInteractionConfig, builder: Buil
                 "tool/LLM budget than a quick research answer."
             )
 
+        resolved_user_id = _authenticated_user_or_fallback(user_id)
         token: str | None = None
-        if user_id:
+        if resolved_user_id:
             try:
                 token = issue_approval_token(
                     _get_redis(),
                     ApprovalRequest(
-                        user_id=user_id,
+                        user_id=resolved_user_id,
                         action_type="deep_research_plan",
                         target=target or resolved_title,
                     ),
@@ -410,18 +437,19 @@ async def user_interaction_function(config: UserInteractionConfig, builder: Buil
     # Tool 5 -- delete_memory_guarded
     # ------------------------------------------------------------------
     async def delete_memory_guarded(
-        user_id: str,
         approval_token: str,
+        user_id: str = "",
         target: str = "",
     ) -> str:
         """Delete Redis-backed memory keys for a user after token validation.
 
         Args:
-            user_id: Authenticated user id whose memories should be deleted.
             approval_token: Single-use token from confirm_action.
+            user_id: Legacy fallback only. Authenticated HTTP requests derive
+                the user from trusted request headers.
             target: Approval target. Defaults to user_id.
         """
-        resolved_user = (user_id or "").strip()
+        resolved_user = _authenticated_user_or_fallback(user_id)
         if not resolved_user:
             return "Error: user_id is required."
 
@@ -471,9 +499,11 @@ async def user_interaction_function(config: UserInteractionConfig, builder: Buil
                 confirm_action,
                 description=(
                     "Request explicit user confirmation before taking a consequential "
-                    "action. Use before modifying external state (Kubernetes, GitHub, "
-                    "memory), irreversible actions, or actions with significant costs. "
-                    "Presents the action, reason, risks, and alternatives."
+                    "action. Use before destructive external-state mutations "
+                    "(Kubernetes, GitHub), memory deletes, irreversible actions, "
+                    "or actions with significant costs. Do not use for add_memory "
+                    "or memory_update. Presents the action, reason, risks, and "
+                    "alternatives."
                 ),
             )
 
@@ -484,9 +514,9 @@ async def user_interaction_function(config: UserInteractionConfig, builder: Buil
                     "Request explicit approval before starting an expensive "
                     "AIQ-style deep research plan. Args: title, sections_json, "
                     "optional source_strategy_json, estimated_tool_calls, risks, "
-                    "user_id, and target. Presents sections, source strategy, "
+                    "and target. Presents sections, source strategy, "
                     "cost/risk trade-offs, and records a scoped approval token "
-                    "when user_id is provided."
+                    "using the authenticated request identity."
                 ),
             )
 
@@ -507,9 +537,10 @@ async def user_interaction_function(config: UserInteractionConfig, builder: Buil
                 delete_memory_guarded,
                 description=(
                     "Delete all Redis-backed memories for a user only after validating "
-                    "a single-use approval_token from confirm_action. Required args: "
-                    "user_id and approval_token. The token must have action_type "
-                    "'delete_memory' and target equal to the user_id."
+                    "a single-use approval_token from confirm_action. Required arg: "
+                    "approval_token. The backend derives user identity from the "
+                    "authenticated request. The token must have action_type "
+                    "'delete_memory' and target equal to that user_id."
                 ),
             )
 

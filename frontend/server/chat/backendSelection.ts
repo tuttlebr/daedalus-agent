@@ -170,7 +170,7 @@ export async function submitNatAsyncJob(
 ): Promise<void> {
   const submitUrl = buildBackendUrlFromBase(natBaseUrl, '/v1/workflow/async');
   const payload = {
-    messages: messagesForNat,
+    input_message: messagesToInputMessage(messagesForNat),
     job_id: jobId,
     sync_timeout: 0,
     expiry_seconds: JOB_EXPIRY_SECONDS,
@@ -200,6 +200,24 @@ export async function submitNatAsyncJob(
       'backend_submit_failed',
     );
   }
+}
+
+function messagesToInputMessage(messages: any[]): string {
+  if (!Array.isArray(messages)) return '';
+  return messages
+    .map((message) => {
+      if (!message || typeof message !== 'object') return null;
+      const rawContent = message.content;
+      const content =
+        typeof rawContent === 'string'
+          ? rawContent.trim()
+          : JSON.stringify(rawContent ?? '').trim();
+      if (!content) return null;
+      const role = String(message.role || 'user').trim().toUpperCase() || 'USER';
+      return `[${role}]\n${content}`;
+    })
+    .filter((part): part is string => Boolean(part))
+    .join('\n\n');
 }
 
 export async function fetchNatJobStatus(

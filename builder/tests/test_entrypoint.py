@@ -42,7 +42,7 @@ def test_daedalus_routes_attached_on_fastapi_construction(monkeypatch):
     entrypoint._patch_fastapi_daedalus_routes(logging.getLogger("test"))
 
     app = fastapi.FastAPI()
-    assert len(app.included_routers) == 2
+    assert len(app.included_routers) == 3
     assert getattr(app, "_daedalus_routes_attached", False) is True
 
 
@@ -64,7 +64,7 @@ def test_daedalus_routes_attached_only_once_per_instance(monkeypatch):
 def test_daedalus_route_import_failure_is_fatal(monkeypatch):
     # Force the router import to fail at patch-setup time; this must
     # raise so the container does not boot silently without the
-    # /v1/images/* and /v1/documents/* endpoints.
+    # /v1/images/*, /v1/documents/*, and /v1/profile/* endpoints.
     monkeypatch.setattr(fastapi, "FastAPI", _FakeFastAPI)
     monkeypatch.setitem(__import__("sys").modules, "image_api", None)
 

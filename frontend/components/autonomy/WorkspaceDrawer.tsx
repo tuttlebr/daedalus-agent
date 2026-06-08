@@ -7,9 +7,16 @@ import {
   IconPlayerStop,
   IconPlus,
   IconTrash,
+  IconUpload,
   IconX,
 } from '@tabler/icons-react';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  type ChangeEvent,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from 'react';
 
 import type {
   AutonomyConfig,
@@ -40,6 +47,8 @@ interface WorkspaceDrawerProps {
   onCancelActiveRun: () => void;
   onUpdateInterval: (hours: number) => void;
   onCreateGoal: (title: string, description: string) => void;
+  onImportGoals: (payload: unknown) => void | Promise<void>;
+  onImportProfile: (payload: unknown) => void | Promise<void>;
   onDeleteGoal: (id: string) => void;
 }
 
@@ -58,13 +67,19 @@ export function WorkspaceDrawer({
   onCancelActiveRun,
   onUpdateInterval,
   onCreateGoal,
+  onImportGoals,
+  onImportProfile,
   onDeleteGoal,
 }: WorkspaceDrawerProps) {
   const panelRef = useRef<HTMLDivElement>(null);
+  const goalImportInputRef = useRef<HTMLInputElement>(null);
+  const profileImportInputRef = useRef<HTMLInputElement>(null);
   const [manualPrompt, setManualPrompt] = useState('');
   const [intervalHours, setIntervalHours] = useState('4');
   const [goalTitle, setGoalTitle] = useState('');
   const [goalDescription, setGoalDescription] = useState('');
+  const [goalImportError, setGoalImportError] = useState('');
+  const [profileImportError, setProfileImportError] = useState('');
 
   useEffect(() => {
     if (!config) return;
@@ -118,6 +133,40 @@ export function WorkspaceDrawer({
   const hasActiveRun =
     !!activeRun &&
     ['running', 'queued', 'waiting_approval'].includes(activeRun.status);
+
+  const handleGoalFileSelected = useCallback(
+    async (event: ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0];
+      if (!file) return;
+      try {
+        const parsed = JSON.parse(await file.text());
+        await onImportGoals(parsed);
+        setGoalImportError('');
+      } catch {
+        setGoalImportError('Import failed. Use a JSON array or goals object.');
+      } finally {
+        event.target.value = '';
+      }
+    },
+    [onImportGoals],
+  );
+
+  const handleProfileFileSelected = useCallback(
+    async (event: ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0];
+      if (!file) return;
+      try {
+        const parsed = JSON.parse(await file.text());
+        await onImportProfile(parsed);
+        setProfileImportError('');
+      } catch {
+        setProfileImportError('Import failed. Use a profile JSON object.');
+      } finally {
+        event.target.value = '';
+      }
+    },
+    [onImportProfile],
+  );
 
   return (
     <div
@@ -213,6 +262,31 @@ export function WorkspaceDrawer({
             )}
           </Section>
 
+          <Section title="Profile">
+            <input
+              ref={profileImportInputRef}
+              type="file"
+              accept="application/json,.json"
+              className="sr-only"
+              onChange={handleProfileFileSelected}
+            />
+            <Button
+              size="xs"
+              variant="secondary"
+              isLoading={busy === 'profile:import'}
+              disabled={busy !== null && busy !== 'profile:import'}
+              onClick={() => profileImportInputRef.current?.click()}
+              leftIcon={<IconUpload size={12} />}
+            >
+              Import profile JSON
+            </Button>
+            {profileImportError && (
+              <p className="mt-2 font-serif text-[12px] text-red-300">
+                {profileImportError}
+              </p>
+            )}
+          </Section>
+
           <Section title="Compose run">
             <Textarea
               value={manualPrompt}
@@ -296,6 +370,28 @@ export function WorkspaceDrawer({
               >
                 Add goal
               </Button>
+              <input
+                ref={goalImportInputRef}
+                type="file"
+                accept="application/json,.json"
+                className="sr-only"
+                onChange={handleGoalFileSelected}
+              />
+              <Button
+                size="xs"
+                variant="ghost"
+                isLoading={busy === 'goal:import'}
+                disabled={busy !== null && busy !== 'goal:import'}
+                onClick={() => goalImportInputRef.current?.click()}
+                leftIcon={<IconUpload size={12} />}
+              >
+                Import JSON
+              </Button>
+              {goalImportError && (
+                <p className="font-serif text-[12px] text-red-300">
+                  {goalImportError}
+                </p>
+              )}
             </div>
             <div className="mt-4 space-y-3">
               {goals.length === 0 ? (

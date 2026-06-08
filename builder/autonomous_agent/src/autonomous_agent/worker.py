@@ -410,12 +410,18 @@ def main() -> int:
                     f"{_request_summary(request)} "
                     f"queue_depth_after={store.queue_length(user_id)}"
                 )
-                run_with_lease_heartbeat(
+                run = run_with_lease_heartbeat(
                     store=store,
                     backend=backend,
                     user_id=user_id,
                     request=request,
                     lease_ttl=lease_ttl,
+                )
+                log(
+                    "run finished: "
+                    f"id={run.get('id') or 'unknown'} "
+                    f"status={run.get('status') or 'unknown'} "
+                    f"error={str(run.get('error') or '')[:240]!r}"
                 )
                 # F-013: the run has been recorded (incl. recorded failures), so
                 # remove it from the processing list. If the worker had crashed

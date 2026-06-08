@@ -5,6 +5,7 @@ from autonomous_agent.backend_client import (
     OAuthRequiredError,
     extract_async_job_id,
     extract_oauth_required_payload,
+    messages_to_input_message,
 )
 from autonomous_agent.dedupe import dedupe_feed_items
 from autonomous_agent.models import now_ms
@@ -405,8 +406,21 @@ def test_extract_async_job_id_accepts_common_response_shapes():
     assert extract_async_job_id({}, "local-job") == "local-job"
 
 
+def test_messages_to_input_message_flattens_chat_messages_for_async_generate():
+    prompt = messages_to_input_message(
+        [
+            {"role": "system", "content": "Rules"},
+            {"role": "user", "content": "Run goals"},
+            {"role": "assistant", "content": ""},
+        ]
+    )
+
+    assert prompt == "[SYSTEM]\nRules\n\n[USER]\nRun goals"
+
+
 def test_backend_client_uses_returned_async_job_id(monkeypatch):
     requested_urls = []
+    submitted_payloads = []
 
     class FakeResponse:
         status_code = 200
@@ -421,6 +435,7 @@ def test_backend_client_uses_returned_async_job_id(monkeypatch):
             return self.payload
 
     def fake_post(*args, **kwargs):
+        submitted_payloads.append(kwargs["json"])
         return FakeResponse({"job_id": "server-job"})
 
     def fake_get(url, *args, **kwargs):
@@ -440,7 +455,42 @@ def test_backend_client_uses_returned_async_job_id(monkeypatch):
     )
 
     assert backend.call([{"role": "user", "content": "go"}]) == "done"
+    assert submitted_payloads[0]["input_message"] == "[USER]\ngo"
+    assert "messages" not in submitted_payloads[0]
     assert requested_urls == ["http://backend:8000/v1/workflow/async/job/server-job"]
+
+
+def test_backend_client_submit_error_includes_response_body(monkeypatch):
+    import requests as _requests
+
+    class FakeResponse:
+        text = '{"detail":[{"loc":["body","input_message"],"msg":"Field required"}]}'
+
+        def raise_for_status(self):
+            raise _requests.HTTPError(
+                "422 Client Error: Unprocessable Entity for url"
+            )
+
+    monkeypatch.setattr(
+        "autonomous_agent.backend_client.requests.post",
+        lambda *args, **kwargs: FakeResponse(),
+    )
+
+    backend = BackendClient(
+        base_url="http://backend:8000",
+        api_path="/v1/workflow/async",
+        user_id="test-user",
+        request_timeout=30,
+        poll_interval=1,
+    )
+
+    try:
+        backend.call([{"role": "user", "content": "go"}])
+    except _requests.HTTPError as exc:
+        assert "input_message" in str(exc)
+        assert "Field required" in str(exc)
+    else:
+        raise AssertionError("expected submit validation error")
 
 
 def test_backend_client_fails_fast_after_repeated_async_404(monkeypatch):

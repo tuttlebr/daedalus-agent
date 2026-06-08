@@ -105,6 +105,16 @@ def _config(path=CONFIG):
     return yaml.safe_load(path.read_text(encoding="utf-8"))
 
 
+def _walk_mapping_keys(value):
+    if isinstance(value, dict):
+        for key, child in value.items():
+            yield key
+            yield from _walk_mapping_keys(child)
+    elif isinstance(value, list):
+        for child in value:
+            yield from _walk_mapping_keys(child)
+
+
 def _effective_operations(config, tool_name):
     if tool_name in config.get("function_groups", {}):
         group = config["function_groups"][tool_name]
@@ -274,31 +284,26 @@ def test_openai_llms_use_role_specific_gpt55_responses_parameters():
             "effort": "high",
             "verbosity": "low",
             "max_output_tokens": 16384,
-            "temperature": 0.2,
         },
         "react_llm": {
             "effort": "low",
             "verbosity": "low",
             "max_output_tokens": 4096,
-            "temperature": 0.0,
         },
         "tool_calling_llm": {
             "effort": "medium",
             "verbosity": "low",
             "max_output_tokens": 16384,
-            "temperature": 0.2,
         },
         "distill_llm": {
             "effort": "low",
             "verbosity": "low",
             "max_output_tokens": 6144,
-            "temperature": 0.1,
         },
         "default_llm": {
             "effort": "low",
             "verbosity": "low",
             "max_output_tokens": 4096,
-            "temperature": 0.2,
         },
     }
     for path in DEPLOYED_CONFIGS:
@@ -313,11 +318,18 @@ def test_openai_llms_use_role_specific_gpt55_responses_parameters():
                 path,
                 llm_name,
             )
-            assert llm["temperature"] == params["temperature"], (path, llm_name)
-            assert llm["top_p"] == 1.0, (path, llm_name)
+            assert "temperature" not in llm, (path, llm_name)
+            assert "top_p" not in llm, (path, llm_name)
             assert llm["store"] is True, (path, llm_name)
             assert llm["prompt_cache_retention"] == "24h", (path, llm_name)
             assert "extra_body" not in llm, (path, llm_name)
+
+
+def test_backend_config_omits_unsupported_sampling_parameters():
+    unsupported = {"temperature", "top_p"}
+    for path in DEPLOYED_CONFIGS:
+        keys = set(_walk_mapping_keys(_config(path)))
+        assert keys.isdisjoint(unsupported), path
 
 
 def test_workflow_exposes_configured_nvidia_docs_servers():
@@ -611,7 +623,7 @@ def test_direct_leaf_routing_is_configured():
         assert "Do not invoke architecture routers" in prompt, path
 
 
-def test_daily_briefing_routes_to_raw_html_before_visual_media():
+def test_daily_briefing_routes_to_structured_response_without_visual_media():
     for path in DEPLOYED_CONFIGS:
         config = _config(path)
         prompt = config["workflow"]["system_prompt"]
@@ -620,22 +632,25 @@ def test_daily_briefing_routes_to_raw_html_before_visual_media():
 
         assert "Daily briefing" in prompt, path
         assert "set top_k=12" in prompt, path
-        assert "daedalus-feed nv-html weather" in prompt, path
+        assert "daily briefing weather locale location" in prompt, path
         assert "Routing after get_memory" in prompt, path
         assert prompt.index("Daily briefing") < prompt.index(
             "Quick research"
         ), path
-        assert "create the raw Daedalus feed HTML directly" in normalized_prompt, path
-        assert 'agent_skills_tool.load_skill("nv-html")' in prompt, path
+        assert "produce a concise structured briefing directly" in normalized_prompt, path
         assert "memory-derived local weather and logistics" in prompt, path
         assert "read-only operations status" in normalized_prompt, path
         assert "teams, leagues, and events found in memory" in normalized_prompt, path
-        assert "raw HTML only: one renderable HTML" in normalized_prompt, path
-        assert '`<article class="daedalus-feed"`' in prompt, path
+        assert "normal assistant response format" in normalized_prompt, path
+        assert "Markdown is allowed" in prompt, path
+        assert "Do not require raw HTML" in prompt, path
         assert "Do not call visual_media_tool for" in normalized_prompt, path
         assert (
             "daily briefings unless the user explicitly asks" in normalized_prompt
         ), path
+        assert "raw HTML only" not in prompt, path
+        assert "daedalus-feed" not in prompt, path
+        assert "nv-html" not in prompt, path
         assert "Never use this tool for a" in visual_media_desc, path
         assert "daily summary or daily briefing" in visual_media_desc, path
         assert "Saline" not in prompt, path
@@ -643,7 +658,7 @@ def test_daily_briefing_routes_to_raw_html_before_visual_media():
         assert "Steelers" not in prompt, path
 
 
-def test_daily_summary_contracts_raw_nv_html_fragment():
+def test_daily_summary_contracts_structured_briefing():
     for path in DEPLOYED_CONFIGS:
         config = _config(path)
         prompt = config["workflow"]["system_prompt"]
@@ -661,20 +676,18 @@ def test_daily_summary_contracts_raw_nv_html_fragment():
 
         assert "call current_datetime_tool" in prompt, path
         assert "set top_k=12" in prompt, path
-        assert "daedalus-feed nv-html weather" in prompt, path
+        assert "daily briefing weather locale location" in prompt, path
         assert "personalization source of truth" in prompt, path
-        assert 'agent_skills_tool.load_skill("nv-html")' in prompt, path
         assert "calendar tools" in prompt, path
         assert "k8s_mcp_server" in prompt, path
         assert "curated_feed_search_tool" in prompt, path
-        assert "raw HTML only" in prompt, path
-        assert (
-            '<article class="daedalus-feed" aria-label="Daily Summary">' in prompt
-        ), path
-        assert "Do not return Markdown" in prompt, path
-        assert "fenced code" in prompt, path
+        assert "concise structured briefing" in prompt, path
+        assert "Markdown is allowed" in prompt, path
+        assert "Do not require HTML" in prompt, path
+        assert "raw HTML only" not in prompt, path
+        assert '<article class="daedalus-feed"' not in prompt, path
         assert "<img>" in prompt, path
-        assert "returning the single HTML fragment" in prompt, path
+        assert "Next Best Actions" in prompt, path
         assert "Brandon" not in prompt, path
         assert "Saline" not in prompt, path
         assert "Yankees" not in prompt, path
@@ -769,6 +782,22 @@ def test_memory_verification_prompt_limits_failed_retries():
         assert "placeholder URLs" in prompt, path
 
 
+def test_explicit_memory_writes_do_not_require_confirmation():
+    for path in DEPLOYED_CONFIGS:
+        config = _config(path)
+        prompt = config["workflow"]["system_prompt"]
+        add_memory_desc = config["functions"]["add_memory"]["description"]
+        ops_desc = config["functions"]["ops_confirmation_tool"]["description"]
+
+        assert "Explicit memory write" in prompt, path
+        assert "call add_memory directly" in prompt, path
+        assert "No approval is required" in prompt, path
+        assert "Do not call ops_confirmation_tool" in prompt, path
+        assert "explicit user requests" in add_memory_desc, path
+        assert "Never use for" in ops_desc, path
+        assert "memory_update" in ops_desc, path
+
+
 def test_backend_system_prompts_follow_prompt_guidance_shape():
     for path in DEPLOYED_CONFIGS:
         config = _config(path)
@@ -808,5 +837,6 @@ def test_identity_control_messages_match_backend_memory_contract():
         text = surface.read_text(encoding="utf-8")
         assert "[IDENTITY]" in text, surface
         assert "delete_memory_guarded" in text, surface
+        assert 'explicit "remember" requests' in text, surface
         assert "delete_memory)" not in text, surface
         assert "Do not echo this identity message" in text, surface

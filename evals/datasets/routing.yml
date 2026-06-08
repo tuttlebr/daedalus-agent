@@ -74,7 +74,6 @@
   expected:
     required_tools:
       - current_datetime_tool
-      - agent_skills_tool
     skill: null
   forbidden_tools:
     - visual_media_tool

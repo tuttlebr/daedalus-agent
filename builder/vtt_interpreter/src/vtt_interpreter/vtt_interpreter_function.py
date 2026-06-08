@@ -414,7 +414,6 @@ Please organize this into the four required sections, being careful not to add a
                     {"role": "user", "content": user_prompt},
                 ],
                 max_tokens=max_tokens if max_tokens is not None else config.max_tokens,
-                temperature=0.1,  # Low temperature for consistent, factual output
             )
 
             # Extract the response content

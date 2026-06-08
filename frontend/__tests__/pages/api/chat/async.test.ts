@@ -790,13 +790,10 @@ describe('chat/async backend pinning helpers', () => {
     );
     const submitBody = JSON.parse(mocks.fetchWithTimeout.mock.calls[1][1].body);
     expect(submitBody.sync_timeout).toBe(0);
-    expect(submitBody.messages[1].content).toContain('documentRef=');
-    expect(submitBody.messages[1].content).toContain(
-      'collection_name="nvidia"',
-    );
-    expect(submitBody.messages[1].content).toContain(
-      'collection_scope="shared"',
-    );
+    expect(submitBody.messages).toBeUndefined();
+    expect(submitBody.input_message).toContain('documentRef=');
+    expect(submitBody.input_message).toContain('collection_name="nvidia"');
+    expect(submitBody.input_message).toContain('collection_scope="shared"');
 
     const storedJobRequest = (jsonSetWithExpiry as any).mock.calls.find(
       ([key]: [string]) => key.includes('async-job-request'),
@@ -1105,6 +1102,8 @@ describe('chat/async backend pinning helpers', () => {
     if (!streamCall) throw new Error('Expected chat stream request');
     const streamPayload = JSON.parse(String(streamCall[1]?.body ?? '{}'));
     expect(streamPayload.messages).toEqual(sentMessages);
+    expect(streamPayload.temperature).toBeUndefined();
+    expect(streamPayload.top_p).toBeUndefined();
   });
 
   it('treats legacy shared-service 404s as retryable instead of terminal', async () => {

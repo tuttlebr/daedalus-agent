@@ -34,6 +34,7 @@ for _pkg_dir in sorted(BUILDER_DIR.iterdir()):
 # ---------------------------------------------------------------------------
 try:
     from pydantic import BaseModel as _BaseModel
+    from pydantic import Field as _Field
 
     class _FakeFunctionBaseConfig(_BaseModel):
         """Drop-in for nat.data_models.function.FunctionBaseConfig."""
@@ -45,6 +46,7 @@ try:
 
 except ImportError:  # pragma: no cover
     _FakeFunctionBaseConfig = MagicMock  # type: ignore[misc,assignment]
+    _Field = MagicMock
 
 
 class _FakeFunctionInfo:
@@ -55,7 +57,12 @@ class _FakeFunctionInfo:
         self.description = description
 
     @classmethod
-    def from_fn(cls, fn, description: str = "") -> "_FakeFunctionInfo":
+    def from_fn(
+        cls,
+        fn,
+        description: str = "",
+        **_kwargs,
+    ) -> "_FakeFunctionInfo":
         return cls(fn=fn, description=description)
 
     @classmethod
@@ -86,6 +93,10 @@ _nat_function_info_mod.FunctionInfo = _FakeFunctionInfo
 
 _nat_data_models_function_mod = MagicMock()
 _nat_data_models_function_mod.FunctionBaseConfig = _FakeFunctionBaseConfig
+
+_nat_data_models_component_ref_mod = MagicMock()
+_nat_data_models_component_ref_mod.LLMRef = str
+_nat_data_models_component_ref_mod.MemoryRef = str
 
 _nat_data_models_retriever_mod = MagicMock()
 _nat_data_models_retriever_mod.RetrieverBaseConfig = _FakeFunctionBaseConfig
@@ -137,6 +148,19 @@ _nat_retriever_models_mod.Document = _FakeDocument
 _nat_retriever_models_mod.RetrieverError = _FakeRetrieverError
 _nat_retriever_models_mod.RetrieverOutput = _FakeRetrieverOutput
 
+
+class _FakeMemoryItem(_BaseModel):
+    conversation: list[dict[str, str]] | None = None
+    tags: list[str] = _Field(default_factory=list)
+    metadata: dict = _Field(default_factory=dict)
+    user_id: str
+    memory: str | None = None
+    similarity_score: float | None = None
+
+
+_nat_memory_models_mod = MagicMock()
+_nat_memory_models_mod.MemoryItem = _FakeMemoryItem
+
 _NAT_MOCKS: dict[str, object] = {
     "nat": MagicMock(),
     "nat.builder": MagicMock(),
@@ -147,8 +171,11 @@ _NAT_MOCKS: dict[str, object] = {
     "nat.cli": MagicMock(),
     "nat.cli.register_workflow": _nat_register_mod,
     "nat.data_models": MagicMock(),
+    "nat.data_models.component_ref": _nat_data_models_component_ref_mod,
     "nat.data_models.function": _nat_data_models_function_mod,
     "nat.data_models.retriever": _nat_data_models_retriever_mod,
+    "nat.memory": MagicMock(),
+    "nat.memory.models": _nat_memory_models_mod,
     "nat.retriever": MagicMock(),
     "nat.retriever.interface": _nat_retriever_interface_mod,
     "nat.retriever.models": _nat_retriever_models_mod,

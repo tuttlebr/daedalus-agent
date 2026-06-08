@@ -217,6 +217,42 @@ export function AutonomyDashboard() {
     [refresh],
   );
 
+  const importGoals = useCallback(
+    async (payload: unknown) => {
+      setBusy('goal:import');
+      try {
+        const body =
+          payload && typeof payload === 'object' && !Array.isArray(payload)
+            ? { mode: 'replace', ...payload }
+            : { mode: 'replace', goals: payload };
+        const response = await fetch('/api/autonomy/goals', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        if (!response.ok) throw new Error('Failed to import goals');
+        await refresh();
+      } finally {
+        setBusy(null);
+      }
+    },
+    [refresh],
+  );
+
+  const importProfile = useCallback(async (payload: unknown) => {
+    setBusy('profile:import');
+    try {
+      const response = await fetch('/api/profile/import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload || {}),
+      });
+      if (!response.ok) throw new Error('Failed to import profile');
+    } finally {
+      setBusy(null);
+    }
+  }, []);
+
   const deleteGoal = useCallback(
     async (id: string) => {
       setBusy(`goal:${id}`);
@@ -328,6 +364,8 @@ export function AutonomyDashboard() {
         onCancelActiveRun={cancelActiveRun}
         onUpdateInterval={updateInterval}
         onCreateGoal={createGoal}
+        onImportGoals={importGoals}
+        onImportProfile={importProfile}
         onDeleteGoal={deleteGoal}
       />
     </div>

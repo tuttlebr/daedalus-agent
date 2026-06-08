@@ -123,6 +123,7 @@ COPY llm_diagnostics.py /workspace/llm_diagnostics.py
 COPY mcp_patches.py /workspace/mcp_patches.py
 COPY image_api.py /workspace/image_api.py
 COPY document_ingest_api.py /workspace/document_ingest_api.py
+COPY profile_import_api.py /workspace/profile_import_api.py
 COPY --from=skills . /skills
 
 # Ensure baked files are accessible when running as non-root (K8s securityContext),
@@ -146,6 +147,7 @@ RUN chmod -R a+rX \
     /workspace/mcp_patches.py \
     /workspace/image_api.py \
     /workspace/document_ingest_api.py \
+    /workspace/profile_import_api.py \
     /skills && \
     mkdir -p /workspace/.tmp && \
     chmod 1777 /workspace/.tmp

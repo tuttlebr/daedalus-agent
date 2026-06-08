@@ -211,12 +211,6 @@ class SourceVerifierConfig(FunctionBaseConfig, name="source_verifier"):
         le=16384,
         description="Maximum tokens for the verification LLM response.",
     )
-    temperature: float = Field(
-        default=0.0,
-        ge=0.0,
-        le=1.0,
-        description="Temperature for verification LLM calls. 0.0 for maximum factual precision.",
-    )
     wrapper_type: str = Field(
         default="LANGCHAIN",
         description="LLM wrapper type: LANGCHAIN or OPENAI.",
@@ -270,7 +264,6 @@ async def _call_llm(
 
     llm_kwargs = {
         "max_tokens": config.max_output_tokens,
-        "temperature": config.temperature,
     }
 
     target_llm = llm_name or config.llm_name

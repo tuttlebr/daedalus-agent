@@ -99,13 +99,14 @@ def _patch_fastapi_daedalus_routes(logger):
 
     The routers are imported once here at patch-setup time. A failed
     import is fatal (we raise) so the container does not start silently
-    without the /v1/images/* and /v1/documents/* endpoints.
+    without the /v1/images/*, /v1/documents/*, and /v1/profile/* endpoints.
     """
     # Import the routers up front so a broken import fails boot loudly
     # instead of silently leaving the endpoints unregistered (404).
     from document_ingest_api import router as document_ingest_router
     from fastapi import FastAPI
     from image_api import router as image_router
+    from profile_import_api import router as profile_import_router
 
     original_init = FastAPI.__init__
 
@@ -115,6 +116,7 @@ def _patch_fastapi_daedalus_routes(logger):
             return
         self.include_router(image_router)
         self.include_router(document_ingest_router)
+        self.include_router(profile_import_router)
         self._daedalus_routes_attached = True
         logger.info("Attached Daedalus HTTP routers to FastAPI app")
 

@@ -28,6 +28,8 @@ const VALID_ACTION_POLICIES = new Set([
   'read_memory_only',
   'low_risk_writes',
 ]);
+const VALID_GOAL_STATUSES = new Set(['active', 'paused', 'completed']);
+const MAX_IMPORTED_GOALS = 100;
 
 function clampInt(
   value: unknown,
@@ -184,6 +186,101 @@ export async function saveGoals(
     timestamp: nowMs(),
     data: { goals },
   });
+}
+
+function sanitizeGoalId(value: unknown): string {
+  if (typeof value !== 'string') return '';
+  const cleaned = value
+    .trim()
+    .replace(/[^A-Za-z0-9_-]/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_+|_+$/g, '');
+  if (!cleaned) return '';
+  return cleaned.startsWith('goal_') ? cleaned : `goal_${cleaned}`;
+}
+
+function uniqueGoalId(preferredId: string, usedIds: Set<string>): string {
+  const base = preferredId || `goal_${uuidv4().replace(/-/g, '')}`;
+  let candidate = base;
+  let suffix = 2;
+  while (usedIds.has(candidate)) {
+    candidate = `${base}_${suffix}`;
+    suffix += 1;
+  }
+  usedIds.add(candidate);
+  return candidate;
+}
+
+function sanitizeGoalTags(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const tags = Array.from(
+    new Set(
+      value
+        .filter((tag): tag is string => typeof tag === 'string')
+        .map((tag) => tag.trim())
+        .filter(Boolean)
+        .slice(0, 12),
+    ),
+  );
+  return tags.length > 0 ? tags : undefined;
+}
+
+export function normalizeImportedGoals(
+  rawGoals: unknown[],
+  existingGoals: AutonomyGoal[] = [],
+): AutonomyGoal[] {
+  const timestamp = nowMs();
+  const usedIds = new Set(existingGoals.map((goal) => goal.id));
+
+  return rawGoals
+    .slice(0, MAX_IMPORTED_GOALS)
+    .map((raw): AutonomyGoal | null => {
+      if (!raw || typeof raw !== 'object') return null;
+      const input = raw as Partial<AutonomyGoal> & Record<string, unknown>;
+      const title = typeof input.title === 'string' ? input.title.trim() : '';
+      if (!title) return null;
+
+      const priority = Number(input.priority);
+      const status =
+        typeof input.status === 'string' &&
+        VALID_GOAL_STATUSES.has(input.status)
+          ? (input.status as AutonomyGoal['status'])
+          : 'active';
+      const tags = sanitizeGoalTags(input.tags);
+      return {
+        id: uniqueGoalId(sanitizeGoalId(input.id), usedIds),
+        title,
+        description:
+          typeof input.description === 'string' ? input.description.trim() : '',
+        status,
+        priority: Number.isFinite(priority) ? priority : 3,
+        ...(tags ? { tags } : {}),
+        createdAt: timestamp,
+        updatedAt: timestamp,
+        lastRunAt: null,
+      };
+    })
+    .filter((goal): goal is AutonomyGoal => goal !== null);
+}
+
+export async function importGoals(
+  userId: string,
+  rawGoals: unknown[],
+  mode: 'replace' | 'append' = 'replace',
+): Promise<{ goals: AutonomyGoal[]; imported: number; skipped: number }> {
+  const existingGoals = await listGoals(userId);
+  const importedGoals = normalizeImportedGoals(
+    rawGoals,
+    mode === 'append' ? existingGoals : [],
+  );
+  const goals =
+    mode === 'append' ? [...importedGoals, ...existingGoals] : importedGoals;
+  await saveGoals(userId, goals);
+  return {
+    goals,
+    imported: importedGoals.length,
+    skipped: Math.max(0, rawGoals.length - importedGoals.length),
+  };
 }
 
 export async function createGoal(

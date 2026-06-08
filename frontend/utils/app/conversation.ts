@@ -106,6 +106,8 @@ export const saveConversation = async (conversation: Conversation) => {
       JSON.stringify(cleanedConversation),
     );
 
+    let persistedConversation = cleanedConversation;
+
     // Save to individual conversation endpoint
     try {
       await apiPut(
@@ -114,8 +116,6 @@ export const saveConversation = async (conversation: Conversation) => {
       );
     } catch (error) {
       if (error instanceof ConflictError && error.serverState) {
-        const { reportError } = await import('@/utils/errorReporter');
-        reportError(error, { source: 'manual' });
         const merged = {
           ...cleanedConversation,
           ...error.serverState,
@@ -126,6 +126,7 @@ export const saveConversation = async (conversation: Conversation) => {
               : cleanedConversation.messages,
         };
         await apiPut(`/api/conversations/${conversation.id}`, merged);
+        persistedConversation = merged;
         setUserSessionItem('selectedConversation', JSON.stringify(merged));
       } else {
         throw error;
@@ -133,10 +134,10 @@ export const saveConversation = async (conversation: Conversation) => {
     }
 
     // Also save to selectedConversation endpoint for cross-device synchronization
-    await apiPut('/api/session/selectedConversation', cleanedConversation);
+    await apiPut('/api/session/selectedConversation', persistedConversation);
 
     // Notify other devices/sessions about the update
-    notifySync('conversation_updated', conversation.id, cleanedConversation);
+    notifySync('conversation_updated', conversation.id, persistedConversation);
   } catch (error) {
     console.error('Failed to persist conversation to server', error);
     throw error;
