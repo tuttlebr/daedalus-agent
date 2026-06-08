@@ -247,7 +247,14 @@ export function AutonomyDashboard() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload || {}),
       });
-      if (!response.ok) throw new Error('Failed to import profile');
+      if (!response.ok) {
+        const errorBody = await response.json().catch(() => ({}));
+        throw new Error(
+          errorBody?.detail ||
+            errorBody?.error ||
+            `Failed to import profile (${response.status})`,
+        );
+      }
     } finally {
       setBusy(null);
     }

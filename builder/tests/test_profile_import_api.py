@@ -144,3 +144,30 @@ def test_embedding_config_fails_when_missing(monkeypatch):
 
     with pytest.raises(RuntimeError, match="EMBEDDING_API_KEY"):
         profile_import_api._embedding_adapter()
+
+
+def test_embedding_config_resolves_env_indirection(monkeypatch):
+    captured = {}
+
+    class FakeEmbeddings:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+    profile_import_api._embedding_adapter.cache_clear()
+    monkeypatch.setenv("NVIDIA_API_KEY", "nvapi-test")
+    monkeypatch.setenv("EMBEDDING_API_KEY", "${NVIDIA_API_KEY}")
+    monkeypatch.setenv("EMBEDDING_BASE_URL", "https://example.invalid/v1")
+    monkeypatch.setenv("EMBEDDING_MODEL", "example/model")
+    monkeypatch.setenv("EMBEDDING_TRUNCATE", "END")
+    monkeypatch.setattr(
+        profile_import_api, "OpenAICompatibleEmbeddings", FakeEmbeddings
+    )
+
+    profile_import_api._embedding_adapter()
+
+    assert captured == {
+        "api_key": "nvapi-test",
+        "base_url": "https://example.invalid/v1",
+        "model": "example/model",
+        "truncate": "END",
+    }

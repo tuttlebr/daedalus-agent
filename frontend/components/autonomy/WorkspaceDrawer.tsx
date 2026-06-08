@@ -159,8 +159,10 @@ export function WorkspaceDrawer({
         const parsed = JSON.parse(await file.text());
         await onImportProfile(parsed);
         setProfileImportError('');
-      } catch {
-        setProfileImportError('Import failed. Use a profile JSON object.');
+      } catch (error: any) {
+        setProfileImportError(
+          error?.message || 'Import failed. Use a profile JSON object.',
+        );
       } finally {
         event.target.value = '';
       }

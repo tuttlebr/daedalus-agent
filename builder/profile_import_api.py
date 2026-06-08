@@ -106,6 +106,22 @@ def _is_configured_value(value: str | None) -> bool:
     return not (stripped.startswith("${") and stripped.endswith("}"))
 
 
+def _resolve_env_value(value: str | None, *, max_depth: int = 5) -> str:
+    """Resolve simple ${OTHER_ENV_VAR} indirection used by Helm env secrets."""
+    resolved = (value or "").strip()
+    for _ in range(max_depth):
+        if not (resolved.startswith("${") and resolved.endswith("}")):
+            return resolved
+        env_name = resolved[2:-1].strip()
+        if not env_name:
+            return ""
+        next_value = (os.getenv(env_name) or "").strip()
+        if not next_value or next_value == resolved:
+            return next_value
+        resolved = next_value
+    return resolved
+
+
 def _merge_metadata(
     entry: ProfileEntry,
     profile_version: str | None,
@@ -224,10 +240,10 @@ class OpenAICompatibleEmbeddings:
 
 @lru_cache(maxsize=1)
 def _embedding_adapter() -> OpenAICompatibleEmbeddings:
-    api_key = os.getenv("EMBEDDING_API_KEY")
-    base_url = os.getenv("EMBEDDING_BASE_URL")
-    model = os.getenv("EMBEDDING_MODEL")
-    truncate = os.getenv("EMBEDDING_TRUNCATE", "END").strip() or None
+    api_key = _resolve_env_value(os.getenv("EMBEDDING_API_KEY"))
+    base_url = _resolve_env_value(os.getenv("EMBEDDING_BASE_URL"))
+    model = _resolve_env_value(os.getenv("EMBEDDING_MODEL"))
+    truncate = _resolve_env_value(os.getenv("EMBEDDING_TRUNCATE", "END")) or None
 
     missing = [
         name
@@ -245,9 +261,9 @@ def _embedding_adapter() -> OpenAICompatibleEmbeddings:
         )
 
     return OpenAICompatibleEmbeddings(
-        api_key=api_key.strip(),
-        base_url=base_url.strip(),
-        model=model.strip(),
+        api_key=api_key,
+        base_url=base_url,
+        model=model,
         truncate=truncate,
     )
 
