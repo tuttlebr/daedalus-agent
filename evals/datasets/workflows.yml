@@ -12,16 +12,29 @@
   workflow: top_level_chat_routing
   audience: customer-facing
   query: Thanks, that answered my question.
-  success_criteria: Direct response, no memory lookup, no MAS evaluation, no sub-agent.
+  success_criteria: Direct response after required memory lookup; no research, ops, media, or document tools.
   expected:
-    forbidden_tools:
+    required_tools:
       - get_memory
-      - mas_evaluate
+    forbidden_tools:
       - research_agent
+      - deep_research_agent
+      - nvidia_docs_agent
       - ops_agent
-      - vtt_interpreter_tool
+      - user_document_agent
       - user_data_agent
-    max_tool_calls: 0
+      - daily_summary_agent
+      - domain_retriever_tool
+      - curated_feed_search_tool
+      - serpapi_search_tool
+      - k8s_mcp_server
+      - user_document_tool
+      - gmail_mcp_server
+      - calendar_mcp_server
+      - visual_media_tool
+      - vtt_interpreter_tool
+    max_tool_calls: 1
+    max_workflow_calls: 1
     max_latency_s: 10
     max_total_tokens: 2000
 
@@ -29,15 +42,20 @@
   workflow: research_answers
   audience: customer-facing
   query: Summarize the H200 GPU memory bandwidth from an NVIDIA source and cite it.
-  success_criteria: Research route, cited technical answer, no ops/media/user-doc tools.
+  success_criteria: Direct research tool route, cited technical answer, no ops/media/user-doc tools.
   expected:
     required_tools:
-      - research_agent
+      - domain_retriever_tool
     forbidden_tools:
+      - research_agent
       - ops_agent
+      - k8s_mcp_server
       - vtt_interpreter_tool
-      - user_data_agent
+      - user_document_tool
+      - gmail_mcp_server
+      - calendar_mcp_server
     requires_citation: true
+    max_workflow_calls: 1
     max_latency_s: 120
     max_total_tokens: 30000
 
@@ -48,8 +66,9 @@
   success_criteria: Current-information research route with a source URL.
   expected:
     required_tools:
-      - research_agent
+      - curated_feed_search_tool
     requires_citation: true
+    max_workflow_calls: 1
     max_latency_s: 180
     max_total_tokens: 40000
 
@@ -60,27 +79,35 @@
   success_criteria: Read-only ops route, no confirmation prompt, plain error if cluster access is unavailable.
   expected:
     required_tools:
-      - ops_agent
+      - k8s_mcp_server
     forbidden_tools:
       - research_agent
+      - domain_retriever_tool
       - vtt_interpreter_tool
-      - user_data_agent
+      - user_document_tool
+      - gmail_mcp_server
+      - calendar_mcp_server
       - user_interaction_tool
+    max_workflow_calls: 1
     max_latency_s: 120
     max_total_tokens: 25000
 
 - id: ops-github-001
-  workflow: ops_workflows
+  workflow: github_workflows
   audience: employee-facing
   query: Show me the three most recent merged pull requests in the daedalus-agent GitHub repo.
-  success_criteria: GitHub read-only route, concise result, no destructive confirmation.
+  success_criteria: GitHub read-only request routes through the pr-monitor skill.
   expected:
     required_tools:
-      - ops_agent
+      - agent_skills_tool
     forbidden_tools:
+      - k8s_mcp_server
       - user_interaction_tool
       - vtt_interpreter_tool
-      - user_data_agent
+      - user_document_tool
+      - gmail_mcp_server
+      - calendar_mcp_server
+    max_workflow_calls: 1
     max_latency_s: 120
     max_total_tokens: 25000
 
@@ -91,11 +118,15 @@
   success_criteria: User document route; graceful empty-result behavior if no indexed docs exist.
   expected:
     required_tools:
-      - user_data_agent
+      - user_document_tool
     forbidden_tools:
       - research_agent
-      - ops_agent
+      - domain_retriever_tool
+      - k8s_mcp_server
       - vtt_interpreter_tool
+      - gmail_mcp_server
+      - calendar_mcp_server
+    max_workflow_calls: 1
     max_latency_s: 120
     max_total_tokens: 25000
 
@@ -109,10 +140,14 @@
       - visual_media_tool
     forbidden_tools:
       - research_agent
-      - ops_agent
-      - user_data_agent
+      - domain_retriever_tool
+      - k8s_mcp_server
+      - user_document_tool
+      - gmail_mcp_server
+      - calendar_mcp_server
     response_regex:
       - "!?\\[[^\\]]*\\]\\([^\\)]+\\)"
+    max_workflow_calls: 1
     max_latency_s: 240
     max_total_tokens: 25000
 
@@ -136,6 +171,7 @@
     response_contains:
       - eval gate
       - latency dashboard
+    max_workflow_calls: 1
     max_latency_s: 120
     max_total_tokens: 25000
 
@@ -146,39 +182,19 @@
   success_criteria: Daily summary route returns raw Daedalus feed HTML and does not use visual media.
   expected:
     required_tools:
-      - daily_summary_agent
+      - get_memory
+      - current_datetime_tool
+      - agent_skills_tool
     forbidden_tools:
+      - daily_summary_agent
       - visual_media_tool
     response_regex:
       - "^\\s*<article class=\"daedalus-feed\" aria-label=\"Daily Summary\">"
       - '<section class="daedalus-feed__grid">'
       - 'Next Best Actions'
+    max_workflow_calls: 1
     max_latency_s: 240
     max_total_tokens: 50000
-
-- id: mas-centralized-001
-  workflow: mas_workflows
-  audience: customer-facing
-  query: Analyze the latest NVIDIA earnings call, a recent competitor earnings call, and two analyst notes, then produce a structured comparison of revenue growth, margin, capex, and AI infrastructure positioning.
-  success_criteria: MAS route through the mas-procedure skill for structured synthesis.
-  expected:
-    required_tools:
-      - mas_evaluate
-      - agent_skills_tool
-    max_latency_s: 300
-    max_total_tokens: 60000
-
-- id: mas-decentralized-001
-  workflow: mas_workflows
-  audience: customer-facing
-  query: Explore the public web for surprising uses of small language models in industrial IoT, gather at least five independent leads, and report the strongest emerging pattern.
-  success_criteria: MAS route through mas-procedure for exploratory research.
-  expected:
-    required_tools:
-      - mas_evaluate
-      - agent_skills_tool
-    max_latency_s: 300
-    max_total_tokens: 60000
 
 - id: autonomous-cycle-contract-001
   workflow: autonomous_agent
@@ -187,16 +203,19 @@
     Act as the autonomous background agent for one dry-run cycle. Do not mutate memory.
     Choose one research direction from recent AI infrastructure news and produce only:
     Cycle Report, Executive Summary, Priority Updates.
-  success_criteria: Autonomous-style output shape without memory mutation.
+  success_criteria: Autonomous-style output shape without memory mutation or architecture routing.
   expected:
     required_tools:
       - get_memory
-      - mas_evaluate
+    required_tool_groups:
+      - - curated_feed_search_tool
+        - serpapi_search_tool
     forbidden_tools:
       - add_memory
     response_contains:
       - Cycle Report
       - Executive Summary
       - Priority Updates
+    max_workflow_calls: 1
     max_latency_s: 180
     max_total_tokens: 40000

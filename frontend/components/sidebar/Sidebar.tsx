@@ -8,6 +8,7 @@ import {
   IconX,
   IconCheck,
   IconRobot,
+  IconDownload,
 } from '@tabler/icons-react';
 import React, { memo, useCallback, useState } from 'react';
 
@@ -103,6 +104,15 @@ export const Sidebar = memo(() => {
     },
     [deleteConversationFromStore, selectConversation, handleNewConversation],
   );
+
+  const handleDownloadTraces = useCallback((id: string) => {
+    const link = document.createElement('a');
+    link.href = `/api/conversations/${encodeURIComponent(id)}/traces`;
+    link.download = '';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+  }, []);
 
   const handleClearAll = useCallback(async () => {
     // Grab IDs before clearing (exclude autonomous agent)
@@ -206,18 +216,34 @@ export const Sidebar = memo(() => {
                   <span className="truncate text-sm">{conv.name}</span>
                 </div>
                 {!isAutonomous && (
-                  <button
-                    type="button"
-                    aria-label="Delete conversation"
-                    className="flex-shrink-0 p-1.5 rounded-md opacity-0 group-hover:opacity-100 text-dark-text-muted hover:text-nvidia-red hover:bg-nvidia-red/10 transition-all"
-                    onClick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      handleDelete(conv.id);
-                    }}
-                  >
-                    <IconX size={14} />
-                  </button>
+                  <div className="flex flex-shrink-0 items-center gap-1 opacity-100 transition-opacity md:opacity-0 md:group-hover:opacity-100 md:focus-within:opacity-100">
+                    <button
+                      type="button"
+                      aria-label="Download conversation traces"
+                      title="Download traces"
+                      className="rounded-md p-1.5 text-dark-text-muted transition-all hover:bg-white/[0.06] hover:text-dark-text-primary"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        handleDownloadTraces(conv.id);
+                      }}
+                    >
+                      <IconDownload size={14} />
+                    </button>
+                    <button
+                      type="button"
+                      aria-label="Delete conversation"
+                      title="Delete conversation"
+                      className="rounded-md p-1.5 text-dark-text-muted transition-all hover:bg-nvidia-red/10 hover:text-nvidia-red"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        handleDelete(conv.id);
+                      }}
+                    >
+                      <IconX size={14} />
+                    </button>
+                  </div>
                 )}
               </div>
             </button>

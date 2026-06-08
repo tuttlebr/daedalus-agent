@@ -311,7 +311,6 @@ const FRIENDLY_NAMES: Record<string, string> = {
   rss_feed: 'Reading RSS feeds',
   nat_nv_ingest: 'Processing document',
   vtt_interpreter: 'Processing transcript',
-  json_repair_agent: 'Repairing JSON output',
   agent_skills: 'Using agent skills',
   llm_diagnostics: 'Running diagnostics',
 };

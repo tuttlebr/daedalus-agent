@@ -16,9 +16,8 @@ What separates Daedalus from a typical chat wrapper:
 - **Autonomous agent worker** — a dedicated background worker that
   researches, follows UI-managed goals, requests approvals, and writes
   durable memory on a configurable schedule
-- **Architecture-aware routing** — direct single-domain requests go to
-  the matching specialist, while the MAS optimizer evaluates rare
-  multi-source synthesis and exploration candidates
+- **Direct tool routing** — one Responses API workflow calls the matching
+  leaf tool directly for research, docs, ops, media, documents, and user data
 - **Tool-rich execution** — MCP server integrations (GitHub, Kubernetes),
   web search, RSS ingestion, image generation and analysis, document
   ingestion into Milvus, and structured reasoning, all wired into one
@@ -296,22 +295,15 @@ and [`builder/nat_nv_ingest/README.md`](builder/nat_nv_ingest/README.md).
 
 The backend configuration lives at [`backend/tool-calling-config.yaml`](backend/tool-calling-config.yaml) and covers tool use, retrieval, memory, MCP integrations, image tooling, and reasoning. It includes the custom packages from `builder/` and relies heavily on environment-variable substitution for secrets and endpoints. Local Compose mounts this file directly, and Helm deployments should pass the same file with `--set-file backend.default.config.data=backend/tool-calling-config.yaml`.
 
-The workflow separates quick research from AIQ-style deep research. Concise
-factual questions route to `research_agent`; comprehensive reports, broad
-surveys, strategy work, and multi-section comparisons route to
-`deep_research_agent`, which plans first, selects from a source registry,
-requests plan approval for expensive/open-ended research, tracks a source
-ledger, verifies a small number of decision-critical claims, and audits final
-citations before returning a report. The frontend can pass per-message
-`sourcePolicy` metadata that becomes a hidden `[SOURCE_POLICY]` control message
-for source inclusion/exclusion, retrieval budget, and plan-approval
-requirements. The `mas_optimizer` package implements the escalation gate
-between single-agent and multi-agent handling. Routine single-domain requests
-bypass it and go directly to the matching specialist; MAS candidates such as
-structured multi-source synthesis or broad independent-source exploration are
-evaluated against routing thresholds configured in
-[`backend/tool-calling-config.yaml`](backend/tool-calling-config.yaml) under
-`mas_optimizer_tool`.
+The workflow uses one top-level Responses API agent with a direct leaf-tool
+surface. Concise factual questions use retrievers, curated feeds, search, and
+scraping directly; comprehensive reports, broad surveys, strategy work, and
+multi-section comparisons use the same direct tools with source planning, plan
+approval for expensive/open-ended research, source-ledger tracking, targeted
+claim verification, and citation auditing before returning a report. The
+frontend can pass per-message `sourcePolicy` metadata that becomes a hidden
+`[SOURCE_POLICY]` control message for source inclusion/exclusion, retrieval
+budget, and plan-approval requirements.
 
 ## Frontend Capabilities
 
@@ -344,8 +336,6 @@ telemetry, MCP, or serving work.
 | `autonomous_agent`   | package | Long-running autonomous worker, Redis state store, and prompt runtime |
 | `content_distiller`  | package | Summarization and extraction helpers                                  |
 | `visual_media`       | package | Unified text-to-image, image edit, and image/video analysis           |
-| `json_repair_agent`  | package | Repairs malformed JSON outputs                                        |
-| `mas_optimizer`      | package | Multi-agent vs single-agent routing and verification                  |
 | `nat_helpers`        | package | Shared helpers such as geolocation and image utilities                |
 | `nat_nv_ingest`      | package | Unified user-document ingestion, search, and listing                  |
 | `rss_feed`           | package | RSS fetching, reranking, and scraping                                 |

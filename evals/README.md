@@ -4,9 +4,8 @@ Local-first evaluation for the Daedalus agent. The harness posts queries to the
 backend SSE endpoint, parses tool-call traces and final responses, and scores
 them against three evaluators:
 
-1. **Routing correctness** — does the orchestrator bypass MAS for direct
-   SAS routes, call `mas_evaluate` for MAS candidates, and then delegate
-   to the expected sub-agent or load the expected skill?
+1. **Routing correctness** — does the orchestrator call the expected direct
+   leaf tool or load the expected skill?
 2. **Factuality (observational)** — when the agent naturally calls
    `source_verifier.verify_claim` before storing a finding, are the
    verdicts `supported`?
@@ -15,8 +14,8 @@ them against three evaluators:
    budgets, token budgets, and tool-call counts.
 
 Every run also records first-token latency, final latency, token usage
-(reported when available, otherwise estimated), tool-call counts, unique tools,
-and per-dataset p50/p95/p99 summaries.
+(reported when available, otherwise estimated), prompt-cache hit counts when
+reported, tool-call counts, unique tools, and per-dataset p50/p95/p99 summaries.
 
 ## Quick Start
 
@@ -136,12 +135,9 @@ The runner posts each case's `query` to `/chat/stream`, parses the SSE
 for `intermediate_data:` tool events, and hands the trace to
 `evaluators/routing.py`. It checks in order:
 
-1. `mas_evaluate` was called only when expected; direct skill and direct
-   single-domain SAS routes may bypass it
-2. The `mas_evaluate` JSON matches the expected architecture label when present
-3. The expected sub-agent appears as a `TOOL_START` event
-4. The expected skill appears in an `agent_skills_tool` payload
-5. No `forbidden_tools` were called
+1. The expected leaf tool appears as a `TOOL_START` event
+2. The expected skill appears in an `agent_skills_tool` payload
+3. No `forbidden_tools` were called
 
 A case passes at `score >= 0.8`.
 
@@ -193,9 +189,8 @@ Use this to:
 
 Good coverage targets:
 
-- ~5 cases per sub-agent (research, ops, media, user_data) → 20
+- ~5 cases per major direct route (research, ops, media, user_data) → 20
 - ~5 skill-match cases (pr-monitor, debug-session, code-review, etc.)
-- ~5 MAS cases (2-3 centralized, 2-3 decentralized)
 - ~5 conversational and edge cases
 - ~15 factuality cases (research-heavy, findings-inducing)
 - p95 token and latency budgets per major workflow

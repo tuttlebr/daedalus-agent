@@ -24,6 +24,7 @@ from mcp_patches import (  # noqa: E402
     _McpAppError,
     _record_possible_mcp_group,
     _record_skipped_function_group,
+    _should_recover_function_group_startup_error,
     _should_skip_tool_resolution_error,
     _skipped_function_groups,
     _tool_ref_text,
@@ -307,6 +308,21 @@ class TestIsConnectionError:
             httpx.RemoteProtocolError("server disconnected without sending a response")
         )
 
+    def test_remote_protocol_error_in_base_exception_group(self):
+        """MCP stream disconnects can be grouped with CancelledError by anyio."""
+        err = httpx.RemoteProtocolError("GitHub MCP stream disconnected")
+        group = BaseExceptionGroup(  # noqa: F821
+            "unhandled errors in a TaskGroup",
+            [asyncio.CancelledError("sibling task cancelled"), err],
+        )
+        assert _is_connection_error(group)
+        assert _extract_root_connection_error(group) is err
+
+    def test_anyio_broken_resource_is_connection_error(self):
+        """Raw anyio transport errors can escape before httpx wraps them."""
+        anyio = pytest.importorskip("anyio")
+        assert _is_connection_error(anyio.BrokenResourceError("stream closed"))
+
     def test_httpx_network_error_base_is_connection_error(self):
         """NetworkError subclasses should be treated as transport instability."""
         assert _is_connection_error(httpx.ReadError("stream reset"))
@@ -442,11 +458,11 @@ class TestStartupResilience:
             _record_possible_mcp_group(name, args, kwargs)
             try:
                 return await original_add_fg(self, name, *args, **kwargs)
-            except Exception as exc:
+            except (Exception, asyncio.CancelledError, BaseExceptionGroup) as exc:
                 if _is_no_tools_after_degradation_error(exc):
                     _record_skipped_function_group(name)
                     return None
-                if _is_connection_error(exc):
+                if _should_recover_function_group_startup_error(exc, name):
                     _extract_root_connection_error(exc)  # for logging
                     _record_skipped_function_group(name)
                     return None
@@ -463,7 +479,7 @@ class TestStartupResilience:
                     result = await original_get_tools(
                         self, [tool_name], *args, **kwargs
                     )
-                except Exception as exc:
+                except (Exception, asyncio.CancelledError, BaseExceptionGroup) as exc:
                     if _should_skip_tool_resolution_error(exc, tool_name):
                         _record_skipped_function_group(tool_name)
                         continue
@@ -482,7 +498,7 @@ class TestStartupResilience:
                 ]
             try:
                 return await original_get_tools(self, tool_names, *args, **kwargs)
-            except Exception as exc:
+            except (Exception, asyncio.CancelledError, BaseExceptionGroup) as exc:
                 if tool_names and (
                     _is_connection_error(exc)
                     or any(
@@ -503,7 +519,7 @@ class TestStartupResilience:
                 return None
             try:
                 return await original_get_function(self, name, *args, **kwargs)
-            except Exception as exc:
+            except (Exception, asyncio.CancelledError, BaseExceptionGroup) as exc:
                 if _should_skip_tool_resolution_error(exc, name):
                     _record_skipped_function_group(name)
                     return None
@@ -581,6 +597,63 @@ class TestStartupResilience:
         finally:
             self._restore(FailingBuilder, originals)
 
+    def test_github_mcp_base_exception_group_skipped(self):
+        """GitHub stream disconnect grouped with cancellation should degrade."""
+
+        class FailingBuilder(FakeWorkflowBuilder):
+            async def add_function_group(self, name, *args, **kwargs):
+                if name == "github_mcp_server":
+                    raise BaseExceptionGroup(  # noqa: F821
+                        "unhandled errors in a TaskGroup",
+                        [
+                            asyncio.CancelledError("sibling task cancelled"),
+                            httpx.RemoteProtocolError(
+                                "GET stream disconnected during reconnect"
+                            ),
+                        ],
+                    )
+                return await super().add_function_group(name, *args, **kwargs)
+
+        originals = self._apply_patch(FailingBuilder)
+        try:
+            builder = FailingBuilder()
+
+            async def _run():
+                result = await builder.add_function_group("github_mcp_server")
+                assert result is None
+                assert "github_mcp_server" in _skipped_function_groups
+                assert "github_mcp_server" not in builder.registered
+
+                result2 = await builder.add_function_group("domain_retriever_tool")
+                assert result2 == {"name": "domain_retriever_tool"}
+
+            run(_run())
+        finally:
+            self._restore(FailingBuilder, originals)
+
+    def test_github_mcp_internal_cancelled_error_skipped(self):
+        """MCP-internal CancelledError should not bypass startup resilience."""
+
+        class FailingBuilder(FakeWorkflowBuilder):
+            async def add_function_group(self, name, *args, **kwargs):
+                if name == "github_mcp_server":
+                    raise asyncio.CancelledError("GET stream reconnect cancelled")
+                return await super().add_function_group(name, *args, **kwargs)
+
+        originals = self._apply_patch(FailingBuilder)
+        try:
+            builder = FailingBuilder()
+
+            async def _run():
+                result = await builder.add_function_group("github_mcp_server")
+                assert result is None
+                assert "github_mcp_server" in _skipped_function_groups
+                assert "github_mcp_server" not in builder.registered
+
+            run(_run())
+        finally:
+            self._restore(FailingBuilder, originals)
+
     def test_retry_succeeds_on_later_attempt(self):
         """Function group connects after transient failures."""
 
@@ -651,11 +724,11 @@ class TestStartupResilience:
             for attempt in range(_MCP_STARTUP_MAX_RETRIES + 1):
                 try:
                     return await original_add_fg(self, name, *args, **kwargs)
-                except Exception as exc:
+                except (Exception, asyncio.CancelledError, BaseExceptionGroup) as exc:
                     if _is_no_tools_after_degradation_error(exc):
                         _record_skipped_function_group(name)
                         return None
-                    if not _is_connection_error(exc):
+                    if not _should_recover_function_group_startup_error(exc, name):
                         raise
                     if attempt < _MCP_STARTUP_MAX_RETRIES:
                         # Skip the actual sleep in tests
@@ -675,7 +748,7 @@ class TestStartupResilience:
                     result = await original_get_tools(
                         self, [tool_name], *args, **kwargs
                     )
-                except Exception as exc:
+                except (Exception, asyncio.CancelledError, BaseExceptionGroup) as exc:
                     if _should_skip_tool_resolution_error(exc, tool_name):
                         _record_skipped_function_group(tool_name)
                         continue
@@ -694,7 +767,7 @@ class TestStartupResilience:
                 ]
             try:
                 return await original_get_tools(self, tool_names, *args, **kwargs)
-            except Exception as exc:
+            except (Exception, asyncio.CancelledError, BaseExceptionGroup) as exc:
                 if tool_names and (
                     _is_connection_error(exc)
                     or any(
@@ -715,7 +788,7 @@ class TestStartupResilience:
                 return None
             try:
                 return await original_get_function(self, name, *args, **kwargs)
-            except Exception as exc:
+            except (Exception, asyncio.CancelledError, BaseExceptionGroup) as exc:
                 if _should_skip_tool_resolution_error(exc, name):
                     _record_skipped_function_group(name)
                     return None
@@ -806,6 +879,45 @@ class TestStartupResilience:
             async def get_tools(self, tool_names=None, wrapper_type=None):
                 if tool_names and "github_mcp_server" in tool_names:
                     raise httpx.RemoteProtocolError("GitHub MCP disconnected")
+                return await super().get_tools(tool_names, wrapper_type)
+
+        originals = self._apply_patch(DeferredFailBuilder)
+        try:
+            builder = DeferredFailBuilder()
+
+            async def _run():
+                await builder.add_function_group("domain_retriever_tool")
+                await builder.add_function_group("ops_confirmation_tool")
+                await builder.add_function_group("github_mcp_server")
+
+                tools = await builder.get_tools(
+                    tool_names=[
+                        "domain_retriever_tool",
+                        "github_mcp_server",
+                        "ops_confirmation_tool",
+                    ]
+                )
+
+                assert len(tools) == 2
+                assert "github_mcp_server" in _skipped_function_groups
+
+            run(_run())
+        finally:
+            self._restore(DeferredFailBuilder, originals)
+
+    def test_get_tools_omits_deferred_mcp_base_exception_group(self):
+        """Deferred MCP discovery also handles BaseExceptionGroup cancellation."""
+
+        class DeferredFailBuilder(FakeWorkflowBuilder):
+            async def get_tools(self, tool_names=None, wrapper_type=None):
+                if tool_names and "github_mcp_server" in tool_names:
+                    raise BaseExceptionGroup(  # noqa: F821
+                        "unhandled errors in a TaskGroup",
+                        [
+                            asyncio.CancelledError("sibling task cancelled"),
+                            httpx.RemoteProtocolError("GitHub MCP disconnected"),
+                        ],
+                    )
                 return await super().get_tools(tool_names, wrapper_type)
 
         originals = self._apply_patch(DeferredFailBuilder)

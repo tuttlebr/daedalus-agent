@@ -38,10 +38,11 @@ entire startup, blocking all remaining components (LLMs, retrievers,
 memory, functions, workflow) from initializing.
 
 Fix 5: Monkey-patch WorkflowBuilder.add_function_group() to catch
-connection-related errors (including those wrapped in ExceptionGroup by
-anyio's TaskGroup) and log a warning instead of raising.  Tools from the
-unreachable server will be unavailable until the pod restarts, but the
-rest of the system starts normally.
+connection-related errors (including those wrapped in ExceptionGroup /
+BaseExceptionGroup by anyio's TaskGroup, plus MCP-internal cancellation
+during stream reconnect) and log a warning instead of raising.  Tools
+from the unreachable server will be unavailable until the pod restarts,
+but the rest of the system starts normally.
 
 Problem 8: When a function group is skipped by Fix 5, downstream agent
 configs still reference its tools by name in their tool_names list.
@@ -157,11 +158,30 @@ def _httpx_exception_type(name: str):
     return cls if isinstance(cls, type) else None
 
 
+def _optional_exception_type(module_name: str, name: str):
+    try:
+        module = __import__(module_name)
+    except Exception:
+        return None
+    cls = getattr(module, name, None)
+    return cls if isinstance(cls, type) else None
+
+
+def _httpcore_exception_type(name: str):
+    return _optional_exception_type("httpcore", name)
+
+
+def _anyio_exception_type(name: str):
+    return _optional_exception_type("anyio", name)
+
+
 # Connection error types that indicate an unreachable/unstable server (not a
 # logic bug). Keep HTTPStatusError 4xx out of this path so bad auth/config still
 # fails loudly. GitHub Copilot MCP can surface transient disconnects as
 # RemoteProtocolError instead of ConnectError/ReadTimeout, so include the
-# transport/protocol shapes that represent remote/network instability.
+# transport/protocol shapes that represent remote/network instability. Some
+# streamable-http failures escape before httpx wraps them, so include httpcore
+# and anyio transport exceptions when those packages are importable.
 _CONNECTION_ERROR_TYPES = tuple(
     cls
     for cls in (
@@ -172,6 +192,14 @@ _CONNECTION_ERROR_TYPES = tuple(
         _httpx_exception_type("ConnectTimeout"),
         _httpx_exception_type("ConnectError"),
         _httpx_exception_type("ReadTimeout"),
+        _httpcore_exception_type("TimeoutException"),
+        _httpcore_exception_type("NetworkError"),
+        _httpcore_exception_type("RemoteProtocolError"),
+        _httpcore_exception_type("ConnectError"),
+        _httpcore_exception_type("ReadError"),
+        _anyio_exception_type("BrokenResourceError"),
+        _anyio_exception_type("ClosedResourceError"),
+        _anyio_exception_type("EndOfStream"),
         ConnectionError,  # includes ConnectionRefusedError, ConnectionResetError
     )
     if cls is not None
@@ -460,11 +488,48 @@ def _is_no_tools_after_degradation_error(exc) -> bool:
     return bool(_skipped_function_groups) and "no tools specified" in str(exc).lower()
 
 
+def _is_cancellation_error(exc) -> bool:
+    if isinstance(exc, asyncio.CancelledError):
+        return True
+    if isinstance(exc, BaseExceptionGroup):  # noqa: F821 (builtin in 3.11+)
+        return any(_is_cancellation_error(e) for e in exc.exceptions)
+    if exc.__cause__ is not None:
+        return _is_cancellation_error(exc.__cause__)
+    if exc.__context__ is not None and exc.__context__ is not exc:
+        return _is_cancellation_error(exc.__context__)
+    return False
+
+
+def _current_task_is_cancelling() -> bool:
+    try:
+        task = asyncio.current_task()
+    except RuntimeError:
+        return False
+    return task is not None and task.cancelling() > 0
+
+
+def _is_recoverable_mcp_cancellation(exc, tool_ref) -> bool:
+    """Return True for MCP-internal cancellation, not external task shutdown."""
+    return (
+        _is_mcp_tool_ref(tool_ref)
+        and _is_cancellation_error(exc)
+        and not _current_task_is_cancelling()
+    )
+
+
+def _should_recover_function_group_startup_error(exc, name) -> bool:
+    return _is_connection_error(exc) or _is_recoverable_mcp_cancellation(exc, name)
+
+
 def _should_skip_tool_resolution_error(exc, tool_ref) -> bool:
     """Return True when an MCP tool reference should degrade to unavailable."""
     if not _is_mcp_tool_ref(tool_ref):
         return False
-    return _is_connection_error(exc) or _is_missing_function_reference_error(exc)
+    return (
+        _is_connection_error(exc)
+        or _is_missing_function_reference_error(exc)
+        or _is_recoverable_mcp_cancellation(exc, tool_ref)
+    )
 
 
 def _is_transient_http_error(exc) -> bool:
@@ -485,8 +550,8 @@ def _is_connection_error(exc):
     """Return True if *exc* (possibly wrapped in ExceptionGroup) is a connection error."""
     if isinstance(exc, _CONNECTION_ERROR_TYPES) or _is_transient_http_error(exc):
         return True
-    # anyio TaskGroup wraps exceptions in ExceptionGroup
-    if isinstance(exc, ExceptionGroup):  # noqa: F821 (builtin in 3.11+)
+    # anyio TaskGroup wraps exceptions in ExceptionGroup/BaseExceptionGroup.
+    if isinstance(exc, BaseExceptionGroup):  # noqa: F821 (builtin in 3.11+)
         return any(_is_connection_error(e) for e in exc.exceptions)
     # Check the __cause__ chain (e.g. framework re-raises wrapping the original)
     if exc.__cause__ is not None:
@@ -502,7 +567,7 @@ def _extract_root_connection_error(exc):
     """Return the innermost connection error from *exc* for concise logging."""
     if isinstance(exc, _CONNECTION_ERROR_TYPES) or _is_transient_http_error(exc):
         return exc
-    if isinstance(exc, ExceptionGroup):  # noqa: F821 (builtin in 3.11+)
+    if isinstance(exc, BaseExceptionGroup):  # noqa: F821 (builtin in 3.11+)
         for e in exc.exceptions:
             if not _is_connection_error(e):
                 continue
@@ -1111,7 +1176,7 @@ def _patch_startup_resilience():
             for attempt in range(_MCP_STARTUP_MAX_RETRIES + 1):
                 try:
                     return await original_add_fg(self, name, *args, **kwargs)
-                except Exception as exc:
+                except (Exception, asyncio.CancelledError, BaseExceptionGroup) as exc:
                     if _is_no_tools_after_degradation_error(exc):
                         skipped_name = _record_skipped_function_group(name)
                         logger.warning(
@@ -1122,7 +1187,7 @@ def _patch_startup_resilience():
                             exc,
                         )
                         return None
-                    if not _is_connection_error(exc):
+                    if not _should_recover_function_group_startup_error(exc, name):
                         raise
                     last_exc = exc
                     if attempt < _MCP_STARTUP_MAX_RETRIES:
@@ -1167,7 +1232,7 @@ def _patch_startup_resilience():
                     result = await original_get_tools(
                         self, [tool_name], *args, **kwargs
                     )
-                except Exception as exc:
+                except (Exception, asyncio.CancelledError, BaseExceptionGroup) as exc:
                     if _should_skip_tool_resolution_error(exc, tool_name):
                         skipped_name = _record_skipped_function_group(tool_name)
                         skipped.append(skipped_name)
@@ -1212,7 +1277,7 @@ def _patch_startup_resilience():
                     )
             try:
                 result = await original_get_tools(self, tool_names, *args, **kwargs)
-            except Exception as exc:
+            except (Exception, asyncio.CancelledError, BaseExceptionGroup) as exc:
                 if tool_names and (
                     _is_connection_error(exc)
                     or any(
@@ -1276,7 +1341,7 @@ def _patch_startup_resilience():
                 return None
             try:
                 return await original_get_function(self, name, *args, **kwargs)
-            except Exception as exc:
+            except (Exception, asyncio.CancelledError, BaseExceptionGroup) as exc:
                 if _should_skip_tool_resolution_error(exc, name):
                     skipped_name = _record_skipped_function_group(name)
                     root = _extract_root_connection_error(exc)

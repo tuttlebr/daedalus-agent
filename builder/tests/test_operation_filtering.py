@@ -60,23 +60,6 @@ def test_content_distiller_enabled_operations_filters_registration():
     assert run(_run()) == ["distill_content"]
 
 
-def test_mas_optimizer_enabled_operations_filters_registration():
-    async def _run():
-        from mas_optimizer.mas_optimizer_function import (
-            MasOptimizerConfig,
-            mas_optimizer_function,
-        )
-
-        return await _names(
-            mas_optimizer_function(
-                MasOptimizerConfig(enabled_operations=["mas_evaluate"]),
-                MagicMock(),
-            )
-        )
-
-    assert run(_run()) == ["mas_evaluate"]
-
-
 def test_source_verifier_enabled_operations_filters_registration():
     async def _run():
         from source_verifier.source_verifier_function import (

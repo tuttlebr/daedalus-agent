@@ -61,7 +61,7 @@ The `name=` on the config class is the `_type` referenced in workflow YAML. Retr
 
 ### Tools are composed into a workflow elsewhere — not here
 
-These packages only _register_ tools. They are assembled into a running agent by `backend/tool-calling-config.yaml` (repo root), whose `workflow._type` is `tool_calling_agent_resilient` — a custom resilient agent registered by **`json_repair_agent/`** (`resilient_agent_register.py`), not a stock NAT agent. That config also defines MCP servers, embedders, retrievers, and the system prompt. To trace how a tool is used at runtime, match its config `name=` against the `_type:` entries in that file.
+These packages only _register_ tools. They are assembled into a running agent by `backend/tool-calling-config.yaml` (repo root), whose `workflow._type` is `responses_api_agent`, with NAT graph tools listed under `nat_tools` and OpenAI Responses API enabled through `tool_calling_llm.api_type: responses`. That config also defines MCP servers, embedders, retrievers, and the system prompt. To trace how a tool is used at runtime, match its config `name=` against the `_type:` entries in that file.
 
 ### Runtime entrypoint and monkeypatch ordering (entrypoint.py)
 
@@ -94,7 +94,7 @@ Uploaded documents (`document:<sessionId>:<documentId>`, 7-day TTL), generated i
 - Adds every `*/src` to `sys.path`, so tests import e.g. `from webscrape.webscrape_function import _fn` directly.
 - Installs `MagicMock` modules for the entire `nat.*` framework plus `pymilvus`, `playwright`, `openai`, `redis`, `markitdown`, `optuna`, `kubernetes`, `fastapi`, etc. `FunctionBaseConfig`/`FunctionInfo`/`register_function` get lightweight fakes; `httpx` and `pymilvus...Hit` get **real** classes because code does `isinstance()` on them.
 
-Consequence: unit tests exercise the **pure helper functions** inside each `*_function.py`, not NAT registration. `register.py`, `resilient_agent*.py`, and `agent_skills_function.py` are excluded from coverage (`.coveragerc`). Keep testable logic in standalone helpers, not buried in the `@register_function` generator.
+Consequence: unit tests exercise the **pure helper functions** inside each `*_function.py`, not NAT registration. `register.py` and `agent_skills_function.py` are excluded from coverage (`.coveragerc`). Keep testable logic in standalone helpers, not buried in the `@register_function` generator.
 
 ## Package catalog
 
@@ -102,7 +102,7 @@ Consequence: unit tests exercise the **pure helper functions** inside each `*_fu
 - **Retrieval/ingest**: `smart_milvus` (Milvus retriever + `domain_retriever` domain→collection routing), `nat_nv_ingest` (`user_document_tool` ingest/search/list; NvIngest → Milvus; shared vs user collection scoping).
 - **Media**: `visual_media` (one tool, `operation=generate|edit|analyze`; OpenAI images API + VLM).
 - **Transcripts**: `vtt_interpreter`.
-- **Agent infra**: `json_repair_agent` (JSON repair + the resilient workflow agent), `mas_optimizer` (multi-agent-system architecture gate/verifier, paper-derived), `agent_skills` (Anthropic-style progressive-disclosure skills from `/skills`; strips secret env vars before running skill scripts), `user_interaction` (HITL approval tokens), `source_verifier`, `content_distiller`.
+- **Agent infra**: `agent_skills` (Anthropic-style progressive-disclosure skills from `/skills`; strips secret env vars before running skill scripts), `user_interaction` (HITL approval tokens), `source_verifier`, `content_distiller`.
 - **`nat_helpers`**: shared, non-NAT utilities (Redis image storage, OpenAI images client, result scraping, geolocation) imported by the packages and HTTP routes above.
 
 ## Conventions

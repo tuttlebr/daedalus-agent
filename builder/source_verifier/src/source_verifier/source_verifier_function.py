@@ -132,7 +132,7 @@ def _default_source_registry() -> list[dict[str, Any]]:
                 "Authenticated user's uploaded documents and shared upload "
                 "collections."
             ),
-            "tools": ["user_document_agent"],
+            "tools": ["user_document_tool"],
             "default_enabled": False,
             "requires_auth": True,
         },
@@ -140,7 +140,7 @@ def _default_source_registry() -> list[dict[str, Any]]:
             "id": "workspace_data",
             "name": "Workspace Data",
             "description": "Authenticated user's Gmail and Calendar data.",
-            "tools": ["user_data_agent"],
+            "tools": ["gmail_mcp_server", "calendar_mcp_server"],
             "default_enabled": False,
             "requires_auth": True,
         },
@@ -148,10 +148,17 @@ def _default_source_registry() -> list[dict[str, Any]]:
             "id": "nvidia_docs",
             "name": "Official NVIDIA Docs",
             "description": (
-                "Official NVIDIA product documentation via configured MCP "
-                "docs servers."
+                "Official NVIDIA product documentation via direct MCP docs "
+                "servers."
             ),
-            "tools": ["nvidia_docs_agent"],
+            "tools": [
+                "dynamo_mcp_server",
+                "openshell_mcp_server",
+                "aistore_mcp_server",
+                "aiperf_mcp_server",
+                "nvcf_mcp_server",
+                "dsx_mcp_server",
+            ],
             "default_enabled": True,
             "requires_auth": False,
         },
@@ -805,11 +812,18 @@ def _tool_hints(source_id: str, question: str) -> list[dict[str, str]]:
     if source_id == "known_url_scrape":
         return [{"tool": "webscrape_tool"}]
     if source_id == "uploaded_documents":
-        return [{"tool": "user_document_agent"}]
+        return [{"tool": "user_document_tool"}]
     if source_id == "workspace_data":
-        return [{"tool": "user_data_agent"}]
+        return [{"tool": "gmail_mcp_server"}, {"tool": "calendar_mcp_server"}]
     if source_id == "nvidia_docs":
-        return [{"tool": "nvidia_docs_agent"}]
+        return [
+            {"tool": "dynamo_mcp_server"},
+            {"tool": "openshell_mcp_server"},
+            {"tool": "aistore_mcp_server"},
+            {"tool": "aiperf_mcp_server"},
+            {"tool": "nvcf_mcp_server"},
+            {"tool": "dsx_mcp_server"},
+        ]
     return []
 
 

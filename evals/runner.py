@@ -161,8 +161,17 @@ def normalize_usage(value: Any) -> dict[str, int]:
         value = value["token_usage"]
 
     usage: dict[str, int] = {}
-    for key in ("prompt_tokens", "completion_tokens", "total_tokens"):
-        parsed = _coerce_int(value.get(key))
+    key_aliases = {
+        "prompt_tokens": ("prompt_tokens", "input_tokens"),
+        "completion_tokens": ("completion_tokens", "output_tokens"),
+        "total_tokens": ("total_tokens",),
+    }
+    for key, aliases in key_aliases.items():
+        parsed = None
+        for alias in aliases:
+            parsed = _coerce_int(value.get(alias))
+            if parsed is not None:
+                break
         if parsed is not None:
             usage[key] = parsed
 
@@ -171,6 +180,14 @@ def normalize_usage(value: Any) -> dict[str, int]:
         completion = usage.get("completion_tokens")
         if prompt is not None and completion is not None:
             usage["total_tokens"] = prompt + completion
+
+    prompt_details = value.get("prompt_tokens_details") or value.get(
+        "input_tokens_details"
+    )
+    if isinstance(prompt_details, dict):
+        cached = _coerce_int(prompt_details.get("cached_tokens"))
+        if cached is not None:
+            usage["cached_prompt_tokens"] = cached
     return usage
 
 
@@ -274,6 +291,30 @@ def _match_event_durations(events: list[ToolEvent]) -> list[dict[str, Any]]:
         )
 
     return durations
+
+
+def _summarize_prompt_cache(cases: list[dict[str, Any]]) -> dict[str, Any]:
+    prompt_tokens = [
+        int(c["metrics"]["usage"]["prompt_tokens"])
+        for c in cases
+        if c.get("metrics", {}).get("usage", {}).get("prompt_tokens") is not None
+    ]
+    cached_tokens = [
+        int(c["metrics"]["usage"].get("cached_prompt_tokens", 0))
+        for c in cases
+        if c.get("metrics", {}).get("usage", {}).get("prompt_tokens") is not None
+    ]
+    total_prompt_tokens = sum(prompt_tokens)
+    total_cached_tokens = sum(cached_tokens)
+    return {
+        "cached_prompt_tokens": total_cached_tokens,
+        "prompt_tokens": total_prompt_tokens,
+        "hit_ratio": (
+            round(total_cached_tokens / total_prompt_tokens, 3)
+            if total_prompt_tokens
+            else None
+        ),
+    }
 
 
 def build_trace_metrics(
@@ -495,6 +536,7 @@ def summarize_cases(cases: list[dict[str, Any]]) -> dict[str, Any]:
             "p95": _percentile(tool_counts, 0.95),
             "max": int(max(tool_counts)) if tool_counts else None,
         },
+        "prompt_cache": _summarize_prompt_cache(cases),
         "by_workflow": {
             name: {
                 "n": len(items),
@@ -967,6 +1009,7 @@ def main() -> int:
         latency = metrics.get("latency_s") or {}
         tokens = metrics.get("total_tokens") or {}
         tools = metrics.get("tool_call_count") or {}
+        prompt_cache = metrics.get("prompt_cache") or {}
         print(
             "- Latency p50/p95/p99: "
             f"**{latency.get('p50')}s / {latency.get('p95')}s / "
@@ -982,6 +1025,13 @@ def main() -> int:
             f"**{tools.get('avg')} / {tools.get('p95')} / "
             f"{tools.get('max')}**"
         )
+        if prompt_cache.get("hit_ratio") is not None:
+            print(
+                "- Prompt cache cached/prompt/hit-rate: "
+                f"**{prompt_cache.get('cached_prompt_tokens')} / "
+                f"{prompt_cache.get('prompt_tokens')} / "
+                f"{prompt_cache.get('hit_ratio')}**"
+            )
         fails = [c for c in ds["cases"] if not c["pass"]]
         if fails:
             any_fail = True

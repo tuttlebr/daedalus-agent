@@ -75,15 +75,15 @@ There is no direct request/response coupling for the main chat path. The fronten
 
 ### The backend is _assembled by config_, not by code in `backend/`
 
-`builder/` packages only _register_ NAT tools (via `@register_function`; the config class `name=` is the YAML `_type`). They are composed into a running agent entirely by [`backend/tool-calling-config.yaml`](backend/tool-calling-config.yaml), which also defines MCP servers, embedders, retrievers, auth, and the system prompt. To trace how a tool runs, match its `name=` against `_type:` in that file. The top-level `workflow._type` is `tool_calling_agent_resilient` — a **custom** resilient agent from `builder/json_repair_agent/`, not a stock NAT agent.
+`builder/` packages only _register_ NAT tools (via `@register_function`; the config class `name=` is the YAML `_type`). They are composed into a running agent entirely by [`backend/tool-calling-config.yaml`](backend/tool-calling-config.yaml), which also defines MCP servers, embedders, retrievers, auth, and the system prompt. To trace how a tool runs, match its `name=` against `_type:` in that file. The top-level `workflow._type` is `responses_api_agent`, with NAT graph tools listed under `nat_tools` and OpenAI Responses API enabled through `tool_calling_llm.api_type: responses`.
 
 ### The backend container runs a custom entrypoint, not `nat serve`
 
 The image runs `python entrypoint.py` (`builder/entrypoint.py`), which applies **load-bearing, order-dependent** pre-import monkeypatches (Starlette compat shims, FastAPI route injection for `image_api.py`/`document_ingest_api.py`, OpenAI client timeout/logging via `llm_diagnostics.py`, MCP timeout + approval-gate via `mcp_patches.py`) _before_ invoking NAT in-process. See `builder/CLAUDE.md` for the exact ordering before touching startup.
 
-### Routing: single-agent by default, MAS gated
+### Routing: single Responses agent with direct tools
 
-Routine single-domain requests go straight to the matching specialist. Only multi-source-synthesis / broad-exploration candidates are escalated through `builder/mas_optimizer/` (`mas_evaluate`), against thresholds in `backend/tool-calling-config.yaml` under `mas_optimizer_tool`. The eval harness asserts this routing behavior.
+The backend workflow is one top-level Responses API agent with direct leaf tools. It does not route through nested specialist agents or architecture optimizers; broad research uses the deep-research prompt path with source planning and approval.
 
 ### The autonomous worker is a separate process
 

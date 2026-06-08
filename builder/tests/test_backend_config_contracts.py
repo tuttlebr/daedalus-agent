@@ -56,13 +56,6 @@ CUSTOM_VALUES = Path(__file__).resolve().parents[2] / "custom-values.yaml"
 DEPLOYED_CONFIGS = (CONFIG,)
 PROMPT_GUIDANCE_RUNTIME_PROMPTS = {
     "workflow",
-    "research_agent",
-    "deep_research_agent",
-    "nvidia_docs_agent",
-    "ops_agent",
-    "daily_summary_agent",
-    "user_data_agent",
-    "user_document_agent",
 }
 PROMPT_GUIDANCE_CODE_SURFACES = (
     Path("builder/autonomous_agent/src/autonomous_agent/prompt.py"),
@@ -91,7 +84,6 @@ LEGACY_CLUSTER_LOCAL_PORT = "cluster.local" + ".:"
 MULTI_OPERATION_TYPES = {
     "agent_skills": ["list_skills", "load_skill", "run_skill_script"],
     "content_distiller": ["distill_content", "extract_structured", "synthesize"],
-    "mas_optimizer": ["mas_evaluate", "mas_verify", "mas_log_outcome"],
     "source_verifier": [
         "verify_claim",
         "verify_memory",
@@ -152,7 +144,7 @@ def _template_env_names() -> set[str]:
 def test_backend_dockerfile_chmods_runtime_files_after_copy():
     lines = DOCKERFILE.read_text(encoding="utf-8").splitlines()
     chmod_lines = [
-        i for i, line in enumerate(lines) if "chmod -R a+rX /workspace /skills" in line
+        i for i, line in enumerate(lines) if line.strip() == "RUN chmod -R a+rX \\"
     ]
     assert chmod_lines
     chmod_line = max(chmod_lines)
@@ -209,18 +201,15 @@ def test_user_document_tool_contract_uses_username_collection_pair():
     assert "Args: query, user_id" not in desc
 
 
-def test_user_document_tool_is_decoupled_from_user_data_agent():
-    functions = _config()["functions"]
-    assert functions["user_data_agent"]["tool_names"] == [
-        "gmail_mcp_server",
-        "calendar_mcp_server",
-    ]
-    assert functions["user_document_agent"]["tool_names"] == ["user_document_tool"]
-    assert "user_document_agent" in _config()["workflow"]["tool_names"]
+def test_user_document_and_workspace_tools_are_direct_workflow_tools():
+    workflow_tools = _config()["workflow"]["nat_tools"]
+    assert "user_document_tool" in workflow_tools
+    assert "gmail_mcp_server" in workflow_tools
+    assert "calendar_mcp_server" in workflow_tools
 
 
 def test_top_level_workflow_does_not_expose_unguarded_delete_memory():
-    workflow_tools = _config()["workflow"]["tool_names"]
+    workflow_tools = _config()["workflow"]["nat_tools"]
     assert "delete_memory" not in workflow_tools
     assert "user_interaction_tool" in workflow_tools
 
@@ -249,52 +238,18 @@ def test_deployed_tool_surface_is_optimized():
     for path in DEPLOYED_CONFIGS:
         config = _config(path)
         functions = config["functions"]
-        workflow_tools = config["workflow"]["tool_names"]
+        workflow_tools = config["workflow"]["nat_tools"]
         assert not forbidden_tools & set(functions), path
         assert not forbidden_tools & set(workflow_tools), path
 
-        # visual_media_tool is intentionally exposed at the top level and marked
-        # return_direct so generated image refs are delivered without the
-        # additional media-agent routing delay.
-        assert _effective_operation_count(config, workflow_tools) <= 20, path
-        assert (
-            _effective_operation_count(
-                config, functions["research_agent"]["tool_names"]
-            )
-            <= 15
-        ), path
-        assert (
-            _effective_operation_count(
-                config, functions["deep_research_agent"]["tool_names"]
-            )
-            <= 16
-        ), path
-        assert (
-            _effective_operation_count(config, functions["ops_agent"]["tool_names"])
-            <= 15
-        ), path
-        assert (
-            _effective_operation_count(
-                config, functions["nvidia_docs_agent"]["tool_names"]
-            )
-            <= 14
-        ), path
-        assert (
-            _effective_operation_count(
-                config, functions["user_data_agent"]["tool_names"]
-            )
-            <= 10
-        ), path
-        assert (
-            _effective_operation_count(
-                config, functions["daily_summary_agent"]["tool_names"]
-            )
-            <= 10
-        ), path
+        removed_router_tool = "mas" + "_optimizer_tool"
+        assert removed_router_tool not in functions, path
+        assert removed_router_tool not in workflow_tools, path
+        assert _effective_operation_count(config, workflow_tools) <= 48, path
 
 
-def test_tool_calling_agents_use_resilient_runner():
-    agent_names = [
+def test_workflow_uses_single_responses_api_agent_schema():
+    removed_agent_names = [
         "research_agent",
         "deep_research_agent",
         "nvidia_docs_agent",
@@ -305,18 +260,70 @@ def test_tool_calling_agents_use_resilient_runner():
     ]
     for path in DEPLOYED_CONFIGS:
         config = _config(path)
-        assert config["workflow"]["_type"] == "tool_calling_agent_resilient", path
-        for name in agent_names:
-            assert (
-                config["functions"][name]["_type"] == "tool_calling_agent_resilient"
-            ), (path, name)
+        assert config["llms"]["tool_calling_llm"]["api_type"] == "responses", path
+        assert config["workflow"]["_type"] == "responses_api_agent", path
+        assert "nat_tools" in config["workflow"], path
+        assert "tool_names" not in config["workflow"], path
+        assert "return_direct" not in config["workflow"], path
+        assert not set(removed_agent_names) & set(config["functions"]), path
 
 
-def test_nvidia_docs_agent_exposes_configured_docs_servers():
+def test_openai_llms_use_role_specific_gpt55_responses_parameters():
+    expected = {
+        "reasoning_llm": {
+            "effort": "high",
+            "verbosity": "low",
+            "max_output_tokens": 16384,
+            "temperature": 0.2,
+        },
+        "react_llm": {
+            "effort": "low",
+            "verbosity": "low",
+            "max_output_tokens": 4096,
+            "temperature": 0.0,
+        },
+        "tool_calling_llm": {
+            "effort": "medium",
+            "verbosity": "low",
+            "max_output_tokens": 16384,
+            "temperature": 0.2,
+        },
+        "distill_llm": {
+            "effort": "low",
+            "verbosity": "low",
+            "max_output_tokens": 6144,
+            "temperature": 0.1,
+        },
+        "default_llm": {
+            "effort": "low",
+            "verbosity": "low",
+            "max_output_tokens": 4096,
+            "temperature": 0.2,
+        },
+    }
     for path in DEPLOYED_CONFIGS:
         config = _config(path)
-        agent = config["functions"]["nvidia_docs_agent"]
-        tools = set(agent["tool_names"])
+        for llm_name, params in expected.items():
+            llm = config["llms"][llm_name]
+            assert llm["_type"] == "openai", (path, llm_name)
+            assert llm["api_type"] == "responses", (path, llm_name)
+            assert llm["reasoning"]["effort"] == params["effort"], (path, llm_name)
+            assert llm["text"]["verbosity"] == params["verbosity"], (path, llm_name)
+            assert llm["max_output_tokens"] == params["max_output_tokens"], (
+                path,
+                llm_name,
+            )
+            assert llm["temperature"] == params["temperature"], (path, llm_name)
+            assert llm["top_p"] == 1.0, (path, llm_name)
+            assert llm["store"] is True, (path, llm_name)
+            assert llm["prompt_cache_retention"] == "24h", (path, llm_name)
+            assert "extra_body" not in llm, (path, llm_name)
+
+
+def test_workflow_exposes_configured_nvidia_docs_servers():
+    for path in DEPLOYED_CONFIGS:
+        config = _config(path)
+        tools = set(config["workflow"]["nat_tools"])
         source_registry = config["functions"]["source_policy_tool"]["source_registry"]
         nvidia_docs = next(
             source for source in source_registry if source["id"] == "nvidia_docs"
@@ -324,80 +331,65 @@ def test_nvidia_docs_agent_exposes_configured_docs_servers():
 
         assert "aistore_mcp_server" in config["function_groups"], path
         assert "aistore_mcp_server" in tools, path
-        assert "AIStore" in agent["description"], path
-        assert "AIStore -> aistore_mcp_server" in agent["system_prompt"], path
+        assert "AIStore -> aistore_mcp_server" in config["workflow"]["system_prompt"], path
         assert "AIStore" in nvidia_docs["description"], path
+        assert "aistore_mcp_server" in nvidia_docs["tools"], path
 
 
-def test_return_direct_tools_are_exposed_to_their_agents():
-    expected = {
-        "workflow": [
-            "user_interaction_tool",
-            "visual_media_tool",
-            "daily_summary_agent",
-        ],
-        "deep_research_agent": ["research_plan_approval_tool"],
-        "ops_agent": ["ops_confirmation_tool"],
-    }
+def test_responses_api_workflow_exposes_required_leaf_tools():
+    expected = [
+        "user_interaction_tool",
+        "visual_media_tool",
+        "current_datetime_tool",
+        "source_policy_tool",
+        "research_plan_approval_tool",
+        "ops_confirmation_tool",
+        "domain_retriever_tool",
+        "curated_feed_search_tool",
+        "serpapi_search_tool",
+        "webscrape_tool",
+        "content_distiller_tool",
+        "user_document_tool",
+        "gmail_mcp_server",
+        "calendar_mcp_server",
+    ]
     for path in DEPLOYED_CONFIGS:
         config = _config(path)
-        workflow_tools = set(config["workflow"]["tool_names"])
-        for tool_name in expected["workflow"]:
+        workflow_tools = set(config["workflow"]["nat_tools"])
+        for tool_name in expected:
             assert tool_name in workflow_tools, path
-        assert config["workflow"]["return_direct"] == expected["workflow"], path
-
-        deep_research_agent = config["functions"]["deep_research_agent"]
-        deep_tools = set(deep_research_agent["tool_names"])
-        for tool_name in expected["deep_research_agent"]:
-            assert tool_name in deep_tools, path
-        assert (
-            deep_research_agent["return_direct"] == expected["deep_research_agent"]
-        ), path
-
-        ops_agent = config["functions"]["ops_agent"]
-        ops_tools = set(ops_agent["tool_names"])
-        for tool_name in expected["ops_agent"]:
-            assert tool_name in ops_tools, path
-        assert ops_agent["return_direct"] == expected["ops_agent"], path
 
 
-def test_visual_media_tool_is_direct_return_for_latency():
+def test_visual_media_tool_is_top_level():
     for path in DEPLOYED_CONFIGS:
         config = _config(path)
-        workflow_tools = set(config["workflow"]["tool_names"])
-        return_direct = set(config["workflow"]["return_direct"])
+        workflow_tools = set(config["workflow"]["nat_tools"])
 
         assert "visual_media_tool" in workflow_tools, path
-        assert "visual_media_tool" in return_direct, path
 
 
-def test_vtt_interpreter_tool_is_top_level_and_not_return_direct():
+def test_vtt_interpreter_tool_is_top_level():
     """Transcripts are handled by a top-level leaf tool (no media_agent hop), and
-    its output is NOT return_direct so the agent can act on it (e.g. draft a
-    follow-up) in the same turn."""
+    its output can be acted on by the workflow in the same turn."""
     for path in DEPLOYED_CONFIGS:
         config = _config(path)
-        workflow_tools = set(config["workflow"]["tool_names"])
-        return_direct = set(config["workflow"].get("return_direct", []))
+        workflow_tools = set(config["workflow"]["nat_tools"])
 
         assert "vtt_interpreter_tool" in workflow_tools, path
-        assert "vtt_interpreter_tool" not in return_direct, path
         # The retired media_agent sub-agent must be gone entirely.
         assert "media_agent" not in config["functions"], path
         assert "media_agent" not in workflow_tools, path
 
 
-def test_user_data_agent_does_not_advertise_unconfigured_gmail_writes():
+def test_workflow_does_not_advertise_unconfigured_gmail_writes():
     for path in DEPLOYED_CONFIGS:
         config = _config(path)
-        user_data = config["functions"]["user_data_agent"]
         exposed_ops = set(_effective_operations(config, "gmail_mcp_server"))
-        text = (
-            user_data.get("description", "") + "\n" + user_data.get("system_prompt", "")
-        ).lower()
+        text = config["workflow"]["system_prompt"].lower()
 
         assert "create_draft" not in exposed_ops, path
-        assert "draft" not in text, path
+        assert "create draft" not in text, path
+        assert "create_draft" not in text, path
 
 
 def test_google_workspace_mcp_uses_per_user_oauth():
@@ -435,13 +427,10 @@ def test_google_workspace_mcp_uses_per_user_oauth():
         config = _config(path)
         auth = config["authentication"]
         function_groups = config["function_groups"]
-        workflow_tools = config["workflow"]["tool_names"]
-        user_data_tools = config["functions"]["user_data_agent"]["tool_names"]
+        workflow_tools = config["workflow"]["nat_tools"]
 
-        assert "gmail_mcp_server" not in workflow_tools, path
-        assert "calendar_mcp_server" not in workflow_tools, path
-        assert "gmail_mcp_server" in user_data_tools, path
-        assert "calendar_mcp_server" in user_data_tools, path
+        assert "gmail_mcp_server" in workflow_tools, path
+        assert "calendar_mcp_server" in workflow_tools, path
 
         for name, values in expected.items():
             provider = auth[name]
@@ -532,7 +521,6 @@ def test_multi_operation_tools_are_filtered_in_production():
         "agent_skills_tool": ["load_skill"],
         "content_distiller_tool": ["distill_content"],
         "citation_auditor_tool": ["audit_citations"],
-        "mas_optimizer_tool": ["mas_evaluate"],
         "ops_confirmation_tool": ["confirm_action"],
         "research_plan_approval_tool": ["confirm_research_plan"],
         "source_policy_tool": ["plan_sources"],
@@ -554,21 +542,16 @@ def test_serpapi_documented_aliases_are_configured():
     assert "search_type (organic, news, images, shopping)" in desc
 
 
-def test_research_agents_use_serpapi_as_only_internet_search_provider():
+def test_workflow_uses_serpapi_as_only_internet_search_provider():
     for path in DEPLOYED_CONFIGS:
         config = _config(path)
-        research_agent = config["functions"]["research_agent"]
-        deep_research_agent = config["functions"]["deep_research_agent"]
         functions = config["functions"]
-        research_tools = research_agent["tool_names"]
-        deep_tools = deep_research_agent["tool_names"]
+        workflow_tools = config["workflow"]["nat_tools"]
 
         assert "exa_internet_search_tool" not in functions, path
-        assert "exa_internet_search_tool" not in research_tools, path
-        assert "exa_internet_search_tool" not in deep_tools, path
-        assert "serpapi_search_tool" in research_tools, path
-        assert "serpapi_search_tool" in deep_tools, path
-        assert research_tools.index("curated_feed_search_tool") < research_tools.index(
+        assert "exa_internet_search_tool" not in workflow_tools, path
+        assert "serpapi_search_tool" in workflow_tools, path
+        assert workflow_tools.index("curated_feed_search_tool") < workflow_tools.index(
             "serpapi_search_tool"
         ), path
         source_registry = functions["source_policy_tool"]["source_registry"]
@@ -580,10 +563,8 @@ def test_research_agents_use_serpapi_as_only_internet_search_provider():
             for source in source_registry
         ), path
 
-        prompt = research_agent["system_prompt"]
-        deep_prompt = deep_research_agent["system_prompt"]
+        prompt = config["workflow"]["system_prompt"]
         assert "exa_internet_search_tool" not in prompt, path
-        assert "exa_internet_search_tool" not in deep_prompt, path
         assert "only internet search provider" in prompt, path
 
 
@@ -605,29 +586,29 @@ def test_top_level_workflow_exposes_source_verifier_when_add_memory_requires_it(
         config = _config(path)
         add_memory_desc = config["functions"]["add_memory"]["description"]
         if "source_verifier_tool.verify_claim" in add_memory_desc:
-            assert "source_verifier_tool" in config["workflow"]["tool_names"], path
+            assert "source_verifier_tool" in config["workflow"]["nat_tools"], path
 
 
-def test_mas_evaluate_uses_effective_routing_domains_not_global_tool_catalog():
-    expected = (
-        'active_tool_names="research_agent,deep_research_agent,'
-        'nvidia_docs_agent,ops_agent,user_document_agent,user_data_agent"'
-    )
-    forbidden = "nvidia_retriever_tool,semianalysis_retriever_tool"
+def test_workflow_has_no_removed_architecture_router_references():
+    for path in DEPLOYED_CONFIGS:
+        config = _config(path)
+        config_text = Path(path).read_text(encoding="utf-8")
+        removed_package = "mas" + "_optimizer"
+        removed_operation = "mas" + "_evaluate"
+        removed_tool = removed_package + "_tool"
+        assert removed_package not in config_text, path
+        assert removed_operation not in config_text, path
+        assert removed_tool not in config["functions"], path
+        assert removed_tool not in config["workflow"]["nat_tools"], path
+
+
+def test_direct_leaf_routing_is_configured():
     for path in DEPLOYED_CONFIGS:
         prompt = _config(path)["workflow"]["system_prompt"]
-        assert expected in prompt, path
-        assert forbidden not in prompt, path
-
-
-def test_direct_specialist_routing_precedes_generic_mas_gate():
-    for path in DEPLOYED_CONFIGS:
-        prompt = _config(path)["workflow"]["system_prompt"]
-        assert "Direct specialist requests" in prompt, path
-        assert "MAS candidate requests" in prompt, path
-        assert prompt.index("Direct specialist requests") < prompt.index(
-            "MAS candidate requests"
-        ), path
+        assert "Routing after get_memory" in prompt, path
+        assert "call the leaf tools listed below directly" in prompt, path
+        assert "Broad multi-source synthesis or exploration" in prompt, path
+        assert "Do not invoke architecture routers" in prompt, path
 
 
 def test_daily_briefing_routes_to_raw_html_before_visual_media():
@@ -640,12 +621,11 @@ def test_daily_briefing_routes_to_raw_html_before_visual_media():
         assert "Daily briefing" in prompt, path
         assert "set top_k=12" in prompt, path
         assert "daedalus-feed nv-html weather" in prompt, path
-        assert "Direct specialist requests" in prompt, path
+        assert "Routing after get_memory" in prompt, path
         assert prompt.index("Daily briefing") < prompt.index(
-            "Direct specialist requests"
+            "Quick research"
         ), path
-        assert "call daily_summary_agent" in normalized_prompt, path
-        assert "Return the tool output" in prompt, path
+        assert "create the raw Daedalus feed HTML directly" in normalized_prompt, path
         assert 'agent_skills_tool.load_skill("nv-html")' in prompt, path
         assert "memory-derived local weather and logistics" in prompt, path
         assert "read-only operations status" in normalized_prompt, path
@@ -663,36 +643,29 @@ def test_daily_briefing_routes_to_raw_html_before_visual_media():
         assert "Steelers" not in prompt, path
 
 
-def test_daily_summary_agent_contracts_raw_nv_html_fragment():
+def test_daily_summary_contracts_raw_nv_html_fragment():
     for path in DEPLOYED_CONFIGS:
         config = _config(path)
-        daily = config["functions"]["daily_summary_agent"]
-        prompt = daily["system_prompt"]
-        tools = set(daily["tool_names"])
+        prompt = config["workflow"]["system_prompt"]
+        tools = set(config["workflow"]["nat_tools"])
 
-        assert daily["_type"] == "tool_calling_agent_resilient", path
-        assert "daily_summary_agent" in config["workflow"]["tool_names"], path
-        assert "daily_summary_agent" in config["workflow"]["return_direct"], path
-        assert "visual_media_tool" not in tools, path
+        assert "visual_media_tool" in tools, path
+        assert "Do not call visual_media_tool for" in " ".join(prompt.split()), path
         assert "current_datetime_tool" in tools, path
         assert "get_memory" in tools, path
         assert "agent_skills_tool" in tools, path
-        assert "user_data_agent" in tools, path
-        assert "ops_agent" in tools, path
+        assert "calendar_mcp_server" in tools, path
+        assert "k8s_mcp_server" in tools, path
         assert "curated_feed_search_tool" in tools, path
         assert "serpapi_search_tool" in tools, path
 
-        assert "Call current_datetime_tool first" in prompt, path
-        assert "Call get_memory with top_k=12" in prompt, path
+        assert "call current_datetime_tool" in prompt, path
+        assert "set top_k=12" in prompt, path
         assert "daedalus-feed nv-html weather" in prompt, path
         assert "personalization source of truth" in prompt, path
-        assert "Do not fall back to hardcoded names" in prompt, path
-        assert "Build a memory profile" in prompt, path
         assert 'agent_skills_tool.load_skill("nv-html")' in prompt, path
-        assert "Calendar: call user_data_agent" in prompt, path
-        assert "Operations: call ops_agent" in prompt, path
-        assert "Weather and logistics: call serpapi_search_tool" in prompt, path
-        assert "Sports and live events: call serpapi_search_tool" in prompt, path
+        assert "calendar tools" in prompt, path
+        assert "k8s_mcp_server" in prompt, path
         assert "curated_feed_search_tool" in prompt, path
         assert "raw HTML only" in prompt, path
         assert (
@@ -701,26 +674,23 @@ def test_daily_summary_agent_contracts_raw_nv_html_fragment():
         assert "Do not return Markdown" in prompt, path
         assert "fenced code" in prompt, path
         assert "<img>" in prompt, path
-        assert "Stop after returning the single HTML fragment" in prompt, path
+        assert "returning the single HTML fragment" in prompt, path
         assert "Brandon" not in prompt, path
         assert "Saline" not in prompt, path
         assert "Yankees" not in prompt, path
         assert "Steelers" not in prompt, path
 
 
-def test_source_policy_metadata_is_propagated_to_research_agents():
+def test_source_policy_metadata_is_handled_by_workflow():
     for path in DEPLOYED_CONFIGS:
         config = _config(path)
         workflow_prompt = config["workflow"]["system_prompt"]
-        research_prompt = config["functions"]["research_agent"]["system_prompt"]
-        deep_prompt = config["functions"]["deep_research_agent"]["system_prompt"]
 
         assert "[SOURCE_POLICY]" in workflow_prompt, path
         assert "enabled_source_ids" in workflow_prompt, path
-        assert "source_policy_tool.plan_sources" in research_prompt, path
-        assert "selected_sources_json" in research_prompt, path
-        assert "disabled_sources_json" in deep_prompt, path
-        assert "require_deep_research_plan_approval" in deep_prompt, path
+        assert "selected_sources_json" in workflow_prompt, path
+        assert "disabled_sources_json" in workflow_prompt, path
+        assert "require_deep_research_plan_approval" in workflow_prompt, path
 
 
 def test_workflow_runs_get_memory_first_unconditionally():
@@ -735,27 +705,18 @@ def test_workflow_runs_get_memory_first_unconditionally():
         assert "without get_memory" not in prompt, path
 
 
-def test_research_agent_rejects_stale_curated_memory_store_alias():
+def test_workflow_rejects_stale_curated_memory_store_alias():
     for path in DEPLOYED_CONFIGS:
         config = _config(path)
-        research_agent = config["functions"]["research_agent"]
+        prompt = config["workflow"]["system_prompt"]
 
-        assert "curated_memory_store" not in research_agent["tool_names"], path
-        assert "curated_memory_store" in research_agent["system_prompt"], path
-        assert "domain_retriever_tool" in research_agent["system_prompt"], path
-        assert (
-            "never call curated_memory_store" in research_agent["system_prompt"]
-        ), path
+        assert "curated_memory_store" not in config["workflow"]["nat_tools"], path
+        assert "curated_memory_store" in prompt, path
+        assert "domain_retriever_tool" in prompt, path
+        assert "never call curated_memory_store" in " ".join(prompt.split()), path
 
 
-def test_mas_optimizer_description_exposes_skill_name_contract():
-    for path in DEPLOYED_CONFIGS:
-        desc = _config(path)["functions"]["mas_optimizer_tool"]["description"]
-        assert "skill_name" in desc, path
-        assert "matched_signals" in desc, path
-
-
-def test_skill_routing_precedes_generic_mas_gate():
+def test_skill_routing_precedes_other_substantive_requests():
     for path in DEPLOYED_CONFIGS:
         prompt = _config(path)["workflow"]["system_prompt"]
         assert prompt.index("Skill-routed substantive requests") < prompt.index(

@@ -202,4 +202,24 @@ download-autonomous-images.py
 
 # Skill description optimizer workspaces (transient eval data)
 skills/*
+!skills/nat-agent-configuration/
+!skills/nat-agent-configuration/**
+!skills/nat-evaluation/
+!skills/nat-evaluation/**
+!skills/nat-installation/
+!skills/nat-installation/**
+!skills/nat-mcp-and-serving/
+!skills/nat-mcp-and-serving/**
+!skills/nat-optimization/
+!skills/nat-optimization/**
+!skills/nat-path-checks/
+!skills/nat-path-checks/**
+!skills/nat-telemetry/
+!skills/nat-telemetry/**
+!skills/nat-tools-and-functions/
+!skills/nat-tools-and-functions/**
+!skills/nat-user-rules/
+!skills/nat-user-rules/**
+!skills/nat-workflow-creation/
+!skills/nat-workflow-creation/**
 skills-workspace/

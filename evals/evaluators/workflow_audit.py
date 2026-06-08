@@ -19,8 +19,6 @@ def _called_tools(trace) -> list[str]:
 def _tool_called(required_tool: str, tools: list[str]) -> bool:
     if required_tool in tools:
         return True
-    if required_tool == "mas_evaluate":
-        return "mas_optimizer_tool" in tools
     if required_tool == "agent_skills_tool":
         return any("agent_skills" in tool or "load_skill" in tool for tool in tools)
     return False
@@ -33,6 +31,7 @@ def _has_url_citation(response: str) -> bool:
 def score(case: dict, trace) -> EvalScore:
     expected = case.get("expected") or {}
     required_tools = set(expected.get("required_tools") or [])
+    required_tool_groups = expected.get("required_tool_groups") or []
     forbidden_tools = set(expected.get("forbidden_tools") or [])
     required_phrases = expected.get("response_contains") or []
     response_regexes = expected.get("response_regex") or []
@@ -41,6 +40,7 @@ def score(case: dict, trace) -> EvalScore:
     max_total_tokens = expected.get("max_total_tokens")
     max_tool_calls = expected.get("max_tool_calls")
     min_tool_calls = expected.get("min_tool_calls")
+    max_workflow_calls = expected.get("max_workflow_calls")
 
     checks: list[tuple[bool, str]] = []
     tools = _called_tools(trace)
@@ -48,6 +48,15 @@ def score(case: dict, trace) -> EvalScore:
     for tool_name in sorted(required_tools):
         checks.append(
             (_tool_called(tool_name, tools), f"required tool not called: {tool_name}")
+        )
+
+    for group in required_tool_groups:
+        group_tools = [str(tool) for tool in group]
+        checks.append(
+            (
+                any(_tool_called(tool, tools) for tool in group_tools),
+                f"none of required tool group called: {group_tools}",
+            )
         )
 
     forbidden_called = [
@@ -68,6 +77,15 @@ def score(case: dict, trace) -> EvalScore:
             (
                 len(tools) <= int(max_tool_calls),
                 f"{len(tools)} tool calls, expected at most {max_tool_calls}",
+            )
+        )
+
+    if max_workflow_calls is not None:
+        workflow_calls = int(trace.metrics.get("workflow_call_count") or 0)
+        checks.append(
+            (
+                workflow_calls <= int(max_workflow_calls),
+                f"{workflow_calls} workflow calls, expected at most {max_workflow_calls}",
             )
         )
 

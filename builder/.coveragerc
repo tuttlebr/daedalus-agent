@@ -3,8 +3,6 @@ source =
     agent_skills/src
     autonomous_agent/src
     content_distiller/src
-    json_repair_agent/src
-    mas_optimizer/src
     nat_helpers/src
     nat_nv_ingest/src
     rss_feed/src
@@ -18,8 +16,6 @@ source =
 
 omit =
     */register.py
-    */resilient_agent_register.py
-    */resilient_agent.py
     tests/*
     conftest.py
 

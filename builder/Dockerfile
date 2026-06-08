@@ -57,6 +57,36 @@ SHELL ["/bin/bash", "-c"]
 WORKDIR /workspace
 RUN source /workspace/.venv/bin/activate
 
+ARG BUILDER_PACKAGES="nat_helpers visual_media nat_nv_ingest smart_milvus webscrape rss_feed vtt_interpreter agent_skills serpapi_search content_distiller source_verifier user_interaction autonomous_agent"
+
+# Install dependency metadata before copying source so normal code edits do not
+# invalidate the expensive dependency resolution and download layer.
+COPY nat_helpers/pyproject.toml /workspace/nat_helpers/
+COPY visual_media/pyproject.toml /workspace/visual_media/
+COPY nat_nv_ingest/pyproject.toml /workspace/nat_nv_ingest/
+COPY smart_milvus/pyproject.toml /workspace/smart_milvus/
+COPY webscrape/pyproject.toml /workspace/webscrape/
+COPY rss_feed/pyproject.toml /workspace/rss_feed/
+COPY vtt_interpreter/pyproject.toml /workspace/vtt_interpreter/
+COPY agent_skills/pyproject.toml /workspace/agent_skills/
+COPY serpapi_search/pyproject.toml /workspace/serpapi_search/
+COPY content_distiller/pyproject.toml /workspace/content_distiller/
+COPY source_verifier/pyproject.toml /workspace/source_verifier/
+COPY user_interaction/pyproject.toml /workspace/user_interaction/
+COPY autonomous_agent/pyproject.toml /workspace/autonomous_agent/
+
+RUN for package in ${BUILDER_PACKAGES}; do \
+    mkdir -p "/workspace/${package}/src/${package}" && \
+    touch "/workspace/${package}/src/${package}/__init__.py"; \
+    done
+
+RUN --mount=type=cache,id=uv_cache,target=/root/.cache/uv,sharing=locked \
+    uv pip install --prerelease=allow \
+    $(for package in ${BUILDER_PACKAGES}; do printf ' -e %s' "${package}"; done)
+
+ENV PLAYWRIGHT_BROWSERS_PATH=/workspace/.playwright
+RUN playwright install chromium --with-deps
+
 COPY nat_helpers /workspace/nat_helpers
 COPY visual_media /workspace/visual_media
 COPY nat_nv_ingest /workspace/nat_nv_ingest
@@ -66,31 +96,14 @@ COPY rss_feed /workspace/rss_feed
 COPY vtt_interpreter /workspace/vtt_interpreter
 COPY agent_skills /workspace/agent_skills
 COPY serpapi_search /workspace/serpapi_search
-COPY json_repair_agent /workspace/json_repair_agent
-COPY mas_optimizer /workspace/mas_optimizer
 COPY content_distiller /workspace/content_distiller
 COPY source_verifier /workspace/source_verifier
 COPY user_interaction /workspace/user_interaction
 COPY autonomous_agent /workspace/autonomous_agent
-COPY --from=skills . /skills
 
 RUN --mount=type=cache,id=uv_cache,target=/root/.cache/uv,sharing=locked \
-    uv pip install --prerelease=allow \
-    -e nat_helpers \
-    -e visual_media \
-    -e nat_nv_ingest \
-    -e smart_milvus \
-    -e webscrape \
-    -e rss_feed \
-    -e vtt_interpreter \
-    -e agent_skills \
-    -e serpapi_search \
-    -e json_repair_agent \
-    -e mas_optimizer \
-    -e content_distiller \
-    -e source_verifier \
-    -e user_interaction \
-    -e autonomous_agent
+    uv pip install --no-deps --prerelease=allow \
+    $(for package in ${BUILDER_PACKAGES}; do printf ' -e %s' "${package}"; done)
 
 RUN --mount=type=cache,id=uv_cache,target=/root/.cache/uv,sharing=locked \
     NAT_VERSION= nat workflow reinstall visual_media && \
@@ -101,24 +114,39 @@ RUN --mount=type=cache,id=uv_cache,target=/root/.cache/uv,sharing=locked \
     NAT_VERSION= nat workflow reinstall vtt_interpreter && \
     NAT_VERSION= nat workflow reinstall agent_skills && \
     NAT_VERSION= nat workflow reinstall serpapi_search && \
-    NAT_VERSION= nat workflow reinstall json_repair_agent && \
-    NAT_VERSION= nat workflow reinstall mas_optimizer && \
     NAT_VERSION= nat workflow reinstall content_distiller && \
     NAT_VERSION= nat workflow reinstall source_verifier && \
     NAT_VERSION= nat workflow reinstall user_interaction
-
-ENV PLAYWRIGHT_BROWSERS_PATH=/workspace/.playwright
-RUN playwright install chromium --with-deps
 
 COPY entrypoint.py /workspace/entrypoint.py
 COPY llm_diagnostics.py /workspace/llm_diagnostics.py
 COPY mcp_patches.py /workspace/mcp_patches.py
 COPY image_api.py /workspace/image_api.py
 COPY document_ingest_api.py /workspace/document_ingest_api.py
+COPY --from=skills . /skills
 
 # Ensure baked files are accessible when running as non-root (K8s securityContext),
 # and provide NAT's cwd-relative async job temp directory.
-RUN chmod -R a+rX /workspace /skills && \
+RUN chmod -R a+rX \
+    /workspace/nat_helpers \
+    /workspace/visual_media \
+    /workspace/nat_nv_ingest \
+    /workspace/smart_milvus \
+    /workspace/webscrape \
+    /workspace/rss_feed \
+    /workspace/vtt_interpreter \
+    /workspace/agent_skills \
+    /workspace/serpapi_search \
+    /workspace/content_distiller \
+    /workspace/source_verifier \
+    /workspace/user_interaction \
+    /workspace/autonomous_agent \
+    /workspace/entrypoint.py \
+    /workspace/llm_diagnostics.py \
+    /workspace/mcp_patches.py \
+    /workspace/image_api.py \
+    /workspace/document_ingest_api.py \
+    /skills && \
     mkdir -p /workspace/.tmp && \
     chmod 1777 /workspace/.tmp
 
