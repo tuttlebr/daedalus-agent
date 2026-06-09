@@ -291,51 +291,34 @@ def test_workflow_uses_single_tool_calling_agent_schema():
         assert not set(removed_agent_names) & set(config["functions"]), path
 
 
-def test_openai_llms_use_role_specific_gpt55_responses_parameters():
+def test_openai_llms_use_tool_calling_compatible_parameters():
     expected = {
-        "reasoning_llm": {
-            "effort": "high",
-            "verbosity": "low",
-            "max_output_tokens": 16384,
-        },
-        "react_llm": {
-            "effort": "low",
-            "verbosity": "low",
-            "max_output_tokens": 4096,
-        },
-        "tool_calling_llm": {
-            "effort": "medium",
-            "verbosity": "low",
-            "max_output_tokens": 16384,
-        },
-        "distill_llm": {
-            "effort": "low",
-            "verbosity": "low",
-            "max_output_tokens": 6144,
-        },
-        "default_llm": {
-            "effort": "low",
-            "verbosity": "low",
-            "max_output_tokens": 4096,
-        },
+        "tool_calling_llm": {"priority": 9, "osl": 2048},
+        "default_llm": {"priority": 8, "osl": 1024},
     }
     for path in DEPLOYED_CONFIGS:
         config = _config(path)
+        assert set(config["llms"]) == set(expected), path
         for llm_name, params in expected.items():
             llm = config["llms"][llm_name]
             assert llm["_type"] == "openai", (path, llm_name)
-            assert llm["api_type"] == "responses", (path, llm_name)
-            assert llm["reasoning"]["effort"] == params["effort"], (path, llm_name)
-            assert llm["text"]["verbosity"] == params["verbosity"], (path, llm_name)
-            assert llm["max_output_tokens"] == params["max_output_tokens"], (
+            assert llm.get("api_type", "chat_completions") != "responses", (
                 path,
                 llm_name,
             )
             assert "temperature" not in llm, (path, llm_name)
             assert "top_p" not in llm, (path, llm_name)
-            assert llm["store"] is True, (path, llm_name)
-            assert llm["prompt_cache_retention"] == "24h", (path, llm_name)
-            assert "extra_body" not in llm, (path, llm_name)
+            assert "extra_args" not in llm, (path, llm_name)
+            assert llm["extra_body"]["nvext"]["agent_hints"]["priority"] == params[
+                "priority"
+            ], (path, llm_name)
+            assert llm["extra_body"]["nvext"]["agent_hints"]["osl"] == params["osl"], (
+                path,
+                llm_name,
+            )
+            assert (
+                llm["extra_body"]["nvext"]["cache_control"]["ttl"] == "120m"
+            ), (path, llm_name)
 
 
 def test_backend_config_omits_unsupported_sampling_parameters():
@@ -356,7 +339,6 @@ def test_workflow_exposes_configured_nvidia_docs_servers():
 
         assert "aistore_mcp_server" in config["function_groups"], path
         assert "aistore_mcp_server" in tools, path
-        assert "AIStore -> aistore_mcp_server" in config["workflow"]["system_prompt"], path
         assert "AIStore" in nvidia_docs["description"], path
         assert "aistore_mcp_server" in nvidia_docs["tools"], path
 
@@ -543,7 +525,7 @@ def test_backend_security_context_defaults_to_non_root():
 
 def test_multi_operation_tools_are_filtered_in_production():
     expected = {
-        "agent_skills_tool": ["load_skill"],
+        "agent_skills_tool": ["list_skills", "load_skill"],
         "content_distiller_tool": ["distill_content"],
         "citation_auditor_tool": ["audit_citations"],
         "ops_confirmation_tool": ["confirm_action"],
@@ -590,7 +572,7 @@ def test_workflow_uses_serpapi_as_only_internet_search_provider():
 
         prompt = config["workflow"]["system_prompt"]
         assert "exa_internet_search_tool" not in prompt, path
-        assert "only internet search provider" in prompt, path
+        assert "live search for current events" in " ".join(prompt.split()), path
 
 
 def test_source_verifier_fast_llm_has_no_unsupported_extra_args():
@@ -630,10 +612,11 @@ def test_workflow_has_no_removed_architecture_router_references():
 def test_direct_leaf_routing_is_configured():
     for path in DEPLOYED_CONFIGS:
         prompt = _config(path)["workflow"]["system_prompt"]
-        assert "Routing after get_memory" in prompt, path
-        assert "call the leaf tools listed below directly" in prompt, path
-        assert "Broad multi-source synthesis or exploration" in prompt, path
-        assert "Do not invoke architecture routers" in prompt, path
+        normalized_prompt = " ".join(prompt.split())
+        assert "Routing after memory" in prompt, path
+        assert "Route directly to the relevant leaf capability" in normalized_prompt, path
+        assert "broad multi-source synthesis or exploration" in normalized_prompt, path
+        assert "Do not invoke nested architecture routers" in normalized_prompt, path
 
 
 def test_daily_briefing_routes_to_structured_response_without_visual_media():
@@ -644,20 +627,24 @@ def test_daily_briefing_routes_to_structured_response_without_visual_media():
         visual_media_desc = config["functions"]["visual_media_tool"]["description"]
 
         assert "Daily briefing" in prompt, path
-        assert "set top_k=12" in prompt, path
-        assert "daily briefing weather locale location" in prompt, path
-        assert "Routing after get_memory" in prompt, path
+        assert "broad enough memory result count" in prompt, path
+        assert "daily briefing" in normalized_prompt, path
+        assert "weather locale location" in normalized_prompt, path
+        assert "Routing after memory" in prompt, path
         assert prompt.index("Daily briefing") < prompt.index(
-            "Quick research"
+            "Research and sources"
         ), path
-        assert "produce a concise structured briefing directly" in normalized_prompt, path
-        assert "memory-derived local weather and logistics" in prompt, path
+        assert (
+            "Produce a concise structured Markdown briefing directly"
+            in normalized_prompt
+        ), path
+        assert "Weather/Local Logistics" in prompt, path
         assert "read-only operations status" in normalized_prompt, path
-        assert "teams, leagues, and events found in memory" in normalized_prompt, path
-        assert "normal assistant response format" in normalized_prompt, path
+        assert "teams, leagues, events" in normalized_prompt, path
+        assert "normal assistant Markdown" in normalized_prompt, path
         assert "Markdown is allowed" in prompt, path
         assert "Do not require raw HTML" in prompt, path
-        assert "Do not call visual_media_tool for" in normalized_prompt, path
+        assert "Do not generate, edit, or analyze visual media" in normalized_prompt, path
         assert (
             "daily briefings unless the user explicitly asks" in normalized_prompt
         ), path
@@ -675,10 +662,10 @@ def test_daily_summary_contracts_structured_briefing():
     for path in DEPLOYED_CONFIGS:
         config = _config(path)
         prompt = config["workflow"]["system_prompt"]
+        normalized_prompt = " ".join(prompt.split())
         tools = set(config["workflow"]["tool_names"])
 
         assert "visual_media_tool" in tools, path
-        assert "Do not call visual_media_tool for" in " ".join(prompt.split()), path
         assert "current_datetime_tool" in tools, path
         assert "get_memory" in tools, path
         assert "agent_skills_tool" in tools, path
@@ -687,19 +674,19 @@ def test_daily_summary_contracts_structured_briefing():
         assert "curated_feed_search_tool" in tools, path
         assert "serpapi_search_tool" in tools, path
 
-        assert "call current_datetime_tool" in prompt, path
-        assert "set top_k=12" in prompt, path
-        assert "daily briefing weather locale location" in prompt, path
-        assert "personalization source of truth" in prompt, path
-        assert "calendar tools" in prompt, path
-        assert "k8s_mcp_server" in prompt, path
-        assert "curated_feed_search_tool" in prompt, path
-        assert "concise structured briefing" in prompt, path
+        assert "call current date/time" in prompt, path
+        assert "broad enough memory result count" in prompt, path
+        assert "daily briefing" in prompt, path
+        assert "weather locale location" in prompt, path
+        assert "authenticated identity" in prompt, path
+        assert "calendar" in prompt, path
+        assert "read-only operations status" in prompt, path
+        assert "recent feeds or live search" in normalized_prompt, path
+        assert "concise structured Markdown briefing" in normalized_prompt, path
         assert "Markdown is allowed" in prompt, path
-        assert "Do not require HTML" in prompt, path
+        assert "Do not require raw HTML" in prompt, path
         assert "raw HTML only" not in prompt, path
         assert '<article class="daedalus-feed"' not in prompt, path
-        assert "<img>" in prompt, path
         assert "Next Best Actions" in prompt, path
         assert "Brandon" not in prompt, path
         assert "Saline" not in prompt, path
@@ -714,8 +701,8 @@ def test_source_policy_metadata_is_handled_by_workflow():
 
         assert "[SOURCE_POLICY]" in workflow_prompt, path
         assert "enabled_source_ids" in workflow_prompt, path
-        assert "selected_sources_json" in workflow_prompt, path
-        assert "disabled_sources_json" in workflow_prompt, path
+        assert "disabled_source_ids" in workflow_prompt, path
+        assert "max_research_tool_calls" in workflow_prompt, path
         assert "require_deep_research_plan_approval" in workflow_prompt, path
 
 
@@ -726,31 +713,50 @@ def test_workflow_runs_get_memory_first_unconditionally():
     # the session-start memory requirement and let get_memory be skipped.
     for path in DEPLOYED_CONFIGS:
         prompt = _config(path)["workflow"]["system_prompt"]
-        assert "get_memory FIRST" in prompt, path
-        assert "No exceptions" in prompt, path
-        assert "without get_memory" not in prompt, path
+        normalized_prompt = " ".join(prompt.split())
+        assert "memory retrieval before any answer" in normalized_prompt, path
+        assert "No exceptions" in normalized_prompt, path
+        assert (
+            "before any answer, route, skill load, or other capability call"
+            in normalized_prompt
+        ), path
+        assert "without memory" not in prompt.lower(), path
 
 
-def test_workflow_rejects_stale_curated_memory_store_alias():
+def test_workflow_prompt_omits_configured_tool_identifiers():
     for path in DEPLOYED_CONFIGS:
         config = _config(path)
         prompt = config["workflow"]["system_prompt"]
 
         assert "curated_memory_store" not in config["workflow"]["tool_names"], path
-        assert "curated_memory_store" in prompt, path
-        assert "domain_retriever_tool" in prompt, path
-        assert "never call curated_memory_store" in " ".join(prompt.split()), path
+        assert "curated_memory_store" not in prompt, path
+        for tool_name in config["workflow"]["tool_names"]:
+            assert tool_name not in prompt, (path, tool_name)
 
 
 def test_skill_routing_precedes_other_substantive_requests():
     for path in DEPLOYED_CONFIGS:
         prompt = _config(path)["workflow"]["system_prompt"]
+        normalized_prompt = " ".join(prompt.split())
         assert prompt.index("Skill-routed substantive requests") < prompt.index(
             "Other substantive requests"
         ), path
-        assert "open PRs" in prompt, path
-        assert "merged PR listings/history" in prompt, path
-        assert "pr-monitor" in prompt, path
+        assert (
+            "discover available skills when the exact skill is unknown"
+            in normalized_prompt
+        ), path
+        assert "open PR summaries" in normalized_prompt, path
+        assert "merged PR listings/history" in normalized_prompt, path
+        assert "PR monitoring skill path" in normalized_prompt, path
+
+
+def test_pr_monitor_skill_is_available_for_pr_routing():
+    skill_path = SKILLS_DIR / "pr-monitor" / "SKILL.md"
+    assert skill_path.is_file()
+    text = skill_path.read_text(encoding="utf-8")
+    assert "name: pr-monitor" in text
+    assert "read-only GitHub pull request status summaries" in text
+    assert "Do not create, merge, close, label, approve, comment on, or edit PRs" in text
 
 
 def test_nat_coding_agent_skills_are_available_and_routed():
@@ -760,19 +766,16 @@ def test_nat_coding_agent_skills_are_available_and_routed():
     for skill_name in NAT_CODING_AGENT_SKILLS:
         assert (SKILLS_DIR / skill_name / "SKILL.md").is_file(), skill_name
 
-    # The orchestrator prompt routes the focused nat-* docs skills through
-    # nat-user-rules rather than enumerating each one, to keep the skill list
-    # lean. So the prompt names only the entry points (nat-user-rules,
-    # skill-evolution) plus the routing rule; the focused nat-* skills are
-    # reached via nat-user-rules, and their availability is asserted on disk
-    # above.
-    prompt_named_nat_skills = {"nat-user-rules", "skill-evolution"}
+    # The orchestrator prompt routes toolkit work through the skill system
+    # without hard-coding individual skill identifiers. Availability of the
+    # focused nat-* skills is asserted on disk above.
     for path in DEPLOYED_CONFIGS:
         prompt = _config(path)["workflow"]["system_prompt"]
-        for skill_name in prompt_named_nat_skills:
-            assert skill_name in prompt, (path, skill_name)
-        assert "load nat-user-rules first" in prompt, path
-        assert "workflow YAML, custom functions/tools" in prompt, path
+        normalized_prompt = " ".join(prompt.split())
+        assert "NeMo Agent Toolkit work" in normalized_prompt, path
+        assert "load the toolkit entry skill first" in normalized_prompt, path
+        assert "workflow YAML, custom functions/tools" in normalized_prompt, path
+        assert "skill-governance guidance" in normalized_prompt, path
 
 
 def test_memory_findings_require_supported_exact_claims():
@@ -801,11 +804,15 @@ def test_explicit_memory_writes_do_not_require_confirmation():
         prompt = config["workflow"]["system_prompt"]
         add_memory_desc = config["functions"]["add_memory"]["description"]
         ops_desc = config["functions"]["ops_confirmation_tool"]["description"]
+        normalized_prompt = " ".join(prompt.split())
 
         assert "Explicit memory write" in prompt, path
-        assert "call add_memory directly" in prompt, path
+        assert "stored directly without confirmation" in prompt, path
         assert "No approval is required" in prompt, path
-        assert "Do not call ops_confirmation_tool" in prompt, path
+        assert (
+            "Do not use operational confirmation for memory creation"
+            in normalized_prompt
+        ), path
         assert "explicit user requests" in add_memory_desc, path
         assert "Never use for" in ops_desc, path
         assert "memory_update" in ops_desc, path

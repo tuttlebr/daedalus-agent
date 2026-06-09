@@ -6,7 +6,11 @@ import {
   removeImageParamKeys,
   resolveImageModel,
 } from '@/utils/app/imageModelCapabilities';
-import { withInternalBackendAuth } from '@/utils/server/backendAuth';
+import {
+  resolveTimezoneFromHeaders,
+  withInternalBackendAuth,
+  withTimezoneHeader,
+} from '@/utils/server/backendAuth';
 import { postJsonToBackend } from '@/utils/server/httpProxy';
 
 import {
@@ -61,11 +65,16 @@ export default async function handler(
     const backendResponse = await postJsonToBackend(
       backendUrl,
       JSON.stringify(payload),
-      withInternalBackendAuth({
-        'Content-Type': 'application/json',
-        'x-user-id': userId,
-        'x-session-id': sessionId,
-      }),
+      withInternalBackendAuth(
+        withTimezoneHeader(
+          {
+            'Content-Type': 'application/json',
+            'x-user-id': userId,
+            'x-session-id': sessionId,
+          },
+          resolveTimezoneFromHeaders(req.headers),
+        ),
+      ),
       EDIT_TIMEOUT_MS,
     );
 

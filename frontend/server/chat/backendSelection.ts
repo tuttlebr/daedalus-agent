@@ -83,6 +83,7 @@ export async function selectStreamBackendBaseUrl(
   jobId: string,
   verifiedUsername: string,
   natSessionId: string,
+  timezone?: string,
 ): Promise<string> {
   const natBaseUrls = await resolveAsyncBackendBaseUrls();
   const now = Date.now();
@@ -123,7 +124,12 @@ export async function selectStreamBackendBaseUrl(
           healthUrl,
           {
             method: 'HEAD',
-            headers: buildNatRequestHeaders(verifiedUsername, {}, natSessionId),
+            headers: buildNatRequestHeaders(
+              verifiedUsername,
+              {},
+              natSessionId,
+              timezone,
+            ),
           },
           NAT_CONNECTIVITY_TIMEOUT_MS,
         );
@@ -167,6 +173,7 @@ export async function submitNatAsyncJob(
   messagesForNat: any[],
   verifiedUsername: string,
   natSessionId: string,
+  timezone?: string,
 ): Promise<void> {
   const submitUrl = buildBackendUrlFromBase(natBaseUrl, '/v1/workflow/async');
   const payload = {
@@ -184,6 +191,7 @@ export async function submitNatAsyncJob(
         verifiedUsername,
         { 'Content-Type': 'application/json' },
         natSessionId,
+        timezone,
       ),
       body: JSON.stringify(payload),
     },
@@ -213,7 +221,10 @@ function messagesToInputMessage(messages: any[]): string {
           ? rawContent.trim()
           : JSON.stringify(rawContent ?? '').trim();
       if (!content) return null;
-      const role = String(message.role || 'user').trim().toUpperCase() || 'USER';
+      const role =
+        String(message.role || 'user')
+          .trim()
+          .toUpperCase() || 'USER';
       return `[${role}]\n${content}`;
     })
     .filter((part): part is string => Boolean(part))
@@ -235,6 +246,7 @@ export async function fetchNatJobStatus(
         jobRequest.userId,
         {},
         jobRequest.natSessionId,
+        jobRequest.timezone,
       ),
     },
     30_000,

@@ -8,6 +8,8 @@ Daedalus is a deployable AI agent platform. `backend/` contains the NeMo Agent T
 
 For NeMo Agent Toolkit work, read `skills/nat-user-rules/SKILL.md` first, then the relevant `skills/nat-*` guide for workflow YAML, tools, evals, telemetry, MCP, or serving.
 
+For read-only GitHub PR status summaries, open PR lists, or recent merged PR history, use `skills/pr-monitor/SKILL.md`.
+
 ## Build, Test, and Development Commands
 
 Use the root `Makefile` as the local CI mirror.

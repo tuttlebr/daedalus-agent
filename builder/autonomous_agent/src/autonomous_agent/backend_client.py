@@ -13,6 +13,7 @@ from urllib.parse import quote
 import requests
 
 _AUTH_URL_RE = re.compile(r"https?://[^\s<>\")]+")
+DEFAULT_TIMEZONE = "America/New_York"
 
 
 class OAuthRequiredError(RuntimeError):
@@ -218,6 +219,7 @@ class BackendClient:
     def _headers(self) -> dict[str, str]:
         headers = {
             "x-user-id": self.user_id,
+            "x-timezone": DEFAULT_TIMEZONE,
             "Cookie": f"nat-session={quote(self.user_id, safe='')}",
         }
         token = os.getenv("DAEDALUS_INTERNAL_API_TOKEN", "").strip()

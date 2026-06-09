@@ -90,6 +90,7 @@ async function streamDocumentIngestJob(
         verifiedUsername,
         { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
         jobRequest.natSessionId,
+        jobRequest.timezone,
       ),
       body: JSON.stringify(payload),
       signal: controller.signal,

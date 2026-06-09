@@ -421,6 +421,8 @@ def test_messages_to_input_message_flattens_chat_messages_for_async_generate():
 def test_backend_client_uses_returned_async_job_id(monkeypatch):
     requested_urls = []
     submitted_payloads = []
+    submitted_headers = []
+    status_headers = []
 
     class FakeResponse:
         status_code = 200
@@ -436,10 +438,12 @@ def test_backend_client_uses_returned_async_job_id(monkeypatch):
 
     def fake_post(*args, **kwargs):
         submitted_payloads.append(kwargs["json"])
+        submitted_headers.append(kwargs["headers"])
         return FakeResponse({"job_id": "server-job"})
 
     def fake_get(url, *args, **kwargs):
         requested_urls.append(url)
+        status_headers.append(kwargs["headers"])
         return FakeResponse({"status": "success", "output": {"value": "done"}})
 
     monkeypatch.setattr("autonomous_agent.backend_client.requests.post", fake_post)
@@ -457,6 +461,8 @@ def test_backend_client_uses_returned_async_job_id(monkeypatch):
     assert backend.call([{"role": "user", "content": "go"}]) == "done"
     assert submitted_payloads[0]["input_message"] == "[USER]\ngo"
     assert "messages" not in submitted_payloads[0]
+    assert submitted_headers[0]["x-timezone"] == "America/New_York"
+    assert status_headers[0]["x-timezone"] == "America/New_York"
     assert requested_urls == ["http://backend:8000/v1/workflow/async/job/server-job"]
 
 

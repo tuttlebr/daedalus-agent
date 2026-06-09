@@ -181,7 +181,22 @@ describe('chat/async backend pinning helpers', () => {
     ).toEqual({
       'Content-Type': 'application/json',
       'x-user-id': 'testuser',
+      'x-timezone': 'America/New_York',
       Cookie: 'nat-session=job-session-123',
+    });
+  });
+
+  it('forwards a valid caller timezone as x-timezone', () => {
+    expect(
+      buildNatRequestHeaders('testuser', {
+        timezone: 'Europe/London',
+        'Content-Type': 'application/json',
+      }),
+    ).toEqual({
+      'Content-Type': 'application/json',
+      'x-user-id': 'testuser',
+      'x-timezone': 'Europe/London',
+      Cookie: 'nat-session=testuser',
     });
   });
 
@@ -190,6 +205,7 @@ describe('chat/async backend pinning helpers', () => {
 
     expect(buildNatRequestHeaders('testuser')).toEqual({
       'x-user-id': 'testuser',
+      'x-timezone': 'America/New_York',
       'x-daedalus-internal-token': 'internal-secret',
       Cookie: 'nat-session=testuser',
     });
@@ -638,6 +654,7 @@ describe('chat/async backend pinning helpers', () => {
           'Content-Type': 'application/json',
           Accept: 'text/event-stream',
           'x-user-id': 'testuser',
+          'x-timezone': 'America/New_York',
         }),
       }),
     );
@@ -805,6 +822,7 @@ describe('chat/async backend pinning helpers', () => {
         headers: expect.objectContaining({
           'Content-Type': 'application/json',
           'x-user-id': 'testuser',
+          'x-timezone': 'America/New_York',
         }),
       }),
       45000,
@@ -844,7 +862,7 @@ describe('chat/async backend pinning helpers', () => {
 
     const req = {
       method: 'POST',
-      headers: { cookie: 'sid=current-session' },
+      headers: { cookie: 'sid=current-session', 'x-timezone': 'Europe/London' },
       body: {
         conversationId: 'conv-1',
         messages: [
@@ -886,6 +904,7 @@ describe('chat/async backend pinning helpers', () => {
         headers: expect.objectContaining({
           'Content-Type': 'application/json',
           'x-user-id': 'testuser',
+          'x-timezone': 'Europe/London',
         }),
       }),
     );
@@ -894,6 +913,7 @@ describe('chat/async backend pinning helpers', () => {
       ([key]: [string]) => key.includes('async-job-request'),
     )?.[1];
     expect(storedJobRequest.executionMode).toBe('stream');
+    expect(storedJobRequest.timezone).toBe('Europe/London');
     expect(storedJobRequest.natMessages[1].content).toBe('What is the status?');
   });
 

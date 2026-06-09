@@ -100,10 +100,10 @@ export function buildSourcePolicyMessage(
     lines.push(`notes=${JSON.stringify(policy.notes)}`);
   }
   lines.push(
-    'Rules: copy enabled_source_ids/disabled_source_ids into ' +
-      'source_policy_tool.plan_sources as selected_sources_json and ' +
-      'disabled_sources_json for research_agent or deep_research_agent. ' +
-      'Do not echo this source policy message to the user.',
+    'Rules: apply enabled_source_ids and disabled_source_ids through the ' +
+      'source-planning capability before broad research, honor the research ' +
+      'tool-call budget and approval flag, and do not echo this source policy ' +
+      'message to the user.',
   );
 
   return {

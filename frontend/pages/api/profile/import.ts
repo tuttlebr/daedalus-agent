@@ -5,6 +5,7 @@ import {
   buildBackendUrlFromBase,
 } from '@/utils/app/backendApi';
 import { fetchWithTimeout } from '@/utils/fetchWithTimeout';
+import { resolveTimezoneFromHeaders } from '@/utils/server/backendAuth';
 
 import { buildNatRequestHeaders } from '@/server/chat/natMessages';
 import { requireAuthenticatedUser } from '@/server/session/_utils';
@@ -44,15 +45,21 @@ export default async function handler(
     buildBackendBaseUrlForMode(),
     '/v1/profile/import',
   );
+  const timezone = resolveTimezoneFromHeaders(req.headers);
 
   try {
     const response = await fetchWithTimeout(
       backendUrl,
       {
         method: 'POST',
-        headers: buildNatRequestHeaders(session.username, {
-          'Content-Type': 'application/json',
-        }),
+        headers: buildNatRequestHeaders(
+          session.username,
+          {
+            'Content-Type': 'application/json',
+          },
+          undefined,
+          timezone,
+        ),
         body: JSON.stringify(req.body || {}),
       },
       PROFILE_IMPORT_TIMEOUT_MS,

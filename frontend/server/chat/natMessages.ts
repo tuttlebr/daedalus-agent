@@ -1,4 +1,9 @@
-import { withInternalBackendAuth } from '@/utils/server/backendAuth';
+import {
+  resolveTimezoneFromHeaders,
+  stripTimezoneHeaders,
+  withInternalBackendAuth,
+  withTimezoneHeader,
+} from '@/utils/server/backendAuth';
 
 import { createHash } from 'node:crypto';
 
@@ -55,6 +60,7 @@ export function buildNatRequestHeaders(
   username: string,
   headers: Record<string, string> = {},
   natSessionId?: string,
+  timezone?: string,
 ): Record<string, string> {
   const {
     Cookie: existingCookie,
@@ -64,10 +70,16 @@ export function buildNatRequestHeaders(
   const sessionId = natSessionId?.trim() || username;
   const natCookie = `nat-session=${encodeURIComponent(sessionId)}`;
   const cookieHeader = existingCookie || lowercaseExistingCookie;
+  const resolvedTimezone = timezone || resolveTimezoneFromHeaders(headers);
 
-  return withInternalBackendAuth({
-    ...restHeaders,
-    'x-user-id': username,
-    Cookie: cookieHeader ? `${cookieHeader}; ${natCookie}` : natCookie,
-  });
+  return withInternalBackendAuth(
+    withTimezoneHeader(
+      {
+        ...stripTimezoneHeaders(restHeaders),
+        'x-user-id': username,
+        Cookie: cookieHeader ? `${cookieHeader}; ${natCookie}` : natCookie,
+      },
+      resolvedTimezone,
+    ),
+  );
 }

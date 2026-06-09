@@ -6,7 +6,11 @@ import {
   resolveMilvusCollectionTarget,
 } from '@/utils/app/milvusCollections';
 import { sanitizeForPromptInterpolation } from '@/utils/app/promptSafety';
-import { withInternalBackendAuth } from '@/utils/server/backendAuth';
+import {
+  resolveTimezoneFromHeaders,
+  withInternalBackendAuth,
+  withTimezoneHeader,
+} from '@/utils/server/backendAuth';
 
 import { enforceRateLimit, ruleFromEnv } from '@/server/rateLimit';
 import {
@@ -98,6 +102,7 @@ export default async function handler(
     if (!session) return;
     const sessionId = getOrSetSessionId(req, res);
     const username = session.username;
+    const timezone = resolveTimezoneFromHeaders(req.headers);
 
     if (!(await enforceRateLimit(res, DOC_PROCESS_RATE_LIMIT, username))) {
       return;
@@ -145,10 +150,15 @@ export default async function handler(
       const extractResponse = await postToBackend(
         extractUrl,
         extractBody,
-        withInternalBackendAuth({
-          'Content-Type': 'application/json',
-          'x-user-id': username,
-        }),
+        withInternalBackendAuth(
+          withTimezoneHeader(
+            {
+              'Content-Type': 'application/json',
+              'x-user-id': username,
+            },
+            timezone,
+          ),
+        ),
         DOCUMENT_PROCESSING_TIMEOUT_MS,
       );
 
@@ -274,10 +284,15 @@ export default async function handler(
     const backendResponse = await postToBackend(
       chatUrl,
       requestBody,
-      withInternalBackendAuth({
-        'Content-Type': 'application/json',
-        'x-user-id': username,
-      }),
+      withInternalBackendAuth(
+        withTimezoneHeader(
+          {
+            'Content-Type': 'application/json',
+            'x-user-id': username,
+          },
+          timezone,
+        ),
+      ),
       DOCUMENT_PROCESSING_TIMEOUT_MS,
     );
 

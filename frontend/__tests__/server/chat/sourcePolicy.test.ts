@@ -35,7 +35,10 @@ describe('sourcePolicy', () => {
     expect(message?.content).toContain('[SOURCE_POLICY]');
     expect(message?.content).toContain('enabled_source_ids=');
     expect(message?.content).toContain('disabled_source_ids=');
-    expect(message?.content).toContain('source_policy_tool.plan_sources');
+    expect(message?.content).toContain('source-planning capability');
+    expect(message?.content).not.toContain('source_policy_tool.plan_sources');
+    expect(message?.content).not.toContain('research_agent');
+    expect(message?.content).not.toContain('deep_research_agent');
     expect(message?.content).toContain(
       'require_deep_research_plan_approval=true',
     );

@@ -81,6 +81,7 @@ describe('profile import API handler', () => {
         headers: {
           'Content-Type': 'application/json',
           'x-user-id': 'tuttlebr',
+          'x-timezone': 'America/New_York',
           'x-daedalus-internal-token': 'internal-secret',
           Cookie: 'nat-session=tuttlebr',
         },

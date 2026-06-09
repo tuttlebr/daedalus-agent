@@ -7,6 +7,7 @@ export interface AsyncJobRequest {
   jobId: string;
   natBaseUrl: string;
   natSessionId?: string;
+  timezone?: string;
   executionMode?: 'stream' | 'nat_async' | 'document_ingest';
   natMessages?: any[];
   documentIngest?: DocumentIngestJobRequest;

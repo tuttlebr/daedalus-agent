@@ -224,4 +224,6 @@ skills/*
 !skills/nat-user-rules/**
 !skills/nat-workflow-creation/
 !skills/nat-workflow-creation/**
+!skills/pr-monitor/
+!skills/pr-monitor/**
 skills-workspace/

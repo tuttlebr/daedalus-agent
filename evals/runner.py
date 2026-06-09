@@ -133,7 +133,11 @@ def preflight_backend(backend_url: str, timeout_s: float = 5.0) -> str | None:
 
     docs_url = f"{backend_url.rstrip('/')}/docs"
     try:
-        response = httpx.get(docs_url, timeout=timeout_s)
+        response = httpx.get(
+            docs_url,
+            headers={"x-timezone": "America/New_York"},
+            timeout=timeout_s,
+        )
     except Exception as exc:
         return explain_backend_preflight_failure(backend_url, exc)
 
@@ -382,7 +386,11 @@ def run_case(case: dict, backend_url: str, user_id: str) -> TraceResult:
     started = time.monotonic()
 
     try:
-        headers = {"Content-Type": "application/json", "x-user-id": user_id}
+        headers = {
+            "Content-Type": "application/json",
+            "x-user-id": user_id,
+            "x-timezone": "America/New_York",
+        }
         internal_token = os.environ.get("DAEDALUS_INTERNAL_API_TOKEN", "").strip()
         if internal_token:
             headers["x-daedalus-internal-token"] = internal_token

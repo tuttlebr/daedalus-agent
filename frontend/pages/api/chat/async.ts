@@ -4,6 +4,7 @@ import { buildBackendBaseUrlForMode } from '@/utils/app/backendApi';
 import { stripReplayedAssistantPrefix } from '@/utils/app/conversationReplay';
 import { getSession } from '@/utils/auth/session';
 import { Logger } from '@/utils/logger';
+import { resolveTimezoneFromHeaders } from '@/utils/server/backendAuth';
 import { publishStreamingState } from '@/utils/sync/publish';
 
 import {
@@ -329,6 +330,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       typeof conversationId === 'string' ? conversationId : undefined,
       typeof turnId === 'string' ? turnId : undefined,
     );
+    const timezone = resolveTimezoneFromHeaders(req.headers);
 
     // Process messages: add attachment references/content for agent context
     const processedMessages = await processMessages(
@@ -407,6 +409,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       jobId,
       verifiedUsername,
       natSessionId,
+      timezone,
     );
 
     logger.info(`Job ${jobId}: Selected backend`, {
@@ -420,6 +423,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       executionMode,
       natBaseUrl: selectedNatBaseUrl || buildBackendBaseUrlForMode(),
       natSessionId,
+      timezone,
       natMessages: useDirectDocumentIngest ? [] : durableMessagesForNat,
       ...(documentIngest ? { documentIngest } : {}),
       messages: effectiveMessages, // original messages for conversation saving later
@@ -440,6 +444,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
         durableMessagesForNat,
         verifiedUsername,
         natSessionId,
+        timezone,
       );
     }
 
