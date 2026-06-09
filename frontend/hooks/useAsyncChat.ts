@@ -37,6 +37,13 @@ interface DocumentIngestProgress {
   attempt?: number;
 }
 
+interface OAuthRequest {
+  id: string;
+  authUrl: string;
+  oauthState?: string;
+  service?: string;
+}
+
 interface AsyncJobStatus {
   jobId: string;
   status: 'pending' | 'streaming' | 'oauth_required' | 'completed' | 'error';
@@ -46,6 +53,7 @@ interface AsyncJobStatus {
   error?: string;
   authUrl?: string;
   oauthState?: string;
+  oauthRequests?: OAuthRequest[];
   progress?: number;
   ingestProgress?: DocumentIngestProgress;
   createdAt: number;
@@ -529,6 +537,7 @@ export const useAsyncChat = (
           status.finalizedAt || 0,
           status.authUrl || '',
           status.oauthState || '',
+          JSON.stringify(status.oauthRequests || []),
           status.turnId || '',
           status.assistantMessageId || '',
         ].join('|');

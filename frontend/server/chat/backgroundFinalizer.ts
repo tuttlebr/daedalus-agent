@@ -69,10 +69,13 @@ async function startBackgroundFinalizer(
       const mapped = mapNatStatus(natStatus.status);
       if (mapped === 'pending' || mapped === 'streaming') {
         const liveSteps = (await jsonGet(stepsKey)) as any[] | null;
+        const keepOAuthPrompt =
+          status.status === 'oauth_required' &&
+          (Boolean(status.authUrl) || Boolean(status.oauthRequests?.length));
         await updateJobStatus(jobId, {
-          status: mapped,
-          progress: mapped === 'streaming' ? 50 : 0,
-          ...clearOAuthStatusFields(),
+          status: keepOAuthPrompt ? 'oauth_required' : mapped,
+          progress: keepOAuthPrompt ? 0 : mapped === 'streaming' ? 50 : 0,
+          ...(keepOAuthPrompt ? {} : clearOAuthStatusFields()),
           ...(liveSteps?.length ? { intermediateSteps: liveSteps } : {}),
           updatedAt: Date.now(),
         });

@@ -24,6 +24,74 @@ import { MessageBubble } from './MessageBubble';
 import { useConversationStore, useUISettingsStore } from '@/state';
 import { v4 as uuidv4 } from 'uuid';
 
+type OAuthPrompt = {
+  id: string;
+  conversationId: string;
+  jobId?: string;
+  authUrl: string;
+  oauthState?: string;
+  service?: string;
+};
+
+function inferGoogleService(authUrl: string): string {
+  let decoded = authUrl;
+  try {
+    decoded = decodeURIComponent(authUrl);
+  } catch {
+    decoded = authUrl;
+  }
+  decoded = decoded.toLowerCase();
+  if (decoded.includes('gmail')) return 'Gmail';
+  if (decoded.includes('calendar')) return 'Calendar';
+  return 'Google';
+}
+
+function oauthPromptId(authUrl: string, oauthState?: string): string {
+  return oauthState ? `${oauthState}:${authUrl}` : authUrl;
+}
+
+function oauthPromptsFromStatus(
+  status: any,
+  conversationId: string,
+): OAuthPrompt[] {
+  const requests = Array.isArray(status.oauthRequests)
+    ? status.oauthRequests
+    : [];
+  const sourceRequests =
+    requests.length > 0
+      ? requests
+      : status.authUrl
+      ? [
+          {
+            id: oauthPromptId(status.authUrl, status.oauthState),
+            authUrl: status.authUrl,
+            oauthState: status.oauthState,
+            service: inferGoogleService(status.authUrl),
+          },
+        ]
+      : [];
+
+  return sourceRequests
+    .filter((request: any) => typeof request?.authUrl === 'string')
+    .map((request: any) => ({
+      id: String(
+        request.id || oauthPromptId(request.authUrl, request.oauthState),
+      ),
+      conversationId,
+      jobId: status.jobId,
+      authUrl: request.authUrl,
+      oauthState: request.oauthState,
+      service: request.service || inferGoogleService(request.authUrl),
+    }));
+}
+
+function withoutOAuthPromptsForConversation(
+  prompts: OAuthPrompt[],
+  conversationId: string,
+): OAuthPrompt[] {
+  return prompts.filter((prompt) => prompt.conversationId !== conversationId);
+}
+
 export const ChatView = memo(() => {
   const { user } = useAuth();
   const userId = user?.username || 'anon';
@@ -53,11 +121,7 @@ export const ChatView = memo(() => {
   const [stepCategories, setStepCategories] = useState<
     IntermediateStepCategory[]
   >([]);
-  const [oauthPrompt, setOauthPrompt] = useState<{
-    conversationId: string;
-    jobId?: string;
-    authUrl: string;
-  } | null>(null);
+  const [oauthPrompts, setOauthPrompts] = useState<OAuthPrompt[]>([]);
   const streamingIds = useConversationStore((s) => s.streamingConversationIds);
   const isStreaming = selectedConversationId
     ? streamingIds.has(selectedConversationId)
@@ -131,10 +195,10 @@ export const ChatView = memo(() => {
   }, [selectedConversation?.messages?.length, scrollToBottom]);
 
   useEffect(() => {
-    setOauthPrompt((current) =>
-      current && current.conversationId !== selectedConversationId
-        ? null
-        : current,
+    setOauthPrompts((current) =>
+      current.filter(
+        (prompt) => prompt.conversationId === selectedConversationId,
+      ),
     );
   }, [selectedConversationId]);
 
@@ -146,32 +210,42 @@ export const ChatView = memo(() => {
         const convId = status.conversationId || selectedIdRef.current;
         if (!convId) return;
 
-        if (status.status === 'oauth_required' && status.authUrl) {
+        if (
+          status.status === 'oauth_required' &&
+          (status.authUrl || status.oauthRequests?.length)
+        ) {
+          const prompts = oauthPromptsFromStatus(status, convId);
+          if (prompts.length === 0) return;
           setStreaming(convId, true);
           setActivityText('Waiting for Google authorization');
-          setOauthPrompt({
-            conversationId: convId,
-            jobId: status.jobId,
-            authUrl: status.authUrl,
+          setOauthPrompts((current) => {
+            const next = current.filter((prompt) => {
+              if (prompt.conversationId !== convId) return true;
+              if (!status.jobId) return false;
+              return prompt.jobId && prompt.jobId !== status.jobId;
+            });
+            return [...next, ...prompts];
           });
           scrollToBottom();
           return;
         }
 
-        setOauthPrompt((current) => {
-          if (!current || current.conversationId !== convId) return current;
-          if (current.jobId && status.jobId && current.jobId !== status.jobId) {
-            return current;
-          }
-          return null;
-        });
+        setOauthPrompts((current) =>
+          current.filter((prompt) => {
+            if (prompt.conversationId !== convId) return true;
+            if (prompt.jobId && status.jobId && prompt.jobId !== status.jobId) {
+              return true;
+            }
+            return false;
+          }),
+        );
 
         // Detect completion in onProgress as a safety net
         // (onComplete may not fire if fullResponse is empty)
         if (status.status === 'completed' || status.status === 'error') {
           const store = useConversationStore.getState();
-          setOauthPrompt((current) =>
-            current?.conversationId === convId ? null : current,
+          setOauthPrompts((current) =>
+            withoutOAuthPromptsForConversation(current, convId),
           );
           if (store.streamingConversationIds.has(convId)) {
             // Final update with whatever content we have
@@ -206,8 +280,8 @@ export const ChatView = memo(() => {
         // Mark conversation as streaming
         setStreaming(convId, true);
         if (status.status === 'streaming') {
-          setOauthPrompt((current) =>
-            current?.conversationId === convId ? null : current,
+          setOauthPrompts((current) =>
+            withoutOAuthPromptsForConversation(current, convId),
           );
         }
 
@@ -288,8 +362,8 @@ export const ChatView = memo(() => {
         setStreaming(convId, false);
         setActivityText('');
         setStepCategories([]);
-        setOauthPrompt((current) =>
-          current?.conversationId === convId ? null : current,
+        setOauthPrompts((current) =>
+          withoutOAuthPromptsForConversation(current, convId),
         );
 
         // Save to Redis
@@ -364,8 +438,8 @@ export const ChatView = memo(() => {
         setStreaming(convId, false);
         setActivityText('');
         setStepCategories([]);
-        setOauthPrompt((current) =>
-          current?.conversationId === convId ? null : current,
+        setOauthPrompts((current) =>
+          withoutOAuthPromptsForConversation(current, convId),
         );
       },
       [setStreaming, updateAssistantMessage, addMessage],
@@ -408,7 +482,9 @@ export const ChatView = memo(() => {
       setStreaming(convId, true);
       setActivityText('Starting...');
       setStepCategories([]);
-      setOauthPrompt(null);
+      setOauthPrompts((current) =>
+        withoutOAuthPromptsForConversation(current, convId),
+      );
 
       // Build the messages array for the backend
       const allMessages = [...selectedConversation.messages, messageWithId];
@@ -454,7 +530,9 @@ export const ChatView = memo(() => {
         );
         setStreaming(convId, false);
         setActivityText('');
-        setOauthPrompt(null);
+        setOauthPrompts((current) =>
+          withoutOAuthPromptsForConversation(current, convId),
+        );
       }
 
       scrollToBottom();
@@ -494,7 +572,9 @@ export const ChatView = memo(() => {
       setStreaming(selectedConversationId, false);
       setActivityText('');
       setStepCategories([]);
-      setOauthPrompt(null);
+      setOauthPrompts((current) =>
+        withoutOAuthPromptsForConversation(current, selectedConversationId),
+      );
     }
   }, [selectedConversationId, cancelJob, setStreaming]);
 
@@ -600,27 +680,43 @@ export const ChatView = memo(() => {
         )}
       </div>
 
-      {oauthPrompt && oauthPrompt.conversationId === selectedConversationId && (
+      {oauthPrompts.some(
+        (prompt) => prompt.conversationId === selectedConversationId,
+      ) && (
         <div className="flex-shrink-0 pb-3">
           <div className="chat-content-rail">
-            <div className="flex items-center justify-between gap-3 rounded-md border border-nvidia-green/30 bg-nvidia-green/10 px-3 py-2">
-              <span className="truncate text-sm text-dark-text-primary">
-                Google authorization required
+            <div className="flex flex-col gap-2 rounded-md border border-nvidia-green/30 bg-nvidia-green/10 px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
+              <span className="text-sm text-dark-text-primary">
+                {oauthPrompts.filter(
+                  (prompt) => prompt.conversationId === selectedConversationId,
+                ).length > 1
+                  ? 'Google authorizations required'
+                  : 'Google authorization required'}
               </span>
-              <button
-                type="button"
-                className="inline-flex items-center gap-1.5 rounded-md bg-nvidia-green px-3 py-1.5 text-xs font-medium text-black hover:bg-nvidia-green/90"
-                onClick={() =>
-                  window.open(
-                    oauthPrompt.authUrl,
-                    '_blank',
-                    'noopener,noreferrer',
+              <div className="flex flex-wrap gap-2">
+                {oauthPrompts
+                  .filter(
+                    (prompt) =>
+                      prompt.conversationId === selectedConversationId,
                   )
-                }
-              >
-                <IconExternalLink size={14} />
-                Connect Google
-              </button>
+                  .map((prompt) => (
+                    <button
+                      key={`${prompt.jobId || 'job'}:${prompt.id}`}
+                      type="button"
+                      className="inline-flex items-center gap-1.5 rounded-md bg-nvidia-green px-3 py-1.5 text-xs font-medium text-black hover:bg-nvidia-green/90"
+                      onClick={() =>
+                        window.open(
+                          prompt.authUrl,
+                          '_blank',
+                          'noopener,noreferrer',
+                        )
+                      }
+                    >
+                      <IconExternalLink size={14} />
+                      Connect {prompt.service || 'Google'}
+                    </button>
+                  ))}
+              </div>
             </div>
           </div>
         </div>

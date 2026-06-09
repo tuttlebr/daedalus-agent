@@ -206,7 +206,7 @@ async function sanitizeJobStatusForReturn(
 
   if (
     status.status !== 'oauth_required' &&
-    (status.authUrl || status.oauthState)
+    (status.authUrl || status.oauthState || status.oauthRequests?.length)
   ) {
     Object.assign(updates, clearOAuthStatusFields());
   }
@@ -695,10 +695,14 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
 
     // Still in progress
     if (mappedStatus === 'pending' || mappedStatus === 'streaming') {
+      const keepOAuthPrompt =
+        jobStatus.status === 'oauth_required' &&
+        (Boolean(jobStatus.authUrl) ||
+          Boolean(jobStatus.oauthRequests?.length));
       await updateJobStatus(jobId, {
-        status: mappedStatus,
-        progress: mappedStatus === 'streaming' ? 50 : 0,
-        ...clearOAuthStatusFields(),
+        status: keepOAuthPrompt ? 'oauth_required' : mappedStatus,
+        progress: keepOAuthPrompt ? 0 : mappedStatus === 'streaming' ? 50 : 0,
+        ...(keepOAuthPrompt ? {} : clearOAuthStatusFields()),
         ...(liveSteps?.length ? { intermediateSteps: liveSteps } : {}),
         updatedAt: Date.now(),
       });

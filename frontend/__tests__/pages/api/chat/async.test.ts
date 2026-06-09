@@ -1421,6 +1421,7 @@ describe('chat/async backend pinning helpers', () => {
       ...jobStatus,
       authUrl: undefined,
       oauthState: undefined,
+      oauthRequests: undefined,
       updatedAt: expect.any(Number),
     });
     expect(jsonSetWithExpiry).toHaveBeenCalledWith(
@@ -1429,6 +1430,7 @@ describe('chat/async backend pinning helpers', () => {
         ...jobStatus,
         authUrl: undefined,
         oauthState: undefined,
+        oauthRequests: undefined,
         updatedAt: expect.any(Number),
       },
       3600,
@@ -1921,11 +1923,51 @@ describe('chat/async streaming + finalize (characterization)', () => {
     expect(oauthUpdate).toBeDefined();
     expect(oauthUpdate.authUrl).toBe('https://accounts.google.com/auth');
     expect(oauthUpdate.oauthState).toBe('xyz');
+    expect(oauthUpdate.oauthRequests).toEqual([
+      {
+        id: 'xyz:https://accounts.google.com/auth',
+        authUrl: 'https://accounts.google.com/auth',
+        oauthState: 'xyz',
+        service: 'Google',
+      },
+    ]);
     expect(oauthUpdate.progress).toBe(0);
 
     const status = store.get(statusKey);
     expect(status?.status).toBe('error');
     expect(status?.error).toContain('OAuth');
+  });
+
+  it('accumulates multiple OAuth prompts from one stream', async () => {
+    const { jobId } = await runStreamTurn([
+      'event: oauth_required\n',
+      'data: {"auth_url":"https://accounts.google.com/auth?scope=gmail.readonly","oauth_state":"gmail-state"}\n',
+      'event: oauth_required\n',
+      'data: {"auth_url":"https://accounts.google.com/auth?scope=calendar.events.readonly","oauth_state":"calendar-state"}\n',
+      'data: [DONE]\n',
+    ]);
+
+    const oauthUpdates = publishedEvents()
+      .filter((e) => e.channel === `job:${jobId}:status`)
+      .map((e) => e.data)
+      .filter((d) => d.status === 'oauth_required');
+    expect(oauthUpdates).toHaveLength(2);
+    expect(oauthUpdates[1].authUrl).toContain('calendar.events.readonly');
+    expect(oauthUpdates[1].oauthRequests).toEqual([
+      {
+        id: 'gmail-state:https://accounts.google.com/auth?scope=gmail.readonly',
+        authUrl: 'https://accounts.google.com/auth?scope=gmail.readonly',
+        oauthState: 'gmail-state',
+        service: 'Gmail',
+      },
+      {
+        id: 'calendar-state:https://accounts.google.com/auth?scope=calendar.events.readonly',
+        authUrl:
+          'https://accounts.google.com/auth?scope=calendar.events.readonly',
+        oauthState: 'calendar-state',
+        service: 'Calendar',
+      },
+    ]);
   });
 
   it('short-circuits without publishing or finalizing when the abort key is already set', async () => {
@@ -2402,6 +2444,74 @@ describe('chat/async streaming + finalize (characterization)', () => {
       expect(status?.status).toBe('streaming');
       expect(status?.progress).toBe(50);
       expect(status?.intermediateSteps).toHaveLength(1);
+    } finally {
+      vi.clearAllTimers();
+      vi.useRealTimers();
+    }
+  });
+
+  it('GET preserves oauth_required prompts while NAT still reports running', async () => {
+    vi.useFakeTimers();
+    try {
+      const jobId = 'nat-oauth-running-1';
+      const oauthRequests = [
+        {
+          id: 'gmail-state:https://accounts.google.com/auth?scope=gmail.readonly',
+          authUrl: 'https://accounts.google.com/auth?scope=gmail.readonly',
+          oauthState: 'gmail-state',
+          service: 'Gmail',
+        },
+        {
+          id: 'calendar-state:https://accounts.google.com/auth?scope=calendar.events.readonly',
+          authUrl:
+            'https://accounts.google.com/auth?scope=calendar.events.readonly',
+          oauthState: 'calendar-state',
+          service: 'Calendar',
+        },
+      ];
+      const store = wireRedisStore({
+        [`daedalus:async-job-status:${jobId}`]: {
+          jobId,
+          status: 'oauth_required',
+          authUrl: oauthRequests[1].authUrl,
+          oauthState: oauthRequests[1].oauthState,
+          oauthRequests,
+          createdAt: 1,
+          updatedAt: 2,
+        },
+        [`daedalus:async-job-request:${jobId}`]: {
+          jobId,
+          executionMode: 'nat_async',
+          natBaseUrl: 'http://10.0.2.61:8000',
+          messages: [],
+          additionalProps: {},
+          userId: 'testuser',
+        },
+      });
+      mocks.fetchWithTimeout.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          job_id: jobId,
+          status: 'running',
+          error: null,
+          output: null,
+          created_at: '',
+          updated_at: '',
+          expires_at: '',
+        }),
+      });
+      const req = { method: 'GET', query: { jobId } } as any;
+      const res = makeRes();
+      const p = handler(req, res);
+      await vi.advanceTimersByTimeAsync(0);
+      await p;
+      await vi.advanceTimersByTimeAsync(0);
+      const status = store.get(`daedalus:async-job-status:${jobId}`);
+      expect(status?.status).toBe('oauth_required');
+      expect(status?.progress).toBe(0);
+      expect(status?.authUrl).toBe(oauthRequests[1].authUrl);
+      expect(status?.oauthRequests).toEqual(oauthRequests);
     } finally {
       vi.clearAllTimers();
       vi.useRealTimers();

@@ -20,7 +20,7 @@ import {
 import { finalizeError, finalizeSuccess } from './finalization';
 import { abortKey, clearOAuthStatusFields, updateJobStatus } from './jobState';
 import { buildNatRequestHeaders } from './natMessages';
-import type { AsyncJobRequest, AsyncJobStatus } from './types';
+import type { AsyncJobRequest, AsyncJobStatus, OAuthRequest } from './types';
 
 import {
   getPublisher,
@@ -34,7 +34,7 @@ const logger = new Logger('AsyncJob');
 function extractOAuthRequiredPayload(
   eventName: string | null,
   parsed: any,
-): { authUrl: string; oauthState?: string } | null {
+): OAuthRequest | null {
   const eventType = parsed?.event_type || parsed?.type || parsed?.event;
   const isOAuthEvent =
     eventName === 'oauth_required' || eventType === 'oauth_required';
@@ -45,10 +45,52 @@ function extractOAuthRequiredPayload(
   }
 
   const oauthState = parsed?.oauth_state || parsed?.oauthState || parsed?.state;
+  const normalizedOauthState =
+    typeof oauthState === 'string' && oauthState ? oauthState : undefined;
   return {
+    id: oauthRequestId(authUrl, normalizedOauthState),
     authUrl,
-    ...(typeof oauthState === 'string' && oauthState ? { oauthState } : {}),
+    ...(normalizedOauthState ? { oauthState: normalizedOauthState } : {}),
+    service: inferOAuthService(authUrl),
   };
+}
+
+function oauthRequestId(authUrl: string, oauthState?: string): string {
+  return oauthState ? `${oauthState}:${authUrl}` : authUrl;
+}
+
+function inferOAuthService(authUrl: string): string {
+  let decoded = authUrl;
+  try {
+    decoded = decodeURIComponent(authUrl);
+  } catch {
+    decoded = authUrl;
+  }
+  decoded = decoded.toLowerCase();
+  if (decoded.includes('gmail')) return 'Gmail';
+  if (decoded.includes('calendar')) return 'Calendar';
+  return 'Google';
+}
+
+function mergeOAuthRequests(
+  status: AsyncJobStatus | null,
+  nextRequest: OAuthRequest,
+): OAuthRequest[] {
+  const existing = Array.isArray(status?.oauthRequests)
+    ? status.oauthRequests
+    : status?.authUrl
+    ? [
+        {
+          id: oauthRequestId(status.authUrl, status.oauthState),
+          authUrl: status.authUrl,
+          ...(status.oauthState ? { oauthState: status.oauthState } : {}),
+          service: inferOAuthService(status.authUrl),
+        },
+      ]
+    : [];
+  const byId = new Map(existing.map((request) => [request.id, request]));
+  byId.set(nextRequest.id, nextRequest);
+  return Array.from(byId.values());
 }
 
 /**
@@ -93,6 +135,7 @@ export async function startBackgroundStreamReader(
   const userId = jobRequest.userId;
   const conversationId = jobRequest.conversationId;
   const stepsKey = sessionKey(['async-job-steps', jobId]);
+  const statusKey = sessionKey(['async-job-status', jobId]);
   const accumulatedSteps: any[] = [];
   let partialResponse = '';
   let lastToolOutput = '';
@@ -185,11 +228,17 @@ export async function startBackgroundStreamReader(
       if (!force && now - lastStatusFlushMs < STREAM_STATUS_FLUSH_INTERVAL_MS)
         return;
       lastStatusFlushMs = now;
+      const currentStatus = (await jsonGet(statusKey)) as AsyncJobStatus | null;
+      const keepOAuthPrompt =
+        currentStatus?.status === 'oauth_required' &&
+        !partialResponse.trim() &&
+        (Boolean(currentStatus.authUrl) ||
+          Boolean(currentStatus.oauthRequests?.length));
       await updateJobStatus(jobId, {
-        status: 'streaming',
+        status: keepOAuthPrompt ? 'oauth_required' : 'streaming',
         partialResponse,
         intermediateSteps: accumulatedSteps,
-        ...clearOAuthStatusFields(),
+        ...(keepOAuthPrompt ? {} : clearOAuthStatusFields()),
         updatedAt: now,
       });
     };
@@ -314,10 +363,18 @@ export async function startBackgroundStreamReader(
               parsed,
             );
             if (oauthPayload) {
+              const currentStatus = (await jsonGet(
+                statusKey,
+              )) as AsyncJobStatus | null;
+              const oauthRequests = mergeOAuthRequests(
+                currentStatus,
+                oauthPayload,
+              );
               await updateJobStatus(jobId, {
                 status: 'oauth_required',
                 authUrl: oauthPayload.authUrl,
                 oauthState: oauthPayload.oauthState,
+                oauthRequests,
                 partialResponse,
                 intermediateSteps: accumulatedSteps,
                 progress: 0,
@@ -385,9 +442,7 @@ export async function startBackgroundStreamReader(
 
     // Final persist of all accumulated steps
     await flushSteps(true);
-    const currentStatus = (await jsonGet(
-      sessionKey(['async-job-status', jobId]),
-    )) as AsyncJobStatus | null;
+    const currentStatus = (await jsonGet(statusKey)) as AsyncJobStatus | null;
     if (currentStatus?.status === 'oauth_required' && !partialResponse.trim()) {
       await finalizeError(
         jobId,

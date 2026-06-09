@@ -30,11 +30,12 @@ export const statusLockKey = (jobId: string) =>
 
 export function clearOAuthStatusFields(): Pick<
   AsyncJobStatus,
-  'authUrl' | 'oauthState'
+  'authUrl' | 'oauthState' | 'oauthRequests'
 > {
   return {
     authUrl: undefined,
     oauthState: undefined,
+    oauthRequests: undefined,
   };
 }
 

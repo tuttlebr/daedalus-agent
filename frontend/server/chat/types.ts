@@ -41,6 +41,13 @@ export interface DocumentIngestProgress {
   attempt?: number;
 }
 
+export interface OAuthRequest {
+  id: string;
+  authUrl: string;
+  oauthState?: string;
+  service?: string;
+}
+
 export interface AsyncJobStatus {
   jobId: string;
   status: 'pending' | 'streaming' | 'oauth_required' | 'completed' | 'error';
@@ -50,6 +57,7 @@ export interface AsyncJobStatus {
   error?: string;
   authUrl?: string;
   oauthState?: string;
+  oauthRequests?: OAuthRequest[];
   progress?: number;
   ingestProgress?: DocumentIngestProgress;
   createdAt: number;
