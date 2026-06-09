@@ -212,14 +212,14 @@ def test_user_document_tool_contract_uses_username_collection_pair():
 
 
 def test_user_document_and_workspace_tools_are_direct_workflow_tools():
-    workflow_tools = _config()["workflow"]["nat_tools"]
+    workflow_tools = _config()["workflow"]["tool_names"]
     assert "user_document_tool" in workflow_tools
     assert "gmail_mcp_server" in workflow_tools
     assert "calendar_mcp_server" in workflow_tools
 
 
 def test_top_level_workflow_does_not_expose_unguarded_delete_memory():
-    workflow_tools = _config()["workflow"]["nat_tools"]
+    workflow_tools = _config()["workflow"]["tool_names"]
     assert "delete_memory" not in workflow_tools
     assert "user_interaction_tool" in workflow_tools
 
@@ -248,7 +248,7 @@ def test_deployed_tool_surface_is_optimized():
     for path in DEPLOYED_CONFIGS:
         config = _config(path)
         functions = config["functions"]
-        workflow_tools = config["workflow"]["nat_tools"]
+        workflow_tools = config["workflow"]["tool_names"]
         assert not forbidden_tools & set(functions), path
         assert not forbidden_tools & set(workflow_tools), path
 
@@ -258,7 +258,7 @@ def test_deployed_tool_surface_is_optimized():
         assert _effective_operation_count(config, workflow_tools) <= 48, path
 
 
-def test_workflow_uses_single_responses_api_agent_schema():
+def test_workflow_uses_single_tool_calling_agent_schema():
     removed_agent_names = [
         "research_agent",
         "deep_research_agent",
@@ -270,11 +270,24 @@ def test_workflow_uses_single_responses_api_agent_schema():
     ]
     for path in DEPLOYED_CONFIGS:
         config = _config(path)
-        assert config["llms"]["tool_calling_llm"]["api_type"] == "responses", path
-        assert config["workflow"]["_type"] == "responses_api_agent", path
-        assert "nat_tools" in config["workflow"], path
-        assert "tool_names" not in config["workflow"], path
-        assert "return_direct" not in config["workflow"], path
+        workflow = config["workflow"]
+        # tool_calling_agent seeds the agent graph with the full inbound message
+        # list. The retired responses_api_agent took a single input string, so
+        # NAT collapsed the request to messages[-1].content and dropped all prior
+        # turns -- chat history was never reaching the LLM. The Responses API is
+        # only supported via responses_api_agent, so the agent LLM must use Chat
+        # Completions (api_type omitted/chat_completions) to pair with this agent.
+        assert (
+            config["llms"]["tool_calling_llm"].get("api_type", "chat_completions")
+            != "responses"
+        ), path
+        assert workflow["_type"] == "tool_calling_agent", path
+        assert "tool_names" in workflow, path
+        assert "nat_tools" not in workflow, path
+        # max_history bounds how many recent messages stay in the prompt each
+        # turn (trim_messages strategy="last"); it must keep enough that in-chat
+        # history survives well beyond the latest turn.
+        assert workflow.get("max_history", 0) >= 50, path
         assert not set(removed_agent_names) & set(config["functions"]), path
 
 
@@ -335,7 +348,7 @@ def test_backend_config_omits_unsupported_sampling_parameters():
 def test_workflow_exposes_configured_nvidia_docs_servers():
     for path in DEPLOYED_CONFIGS:
         config = _config(path)
-        tools = set(config["workflow"]["nat_tools"])
+        tools = set(config["workflow"]["tool_names"])
         source_registry = config["functions"]["source_policy_tool"]["source_registry"]
         nvidia_docs = next(
             source for source in source_registry if source["id"] == "nvidia_docs"
@@ -367,7 +380,7 @@ def test_responses_api_workflow_exposes_required_leaf_tools():
     ]
     for path in DEPLOYED_CONFIGS:
         config = _config(path)
-        workflow_tools = set(config["workflow"]["nat_tools"])
+        workflow_tools = set(config["workflow"]["tool_names"])
         for tool_name in expected:
             assert tool_name in workflow_tools, path
 
@@ -375,7 +388,7 @@ def test_responses_api_workflow_exposes_required_leaf_tools():
 def test_visual_media_tool_is_top_level():
     for path in DEPLOYED_CONFIGS:
         config = _config(path)
-        workflow_tools = set(config["workflow"]["nat_tools"])
+        workflow_tools = set(config["workflow"]["tool_names"])
 
         assert "visual_media_tool" in workflow_tools, path
 
@@ -385,7 +398,7 @@ def test_vtt_interpreter_tool_is_top_level():
     its output can be acted on by the workflow in the same turn."""
     for path in DEPLOYED_CONFIGS:
         config = _config(path)
-        workflow_tools = set(config["workflow"]["nat_tools"])
+        workflow_tools = set(config["workflow"]["tool_names"])
 
         assert "vtt_interpreter_tool" in workflow_tools, path
         # The retired media_agent sub-agent must be gone entirely.
@@ -439,7 +452,7 @@ def test_google_workspace_mcp_uses_per_user_oauth():
         config = _config(path)
         auth = config["authentication"]
         function_groups = config["function_groups"]
-        workflow_tools = config["workflow"]["nat_tools"]
+        workflow_tools = config["workflow"]["tool_names"]
 
         assert "gmail_mcp_server" in workflow_tools, path
         assert "calendar_mcp_server" in workflow_tools, path
@@ -558,7 +571,7 @@ def test_workflow_uses_serpapi_as_only_internet_search_provider():
     for path in DEPLOYED_CONFIGS:
         config = _config(path)
         functions = config["functions"]
-        workflow_tools = config["workflow"]["nat_tools"]
+        workflow_tools = config["workflow"]["tool_names"]
 
         assert "exa_internet_search_tool" not in functions, path
         assert "exa_internet_search_tool" not in workflow_tools, path
@@ -598,7 +611,7 @@ def test_top_level_workflow_exposes_source_verifier_when_add_memory_requires_it(
         config = _config(path)
         add_memory_desc = config["functions"]["add_memory"]["description"]
         if "source_verifier_tool.verify_claim" in add_memory_desc:
-            assert "source_verifier_tool" in config["workflow"]["nat_tools"], path
+            assert "source_verifier_tool" in config["workflow"]["tool_names"], path
 
 
 def test_workflow_has_no_removed_architecture_router_references():
@@ -611,7 +624,7 @@ def test_workflow_has_no_removed_architecture_router_references():
         assert removed_package not in config_text, path
         assert removed_operation not in config_text, path
         assert removed_tool not in config["functions"], path
-        assert removed_tool not in config["workflow"]["nat_tools"], path
+        assert removed_tool not in config["workflow"]["tool_names"], path
 
 
 def test_direct_leaf_routing_is_configured():
@@ -662,7 +675,7 @@ def test_daily_summary_contracts_structured_briefing():
     for path in DEPLOYED_CONFIGS:
         config = _config(path)
         prompt = config["workflow"]["system_prompt"]
-        tools = set(config["workflow"]["nat_tools"])
+        tools = set(config["workflow"]["tool_names"])
 
         assert "visual_media_tool" in tools, path
         assert "Do not call visual_media_tool for" in " ".join(prompt.split()), path
@@ -723,7 +736,7 @@ def test_workflow_rejects_stale_curated_memory_store_alias():
         config = _config(path)
         prompt = config["workflow"]["system_prompt"]
 
-        assert "curated_memory_store" not in config["workflow"]["nat_tools"], path
+        assert "curated_memory_store" not in config["workflow"]["tool_names"], path
         assert "curated_memory_store" in prompt, path
         assert "domain_retriever_tool" in prompt, path
         assert "never call curated_memory_store" in " ".join(prompt.split()), path

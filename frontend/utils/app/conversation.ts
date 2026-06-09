@@ -86,24 +86,21 @@ export const saveConversation = async (conversation: Conversation) => {
     // Enforce conversation size limit
     await enforceConversationSizeLimit(conversation.id);
 
-    // Paginate conversation to store older messages in IndexedDB
-    const paginatedConversation = await paginateConversation(conversation);
-
-    // Clean messages to remove base64 content before storing
-    let cleanedConversation = {
-      ...paginatedConversation,
-      messages: cleanMessagesForStorage(paginatedConversation.messages),
-    };
-
-    // Aggressively strip any remaining base64 content as a safety measure
-    cleanedConversation = sanitizeConversationAssistantReplays(
-      stripBase64Content(cleanedConversation),
+    // Clean the complete conversation for the server. Local cache pagination
+    // must not become the authoritative chat history sent to the backend.
+    let cleanedConversation = sanitizeConversationAssistantReplays(
+      stripBase64Content({
+        ...conversation,
+        messages: cleanMessagesForStorage(conversation.messages),
+      }),
     );
+
+    const cachedConversation = await paginateConversation(cleanedConversation);
 
     // Cache in sessionStorage (best-effort — data is persisted server-side)
     setUserSessionItem(
       'selectedConversation',
-      JSON.stringify(cleanedConversation),
+      JSON.stringify(cachedConversation),
     );
 
     let persistedConversation = cleanedConversation;

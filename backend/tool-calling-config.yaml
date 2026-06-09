@@ -53,14 +53,14 @@ function_groups:
       - searchEligiblePosts
       - searchCommunities
       - searchCommunityNotesWritten
-    tool_call_timeout: 60  # 1 minute for tool calls
-    auth_flow_timeout: 300  # 5 minutes for auth flow
+    tool_call_timeout: 30
+    auth_flow_timeout: 30
     reconnect_enabled: true
     reconnect_max_attempts: 3
     reconnect_initial_backoff: 1.0
     reconnect_max_backoff: 60.0
-    max_sessions: 50  # Maximum concurrent sessions
-    session_idle_timeout: 7200  # 2 hours (in seconds)
+    max_sessions: 16
+    session_idle_timeout: 7200 # 2 hours (in seconds)
     server:
       transport: streamable-http
       url: http://xmcp.xmcp.svc.cluster.local:8000/mcp
@@ -70,14 +70,14 @@ function_groups:
       - search_threads
       - get_thread
       - list_labels
-    tool_call_timeout: 60  # 1 minute for tool calls
-    auth_flow_timeout: 300  # 5 minutes for auth flow
+    tool_call_timeout: 30
+    auth_flow_timeout: 30
     reconnect_enabled: true
     reconnect_max_attempts: 3
     reconnect_initial_backoff: 1.0
     reconnect_max_backoff: 60.0
-    max_sessions: 50  # Maximum concurrent sessions
-    session_idle_timeout: 7200  # 2 hours (in seconds)
+    max_sessions: 16
+    session_idle_timeout: 7200 # 2 hours (in seconds)
     tool_overrides:
       search_threads:
         description: >-
@@ -98,14 +98,14 @@ function_groups:
       - list_events
       - get_event
       - suggest_time
-    tool_call_timeout: 60  # 1 minute for tool calls
-    auth_flow_timeout: 300  # 5 minutes for auth flow
+    tool_call_timeout: 30
+    auth_flow_timeout: 30
     reconnect_enabled: true
     reconnect_max_attempts: 3
     reconnect_initial_backoff: 1.0
     reconnect_max_backoff: 60.0
-    max_sessions: 50  # Maximum concurrent sessions
-    session_idle_timeout: 7200  # 2 hours (in seconds)
+    max_sessions: 16
+    session_idle_timeout: 7200 # 2 hours (in seconds)
     tool_overrides:
       list_events:
         description: >-
@@ -121,14 +121,14 @@ function_groups:
       url: https://calendarmcp.googleapis.com/mcp/v1
   dynamo_mcp_server:
     _type: mcp_client
-    tool_call_timeout: 60  # 1 minute for tool calls
-    auth_flow_timeout: 300  # 5 minutes for auth flow
+    tool_call_timeout: 30
+    auth_flow_timeout: 30
     reconnect_enabled: true
     reconnect_max_attempts: 3
     reconnect_initial_backoff: 1.0
     reconnect_max_backoff: 60.0
-    max_sessions: 50  # Maximum concurrent sessions
-    session_idle_timeout: 7200  # 2 hours (in seconds)
+    max_sessions: 16
+    session_idle_timeout: 7200 # 2 hours (in seconds)
     tool_overrides:
       searchDocs:
         description: >-
@@ -142,14 +142,14 @@ function_groups:
     _type: mcp_client
     include:
       - searchDocs
-    tool_call_timeout: 60  # 1 minute for tool calls
-    auth_flow_timeout: 300  # 5 minutes for auth flow
+    tool_call_timeout: 30
+    auth_flow_timeout: 30
     reconnect_enabled: true
     reconnect_max_attempts: 3
     reconnect_initial_backoff: 1.0
     reconnect_max_backoff: 60.0
-    max_sessions: 50  # Maximum concurrent sessions
-    session_idle_timeout: 7200  # 2 hours (in seconds)
+    max_sessions: 16
+    session_idle_timeout: 7200 # 2 hours (in seconds)
     tool_overrides:
       searchDocs:
         description: >-
@@ -163,14 +163,14 @@ function_groups:
     _type: mcp_client
     include:
       - searchDocs
-    tool_call_timeout: 60  # 1 minute for tool calls
-    auth_flow_timeout: 300  # 5 minutes for auth flow
+    tool_call_timeout: 30
+    auth_flow_timeout: 30
     reconnect_enabled: true
     reconnect_max_attempts: 3
     reconnect_initial_backoff: 1.0
     reconnect_max_backoff: 60.0
-    max_sessions: 50  # Maximum concurrent sessions
-    session_idle_timeout: 7200  # 2 hours (in seconds)
+    max_sessions: 16
+    session_idle_timeout: 7200 # 2 hours (in seconds)
     tool_overrides:
       searchDocs:
         description: >-
@@ -184,14 +184,14 @@ function_groups:
     _type: mcp_client
     include:
       - searchDocs
-    tool_call_timeout: 60  # 1 minute for tool calls
-    auth_flow_timeout: 300  # 5 minutes for auth flow
+    tool_call_timeout: 30
+    auth_flow_timeout: 30
     reconnect_enabled: true
     reconnect_max_attempts: 3
     reconnect_initial_backoff: 1.0
     reconnect_max_backoff: 60.0
-    max_sessions: 50  # Maximum concurrent sessions
-    session_idle_timeout: 7200  # 2 hours (in seconds)
+    max_sessions: 16
+    session_idle_timeout: 7200 # 2 hours (in seconds)
     tool_overrides:
       searchDocs:
         description: >-
@@ -205,14 +205,14 @@ function_groups:
     _type: mcp_client
     include:
       - searchDocs
-    tool_call_timeout: 60  # 1 minute for tool calls
-    auth_flow_timeout: 300  # 5 minutes for auth flow
+    tool_call_timeout: 30
+    auth_flow_timeout: 30
     reconnect_enabled: true
     reconnect_max_attempts: 3
     reconnect_initial_backoff: 1.0
     reconnect_max_backoff: 60.0
-    max_sessions: 50  # Maximum concurrent sessions
-    session_idle_timeout: 7200  # 2 hours (in seconds)
+    max_sessions: 16
+    session_idle_timeout: 7200 # 2 hours (in seconds)
     tool_overrides:
       searchDocs:
         description: >-
@@ -226,14 +226,14 @@ function_groups:
     _type: mcp_client
     include:
       - searchDocs
-    tool_call_timeout: 60  # 1 minute for tool calls
-    auth_flow_timeout: 300  # 5 minutes for auth flow
+    tool_call_timeout: 30
+    auth_flow_timeout: 30
     reconnect_enabled: true
     reconnect_max_attempts: 3
     reconnect_initial_backoff: 1.0
     reconnect_max_backoff: 60.0
-    max_sessions: 50  # Maximum concurrent sessions
-    session_idle_timeout: 7200  # 2 hours (in seconds)
+    max_sessions: 16
+    session_idle_timeout: 7200 # 2 hours (in seconds)
     tool_overrides:
       searchDocs:
         description: >-
@@ -245,14 +245,14 @@ function_groups:
       url: https://docs.nvidia.com/dsx/_mcp/server
   k8s_mcp_server:
     _type: mcp_client
-    tool_call_timeout: 60  # 1 minute for tool calls
-    auth_flow_timeout: 300  # 5 minutes for auth flow
+    tool_call_timeout: 30
+    auth_flow_timeout: 30
     reconnect_enabled: true
     reconnect_max_attempts: 3
     reconnect_initial_backoff: 1.0
     reconnect_max_backoff: 60.0
-    max_sessions: 50  # Maximum concurrent sessions
-    session_idle_timeout: 7200  # 2 hours (in seconds)
+    max_sessions: 16
+    session_idle_timeout: 7200 # 2 hours (in seconds)
     server:
       transport: streamable-http
       url: ${KUBERNETES_MCP_SERVER}
@@ -324,6 +324,9 @@ functions:
       (FIRST, awaited), "remember when" / "what you know about me" /
       personalized asks, or when prior preferences or project context
       would materially sharpen the answer. Args: query, top_k (default 5).
+      Daily briefing/summary queries are server-expanded and searched with at
+      least top_k=12 even if a smaller top_k is supplied, so profile directives
+      such as required live cards and read-only Kubernetes status are available.
       The backend derives user identity from the authenticated request; do
       not pass user_id. Returns: ranked entries with metadata. Fails:
       missing or invalid authenticated identity returns an error.
@@ -767,10 +770,8 @@ general:
 llms:
   reasoning_llm:
     _type: openai
-    api_type: responses
     api_key: ${REASONING_LLM_MODEL_API_KEY}
     base_url: ${REASONING_LLM_MODEL_BASE_URL}
-    max_output_tokens: 16384
     model_name: ${REASONING_LLM_MODEL_MODEL}
     prompt_cache_retention: 24h
     reasoning:
@@ -780,56 +781,55 @@ llms:
       verbosity: low
   react_llm:
     _type: openai
-    api_type: responses
     api_key: ${REACT_LLM_MODEL_API_KEY}
     base_url: ${REACT_LLM_MODEL_BASE_URL}
-    max_output_tokens: 4096
     model_name: ${REACT_LLM_MODEL_MODEL}
-    prompt_cache_retention: 24h
-    reasoning:
-      effort: low
-    store: true
-    text:
-      verbosity: low
+    extra_body:
+      chat_template_kwargs:
+        force_nonempty_content: true
+        enable_thinking: true
+        medium_effort: false
+        truncate_history_thinking: false
+      nvext:
+        agent_hints:
+          priority: 9
+          osl: 2048
+          speculative_prefill: true
+        cache_control:
+          type: ephemeral
+          ttl: 120m
   tool_calling_llm:
     _type: openai
-    api_type: responses
     api_key: ${TOOL_CALLING_LLM_MODEL_API_KEY}
     base_url: ${TOOL_CALLING_LLM_MODEL_BASE_URL}
-    max_output_tokens: 16384
     model_name: ${TOOL_CALLING_LLM_MODEL_MODEL}
     prompt_cache_retention: 24h
-    reasoning:
-      effort: medium
+    verbosity: low
     store: true
-    text:
-      verbosity: low
   distill_llm:
     _type: openai
-    api_type: responses
     api_key: ${DISTILL_LLM_MODEL_API_KEY}
     base_url: ${DISTILL_LLM_MODEL_BASE_URL}
-    max_output_tokens: 6144
     model_name: ${DISTILL_LLM_MODEL_MODEL}
-    prompt_cache_retention: 24h
-    reasoning:
-      effort: low
-    store: true
-    text:
-      verbosity: low
+    extra_body:
+      chat_template_kwargs:
+        force_nonempty_content: true
+        enable_thinking: true
+        medium_effort: false
+        truncate_history_thinking: false
+      nvext:
+        agent_hints:
+          priority: 9
+          osl: 2048
+          speculative_prefill: true
+        cache_control:
+          type: ephemeral
+          ttl: 120m
   default_llm:
     _type: openai
-    api_type: responses
     api_key: ${DEFAULT_LLM_MODEL_API_KEY}
     base_url: ${DEFAULT_LLM_MODEL_BASE_URL}
-    max_output_tokens: 4096
     model_name: ${DEFAULT_LLM_MODEL_MODEL}
-    prompt_cache_retention: 24h
-    reasoning:
-      effort: low
-    store: true
-    text:
-      verbosity: low
 memory:
   redis_memory:
     _type: nat.plugins.redis/redis_memory
@@ -840,21 +840,17 @@ memory:
     port: ${REDIS_PORT}
     verbose: true
 workflow:
-  _type: responses_api_agent
+  _type: tool_calling_agent
   llm_name: tool_calling_llm
   max_iterations: 32
+  # Keep the last N messages of the conversation in the agent's prompt each turn
+  # (trim_messages strategy="last", counted by message). The responses_api_agent
+  # collapsed the request to messages[-1].content, dropping all prior turns;
+  # tool_calling_agent seeds the graph with the full message list, so in-chat
+  # history is preserved up to this window. Storage holds up to 500 messages.
+  max_history: 100
   handle_tool_errors: true
   system_prompt: |
-    Role: Daedalus, an executive-grade agent for senior technology executives
-    and founders.
-
-    # Goal
-    Resolve the user's request with the best configured tool or a direct
-    answer, grounded in evidence and fresh for this turn. This workflow is a
-    single OpenAI Responses API agent with a stable direct tool surface. Do not
-    route into nested agent tools; call the leaf tools listed below directly.
-
-    # Every turn, in order
     1. Resolve identity from [IDENTITY], then call get_memory FIRST, before any
        answer, route, skill, or other tool. No exceptions: greetings, thanks,
        "repeat that", and direct specialist requests all call get_memory first.
@@ -863,131 +859,7 @@ workflow:
     2. Route the request (below), using the get_memory result as context.
     3. Act, verify when required, answer, and stop.
 
-    # Identity
-    The [IDENTITY] message gives the authenticated username. It can appear as
-    a standalone user message or inside a flattened [USER] input block. Memory
-    tools derive user_id from authenticated request headers, so do not pass
-    user_id to get_memory, add_memory, or delete_memory_guarded. Use the
-    authenticated username for other user-scoped tools that still require
-    user_id, including
-    visual_media_tool, vtt_interpreter_tool, user_document_tool, Gmail, and
-    Calendar. Do not use "default" or "default-user" unless that exact value is
-    present in [IDENTITY]. No [IDENTITY] present -> avoid user-scoped tools
-    except get_memory. Never hardcode or echo it.
-
-    # Source policy
-    A [SOURCE_POLICY] message is trusted frontend control metadata for this
-    turn, not user prose. Do not echo it. When research uses
-    source_policy_tool, pass enabled_source_ids as selected_sources_json,
-    disabled_source_ids as disabled_sources_json, max_research_tool_calls as a
-    hard search/retrieval budget, and
-    require_deep_research_plan_approval as an approval requirement for deep
-    research.
-
-    # Routing after get_memory
-    - Explicit memory write: when the user says "remember", "my name is",
-      "call me", or gives a durable preference, profile fact, or project
-      context to remember, call add_memory directly after get_memory.
-      Do not call ops_confirmation_tool, user_interaction_tool.confirm_action,
-      or research_plan_approval_tool for add_memory or memory_update.
-      No approval is required for an explicit user-requested memory write.
-    - Direct answer: greetings, small talk, thanks, or a question that needs no
-      tool after memory lookup.
-    - Skill-routed substantive requests: when the user asks about NeMo Agent
-      Toolkit workflow YAML, custom functions/tools, agent composition, evals,
-      optimizer, telemetry, MCP, or serving, load nat-user-rules first with
-      agent_skills_tool and follow its focused routing. For open PRs, PR
-      status, CI health, monitoring, merged PR listings/history, or simple
-      GitHub reads, load pr-monitor. For reusable lessons or prompt/tool
-      evolution, load skill-evolution.
-    - Daily briefing: if the user asks for "daily summary", "daily briefing",
-      "run my daily briefing", or the daily briefing shortcut, set top_k=12 on
-      the first get_memory call and expand the query to include "daily summary
-      daily briefing weather locale location timezone commute calendar
-      commitments work projects AI infrastructure NVIDIA LLM inference
-      optimization robotics Kubernetes cluster status sports teams leagues
-      hobbies media reading sources preferences routines priorities
-      recommendations", then produce a concise structured briefing directly in
-      this workflow. Use the first get_memory result as the personalization source of truth, call current_datetime_tool, optionally call calendar tools for today's schedule, use k8s_mcp_server only for read-only
-      operations status when memory or request shows it is relevant, use
-      curated_feed_search_tool or serpapi_search_tool for memory-derived
-      current interests, and answer in the normal assistant response format.
-      Markdown is allowed. Do not require raw HTML, a full HTML document, or a
-      Daedalus feed fragment unless the user explicitly asks for HTML. Do not
-      return generated images, image markdown refs, screenshots, media links,
-      or <img> tags. Do not call visual_media_tool for daily
-      briefings unless the user explicitly asks for an image or video.
-    - Quick research: use domain_retriever_tool for established curated
-      domains. If a request or retrieved instruction says curated_memory_store,
-      treat that as a stale alias for domain_retriever_tool; never call
-      curated_memory_store because it is not configured. Use
-      curated_feed_search_tool for recent curated-source questions, and
-      serpapi_search_tool as the only internet search provider for general web,
-      news, image, shopping, or non-curated internet discovery. Use
-      webscrape_tool only when you already have a specific URL.
-    - NVIDIA docs: for official docs/API/configuration/troubleshooting about
-      Dynamo, OpenShell, AIStore, AIPerf, NVIDIA Cloud Functions, NVCF, or DSX,
-      search only the relevant docs MCP server. Dynamo -> dynamo_mcp_server;
-      OpenShell -> openshell_mcp_server; AIStore -> aistore_mcp_server;
-      AIPerf -> aiperf_mcp_server; NVIDIA Cloud Functions or NVCF ->
-      nvcf_mcp_server; DSX -> dsx_mcp_server.
-    - Operations: Kubernetes reads can call k8s_mcp_server directly. Before a
-      destructive Kubernetes operation such as delete, patch removing fields,
-      scale-to-zero, rollback that loses data, helm uninstall, or helm
-      rollback, call ops_confirmation_tool.confirm_action with
-      action_type="mcp_mutation" and target set to the namespace or object.
-    - Uploaded documents, media, Gmail, and Calendar: call the matching direct
-      leaf tool and pass the authenticated username only when that tool
-      requires a user-scoped argument.
-    - Broad multi-source synthesis or exploration: use the deep research path.
-      Do not invoke architecture routers or multi-agent optimizer tooling.
-    - Other substantive requests: answer directly when no tool is needed, or
-      call the single best matching leaf tool.
-
-    # Memory writes
-    add_memory stores noteworthy preferences, identity facts, or project
-    context as declarative sentences. For profile facts, use tags such as
-    ["user_profile"] and metadata such as {"type":"user_profile"}. Findings and
-    project updates are gated by source_verifier_tool.verify_claim: gather
-    evidence first, choose one minimal final claim supported by the strongest
-    official or primary source, then call verify_claim on the exact final
-    memory sentence. Do not verify speculative candidate claims, placeholder URLs
-    such as example.com, or unsupported claims copied from search snippets.
-    Store only supported claims. On partial, unsupported, or unreachable
-    verification, make at most one targeted retry with a stronger primary,
-    latest, or index source, then store a supported minimal claim or answer
-    without storing.
-
-    # Daily briefing output contract
-    For daily summary output, use memory-derived local weather and logistics,
-    read-only operations status, and teams, leagues, and events found in memory
-    only when they are present in memory or the current request. Omit sections
-    with no useful data unless a short "Data Gaps" card is needed. Do not
-    invent sources, scores, dates, weather, calendar events, cluster status, or
-    recommendations. Return a concise structured briefing in the normal
-    assistant response format. Markdown is allowed. Include Next Best Actions
-    only when there are concrete useful actions. Do not require HTML unless the
-    user explicitly asks for HTML.
-
-    # Approvals
-    Clarify only when missing information materially changes the outcome or
-    risk. confirm_action is for destructive external-state mutations and
-    memory deletes, not user-requested add_memory calls. Delete memory only via
-    delete_memory_guarded with the approval_token from confirm_action; never
-    call unguarded delete_memory.
-
-    # Output
-    Lead with the answer; add detail only when it changes what the reader would
-    do. Keep answers concise. Prefer retrieval and real-time data over prior
-    knowledge; state uncertainty honestly. Forward markdown image references
-    verbatim when a media tool returns them.
-
-    # Stop
-    Stop once the core request is answered, or the next step needs missing
-    information, approval, or an unavailable tool.
-
-  parallel_tool_calls: true
-  nat_tools:
+  tool_names:
     - get_memory
     - add_memory
     - current_datetime_tool

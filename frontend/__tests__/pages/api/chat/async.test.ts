@@ -10,6 +10,7 @@ import handler, {
   fetchNatJobStatus,
   getDocumentIngestJobRequest,
   isDocumentIngestionRequest,
+  mergeSubmittedMessagesWithStoredHistory,
   parseIntermediateDataLine,
   resolveAsyncBackendBaseUrls,
 } from '@/pages/api/chat/async';
@@ -63,6 +64,7 @@ vi.mock('@/server/session/redis', () => ({
   getRedis: vi.fn(() => ({
     set: vi.fn().mockResolvedValue('OK'),
     eval: vi.fn().mockResolvedValue(1),
+    sismember: vi.fn().mockResolvedValue(1),
   })),
   sessionKey: vi.fn((parts: string[]) => `daedalus:${parts.join(':')}`),
   jsonGet: vi.fn(),
@@ -207,6 +209,25 @@ describe('chat/async backend pinning helpers', () => {
     expect(first).toMatch(/^daedalus-[a-f0-9]{32}$/);
     expect(first).not.toContain('testuser');
     expect(nextTurn).not.toBe(first);
+  });
+
+  it('merges stored conversation history with the submitted turn', () => {
+    expect(
+      mergeSubmittedMessagesWithStoredHistory(
+        [
+          { id: 'u1', role: 'user', content: 'first' },
+          { id: 'a1', role: 'assistant', content: 'answer' },
+        ],
+        [
+          { id: 'a1', role: 'assistant', content: 'updated answer' },
+          { id: 'u2', role: 'user', content: 'follow up' },
+        ],
+      ),
+    ).toEqual([
+      { id: 'u1', role: 'user', content: 'first' },
+      { id: 'a1', role: 'assistant', content: 'updated answer' },
+      { id: 'u2', role: 'user', content: 'follow up' },
+    ]);
   });
 
   it('uses the stored NAT session id when polling job status', async () => {
@@ -874,6 +895,85 @@ describe('chat/async backend pinning helpers', () => {
     )?.[1];
     expect(storedJobRequest.executionMode).toBe('stream');
     expect(storedJobRequest.natMessages[1].content).toBe('What is the status?');
+  });
+
+  it('loads stored conversation history before forwarding a chat turn', async () => {
+    mocks.resolve4.mockResolvedValue(['10.0.2.61']);
+    mocks.fetchWithTimeout.mockResolvedValue({ ok: true, status: 200 });
+    const fetchSpy = vi.fn(() => new Promise(() => {}) as any);
+    vi.stubGlobal('fetch', fetchSpy);
+    Object.defineProperty(window, 'fetch', {
+      configurable: true,
+      value: fetchSpy,
+    });
+    const redisStore = new Map<string, any>([
+      [
+        'daedalus:conversation:conv-1',
+        {
+          id: 'conv-1',
+          messages: [
+            { id: 'u1', role: 'user', content: 'Hello' },
+            { id: 'a1', role: 'assistant', content: 'Hi there' },
+          ],
+        },
+      ],
+    ]);
+    (jsonSetWithExpiry as any).mockImplementation(
+      async (key: string, value: any) => {
+        redisStore.set(key, value);
+      },
+    );
+    (jsonGet as any).mockImplementation(async (key: string) =>
+      redisStore.has(key) ? redisStore.get(key) : null,
+    );
+
+    const req = {
+      method: 'POST',
+      headers: { cookie: 'sid=current-session' },
+      body: {
+        conversationId: 'conv-1',
+        messages: [
+          {
+            id: 'u2',
+            role: 'user',
+            content: 'What was my last message?',
+          },
+        ],
+      },
+    } as any;
+    const res = {
+      status: vi.fn().mockReturnThis(),
+      json: vi.fn().mockReturnThis(),
+      setHeader: vi.fn(),
+    } as any;
+
+    try {
+      await handler(req, res);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+
+    expect(res.status).toHaveBeenCalledWith(200);
+    const fetchCalls = fetchSpy.mock.calls as unknown as [
+      string,
+      RequestInit,
+    ][];
+    const streamBody = JSON.parse(String(fetchCalls[0][1].body));
+    expect(streamBody.messages.map((message: any) => message.content)).toEqual([
+      expect.stringContaining('[IDENTITY]'),
+      'Hello',
+      'Hi there',
+      'What was my last message?',
+    ]);
+
+    const storedJobRequest = (jsonSetWithExpiry as any).mock.calls.find(
+      ([key]: [string]) => key.includes('async-job-request'),
+    )?.[1];
+    expect(storedJobRequest.messages).toEqual([
+      { id: 'u1', role: 'user', content: 'Hello' },
+      { id: 'a1', role: 'assistant', content: 'Hi there' },
+      { id: 'u2', role: 'user', content: 'What was my last message?' },
+    ]);
   });
 
   it('injects a sanitized source policy after identity for NAT chat turns', async () => {

@@ -31,9 +31,6 @@ enableMapSet();
 
 const logger = new Logger('ConversationStore');
 
-/** Keep at most this many messages per conversation in memory (matches sanitize.ts). */
-const MAX_MESSAGES = 16;
-
 // ============================================================================
 // Types
 // ============================================================================
@@ -243,9 +240,6 @@ export const useConversationStore = create<ConversationStore>()(
           );
           if (conv) {
             conv.messages.push(message);
-            if (conv.messages.length > MAX_MESSAGES) {
-              conv.messages = conv.messages.slice(-MAX_MESSAGES);
-            }
             conv.updatedAt = Date.now();
           }
         });

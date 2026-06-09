@@ -61,6 +61,7 @@ import {
 import { enforceRateLimit, ruleFromEnv } from '@/server/rateLimit';
 import { getOrSetSessionId } from '@/server/session/_utils';
 import {
+  getRedis,
   sessionKey,
   jsonGet,
   jsonSetWithExpiry,
@@ -116,6 +117,80 @@ function isNatAsyncExecutionMode(
   mode: AsyncJobRequest['executionMode'],
 ): mode is 'nat_async' {
   return mode === 'nat_async' || mode === undefined;
+}
+
+function getMessageId(message: any): string | null {
+  return message && typeof message.id === 'string' && message.id.trim()
+    ? message.id
+    : null;
+}
+
+export function mergeSubmittedMessagesWithStoredHistory(
+  storedMessages: any[],
+  submittedMessages: any[],
+): any[] {
+  const merged: any[] = [];
+  const indexById = new Map<string, number>();
+
+  const upsert = (message: any) => {
+    if (!message || typeof message !== 'object') return;
+
+    const id = getMessageId(message);
+    if (!id) {
+      merged.push(message);
+      return;
+    }
+
+    const existingIndex = indexById.get(id);
+    if (existingIndex === undefined) {
+      indexById.set(id, merged.length);
+      merged.push(message);
+      return;
+    }
+
+    merged[existingIndex] = {
+      ...merged[existingIndex],
+      ...message,
+    };
+  };
+
+  if (Array.isArray(storedMessages)) {
+    storedMessages.forEach(upsert);
+  }
+  if (Array.isArray(submittedMessages)) {
+    submittedMessages.forEach(upsert);
+  }
+
+  return merged;
+}
+
+async function loadStoredConversationMessages(
+  username: string,
+  conversationId: unknown,
+): Promise<any[]> {
+  if (typeof conversationId !== 'string' || !conversationId) return [];
+
+  try {
+    const ownsConversation =
+      (await getRedis().sismember(
+        sessionKey(['user', username, 'conversations']),
+        conversationId,
+      )) === 1;
+
+    if (!ownsConversation) return [];
+
+    const storedConversation = await jsonGet(
+      sessionKey(['conversation', conversationId]),
+    );
+    const storedMessages = (storedConversation as any)?.messages;
+    return Array.isArray(storedMessages) ? storedMessages : [];
+  } catch (error) {
+    logger.warn('Failed to load stored conversation history for chat submit', {
+      conversationId,
+      error,
+    });
+    return [];
+  }
 }
 
 function isDirectDocumentIngestStreamEnabled(): boolean {
@@ -228,6 +303,15 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       return res.status(400).json({ error: 'Invalid messages' });
     }
 
+    const storedMessages = await loadStoredConversationMessages(
+      verifiedUsername,
+      conversationId,
+    );
+    const effectiveMessages = mergeSubmittedMessagesWithStoredHistory(
+      storedMessages,
+      messages,
+    );
+
     // Overwrite client-sent identity fields with verified values
     if (additionalProps) {
       additionalProps.username = verifiedUsername;
@@ -248,7 +332,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
 
     // Process messages: add attachment references/content for agent context
     const processedMessages = await processMessages(
-      messages,
+      effectiveMessages,
       currentSessionId,
       verifiedUsername,
       jobId,
@@ -338,7 +422,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       natSessionId,
       natMessages: useDirectDocumentIngest ? [] : durableMessagesForNat,
       ...(documentIngest ? { documentIngest } : {}),
-      messages, // original messages for conversation saving later
+      messages: effectiveMessages, // original messages for conversation saving later
       additionalProps,
       userId: verifiedUsername,
       conversationId,

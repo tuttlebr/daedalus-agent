@@ -119,4 +119,47 @@ describe('saveConversation', () => {
       }),
     );
   });
+
+  it('persists the full cleaned conversation even when local cache pagination trims it', async () => {
+    const { saveConversation } = await import('@/utils/app/conversation');
+    const { paginateConversation } = await import(
+      '@/utils/app/conversationPagination'
+    );
+
+    (paginateConversation as any).mockImplementationOnce(
+      async (conversation: any) => ({
+        ...conversation,
+        messages: conversation.messages.slice(-1),
+      }),
+    );
+
+    const messages = [
+      { id: 'm1', role: 'user', content: 'first' },
+      { id: 'm2', role: 'assistant', content: 'second' },
+      { id: 'm3', role: 'user', content: 'third' },
+    ];
+
+    await saveConversation({
+      id: 'conv-1',
+      name: 'Full history',
+      folderId: null,
+      updatedAt: 3000,
+      messages,
+    } as any);
+
+    expect(apiPut).toHaveBeenCalledWith(
+      '/api/conversations/conv-1',
+      expect.objectContaining({ messages }),
+    );
+    const selectedCacheCalls = setUserSessionItem.mock.calls as unknown as [
+      string,
+      string,
+    ][];
+    const selectedCacheCall = selectedCacheCalls.find(
+      ([key]) => key === 'selectedConversation',
+    );
+    expect(JSON.parse(selectedCacheCall?.[1] ?? '{}')).toEqual(
+      expect.objectContaining({ messages: [messages[messages.length - 1]] }),
+    );
+  });
 });

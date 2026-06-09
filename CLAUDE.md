@@ -75,15 +75,15 @@ There is no direct request/response coupling for the main chat path. The fronten
 
 ### The backend is _assembled by config_, not by code in `backend/`
 
-`builder/` packages only _register_ NAT tools (via `@register_function`; the config class `name=` is the YAML `_type`). They are composed into a running agent entirely by [`backend/tool-calling-config.yaml`](backend/tool-calling-config.yaml), which also defines MCP servers, embedders, retrievers, auth, and the system prompt. To trace how a tool runs, match its `name=` against `_type:` in that file. The top-level `workflow._type` is `responses_api_agent`, with NAT graph tools listed under `nat_tools` and OpenAI Responses API enabled through `tool_calling_llm.api_type: responses`.
+`builder/` packages only _register_ NAT tools (via `@register_function`; the config class `name=` is the YAML `_type`). They are composed into a running agent entirely by [`backend/tool-calling-config.yaml`](backend/tool-calling-config.yaml), which also defines MCP servers, embedders, retrievers, auth, and the system prompt. To trace how a tool runs, match its `name=` against `_type:` in that file. The top-level `workflow._type` is `tool_calling_agent`, with leaf tools (and MCP function groups) listed under `tool_names`. It seeds the agent graph with the full inbound `messages` list (trimmed to the last `max_history`), which is how in-chat history reaches the LLM — the earlier `responses_api_agent` took a single input string, so NAT collapsed the request to `messages[-1]` and dropped all prior turns. The agent LLM (`tool_calling_llm`) uses Chat Completions, **not** the Responses API: the Responses API is only supported via `responses_api_agent`.
 
 ### The backend container runs a custom entrypoint, not `nat serve`
 
 The image runs `python entrypoint.py` (`builder/entrypoint.py`), which applies **load-bearing, order-dependent** pre-import monkeypatches (Starlette compat shims, FastAPI route injection for `image_api.py`/`document_ingest_api.py`, OpenAI client timeout/logging via `llm_diagnostics.py`, MCP timeout + approval-gate via `mcp_patches.py`) _before_ invoking NAT in-process. See `builder/CLAUDE.md` for the exact ordering before touching startup.
 
-### Routing: single Responses agent with direct tools
+### Routing: single tool-calling agent with direct tools
 
-The backend workflow is one top-level Responses API agent with direct leaf tools. It does not route through nested specialist agents or architecture optimizers; broad research uses the deep-research prompt path with source planning and approval.
+The backend workflow is one top-level `tool_calling_agent` with direct leaf tools. It does not route through nested specialist agents or architecture optimizers; broad research uses the deep-research prompt path with source planning and approval. (It does **not** use `responses_api_agent`: that agent takes a single string input, so NAT reduces the request to the last message and the agent loses conversation history.)
 
 ### The autonomous worker is a separate process
 

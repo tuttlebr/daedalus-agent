@@ -17,6 +17,24 @@ from nat_helpers.identity import authenticated_user_id_from_context
 
 logger = logging.getLogger(__name__)
 
+DAILY_BRIEFING_MIN_TOP_K = 12
+DAILY_BRIEFING_QUERY_TERMS = (
+    "daily summary daily briefing daily brief weather locale location timezone "
+    "commute calendar commitments work projects AI infrastructure NVIDIA LLM "
+    "inference optimization robotics Kubernetes cluster status k8s_mcp_server "
+    "read-only operations status sports teams leagues hobbies media reading "
+    "sources preferences routines priorities recommendations required live "
+    "cards agent directive"
+)
+DAILY_BRIEFING_TRIGGERS = (
+    "daily summary",
+    "daily summaries",
+    "daily briefing",
+    "daily briefings",
+    "daily brief",
+    "daily summry",
+)
+
 
 class DaedalusAddMemoryConfig(FunctionBaseConfig, name="daedalus_add_memory"):
     """Add memory using the authenticated request identity."""
@@ -109,6 +127,21 @@ def _memory_to_jsonable(memory: Any) -> Any:
     return str(memory)
 
 
+def _is_daily_briefing_query(query: str) -> bool:
+    normalized = " ".join(query.lower().split())
+    return any(trigger in normalized for trigger in DAILY_BRIEFING_TRIGGERS)
+
+
+def _expand_memory_search(query: str, top_k: int) -> tuple[str, int]:
+    if not _is_daily_briefing_query(query):
+        return query, top_k
+
+    return (
+        f"{query} {DAILY_BRIEFING_QUERY_TERMS}",
+        max(top_k, DAILY_BRIEFING_MIN_TOP_K),
+    )
+
+
 @register_function(config_type=DaedalusAddMemoryConfig)
 async def daedalus_add_memory(config: DaedalusAddMemoryConfig, builder: Builder):
     """Register a memory-add tool that ignores model-supplied user identity."""
@@ -168,10 +201,15 @@ async def daedalus_get_memory(config: DaedalusGetMemoryConfig, builder: Builder)
             logger.warning("Denied get_memory without trusted identity: %s", exc)
             return f"Error: get_memory denied: {exc}."
 
+        search_query, top_k = _expand_memory_search(
+            query,
+            input_data.top_k or config.top_k,
+        )
+
         try:
             memories = await memory_editor.search(
-                query=query,
-                top_k=input_data.top_k or config.top_k,
+                query=search_query,
+                top_k=top_k,
                 user_id=user_id,
             )
         except Exception as exc:

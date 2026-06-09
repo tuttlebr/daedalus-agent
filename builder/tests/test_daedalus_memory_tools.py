@@ -140,3 +140,44 @@ def test_get_memory_uses_authenticated_user_not_llm_supplied_user_id(monkeypatch
         {"query": "What is my name?", "top_k": 3, "user_id": "tuttlebr"}
     ]
     assert '"user_id": "tuttlebr"' in result
+
+
+def test_get_memory_expands_daily_summary_queries(monkeypatch):
+    async def _run():
+        from nat_helpers import daedalus_memory_tools as tools
+
+        monkeypatch.setattr(
+            tools,
+            "authenticated_user_id_from_context",
+            lambda: "tuttlebr",
+        )
+        editor = FakeMemoryEditor()
+        emitted = []
+        async for item in tools.daedalus_get_memory(
+            tools.DaedalusGetMemoryConfig(memory="redis_memory"),
+            FakeBuilder(editor),
+        ):
+            emitted.append(item)
+
+        get_input = tools.GetMemoryInput.model_validate(
+            {
+                "query": (
+                    "daily summary briefing preferences what to include "
+                    "calendar gmail news personal daily brief"
+                ),
+                "top_k": 5,
+            }
+        )
+        await emitted[0].fn(get_input)
+        return editor.search_calls
+
+    search_calls = run(_run())
+
+    assert len(search_calls) == 1
+    call = search_calls[0]
+    assert call["top_k"] == 12
+    assert call["user_id"] == "tuttlebr"
+    assert "daily summary briefing preferences" in call["query"]
+    assert "Kubernetes cluster status" in call["query"]
+    assert "k8s_mcp_server" in call["query"]
+    assert "required live cards" in call["query"]

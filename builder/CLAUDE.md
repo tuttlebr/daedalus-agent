@@ -61,7 +61,7 @@ The `name=` on the config class is the `_type` referenced in workflow YAML. Retr
 
 ### Tools are composed into a workflow elsewhere — not here
 
-These packages only _register_ tools. They are assembled into a running agent by `backend/tool-calling-config.yaml` (repo root), whose `workflow._type` is `responses_api_agent`, with NAT graph tools listed under `nat_tools` and OpenAI Responses API enabled through `tool_calling_llm.api_type: responses`. That config also defines MCP servers, embedders, retrievers, and the system prompt. To trace how a tool is used at runtime, match its config `name=` against the `_type:` entries in that file.
+These packages only _register_ tools. They are assembled into a running agent by `backend/tool-calling-config.yaml` (repo root), whose `workflow._type` is `tool_calling_agent`, with leaf tools (and MCP function groups) listed under `tool_names`. The agent seeds its graph with the full inbound `messages` list (trimmed to the last `max_history`), preserving in-chat history; `tool_calling_llm` uses Chat Completions, not the Responses API (the Responses API is only supported via `responses_api_agent`, which takes a single input string and so drops all turns but the last). That config also defines MCP servers, embedders, retrievers, and the system prompt. To trace how a tool is used at runtime, match its config `name=` against the `_type:` entries in that file.
 
 ### Runtime entrypoint and monkeypatch ordering (entrypoint.py)
 
