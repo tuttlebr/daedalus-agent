@@ -68,7 +68,7 @@ function_groups:
       - get_thread
       - list_labels
     tool_call_timeout: 30
-    auth_flow_timeout: 30
+    auth_flow_timeout: 600
     reconnect_enabled: true
     reconnect_max_attempts: 3
     reconnect_initial_backoff: 1.0
@@ -92,26 +92,14 @@ function_groups:
     _type: mcp_client
     include:
       - list_calendars
-      - list_events
-      - get_event
-      - suggest_time
     tool_call_timeout: 30
-    auth_flow_timeout: 30
+    auth_flow_timeout: 600
     reconnect_enabled: true
     reconnect_max_attempts: 3
     reconnect_initial_backoff: 1.0
     reconnect_max_backoff: 60.0
     max_sessions: 16
     session_idle_timeout: 60
-    tool_overrides:
-      list_events:
-        description: >-
-          List events from the authenticated user's Google Calendar.
-          Args include calendar id and time window.
-      suggest_time:
-        description: >-
-          Suggest open times from the authenticated user's Google Calendar
-          availability. Use for scheduling and free/busy questions.
     server:
       auth_provider: calendar_mcp_server
       transport: streamable-http
@@ -578,19 +566,6 @@ functions:
       return an approval token scoped to the requested mutation. Never use for
       add_memory, memory_update, or explicit "remember" requests.
     verbose: true
-  serpapi_search_tool:
-    _type: serpapi_search
-    description: >-
-      Google web search for topics outside Daedalus knowledge bases.
-      Trigger: "search", "look up", "latest news", topics not
-      covered by nvidia/semianalysis/kubernetes/vet/mentalhealth
-      retrievers. If the user provides an actual URL, use the webscrape_tool.
-      Args: query, optional time_period ("qdr:h"=hour,
-      "qdr:d"=day, "qdr:w"=week, "qdr:m"=month, "qdr:y"=year),
-      optional search_type (organic, news, images, shopping).
-      Returns: ranked URLs with snippets. Fails when: SERPAPI_KEY
-      missing or rate-limited.
-    verbose: true
   perplexity_search_tool:
     _type: perplexity_search
     description: >-
@@ -618,7 +593,7 @@ functions:
     description: >-
       Fetch ONE known URL and convert to markdown. Uses headless
       browser fallback for JS or bot-protected sites. Trigger: you
-      already have the URL (from Perplexity Search, SerpAPI, an RSS
+      already have the URL (from Perplexity Search, an RSS
       entry, or the user). Args: url (http/https only). Returns:
       markdown up to n tokens. Fails when: URL unknown (use
       perplexity_search_tool first), non-http
@@ -671,13 +646,6 @@ functions:
           - curated_feed_search_tool
         default_enabled: true
         requires_auth: false
-      # - id: google_search
-      #   name: Internet Search (SerpAPI)
-      #   description: SerpAPI results, news cards, images, shopping, and URL discovery.
-      #   tools:
-      #     - serpapi_search_tool
-      #   default_enabled: true
-      #   requires_auth: false
       - id: perplexity_search
         name: Internet Search (Perplexity)
         description: Perplexity Search API ranked web results with snippets,
@@ -808,7 +776,7 @@ llms:
           speculative_prefill: true
         cache_control:
           type: ephemeral
-          ttl: 24h
+          ttl: 120m
   default_llm:
     _type: openai
     api_key: ${DEFAULT_LLM_MODEL_API_KEY}
@@ -817,12 +785,12 @@ llms:
     extra_body:
       nvext:
         agent_hints:
-          priority: 9
-          osl: 2048
+          priority: 8
+          osl: 1024
           speculative_prefill: true
         cache_control:
           type: ephemeral
-          ttl: 24h
+          ttl: 120m
 memory:
   redis_memory:
     _type: nat.plugins.redis/redis_memory
@@ -885,12 +853,17 @@ workflow:
     - For "daily briefing", "daily summary", or equivalent, call current date/time after
       memory lookup. Search memory with an expanded query covering profile directives,
       daily briefing, weather locale location, logistics, teams, leagues, events, calendar,
-      and read-only operations status; use a broad enough memory result count.
-    - Produce a concise structured Markdown briefing directly. Include useful sections
-      such as Daily Summary, Schedule, Weather/Local Logistics when supported, Operations
-      Status when relevant, Notable Updates, and Next Best Actions.
-    - Markdown is allowed. Do not require raw HTML or HTML-only output. Do not generate,
-      edit, or analyze visual media for daily briefings unless the user explicitly asks.
+      read-only operations status, nv-html, NVIDIA HTML, HTML-only output, and no
+      Markdown; use a broad enough memory result count.
+    - Load the nv-html skill before final synthesis. Return only a standalone NVIDIA
+      HTML document or top-level HTML fragment, with no Markdown fence, JSON, prose
+      commentary, or text outside the HTML.
+    - Include useful sections such as Daily Summary, Schedule, Weather/Local Logistics
+      when supported, Operations Status when relevant, Notable Updates, and Next Best
+      Actions.
+    - Do not generate, edit, or analyze visual media for daily briefings unless the user
+      explicitly asks. Do not include media tags or generated-media references unless
+      explicitly requested.
 
     Research and sources:
     - For current, latest, high-impact, legal, medical, financial, safety, or operational
@@ -942,7 +915,8 @@ workflow:
       unavailable capabilities.
     - Cite sources for sourced research answers. Separate verified facts from assumptions.
     - When a capability fails, explain the practical limitation and the next best option.
-    - Use normal assistant Markdown unless the user requests another format.
+    - Use normal assistant Markdown unless the user request, loaded skill, or
+      task-specific contract requires another format.
     - Finish with the answer or the required approval/clarification prompt, then stop.
 
   tool_names:

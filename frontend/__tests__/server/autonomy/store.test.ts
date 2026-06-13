@@ -35,7 +35,7 @@ describe('autonomy store config sanitization', () => {
       sanitizeConfigPatch({
         sourcePolicy: {
           enabledSources: ['curated_domains', 'missing'] as any,
-          disabledSources: ['google_search'],
+          disabledSources: ['perplexity_search'],
           maxResearchToolCalls: 99,
           requirePlanApproval: true,
           notes: 'Stay on primary sources.',
@@ -44,7 +44,7 @@ describe('autonomy store config sanitization', () => {
     ).toEqual({
       sourcePolicy: {
         enabledSources: ['curated_domains'],
-        disabledSources: ['google_search'],
+        disabledSources: ['perplexity_search'],
         maxResearchToolCalls: 20,
         requirePlanApproval: true,
         notes: 'Stay on primary sources.',

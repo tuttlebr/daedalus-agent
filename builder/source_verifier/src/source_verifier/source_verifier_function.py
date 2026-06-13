@@ -107,17 +107,6 @@ def _default_source_registry() -> list[dict[str, Any]]:
             "requires_auth": False,
         },
         {
-            "id": "google_search",
-            "name": "Internet Search (SerpAPI)",
-            "description": (
-                "SerpAPI results for internet research, news, discovery, "
-                "shopping, images, and quick URL lookup."
-            ),
-            "tools": ["serpapi_search_tool"],
-            "default_enabled": True,
-            "requires_auth": False,
-        },
-        {
             "id": "perplexity_search",
             "name": "Internet Search (Perplexity)",
             "description": (
@@ -737,15 +726,14 @@ def _preferred_source_ids(question: str, depth: str) -> list[str]:
     if flags["has_url"]:
         preferred.append("known_url_scrape")
     if flags["current"]:
-        preferred.extend(["curated_feeds", "perplexity_search", "google_search"])
+        preferred.extend(["curated_feeds", "perplexity_search"])
     if flags["broad"] or depth == "deep":
-        preferred.extend(["curated_domains", "perplexity_search", "google_search"])
+        preferred.extend(["curated_domains", "perplexity_search"])
     if flags["news_or_cards"]:
-        preferred.append("google_search")
+        preferred.append("perplexity_search")
 
     preferred.append("curated_domains")
     preferred.append("perplexity_search")
-    preferred.append("google_search")
 
     ordered: list[str] = []
     seen: set[str] = set()
@@ -761,7 +749,6 @@ def _source_reason(source_id: str, question: str, depth: str) -> str:
     reasons = {
         "curated_domains": "Use curated corpora for stable background and primary reference passages.",
         "curated_feeds": "Use recent trusted feeds for current announcements or latest-source checks.",
-        "google_search": "Use SerpAPI internet search for discovery, news cards, images, shopping, or corroboration.",
         "perplexity_search": "Use Perplexity internet search for ranked web sources, snippets, publication dates, and freshness metadata.",
         "known_url_scrape": "Use only after a specific URL is already known.",
         "uploaded_documents": "Use when the question is about authenticated uploaded documents.",
@@ -771,7 +758,7 @@ def _source_reason(source_id: str, question: str, depth: str) -> str:
     reason = reasons.get(
         source_id, "Use this selected source when it matches the user's constraints."
     )
-    if depth == "deep" and source_id in {"google_search", "perplexity_search"}:
+    if depth == "deep" and source_id == "perplexity_search":
         reason += " Deep research should pair internet search with independent curated or known-URL sources when available."
     if flags["current"] and source_id == "curated_domains":
         reason += " Pair with a current source before making latest/current claims."
@@ -803,16 +790,6 @@ def _tool_hints(source_id: str, question: str) -> list[dict[str, str]]:
         if "semianalysis" in q:
             feed_scope = "semianalysis"
         return [{"tool": "curated_feed_search_tool", "feed_scope": feed_scope}]
-
-    if source_id == "google_search":
-        search_type = "organic"
-        if "news" in q or "latest" in q or "recent" in q:
-            search_type = "news"
-        elif "image" in q:
-            search_type = "images"
-        elif "shopping" in q:
-            search_type = "shopping"
-        return [{"tool": "serpapi_search_tool", "search_type": search_type}]
 
     if source_id == "perplexity_search":
         hint = {"tool": "perplexity_search_tool"}

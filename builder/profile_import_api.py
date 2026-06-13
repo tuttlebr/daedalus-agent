@@ -7,8 +7,11 @@ property for bulk profile uploads while bypassing the agent loop entirely.
 
 from __future__ import annotations
 
+import inspect
+import json
 import logging
 import os
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from functools import lru_cache
 from typing import Annotated, Any, Literal, Protocol
@@ -24,6 +27,20 @@ router = APIRouter(prefix="/v1/profile", tags=["profile"])
 
 MAX_PROFILE_IMPORT_ENTRIES = int(os.getenv("PROFILE_IMPORT_MAX_ENTRIES", "250"))
 DEFAULT_MEMORY_KEY_PREFIX = os.getenv("MEMORY_KEY_PREFIX", "nat")
+PROFILE_IMPORT_REPLACE_SOURCES = frozenset(
+    {
+        "profile_import",
+        "seed_profile",
+        "daily_summary_directive",
+        "daily_summary_router_patch",
+    }
+)
+PROFILE_IMPORT_REPLACE_TAGS = frozenset(
+    {
+        "profile_seed",
+        "profile_import",
+    }
+)
 
 
 class ProfileEntry(BaseModel):
@@ -62,14 +79,15 @@ class ProfileEntry(BaseModel):
 class ProfileImportRequest(BaseModel):
     """Bulk profile import payload.
 
-    Only append mode is currently supported. Replacement should be implemented
-    with a scoped delete-by-profile-version path, not a broad user-memory wipe.
+    Replace mode removes only trusted profile-seed memories for the
+    authenticated user before adding the supplied entries. It does not wipe
+    normal conversational memories.
     """
 
     model_config = ConfigDict(extra="ignore")
 
     profile_version: str | None = None
-    mode: Literal["append"] = "append"
+    mode: Literal["append", "replace"] = "append"
     entries: list[ProfileEntry] = Field(..., min_length=1)
 
     @field_validator("entries")
@@ -86,11 +104,18 @@ class ProfileImportResponse(BaseModel):
     status: Literal["success"]
     user_id: str
     imported: int
+    replaced: int = 0
     profile_version: str | None = None
 
 
 class _MemoryEditor(Protocol):
     async def add_items(self, items: list[Any]) -> None: ...
+
+
+@dataclass(frozen=True)
+class ProfileImportResult:
+    imported: int
+    replaced: int = 0
 
 
 def _now_iso() -> str:
@@ -154,6 +179,139 @@ def _memory_tags(entry: ProfileEntry) -> list[str]:
     if isinstance(category, str) and category and category not in tags:
         tags.append(category)
     return tags
+
+
+def _profile_replace_key_pattern(user_id: str) -> str:
+    return f"{DEFAULT_MEMORY_KEY_PREFIX}:*{user_id}*"
+
+
+async def _maybe_await(value: Any) -> Any:
+    if inspect.isawaitable(value):
+        return await value
+    return value
+
+
+async def _scan_redis_keys(redis_client: Any, pattern: str) -> list[Any]:
+    try:
+        iterator = redis_client.scan_iter(match=pattern)
+    except TypeError:
+        iterator = redis_client.scan_iter(pattern)
+
+    keys: list[Any] = []
+    if hasattr(iterator, "__aiter__"):
+        async for key in iterator:
+            keys.append(key)
+    else:
+        keys.extend(iterator)
+    return keys
+
+
+def _decode_redis_value(value: Any) -> Any:
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    if isinstance(value, dict):
+        return {
+            str(_decode_redis_value(key)): _decode_redis_value(val)
+            for key, val in value.items()
+        }
+    if isinstance(value, list):
+        return [_decode_redis_value(item) for item in value]
+    return value
+
+
+def _maybe_json(value: Any) -> Any:
+    value = _decode_redis_value(value)
+    if not isinstance(value, str):
+        return value
+
+    stripped = value.strip()
+    if not stripped or stripped[0] not in "[{":
+        return value
+    try:
+        return json.loads(stripped)
+    except json.JSONDecodeError:
+        return value
+
+
+def _profile_payload_from_redis_value(value: Any) -> dict[str, Any] | None:
+    decoded = _maybe_json(value)
+    if not isinstance(decoded, dict):
+        return None
+
+    payload: dict[str, Any] = dict(decoded)
+    for key in ("metadata", "tags"):
+        if key in payload:
+            payload[key] = _maybe_json(payload[key])
+    return payload
+
+
+async def _redis_memory_payload(redis_client: Any, key: Any) -> dict[str, Any] | None:
+    raw = None
+    if hasattr(redis_client, "get"):
+        raw = await _maybe_await(redis_client.get(key))
+    if raw is None and hasattr(redis_client, "hgetall"):
+        raw = await _maybe_await(redis_client.hgetall(key))
+    return _profile_payload_from_redis_value(raw)
+
+
+def _profile_payload_tags(payload: dict[str, Any]) -> set[str]:
+    raw_tags = payload.get("tags")
+    if not isinstance(raw_tags, list):
+        raw_tags = []
+    return {str(tag) for tag in raw_tags}
+
+
+def _profile_payload_metadata(payload: dict[str, Any]) -> dict[str, Any]:
+    metadata = payload.get("metadata")
+    if isinstance(metadata, dict):
+        return metadata
+    return {}
+
+
+def _is_replaceable_profile_payload(payload: dict[str, Any], user_id: str) -> bool:
+    payload_user_id = payload.get("user_id")
+    if payload_user_id is not None and str(payload_user_id) != user_id:
+        return False
+
+    metadata = _profile_payload_metadata(payload)
+    source = str(metadata.get("source") or payload.get("source") or "")
+    tags = _profile_payload_tags(payload)
+
+    return source in PROFILE_IMPORT_REPLACE_SOURCES or bool(
+        tags & PROFILE_IMPORT_REPLACE_TAGS
+    )
+
+
+@lru_cache(maxsize=1)
+def _redis_client() -> Any:
+    from redis import asyncio as redis_async
+
+    return redis_async.from_url(redis_url_from_env(), decode_responses=True)
+
+
+async def replace_profile_memories(
+    user_id: str,
+    redis_client: Any | None = None,
+) -> int:
+    """Delete only profile-seed memories for the authenticated user."""
+
+    client = redis_client or _redis_client()
+    pattern = _profile_replace_key_pattern(user_id)
+    keys_to_delete: list[Any] = []
+    seen: set[Any] = set()
+
+    for key in await _scan_redis_keys(client, pattern):
+        if key in seen:
+            continue
+        seen.add(key)
+        payload = await _redis_memory_payload(client, key)
+        if payload and _is_replaceable_profile_payload(payload, user_id):
+            keys_to_delete.append(key)
+
+    if not keys_to_delete:
+        return 0
+
+    return int(await _maybe_await(client.delete(*keys_to_delete)) or 0)
 
 
 def build_profile_memory_items(
@@ -288,13 +446,18 @@ async def import_profile_memories(
     req: ProfileImportRequest,
     user_id: str,
     editor: _MemoryEditor | None = None,
-) -> int:
+    redis_client: Any | None = None,
+) -> ProfileImportResult:
     from nat.memory.models import MemoryItem
 
     memory_editor = editor or _redis_editor()
+    replaced = 0
+    if req.mode == "replace":
+        replaced = await replace_profile_memories(user_id, redis_client)
+
     items = build_profile_memory_items(req, user_id, MemoryItem)
     await memory_editor.add_items(items)
-    return len(items)
+    return ProfileImportResult(imported=len(items), replaced=replaced)
 
 
 @router.post("/import", response_model=ProfileImportResponse)
@@ -308,19 +471,21 @@ async def import_profile(
     user_id = _require_trusted_user(x_user_id, x_daedalus_internal_token)
 
     try:
-        imported = await import_profile_memories(req, user_id)
+        result = await import_profile_memories(req, user_id)
     except Exception as exc:
         logger.exception("profile.import failed")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
     logger.info(
-        "Imported %s profile memories for authenticated user %s",
-        imported,
+        "Imported %s profile memories for authenticated user %s; replaced %s",
+        result.imported,
         user_id,
+        result.replaced,
     )
     return ProfileImportResponse(
         status="success",
         user_id=user_id,
-        imported=imported,
+        imported=result.imported,
+        replaced=result.replaced,
         profile_version=req.profile_version,
     )

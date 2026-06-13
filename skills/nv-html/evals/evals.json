@@ -43,6 +43,10 @@
         {
           "name": "one-green-cta-banner-max",
           "check": "NVIDIA Green is used sparingly — appears as a hero accent or single full-width CTA banner, not as a section background repeated multiple times."
+        },
+        {
+          "name": "text-background-contrast",
+          "check": "Every visible text color has sufficient contrast against its rendered background. Body and UI text meet 4.5:1, large text meets 3:1, and green or orange text is not used on white, #F7F7F7, or #EEEEEE backgrounds."
         }
       ]
     },
@@ -88,6 +92,10 @@
         {
           "name": "single-self-contained-file",
           "check": "Output is a single self-contained HTML file."
+        },
+        {
+          "name": "text-background-contrast",
+          "check": "Every visible text color has sufficient contrast against its rendered background. Status colors may appear in dots, borders, icons, or badge backgrounds, but status text remains readable and is not green or orange on light surfaces."
         }
       ]
     },
@@ -137,6 +145,10 @@
         {
           "name": "no-latinisms",
           "check": "Visible page text does not contain 'e.g.', 'i.e.', 'etc.', or 'vs.' — these should be written out as 'for example', 'that is', 'and so on', 'compared to'."
+        },
+        {
+          "name": "text-background-contrast",
+          "check": "Every visible text color has sufficient contrast against its rendered background. Body and UI text meet 4.5:1, large text meets 3:1, and green or orange text is not used on white, #F7F7F7, or #EEEEEE backgrounds."
         }
       ]
     }

@@ -56,6 +56,23 @@ Use these only for status, callouts, and meaning. Not decorative.
 | `--nv-magenta` | `#D2308E` | Reserved for event branding and editorial accents. |
 | `--nv-teal`    | `#1D8BA4` | Reserved for event branding and editorial accents. |
 
+## Text Contrast And Color Pairing
+
+Treat text color and background color as a pair. Every visible text element must meet WCAG AA contrast against the surface it renders on: 4.5:1 for body and UI text, and 3:1 for large text (24px+ or 18px+ bold). If the foreground color is the same as, or visually close to, the background color, the page fails even when the CSS technically declares both values.
+
+Use these default pairs:
+
+| Background                      | Safe text colors                                                      | Unsafe text colors                                           |
+| ------------------------------- | --------------------------------------------------------------------- | ------------------------------------------------------------ |
+| `--nv-black`, `--nv-dark`       | `--nv-white`, `--nv-gray-light`, `--nv-green` for labels/headings     | `--nv-black`, `--nv-gray-med`, dark decorative colors        |
+| `--nv-white`, `--nv-bg-light`   | `--nv-black`, `--nv-gray-med`, `--nv-blue`, `--nv-red`, `--nv-yellow` | `--nv-white`, `--nv-green`, `--nv-green-dark`, `--nv-orange` |
+| `--nv-gray-light`               | `--nv-black`, `--nv-gray-med`, `--nv-yellow`                          | `--nv-white`, `--nv-green`, `--nv-green-dark`, `--nv-orange` |
+| `--nv-green`, `--nv-green-dark` | `--nv-black`                                                          | `--nv-white`, `--nv-gray-light`, `--nv-green`                |
+| `--nv-orange`                   | `--nv-black`                                                          | `--nv-white`, `--nv-gray-light`, `--nv-orange`               |
+| `--nv-blue`, `--nv-red`         | `--nv-white`                                                          | Same-color text or low-contrast grays                        |
+
+Do not use NVIDIA Green or orange as body text, small labels, metric deltas, or inline links on light surfaces. Put those colors in non-text accents: borders, underline colors, status dots, icons, badge backgrounds, or section accents. Links on light backgrounds should use black text with a green underline or other green accent, not green text.
+
 ## Typography
 
 ### Font
@@ -123,7 +140,9 @@ If you find yourself wrapping commands in styled `<div>` boxes instead of `<pre>
 ## Accessibility
 
 - **Contrast ratio: minimum 4.5:1 for body text, 3:1 for large text (24px+ or 18px+ bold).** White on `#000000` passes. Black on `#FFFFFF` passes. `#666666` body text on white passes (5.74:1) — that's the ceiling for "secondary gray." Anything lighter than `#666666` on white is not safe for body copy.
-- **NVIDIA Green is not an accessible body-text color.** `#76B900` on white fails (3.07:1). On black it's borderline (6.84:1) — fine for large headings or single-word labels, not for paragraphs. White text on `#76B900` fails (2.94:1) — always use black text on a green background, never white.
+- **NVIDIA Green is not an accessible text color on light surfaces.** `#76B900` on white fails (about 2.4:1). `#5A8F00` on white also fails normal body-text contrast (about 3.9:1). On black, NVIDIA Green passes and can be used for labels or headings, but still avoid long green paragraphs. White text on `#76B900` fails — always use black text on a green background, never white.
+- **Orange is not an accessible text color on light surfaces.** `#EF9100` on white fails. Use black text on orange backgrounds, or use orange as a non-text accent.
+- **Links must be readable before and after hover.** On light backgrounds, keep link text black and use green for underlines, borders, icons, or adjacent accents. On dark backgrounds, white links with a green underline are safe.
 - **Don't convey meaning by color alone.** Status indicators need a text label ("Healthy", "Degraded", "Down") in addition to the dot color. Error states need an icon or copy, not just a red border.
 - **Focus states must be visible** for keyboard navigation. Don't `outline: none` without a replacement.
 - **Headings used semantically, not picked for size.** `h2 → h3 → h4`, not `h2 → h4`. If you need a section break inside a card, use a `<h4>` or a typography utility — not an out-of-order tag.

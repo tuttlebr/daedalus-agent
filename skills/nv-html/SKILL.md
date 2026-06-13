@@ -16,10 +16,11 @@ These are the rules that make a page recognizably NVIDIA. If you find yourself s
 1. **NVIDIA Sans is the font.** Load it from the variable-font URL below. Do not substitute Inter, system-ui, or "sans-serif" alone — those fall back to the wrong feel.
 2. **Green is the hero, not the wallpaper.** Use `#76B900` for at most one or two moments per page: a logo, an active state, a single CTA banner. A page where green appears five times is wrong.
 3. **Alternate dark and light sections.** Depth comes from the section background changing, not from gradients or shadows.
-4. **High contrast.** White text on black. Black text on white. `#666` for secondary text. No muddy mid-grays for body copy.
+4. **Contrast-pair every text color with its rendered background.** Body and UI text need at least 4.5:1 contrast; large text needs at least 3:1. White text on black, black text on white/light gray, and `#666` secondary text on white/light gray are safe. Text that is the same as, or visually close to, its background is a hard failure.
 5. **Title case for headings, no terminal punctuation in headings.** No exclamation marks anywhere in body or headings.
 6. **"NVIDIA" in all caps.** Never "Nvidia" or "nvidia" or "NV." Use "an NVIDIA" (the "en" sound, not "a").
-7. **Pair every `background:` with a `color:`.** Any component with a hardcoded background must declare its own text color — never rely on inheritance. A `.card` or `<code>` dropped inside a dark wrapper will otherwise inherit white text onto its own white surface and vanish. This also applies to `<pre>` and `<code>`: they ship with explicit light/dark variants in `starter.html` — don't strip them.
+7. **Pair every `background:` with a passing `color:`.** Any component with a hardcoded background must declare its own text color — never rely on inheritance. A `.card` or `<code>` dropped inside a dark wrapper will otherwise inherit white text onto its own white surface and vanish. This also applies to `<pre>` and `<code>`: they ship with explicit light/dark variants in `starter.html` — don't strip them.
+8. **Never use NVIDIA Green or orange as small text on light backgrounds.** `#76B900` and `#EF9100` fail contrast on white and light gray. Use black text with a green/orange border, underline, icon, dot, or background instead. On green or orange backgrounds, text must be black.
 
 ## Quick-reference lookups
 
@@ -55,6 +56,21 @@ These are the rules that make a page recognizably NVIDIA. If you find yourself s
   --nv-teal: #1d8ba4;
 }
 ```
+
+### Safe text/background pairs
+
+Use these pairings unless you have checked the contrast ratio yourself:
+
+| Background                      | Safe text colors                                                      | Unsafe text colors                                           |
+| ------------------------------- | --------------------------------------------------------------------- | ------------------------------------------------------------ |
+| `--nv-black`, `--nv-dark`       | `--nv-white`, `--nv-gray-light`, `--nv-green` for labels/headings     | `--nv-black`, `--nv-gray-med`, dark decorative colors        |
+| `--nv-white`, `--nv-bg-light`   | `--nv-black`, `--nv-gray-med`, `--nv-blue`, `--nv-red`, `--nv-yellow` | `--nv-white`, `--nv-green`, `--nv-green-dark`, `--nv-orange` |
+| `--nv-gray-light`               | `--nv-black`, `--nv-gray-med`, `--nv-yellow`                          | `--nv-white`, `--nv-green`, `--nv-green-dark`, `--nv-orange` |
+| `--nv-green`, `--nv-green-dark` | `--nv-black`                                                          | `--nv-white`, `--nv-gray-light`, `--nv-green`                |
+| `--nv-orange`                   | `--nv-black`                                                          | `--nv-white`, `--nv-gray-light`, `--nv-orange`               |
+| `--nv-blue`, `--nv-red`         | `--nv-white`                                                          | Same-color text or low-contrast grays                        |
+
+For links on light backgrounds, use black text with a green underline or accent. Do not make the link text green. For status and metrics, put the status color in a dot, border, badge background, or icon and keep the text readable.
 
 ### Font
 

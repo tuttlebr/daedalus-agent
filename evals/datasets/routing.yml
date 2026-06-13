@@ -18,13 +18,13 @@
 - id: research-001
   query: What are the current state-of-the-art results on the GSM8K math benchmark?
   expected:
-    route_tool: serpapi_search_tool
+    route_tool: perplexity_search_tool
     skill: null
 
 - id: research-002
   query: Summarize the latest NVIDIA earnings call sentiment from analyst coverage.
   expected:
-    route_tool: serpapi_search_tool
+    route_tool: perplexity_search_tool
     skill: null
 
 - id: deep-research-001
@@ -73,8 +73,10 @@
   query: Run my daily briefing.
   expected:
     required_tools:
+      - get_memory
       - current_datetime_tool
-    skill: null
+      - agent_skills_tool
+    skill: nv-html
   forbidden_tools:
     - visual_media_tool
 
@@ -104,7 +106,6 @@
     - user_document_agent
     - user_data_agent
     - daily_summary_agent
-    - serpapi_search_tool
     - k8s_mcp_server
     - vtt_interpreter_tool
     - gmail_mcp_server

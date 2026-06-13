@@ -14,6 +14,8 @@ Run through this before declaring an HTML page done. Each item links a brand rul
 - [ ] **NVIDIA Green (#76B900) appears sparingly.** Aim for one or two hero moments per page (CTA, accent, active state). Not as section backgrounds, not as body text, not on more than one button per fold.
 - [ ] **Complementary colors (purple, orange) used only for variety/categorization,** not as primary accents.
 - [ ] **Functional colors (red, blue, yellow) used only for status/callouts,** not as decorative accents.
+- [ ] **Every text/background pair has sufficient contrast.** Body and UI text meet 4.5:1, large text meets 3:1, and no text is the same as or visually close to the surface behind it.
+- [ ] **No green or orange small text on light backgrounds.** Use black text with green/orange borders, underlines, icons, dots, or badge backgrounds instead.
 
 ## Layout & rhythm
 
@@ -58,7 +60,8 @@ Run through this before declaring an HTML page done. Each item links a brand rul
 ## Accessibility
 
 - [ ] **Descriptive alt text** on every meaningful image. Decorative images get `alt=""`.
-- [ ] **Color contrast meets 4.5:1** for body text (white on #000 ✓, black on #FFF ✓, white on #76B900 ✗ — use black on green).
+- [ ] **Color contrast meets 4.5:1** for body and UI text (white on #000 ✓, black on #FFF ✓, green text on white ✗, white on #76B900 ✗ — use black on green).
+- [ ] **Links are readable in all states.** Light-section links use black text with green accents; hover states do not switch to low-contrast green text.
 - [ ] **Headings used semantically,** not picked for size.
 - [ ] **Focus states visible** for keyboard navigation.
 - [ ] **No information conveyed by color alone** (status badges include text, not just a dot).

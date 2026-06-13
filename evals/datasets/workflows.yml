@@ -26,7 +26,6 @@
       - daily_summary_agent
       - domain_retriever_tool
       - curated_feed_search_tool
-      - serpapi_search_tool
       - k8s_mcp_server
       - user_document_tool
       - gmail_mcp_server
@@ -179,17 +178,22 @@
   workflow: daily_summary
   audience: internal-only
   query: Run my daily briefing.
-  success_criteria: Daily summary route returns a concise structured briefing and does not use visual media.
+  success_criteria: Daily summary route returns NVIDIA HTML via nv-html and does not use visual media.
   expected:
     required_tools:
       - get_memory
       - current_datetime_tool
+      - agent_skills_tool
+    skill: nv-html
     forbidden_tools:
       - daily_summary_agent
       - visual_media_tool
     response_contains:
       - Daily Summary
       - 'Next Best Actions'
+    response_regex:
+      - "^\\s*(?:<!doctype\\s+html\\b|<html\\b|<article\\b|<main\\b|<section\\b)"
+      - "^(?!\\s*```)"
     max_workflow_calls: 1
     max_latency_s: 240
     max_total_tokens: 50000
@@ -207,7 +211,7 @@
       - get_memory
     required_tool_groups:
       - - curated_feed_search_tool
-        - serpapi_search_tool
+        - perplexity_search_tool
     forbidden_tools:
       - add_memory
     response_contains:

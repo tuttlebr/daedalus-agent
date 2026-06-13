@@ -13,7 +13,7 @@ describe('oauthPrompts', () => {
       {
         jobId: 'job-1',
         authUrl:
-          'https://accounts.google.com/auth?scope=calendar.events.readonly',
+          'https://accounts.google.com/auth?scope=calendar.calendarlist.readonly',
         oauthState: 'calendar-state',
       },
       'conv-1',
@@ -21,11 +21,11 @@ describe('oauthPrompts', () => {
 
     expect(prompts).toEqual([
       {
-        id: 'calendar-state:https://accounts.google.com/auth?scope=calendar.events.readonly',
+        id: 'calendar-state:https://accounts.google.com/auth?scope=calendar.calendarlist.readonly',
         conversationId: 'conv-1',
         jobId: 'job-1',
         authUrl:
-          'https://accounts.google.com/auth?scope=calendar.events.readonly',
+          'https://accounts.google.com/auth?scope=calendar.calendarlist.readonly',
         oauthState: 'calendar-state',
         service: 'Calendar',
       },
@@ -38,9 +38,9 @@ describe('oauthPrompts', () => {
         jobId: 'job-1',
         oauthRequests: [
           {
-            id: 'calendar-state:https://accounts.google.com/auth?scope=calendar.events.readonly',
+            id: 'calendar-state:https://accounts.google.com/auth?scope=calendar.calendarlist.readonly',
             authUrl:
-              'https://accounts.google.com/auth?scope=calendar.events.readonly',
+              'https://accounts.google.com/auth?scope=calendar.calendarlist.readonly',
             oauthState: 'calendar-state',
             service: 'Calendar',
           },
@@ -67,7 +67,7 @@ describe('oauthPrompts', () => {
       {
         jobId: 'job-1',
         authUrl:
-          'https://accounts.google.com/auth?scope=calendar.events.readonly',
+          'https://accounts.google.com/auth?scope=calendar.calendarlist.readonly',
         oauthState: 'calendar-state-1',
       },
       'conv-1',
@@ -76,7 +76,7 @@ describe('oauthPrompts', () => {
       {
         jobId: 'job-1',
         authUrl:
-          'https://accounts.google.com/auth?scope=calendar.events.readonly',
+          'https://accounts.google.com/auth?scope=calendar.calendarlist.readonly',
         oauthState: 'calendar-state-2',
       },
       'conv-1',

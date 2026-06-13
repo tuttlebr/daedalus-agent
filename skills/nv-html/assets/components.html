@@ -63,8 +63,11 @@
   .stat .stat-num {
     font-size: clamp(2.5rem, 5vw, 4rem);
     font-weight: 700;
-    color: var(--nv-green);
+    color: var(--nv-black);
     line-height: 1;
+  }
+  .section.dark .stat .stat-num {
+    color: var(--nv-green);
   }
   .stat .stat-label {
     margin-top: 8px;
@@ -73,6 +76,9 @@
     text-transform: uppercase;
     letter-spacing: 0.12em;
     color: var(--nv-gray-med);
+  }
+  .section.dark .stat .stat-label {
+    color: var(--nv-gray-light);
   }
   .stat-row {
     display: grid;
@@ -256,6 +262,7 @@
   }
   table.nv-table thead {
     background: var(--nv-gray-light);
+    color: var(--nv-black);
     text-align: left;
   }
   table.nv-table th,
@@ -265,6 +272,7 @@
   }
   table.nv-table tbody tr:hover {
     background: var(--nv-bg-light);
+    color: var(--nv-black);
   }
 </style>
 <table class="nv-table">
@@ -309,6 +317,9 @@
     font-style: normal;
     color: var(--nv-gray-med);
     margin-top: 12px;
+  }
+  .section.dark .quote cite {
+    color: var(--nv-gray-light);
   }
 </style>
 <blockquote class="quote">
@@ -419,7 +430,8 @@
   }
   .metric .metric-delta {
     font-size: 0.875rem;
-    color: var(--nv-green);
+    color: var(--nv-black);
+    font-weight: 500;
   }
   .metric .metric-delta.negative {
     color: var(--nv-red);

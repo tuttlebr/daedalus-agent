@@ -1,7 +1,7 @@
 export const SOURCE_POLICY_IDS = [
   'curated_domains',
   'curated_feeds',
-  'google_search',
+  'perplexity_search',
   'known_url_scrape',
   'nvidia_docs',
   'uploaded_documents',

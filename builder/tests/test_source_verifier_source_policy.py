@@ -79,10 +79,9 @@ def test_plan_sources_prioritizes_current_source_families():
     tool_order = [
         tool for item in result["recommended_tool_sequence"] for tool in item["tools"]
     ]
-    assert tool_order[:4] == [
+    assert tool_order[:3] == [
         "curated_feed_search_tool",
         "perplexity_search_tool",
-        "serpapi_search_tool",
         "domain_retriever_tool",
     ]
     assert result["recommended_tool_sequence"][1]["hints"] == [
@@ -96,8 +95,8 @@ def test_plan_sources_respects_selected_and_disabled_sources():
         plan_sources = await _plan_fn()
         raw = await plan_sources(
             research_question="Deep research CUDA inference strategy.",
-            selected_sources_json=json.dumps(["curated_domains", "google_search"]),
-            disabled_sources_json=json.dumps(["google_search"]),
+            selected_sources_json=json.dumps(["curated_domains", "perplexity_search"]),
+            disabled_sources_json=json.dumps(["perplexity_search"]),
             depth="deep",
         )
         return json.loads(raw)
@@ -107,7 +106,7 @@ def test_plan_sources_respects_selected_and_disabled_sources():
     assert [source["id"] for source in result["selected_sources"]] == [
         "curated_domains"
     ]
-    assert result["blocked_tools"] == ["serpapi_search_tool"]
+    assert result["blocked_tools"] == ["perplexity_search_tool"]
     assert result["approval_recommended"] is False
 
 

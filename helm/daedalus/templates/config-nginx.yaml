@@ -181,10 +181,10 @@ server {
         proxy_set_header Cache-Control no-cache;
         proxy_set_header X-Accel-Buffering no;
 
-        # Increase timeouts for long-running requests (deep research)
-        proxy_connect_timeout 300s;
-        proxy_send_timeout 300s;
-        proxy_read_timeout 300s;
+        # Increase timeouts for long-running requests and MCP OAuth consent.
+        proxy_connect_timeout 600s;
+        proxy_send_timeout 600s;
+        proxy_read_timeout 600s;
 
         # Enable chunked responses
         chunked_transfer_encoding on;

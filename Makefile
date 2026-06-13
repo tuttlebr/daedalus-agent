@@ -21,6 +21,7 @@
 # VIRTUAL_ENV before invoking make.
 
 SHELL := /bin/bash
+TRIVY_RESULTS ?= /tmp/daedalus-trivy-results.sarif
 
 .DEFAULT_GOAL := help
 
@@ -62,8 +63,8 @@ docker: ## docker compose config + build runtime images  (CI job: docker)
 
 security: ## gitleaks + trivy filesystem scans  (CI job: security)
 	gitleaks detect --source . --verbose --redact
-	trivy fs --severity CRITICAL,HIGH --format sarif --output trivy-results.sarif .
-	test -s trivy-results.sarif
+	trivy fs --severity CRITICAL,HIGH --format sarif . >$(TRIVY_RESULTS)
+	test -s $(TRIVY_RESULTS)
 
 evals: ## eval harness compile + dataset validation  (CI job: evals)
 	uv pip install -r evals/requirements.txt
@@ -86,4 +87,4 @@ tools-check: ## verify required binaries are present
 	fi
 
 clean: ## remove generated test/scan artifacts
-	rm -f builder/coverage.xml builder/.coverage trivy-results.sarif /tmp/daedalus-rendered.yaml
+	rm -f builder/coverage.xml builder/.coverage trivy-results.sarif $(TRIVY_RESULTS) /tmp/daedalus-rendered.yaml

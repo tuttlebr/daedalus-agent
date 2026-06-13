@@ -22,7 +22,6 @@ from evaluators._common import EvalScore, find_tool_event
 ROUTE_TOOLS = {
     "domain_retriever_tool",
     "curated_feed_search_tool",
-    "serpapi_search_tool",
     "source_policy_tool",
     "research_plan_approval_tool",
     "dynamo_mcp_server",

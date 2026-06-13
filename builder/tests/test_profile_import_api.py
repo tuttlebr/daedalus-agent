@@ -1,6 +1,7 @@
 """Tests for the deterministic profile-memory import API."""
 
 import asyncio
+import json
 import sys
 from pathlib import Path
 
@@ -31,6 +32,28 @@ class FakeMemoryEditor:
 
     async def add_items(self, items):
         self.added.extend(items)
+
+
+class FakeRedis:
+    def __init__(self):
+        self.store = {}
+
+    def scan_iter(self, match=None, pattern=None):
+        import fnmatch
+
+        glob = match or pattern or "*"
+        return (key for key in list(self.store) if fnmatch.fnmatch(key, glob))
+
+    def get(self, key):
+        return self.store.get(key)
+
+    def delete(self, *keys):
+        deleted = 0
+        for key in keys:
+            if key in self.store:
+                del self.store[key]
+                deleted += 1
+        return deleted
 
 
 class FakeMemoryItem:
@@ -129,11 +152,78 @@ def test_key_value_pairs_merge_under_metadata():
 def test_import_profile_memories_calls_editor_add_items_once():
     editor = FakeMemoryEditor()
 
-    imported = run(import_profile_memories(profile_request(), "tuttlebr", editor))
+    result = run(import_profile_memories(profile_request(), "tuttlebr", editor))
 
-    assert imported == 1
+    assert result.imported == 1
+    assert result.replaced == 0
     assert len(editor.added) == 1
     assert editor.added[0].user_id == "tuttlebr"
+
+
+def test_replace_mode_deletes_only_seeded_profile_memories():
+    editor = FakeMemoryEditor()
+    fake_redis = FakeRedis()
+    fake_redis.store.update(
+        {
+            "nat:memory:tuttlebr:seed": json.dumps(
+                {
+                    "user_id": "tuttlebr",
+                    "memory": "Old seed",
+                    "tags": ["user_profile"],
+                    "metadata": {"source": "seed_profile"},
+                }
+            ),
+            "nat:memory:tuttlebr:profile-import": json.dumps(
+                {
+                    "user_id": "tuttlebr",
+                    "memory": "Old import",
+                    "tags": ["profile_seed"],
+                    "metadata": {"source": "profile_import"},
+                }
+            ),
+            "nat:memory:tuttlebr:conversation": json.dumps(
+                {
+                    "user_id": "tuttlebr",
+                    "memory": "Normal learned memory",
+                    "tags": ["user_profile"],
+                    "metadata": {"source": "conversation"},
+                }
+            ),
+            "nat:memory:tuttlebr:not-json": "not json",
+            "nat:memory:someoneelse:seed": json.dumps(
+                {
+                    "user_id": "someoneelse",
+                    "memory": "Other user seed",
+                    "tags": ["profile_seed"],
+                    "metadata": {"source": "seed_profile"},
+                }
+            ),
+        }
+    )
+    req = ProfileImportRequest.model_validate(
+        {
+            "profile_version": "2026-06-13",
+            "mode": "replace",
+            "entries": [
+                {
+                    "label": "Identity",
+                    "memory": "The user prefers to be addressed as Brandon.",
+                    "metadata": {"source": "seed_profile", "category": "identity"},
+                }
+            ],
+        }
+    )
+
+    result = run(import_profile_memories(req, "tuttlebr", editor, fake_redis))
+
+    assert result.imported == 1
+    assert result.replaced == 2
+    assert "nat:memory:tuttlebr:seed" not in fake_redis.store
+    assert "nat:memory:tuttlebr:profile-import" not in fake_redis.store
+    assert "nat:memory:tuttlebr:conversation" in fake_redis.store
+    assert "nat:memory:tuttlebr:not-json" in fake_redis.store
+    assert "nat:memory:someoneelse:seed" in fake_redis.store
+    assert len(editor.added) == 1
 
 
 def test_embedding_config_fails_when_missing(monkeypatch):

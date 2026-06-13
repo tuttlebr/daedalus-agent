@@ -24,6 +24,16 @@ def _tool_called(required_tool: str, tools: list[str]) -> bool:
     return False
 
 
+def _skill_loaded(events, expected_skill: str) -> bool:
+    for ev in events:
+        if ev.event_type != "TOOL_START":
+            continue
+        if "agent_skills" in ev.name or "load_skill" in ev.name:
+            if expected_skill in str(ev.payload):
+                return True
+    return False
+
+
 def _has_url_citation(response: str) -> bool:
     return bool(re.search(r"https?://\S+", response))
 
@@ -33,6 +43,7 @@ def score(case: dict, trace) -> EvalScore:
     required_tools = set(expected.get("required_tools") or [])
     required_tool_groups = expected.get("required_tool_groups") or []
     forbidden_tools = set(expected.get("forbidden_tools") or [])
+    expected_skill = expected.get("skill")
     required_phrases = expected.get("response_contains") or []
     response_regexes = expected.get("response_regex") or []
     requires_citation = bool(expected.get("requires_citation"))
@@ -63,6 +74,14 @@ def score(case: dict, trace) -> EvalScore:
         tool for tool in sorted(forbidden_tools) if _tool_called(tool, tools)
     ]
     checks.append((not forbidden_called, f"forbidden tools called: {forbidden_called}"))
+
+    if expected_skill:
+        checks.append(
+            (
+                _skill_loaded(trace.events, str(expected_skill)),
+                f"expected skill not loaded: {expected_skill}",
+            )
+        )
 
     if min_tool_calls is not None:
         checks.append(

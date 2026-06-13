@@ -1023,7 +1023,7 @@ describe('chat/async backend pinning helpers', () => {
         additionalProps: {
           sourcePolicy: {
             enabledSources: ['curated_domains', 'missing'],
-            disabledSources: ['google_search'],
+            disabledSources: ['perplexity_search'],
             maxResearchToolCalls: 6,
             requirePlanApproval: true,
           },
@@ -1060,7 +1060,7 @@ describe('chat/async backend pinning helpers', () => {
       'enabled_source_ids=["curated_domains"]',
     );
     expect(storedJobRequest.natMessages[1].content).toContain(
-      'disabled_source_ids=["google_search"]',
+      'disabled_source_ids=["perplexity_search"]',
     );
     expect(storedJobRequest.natMessages[2].content).toBe(
       'Research inference tooling.',
@@ -1963,7 +1963,7 @@ describe('chat/async streaming + finalize (characterization)', () => {
       'event: oauth_required\n',
       'data: {"auth_url":"https://accounts.google.com/auth?scope=gmail.readonly","oauth_state":"gmail-state"}\n',
       'event: oauth_required\n',
-      'data: {"auth_url":"https://accounts.google.com/auth?scope=calendar.events.readonly","oauth_state":"calendar-state"}\n',
+      'data: {"auth_url":"https://accounts.google.com/auth?scope=calendar.calendarlist.readonly","oauth_state":"calendar-state"}\n',
       'data: [DONE]\n',
     ]);
 
@@ -1972,7 +1972,7 @@ describe('chat/async streaming + finalize (characterization)', () => {
       .map((e) => e.data)
       .filter((d) => d.status === 'oauth_required');
     expect(oauthUpdates).toHaveLength(2);
-    expect(oauthUpdates[1].authUrl).toContain('calendar.events.readonly');
+    expect(oauthUpdates[1].authUrl).toContain('calendar.calendarlist.readonly');
     expect(oauthUpdates[1].oauthRequests).toEqual([
       {
         id: 'gmail-state:https://accounts.google.com/auth?scope=gmail.readonly',
@@ -1981,9 +1981,9 @@ describe('chat/async streaming + finalize (characterization)', () => {
         service: 'Gmail',
       },
       {
-        id: 'calendar-state:https://accounts.google.com/auth?scope=calendar.events.readonly',
+        id: 'calendar-state:https://accounts.google.com/auth?scope=calendar.calendarlist.readonly',
         authUrl:
-          'https://accounts.google.com/auth?scope=calendar.events.readonly',
+          'https://accounts.google.com/auth?scope=calendar.calendarlist.readonly',
         oauthState: 'calendar-state',
         service: 'Calendar',
       },
@@ -2482,9 +2482,9 @@ describe('chat/async streaming + finalize (characterization)', () => {
           service: 'Gmail',
         },
         {
-          id: 'calendar-state:https://accounts.google.com/auth?scope=calendar.events.readonly',
+          id: 'calendar-state:https://accounts.google.com/auth?scope=calendar.calendarlist.readonly',
           authUrl:
-            'https://accounts.google.com/auth?scope=calendar.events.readonly',
+            'https://accounts.google.com/auth?scope=calendar.calendarlist.readonly',
           oauthState: 'calendar-state',
           service: 'Calendar',
         },

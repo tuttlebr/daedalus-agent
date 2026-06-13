@@ -363,7 +363,6 @@ def test_responses_api_workflow_exposes_required_leaf_tools():
         "domain_retriever_tool",
         "curated_feed_search_tool",
         "perplexity_search_tool",
-        "serpapi_search_tool",
         "webscrape_tool",
         "content_distiller_tool",
         "user_document_tool",
@@ -428,14 +427,9 @@ def test_google_workspace_mcp_uses_per_user_oauth():
             "auth_server_url": "https://calendarmcp.googleapis.com/mcp/v1",
             "scopes": {
                 "https://www.googleapis.com/auth/calendar.calendarlist.readonly",
-                "https://www.googleapis.com/auth/calendar.events.readonly",
-                "https://www.googleapis.com/auth/calendar.events.freebusy",
             },
             "include": [
                 "list_calendars",
-                "list_events",
-                "get_event",
-                "suggest_time",
             ],
         },
     }
@@ -464,6 +458,7 @@ def test_google_workspace_mcp_uses_per_user_oauth():
             assert group["include"] == values["include"], path
             assert group["server"]["auth_provider"] == name, path
             assert group["server"]["url"] == values["server_url"], path
+            assert group["auth_flow_timeout"] >= 600, path
 
 
 def test_interactive_extensions_are_enabled_for_mcp_oauth():
@@ -491,6 +486,16 @@ def test_restricted_nginx_cilium_policy_allows_oauth_callback_upstream():
     assert "Restricted mode still needs this for the exact" in template
     assert "app.kubernetes.io/component: backend-default" in template
     assert "{{- if not .Values.nginx.config.restrictedMode }}" not in template
+
+
+def test_nginx_v1_streaming_timeout_covers_google_oauth_wait():
+    template = NGINX_TEMPLATE.read_text(encoding="utf-8")
+    v1_start = template.index("location /v1/")
+    generate_start = template.index("location /generate/", v1_start)
+    v1_block = template[v1_start:generate_start]
+
+    assert "proxy_send_timeout 600s;" in v1_block
+    assert "proxy_read_timeout 600s;" in v1_block
 
 
 def test_backend_trusts_nginx_forwarded_proto_for_oauth_callback():
@@ -564,9 +569,11 @@ def test_multi_operation_tools_are_filtered_in_production():
             assert _effective_operations(config, tool_name) == operations, path
 
 
-def test_serpapi_documented_aliases_are_configured():
-    desc = _config()["functions"]["serpapi_search_tool"]["description"]
-    assert "search_type (organic, news, images, shopping)" in desc
+def test_serpapi_search_tool_is_removed():
+    for path in DEPLOYED_CONFIGS:
+        config = _config(path)
+        assert "serpapi_search_tool" not in config["functions"], path
+        assert "serpapi_search_tool" not in config["workflow"]["tool_names"], path
 
 
 def test_perplexity_search_documented_filters_are_configured():
@@ -584,32 +591,25 @@ def test_workflow_uses_configured_internet_search_providers():
         assert "exa_internet_search_tool" not in functions, path
         assert "exa_internet_search_tool" not in workflow_tools, path
         assert "perplexity_search_tool" in workflow_tools, path
-        assert "serpapi_search_tool" in workflow_tools, path
         assert workflow_tools.index("curated_feed_search_tool") < workflow_tools.index(
             "perplexity_search_tool"
         ), path
-        assert workflow_tools.index("perplexity_search_tool") < workflow_tools.index(
-            "serpapi_search_tool"
-        ), path
-        assert workflow_tools.index("curated_feed_search_tool") < workflow_tools.index(
-            "serpapi_search_tool"
-        ), path
         source_registry = functions["source_policy_tool"]["source_registry"]
         assert {source["id"] for source in source_registry}.isdisjoint(
-            {"semantic_web"}
+            {"semantic_web", "google_search"}
         ), path
         assert all(
             "exa_internet_search_tool" not in source.get("tools", [])
+            and "serpapi_search_tool" not in source.get("tools", [])
             for source in source_registry
         ), path
         internet_sources = {
             source["id"]: source["tools"]
             for source in source_registry
-            if source["id"] in {"perplexity_search", "google_search"}
+            if source["id"] == "perplexity_search"
         }
         assert internet_sources == {
             "perplexity_search": ["perplexity_search_tool"],
-            "google_search": ["serpapi_search_tool"],
         }, path
 
         prompt = config["workflow"]["system_prompt"]
@@ -678,25 +678,26 @@ def test_daily_briefing_routes_to_structured_response_without_visual_media():
         assert prompt.index("Daily briefing") < prompt.index(
             "Research and sources"
         ), path
-        assert (
-            "Produce a concise structured Markdown briefing directly"
-            in normalized_prompt
-        ), path
+        assert "Load the nv-html skill before final synthesis" in prompt, path
+        assert "Return only a standalone NVIDIA HTML" in normalized_prompt, path
+        assert "top-level HTML fragment" in prompt, path
+        assert "no Markdown fence" in prompt, path
         assert "Weather/Local Logistics" in prompt, path
         assert "read-only operations status" in normalized_prompt, path
         assert "teams, leagues, events" in normalized_prompt, path
-        assert "normal assistant Markdown" in normalized_prompt, path
-        assert "Markdown is allowed" in prompt, path
-        assert "Do not require raw HTML" in prompt, path
+        assert "NVIDIA HTML" in prompt, path
+        assert "HTML-only output" in prompt, path
+        assert "Markdown is allowed" not in prompt, path
+        assert "Do not require raw HTML" not in prompt, path
+        assert "Produce a concise structured Markdown briefing directly" not in prompt
         assert (
             "Do not generate, edit, or analyze visual media" in normalized_prompt
         ), path
         assert (
             "daily briefings unless the user explicitly asks" in normalized_prompt
         ), path
-        assert "raw HTML only" not in prompt, path
         assert "daedalus-feed" not in prompt, path
-        assert "nv-html" not in prompt, path
+        assert "nv-html" in prompt, path
         assert "Never use this tool for a" in visual_media_desc, path
         assert "daily summary or daily briefing" in visual_media_desc, path
         assert "Saline" not in prompt, path
@@ -719,7 +720,6 @@ def test_daily_summary_contracts_structured_briefing():
         assert "k8s_mcp_server" in tools, path
         assert "curated_feed_search_tool" in tools, path
         assert "perplexity_search_tool" in tools, path
-        assert "serpapi_search_tool" in tools, path
 
         assert "call current date/time" in prompt, path
         assert "broad enough memory result count" in prompt, path
@@ -729,12 +729,14 @@ def test_daily_summary_contracts_structured_briefing():
         assert "calendar" in prompt, path
         assert "read-only operations status" in prompt, path
         assert "recent feeds or live search" in normalized_prompt, path
-        assert "concise structured Markdown briefing" in normalized_prompt, path
-        assert "Markdown is allowed" in prompt, path
-        assert "Do not require raw HTML" in prompt, path
-        assert "raw HTML only" not in prompt, path
+        assert "Load the nv-html skill before final synthesis" in prompt, path
+        assert "Return only a standalone NVIDIA HTML" in normalized_prompt, path
+        assert "HTML-only output" in prompt, path
+        assert "Markdown is allowed" not in prompt, path
+        assert "Do not require raw HTML" not in prompt, path
+        assert "concise structured Markdown briefing" not in normalized_prompt, path
         assert '<article class="daedalus-feed"' not in prompt, path
-        assert "Next Best Actions" in prompt, path
+        assert "Next Best Actions" in normalized_prompt, path
         assert "Brandon" not in prompt, path
         assert "Saline" not in prompt, path
         assert "Yankees" not in prompt, path

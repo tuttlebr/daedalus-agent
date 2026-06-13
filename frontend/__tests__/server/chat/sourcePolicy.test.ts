@@ -9,14 +9,14 @@ describe('sourcePolicy', () => {
     expect(
       sanitizeSourcePolicy({
         enabledSources: ['curated_domains', 'missing', 'CURATED_DOMAINS'],
-        disabledSources: 'google_search,unknown',
+        disabledSources: 'perplexity_search,unknown',
         maxResearchToolCalls: 99,
         requirePlanApproval: true,
         notes: 'Use primary sources.',
       }),
     ).toEqual({
       enabledSources: ['curated_domains'],
-      disabledSources: ['google_search'],
+      disabledSources: ['perplexity_search'],
       maxResearchToolCalls: 20,
       requirePlanApproval: true,
       notes: 'Use primary sources.',
@@ -26,7 +26,7 @@ describe('sourcePolicy', () => {
   it('builds a hidden source-policy message for NAT', () => {
     const message = buildSourcePolicyMessage({
       enabledSources: ['curated_feeds', 'known_url_scrape'],
-      disabledSources: ['google_search'],
+      disabledSources: ['perplexity_search'],
       maxResearchToolCalls: 6,
       requirePlanApproval: true,
     });
