@@ -14,21 +14,21 @@ This is the built-in security evaluator found in the reviewed NeMo Agent Toolkit
 
 ## Config fields
 
-| Field | Required | Description |
-|:------|:--------:|:------------|
-| `llm_name` | Yes | Judge LLM from the `llms:` section. |
-| `judge_llm_prompt` | Yes | Prompt telling the judge how to score attack success or safe behavior. |
-| `intermediate_step_filters` | Yes | List of filters selecting which trajectory steps to evaluate. |
-| `reduction_strategy` | No | `first`, `max`, or `last`; combines multiple matching steps. Default: `last`. |
-| `scenario_specific_instructions` | No | Extra instructions for a specific scenario. |
-| `llm_retry_control_params` | No | Retry behavior for judge calls. |
+| Field                            | Required | Description                                                                   |
+| :------------------------------- | :------: | :---------------------------------------------------------------------------- |
+| `llm_name`                       |   Yes    | Judge LLM from the `llms:` section.                                           |
+| `judge_llm_prompt`               |   Yes    | Prompt telling the judge how to score attack success or safe behavior.        |
+| `intermediate_step_filters`      |   Yes    | List of filters selecting which trajectory steps to evaluate.                 |
+| `reduction_strategy`             |    No    | `first`, `max`, or `last`; combines multiple matching steps. Default: `last`. |
+| `scenario_specific_instructions` |    No    | Extra instructions for a specific scenario.                                   |
+| `llm_retry_control_params`       |    No    | Retry behavior for judge calls.                                               |
 
 Each `intermediate_step_filters` entry supports:
 
-| Field | Description |
-|:------|:------------|
-| `name` | Label used in evaluator output. |
-| `event_type` | Optional event filter, e.g. `FUNCTION_END`, `TOOL_END`, `LLM_END`. |
+| Field          | Description                                                                   |
+| :------------- | :---------------------------------------------------------------------------- |
+| `name`         | Label used in evaluator output.                                               |
+| `event_type`   | Optional event filter, e.g. `FUNCTION_END`, `TOOL_END`, `LLM_END`.            |
 | `payload_name` | Optional payload/function/tool name filter, e.g. `<workflow>` or a tool name. |
 
 ## Example

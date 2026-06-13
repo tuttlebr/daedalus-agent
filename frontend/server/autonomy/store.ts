@@ -375,14 +375,86 @@ export class QueueFullError extends Error {
   }
 }
 
+export class NoActiveGoalsError extends Error {
+  constructor() {
+    super('No active autonomy goals are available to run.');
+    this.name = 'NoActiveGoalsError';
+  }
+}
+
+type EnqueueRunInput = {
+  trigger?: string;
+  goalId?: string | null;
+  prompt?: string;
+  requestedBy?: string;
+  scope?: string;
+};
+
+type QueueRequest = {
+  id: string;
+  trigger: string;
+  goalId: string | null;
+  prompt: string;
+  requestedBy: string;
+  createdAt: number;
+};
+
+function clippedPrompt(input: Pick<EnqueueRunInput, 'prompt'>): string {
+  return (input.prompt || '').slice(0, MAX_PROMPT_CHARS);
+}
+
+function priorityValue(goal: AutonomyGoal): number {
+  const priority = Number(goal.priority);
+  return Number.isFinite(priority) ? priority : 3;
+}
+
+export function isAllActiveGoalsPrompt(prompt: unknown): boolean {
+  if (typeof prompt !== 'string') return false;
+  const normalized = prompt
+    .trim()
+    .toLowerCase()
+    .replace(/[.!?]+$/g, '')
+    .replace(/\s+/g, ' ');
+  if (!normalized) return false;
+  if (
+    /\b(do not|don't|dont|never|not|no)\b.*\b(run|start|queue)\b.*\b(all|every|each)\b.*\b(active\s+)?goals?\b/.test(
+      normalized,
+    )
+  ) {
+    return false;
+  }
+  return /^(please\s+)?(run|start|queue)\s+(all|every|each)\s+(active\s+)?goals?(\s+now)?$/.test(
+    normalized,
+  );
+}
+
+export function isAllActiveGoalsRunRequest(input: unknown): boolean {
+  if (!input || typeof input !== 'object') return false;
+  const request = input as EnqueueRunInput;
+  if (request.scope === 'all_active_goals') return true;
+  if (request.scope) return false;
+  const trigger = request.trigger || 'manual';
+  if (trigger !== 'manual') return false;
+  return isAllActiveGoalsPrompt(request.prompt);
+}
+
+function newQueueRequest(
+  input: EnqueueRunInput,
+  queuedAt: number,
+): QueueRequest {
+  return {
+    id: `request_${uuidv4().replace(/-/g, '')}`,
+    trigger: input.trigger || (input.goalId ? 'goal' : 'manual'),
+    goalId: input.goalId || null,
+    prompt: clippedPrompt(input),
+    requestedBy: input.requestedBy || 'ui',
+    createdAt: queuedAt,
+  };
+}
+
 export async function enqueueRun(
   userId: string,
-  input: {
-    trigger?: string;
-    goalId?: string | null;
-    prompt?: string;
-    requestedBy?: string;
-  },
+  input: EnqueueRunInput,
   options: { enforceDepthCap?: boolean } = {},
 ): Promise<{ id: string; queuedAt: number }> {
   const redis = getRedis();
@@ -398,14 +470,7 @@ export async function enqueueRun(
   }
 
   const queuedAt = nowMs();
-  const request = {
-    id: `request_${uuidv4().replace(/-/g, '')}`,
-    trigger: input.trigger || (input.goalId ? 'goal' : 'manual'),
-    goalId: input.goalId || null,
-    prompt: (input.prompt || '').slice(0, MAX_PROMPT_CHARS),
-    requestedBy: input.requestedBy || 'ui',
-    createdAt: queuedAt,
-  };
+  const request = newQueueRequest(input, queuedAt);
   await redis.lpush(queueKey, JSON.stringify(request));
   await publishSyncEvent(userId, {
     type: 'autonomy_status',
@@ -413,6 +478,71 @@ export async function enqueueRun(
     data: { queued: request },
   });
   return { id: request.id, queuedAt };
+}
+
+export async function enqueueAllActiveGoals(
+  userId: string,
+  input: Pick<EnqueueRunInput, 'prompt' | 'requestedBy'> = {},
+  options: { enforceDepthCap?: boolean } = {},
+): Promise<{
+  queued: number;
+  requests: Array<{ id: string; goalId: string; queuedAt: number }>;
+}> {
+  const goals = await listGoals(userId);
+  const activeGoals = goals
+    .map((goal, index) => ({ goal, index }))
+    .filter(({ goal }) => goal.status === 'active')
+    .sort(
+      (a, b) =>
+        priorityValue(a.goal) - priorityValue(b.goal) || a.index - b.index,
+    )
+    .map(({ goal }) => goal);
+
+  if (!activeGoals.length) {
+    throw new NoActiveGoalsError();
+  }
+
+  const redis = getRedis();
+  const queueKey = autonomyKey(userId, 'queue');
+  if (options.enforceDepthCap) {
+    const depth = await redis.llen(queueKey);
+    if (depth + activeGoals.length > MAX_QUEUE_DEPTH) {
+      throw new QueueFullError(MAX_QUEUE_DEPTH);
+    }
+  }
+
+  const queuedAt = nowMs();
+  const prompt = clippedPrompt(input);
+  const requests = activeGoals.map((goal) =>
+    newQueueRequest(
+      {
+        trigger: 'goal',
+        goalId: goal.id,
+        prompt,
+        requestedBy: input.requestedBy || 'ui',
+      },
+      queuedAt,
+    ),
+  );
+
+  await redis.lpush(
+    queueKey,
+    ...requests.map((request) => JSON.stringify(request)),
+  );
+  await publishSyncEvent(userId, {
+    type: 'autonomy_status',
+    timestamp: queuedAt,
+    data: { queuedBatch: requests },
+  });
+
+  return {
+    queued: requests.length,
+    requests: requests.map((request) => ({
+      id: request.id,
+      goalId: request.goalId || '',
+      queuedAt,
+    })),
+  };
 }
 
 export async function listEvents(

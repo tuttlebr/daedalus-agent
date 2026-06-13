@@ -198,6 +198,24 @@ export function AutonomyDashboard() {
     [refresh],
   );
 
+  const runActiveGoals = useCallback(
+    async (prompt: string) => {
+      setBusy('run:goals');
+      try {
+        const response = await fetch('/api/autonomy/runs', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ scope: 'all_active_goals', prompt }),
+        });
+        if (!response.ok) throw new Error('Failed to queue active goals');
+        await refresh();
+      } finally {
+        setBusy(null);
+      }
+    },
+    [refresh],
+  );
+
   const createGoal = useCallback(
     async (title: string, description: string) => {
       if (!title.trim()) return;
@@ -368,6 +386,7 @@ export function AutonomyDashboard() {
         busy={busy}
         onTogglePause={togglePause}
         onEnqueueRun={enqueueRun}
+        onRunActiveGoals={runActiveGoals}
         onCancelActiveRun={cancelActiveRun}
         onUpdateInterval={updateInterval}
         onCreateGoal={createGoal}

@@ -6,12 +6,12 @@ Directionally, **ATIF is the canonical trajectory format NeMo Agent Toolkit is m
 
 ## Quick Decision
 
-| User Intent | Surface | User Experience | State/Metadata |
-|:------------|:--------|:----------------|:---------------|
-| "Evaluate my NeMo Agent Toolkit workflow with built-in evaluators" | ATIF where supported; legacy (`IntermediateStep`) fallback | Configure `eval.general.dataset` and `eval.evaluators`; enable ATIF only for evaluator families that support it; run `nat eval`; inspect `<evaluator>_output.json` and, when enabled, `workflow_output_atif.json`. | ATIF gives canonical shape; legacy preserves full `EvalInputItem` state. |
-| "I want normal NeMo Agent Toolkit eval plus an ATIF trace artifact" | Legacy `nat eval` (`IntermediateStep`) + ATIF artifact | Add `write_atif_workflow_output: true`; still run normal `nat eval`; also inspect `workflow_output_atif.json`. | Legacy evaluators keep `IntermediateStep` state; ATIF artifact is a projection. |
-| "I want to evaluate using ATIF-shaped trajectories" | ATIF evaluator lane | Add evaluator-specific ATIF flags only where supported, usually `enable_atif_evaluator: true`. | ATIF samples may omit legacy-only fields. |
-| "I have ATIF samples or need an ATIF-native custom evaluator" | Standalone ATIF evaluation | Use `nvidia-nat-eval` / ATIF-native evaluator APIs rather than full workflow execution. | Depends on how the samples are constructed. |
+| User Intent                                                         | Surface                                                    | User Experience                                                                                                                                                                                                    | State/Metadata                                                                  |
+| :------------------------------------------------------------------ | :--------------------------------------------------------- | :----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | :------------------------------------------------------------------------------ |
+| "Evaluate my NeMo Agent Toolkit workflow with built-in evaluators"  | ATIF where supported; legacy (`IntermediateStep`) fallback | Configure `eval.general.dataset` and `eval.evaluators`; enable ATIF only for evaluator families that support it; run `nat eval`; inspect `<evaluator>_output.json` and, when enabled, `workflow_output_atif.json`. | ATIF gives canonical shape; legacy preserves full `EvalInputItem` state.        |
+| "I want normal NeMo Agent Toolkit eval plus an ATIF trace artifact" | Legacy `nat eval` (`IntermediateStep`) + ATIF artifact     | Add `write_atif_workflow_output: true`; still run normal `nat eval`; also inspect `workflow_output_atif.json`.                                                                                                     | Legacy evaluators keep `IntermediateStep` state; ATIF artifact is a projection. |
+| "I want to evaluate using ATIF-shaped trajectories"                 | ATIF evaluator lane                                        | Add evaluator-specific ATIF flags only where supported, usually `enable_atif_evaluator: true`.                                                                                                                     | ATIF samples may omit legacy-only fields.                                       |
+| "I have ATIF samples or need an ATIF-native custom evaluator"       | Standalone ATIF evaluation                                 | Use `nvidia-nat-eval` / ATIF-native evaluator APIs rather than full workflow execution.                                                                                                                            | Depends on how the samples are constructed.                                     |
 
 Care about ATIF when one of these is true:
 
@@ -25,13 +25,13 @@ If the scoring logic needs dataset metadata, custom labels, tenant/user fields, 
 
 ## Terminology
 
-| Term | Meaning |
-|:-----|:--------|
-| ATIF | Canonical trajectory format NeMo Agent Toolkit is moving toward for stable cross-system trace shape. |
-| Legacy `nat eval` (`IntermediateStep`) | Default NeMo Agent Toolkit eval runtime using `EvalInputItem`; trajectories are lists of `IntermediateStep` objects. |
-| ATIF output artifact | An additional ATIF-shaped file, `workflow_output_atif.json`, written by `nat eval` for export/debugging. |
-| ATIF evaluator lane | An evaluator path that receives `AtifEvalSample` payloads via `evaluate_atif_fn` instead of legacy `EvalInputItem` payloads. |
-| Standalone ATIF evaluation | Evaluation outside normal config-driven workflow execution, usually via `nvidia-nat-eval` and ATIF-native custom evaluators. |
+| Term                                   | Meaning                                                                                                                      |
+| :------------------------------------- | :--------------------------------------------------------------------------------------------------------------------------- |
+| ATIF                                   | Canonical trajectory format NeMo Agent Toolkit is moving toward for stable cross-system trace shape.                         |
+| Legacy `nat eval` (`IntermediateStep`) | Default NeMo Agent Toolkit eval runtime using `EvalInputItem`; trajectories are lists of `IntermediateStep` objects.         |
+| ATIF output artifact                   | An additional ATIF-shaped file, `workflow_output_atif.json`, written by `nat eval` for export/debugging.                     |
+| ATIF evaluator lane                    | An evaluator path that receives `AtifEvalSample` payloads via `evaluate_atif_fn` instead of legacy `EvalInputItem` payloads. |
+| Standalone ATIF evaluation             | Evaluation outside normal config-driven workflow execution, usually via `nvidia-nat-eval` and ATIF-native custom evaluators. |
 
 ## Config Patterns
 
@@ -84,18 +84,18 @@ Confirm support before adding `enable_atif_evaluator`. Unsupported flags make th
 
 Verify with `nat info components -t evaluator` and source/docs for the installed version. In the local NeMo Agent Toolkit source reviewed for this skill:
 
-| Evaluator | Package | Legacy (`IntermediateStep`) | ATIF | Requires Trajectory | Requires Reference | Optimization Suitability | Notes |
-|:----------|:--------|:------:|:----:|:--------------------|:-------------------|:-------------------------|:------|
-| `ragas` | `nvidia-nat[ragas]` | Yes | Optional | Metric-dependent; context metrics need retrieved context from steps/ATIF observations | Metric-dependent | Good for RAG objectives when one metric maps to one objective | `enable_atif_evaluator: true` exists. |
-| `trajectory` | `nvidia-nat[langchain]` | Yes | Optional | Yes | No; `expected_trajectory` is optional | Good for tool-path objectives; judge noise may require reps | `enable_atif_evaluator: true` exists. |
-| `tunable_rag_evaluator` | `nvidia-nat[langchain]` | Yes | Optional | Legacy no; ATIF lane needs user input recoverable from ATIF trajectory | Default scoring uses expected answer; custom prompt is user-defined | Good when the prompt returns a calibrated numeric score | `enable_atif_evaluator: true` exists. |
-| `langsmith_judge` | `nvidia-nat[langchain]` | Yes | No observed ATIF lane | No | Optional, depending on prompt | Good for custom final-response objectives if configured for numeric scoring | Requires judge model with structured output. |
-| `langsmith` | `nvidia-nat[langchain]` | Yes | No observed ATIF lane | No | Depends on openevals metric | Good for deterministic string/similarity objectives | Algorithmic; no judge LLM. |
-| `langsmith_custom` | `nvidia-nat[langchain]` | Yes | No observed ATIF lane | User-defined | User-defined | Good if the custom function emits stable numeric scores | Wraps existing LangSmith-compatible functions. |
-| Profiler runtime evaluators | `nvidia-nat-profiler` | Yes | Yes | Yes | No | Good for latency/token objectives; usually `direction: minimize` | Distinct from `eval.general.profiler` artifacts. |
-| `red_teaming_evaluator` | `nvidia-nat-security` | Yes | No observed ATIF lane | Yes | Uses expected behavior from the dataset | Better as a security diagnostic than a primary optimizer objective; use `direction: minimize` when higher means attack success | Security workflow also uses middleware/runner. |
-| Custom `BaseEvaluator` | Project/package-specific | Yes | No | User-defined | User-defined | Good if scores are numeric, stable, and failures are explicit | Uses `EvalInputItem`. |
-| Custom ATIF evaluator | `nvidia-nat-eval` or project/package-specific | No | Yes | Usually yes | User-defined | Use when downstream consumers accept ATIF lane and metadata needs are handled | Implement `evaluate_atif_fn` / `AtifBaseEvaluator`. |
+| Evaluator                   | Package                                       | Legacy (`IntermediateStep`) |         ATIF          | Requires Trajectory                                                                   | Requires Reference                                                  | Optimization Suitability                                                                                                       | Notes                                               |
+| :-------------------------- | :-------------------------------------------- | :-------------------------: | :-------------------: | :------------------------------------------------------------------------------------ | :------------------------------------------------------------------ | :----------------------------------------------------------------------------------------------------------------------------- | :-------------------------------------------------- |
+| `ragas`                     | `nvidia-nat[ragas]`                           |             Yes             |       Optional        | Metric-dependent; context metrics need retrieved context from steps/ATIF observations | Metric-dependent                                                    | Good for RAG objectives when one metric maps to one objective                                                                  | `enable_atif_evaluator: true` exists.               |
+| `trajectory`                | `nvidia-nat[langchain]`                       |             Yes             |       Optional        | Yes                                                                                   | No; `expected_trajectory` is optional                               | Good for tool-path objectives; judge noise may require reps                                                                    | `enable_atif_evaluator: true` exists.               |
+| `tunable_rag_evaluator`     | `nvidia-nat[langchain]`                       |             Yes             |       Optional        | Legacy no; ATIF lane needs user input recoverable from ATIF trajectory                | Default scoring uses expected answer; custom prompt is user-defined | Good when the prompt returns a calibrated numeric score                                                                        | `enable_atif_evaluator: true` exists.               |
+| `langsmith_judge`           | `nvidia-nat[langchain]`                       |             Yes             | No observed ATIF lane | No                                                                                    | Optional, depending on prompt                                       | Good for custom final-response objectives if configured for numeric scoring                                                    | Requires judge model with structured output.        |
+| `langsmith`                 | `nvidia-nat[langchain]`                       |             Yes             | No observed ATIF lane | No                                                                                    | Depends on openevals metric                                         | Good for deterministic string/similarity objectives                                                                            | Algorithmic; no judge LLM.                          |
+| `langsmith_custom`          | `nvidia-nat[langchain]`                       |             Yes             | No observed ATIF lane | User-defined                                                                          | User-defined                                                        | Good if the custom function emits stable numeric scores                                                                        | Wraps existing LangSmith-compatible functions.      |
+| Profiler runtime evaluators | `nvidia-nat-profiler`                         |             Yes             |          Yes          | Yes                                                                                   | No                                                                  | Good for latency/token objectives; usually `direction: minimize`                                                               | Distinct from `eval.general.profiler` artifacts.    |
+| `red_teaming_evaluator`     | `nvidia-nat-security`                         |             Yes             | No observed ATIF lane | Yes                                                                                   | Uses expected behavior from the dataset                             | Better as a security diagnostic than a primary optimizer objective; use `direction: minimize` when higher means attack success | Security workflow also uses middleware/runner.      |
+| Custom `BaseEvaluator`      | Project/package-specific                      |             Yes             |          No           | User-defined                                                                          | User-defined                                                        | Good if scores are numeric, stable, and failures are explicit                                                                  | Uses `EvalInputItem`.                               |
+| Custom ATIF evaluator       | `nvidia-nat-eval` or project/package-specific |             No              |          Yes          | Usually yes                                                                           | User-defined                                                        | Use when downstream consumers accept ATIF lane and metadata needs are handled                                                  | Implement `evaluate_atif_fn` / `AtifBaseEvaluator`. |
 
 ## State And Metadata Implications
 
@@ -119,16 +119,16 @@ Not lost in the reviewed adapter:
 
 Lost or reshaped when using ATIF:
 
-| Legacy state | ATIF behavior | End-user impact |
-|:-------------|:--------------|:----------------|
-| `input_obj` | No top-level field on `AtifEvalSample`; the converter may emit a user step from `WORKFLOW_START.data.input` | Structured dataset input is not guaranteed available to ATIF evaluators. |
-| `full_dataset_entry` | Not carried by the reviewed adapter; `metadata={}` | Dataset columns such as category, tenant, risk class, labels, or difficulty are unavailable unless ATIF metadata is enriched. |
-| `expected_trajectory` | No corresponding field on `AtifEvalSample` | Expected tool/path comparison remains a legacy-lane concern unless represented separately. |
-| Raw `IntermediateStep` event stream | Converted into canonical ATIF steps | ATIF is not a byte-for-byte event log. Use legacy for exact event-boundary assertions. |
-| START/CHUNK/SPAN/CUSTOM/TTC events | Usually skipped unless they contribute to a canonical ATIF step | Streaming chunks, span chunks, custom events, and TTC-specific events may not be visible to ATIF evaluators. |
-| `parent_id`, raw `UUID` | Not first-class ATIF fields; selected ancestry/timing goes into `extra`, and tool call ids are generated from `UUID` | Use legacy if evaluator logic depends on raw NeMo Agent Toolkit ids. |
-| `tags`, arbitrary `metadata`, `TraceMetadata` | Only selected pieces are mapped, such as tool definitions | Do not assume custom trace metadata survives conversion. |
-| Some usage fields | Token counts mostly map; fields like `num_llm_calls` and `seconds_between_calls` are not mapped today | Use legacy/profiler data for those operational details. |
+| Legacy state                                  | ATIF behavior                                                                                                        | End-user impact                                                                                                               |
+| :-------------------------------------------- | :------------------------------------------------------------------------------------------------------------------- | :---------------------------------------------------------------------------------------------------------------------------- |
+| `input_obj`                                   | No top-level field on `AtifEvalSample`; the converter may emit a user step from `WORKFLOW_START.data.input`          | Structured dataset input is not guaranteed available to ATIF evaluators.                                                      |
+| `full_dataset_entry`                          | Not carried by the reviewed adapter; `metadata={}`                                                                   | Dataset columns such as category, tenant, risk class, labels, or difficulty are unavailable unless ATIF metadata is enriched. |
+| `expected_trajectory`                         | No corresponding field on `AtifEvalSample`                                                                           | Expected tool/path comparison remains a legacy-lane concern unless represented separately.                                    |
+| Raw `IntermediateStep` event stream           | Converted into canonical ATIF steps                                                                                  | ATIF is not a byte-for-byte event log. Use legacy for exact event-boundary assertions.                                        |
+| START/CHUNK/SPAN/CUSTOM/TTC events            | Usually skipped unless they contribute to a canonical ATIF step                                                      | Streaming chunks, span chunks, custom events, and TTC-specific events may not be visible to ATIF evaluators.                  |
+| `parent_id`, raw `UUID`                       | Not first-class ATIF fields; selected ancestry/timing goes into `extra`, and tool call ids are generated from `UUID` | Use legacy if evaluator logic depends on raw NeMo Agent Toolkit ids.                                                          |
+| `tags`, arbitrary `metadata`, `TraceMetadata` | Only selected pieces are mapped, such as tool definitions                                                            | Do not assume custom trace metadata survives conversion.                                                                      |
+| Some usage fields                             | Token counts mostly map; fields like `num_llm_calls` and `seconds_between_calls` are not mapped today                | Use legacy/profiler data for those operational details.                                                                       |
 
 What you miss if you choose legacy only:
 

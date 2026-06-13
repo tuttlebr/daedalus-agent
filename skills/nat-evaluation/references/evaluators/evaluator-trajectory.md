@@ -5,7 +5,7 @@
 
 ## When to use
 
-- Your agent uses one or more tools and you care about *how* it reached the answer, not just the final response
+- Your agent uses one or more tools and you care about _how_ it reached the answer, not just the final response
 - You want to detect inefficiencies: wrong tool selection, unnecessary retries, skipped steps
 - Multi-agent workflows where delegation decisions matter
 - Error recovery scenarios: did the agent handle a tool failure gracefully?
@@ -14,9 +14,9 @@
 
 The `trajectory` evaluator inherits from `EvaluatorLLMConfig`, which requires an `llm_name` pointing to a judge LLM.
 
-| Field | Required | Description |
-| --- | --- | --- |
-| `llm_name` | Yes | Judge LLM from the `llms:` section. Must support reasoning about tool call sequences. |
+| Field      | Required | Description                                                                           |
+| ---------- | -------- | ------------------------------------------------------------------------------------- |
+| `llm_name` | Yes      | Judge LLM from the `llms:` section. Must support reasoning about tool call sequences. |
 
 ## Example
 

@@ -123,9 +123,7 @@ def score(case: dict, trace) -> EvalScore:
             points += 1.0
 
     final_score = (points / max_points) if max_points else 1.0
-    passed = final_score >= 0.8 and (
-        (not conversational_only) or final_score == 1.0
-    )
+    passed = final_score >= 0.8 and ((not conversational_only) or final_score == 1.0)
 
     return EvalScore(
         score=round(final_score, 3),

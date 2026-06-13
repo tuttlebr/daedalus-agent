@@ -11,14 +11,14 @@ Evaluation is designed for **autonomous execution**. Minimize user interaction:
 
 Not everyone needs the full 8-step walkthrough. Match the user's intent:
 
-| User wants... | Start at | Skip |
-| ------------- | --------- | ----- |
-| "Just run an eval on my agent" | Step 5 (infer Steps 0-4 automatically) | Steps 6-8 |
-| "Set up evaluators for my agent" | Step 0 → Step 4 | Steps 5-8 until asked |
-| "Should I use ATIF or legacy NeMo Agent Toolkit eval?" | `evaluation-surfaces.md` | Methodology until the surface is chosen |
-| "Full eval setup from scratch" | Step 0 | Nothing |
-| "CI/CD quality gates" | Step 7 | Steps 0-6 unless context is missing |
-| "What should I evaluate?" | Step 1 | Generate code only when asked |
+| User wants...                                          | Start at                               | Skip                                    |
+| ------------------------------------------------------ | -------------------------------------- | --------------------------------------- |
+| "Just run an eval on my agent"                         | Step 5 (infer Steps 0-4 automatically) | Steps 6-8                               |
+| "Set up evaluators for my agent"                       | Step 0 → Step 4                        | Steps 5-8 until asked                   |
+| "Should I use ATIF or legacy NeMo Agent Toolkit eval?" | `evaluation-surfaces.md`               | Methodology until the surface is chosen |
+| "Full eval setup from scratch"                         | Step 0                                 | Nothing                                 |
+| "CI/CD quality gates"                                  | Step 7                                 | Steps 0-6 unless context is missing     |
+| "What should I evaluate?"                              | Step 1                                 | Generate code only when asked           |
 
 ## External Documentation
 

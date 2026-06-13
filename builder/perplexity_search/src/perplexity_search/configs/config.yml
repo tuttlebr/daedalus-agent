@@ -1,0 +1,7 @@
+functions:
+  perplexity_search:
+    _type: perplexity_search
+    description: >-
+      Search the web using the Perplexity Search API and return ranked
+      structured results with snippets, publication dates, and last-updated
+      metadata.

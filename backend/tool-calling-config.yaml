@@ -12,7 +12,7 @@ authentication:
     server_url: https://gmailmcp.googleapis.com/mcp
     client_id: ${GOOGLE_MCP_CLIENT_ID}
     client_secret: ${GOOGLE_MCP_CLIENT_SECRET}
-    enable_dynamic_registration: true
+    enable_dynamic_registration: false
     client_name: Daedalus Gmail MCP
     redirect_uri: ${GOOGLE_MCP_REDIRECT_URI}
     token_endpoint_auth_method: client_secret_post
@@ -25,7 +25,7 @@ authentication:
     server_url: https://calendarmcp.googleapis.com/mcp/v1
     client_id: ${GOOGLE_MCP_CLIENT_ID}
     client_secret: ${GOOGLE_MCP_CLIENT_SECRET}
-    enable_dynamic_registration: true
+    enable_dynamic_registration: false
     client_name: Daedalus Calendar MCP
     redirect_uri: ${GOOGLE_MCP_REDIRECT_URI}
     token_endpoint_auth_method: client_secret_post
@@ -47,7 +47,6 @@ function_groups:
       - searchSpaces
       - searchPostsRecent
       - searchPostsAll
-      - searchNews
       - searchEligiblePosts
       - searchCommunities
       - searchCommunityNotesWritten
@@ -58,7 +57,7 @@ function_groups:
     reconnect_initial_backoff: 1.0
     reconnect_max_backoff: 60.0
     max_sessions: 16
-    session_idle_timeout: 7200 # 2 hours (in seconds)
+    session_idle_timeout: 60
     server:
       transport: streamable-http
       url: http://xmcp.xmcp.svc.cluster.local:8000/mcp
@@ -75,7 +74,7 @@ function_groups:
     reconnect_initial_backoff: 1.0
     reconnect_max_backoff: 60.0
     max_sessions: 16
-    session_idle_timeout: 7200 # 2 hours (in seconds)
+    session_idle_timeout: 60
     tool_overrides:
       search_threads:
         description: >-
@@ -103,7 +102,7 @@ function_groups:
     reconnect_initial_backoff: 1.0
     reconnect_max_backoff: 60.0
     max_sessions: 16
-    session_idle_timeout: 7200 # 2 hours (in seconds)
+    session_idle_timeout: 60
     tool_overrides:
       list_events:
         description: >-
@@ -126,7 +125,7 @@ function_groups:
     reconnect_initial_backoff: 1.0
     reconnect_max_backoff: 60.0
     max_sessions: 16
-    session_idle_timeout: 7200 # 2 hours (in seconds)
+    session_idle_timeout: 60
     tool_overrides:
       searchDocs:
         description: >-
@@ -147,7 +146,7 @@ function_groups:
     reconnect_initial_backoff: 1.0
     reconnect_max_backoff: 60.0
     max_sessions: 16
-    session_idle_timeout: 7200 # 2 hours (in seconds)
+    session_idle_timeout: 60
     tool_overrides:
       searchDocs:
         description: >-
@@ -168,7 +167,7 @@ function_groups:
     reconnect_initial_backoff: 1.0
     reconnect_max_backoff: 60.0
     max_sessions: 16
-    session_idle_timeout: 7200 # 2 hours (in seconds)
+    session_idle_timeout: 60
     tool_overrides:
       searchDocs:
         description: >-
@@ -189,7 +188,7 @@ function_groups:
     reconnect_initial_backoff: 1.0
     reconnect_max_backoff: 60.0
     max_sessions: 16
-    session_idle_timeout: 7200 # 2 hours (in seconds)
+    session_idle_timeout: 60
     tool_overrides:
       searchDocs:
         description: >-
@@ -210,7 +209,7 @@ function_groups:
     reconnect_initial_backoff: 1.0
     reconnect_max_backoff: 60.0
     max_sessions: 16
-    session_idle_timeout: 7200 # 2 hours (in seconds)
+    session_idle_timeout: 60
     tool_overrides:
       searchDocs:
         description: >-
@@ -231,7 +230,7 @@ function_groups:
     reconnect_initial_backoff: 1.0
     reconnect_max_backoff: 60.0
     max_sessions: 16
-    session_idle_timeout: 7200 # 2 hours (in seconds)
+    session_idle_timeout: 60
     tool_overrides:
       searchDocs:
         description: >-
@@ -250,7 +249,7 @@ function_groups:
     reconnect_initial_backoff: 1.0
     reconnect_max_backoff: 60.0
     max_sessions: 16
-    session_idle_timeout: 7200 # 2 hours (in seconds)
+    session_idle_timeout: 60
     server:
       transport: streamable-http
       url: ${KUBERNETES_MCP_SERVER}
@@ -366,7 +365,7 @@ functions:
       domain is nvidia, semianalysis, kubernetes, veterinarian, or
       mentalhealth. Returns reranked passages with metadata. Use for
       established reference; use curated_feed_search_tool or
-      serpapi_search_tool for current events.
+      perplexity_search_tool for current events.
     uri: ${MILVUS_URI}
     embedding_model: milvus_embedder
     database_name: default
@@ -467,9 +466,9 @@ functions:
       society, and technology's human impact; mit_computing_review for
       MIT Technology Review computing coverage, software, chips,
       cybersecurity, quantum, infrastructure, and computing trends.
-      Returns the scraped top-ranked item. Use serpapi_search_tool for
-      sources outside this feed set or when broad web coverage is
-      needed.
+      Returns the scraped top-ranked item. Use perplexity_search_tool
+      for sources outside this feed set or when
+      broad web coverage is needed.
     feeds:
       nvidia_blog: https://feeds.feedburner.com/nvidiablog
       nvidia_developer: https://developer.nvidia.com/blog/feed
@@ -592,6 +591,24 @@ functions:
       Returns: ranked URLs with snippets. Fails when: SERPAPI_KEY
       missing or rate-limited.
     verbose: true
+  perplexity_search_tool:
+    _type: perplexity_search
+    description: >-
+      Perplexity Search API web search for ranked URLs with snippets,
+      publication dates, and last-updated metadata. Trigger: "search",
+      "look up", "latest", "current", broad source discovery, and
+      citation candidate gathering when curated feeds or known URLs are
+      insufficient. If the user provides an actual URL, use the
+      webscrape_tool. Args: query, optional country (two-letter ISO
+      code), optional max_results (1-20), optional search_context_size
+      (low, medium, high), optional search_recency_filter (hour, day,
+      week, month, year), optional search_domain_filter
+      (comma-separated domains), optional search_language_filter
+      (comma-separated two-letter language codes), and optional date
+      filters in MM/DD/YYYY format. Returns: ranked URLs with snippets
+      and freshness metadata. Fails when PERPLEXITY_SEARCH_API_KEY is
+      missing or rate-limited.
+    verbose: true
   webscrape_tool:
     _type: webscrape
     allowed_schemes:
@@ -601,10 +618,11 @@ functions:
     description: >-
       Fetch ONE known URL and convert to markdown. Uses headless
       browser fallback for JS or bot-protected sites. Trigger: you
-      already have the URL (from serpapi, an RSS entry, or the
-      user). Args: url (http/https only). Returns: markdown up to
-      n tokens. Fails when: URL unknown (use serpapi_search_tool
-      first), non-http scheme, or 60s timeout.
+      already have the URL (from Perplexity Search, SerpAPI, an RSS
+      entry, or the user). Args: url (http/https only). Returns:
+      markdown up to n tokens. Fails when: URL unknown (use
+      perplexity_search_tool first), non-http
+      scheme, or 60s timeout.
     max_output_tokens: 20000
     respect_robots_txt: false
     timeout: 60
@@ -653,11 +671,19 @@ functions:
           - curated_feed_search_tool
         default_enabled: true
         requires_auth: false
-      - id: google_search
-        name: Internet Search (SerpAPI)
-        description: SerpAPI results, news cards, images, shopping, and URL discovery.
+      # - id: google_search
+      #   name: Internet Search (SerpAPI)
+      #   description: SerpAPI results, news cards, images, shopping, and URL discovery.
+      #   tools:
+      #     - serpapi_search_tool
+      #   default_enabled: true
+      #   requires_auth: false
+      - id: perplexity_search
+        name: Internet Search (Perplexity)
+        description: Perplexity Search API ranked web results with snippets,
+          publication dates, and freshness metadata.
         tools:
-          - serpapi_search_tool
+          - perplexity_search_tool
         default_enabled: true
         requires_auth: false
       - id: known_url_scrape
@@ -738,7 +764,7 @@ general:
     max_running_async_jobs: 8
     dask_workers: processes
     dask_threads_per_worker: 1
-    dask_worker_memory_limit: "6GiB"
+    dask_worker_memory_limit: '6GiB'
     dask_log_level: WARNING
     step_adaptor:
       mode: custom
@@ -775,8 +801,6 @@ llms:
     base_url: ${TOOL_CALLING_LLM_MODEL_BASE_URL}
     model_name: ${TOOL_CALLING_LLM_MODEL_MODEL}
     extra_body:
-      chat_template_kwargs:
-        preserve_thinking: false
       nvext:
         agent_hints:
           priority: 9
@@ -793,12 +817,12 @@ llms:
     extra_body:
       nvext:
         agent_hints:
-          priority: 8
-          osl: 1024
+          priority: 9
+          osl: 2048
           speculative_prefill: true
         cache_control:
           type: ephemeral
-          ttl: 120m
+          ttl: 24h
 memory:
   redis_memory:
     _type: nat.plugins.redis/redis_memory
@@ -931,7 +955,7 @@ workflow:
     - research_plan_approval_tool
     - domain_retriever_tool
     - curated_feed_search_tool
-    - serpapi_search_tool
+    - perplexity_search_tool
     - x_mcp_server
     - webscrape_tool
     - content_distiller_tool

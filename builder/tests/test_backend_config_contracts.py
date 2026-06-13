@@ -51,6 +51,13 @@ FRONTEND_DEPLOYMENT_TEMPLATE = (
     / "templates"
     / "frontend-deployment.yaml"
 )
+AUTONOMOUS_AGENT_DEPLOYMENT_TEMPLATE = (
+    Path(__file__).resolve().parents[2]
+    / "helm"
+    / "daedalus"
+    / "templates"
+    / "autonomous-agent-worker.yaml"
+)
 HELM_VALUES = Path(__file__).resolve().parents[2] / "helm" / "daedalus" / "values.yaml"
 CUSTOM_VALUES = Path(__file__).resolve().parents[2] / "custom-values.yaml"
 DEPLOYED_CONFIGS = (CONFIG,)
@@ -309,16 +316,18 @@ def test_openai_llms_use_tool_calling_compatible_parameters():
             assert "temperature" not in llm, (path, llm_name)
             assert "top_p" not in llm, (path, llm_name)
             assert "extra_args" not in llm, (path, llm_name)
-            assert llm["extra_body"]["nvext"]["agent_hints"]["priority"] == params[
-                "priority"
-            ], (path, llm_name)
+            assert (
+                llm["extra_body"]["nvext"]["agent_hints"]["priority"]
+                == params["priority"]
+            ), (path, llm_name)
             assert llm["extra_body"]["nvext"]["agent_hints"]["osl"] == params["osl"], (
                 path,
                 llm_name,
             )
-            assert (
-                llm["extra_body"]["nvext"]["cache_control"]["ttl"] == "120m"
-            ), (path, llm_name)
+            assert llm["extra_body"]["nvext"]["cache_control"]["ttl"] == "120m", (
+                path,
+                llm_name,
+            )
 
 
 def test_backend_config_omits_unsupported_sampling_parameters():
@@ -353,6 +362,7 @@ def test_responses_api_workflow_exposes_required_leaf_tools():
         "ops_confirmation_tool",
         "domain_retriever_tool",
         "curated_feed_search_tool",
+        "perplexity_search_tool",
         "serpapi_search_tool",
         "webscrape_tool",
         "content_distiller_tool",
@@ -507,11 +517,21 @@ def test_cilium_backend_policy_exposes_extra_namespace_access():
     assert "io.kubernetes.pod.namespace: {{ .name | quote }}" in template
 
 
-def test_internal_api_token_is_injected_into_frontend_and_backend():
-    for path in (BACKEND_DEPLOYMENT_TEMPLATE, FRONTEND_DEPLOYMENT_TEMPLATE):
+def test_internal_api_token_is_injected_into_frontend_backend_and_autonomy():
+    for path in (
+        BACKEND_DEPLOYMENT_TEMPLATE,
+        FRONTEND_DEPLOYMENT_TEMPLATE,
+        AUTONOMOUS_AGENT_DEPLOYMENT_TEMPLATE,
+    ):
         template = path.read_text(encoding="utf-8")
         assert "DAEDALUS_INTERNAL_API_TOKEN" in template, path
         assert '-internal-api" (include "daedalus.fullname" .)' in template, path
+
+
+def test_autonomous_worker_env_overrides_cannot_shadow_internal_token():
+    template = AUTONOMOUS_AGENT_DEPLOYMENT_TEMPLATE.read_text(encoding="utf-8")
+
+    assert 'ne $key "DAEDALUS_INTERNAL_API_TOKEN"' in template
 
 
 def test_backend_security_context_defaults_to_non_root():
@@ -549,7 +569,13 @@ def test_serpapi_documented_aliases_are_configured():
     assert "search_type (organic, news, images, shopping)" in desc
 
 
-def test_workflow_uses_serpapi_as_only_internet_search_provider():
+def test_perplexity_search_documented_filters_are_configured():
+    desc = _config()["functions"]["perplexity_search_tool"]["description"]
+    assert "PERPLEXITY_SEARCH_API_KEY" in desc
+    assert "search_recency_filter (hour, day, week, month, year)" in desc
+
+
+def test_workflow_uses_configured_internet_search_providers():
     for path in DEPLOYED_CONFIGS:
         config = _config(path)
         functions = config["functions"]
@@ -557,7 +583,14 @@ def test_workflow_uses_serpapi_as_only_internet_search_provider():
 
         assert "exa_internet_search_tool" not in functions, path
         assert "exa_internet_search_tool" not in workflow_tools, path
+        assert "perplexity_search_tool" in workflow_tools, path
         assert "serpapi_search_tool" in workflow_tools, path
+        assert workflow_tools.index("curated_feed_search_tool") < workflow_tools.index(
+            "perplexity_search_tool"
+        ), path
+        assert workflow_tools.index("perplexity_search_tool") < workflow_tools.index(
+            "serpapi_search_tool"
+        ), path
         assert workflow_tools.index("curated_feed_search_tool") < workflow_tools.index(
             "serpapi_search_tool"
         ), path
@@ -569,6 +602,15 @@ def test_workflow_uses_serpapi_as_only_internet_search_provider():
             "exa_internet_search_tool" not in source.get("tools", [])
             for source in source_registry
         ), path
+        internet_sources = {
+            source["id"]: source["tools"]
+            for source in source_registry
+            if source["id"] in {"perplexity_search", "google_search"}
+        }
+        assert internet_sources == {
+            "perplexity_search": ["perplexity_search_tool"],
+            "google_search": ["serpapi_search_tool"],
+        }, path
 
         prompt = config["workflow"]["system_prompt"]
         assert "exa_internet_search_tool" not in prompt, path
@@ -614,7 +656,9 @@ def test_direct_leaf_routing_is_configured():
         prompt = _config(path)["workflow"]["system_prompt"]
         normalized_prompt = " ".join(prompt.split())
         assert "Routing after memory" in prompt, path
-        assert "Route directly to the relevant leaf capability" in normalized_prompt, path
+        assert (
+            "Route directly to the relevant leaf capability" in normalized_prompt
+        ), path
         assert "broad multi-source synthesis or exploration" in normalized_prompt, path
         assert "Do not invoke nested architecture routers" in normalized_prompt, path
 
@@ -644,7 +688,9 @@ def test_daily_briefing_routes_to_structured_response_without_visual_media():
         assert "normal assistant Markdown" in normalized_prompt, path
         assert "Markdown is allowed" in prompt, path
         assert "Do not require raw HTML" in prompt, path
-        assert "Do not generate, edit, or analyze visual media" in normalized_prompt, path
+        assert (
+            "Do not generate, edit, or analyze visual media" in normalized_prompt
+        ), path
         assert (
             "daily briefings unless the user explicitly asks" in normalized_prompt
         ), path
@@ -672,6 +718,7 @@ def test_daily_summary_contracts_structured_briefing():
         assert "calendar_mcp_server" in tools, path
         assert "k8s_mcp_server" in tools, path
         assert "curated_feed_search_tool" in tools, path
+        assert "perplexity_search_tool" in tools, path
         assert "serpapi_search_tool" in tools, path
 
         assert "call current date/time" in prompt, path
@@ -756,7 +803,9 @@ def test_pr_monitor_skill_is_available_for_pr_routing():
     text = skill_path.read_text(encoding="utf-8")
     assert "name: pr-monitor" in text
     assert "read-only GitHub pull request status summaries" in text
-    assert "Do not create, merge, close, label, approve, comment on, or edit PRs" in text
+    assert (
+        "Do not create, merge, close, label, approve, comment on, or edit PRs" in text
+    )
 
 
 def test_nat_coding_agent_skills_are_available_and_routed():

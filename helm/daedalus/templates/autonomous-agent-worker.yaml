@@ -63,6 +63,11 @@ spec:
               value: {{ printf "http://%s-backend-default:%v" (include "daedalus.fullname" .) (.Values.backend.default.port | default 8000) }}
             - name: BACKEND_API_PATH
               value: {{ .Values.autonomousAgent.backendApiPath | default "/v1/workflow/async" | quote }}
+            - name: DAEDALUS_INTERNAL_API_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ printf "%s-internal-api" (include "daedalus.fullname" .) }}
+                  key: DAEDALUS_INTERNAL_API_TOKEN
             - name: REDIS_URL
               value: {{ printf "redis://%s-redis:%v" (include "daedalus.fullname" .) (.Values.redis.service.port | default 6379) | quote }}
             - name: AUTONOMOUS_USER_ID
@@ -76,8 +81,10 @@ spec:
             - name: AUTONOMY_INTERVAL_SECONDS
               value: {{ .Values.autonomousAgent.worker.intervalSeconds | default 14400 | quote }}
             {{- range $key, $val := .Values.autonomousAgent.env.overrides }}
+            {{- if ne $key "DAEDALUS_INTERNAL_API_TOKEN" }}
             - name: {{ $key }}
               value: {{ $val | quote }}
+            {{- end }}
             {{- end }}
           resources:
             {{- toYaml .Values.autonomousAgent.resources | nindent 12 }}

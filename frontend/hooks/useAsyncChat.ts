@@ -261,15 +261,6 @@ export const useAsyncChat = (
         }));
       }
 
-      // Progress callback
-      if (
-        onProgress &&
-        status.status !== 'completed' &&
-        status.status !== 'error'
-      ) {
-        onProgress(status);
-      }
-
       const completionGraceMs = 8000;
       const updatedAt = status.updatedAt || status.createdAt || Date.now();
       const shouldFinalizeFallback =
@@ -277,6 +268,22 @@ export const useAsyncChat = (
         !status.finalizedAt &&
         Boolean(status.fullResponse) &&
         Date.now() - updatedAt > completionGraceMs;
+      const isUiTerminalStatus =
+        status.status === 'error' ||
+        (status.status === 'completed' &&
+          (Boolean(status.finalizedAt) || shouldFinalizeFallback));
+
+      // Progress callback, including UI-terminal states so cleanup safety nets
+      // run even when completion/error handlers do not render content.
+      if (
+        onProgress &&
+        (status.status === 'pending' ||
+          status.status === 'streaming' ||
+          status.status === 'oauth_required' ||
+          isUiTerminalStatus)
+      ) {
+        onProgress(status);
+      }
 
       if (
         (status.status === 'completed' && status.finalizedAt) ||
@@ -554,16 +561,6 @@ export const useAsyncChat = (
           }
         }
 
-        // Call progress callback
-        if (
-          onProgress &&
-          isStatusChanged &&
-          status.status !== 'completed' &&
-          status.status !== 'error'
-        ) {
-          onProgress(status);
-        }
-
         // Reset backoff when actively receiving data:
         // 1. Status changes to streaming (active work)
         // 2. Partial response is growing (receiving chunks)
@@ -589,6 +586,24 @@ export const useAsyncChat = (
           !status.finalizedAt &&
           Boolean(status.fullResponse) &&
           Date.now() - updatedAt > completionGraceMs;
+        const isUiTerminalStatus =
+          status.status === 'error' ||
+          (status.status === 'completed' &&
+            (Boolean(status.finalizedAt) || shouldFinalizeFallback));
+
+        // Call progress callback, including UI-terminal states so cleanup
+        // safety nets run even when completion/error handlers do not render
+        // content.
+        if (
+          onProgress &&
+          isStatusChanged &&
+          (status.status === 'pending' ||
+            status.status === 'streaming' ||
+            status.status === 'oauth_required' ||
+            isUiTerminalStatus)
+        ) {
+          onProgress(status);
+        }
 
         // Check if job is complete AND finalized
         if (

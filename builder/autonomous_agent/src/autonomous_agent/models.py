@@ -100,11 +100,12 @@ def new_feed_item(
     bluf: str,
     body: str,
     source_url: str = "",
+    thread_key: str = "",
     confidence: str = "medium",
     confidence_reason: str = "",
 ) -> dict[str, Any]:
     timestamp = now_ms()
-    return {
+    item = {
         "id": new_id("feed"),
         "runId": run_id,
         "lane": lane,
@@ -116,6 +117,9 @@ def new_feed_item(
         "confidenceReason": confidence_reason,
         "createdAt": timestamp,
     }
+    if thread_key:
+        item["threadKey"] = thread_key
+    return item
 
 
 def new_approval(

@@ -201,10 +201,14 @@ async def user_interaction_function(config: UserInteractionConfig, builder: Buil
             verb in normalized_action
             for verb in ("add", "store", "remember", "save", "persist")
         )
-        if normalized_action_type in {
-            "memory_update",
-            "add_memory",
-        } or looks_like_memory_write:
+        if (
+            normalized_action_type
+            in {
+                "memory_update",
+                "add_memory",
+            }
+            or looks_like_memory_write
+        ):
             return (
                 "No confirmation is required for an explicit user-requested "
                 "memory write. Call add_memory directly now, without a user_id "

@@ -8,13 +8,13 @@ This guidance is grounded in the Agent Evaluation Framework ([agent-eval-framewo
 
 Every agent exhibits behavior across five dimensions. Your evaluator suite should cover as many as are relevant:
 
-| Dimension | What Can Go Wrong | How to Evaluate |
-| --------- | ----------------- | --------------- |
-| **Reasoning** | Logical errors in chain-of-thought, incorrect conclusions | RAGAS AnswerAccuracy, custom LLM-as-judge |
-| **Planning** | Inefficient action sequences, loops, abandoned paths | Trajectory evaluation, step count analysis, profiler |
-| **Tool Use** | Wrong tools, incorrect parameters, misinterpreted results | Trajectory evaluation, custom tool selection checks |
-| **Memory** | Context overflow, irrelevant retrieval, forgetting details | RAGAS ContextRelevance, ResponseGroundedness |
-| **Adaptation** | Overfitting to history, inconsistent persona | Consistency across runs, error recovery evaluation |
+| Dimension      | What Can Go Wrong                                          | How to Evaluate                                      |
+| -------------- | ---------------------------------------------------------- | ---------------------------------------------------- |
+| **Reasoning**  | Logical errors in chain-of-thought, incorrect conclusions  | RAGAS AnswerAccuracy, custom LLM-as-judge            |
+| **Planning**   | Inefficient action sequences, loops, abandoned paths       | Trajectory evaluation, step count analysis, profiler |
+| **Tool Use**   | Wrong tools, incorrect parameters, misinterpreted results  | Trajectory evaluation, custom tool selection checks  |
+| **Memory**     | Context overflow, irrelevant retrieval, forgetting details | RAGAS ContextRelevance, ResponseGroundedness         |
+| **Adaptation** | Overfitting to history, inconsistent persona               | Consistency across runs, error recovery evaluation   |
 
 ## The Evaluation Mental Model
 
@@ -61,13 +61,13 @@ Summarize your understanding in a brief context table. Only ask for what you can
 
 ### Agent Type Adaptations
 
-| Agent Type | NeMo Agent Toolkit Config | Key Adaptations |
-| ---------- | ---------- | --------------- |
-| **RAG chatbot** | `react_agent` with `webpage_query` | Weight RAGAS AnswerAccuracy + ResponseGroundedness. Add ContextRelevance. Focus dataset on retrieval-heavy cases. |
-| **Multi-agent workflow** | `router` or `sequential` | Trajectory evaluation critical for delegation. Add routing accuracy evaluator. |
-| **Agent-to-Agent (A2A)** | `nat a2a serve` | Dataset should include cross-agent coordination tasks. Trajectory captures delegation decisions. |
-| **Conversational / multi-turn** | `react_agent` with memory | Context retention across turns, goal completion rate. |
-| **Safety-critical** | Any workflow type | Safety threshold = 1.0. 30%+ adversarial examples. Multiple safety evaluator layers. |
+| Agent Type                      | NeMo Agent Toolkit Config          | Key Adaptations                                                                                                   |
+| ------------------------------- | ---------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| **RAG chatbot**                 | `react_agent` with `webpage_query` | Weight RAGAS AnswerAccuracy + ResponseGroundedness. Add ContextRelevance. Focus dataset on retrieval-heavy cases. |
+| **Multi-agent workflow**        | `router` or `sequential`           | Trajectory evaluation critical for delegation. Add routing accuracy evaluator.                                    |
+| **Agent-to-Agent (A2A)**        | `nat a2a serve`                    | Dataset should include cross-agent coordination tasks. Trajectory captures delegation decisions.                  |
+| **Conversational / multi-turn** | `react_agent` with memory          | Context retention across turns, goal completion rate.                                                             |
+| **Safety-critical**             | Any workflow type                  | Safety threshold = 1.0. 30%+ adversarial examples. Multiple safety evaluator layers.                              |
 
 ## Step 1: Define Success Criteria & Quality Dimensions
 
@@ -77,51 +77,51 @@ Identify 3-5 quality dimensions and set numeric thresholds. Infer reasonable def
 
 **Response Quality:**
 
-| Dimension | Description | NeMo Agent Toolkit Evaluator |
-| --------- | ----------- | ------------- |
-| Correctness | Factually accurate outputs matching ground truth | `ragas` / `AnswerAccuracy` |
-| Groundedness | Response grounded in retrieved context, no hallucination | `ragas` / `ResponseGroundedness` |
-| Context Relevance | Retrieved context is relevant to the question | `ragas` / `ContextRelevance` |
-| Completeness | Addresses all parts of the question | Custom LLM-as-judge evaluator |
-| Coherence | Logically structured, clear communication | Custom LLM-as-judge evaluator |
+| Dimension         | Description                                              | NeMo Agent Toolkit Evaluator     |
+| ----------------- | -------------------------------------------------------- | -------------------------------- |
+| Correctness       | Factually accurate outputs matching ground truth         | `ragas` / `AnswerAccuracy`       |
+| Groundedness      | Response grounded in retrieved context, no hallucination | `ragas` / `ResponseGroundedness` |
+| Context Relevance | Retrieved context is relevant to the question            | `ragas` / `ContextRelevance`     |
+| Completeness      | Addresses all parts of the question                      | Custom LLM-as-judge evaluator    |
+| Coherence         | Logically structured, clear communication                | Custom LLM-as-judge evaluator    |
 
 **Agent Behavior:**
 
-| Dimension | Description | NeMo Agent Toolkit Evaluator |
-| --------- | ----------- | ------------- |
-| Trajectory Quality | Correct tools in correct order, no wasted steps | `trajectory` evaluator |
-| Tool Accuracy | Selects and uses tools correctly | Custom rule-based evaluator |
-| Delegation Accuracy | Routes to correct sub-agent (multi-agent) | Custom rule-based evaluator |
-| Error Recovery | Handles failures and retries gracefully | Trajectory on error scenarios |
+| Dimension           | Description                                     | NeMo Agent Toolkit Evaluator  |
+| ------------------- | ----------------------------------------------- | ----------------------------- |
+| Trajectory Quality  | Correct tools in correct order, no wasted steps | `trajectory` evaluator        |
+| Tool Accuracy       | Selects and uses tools correctly                | Custom rule-based evaluator   |
+| Delegation Accuracy | Routes to correct sub-agent (multi-agent)       | Custom rule-based evaluator   |
+| Error Recovery      | Handles failures and retries gracefully         | Trajectory on error scenarios |
 
 **Safety & Compliance:**
 
-| Dimension | Description | NeMo Agent Toolkit Evaluator |
-| --------- | ----------- | ------------- |
-| Safety | No harmful, inappropriate, or leaked outputs | Custom `SafetyEvaluator` (rule-based) |
-| PII Protection | No exposure of personal information | Custom rule-based evaluator |
-| Prompt Injection Resistance | Refuses manipulation attempts | Custom rule-based + adversarial dataset |
-| Scope Adherence | Stays within designated capabilities | Custom rule-based evaluator |
-| Red-Team Robustness | Attack scenarios fail to induce unsafe tool use, leakage, or policy bypass | `red_teaming_evaluator` + red-team runner/middleware |
+| Dimension                   | Description                                                                | NeMo Agent Toolkit Evaluator                         |
+| --------------------------- | -------------------------------------------------------------------------- | ---------------------------------------------------- |
+| Safety                      | No harmful, inappropriate, or leaked outputs                               | Custom `SafetyEvaluator` (rule-based)                |
+| PII Protection              | No exposure of personal information                                        | Custom rule-based evaluator                          |
+| Prompt Injection Resistance | Refuses manipulation attempts                                              | Custom rule-based + adversarial dataset              |
+| Scope Adherence             | Stays within designated capabilities                                       | Custom rule-based evaluator                          |
+| Red-Team Robustness         | Attack scenarios fail to induce unsafe tool use, leakage, or policy bypass | `red_teaming_evaluator` + red-team runner/middleware |
 
 **Operational (via NeMo Agent Toolkit Profiler):**
 
-| Dimension | Description | NeMo Agent Toolkit Feature |
-| --------- | ----------- | ----------- |
-| Latency | Response time within SLA | `profiler.workflow_runtime_forecast` |
-| Token Efficiency | Reasonable token usage per task | `profiler.compute_llm_metrics` |
-| Token Uniqueness | Cache-friendliness of requests | `profiler.token_uniqueness_forecast` |
-| Consistency | Stable results across similar inputs | Variance across k runs (variance@k) |
+| Dimension        | Description                          | NeMo Agent Toolkit Feature           |
+| ---------------- | ------------------------------------ | ------------------------------------ |
+| Latency          | Response time within SLA             | `profiler.workflow_runtime_forecast` |
+| Token Efficiency | Reasonable token usage per task      | `profiler.compute_llm_metrics`       |
+| Token Uniqueness | Cache-friendliness of requests       | `profiler.token_uniqueness_forecast` |
+| Consistency      | Stable results across similar inputs | Variance across k runs (variance@k)  |
 
 ### Threshold Levels
 
 For each chosen dimension, set three tiers:
 
-| Level | Purpose | Example |
-| ----- | ------- | ------- |
+| Level       | Purpose                   | Example               |
+| ----------- | ------------------------- | --------------------- |
 | **Minimum** | Below this = don't deploy | AnswerAccuracy > 0.85 |
-| **Target** | Production readiness goal | AnswerAccuracy > 0.93 |
-| **Stretch** | Aspirational | AnswerAccuracy > 0.97 |
+| **Target**  | Production readiness goal | AnswerAccuracy > 0.93 |
+| **Stretch** | Aspirational              | AnswerAccuracy > 0.97 |
 
 Infer sensible defaults: safety should always be near 1.0, correctness typically 0.85+ minimum, efficiency metrics depend on the use case.
 
@@ -129,11 +129,11 @@ Infer sensible defaults: safety should always be near 1.0, correctness typically
 
 Assess what ground truth data exists — this shapes which evaluators you can use:
 
-| Availability | Description | Evaluator Impact |
-| ------------ | ----------- | ---------------- |
-| **Full Reference** | Correct answers for all test cases | Use reference-based: `ragas` / `AnswerAccuracy`, trajectory matching |
-| **Partial Reference** | Reference outputs for some scenarios | Reference-based where available; fall back to reference-free for the rest |
-| **No Reference** | No ground truth (e.g., production traffic) | Reference-free only: `ResponseGroundedness`, `ContextRelevance`, `trajectory` (LLM judge), custom safety |
+| Availability          | Description                                | Evaluator Impact                                                                                         |
+| --------------------- | ------------------------------------------ | -------------------------------------------------------------------------------------------------------- |
+| **Full Reference**    | Correct answers for all test cases         | Use reference-based: `ragas` / `AnswerAccuracy`, trajectory matching                                     |
+| **Partial Reference** | Reference outputs for some scenarios       | Reference-based where available; fall back to reference-free for the rest                                |
+| **No Reference**      | No ground truth (e.g., production traffic) | Reference-free only: `ResponseGroundedness`, `ContextRelevance`, `trajectory` (LLM judge), custom safety |
 
 > This assessment directly shapes your evaluator suite. Offline evaluation (Step 7) uses reference-based metrics; online uses reference-free only. Planning this upfront avoids rework when you split configs later.
 
@@ -149,26 +149,26 @@ Document failure modes by severity based on what the agent does:
 
 Create a dataset for NeMo Agent Toolkit evaluation. Start small (10-20 examples), cover all relevant categories:
 
-| Category | Purpose | When to Include |
-| -------- | ------- | --------------- |
-| **Happy Path** | Standard successful interactions | Always |
-| **Edge Cases** | Boundary conditions, unusual inputs | Always |
-| **Adversarial** | Prompt injection, data extraction attempts | Always (especially safety-critical) |
-| **Ambiguous** | Multiple valid interpretations | When agent handles open-ended queries |
-| **Multi-Tool** | Queries requiring 2+ tools | When agent has multiple tools |
-| **Error Recovery** | Agent handles failures gracefully | When tools can fail |
-| **Multi-Turn** | Context-dependent follow-ups | When agent handles conversations |
-| **Out-of-Scope** | Queries outside agent's capabilities | When scope boundaries matter |
+| Category           | Purpose                                    | When to Include                       |
+| ------------------ | ------------------------------------------ | ------------------------------------- |
+| **Happy Path**     | Standard successful interactions           | Always                                |
+| **Edge Cases**     | Boundary conditions, unusual inputs        | Always                                |
+| **Adversarial**    | Prompt injection, data extraction attempts | Always (especially safety-critical)   |
+| **Ambiguous**      | Multiple valid interpretations             | When agent handles open-ended queries |
+| **Multi-Tool**     | Queries requiring 2+ tools                 | When agent has multiple tools         |
+| **Error Recovery** | Agent handles failures gracefully          | When tools can fail                   |
+| **Multi-Turn**     | Context-dependent follow-ups               | When agent handles conversations      |
+| **Out-of-Scope**   | Queries outside agent's capabilities       | When scope boundaries matter          |
 
 ### Dataset Schema
 
 NeMo Agent Toolkit uses the field names `question` and `answer` — but these are generic input/output fields, not limited to Q&A chatbots. Map them to whatever your agent does:
 
-| NeMo Agent Toolkit Field | What It Represents | Examples Across Agent Types |
-| --------- | ------------------ | --------------------------- |
-| **question** | The agent's input — any task, query, or instruction | A user question, a code review request, a data extraction task, a planning prompt |
-| **answer** | The expected reference output (optional but recommended) | A correct answer, expected code output, extracted schema, generated plan |
-| **metadata** | Tags for segmented analysis | `category`, `difficulty`, `expected_tools`, `scenario` |
+| NeMo Agent Toolkit Field | What It Represents                                       | Examples Across Agent Types                                                       |
+| ------------------------ | -------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| **question**             | The agent's input — any task, query, or instruction      | A user question, a code review request, a data extraction task, a planning prompt |
+| **answer**               | The expected reference output (optional but recommended) | A correct answer, expected code output, extracted schema, generated plan          |
+| **metadata**             | Tags for segmented analysis                              | `category`, `difficulty`, `expected_tools`, `scenario`                            |
 
 Think of `question` as **input** and `answer` as **expected output** — they work for any agent type.
 
@@ -220,32 +220,32 @@ Map quality dimensions to concrete NeMo Agent Toolkit evaluators using the Test 
 
 ### NeMo Agent Toolkit Built-In Evaluator Types
 
-| NeMo Agent Toolkit `_type` | Metric / Mode | What It Measures | Requires Reference? |
-| ----------- | ------------- | ---------------- | ------------------- |
-| `ragas` | `AnswerAccuracy` | Semantic accuracy vs. reference answer | Yes |
-| `ragas` | `ResponseGroundedness` | Response supported by retrieved context | No |
-| `ragas` | `ContextRelevance` | Retrieved context relevant to question | No |
-| `trajectory` | *(overall)* | Quality of full tool-call sequence | Uses LLM judge |
-| `tunable_rag_evaluator` | *(custom dimensions)* | Customizable LLM-as-judge with adjustable scoring weights and optional custom judge prompt | No |
-| `langsmith_judge` | *(prompt name or template)* | LLM-as-judge via openevals prebuilt or custom prompt | Optional |
-| `langsmith` | *(openevals short name)* | Built-in openevals metric (e.g. `exact_match`, `levenshtein_distance`) | Depends on metric |
-| `langsmith_custom` | *(dotted path)* | Any LangSmith-compatible evaluator function | Depends on fn |
-| profiler runtime evaluators | latency / tokens / LLM calls | Runtime metrics as evaluator scores | No |
-| `red_teaming_evaluator` | filtered trajectory judge | Red-team scenario success/failure | Uses expected behavior |
-| Custom | User-defined via `BaseEvaluator` | Any domain-specific metric | User-defined |
+| NeMo Agent Toolkit `_type`  | Metric / Mode                    | What It Measures                                                                           | Requires Reference?    |
+| --------------------------- | -------------------------------- | ------------------------------------------------------------------------------------------ | ---------------------- |
+| `ragas`                     | `AnswerAccuracy`                 | Semantic accuracy vs. reference answer                                                     | Yes                    |
+| `ragas`                     | `ResponseGroundedness`           | Response supported by retrieved context                                                    | No                     |
+| `ragas`                     | `ContextRelevance`               | Retrieved context relevant to question                                                     | No                     |
+| `trajectory`                | _(overall)_                      | Quality of full tool-call sequence                                                         | Uses LLM judge         |
+| `tunable_rag_evaluator`     | _(custom dimensions)_            | Customizable LLM-as-judge with adjustable scoring weights and optional custom judge prompt | No                     |
+| `langsmith_judge`           | _(prompt name or template)_      | LLM-as-judge via openevals prebuilt or custom prompt                                       | Optional               |
+| `langsmith`                 | _(openevals short name)_         | Built-in openevals metric (e.g. `exact_match`, `levenshtein_distance`)                     | Depends on metric      |
+| `langsmith_custom`          | _(dotted path)_                  | Any LangSmith-compatible evaluator function                                                | Depends on fn          |
+| profiler runtime evaluators | latency / tokens / LLM calls     | Runtime metrics as evaluator scores                                                        | No                     |
+| `red_teaming_evaluator`     | filtered trajectory judge        | Red-team scenario success/failure                                                          | Uses expected behavior |
+| Custom                      | User-defined via `BaseEvaluator` | Any domain-specific metric                                                                 | User-defined           |
 
 **Additional RAGAS Metrics (available via `_type: ragas`):**
 
 Beyond the three core metrics above, RAGAS exposes additional metrics — change the `metric` field in `eval_config.yml`:
 
-| RAGAS Metric | What It Measures | Requires Reference? | When to Use |
-| ------------ | ---------------- | ------------------- | ----------- |
-| `FactualCorrectness` | Factual accuracy (accepts `mode` kwarg) | Yes | More granular than AnswerAccuracy — supports different strictness modes |
-| `Faithfulness` | Claims inferable from given context | No | Stricter hallucination check than ResponseGroundedness |
-| `AnswerRelevancy` | Whether the answer addresses the question | No | Detecting off-topic or evasive responses |
-| `ContextPrecision` | Proportion of retrieved context that is relevant | Yes | Optimizing retrieval precision |
-| `ContextRecall` | Whether all relevant info was retrieved | Yes | Ensuring retrieval completeness |
-| `NoiseSensitivity` | Robustness to irrelevant context | Yes | RAG agents with noisy retrieval |
+| RAGAS Metric         | What It Measures                                 | Requires Reference? | When to Use                                                             |
+| -------------------- | ------------------------------------------------ | ------------------- | ----------------------------------------------------------------------- |
+| `FactualCorrectness` | Factual accuracy (accepts `mode` kwarg)          | Yes                 | More granular than AnswerAccuracy — supports different strictness modes |
+| `Faithfulness`       | Claims inferable from given context              | No                  | Stricter hallucination check than ResponseGroundedness                  |
+| `AnswerRelevancy`    | Whether the answer addresses the question        | No                  | Detecting off-topic or evasive responses                                |
+| `ContextPrecision`   | Proportion of retrieved context that is relevant | Yes                 | Optimizing retrieval precision                                          |
+| `ContextRecall`      | Whether all relevant info was retrieved          | Yes                 | Ensuring retrieval completeness                                         |
+| `NoiseSensitivity`   | Robustness to irrelevant context                 | Yes                 | RAG agents with noisy retrieval                                         |
 
 > Available metrics depend on your `ragas` package version. Check [RAGAS docs](https://docs.ragas.io/) for the full list.
 
@@ -268,16 +268,16 @@ For ATIF support, trajectory/reference requirements, and downstream suitability 
 
 ### Evaluation Strategy Matrix
 
-| What You Want to Measure | Evaluation Approach | NeMo Agent Toolkit Evaluator(s) | Pyramid Level |
-| ------------------------ | ------------------- | ---------------- | ------------- |
-| Does the agent solve the task? | Final Response | `ragas` / `AnswerAccuracy` | L4 |
-| Does the agent pick the right tools? | Single Step | Custom rule-based tool selection check | L2 |
-| Does the agent take an efficient path? | Trajectory | `trajectory` evaluator | L3 |
-| Does the agent reason correctly? | Trajectory + Single Step | `trajectory` + custom step-level evaluator | L3 |
-| Does the agent recover from errors? | Trajectory | `trajectory` on error-recovery examples | L3 |
-| Is the response grounded? | Final Response | `ragas` / `ResponseGroundedness` | L2 |
-| Is the response safe? | Final Response | Custom `SafetyEvaluator` | L1 |
-| Does the agent resist red-team attacks? | Trajectory + Scenario | `red_teaming_evaluator` with red-team runner/middleware | L4 |
+| What You Want to Measure                | Evaluation Approach      | NeMo Agent Toolkit Evaluator(s)                         | Pyramid Level |
+| --------------------------------------- | ------------------------ | ------------------------------------------------------- | ------------- |
+| Does the agent solve the task?          | Final Response           | `ragas` / `AnswerAccuracy`                              | L4            |
+| Does the agent pick the right tools?    | Single Step              | Custom rule-based tool selection check                  | L2            |
+| Does the agent take an efficient path?  | Trajectory               | `trajectory` evaluator                                  | L3            |
+| Does the agent reason correctly?        | Trajectory + Single Step | `trajectory` + custom step-level evaluator              | L3            |
+| Does the agent recover from errors?     | Trajectory               | `trajectory` on error-recovery examples                 | L3            |
+| Is the response grounded?               | Final Response           | `ragas` / `ResponseGroundedness`                        | L2            |
+| Is the response safe?                   | Final Response           | Custom `SafetyEvaluator`                                | L1            |
+| Does the agent resist red-team attacks? | Trajectory + Scenario    | `red_teaming_evaluator` with red-team runner/middleware | L4            |
 
 ### Critical Design Rule
 
@@ -290,7 +290,7 @@ If your evaluation judges multiple **independent** facets of the agent's output,
 Reasons to decompose:
 
 - The optimizer can search across facets simultaneously (`direction: maximize` per `eval_metrics` entry — see the Multi-Objective Optimization subsection under Optimization below) instead of being blind to trade-offs hidden inside a single scalar.
-- Per-facet scores reveal *which* facet improved or regressed when you compare two configs; a composite score absorbs facet-level damage and can look fine on the surface while one facet has degraded.
+- Per-facet scores reveal _which_ facet improved or regressed when you compare two configs; a composite score absorbs facet-level damage and can look fine on the surface while one facet has degraded.
 - When the agent's output format breaks (parse failure, missing fields), per-facet evaluators register zero across the board, making the failure visible. A composite that gives partial credit for any field present can hide format breakage and let the optimizer drift.
 
 Stop decomposing when facets are not actually independent (e.g. one is a strict function of the other) — extra evaluators add noise and judge cost without adding signal. As a rule of thumb: 2–4 evaluators when the task has multiple distinct quality dimensions; 1 when it has a single objective.
@@ -301,12 +301,12 @@ Generate the NeMo Agent Toolkit eval config and custom evaluator code. See [code
 
 ### NeMo Agent Toolkit Evaluation Architecture
 
-| Layer | Config Section | What It Contains |
-| ----- | -------------- | ---------------- |
-| **LLMs** | `llms` | LLM endpoints for evaluators (separate from agent's LLM) |
-| **Dataset** | `eval.general.dataset` | Path and format of golden dataset |
-| **Evaluators** | `eval.evaluators` | Named evaluators with `_type` and config; these names may also become optimizer objectives, reward signals, or red-team scores |
-| **Profiler** | `eval.general.profiler` | Performance profiling artifacts; profiler runtime evaluators can also produce evaluator scores |
+| Layer          | Config Section          | What It Contains                                                                                                               |
+| -------------- | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| **LLMs**       | `llms`                  | LLM endpoints for evaluators (separate from agent's LLM)                                                                       |
+| **Dataset**    | `eval.general.dataset`  | Path and format of golden dataset                                                                                              |
+| **Evaluators** | `eval.evaluators`       | Named evaluators with `_type` and config; these names may also become optimizer objectives, reward signals, or red-team scores |
+| **Profiler**   | `eval.general.profiler` | Performance profiling artifacts; profiler runtime evaluators can also produce evaluator scores                                 |
 
 ### Parallelism
 
@@ -335,11 +335,11 @@ Generate evaluators specific to the agent's domain. See [code-patterns.md](code-
 
 Custom evaluators have full Python capabilities inside `evaluate_item()` — you can call any external library. NeMo Agent Toolkit also supports automatic evaluator discovery from external packages via its plugin system:
 
-| Integration Method | How It Works | When to Use |
-| ------------------ | ------------ | ----------- |
-| **`register.py` imports** | Import and register evaluators in a local `register.py` | Project-specific evaluators alongside agent code |
-| **Entry points** | External packages register via `nat.plugins` entry point in `pyproject.toml` | Sharing evaluators across teams or projects |
-| **Inside `evaluate_item()`** | Call any external Python library (LangChain, LangSmith, HTTP APIs) | Wrapping existing evaluation infrastructure into NeMo Agent Toolkit |
+| Integration Method           | How It Works                                                                 | When to Use                                                         |
+| ---------------------------- | ---------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| **`register.py` imports**    | Import and register evaluators in a local `register.py`                      | Project-specific evaluators alongside agent code                    |
+| **Entry points**             | External packages register via `nat.plugins` entry point in `pyproject.toml` | Sharing evaluators across teams or projects                         |
+| **Inside `evaluate_item()`** | Call any external Python library (LangChain, LangSmith, HTTP APIs)           | Wrapping existing evaluation infrastructure into NeMo Agent Toolkit |
 
 ```python
 # External package entry point (pyproject.toml)
@@ -375,27 +375,27 @@ nat eval --config_file=configs/eval_config.yml --skip_workflow --dataset output/
 
 ### NeMo Agent Toolkit Output Artifacts
 
-| File | Contents |
-| ---- | -------- |
-| `workflow_output.json` | Per-sample: question, expected_answer, generated_answer, intermediate_steps |
-| `<evaluator>_output.json` | Per-entry scores + reasoning + average |
-| `config_original.yml` | Initial configuration file |
-| `config_effective.yml` | Final configuration with CLI overrides applied |
-| `config_metadata.json` | Execution metadata and arguments |
-| `standardized_data_all.csv` | Profiler: latency, token counts, error flags per request |
-| `workflow_profiling_metrics.json` | Aggregated profiler stats (means, percentiles) |
-| `workflow_profiling_report.txt` | Human-readable profiler summary |
-| `all_requests_profiler_traces.json` | Full per-request trace events |
-| `inference_optimization.json` | Inference optimization signals |
-| `gantt_chart.png` | Visual timeline of LLM/tool execution spans |
+| File                                | Contents                                                                    |
+| ----------------------------------- | --------------------------------------------------------------------------- |
+| `workflow_output.json`              | Per-sample: question, expected_answer, generated_answer, intermediate_steps |
+| `<evaluator>_output.json`           | Per-entry scores + reasoning + average                                      |
+| `config_original.yml`               | Initial configuration file                                                  |
+| `config_effective.yml`              | Final configuration with CLI overrides applied                              |
+| `config_metadata.json`              | Execution metadata and arguments                                            |
+| `standardized_data_all.csv`         | Profiler: latency, token counts, error flags per request                    |
+| `workflow_profiling_metrics.json`   | Aggregated profiler stats (means, percentiles)                              |
+| `workflow_profiling_report.txt`     | Human-readable profiler summary                                             |
+| `all_requests_profiler_traces.json` | Full per-request trace events                                               |
+| `inference_optimization.json`       | Inference optimization signals                                              |
+| `gantt_chart.png`                   | Visual timeline of LLM/tool execution spans                                 |
 
 ### Non-Determinism Handling
 
-| Metric | Formula | Use When |
-| ------ | ------- | -------- |
-| **pass@k** | Pass if any of k runs succeeds | Measuring capability ceiling |
-| **pass^k** | Pass if all of k runs succeed | Measuring production reliability |
-| **mean@k** | Average across k runs | General quality assessment |
+| Metric     | Formula                        | Use When                         |
+| ---------- | ------------------------------ | -------------------------------- |
+| **pass@k** | Pass if any of k runs succeeds | Measuring capability ceiling     |
+| **pass^k** | Pass if all of k runs succeed  | Measuring production reliability |
+| **mean@k** | Average across k runs          | General quality assessment       |
 
 ```bash
 for i in 1 2 3; do
@@ -440,12 +440,12 @@ Always include the maturity progression when discussing Steps 7-8.
 
 ### Maturity Progression
 
-| Stage | Dataset | Evaluators | Automation | What to Focus On |
-| ----- | ------- | ---------- | ---------- | ---------------- |
-| **Prototype** | 10-20 examples | 1-2 RAGAS metrics | Manual `nat eval` | Get accuracy + safety working. Iterate fast. |
-| **Alpha** | 50-100 examples | RAGAS + trajectory | PR-triggered | Add trajectory evaluators. Start CI/CD. |
-| **Beta** | 200-500 examples | + custom evaluators | CI/CD gated | Full pyramid + profiler. Quality gates block deploys. |
-| **Production** | 500+ examples | Full pyramid | Continuous + alerts | Online monitoring. Auto-add failures to dataset. |
+| Stage          | Dataset          | Evaluators          | Automation          | What to Focus On                                      |
+| -------------- | ---------------- | ------------------- | ------------------- | ----------------------------------------------------- |
+| **Prototype**  | 10-20 examples   | 1-2 RAGAS metrics   | Manual `nat eval`   | Get accuracy + safety working. Iterate fast.          |
+| **Alpha**      | 50-100 examples  | RAGAS + trajectory  | PR-triggered        | Add trajectory evaluators. Start CI/CD.               |
+| **Beta**       | 200-500 examples | + custom evaluators | CI/CD gated         | Full pyramid + profiler. Quality gates block deploys. |
+| **Production** | 500+ examples    | Full pyramid        | Continuous + alerts | Online monitoring. Auto-add failures to dataset.      |
 
 ### Scaling Checklist
 
@@ -460,13 +460,13 @@ Always include the maturity progression when discussing Steps 7-8.
 
 ## Common Evaluation Pitfalls
 
-| Pitfall | Better Approach |
-| ------- | --------------- |
-| Testing only happy paths | Include adversarial, edge cases, error recovery |
-| Same LLM evaluating itself | Use different model in `eval.llms` vs workflow `llms` |
-| Only RAGAS evaluators | Layer with trajectory + custom rule-based evaluators |
-| Ignoring the profiler | Enable `profiler` section — it catches latency/token issues for free |
-| Using AnswerAccuracy in production | Online = reference-free metrics only (ResponseGroundedness, ContextRelevance, trajectory) |
-| Skipping `nat validate` before eval | Config errors waste eval time — validate first |
-| Setting `max_concurrency` too low | Default to `8`; only decrease if you see 429 rate-limit errors |
-| Generic evaluators for specialized agents | Build domain-specific evaluators via `BaseEvaluator` |
+| Pitfall                                   | Better Approach                                                                           |
+| ----------------------------------------- | ----------------------------------------------------------------------------------------- |
+| Testing only happy paths                  | Include adversarial, edge cases, error recovery                                           |
+| Same LLM evaluating itself                | Use different model in `eval.llms` vs workflow `llms`                                     |
+| Only RAGAS evaluators                     | Layer with trajectory + custom rule-based evaluators                                      |
+| Ignoring the profiler                     | Enable `profiler` section — it catches latency/token issues for free                      |
+| Using AnswerAccuracy in production        | Online = reference-free metrics only (ResponseGroundedness, ContextRelevance, trajectory) |
+| Skipping `nat validate` before eval       | Config errors waste eval time — validate first                                            |
+| Setting `max_concurrency` too low         | Default to `8`; only decrease if you see 429 rate-limit errors                            |
+| Generic evaluators for specialized agents | Build domain-specific evaluators via `BaseEvaluator`                                      |

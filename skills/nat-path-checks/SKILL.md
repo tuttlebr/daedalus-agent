@@ -23,16 +23,16 @@ Failed path checks:
 
 ## Fix Decision Table
 
-| Reported token means | Preferred fix | Example |
-| --- | --- | --- |
-| Prose shorthand, not a path | Rewrite in words. Do not hide it in code just to silence CI. | `linux/amd64` -> `linux or amd64`; `pass/fail` -> `pass or fail` |
-| Two field names or concepts | Name each item separately, usually as code spans if they are literal fields. | `question/answer` -> `question` and `answer` |
-| Exact CLI, protocol, API, config, or method literal | Wrap the literal in inline code, or use a fenced code block for multi-line examples. | `tools/list` -> `tools/list` |
-| Placeholder path in prose | Wrap the placeholder in inline code. | `path/to/workflow.yml` -> `path/to/workflow.yml` |
-| Placeholder paths in a list or snippet | Use a fenced code block with an appropriate language or `text`. | Put `data/test1` and `data/test2` inside a fenced block. |
-| Real repo-relative path | Make the path correct relative to the current file, and link it when useful. | `[README](../../README.md)` |
-| Intended generated output path | Use inline code or a fenced block unless the file should already exist in the repo. | `./output/results.json` |
-| Repeated false positive across many docs | Prefer a local wording or escaping fix. Add `ALLOWLISTED_WORDS`, `IGNORED_PATHS`, or `ALLOWLISTED_FILE_PATH_PAIRS` only for true checker limitations. | Add an allowlist only after confirming the token should pass everywhere. |
+| Reported token means                                | Preferred fix                                                                                                                                         | Example                                                                  |
+| --------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| Prose shorthand, not a path                         | Rewrite in words. Do not hide it in code just to silence CI.                                                                                          | `linux/amd64` -> `linux or amd64`; `pass/fail` -> `pass or fail`         |
+| Two field names or concepts                         | Name each item separately, usually as code spans if they are literal fields.                                                                          | `question/answer` -> `question` and `answer`                             |
+| Exact CLI, protocol, API, config, or method literal | Wrap the literal in inline code, or use a fenced code block for multi-line examples.                                                                  | `tools/list` -> `tools/list`                                             |
+| Placeholder path in prose                           | Wrap the placeholder in inline code.                                                                                                                  | `path/to/workflow.yml` -> `path/to/workflow.yml`                         |
+| Placeholder paths in a list or snippet              | Use a fenced code block with an appropriate language or `text`.                                                                                       | Put `data/test1` and `data/test2` inside a fenced block.                 |
+| Real repo-relative path                             | Make the path correct relative to the current file, and link it when useful.                                                                          | `[README](../../README.md)`                                              |
+| Intended generated output path                      | Use inline code or a fenced block unless the file should already exist in the repo.                                                                   | `./output/results.json`                                                  |
+| Repeated false positive across many docs            | Prefer a local wording or escaping fix. Add `ALLOWLISTED_WORDS`, `IGNORED_PATHS`, or `ALLOWLISTED_FILE_PATH_PAIRS` only for true checker limitations. | Add an allowlist only after confirming the token should pass everywhere. |
 
 ## Important Distinctions
 

@@ -5,6 +5,7 @@ source =
     content_distiller/src
     nat_helpers/src
     nat_nv_ingest/src
+    perplexity_search/src
     rss_feed/src
     serpapi_search/src
     smart_milvus/src

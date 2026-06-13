@@ -2,6 +2,7 @@
 
 import {
   IconChevronDown,
+  IconChecklist,
   IconPlayerPause,
   IconPlayerPlay,
   IconPlayerStop,
@@ -14,6 +15,7 @@ import {
   type ChangeEvent,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from 'react';
@@ -44,6 +46,7 @@ interface WorkspaceDrawerProps {
   busy: string | null;
   onTogglePause: () => void;
   onEnqueueRun: (prompt: string) => void;
+  onRunActiveGoals: (prompt: string) => void;
   onCancelActiveRun: () => void;
   onUpdateInterval: (hours: number) => void;
   onCreateGoal: (title: string, description: string) => void;
@@ -64,6 +67,7 @@ export function WorkspaceDrawer({
   busy,
   onTogglePause,
   onEnqueueRun,
+  onRunActiveGoals,
   onCancelActiveRun,
   onUpdateInterval,
   onCreateGoal,
@@ -133,6 +137,18 @@ export function WorkspaceDrawer({
   const hasActiveRun =
     !!activeRun &&
     ['running', 'queued', 'waiting_approval'].includes(activeRun.status);
+  const activeGoalCount = goals.filter(
+    (goal) => goal.status === 'active',
+  ).length;
+  const goalTitleById = useMemo(
+    () => new Map(goals.map((goal) => [goal.id, goal.title])),
+    [goals],
+  );
+  const resolveGoalTitle = useCallback(
+    (goalId?: string | null) =>
+      goalId ? goalTitleById.get(goalId) || goalId : '',
+    [goalTitleById],
+  );
 
   const handleGoalFileSelected = useCallback(
     async (event: ChangeEvent<HTMLInputElement>) => {
@@ -310,6 +326,21 @@ export function WorkspaceDrawer({
             >
               Send to Daedalus
             </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              isLoading={busy === 'run:goals'}
+              disabled={activeGoalCount === 0}
+              onClick={() => {
+                onRunActiveGoals(manualPrompt);
+                setManualPrompt('');
+              }}
+              fullWidth
+              className="mt-2"
+              leftIcon={<IconChecklist size={14} />}
+            >
+              Run active goals
+            </Button>
           </Section>
 
           <Section title="Schedule">
@@ -474,6 +505,11 @@ export function WorkspaceDrawer({
                     <p className="mt-1 line-clamp-3 font-serif text-[13px] leading-snug text-dark-text-secondary">
                       {request.prompt?.trim() || 'No prompt supplied.'}
                     </p>
+                    {request.goalId && (
+                      <p className="mt-1 truncate font-serif text-[12px] text-dark-text-muted">
+                        Goal: {resolveGoalTitle(request.goalId)}
+                      </p>
+                    )}
                     <p className="mt-1 truncate font-mono text-[10px] text-dark-text-subtle">
                       {request.id} · {request.requestedBy}
                     </p>
@@ -511,6 +547,11 @@ export function WorkspaceDrawer({
                     {run.summary && (
                       <p className="mt-1 line-clamp-3 font-serif text-[13px] leading-snug text-dark-text-secondary">
                         {run.summary}
+                      </p>
+                    )}
+                    {run.goalId && (
+                      <p className="mt-1 truncate font-serif text-[12px] text-dark-text-muted">
+                        Goal: {resolveGoalTitle(run.goalId)}
                       </p>
                     )}
                   </article>

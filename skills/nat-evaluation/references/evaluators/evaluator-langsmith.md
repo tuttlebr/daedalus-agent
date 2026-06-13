@@ -18,10 +18,10 @@ Use this when you want a **deterministic, rule-based metric** from the openevals
 
 ### Config fields
 
-| Field | Required | Description |
-| --- | --- | --- |
-| `evaluator` | Yes | Short name of an openevals evaluator (e.g., `exact_match`, `levenshtein_distance`) |
-| `extra_fields` | No | Map of evaluator kwarg names → dataset field names for passing extra context |
+| Field          | Required | Description                                                                        |
+| -------------- | -------- | ---------------------------------------------------------------------------------- |
+| `evaluator`    | Yes      | Short name of an openevals evaluator (e.g., `exact_match`, `levenshtein_distance`) |
+| `extra_fields` | No       | Map of evaluator kwarg names → dataset field names for passing extra context       |
 
 ### Example
 
@@ -64,10 +64,10 @@ Use this when you have an **existing LangSmith-compatible evaluator function** y
 
 ### Config fields
 
-| Field | Required | Description |
-| --- | --- | --- |
-| `evaluator` | Yes | Python dotted path to the evaluator callable (e.g., `my_package.evaluators.my_fn`) |
-| `extra_fields` | No | Map of evaluator kwarg names → dataset field names. Only works with the openevals `(inputs, outputs, reference_outputs)` calling convention. |
+| Field          | Required | Description                                                                                                                                  |
+| -------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `evaluator`    | Yes      | Python dotted path to the evaluator callable (e.g., `my_package.evaluators.my_fn`)                                                           |
+| `extra_fields` | No       | Map of evaluator kwarg names → dataset field names. Only works with the openevals `(inputs, outputs, reference_outputs)` calling convention. |
 
 ### Example
 

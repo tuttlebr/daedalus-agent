@@ -9,6 +9,14 @@ import { saveConversation } from '@/utils/app/conversation';
 import { sanitizeMessageContentFromPriorAssistant } from '@/utils/app/conversationReplay';
 import { buildMessageError } from '@/utils/app/errorCategory';
 import { cleanMessagesForLLM } from '@/utils/app/imageHandler';
+import {
+  filterOpenedOAuthPrompts,
+  OAuthPrompt,
+  oauthPromptConversationKeyPrefix,
+  oauthPromptKey,
+  oauthPromptsFromStatus,
+  withoutOAuthPromptsForConversation,
+} from '@/utils/app/oauthPrompts';
 
 import { Message } from '@/types/chat';
 import { IntermediateStepCategory } from '@/types/intermediateSteps';
@@ -23,74 +31,6 @@ import { MessageBubble } from './MessageBubble';
 
 import { useConversationStore, useUISettingsStore } from '@/state';
 import { v4 as uuidv4 } from 'uuid';
-
-type OAuthPrompt = {
-  id: string;
-  conversationId: string;
-  jobId?: string;
-  authUrl: string;
-  oauthState?: string;
-  service?: string;
-};
-
-function inferGoogleService(authUrl: string): string {
-  let decoded = authUrl;
-  try {
-    decoded = decodeURIComponent(authUrl);
-  } catch {
-    decoded = authUrl;
-  }
-  decoded = decoded.toLowerCase();
-  if (decoded.includes('gmail')) return 'Gmail';
-  if (decoded.includes('calendar')) return 'Calendar';
-  return 'Google';
-}
-
-function oauthPromptId(authUrl: string, oauthState?: string): string {
-  return oauthState ? `${oauthState}:${authUrl}` : authUrl;
-}
-
-function oauthPromptsFromStatus(
-  status: any,
-  conversationId: string,
-): OAuthPrompt[] {
-  const requests = Array.isArray(status.oauthRequests)
-    ? status.oauthRequests
-    : [];
-  const sourceRequests =
-    requests.length > 0
-      ? requests
-      : status.authUrl
-      ? [
-          {
-            id: oauthPromptId(status.authUrl, status.oauthState),
-            authUrl: status.authUrl,
-            oauthState: status.oauthState,
-            service: inferGoogleService(status.authUrl),
-          },
-        ]
-      : [];
-
-  return sourceRequests
-    .filter((request: any) => typeof request?.authUrl === 'string')
-    .map((request: any) => ({
-      id: String(
-        request.id || oauthPromptId(request.authUrl, request.oauthState),
-      ),
-      conversationId,
-      jobId: status.jobId,
-      authUrl: request.authUrl,
-      oauthState: request.oauthState,
-      service: request.service || inferGoogleService(request.authUrl),
-    }));
-}
-
-function withoutOAuthPromptsForConversation(
-  prompts: OAuthPrompt[],
-  conversationId: string,
-): OAuthPrompt[] {
-  return prompts.filter((prompt) => prompt.conversationId !== conversationId);
-}
 
 export const ChatView = memo(() => {
   const { user } = useAuth();
@@ -122,6 +62,7 @@ export const ChatView = memo(() => {
     IntermediateStepCategory[]
   >([]);
   const [oauthPrompts, setOauthPrompts] = useState<OAuthPrompt[]>([]);
+  const openedOAuthPromptKeysRef = useRef<Set<string>>(new Set());
   const streamingIds = useConversationStore((s) => s.streamingConversationIds);
   const isStreaming = selectedConversationId
     ? streamingIds.has(selectedConversationId)
@@ -137,6 +78,27 @@ export const ChatView = memo(() => {
 
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, []);
+
+  const clearOpenedOAuthPromptsForConversation = useCallback(
+    (conversationId: string) => {
+      const prefix = oauthPromptConversationKeyPrefix(conversationId);
+      for (const key of Array.from(openedOAuthPromptKeysRef.current)) {
+        if (key.startsWith(prefix)) {
+          openedOAuthPromptKeysRef.current.delete(key);
+        }
+      }
+    },
+    [],
+  );
+
+  const handleOAuthPromptClick = useCallback((prompt: OAuthPrompt) => {
+    window.open(prompt.authUrl, '_blank', 'noopener,noreferrer');
+    const key = oauthPromptKey(prompt);
+    openedOAuthPromptKeysRef.current.add(key);
+    setOauthPrompts((current) =>
+      current.filter((candidate) => oauthPromptKey(candidate) !== key),
+    );
   }, []);
 
   const updateAssistantMessage = useCallback(
@@ -214,8 +176,10 @@ export const ChatView = memo(() => {
           status.status === 'oauth_required' &&
           (status.authUrl || status.oauthRequests?.length)
         ) {
-          const prompts = oauthPromptsFromStatus(status, convId);
-          if (prompts.length === 0) return;
+          const prompts = filterOpenedOAuthPrompts(
+            oauthPromptsFromStatus(status, convId),
+            openedOAuthPromptKeysRef.current,
+          );
           setStreaming(convId, true);
           setActivityText('Waiting for Google authorization');
           setOauthPrompts((current) => {
@@ -244,6 +208,7 @@ export const ChatView = memo(() => {
         // (onComplete may not fire if fullResponse is empty)
         if (status.status === 'completed' || status.status === 'error') {
           const store = useConversationStore.getState();
+          clearOpenedOAuthPromptsForConversation(convId);
           setOauthPrompts((current) =>
             withoutOAuthPromptsForConversation(current, convId),
           );
@@ -329,7 +294,12 @@ export const ChatView = memo(() => {
           scrollToBottom();
         }
       },
-      [setStreaming, updateAssistantMessage, scrollToBottom],
+      [
+        setStreaming,
+        updateAssistantMessage,
+        scrollToBottom,
+        clearOpenedOAuthPromptsForConversation,
+      ],
     ),
 
     onComplete: useCallback(
@@ -362,6 +332,7 @@ export const ChatView = memo(() => {
         setStreaming(convId, false);
         setActivityText('');
         setStepCategories([]);
+        clearOpenedOAuthPromptsForConversation(convId);
         setOauthPrompts((current) =>
           withoutOAuthPromptsForConversation(current, convId),
         );
@@ -376,7 +347,12 @@ export const ChatView = memo(() => {
 
         scrollToBottom();
       },
-      [setStreaming, updateAssistantMessage, scrollToBottom],
+      [
+        setStreaming,
+        updateAssistantMessage,
+        scrollToBottom,
+        clearOpenedOAuthPromptsForConversation,
+      ],
     ),
 
     onError: useCallback(
@@ -438,11 +414,17 @@ export const ChatView = memo(() => {
         setStreaming(convId, false);
         setActivityText('');
         setStepCategories([]);
+        clearOpenedOAuthPromptsForConversation(convId);
         setOauthPrompts((current) =>
           withoutOAuthPromptsForConversation(current, convId),
         );
       },
-      [setStreaming, updateAssistantMessage, addMessage],
+      [
+        setStreaming,
+        updateAssistantMessage,
+        addMessage,
+        clearOpenedOAuthPromptsForConversation,
+      ],
     ),
   });
 
@@ -482,6 +464,7 @@ export const ChatView = memo(() => {
       setStreaming(convId, true);
       setActivityText('Starting...');
       setStepCategories([]);
+      clearOpenedOAuthPromptsForConversation(convId);
       setOauthPrompts((current) =>
         withoutOAuthPromptsForConversation(current, convId),
       );
@@ -530,6 +513,7 @@ export const ChatView = memo(() => {
         );
         setStreaming(convId, false);
         setActivityText('');
+        clearOpenedOAuthPromptsForConversation(convId);
         setOauthPrompts((current) =>
           withoutOAuthPromptsForConversation(current, convId),
         );
@@ -548,6 +532,7 @@ export const ChatView = memo(() => {
       enableIntermediateSteps,
       userId,
       scrollToBottom,
+      clearOpenedOAuthPromptsForConversation,
     ],
   );
 
@@ -572,11 +557,17 @@ export const ChatView = memo(() => {
       setStreaming(selectedConversationId, false);
       setActivityText('');
       setStepCategories([]);
+      clearOpenedOAuthPromptsForConversation(selectedConversationId);
       setOauthPrompts((current) =>
         withoutOAuthPromptsForConversation(current, selectedConversationId),
       );
     }
-  }, [selectedConversationId, cancelJob, setStreaming]);
+  }, [
+    selectedConversationId,
+    cancelJob,
+    setStreaming,
+    clearOpenedOAuthPromptsForConversation,
+  ]);
 
   const messages = selectedConversation?.messages || [];
   const hasMessages = messages.length > 0;
@@ -704,13 +695,7 @@ export const ChatView = memo(() => {
                       key={`${prompt.jobId || 'job'}:${prompt.id}`}
                       type="button"
                       className="inline-flex items-center gap-1.5 rounded-md bg-nvidia-green px-3 py-1.5 text-xs font-medium text-black hover:bg-nvidia-green/90"
-                      onClick={() =>
-                        window.open(
-                          prompt.authUrl,
-                          '_blank',
-                          'noopener,noreferrer',
-                        )
-                      }
+                      onClick={() => handleOAuthPromptClick(prompt)}
                     >
                       <IconExternalLink size={14} />
                       Connect {prompt.service || 'Google'}

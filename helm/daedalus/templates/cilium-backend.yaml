@@ -196,48 +196,14 @@ spec:
     {{- end }}
     {{- end }}
 
-    # Nemotron Omni vLLM aggregator frontend service
+    # Dynamo inference gateway (central ingress for model traffic)
     - toServices:
         - k8sService:
-            serviceName: nemotron-omni-vllm-agg-frontend
-            namespace: nemotron-omni
+            serviceName: inference-gateway
+            namespace: daedalus-dynamo
       toPorts:
         - ports:
-            - port: "8000"
-              protocol: TCP
-
-    # Nemotron Omni vLLM aggregator frontend pods (label fallback)
-    - toEndpoints:
-        - matchLabels:
-            io.kubernetes.pod.namespace: nemotron-omni
-            nvidia.com/dynamo-component: Frontend
-            nvidia.com/dynamo-component-type: frontend
-            nvidia.com/dynamo-namespace: nemotron-omni-nemotron-omni-vllm-agg
-      toPorts:
-        - ports:
-            - port: "8000"
-              protocol: TCP
-
-    # Qwen 36B Dynamo frontend service
-    - toServices:
-        - k8sService:
-            serviceName: qwen36-dynamo-fd-ec-frontend
-            namespace: qwen36-35b
-      toPorts:
-        - ports:
-            - port: "8000"
-              protocol: TCP
-
-    # Qwen 36B Dynamo frontend pods (label fallback)
-    - toEndpoints:
-        - matchLabels:
-            io.kubernetes.pod.namespace: qwen36-35b
-            nvidia.com/dynamo-component: Frontend
-            nvidia.com/dynamo-component-type: frontend
-            nvidia.com/dynamo-namespace: qwen36-35b-qwen36-dynamo-fd-ec
-      toPorts:
-        - ports:
-            - port: "8000"
+            - port: "80"
               protocol: TCP
 
     # ── External FQDN allowlist (HTTPS only) ────────────────────────
@@ -282,9 +248,10 @@ spec:
             - port: "443"
               protocol: TCP
 
-    # SerpAPI web search
+    # Web search APIs
     - toFQDNs:
         - matchName: "serpapi.com"
+        - matchName: "api.perplexity.ai"
       toPorts:
         - ports:
             - port: "443"

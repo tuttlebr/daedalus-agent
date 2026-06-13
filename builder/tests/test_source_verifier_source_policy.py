@@ -79,10 +79,14 @@ def test_plan_sources_prioritizes_current_source_families():
     tool_order = [
         tool for item in result["recommended_tool_sequence"] for tool in item["tools"]
     ]
-    assert tool_order[:3] == [
+    assert tool_order[:4] == [
         "curated_feed_search_tool",
+        "perplexity_search_tool",
         "serpapi_search_tool",
         "domain_retriever_tool",
+    ]
+    assert result["recommended_tool_sequence"][1]["hints"] == [
+        {"tool": "perplexity_search_tool", "search_recency_filter": "week"}
     ]
     assert result["source_ledger_contract"]["audit_tool"].endswith("audit_citations")
 

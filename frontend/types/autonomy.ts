@@ -95,6 +95,12 @@ export interface AutonomyFeedItem {
   confidenceReason?: string;
   /** Stable content fingerprint stamped by the worker for de-duplication. */
   fingerprint?: string;
+  /** Stable source/topic key used to suppress repeats and link updates. */
+  threadKey?: string;
+  /** Prior feed item this entry materially updates, when applicable. */
+  updateOfFeedItemId?: string;
+  updateOfTitle?: string;
+  updateReason?: string;
   createdAt: number;
 }
 

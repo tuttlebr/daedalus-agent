@@ -4,8 +4,9 @@ The worker runs on a schedule, so the agent keeps re-discovering the same
 durable signal (e.g. "NVIDIA announced a new GPU") on every cycle and, without
 guardrails, re-emits it to the feed each time. This module provides:
 
-* ``dedupe_feed_items`` — a deterministic safety net that drops newly produced
-  feed items that repeat something already surfaced within a recency window.
+* ``dedupe_feed_items`` — a deterministic safety net that classifies newly
+  produced feed items as redundant repeats, material updates to a prior thread,
+  or fresh findings.
 * ``summarize_recent_feed`` — a compact digest of what was recently surfaced,
   fed back into the prompt so the agent avoids the redundant research entirely.
 
@@ -18,7 +19,7 @@ from __future__ import annotations
 import hashlib
 import re
 import time
-from typing import Any
+from typing import Any, Literal
 from urllib.parse import parse_qsl, urlsplit, urlunsplit
 
 # Redundancy is judged from title + body token overlap. A shared source URL is
@@ -32,6 +33,7 @@ from urllib.parse import parse_qsl, urlsplit, urlunsplit
 # URL disambiguates, so we accept that the URL-less path errs toward merging.)
 TITLE_SIMILARITY = 0.6
 CONTENT_SIMILARITY = 0.5
+RELATED_TITLE_SIMILARITY = 0.6
 
 DEFAULT_WINDOW_DAYS = 14
 MIN_WINDOW_DAYS = 1
@@ -60,6 +62,7 @@ _TRACKING_PARAMS = {
 
 _WORD_RE = re.compile(r"[a-z0-9]+")
 _MS_PER_DAY = 86_400_000
+FeedClassification = Literal["duplicate", "linked_update", "fresh"]
 
 
 def normalize_url(raw: str | None) -> str:
@@ -152,6 +155,69 @@ def _item_text(item: dict[str, Any], *keys: str) -> str:
     return " ".join(part for part in parts if part)
 
 
+def _source_url(item: dict[str, Any]) -> str:
+    return str(item.get("sourceUrl") or item.get("source_url") or "").strip()
+
+
+def normalize_thread_key(raw: Any) -> str:
+    """Normalize an explicit model/store thread key for equality checks."""
+
+    if not isinstance(raw, str):
+        return ""
+    text = raw.strip()
+    if not text:
+        return ""
+    if text.startswith("url:"):
+        normalized_url = normalize_url(text[4:])
+        return f"url:{normalized_url}" if normalized_url else ""
+    normalized = normalize_text(text)
+    return f"thread:{normalized}" if normalized else ""
+
+
+def feed_thread_key(item: dict[str, Any]) -> str:
+    """Return the stable thread key for a feed item, deriving it when needed.
+
+    Newer items may carry ``threadKey`` directly. Older URL-backed feed entries
+    are still matchable because their normalized source URL becomes the derived
+    thread key. Text-only items intentionally do not get a derived key here:
+    fuzzy text suppression remains bounded by the configured recency window.
+    """
+
+    explicit = normalize_thread_key(item.get("threadKey") or item.get("thread_key"))
+    if explicit:
+        return explicit
+    fingerprint = str(item.get("fingerprint") or "").strip()
+    if fingerprint.startswith("url:"):
+        return fingerprint
+    url = normalize_url(_source_url(item))
+    return f"url:{url}" if url else ""
+
+
+def _similarities(
+    candidate: dict[str, Any],
+    existing: dict[str, Any],
+) -> tuple[float, float]:
+    return (
+        jaccard(_tokens(candidate.get("title")), _tokens(existing.get("title"))),
+        jaccard(
+            _tokens(_item_text(candidate, "bluf", "body")),
+            _tokens(_item_text(existing, "bluf", "body")),
+        ),
+    )
+
+
+def _same_thread(candidate: dict[str, Any], existing: dict[str, Any]) -> bool:
+    candidate_thread = feed_thread_key(candidate)
+    existing_thread = feed_thread_key(existing)
+    return bool(candidate_thread and candidate_thread == existing_thread)
+
+
+def _same_source(candidate: dict[str, Any], existing: dict[str, Any]) -> bool:
+    candidate_url = normalize_url(_source_url(candidate))
+    existing_url = normalize_url(_source_url(existing))
+    return bool(candidate_url and existing_url and candidate_url == existing_url)
+
+
 def feed_fingerprint(item: dict[str, Any]) -> str:
     """Stable content fingerprint for a feed item.
 
@@ -160,7 +226,7 @@ def feed_fingerprint(item: dict[str, Any]) -> str:
     the normalized title + body.
     """
 
-    url = normalize_url(item.get("sourceUrl") or item.get("source_url"))
+    url = normalize_url(_source_url(item))
     if url:
         return f"url:{url}"
     basis = normalize_text(_item_text(item, "title", "bluf", "body"))
@@ -177,22 +243,100 @@ def is_duplicate(candidate: dict[str, Any], existing: dict[str, Any]) -> bool:
     distinct findings — and same-title/different-body fallbacks — stay separate.
     """
 
-    candidate_url = normalize_url(
-        candidate.get("sourceUrl") or candidate.get("source_url")
-    )
-    existing_url = normalize_url(
-        existing.get("sourceUrl") or existing.get("source_url")
-    )
+    title_sim, content_sim = _similarities(candidate, existing)
 
-    title_sim = jaccard(_tokens(candidate.get("title")), _tokens(existing.get("title")))
-    content_sim = jaccard(
-        _tokens(_item_text(candidate, "bluf", "body")),
-        _tokens(_item_text(existing, "bluf", "body")),
-    )
-
-    if candidate_url and existing_url and candidate_url == existing_url:
+    if _same_source(candidate, existing) or _same_thread(candidate, existing):
         return title_sim >= TITLE_SIMILARITY or content_sim >= CONTENT_SIMILARITY
     return title_sim >= TITLE_SIMILARITY and content_sim >= CONTENT_SIMILARITY
+
+
+def _is_probable_linked_update(
+    candidate: dict[str, Any],
+    existing: dict[str, Any],
+) -> bool:
+    """Conservatively identify material updates from a different source."""
+
+    if _same_thread(candidate, existing):
+        return not is_duplicate(candidate, existing)
+    candidate_url = normalize_url(_source_url(candidate))
+    existing_url = normalize_url(_source_url(existing))
+    if not candidate_url or not existing_url or candidate_url == existing_url:
+        return False
+    title_sim, content_sim = _similarities(candidate, existing)
+    return title_sim >= RELATED_TITLE_SIMILARITY and content_sim < CONTENT_SIMILARITY
+
+
+def _update_reason(
+    candidate: dict[str, Any],
+    existing: dict[str, Any],
+) -> str:
+    if _same_thread(candidate, existing):
+        return "Same source or thread, with materially different details."
+    return "Same topic from a different source, with new details."
+
+
+def classify_feed_item(
+    candidate: dict[str, Any],
+    existing_items: list[dict[str, Any]],
+    *,
+    now: int,
+    window_ms: int = DEFAULT_WINDOW_DAYS * _MS_PER_DAY,
+) -> tuple[FeedClassification, dict[str, Any] | None, str]:
+    """Classify one candidate against retained feed history.
+
+    Exact source/thread matches are checked against the full retained history,
+    regardless of the recency window. Fuzzy duplicate/update matching stays
+    bounded by ``window_ms``.
+    """
+
+    if not isinstance(candidate, dict):
+        return "duplicate", None, "Invalid feed item."
+
+    valid_existing = [item for item in existing_items if isinstance(item, dict)]
+
+    for existing in valid_existing:
+        if not (_same_source(candidate, existing) or _same_thread(candidate, existing)):
+            continue
+        if is_duplicate(candidate, existing):
+            return "duplicate", existing, "Repeated source or thread."
+        return "linked_update", existing, _update_reason(candidate, existing)
+
+    recent = [
+        item
+        for item in valid_existing
+        if _within_window(item, now=now, window_ms=window_ms)
+    ]
+    for existing in recent:
+        if is_duplicate(candidate, existing):
+            return "duplicate", existing, "Repeated recent finding."
+        if _is_probable_linked_update(candidate, existing):
+            return "linked_update", existing, _update_reason(candidate, existing)
+
+    return "fresh", None, ""
+
+
+def stamp_feed_item(
+    item: dict[str, Any],
+    *,
+    update_of: dict[str, Any] | None = None,
+    update_reason: str = "",
+) -> dict[str, Any]:
+    """Stamp a kept item with deterministic observability/linkage fields."""
+
+    thread_key = feed_thread_key(item)
+    if thread_key:
+        item["threadKey"] = thread_key
+    item.setdefault("fingerprint", feed_fingerprint(item))
+    if update_of:
+        update_id = str(update_of.get("id") or "").strip()
+        update_title = str(update_of.get("title") or "").strip()
+        if update_id:
+            item["updateOfFeedItemId"] = update_id
+        if update_title:
+            item["updateOfTitle"] = update_title
+        if update_reason:
+            item["updateReason"] = update_reason
+    return item
 
 
 def window_ms_for_days(
@@ -239,29 +383,32 @@ def dedupe_feed_items(
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Split ``new_items`` into (kept, dropped).
 
-    An item is dropped when it duplicates either a recently surfaced existing
-    item (within ``window_ms``) or an already-kept item from the same batch.
-    Kept items are stamped with a ``fingerprint`` for downstream observability.
-    Order is preserved.
+    An item is dropped when it duplicates either retained feed history, a
+    recently surfaced fuzzy match, or an already-kept item from the same batch.
+    Material changes to an existing source/thread are kept as linked updates.
+    Kept items are stamped with ``fingerprint`` and, when available,
+    ``threadKey`` for downstream observability. Order is preserved.
     """
 
-    recent = [
-        item
-        for item in existing_items
-        if isinstance(item, dict) and _within_window(item, now=now, window_ms=window_ms)
-    ]
     kept: list[dict[str, Any]] = []
     dropped: list[dict[str, Any]] = []
 
     for candidate in new_items:
         if not isinstance(candidate, dict):
             continue
-        if any(is_duplicate(candidate, prior) for prior in recent) or any(
-            is_duplicate(candidate, prior) for prior in kept
-        ):
+        classification, matched, reason = classify_feed_item(
+            candidate,
+            kept + existing_items,
+            now=now,
+            window_ms=window_ms,
+        )
+        if classification == "duplicate":
             dropped.append(candidate)
             continue
-        candidate.setdefault("fingerprint", feed_fingerprint(candidate))
+        if classification == "linked_update":
+            stamp_feed_item(candidate, update_of=matched, update_reason=reason)
+        else:
+            stamp_feed_item(candidate)
         kept.append(candidate)
 
     return kept, dropped
@@ -283,12 +430,13 @@ def summarize_recent_feed(
     window_ms: int = DEFAULT_WINDOW_DAYS * _MS_PER_DAY,
     limit: int = 60,
     title_chars: int = 120,
+    bluf_chars: int = 180,
 ) -> list[dict[str, str]]:
     """Compact digest of recently surfaced items for the prompt.
 
-    Returns at most ``limit`` ``{date, title, source}`` rows within the window,
-    most recent first, so the agent can see what it already reported and skip
-    redundant work at the source.
+    Returns at most ``limit`` rows within the window, most recent first, so the
+    agent can see what it already reported and skip redundant work at the
+    source.
     """
 
     digest: list[dict[str, str]] = []
@@ -302,12 +450,17 @@ def summarize_recent_feed(
             continue
         if len(title) > title_chars:
             title = f"{title[: title_chars - 1].rstrip()}…"
+        bluf = str(item.get("bluf") or "").strip()
+        if len(bluf) > bluf_chars:
+            bluf = f"{bluf[: bluf_chars - 1].rstrip()}…"
         source = url_domain(item.get("sourceUrl") or item.get("source_url"))
         digest.append(
             {
                 "date": _format_day(item.get("createdAt")),
                 "title": title,
+                "bluf": bluf,
                 "source": source,
+                "threadKey": feed_thread_key(item),
             }
         )
         if len(digest) >= limit:

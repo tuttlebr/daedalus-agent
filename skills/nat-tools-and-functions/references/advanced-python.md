@@ -76,7 +76,7 @@ general:
   front_end:
     _type: fastapi
     runner_class: my_package.worker.MyFastAPIWorker
-    host: "0.0.0.0"
+    host: '0.0.0.0'
     port: 8080
 ```
 

@@ -17,13 +17,12 @@ Then add to your workflow YAML:
 import asyncio
 from pathlib import Path
 
-from pydantic import Field
-
 from nat.builder.builder import Builder
 from nat.cli.register_workflow import register_telemetry_exporter
 from nat.data_models.telemetry_exporter import TelemetryExporterBaseConfig
 from nat.plugins.opentelemetry.otel_span import OtelSpan
 from nat.plugins.opentelemetry.otel_span_exporter import OtelSpanExporter
+from pydantic import Field
 
 
 class OtelFileExporter(OtelSpanExporter):
@@ -38,7 +37,6 @@ class OtelFileExporter(OtelSpanExporter):
         self._path.write_text("")  # truncate at start of each run
 
     async def export_otel_spans(self, spans: list[OtelSpan]) -> None:
-
         def _write():
             with open(self._path, "a") as f:
                 for span in spans:

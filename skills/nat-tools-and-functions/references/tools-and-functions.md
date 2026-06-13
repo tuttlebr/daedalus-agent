@@ -140,8 +140,8 @@ Reference the tool in `workflow.yml` by its registered `_type`:
 ```yaml
 functions:
   my_tool:
-    _type: my_tool  # matches name= in MyToolConfig
-    llm_name: nim_llm  # if the tool has an LLMRef field
+    _type: my_tool # matches name= in MyToolConfig
+    llm_name: nim_llm # if the tool has an LLMRef field
 ```
 
 ## Function Groups (register_function_group)
@@ -210,12 +210,12 @@ Reference the function group in `workflow.yml`:
 function_groups:
   my_data_tools:
     _type: data_tools
-    database_url: "postgresql://localhost/mydb"
+    database_url: 'postgresql://localhost/mydb'
     llm_name: nim_llm
 
 workflow:
   _type: react_agent
-  tool_names: [my_data_tools]   # reference the group — all its tools become available
+  tool_names: [my_data_tools] # reference the group — all its tools become available
   llm_name: nim_llm
   verbose: true
 ```
@@ -226,10 +226,10 @@ The agent sees three tools: `my_data_tools__query`, `my_data_tools__list_tables`
 function_groups:
   my_data_tools:
     _type: data_tools
-    database_url: "postgresql://localhost/mydb"
-    include: [query, list_tables]     # only expose these two tools
+    database_url: 'postgresql://localhost/mydb'
+    include: [query, list_tables] # only expose these two tools
     # OR
-    exclude: [describe_schema]        # expose all except this one
+    exclude: [describe_schema] # expose all except this one
 ```
 
 When using function groups in a `sequential_executor`, reference individual tools with dot notation:

@@ -3,8 +3,10 @@
 from autonomous_agent.dedupe import (
     DEFAULT_WINDOW_DAYS,
     MAX_WINDOW_DAYS,
+    classify_feed_item,
     dedupe_feed_items,
     feed_fingerprint,
+    feed_thread_key,
     is_duplicate,
     normalize_url,
     summarize_recent_feed,
@@ -161,7 +163,7 @@ def test_dedupe_drops_repeat_of_recent_existing_item():
     assert len(dropped) == 1
 
 
-def test_dedupe_keeps_item_when_prior_is_outside_window():
+def test_dedupe_drops_exact_url_repeat_even_when_prior_is_outside_window():
     existing = [
         _item(
             id="stale",
@@ -172,8 +174,68 @@ def test_dedupe_keeps_item_when_prior_is_outside_window():
     ]
     new = [_item(id="fresh", sourceUrl="https://nvidia.com/gpu")]
     kept, dropped = dedupe_feed_items(new, existing, now=NOW, window_ms=14 * DAY_MS)
-    assert len(kept) == 1
+    assert kept == []
+    assert [item["id"] for item in dropped] == ["fresh"]
+
+
+def test_dedupe_keeps_material_same_source_update_as_linked_update():
+    existing = [
+        _item(
+            id="old",
+            title="NVIDIA announces Blackwell Ultra GPU",
+            bluf="NVIDIA unveiled a new data center GPU.",
+            body="General availability is expected later this year.",
+            sourceUrl="https://nvidia.com/gpu",
+            createdAt=NOW - 40 * DAY_MS,
+        )
+    ]
+    new = [
+        _item(
+            id="update",
+            title="Blackwell Ultra benchmarks published",
+            bluf="MLPerf results now show 2x H100 throughput.",
+            body="Numbers were posted for training and inference runs.",
+            sourceUrl="https://nvidia.com/gpu",
+        )
+    ]
+    kept, dropped = dedupe_feed_items(new, existing, now=NOW, window_ms=14 * DAY_MS)
     assert dropped == []
+    assert [item["id"] for item in kept] == ["update"]
+    assert kept[0]["threadKey"] == feed_thread_key(existing[0])
+    assert kept[0]["updateOfFeedItemId"] == "old"
+    assert kept[0]["updateOfTitle"] == "NVIDIA announces Blackwell Ultra GPU"
+    assert "materially different" in kept[0]["updateReason"]
+
+
+def test_dedupe_drops_repeated_material_update_within_same_batch():
+    existing = [
+        _item(
+            id="old",
+            title="NVIDIA announces Blackwell Ultra GPU",
+            bluf="NVIDIA unveiled a new data center GPU.",
+            body="General availability is expected later this year.",
+            sourceUrl="https://nvidia.com/gpu",
+            createdAt=NOW - 40 * DAY_MS,
+        )
+    ]
+    update = _item(
+        id="update-a",
+        title="Blackwell Ultra benchmarks published",
+        bluf="MLPerf results now show 2x H100 throughput.",
+        body="Numbers were posted for training and inference runs.",
+        sourceUrl="https://nvidia.com/gpu",
+    )
+    repeat = dict(update, id="update-b")
+
+    kept, dropped = dedupe_feed_items(
+        [update, repeat],
+        existing,
+        now=NOW,
+        window_ms=14 * DAY_MS,
+    )
+
+    assert [item["id"] for item in kept] == ["update-a"]
+    assert [item["id"] for item in dropped] == ["update-b"]
 
 
 def test_dedupe_collapses_duplicates_within_the_same_batch():
@@ -212,7 +274,9 @@ def test_summarize_recent_feed_shape_window_and_limit():
     items.append(_item(id="stale", title="Stale", createdAt=NOW - 40 * DAY_MS))
     digest = summarize_recent_feed(items, now=NOW, window_ms=14 * DAY_MS, limit=40)
     assert len(digest) == 40
-    assert all(set(row) == {"date", "title", "source"} for row in digest)
+    assert all(
+        set(row) == {"date", "title", "bluf", "source", "threadKey"} for row in digest
+    )
     assert all(row["title"] != "Stale" for row in digest)
 
 
@@ -225,14 +289,45 @@ def test_summarize_recent_feed_truncates_long_titles_and_skips_untitled():
     assert len(digest[0]["title"]) <= 120
 
 
-def test_dedupe_undated_existing_item_does_not_suppress_forever():
+def test_dedupe_undated_text_only_existing_item_does_not_suppress_forever():
     # An undated history entry has unknown age; it must not permanently block
-    # new items once the real window would have expired.
-    existing = [_item(id="undated", sourceUrl="https://nvidia.com/gpu", createdAt=None)]
-    new = [_item(id="fresh", sourceUrl="https://nvidia.com/gpu")]
+    # fuzzy text-only matches once the real window would have expired.
+    existing = [_item(id="undated", sourceUrl="", createdAt=None)]
+    new = [_item(id="fresh", sourceUrl="")]
     kept, dropped = dedupe_feed_items(new, existing, now=NOW, window_ms=14 * DAY_MS)
     assert [item["id"] for item in kept] == ["fresh"]
     assert dropped == []
+
+
+def test_classify_feed_item_reports_linked_update_for_explicit_thread_key():
+    existing = [
+        _item(
+            id="old",
+            title="CUDA roadmap update",
+            bluf="CUDA 13 was previewed.",
+            body="The original item covered a preview.",
+            threadKey="cuda-roadmap",
+            createdAt=NOW - 30 * DAY_MS,
+        )
+    ]
+    candidate = _item(
+        id="new",
+        title="CUDA toolkit release candidate ships",
+        bluf="CUDA 13 now has an RC with migration details.",
+        body="The new item covers the RC and compatibility notes.",
+        threadKey="cuda-roadmap",
+    )
+
+    classification, matched, reason = classify_feed_item(
+        candidate,
+        existing,
+        now=NOW,
+        window_ms=14 * DAY_MS,
+    )
+
+    assert classification == "linked_update"
+    assert matched == existing[0]
+    assert "Same source or thread" in reason
 
 
 def test_dedupe_mixed_batch_url_and_text_only():

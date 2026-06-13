@@ -4,25 +4,25 @@ Use this page when evaluator choice affects more than a one-off `nat eval` repor
 
 ## Who Should Care
 
-| Reader | What They Need To Decide |
-|:-------|:-------------------------|
-| End user configuring eval | Which evaluator keys to define, which scores become objectives or reward signals, whether the evaluator needs reference answers, trajectories, or dataset metadata. |
-| User running optimization | Which evaluator averages should be optimized, which direction to use, and whether the score is stable enough for repeated trials. |
-| User running red-team or finetuning flows | Which evaluator key represents the security score or reward signal. |
-| Evaluator developer or contributor | Whether to implement legacy (`IntermediateStep`), ATIF, or both lanes; what state is available; how errors, numeric scores, and reasoning should be emitted. |
+| Reader                                    | What They Need To Decide                                                                                                                                            |
+| :---------------------------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| End user configuring eval                 | Which evaluator keys to define, which scores become objectives or reward signals, whether the evaluator needs reference answers, trajectories, or dataset metadata. |
+| User running optimization                 | Which evaluator averages should be optimized, which direction to use, and whether the score is stable enough for repeated trials.                                   |
+| User running red-team or finetuning flows | Which evaluator key represents the security score or reward signal.                                                                                                 |
+| Evaluator developer or contributor        | Whether to implement legacy (`IntermediateStep`), ATIF, or both lanes; what state is available; how errors, numeric scores, and reasoning should be emitted.        |
 
 Default to end-user guidance. Include developer details only when they prevent wrong configs, broken optimization, or unusable custom evaluators.
 
 ## Shared Consumers
 
-| Consumer | How It Uses Evaluation | DX Implication |
-|:---------|:-----------------------|:---------------|
-| `nat eval` | Runs configured `eval.evaluators` and writes `workflow_output.json` plus `<evaluator>_output.json`. | Pick evaluators that match the dataset and workflow behavior. |
-| `nat optimize` numeric search | `optimizer.eval_metrics.*.evaluator_name` must match a key under `eval.evaluators`; the optimizer reads each evaluator's `average_score`. | Evaluator names are objective names. Scores must be numeric and direction must be correct. |
-| GA prompt optimization | Runs the same eval loop for each prompt candidate and can use evaluator reasoning as oracle feedback. | Per-item reasoning should explain failures clearly enough to guide prompt mutation. |
-| Finetuning trajectory/reward flows | The configured reward name is matched against evaluation result names; matching per-item scores become reward signals. | The reward evaluator should be stable, numeric, and aligned with the desired training behavior. |
-| Red teaming | The red-team runner builds eval runs that include `red_teaming_evaluator` plus red-team middleware scenarios. | Treat red-team scoring as a security diagnostic, not just another quality metric. |
-| Profiler | `eval.general.profiler` emits profiler artifacts; profiler runtime evaluators can also be configured as evaluators and produce scores. | Use profiler artifacts for diagnosis; use runtime evaluator scores when optimization needs latency/token objectives. |
+| Consumer                           | How It Uses Evaluation                                                                                                                    | DX Implication                                                                                                       |
+| :--------------------------------- | :---------------------------------------------------------------------------------------------------------------------------------------- | :------------------------------------------------------------------------------------------------------------------- |
+| `nat eval`                         | Runs configured `eval.evaluators` and writes `workflow_output.json` plus `<evaluator>_output.json`.                                       | Pick evaluators that match the dataset and workflow behavior.                                                        |
+| `nat optimize` numeric search      | `optimizer.eval_metrics.*.evaluator_name` must match a key under `eval.evaluators`; the optimizer reads each evaluator's `average_score`. | Evaluator names are objective names. Scores must be numeric and direction must be correct.                           |
+| GA prompt optimization             | Runs the same eval loop for each prompt candidate and can use evaluator reasoning as oracle feedback.                                     | Per-item reasoning should explain failures clearly enough to guide prompt mutation.                                  |
+| Finetuning trajectory/reward flows | The configured reward name is matched against evaluation result names; matching per-item scores become reward signals.                    | The reward evaluator should be stable, numeric, and aligned with the desired training behavior.                      |
+| Red teaming                        | The red-team runner builds eval runs that include `red_teaming_evaluator` plus red-team middleware scenarios.                             | Treat red-team scoring as a security diagnostic, not just another quality metric.                                    |
+| Profiler                           | `eval.general.profiler` emits profiler artifacts; profiler runtime evaluators can also be configured as evaluators and produce scores.    | Use profiler artifacts for diagnosis; use runtime evaluator scores when optimization needs latency/token objectives. |
 
 ## Choosing Evaluators For Downstream Use
 

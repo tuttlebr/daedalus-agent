@@ -49,7 +49,6 @@ def test_authenticated_user_id_from_headers_requires_matching_internal_token(
     monkeypatch,
 ):
     import pytest
-
     from nat_helpers.identity import authenticated_user_id_from_headers
 
     monkeypatch.setenv("DAEDALUS_INTERNAL_API_TOKEN", "secret-token")

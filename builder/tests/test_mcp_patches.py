@@ -16,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from mcp_patches import (  # noqa: E402
     _MCP_STARTUP_MAX_RETRIES,
+    _STARTUP_RESILIENCE_EXCEPTIONS,
     _connect_with_graceful_teardown,
     _extract_root_connection_error,
     _is_connection_error,
@@ -458,7 +459,7 @@ class TestStartupResilience:
             _record_possible_mcp_group(name, args, kwargs)
             try:
                 return await original_add_fg(self, name, *args, **kwargs)
-            except (Exception, asyncio.CancelledError, BaseExceptionGroup) as exc:
+            except _STARTUP_RESILIENCE_EXCEPTIONS as exc:
                 if _is_no_tools_after_degradation_error(exc):
                     _record_skipped_function_group(name)
                     return None
@@ -479,7 +480,7 @@ class TestStartupResilience:
                     result = await original_get_tools(
                         self, [tool_name], *args, **kwargs
                     )
-                except (Exception, asyncio.CancelledError, BaseExceptionGroup) as exc:
+                except _STARTUP_RESILIENCE_EXCEPTIONS as exc:
                     if _should_skip_tool_resolution_error(exc, tool_name):
                         _record_skipped_function_group(tool_name)
                         continue
@@ -498,7 +499,7 @@ class TestStartupResilience:
                 ]
             try:
                 return await original_get_tools(self, tool_names, *args, **kwargs)
-            except (Exception, asyncio.CancelledError, BaseExceptionGroup) as exc:
+            except _STARTUP_RESILIENCE_EXCEPTIONS as exc:
                 if tool_names and (
                     _is_connection_error(exc)
                     or any(
@@ -519,7 +520,7 @@ class TestStartupResilience:
                 return None
             try:
                 return await original_get_function(self, name, *args, **kwargs)
-            except (Exception, asyncio.CancelledError, BaseExceptionGroup) as exc:
+            except _STARTUP_RESILIENCE_EXCEPTIONS as exc:
                 if _should_skip_tool_resolution_error(exc, name):
                     _record_skipped_function_group(name)
                     return None
@@ -724,7 +725,7 @@ class TestStartupResilience:
             for attempt in range(_MCP_STARTUP_MAX_RETRIES + 1):
                 try:
                     return await original_add_fg(self, name, *args, **kwargs)
-                except (Exception, asyncio.CancelledError, BaseExceptionGroup) as exc:
+                except _STARTUP_RESILIENCE_EXCEPTIONS as exc:
                     if _is_no_tools_after_degradation_error(exc):
                         _record_skipped_function_group(name)
                         return None
@@ -748,7 +749,7 @@ class TestStartupResilience:
                     result = await original_get_tools(
                         self, [tool_name], *args, **kwargs
                     )
-                except (Exception, asyncio.CancelledError, BaseExceptionGroup) as exc:
+                except _STARTUP_RESILIENCE_EXCEPTIONS as exc:
                     if _should_skip_tool_resolution_error(exc, tool_name):
                         _record_skipped_function_group(tool_name)
                         continue
@@ -767,7 +768,7 @@ class TestStartupResilience:
                 ]
             try:
                 return await original_get_tools(self, tool_names, *args, **kwargs)
-            except (Exception, asyncio.CancelledError, BaseExceptionGroup) as exc:
+            except _STARTUP_RESILIENCE_EXCEPTIONS as exc:
                 if tool_names and (
                     _is_connection_error(exc)
                     or any(
@@ -788,7 +789,7 @@ class TestStartupResilience:
                 return None
             try:
                 return await original_get_function(self, name, *args, **kwargs)
-            except (Exception, asyncio.CancelledError, BaseExceptionGroup) as exc:
+            except _STARTUP_RESILIENCE_EXCEPTIONS as exc:
                 if _should_skip_tool_resolution_error(exc, name):
                     _record_skipped_function_group(name)
                     return None

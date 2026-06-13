@@ -11,9 +11,18 @@ const mocks = vi.hoisted(() => {
       this.maxDepth = maxDepth;
     }
   }
+  class NoActiveGoalsError extends Error {
+    constructor() {
+      super('no active goals');
+      this.name = 'NoActiveGoalsError';
+    }
+  }
   return {
+    enqueueAllActiveGoals: vi.fn(),
     enqueueRun: vi.fn(),
+    isAllActiveGoalsRunRequest: vi.fn(),
     listRuns: vi.fn(),
+    NoActiveGoalsError,
     QueueFullError,
     enforceRateLimit: vi.fn(),
     ruleFromEnv: vi.fn(() => ({ name: 'x', limit: 30, windowSeconds: 60 })),
@@ -22,8 +31,11 @@ const mocks = vi.hoisted(() => {
 });
 
 vi.mock('@/server/autonomy/store', () => ({
+  enqueueAllActiveGoals: mocks.enqueueAllActiveGoals,
   enqueueRun: mocks.enqueueRun,
+  isAllActiveGoalsRunRequest: mocks.isAllActiveGoalsRunRequest,
   listRuns: mocks.listRuns,
+  NoActiveGoalsError: mocks.NoActiveGoalsError,
   QueueFullError: mocks.QueueFullError,
 }));
 
@@ -52,6 +64,7 @@ describe('/api/autonomy/runs', () => {
     vi.clearAllMocks();
     mocks.requireAuthenticatedUser.mockResolvedValue({ username: 'alice' });
     mocks.enforceRateLimit.mockResolvedValue(true);
+    mocks.isAllActiveGoalsRunRequest.mockReturnValue(false);
   });
 
   it('enqueues with the depth cap enforced and returns 202', async () => {
@@ -67,6 +80,51 @@ describe('/api/autonomy/runs', () => {
     );
     expect(res.status).toHaveBeenCalledWith(202);
     expect(res.json).toHaveBeenCalledWith({ id: 'request_1', queuedAt: 1 });
+  });
+
+  it('enqueues all active goals when the batch scope is requested', async () => {
+    mocks.isAllActiveGoalsRunRequest.mockReturnValue(true);
+    mocks.enqueueAllActiveGoals.mockResolvedValue({
+      queued: 2,
+      requests: [
+        { id: 'request_1', goalId: 'goal_a', queuedAt: 1 },
+        { id: 'request_2', goalId: 'goal_b', queuedAt: 1 },
+      ],
+    });
+    const { req, res } = make('POST', {
+      scope: 'all_active_goals',
+      prompt: 'note',
+    });
+
+    await handler(req, res);
+
+    expect(mocks.enqueueAllActiveGoals).toHaveBeenCalledWith(
+      'alice',
+      { scope: 'all_active_goals', prompt: 'note' },
+      { enforceDepthCap: true },
+    );
+    expect(mocks.enqueueRun).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(202);
+    expect(res.json).toHaveBeenCalledWith({
+      queued: 2,
+      requests: [
+        { id: 'request_1', goalId: 'goal_a', queuedAt: 1 },
+        { id: 'request_2', goalId: 'goal_b', queuedAt: 1 },
+      ],
+    });
+  });
+
+  it('returns 400 for all-active-goals requests when no goals are active', async () => {
+    mocks.isAllActiveGoalsRunRequest.mockReturnValue(true);
+    mocks.enqueueAllActiveGoals.mockRejectedValue(
+      new mocks.NoActiveGoalsError(),
+    );
+    const { req, res } = make('POST', { scope: 'all_active_goals' });
+
+    await handler(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(res.json).toHaveBeenCalledWith({ error: 'no active goals' });
   });
 
   it('returns 429 with Retry-After when the queue is full', async () => {

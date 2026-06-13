@@ -49,7 +49,7 @@ workflow:
   tool_names: [wikipedia_search, current_datetime]
   llm_name: nim_llm
   verbose: true
-  use_tool_schema: true   # pass each tool's JSON input schema to the planner so it generates valid arguments
+  use_tool_schema: true # pass each tool's JSON input schema to the planner so it generates valid arguments
 ```
 
 ## Responses API Agent (`responses_api_agent`)
@@ -116,7 +116,7 @@ functions:
 workflow:
   _type: parallel_executor
   tool_list: [analyze_sentiment, extract_entities, summarize_text]
-  description: "Run sentiment, entity, and summary analysis in parallel"
+  description: 'Run sentiment, entity, and summary analysis in parallel'
 ```
 
 Optional settings:

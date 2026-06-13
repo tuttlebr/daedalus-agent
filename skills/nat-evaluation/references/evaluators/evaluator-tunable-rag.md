@@ -12,21 +12,21 @@
 
 ## Config fields
 
-| Field | Required | Description |
-| --- | --- | --- |
-| `llm_name` | Yes | Judge LLM from the `llms:` section. Must be a different model from the agent's LLM. |
-| `judge_llm_prompt` | Yes | Prompt instructing the judge. Leave blank to use the built-in default. |
-| `default_scoring` | No (default: `false`) | Use the built-in coverage/correctness/relevance prompt. Set to `true` to skip writing your own prompt. |
-| `default_score_weights` | No | Weights for the three sub-scores when `default_scoring: true`. Default: `coverage: 0.5, correctness: 0.3, relevance: 0.2` |
-| `llm_retry_control_params` | No | Retry configuration object (see below) |
+| Field                      | Required              | Description                                                                                                               |
+| -------------------------- | --------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `llm_name`                 | Yes                   | Judge LLM from the `llms:` section. Must be a different model from the agent's LLM.                                       |
+| `judge_llm_prompt`         | Yes                   | Prompt instructing the judge. Leave blank to use the built-in default.                                                    |
+| `default_scoring`          | No (default: `false`) | Use the built-in coverage/correctness/relevance prompt. Set to `true` to skip writing your own prompt.                    |
+| `default_score_weights`    | No                    | Weights for the three sub-scores when `default_scoring: true`. Default: `coverage: 0.5, correctness: 0.3, relevance: 0.2` |
+| `llm_retry_control_params` | No                    | Retry configuration object (see below)                                                                                    |
 
 **Retry configuration** (`llm_retry_control_params`):
 
-| Field | Default | Description |
-| --- | --- | --- |
-| `stop_after_attempt` | — | Maximum retry attempts |
-| `initial_backoff_delay_seconds` | — | Initial delay between retries |
-| `has_exponential_jitter` | — | Add randomized exponential backoff |
+| Field                           | Default | Description                        |
+| ------------------------------- | ------- | ---------------------------------- |
+| `stop_after_attempt`            | —       | Maximum retry attempts             |
+| `initial_backoff_delay_seconds` | —       | Initial delay between retries      |
+| `has_exponential_jitter`        | —       | Add randomized exponential backoff |
 
 ## Minimal example (default scoring)
 
@@ -45,7 +45,7 @@ eval:
     rag_quality:
       _type: tunable_rag_evaluator
       llm_name: judge_llm
-      judge_llm_prompt: ""        # ignored when default_scoring is true
+      judge_llm_prompt: '' # ignored when default_scoring is true
       default_scoring: true
       default_score_weights:
         coverage: 0.5

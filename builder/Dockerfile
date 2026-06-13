@@ -57,7 +57,7 @@ SHELL ["/bin/bash", "-c"]
 WORKDIR /workspace
 RUN source /workspace/.venv/bin/activate
 
-ARG BUILDER_PACKAGES="nat_helpers visual_media nat_nv_ingest smart_milvus webscrape rss_feed vtt_interpreter agent_skills serpapi_search content_distiller source_verifier user_interaction autonomous_agent"
+ARG BUILDER_PACKAGES="nat_helpers visual_media nat_nv_ingest smart_milvus webscrape rss_feed vtt_interpreter agent_skills serpapi_search perplexity_search content_distiller source_verifier user_interaction autonomous_agent"
 
 # Install dependency metadata before copying source so normal code edits do not
 # invalidate the expensive dependency resolution and download layer.
@@ -70,6 +70,7 @@ COPY rss_feed/pyproject.toml /workspace/rss_feed/
 COPY vtt_interpreter/pyproject.toml /workspace/vtt_interpreter/
 COPY agent_skills/pyproject.toml /workspace/agent_skills/
 COPY serpapi_search/pyproject.toml /workspace/serpapi_search/
+COPY perplexity_search/pyproject.toml /workspace/perplexity_search/
 COPY content_distiller/pyproject.toml /workspace/content_distiller/
 COPY source_verifier/pyproject.toml /workspace/source_verifier/
 COPY user_interaction/pyproject.toml /workspace/user_interaction/
@@ -96,6 +97,7 @@ COPY rss_feed /workspace/rss_feed
 COPY vtt_interpreter /workspace/vtt_interpreter
 COPY agent_skills /workspace/agent_skills
 COPY serpapi_search /workspace/serpapi_search
+COPY perplexity_search /workspace/perplexity_search
 COPY content_distiller /workspace/content_distiller
 COPY source_verifier /workspace/source_verifier
 COPY user_interaction /workspace/user_interaction
@@ -114,6 +116,7 @@ RUN --mount=type=cache,id=uv_cache,target=/root/.cache/uv,sharing=locked \
     NAT_VERSION= nat workflow reinstall vtt_interpreter && \
     NAT_VERSION= nat workflow reinstall agent_skills && \
     NAT_VERSION= nat workflow reinstall serpapi_search && \
+    NAT_VERSION= nat workflow reinstall perplexity_search && \
     NAT_VERSION= nat workflow reinstall content_distiller && \
     NAT_VERSION= nat workflow reinstall source_verifier && \
     NAT_VERSION= nat workflow reinstall user_interaction
@@ -138,6 +141,7 @@ RUN chmod -R a+rX \
     /workspace/vtt_interpreter \
     /workspace/agent_skills \
     /workspace/serpapi_search \
+    /workspace/perplexity_search \
     /workspace/content_distiller \
     /workspace/source_verifier \
     /workspace/user_interaction \

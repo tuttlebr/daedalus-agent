@@ -19,7 +19,7 @@ llms:
     api_key: $NVIDIA_API_KEY
     temperature: 0.0
     max_tokens: 1024
-    optimizable_params: [temperature]   # marks temperature for Optuna search
+    optimizable_params: [temperature] # marks temperature for Optuna search
 
   judge_llm:
     _type: nim
@@ -31,22 +31,22 @@ llms:
     # Note: do not optimize the judge LLM — it must stay stable across all trials
 
 workflow:
-  _type: react_agent          # or predict, tool_calling_agent, etc.
+  _type: react_agent # or predict, tool_calling_agent, etc.
   llm_name: main_llm
-  tool_names: []              # list your tool names here
+  tool_names: [] # list your tool names here
   verbose: false
 
 eval:
   general:
-    dataset: eval_dataset.json   # path to your question/answer pairs
+    dataset: eval_dataset.json # path to your question/answer pairs
     output_path: output
-    max_concurrency: 8           # lower if you encounter rate limits
+    max_concurrency: 8 # lower if you encounter rate limits
 
   evaluators:
-    correctness:               # key used in optimizer.eval_metrics
+    correctness: # key used in optimizer.eval_metrics
       _type: tunable_rag_evaluator
       llm_name: judge_llm
-      judge_llm_prompt: ""     # required field even when default_scoring: true
+      judge_llm_prompt: '' # required field even when default_scoring: true
       default_scoring: true
 
 optimizer:
@@ -63,7 +63,7 @@ optimizer:
 
   eval_metrics:
     accuracy:
-      evaluator_name: correctness   # must match a key in eval.evaluators above
+      evaluator_name: correctness # must match a key in eval.evaluators above
       direction: maximize
       weight: 1.0
 ```
@@ -103,7 +103,7 @@ eval:
     quality:
       _type: langsmith_judge
       llm_name: judge_llm
-      prompt: correctness      # prebuilt openevals prompt
+      prompt: correctness # prebuilt openevals prompt
 
 optimizer:
   eval_metrics:

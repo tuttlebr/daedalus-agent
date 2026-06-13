@@ -32,17 +32,17 @@ If you see `ModuleNotFoundError` or `nat info components -t evaluator` does not 
 
 ## Core metrics
 
-| Metric | What it measures | Reference needed? |
-| --- | --- | --- |
-| `AnswerAccuracy` | Semantic accuracy vs. reference answer | Yes |
-| `FactualCorrectness` | Factual accuracy (accepts `mode` kwarg for strictness) | Yes |
-| `ResponseGroundedness` | Response supported by retrieved context | No |
-| `ContextRelevance` | Retrieved context relevant to the question | No |
-| `Faithfulness` | Claims inferable from given context (stricter than Groundedness) | No |
-| `AnswerRelevancy` | Whether the answer addresses the question | No |
-| `ContextPrecision` | Proportion of retrieved context that is relevant | Yes |
-| `ContextRecall` | Whether all relevant info was retrieved | Yes |
-| `NoiseSensitivity` | Robustness to irrelevant context | Yes |
+| Metric                 | What it measures                                                 | Reference needed? |
+| ---------------------- | ---------------------------------------------------------------- | ----------------- |
+| `AnswerAccuracy`       | Semantic accuracy vs. reference answer                           | Yes               |
+| `FactualCorrectness`   | Factual accuracy (accepts `mode` kwarg for strictness)           | Yes               |
+| `ResponseGroundedness` | Response supported by retrieved context                          | No                |
+| `ContextRelevance`     | Retrieved context relevant to the question                       | No                |
+| `Faithfulness`         | Claims inferable from given context (stricter than Groundedness) | No                |
+| `AnswerRelevancy`      | Whether the answer addresses the question                        | No                |
+| `ContextPrecision`     | Proportion of retrieved context that is relevant                 | Yes               |
+| `ContextRecall`        | Whether all relevant info was retrieved                          | Yes               |
+| `NoiseSensitivity`     | Robustness to irrelevant context                                 | Yes               |
 
 Available metrics depend on the installed `ragas` package version. Check [docs.ragas.io](https://docs.ragas.io) for the full list.
 

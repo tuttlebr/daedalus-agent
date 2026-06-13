@@ -4,35 +4,35 @@ All optimizer settings live under a single `optimizer:` block in `workflow.yaml`
 
 ```yaml
 optimizer:
-  output_path: optimizer_results   # where results are written
-  target: 0.95                     # optional early stopping — stop when this score is reached
-  reps_per_param_set: 3            # repetitions per trial (default 3; use 1 for deterministic agents)
-  multi_objective_combination_mode: harmonic   # harmonic, sum, or chebyshev
+  output_path: optimizer_results # where results are written
+  target: 0.95 # optional early stopping — stop when this score is reached
+  reps_per_param_set: 3 # repetitions per trial (default 3; use 1 for deterministic agents)
+  multi_objective_combination_mode: harmonic # harmonic, sum, or chebyshev
 
   numeric:
     enabled: true
-    n_trials: 20                   # number of Optuna trials
-    sampler: bayesian              # bayesian (default), grid, or omit for auto
+    n_trials: 20 # number of Optuna trials
+    sampler: bayesian # bayesian (default), grid, or omit for auto
 
   prompt:
     enabled: false
     ga_population_size: 24
     ga_generations: 15
-    ga_mutation_rate: 0.3          # probability of LLM-based mutation per child
+    ga_mutation_rate: 0.3 # probability of LLM-based mutation per child
     ga_crossover_rate: 0.8
     ga_elitism: 2
-    ga_selection_method: tournament   # tournament or roulette
+    ga_selection_method: tournament # tournament or roulette
     ga_tournament_size: 3
     ga_parallel_evaluations: 8
-    ga_diversity_lambda: 0.0          # >0 adds diversity pressure to avoid convergence
-    prompt_population_init_function: null   # custom function for initial population seeding
-    prompt_recombination_function: null     # custom function for combining parent prompts
-    oracle_feedback_mode: never       # never, always, failing_only, adaptive
+    ga_diversity_lambda: 0.0 # >0 adds diversity pressure to avoid convergence
+    prompt_population_init_function: null # custom function for initial population seeding
+    prompt_recombination_function: null # custom function for combining parent prompts
+    oracle_feedback_mode: never # never, always, failing_only, adaptive
     oracle_feedback_worst_n: 5
 
   eval_metrics:
     accuracy:
-      evaluator_name: correctness   # must match a key in eval.evaluators — see Evaluation section in SKILL.md
+      evaluator_name: correctness # must match a key in eval.evaluators — see Evaluation section in SKILL.md
       direction: maximize
       weight: 1.0
 ```
@@ -52,15 +52,15 @@ Use multi-objective optimization whenever the evaluation has multiple **independ
 To optimize against multiple criteria simultaneously, add multiple entries to `eval_metrics`:
 
 ```yaml
-  eval_metrics:
-    accuracy:
-      evaluator_name: correctness     # key from eval.evaluators
-      direction: maximize
-      weight: 1.0
-    conciseness:
-      evaluator_name: length_penalty  # key from eval.evaluators
-      direction: minimize
-      weight: 0.5
+eval_metrics:
+  accuracy:
+    evaluator_name: correctness # key from eval.evaluators
+    direction: maximize
+    weight: 1.0
+  conciseness:
+    evaluator_name: length_penalty # key from eval.evaluators
+    direction: minimize
+    weight: 0.5
 ```
 
 Each metric has:

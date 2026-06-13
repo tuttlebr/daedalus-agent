@@ -9,7 +9,7 @@ import time
 import uuid
 from typing import Any
 
-from .dedupe import dedupe_feed_items, window_ms_for_days
+from .dedupe import dedupe_feed_items, stamp_feed_item, window_ms_for_days
 from .models import default_config, new_event, now_ms
 
 
@@ -238,7 +238,9 @@ class RedisStore:
                     window_ms=window_ms,
                 )
             else:
-                kept = items
+                kept = [
+                    stamp_feed_item(item) for item in items if isinstance(item, dict)
+                ]
             if not kept:
                 return feed, []
             # Return only the items that survived the cap so the caller's

@@ -133,6 +133,7 @@ def test_feed_items_from_output_limits_and_normalizes():
                 "bluf": "The topology changed.",
                 "body": "Worth tracking.",
                 "source_url": "https://example.com",
+                "thread_key": "example-thread",
                 "confidence": "High",
                 "confidence_reason": "Primary source.",
             }
@@ -144,6 +145,7 @@ def test_feed_items_from_output_limits_and_normalizes():
     assert len(items) == 1
     assert items[0]["lane"] == "known"
     assert items[0]["sourceUrl"] == "https://example.com"
+    assert items[0]["threadKey"] == "example-thread"
 
 
 def test_apply_workspace_updates_only_allows_known_mutable_sections():
@@ -230,7 +232,72 @@ def test_build_messages_includes_already_surfaced_digest():
     prompt = messages[-1]["content"]
     assert "already_surfaced" in prompt
     assert "NVIDIA announces new GPU" in prompt
+    assert "Shipped today." in prompt
+    assert "threadKey" in prompt
     assert "Avoid redundancy" in prompt
+
+
+def test_build_messages_scopes_goal_run_to_selected_goal():
+    messages = build_messages(
+        user_id="test-user",
+        config={"actionPolicy": "broad_autonomy"},
+        workspace={},
+        goals=[
+            {
+                "id": "goal_nvidia",
+                "title": "Track NVIDIA",
+                "status": "active",
+                "priority": 1,
+            },
+            {
+                "id": "goal_amd",
+                "title": "Track AMD",
+                "status": "active",
+                "priority": 2,
+            },
+        ],
+        recent_runs=[],
+        request={"trigger": "goal", "goalId": "goal_amd", "prompt": "note"},
+    )
+
+    prompt = messages[-1]["content"]
+    assert '"selected_goal": {' in prompt
+    assert '"id": "goal_amd"' in prompt
+    assert "treat selected_goal as the sole objective" in prompt
+    assert "Do not switch to a different active_goals item" in prompt
+
+
+def test_run_once_goal_request_passes_selected_goal_to_backend():
+    response = json.dumps({"summary": "No new findings.", "feed_items": []})
+    store = FakeStore()
+    store.goals = [
+        {
+            "id": "goal_ops",
+            "title": "Ops signals",
+            "status": "active",
+            "priority": 1,
+        },
+        {
+            "id": "goal_research",
+            "title": "Research signals",
+            "status": "active",
+            "priority": 2,
+        },
+    ]
+    backend = FakeBackend(response)
+
+    run = run_once(
+        store=store,
+        backend=backend,
+        user_id="test-user",
+        request={"trigger": "goal", "goalId": "goal_research"},
+    )
+
+    prompt = backend.messages[-1]["content"]
+    assert run["status"] == "completed"
+    assert '"goal_id": "goal_research"' in prompt
+    assert '"selected_goal": {' in prompt
+    assert '"title": "Research signals"' in prompt
 
 
 def test_run_once_dedupes_feed_items_already_surfaced():
@@ -473,9 +540,7 @@ def test_backend_client_submit_error_includes_response_body(monkeypatch):
         text = '{"detail":[{"loc":["body","input_message"],"msg":"Field required"}]}'
 
         def raise_for_status(self):
-            raise _requests.HTTPError(
-                "422 Client Error: Unprocessable Entity for url"
-            )
+            raise _requests.HTTPError("422 Client Error: Unprocessable Entity for url")
 
     monkeypatch.setattr(
         "autonomous_agent.backend_client.requests.post",

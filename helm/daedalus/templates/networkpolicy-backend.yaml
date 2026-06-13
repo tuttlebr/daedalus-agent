@@ -139,7 +139,7 @@ spec:
       {{- end }}
     {{- end }}
     {{- if not .Values.backend.networkPolicy.cilium.enabled }}
-    # Allow external HTTPS only (NVIDIA APIs, SerpAPI, GitHub, Google OAuth/MCP, OpenRouter, RSS feeds)
+    # Allow external HTTPS only (NVIDIA APIs, search APIs, GitHub, Google OAuth/MCP, OpenRouter, RSS feeds)
     - to:
         - ipBlock:
             cidr: 0.0.0.0/0

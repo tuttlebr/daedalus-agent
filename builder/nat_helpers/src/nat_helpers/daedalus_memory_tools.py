@@ -4,16 +4,13 @@ import json
 import logging
 from typing import Any
 
-from pydantic import BaseModel
-from pydantic import ConfigDict
-from pydantic import Field
-
 from nat.builder.builder import Builder
 from nat.builder.function_info import FunctionInfo
 from nat.cli.register_workflow import register_function
 from nat.data_models.component_ref import MemoryRef
 from nat.data_models.function import FunctionBaseConfig
 from nat_helpers.identity import authenticated_user_id_from_context
+from pydantic import BaseModel, ConfigDict, Field
 
 logger = logging.getLogger(__name__)
 
@@ -175,7 +172,9 @@ async def daedalus_add_memory(config: DaedalusAddMemoryConfig, builder: Builder)
             logger.exception("Error adding memory")
             return f"Error adding memory: {exc}"
 
-        return "Memory added successfully. You can continue. Please respond to the user."
+        return (
+            "Memory added successfully. You can continue. Please respond to the user."
+        )
 
     yield FunctionInfo.from_fn(
         _arun,

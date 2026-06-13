@@ -1,5 +1,8 @@
 import {
+  enqueueAllActiveGoals,
   enqueueRun,
+  isAllActiveGoalsRunRequest,
+  NoActiveGoalsError,
   normalizeImportedGoals,
   QueueFullError,
   sanitizeConfigPatch,
@@ -10,14 +13,16 @@ const mocks = vi.hoisted(() => ({
   getRedis: vi.fn(),
   llen: vi.fn(),
   lpush: vi.fn(),
+  jsonGet: vi.fn(),
+  jsonSet: vi.fn(),
 }));
 
 vi.mock('@/server/session/redis', () => ({
   getRedis: mocks.getRedis,
   sessionKey: (parts: Array<string | undefined | null>) =>
     parts.filter(Boolean).join(':'),
-  jsonGet: vi.fn(),
-  jsonSet: vi.fn(),
+  jsonGet: mocks.jsonGet,
+  jsonSet: mocks.jsonSet,
 }));
 
 vi.mock('@/utils/sync/publish', () => ({
@@ -104,6 +109,7 @@ describe('autonomy enqueueRun depth cap', () => {
     vi.clearAllMocks();
     mocks.getRedis.mockReturnValue({ llen: mocks.llen, lpush: mocks.lpush });
     mocks.lpush.mockResolvedValue(1);
+    mocks.jsonGet.mockResolvedValue([]);
   });
 
   it('throws QueueFullError when at capacity and the cap is enforced (API path)', async () => {
@@ -131,5 +137,124 @@ describe('autonomy enqueueRun depth cap', () => {
     await enqueueRun('user-a', { prompt: 'go' }, { enforceDepthCap: true });
 
     expect(mocks.lpush).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('autonomy run-all-active-goals enqueue', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.getRedis.mockReturnValue({ llen: mocks.llen, lpush: mocks.lpush });
+    mocks.lpush.mockResolvedValue(1);
+    mocks.llen.mockResolvedValue(0);
+  });
+
+  it('recognizes narrow positive manual aliases unless negated', () => {
+    expect(isAllActiveGoalsRunRequest({ prompt: 'run all goals' })).toBe(true);
+    expect(
+      isAllActiveGoalsRunRequest({ prompt: 'run every active goal' }),
+    ).toBe(true);
+    expect(isAllActiveGoalsRunRequest({ prompt: "don't run all goals" })).toBe(
+      false,
+    );
+    expect(
+      isAllActiveGoalsRunRequest({
+        trigger: 'scheduled',
+        prompt: 'run all goals',
+      }),
+    ).toBe(false);
+  });
+
+  it('enqueues one scoped request per active goal in priority order', async () => {
+    vi.spyOn(Date, 'now').mockReturnValue(1700000000000);
+    mocks.jsonGet.mockResolvedValue([
+      {
+        id: 'goal_late',
+        title: 'Later',
+        description: '',
+        status: 'active',
+        priority: 5,
+      },
+      {
+        id: 'goal_paused',
+        title: 'Paused',
+        description: '',
+        status: 'paused',
+        priority: 0,
+      },
+      {
+        id: 'goal_high',
+        title: 'High',
+        description: '',
+        status: 'active',
+        priority: 1,
+      },
+      {
+        id: 'goal_tie_a',
+        title: 'Tie A',
+        description: '',
+        status: 'active',
+        priority: 2,
+      },
+      {
+        id: 'goal_tie_b',
+        title: 'Tie B',
+        description: '',
+        status: 'active',
+        priority: 2,
+      },
+    ]);
+
+    const result = await enqueueAllActiveGoals(
+      'user-a',
+      { prompt: 'operator note' },
+      { enforceDepthCap: true },
+    );
+
+    const [, ...serialized] = mocks.lpush.mock.calls[0];
+    const payloads = serialized.map((raw) => JSON.parse(raw));
+    expect(payloads.map((request) => request.goalId)).toEqual([
+      'goal_high',
+      'goal_tie_a',
+      'goal_tie_b',
+      'goal_late',
+    ]);
+    expect(payloads.every((request) => request.trigger === 'goal')).toBe(true);
+    expect(
+      payloads.every((request) => request.prompt === 'operator note'),
+    ).toBe(true);
+    expect(result).toEqual({
+      queued: 4,
+      requests: payloads.map((request) => ({
+        id: request.id,
+        goalId: request.goalId,
+        queuedAt: 1700000000000,
+      })),
+    });
+
+    vi.spyOn(Date, 'now').mockRestore();
+  });
+
+  it('returns no-active-goals as an explicit error without enqueueing', async () => {
+    mocks.jsonGet.mockResolvedValue([
+      { id: 'goal_done', title: 'Done', status: 'completed', priority: 1 },
+    ]);
+
+    await expect(enqueueAllActiveGoals('user-a')).rejects.toBeInstanceOf(
+      NoActiveGoalsError,
+    );
+    expect(mocks.lpush).not.toHaveBeenCalled();
+  });
+
+  it('checks queue capacity before enqueueing any batch request', async () => {
+    mocks.jsonGet.mockResolvedValue([
+      { id: 'goal_a', title: 'A', status: 'active', priority: 1 },
+      { id: 'goal_b', title: 'B', status: 'active', priority: 2 },
+    ]);
+    mocks.llen.mockResolvedValue(99);
+
+    await expect(
+      enqueueAllActiveGoals('user-a', {}, { enforceDepthCap: true }),
+    ).rejects.toBeInstanceOf(QueueFullError);
+    expect(mocks.lpush).not.toHaveBeenCalled();
   });
 });

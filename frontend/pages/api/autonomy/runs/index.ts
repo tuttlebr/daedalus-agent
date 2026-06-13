@@ -1,6 +1,13 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 
-import { enqueueRun, listRuns, QueueFullError } from '@/server/autonomy/store';
+import {
+  enqueueAllActiveGoals,
+  enqueueRun,
+  isAllActiveGoalsRunRequest,
+  listRuns,
+  NoActiveGoalsError,
+  QueueFullError,
+} from '@/server/autonomy/store';
 import { enforceRateLimit, ruleFromEnv } from '@/server/rateLimit';
 import { requireAuthenticatedUser } from '@/server/session/_utils';
 
@@ -26,12 +33,22 @@ export default async function handler(
   if (req.method === 'POST') {
     if (!(await enforceRateLimit(res, AUTONOMY_RUN_RATE_LIMIT, userId))) return;
     try {
+      if (isAllActiveGoalsRunRequest(req.body || {})) {
+        return res.status(202).json(
+          await enqueueAllActiveGoals(userId, req.body || {}, {
+            enforceDepthCap: true,
+          }),
+        );
+      }
       return res
         .status(202)
         .json(
           await enqueueRun(userId, req.body || {}, { enforceDepthCap: true }),
         );
     } catch (error) {
+      if (error instanceof NoActiveGoalsError) {
+        return res.status(400).json({ error: error.message });
+      }
       if (error instanceof QueueFullError) {
         res.setHeader('Retry-After', '60');
         return res.status(429).json({ error: error.message });

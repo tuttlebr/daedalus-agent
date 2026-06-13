@@ -152,6 +152,12 @@ _known_mcp_function_groups: set[str] = set()
 _MCP_STARTUP_MAX_RETRIES = 3
 _MCP_STARTUP_RETRY_DELAY = 5  # seconds between retries
 
+_STARTUP_RESILIENCE_EXCEPTIONS = (
+    Exception,
+    asyncio.CancelledError,
+    BaseExceptionGroup,  # noqa: F821 (builtin in 3.11+)
+)
+
 
 def _httpx_exception_type(name: str):
     cls = getattr(httpx, name, None)
@@ -1176,7 +1182,7 @@ def _patch_startup_resilience():
             for attempt in range(_MCP_STARTUP_MAX_RETRIES + 1):
                 try:
                     return await original_add_fg(self, name, *args, **kwargs)
-                except (Exception, asyncio.CancelledError, BaseExceptionGroup) as exc:
+                except _STARTUP_RESILIENCE_EXCEPTIONS as exc:
                     if _is_no_tools_after_degradation_error(exc):
                         skipped_name = _record_skipped_function_group(name)
                         logger.warning(
@@ -1232,7 +1238,7 @@ def _patch_startup_resilience():
                     result = await original_get_tools(
                         self, [tool_name], *args, **kwargs
                     )
-                except (Exception, asyncio.CancelledError, BaseExceptionGroup) as exc:
+                except _STARTUP_RESILIENCE_EXCEPTIONS as exc:
                     if _should_skip_tool_resolution_error(exc, tool_name):
                         skipped_name = _record_skipped_function_group(tool_name)
                         skipped.append(skipped_name)
@@ -1277,7 +1283,7 @@ def _patch_startup_resilience():
                     )
             try:
                 result = await original_get_tools(self, tool_names, *args, **kwargs)
-            except (Exception, asyncio.CancelledError, BaseExceptionGroup) as exc:
+            except _STARTUP_RESILIENCE_EXCEPTIONS as exc:
                 if tool_names and (
                     _is_connection_error(exc)
                     or any(
@@ -1341,7 +1347,7 @@ def _patch_startup_resilience():
                 return None
             try:
                 return await original_get_function(self, name, *args, **kwargs)
-            except (Exception, asyncio.CancelledError, BaseExceptionGroup) as exc:
+            except _STARTUP_RESILIENCE_EXCEPTIONS as exc:
                 if _should_skip_tool_resolution_error(exc, name):
                     skipped_name = _record_skipped_function_group(name)
                     root = _extract_root_connection_error(exc)

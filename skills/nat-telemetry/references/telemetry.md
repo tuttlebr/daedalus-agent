@@ -12,7 +12,7 @@ general:
     logging:
       console:
         _type: console
-        level: INFO           # DEBUG, INFO, WARNING, ERROR
+        level: INFO # DEBUG, INFO, WARNING, ERROR
       file:
         _type: file
         path: ./logs/workflow.log

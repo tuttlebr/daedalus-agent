@@ -20,18 +20,18 @@ Use this skill first when working in the NeMo Agent Toolkit repository. It route
 
 ## Task Routing
 
-| Task | Skill |
-| --- | --- |
-| Installing or configuring the toolkit | `skills/nat-installation/SKILL.md` |
-| Creating, editing, validating, or running workflow YAML | `skills/nat-workflow-creation/SKILL.md` |
-| Choosing or composing agents | `skills/nat-agent-configuration/SKILL.md` |
-| Writing custom tools, functions, or function groups | `skills/nat-tools-and-functions/SKILL.md` |
-| Designing or running evaluation | `skills/nat-evaluation/SKILL.md` |
-| Running optimizer workflows | `skills/nat-optimization/SKILL.md` |
-| Adding tracing, logging, profiling, or telemetry exporters | `skills/nat-telemetry/SKILL.md` |
-| Serving workflows or wiring MCP | `skills/nat-mcp-and-serving/SKILL.md` |
-| Fixing documentation path-check failures | `skills/nat-path-checks/SKILL.md` |
-| Creating or improving skills | `skills/skill-evolution/SKILL.md` |
+| Task                                                       | Skill                                     |
+| ---------------------------------------------------------- | ----------------------------------------- |
+| Installing or configuring the toolkit                      | `skills/nat-installation/SKILL.md`        |
+| Creating, editing, validating, or running workflow YAML    | `skills/nat-workflow-creation/SKILL.md`   |
+| Choosing or composing agents                               | `skills/nat-agent-configuration/SKILL.md` |
+| Writing custom tools, functions, or function groups        | `skills/nat-tools-and-functions/SKILL.md` |
+| Designing or running evaluation                            | `skills/nat-evaluation/SKILL.md`          |
+| Running optimizer workflows                                | `skills/nat-optimization/SKILL.md`        |
+| Adding tracing, logging, profiling, or telemetry exporters | `skills/nat-telemetry/SKILL.md`           |
+| Serving workflows or wiring MCP                            | `skills/nat-mcp-and-serving/SKILL.md`     |
+| Fixing documentation path-check failures                   | `skills/nat-path-checks/SKILL.md`         |
+| Creating or improving skills                               | `skills/skill-evolution/SKILL.md`         |
 
 ## Discovery Commands
 

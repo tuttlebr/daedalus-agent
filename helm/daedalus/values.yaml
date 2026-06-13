@@ -266,9 +266,9 @@ autonomousAgent:
     # Default autonomous run interval; can be changed later from the UI dashboard
     intervalSeconds: 14400
   env:
-    # Load API keys from the same secret as the backend (needed if backend
-    # requires auth headers; usually not needed since the agent calls the
-    # in-cluster backend service directly)
+    # Optional extra API-key secret. The internal backend auth token is always
+    # injected from the chart-managed internal-api secret so memory tools can
+    # trust the worker's x-user-id header.
     fromSecret: ''
     overrides: {}
   resources:

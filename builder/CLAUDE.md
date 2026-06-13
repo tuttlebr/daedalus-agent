@@ -98,7 +98,7 @@ Consequence: unit tests exercise the **pure helper functions** inside each `*_fu
 
 ## Package catalog
 
-- **Search/web**: `webscrape` (httpx + Playwright fallback, robots-aware, challenge-page detection), `serpapi_search`, `rss_feed` (feed → rerank → MarkItDown scrape).
+- **Search/web**: `webscrape` (httpx + Playwright fallback, robots-aware, challenge-page detection), `serpapi_search`, `perplexity_search`, `rss_feed` (feed → rerank → MarkItDown scrape).
 - **Retrieval/ingest**: `smart_milvus` (Milvus retriever + `domain_retriever` domain→collection routing), `nat_nv_ingest` (`user_document_tool` ingest/search/list; NvIngest → Milvus; shared vs user collection scoping).
 - **Media**: `visual_media` (one tool, `operation=generate|edit|analyze`; OpenAI images API + VLM).
 - **Transcripts**: `vtt_interpreter`.

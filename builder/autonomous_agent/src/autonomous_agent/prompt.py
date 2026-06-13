@@ -148,7 +148,15 @@ def build_messages(
 ) -> list[dict[str, str]]:
     """Build a stable-prefix autonomous prompt for the NAT workflow."""
 
-    active_goals = [g for g in goals if g.get("status", "active") == "active"][:8]
+    all_active_goals = [g for g in goals if g.get("status", "active") == "active"]
+    active_goals = all_active_goals[:8]
+    goal_id = request.get("goalId")
+    selected_goal = None
+    if goal_id:
+        selected_goal = next(
+            (goal for goal in goals if goal.get("id") == goal_id),
+            None,
+        )
     recent_summaries = [
         {
             "id": r.get("id"),
@@ -188,6 +196,7 @@ def build_messages(
                 "bluf": "one sentence takeaway",
                 "body": "why it matters, 2-4 short sentences",
                 "source_url": "primary source URL when available",
+                "thread_key": "optional stable source/topic key for updates",
                 "confidence": "high | medium | low",
                 "confidence_reason": "specific reason",
             }
@@ -210,9 +219,10 @@ def build_messages(
         "action_policy": action_policy,
         "source_policy": source_policy,
         "trigger": request.get("trigger", "scheduled"),
-        "goal_id": request.get("goalId"),
+        "goal_id": goal_id,
         "manual_prompt": request.get("prompt", ""),
         "active_goals": active_goals,
+        "selected_goal": selected_goal,
         "recent_runs": recent_summaries,
         "already_surfaced": already_surfaced,
     }
@@ -225,7 +235,11 @@ only human interaction point.
 
 # Goal
 Choose a bounded, high-value task from the runtime input, use available backend
-tools to make progress, and return structured feed items the UI can render.
+tools to make progress, and return structured feed items the UI can render. If
+runtime input includes selected_goal, treat selected_goal as the sole objective
+for this run. Do not switch to a different active_goals item; use the rest of
+active_goals only as context. The manual_prompt on a goal run is an operator
+note, not permission to replace the selected goal.
 
 # Identity and first step
 Memory tools derive user_id from the authenticated request; do not pass user_id
@@ -250,10 +264,11 @@ unsupported claims. Prefer primary sources.
 
 # Avoid redundancy
 The "already_surfaced" list in the runtime input is what you reported in recent
-runs. Do NOT emit a feed item that repeats the same event, announcement, paper,
-release, or finding already on that list. Surface an item only when it is
-genuinely new, or a material update to a prior one — and if it is an update,
-state plainly in the bluf what changed since it was last reported. If a run
+runs, including short BLUF, source, and thread key. Do NOT emit a feed item that
+repeats the same event, announcement, paper, release, or finding already on that
+list. Surface an item only when it is genuinely new, or a material update to a
+prior one — and if it is an update, state plainly in the bluf what changed since
+it was last reported and reuse the same thread_key when you know it. If a run
 turns up nothing beyond what is already surfaced, return an empty feed_items
 list rather than restating known items.
 
@@ -413,6 +428,9 @@ def feed_items_from_output(run_id: str, output: dict[str, Any]) -> list[dict[str
                 body=str(item.get("body") or "").strip(),
                 source_url=str(
                     item.get("source_url") or item.get("sourceUrl") or ""
+                ).strip(),
+                thread_key=str(
+                    item.get("thread_key") or item.get("threadKey") or ""
                 ).strip(),
                 confidence=str(item.get("confidence") or "medium").strip().lower(),
                 confidence_reason=str(

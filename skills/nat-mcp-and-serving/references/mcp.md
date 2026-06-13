@@ -104,11 +104,11 @@ This is all you need. The `mcp_client` function group handles MCP connection, to
 
 ### Transport types
 
-| Transport | When to use | Config |
-| --- | --- | --- |
-| `sse` | MCP servers with SSE endpoints | `transport: sse`, `url: http://...` |
-| `streamable-http` | Modern MCP servers (recommended for new servers) | `transport: streamable-http`, `url: http://...` |
-| `stdio` | Local MCP servers running as subprocesses | `transport: stdio`, `command: python`, `args: ["-m", "my_server"]` |
+| Transport         | When to use                                      | Config                                                             |
+| ----------------- | ------------------------------------------------ | ------------------------------------------------------------------ |
+| `sse`             | MCP servers with SSE endpoints                   | `transport: sse`, `url: http://...`                                |
+| `streamable-http` | Modern MCP servers (recommended for new servers) | `transport: streamable-http`, `url: http://...`                    |
+| `stdio`           | Local MCP servers running as subprocesses        | `transport: stdio`, `command: python`, `args: ["-m", "my_server"]` |
 
 ### Overriding tool names and descriptions
 
@@ -121,10 +121,10 @@ function_groups:
       url: ${MCP_SERVER_URL}
     tool_overrides:
       search_docs:
-        alias: "search"
-        description: "Search the knowledge base for documents"
+        alias: 'search'
+        description: 'Search the knowledge base for documents'
       get_document:
-        description: "Fetch full document content by ID"
+        description: 'Fetch full document content by ID'
 ```
 
 ### Additional options
@@ -136,20 +136,20 @@ function_groups:
     server:
       transport: sse
       url: ${MCP_SERVER_URL}
-    tool_call_timeout: 60          # seconds, default 60
-    reconnect_enabled: true        # auto-reconnect on connection loss
+    tool_call_timeout: 60 # seconds, default 60
+    reconnect_enabled: true # auto-reconnect on connection loss
     reconnect_max_attempts: 2
 ```
 
 ## MCP Troubleshooting
 
-| Symptom | Likely cause | Fix |
-| --- | --- | --- |
-| Agent hangs on startup, never calls tools | MCP SSE connection stuck waiting for `\n\n` event terminator | Check that the MCP server sends proper SSE framing (`event: ...\ndata: ...\n\n`). Test with `curl -N <url>` |
-| `tools/list` succeeds but `tools/call` times out | MCP server not responding to tool invocations | Increase `tool_call_timeout`. Check server logs for errors on the tool handler |
-| Agent generates text but never invokes tools | `use_native_tool_calling: true` with incompatible LLM | Switch to `use_native_tool_calling: false` (text-based ReAct parsing) |
-| Intermittent connection resets | MCP server dropping idle SSE connections | Set `reconnect_enabled: true` and `reconnect_max_attempts: 3` |
-| `ValueError: url is required` | Missing URL in `mcp_client` server config | Ensure `server.url` is set and the env var resolves (e.g., `${MCP_URL}` is in the environment) |
+| Symptom                                          | Likely cause                                                 | Fix                                                                                                         |
+| ------------------------------------------------ | ------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------- |
+| Agent hangs on startup, never calls tools        | MCP SSE connection stuck waiting for `\n\n` event terminator | Check that the MCP server sends proper SSE framing (`event: ...\ndata: ...\n\n`). Test with `curl -N <url>` |
+| `tools/list` succeeds but `tools/call` times out | MCP server not responding to tool invocations                | Increase `tool_call_timeout`. Check server logs for errors on the tool handler                              |
+| Agent generates text but never invokes tools     | `use_native_tool_calling: true` with incompatible LLM        | Switch to `use_native_tool_calling: false` (text-based ReAct parsing)                                       |
+| Intermittent connection resets                   | MCP server dropping idle SSE connections                     | Set `reconnect_enabled: true` and `reconnect_max_attempts: 3`                                               |
+| `ValueError: url is required`                    | Missing URL in `mcp_client` server config                    | Ensure `server.url` is set and the env var resolves (e.g., `${MCP_URL}` is in the environment)              |
 
 ## Exposing a Workflow as an MCP Server
 
@@ -159,8 +159,8 @@ Set `front_end._type: mcp` to expose the entire workflow as an MCP server:
 general:
   front_end:
     _type: mcp
-    name: "my_agent"
+    name: 'my_agent'
     host: ${MCP_HOST:-0.0.0.0}
     port: ${MCP_PORT:-9001}
-    base_path: "/maas/my_agent"
+    base_path: '/maas/my_agent'
 ```
