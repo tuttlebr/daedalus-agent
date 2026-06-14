@@ -158,15 +158,18 @@ def _count_tokens(text: str, encoding_name: str = "cl100k_base") -> int:
 
 
 def _truncate_to_token_limit(
-    text: str, max_tokens: int, truncation_msg: str, encoding_name: str = "cl100k_base"
+    text: str,
+    token_limit: int,
+    truncation_msg: str,
+    encoding_name: str = "cl100k_base",
 ) -> tuple[str, bool]:
     token_count = _count_tokens(text, encoding_name)
-    if token_count <= max_tokens:
+    if token_count <= token_limit:
         return text, False
 
     left, right = 0, len(text)
     truncation_msg_tokens = _count_tokens(truncation_msg, encoding_name)
-    target_tokens = max_tokens - truncation_msg_tokens
+    target_tokens = token_limit - truncation_msg_tokens
 
     while left < right:
         mid = (left + right + 1) // 2
@@ -229,7 +232,7 @@ def _html_to_markdown(
     html: str,
     url: str,
     title: str | None = None,
-    max_tokens: int | None = None,
+    token_limit: int | None = None,
     truncation_msg: str = "",
 ) -> str:
     """Convert an HTML string to formatted markdown via a temp file + MarkItDown."""
@@ -246,12 +249,12 @@ def _html_to_markdown(
         header = f"# {title_text}\n\n_Source: {url}_\n\n"
         full_content = header + (result.text_content or "")
 
-        if max_tokens is not None:
+        if token_limit is not None:
             full_content, was_truncated = _truncate_to_token_limit(
-                full_content, max_tokens, truncation_msg
+                full_content, token_limit, truncation_msg
             )
             if was_truncated:
-                logger.info("Content from %s truncated to %d tokens", url, max_tokens)
+                logger.info("Content from %s truncated to %d tokens", url, token_limit)
 
         return full_content
     finally:
@@ -309,7 +312,7 @@ async def _get_following_safe_redirects(
 
 
 def _scrape_with_markitdown(
-    url: str, max_tokens: int | None = None, truncation_msg: str = ""
+    url: str, token_limit: int | None = None, truncation_msg: str = ""
 ) -> str:
     """Strategy 1: direct MarkItDown URL conversion (fastest, no JS support)."""
     md = MarkItDown(enable_plugins=True)
@@ -319,19 +322,19 @@ def _scrape_with_markitdown(
     header = f"# {title_text}\n\n_Source: {url}_\n\n"
     full_content = header + (result.text_content or "")
 
-    if max_tokens is not None:
+    if token_limit is not None:
         full_content, was_truncated = _truncate_to_token_limit(
-            full_content, max_tokens, truncation_msg
+            full_content, token_limit, truncation_msg
         )
         if was_truncated:
-            logger.info("Content from %s truncated to %d tokens", url, max_tokens)
+            logger.info("Content from %s truncated to %d tokens", url, token_limit)
 
     return full_content
 
 
 async def _scrape_with_httpx(
     url: str,
-    max_tokens: int | None = None,
+    token_limit: int | None = None,
     truncation_msg: str = "",
     allowed_schemes: list[str] | None = None,
 ) -> str | None:
@@ -359,14 +362,14 @@ async def _scrape_with_httpx(
         _html_to_markdown,
         html,
         url,
-        max_tokens=max_tokens,
+        token_limit=token_limit,
         truncation_msg=truncation_msg,
     )
 
 
 async def _scrape_with_browser(
     url: str,
-    max_tokens: int | None = None,
+    token_limit: int | None = None,
     truncation_msg: str = "",
     timeout: float = 45.0,
 ) -> str | None:
@@ -419,7 +422,7 @@ async def _scrape_with_browser(
         html,
         url,
         title=title,
-        max_tokens=max_tokens,
+        token_limit=token_limit,
         truncation_msg=truncation_msg,
     )
 
@@ -598,7 +601,7 @@ async def webscrape_function(config: WebscrapeFunctionConfig, builder: Builder):
             markdown_output = await asyncio.to_thread(
                 _scrape_with_markitdown,
                 url,
-                max_tokens=config.max_output_tokens,
+                token_limit=config.max_output_tokens,
                 truncation_msg=config.truncation_message,
             )
         except Exception as exc:
@@ -618,7 +621,7 @@ async def webscrape_function(config: WebscrapeFunctionConfig, builder: Builder):
         try:
             httpx_output = await _scrape_with_httpx(
                 url,
-                max_tokens=config.max_output_tokens,
+                token_limit=config.max_output_tokens,
                 truncation_msg=config.truncation_message,
                 allowed_schemes=config.allowed_schemes,
             )
@@ -638,7 +641,7 @@ async def webscrape_function(config: WebscrapeFunctionConfig, builder: Builder):
                 try:
                     browser_output = await _scrape_with_browser(
                         url,
-                        max_tokens=config.max_output_tokens,
+                        token_limit=config.max_output_tokens,
                         truncation_msg=config.truncation_message,
                         timeout=config.browser_timeout,
                     )

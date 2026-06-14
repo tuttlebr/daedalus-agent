@@ -68,16 +68,16 @@ class TestCountTokens:
 class TestTruncateText:
     def test_short_text_unchanged(self):
         text = "Hello world"
-        assert truncate_text(text, max_tokens=1000) == text
+        assert truncate_text(text, token_limit=1000) == text
 
     def test_returns_string(self):
         assert isinstance(truncate_text("hello", 100), str)
 
     def test_char_based_truncation(self):
-        """Without tiktoken, truncates by chars: max_tokens * 4."""
+        """Without tiktoken, truncates by chars: token_limit * 4."""
         with patch.object(rss_mod, "_can_use_tiktoken", return_value=False):
             long_text = "a" * 5000
-            result = truncate_text(long_text, max_tokens=100)
+            result = truncate_text(long_text, token_limit=100)
             # 100 * 4 = 400 char limit
             assert len(result) <= 400
 
@@ -85,16 +85,16 @@ class TestTruncateText:
         """Short text not truncated even without tiktoken."""
         with patch.object(rss_mod, "_can_use_tiktoken", return_value=False):
             text = "short"
-            result = truncate_text(text, max_tokens=100)
+            result = truncate_text(text, token_limit=100)
             assert result == text
 
     def test_empty_string(self):
         assert truncate_text("", 100) == ""
 
-    def test_zero_max_tokens(self):
+    def test_zero_token_limit(self):
         """Edge case: 0 tokens means empty char limit => empty string."""
         with patch.object(rss_mod, "_can_use_tiktoken", return_value=False):
-            result = truncate_text("hello", max_tokens=0)
+            result = truncate_text("hello", token_limit=0)
             # 0 * 4 = 0, so text[:0] = ""
             assert result == ""
 

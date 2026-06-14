@@ -768,29 +768,29 @@ llms:
     api_key: ${TOOL_CALLING_LLM_MODEL_API_KEY}
     base_url: ${TOOL_CALLING_LLM_MODEL_BASE_URL}
     model_name: ${TOOL_CALLING_LLM_MODEL_MODEL}
-    extra_body:
-      nvext:
-        agent_hints:
-          priority: 9
-          osl: 2048
-          speculative_prefill: true
-        cache_control:
-          type: ephemeral
-          ttl: 120m
+    # extra_body:
+    #   nvext:
+    #     agent_hints:
+    #       priority: 9
+    #       osl: 2048
+    #       speculative_prefill: true
+    #     cache_control:
+    #       type: ephemeral
+    #       ttl: 120m
   default_llm:
     _type: openai
     api_key: ${DEFAULT_LLM_MODEL_API_KEY}
     base_url: ${DEFAULT_LLM_MODEL_BASE_URL}
     model_name: ${DEFAULT_LLM_MODEL_MODEL}
-    extra_body:
-      nvext:
-        agent_hints:
-          priority: 8
-          osl: 1024
-          speculative_prefill: true
-        cache_control:
-          type: ephemeral
-          ttl: 120m
+    # extra_body:
+    #   nvext:
+    #     agent_hints:
+    #       priority: 8
+    #       osl: 1024
+    #       speculative_prefill: true
+    #     cache_control:
+    #       type: ephemeral
+    #       ttl: 120m
 memory:
   redis_memory:
     _type: nat.plugins.redis/redis_memory

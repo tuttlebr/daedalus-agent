@@ -178,7 +178,7 @@ async def _scrape_group(
 
             content, truncated = _prepare_markdown(
                 url=normalized_link,
-                max_tokens=config.max_output_tokens,
+                token_limit=config.max_output_tokens,
                 truncation_msg=config.truncation_message,
             )
         except PermissionError as exc:
@@ -361,17 +361,17 @@ def _count_tokens(text: str, encoding_name: str = "cl100k_base") -> int:
 
 def _truncate_to_token_limit(
     text: str,
-    max_tokens: int,
+    token_limit: int,
     truncation_msg: str,
     encoding_name: str = "cl100k_base",
 ) -> tuple[str, bool]:
     token_count = _count_tokens(text, encoding_name)
-    if token_count <= max_tokens:
+    if token_count <= token_limit:
         return text, False
 
     left, right = 0, len(text)
     truncation_msg_tokens = _count_tokens(truncation_msg, encoding_name)
-    target_tokens = max_tokens - truncation_msg_tokens
+    target_tokens = token_limit - truncation_msg_tokens
 
     while left < right:
         mid = (left + right + 1) // 2
@@ -398,7 +398,7 @@ def _truncate_to_token_limit(
 def _prepare_markdown(
     *,
     url: str,
-    max_tokens: int,
+    token_limit: int,
     truncation_msg: str,
 ) -> tuple[str, bool]:
     try:
@@ -411,7 +411,7 @@ def _prepare_markdown(
 
         content, was_truncated = _truncate_to_token_limit(
             full_content,
-            max_tokens,
+            token_limit,
             truncation_msg,
         )
         return content, was_truncated

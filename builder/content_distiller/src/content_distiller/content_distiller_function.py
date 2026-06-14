@@ -98,9 +98,7 @@ async def _call_llm(
     except (ValueError, TypeError):
         wrapper = LLMFrameworkEnum.LANGCHAIN
 
-    llm_kwargs = {
-        "max_tokens": config.max_output_tokens,
-    }
+    llm_kwargs = {}
 
     target_llm = llm_name or config.llm_name
     try:

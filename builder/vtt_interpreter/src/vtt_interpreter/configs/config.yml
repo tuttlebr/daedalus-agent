@@ -15,4 +15,3 @@ workflow:
   api_key: null # Set if your API requires authentication or use NVIDIA_API_KEY env var
   timeout: 300.0 # 5 minutes for processing longer transcripts
   model: 'meta/llama-3.1-405b-instruct' # Large model for complex text analysis
-  max_tokens: 4096 # Enough tokens for detailed meeting notes

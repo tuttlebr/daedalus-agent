@@ -70,7 +70,6 @@ visual_media(
     videoRef: str | dict | None = None,
     video_url: str | None = None,
     question: str = "",
-    max_tokens: int | None = None,
     user_id: str = "",
 ) -> str
 ```

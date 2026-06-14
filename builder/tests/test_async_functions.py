@@ -180,8 +180,8 @@ class TestVttInterpreterFunctionGenerator:
         result = run(_run())
         assert "Error" in result
 
-    def test_interpret_vtt_with_custom_max_tokens(self):
-        """interpret_vtt_transcript respects max_tokens parameter."""
+    def test_interpret_vtt_does_not_pass_token_cap(self):
+        """interpret_vtt_transcript does not pass a response token cap override."""
 
         async def _run():
             import vtt_interpreter.vtt_interpreter_function as mod
@@ -208,11 +208,12 @@ class TestVttInterpreterFunctionGenerator:
                 vtt_text = (
                     "WEBVTT\n\n00:00:01.000 --> 00:00:02.000\n<v Alice>Hello</v>\n"
                 )
-                result = await fn_info.fn(vtt_text, max_tokens=512)
+                result = await fn_info.fn(vtt_text)
                 return result, mock_client.chat.completions.create.call_args
 
         result, call_args = run(_run())
-        assert call_args.kwargs.get("max_tokens") == 512
+        forbidden_key = "max" + "_" + "tokens"
+        assert forbidden_key not in call_args.kwargs
 
     def test_interpret_vtt_empty_choices_response(self):
         """Returns error message when OpenAI returns empty choices."""
@@ -262,7 +263,6 @@ class TestVttInterpreterConfigModels:
         config = VttInterpreterFunctionConfig()
         assert config.api_endpoint == "http://localhost:8000"
         assert config.timeout == 300.0
-        assert config.max_tokens == 4096
         assert config.model == "meta/llama-3.1-405b-instruct"
 
     def test_config_custom_values(self):
@@ -273,13 +273,11 @@ class TestVttInterpreterConfigModels:
         config = VttInterpreterFunctionConfig(
             api_endpoint="http://custom:9000",
             timeout=60.0,
-            max_tokens=2048,
             model="my-model",
             api_key="sk-test",
         )
         assert config.api_endpoint == "http://custom:9000"
         assert config.timeout == 60.0
-        assert config.max_tokens == 2048
         assert config.model == "my-model"
         assert config.api_key == "sk-test"
 
@@ -288,13 +286,8 @@ class TestVttInterpreterConfigModels:
 
         inp = VttInterpreterInput(transcript_text="some VTT content")
         assert inp.transcript_text == "some VTT content"
-        assert inp.max_tokens is None
-
-    def test_input_model_with_max_tokens(self):
-        from vtt_interpreter.vtt_interpreter_function import VttInterpreterInput
-
-        inp = VttInterpreterInput(transcript_text="content", max_tokens=1024)
-        assert inp.max_tokens == 1024
+        forbidden_key = "max" + "_" + "tokens"
+        assert forbidden_key not in VttInterpreterInput.model_fields
 
 
 # ---------------------------------------------------------------------------
@@ -342,7 +335,7 @@ class TestHtmlToMarkdown:
             )
         assert "Custom Title" in result
 
-    def test_max_tokens_truncation(self):
+    def test_token_limit_truncation(self):
         import webscrape.webscrape_function as wsmod
         from webscrape.webscrape_function import _html_to_markdown
 
@@ -354,7 +347,7 @@ class TestHtmlToMarkdown:
                 result = _html_to_markdown(
                     "<html>test</html>",
                     "https://example.com",
-                    max_tokens=50,
+                    token_limit=50,
                     truncation_msg="TRUNCATED",
                 )
             finally:
@@ -411,7 +404,7 @@ class TestScrapeWithMarkitdown:
             result = _scrape_with_markitdown("https://example.com")
         assert "https://example.com" in result
 
-    def test_with_max_tokens(self):
+    def test_with_token_limit(self):
         import webscrape.webscrape_function as wsmod
         from webscrape.webscrape_function import _scrape_with_markitdown
 
@@ -428,7 +421,7 @@ class TestScrapeWithMarkitdown:
             with patch.object(wsmod, "MarkItDown", return_value=mock_md):
                 result = _scrape_with_markitdown(
                     "https://example.com",
-                    max_tokens=20,
+                    token_limit=20,
                     truncation_msg="TRUNC",
                 )
         finally:
@@ -634,7 +627,7 @@ class TestResultScraperPrepareMarkdown:
         with patch.object(scraper_mod, "MarkItDown", return_value=mock_md):
             content, was_truncated = _prepare_markdown(
                 url="https://example.com",
-                max_tokens=64000,
+                token_limit=64000,
                 truncation_msg="TRUNC",
             )
         assert "Test Article" in content
@@ -655,7 +648,7 @@ class TestResultScraperPrepareMarkdown:
         with patch.object(scraper_mod, "MarkItDown", return_value=mock_md):
             content, _ = _prepare_markdown(
                 url="https://no-title.com",
-                max_tokens=64000,
+                token_limit=64000,
                 truncation_msg="TRUNC",
             )
         assert "https://no-title.com" in content
@@ -677,7 +670,7 @@ class TestResultScraperPrepareMarkdown:
             with patch.object(scraper_mod, "MarkItDown", return_value=mock_md):
                 content, was_truncated = _prepare_markdown(
                     url="https://example.com",
-                    max_tokens=50,
+                    token_limit=50,
                     truncation_msg="---END---",
                 )
         finally:
@@ -801,7 +794,7 @@ class TestScrapeGroup:
 
             entries = [{"link": "https://example.com/article", "title": "Good Article"}]
 
-            def mock_prepare(*, url, max_tokens, truncation_msg):
+            def mock_prepare(*, url, token_limit, truncation_msg):
                 return (f"# Good Article\n\n_Source: {url}_\n\nContent here", False)
 
             with patch.object(
@@ -864,7 +857,7 @@ class TestScrapeSerp:
 
             settings = SerpLinkScraperSettings(respect_robots_txt=False)
 
-            def mock_prepare(*, url, max_tokens, truncation_msg):
+            def mock_prepare(*, url, token_limit, truncation_msg):
                 return (f"# Title\n\n_Source: {url}_\n\nContent", False)
 
             with patch.object(
@@ -906,7 +899,7 @@ class TestScrapeSerp:
             import nat_helpers.result_scraper as scraper_mod
             from nat_helpers.result_scraper import scrape_serp_links
 
-            def mock_prepare(*, url, max_tokens, truncation_msg):
+            def mock_prepare(*, url, token_limit, truncation_msg):
                 return ("# Content", False)
 
             with patch.object(

@@ -75,10 +75,6 @@ class VttInterpreterFunctionConfig(
         "meta/llama-3.1-405b-instruct",
         description="LLM model to use for transcript analysis",
     )
-    max_tokens: int = Field(
-        4096,
-        description="Maximum number of tokens in the response",
-    )
     redis_url: str = Field(
         "redis://redis:6379",
         description="Redis connection URL for retrieving uploaded transcripts by id.",
@@ -115,9 +111,6 @@ class VttInterpreterInput(BaseModel):
         "When provided, the output is tailored to the user's specific request "
         "(e.g. 'just list the action items', 'what was discussed about the database migration?'). "
         "When omitted, produces default structured meeting notes with four sections.",
-    )
-    max_tokens: int | None = Field(
-        None, description="Maximum number of tokens in the response"
     )
 
 
@@ -285,7 +278,6 @@ async def vtt_interpreter_function(
         vtt_id: str | None = None,
         session_id: str | None = None,
         user_id: str | None = None,
-        max_tokens: int | None = None,
     ) -> str:
         """
         Process a VTT/SRT transcript according to the user's instructions.
@@ -309,7 +301,6 @@ async def vtt_interpreter_function(
             vtt_id: Id of an uploaded transcript stored in Redis
             session_id: Session id scoping the uploaded transcript (with vtt_id)
             user_id: Authenticated user id, used to verify transcript ownership
-            max_tokens: Maximum number of tokens in the response
 
         Returns:
             Processed transcript output in markdown format
@@ -413,7 +404,6 @@ Please organize this into the four required sections, being careful not to add a
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt},
                 ],
-                max_tokens=max_tokens if max_tokens is not None else config.max_tokens,
             )
 
             # Extract the response content

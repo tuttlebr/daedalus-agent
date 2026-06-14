@@ -128,7 +128,6 @@ class VisualMediaFunctionConfig(FunctionBaseConfig, name="visual_media"):
     comprehension_timeout: float = Field(
         120.0, description="VLM API timeout in seconds."
     )
-    max_tokens: int = Field(1024, description="Default VLM response token limit.")
 
 
 def _configured_key(value: str | None, env_name: str) -> str:
@@ -333,7 +332,6 @@ async def visual_media_function(config: VisualMediaFunctionConfig, builder: Buil
         image_url: str | None,
         videoRef: str | dict | None,
         video_url: str | None,
-        max_tokens: int | None,
         user_id: str | None,
     ) -> str:
         if not question or not question.strip():
@@ -399,7 +397,6 @@ async def visual_media_function(config: VisualMediaFunctionConfig, builder: Buil
                     "content": [{"type": "text", "text": question}, media_content],
                 },
             ],
-            "max_tokens": max_tokens if max_tokens is not None else config.max_tokens,
         }
 
         response = await _get_vlm_client().post(
@@ -423,7 +420,6 @@ async def visual_media_function(config: VisualMediaFunctionConfig, builder: Buil
         videoRef: str | dict | None = None,
         video_url: str | None = None,
         question: str = "",
-        max_tokens: int | None = None,
         user_id: str = "",
     ) -> str:
         """Generate, edit, or analyze visual media.
@@ -437,7 +433,6 @@ async def visual_media_function(config: VisualMediaFunctionConfig, builder: Buil
             videoRef: Uploaded video reference for analyze.
             video_url: Public video URL for analyze.
             question: Analysis question. Falls back to prompt.
-            max_tokens: Optional analysis response token limit.
             user_id: Authenticated username from the [IDENTITY] message.
                 Required for generate and for user-scoped edit/analyze inputs.
         """
@@ -459,7 +454,6 @@ async def visual_media_function(config: VisualMediaFunctionConfig, builder: Buil
                     image_url,
                     videoRef,
                     video_url,
-                    max_tokens,
                     user_id,
                 )
             return "Error: operation must be one of generate, edit, analyze."

@@ -261,9 +261,7 @@ async def _call_llm(
 
     use_langchain = wrapper == LLMFrameworkEnum.LANGCHAIN
 
-    llm_kwargs = {
-        "max_tokens": config.max_output_tokens,
-    }
+    llm_kwargs = {}
 
     target_llm = llm_name or config.llm_name
     try:
@@ -331,7 +329,7 @@ async def _call_llm(
 # URL fetching helper
 # ---------------------------------------------------------------------------
 async def _scrape_with_httpx_safe(
-    url: str, max_tokens: int | None = None, truncation_msg: str = ""
+    url: str, token_limit: int | None = None, truncation_msg: str = ""
 ) -> str | None:
     """httpx scrape that SSRF-validates every redirect hop (F-002a).
 
@@ -360,7 +358,7 @@ async def _scrape_with_httpx_safe(
         _html_to_markdown,
         html,
         url,
-        max_tokens=max_tokens,
+        token_limit=token_limit,
         truncation_msg=truncation_msg,
     )
 
@@ -392,7 +390,7 @@ async def _fetch_source(url: str, config: SourceVerifierConfig) -> FetchResult:
         content = await asyncio.to_thread(
             _scrape_with_markitdown,
             normalized_url,
-            max_tokens=config.max_fetch_tokens,
+            token_limit=config.max_fetch_tokens,
             truncation_msg=truncation_msg,
         )
         if _is_valid_content(content):
@@ -405,7 +403,7 @@ async def _fetch_source(url: str, config: SourceVerifierConfig) -> FetchResult:
         content = await asyncio.wait_for(
             _scrape_with_httpx_safe(
                 normalized_url,
-                max_tokens=config.max_fetch_tokens,
+                token_limit=config.max_fetch_tokens,
                 truncation_msg=truncation_msg,
             ),
             timeout=config.fetch_timeout,

@@ -172,13 +172,13 @@ def _count_tokens(text: str, encoding_name: str = "cl100k_base") -> int:
         return len(text) // 4
 
 
-def truncate_text(text: str, max_tokens: int = 1000) -> str:
+def truncate_text(text: str, token_limit: int = 1000) -> str:
     """
     Truncate text to fit within a token limit using tiktoken encoding with fallback to character-based truncation.
 
     Args:
         text (str): The text to truncate
-        max_tokens (int): Maximum number of tokens allowed
+        token_limit (int): Maximum number of tokens allowed
 
     Returns:
         str: Truncated text
@@ -189,16 +189,16 @@ def truncate_text(text: str, max_tokens: int = 1000) -> str:
             encoder = tiktoken.get_encoding("cl100k_base")
             tokens = encoder.encode(text)
 
-            if len(tokens) <= max_tokens:
+            if len(tokens) <= token_limit:
                 return text
 
-            return encoder.decode(tokens[:max_tokens])
+            return encoder.decode(tokens[:token_limit])
         except Exception as e:
             # Fallback to character-based truncation for any errors
             logger.debug("Failed to use tiktoken for truncation: %s", str(e))
 
     # Fallback to character-based truncation
-    char_limit = max_tokens * 4  # Rough approximation: 1 token ≈ 4 characters
+    char_limit = token_limit * 4  # Rough approximation: 1 token ≈ 4 characters
     return text[:char_limit] if len(text) > char_limit else text
 
 
@@ -298,7 +298,9 @@ def _feed_url_rejection_reason(url: str) -> str | None:
     return None
 
 
-def _scrape_content(url: str, max_tokens: int, truncation_msg: str) -> tuple[str, bool]:
+def _scrape_content(
+    url: str, token_limit: int, truncation_msg: str
+) -> tuple[str, bool]:
     """Scrape content from URL using markitdown."""
     # F-001: feed-supplied links are attacker-influenceable. Reject non-http(s)
     # schemes (blocks file:// local-file reads) and literal internal IPs before
@@ -318,7 +320,7 @@ def _scrape_content(url: str, max_tokens: int, truncation_msg: str) -> tuple[str
         header = f"# {title_text}\n\n_Source: {url}_\n\n"
         full_content = header + (url_markdown.text_content or "")
 
-        content = truncate_text(full_content, max_tokens)
+        content = truncate_text(full_content, token_limit)
         was_truncated = len(content) < len(full_content)
         return content, was_truncated
     except Exception as e:
