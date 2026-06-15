@@ -12,6 +12,7 @@ import {
   withTimezoneHeader,
 } from '@/utils/server/backendAuth';
 
+import { postToBackend } from '@/server/backend/postToBackend';
 import { enforceRateLimit, ruleFromEnv } from '@/server/rateLimit';
 import {
   getOrSetSessionId,
@@ -21,7 +22,6 @@ import {
   DocumentRefAccessError,
   validateDocumentRefsForUser,
 } from '@/server/session/documentRefs';
-import http from 'http';
 
 export const config = {
   api: {
@@ -36,49 +36,6 @@ export const config = {
 };
 
 const DOCUMENT_PROCESSING_TIMEOUT_MS = 900_000; // 15 minutes
-
-function postToBackend(
-  url: string,
-  body: string,
-  headers: Record<string, string>,
-  timeoutMs: number,
-): Promise<{ statusCode: number; body: string }> {
-  return new Promise((resolve, reject) => {
-    const parsed = new URL(url);
-    const req = http.request(
-      {
-        hostname: parsed.hostname,
-        port: parsed.port || '80',
-        path: parsed.pathname + parsed.search,
-        method: 'POST',
-        headers: {
-          ...headers,
-          'Content-Length': Buffer.byteLength(body),
-        },
-        timeout: timeoutMs,
-      },
-      (res) => {
-        const chunks: Buffer[] = [];
-        res.on('data', (chunk: Buffer) => chunks.push(chunk));
-        res.on('end', () => {
-          resolve({
-            statusCode: res.statusCode || 500,
-            body: Buffer.concat(chunks).toString('utf-8'),
-          });
-        });
-        res.on('error', reject);
-      },
-    );
-
-    req.on('timeout', () => {
-      req.destroy();
-      reject(new Error(`Backend request timed out after ${timeoutMs}ms`));
-    });
-    req.on('error', reject);
-    req.write(body);
-    req.end();
-  });
-}
 
 // Generous backstop on the (NV-Ingest-bearing) document processing path; sized
 // above legitimate batch ingests but caps runaway/abusive floods.
@@ -162,9 +119,10 @@ export default async function handler(
         DOCUMENT_PROCESSING_TIMEOUT_MS,
       );
 
+      const extractBodyText = extractResponse.body.toString('utf-8');
       let extractPayload: Record<string, unknown> = {};
       try {
-        extractPayload = JSON.parse(extractResponse.body || '{}');
+        extractPayload = JSON.parse(extractBodyText || '{}');
       } catch {
         extractPayload = {};
       }
@@ -176,7 +134,7 @@ export default async function handler(
         const detail =
           typeof extractPayload.detail === 'string'
             ? extractPayload.detail
-            : extractResponse.body || 'Document extraction failed';
+            : extractBodyText || 'Document extraction failed';
         return res.status(extractResponse.statusCode).json({
           error: 'Document extraction failed',
           details: detail,
@@ -296,17 +254,15 @@ export default async function handler(
       DOCUMENT_PROCESSING_TIMEOUT_MS,
     );
 
+    const backendBodyText = backendResponse.body.toString('utf-8');
     if (backendResponse.statusCode < 200 || backendResponse.statusCode >= 300) {
-      console.error(
-        'Failed to process document via chat:',
-        backendResponse.body,
-      );
+      console.error('Failed to process document via chat:', backendBodyText);
       return res.status(backendResponse.statusCode).json({
         error: 'Failed to process document',
       });
     }
 
-    const fullResponse = backendResponse.body;
+    const fullResponse = backendBodyText;
 
     const extractTextFromResponse = (raw: string): string => {
       const trimmed = raw.trim();

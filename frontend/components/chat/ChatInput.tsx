@@ -7,6 +7,7 @@ import {
   IconX,
   IconPhoto,
   IconFileText,
+  IconFileDownload,
   IconDatabase,
   IconNotes,
   IconRefresh,
@@ -53,6 +54,12 @@ function escapeXmlAttr(value: string): string {
     .replace(/"/g, '&quot;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;');
+}
+
+function filenameFromContentDisposition(header: string | null): string | null {
+  if (!header) return null;
+  const match = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/i.exec(header);
+  return match ? decodeURIComponent(match[1]) : null;
 }
 
 function describeUploadError(err: unknown, status?: number): string {
@@ -368,6 +375,85 @@ export const ChatInput = memo(
       setAttachments((prev) => prev.filter((_, i) => i !== index));
     }, []);
 
+    // Convert an uploaded document to a full Markdown file and download it
+    // locally. Goes directly to the typed REST route (no LLM) and uses the same
+    // blob-download pattern as generated images (Web Share API, then anchor).
+    const downloadDocumentAsMarkdown = useCallback(
+      async (
+        documentRef: NonNullable<Attachment['documentRef']>,
+        filename?: string,
+      ) => {
+        const label = filename || 'document';
+        const loadingToast = toast.loading(
+          `Converting ${label} to Markdown...`,
+        );
+        try {
+          const response = await fetch('/api/document/markdown', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ documentRef, filename }),
+          });
+          if (!response.ok) {
+            let message = 'Failed to convert document to Markdown';
+            try {
+              const payload = await response.json();
+              message = payload?.details || payload?.error || message;
+            } catch {
+              // Non-JSON error body; keep the default message.
+            }
+            toast.dismiss(loadingToast);
+            toast.error(message);
+            return;
+          }
+          const blob = await response.blob();
+          const downloadName =
+            filenameFromContentDisposition(
+              response.headers.get('Content-Disposition'),
+            ) || `${label.replace(/\.[^./\\]+$/, '')}.md`;
+
+          // Try the Web Share API first (mobile), then fall back to a download.
+          if (
+            typeof navigator !== 'undefined' &&
+            navigator.canShare &&
+            navigator.share
+          ) {
+            try {
+              const file = new File([blob], downloadName, {
+                type: 'text/markdown',
+              });
+              if (navigator.canShare({ files: [file] })) {
+                await navigator.share({ files: [file], title: downloadName });
+                toast.dismiss(loadingToast);
+                return;
+              }
+            } catch {
+              // Share cancelled/unsupported — fall through to download.
+            }
+          }
+
+          const url = window.URL.createObjectURL(blob);
+          const link = document.createElement('a');
+          link.href = url;
+          link.download = downloadName;
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          window.URL.revokeObjectURL(url);
+          toast.dismiss(loadingToast);
+          if (response.headers.get('X-Document-Truncated') === 'true') {
+            toast('Document was very large and was truncated.', {
+              duration: 6000,
+            });
+          }
+        } catch (err) {
+          toast.dismiss(loadingToast);
+          console.error('Markdown download failed:', err);
+          toast.error('Failed to convert document — check backend logs.');
+        }
+      },
+      [],
+    );
+
     const handleSend = useCallback(async () => {
       if (!canSend) return;
 
@@ -622,6 +708,21 @@ export const ChatInput = memo(
                     <span className="truncate max-w-[120px]">
                       {att.content}
                     </span>
+                    {att.type === 'document' && att.documentRef && (
+                      <button
+                        onClick={() =>
+                          downloadDocumentAsMarkdown(
+                            att.documentRef!,
+                            att.content,
+                          )
+                        }
+                        className="p-0.5 rounded hover:bg-white/10 transition-colors"
+                        aria-label="Download as Markdown"
+                        title="Download as Markdown"
+                      >
+                        <IconFileDownload size={12} />
+                      </button>
+                    )}
                     <button
                       onClick={() => removeAttachment(i)}
                       className="p-0.5 rounded hover:bg-white/10 transition-colors"

@@ -314,6 +314,7 @@ The frontend includes:
 - Authentication backed by Redis
 - File attachments for images, documents, and videos
 - Direct document ingestion with streamed progress
+- Doc-to-Markdown: download an entire uploaded document as a Markdown file (`POST /v1/documents/markdown`)
 - Conversation folders, export and import, and search
 - Real-time sync and usage tracking APIs
 - PWA support and offline assets

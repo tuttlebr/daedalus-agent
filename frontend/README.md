@@ -27,6 +27,7 @@ The primary chat path is frontend job-based:
 - `GET /api/chat/async?jobId=...` returns live or finalized job state
 - A background stream reader opens `/v1/chat/completions` for normal chat turns
 - Document ingestion opens `/v1/documents/ingest/stream` and forwards structured progress through job state
+- `POST /api/document/markdown` converts an uploaded document to a full Markdown file (proxying `/v1/documents/markdown`) for local download
 - NAT `/v1/workflow/async` remains only as a legacy document-ingest fallback
 - The legacy `/api/chat` route is retired and returns HTTP 410
 

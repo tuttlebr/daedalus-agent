@@ -110,6 +110,13 @@ class ExtractResult(TypedDict):
 
 INLINE_MARKDOWN_CHAR_LIMIT = 50_000
 
+# Hard cap (characters) on full-document markdown downloads. Unlike the inline
+# cap above (which protects the chat context window), this only bounds the
+# server's memory for the doc-to-markdown download path — it is large enough to
+# return any plausible whole-document rendering. Overridable via the
+# DOCUMENT_MARKDOWN_MAX_CHARS env var.
+DEFAULT_DOCUMENT_MARKDOWN_MAX_CHARS = 20_000_000
+
 # Cap the length of per-document error text echoed back to the client (both the
 # batch summary and the streamed progress message). The full error is logged
 # server-side; only this prefix is surfaced to the user/LLM.
@@ -142,6 +149,33 @@ def document_ingest_max_size_bytes() -> int:
     except ValueError:
         return DEFAULT_DOCUMENT_INGEST_MAX_SIZE_BYTES
     return value if value > 0 else DEFAULT_DOCUMENT_INGEST_MAX_SIZE_BYTES
+
+
+def document_markdown_max_chars() -> int:
+    """Resolve the full-document markdown download cap (chars) from the env.
+
+    Falls back to ``DEFAULT_DOCUMENT_MARKDOWN_MAX_CHARS`` when
+    ``DOCUMENT_MARKDOWN_MAX_CHARS`` is unset, empty, non-numeric, or non-positive.
+    """
+    raw = (os.getenv("DOCUMENT_MARKDOWN_MAX_CHARS") or "").strip()
+    if not raw:
+        return DEFAULT_DOCUMENT_MARKDOWN_MAX_CHARS
+    try:
+        value = int(raw)
+    except ValueError:
+        return DEFAULT_DOCUMENT_MARKDOWN_MAX_CHARS
+    return value if value > 0 else DEFAULT_DOCUMENT_MARKDOWN_MAX_CHARS
+
+
+def _apply_char_limit(raw_md: str, char_limit: int | None) -> tuple[str, bool]:
+    """Apply an optional character cap to extracted markdown.
+
+    Returns ``(markdown, truncated)``. A ``char_limit`` of None means no
+    truncation. Markdown exactly at the limit is not considered truncated.
+    """
+    if char_limit is None or len(raw_md) <= char_limit:
+        return raw_md, False
+    return raw_md[:char_limit], True
 
 
 def _estimated_decoded_size(document_base64: str) -> int:
@@ -1114,6 +1148,184 @@ def _milvus_vdb_auth_kwargs(config: NvIngestFunctionConfig) -> dict[str, str]:
     return kwargs
 
 
+async def _extract_document_to_markdown(
+    *,
+    documentRef: dict[str, Any],
+    username: str,
+    config: NvIngestFunctionConfig,
+    redis_getter: Callable[[], Awaitable[redis.Redis]],
+    nv_getter: Callable[[], Awaitable[NvIngestClient]],
+    char_limit: int | None = INLINE_MARKDOWN_CHAR_LIMIT,
+) -> ExtractResult:
+    """Fetch an uploaded document from Redis and return its markdown.
+
+    Shared body for both the ``NvIngestDocumentProcessor`` method and the
+    ``nv_ingest_function`` closure so the ownership check, size guard, and
+    NV-Ingest extraction stay in one place. ``redis_getter``/``nv_getter`` are
+    passed as coroutine callables so the Redis client is resolved inside the
+    same ``try`` that catches ``redis.RedisError`` (preserving error mapping).
+
+    Output is capped at ``char_limit`` characters with a ``truncated`` flag;
+    ``char_limit=None`` returns the full document (used by the download path).
+    """
+    initial_filename = (
+        documentRef.get("filename", "") if isinstance(documentRef, dict) else ""
+    )
+
+    def _failure(error: str, filename: str = "") -> ExtractResult:
+        return ExtractResult(
+            status="failure",
+            filename=filename or initial_filename,
+            pages=0,
+            markdown="",
+            truncated=False,
+            original_chars=0,
+            error=error,
+        )
+
+    try:
+        if not documentRef or not isinstance(documentRef, dict):
+            return _failure("Error: Invalid document reference provided.")
+        document_id = documentRef.get("documentId")
+        session_id = documentRef.get("sessionId")
+        if not document_id or not session_id:
+            return _failure(
+                "Error: Document reference must contain documentId and sessionId."
+            )
+        if not username:
+            return _failure("Error: Valid username required for document extraction.")
+
+        redis_key = f"document:{session_id}:{document_id}"
+        try:
+            redis_client = await redis_getter()
+            document_data_json = await asyncio.to_thread(
+                redis_client.execute_command, "JSON.GET", redis_key
+            )
+            if not document_data_json:
+                logger.error(
+                    "Document %s not found in Redis (key: %s)",
+                    document_id,
+                    redis_key,
+                )
+                return _failure(
+                    "Error: Document not found in storage. "
+                    "The file may have expired or the session may be "
+                    "invalid. Please try uploading the document again."
+                )
+
+            document_record = json.loads(document_data_json)
+            if not _can_access_stored_document(document_record, username):
+                logger.warning(
+                    "Document %s accessed by %s but belongs to another user",
+                    document_id,
+                    username,
+                )
+                return _failure(
+                    "Error: You do not have access to this document. "
+                    "Please upload the document again from your account."
+                )
+
+            document_base64 = document_record.get("data")
+            filename = document_record.get("filename", f"{document_id}.bin")
+            if not document_base64:
+                return _failure(
+                    "Error: Retrieved document data is empty.",
+                    filename=filename,
+                )
+            max_bytes = document_ingest_max_size_bytes()
+            size_error = _document_size_error(document_base64, max_bytes)
+            if size_error is not None:
+                logger.warning(
+                    "Document %s (%s) exceeds max ingest size %d bytes",
+                    document_id,
+                    filename,
+                    max_bytes,
+                )
+                return _failure(size_error, filename=filename)
+            document_bytes = base64.b64decode(document_base64)
+        except redis.RedisError as e:
+            logger.error("Redis error retrieving document: %s", e)
+            return _failure(f"Error accessing document storage: {str(e)}")
+
+        logger.info(
+            "Extracting %s for user %s (size=%d bytes)",
+            filename,
+            username,
+            len(document_bytes),
+        )
+
+        nv_client = await nv_getter()
+
+        def run_extract() -> tuple[str, int]:
+            ingestor = _build_ingestor(
+                nv_client=nv_client,
+                document_bytes=document_bytes,
+                filename=filename,
+                config=config,
+                collection_name="",
+                chunk_size=config.chunk_size,
+                chunk_overlap=config.chunk_overlap,
+                extract_only=True,
+            )
+            with ingestor as ctx:
+                results, _failures = ctx.ingest(
+                    show_progress=False, return_failures=True
+                )
+            md, page_count = results_to_markdown(results)
+            return md, page_count
+
+        ingest_timeout = max(1.0, config.ingest_timeout_seconds)
+        try:
+            raw_md, page_count = await asyncio.wait_for(
+                asyncio.to_thread(run_extract),
+                timeout=ingest_timeout,
+            )
+        except TimeoutError:
+            logger.error(
+                "NV-Ingest extract timed out after %.1fs for %s",
+                ingest_timeout,
+                filename,
+            )
+            return _failure(
+                "Error extracting document with NvIngest: "
+                f"timed out after {ingest_timeout:.0f} seconds.",
+                filename=filename,
+            )
+        except Exception as e:
+            logger.error(
+                "NV-Ingest extract error for %s: %s", filename, e, exc_info=True
+            )
+            return _failure(
+                f"Error extracting document with NvIngest: {str(e)}",
+                filename=filename,
+            )
+
+        original_chars = len(raw_md)
+        markdown, truncated = _apply_char_limit(raw_md, char_limit)
+
+        logger.info(
+            "Extracted %s: %d pages, %d chars (truncated=%s)",
+            filename,
+            page_count,
+            original_chars,
+            truncated,
+        )
+
+        return ExtractResult(
+            status="success",
+            filename=filename,
+            pages=page_count,
+            markdown=markdown,
+            truncated=truncated,
+            original_chars=original_chars,
+            error="",
+        )
+
+    except Exception as e:
+        logger.error("Unexpected error in extract_document: %s", e, exc_info=True)
+        return _failure(f"An unexpected error occurred: {str(e)}")
+
+
 class NvIngestDocumentProcessor:
     """Structured document ingestion runner used by NAT tools and HTTP routes."""
 
@@ -1554,180 +1766,24 @@ class NvIngestDocumentProcessor:
         self,
         documentRef: dict[str, Any],
         username: str,
-        char_limit: int = INLINE_MARKDOWN_CHAR_LIMIT,
+        char_limit: int | None = INLINE_MARKDOWN_CHAR_LIMIT,
     ) -> ExtractResult:
         """Run NV-Ingest extraction and return markdown without indexing.
 
-        Used by the chat "inline" mode: instead of chunking/embedding the doc
-        into Milvus, the extracted markdown is returned to the caller so the
-        chat backend can drop it into the LLM prompt directly. Output is capped
-        at `char_limit` chars with a truncation flag — protects the chat
-        context window when a user inlines an unexpectedly large PDF.
+        Used by the chat "inline" mode and the HTTP routes. Delegates to the
+        shared `_extract_document_to_markdown` helper. Output is capped at
+        `char_limit` chars with a truncation flag (protecting the chat context
+        window); `char_limit=None` returns the full document, which the
+        doc-to-markdown download path uses.
         """
-        config = self.config
-        initial_filename = (
-            documentRef.get("filename", "") if isinstance(documentRef, dict) else ""
+        return await _extract_document_to_markdown(
+            documentRef=documentRef,
+            username=username,
+            config=self.config,
+            redis_getter=self._get_redis,
+            nv_getter=self._get_nv_client,
+            char_limit=char_limit,
         )
-
-        def _failure(error: str, filename: str = "") -> ExtractResult:
-            return ExtractResult(
-                status="failure",
-                filename=filename or initial_filename,
-                pages=0,
-                markdown="",
-                truncated=False,
-                original_chars=0,
-                error=error,
-            )
-
-        try:
-            if not documentRef or not isinstance(documentRef, dict):
-                return _failure("Error: Invalid document reference provided.")
-            document_id = documentRef.get("documentId")
-            session_id = documentRef.get("sessionId")
-            if not document_id or not session_id:
-                return _failure(
-                    "Error: Document reference must contain documentId and sessionId."
-                )
-            if not username:
-                return _failure(
-                    "Error: Valid username required for document extraction."
-                )
-
-            redis_key = f"document:{session_id}:{document_id}"
-            try:
-                redis_client = await self._get_redis()
-                document_data_json = await asyncio.to_thread(
-                    redis_client.execute_command, "JSON.GET", redis_key
-                )
-                if not document_data_json:
-                    logger.error(
-                        "Document %s not found in Redis (key: %s)",
-                        document_id,
-                        redis_key,
-                    )
-                    return _failure(
-                        "Error: Document not found in storage. "
-                        "The file may have expired or the session may be "
-                        "invalid. Please try uploading the document again."
-                    )
-
-                document_record = json.loads(document_data_json)
-                if not _can_access_stored_document(document_record, username):
-                    logger.warning(
-                        "Document %s accessed by %s but belongs to another user",
-                        document_id,
-                        username,
-                    )
-                    return _failure(
-                        "Error: You do not have access to this document. "
-                        "Please upload the document again from your account."
-                    )
-
-                document_base64 = document_record.get("data")
-                filename = document_record.get("filename", f"{document_id}.bin")
-                if not document_base64:
-                    return _failure(
-                        "Error: Retrieved document data is empty.",
-                        filename=filename,
-                    )
-                max_bytes = document_ingest_max_size_bytes()
-                size_error = _document_size_error(document_base64, max_bytes)
-                if size_error is not None:
-                    logger.warning(
-                        "Document %s (%s) exceeds max ingest size %d bytes",
-                        document_id,
-                        filename,
-                        max_bytes,
-                    )
-                    return _failure(size_error, filename=filename)
-                document_bytes = base64.b64decode(document_base64)
-            except redis.RedisError as e:
-                logger.error("Redis error retrieving document: %s", e)
-                return _failure(f"Error accessing document storage: {str(e)}")
-
-            logger.info(
-                "Extracting %s for user %s (size=%d bytes, inline mode)",
-                filename,
-                username,
-                len(document_bytes),
-            )
-
-            nv_client = await self._get_nv_client()
-
-            def run_extract() -> tuple[str, int]:
-                ingestor = _build_ingestor(
-                    nv_client=nv_client,
-                    document_bytes=document_bytes,
-                    filename=filename,
-                    config=config,
-                    collection_name="",
-                    chunk_size=config.chunk_size,
-                    chunk_overlap=config.chunk_overlap,
-                    extract_only=True,
-                )
-                with ingestor as ctx:
-                    results, _failures = ctx.ingest(
-                        show_progress=False, return_failures=True
-                    )
-                md, page_count = results_to_markdown(results)
-                return md, page_count
-
-            ingest_timeout = max(1.0, config.ingest_timeout_seconds)
-            try:
-                raw_md, page_count = await asyncio.wait_for(
-                    asyncio.to_thread(run_extract),
-                    timeout=ingest_timeout,
-                )
-            except TimeoutError:
-                logger.error(
-                    "NV-Ingest extract timed out after %.1fs for %s",
-                    ingest_timeout,
-                    filename,
-                )
-                return _failure(
-                    "Error extracting document with NvIngest: "
-                    f"timed out after {ingest_timeout:.0f} seconds.",
-                    filename=filename,
-                )
-            except Exception as e:
-                logger.error(
-                    "NV-Ingest extract error for %s: %s", filename, e, exc_info=True
-                )
-                return _failure(
-                    f"Error extracting document with NvIngest: {str(e)}",
-                    filename=filename,
-                )
-
-            original_chars = len(raw_md)
-            if original_chars > char_limit:
-                markdown = raw_md[:char_limit]
-                truncated = True
-            else:
-                markdown = raw_md
-                truncated = False
-
-            logger.info(
-                "Extracted %s: %d pages, %d chars (truncated=%s)",
-                filename,
-                page_count,
-                original_chars,
-                truncated,
-            )
-
-            return ExtractResult(
-                status="success",
-                filename=filename,
-                pages=page_count,
-                markdown=markdown,
-                truncated=truncated,
-                original_chars=original_chars,
-                error="",
-            )
-
-        except Exception as e:
-            logger.error("Unexpected error in extract_document: %s", e, exc_info=True)
-            return _failure(f"An unexpected error occurred: {str(e)}")
 
     async def process_multiple_documents(
         self,
@@ -2510,178 +2566,23 @@ async def nv_ingest_function(
     async def extract_document(
         documentRef: dict[str, Any],
         username: str,
-        char_limit: int = INLINE_MARKDOWN_CHAR_LIMIT,
+        char_limit: int | None = INLINE_MARKDOWN_CHAR_LIMIT,
     ) -> ExtractResult:
         """Fetch a document and return markdown without chunking/indexing.
 
-        Companion to `process_document` for chat "inline" mode: the extracted
-        markdown is sent straight back to the chat instead of being chunked,
-        embedded, and uploaded to Milvus. Output is capped at `char_limit` so
-        a large PDF can't blow out the chat context window unannounced.
+        Companion to `process_document` for chat "inline" mode. Delegates to the
+        shared `_extract_document_to_markdown` helper; output is capped at
+        `char_limit` so a large PDF can't blow out the chat context window
+        unannounced (`char_limit=None` returns the full document).
         """
-        initial_filename = (
-            documentRef.get("filename", "") if isinstance(documentRef, dict) else ""
+        return await _extract_document_to_markdown(
+            documentRef=documentRef,
+            username=username,
+            config=config,
+            redis_getter=_get_redis,
+            nv_getter=_get_nv_client,
+            char_limit=char_limit,
         )
-
-        def _failure(error: str, filename: str = "") -> ExtractResult:
-            return ExtractResult(
-                status="failure",
-                filename=filename or initial_filename,
-                pages=0,
-                markdown="",
-                truncated=False,
-                original_chars=0,
-                error=error,
-            )
-
-        try:
-            if not documentRef or not isinstance(documentRef, dict):
-                return _failure("Error: Invalid document reference provided.")
-            document_id = documentRef.get("documentId")
-            session_id = documentRef.get("sessionId")
-            if not document_id or not session_id:
-                return _failure(
-                    "Error: Document reference must contain documentId and sessionId."
-                )
-            if not username:
-                return _failure(
-                    "Error: Valid username required for document extraction."
-                )
-
-            redis_key = f"document:{session_id}:{document_id}"
-            try:
-                redis_client = await _get_redis()
-                document_data_json = await asyncio.to_thread(
-                    redis_client.execute_command, "JSON.GET", redis_key
-                )
-                if not document_data_json:
-                    logger.error(
-                        "Document %s not found in Redis (key: %s)",
-                        document_id,
-                        redis_key,
-                    )
-                    return _failure(
-                        "Error: Document not found in storage. "
-                        "The file may have expired or the session may be "
-                        "invalid. Please try uploading the document again."
-                    )
-
-                document_record = json.loads(document_data_json)
-                if not _can_access_stored_document(document_record, username):
-                    logger.warning(
-                        "Document %s accessed by %s but belongs to another user",
-                        document_id,
-                        username,
-                    )
-                    return _failure(
-                        "Error: You do not have access to this document. "
-                        "Please upload the document again from your account."
-                    )
-
-                document_base64 = document_record.get("data")
-                filename = document_record.get("filename", f"{document_id}.bin")
-                if not document_base64:
-                    return _failure(
-                        "Error: Retrieved document data is empty.",
-                        filename=filename,
-                    )
-                max_bytes = document_ingest_max_size_bytes()
-                size_error = _document_size_error(document_base64, max_bytes)
-                if size_error is not None:
-                    logger.warning(
-                        "Document %s (%s) exceeds max ingest size %d bytes",
-                        document_id,
-                        filename,
-                        max_bytes,
-                    )
-                    return _failure(size_error, filename=filename)
-                document_bytes = base64.b64decode(document_base64)
-            except redis.RedisError as e:
-                logger.error("Redis error retrieving document: %s", e)
-                return _failure(f"Error accessing document storage: {str(e)}")
-
-            logger.info(
-                "Extracting %s for user %s (size=%d bytes, inline mode)",
-                filename,
-                username,
-                len(document_bytes),
-            )
-
-            nv_client = await _get_nv_client()
-
-            def run_extract() -> tuple[str, int]:
-                ingestor = _build_ingestor(
-                    nv_client=nv_client,
-                    document_bytes=document_bytes,
-                    filename=filename,
-                    config=config,
-                    collection_name="",
-                    chunk_size=config.chunk_size,
-                    chunk_overlap=config.chunk_overlap,
-                    extract_only=True,
-                )
-                with ingestor as ctx:
-                    results, _failures = ctx.ingest(
-                        show_progress=False, return_failures=True
-                    )
-                md, page_count = results_to_markdown(results)
-                return md, page_count
-
-            ingest_timeout = max(1.0, config.ingest_timeout_seconds)
-            try:
-                raw_md, page_count = await asyncio.wait_for(
-                    asyncio.to_thread(run_extract),
-                    timeout=ingest_timeout,
-                )
-            except TimeoutError:
-                logger.error(
-                    "NV-Ingest extract timed out after %.1fs for %s",
-                    ingest_timeout,
-                    filename,
-                )
-                return _failure(
-                    "Error extracting document with NvIngest: "
-                    f"timed out after {ingest_timeout:.0f} seconds.",
-                    filename=filename,
-                )
-            except Exception as e:
-                logger.error(
-                    "NV-Ingest extract error for %s: %s", filename, e, exc_info=True
-                )
-                return _failure(
-                    f"Error extracting document with NvIngest: {str(e)}",
-                    filename=filename,
-                )
-
-            original_chars = len(raw_md)
-            if original_chars > char_limit:
-                markdown = raw_md[:char_limit]
-                truncated = True
-            else:
-                markdown = raw_md
-                truncated = False
-
-            logger.info(
-                "Extracted %s: %d pages, %d chars (truncated=%s)",
-                filename,
-                page_count,
-                original_chars,
-                truncated,
-            )
-
-            return ExtractResult(
-                status="success",
-                filename=filename,
-                pages=page_count,
-                markdown=markdown,
-                truncated=truncated,
-                original_chars=original_chars,
-                error="",
-            )
-
-        except Exception as e:
-            logger.error("Unexpected error in extract_document: %s", e, exc_info=True)
-            return _failure(f"An unexpected error occurred: {str(e)}")
 
     async def process_multiple_documents(
         documentRefs: list[dict[str, Any]],

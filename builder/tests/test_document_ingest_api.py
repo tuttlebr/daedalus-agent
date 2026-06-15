@@ -16,7 +16,9 @@ import pytest  # noqa: E402
 from document_ingest_api import (  # noqa: E402
     DocumentRef,
     IngestRequest,
+    MarkdownRequest,
     _default_config,
+    _markdown_filename,
     _redis_url,
     _require_trusted_user,
     _resolve_request,
@@ -150,6 +152,81 @@ class TestIngestRequest:
     def test_rejects_empty_session_id(self):
         with pytest.raises(ValidationError):
             DocumentRef(documentId="doc-a", sessionId="")
+
+
+class TestMarkdownRequest:
+    def test_requires_document_ref(self):
+        with pytest.raises(ValidationError):
+            MarkdownRequest(username="alice")
+
+    def test_accepts_single_document_ref(self):
+        req = MarkdownRequest(
+            documentRef=DocumentRef(documentId="doc-a", sessionId="sess-1"),
+            username="alice",
+        )
+        assert req.documentRef.documentId == "doc-a"
+        assert req.username == "alice"
+
+    def test_rejects_empty_document_id(self):
+        with pytest.raises(ValidationError):
+            MarkdownRequest(
+                documentRef=DocumentRef(documentId="", sessionId="sess-1"),
+            )
+
+
+class TestMarkdownFilename:
+    def test_strips_extension_and_appends_md(self):
+        assert _markdown_filename("Report Q3.pdf") == "Report_Q3.md"
+
+    def test_strips_path_traversal(self):
+        assert _markdown_filename("../../etc/passwd") == "passwd.md"
+
+    def test_sanitizes_header_injection_chars(self):
+        result = _markdown_filename('a"; rm -rf;.docx')
+        assert result.endswith(".md")
+        for bad in ('"', ";", " ", "\n", "/", "\\"):
+            assert bad not in result
+
+    def test_empty_and_none_fall_back(self):
+        assert _markdown_filename("") == "document.md"
+        assert _markdown_filename(None) == "document.md"
+
+    def test_dotfile_falls_back(self):
+        # rsplit('.', 1)[0] on ".gitignore" is empty -> fall back.
+        assert _markdown_filename(".gitignore") == "document.md"
+
+    def test_bounds_length(self):
+        result = _markdown_filename("a" * 500 + ".pdf")
+        assert result.endswith(".md")
+        assert len(result) <= 131  # 128 stem + ".md"
+
+
+class TestExtractFailureMapping:
+    @pytest.mark.parametrize(
+        "message,status",
+        [
+            ("Error: You do not have access to this document.", 403),
+            ("Error: Document not found in storage.", 404),
+            ("Error: The file may have expired.", 404),
+            (
+                "Error: Document exceeds the maximum allowed size (100 bytes).",
+                413,
+            ),
+            (
+                "Error extracting document with NvIngest: timed out after 300 seconds.",
+                504,
+            ),
+            ("Error: Invalid document reference provided.", 400),
+            ("Error: Valid username required for document extraction.", 400),
+            ("Error: Retrieved document data is empty.", 400),
+            ("An unexpected error occurred: boom", 500),
+        ],
+    )
+    def test_maps_failure_to_status(self, monkeypatch, message, status):
+        monkeypatch.setattr(document_ingest_api, "HTTPException", _FakeHTTPException)
+        with pytest.raises(_FakeHTTPException) as exc_info:
+            document_ingest_api._raise_for_extract_failure(message)
+        assert exc_info.value.status_code == status
 
 
 class TestConfig:

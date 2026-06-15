@@ -3,9 +3,11 @@
 import pytest
 from nat_nv_ingest.nat_nv_ingest import (
     DEFAULT_DOCUMENT_INGEST_MAX_SIZE_BYTES,
+    DEFAULT_DOCUMENT_MARKDOWN_MAX_CHARS,
     ERROR_MESSAGE_CHAR_LIMIT,
     IngestResult,
     NvIngestFunctionConfig,
+    _apply_char_limit,
     _build_ingestor,
     _can_access_stored_document,
     _dedup_document_refs,
@@ -23,6 +25,7 @@ from nat_nv_ingest.nat_nv_ingest import (
     clean_markdown,
     clean_table_markdown,
     document_ingest_max_size_bytes,
+    document_markdown_max_chars,
     format_batch_response,
     format_single_doc_response,
     normalize_collection_part,
@@ -973,6 +976,42 @@ class TestDocumentSizeCap:
         raw = b"hello world, this is a small document payload"
         encoded = base64.b64encode(raw).decode("ascii")
         assert _estimated_decoded_size(encoded) == len(raw)
+
+
+class TestApplyCharLimit:
+    def test_none_limit_returns_full_markdown(self):
+        assert _apply_char_limit("abcdef", None) == ("abcdef", False)
+
+    def test_under_limit_not_truncated(self):
+        assert _apply_char_limit("abc", 10) == ("abc", False)
+
+    def test_equal_length_not_truncated(self):
+        assert _apply_char_limit("abc", 3) == ("abc", False)
+
+    def test_over_limit_truncates(self):
+        assert _apply_char_limit("abcdef", 3) == ("abc", True)
+
+    def test_empty_markdown(self):
+        assert _apply_char_limit("", None) == ("", False)
+        assert _apply_char_limit("", 5) == ("", False)
+
+
+class TestDocumentMarkdownMaxChars:
+    def test_default_when_unset(self, monkeypatch):
+        monkeypatch.delenv("DOCUMENT_MARKDOWN_MAX_CHARS", raising=False)
+        assert document_markdown_max_chars() == DEFAULT_DOCUMENT_MARKDOWN_MAX_CHARS
+
+    def test_env_override_is_respected(self, monkeypatch):
+        monkeypatch.setenv("DOCUMENT_MARKDOWN_MAX_CHARS", "500000")
+        assert document_markdown_max_chars() == 500000
+
+    def test_invalid_env_falls_back_to_default(self, monkeypatch):
+        monkeypatch.setenv("DOCUMENT_MARKDOWN_MAX_CHARS", "not-a-number")
+        assert document_markdown_max_chars() == DEFAULT_DOCUMENT_MARKDOWN_MAX_CHARS
+
+    def test_non_positive_env_falls_back_to_default(self, monkeypatch):
+        monkeypatch.setenv("DOCUMENT_MARKDOWN_MAX_CHARS", "0")
+        assert document_markdown_max_chars() == DEFAULT_DOCUMENT_MARKDOWN_MAX_CHARS
 
     def test_size_error_none_when_within_limit(self):
         import base64

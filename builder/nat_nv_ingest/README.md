@@ -114,6 +114,23 @@ user_document_tool(
 4. The frontend or agent later calls the same tool with `operation="search"` to retrieve passages for the same user.
 5. The assistant reports success, partial success, or failure back to the user, with footer metadata the upload UI surfaces in its progress badge.
 
+## HTTP Routes (bypass the agent loop)
+
+`document_ingest_api.py` injects a `/v1/documents/*` FastAPI router that reuses
+this package's extraction code without routing through the LLM (the router
+corrupts exact-args like `username`/`documentRef`):
+
+- `POST /v1/documents/ingest` and `/ingest/stream` — bulk ingest into Milvus.
+- `POST /v1/documents/extract` — single document → markdown JSON, **truncated**
+  to `char_limit` (default 50K) for inline LLM consumption.
+- `POST /v1/documents/markdown` — **doc-to-markdown download.** Returns the
+  _entire_ document as a `text/markdown` attachment (`Content-Disposition:
+attachment; filename="<name>.md"`). Untruncated, bounded only by
+  `DOCUMENT_MARKDOWN_MAX_CHARS` (default 20,000,000). The download filename is
+  derived from the stored filename, sanitized (path components and unsafe
+  characters stripped) and given a `.md` extension. Ownership is enforced via
+  the stored document's `userId`; failures map to 403/404/413/422/504.
+
 ## Collection Scoping
 
 - Shared and user-scoped collections intentionally live in the same Milvus database.

@@ -11,10 +11,11 @@ import asyncio
 import json
 import logging
 import os
+import re
 from functools import lru_cache
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Header, HTTPException, Response
 from fastapi.responses import StreamingResponse
 from nat_helpers.internal_auth import require_trusted_user as _require_trusted_user
 from nat_helpers.redis_url import redis_url_from_env
@@ -22,6 +23,7 @@ from nat_nv_ingest.nat_nv_ingest import (
     INLINE_MARKDOWN_CHAR_LIMIT,
     NvIngestDocumentProcessor,
     NvIngestFunctionConfig,
+    document_markdown_max_chars,
     validate_collection_scope,
 )
 from pydantic import BaseModel, Field
@@ -73,6 +75,13 @@ class ExtractResponse(BaseModel):
     markdown: str
     truncated: bool
     original_chars: int
+
+
+class MarkdownRequest(BaseModel):
+    documentRef: DocumentRef
+    username: str | None = None
+    # No char_limit: the doc-to-markdown download returns the whole document,
+    # bounded server-side by document_markdown_max_chars().
 
 
 def _env_bool(name: str, default: bool) -> bool:
@@ -197,6 +206,47 @@ def _classify_status(output: str) -> str:
     if "partially completed batch processing" in lower_output:
         return "partial"
     return "success"
+
+
+_MD_FILENAME_SAFE_RE = re.compile(r"[^A-Za-z0-9._-]+")
+
+
+def _markdown_filename(source_filename: str | None) -> str:
+    """Derive a safe ``<basename>.md`` download name from a source filename.
+
+    Strips directory components (defusing path traversal), drops the original
+    extension, replaces unsafe characters with ``_``, bounds length, and falls
+    back to ``document.md`` when nothing usable remains. The result is embedded
+    in a ``Content-Disposition`` header, so it must never contain quotes,
+    newlines, or path separators.
+    """
+    raw = (source_filename or "").strip()
+    base = os.path.basename(raw)
+    stem = base.rsplit(".", 1)[0] if "." in base else base
+    safe = _MD_FILENAME_SAFE_RE.sub("_", stem).strip("._-")
+    if not safe:
+        safe = "document"
+    return f"{safe[:128]}.md"
+
+
+def _raise_for_extract_failure(message: str) -> None:
+    """Map an extract/markdown failure string to an HTTP error.
+
+    Shared by ``/extract`` and ``/markdown`` so both surface ownership, missing,
+    oversized, and timeout failures as the right 4xx/5xx instead of generic 500s.
+    """
+    lower = message.lower()
+    if "access" in lower:
+        raise HTTPException(status_code=403, detail=message)
+    if "not found" in lower or "expired" in lower:
+        raise HTTPException(status_code=404, detail=message)
+    if "exceeds the maximum allowed size" in lower:
+        raise HTTPException(status_code=413, detail=message)
+    if "timed out" in lower:
+        raise HTTPException(status_code=504, detail=message)
+    if "invalid" in lower or "required" in lower or "empty" in lower:
+        raise HTTPException(status_code=400, detail=message)
+    raise HTTPException(status_code=500, detail=message)
 
 
 @router.post("/ingest", response_model=IngestResponse)
@@ -397,15 +447,7 @@ async def extract(
     if result["status"] == "failure":
         # Map ownership/missing-doc failures to 4xx so the frontend can
         # surface them cleanly instead of generic 500s.
-        message = result["error"]
-        lower = message.lower()
-        if "access" in lower:
-            raise HTTPException(status_code=403, detail=message)
-        if "not found" in lower or "expired" in lower:
-            raise HTTPException(status_code=404, detail=message)
-        if "invalid" in lower or "required" in lower or "empty" in lower:
-            raise HTTPException(status_code=400, detail=message)
-        raise HTTPException(status_code=500, detail=message)
+        _raise_for_extract_failure(result["error"])
 
     return ExtractResponse(
         status=result["status"],
@@ -414,4 +456,61 @@ async def extract(
         markdown=result["markdown"],
         truncated=result["truncated"],
         original_chars=result["original_chars"],
+    )
+
+
+@router.post("/markdown")
+async def markdown(
+    req: MarkdownRequest,
+    x_user_id: Annotated[str | None, Header(alias="x-user-id")] = None,
+    x_daedalus_internal_token: Annotated[
+        str | None, Header(alias="x-daedalus-internal-token")
+    ] = None,
+) -> Response:
+    """Extract a full uploaded document to a downloadable Markdown file.
+
+    Unlike `/extract` (truncated, JSON, for LLM consumption), this returns the
+    *whole* document as a `text/markdown` attachment for the user to download
+    locally. Bounded server-side by `document_markdown_max_chars()`. Bypasses
+    the agent loop and reuses the same ownership check + failure→status mapping
+    as `/extract`.
+    """
+    user_id = _require_trusted_user(x_user_id, x_daedalus_internal_token)
+    username = (req.username or user_id).strip()
+    if username != user_id:
+        raise HTTPException(status_code=403, detail="username must match x-user-id")
+
+    document_ref = req.documentRef.model_dump(exclude_none=True)
+
+    try:
+        result = await _processor().extract_document(
+            documentRef=document_ref,
+            username=username,
+            char_limit=document_markdown_max_chars(),
+        )
+    except Exception as e:
+        logger.exception("documents.markdown failed")
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+    if result["status"] == "failure":
+        _raise_for_extract_failure(result["error"])
+
+    if not result["markdown"]:
+        # e.g. an image-only/scanned document with no extractable text.
+        raise HTTPException(
+            status_code=422,
+            detail="No extractable text or markdown content in this document.",
+        )
+
+    filename = _markdown_filename(result["filename"])
+    return Response(
+        content=result["markdown"].encode("utf-8"),
+        media_type="text/markdown; charset=utf-8",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "X-Document-Pages": str(result["pages"]),
+            "X-Document-Truncated": "true" if result["truncated"] else "false",
+            "X-Original-Chars": str(result["original_chars"]),
+            "Cache-Control": "private, no-store",
+        },
     )
