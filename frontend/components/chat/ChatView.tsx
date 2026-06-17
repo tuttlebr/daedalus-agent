@@ -181,7 +181,7 @@ export const ChatView = memo(() => {
             openedOAuthPromptKeysRef.current,
           );
           setStreaming(convId, true);
-          setActivityText('Waiting for Google authorization');
+          setActivityText('Authorization check');
           setOauthPrompts((current) => {
             const next = current.filter((prompt) => {
               if (prompt.conversationId !== convId) return true;
