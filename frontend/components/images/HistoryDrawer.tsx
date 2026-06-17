@@ -147,6 +147,7 @@ export function HistoryDrawer() {
       <div
         className={classNames(
           'absolute inset-0 bg-black/50 transition-opacity duration-200',
+          'z-40',
           open
             ? 'opacity-100 pointer-events-auto'
             : 'opacity-0 pointer-events-none',
@@ -160,11 +161,13 @@ export function HistoryDrawer() {
         className={classNames(
           'absolute top-0 right-0 bottom-0 w-full md:w-[360px]',
           'bg-neutral-950/95 backdrop-blur-xl border-l border-white/10',
+          'z-50',
           'transition-transform duration-200 ease-out',
           open ? 'translate-x-0' : 'translate-x-full',
           'flex flex-col',
         )}
         role="dialog"
+        aria-modal="true"
         aria-label="Session history"
       >
         <div className="safe-top flex items-center justify-between px-4 py-3 border-b border-white/5">

@@ -115,7 +115,7 @@ export const ImageSettingsPanel = memo(function ImageSettingsPanel({
           <Select
             label="Outputs"
             value={String(params.n ?? 1)}
-            options={[1, 2, 4, 8].map((value) => ({
+            options={caps.outputCounts.map((value) => ({
               value: String(value),
               label: `${value} image${value === 1 ? '' : 's'}`,
             }))}
@@ -229,14 +229,22 @@ function SizeControl({
     parsed?.height ? String(parsed.height) : '',
   );
   const [error, setError] = useState<string | null>(null);
+  const [draftingCustom, setDraftingCustom] = useState(false);
 
   useEffect(() => {
-    if (!parsed) return;
+    if (!parsed) {
+      if (!customActive && !draftingCustom) {
+        setWidth('');
+        setHeight('');
+      }
+      return;
+    }
     setWidth(String(parsed.width));
     setHeight(String(parsed.height));
-  }, [parsed]);
+  }, [customActive, draftingCustom, parsed]);
 
   const startCustom = () => {
+    setDraftingCustom(true);
     if (!width) setWidth(parsed?.width ? String(parsed.width) : '2048');
     if (!height) setHeight(parsed?.height ? String(parsed.height) : '2048');
   };
@@ -249,6 +257,7 @@ function SizeControl({
       return;
     }
     setError(null);
+    setDraftingCustom(false);
     onChange(next);
   };
 
@@ -257,13 +266,14 @@ function SizeControl({
       <FieldLabel>Size</FieldLabel>
       <div className="grid grid-cols-[1fr_auto] gap-2">
         <select
-          value={customActive ? 'custom' : value ?? ''}
+          value={customActive || draftingCustom ? 'custom' : value ?? ''}
           onChange={(e) => {
             setError(null);
             if (e.target.value === 'custom') {
               startCustom();
               return;
             }
+            setDraftingCustom(false);
             setWidth('');
             setHeight('');
             onChange(e.target.value);
@@ -285,7 +295,7 @@ function SizeControl({
           Custom
         </button>
       </div>
-      {(customActive || width || height) && (
+      {(customActive || draftingCustom || width || height) && (
         <div className="mt-2 grid grid-cols-[1fr_1fr_auto] gap-2">
           <input
             type="number"

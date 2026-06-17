@@ -29,6 +29,12 @@ function generatedRef(imageId: string, mimeType = 'image/png'): ImageRef {
   return { imageId, sessionId: GENERATED_SESSION_ID, mimeType };
 }
 
+function downloadExtensionForImage(image: GalleryImage): string {
+  return image.params.output_format === 'jpeg'
+    ? 'jpg'
+    : image.params.output_format ?? 'png';
+}
+
 interface ImagesCanvasProps {
   images: GalleryImage[];
   loading: boolean;
@@ -94,14 +100,7 @@ export const ImagesCanvas = memo(function ImagesCanvas({
               key={img ? img.imageId : `empty-${cols}-${idx}`}
               className="relative group overflow-hidden min-h-0"
             >
-              {loading && idx < loadingSlots ? (
-                <LoadingCell
-                  index={idx}
-                  count={loadingSlots}
-                  status={generationStatus}
-                  elapsedMs={elapsedMs}
-                />
-              ) : img ? (
+              {img ? (
                 <CanvasTile
                   image={img}
                   selected={selectedImageId === img.imageId}
@@ -109,6 +108,13 @@ export const ImagesCanvas = memo(function ImagesCanvas({
                   onReuseAsInput={onReuseAsInput}
                   onSendToChat={onSendToChat}
                   onDelete={onDelete}
+                />
+              ) : loading && idx < loadingSlots ? (
+                <LoadingCell
+                  index={idx}
+                  count={loadingSlots}
+                  status={generationStatus}
+                  elapsedMs={elapsedMs}
                 />
               ) : null}
             </div>
@@ -181,7 +187,7 @@ const CanvasTile = memo(function CanvasTile({
       url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `${image.imageId}.png`;
+      a.download = `${image.imageId}.${downloadExtensionForImage(image)}`;
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -217,12 +223,17 @@ const CanvasTile = memo(function CanvasTile({
         useThumbnail
         className="w-full h-full object-cover"
       />
+      {image.partial && (
+        <div className="absolute left-2 top-2 rounded-full bg-black/70 px-2 py-1 text-[10px] font-medium uppercase tracking-wider text-neutral-200">
+          Partial
+        </div>
+      )}
       <div
         className={classNames(
           'absolute inset-x-0 bottom-0 p-2',
           'bg-gradient-to-t from-black/80 to-transparent',
           'opacity-100 transition-opacity md:opacity-0 md:group-hover:opacity-100 md:focus-within:opacity-100',
-          'flex gap-1 justify-end',
+          'flex flex-wrap gap-1 justify-end',
         )}
         onClick={(e) => e.stopPropagation()}
       >
@@ -253,7 +264,6 @@ const CanvasTile = memo(function CanvasTile({
             variant="ghost"
             size="md"
             aria-label="Download"
-            className="hidden sm:inline-flex"
           />
         </Tooltip>
         <Tooltip content="Open full size" position="top">
@@ -263,7 +273,6 @@ const CanvasTile = memo(function CanvasTile({
             variant="ghost"
             size="md"
             aria-label="Open full size"
-            className="hidden sm:inline-flex"
           />
         </Tooltip>
         <Tooltip content="Remove from grid" position="top">

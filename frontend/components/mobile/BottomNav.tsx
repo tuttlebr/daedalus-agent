@@ -5,6 +5,7 @@ import {
   IconPaperclip,
   IconPlus,
   IconRobot,
+  IconSparkles,
 } from '@tabler/icons-react';
 import React, { memo } from 'react';
 
@@ -18,7 +19,7 @@ import { v4 as uuidv4 } from 'uuid';
 
 /**
  * Mobile bottom navigation bar.
- * 3 buttons: Menu, Attach, New Chat.
+ * Primary mobile entry points plus a distinct New Chat action.
  * Frosted glass backdrop with safe area inset.
  */
 export const BottomNav = memo(() => {
@@ -40,6 +41,15 @@ export const BottomNav = memo(() => {
       active: false,
       onClick: () => {
         document.dispatchEvent(new CustomEvent('daedalus:attach-file'));
+      },
+    },
+    {
+      icon: IconSparkles,
+      label: 'Create',
+      active: activeView === 'create',
+      onClick: () => {
+        setShowChatbar(false);
+        setActiveView('create');
       },
     },
     {

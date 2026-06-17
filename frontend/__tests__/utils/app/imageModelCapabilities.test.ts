@@ -1,6 +1,7 @@
 import {
   cleanImageParamsForModel,
   validateImageSize,
+  validateImageParamsForSubmit,
 } from '@/utils/app/imageModelCapabilities';
 
 import { describe, expect, it } from 'vitest';
@@ -42,6 +43,8 @@ describe('image model capabilities', () => {
 
   it('accepts valid popular and custom sizes', () => {
     expect(validateImageSize('1024x1024').valid).toBe(true);
+    expect(validateImageSize('2048x1152').valid).toBe(true);
+    expect(validateImageSize('1152x2048').valid).toBe(true);
     expect(validateImageSize('2048x3072').valid).toBe(true);
     expect(validateImageSize('3840x2160').valid).toBe(true);
   });
@@ -52,5 +55,15 @@ describe('image model capabilities', () => {
     expect(validateImageSize('512x512').reason).toContain('at least');
     expect(validateImageSize('3840x3840').reason).toContain('at most');
     expect(validateImageSize('3840x1024').reason).toContain('3:1');
+  });
+
+  it('validates request params before submit', () => {
+    expect(validateImageParamsForSubmit({ size: '2048x2048' }).valid).toBe(
+      true,
+    );
+    expect(validateImageParamsForSubmit({ size: '2048 by 2048' })).toEqual({
+      valid: false,
+      reason: 'Use WIDTHxHEIGHT, for example 2048x2048.',
+    });
   });
 });

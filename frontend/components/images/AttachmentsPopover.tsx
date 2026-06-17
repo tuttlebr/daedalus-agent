@@ -227,12 +227,26 @@ function InputsSection({
       }
       setUploading(true);
       try {
-        const refs = await Promise.all(
+        const results = await Promise.allSettled(
           accepted.map(async (file) =>
             ingest(file, await safeReadImageFileMetadata(file)),
           ),
         );
-        onAdd(refs);
+        const refs = results
+          .filter(
+            (result): result is PromiseFulfilledResult<ImageRef> =>
+              result.status === 'fulfilled',
+          )
+          .map((result) => result.value);
+        if (refs.length > 0) onAdd(refs);
+        const failures = results.length - refs.length;
+        if (failures > 0) {
+          setError(
+            `${failures} image${failures === 1 ? '' : 's'} failed to upload.`,
+          );
+        } else if (files.length > accepted.length) {
+          setError(`Added ${accepted.length}; maximum ${MAX_INPUTS} images.`);
+        }
       } catch (e) {
         setError(e instanceof Error ? e.message : 'Upload failed');
       } finally {
@@ -404,7 +418,7 @@ function MaskSection({
           <input
             ref={fileInputRef}
             type="file"
-            accept="image/*"
+            accept="image/png"
             onChange={(e) => handleFiles(e.target.files)}
             disabled={disabled || !firstImage}
             className="hidden"
@@ -499,7 +513,7 @@ function Thumb({
         className="w-full h-full object-cover"
       />
       <div className="absolute inset-x-0 top-0 px-1.5 py-0.5 bg-black/60 text-white text-[9px] font-medium">
-        {index}
+        Image {index}
       </div>
       <div className="absolute top-0.5 right-0.5 opacity-100 transition-opacity md:opacity-0 md:group-hover:opacity-100">
         <IconButton

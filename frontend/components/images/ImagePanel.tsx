@@ -13,8 +13,12 @@ import { getImageUrl } from '@/utils/app/imageHandler';
 import {
   cleanImageParamsForModel,
   resolveImageModel,
+  validateImageParamsForSubmit,
 } from '@/utils/app/imageModelCapabilities';
-import { useImageHistory } from '@/utils/app/queries';
+import {
+  useImageHistory,
+  useInvalidateImageHistory,
+} from '@/utils/app/queries';
 
 import { EditAssetsPanel } from './AttachmentsPopover';
 import { HistoryDrawer, HistoryToggleButton } from './HistoryDrawer';
@@ -148,6 +152,34 @@ function generatedRef(imageId: string, mimeType = 'image/png'): ImageRef {
   return { imageId, sessionId: GENERATED_SESSION_ID, mimeType };
 }
 
+function downloadExtensionForImage(image: GalleryImage): string {
+  return image.params.output_format === 'jpeg'
+    ? 'jpg'
+    : image.params.output_format ?? 'png';
+}
+
+async function imageApiErrorMessage(res: Response): Promise<string> {
+  const fallback =
+    res.status === 504
+      ? 'Backend timed out. Try again with the same prompt or fewer outputs.'
+      : res.status === 502
+      ? 'Backend unavailable. Try again when the image service is reachable.'
+      : `HTTP ${res.status}`;
+
+  const text = await res.text();
+  if (!text) return fallback;
+  try {
+    const json = JSON.parse(text) as {
+      detail?: string;
+      error?: string;
+      message?: string;
+    };
+    return json.detail ?? json.error ?? json.message ?? fallback;
+  } catch {
+    return text || fallback;
+  }
+}
+
 function useElapsedMs(active: boolean, startedAt: number | null): number {
   const [elapsedMs, setElapsedMs] = useState(0);
 
@@ -184,6 +216,7 @@ export function ImagePanel({ onSendToChat }: ImagePanelProps) {
   const setSelectedImageId = useImagePanelStore((s) => s.setSelectedImageId);
   const setHistory = useImagePanelStore((s) => s.setHistory);
   const { data: historyData } = useImageHistory();
+  const invalidateImageHistory = useInvalidateImageHistory();
   const elapsedMs = useElapsedMs(loading, generationStartedAt);
 
   useEffect(() => {
@@ -222,6 +255,11 @@ export function ImagePanel({ onSendToChat }: ImagePanelProps) {
       setError('Add at least one input image or switch to Generate.');
       return;
     }
+    const paramsValidation = validateImageParamsForSubmit(params, model);
+    if (!paramsValidation.valid) {
+      setError(paramsValidation.reason ?? 'Invalid image size');
+      return;
+    }
 
     setError(null);
     setLoading(true);
@@ -252,13 +290,7 @@ export function ImagePanel({ onSendToChat }: ImagePanelProps) {
       setGenerationStatus('generating');
 
       if (!res.ok) {
-        const text = await res.text();
-        try {
-          const json = JSON.parse(text);
-          setError(json.detail ?? json.error ?? text);
-        } catch {
-          setError(text || `HTTP ${res.status}`);
-        }
+        setError(await imageApiErrorMessage(res));
         return;
       }
 
@@ -298,6 +330,7 @@ export function ImagePanel({ onSendToChat }: ImagePanelProps) {
 
       try {
         await persistImageHistory(entry);
+        invalidateImageHistory();
       } catch (e) {
         console.warn('Failed to persist image history:', e);
       }
@@ -319,7 +352,7 @@ export function ImagePanel({ onSendToChat }: ImagePanelProps) {
       setLoading(false);
       setGenerationStatus('idle', null);
     }
-  }, []);
+  }, [invalidateImageHistory]);
 
   const reuseRef = useCallback(
     (ref: ImageRef) => reuseOutputAsInput(ref),
@@ -327,18 +360,24 @@ export function ImagePanel({ onSendToChat }: ImagePanelProps) {
   );
 
   return (
-    <div className="relative w-full h-full flex flex-col bg-neutral-950 text-neutral-100 overflow-hidden">
-      <header className="z-10 flex flex-none items-center justify-between gap-3 px-4 py-3 safe-top md:px-5">
+    <div className="relative flex h-full w-full flex-col overflow-hidden bg-neutral-950 text-neutral-100">
+      <header className="z-10 grid flex-none grid-cols-[1fr_auto] items-center gap-2 px-3 py-2 safe-top md:flex md:justify-between md:gap-3 md:px-5 md:py-3">
         <h1 className="text-base font-semibold tracking-tight text-neutral-100">
           Create New
         </h1>
-        <ModeSegmentedControl />
+        <div className="order-3 col-span-2 justify-self-center md:order-none md:col-span-1">
+          <ModeSegmentedControl />
+        </div>
         <HistoryToggleButton />
       </header>
 
       <div className="relative flex min-h-0 flex-1">
         <main className="flex min-w-0 flex-1 flex-col">
-          {mode === 'edit' && <EditAssetsPanel disabled={loading} />}
+          {mode === 'edit' && (
+            <div className="hidden flex-none md:block">
+              <EditAssetsPanel disabled={loading} />
+            </div>
+          )}
 
           <div className="relative min-h-0 flex-1">
             <ImagesCanvas
@@ -414,7 +453,7 @@ function OutputDetailPanel({
       url = URL.createObjectURL(blob);
       const anchor = document.createElement('a');
       anchor.href = url;
-      anchor.download = `${image.imageId}.png`;
+      anchor.download = `${image.imageId}.${downloadExtensionForImage(image)}`;
       document.body.appendChild(anchor);
       anchor.click();
       anchor.remove();

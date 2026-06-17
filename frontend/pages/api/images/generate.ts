@@ -5,6 +5,7 @@ import {
   cleanImageParamsForModel,
   removeImageParamKeys,
   resolveImageModel,
+  validateImageParamsForSubmit,
 } from '@/utils/app/imageModelCapabilities';
 import {
   resolveTimezoneFromHeaders,
@@ -30,6 +31,34 @@ export const config = {
 };
 
 const GENERATE_TIMEOUT_MS = 180_000;
+const UNSAFE_BROWSER_KEYS = [
+  'apiKey',
+  'openaiApiKey',
+  'openai_api_key',
+  'OPENAI_API_KEY',
+  'authorization',
+  'Authorization',
+];
+
+function isBackendUnavailable(message: string): boolean {
+  return (
+    message.includes('ECONNREFUSED') ||
+    message.includes('ENOTFOUND') ||
+    message.includes('EAI_AGAIN') ||
+    message.includes('ECONNRESET') ||
+    message.includes('socket hang up')
+  );
+}
+
+function removeUnsafeBrowserKeys(
+  body: Record<string, unknown>,
+): Record<string, unknown> {
+  const next = { ...body };
+  for (const key of UNSAFE_BROWSER_KEYS) {
+    delete next[key];
+  }
+  return next;
+}
 
 export default async function handler(
   req: NextApiRequest,
@@ -53,10 +82,22 @@ export default async function handler(
     });
 
     const body = typeof req.body === 'object' && req.body ? req.body : {};
-    const model = resolveImageModel((body as Record<string, unknown>).model);
+    const safeBody = removeUnsafeBrowserKeys(body as Record<string, unknown>);
+    const model = resolveImageModel(safeBody.model);
+    const prompt = safeBody.prompt;
+    if (typeof prompt !== 'string' || !prompt.trim()) {
+      return res.status(400).json({ error: 'Prompt is required' });
+    }
+    const paramsValidation = validateImageParamsForSubmit(safeBody, model);
+    if (!paramsValidation.valid) {
+      return res
+        .status(400)
+        .json({ error: paramsValidation.reason ?? 'Invalid image size' });
+    }
     const payload = {
-      ...removeImageParamKeys(body as Record<string, unknown>),
-      ...cleanImageParamsForModel(body as Record<string, unknown>, model),
+      ...removeImageParamKeys(safeBody),
+      ...cleanImageParamsForModel(safeBody, model),
+      prompt: prompt.trim(),
       model,
       sessionId,
       user: userId,
@@ -89,11 +130,11 @@ export default async function handler(
     const message = error instanceof Error ? error.message : 'Unknown error';
     const isTimeout =
       message.includes('timed out') || message.includes('ETIMEDOUT');
-    const isConnRefused = message.includes('ECONNREFUSED');
+    const backendUnavailable = isBackendUnavailable(message);
     if (isTimeout) {
       return res.status(504).json({ error: 'Backend timed out', message });
     }
-    if (isConnRefused) {
+    if (backendUnavailable) {
       return res.status(502).json({ error: 'Backend unavailable', message });
     }
     return res.status(500).json({ error: 'Internal server error', message });

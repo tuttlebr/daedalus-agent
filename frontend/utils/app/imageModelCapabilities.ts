@@ -32,6 +32,7 @@ export interface ImageModelCapabilities {
   outputFormats: readonly ImageOutputFormat[];
   backgrounds: readonly ImageBackground[];
   moderation: readonly ImageModeration[];
+  outputCounts: readonly number[];
   maxOutputs: number;
   supportsInputFidelity: boolean;
   customSize: {
@@ -49,6 +50,8 @@ export const GPT_IMAGE_2_POPULAR_SIZES = [
   '1024x1024',
   '1024x1536',
   '1536x1024',
+  '2048x1152',
+  '1152x2048',
   '1920x1080',
   '1080x1920',
   '2048x2048',
@@ -72,6 +75,7 @@ export const IMAGE_MODEL_CAPABILITIES: Record<
     outputFormats: ['png', 'jpeg', 'webp'],
     backgrounds: ['auto', 'opaque'],
     moderation: ['auto', 'low'],
+    outputCounts: [1, 2, 4, 8],
     maxOutputs: 8,
     supportsInputFidelity: false,
     customSize: {
@@ -172,6 +176,15 @@ export function validateImageSize(
   }
 
   return { valid: true };
+}
+
+export function validateImageParamsForSubmit(
+  params: Record<string, unknown> | ImageParams | undefined,
+  model: unknown = DEFAULT_IMAGE_MODEL,
+): ImageSizeValidationResult {
+  if (!params) return { valid: true };
+  const source = params as ImageParams;
+  return validateImageSize(source.size, model);
 }
 
 export function isPopularImageSize(
