@@ -18,6 +18,8 @@ This is a polyglot monorepo. Each major component has its own scoped guidance �
 | `skills/`        | Agent runtime skills + upstream NAT v1.7 coding skills (`nat-*`)                            | see "NAT skills" below                     |
 | `nginx/`         | Reverse proxy config                                                                        | —                                          |
 
+`AGENTS.md` (repo root, plus `frontend/AGENTS.md` and `builder/AGENTS.md`) carries the same guidance for non-Claude agents; keep it and these CLAUDE.md files consistent when conventions change.
+
 ## Commands
 
 The [`Makefile`](Makefile) mirrors CI ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) job-for-job. **When you change CI, update the Makefile in the same commit** — it is the local gate. `make` with no target lists jobs.
@@ -33,6 +35,8 @@ make evals       # eval harness compile + dataset validation
 make tools-check # verify required binaries are installed
 ```
 
+Python jobs run inside a `uv`-discovered venv: an active `VIRTUAL_ENV`, else the nearest `.venv/` (so `builder/.venv` for the builder job, repo-root `.venv` for evals). On PEP-668 system Python you must have one of those in place.
+
 Per-component (full details in the scoped guides):
 
 ```bash
@@ -41,6 +45,7 @@ cd builder && uv pip install -e ".[test]"
 cd builder && python3 -m pytest tests                       # all
 cd builder && python3 -m pytest tests/test_smart_milvus.py  # one file
 cd builder && python3 -m pytest tests -k smart_milvus       # focused
+make test-integration                                        # opt-in, real Redis (PYTEST_USE_REAL_REDIS=1)
 
 # Frontend (Node.js 22; legacy-peer-deps required)
 cd frontend && npm ci --legacy-peer-deps
@@ -75,15 +80,11 @@ There is no direct request/response coupling for the main chat path. The fronten
 
 ### The backend is _assembled by config_, not by code in `backend/`
 
-`builder/` packages only _register_ NAT tools (via `@register_function`; the config class `name=` is the YAML `_type`). They are composed into a running agent entirely by [`backend/tool-calling-config.yaml`](backend/tool-calling-config.yaml), which also defines MCP servers, embedders, retrievers, auth, and the system prompt. To trace how a tool runs, match its `name=` against `_type:` in that file. The top-level `workflow._type` is `tool_calling_agent`, with leaf tools (and MCP function groups) listed under `tool_names`. It seeds the agent graph with the full inbound `messages` list (trimmed to the last `max_history`), which is how in-chat history reaches the LLM — the earlier `responses_api_agent` took a single input string, so NAT collapsed the request to `messages[-1]` and dropped all prior turns. The agent LLM (`tool_calling_llm`) uses Chat Completions, **not** the Responses API: the Responses API is only supported via `responses_api_agent`.
+`builder/` packages only _register_ NAT tools (via `@register_function`; the config class `name=` is the YAML `_type`). They are composed into a running agent entirely by [`backend/tool-calling-config.yaml`](backend/tool-calling-config.yaml), which also defines MCP servers (`function_groups`), embedders, retrievers, auth, memory, and the system prompt. To trace how a tool runs, match its `name=` against `_type:` in that file. The top-level `workflow._type` is `tool_calling_agent`, with leaf tools (and MCP function groups) listed under `tool_names`. It seeds the agent graph with the full inbound `messages` list (trimmed to the last `max_history`), which is how in-chat history reaches the LLM — the earlier `responses_api_agent` took a single input string, so NAT collapsed the request to `messages[-1]` and dropped all prior turns. The agent LLM (`tool_calling_llm`) uses Chat Completions, **not** the Responses API: the Responses API is only supported via `responses_api_agent`.
 
 ### The backend container runs a custom entrypoint, not `nat serve`
 
-The image runs `python entrypoint.py` (`builder/entrypoint.py`), which applies **load-bearing, order-dependent** pre-import monkeypatches (Starlette compat shims, FastAPI route injection for `image_api.py`/`document_ingest_api.py`, OpenAI client timeout/logging via `llm_diagnostics.py`, MCP timeout + approval-gate via `mcp_patches.py`) _before_ invoking NAT in-process. See `builder/CLAUDE.md` for the exact ordering before touching startup.
-
-### Routing: single tool-calling agent with direct tools
-
-The backend workflow is one top-level `tool_calling_agent` with direct leaf tools. It does not route through nested specialist agents or architecture optimizers; broad research uses the deep-research prompt path with source planning and approval. (It does **not** use `responses_api_agent`: that agent takes a single string input, so NAT reduces the request to the last message and the agent loses conversation history.)
+The image runs `python entrypoint.py` (`builder/entrypoint.py`), which applies **load-bearing, order-dependent** pre-import monkeypatches (Starlette compat shims; FastAPI route injection for `image_api.py` / `document_ingest_api.py` / `profile_import_api.py`; OpenAI client timeout/logging via `llm_diagnostics.py`; MCP timeout + approval-gate via `mcp_patches.py`) _before_ invoking NAT in-process. These injected routers (`/v1/images/*`, `/v1/documents/*`, profile import) let the frontend hit image generation, bulk document ingest, and profile import directly with structured JSON instead of forcing the LLM to copy refs into a tool call. See `builder/CLAUDE.md` for the exact ordering before touching startup.
 
 ### The autonomous worker is a separate process
 

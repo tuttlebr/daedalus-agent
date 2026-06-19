@@ -31,6 +31,8 @@ authentication:
     token_endpoint_auth_method: client_secret_post
     scopes:
       - https://www.googleapis.com/auth/calendar.calendarlist.readonly
+      - https://www.googleapis.com/auth/calendar.events.freebusy
+      - https://www.googleapis.com/auth/calendar.events.readonly
     use_pkce: true
     allow_default_user_id_for_tool_calls: false
 embedders:
@@ -90,8 +92,6 @@ function_groups:
       url: https://gmailmcp.googleapis.com/mcp/v1
   calendar_mcp_server:
     _type: mcp_client
-    include:
-      - list_calendars
     tool_call_timeout: 30
     auth_flow_timeout: 600
     reconnect_enabled: true
@@ -768,29 +768,11 @@ llms:
     api_key: ${TOOL_CALLING_LLM_MODEL_API_KEY}
     base_url: ${TOOL_CALLING_LLM_MODEL_BASE_URL}
     model_name: ${TOOL_CALLING_LLM_MODEL_MODEL}
-    # extra_body:
-    #   nvext:
-    #     agent_hints:
-    #       priority: 9
-    #       osl: 2048
-    #       speculative_prefill: true
-    #     cache_control:
-    #       type: ephemeral
-    #       ttl: 120m
   default_llm:
     _type: openai
     api_key: ${DEFAULT_LLM_MODEL_API_KEY}
     base_url: ${DEFAULT_LLM_MODEL_BASE_URL}
     model_name: ${DEFAULT_LLM_MODEL_MODEL}
-    # extra_body:
-    #   nvext:
-    #     agent_hints:
-    #       priority: 8
-    #       osl: 1024
-    #       speculative_prefill: true
-    #     cache_control:
-    #       type: ephemeral
-    #       ttl: 120m
 memory:
   redis_memory:
     _type: nat.plugins.redis/redis_memory
