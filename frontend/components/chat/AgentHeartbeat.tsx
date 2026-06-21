@@ -69,7 +69,8 @@ export const AgentHeartbeat = memo(
           {/* Step category icons */}
           <div className="flex items-center -space-x-1">
             {recentCategories.map((cat, i) => {
-              const Icon = CATEGORY_ICONS[cat] || IconTool;
+              const Icon =
+                CATEGORY_ICONS[String(cat).toLowerCase()] || IconTool;
               return (
                 <span
                   key={`${cat}-${i}`}

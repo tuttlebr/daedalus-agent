@@ -143,6 +143,15 @@ spec:
             - port: "6006"
               protocol: TCP
 
+    # Unifi Network MCP Server
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: unifi-network-mcp-server
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+
     # Milvus vector database
     - toEndpoints:
         - matchLabels:

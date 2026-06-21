@@ -64,6 +64,33 @@ interface AsyncJobStatus {
   assistantMessageId?: string;
 }
 
+interface ChatTokenEvent {
+  conversationId: string;
+  jobId: string;
+  turnId?: string;
+  assistantMessageId?: string;
+  content: string;
+  intermediateSteps?: any[];
+}
+
+interface ChatIntermediateStepEvent {
+  conversationId: string;
+  jobId: string;
+  turnId?: string;
+  assistantMessageId?: string;
+  step: any;
+}
+
+interface ChatCompleteEvent {
+  conversationId: string;
+  jobId: string;
+  turnId?: string;
+  assistantMessageId?: string;
+  fullResponse: string;
+  intermediateSteps?: any[];
+  error?: string;
+}
+
 interface PersistedJob {
   jobId: string;
   conversationId: string;
@@ -82,6 +109,8 @@ interface CompletionMeta {
 interface UseAsyncChatOptions {
   pollingInterval?: number;
   onProgress?: (status: AsyncJobStatus) => void;
+  onToken?: (event: ChatTokenEvent) => void;
+  onIntermediateStep?: (event: ChatIntermediateStepEvent) => void;
   onComplete?: (
     response: string,
     intermediateSteps?: any[],
@@ -166,6 +195,20 @@ const clearPersistedJobs = (userId: string, conversationId?: string) => {
   }
 };
 
+function appendStreamDelta(currentText: string, delta: string): string {
+  if (!delta) return currentText;
+  if (!currentText) return delta;
+
+  const maxOverlap = Math.min(currentText.length, delta.length);
+  for (let overlap = maxOverlap; overlap > 0; overlap -= 1) {
+    if (currentText.endsWith(delta.slice(0, overlap))) {
+      return `${currentText}${delta.slice(overlap)}`;
+    }
+  }
+
+  return `${currentText}${delta}`;
+}
+
 export const useAsyncChat = (
   options: UseAsyncChatOptions = {},
 ): UseAsyncChatReturn => {
@@ -173,6 +216,8 @@ export const useAsyncChat = (
     // Adaptive polling: 3s on desktop, 5s on mobile (battery-conscious)
     pollingInterval = isMobile() ? 5000 : 3000,
     onProgress,
+    onToken,
+    onIntermediateStep,
     onComplete,
     onError,
     userId = 'anon',
@@ -204,6 +249,9 @@ export const useAsyncChat = (
 
   const removeActiveJob = useCallback(
     (jobId: string, conversationId?: string, clearStatus: boolean = true) => {
+      const trackedConversationId =
+        conversationId || activeJobsRef.current[jobId]?.conversationId;
+
       const timer = pollingTimersRef.current[jobId];
       if (timer) {
         clearTimeout(timer);
@@ -214,6 +262,21 @@ export const useAsyncChat = (
         clearInterval(fallbackTimer);
         delete wsFallbackTimersRef.current[jobId];
       }
+
+      if (wsActiveJobsRef.current.has(jobId)) {
+        const wsManager = getWebSocketManager();
+        wsManager.unsubscribeFromJob(jobId);
+        if (trackedConversationId) {
+          wsManager.unsubscribeFromChat(trackedConversationId);
+        }
+        wsActiveJobsRef.current.delete(jobId);
+      }
+
+      if (wsJobUnsubsRef.current[jobId]) {
+        wsJobUnsubsRef.current[jobId]();
+        delete wsJobUnsubsRef.current[jobId];
+      }
+
       delete activeJobsRef.current[jobId];
       delete pollCountByJobRef.current[jobId];
       delete pollErrorCountRef.current[jobId];
@@ -222,13 +285,13 @@ export const useAsyncChat = (
       delete lastWsEventByJobRef.current[jobId];
       completedJobsRef.current.delete(jobId);
 
-      if (clearStatus && conversationId) {
+      if (clearStatus && trackedConversationId) {
         setJobStatusByConversationId((prev) => {
-          if (!prev[conversationId]) {
+          if (!prev[trackedConversationId]) {
             return prev;
           }
           const next = { ...prev };
-          delete next[conversationId];
+          delete next[trackedConversationId];
           return next;
         });
       }
@@ -236,6 +299,163 @@ export const useAsyncChat = (
       setIsPolling(Object.keys(activeJobsRef.current).length > 0);
     },
     [],
+  );
+
+  const getActiveConversationId = useCallback(
+    (jobId: string, conversationId?: string): string | undefined => {
+      return conversationId || activeJobsRef.current[jobId]?.conversationId;
+    },
+    [],
+  );
+
+  const updateLiveStatus = useCallback(
+    (
+      jobId: string,
+      conversationId: string | undefined,
+      updates: Partial<AsyncJobStatus>,
+    ): AsyncJobStatus => {
+      const now = Date.now();
+      const existing = jobStatusByJobIdRef.current[jobId];
+      const baseStatus: AsyncJobStatus =
+        existing ||
+        ({
+          jobId,
+          status: 'streaming',
+          createdAt: now,
+          updatedAt: now,
+          ...(conversationId ? { conversationId } : {}),
+        } as AsyncJobStatus);
+      const nextStatus: AsyncJobStatus = {
+        ...baseStatus,
+        ...updates,
+        jobId,
+        status: updates.status ?? baseStatus.status,
+        createdAt: updates.createdAt ?? baseStatus.createdAt,
+        conversationId:
+          conversationId || updates.conversationId || baseStatus.conversationId,
+        updatedAt: now,
+      };
+
+      jobStatusByJobIdRef.current[jobId] = nextStatus;
+      if (nextStatus.conversationId) {
+        setJobStatusByConversationId((prev) => ({
+          ...prev,
+          [nextStatus.conversationId!]: nextStatus,
+        }));
+      }
+
+      return nextStatus;
+    },
+    [],
+  );
+
+  const handleWsChatToken = useCallback(
+    (event: ChatTokenEvent) => {
+      if (!isComponentMountedRef.current) return;
+      if (!event?.jobId || completedJobsRef.current.has(event.jobId)) return;
+      if (!activeJobsRef.current[event.jobId]) return;
+
+      const conversationId = getActiveConversationId(
+        event.jobId,
+        event.conversationId,
+      );
+      lastWsEventByJobRef.current[event.jobId] = Date.now();
+
+      const current = jobStatusByJobIdRef.current[event.jobId];
+      const partialResponse = appendStreamDelta(
+        current?.partialResponse || '',
+        event.content || '',
+      );
+      const status = updateLiveStatus(event.jobId, conversationId, {
+        status: 'streaming',
+        partialResponse,
+        ...(event.intermediateSteps
+          ? { intermediateSteps: event.intermediateSteps }
+          : {}),
+        turnId: event.turnId || current?.turnId,
+        assistantMessageId:
+          event.assistantMessageId || current?.assistantMessageId,
+      });
+
+      onToken?.(event);
+      onProgress?.(status);
+    },
+    [getActiveConversationId, onProgress, onToken, updateLiveStatus],
+  );
+
+  const handleWsChatIntermediateStep = useCallback(
+    (event: ChatIntermediateStepEvent) => {
+      if (!isComponentMountedRef.current) return;
+      if (!event?.jobId || completedJobsRef.current.has(event.jobId)) return;
+      if (!activeJobsRef.current[event.jobId]) return;
+
+      const conversationId = getActiveConversationId(
+        event.jobId,
+        event.conversationId,
+      );
+      lastWsEventByJobRef.current[event.jobId] = Date.now();
+
+      const current = jobStatusByJobIdRef.current[event.jobId];
+      const nextSteps = event.step
+        ? [...(current?.intermediateSteps || []), event.step]
+        : current?.intermediateSteps || [];
+      const status = updateLiveStatus(event.jobId, conversationId, {
+        status: 'streaming',
+        intermediateSteps: nextSteps,
+        turnId: event.turnId || current?.turnId,
+        assistantMessageId:
+          event.assistantMessageId || current?.assistantMessageId,
+      });
+
+      onIntermediateStep?.(event);
+      onProgress?.(status);
+    },
+    [getActiveConversationId, onIntermediateStep, onProgress, updateLiveStatus],
+  );
+
+  const handleWsChatComplete = useCallback(
+    (event: ChatCompleteEvent) => {
+      if (!isComponentMountedRef.current) return;
+      if (!event?.jobId || completedJobsRef.current.has(event.jobId)) return;
+      if (!activeJobsRef.current[event.jobId]) return;
+
+      const conversationId = getActiveConversationId(
+        event.jobId,
+        event.conversationId,
+      );
+      lastWsEventByJobRef.current[event.jobId] = Date.now();
+      completedJobsRef.current.add(event.jobId);
+
+      if (event.error) {
+        onError?.(event.error, {
+          partialResponse: event.fullResponse,
+          intermediateSteps: event.intermediateSteps,
+          jobId: event.jobId,
+          conversationId,
+          turnId: event.turnId,
+          assistantMessageId: event.assistantMessageId,
+        });
+      } else {
+        onComplete?.(
+          event.fullResponse,
+          event.intermediateSteps,
+          Date.now(),
+          conversationId,
+          {
+            turnId: event.turnId,
+            assistantMessageId: event.assistantMessageId,
+            jobId: event.jobId,
+          },
+        );
+      }
+
+      if (conversationId) {
+        clearPersistedJobs(userId, conversationId);
+      }
+      removeActiveJob(event.jobId, conversationId);
+      logger.info('Job completed via chat token stream');
+    },
+    [getActiveConversationId, onComplete, onError, removeActiveJob, userId],
   );
 
   // Handle incoming job status from WebSocket push
@@ -307,14 +527,6 @@ export const useAsyncChat = (
         if (conversationId) {
           clearPersistedJobs(userId, conversationId);
         }
-        // Unsubscribe from WebSocket job updates
-        const wsManager = getWebSocketManager();
-        wsManager.unsubscribeFromJob(jobId);
-        wsActiveJobsRef.current.delete(jobId);
-        if (wsJobUnsubsRef.current[jobId]) {
-          wsJobUnsubsRef.current[jobId]();
-          delete wsJobUnsubsRef.current[jobId];
-        }
         removeActiveJob(jobId, conversationId);
         logger.info('Job completed via WebSocket push');
       } else if (status.status === 'error') {
@@ -331,13 +543,6 @@ export const useAsyncChat = (
         if (conversationId) {
           clearPersistedJobs(userId, conversationId);
         }
-        const wsManager = getWebSocketManager();
-        wsManager.unsubscribeFromJob(jobId);
-        wsActiveJobsRef.current.delete(jobId);
-        if (wsJobUnsubsRef.current[jobId]) {
-          wsJobUnsubsRef.current[jobId]();
-          delete wsJobUnsubsRef.current[jobId];
-        }
         removeActiveJob(jobId, conversationId);
         logger.info('Job errored via WebSocket push');
       }
@@ -348,7 +553,7 @@ export const useAsyncChat = (
 
   // Subscribe a job to WebSocket push updates
   const subscribeJobToWs = useCallback(
-    (jobId: string): boolean => {
+    (jobId: string, conversationId?: string): boolean => {
       if (!useWS) return false;
 
       const wsManager = getWebSocketManager();
@@ -359,20 +564,62 @@ export const useAsyncChat = (
 
       // Subscribe to job status via WebSocket
       wsManager.subscribeToJob(jobId);
+      if (conversationId) {
+        wsManager.subscribeToChat(conversationId);
+      }
       wsActiveJobsRef.current.add(jobId);
 
-      // Register handler for job_status messages
-      const unsub = wsManager.on('job_status', (data: AsyncJobStatus) => {
-        if (data.jobId === jobId) {
-          handleWsJobStatus(data);
-        }
-      });
-      wsJobUnsubsRef.current[jobId] = unsub;
+      const unsubs: Array<() => void> = [];
+
+      unsubs.push(
+        wsManager.on('job_status', (data: AsyncJobStatus) => {
+          if (data.jobId === jobId) {
+            handleWsJobStatus(data);
+          }
+        }),
+      );
+
+      unsubs.push(
+        wsManager.on('chat_token', (data: ChatTokenEvent) => {
+          if (data.jobId === jobId) {
+            handleWsChatToken(data);
+          }
+        }),
+      );
+
+      unsubs.push(
+        wsManager.on(
+          'chat_intermediate_step',
+          (data: ChatIntermediateStepEvent) => {
+            if (data.jobId === jobId) {
+              handleWsChatIntermediateStep(data);
+            }
+          },
+        ),
+      );
+
+      unsubs.push(
+        wsManager.on('chat_complete', (data: ChatCompleteEvent) => {
+          if (data.jobId === jobId) {
+            handleWsChatComplete(data);
+          }
+        }),
+      );
+
+      wsJobUnsubsRef.current[jobId] = () => {
+        unsubs.forEach((unsub) => unsub());
+      };
 
       logger.info(`Job ${jobId} subscribed to WebSocket push`);
       return true;
     },
-    [useWS, handleWsJobStatus],
+    [
+      useWS,
+      handleWsJobStatus,
+      handleWsChatToken,
+      handleWsChatIntermediateStep,
+      handleWsChatComplete,
+    ],
   );
 
   // Start a safety-net HTTP poll alongside WebSocket to catch silent disconnects.
@@ -735,16 +982,6 @@ export const useAsyncChat = (
               method: 'DELETE',
               credentials: 'include',
             });
-            // Clean up WebSocket subscription if active
-            if (wsActiveJobsRef.current.has(job.jobId)) {
-              const wsManager = getWebSocketManager();
-              wsManager.unsubscribeFromJob(job.jobId);
-              wsActiveJobsRef.current.delete(job.jobId);
-              if (wsJobUnsubsRef.current[job.jobId]) {
-                wsJobUnsubsRef.current[job.jobId]();
-                delete wsJobUnsubsRef.current[job.jobId];
-              }
-            }
             clearPersistedJobs(userId, job.conversationId);
             removeActiveJob(job.jobId, job.conversationId);
           }),
@@ -838,7 +1075,7 @@ export const useAsyncChat = (
         persistJobs(nextPersistedJobs, userId);
 
         // Try WebSocket push first, fall back to polling
-        const usingWs = subscribeJobToWs(jobId);
+        const usingWs = subscribeJobToWs(jobId, conversationId);
 
         if (!usingWs) {
           // Fallback: use HTTP polling
@@ -924,6 +1161,10 @@ export const useAsyncChat = (
       const wsManager = getWebSocketManager();
       for (const jobId of Array.from(wsActiveJobsRef.current)) {
         wsManager.unsubscribeFromJob(jobId);
+        const conversationId = activeJobsRef.current[jobId]?.conversationId;
+        if (conversationId) {
+          wsManager.unsubscribeFromChat(conversationId);
+        }
       }
       wsActiveJobsRef.current.clear();
       Object.values(wsJobUnsubsRef.current).forEach((unsub) => unsub());
@@ -953,7 +1194,7 @@ export const useAsyncChat = (
       activeJobsRef.current[job.jobId] = job;
 
       // Try WebSocket first, fall back to polling
-      const usingWs = subscribeJobToWs(job.jobId);
+      const usingWs = subscribeJobToWs(job.jobId, job.conversationId);
       if (!usingWs) {
         pollCountByJobRef.current[job.jobId] = 0; // Reset backoff on resume
         await pollJobStatus(job.jobId);

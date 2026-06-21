@@ -46,9 +46,68 @@ export interface StoredImage {
   height?: number;
 }
 
+export interface StoreImageResult {
+  imageId: string;
+  mimeType: string;
+}
+
+class UnsupportedImageError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'UnsupportedImageError';
+  }
+}
+
 // Generate a unique ID for the image
 function generateImageId(): string {
   return crypto.randomBytes(16).toString('hex');
+}
+
+function mimeTypeForFormat(
+  format: string | undefined,
+  fallback: string,
+): string {
+  if (!format) return fallback;
+  const formatToMime: Record<string, string> = {
+    png: 'image/png',
+    jpeg: 'image/jpeg',
+    jpg: 'image/jpeg',
+    webp: 'image/webp',
+    gif: 'image/gif',
+    svg: 'image/svg+xml',
+    avif: 'image/avif',
+    heif: 'image/heif',
+  };
+  return formatToMime[format] || fallback;
+}
+
+function isHeicOrHeif(format: string | undefined, mimeType: string): boolean {
+  return format === 'heif' || /^image\/hei[cf]$/i.test(mimeType);
+}
+
+const HEIC_HEIF_BRANDS = new Set([
+  'heic',
+  'heix',
+  'hevc',
+  'hevx',
+  'heim',
+  'heis',
+  'mif1',
+  'msf1',
+]);
+
+function hasHeicOrHeifBrand(buffer: Buffer): boolean {
+  if (buffer.length < 12 || buffer.toString('ascii', 4, 8) !== 'ftyp') {
+    return false;
+  }
+
+  const brandBytesToInspect = Math.min(buffer.length, 32);
+  for (let offset = 8; offset + 4 <= brandBytesToInspect; offset += 4) {
+    if (HEIC_HEIF_BRANDS.has(buffer.toString('ascii', offset, offset + 4))) {
+      return true;
+    }
+  }
+  return false;
 }
 
 // Process image preserving original format (no lossy compression) and generate thumbnail
@@ -73,48 +132,67 @@ async function processImage(
   );
   const buffer = Buffer.from(cleanBase64, 'base64');
 
+  let requiresHeicNormalization =
+    /^image\/hei[cf]$/i.test(mimeType) || hasHeicOrHeifBrand(buffer);
+
   try {
     // Use sharp to validate the image and get metadata
     const sharpInstance = sharp(buffer);
     const metadata = await sharpInstance.metadata();
+    requiresHeicNormalization = isHeicOrHeif(metadata.format, mimeType);
 
     // Determine the correct MIME type based on actual image format
-    let actualMimeType = mimeType;
-    if (metadata.format) {
-      const formatToMime: Record<string, string> = {
-        png: 'image/png',
-        jpeg: 'image/jpeg',
-        jpg: 'image/jpeg',
-        webp: 'image/webp',
-        gif: 'image/gif',
-        svg: 'image/svg+xml',
-        avif: 'image/avif',
-      };
-      actualMimeType = formatToMime[metadata.format] || mimeType;
+    let actualMimeType = mimeTypeForFormat(metadata.format, mimeType);
+    let storedBuffer = buffer;
+    let storedBase64 = cleanBase64;
+
+    if (requiresHeicNormalization) {
+      try {
+        storedBuffer = await sharp(buffer)
+          .rotate()
+          .toColorspace('srgb')
+          .png()
+          .toBuffer();
+        storedBase64 = storedBuffer.toString('base64');
+        actualMimeType = 'image/png';
+      } catch (conversionError) {
+        console.error(
+          'Failed to convert HEIC/HEIF image to PNG:',
+          conversionError,
+        );
+        throw new UnsupportedImageError(
+          'HEIC/HEIF images must be converted to PNG before editing.',
+        );
+      }
     }
 
     let vlmData: string | undefined;
     let vlmMimeType: string | undefined;
-    try {
-      const vlmBuffer = await sharp(buffer)
-        .rotate()
-        .resize(VLM_MAX_DIMENSION, VLM_MAX_DIMENSION, {
-          fit: 'inside',
-          withoutEnlargement: true,
-        })
-        .flatten({ background: '#ffffff' })
-        .toColorspace('srgb')
-        .jpeg({
-          quality: VLM_IMAGE_QUALITY,
-          progressive: false,
-          mozjpeg: false,
-        })
-        .toBuffer();
+    if (requiresHeicNormalization) {
+      vlmData = storedBase64;
+      vlmMimeType = 'image/png';
+    } else {
+      try {
+        const vlmBuffer = await sharp(storedBuffer)
+          .rotate()
+          .resize(VLM_MAX_DIMENSION, VLM_MAX_DIMENSION, {
+            fit: 'inside',
+            withoutEnlargement: true,
+          })
+          .flatten({ background: '#ffffff' })
+          .toColorspace('srgb')
+          .jpeg({
+            quality: VLM_IMAGE_QUALITY,
+            progressive: false,
+            mozjpeg: false,
+          })
+          .toBuffer();
 
-      vlmData = vlmBuffer.toString('base64');
-      vlmMimeType = 'image/jpeg';
-    } catch (vlmError) {
-      console.error('Failed to generate VLM-normalized image:', vlmError);
+        vlmData = vlmBuffer.toString('base64');
+        vlmMimeType = 'image/jpeg';
+      } catch (vlmError) {
+        console.error('Failed to generate VLM-normalized image:', vlmError);
+      }
     }
 
     // Generate thumbnail if image is larger than thumbnail size
@@ -125,7 +203,7 @@ async function processImage(
 
     if (width > THUMBNAIL_MAX_SIZE || height > THUMBNAIL_MAX_SIZE) {
       try {
-        const thumbnailBuffer = await sharp(buffer)
+        const thumbnailBuffer = await sharp(storedBuffer)
           .resize(THUMBNAIL_MAX_SIZE, THUMBNAIL_MAX_SIZE, {
             fit: 'inside',
             withoutEnlargement: true,
@@ -146,19 +224,29 @@ async function processImage(
 
     // For PNG images, keep them as PNG (lossless)
     // For other formats, preserve them as-is without re-encoding
+    // HEIC/HEIF is normalized to PNG because image edit providers reject HEIC.
     // This preserves original quality without lossy compression
     return {
-      data: cleanBase64,
+      data: storedBase64,
       mimeType: actualMimeType,
       vlmData,
       vlmMimeType,
-      size: buffer.length,
+      size: storedBuffer.length,
       thumbnail,
       thumbnailMimeType,
       width,
       height,
     };
   } catch (error) {
+    if (error instanceof UnsupportedImageError) {
+      throw error;
+    }
+    if (requiresHeicNormalization) {
+      console.error('Failed to process HEIC/HEIF image:', error);
+      throw new UnsupportedImageError(
+        'HEIC/HEIF images must be converted to PNG before editing.',
+      );
+    }
     console.error('Image processing failed, using original:', error);
     // Return original if processing fails
     return {
@@ -175,7 +263,7 @@ export async function storeImage(
   userId: string | undefined,
   base64Data: string,
   mimeType: string = 'image/png',
-): Promise<string> {
+): Promise<StoreImageResult> {
   const redis = getRedis();
   const imageId = generateImageId();
 
@@ -222,7 +310,7 @@ export async function storeImage(
     await redis.expire(sessionImagesKey, IMAGE_EXPIRY_SECONDS);
   }
 
-  return imageId;
+  return { imageId, mimeType: processed.mimeType };
 }
 
 // Retrieve image from Redis
@@ -408,11 +496,20 @@ export default async function handler(
         return res.status(400).json({ error: 'No image data provided' });
       }
 
-      const imageId = await storeImage(sessionId, userId, base64Data, mimeType);
+      const stored = await storeImage(sessionId, userId, base64Data, mimeType);
 
-      return res.status(200).json({ imageId, sessionId, userId });
+      return res.status(200).json({ ...stored, sessionId, userId });
     } catch (error) {
       console.error('Error storing image:', error);
+      if (error instanceof UnsupportedImageError) {
+        return res.status(415).json({ error: error.message });
+      }
+      if (
+        error instanceof Error &&
+        error.message.includes('Image size exceeds maximum allowed size')
+      ) {
+        return res.status(413).json({ error: error.message });
+      }
       return res.status(500).json({ error: 'Failed to store image' });
     }
   } else if (req.method === 'GET') {

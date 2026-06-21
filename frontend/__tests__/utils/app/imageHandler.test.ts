@@ -1,6 +1,10 @@
-import { cleanMessagesForLLM } from '@/utils/app/imageHandler';
+import { cleanMessagesForLLM, uploadImage } from '@/utils/app/imageHandler';
 
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 describe('cleanMessagesForLLM document attachments', () => {
   it('adds a documentRefs JSON array for multi-document ingestion', () => {
@@ -31,5 +35,33 @@ describe('cleanMessagesForLLM document attachments', () => {
     expect(message.content).toContain('"filename":"a.md"');
     expect(message.content).toContain('these documents');
     expect(message.content).toContain('"nvidia" collection');
+  });
+});
+
+describe('uploadImage', () => {
+  it('uses the normalized MIME type returned by image storage', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: vi.fn().mockResolvedValue({
+        imageId: 'input-1',
+        sessionId: 'session-1',
+        userId: 'alice',
+        mimeType: 'image/png',
+      }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const ref = await uploadImage('aGVpYw==', 'image/heic');
+
+    expect(ref).toEqual({
+      imageId: 'input-1',
+      sessionId: 'session-1',
+      userId: 'alice',
+      mimeType: 'image/png',
+    });
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({
+      base64Data: 'aGVpYw==',
+      mimeType: 'image/heic',
+    });
   });
 });

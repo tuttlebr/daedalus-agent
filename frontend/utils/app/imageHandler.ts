@@ -43,9 +43,14 @@ export async function uploadImage(
       const sessionId = randomUUID();
       const userId = undefined;
 
-      const imageId = await storeImage(sessionId, userId, base64Data, mimeType);
+      const stored = await storeImage(sessionId, userId, base64Data, mimeType);
 
-      return { imageId, sessionId, userId, mimeType };
+      return {
+        imageId: stored.imageId,
+        sessionId,
+        userId,
+        mimeType: stored.mimeType,
+      };
     }
 
     const response = await fetch('/api/session/imageStorage', {
@@ -68,8 +73,13 @@ export async function uploadImage(
       throw new Error(message);
     }
 
-    const { imageId, sessionId, userId } = await response.json();
-    return { imageId, sessionId, userId, mimeType };
+    const {
+      imageId,
+      sessionId,
+      userId,
+      mimeType: storedMimeType,
+    } = await response.json();
+    return { imageId, sessionId, userId, mimeType: storedMimeType ?? mimeType };
   } catch (error) {
     logger.error('Error uploading image', error);
     throw error;

@@ -116,7 +116,7 @@ export const AssistantMessage = memo(
           )}
 
           {/* Intermediate steps */}
-          {hasSteps && enableIntermediateSteps && (
+          {hasSteps && enableIntermediateSteps && !isStreaming && (
             <Suspense
               fallback={
                 <div className="h-8 bg-white/[0.02] rounded-lg animate-pulse mb-2" />

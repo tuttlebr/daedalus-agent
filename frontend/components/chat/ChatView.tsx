@@ -9,6 +9,7 @@ import { saveConversation } from '@/utils/app/conversation';
 import { sanitizeMessageContentFromPriorAssistant } from '@/utils/app/conversationReplay';
 import { buildMessageError } from '@/utils/app/errorCategory';
 import { cleanMessagesForLLM } from '@/utils/app/imageHandler';
+import { getFriendlyName } from '@/utils/app/intermediateSteps';
 import {
   filterOpenedOAuthPrompts,
   OAuthPrompt,
@@ -19,7 +20,11 @@ import {
 } from '@/utils/app/oauthPrompts';
 
 import { Message } from '@/types/chat';
-import { IntermediateStepCategory } from '@/types/intermediateSteps';
+import {
+  getEventCategory,
+  IntermediateStep,
+  IntermediateStepCategory,
+} from '@/types/intermediateSteps';
 
 import { useAuth } from '@/components/auth';
 import { IconButton } from '@/components/primitives';
@@ -31,6 +36,83 @@ import { MessageBubble } from './MessageBubble';
 
 import { useConversationStore, useUISettingsStore } from '@/state';
 import { v4 as uuidv4 } from 'uuid';
+
+const MAX_HEARTBEAT_CATEGORIES = 24;
+
+function findAssistantMessage(
+  messages: Message[],
+  assistantMessageId?: string,
+): Message | null {
+  if (assistantMessageId) {
+    const byId = messages.find((message) => message.id === assistantMessageId);
+    if (byId && byId.role !== 'user') return byId;
+  }
+
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    if (messages[i].role !== 'user') {
+      return messages[i];
+    }
+  }
+
+  return null;
+}
+
+function mergeIntermediateStep(
+  existingSteps: IntermediateStep[] = [],
+  incomingStep?: IntermediateStep,
+): IntermediateStep[] {
+  if (!incomingStep) return existingSteps;
+
+  const incomingId = incomingStep.payload?.UUID;
+  if (!incomingId) return [...existingSteps, incomingStep];
+
+  const existingIndex = existingSteps.findIndex(
+    (step) => step.payload?.UUID === incomingId,
+  );
+  if (existingIndex === -1) {
+    return [...existingSteps, incomingStep];
+  }
+
+  const nextSteps = [...existingSteps];
+  nextSteps[existingIndex] = {
+    ...nextSteps[existingIndex],
+    ...incomingStep,
+    payload: {
+      ...nextSteps[existingIndex].payload,
+      ...incomingStep.payload,
+    },
+  };
+  return nextSteps;
+}
+
+function getStepCategory(step: IntermediateStep): IntermediateStepCategory {
+  if (step?.payload?.event_type) {
+    return getEventCategory(step.payload.event_type);
+  }
+  return IntermediateStepCategory.CUSTOM;
+}
+
+function getCompactActivityText(step: IntermediateStep): string {
+  try {
+    return getFriendlyName(step) || 'Working';
+  } catch {
+    return 'Working';
+  }
+}
+
+function appendStreamingContent(currentContent: string, delta: string): string {
+  if (!delta) return currentContent;
+  if (!currentContent) return delta;
+
+  const maxOverlap = Math.min(currentContent.length, delta.length);
+  for (let overlap = maxOverlap; overlap > 0; overlap -= 1) {
+    if (currentContent.endsWith(delta.slice(0, overlap))) {
+      return `${currentContent}${delta.slice(overlap)}`;
+    }
+  }
+
+  return `${currentContent}${delta}`;
+}
 
 export const ChatView = memo(() => {
   const { user } = useAuth();
@@ -152,6 +234,68 @@ export const ChatView = memo(() => {
     [updateMessage, updateLastMessage],
   );
 
+  const updateStreamingSteps = useCallback(
+    (
+      convId: string,
+      steps: IntermediateStep[] | undefined,
+      assistantMessageId?: string,
+    ) => {
+      if (!steps?.length) return;
+
+      const lastStep = steps[steps.length - 1];
+      setActivityText(getCompactActivityText(lastStep));
+      setStepCategories(
+        steps.map(getStepCategory).slice(-MAX_HEARTBEAT_CATEGORIES),
+      );
+
+      updateAssistantMessage(
+        convId,
+        {
+          intermediateSteps: steps,
+        },
+        assistantMessageId,
+      );
+    },
+    [updateAssistantMessage],
+  );
+
+  const appendStreamingStep = useCallback(
+    (
+      convId: string,
+      step: IntermediateStep | undefined,
+      assistantMessageId?: string,
+    ) => {
+      if (!step) return;
+
+      const conv = useConversationStore
+        .getState()
+        .conversations.find((c) => c.id === convId);
+      if (!conv) return;
+
+      const assistantMessage = findAssistantMessage(
+        conv.messages,
+        assistantMessageId,
+      );
+      const nextSteps = mergeIntermediateStep(
+        assistantMessage?.intermediateSteps || [],
+        step,
+      );
+
+      setActivityText(getCompactActivityText(step));
+      setStepCategories((current) =>
+        [...current, getStepCategory(step)].slice(-MAX_HEARTBEAT_CATEGORIES),
+      );
+      updateAssistantMessage(
+        convId,
+        {
+          intermediateSteps: nextSteps,
+        },
+        assistantMessageId,
+      );
+    },
+    [updateAssistantMessage],
+  );
+
   useEffect(() => {
     scrollToBottom();
   }, [selectedConversation?.messages?.length, scrollToBottom]);
@@ -167,6 +311,66 @@ export const ChatView = memo(() => {
   // Async chat hook - handles job submission, WebSocket streaming, polling fallback
   const { startAsyncJob, cancelJob, jobStatusByConversationId } = useAsyncChat({
     userId,
+    onToken: useCallback(
+      (event: {
+        conversationId?: string;
+        content?: string;
+        assistantMessageId?: string;
+        intermediateSteps?: IntermediateStep[];
+      }) => {
+        const convId = event.conversationId || selectedIdRef.current;
+        if (!convId || !event.content) return;
+
+        const store = useConversationStore.getState();
+        if (!store.streamingConversationIds.has(convId)) return;
+
+        const conv = store.conversations.find((c) => c.id === convId);
+        if (!conv) return;
+
+        const assistantMessage = findAssistantMessage(
+          conv.messages,
+          event.assistantMessageId,
+        );
+        const currentContent =
+          typeof assistantMessage?.content === 'string'
+            ? assistantMessage.content
+            : '';
+
+        updateAssistantMessage(
+          convId,
+          {
+            content: appendStreamingContent(currentContent, event.content),
+            ...(event.intermediateSteps
+              ? { intermediateSteps: event.intermediateSteps }
+              : {}),
+          },
+          event.assistantMessageId,
+        );
+        setActivityText('Generating response');
+        scrollToBottom();
+      },
+      [scrollToBottom, updateAssistantMessage],
+    ),
+
+    onIntermediateStep: useCallback(
+      (event: {
+        conversationId?: string;
+        step?: IntermediateStep;
+        assistantMessageId?: string;
+      }) => {
+        const convId = event.conversationId || selectedIdRef.current;
+        if (!convId) return;
+        setStreaming(convId, true);
+        appendStreamingStep(
+          convId,
+          event.step as IntermediateStep,
+          event.assistantMessageId,
+        );
+        scrollToBottom();
+      },
+      [appendStreamingStep, scrollToBottom, setStreaming],
+    ),
+
     onProgress: useCallback(
       (status: any) => {
         const convId = status.conversationId || selectedIdRef.current;
@@ -252,51 +456,29 @@ export const ChatView = memo(() => {
 
         // Update activity text from intermediate steps
         if (status.intermediateSteps && status.intermediateSteps.length > 0) {
-          const lastStep =
-            status.intermediateSteps[status.intermediateSteps.length - 1];
-          const rawEvent = lastStep?.payload?.event_type;
-          const friendly: Record<string, string> = {
-            WORKFLOW_START: 'Starting',
-            WORKFLOW_END: 'Finalizing',
-            TOOL_START: 'Running tool',
-            TOOL_END: 'Tool complete',
-            LLM_NEW_TOKEN: 'Generating',
-          };
-          setActivityText(friendly[rawEvent] || lastStep?.name || 'Processing');
-
-          // Collect step categories
-          const cats = status.intermediateSteps
-            .map((s: any) => s?.payload?.category || 'tool')
-            .filter(Boolean) as IntermediateStepCategory[];
-          setStepCategories(cats);
-
-          // Update intermediate steps on the assistant message
-          const conv = useConversationStore
-            .getState()
-            .conversations.find((c) => c.id === convId);
-          if (conv && conv.messages.length > 0) {
-            updateAssistantMessage(
-              convId,
-              {
-                intermediateSteps: status.intermediateSteps,
-              },
-              status.assistantMessageId,
-            );
-          }
+          updateStreamingSteps(
+            convId,
+            status.intermediateSteps,
+            status.assistantMessageId,
+          );
         }
 
-        // Do not render partialResponse as message content. In multi-cycle NAT
-        // workflows it concatenates interim LLM reasoning that does not represent
-        // the final answer. The message `content` is set only in onComplete from
-        // fullResponse (and in the status===completed/error branch above as a
-        // safety-net).
         if (status.partialResponse) {
+          updateAssistantMessage(
+            convId,
+            {
+              content: status.partialResponse,
+            },
+            status.assistantMessageId,
+          );
+          setActivityText('Generating response');
           scrollToBottom();
         }
       },
       [
         setStreaming,
         updateAssistantMessage,
+        updateStreamingSteps,
         scrollToBottom,
         clearOpenedOAuthPromptsForConversation,
       ],

@@ -296,7 +296,7 @@ function InputsSection({
       <input
         ref={fileInputRef}
         type="file"
-        accept="image/*"
+        accept="image/*,.heic,.heif,image/heic,image/heif"
         multiple
         onChange={(e) => handleFiles(e.target.files)}
         disabled={disabled}
