@@ -127,6 +127,7 @@ nginx:
   config:
     useTemplate: true
     restrictedMode: true # Set to true to block direct API access through nginx
+    clientMaxBodySize: '1G' # Supports large image/document payloads; base64 adds ~33% overhead
     # If useTemplate is false, rawConf is used
     rawConf: |
       # Provide nginx conf if not using template
@@ -206,7 +207,7 @@ ingress:
     nginx.ingress.kubernetes.io/proxy-connect-timeout: '900'
     nginx.ingress.kubernetes.io/proxy-send-timeout: '900'
     nginx.ingress.kubernetes.io/proxy-read-timeout: '900'
-    nginx.ingress.kubernetes.io/proxy-body-size: '300m' # Support document uploads up to 200MB (base64 adds ~33% overhead)
+    nginx.ingress.kubernetes.io/proxy-body-size: '1g' # Supports large image/document payloads; base64 adds ~33% overhead
     nginx.ingress.kubernetes.io/proxy-buffering: 'off'
     nginx.ingress.kubernetes.io/proxy-request-buffering: 'off'
   hosts:
