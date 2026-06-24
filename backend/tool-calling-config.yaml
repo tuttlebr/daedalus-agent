@@ -57,14 +57,14 @@ function_groups:
       - searchEligiblePosts
       - searchCommunities
       - searchCommunityNotesWritten
-    tool_call_timeout: 30
+    tool_call_timeout: 60
     auth_flow_timeout: 30
     reconnect_enabled: true
     reconnect_max_attempts: 3
-    reconnect_initial_backoff: 1.0
+    reconnect_initial_backoff: 5.0
     reconnect_max_backoff: 60.0
     max_sessions: 16
-    session_idle_timeout: 60
+    session_idle_timeout: 600
     server:
       transport: streamable-http
       url: http://xmcp.xmcp.svc.cluster.local:8000/mcp
@@ -74,14 +74,15 @@ function_groups:
       - search_threads
       - get_thread
       - list_labels
-    tool_call_timeout: 30
+    tool_call_timeout: 60
     auth_flow_timeout: 600
     reconnect_enabled: true
     reconnect_max_attempts: 3
-    reconnect_initial_backoff: 1.0
+    reconnect_initial_backoff: 5.0
     reconnect_max_backoff: 60.0
     max_sessions: 16
-    session_idle_timeout: 60
+    session_idle_timeout: 600
+    use_native_tool_calling: true
     tool_overrides:
       search_threads:
         description: >-
@@ -97,28 +98,29 @@ function_groups:
       url: https://gmailmcp.googleapis.com/mcp/v1
   calendar_mcp_server:
     _type: mcp_client
-    tool_call_timeout: 30
+    tool_call_timeout: 60
     auth_flow_timeout: 600
     reconnect_enabled: true
     reconnect_max_attempts: 3
-    reconnect_initial_backoff: 1.0
+    reconnect_initial_backoff: 5.0
     reconnect_max_backoff: 60.0
     max_sessions: 16
-    session_idle_timeout: 60
+    session_idle_timeout: 600
+    use_native_tool_calling: true
     server:
       auth_provider: calendar_mcp_server
       transport: streamable-http
       url: https://calendarmcp.googleapis.com/mcp/v1
   dynamo_mcp_server:
     _type: mcp_client
-    tool_call_timeout: 30
+    tool_call_timeout: 60
     auth_flow_timeout: 30
     reconnect_enabled: true
     reconnect_max_attempts: 3
-    reconnect_initial_backoff: 1.0
+    reconnect_initial_backoff: 5.0
     reconnect_max_backoff: 60.0
     max_sessions: 16
-    session_idle_timeout: 60
+    session_idle_timeout: 600
     tool_overrides:
       searchDocs:
         description: >-
@@ -132,14 +134,14 @@ function_groups:
     _type: mcp_client
     include:
       - searchDocs
-    tool_call_timeout: 30
+    tool_call_timeout: 60
     auth_flow_timeout: 30
     reconnect_enabled: true
     reconnect_max_attempts: 3
-    reconnect_initial_backoff: 1.0
+    reconnect_initial_backoff: 5.0
     reconnect_max_backoff: 60.0
     max_sessions: 16
-    session_idle_timeout: 60
+    session_idle_timeout: 600
     tool_overrides:
       searchDocs:
         description: >-
@@ -153,14 +155,14 @@ function_groups:
     _type: mcp_client
     include:
       - searchDocs
-    tool_call_timeout: 30
+    tool_call_timeout: 60
     auth_flow_timeout: 30
     reconnect_enabled: true
     reconnect_max_attempts: 3
-    reconnect_initial_backoff: 1.0
+    reconnect_initial_backoff: 5.0
     reconnect_max_backoff: 60.0
     max_sessions: 16
-    session_idle_timeout: 60
+    session_idle_timeout: 600
     tool_overrides:
       searchDocs:
         description: >-
@@ -174,14 +176,14 @@ function_groups:
     _type: mcp_client
     include:
       - searchDocs
-    tool_call_timeout: 30
+    tool_call_timeout: 60
     auth_flow_timeout: 30
     reconnect_enabled: true
     reconnect_max_attempts: 3
-    reconnect_initial_backoff: 1.0
+    reconnect_initial_backoff: 5.0
     reconnect_max_backoff: 60.0
     max_sessions: 16
-    session_idle_timeout: 60
+    session_idle_timeout: 600
     tool_overrides:
       searchDocs:
         description: >-
@@ -195,14 +197,14 @@ function_groups:
     _type: mcp_client
     include:
       - searchDocs
-    tool_call_timeout: 30
+    tool_call_timeout: 60
     auth_flow_timeout: 30
     reconnect_enabled: true
     reconnect_max_attempts: 3
-    reconnect_initial_backoff: 1.0
+    reconnect_initial_backoff: 5.0
     reconnect_max_backoff: 60.0
     max_sessions: 16
-    session_idle_timeout: 60
+    session_idle_timeout: 600
     tool_overrides:
       searchDocs:
         description: >-
@@ -216,14 +218,14 @@ function_groups:
     _type: mcp_client
     include:
       - searchDocs
-    tool_call_timeout: 30
+    tool_call_timeout: 60
     auth_flow_timeout: 30
     reconnect_enabled: true
     reconnect_max_attempts: 3
-    reconnect_initial_backoff: 1.0
+    reconnect_initial_backoff: 5.0
     reconnect_max_backoff: 60.0
     max_sessions: 16
-    session_idle_timeout: 60
+    session_idle_timeout: 600
     tool_overrides:
       searchDocs:
         description: >-
@@ -235,28 +237,28 @@ function_groups:
       url: https://docs.nvidia.com/dsx/_mcp/server
   k8s_mcp_server:
     _type: mcp_client
-    tool_call_timeout: 30
+    tool_call_timeout: 60
     auth_flow_timeout: 30
     reconnect_enabled: true
     reconnect_max_attempts: 3
-    reconnect_initial_backoff: 1.0
+    reconnect_initial_backoff: 5.0
     reconnect_max_backoff: 60.0
     max_sessions: 16
-    session_idle_timeout: 60
+    session_idle_timeout: 600
     server:
       transport: streamable-http
       url: ${KUBERNETES_MCP_SERVER}
       auth_provider: k8s_mcp_server
   unifi_mcp_server:
     _type: mcp_client
-    tool_call_timeout: 30
+    tool_call_timeout: 60
     auth_flow_timeout: 30
     reconnect_enabled: true
     reconnect_max_attempts: 3
-    reconnect_initial_backoff: 1.0
+    reconnect_initial_backoff: 5.0
     reconnect_max_backoff: 60.0
     max_sessions: 16
-    session_idle_timeout: 60
+    session_idle_timeout: 600
     server:
       transport: streamable-http
       url: ${UNIFI_MCP_SERVER}
@@ -787,6 +789,9 @@ llms:
     api_key: ${TOOL_CALLING_LLM_MODEL_API_KEY}
     base_url: ${TOOL_CALLING_LLM_MODEL_BASE_URL}
     model_name: ${TOOL_CALLING_LLM_MODEL_MODEL}
+    extra_body:
+      chat_template_kwargs:
+        enable_thinking: true
   default_llm:
     _type: openai
     api_key: ${DEFAULT_LLM_MODEL_API_KEY}

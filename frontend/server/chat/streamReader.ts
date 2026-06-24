@@ -445,11 +445,13 @@ export async function startBackgroundStreamReader(
     await flushSteps(true);
     const currentStatus = (await jsonGet(statusKey)) as AsyncJobStatus | null;
     if (currentStatus?.status === 'oauth_required' && !partialResponse.trim()) {
-      await finalizeError(
-        jobId,
-        jobRequest,
-        'OAuth authorization did not complete before the backend stream closed',
-      );
+      await updateJobStatus(jobId, {
+        status: 'oauth_required',
+        partialResponse,
+        intermediateSteps: accumulatedSteps,
+        progress: 0,
+        updatedAt: Date.now(),
+      });
       return;
     }
 

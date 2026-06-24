@@ -205,15 +205,15 @@ spec:
     {{- end }}
     {{- end }}
 
-    # Dynamo inference gateway (central ingress for model traffic)
-    - toServices:
-        - k8sService:
-            serviceName: inference-gateway
-            namespace: daedalus-dynamo
-      toPorts:
-        - ports:
-            - port: "80"
-              protocol: TCP
+    # Daedalus Dynamo services
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: daedalus-dynamo
+
+    # X MCP services
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: xmcp
 
     # ── External FQDN allowlist (HTTPS only) ────────────────────────
     # NVIDIA inference & model APIs

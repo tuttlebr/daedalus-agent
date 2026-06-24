@@ -1929,12 +1929,15 @@ describe('chat/async streaming + finalize (characterization)', () => {
     expect(status?.fullResponse).toBe('The answer is 42.');
   });
 
-  it('transitions to oauth_required then finalizes error when the stream closes without content', async () => {
-    const { jobId, statusKey, store } = await runStreamTurn([
-      'event: oauth_required\n',
-      'data: {"auth_url":"https://accounts.google.com/auth","oauth_state":"xyz"}\n',
-      'data: [DONE]\n',
-    ]);
+  it('keeps oauth_required prompts when the stream closes without content', async () => {
+    const { jobId, statusKey, store } = await runStreamTurn(
+      [
+        'event: oauth_required\n',
+        'data: {"auth_url":"https://accounts.google.com/auth","oauth_state":"xyz"}\n',
+        'data: [DONE]\n',
+      ],
+      { expectNoFinalize: true },
+    );
 
     const oauthUpdate = publishedEvents()
       .filter((e) => e.channel === `job:${jobId}:status`)
@@ -1954,8 +1957,9 @@ describe('chat/async streaming + finalize (characterization)', () => {
     expect(oauthUpdate.progress).toBe(0);
 
     const status = store.get(statusKey);
-    expect(status?.status).toBe('error');
-    expect(status?.error).toContain('OAuth');
+    expect(status?.status).toBe('oauth_required');
+    expect(status?.finalizedAt).toBeUndefined();
+    expect(store.get(`daedalus:async-job-abort:${jobId}`)).toBeUndefined();
   });
 
   it('accumulates multiple OAuth prompts from one stream', async () => {
