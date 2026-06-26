@@ -186,6 +186,8 @@ describe('useAsyncChat streaming callbacks', () => {
       expect.any(Function),
     );
 
+    const progressCallsBeforeToken = onProgress.mock.calls.length;
+
     await act(async () => {
       emit('chat_token', {
         type: 'chat_token',
@@ -204,13 +206,7 @@ describe('useAsyncChat streaming callbacks', () => {
         content: 'Hel',
       }),
     );
-    expect(onProgress).toHaveBeenLastCalledWith(
-      expect.objectContaining({
-        jobId: 'job-1',
-        status: 'streaming',
-        partialResponse: 'Hel',
-      }),
-    );
+    expect(onProgress).toHaveBeenCalledTimes(progressCallsBeforeToken);
 
     await act(async () => {
       emit('job_status', {

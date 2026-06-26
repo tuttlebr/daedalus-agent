@@ -38,6 +38,8 @@ import { useConversationStore, useUISettingsStore } from '@/state';
 import { v4 as uuidv4 } from 'uuid';
 
 const MAX_HEARTBEAT_CATEGORIES = 24;
+const INITIAL_VISIBLE_MESSAGES = 80;
+const LOAD_OLDER_MESSAGES_STEP = 40;
 
 function findAssistantMessage(
   messages: Message[],
@@ -144,6 +146,9 @@ export const ChatView = memo(() => {
     IntermediateStepCategory[]
   >([]);
   const [oauthPrompts, setOauthPrompts] = useState<OAuthPrompt[]>([]);
+  const [visibleMessageCount, setVisibleMessageCount] = useState(
+    INITIAL_VISIBLE_MESSAGES,
+  );
   const openedOAuthPromptKeysRef = useRef<Set<string>>(new Set());
   const streamingIds = useConversationStore((s) => s.streamingConversationIds);
   const isStreaming = selectedConversationId
@@ -157,9 +162,21 @@ export const ChatView = memo(() => {
   // Scroll management
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const scrollFrameRef = useRef<number | null>(null);
 
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, []);
+
+  const scrollToBottomSoon = useCallback(() => {
+    if (scrollFrameRef.current !== null) return;
+    scrollFrameRef.current = requestAnimationFrame(() => {
+      scrollFrameRef.current = null;
+      const container = scrollContainerRef.current;
+      if (container) {
+        container.scrollTop = container.scrollHeight;
+      }
+    });
   }, []);
 
   const clearOpenedOAuthPromptsForConversation = useCallback(
@@ -301,6 +318,18 @@ export const ChatView = memo(() => {
   }, [selectedConversation?.messages?.length, scrollToBottom]);
 
   useEffect(() => {
+    setVisibleMessageCount(INITIAL_VISIBLE_MESSAGES);
+  }, [selectedConversationId]);
+
+  useEffect(() => {
+    return () => {
+      if (scrollFrameRef.current !== null) {
+        cancelAnimationFrame(scrollFrameRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
     setOauthPrompts((current) =>
       current.filter(
         (prompt) => prompt.conversationId === selectedConversationId,
@@ -347,9 +376,9 @@ export const ChatView = memo(() => {
           event.assistantMessageId,
         );
         setActivityText('Generating response');
-        scrollToBottom();
+        scrollToBottomSoon();
       },
-      [scrollToBottom, updateAssistantMessage],
+      [scrollToBottomSoon, updateAssistantMessage],
     ),
 
     onIntermediateStep: useCallback(
@@ -366,9 +395,9 @@ export const ChatView = memo(() => {
           event.step as IntermediateStep,
           event.assistantMessageId,
         );
-        scrollToBottom();
+        scrollToBottomSoon();
       },
-      [appendStreamingStep, scrollToBottom, setStreaming],
+      [appendStreamingStep, scrollToBottomSoon, setStreaming],
     ),
 
     onProgress: useCallback(
@@ -394,7 +423,7 @@ export const ChatView = memo(() => {
             });
             return [...next, ...prompts];
           });
-          scrollToBottom();
+          scrollToBottomSoon();
           return;
         }
 
@@ -472,13 +501,14 @@ export const ChatView = memo(() => {
             status.assistantMessageId,
           );
           setActivityText('Generating response');
-          scrollToBottom();
+          scrollToBottomSoon();
         }
       },
       [
         setStreaming,
         updateAssistantMessage,
         updateStreamingSteps,
+        scrollToBottomSoon,
         scrollToBottom,
         clearOpenedOAuthPromptsForConversation,
       ],
@@ -753,6 +783,9 @@ export const ChatView = memo(() => {
 
   const messages = selectedConversation?.messages || [];
   const hasMessages = messages.length > 0;
+  const hiddenMessageCount = Math.max(0, messages.length - visibleMessageCount);
+  const visibleMessages =
+    hiddenMessageCount > 0 ? messages.slice(hiddenMessageCount) : messages;
   const isAutonomousConversation =
     selectedConversationId === 'autonomous-agent-thoughts';
 
@@ -796,8 +829,29 @@ export const ChatView = memo(() => {
           <EmptyState />
         ) : (
           <div className="chat-content-rail py-6 space-y-6">
-            {messages.map((msg, i) => {
-              const isLastMessage = i === messages.length - 1;
+            {hiddenMessageCount > 0 && (
+              <div className="flex justify-center">
+                <button
+                  type="button"
+                  onClick={() =>
+                    setVisibleMessageCount((count) =>
+                      Math.min(
+                        messages.length,
+                        count + LOAD_OLDER_MESSAGES_STEP,
+                      ),
+                    )
+                  }
+                  className="rounded-md border border-white/[0.08] bg-white/[0.03] px-3 py-1.5 text-xs text-dark-text-muted hover:text-dark-text-primary"
+                >
+                  Show {Math.min(hiddenMessageCount, LOAD_OLDER_MESSAGES_STEP)}{' '}
+                  older messages
+                </button>
+              </div>
+            )}
+
+            {visibleMessages.map((msg, i) => {
+              const messageIndex = hiddenMessageCount + i;
+              const isLastMessage = messageIndex === messages.length - 1;
               const ingestProgress = selectedConversationId
                 ? jobStatusByConversationId[selectedConversationId]
                     ?.ingestProgress
@@ -815,9 +869,9 @@ export const ChatView = memo(() => {
                 !isStreaming;
               return (
                 <MessageBubble
-                  key={msg.id || `msg-${i}`}
+                  key={msg.id || `msg-${messageIndex}`}
                   message={msg}
-                  messageIndex={i}
+                  messageIndex={messageIndex}
                   isStreaming={isAssistantStreaming}
                   onRetry={canRetry ? handleRetryMessage : undefined}
                 />

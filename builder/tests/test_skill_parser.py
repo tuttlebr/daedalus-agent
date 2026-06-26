@@ -421,6 +421,21 @@ class TestParseFrontmatter:
         assert meta.name == "my-skill"
         assert meta.description == "A skill"
 
+    def test_folded_multiline_description(self, tmp_path):
+        skill_file = self._write(
+            tmp_path,
+            "---\n"
+            "name: daily-summary\n"
+            "description: >-\n"
+            "  Generate a daily summary page.\n"
+            "  Include calendar and weather details.\n"
+            "---\n",
+        )
+        meta = SkillParser._parse_frontmatter(skill_file, tmp_path)
+        assert meta.description == (
+            "Generate a daily summary page. Include calendar and weather details."
+        )
+
     def test_non_string_name_raises(self, tmp_path):
         skill_file = self._write(
             tmp_path, "---\nname: 123\ndescription: A skill\n---\n"

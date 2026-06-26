@@ -789,14 +789,14 @@ llms:
     api_key: ${TOOL_CALLING_LLM_MODEL_API_KEY}
     base_url: ${TOOL_CALLING_LLM_MODEL_BASE_URL}
     model_name: ${TOOL_CALLING_LLM_MODEL_MODEL}
-    extra_body:
-      chat_template_kwargs:
-        enable_thinking: true
   default_llm:
     _type: openai
     api_key: ${DEFAULT_LLM_MODEL_API_KEY}
     base_url: ${DEFAULT_LLM_MODEL_BASE_URL}
     model_name: ${DEFAULT_LLM_MODEL_MODEL}
+    extra_body:
+      chat_template_kwargs:
+        enable_thinking: true
 memory:
   redis_memory:
     _type: nat.plugins.redis/redis_memory
@@ -928,6 +928,7 @@ workflow:
   tool_names:
     - get_memory
     - add_memory
+    - delete_memory
     - current_datetime_tool
     - source_policy_tool
     - source_verifier_tool

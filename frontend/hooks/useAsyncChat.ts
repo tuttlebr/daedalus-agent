@@ -313,6 +313,7 @@ export const useAsyncChat = (
       jobId: string,
       conversationId: string | undefined,
       updates: Partial<AsyncJobStatus>,
+      publishState: boolean = true,
     ): AsyncJobStatus => {
       const now = Date.now();
       const existing = jobStatusByJobIdRef.current[jobId];
@@ -337,7 +338,7 @@ export const useAsyncChat = (
       };
 
       jobStatusByJobIdRef.current[jobId] = nextStatus;
-      if (nextStatus.conversationId) {
+      if (publishState && nextStatus.conversationId) {
         setJobStatusByConversationId((prev) => ({
           ...prev,
           [nextStatus.conversationId!]: nextStatus,
@@ -366,21 +367,25 @@ export const useAsyncChat = (
         current?.partialResponse || '',
         event.content || '',
       );
-      const status = updateLiveStatus(event.jobId, conversationId, {
-        status: 'streaming',
-        partialResponse,
-        ...(event.intermediateSteps
-          ? { intermediateSteps: event.intermediateSteps }
-          : {}),
-        turnId: event.turnId || current?.turnId,
-        assistantMessageId:
-          event.assistantMessageId || current?.assistantMessageId,
-      });
+      updateLiveStatus(
+        event.jobId,
+        conversationId,
+        {
+          status: 'streaming',
+          partialResponse,
+          ...(event.intermediateSteps
+            ? { intermediateSteps: event.intermediateSteps }
+            : {}),
+          turnId: event.turnId || current?.turnId,
+          assistantMessageId:
+            event.assistantMessageId || current?.assistantMessageId,
+        },
+        false,
+      );
 
       onToken?.(event);
-      onProgress?.(status);
     },
-    [getActiveConversationId, onProgress, onToken, updateLiveStatus],
+    [getActiveConversationId, onToken, updateLiveStatus],
   );
 
   const handleWsChatIntermediateStep = useCallback(

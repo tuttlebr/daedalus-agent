@@ -215,3 +215,4 @@ tools/
 !builder/*/README.md
 !builder/*/*.yaml
 !builder/*/*.yml
+!skills/**

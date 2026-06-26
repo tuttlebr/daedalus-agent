@@ -810,6 +810,15 @@ def test_pr_monitor_skill_is_available_for_pr_routing():
     )
 
 
+def test_repo_skill_manifests_are_discoverable():
+    from agent_skills.skill_parser import SkillParser
+
+    manifest_count = len(list(SKILLS_DIR.glob("*/SKILL.md")))
+    parser = SkillParser(skills_directory=str(SKILLS_DIR))
+
+    assert len(parser.discover_skills()) == manifest_count
+
+
 def test_nat_coding_agent_skills_are_available_and_routed():
     guide = AGENTS_GUIDE.read_text(encoding="utf-8")
     assert "skills/nat-user-rules/SKILL.md" in guide
