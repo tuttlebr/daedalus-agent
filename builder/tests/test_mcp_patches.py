@@ -1608,6 +1608,45 @@ class TestMcpErrorNoReconnect:
 
         assert not reconnect_called, "PermissionError should NOT trigger reconnect"
 
+    def test_tool_client_runtime_error_returns_tool_error(self, monkeypatch):
+        """Runtime MCP tool failures must return to the agent as tool output."""
+        import mcp_patches
+
+        class FakeMCPToolClient:
+            name = "gmail_mcp_server"
+            _url = "https://gmailmcp.googleapis.com/mcp/v1"
+
+            async def call_tool(self):
+                raise RuntimeError("auth timed out")
+
+        fake_module = types.ModuleType("nat.plugins.mcp.client.tool_client")
+        fake_module.MCPToolClient = FakeMCPToolClient
+
+        for module_name in (
+            "nat",
+            "nat.plugins",
+            "nat.plugins.mcp",
+            "nat.plugins.mcp.client",
+        ):
+            module = types.ModuleType(module_name)
+            module.__path__ = []
+            monkeypatch.setitem(sys.modules, module_name, module)
+        monkeypatch.setitem(
+            sys.modules,
+            "nat.plugins.mcp.client.tool_client",
+            fake_module,
+        )
+        monkeypatch.setattr(mcp_patches, "_mcp_client_available", False)
+        monkeypatch.setattr(mcp_patches, "_approval_gate_installed", False)
+
+        mcp_patches._patch_tool_client()
+
+        result = run(FakeMCPToolClient().call_tool())
+
+        assert result == (
+            "Error: gmail_mcp_server failed: RuntimeError: auth timed out"
+        )
+
 
 # ---------------------------------------------------------------------------
 # Tests: submit_job asyncio task execution (Fix 11 — Dask removed)

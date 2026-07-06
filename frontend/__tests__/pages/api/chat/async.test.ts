@@ -1962,6 +1962,27 @@ describe('chat/async streaming + finalize (characterization)', () => {
     expect(store.get(`daedalus:async-job-abort:${jobId}`)).toBeUndefined();
   });
 
+  it('clears oauth_required status once stream content arrives', async () => {
+    const { jobId } = await runStreamTurn([
+      'event: oauth_required\n',
+      'data: {"auth_url":"https://accounts.google.com/auth","oauth_state":"xyz"}\n',
+      'data: {"choices":[{"delta":{"content":"Other work finished."}}]}\n',
+      'data: [DONE]\n',
+    ]);
+
+    const streamingUpdateWithContent = publishedEvents()
+      .filter((e) => e.channel === `job:${jobId}:status`)
+      .map((e) => e.data)
+      .find(
+        (data) =>
+          data.status === 'streaming' &&
+          data.partialResponse === 'Other work finished.',
+      );
+    expect(streamingUpdateWithContent).toBeDefined();
+    expect(streamingUpdateWithContent.authUrl).toBeUndefined();
+    expect(streamingUpdateWithContent.oauthRequests).toBeUndefined();
+  });
+
   it('accumulates multiple OAuth prompts from one stream', async () => {
     const { jobId } = await runStreamTurn([
       'event: oauth_required\n',

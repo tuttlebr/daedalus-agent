@@ -480,6 +480,22 @@ export async function startBackgroundStreamReader(
       );
     } else {
       logger.error(`Job ${jobId}: Stream reader error: ${err.message}`);
+      if (!partialResponse.trim() && lastToolOutput) {
+        partialResponse = stripReplayedAssistantPrefix(
+          lastToolOutput,
+          jobRequest.messages || [],
+        );
+      }
+      await jsonSetWithExpiry(
+        stepsKey,
+        accumulatedSteps,
+        JOB_EXPIRY_SECONDS,
+      ).catch(() => {});
+      await updateJobStatus(jobId, {
+        ...(partialResponse ? { partialResponse } : {}),
+        intermediateSteps: accumulatedSteps,
+        updatedAt: Date.now(),
+      }).catch(() => {});
       await finalizeError(
         jobId,
         jobRequest,
@@ -490,14 +506,6 @@ export async function startBackgroundStreamReader(
           finalizeErr,
         );
       });
-    }
-    // Persist whatever we have so far (steps may still be useful)
-    if (accumulatedSteps.length > 0) {
-      await jsonSetWithExpiry(
-        stepsKey,
-        accumulatedSteps,
-        JOB_EXPIRY_SECONDS,
-      ).catch(() => {});
     }
   }
 }

@@ -1,6 +1,11 @@
 'use client';
 
-import { IconExternalLink, IconMenu2, IconRobot } from '@tabler/icons-react';
+import {
+  IconCheck,
+  IconExternalLink,
+  IconMenu2,
+  IconRobot,
+} from '@tabler/icons-react';
 import React, { memo, useCallback, useRef, useEffect, useState } from 'react';
 
 import { useAsyncChat } from '@/hooks/useAsyncChat';
@@ -11,7 +16,6 @@ import { buildMessageError } from '@/utils/app/errorCategory';
 import { cleanMessagesForLLM } from '@/utils/app/imageHandler';
 import { getFriendlyName } from '@/utils/app/intermediateSteps';
 import {
-  filterOpenedOAuthPrompts,
   OAuthPrompt,
   oauthPromptConversationKeyPrefix,
   oauthPromptKey,
@@ -40,6 +44,12 @@ import { v4 as uuidv4 } from 'uuid';
 const MAX_HEARTBEAT_CATEGORIES = 24;
 const INITIAL_VISIBLE_MESSAGES = 80;
 const LOAD_OLDER_MESSAGES_STEP = 40;
+const OAUTH_SUCCESS_VISIBLE_MS = 3000;
+
+type OAuthPromptState = OAuthPrompt & {
+  opened?: boolean;
+  succeeded?: boolean;
+};
 
 function findAssistantMessage(
   messages: Message[],
@@ -116,6 +126,25 @@ function appendStreamingContent(currentContent: string, delta: string): string {
   return `${currentContent}${delta}`;
 }
 
+function isSameOAuthServicePrompt(
+  left: OAuthPromptState,
+  right: OAuthPromptState,
+): boolean {
+  return (
+    left.conversationId === right.conversationId &&
+    (!left.jobId || !right.jobId || left.jobId === right.jobId) &&
+    (left.service || 'Google') === (right.service || 'Google')
+  );
+}
+
+function oauthPromptServiceKey(prompt: OAuthPromptState): string {
+  return [
+    prompt.conversationId,
+    prompt.jobId || '',
+    prompt.service || 'Google',
+  ].join('\n');
+}
+
 export const ChatView = memo(() => {
   const { user } = useAuth();
   const userId = user?.username || 'anon';
@@ -145,11 +174,15 @@ export const ChatView = memo(() => {
   const [stepCategories, setStepCategories] = useState<
     IntermediateStepCategory[]
   >([]);
-  const [oauthPrompts, setOauthPrompts] = useState<OAuthPrompt[]>([]);
+  const [oauthPrompts, setOauthPrompts] = useState<OAuthPromptState[]>([]);
   const [visibleMessageCount, setVisibleMessageCount] = useState(
     INITIAL_VISIBLE_MESSAGES,
   );
   const openedOAuthPromptKeysRef = useRef<Set<string>>(new Set());
+  const succeededOAuthServiceKeysRef = useRef<Set<string>>(new Set());
+  const oauthSuccessTimersRef = useRef<
+    Record<string, ReturnType<typeof setTimeout>>
+  >({});
   const streamingIds = useConversationStore((s) => s.streamingConversationIds);
   const isStreaming = selectedConversationId
     ? streamingIds.has(selectedConversationId)
@@ -179,26 +212,97 @@ export const ChatView = memo(() => {
     });
   }, []);
 
+  const clearOAuthPromptTimer = useCallback((key: string) => {
+    const timer = oauthSuccessTimersRef.current[key];
+    if (timer) {
+      clearTimeout(timer);
+      delete oauthSuccessTimersRef.current[key];
+    }
+  }, []);
+
   const clearOpenedOAuthPromptsForConversation = useCallback(
     (conversationId: string) => {
       const prefix = oauthPromptConversationKeyPrefix(conversationId);
       for (const key of Array.from(openedOAuthPromptKeysRef.current)) {
         if (key.startsWith(prefix)) {
           openedOAuthPromptKeysRef.current.delete(key);
+          clearOAuthPromptTimer(key);
+        }
+      }
+      for (const key of Array.from(succeededOAuthServiceKeysRef.current)) {
+        if (key.startsWith(prefix)) {
+          succeededOAuthServiceKeysRef.current.delete(key);
         }
       }
     },
-    [],
+    [clearOAuthPromptTimer],
   );
 
-  const handleOAuthPromptClick = useCallback((prompt: OAuthPrompt) => {
-    window.open(prompt.authUrl, '_blank', 'noopener,noreferrer');
-    const key = oauthPromptKey(prompt);
-    openedOAuthPromptKeysRef.current.add(key);
-    setOauthPrompts((current) =>
-      current.filter((candidate) => oauthPromptKey(candidate) !== key),
-    );
-  }, []);
+  const removeOAuthPromptByKey = useCallback(
+    (key: string) => {
+      clearOAuthPromptTimer(key);
+      openedOAuthPromptKeysRef.current.delete(key);
+      setOauthPrompts((current) =>
+        current.filter((prompt) => oauthPromptKey(prompt) !== key),
+      );
+    },
+    [clearOAuthPromptTimer],
+  );
+
+  const scheduleOAuthPromptSuccessRemoval = useCallback(
+    (key: string) => {
+      clearOAuthPromptTimer(key);
+      oauthSuccessTimersRef.current[key] = setTimeout(() => {
+        removeOAuthPromptByKey(key);
+      }, OAUTH_SUCCESS_VISIBLE_MS);
+    },
+    [clearOAuthPromptTimer, removeOAuthPromptByKey],
+  );
+
+  const finishOAuthPromptsForJob = useCallback(
+    (
+      conversationId: string,
+      jobId: string | undefined,
+      succeeded: boolean,
+      keepUnopened = false,
+    ) => {
+      setOauthPrompts((current) =>
+        current.flatMap((prompt) => {
+          if (prompt.conversationId !== conversationId) return [prompt];
+          if (jobId && prompt.jobId && prompt.jobId !== jobId) return [prompt];
+          if (succeeded && prompt.opened) {
+            succeededOAuthServiceKeysRef.current.add(
+              oauthPromptServiceKey(prompt),
+            );
+            if (!prompt.succeeded) {
+              scheduleOAuthPromptSuccessRemoval(oauthPromptKey(prompt));
+            }
+            return [{ ...prompt, succeeded: true }];
+          }
+          if (keepUnopened) return [prompt];
+          return [];
+        }),
+      );
+    },
+    [scheduleOAuthPromptSuccessRemoval],
+  );
+
+  const handleOAuthPromptClick = useCallback(
+    (prompt: OAuthPromptState) => {
+      window.open(prompt.authUrl, '_blank', 'noopener,noreferrer');
+      const key = oauthPromptKey(prompt);
+      openedOAuthPromptKeysRef.current.add(key);
+      clearOAuthPromptTimer(key);
+      setOauthPrompts((current) =>
+        current.map((candidate) =>
+          oauthPromptKey(candidate) === key
+            ? { ...candidate, opened: true, succeeded: false }
+            : candidate,
+        ),
+      );
+    },
+    [clearOAuthPromptTimer],
+  );
 
   const updateAssistantMessage = useCallback(
     (
@@ -326,6 +430,8 @@ export const ChatView = memo(() => {
       if (scrollFrameRef.current !== null) {
         cancelAnimationFrame(scrollFrameRef.current);
       }
+      Object.values(oauthSuccessTimersRef.current).forEach(clearTimeout);
+      oauthSuccessTimersRef.current = {};
     };
   }, []);
 
@@ -343,6 +449,7 @@ export const ChatView = memo(() => {
     onToken: useCallback(
       (event: {
         conversationId?: string;
+        jobId?: string;
         content?: string;
         assistantMessageId?: string;
         intermediateSteps?: IntermediateStep[];
@@ -376,9 +483,10 @@ export const ChatView = memo(() => {
           event.assistantMessageId,
         );
         setActivityText('Generating response');
+        finishOAuthPromptsForJob(convId, event.jobId, true, true);
         scrollToBottomSoon();
       },
-      [scrollToBottomSoon, updateAssistantMessage],
+      [finishOAuthPromptsForJob, scrollToBottomSoon, updateAssistantMessage],
     ),
 
     onIntermediateStep: useCallback(
@@ -409,41 +517,62 @@ export const ChatView = memo(() => {
           status.status === 'oauth_required' &&
           (status.authUrl || status.oauthRequests?.length)
         ) {
-          const prompts = filterOpenedOAuthPrompts(
-            oauthPromptsFromStatus(status, convId),
-            openedOAuthPromptKeysRef.current,
+          const prompts = oauthPromptsFromStatus(status, convId).filter(
+            (prompt) =>
+              !succeededOAuthServiceKeysRef.current.has(
+                oauthPromptServiceKey(prompt),
+              ),
           );
           setStreaming(convId, true);
           setActivityText('Authorization check');
+          if (prompts.length === 0) {
+            return;
+          }
           setOauthPrompts((current) => {
+            const incomingKeys = new Set(prompts.map(oauthPromptKey));
             const next = current.filter((prompt) => {
               if (prompt.conversationId !== convId) return true;
               if (!status.jobId) return false;
-              return prompt.jobId && prompt.jobId !== status.jobId;
+              if (prompt.jobId && prompt.jobId !== status.jobId) return true;
+              if (incomingKeys.has(oauthPromptKey(prompt))) return false;
+              return !prompts.some((incoming) =>
+                isSameOAuthServicePrompt(prompt, incoming),
+              );
             });
-            return [...next, ...prompts];
+            return [
+              ...next,
+              ...prompts.flatMap((prompt) => {
+                const key = oauthPromptKey(prompt);
+                const existing = current.find(
+                  (candidate) => oauthPromptKey(candidate) === key,
+                );
+                const related = current.find((candidate) =>
+                  isSameOAuthServicePrompt(candidate, prompt),
+                );
+                if (related?.succeeded) return [related];
+                return {
+                  ...prompt,
+                  opened:
+                    existing?.opened ||
+                    related?.opened ||
+                    openedOAuthPromptKeysRef.current.has(key),
+                  succeeded: false,
+                };
+              }),
+            ];
           });
           scrollToBottomSoon();
           return;
         }
 
-        setOauthPrompts((current) =>
-          current.filter((prompt) => {
-            if (prompt.conversationId !== convId) return true;
-            if (prompt.jobId && status.jobId && prompt.jobId !== status.jobId) {
-              return true;
-            }
-            return false;
-          }),
-        );
-
         // Detect completion in onProgress as a safety net
         // (onComplete may not fire if fullResponse is empty)
         if (status.status === 'completed' || status.status === 'error') {
           const store = useConversationStore.getState();
-          clearOpenedOAuthPromptsForConversation(convId);
-          setOauthPrompts((current) =>
-            withoutOAuthPromptsForConversation(current, convId),
+          finishOAuthPromptsForJob(
+            convId,
+            status.jobId,
+            status.status === 'completed',
           );
           if (store.streamingConversationIds.has(convId)) {
             // Final update with whatever content we have
@@ -478,9 +607,7 @@ export const ChatView = memo(() => {
         // Mark conversation as streaming
         setStreaming(convId, true);
         if (status.status === 'streaming') {
-          setOauthPrompts((current) =>
-            withoutOAuthPromptsForConversation(current, convId),
-          );
+          finishOAuthPromptsForJob(convId, status.jobId, true, true);
         }
 
         // Update activity text from intermediate steps
@@ -510,7 +637,7 @@ export const ChatView = memo(() => {
         updateStreamingSteps,
         scrollToBottomSoon,
         scrollToBottom,
-        clearOpenedOAuthPromptsForConversation,
+        finishOAuthPromptsForJob,
       ],
     ),
 
@@ -520,7 +647,7 @@ export const ChatView = memo(() => {
         intermediateSteps?: any[],
         finalizedAt?: number,
         conversationId?: string,
-        meta?: { assistantMessageId?: string },
+        meta?: { assistantMessageId?: string; jobId?: string },
       ) => {
         const convId = conversationId || selectedIdRef.current;
         if (!convId) return;
@@ -544,10 +671,7 @@ export const ChatView = memo(() => {
         setStreaming(convId, false);
         setActivityText('');
         setStepCategories([]);
-        clearOpenedOAuthPromptsForConversation(convId);
-        setOauthPrompts((current) =>
-          withoutOAuthPromptsForConversation(current, convId),
-        );
+        finishOAuthPromptsForJob(convId, meta?.jobId, true);
 
         // Save to Redis
         const updatedConv = useConversationStore
@@ -563,7 +687,7 @@ export const ChatView = memo(() => {
         setStreaming,
         updateAssistantMessage,
         scrollToBottom,
-        clearOpenedOAuthPromptsForConversation,
+        finishOAuthPromptsForJob,
       ],
     ),
 
@@ -788,6 +912,18 @@ export const ChatView = memo(() => {
     hiddenMessageCount > 0 ? messages.slice(hiddenMessageCount) : messages;
   const isAutonomousConversation =
     selectedConversationId === 'autonomous-agent-thoughts';
+  const selectedOAuthPrompts = oauthPrompts.filter(
+    (prompt) => prompt.conversationId === selectedConversationId,
+  );
+  const oauthPromptTitle =
+    selectedOAuthPrompts.length > 0 &&
+    selectedOAuthPrompts.every((prompt) => prompt.succeeded)
+      ? 'Google authorization connected'
+      : selectedOAuthPrompts.some((prompt) => prompt.opened)
+      ? 'Finish authorization in the opened tab'
+      : selectedOAuthPrompts.length > 1
+      ? 'Google authorizations required'
+      : 'Google authorization required';
 
   return (
     <div className="flex flex-col h-full w-full bg-dark-bg-primary">
@@ -907,36 +1043,42 @@ export const ChatView = memo(() => {
         )}
       </div>
 
-      {oauthPrompts.some(
-        (prompt) => prompt.conversationId === selectedConversationId,
-      ) && (
+      {selectedOAuthPrompts.length > 0 && (
         <div className="flex-shrink-0 pb-3">
           <div className="chat-content-rail">
             <div className="flex flex-col gap-2 rounded-md border border-nvidia-green/30 bg-nvidia-green/10 px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
               <span className="text-sm text-dark-text-primary">
-                {oauthPrompts.filter(
-                  (prompt) => prompt.conversationId === selectedConversationId,
-                ).length > 1
-                  ? 'Google authorizations required'
-                  : 'Google authorization required'}
+                {oauthPromptTitle}
               </span>
               <div className="flex flex-wrap gap-2">
-                {oauthPrompts
-                  .filter(
-                    (prompt) =>
-                      prompt.conversationId === selectedConversationId,
-                  )
-                  .map((prompt) => (
-                    <button
-                      key={`${prompt.jobId || 'job'}:${prompt.id}`}
-                      type="button"
-                      className="inline-flex items-center gap-1.5 rounded-md bg-nvidia-green px-3 py-1.5 text-xs font-medium text-black hover:bg-nvidia-green/90"
-                      onClick={() => handleOAuthPromptClick(prompt)}
-                    >
+                {selectedOAuthPrompts.map((prompt) => (
+                  <button
+                    key={`${prompt.jobId || 'job'}:${prompt.id}`}
+                    type="button"
+                    className={
+                      prompt.succeeded
+                        ? 'inline-flex items-center gap-1.5 rounded-md border border-nvidia-green/40 bg-nvidia-green/15 px-3 py-1.5 text-xs font-medium text-nvidia-green'
+                        : 'inline-flex items-center gap-1.5 rounded-md bg-nvidia-green px-3 py-1.5 text-xs font-medium text-black hover:bg-nvidia-green/90'
+                    }
+                    onClick={
+                      prompt.succeeded
+                        ? undefined
+                        : () => handleOAuthPromptClick(prompt)
+                    }
+                    disabled={prompt.succeeded}
+                  >
+                    {prompt.succeeded ? (
+                      <IconCheck size={14} />
+                    ) : (
                       <IconExternalLink size={14} />
-                      Connect {prompt.service || 'Google'}
-                    </button>
-                  ))}
+                    )}
+                    {prompt.succeeded
+                      ? `${prompt.service || 'Google'} connected`
+                      : prompt.opened
+                      ? `Reopen ${prompt.service || 'Google'}`
+                      : `Connect ${prompt.service || 'Google'}`}
+                  </button>
+                ))}
               </div>
             </div>
           </div>

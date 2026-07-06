@@ -1023,7 +1023,7 @@ def _patch_tool_client():
                     exc,
                     traceback.format_exc(),
                 )
-                raise
+                return f"Error: {tool_name} failed: {type(exc).__name__}: {exc}"
 
         wrapped._daedalus_approval_gate = True
         setattr(MCPToolClient, method_name, wrapped)
