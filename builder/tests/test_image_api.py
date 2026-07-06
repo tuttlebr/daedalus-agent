@@ -111,9 +111,18 @@ class TestGenerateRequest:
         with pytest.raises(ValidationError):
             GenerateRequest(prompt="x", quality="super")
 
-    def test_rejects_invalid_size(self):
+    def test_accepts_high_resolution_size(self):
+        req = GenerateRequest(prompt="x", size="2048x2048")
+        assert req.size == "2048x2048"
+
+    def test_accepts_streaming_options(self):
+        req = GenerateRequest(prompt="x", stream=True, partial_images=2)
+        assert req.stream is True
+        assert req.partial_images == 2
+
+    def test_rejects_partial_images_out_of_range(self):
         with pytest.raises(ValidationError):
-            GenerateRequest(prompt="x", size="2048x2048")
+            GenerateRequest(prompt="x", stream=True, partial_images=4)
 
 
 class TestEditRequest:

@@ -12,7 +12,7 @@ import {
   withInternalBackendAuth,
   withTimezoneHeader,
 } from '@/utils/server/backendAuth';
-import { postJsonToBackend } from '@/utils/server/httpProxy';
+import { proxyJsonToBackend } from '@/utils/server/httpProxy';
 
 import {
   getOrSetSessionId,
@@ -30,7 +30,8 @@ export const config = {
   maxDuration: 300,
 };
 
-const GENERATE_TIMEOUT_MS = 180_000;
+const GENERATE_TIMEOUT_MS = 300_000;
+const STREAM_PARTIAL_IMAGES = 2;
 const UNSAFE_BROWSER_KEYS = [
   'apiKey',
   'openaiApiKey',
@@ -102,8 +103,14 @@ export default async function handler(
       sessionId,
       user: userId,
     };
+    if ((payload.n ?? 1) === 1) {
+      Object.assign(payload, {
+        stream: true,
+        partial_images: STREAM_PARTIAL_IMAGES,
+      });
+    }
 
-    const backendResponse = await postJsonToBackend(
+    await proxyJsonToBackend(
       backendUrl,
       JSON.stringify(payload),
       withInternalBackendAuth(
@@ -117,14 +124,9 @@ export default async function handler(
         ),
       ),
       GENERATE_TIMEOUT_MS,
+      res,
     );
-
-    res.status(backendResponse.statusCode);
-    try {
-      return res.json(JSON.parse(backendResponse.body));
-    } catch {
-      return res.send(backendResponse.body);
-    }
+    return;
   } catch (error) {
     console.error('images/generate proxy error:', error);
     const message = error instanceof Error ? error.message : 'Unknown error';

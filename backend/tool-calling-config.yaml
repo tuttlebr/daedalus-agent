@@ -365,8 +365,8 @@ functions:
       daily summary or daily briefing unless the user explicitly asks
       for an image or video.
     redis_url: ${REDIS_URL}
-    image_timeout: 120
-    comprehension_timeout: 120
+    image_timeout: 300
+    comprehension_timeout: 300
     verbose: true
   domain_retriever_tool:
     _type: domain_retriever
@@ -790,27 +790,11 @@ llms:
     api_key: ${TOOL_CALLING_LLM_MODEL_API_KEY}
     base_url: ${TOOL_CALLING_LLM_MODEL_BASE_URL}
     model_name: ${TOOL_CALLING_LLM_MODEL_MODEL}
-    extra_body:
-      nvext:
-        agent_hints:
-          priority: 9
-          osl: 2048
-        cache_control:
-          ttl: 120m
   default_llm:
     _type: openai
     api_key: ${DEFAULT_LLM_MODEL_API_KEY}
     base_url: ${DEFAULT_LLM_MODEL_BASE_URL}
     model_name: ${DEFAULT_LLM_MODEL_MODEL}
-    extra_body:
-      nvext:
-        agent_hints:
-          priority: 8
-          osl: 1024
-        cache_control:
-          ttl: 120m
-      chat_template_kwargs:
-        enable_thinking: true
 memory:
   redis_memory:
     _type: nat.plugins.redis/redis_memory

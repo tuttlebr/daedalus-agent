@@ -9,7 +9,7 @@ import sharp from 'sharp';
 
 export const config = {
   api: {
-    responseLimit: '15mb',
+    responseLimit: false,
   },
 };
 

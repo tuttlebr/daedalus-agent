@@ -6,7 +6,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
   buildBackendUrl: vi.fn(),
   getBackendHost: vi.fn(),
-  postJsonToBackend: vi.fn(),
+  proxyJsonToBackend: vi.fn(),
   getOrSetSessionId: vi.fn(),
   requireAuthenticatedUser: vi.fn(),
   resolveTimezoneFromHeaders: vi.fn(),
@@ -26,7 +26,7 @@ vi.mock('@/utils/server/backendAuth', () => ({
 }));
 
 vi.mock('@/utils/server/httpProxy', () => ({
-  postJsonToBackend: mocks.postJsonToBackend,
+  proxyJsonToBackend: mocks.proxyJsonToBackend,
 }));
 
 vi.mock('@/server/session/_utils', () => ({
@@ -71,13 +71,13 @@ describe('/api/images generate/edit proxy routes', () => {
     mocks.withInternalBackendAuth.mockImplementation(
       (headers: Record<string, string>) => headers,
     );
-    mocks.postJsonToBackend.mockResolvedValue({
-      statusCode: 200,
-      body: JSON.stringify({
+    mocks.proxyJsonToBackend.mockImplementation(async (...args: any[]) => {
+      const res = args[4];
+      res.status(200).json({
         imageIds: ['abc-123'],
         model: 'gpt-image-2',
         prompt: 'a product photo',
-      }),
+      });
     });
   });
 
@@ -103,7 +103,7 @@ describe('/api/images generate/edit proxy routes', () => {
       pathOverride: '/v1/images/generate',
     });
     const [url, body, headers, timeoutMs] =
-      mocks.postJsonToBackend.mock.calls[0];
+      mocks.proxyJsonToBackend.mock.calls[0];
     expect(url).toBe('http://backend.test/v1/images/generate');
     expect(JSON.parse(body)).toEqual({
       prompt: 'a product photo',
@@ -122,8 +122,29 @@ describe('/api/images generate/edit proxy routes', () => {
       'x-user-id': 'alice',
       'x-timezone': 'America/Detroit',
     });
-    expect(timeoutMs).toBe(180_000);
+    expect(timeoutMs).toBe(300_000);
     expect(res.status).toHaveBeenCalledWith(200);
+  });
+
+  it('requests partial streaming for single-output generate requests', async () => {
+    const { req, res } = createMockReqRes('POST', {
+      prompt: 'a product photo',
+      model: 'gpt-image-2',
+      quality: 'medium',
+    });
+
+    await generateHandler(req, res);
+
+    const [, body] = mocks.proxyJsonToBackend.mock.calls[0];
+    expect(JSON.parse(body)).toMatchObject({
+      prompt: 'a product photo',
+      model: 'gpt-image-2',
+      quality: 'medium',
+      sessionId: 'session-1',
+      user: 'alice',
+      stream: true,
+      partial_images: 2,
+    });
   });
 
   it('forwards edit image refs and optional mask refs', async () => {
@@ -153,7 +174,7 @@ describe('/api/images generate/edit proxy routes', () => {
       backendHost: 'http://backend.test',
       pathOverride: '/v1/images/edit',
     });
-    const [, body] = mocks.postJsonToBackend.mock.calls[0];
+    const [, body] = mocks.proxyJsonToBackend.mock.calls[0];
     expect(JSON.parse(body)).toEqual({
       prompt: 'Change the label color',
       model: 'gpt-image-2',
@@ -162,6 +183,8 @@ describe('/api/images generate/edit proxy routes', () => {
       maskRef,
       sessionId: 'session-1',
       user: 'alice',
+      stream: true,
+      partial_images: 2,
     });
     expect(res.status).toHaveBeenCalledWith(200);
   });
@@ -174,7 +197,7 @@ describe('/api/images generate/edit proxy routes', () => {
 
     await generateHandler(req, res);
 
-    expect(mocks.postJsonToBackend).not.toHaveBeenCalled();
+    expect(mocks.proxyJsonToBackend).not.toHaveBeenCalled();
     expect(res.status).toHaveBeenCalledWith(400);
     expect(res.json).toHaveBeenCalledWith({ error: 'Prompt is required' });
   });
@@ -188,7 +211,7 @@ describe('/api/images generate/edit proxy routes', () => {
 
     await editHandler(req, res);
 
-    expect(mocks.postJsonToBackend).not.toHaveBeenCalled();
+    expect(mocks.proxyJsonToBackend).not.toHaveBeenCalled();
     expect(res.status).toHaveBeenCalledWith(400);
     expect(res.json).toHaveBeenCalledWith({
       error: 'Add at least one input image or switch to Generate.',
@@ -204,7 +227,7 @@ describe('/api/images generate/edit proxy routes', () => {
 
     await generateHandler(req, res);
 
-    expect(mocks.postJsonToBackend).not.toHaveBeenCalled();
+    expect(mocks.proxyJsonToBackend).not.toHaveBeenCalled();
     expect(res.status).toHaveBeenCalledWith(400);
     expect(res.json).toHaveBeenCalledWith({
       error: 'Width and height must be multiples of 16.',
@@ -212,8 +235,8 @@ describe('/api/images generate/edit proxy routes', () => {
   });
 
   it('maps backend timeouts to 504', async () => {
-    mocks.postJsonToBackend.mockRejectedValueOnce(
-      new Error('Backend request timed out after 180000ms'),
+    mocks.proxyJsonToBackend.mockRejectedValueOnce(
+      new Error('Backend request timed out after 300000ms'),
     );
     const { req, res } = createMockReqRes('POST', {
       prompt: 'a product photo',
@@ -229,7 +252,7 @@ describe('/api/images generate/edit proxy routes', () => {
   });
 
   it('maps backend connection failures to 502', async () => {
-    mocks.postJsonToBackend.mockRejectedValueOnce(
+    mocks.proxyJsonToBackend.mockRejectedValueOnce(
       new Error('connect ECONNREFUSED 127.0.0.1:8000'),
     );
     const { req, res } = createMockReqRes('POST', {

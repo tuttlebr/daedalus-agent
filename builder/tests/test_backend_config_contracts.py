@@ -299,14 +299,11 @@ def test_workflow_uses_single_tool_calling_agent_schema():
 
 
 def test_openai_llms_use_tool_calling_compatible_parameters():
-    expected = {
-        "tool_calling_llm": {"priority": 9, "osl": 2048},
-        "default_llm": {"priority": 8, "osl": 1024},
-    }
+    expected = {"tool_calling_llm", "default_llm"}
     for path in DEPLOYED_CONFIGS:
         config = _config(path)
-        assert set(config["llms"]) == set(expected), path
-        for llm_name, params in expected.items():
+        assert set(config["llms"]) == expected, path
+        for llm_name in expected:
             llm = config["llms"][llm_name]
             assert llm["_type"] == "openai", (path, llm_name)
             assert llm.get("api_type", "chat_completions") != "responses", (
@@ -316,18 +313,7 @@ def test_openai_llms_use_tool_calling_compatible_parameters():
             assert "temperature" not in llm, (path, llm_name)
             assert "top_p" not in llm, (path, llm_name)
             assert "extra_args" not in llm, (path, llm_name)
-            assert (
-                llm["extra_body"]["nvext"]["agent_hints"]["priority"]
-                == params["priority"]
-            ), (path, llm_name)
-            assert llm["extra_body"]["nvext"]["agent_hints"]["osl"] == params["osl"], (
-                path,
-                llm_name,
-            )
-            assert llm["extra_body"]["nvext"]["cache_control"]["ttl"] == "120m", (
-                path,
-                llm_name,
-            )
+            assert "extra_body" not in llm, (path, llm_name)
 
 
 def test_backend_config_omits_unsupported_sampling_parameters():

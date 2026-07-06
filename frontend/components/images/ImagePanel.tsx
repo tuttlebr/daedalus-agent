@@ -114,8 +114,16 @@ async function readImageGenerationResponse(
         type?: string;
         event?: string;
         imageId?: string;
+        error?: string;
       };
       const type = event.type ?? event.event;
+      if (type === 'error') {
+        throw new Error(
+          typeof event.error === 'string'
+            ? event.error
+            : 'Image generation stream failed.',
+        );
+      }
       const imageIds = event.imageIds ?? (event.imageId ? [event.imageId] : []);
       if (type === 'partial' && imageIds.length > 0) {
         onPartial(imageIds);

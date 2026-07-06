@@ -33,5 +33,5 @@ workflow:
   # background: opaque # "auto" or "opaque"
   # input_fidelity: high # "low" or "high" — preserves source identity during edits
   # user: null # End-user identifier forwarded for abuse monitoring
-  image_timeout: 120.0
-  comprehension_timeout: 120.0
+  image_timeout: 300.0
+  comprehension_timeout: 300.0

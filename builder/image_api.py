@@ -18,15 +18,25 @@ Env var contract (same as the agent tools):
 from __future__ import annotations
 
 import base64
+import json
 import logging
 import os
+from collections.abc import AsyncIterator
 from typing import Annotated, Any, Literal
 
 import redis
 from fastapi import APIRouter, Header, HTTPException
+from fastapi.responses import StreamingResponse
 from nat_helpers.image_utils import fetch_image_from_redis, store_image_in_redis
 from nat_helpers.internal_auth import require_trusted_user as _require_trusted_user
-from nat_helpers.openai_images import edit_images, generate_images
+from nat_helpers.openai_images import (
+    ImageResult,
+    ImageStreamEvent,
+    edit_images,
+    generate_images,
+    stream_edit_images,
+    stream_generate_images,
+)
 from nat_helpers.redis_url import redis_url_from_env
 from openai import AsyncOpenAI, OpenAIError
 from pydantic import BaseModel, Field
@@ -52,11 +62,13 @@ class GenerateRequest(BaseModel):
     prompt: str = Field(..., min_length=1)
     n: int | None = Field(None, ge=1, le=10)
     quality: Literal["auto", "low", "medium", "high"] | None = None
-    size: Literal["auto", "1024x1024", "1024x1536", "1536x1024"] | None = None
+    size: str | None = None
     output_format: Literal["png", "jpeg", "webp"] | None = None
     output_compression: int | None = Field(None, ge=0, le=100)
     background: Literal["transparent", "opaque", "auto"] | None = None
     moderation: Literal["low", "auto"] | None = None
+    stream: bool = False
+    partial_images: int | None = Field(None, ge=0, le=3)
     user: str | None = None
     sessionId: str | None = None
 
@@ -67,12 +79,14 @@ class EditRequest(BaseModel):
     maskRef: ImageRef | None = None
     n: int | None = Field(None, ge=1, le=10)
     quality: Literal["auto", "low", "medium", "high"] | None = None
-    size: Literal["auto", "1024x1024", "1024x1536", "1536x1024"] | None = None
+    size: str | None = None
     input_fidelity: Literal["low", "high"] | None = None
     output_format: Literal["png", "jpeg", "webp"] | None = None
     output_compression: int | None = Field(None, ge=0, le=100)
     background: Literal["transparent", "opaque", "auto"] | None = None
     moderation: Literal["low", "auto"] | None = None
+    stream: bool = False
+    partial_images: int | None = Field(None, ge=0, le=3)
     user: str | None = None
     sessionId: str | None = None
 
@@ -170,6 +184,76 @@ async def _store_results(
     return ids
 
 
+async def _store_result(
+    result: ImageResult,
+    prompt: str,
+    source: str,
+    user_id: str,
+    session_id: str | None,
+) -> str:
+    return (await _store_results([result], prompt, source, user_id, session_id))[0]
+
+
+def _sse(event: str, payload: dict[str, Any]) -> str:
+    return f"event: {event}\ndata: {json.dumps(payload)}\n\n"
+
+
+async def _stream_stored_images(
+    events: AsyncIterator[ImageStreamEvent],
+    *,
+    prompt: str,
+    source: str,
+    user_id: str,
+    session_id: str | None,
+    model: str,
+) -> AsyncIterator[str]:
+    final_ids: list[str] = []
+    try:
+        async for event in events:
+            image_id = await _store_result(
+                event.image,
+                prompt,
+                source=f"{source}.partial" if event.partial else source,
+                user_id=user_id,
+                session_id=session_id,
+            )
+            if event.partial:
+                yield _sse(
+                    "partial",
+                    {
+                        "type": "partial",
+                        "imageId": image_id,
+                        "imageIds": [image_id],
+                        "partialIndex": event.partial_index,
+                    },
+                )
+            else:
+                final_ids.append(image_id)
+        if not final_ids:
+            yield _sse(
+                "error",
+                {"type": "error", "error": "No image returned by the model"},
+            )
+            return
+        yield _sse(
+            "completed",
+            ImageResponse(imageIds=final_ids, model=model, prompt=prompt).model_dump(),
+        )
+        yield "data: [DONE]\n\n"
+    except OpenAIError:
+        logger.exception("%s stream failed", source)
+        yield _sse(
+            "error",
+            {"type": "error", "error": "Upstream image service error"},
+        )
+    except Exception:
+        logger.exception("%s stream failed", source)
+        yield _sse(
+            "error",
+            {"type": "error", "error": "Image generation stream failed"},
+        )
+
+
 # ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
@@ -183,12 +267,37 @@ async def generate(
     x_daedalus_internal_token: Annotated[
         str | None, Header(alias="x-daedalus-internal-token")
     ] = None,
-) -> ImageResponse:
+) -> ImageResponse | StreamingResponse:
     user_id = _require_trusted_user(x_user_id, x_daedalus_internal_token)
     model, api_key, base_url = _config_for("GENERATION")
     client = _get_client(api_key, base_url)
 
-    options = req.model_dump(exclude_none=True, exclude={"prompt", "sessionId", "user"})
+    options = req.model_dump(
+        exclude_none=True,
+        exclude={"prompt", "sessionId", "user", "stream", "partial_images"},
+    )
+    if req.stream:
+        return StreamingResponse(
+            _stream_stored_images(
+                stream_generate_images(
+                    client,
+                    model=model,
+                    prompt=req.prompt,
+                    partial_images=req.partial_images,
+                    **options,
+                ),
+                prompt=req.prompt,
+                source="image_panel_generate",
+                user_id=user_id,
+                session_id=(x_session_id or req.sessionId or None),
+                model=model,
+            ),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache, no-transform",
+                "X-Accel-Buffering": "no",
+            },
+        )
 
     try:
         results = await generate_images(
@@ -223,7 +332,7 @@ async def edit(
     x_daedalus_internal_token: Annotated[
         str | None, Header(alias="x-daedalus-internal-token")
     ] = None,
-) -> ImageResponse:
+) -> ImageResponse | StreamingResponse:
     user_id = _require_trusted_user(x_user_id, x_daedalus_internal_token)
     model, api_key, base_url = _config_for("AUGMENTATION")
     client = _get_client(api_key, base_url)
@@ -269,8 +378,40 @@ async def edit(
 
     options = req.model_dump(
         exclude_none=True,
-        exclude={"prompt", "imageRefs", "maskRef", "sessionId", "user"},
+        exclude={
+            "prompt",
+            "imageRefs",
+            "maskRef",
+            "sessionId",
+            "user",
+            "stream",
+            "partial_images",
+        },
     )
+    if req.stream:
+        return StreamingResponse(
+            _stream_stored_images(
+                stream_edit_images(
+                    client,
+                    model=model,
+                    image=source_files[0] if len(source_files) == 1 else source_files,
+                    prompt=req.prompt,
+                    mask=mask_file,
+                    partial_images=req.partial_images,
+                    **options,
+                ),
+                prompt=req.prompt,
+                source="image_panel_edit",
+                user_id=user_id,
+                session_id=(x_session_id or req.sessionId or None),
+                model=model,
+            ),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache, no-transform",
+                "X-Accel-Buffering": "no",
+            },
+        )
 
     try:
         results = await edit_images(

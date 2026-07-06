@@ -55,7 +55,7 @@ class VisualMediaFunctionConfig(FunctionBaseConfig, name="visual_media"):
         None,
         description="OpenAI-compatible image editing API base URL.",
     )
-    image_timeout: float = Field(120.0, description="Image API timeout in seconds.")
+    image_timeout: float = Field(300.0, description="Image API timeout in seconds.")
     generation_model: str = Field(
         "gpt-image-2", description="Model used for text-to-image generation."
     )
@@ -126,7 +126,7 @@ class VisualMediaFunctionConfig(FunctionBaseConfig, name="visual_media"):
         description="VLM model used for image/video comprehension.",
     )
     comprehension_timeout: float = Field(
-        120.0, description="VLM API timeout in seconds."
+        300.0, description="VLM API timeout in seconds."
     )
 
 
