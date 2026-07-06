@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 
-Daedalus is a full-stack AI agent platform. The Next.js UI lives in `frontend/`, with pages, API handlers, components, hooks, state, tests, and static assets. Python NeMo Agent Toolkit packages and the shared pytest harness live in `builder/`; most packages keep source under `src/<package>/` and tests under `builder/tests/`. Backend workflow configuration is in `backend/`. Deployment assets include `docker-compose.yml`, `helm/daedalus/`, `nginx/`, `custom-values.yaml`, and `deploy.sh`. Evaluation datasets, evaluators, and results are in `evals/`; docs and automation are in `docs/` and `scripts/`. Follow `frontend/AGENTS.md` and `builder/AGENTS.md` when editing those trees.
+Daedalus is a full-stack AI agent platform. The Next.js UI lives in `frontend/`, with pages, API handlers, components, hooks, state, tests, and static assets. Python NeMo Agent Toolkit packages and the shared pytest harness live in `builder/`; most packages keep source under `src/<package>/` and tests under `builder/tests/`. Backend workflow configuration is in `backend/`. Deployment assets include `docker-compose.yml`, `helm/daedalus/`, `nginx/`, `custom-values.yaml`, and `deploy.sh`. Evaluation datasets, evaluators, and results are in `evals/`; docs and automation are in `docs/` and `scripts/`. Follow `frontend/AGENTS.md` and `builder/AGENTS.md` when editing those trees. For NeMo Agent Toolkit framework work, read `skills/nat-user-rules/SKILL.md` first, then follow the focused `nat-*` skill it routes to.
 
 ## Build, Test, and Development Commands
 

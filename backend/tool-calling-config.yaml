@@ -36,13 +36,6 @@ authentication:
     token_endpoint_auth_method: client_secret_post
     scopes:
       - https://www.googleapis.com/auth/calendar.calendarlist.readonly
-      - https://www.googleapis.com/auth/calendar.events.freebusy
-      - https://www.googleapis.com/auth/calendar.events.public.readonly
-      - https://www.googleapis.com/auth/calendar.freebusy
-      - https://www.googleapis.com/auth/calendar.events.readonly
-      - https://www.googleapis.com/auth/calendar.events
-      - https://www.googleapis.com/auth/calendar.events.owned
-      - https://www.googleapis.com/auth/calendar.events.owned.readonly
 
     use_pkce: true
     allow_default_user_id_for_tool_calls: false
@@ -104,6 +97,8 @@ function_groups:
       url: https://gmailmcp.googleapis.com/mcp/v1
   calendar_mcp_server:
     _type: mcp_client
+    include:
+      - list_calendars
     tool_call_timeout: 60
     auth_flow_timeout: 600
     reconnect_enabled: true
@@ -795,12 +790,25 @@ llms:
     api_key: ${TOOL_CALLING_LLM_MODEL_API_KEY}
     base_url: ${TOOL_CALLING_LLM_MODEL_BASE_URL}
     model_name: ${TOOL_CALLING_LLM_MODEL_MODEL}
+    extra_body:
+      nvext:
+        agent_hints:
+          priority: 9
+          osl: 2048
+        cache_control:
+          ttl: 120m
   default_llm:
     _type: openai
     api_key: ${DEFAULT_LLM_MODEL_API_KEY}
     base_url: ${DEFAULT_LLM_MODEL_BASE_URL}
     model_name: ${DEFAULT_LLM_MODEL_MODEL}
     extra_body:
+      nvext:
+        agent_hints:
+          priority: 8
+          osl: 1024
+        cache_control:
+          ttl: 120m
       chat_template_kwargs:
         enable_thinking: true
 memory:
@@ -911,7 +919,6 @@ workflow:
   tool_names:
     - get_memory
     - add_memory
-    - delete_memory
     - current_datetime_tool
     - source_policy_tool
     - source_verifier_tool

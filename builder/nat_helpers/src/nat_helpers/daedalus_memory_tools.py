@@ -14,7 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 logger = logging.getLogger(__name__)
 
-DAILY_BRIEFING_MIN_TOP_K = 15
+DAILY_BRIEFING_MIN_TOP_K = 12
 DAILY_BRIEFING_QUERY_TERMS = (
     "daily summary daily briefing daily brief weather locale location timezone "
     "commute calendar commitments work projects AI infrastructure NVIDIA LLM "
