@@ -626,6 +626,19 @@ functions:
     use_browser_fallback: true
     user_agent: daedalus-webscraper/0.1.0
     verbose: true
+  llm_sandbox_tool:
+    _type: llm_sandbox
+    description: >-
+      Run allowlisted Linux commands in the isolated llm-sandbox service.
+      Trigger only when the user explicitly asks to run a shell command,
+      inspect command output, transform text/data with shell tools, or test
+      a URL with curl. First use operation=list_commands when command
+      availability is unclear. Args: operation, command, timeout_seconds,
+      env_json, working_directory. Returns stdout, stderr, exit code,
+      timeout, truncation, and request id. Fails when LLM_SANDBOX_API_KEY
+      is unset, the service is unreachable, the command is not allowlisted,
+      or sandbox policy rejects the command.
+    verbose: true
   source_verifier_tool:
     _type: source_verifier
     fast_llm_name: default_llm
@@ -913,6 +926,7 @@ workflow:
     - perplexity_search_tool
     - x_mcp_server
     - webscrape_tool
+    - llm_sandbox_tool
     - content_distiller_tool
     - dynamo_mcp_server
     - openshell_mcp_server

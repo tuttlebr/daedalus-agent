@@ -57,7 +57,7 @@ SHELL ["/bin/bash", "-c"]
 WORKDIR /workspace
 RUN source /workspace/.venv/bin/activate
 
-ARG BUILDER_PACKAGES="nat_helpers visual_media nat_nv_ingest smart_milvus webscrape rss_feed vtt_interpreter agent_skills serpapi_search perplexity_search content_distiller source_verifier user_interaction autonomous_agent"
+ARG BUILDER_PACKAGES="nat_helpers visual_media nat_nv_ingest smart_milvus webscrape rss_feed vtt_interpreter agent_skills serpapi_search perplexity_search content_distiller source_verifier user_interaction autonomous_agent llm_sandbox"
 
 # Install dependency metadata before copying source so normal code edits do not
 # invalidate the expensive dependency resolution and download layer.
@@ -75,6 +75,7 @@ COPY content_distiller/pyproject.toml /workspace/content_distiller/
 COPY source_verifier/pyproject.toml /workspace/source_verifier/
 COPY user_interaction/pyproject.toml /workspace/user_interaction/
 COPY autonomous_agent/pyproject.toml /workspace/autonomous_agent/
+COPY llm_sandbox/pyproject.toml /workspace/llm_sandbox/
 
 RUN for package in ${BUILDER_PACKAGES}; do \
     mkdir -p "/workspace/${package}/src/${package}" && \
@@ -102,6 +103,7 @@ COPY content_distiller /workspace/content_distiller
 COPY source_verifier /workspace/source_verifier
 COPY user_interaction /workspace/user_interaction
 COPY autonomous_agent /workspace/autonomous_agent
+COPY llm_sandbox /workspace/llm_sandbox
 
 RUN --mount=type=cache,id=uv_cache,target=/root/.cache/uv,sharing=locked \
     uv pip install --no-deps --prerelease=allow \
@@ -119,7 +121,8 @@ RUN --mount=type=cache,id=uv_cache,target=/root/.cache/uv,sharing=locked \
     NAT_VERSION= nat workflow reinstall perplexity_search && \
     NAT_VERSION= nat workflow reinstall content_distiller && \
     NAT_VERSION= nat workflow reinstall source_verifier && \
-    NAT_VERSION= nat workflow reinstall user_interaction
+    NAT_VERSION= nat workflow reinstall user_interaction && \
+    NAT_VERSION= nat workflow reinstall llm_sandbox
 
 COPY entrypoint.py /workspace/entrypoint.py
 COPY llm_diagnostics.py /workspace/llm_diagnostics.py
@@ -146,6 +149,7 @@ RUN chmod -R a+rX \
     /workspace/source_verifier \
     /workspace/user_interaction \
     /workspace/autonomous_agent \
+    /workspace/llm_sandbox \
     /workspace/entrypoint.py \
     /workspace/llm_diagnostics.py \
     /workspace/mcp_patches.py \

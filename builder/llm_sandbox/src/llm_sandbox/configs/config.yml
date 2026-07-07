@@ -1,0 +1,7 @@
+functions:
+  llm_sandbox_tool:
+    _type: llm_sandbox
+
+workflow:
+  _type: tool_calling_agent
+  tool_names: [llm_sandbox_tool]

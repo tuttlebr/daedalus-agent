@@ -72,6 +72,11 @@ backend:
   # Shared backend configuration
   networkPolicy:
     enabled: true # Set to true to restrict backend access to only frontend and nginx pods
+    extraEgressNamespaces:
+      - name: llm-sandbox
+        ports:
+          - port: 8080
+            protocol: TCP
     cilium:
       enabled: true
       webscrape:

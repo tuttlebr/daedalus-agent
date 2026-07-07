@@ -568,6 +568,25 @@ def test_perplexity_search_documented_filters_are_configured():
     assert "search_recency_filter (hour, day, week, month, year)" in desc
 
 
+def test_llm_sandbox_tool_is_optional_top_level_tool():
+    config = _config()
+    functions = config["functions"]
+    workflow_tools = config["workflow"]["tool_names"]
+    template_text = ENV_TEMPLATE.read_text(encoding="utf-8")
+    custom_values = yaml.safe_load(CUSTOM_VALUES.read_text(encoding="utf-8"))
+    egress_namespaces = custom_values["backend"]["networkPolicy"][
+        "extraEgressNamespaces"
+    ]
+
+    assert functions["llm_sandbox_tool"]["_type"] == "llm_sandbox"
+    assert "llm_sandbox_tool" in workflow_tools
+    assert "LLM_SANDBOX_API_KEY=" in template_text
+    assert "LLM_SANDBOX_BASE_URL=" in template_text
+    assert {"name": "llm-sandbox", "ports": [{"port": 8080, "protocol": "TCP"}]} in (
+        egress_namespaces
+    )
+
+
 def test_workflow_uses_configured_internet_search_providers():
     for path in DEPLOYED_CONFIGS:
         config = _config(path)
