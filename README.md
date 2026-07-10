@@ -352,6 +352,21 @@ telemetry, MCP, or serving work.
 
 Several packages include their own README files under `builder/`.
 
+### Calibrated source verification
+
+`source_verifier_tool.verify_claim` can use a fine-tuned Fireworks classifier
+instead of a generative LLM for its verdict. Set `FIREWORKS_API_KEY` and
+`FIREWORKS_SOURCE_VERIFIER_MODEL`; otherwise it automatically falls back to
+the configured fast LLM. The classifier should be trained to return exactly
+one of the compact labels configured in
+[`backend/tool-calling-config.yaml`](backend/tool-calling-config.yaml): `S`
+(supported), `P` (partially supported), `U` (unsupported), or `I`
+(insufficient context). The tool reads the selected label's first-token
+log-probability as the calibrated confidence and includes classifier metadata
+in the normal verification JSON response. Confirm the labels are single tokens
+for the model tokenizer, as described in the
+[Fireworks classifier guide](https://fireworks.ai/blog/Finetuning-LLMs-as-Classifiers).
+
 ## Autonomous Agent
 
 The Helm chart enables an autonomous background agent by default. It runs as a dedicated worker Deployment, using Redis as its control plane: the UI stores config, goals, queued runs, events, feed items, approvals, and cancellation flags, while the worker consumes the queue and publishes updates back through the existing WebSocket sync channel.

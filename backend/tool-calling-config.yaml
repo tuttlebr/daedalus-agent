@@ -641,6 +641,19 @@ functions:
     verbose: true
   source_verifier_tool:
     _type: source_verifier
+    # When configured, the fine-tuned model emits one of S/P/U/I and its
+    # calibrated first-token log-probability becomes the verifier confidence.
+    # Without both values, the verifier uses fast_llm_name as a safe fallback.
+    verification_driver: fireworks_classifier
+    fireworks_api_key: ${FIREWORKS_API_KEY}
+    fireworks_model: ${FIREWORKS_SOURCE_VERIFIER_MODEL}
+    fireworks_label_map:
+      S: supported
+      P: partially_supported
+      U: unsupported
+      I: insufficient_context
+    fireworks_fallback_to_llm: true
+    fireworks_base_url: https://api.fireworks.ai/inference/v1
     fast_llm_name: default_llm
     llm_name: default_llm
     max_source_chars: 80000
@@ -659,7 +672,8 @@ functions:
       release note alone is not proof of latest/current. REQUIRED
       before every add_memory with type=finding or type=project_update.
       Returns: supported | partially_supported | unsupported |
-      source_unreachable, with evidence. Fails when: source_url
+      source_unreachable, calibrated confidence, and classifier metadata
+      (or evidence when using the LLM fallback). Fails when: source_url
       malformed or unreachable.
     verbose: true
   source_policy_tool:
