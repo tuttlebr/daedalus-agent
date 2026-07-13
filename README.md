@@ -348,7 +348,7 @@ telemetry, MCP, or serving work.
 | `webscrape`          | package | Web page extraction                                                   |
 | `entrypoint.py`      | module  | Custom NAT entrypoint with Starlette compatibility shims              |
 | `llm_diagnostics.py` | module  | OpenAI SDK logging and timeout enforcement for LLM client resilience  |
-| `mcp_patches.py`     | module  | MCP StreamableHTTP timeout, reconnection, and error-logging patches   |
+| `mcp_patches.py`     | module  | Bounded MCP startup, OAuth bootstrap, approval, and logging patches   |
 
 Several packages include their own README files under `builder/`.
 

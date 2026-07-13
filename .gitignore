@@ -168,3 +168,4 @@ yarn-debug.log*
 yarn-error.log*
 .yarn-integrity
 *.zip
+clear-mem.sh

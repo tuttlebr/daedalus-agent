@@ -499,7 +499,7 @@ class TestWebscrapeFunctionResponseFn:
         assert result.startswith("Error: ")
 
     def test_strategy1_success(self):
-        """When MarkItDown succeeds and content is valid, return it directly."""
+        """When HTTP fetch fails and MarkItDown succeeds, return its content."""
 
         async def _run():
             import webscrape.webscrape_function as wsmod
@@ -521,45 +521,10 @@ class TestWebscrapeFunctionResponseFn:
             builder = MagicMock()
 
             with patch.object(wsmod, "MarkItDown", return_value=mock_md):
-                fn_info = None
-                async for item in webscrape_function(cfg, builder):
-                    fn_info = item
-                result = await fn_info.fn("https://example.com")
-                return result
-
-        result = run(_run())
-        assert "Article Title" in result
-        assert "Real article content" in result
-
-    def test_strategy1_challenge_falls_through(self):
-        """Challenge page from strategy1 triggers strategy2."""
-
-        async def _run():
-            import webscrape.webscrape_function as wsmod
-            from webscrape.webscrape_function import (
-                WebscrapeFunctionConfig,
-                webscrape_function,
-            )
-
-            # Strategy 1 returns a challenge page
-            mock_result = MagicMock()
-            mock_result.title = "Just a Moment"
-            mock_result.text_content = "just a moment checking your browser please wait"
-            mock_md = MagicMock()
-            mock_md.convert.return_value = mock_result
-
-            # Strategy 2 (httpx) also fails
-            async def mock_httpx_scrape(*args, **kwargs):
-                return None
-
-            cfg = WebscrapeFunctionConfig(
-                respect_robots_txt=False, use_browser_fallback=False
-            )
-            builder = MagicMock()
-
-            with patch.object(wsmod, "MarkItDown", return_value=mock_md):
                 with patch.object(
-                    wsmod, "_scrape_with_httpx", side_effect=Exception("httpx failed")
+                    wsmod,
+                    "_scrape_with_httpx_result",
+                    AsyncMock(return_value=(None, "http_error")),
                 ):
                     fn_info = None
                     async for item in webscrape_function(cfg, builder):
@@ -568,9 +533,87 @@ class TestWebscrapeFunctionResponseFn:
                     return result
 
         result = run(_run())
-        # Should get the challenge page content (returned as last resort)
-        # or an error message
-        assert isinstance(result, str)
+        assert "Article Title" in result
+        assert "Real article content" in result
+
+    def test_strategy1_challenge_falls_through(self):
+        """A MarkItDown challenge page is not returned as successful content."""
+
+        async def _run():
+            import webscrape.webscrape_function as wsmod
+            from webscrape.webscrape_function import (
+                WebscrapeFunctionConfig,
+                webscrape_function,
+            )
+
+            mock_result = MagicMock()
+            mock_result.title = "Just a Moment"
+            mock_result.text_content = "just a moment checking your browser please wait"
+            mock_md = MagicMock()
+            mock_md.convert.return_value = mock_result
+
+            cfg = WebscrapeFunctionConfig(
+                respect_robots_txt=False, use_browser_fallback=False
+            )
+            builder = MagicMock()
+
+            with patch.object(wsmod, "MarkItDown", return_value=mock_md):
+                with patch.object(
+                    wsmod,
+                    "_scrape_with_httpx_result",
+                    AsyncMock(return_value=(None, "http_error")),
+                ):
+                    fn_info = None
+                    async for item in webscrape_function(cfg, builder):
+                        fn_info = item
+                    result = await fn_info.fn("https://example.com")
+                    return result
+
+        result = run(_run())
+        assert result.startswith("Error: ")
+
+    def test_blocked_httpx_attempt_uses_browser_before_markitdown(self):
+        """A 403/challenge outcome should escalate to browser before direct URL conversion."""
+
+        async def _run():
+            import webscrape.webscrape_function as wsmod
+            from webscrape.webscrape_function import (
+                WebscrapeFunctionConfig,
+                webscrape_function,
+            )
+
+            cfg = WebscrapeFunctionConfig(
+                respect_robots_txt=False, use_browser_fallback=True
+            )
+            builder = MagicMock()
+            browser_content = (
+                "# Browser Article\n\n_Source: https://example.com_\n\n"
+                + "Browser article content. " * 5
+            )
+
+            httpx_result = AsyncMock(return_value=(None, "blocked"))
+            browser_scrape = AsyncMock(return_value=browser_content)
+            markitdown_scrape = AsyncMock(return_value="should not be used")
+
+            with patch.object(wsmod, "_scrape_with_httpx_result", httpx_result):
+                with patch.object(wsmod, "PLAYWRIGHT_AVAILABLE", True):
+                    with patch.object(wsmod, "_scrape_with_browser", browser_scrape):
+                        with patch.object(
+                            wsmod,
+                            "_scrape_with_markitdown_with_timeout",
+                            markitdown_scrape,
+                        ):
+                            fn_info = None
+                            async for item in webscrape_function(cfg, builder):
+                                fn_info = item
+                            result = await fn_info.fn("https://example.com")
+
+            markitdown_scrape.assert_not_awaited()
+            return result
+
+        result = run(_run())
+        assert "Browser Article" in result
+        assert "Browser article content" in result
 
     def test_robots_txt_blocked(self):
         """robots.txt PermissionError is caught and returned as error message."""

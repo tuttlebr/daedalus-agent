@@ -324,12 +324,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     }
 
     const jobId = uuidv4();
-    const natSessionId = buildNatSessionId(
-      verifiedUsername,
-      jobId,
-      typeof conversationId === 'string' ? conversationId : undefined,
-      typeof turnId === 'string' ? turnId : undefined,
-    );
+    const natSessionId = buildNatSessionId(verifiedUsername);
     const timezone = resolveTimezoneFromHeaders(req.headers);
 
     // Process messages: add attachment references/content for agent context

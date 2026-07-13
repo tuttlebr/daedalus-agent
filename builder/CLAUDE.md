@@ -71,7 +71,7 @@ The container runs `python entrypoint.py`, which replaces `nat serve` so that **
 2. `_patch_starlette_compat` — re-adds `add_event_handler`/`add_route`/`add_websocket_route` removed in Starlette 1.0 but still called by NAT 1.4.x/1.7.
 3. `_patch_fastapi_daedalus_routes` — wraps `FastAPI.__init__` to `include_router` the Daedalus HTTP routers (below) onto NAT's app.
 4. `llm_diagnostics.patch()` — forces timeout/`max_retries` on every OpenAI client and enriches retry/connection-error logs with base_url + status (works around NAT passing `timeout=None`).
-5. `mcp_patches.patch()` — overrides NAT's 30s MCP connect timeout to fail fast, adds MCP tool-call logging, and installs the **approval-gate** behavior for guarded MCP tools.
+5. `mcp_patches.patch()` — bounds each MCP group to one startup attempt without shortening runtime connects, defers interactive OAuth until a user tool call, adds MCP tool-call logging, and installs the **approval-gate** behavior for guarded MCP tools.
 
 Then it sets `sys.argv` to `nat serve --config_file=$NAT_CONFIG_FILE …` and calls `run_cli()` in-process.
 

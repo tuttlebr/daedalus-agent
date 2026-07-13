@@ -19,12 +19,22 @@ from webscrape.webscrape_function import (
     _get_following_safe_redirects,
     _is_challenge_page,
     _is_valid_content,
+    _response_looks_like_html,
+    _scrape_with_httpx_result,
     _truncate_to_token_limit,
     _validate_url,
 )
 
 
-def _mk_response(status_code, *, location=None, text="", is_success=False):
+def _mk_response(
+    status_code,
+    *,
+    location=None,
+    text="",
+    is_success=False,
+    headers=None,
+    content=None,
+):
     """Build a mock HTTP response.
 
     ``httpx`` is a MagicMock in the test harness, so we construct responses
@@ -36,7 +46,10 @@ def _mk_response(status_code, *, location=None, text="", is_success=False):
     resp.is_redirect = location is not None
     resp.is_success = is_success
     resp.text = text
+    resp.content = content if content is not None else text.encode()
     resp.headers = {"location": location} if location is not None else {}
+    if headers:
+        resp.headers.update(headers)
     return resp
 
 
@@ -53,7 +66,10 @@ class _QueuedClient:
 
     async def get(self, url):
         self.requested_urls.append(url)
-        return self._responses.pop(0)
+        response = self._responses.pop(0)
+        if isinstance(response, Exception):
+            raise response
+        return response
 
 
 # ---------------------------------------------------------------------------
@@ -190,6 +206,14 @@ class TestIsChallengePage:
         text = "_cf_chl_opt challenge-platform verification pending"
         assert _is_challenge_page(text)
 
+    def test_akamai_access_denied_detected(self):
+        text = (
+            "<HTML><HEAD><TITLE>Access Denied</TITLE></HEAD><BODY>"
+            "<H1>Access Denied</H1>You don't have permission to access "
+            "this page on this server.<P>Reference #18.abc</BODY></HTML>"
+        )
+        assert _is_challenge_page(text)
+
     def test_case_insensitive(self):
         text = "JUST A MOMENT... CHECKING YOUR BROWSER"
         assert _is_challenge_page(text)
@@ -236,6 +260,14 @@ class TestIsValidContent:
     def test_challenge_page_after_source_header_not_valid(self):
         body = "just a moment checking your browser before access " * 3
         content = f"# Title\n\n_Source: https://x.com_\n\n{body}"
+        assert not _is_valid_content(content)
+
+    def test_access_denied_after_source_header_not_valid(self):
+        body = (
+            "Access Denied. You don't have permission to access this page. "
+            "Reference #18.abc "
+        )
+        content = f"# Title\n\n_Source: https://x.com_\n\n{body * 2}"
         assert not _is_valid_content(content)
 
     def test_exactly_50_chars_valid(self):
@@ -336,6 +368,39 @@ class TestTruncateToTokenLimit:
             assert "MY_TRUNCATION_MSG" in result
         finally:
             webscrape_mod.TIKTOKEN_AVAILABLE = original
+
+
+# ---------------------------------------------------------------------------
+# _response_looks_like_html
+# ---------------------------------------------------------------------------
+
+
+class TestResponseLooksLikeHtml:
+    def test_html_content_type_true(self):
+        response = _mk_response(
+            200,
+            text="<html><body>ok</body></html>",
+            is_success=True,
+            headers={"content-type": "text/html; charset=utf-8"},
+        )
+        assert _response_looks_like_html(response)
+
+    def test_non_html_content_type_false(self):
+        response = _mk_response(
+            200,
+            text="%PDF-1.7",
+            is_success=True,
+            headers={"content-type": "application/pdf"},
+        )
+        assert not _response_looks_like_html(response)
+
+    def test_missing_content_type_detects_html_prefix(self):
+        response = _mk_response(
+            200,
+            text="   <!doctype html><html><body>ok</body></html>",
+            is_success=True,
+        )
+        assert _response_looks_like_html(response)
 
 
 # ---------------------------------------------------------------------------
@@ -530,6 +595,44 @@ class TestGetFollowingSafeRedirects:
 
         asyncio.run(_run())
 
+    def test_transient_transport_error_is_retried(self):
+        async def _run():
+            final = _mk_response(200, text="ok", is_success=True)
+            client = _QueuedClient([httpx.ReadTimeout("temporary"), final])
+            result = await _get_following_safe_redirects(
+                client,
+                "https://example.com/page",
+                retry_attempts=1,
+                retry_backoff_seconds=0,
+            )
+            assert result is final
+            assert client.requested_urls == [
+                "https://example.com/page",
+                "https://example.com/page",
+            ]
+
+        asyncio.run(_run())
+
+    def test_retryable_status_code_is_retried(self):
+        async def _run():
+            retryable = _mk_response(503, text="busy", is_success=False)
+            final = _mk_response(200, text="ok", is_success=True)
+            client = _QueuedClient([retryable, final])
+            result = await _get_following_safe_redirects(
+                client,
+                "https://example.com/page",
+                retry_attempts=1,
+                retry_backoff_seconds=0,
+                retry_status_codes={503},
+            )
+            assert result is final
+            assert client.requested_urls == [
+                "https://example.com/page",
+                "https://example.com/page",
+            ]
+
+        asyncio.run(_run())
+
     def test_relative_redirect_resolved_against_current_url(self):
         async def _run():
             redirect = _mk_response(302, location="/other")
@@ -641,5 +744,66 @@ class TestScrapeWithHttpxRedirect:
                 await _scrape_with_httpx(
                     "https://attacker.com/start", allowed_schemes=["https", "http"]
                 )
+
+        asyncio.run(_run())
+
+
+# ---------------------------------------------------------------------------
+# _scrape_with_httpx_result outcomes
+# ---------------------------------------------------------------------------
+
+
+class TestScrapeWithHttpxResult:
+    def _patch_client(self, monkeypatch, queued_client):
+        class _FakeAsyncClient:
+            def __init__(self, *args, **kwargs):
+                assert kwargs.get("follow_redirects") is False
+
+            async def __aenter__(self):
+                return queued_client
+
+            async def __aexit__(self, *exc):
+                return False
+
+        monkeypatch.setattr(httpx, "AsyncClient", _FakeAsyncClient)
+
+    def test_blocked_status_returns_blocked_outcome(self, monkeypatch):
+        async def _run():
+            response = _mk_response(
+                403,
+                text=(
+                    "<HTML><TITLE>Access Denied</TITLE>"
+                    "You don't have permission to access this page. Reference #18"
+                ),
+                is_success=False,
+                headers={"content-type": "text/html"},
+            )
+            client = _QueuedClient([response])
+            self._patch_client(monkeypatch, client)
+
+            content, outcome = await _scrape_with_httpx_result(
+                "https://example.com/page"
+            )
+            assert content is None
+            assert outcome == "blocked"
+
+        asyncio.run(_run())
+
+    def test_non_html_success_returns_non_html_outcome(self, monkeypatch):
+        async def _run():
+            response = _mk_response(
+                200,
+                text="%PDF-1.7",
+                is_success=True,
+                headers={"content-type": "application/pdf"},
+            )
+            client = _QueuedClient([response])
+            self._patch_client(monkeypatch, client)
+
+            content, outcome = await _scrape_with_httpx_result(
+                "https://example.com/file.pdf"
+            )
+            assert content is None
+            assert outcome == "non_html"
 
         asyncio.run(_run())

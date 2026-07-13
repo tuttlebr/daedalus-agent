@@ -4,6 +4,7 @@ import logging
 import os
 import re
 import tempfile
+from collections.abc import Iterable
 from urllib.parse import ParseResult, urljoin, urlparse
 from urllib.robotparser import RobotFileParser
 
@@ -48,7 +49,7 @@ _BROWSER_HEADERS = {
         "q=0.9,image/avif,image/webp,*/*;q=0.8"
     ),
     "Accept-Language": "en-US,en;q=0.9",
-    "Accept-Encoding": "gzip, deflate, br",
+    "Accept-Encoding": "gzip, deflate",
     "Connection": "keep-alive",
     "Upgrade-Insecure-Requests": "1",
     "Sec-Fetch-Dest": "document",
@@ -74,6 +75,12 @@ _CHALLENGE_SIGNATURES = [
     "checking if the site connection is secure",
     "verify you are human",
     "ray id:",
+    "access denied",
+    "you don't have permission to access",
+    "request blocked",
+    "requested url was rejected",
+    "forbidden",
+    "reference #",
 ]
 
 _CHALLENGE_TITLE_MARKERS = [
@@ -90,6 +97,25 @@ _MAX_REDIRECTS = 10
 
 # Default schemes accepted for fetched (including redirected) URLs.
 _ALLOWED_FETCH_SCHEMES = ("https", "http")
+
+_HTTPX_TIMEOUT = httpx.Timeout(20.0, connect=5.0, read=15.0, write=5.0, pool=5.0)
+_HTTPX_RETRY_ATTEMPTS = 2
+_HTTPX_RETRY_BACKOFF_SECONDS = 0.35
+_HTTPX_RETRY_STATUS_CODES = {408, 425, 429, 500, 502, 503, 504}
+_HTTPX_BLOCKED_STATUS_CODES = {401, 403, 407, 451}
+_HTML_CONTENT_TYPES = {"text/html", "application/xhtml+xml"}
+_MARKITDOWN_FALLBACK_TIMEOUT = 20.0
+_RETRYABLE_HTTPX_EXCEPTIONS = tuple(
+    exc_type
+    for exc_type in (
+        getattr(httpx, "TimeoutException", None),
+        getattr(httpx, "TransportError", None),
+        getattr(httpx, "NetworkError", None),
+        getattr(httpx, "RemoteProtocolError", None),
+        getattr(httpx, "ProxyError", None),
+    )
+    if isinstance(exc_type, type)
+)
 
 
 class WebscrapeFunctionConfig(FunctionBaseConfig, name="webscrape"):
@@ -132,6 +158,12 @@ class WebscrapeFunctionConfig(FunctionBaseConfig, name="webscrape"):
         ge=5.0,
         le=120.0,
         description="Timeout in seconds for browser-based scraping.",
+    )
+    timeout: float = Field(
+        default=30.0,
+        ge=5.0,
+        le=120.0,
+        description="Timeout in seconds for non-browser HTTP scraping.",
     )
 
 
@@ -273,6 +305,9 @@ async def _get_following_safe_redirects(
     *,
     allowed_schemes: list[str] | None = None,
     max_redirects: int = _MAX_REDIRECTS,
+    retry_attempts: int = 0,
+    retry_backoff_seconds: float = _HTTPX_RETRY_BACKOFF_SECONDS,
+    retry_status_codes: Iterable[int] | None = None,
 ) -> httpx.Response:
     """GET *url*, manually following redirects after SSRF-validating each hop.
 
@@ -281,25 +316,50 @@ async def _get_following_safe_redirects(
     ``validate_public_url`` before it is fetched, closing the
     ``https://attacker.com -> http://169.254.169.254/`` bypass. Raises
     ``UnsafeURLError`` if any hop targets a non-public address or disallowed
-    scheme.
+    scheme. Optional retries restart from the original URL and are limited to
+    transient transport failures or explicitly supplied HTTP status codes.
     """
-    current_url = url
-    for _ in range(max_redirects + 1):
-        response = await client.get(current_url)
-        if not response.is_redirect:
-            return response
+    retry_status_set = set(retry_status_codes or ())
+    last_exc: Exception | None = None
 
-        location = response.headers.get("location")
-        if not location:
-            return response
+    for attempt in range(retry_attempts + 1):
+        try:
+            current_url = url
+            for _ in range(max_redirects + 1):
+                response = await client.get(current_url)
+                if not response.is_redirect:
+                    if (
+                        response.status_code in retry_status_set
+                        and attempt < retry_attempts
+                    ):
+                        await asyncio.sleep(retry_backoff_seconds * (2**attempt))
+                        break
+                    return response
 
-        next_url = urljoin(current_url, location)
-        validate_public_url(
-            next_url,
-            allowed_schemes=allowed_schemes or list(_ALLOWED_FETCH_SCHEMES),
-            check_dns=False,
-        )
-        current_url = next_url
+                location = response.headers.get("location")
+                if not location:
+                    return response
+
+                next_url = urljoin(current_url, location)
+                validate_public_url(
+                    next_url,
+                    allowed_schemes=allowed_schemes or list(_ALLOWED_FETCH_SCHEMES),
+                    check_dns=False,
+                )
+                current_url = next_url
+            else:
+                raise UnsafeURLError(
+                    f"Exceeded maximum of {max_redirects} redirects while "
+                    f"fetching '{url}'."
+                )
+        except _RETRYABLE_HTTPX_EXCEPTIONS as exc:
+            last_exc = exc
+            if attempt >= retry_attempts:
+                raise
+            await asyncio.sleep(retry_backoff_seconds * (2**attempt))
+
+    if last_exc is not None:
+        raise last_exc
 
     raise UnsafeURLError(
         f"Exceeded maximum of {max_redirects} redirects while fetching '{url}'."
@@ -314,7 +374,7 @@ async def _get_following_safe_redirects(
 def _scrape_with_markitdown(
     url: str, token_limit: int | None = None, truncation_msg: str = ""
 ) -> str:
-    """Strategy 1: direct MarkItDown URL conversion (fastest, no JS support)."""
+    """Direct MarkItDown URL conversion fallback."""
     md = MarkItDown(enable_plugins=True)
     result = md.convert(url)
 
@@ -332,39 +392,128 @@ def _scrape_with_markitdown(
     return full_content
 
 
-async def _scrape_with_httpx(
+def _httpx_timeout_from_seconds(timeout_seconds: float):
+    short_timeout = min(5.0, timeout_seconds)
+    return httpx.Timeout(
+        timeout_seconds,
+        connect=short_timeout,
+        read=timeout_seconds,
+        write=short_timeout,
+        pool=short_timeout,
+    )
+
+
+async def _scrape_with_markitdown_with_timeout(
+    url: str,
+    token_limit: int | None = None,
+    truncation_msg: str = "",
+    timeout: float = _MARKITDOWN_FALLBACK_TIMEOUT,
+) -> str:
+    return await asyncio.wait_for(
+        asyncio.to_thread(
+            _scrape_with_markitdown,
+            url,
+            token_limit=token_limit,
+            truncation_msg=truncation_msg,
+        ),
+        timeout=timeout,
+    )
+
+
+def _response_looks_like_html(response: httpx.Response) -> bool:
+    content_type = response.headers.get("content-type", "")
+    media_type = content_type.split(";", 1)[0].strip().lower()
+    if media_type in _HTML_CONTENT_TYPES:
+        return True
+    if media_type:
+        return False
+
+    content = getattr(response, "content", b"") or b""
+    if isinstance(content, bytes):
+        prefix = content[:512].lstrip().lower()
+        return prefix.startswith((b"<!doctype html", b"<html"))
+    return False
+
+
+async def _scrape_with_httpx_result(
     url: str,
     token_limit: int | None = None,
     truncation_msg: str = "",
     allowed_schemes: list[str] | None = None,
-) -> str | None:
-    """Strategy 2: httpx with browser-like headers (handles simple UA checks)."""
+    timeout=_HTTPX_TIMEOUT,
+) -> tuple[str | None, str]:
+    """Fetch and convert via httpx, returning ``(markdown, outcome)``.
+
+    Outcomes are intentionally simple strings so callers can choose a fallback
+    without parsing log messages: ``ok``, ``blocked``, ``non_html``,
+    ``http_error``, or ``invalid``.
+    """
     headers = {**_BROWSER_HEADERS, "User-Agent": _BROWSER_USER_AGENT}
     # follow_redirects=False so _get_following_safe_redirects can SSRF-validate
     # every hop before following it (F-002a).
     async with httpx.AsyncClient(
-        headers=headers, follow_redirects=False, timeout=30.0
+        headers=headers, follow_redirects=False, timeout=timeout
     ) as client:
         response = await _get_following_safe_redirects(
-            client, url, allowed_schemes=allowed_schemes
+            client,
+            url,
+            allowed_schemes=allowed_schemes,
+            retry_attempts=_HTTPX_RETRY_ATTEMPTS,
+            retry_status_codes=_HTTPX_RETRY_STATUS_CODES,
         )
+
+    if response.status_code in _HTTPX_BLOCKED_STATUS_CODES:
+        logger.info(
+            "httpx returned blocked status %d for %s", response.status_code, url
+        )
+        return None, "blocked"
 
     if not response.is_success:
         logger.info("httpx returned status %d for %s", response.status_code, url)
-        return None
+        return None, "http_error"
+
+    if not _response_looks_like_html(response):
+        logger.info(
+            "httpx response for %s is not HTML (content-type=%s)",
+            url,
+            response.headers.get("content-type", ""),
+        )
+        return None, "non_html"
 
     html = response.text
     if _is_challenge_page(html):
         logger.info("httpx response for %s is a challenge page", url)
-        return None
+        return None, "blocked"
 
-    return await asyncio.to_thread(
+    markdown = await asyncio.to_thread(
         _html_to_markdown,
         html,
         url,
         token_limit=token_limit,
         truncation_msg=truncation_msg,
     )
+    if not _is_valid_content(markdown):
+        return markdown, "invalid"
+
+    return markdown, "ok"
+
+
+async def _scrape_with_httpx(
+    url: str,
+    token_limit: int | None = None,
+    truncation_msg: str = "",
+    allowed_schemes: list[str] | None = None,
+    timeout=_HTTPX_TIMEOUT,
+) -> str | None:
+    """Strategy 1: httpx with browser-like headers (handles simple UA checks)."""
+    markdown, _ = await _scrape_with_httpx_result(
+        url,
+        token_limit=token_limit,
+        truncation_msg=truncation_msg,
+        allowed_schemes=allowed_schemes,
+        timeout=timeout,
+    )
+    return markdown
 
 
 async def _scrape_with_browser(
@@ -551,8 +700,8 @@ async def webscrape_function(config: WebscrapeFunctionConfig, builder: Builder):
 
         Three strategies are tried in order, escalating when the prior one
         fails or returns a bot-protection challenge page:
-          1. MarkItDown direct conversion (fastest, no JS)
-          2. httpx with browser-like headers (fast, bypasses simple UA checks)
+          1. httpx with browser-like headers, timeout, retries, and redirect checks
+          2. MarkItDown direct conversion for non-HTML/document fallbacks
           3. Headless Chromium via Playwright (handles JS & Cloudflare challenges)
         """
         try:
@@ -595,14 +744,79 @@ async def webscrape_function(config: WebscrapeFunctionConfig, builder: Builder):
                 logger.info("robots.txt disallowed scraping for %s: %s", url, exc)
                 return _format_error(str(exc))
 
-        # --- Strategy 1: MarkItDown direct conversion ---
-        markdown_output = None
+        last_nonblocked_output = None
+        browser_attempted = False
+
+        async def _try_browser() -> str | None:
+            nonlocal browser_attempted
+            browser_attempted = True
+            if not config.use_browser_fallback:
+                return None
+            if not PLAYWRIGHT_AVAILABLE:
+                logger.warning(
+                    "Browser fallback enabled but playwright is not installed; "
+                    "install with: pip install playwright && playwright install chromium"
+                )
+                return None
+
+            try:
+                browser_output = await _scrape_with_browser(
+                    url,
+                    token_limit=config.max_output_tokens,
+                    truncation_msg=config.truncation_message,
+                    timeout=config.browser_timeout,
+                )
+                if browser_output and _is_valid_content(browser_output):
+                    return browser_output
+                if browser_output and not _is_challenge_page(browser_output):
+                    return browser_output
+            except Exception as exc:
+                logger.warning("Browser scraping failed for %s: %s", url, exc)
+            return None
+
+        # --- Strategy 1: httpx with browser-like headers ---
+        httpx_output = None
+        httpx_outcome = "not_attempted"
         try:
-            markdown_output = await asyncio.to_thread(
-                _scrape_with_markitdown,
+            httpx_output, httpx_outcome = await _scrape_with_httpx_result(
                 url,
                 token_limit=config.max_output_tokens,
                 truncation_msg=config.truncation_message,
+                allowed_schemes=config.allowed_schemes,
+                timeout=_httpx_timeout_from_seconds(config.timeout),
+            )
+            if httpx_output and _is_valid_content(httpx_output):
+                return httpx_output
+            if httpx_output and not _is_challenge_page(httpx_output):
+                last_nonblocked_output = httpx_output
+        except UnsafeURLError as exc:
+            logger.warning("Blocked unsafe redirect while scraping %s: %s", url, exc)
+            return _format_error(str(exc))
+        except Exception as exc:
+            logger.info("httpx scraping failed for %s: %s", url, exc)
+            httpx_outcome = "error"
+
+        # A 401/403/challenge page is unlikely to be improved by another raw
+        # HTTP client. Try the browser before falling back to direct MarkItDown.
+        if httpx_outcome == "blocked":
+            browser_output = await _try_browser()
+            if browser_output:
+                return browser_output
+
+        # --- Strategy 2: MarkItDown direct conversion ---
+        markdown_output = None
+        try:
+            markdown_output = await _scrape_with_markitdown_with_timeout(
+                url,
+                token_limit=config.max_output_tokens,
+                truncation_msg=config.truncation_message,
+                timeout=min(config.timeout, _MARKITDOWN_FALLBACK_TIMEOUT),
+            )
+        except TimeoutError:
+            logger.info(
+                "MarkItDown scraping timed out for %s after %.1fs",
+                url,
+                _MARKITDOWN_FALLBACK_TIMEOUT,
             )
         except Exception as exc:
             logger.info("MarkItDown scraping failed for %s: %s", url, exc)
@@ -611,47 +825,23 @@ async def webscrape_function(config: WebscrapeFunctionConfig, builder: Builder):
             return markdown_output
 
         if markdown_output:
+            if not _is_challenge_page(markdown_output):
+                last_nonblocked_output = markdown_output
             logger.info(
-                "MarkItDown output for %s appears to be a challenge page; "
+                "MarkItDown output for %s was not valid page content; "
                 "escalating to fallback strategies",
                 url,
             )
 
-        # --- Strategy 2: httpx with browser-like headers ---
-        try:
-            httpx_output = await _scrape_with_httpx(
-                url,
-                token_limit=config.max_output_tokens,
-                truncation_msg=config.truncation_message,
-                allowed_schemes=config.allowed_schemes,
-            )
-            if httpx_output and _is_valid_content(httpx_output):
-                return httpx_output
-        except Exception as exc:
-            logger.info("httpx scraping failed for %s: %s", url, exc)
-
         # --- Strategy 3: Headless browser via Playwright ---
-        if config.use_browser_fallback:
-            if not PLAYWRIGHT_AVAILABLE:
-                logger.warning(
-                    "Browser fallback enabled but playwright is not installed; "
-                    "install with: pip install playwright && playwright install chromium"
-                )
-            else:
-                try:
-                    browser_output = await _scrape_with_browser(
-                        url,
-                        token_limit=config.max_output_tokens,
-                        truncation_msg=config.truncation_message,
-                        timeout=config.browser_timeout,
-                    )
-                    if browser_output and _is_valid_content(browser_output):
-                        return browser_output
-                except Exception as exc:
-                    logger.warning("Browser scraping failed for %s: %s", url, exc)
+        if not browser_attempted:
+            browser_output = await _try_browser()
+            if browser_output:
+                return browser_output
 
-        if markdown_output:
-            return markdown_output
+        if last_nonblocked_output:
+            return last_nonblocked_output
+
         return _format_error(
             "Unable to retrieve page content. The site may require JavaScript "
             "or is blocking automated access."
@@ -662,9 +852,9 @@ async def webscrape_function(config: WebscrapeFunctionConfig, builder: Builder):
             _response_fn,
             description=(
                 "Scrape web content from URLs and convert to clean markdown. "
-                "Uses a fast direct approach first, with automatic fallback to "
-                "browser-like headers and a headless browser for sites with "
-                "JavaScript rendering or bot protection."
+                "Uses a controlled HTTP fetch first, with automatic fallback to "
+                "MarkItDown direct conversion and a headless browser for sites "
+                "with JavaScript rendering or bot protection."
             ),
         )
     except GeneratorExit:

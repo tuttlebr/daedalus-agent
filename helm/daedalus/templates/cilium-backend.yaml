@@ -239,7 +239,7 @@ spec:
             - port: "443"
               protocol: TCP
 
-    # MCP servers (SerpAPI, GitHub Copilot, Google Workspace, NVIDIA Dynamo docs)
+    # MCP servers (SerpAPI, GitHub Copilot, Google Workspace, NVIDIA docs)
     - toFQDNs:
         - matchName: "mcp.serpapi.com"
         - matchName: "api.githubcopilot.com"
@@ -251,7 +251,7 @@ spec:
         - matchName: "accounts.google.com"
         - matchName: "oauth2.googleapis.com"
         - matchName: "www.googleapis.com"
-        - matchName: "docs.dynamo.nvidia.com"
+        - matchName: "docs.nvidia.com"
       toPorts:
         - ports:
             - port: "443"

@@ -1,24 +1,20 @@
 """
-Patch NAT's MCP StreamableHTTP client to override the upstream 30 s
-HTTP connect timeout with a faster fail-fast value, and add daedalus-
-specific logging and approval-gate behavior around MCP tool calls.
+Patch NAT's MCP StreamableHTTP client to add bounded startup behavior,
+daedalus-specific logging, and approval-gate behavior around MCP tool calls.
 
-Problem 1: NAT 1.7.0's MCPStreamableHTTPClient.connect_to_server()
-uses MCP_DEFAULT_TIMEOUT=30 s as the httpx connect timeout.  With
-startup-resilience retries (Fix 5) running each MCP server up to four
-times, this multiplies into ~135 s per unreachable server before
-giving up -- enough to extend pod startup by several minutes when
-multiple MCP endpoints are offline.
+Problem 1: NAT 1.7.0 initializes every MCP function group serially during
+application startup. Repeated connection attempts can keep the ASGI lifespan
+from completing until Kubernetes kills the pod, especially when DNS or an MCP
+endpoint is degraded.
 
 Problem 2: NAT's MCPToolClient logs "tool call failed:" but often
 swallows the actual exception details, making debugging impossible.
 
-Fix 1: Monkey-patch connect_to_server() to build the httpx client via
-the SDK's create_mcp_http_client() helper (matches upstream) but with
-httpx.Timeout(connect=_MCP_CONNECT_TIMEOUT) so unreachable servers
-fail in seconds instead of 30 s.  Read/write/pool timeouts inherit
-upstream's max(MCP_DEFAULT_SSE_READ_TIMEOUT, tool_call_timeout,
-auth_flow_timeout) so long-running tool calls are unaffected.
+Fix 1: Keep the upstream 30 s connect allowance for runtime calls, where DNS
+and interactive authentication can legitimately take longer, but bound each
+MCP function group's startup initialization separately in Fix 5. Read/write/
+pool timeouts still inherit upstream's max(MCP_DEFAULT_SSE_READ_TIMEOUT,
+tool_call_timeout, auth_flow_timeout).
 
 Fix 2: Monkey-patch MCPToolClient to add verbose error logging with
 full tracebacks around tool call execution.
@@ -37,12 +33,12 @@ initialization failure as fatal.  One unreachable MCP server kills the
 entire startup, blocking all remaining components (LLMs, retrievers,
 memory, functions, workflow) from initializing.
 
-Fix 5: Monkey-patch WorkflowBuilder.add_function_group() to catch
-connection-related errors (including those wrapped in ExceptionGroup /
-BaseExceptionGroup by anyio's TaskGroup, plus MCP-internal cancellation
-during stream reconnect) and log a warning instead of raising.  Tools
-from the unreachable server will be unavailable until the pod restarts,
-but the rest of the system starts normally.
+Fix 5: Monkey-patch WorkflowBuilder.add_function_group() to give each MCP
+group one bounded startup attempt and catch connection-related errors
+(including those wrapped in ExceptionGroup / BaseExceptionGroup by anyio's
+TaskGroup, plus MCP-internal cancellation during stream reconnect). Tools from
+an unreachable server are omitted, but an MCP endpoint can never abort startup
+or consume an unbounded portion of the startup probe budget.
 
 Problem 8: When a function group is skipped by Fix 5, downstream agent
 configs still reference its tools by name in their tool_names list.
@@ -148,9 +144,18 @@ _skipped_function_groups: set[str] = set()
 # when NAT defers remote tool discovery until get_tools()/get_function().
 _known_mcp_function_groups: set[str] = set()
 
-# Retry settings for MCP server connections during startup.
-_MCP_STARTUP_MAX_RETRIES = 3
-_MCP_STARTUP_RETRY_DELAY = 5  # seconds between retries
+# MCP runtime connections retain the upstream allowance. In the deployed
+# cluster, a stale Cilium DNS backend added just over 10 seconds to successful
+# lookups, so the previous 10-second override converted recoverable DNS latency
+# into ConnectTimeout before HTTP or OAuth was reached.
+_MCP_CONNECT_TIMEOUT = 30.0
+
+# Startup is different from runtime: every MCP group is built serially inside
+# ASGI lifespan. Give each group one bounded chance, then start without it. The
+# zero retry count is an explicit invariant -- connection retries belong on the
+# runtime/tool-call path, never on the application startup path.
+_MCP_STARTUP_GROUP_TIMEOUT = 15.0
+_MCP_STARTUP_MAX_RETRIES = 0
 
 _STARTUP_RESILIENCE_EXCEPTIONS = (
     Exception,
@@ -458,7 +463,10 @@ def _looks_like_mcp_config(args, kwargs) -> bool:
     for candidate in list(args) + list(kwargs.values()):
         if isinstance(candidate, dict) and candidate.get("_type") == "mcp_client":
             return True
-        if getattr(candidate, "_type", None) == "mcp_client":
+        if (
+            getattr(candidate, "_type", None) == "mcp_client"
+            or getattr(candidate, "type", None) == "mcp_client"
+        ):
             return True
     return False
 
@@ -481,6 +489,35 @@ def _record_skipped_function_group(name) -> str:
     return text
 
 
+def _mcp_httpx_auth_for_connection(client):
+    """Return the HTTP auth adapter appropriate for this connection.
+
+    A shared MCP group's first connection exists only to discover public tool
+    schemas. For an interactive provider whose default identity is forbidden
+    for tool calls, running the auth adapter here is both noisy and misleading:
+    there is no user interaction context yet. Per-user session clients have a
+    real user/session id and retain the adapter, so a 401 can start the UI OAuth
+    flow normally when the tool is invoked.
+    """
+    auth = getattr(client, "_httpx_auth", None)
+    provider = getattr(client, "_auth_provider", None)
+    config = getattr(provider, "config", None)
+    if auth is None or config is None:
+        return auth
+
+    allow_default = getattr(config, "allow_default_user_id_for_tool_calls", True)
+    default_user_id = getattr(config, "default_user_id", None)
+    auth_user_id = getattr(auth, "user_id", None)
+    if allow_default is False and default_user_id and auth_user_id == default_user_id:
+        logger.info(
+            "MCP schema bootstrap is unauthenticated; interactive auth is deferred "
+            "until a user invokes a tool (url=%s)",
+            getattr(client, "_url", "unknown"),
+        )
+        return None
+    return auth
+
+
 def _is_missing_function_reference_error(exc) -> bool:
     if not isinstance(exc, ValueError):
         return False
@@ -492,6 +529,20 @@ def _is_no_tools_after_degradation_error(exc) -> bool:
     if not isinstance(exc, ValueError):
         return False
     return bool(_skipped_function_groups) and "no tools specified" in str(exc).lower()
+
+
+def _is_mcp_authentication_required_error(exc) -> bool:
+    """Return True for an HTTP auth challenge, including wrapped challenges."""
+    if isinstance(exc, httpx.HTTPStatusError):
+        response = getattr(exc, "response", None)
+        return getattr(response, "status_code", None) in {401, 403}
+    if isinstance(exc, BaseExceptionGroup):  # noqa: F821 (builtin in 3.11+)
+        return any(_is_mcp_authentication_required_error(e) for e in exc.exceptions)
+    if exc.__cause__ is not None:
+        return _is_mcp_authentication_required_error(exc.__cause__)
+    if exc.__context__ is not None and exc.__context__ is not exc:
+        return _is_mcp_authentication_required_error(exc.__context__)
+    return False
 
 
 def _is_cancellation_error(exc) -> bool:
@@ -536,6 +587,66 @@ def _should_skip_tool_resolution_error(exc, tool_ref) -> bool:
         or _is_missing_function_reference_error(exc)
         or _is_recoverable_mcp_cancellation(exc, tool_ref)
     )
+
+
+async def _initialize_function_group_for_startup(
+    original_add_function_group, builder, name, args, kwargs
+):
+    """Initialize one function group without allowing MCP to gate startup."""
+    _record_possible_mcp_group(name, args, kwargs)
+    is_mcp_group = _is_mcp_tool_ref(name) or _looks_like_mcp_config(args, kwargs)
+    try:
+        if is_mcp_group:
+            async with asyncio.timeout(_MCP_STARTUP_GROUP_TIMEOUT):
+                return await original_add_function_group(builder, name, *args, **kwargs)
+        return await original_add_function_group(builder, name, *args, **kwargs)
+    except TimeoutError:
+        if not is_mcp_group:
+            raise
+        skipped_name = _record_skipped_function_group(name)
+        logger.warning(
+            "Startup resilience: function_group '%s' exceeded the %ss "
+            "MCP startup budget and was skipped. Application startup "
+            "will continue without this group.",
+            skipped_name,
+            _MCP_STARTUP_GROUP_TIMEOUT,
+        )
+        return None
+    except _STARTUP_RESILIENCE_EXCEPTIONS as exc:
+        if is_mcp_group and _is_mcp_authentication_required_error(exc):
+            skipped_name = _record_skipped_function_group(name)
+            root = _extract_root_connection_error(exc)
+            logger.warning(
+                "Startup resilience: function_group '%s' requires user "
+                "authentication during schema discovery and was skipped — "
+                "%s(%s). Application startup will continue.",
+                skipped_name,
+                type(root).__name__,
+                root,
+            )
+            return None
+        if _is_no_tools_after_degradation_error(exc):
+            skipped_name = _record_skipped_function_group(name)
+            logger.warning(
+                "Startup resilience: function_group '%s' skipped because all "
+                "of its tools were unavailable after MCP degradation: %s",
+                skipped_name,
+                exc,
+            )
+            return None
+        if not _should_recover_function_group_startup_error(exc, name):
+            raise
+        root = _extract_root_connection_error(exc)
+        skipped_name = _record_skipped_function_group(name)
+        logger.warning(
+            "Startup resilience: function_group '%s' was unreachable and "
+            "skipped after one attempt — %s(%s). Application startup will "
+            "continue without this group.",
+            skipped_name,
+            type(root).__name__,
+            root,
+        )
+        return None
 
 
 def _is_transient_http_error(exc) -> bool:
@@ -850,18 +961,15 @@ def patch():
             create_mcp_http_client,
         )
 
-        # Override upstream's 30 s connect timeout for fast-fail on unreachable
-        # MCP servers; read/write/pool inherit upstream's long-read values.
-        _MCP_CONNECT_TIMEOUT = 10.0
-
         @asynccontextmanager
         async def patched_connect_to_server(self):
             """
             Patched connect_to_server that builds the httpx client the same
             way upstream does (create_mcp_http_client + streamable_http_client)
-            but with a fast-fail connect timeout, and adds the daedalus
-            graceful-teardown wrapper (Fix 4) that swallows CancelledError /
-            cancel-scope RuntimeError raised after the session yield returns.
+            with an explicit runtime-safe connect timeout, and adds the
+            daedalus graceful-teardown wrapper (Fix 4) that swallows
+            CancelledError / cancel-scope RuntimeError raised after the session
+            yield returns.
             """
             url = self._url
             tool_call_timeout_s = self._tool_call_timeout.total_seconds()
@@ -877,7 +985,7 @@ def patch():
             http_client = create_mcp_http_client(
                 headers=self._custom_headers if self._custom_headers else None,
                 timeout=timeout,
-                auth=self._httpx_auth,
+                auth=_mcp_httpx_auth_for_connection(self),
             )
 
             @asynccontextmanager
@@ -902,8 +1010,7 @@ def patch():
 
         MCPStreamableHTTPClient.connect_to_server = patched_connect_to_server
         logger.info(
-            "MCP StreamableHTTP connect-timeout patch applied -- "
-            "httpx connect=%ss (upstream default 30s)",
+            "MCP StreamableHTTP patch applied -- httpx connect=%ss",
             _MCP_CONNECT_TIMEOUT,
         )
 
@@ -1150,8 +1257,9 @@ def _patch_startup_resilience():
     NAT's WorkflowBuilder treats any component initialization failure as fatal,
     so one unreachable MCP server kills the entire startup — blocking all
     remaining components (LLMs, retrievers, memory, functions, workflow) from
-    initializing.  This catches connection-related errors in add_function_group
-    and logs a warning instead of raising.
+    initializing. Each MCP group gets exactly one bounded initialization attempt.
+    Connection failures and startup timeouts are logged and skipped instead of
+    being retried inside ASGI lifespan or raised.
 
     Part 2 — get_tools filter:
     When a function group is skipped, downstream agent configs still reference
@@ -1177,52 +1285,9 @@ def _patch_startup_resilience():
 
         @functools.wraps(original_add_fg)
         async def resilient_add_function_group(self, name, *args, **kwargs):
-            _record_possible_mcp_group(name, args, kwargs)
-            last_exc = None
-            for attempt in range(_MCP_STARTUP_MAX_RETRIES + 1):
-                try:
-                    return await original_add_fg(self, name, *args, **kwargs)
-                except _STARTUP_RESILIENCE_EXCEPTIONS as exc:
-                    if _is_no_tools_after_degradation_error(exc):
-                        skipped_name = _record_skipped_function_group(name)
-                        logger.warning(
-                            "Startup resilience: function_group '%s' skipped "
-                            "because all of its tools were unavailable after "
-                            "MCP degradation: %s",
-                            skipped_name,
-                            exc,
-                        )
-                        return None
-                    if not _should_recover_function_group_startup_error(exc, name):
-                        raise
-                    last_exc = exc
-                    if attempt < _MCP_STARTUP_MAX_RETRIES:
-                        root = _extract_root_connection_error(exc)
-                        logger.warning(
-                            "Startup resilience: function_group '%s' "
-                            "unreachable (attempt %d/%d) — %s(%s). "
-                            "Retrying in %ds...",
-                            name,
-                            attempt + 1,
-                            _MCP_STARTUP_MAX_RETRIES + 1,
-                            type(root).__name__,
-                            root,
-                            _MCP_STARTUP_RETRY_DELAY,
-                        )
-                        await asyncio.sleep(_MCP_STARTUP_RETRY_DELAY)
-            # All retries exhausted
-            root = _extract_root_connection_error(last_exc)
-            skipped_name = _record_skipped_function_group(name)
-            logger.warning(
-                "Startup resilience: function_group '%s' skipped after "
-                "%d attempts — %s(%s). Tools from this server will be "
-                "unavailable until restart.",
-                skipped_name,
-                _MCP_STARTUP_MAX_RETRIES + 1,
-                type(root).__name__,
-                root,
+            return await _initialize_function_group_for_startup(
+                original_add_fg, self, name, args, kwargs
             )
-            return None
 
         WorkflowBuilder.add_function_group = resilient_add_function_group
 

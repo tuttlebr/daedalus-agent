@@ -1,6 +1,7 @@
 """Contract checks between backend YAML and custom tool signatures."""
 
 from pathlib import Path
+from urllib.parse import urlparse
 
 import yaml
 
@@ -498,6 +499,34 @@ def test_backend_network_policy_uses_explicit_namespace_access():
     assert "extraIngressNamespaces" in template
     assert "extraEgressNamespaces" in template
     assert "{{- if not .Values.backend.networkPolicy.cilium.enabled }}" in template
+
+
+def test_backend_pod_resolves_external_mcp_hosts_before_search_suffixes():
+    template = BACKEND_DEPLOYMENT_TEMPLATE.read_text(encoding="utf-8")
+
+    assert "dnsPolicy: ClusterFirst" in template
+    assert '- name: ndots\n            value: "1"' in template
+    assert "- name: single-request-reopen" in template
+
+
+def test_cilium_policy_allows_every_literal_external_mcp_hostname():
+    config = _config()
+    template = CILIUM_BACKEND_TEMPLATE.read_text(encoding="utf-8")
+    external_hosts = set()
+
+    for group in config["function_groups"].values():
+        if group.get("_type") != "mcp_client":
+            continue
+        url = str(group.get("server", {}).get("url", ""))
+        if not url.startswith("https://"):
+            continue
+        host = urlparse(url).hostname
+        if host:
+            external_hosts.add(host)
+
+    assert external_hosts
+    for host in external_hosts:
+        assert f'matchName: "{host}"' in template, host
 
 
 def test_cilium_backend_policy_exposes_extra_namespace_access():

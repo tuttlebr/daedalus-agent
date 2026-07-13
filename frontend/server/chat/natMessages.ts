@@ -38,20 +38,12 @@ export function buildBoundedMessagesForNat(messages: any[]): any[] {
     .filter(Boolean);
 }
 
-export function buildNatSessionId(
-  username: string,
-  jobId: string,
-  conversationId?: string,
-  turnId?: string,
-): string {
-  const seed = [
-    username,
-    conversationId || 'no-conversation',
-    turnId || 'no-turn',
-    jobId,
-  ].join(':');
-  return `daedalus-${createHash('sha256')
-    .update(seed)
+export function buildNatSessionId(username: string): string {
+  // NAT uses this cookie as the per-user MCP/OAuth cache key. Keep it opaque,
+  // but stable across turns so a completed Google authorization remains usable
+  // for the authenticated user instead of starting a new OAuth flow per job.
+  return `daedalus-user-${createHash('sha256')
+    .update(username)
     .digest('hex')
     .slice(0, 32)}`;
 }

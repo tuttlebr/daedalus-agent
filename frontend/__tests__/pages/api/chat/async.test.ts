@@ -211,20 +211,17 @@ describe('chat/async backend pinning helpers', () => {
     });
   });
 
-  it('derives a stable per-turn NAT session id without exposing the username', () => {
-    const first = buildNatSessionId('testuser', 'job-123', 'conv-1', 'turn-1');
-    const same = buildNatSessionId('testuser', 'job-123', 'conv-1', 'turn-1');
-    const nextTurn = buildNatSessionId(
-      'testuser',
-      'job-456',
-      'conv-1',
-      'turn-2',
-    );
+  it('derives a stable per-user NAT OAuth session id without exposing the username', () => {
+    const first = buildNatSessionId('testuser');
+    const same = buildNatSessionId('testuser');
+    const nextTurn = buildNatSessionId('testuser');
+    const otherUser = buildNatSessionId('otheruser');
 
     expect(first).toBe(same);
-    expect(first).toMatch(/^daedalus-[a-f0-9]{32}$/);
+    expect(first).toBe(nextTurn);
+    expect(first).toMatch(/^daedalus-user-[a-f0-9]{32}$/);
     expect(first).not.toContain('testuser');
-    expect(nextTurn).not.toBe(first);
+    expect(otherUser).not.toBe(first);
   });
 
   it('merges stored conversation history with the submitted turn', () => {

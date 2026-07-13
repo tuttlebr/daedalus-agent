@@ -15,13 +15,18 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from mcp_patches import (  # noqa: E402
+    _MCP_CONNECT_TIMEOUT,
+    _MCP_STARTUP_GROUP_TIMEOUT,
     _MCP_STARTUP_MAX_RETRIES,
     _STARTUP_RESILIENCE_EXCEPTIONS,
     _connect_with_graceful_teardown,
     _extract_root_connection_error,
+    _initialize_function_group_for_startup,
     _is_connection_error,
     _is_no_tools_after_degradation_error,
     _known_mcp_function_groups,
+    _looks_like_mcp_config,
+    _mcp_httpx_auth_for_connection,
     _McpAppError,
     _record_possible_mcp_group,
     _record_skipped_function_group,
@@ -239,6 +244,126 @@ class TestConnectToServerTeardown:
                     raise ValueError("bad input")
 
         run(_run())
+
+
+# ---------------------------------------------------------------------------
+# Tests: startup timeout and OAuth bootstrap selection
+# ---------------------------------------------------------------------------
+
+
+class TestMCPStartupBoundary:
+    def teardown_method(self):
+        _skipped_function_groups.clear()
+        _known_mcp_function_groups.clear()
+
+    def test_runtime_connect_timeout_retains_upstream_allowance(self):
+        assert _MCP_CONNECT_TIMEOUT >= 30.0
+
+    def test_pydantic_style_mcp_config_is_detected(self):
+        config = types.SimpleNamespace(type="mcp_client")
+        assert _looks_like_mcp_config((config,), {})
+
+    def test_mcp_connection_error_is_attempted_once(self):
+        calls = 0
+
+        async def failing_add(_builder, _name, *_args, **_kwargs):
+            nonlocal calls
+            calls += 1
+            raise httpx.ConnectTimeout("unreachable")
+
+        async def _run():
+            return await _initialize_function_group_for_startup(
+                failing_add,
+                object(),
+                "gmail_mcp_server",
+                (types.SimpleNamespace(type="mcp_client"),),
+                {},
+            )
+
+        assert run(_run()) is None
+        assert calls == 1
+        assert "gmail_mcp_server" in _skipped_function_groups
+
+    def test_mcp_initialization_has_a_hard_time_budget(self, monkeypatch):
+        import mcp_patches
+
+        cancelled = asyncio.Event()
+
+        async def hanging_add(_builder, _name, *_args, **_kwargs):
+            try:
+                await asyncio.Event().wait()
+            finally:
+                cancelled.set()
+
+        monkeypatch.setattr(mcp_patches, "_MCP_STARTUP_GROUP_TIMEOUT", 0.01)
+
+        async def _run():
+            result = await _initialize_function_group_for_startup(
+                hanging_add,
+                object(),
+                "calendar_mcp_server",
+                (types.SimpleNamespace(type="mcp_client"),),
+                {},
+            )
+            assert cancelled.is_set()
+            return result
+
+        assert run(_run()) is None
+        assert "calendar_mcp_server" in _skipped_function_groups
+        assert _MCP_STARTUP_GROUP_TIMEOUT > 0
+
+    def test_non_mcp_timeout_still_propagates(self):
+        async def timed_out_add(_builder, _name, *_args, **_kwargs):
+            raise TimeoutError("database timeout")
+
+        async def _run():
+            return await _initialize_function_group_for_startup(
+                timed_out_add, object(), "ordinary_group", (), {}
+            )
+
+        with pytest.raises(TimeoutError, match="database timeout"):
+            run(_run())
+
+
+class TestMCPBootstrapAuth:
+    @staticmethod
+    def _client(*, allow_default, default_user_id, auth_user_id):
+        config = types.SimpleNamespace(
+            allow_default_user_id_for_tool_calls=allow_default,
+            default_user_id=default_user_id,
+        )
+        return types.SimpleNamespace(
+            _url="https://gmailmcp.googleapis.com/mcp/v1",
+            _auth_provider=types.SimpleNamespace(config=config),
+            _httpx_auth=types.SimpleNamespace(user_id=auth_user_id),
+        )
+
+    def test_shared_oauth_schema_bootstrap_is_unauthenticated(self):
+        client = self._client(
+            allow_default=False,
+            default_user_id="https://gmailmcp.googleapis.com/mcp",
+            auth_user_id="https://gmailmcp.googleapis.com/mcp",
+        )
+
+        assert _mcp_httpx_auth_for_connection(client) is None
+
+    def test_real_user_session_retains_interactive_auth(self):
+        client = self._client(
+            allow_default=False,
+            default_user_id="https://gmailmcp.googleapis.com/mcp",
+            auth_user_id="daedalus-user-session",
+        )
+
+        assert _mcp_httpx_auth_for_connection(client) is client._httpx_auth
+
+    def test_api_key_or_default_enabled_auth_is_unchanged(self):
+        client = self._client(
+            allow_default=True,
+            default_user_id="service-account",
+            auth_user_id="service-account",
+        )
+
+        assert _mcp_httpx_auth_for_connection(client) is client._httpx_auth
 
 
 # ---------------------------------------------------------------------------
@@ -655,8 +780,8 @@ class TestStartupResilience:
         finally:
             self._restore(FailingBuilder, originals)
 
-    def test_retry_succeeds_on_later_attempt(self):
-        """Function group connects after transient failures."""
+    def test_startup_does_not_retry_transient_failure(self):
+        """A transient MCP failure is skipped after one startup attempt."""
 
         class TransientFailBuilder(FakeWorkflowBuilder):
             def __init__(self):
@@ -665,7 +790,7 @@ class TestStartupResilience:
 
             async def add_function_group(self, name, *args, **kwargs):
                 self.attempts += 1
-                if self.attempts <= 2:
+                if self.attempts == 1:
                     raise httpx.ConnectTimeout("k8s-mcp-server:8080")
                 return await super().add_function_group(name, *args, **kwargs)
 
@@ -675,17 +800,16 @@ class TestStartupResilience:
 
             async def _run():
                 result = await builder.add_function_group("k8s_mcp")
-                # Should succeed on attempt 3
-                assert result == {"name": "k8s_mcp"}
-                assert "k8s_mcp" not in _skipped_function_groups
-                assert builder.attempts == 3
+                assert result is None
+                assert "k8s_mcp" in _skipped_function_groups
+                assert builder.attempts == 1
 
             run(_run())
         finally:
             self._restore(TransientFailBuilder, originals)
 
-    def test_retry_exhausted_then_skipped(self):
-        """All retries fail -> function group is skipped."""
+    def test_connection_failure_is_attempted_once_then_skipped(self):
+        """An unavailable MCP group never retries inside application startup."""
 
         class PermanentFailBuilder(FakeWorkflowBuilder):
             def __init__(self):
@@ -704,14 +828,15 @@ class TestStartupResilience:
                 result = await builder.add_function_group("k8s_mcp")
                 assert result is None
                 assert "k8s_mcp" in _skipped_function_groups
-                assert builder.attempts == _MCP_STARTUP_MAX_RETRIES + 1
+                assert _MCP_STARTUP_MAX_RETRIES == 0
+                assert builder.attempts == 1
 
             run(_run())
         finally:
             self._restore(PermanentFailBuilder, originals)
 
     def _apply_patch_with_retry(self, builder_cls):
-        """Apply wrapping with retry logic (mirrors actual _patch_startup_resilience)."""
+        """Apply the configured startup attempt count to the fake builder."""
         import functools
 
         _skipped_function_groups.clear()
@@ -818,28 +943,29 @@ class TestStartupResilience:
         finally:
             self._restore(BadConfigBuilder, originals)
 
-    def test_auth_error_still_raises(self):
-        """HTTP 401/403 errors are not connection errors and should still raise."""
+    @pytest.mark.parametrize("status_code", [401, 403])
+    def test_auth_required_mcp_is_skipped(self, status_code):
+        """A headless MCP auth challenge cannot abort application startup."""
 
-        class AuthFailBuilder(FakeWorkflowBuilder):
-            async def add_function_group(self, name, *args, **kwargs):
-                raise httpx.HTTPStatusError(
-                    "401 Unauthorized",
-                    request=httpx.Request("POST", "http://fake/mcp"),
-                    response=httpx.Response(401),
-                )
+        async def auth_fail(_builder, _name, *_args, **_kwargs):
+            raise httpx.HTTPStatusError(
+                f"{status_code} authentication required",
+                request=httpx.Request("POST", "http://fake/mcp"),
+                response=types.SimpleNamespace(status_code=status_code),
+            )
 
-        originals = self._apply_patch(AuthFailBuilder)
-        try:
-            builder = AuthFailBuilder()
+        async def _run():
+            return await _initialize_function_group_for_startup(
+                auth_fail,
+                object(),
+                "auth_fail_mcp",
+                (types.SimpleNamespace(type="mcp_client"),),
+                {},
+            )
 
-            async def _run():
-                with pytest.raises(httpx.HTTPStatusError):
-                    await builder.add_function_group("auth_fail_mcp")
-
-            run(_run())
-        finally:
-            self._restore(AuthFailBuilder, originals)
+        assert run(_run()) is None
+        assert "auth_fail_mcp" in _skipped_function_groups
+        _skipped_function_groups.clear()
 
     def test_get_tools_filters_skipped_groups(self):
         """get_tools omits tools from skipped function groups instead of crashing."""
