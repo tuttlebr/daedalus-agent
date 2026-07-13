@@ -1,20 +1,12 @@
 'use client';
 
-import {
-  IconDownload,
-  IconEdit,
-  IconExternalLink,
-  IconMessage,
-  IconTrash,
-} from '@tabler/icons-react';
 import React, { memo, useMemo } from 'react';
 
 import { useIsMobile, useMediaQuery } from '@/hooks/useMediaQuery';
 
-import { getImageUrl } from '@/utils/app/imageHandler';
+import { getImageOutputMimeType } from '@/utils/app/imageModelCapabilities';
 
 import { OptimizedImage } from '@/components/chat/OptimizedImage';
-import { IconButton, Tooltip } from '@/components/primitives';
 
 import type {
   GalleryImage,
@@ -25,14 +17,14 @@ import classNames from 'classnames';
 
 const GENERATED_SESSION_ID = 'generated';
 
-function generatedRef(imageId: string, mimeType = 'image/png'): ImageRef {
-  return { imageId, sessionId: GENERATED_SESSION_ID, mimeType };
-}
-
-function downloadExtensionForImage(image: GalleryImage): string {
-  return image.params.output_format === 'jpeg'
-    ? 'jpg'
-    : image.params.output_format ?? 'png';
+function generatedRef(
+  image: Pick<GalleryImage, 'imageId' | 'params'>,
+): ImageRef {
+  return {
+    imageId: image.imageId,
+    sessionId: GENERATED_SESSION_ID,
+    mimeType: getImageOutputMimeType(image.params),
+  };
 }
 
 interface ImagesCanvasProps {
@@ -43,9 +35,8 @@ interface ImagesCanvasProps {
   elapsedMs: number;
   selectedImageId: string | null;
   onSelectImage: (imageId: string) => void;
-  onReuseAsInput: (ref: ImageRef) => void;
-  onSendToChat?: (imageId: string) => void;
-  onDelete: (imageId: string) => void;
+  onOpenSelectedImage?: () => void;
+  emptyState?: React.ReactNode;
 }
 
 /**
@@ -61,12 +52,12 @@ export const ImagesCanvas = memo(function ImagesCanvas({
   elapsedMs,
   selectedImageId,
   onSelectImage,
-  onReuseAsInput,
-  onSendToChat,
-  onDelete,
+  onOpenSelectedImage,
+  emptyState,
 }: ImagesCanvasProps) {
   const isMobile = useIsMobile();
   const isTablet = useMediaQuery('(min-width: 768px) and (max-width: 1023px)');
+  const isLarge = useMediaQuery('(min-width: 1024px)');
   const cols = isMobile ? 2 : isTablet ? 3 : 4;
   const baseRows = isMobile ? 3 : 2;
 
@@ -104,10 +95,10 @@ export const ImagesCanvas = memo(function ImagesCanvas({
                 <CanvasTile
                   image={img}
                   selected={selectedImageId === img.imageId}
-                  onSelect={() => onSelectImage(img.imageId)}
-                  onReuseAsInput={onReuseAsInput}
-                  onSendToChat={onSendToChat}
-                  onDelete={onDelete}
+                  onSelect={() => {
+                    onSelectImage(img.imageId);
+                    if (!isLarge) onOpenSelectedImage?.();
+                  }}
                 />
               ) : loading && idx < loadingSlots ? (
                 <LoadingCell
@@ -121,6 +112,11 @@ export const ImagesCanvas = memo(function ImagesCanvas({
           );
         })}
       </div>
+      {!loading && images.length === 0 && emptyState && (
+        <div className="absolute inset-0 z-10 flex items-center justify-center p-5 pointer-events-none">
+          {emptyState}
+        </div>
+      )}
     </div>
   );
 });
@@ -164,63 +160,29 @@ const CanvasTile = memo(function CanvasTile({
   image,
   selected,
   onSelect,
-  onReuseAsInput,
-  onSendToChat,
-  onDelete,
 }: {
   image: GalleryImage;
   selected: boolean;
   onSelect: () => void;
-  onReuseAsInput: (ref: ImageRef) => void;
-  onSendToChat?: (imageId: string) => void;
-  onDelete: (imageId: string) => void;
 }) {
-  const ref = generatedRef(image.imageId);
-  const fullUrl = getImageUrl(ref, false);
-
-  const download = async () => {
-    let url: string | null = null;
-    try {
-      const res = await fetch(fullUrl);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const blob = await res.blob();
-      url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${image.imageId}.${downloadExtensionForImage(image)}`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-    } catch (e) {
-      console.error('Download failed', e);
-    } finally {
-      if (url) URL.revokeObjectURL(url);
-    }
-  };
-
-  const openFull = () => window.open(fullUrl, '_blank', 'noopener');
+  const ref = generatedRef(image);
 
   return (
-    <div
-      role="button"
-      tabIndex={0}
+    <button
+      type="button"
       onClick={onSelect}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          onSelect();
-        }
-      }}
       className={classNames(
         'absolute inset-0 block w-full text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-nvidia-green/60',
         selected && 'ring-2 ring-inset ring-nvidia-green/70',
       )}
-      aria-label="Select generated image"
+      aria-label="Open generated image actions"
     >
       <OptimizedImage
         imageRef={ref}
         alt={image.prompt}
         useThumbnail
+        showControls={false}
+        enableFullscreen={false}
         className="w-full h-full object-cover"
       />
       {image.partial && (
@@ -228,63 +190,9 @@ const CanvasTile = memo(function CanvasTile({
           Partial
         </div>
       )}
-      <div
-        className={classNames(
-          'absolute inset-x-0 bottom-0 p-2',
-          'bg-gradient-to-t from-black/80 to-transparent',
-          'opacity-100 transition-opacity md:opacity-0 md:group-hover:opacity-100 md:focus-within:opacity-100',
-          'flex flex-wrap gap-1 justify-end',
-        )}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <Tooltip content="Use as input for next edit" position="top">
-          <IconButton
-            icon={<IconEdit size={18} />}
-            onClick={() => onReuseAsInput(ref)}
-            variant="ghost"
-            size="md"
-            aria-label="Use as input for next edit"
-          />
-        </Tooltip>
-        {onSendToChat && (
-          <Tooltip content="Send to chat" position="top">
-            <IconButton
-              icon={<IconMessage size={18} />}
-              onClick={() => onSendToChat(image.imageId)}
-              variant="ghost"
-              size="md"
-              aria-label="Send to chat"
-            />
-          </Tooltip>
-        )}
-        <Tooltip content="Download" position="top">
-          <IconButton
-            icon={<IconDownload size={18} />}
-            onClick={download}
-            variant="ghost"
-            size="md"
-            aria-label="Download"
-          />
-        </Tooltip>
-        <Tooltip content="Open full size" position="top">
-          <IconButton
-            icon={<IconExternalLink size={18} />}
-            onClick={openFull}
-            variant="ghost"
-            size="md"
-            aria-label="Open full size"
-          />
-        </Tooltip>
-        <Tooltip content="Remove from grid" position="top">
-          <IconButton
-            icon={<IconTrash size={18} />}
-            onClick={() => onDelete(image.imageId)}
-            variant="danger"
-            size="md"
-            aria-label="Remove from grid"
-          />
-        </Tooltip>
-      </div>
-    </div>
+      <span className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/75 to-transparent px-2 pb-2 pt-8 text-left text-[10px] font-medium text-white opacity-100 transition-opacity md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100">
+        {selected ? 'Selected · view actions' : 'Tap to view actions'}
+      </span>
+    </button>
   );
 });

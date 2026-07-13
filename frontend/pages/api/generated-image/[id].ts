@@ -27,13 +27,30 @@ interface GeneratedImageRecord {
   sessionId?: string;
 }
 
+function fileExtensionForMimeType(mimeType: string): string {
+  switch (mimeType.toLowerCase()) {
+    case 'image/jpeg':
+    case 'image/jpg':
+      return 'jpg';
+    case 'image/webp':
+      return 'webp';
+    case 'image/gif':
+      return 'gif';
+    default:
+      return 'png';
+  }
+}
+
 function recordMatchesRequestOwner(
   record: GeneratedImageRecord,
   userId: string,
   sessionId: string,
 ): boolean {
   const ownerUserId = record.userId || record.user;
-  if (ownerUserId && ownerUserId === userId) return true;
+  // A persisted user owner is authoritative.  Session IDs are only a
+  // fallback for legacy/anonymous assets; otherwise a reused browser session
+  // could grant a different signed-in user access to an owned asset.
+  if (ownerUserId) return ownerUserId === userId;
   return Boolean(record.sessionId && record.sessionId === sessionId);
 }
 
@@ -59,6 +76,7 @@ async function canAccessGeneratedImage(
  *
  * Query parameters:
  *   - thumbnail=true  Return a 400px-max JPEG thumbnail instead of the full image.
+ *   - download=1      Return the original image as a download attachment.
  */
 export default async function handler(
   req: NextApiRequest,
@@ -69,7 +87,7 @@ export default async function handler(
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const { id, thumbnail } = req.query;
+  const { id, thumbnail, download } = req.query;
 
   if (!id || typeof id !== 'string') {
     return res.status(400).json({ error: 'Invalid image ID' });
@@ -125,6 +143,7 @@ export default async function handler(
 
     const mimeType: string = record.mimeType || 'image/png';
     const wantThumbnail = thumbnail === 'true' || thumbnail === '1';
+    const wantsDownload = download === '1' || download === 'true';
 
     // Decode base64 data
     const imageBuffer = Buffer.from(record.data, 'base64');
@@ -151,10 +170,24 @@ export default async function handler(
 
     // Return full image
     res.setHeader('Content-Type', mimeType);
-    res.setHeader('Cache-Control', 'private, max-age=86400, immutable');
+    // A browser should never retain an explicit download after the user asks
+    // to purge generated assets from history. Display assets remain privately
+    // cacheable for the responsive canvas.
+    res.setHeader(
+      'Cache-Control',
+      wantsDownload ? 'private, no-store' : 'private, max-age=86400, immutable',
+    );
     res.setHeader('ETag', `"${id}"`);
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Content-Length', imageBuffer.length.toString());
+    if (wantsDownload) {
+      res.setHeader(
+        'Content-Disposition',
+        `attachment; filename="daedalus-${id}.${fileExtensionForMimeType(
+          mimeType,
+        )}"`,
+      );
+    }
 
     return res.status(200).send(imageBuffer);
   } catch (error) {

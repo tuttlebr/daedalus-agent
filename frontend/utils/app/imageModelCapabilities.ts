@@ -19,6 +19,24 @@ export interface ImageParams {
   input_fidelity?: ImageInputFidelity;
 }
 
+/**
+ * The Image API defaults generated assets to PNG when no explicit output
+ * format is requested. Reused outputs carry this hint back into the edit
+ * workflow so mask eligibility reflects the real source format.
+ */
+export function getImageOutputMimeType(
+  params?: Pick<ImageParams, 'output_format'>,
+): string {
+  switch (params?.output_format) {
+    case 'jpeg':
+      return 'image/jpeg';
+    case 'webp':
+      return 'image/webp';
+    default:
+      return 'image/png';
+  }
+}
+
 export interface ImageSizeValidationResult {
   valid: boolean;
   reason?: string;

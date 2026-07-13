@@ -111,6 +111,32 @@ server {
         chunked_transfer_encoding on;
     }
 
+    # Image generation and editing can take up to the backend's 300s request
+    # limit. Keep the browser-to-frontend hop alive past that limit and retain
+    # streaming semantics for the legacy image endpoints.
+    location /api/images/ {
+        proxy_pass {{ ._frontendHTTPUpstream }};
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_cache_bypass $http_upgrade;
+
+        proxy_buffering off;
+        proxy_request_buffering off;
+        proxy_cache off;
+        proxy_set_header X-Accel-Buffering no;
+        proxy_max_temp_file_size 0;
+
+        proxy_connect_timeout 360s;
+        proxy_send_timeout 360s;
+        proxy_read_timeout 360s;
+        chunked_transfer_encoding on;
+    }
+
     # Other frontend API routes
     location /api/ {
         proxy_pass {{ ._frontendHTTPUpstream }};
@@ -469,6 +495,32 @@ server {
         proxy_read_timeout 600s;
 
         # Enable chunked responses
+        chunked_transfer_encoding on;
+    }
+
+    # Image generation and editing can take up to the backend's 300s request
+    # limit. Keep the browser-to-frontend hop alive past that limit and retain
+    # streaming semantics for the legacy image endpoints.
+    location /api/images/ {
+        proxy_pass {{ ._frontendHTTPUpstream }};
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_cache_bypass $http_upgrade;
+
+        proxy_buffering off;
+        proxy_request_buffering off;
+        proxy_cache off;
+        proxy_set_header X-Accel-Buffering no;
+        proxy_max_temp_file_size 0;
+
+        proxy_connect_timeout 360s;
+        proxy_send_timeout 360s;
+        proxy_read_timeout 360s;
         chunked_transfer_encoding on;
     }
 

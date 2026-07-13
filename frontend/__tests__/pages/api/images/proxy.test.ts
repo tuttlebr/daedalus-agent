@@ -122,7 +122,7 @@ describe('/api/images generate/edit proxy routes', () => {
       'x-user-id': 'alice',
       'x-timezone': 'America/Detroit',
     });
-    expect(timeoutMs).toBe(300_000);
+    expect(timeoutMs).toBe(330_000);
     expect(res.status).toHaveBeenCalledWith(200);
   });
 

@@ -75,6 +75,8 @@ Primary jobs:
 - Reuse a generated output as the next edit input.
 - Restore previous runs from history.
 - Download or open outputs.
+- Clear history without accidentally deleting image assets, or deliberately
+  clear both when the user chooses to reclaim their generated assets.
 
 ## 6. Information Architecture
 
@@ -241,6 +243,11 @@ chat conversation. Use distinct labels, icons, and active states.
 - CN-FR-084: The history drawer must close with Escape and backdrop click.
 - CN-FR-085: Mobile history must use a full-width drawer or sheet that does not
   conflict with the prompt dock.
+- CN-FR-086: Clearing history must make the default retention behavior clear;
+  deleting generated assets requires a separate, deliberate confirmation.
+- CN-FR-087: A requested download must return the original Redis-backed image
+  as an attachment with a useful filename, without loading the full asset into
+  browser JavaScript first.
 
 ## 9. Responsive UX Requirements
 
@@ -272,14 +279,20 @@ chat conversation. Use distinct labels, icons, and active states.
 
 ### 10.1 Browser To Frontend API
 
-- CN-API-001: Browser requests must go to `/api/images/generate` or
-  `/api/images/edit`.
+- CN-API-001: Browser submissions must go to `POST /api/images/jobs` rather
+  than keeping the browser-to-proxy connection open for the full OpenAI call.
+  The legacy `/api/images/generate` and `/api/images/edit` proxies remain
+  compatible for non-panel callers.
 - CN-API-002: Requests must include `prompt`, `model`, and cleaned image params.
 - CN-API-003: Edit requests must include `imageRefs`; they may include
   `maskRef`.
 - CN-API-004: Requests must not include raw OpenAI credentials.
-- CN-API-005: The UI must accept either final JSON responses or streamed
-  partial/final events.
+- CN-API-005: `POST /api/images/jobs` returns HTTP 202 with a `jobId`.
+  `GET /api/images/jobs?jobId=...` returns Redis-backed job status; the UI
+  polls it and may restore active jobs after a reload or mobile reconnect.
+- CN-API-006: The job runner persists streamed partial/final events and history
+  metadata in Redis, so a transient browser connection does not discard a
+  completed result.
 
 Expected generate request shape:
 
@@ -329,6 +342,15 @@ Expected response shape:
 }
 ```
 
+Expected job-acceptance response:
+
+```json
+{
+  "jobId": "uuid",
+  "status": "queued"
+}
+```
+
 ### 10.2 Frontend API To Backend
 
 - CN-API-010: Frontend API routes must require an authenticated user.
@@ -339,9 +361,12 @@ Expected response shape:
 - CN-API-013: Frontend API routes must use the backend paths
   `/v1/images/generate` and `/v1/images/edit`.
 - CN-API-014: Frontend API routes must use a long enough timeout for image
-  generation and edits; the current target is 180 seconds.
+  generation and edits; the current target is 300 seconds.
 - CN-API-015: Timeout responses must map to HTTP 504.
 - CN-API-016: Backend unavailable responses must map to HTTP 502.
+- CN-API-017: Helm nginx configuration must give `/api/images/` a timeout that
+  exceeds the backend image timeout and must disable response/request buffering
+  for streaming-compatible routes.
 
 ## 11. Validation And Error Requirements
 
@@ -357,6 +382,8 @@ to Generate.`
   the original message where safe.
 - CN-ERR-008: Errors must not clear prompt, settings, inputs, mask, outputs, or
   history.
+- CN-ERR-009: A transient job-status polling failure must be retried before the
+  UI treats an in-flight image job as failed.
 
 ## 12. Accessibility Requirements
 

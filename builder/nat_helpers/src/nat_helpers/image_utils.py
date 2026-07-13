@@ -50,8 +50,16 @@ async def fetch_image_from_redis(
     redis_client: redis_lib.Redis,
     image_ref: dict,
     expected_user_id: str | None = None,
+    prefer_vlm_data: bool = True,
 ) -> tuple[str, str] | tuple[None, str]:
     """Fetch image data from Redis.
+
+    ``vlmData`` is a normalized JPEG derivative created for vision-model
+    ingestion.  It is useful for agent/VLM calls, but is deliberately not a
+    substitute for the original asset: normalization can flatten alpha,
+    resize, and re-encode the image.  Callers that need a byte-faithful input
+    (notably the Image API edit endpoint and masks) must set
+    ``prefer_vlm_data=False``.
 
     Returns ``(base64_data, mime_type)`` on success or
     ``(None, error_message)`` on failure.
@@ -128,13 +136,17 @@ async def fetch_image_from_redis(
                 )
 
         vlm_base64 = image_record.get("vlmData")
-        if vlm_base64:
+        if prefer_vlm_data and vlm_base64:
             vlm_mime_type = image_record.get("vlmMimeType") or "image/jpeg"
             return (vlm_base64, vlm_mime_type)
 
         image_base64 = image_record.get("data")
+        # The Redis record is authoritative. ``image_ref`` comes from the
+        # browser/agent and is only a hint for legacy records that lack a
+        # stored MIME type; trusting it first can label PNG bytes as JPEG (or
+        # vice versa) in the multipart upload sent to the Image API.
         mime_type = (
-            image_ref.get("mimeType") or image_record.get("mimeType") or "image/png"
+            image_record.get("mimeType") or image_ref.get("mimeType") or "image/png"
         )
         if not image_base64:
             return (None, "Error: Retrieved image data is empty.")

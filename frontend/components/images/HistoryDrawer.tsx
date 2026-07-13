@@ -3,6 +3,7 @@
 import { IconCheck, IconHistory, IconTrash, IconX } from '@tabler/icons-react';
 import React, { useCallback, useEffect, useState } from 'react';
 
+import { getImageOutputMimeType } from '@/utils/app/imageModelCapabilities';
 import { useInvalidateImageHistory } from '@/utils/app/queries';
 
 import { OptimizedImage } from '@/components/chat/OptimizedImage';
@@ -21,8 +22,10 @@ async function deleteImageHistoryEntry(id: string): Promise<void> {
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
 }
 
-async function clearImageHistoryRequest(): Promise<void> {
-  const res = await fetch('/api/images/history?all=1', {
+async function clearImageHistoryRequest(deleteAssets: boolean): Promise<void> {
+  const params = new URLSearchParams({ all: '1' });
+  if (deleteAssets) params.set('deleteAssets', '1');
+  const res = await fetch(`/api/images/history?${params.toString()}`, {
     method: 'DELETE',
     credentials: 'include',
   });
@@ -63,9 +66,12 @@ export function HistoryDrawer() {
   const removeFromHistory = useImagePanelStore((s) => s.removeFromHistory);
   const clearHistory = useImagePanelStore((s) => s.clearHistory);
   const setHistoryAction = useImagePanelStore((s) => s.setHistory);
+  const setGallery = useImagePanelStore((s) => s.setGallery);
 
   const [isConfirmingClear, setIsConfirmingClear] = useState(false);
   const [isClearing, setIsClearing] = useState(false);
+  const [deleteAssetsWithHistory, setDeleteAssetsWithHistory] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
   const [pendingDeleteIds, setPendingDeleteIds] = useState<Set<string>>(
     () => new Set(),
   );
@@ -82,7 +88,11 @@ export function HistoryDrawer() {
 
   // Reset confirm state when the drawer closes so it doesn't reopen "armed".
   useEffect(() => {
-    if (!open) setIsConfirmingClear(false);
+    if (!open) {
+      setIsConfirmingClear(false);
+      setDeleteAssetsWithHistory(false);
+      setActionError(null);
+    }
   }, [open]);
 
   const reconcileFromServer = useCallback(async () => {
@@ -97,6 +107,7 @@ export function HistoryDrawer() {
   const handleDelete = useCallback(
     async (id: string) => {
       if (pendingDeleteIds.has(id)) return;
+      setActionError(null);
       setPendingDeleteIds((prev) => {
         const next = new Set(prev);
         next.add(id);
@@ -108,6 +119,9 @@ export function HistoryDrawer() {
         invalidateImageHistory();
       } catch (err) {
         console.error('Failed to delete history entry:', err);
+        setActionError(
+          'Could not remove that saved run. Your history was restored.',
+        );
         await reconcileFromServer();
       } finally {
         setPendingDeleteIds((prev) => {
@@ -127,19 +141,37 @@ export function HistoryDrawer() {
 
   const handleClearAll = useCallback(async () => {
     if (isClearing) return;
+    const deleteAssets = deleteAssetsWithHistory;
+    const galleryBeforeClear = useImagePanelStore.getState().gallery;
+    setActionError(null);
     setIsClearing(true);
     clearHistory();
+    if (deleteAssets) setGallery([]);
     try {
-      await clearImageHistoryRequest();
+      await clearImageHistoryRequest(deleteAssets);
       invalidateImageHistory();
     } catch (err) {
       console.error('Failed to clear history:', err);
+      if (deleteAssets) setGallery(galleryBeforeClear);
+      setActionError(
+        deleteAssets
+          ? 'Could not clear the saved runs and generated images. Your history was restored.'
+          : 'Could not clear saved history. Your history was restored.',
+      );
       await reconcileFromServer();
     } finally {
       setIsClearing(false);
       setIsConfirmingClear(false);
+      setDeleteAssetsWithHistory(false);
     }
-  }, [clearHistory, invalidateImageHistory, isClearing, reconcileFromServer]);
+  }, [
+    clearHistory,
+    deleteAssetsWithHistory,
+    invalidateImageHistory,
+    isClearing,
+    reconcileFromServer,
+    setGallery,
+  ]);
 
   return (
     <>
@@ -174,8 +206,7 @@ export function HistoryDrawer() {
           <div>
             <div className="text-sm font-medium text-neutral-100">History</div>
             <div className="text-[10px] uppercase tracking-wider text-neutral-500 mt-0.5">
-              {history.length} entr{history.length === 1 ? 'y' : 'ies'} this
-              session
+              {history.length} saved creation{history.length === 1 ? '' : 's'}
             </div>
           </div>
           <IconButton
@@ -190,7 +221,7 @@ export function HistoryDrawer() {
         <div className="flex-1 overflow-y-auto p-3">
           {history.length === 0 ? (
             <div className="flex items-center justify-center h-full text-xs text-neutral-600">
-              No generations yet this session.
+              No saved creations yet.
             </div>
           ) : (
             <div className="flex flex-col gap-2">
@@ -203,15 +234,6 @@ export function HistoryDrawer() {
                 return (
                   <div
                     key={entry.id}
-                    role="button"
-                    tabIndex={0}
-                    onClick={restore}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        e.preventDefault();
-                        restore();
-                      }
-                    }}
                     className={classNames(
                       'group relative flex gap-3 p-2 rounded-lg cursor-pointer',
                       'bg-white/5 hover:bg-white/10 ring-1 ring-white/5 hover:ring-white/20',
@@ -219,34 +241,43 @@ export function HistoryDrawer() {
                       'focus-visible:outline-none focus-visible:ring-nvidia-green/40',
                     )}
                   >
-                    <div className="flex-shrink-0 w-14 h-14 rounded-md overflow-hidden bg-neutral-900">
-                      {entry.outputImageIds[0] && (
-                        <OptimizedImage
-                          imageRef={{
-                            imageId: entry.outputImageIds[0],
-                            sessionId: 'generated',
-                            mimeType: 'image/png',
-                          }}
-                          alt=""
-                          useThumbnail
-                          className="w-full h-full object-cover"
-                        />
-                      )}
-                    </div>
-                    <div className="flex-1 min-w-0 pr-5">
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className="text-[9px] uppercase tracking-wider text-neutral-500">
-                          {entry.mode}
-                        </span>
-                        <span className="text-[9px] text-neutral-600">
-                          · {entry.outputImageIds.length} image
-                          {entry.outputImageIds.length !== 1 ? 's' : ''}
-                        </span>
+                    <button
+                      type="button"
+                      onClick={restore}
+                      className="flex min-w-0 flex-1 items-start gap-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nvidia-green/40"
+                      aria-label={`Restore saved ${entry.mode} creation`}
+                    >
+                      <div className="flex-shrink-0 w-14 h-14 rounded-md overflow-hidden bg-neutral-900">
+                        {entry.outputImageIds[0] && (
+                          <OptimizedImage
+                            imageRef={{
+                              imageId: entry.outputImageIds[0],
+                              sessionId: 'generated',
+                              mimeType: getImageOutputMimeType(entry.params),
+                            }}
+                            alt=""
+                            useThumbnail
+                            showControls={false}
+                            enableFullscreen={false}
+                            className="w-full h-full object-cover"
+                          />
+                        )}
                       </div>
-                      <div className="text-xs text-neutral-200 line-clamp-2 leading-snug">
-                        {entry.prompt || '(no prompt)'}
+                      <div className="flex-1 min-w-0 pr-5">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="text-[9px] uppercase tracking-wider text-neutral-500">
+                            {entry.mode}
+                          </span>
+                          <span className="text-[9px] text-neutral-600">
+                            · {entry.outputImageIds.length} image
+                            {entry.outputImageIds.length !== 1 ? 's' : ''}
+                          </span>
+                        </div>
+                        <div className="text-xs text-neutral-200 line-clamp-2 leading-snug">
+                          {entry.prompt || '(no prompt)'}
+                        </div>
                       </div>
-                    </div>
+                    </button>
                     <button
                       type="button"
                       aria-label="Delete entry"
@@ -257,7 +288,7 @@ export function HistoryDrawer() {
                       }}
                       disabled={isDeletingThis}
                       className={classNames(
-                        'absolute top-1 right-1 grid h-9 w-9 place-items-center rounded-md touch-manipulation',
+                        'absolute top-1 right-1 grid h-11 w-11 place-items-center rounded-md touch-manipulation',
                         'text-neutral-500 hover:text-nvidia-red hover:bg-nvidia-red/10',
                         'opacity-100 md:opacity-0 md:group-hover:opacity-100 md:focus-visible:opacity-100',
                         'transition-all disabled:opacity-50',
@@ -275,26 +306,64 @@ export function HistoryDrawer() {
 
         {history.length > 0 && (
           <div className="flex-shrink-0 border-t border-white/5 px-3 py-2 pb-safe-bottom">
+            {actionError && (
+              <p
+                role="alert"
+                className="mb-2 rounded-md bg-red-500/10 px-2 py-2 text-xs text-red-300"
+              >
+                {actionError}
+              </p>
+            )}
             {isConfirmingClear ? (
-              <div className="flex items-center gap-2 px-2 py-1 text-xs text-nvidia-red">
-                <span className="flex-1">Clear all history?</span>
-                <IconButton
-                  icon={<IconCheck size={14} />}
-                  aria-label="Confirm clear all"
-                  variant="danger"
-                  size="xs"
-                  onClick={handleClearAll}
-                  isLoading={isClearing}
-                  disabled={isClearing}
-                />
-                <IconButton
-                  icon={<IconX size={14} />}
-                  aria-label="Cancel"
-                  variant="ghost"
-                  size="xs"
-                  onClick={() => setIsConfirmingClear(false)}
-                  disabled={isClearing}
-                />
+              <div className="rounded-lg bg-red-500/5 px-2 py-2 text-xs">
+                <div className="font-medium text-neutral-100">
+                  Clear saved history?
+                </div>
+                <p className="mt-1 leading-relaxed text-neutral-400">
+                  Your current canvas stays unless you also choose to delete
+                  generated images.
+                </p>
+                <label className="mt-2 flex min-h-11 cursor-pointer items-start gap-2 rounded-md px-1 py-1 text-neutral-300 hover:bg-white/5">
+                  <input
+                    type="checkbox"
+                    checked={deleteAssetsWithHistory}
+                    onChange={(event) =>
+                      setDeleteAssetsWithHistory(event.target.checked)
+                    }
+                    className="mt-0.5 h-4 w-4 rounded border-white/20 bg-black/30 text-nvidia-green focus:ring-nvidia-green/50"
+                  />
+                  <span>
+                    <span className="block font-medium">
+                      Also delete generated images
+                    </span>
+                    <span className="block text-[11px] text-neutral-500">
+                      This removes saved output assets, not downloaded copies.
+                    </span>
+                  </span>
+                </label>
+                <div className="mt-2 flex justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsConfirmingClear(false)}
+                    disabled={isClearing}
+                    className="min-h-11 rounded-lg px-3 text-xs font-medium text-neutral-300 hover:bg-white/5 disabled:opacity-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleClearAll}
+                    disabled={isClearing}
+                    className="inline-flex min-h-11 items-center gap-1.5 rounded-lg bg-red-500/15 px-3 text-xs font-medium text-red-200 hover:bg-red-500/25 disabled:opacity-50"
+                  >
+                    <IconCheck size={15} />
+                    {isClearing
+                      ? 'Clearing…'
+                      : deleteAssetsWithHistory
+                      ? 'Clear and delete assets'
+                      : 'Clear history'}
+                  </button>
+                </div>
               </div>
             ) : (
               <button

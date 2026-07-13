@@ -38,10 +38,10 @@ vi.mock('sharp', () => ({
   })),
 }));
 
-function createMockReqRes(id = 'abc-123') {
+function createMockReqRes(id = 'abc-123', query: Record<string, string> = {}) {
   const req = {
     method: 'GET',
-    query: { id },
+    query: { id, ...query },
     headers: {},
   } as any;
   const res = {
@@ -93,6 +93,23 @@ describe('/api/generated-image/[id]', () => {
     expect(res.send).toHaveBeenCalledWith(Buffer.from('full'));
   });
 
+  it('returns the original image as an attachment when requested', async () => {
+    const handler = await loadHandler('false');
+    const { req, res } = createMockReqRes('abc-123', { download: '1' });
+
+    await handler(req, res);
+
+    expect(res.setHeader).toHaveBeenCalledWith(
+      'Content-Disposition',
+      'attachment; filename="daedalus-abc-123.png"',
+    );
+    expect(res.setHeader).toHaveBeenCalledWith(
+      'Cache-Control',
+      'private, no-store',
+    );
+    expect(res.send).toHaveBeenCalledWith(Buffer.from('full'));
+  });
+
   it('rejects unowned images when legacy public access is disabled', async () => {
     const handler = await loadHandler('false');
     mocks.redisCall.mockResolvedValueOnce(
@@ -101,6 +118,26 @@ describe('/api/generated-image/[id]', () => {
       ]),
     );
     mocks.jsonGet.mockResolvedValueOnce([{ outputImageIds: ['abc-123'] }]);
+    const { req, res } = createMockReqRes();
+
+    await handler(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(res.json).toHaveBeenCalledWith({ error: 'Forbidden' });
+  });
+
+  it('does not fall back to a matching session when another user owns the image', async () => {
+    const handler = await loadHandler('false');
+    mocks.redisCall.mockResolvedValueOnce(
+      JSON.stringify([
+        {
+          data: Buffer.from('full').toString('base64'),
+          mimeType: 'image/png',
+          userId: 'another-user',
+          sessionId: 'session-1',
+        },
+      ]),
+    );
     const { req, res } = createMockReqRes();
 
     await handler(req, res);

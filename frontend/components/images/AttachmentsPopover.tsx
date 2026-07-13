@@ -108,16 +108,21 @@ async function ingest(
 interface AttachmentsPopoverProps {
   disabled?: boolean;
   triggerClassName?: string;
+  /** Keep the essential edit action understandable on narrow touch screens. */
+  showLabel?: boolean;
 }
 
 export const AttachmentsPopover = memo(function AttachmentsPopover({
   disabled,
   triggerClassName,
+  showLabel = false,
 }: AttachmentsPopoverProps) {
   const inputImages = useImagePanelStore((s) => s.inputImages);
   const maskImage = useImagePanelStore((s) => s.maskImage);
 
   const attachedCount = inputImages.length + (maskImage ? 1 : 0);
+  const triggerLabel =
+    attachedCount > 0 ? `Assets ${attachedCount}` : 'Add image';
 
   return (
     <Popover
@@ -129,6 +134,7 @@ export const AttachmentsPopover = memo(function AttachmentsPopover({
           disabled={disabled}
           aria-label="Edit assets"
           className={triggerClassName}
+          labeled={showLabel}
         >
           <div className="relative">
             <IconPaperclip size={16} />
@@ -138,6 +144,9 @@ export const AttachmentsPopover = memo(function AttachmentsPopover({
               </span>
             )}
           </div>
+          {showLabel && (
+            <span className="md:hidden whitespace-nowrap">{triggerLabel}</span>
+          )}
         </DockIconTrigger>
       }
     >
@@ -345,6 +354,8 @@ function MaskSection({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const primaryImageIsPng = firstImage?.mimeType?.toLowerCase() === 'image/png';
+  const canAttachMask = Boolean(firstImage && primaryImageIsPng);
 
   const handleFiles = useCallback(
     async (files: FileList | null) => {
@@ -420,13 +431,13 @@ function MaskSection({
             type="file"
             accept="image/png"
             onChange={(e) => handleFiles(e.target.files)}
-            disabled={disabled || !firstImage}
+            disabled={disabled || !canAttachMask}
             className="hidden"
           />
           <button
             type="button"
             onClick={() => fileInputRef.current?.click()}
-            disabled={disabled || uploading || !firstImage}
+            disabled={disabled || uploading || !canAttachMask}
             className={classNames(
               'w-full py-2 rounded-md text-xs',
               'border border-dashed border-white/10',
@@ -438,13 +449,18 @@ function MaskSection({
           >
             {!firstImage
               ? 'Add Image 1 first'
+              : !primaryImageIsPng
+              ? 'Image 1 must be PNG'
               : uploading
               ? 'Uploading…'
               : '+ Add mask'}
           </button>
           <p className="text-[10px] text-neutral-500 mt-2 leading-relaxed">
-            Transparent PNG, same dimensions as Image 1. Transparent areas guide
-            the edit.
+            {!firstImage
+              ? 'Add a PNG source image first. Masks use transparent PNGs.'
+              : !primaryImageIsPng
+              ? 'Masks use transparent PNGs, so Image 1 must also be PNG. Replace or reorder the source image first.'
+              : 'Transparent PNG, same dimensions as Image 1. Transparent areas guide the edit.'}
           </p>
         </>
       )}

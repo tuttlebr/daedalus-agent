@@ -182,6 +182,34 @@ class TestFetchImageFromRedis:
 
         assert result == ("bm9ybQ==", "image/png")
 
+    def test_can_request_original_bytes_instead_of_vlm_derivative(self):
+        """Image-edit callers must not receive the flattened VLM JPEG."""
+        payload = json.dumps(
+            {
+                "data": "b3JpZ2luYWw=",
+                "mimeType": "image/png",
+                "vlmData": "bm9ybQ==",
+                "vlmMimeType": "image/jpeg",
+            }
+        )
+        redis_client = _FakeRedis({"image:sess1:abc": payload})
+
+        result = _run(
+            fetch_image_from_redis(
+                redis_client,
+                {
+                    "imageId": "abc",
+                    "sessionId": "sess1",
+                    # The stored record remains authoritative for a
+                    # multipart Image API upload.
+                    "mimeType": "image/jpeg",
+                },
+                prefer_vlm_data=False,
+            )
+        )
+
+        assert result == ("b3JpZ2luYWw=", "image/png")
+
     def test_missing_image_returns_error(self):
         redis_client = _FakeRedis({})
         result = _run(

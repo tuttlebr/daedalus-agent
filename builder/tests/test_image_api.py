@@ -15,6 +15,7 @@ from image_api import (  # noqa: E402
     EditRequest,
     GenerateRequest,
     ImageRef,
+    _mask_validation_error,
     _require_trusted_user,
     router,
 )
@@ -166,3 +167,49 @@ class TestEditRequest:
                 imageRefs=[ImageRef(imageId="a", sessionId="s")],
                 input_fidelity="max",
             )
+
+
+def _png(width: int, height: int, color_type: int) -> bytes:
+    """Build the minimal PNG structure needed by mask-preflight tests."""
+
+    def chunk(kind: bytes, data: bytes) -> bytes:
+        return len(data).to_bytes(4, "big") + kind + data + b"\0\0\0\0"
+
+    ihdr = (
+        width.to_bytes(4, "big")
+        + height.to_bytes(4, "big")
+        + bytes([8, color_type, 0, 0, 0])
+    )
+    return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", ihdr) + chunk(b"IEND", b"")
+
+
+class TestEditMaskPreflight:
+    def test_accepts_same_size_png_with_alpha_mask(self):
+        source = _png(1024, 768, color_type=2)
+        mask = _png(1024, 768, color_type=6)
+
+        assert _mask_validation_error(source, mask) is None
+
+    def test_rejects_mask_without_alpha_channel(self):
+        source = _png(1024, 768, color_type=2)
+        mask = _png(1024, 768, color_type=2)
+
+        error = _mask_validation_error(source, mask)
+
+        assert error is not None
+        assert "alpha channel" in error
+
+    def test_rejects_mask_with_different_dimensions(self):
+        source = _png(1024, 768, color_type=2)
+        mask = _png(1024, 767, color_type=6)
+
+        error = _mask_validation_error(source, mask)
+
+        assert error is not None
+        assert "same dimensions" in error
+
+    def test_rejects_non_png_source_for_mask_edit(self):
+        error = _mask_validation_error(b"not a png", _png(1024, 768, 6))
+
+        assert error is not None
+        assert "primary input image must be a PNG" in error

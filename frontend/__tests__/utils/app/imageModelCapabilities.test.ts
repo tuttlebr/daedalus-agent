@@ -1,5 +1,6 @@
 import {
   cleanImageParamsForModel,
+  getImageOutputMimeType,
   validateImageSize,
   validateImageParamsForSubmit,
 } from '@/utils/app/imageModelCapabilities';
@@ -39,6 +40,16 @@ describe('image model capabilities', () => {
         output_compression: 50,
       }),
     ).toEqual({ output_format: 'png' });
+  });
+
+  it('maps generated output formats to the source MIME type used for edits', () => {
+    expect(getImageOutputMimeType()).toBe('image/png');
+    expect(getImageOutputMimeType({ output_format: 'jpeg' })).toBe(
+      'image/jpeg',
+    );
+    expect(getImageOutputMimeType({ output_format: 'webp' })).toBe(
+      'image/webp',
+    );
   });
 
   it('accepts valid popular and custom sizes', () => {

@@ -67,6 +67,11 @@ export const ImagesDock = memo(function ImagesDock({
               ? 'Describe the edit to apply to Image 1…'
               : 'Describe what you want to see…'
           }
+          aria-label={
+            mode === 'edit'
+              ? 'Describe the edit to apply'
+              : 'Describe an image to create'
+          }
           rows={1}
           disabled={loading}
           className={classNames(
@@ -102,12 +107,16 @@ const DockActionsRow = memo(function DockActionsRow({
   submitDisabled,
 }: DockActionsRowProps) {
   return (
-    <div className="flex items-center justify-between px-2 pb-2">
-      <div className="flex items-center gap-0.5">
+    <div className="flex items-center justify-between gap-2 px-2 pb-2">
+      <div className="flex min-w-0 items-center gap-0.5">
         <PresetsPopover disabled={loading} />
         <ParamsPopover disabled={loading} triggerClassName="lg:hidden" />
         {mode === 'edit' && (
-          <AttachmentsPopover disabled={loading} triggerClassName="lg:hidden" />
+          <AttachmentsPopover
+            disabled={loading}
+            triggerClassName="lg:hidden"
+            showLabel
+          />
         )}
       </div>
 
@@ -117,6 +126,7 @@ const DockActionsRow = memo(function DockActionsRow({
           onClick={onSubmit}
           disabled={submitDisabled}
           loading={loading}
+          mode={mode}
         />
       </div>
     </div>
@@ -150,19 +160,22 @@ function SubmitButton({
   onClick,
   disabled,
   loading,
+  mode,
 }: {
   onClick: () => void;
   disabled: boolean;
   loading: boolean;
+  mode: 'generate' | 'edit';
 }) {
+  const label = mode === 'edit' ? 'Apply edit' : 'Create';
   return (
     <button
       type="button"
       onClick={onClick}
       disabled={disabled}
-      aria-label="Submit"
+      aria-label={label}
       className={classNames(
-        'inline-flex items-center justify-center w-11 h-11 rounded-full touch-manipulation',
+        'inline-flex h-11 items-center justify-center gap-1.5 rounded-xl px-3 text-xs font-semibold touch-manipulation',
         'transition-all',
         disabled
           ? 'bg-white/5 text-neutral-600 cursor-not-allowed'
@@ -188,7 +201,10 @@ function SubmitButton({
           />
         </svg>
       ) : (
-        <IconArrowUp size={20} strokeWidth={2.5} />
+        <>
+          <IconArrowUp size={18} strokeWidth={2.5} />
+          <span>{label}</span>
+        </>
       )}
     </button>
   );

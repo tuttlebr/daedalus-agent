@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
   redisCall: vi.fn(),
   redisGet: vi.fn(),
+  redisDel: vi.fn(),
   jsonGet: vi.fn(),
   jsonSetWithExpiry: vi.fn(),
   jsonDel: vi.fn(),
@@ -21,6 +22,7 @@ vi.mock('@/server/session/redis', () => ({
   getRedis: vi.fn(() => ({
     call: mocks.redisCall,
     get: mocks.redisGet,
+    del: mocks.redisDel,
   })),
   jsonGet: mocks.jsonGet,
   jsonSetWithExpiry: mocks.jsonSetWithExpiry,
@@ -44,7 +46,7 @@ function createMockReqRes(
   return { req, res };
 }
 
-function entry(id = 'hist-1') {
+function entry(id = 'hist-1', outputImageIds = ['abc-123']) {
   return {
     id,
     mode: 'generate',
@@ -52,7 +54,7 @@ function entry(id = 'hist-1') {
     params: { quality: 'medium' },
     inputImages: [],
     maskImage: null,
-    outputImageIds: ['abc-123'],
+    outputImageIds,
     model: 'test-model',
     createdAt: 1700000000000,
   };
@@ -73,6 +75,7 @@ describe('/api/images/history', () => {
       ]),
     );
     mocks.redisGet.mockResolvedValue(null);
+    mocks.redisDel.mockResolvedValue(0);
     mocks.jsonGet.mockResolvedValue([]);
     mocks.jsonSetWithExpiry.mockResolvedValue(undefined);
     mocks.jsonDel.mockResolvedValue(undefined);
@@ -160,6 +163,7 @@ describe('/api/images/history', () => {
       expect(savedHistory).toHaveLength(2);
       expect(savedHistory.map((e: any) => e.id)).toEqual(['hist-1', 'hist-3']);
       expect(mocks.jsonDel).not.toHaveBeenCalled();
+      expect(mocks.redisDel).not.toHaveBeenCalled();
       expect(res.status).toHaveBeenCalledWith(200);
       expect(res.json).toHaveBeenCalledWith({ history: savedHistory });
     });
@@ -176,6 +180,7 @@ describe('/api/images/history', () => {
         'user:testuser:imagePanelHistory',
       );
       expect(mocks.jsonSetWithExpiry).not.toHaveBeenCalled();
+      expect(mocks.redisDel).not.toHaveBeenCalled();
       expect(res.status).toHaveBeenCalledWith(200);
       expect(res.json).toHaveBeenCalledWith({ history: [] });
     });
@@ -189,6 +194,7 @@ describe('/api/images/history', () => {
 
       expect(mocks.jsonSetWithExpiry).not.toHaveBeenCalled();
       expect(mocks.jsonDel).not.toHaveBeenCalled();
+      expect(mocks.redisDel).not.toHaveBeenCalled();
       expect(res.status).toHaveBeenCalledWith(200);
       expect(res.json).toHaveBeenCalledWith({ history: stored });
     });
@@ -200,6 +206,7 @@ describe('/api/images/history', () => {
 
       expect(mocks.jsonSetWithExpiry).not.toHaveBeenCalled();
       expect(mocks.jsonDel).not.toHaveBeenCalled();
+      expect(mocks.redisDel).not.toHaveBeenCalled();
       expect(res.status).toHaveBeenCalledWith(400);
       expect(res.json).toHaveBeenCalledWith({
         error: 'Missing id or all=1',
@@ -217,8 +224,123 @@ describe('/api/images/history', () => {
         'user:testuser:imagePanelHistory',
       );
       expect(mocks.jsonSetWithExpiry).not.toHaveBeenCalled();
+      expect(mocks.redisDel).not.toHaveBeenCalled();
       expect(res.status).toHaveBeenCalledWith(200);
       expect(res.json).toHaveBeenCalledWith({ history: [] });
+    });
+
+    it('deletes only unreferenced owned output assets when requested', async () => {
+      const retained = {
+        ...entry('hist-2', ['c0d-2']),
+        inputImages: [
+          {
+            imageId: 'e0f-3',
+            sessionId: 'session-1',
+          },
+        ],
+      };
+      const removed = entry('hist-1', ['a0b-1', 'c0d-2', 'e0f-3']);
+      mocks.jsonGet.mockResolvedValue([removed, retained]);
+      mocks.redisCall.mockImplementation((_command: string, key: string) =>
+        Promise.resolve(
+          JSON.stringify([
+            {
+              data: 'aGVsbG8=',
+              userId: 'testuser',
+              sessionId: 'session-1',
+            },
+          ]),
+        ),
+      );
+      const { req, res } = createMockReqRes(
+        'DELETE',
+        {},
+        {
+          id: 'hist-1',
+          deleteAssets: '1',
+        },
+      );
+
+      await handler(req, res);
+
+      expect(mocks.jsonSetWithExpiry).toHaveBeenCalledWith(
+        'user:testuser:imagePanelHistory',
+        [retained],
+        60 * 60 * 24 * 7,
+      );
+      expect(mocks.redisCall).toHaveBeenCalledWith(
+        'JSON.GET',
+        'generated:image:a0b-1',
+        '$',
+      );
+      expect(mocks.redisCall).not.toHaveBeenCalledWith(
+        'JSON.GET',
+        'generated:image:c0d-2',
+        '$',
+      );
+      expect(mocks.redisCall).not.toHaveBeenCalledWith(
+        'JSON.GET',
+        'generated:image:e0f-3',
+        '$',
+      );
+      expect(mocks.redisDel).toHaveBeenCalledTimes(1);
+      expect(mocks.redisDel).toHaveBeenCalledWith('generated:image:a0b-1');
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(res.json).toHaveBeenCalledWith({ history: [retained] });
+    });
+
+    it('deletes owned output assets when clearing all history on request', async () => {
+      const stored = [entry('hist-1', ['a0b-1'])];
+      mocks.jsonGet.mockResolvedValue(stored);
+      const { req, res } = createMockReqRes(
+        'DELETE',
+        {},
+        {
+          all: '1',
+          deleteAssets: 'true',
+        },
+      );
+
+      await handler(req, res);
+
+      expect(mocks.jsonDel).toHaveBeenCalledWith(
+        'user:testuser:imagePanelHistory',
+      );
+      expect(mocks.redisDel).toHaveBeenCalledWith('generated:image:a0b-1');
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(res.json).toHaveBeenCalledWith({ history: [] });
+    });
+
+    it('rejects asset cleanup when an output is not owned and preserves history', async () => {
+      const stored = [entry('hist-1', ['f00-1'])];
+      mocks.jsonGet.mockResolvedValue(stored);
+      mocks.redisCall.mockResolvedValueOnce(
+        JSON.stringify([
+          {
+            data: 'aGVsbG8=',
+            userId: 'other-user',
+            sessionId: 'session-1',
+          },
+        ]),
+      );
+      const { req, res } = createMockReqRes(
+        'DELETE',
+        {},
+        {
+          id: 'hist-1',
+          deleteAssets: '1',
+        },
+      );
+
+      await handler(req, res);
+
+      expect(mocks.jsonSetWithExpiry).not.toHaveBeenCalled();
+      expect(mocks.jsonDel).not.toHaveBeenCalled();
+      expect(mocks.redisDel).not.toHaveBeenCalled();
+      expect(res.status).toHaveBeenCalledWith(403);
+      expect(res.json).toHaveBeenCalledWith({
+        error: 'Generated image does not belong to the current user',
+      });
     });
   });
 });

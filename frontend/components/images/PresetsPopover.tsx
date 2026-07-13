@@ -82,18 +82,27 @@ export const PresetsPopover = memo(function PresetsPopover({
 
 export const DockIconTrigger = React.forwardRef<
   HTMLButtonElement,
-  React.ButtonHTMLAttributes<HTMLButtonElement> & { disabled?: boolean }
->(function DockIconTrigger({ children, disabled, className, ...props }, ref) {
+  React.ButtonHTMLAttributes<HTMLButtonElement> & {
+    disabled?: boolean;
+    labeled?: boolean;
+  }
+>(function DockIconTrigger(
+  { children, disabled, className, labeled = false, ...props },
+  ref,
+) {
   return (
     <button
       ref={ref}
       type="button"
       disabled={disabled}
       className={classNames(
-        'inline-flex items-center justify-center w-11 h-11 rounded-full touch-manipulation',
+        'inline-flex items-center justify-center touch-manipulation',
+        labeled
+          ? 'h-11 w-auto gap-2 rounded-xl px-3 text-xs font-medium md:h-8 md:w-8 md:rounded-full md:px-0'
+          : 'h-11 w-11 rounded-full md:h-8 md:w-8',
         'text-neutral-400 hover:text-neutral-100 hover:bg-white/5',
         'transition-colors',
-        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nvidia-green/40 md:w-8 md:h-8',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nvidia-green/40',
         disabled && 'opacity-40 cursor-not-allowed pointer-events-none',
         className,
       )}

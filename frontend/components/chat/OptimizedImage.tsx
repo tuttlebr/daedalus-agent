@@ -43,6 +43,10 @@ interface OptimizedImageProps {
   className?: string;
   mimeType?: string;
   useThumbnail?: boolean; // Default true - use thumbnail for display
+  /** Consumers with their own inspector should not render a second action bar. */
+  showControls?: boolean;
+  /** Let parent selection surfaces own tap/click behavior when needed. */
+  enableFullscreen?: boolean;
 }
 
 export const OptimizedImage = memo(
@@ -53,6 +57,8 @@ export const OptimizedImage = memo(
     className = '',
     mimeType = 'image/jpeg',
     useThumbnail = true, // Use thumbnail by default for better performance
+    showControls = true,
+    enableFullscreen = true,
   }: OptimizedImageProps) => {
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState(false);
@@ -355,7 +361,9 @@ export const OptimizedImage = memo(
                 onError={handleImageError}
                 className={`
                 block max-w-full h-auto rounded-lg border border-gray-200 dark:border-gray-700
-                cursor-pointer hover:shadow-lg transition-shadow duration-200
+                ${
+                  enableFullscreen ? 'cursor-pointer hover:shadow-lg' : ''
+                } transition-shadow duration-200
                 ${className}
               `}
                 style={{
@@ -364,13 +372,13 @@ export const OptimizedImage = memo(
                   pointerEvents: isLoading ? 'none' : 'auto',
                   transitionProperty: 'opacity, visibility',
                 }}
-                onClick={toggleFullscreen}
+                onClick={enableFullscreen ? toggleFullscreen : undefined}
                 loading="lazy"
                 decoding="async"
               />
 
               {/* Action buttons overlay */}
-              {!isLoading && (
+              {!isLoading && showControls && (
                 <div className="absolute top-2 right-2 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity duration-200 sm:opacity-100">
                   <button
                     className="bg-black/50 hover:bg-black/70 text-white p-2 rounded-lg"
@@ -448,6 +456,8 @@ export const OptimizedImage = memo(
       prevProps.imageRef?.userId === nextProps.imageRef?.userId &&
       prevProps.base64Data === nextProps.base64Data &&
       prevProps.useThumbnail === nextProps.useThumbnail &&
+      prevProps.showControls === nextProps.showControls &&
+      prevProps.enableFullscreen === nextProps.enableFullscreen &&
       prevProps.className === nextProps.className &&
       prevProps.alt === nextProps.alt &&
       prevProps.mimeType === nextProps.mimeType

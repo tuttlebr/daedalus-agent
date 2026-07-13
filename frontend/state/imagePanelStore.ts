@@ -190,9 +190,15 @@ export const useImagePanelStore = create<ImagePanelStore>()(
         return { inputImages: Array.from(byId.values()), mode: 'edit' };
       }),
     removeInputImage: (imageId) =>
-      set((s) => ({
-        inputImages: s.inputImages.filter((r) => r.imageId !== imageId),
-      })),
+      set((s) => {
+        const removedPrimary = s.inputImages[0]?.imageId === imageId;
+        return {
+          inputImages: s.inputImages.filter((r) => r.imageId !== imageId),
+          // A mask is always tied to Image 1. If it changes, discard the
+          // invalid pairing instead of letting users submit a broken edit.
+          maskImage: removedPrimary ? null : s.maskImage,
+        };
+      }),
     clearInputImages: () => set({ inputImages: [], maskImage: null }),
 
     setMaskImage: (ref) => set({ maskImage: ref }),
@@ -267,26 +273,10 @@ export const useImagePanelStore = create<ImagePanelStore>()(
       });
     },
     removeFromHistory: (entryId) =>
-      set((s) => {
-        const removed = s.history.find((e) => e.id === entryId);
-        const nextHistory = s.history.filter((e) => e.id !== entryId);
-        const galleryFromThis =
-          !!removed &&
-          s.gallery.length > 0 &&
-          s.gallery.length === removed.outputImageIds.length &&
-          s.gallery.every((g, i) => g.imageId === removed.outputImageIds[i]);
-        return {
-          history: nextHistory,
-          gallery: galleryFromThis ? [] : s.gallery,
-          selectedImageId: galleryFromThis ? null : s.selectedImageId,
-        };
-      }),
+      set((s) => ({ history: s.history.filter((e) => e.id !== entryId) })),
     clearHistory: () =>
       set({
         history: [],
-        gallery: [],
-        partialGallery: [],
-        selectedImageId: null,
       }),
 
     setLoading: (loading) => set({ loading }),

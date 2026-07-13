@@ -7,11 +7,20 @@ import {
   IconMessage,
   IconTrash,
 } from '@tabler/icons-react';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
+
+import { useIsDesktop } from '@/hooks/useMediaQuery';
 
 import { getImageUrl } from '@/utils/app/imageHandler';
 import {
   cleanImageParamsForModel,
+  getImageOutputMimeType,
   resolveImageModel,
   validateImageParamsForSubmit,
 } from '@/utils/app/imageModelCapabilities';
@@ -26,6 +35,7 @@ import { ImageSettingsPanel } from './ImageSettingsPanel';
 import { ImagesCanvas } from './ImagesCanvas';
 import { ImagesDock } from './ImagesDock';
 import { ModeSegmentedControl } from './ModeSegmentedControl';
+import { OutputActionSheet } from './OutputActionSheet';
 
 import {
   useImagePanelStore,
@@ -37,6 +47,8 @@ import {
 import classNames from 'classnames';
 
 const GENERATED_SESSION_ID = 'generated';
+const ACTIVE_IMAGE_JOBS_KEY = 'daedalus:active-image-jobs';
+const IMAGE_JOB_STATUS_ATTEMPTS = 3;
 
 interface ImagePanelProps {
   onSendToChat?: (imageId: string) => void;
@@ -52,15 +64,23 @@ function buildFinalPrompt(
   return `${trimmed}\n\nKeep everything else the same, specifically: ${preserveList.trim()}.`;
 }
 
-function newEntryId(): string {
-  return `hist_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-}
-
-interface ImageGenerationResponse {
-  imageIds: string[];
-  model?: string;
-  prompt?: string;
+interface ImageJobStatus {
+  jobId: string;
+  sessionId: string;
+  mode: 'generate' | 'edit';
+  status: 'queued' | 'running' | 'completed' | 'error';
+  prompt: string;
+  model: string;
+  params: Record<string, unknown>;
+  inputImages: ImageRef[];
+  maskImage: ImageRef | null;
+  partialImageIds: string[];
+  outputImageIds: string[];
   usage?: Record<string, unknown>;
+  error?: string;
+  historyEntry?: HistoryEntry;
+  createdAt: number;
+  completedAt?: number;
 }
 
 export async function loadImageHistory(): Promise<HistoryEntry[]> {
@@ -70,100 +90,14 @@ export async function loadImageHistory(): Promise<HistoryEntry[]> {
   return Array.isArray(data.history) ? data.history : [];
 }
 
-async function persistImageHistory(entry: HistoryEntry): Promise<void> {
-  const res = await fetch('/api/images/history', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ entry }),
-    credentials: 'include',
-  });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-}
-
-async function readImageGenerationResponse(
-  res: Response,
-  onPartial: (imageIds: string[]) => void,
-): Promise<ImageGenerationResponse> {
-  const contentType = res.headers.get('content-type') ?? '';
-  if (
-    !res.body ||
-    (!contentType.includes('text/event-stream') &&
-      !contentType.includes('application/x-ndjson'))
-  ) {
-    return (await res.json()) as ImageGenerationResponse;
-  }
-
-  const reader = res.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = '';
-  let completed: ImageGenerationResponse | null = null;
-  const boundaryToken = contentType.includes('application/x-ndjson')
-    ? '\n'
-    : '\n\n';
-
-  const handleEvent = (raw: string) => {
-    const payload = raw
-      .split('\n')
-      .map((line) => line.trim())
-      .filter((line) => line && !line.startsWith('event:'))
-      .map((line) => line.replace(/^data:\s*/, ''))
-      .join('');
-    if (!payload || payload === '[DONE]') return;
-    try {
-      const event = JSON.parse(payload) as ImageGenerationResponse & {
-        type?: string;
-        event?: string;
-        imageId?: string;
-        error?: string;
-      };
-      const type = event.type ?? event.event;
-      if (type === 'error') {
-        throw new Error(
-          typeof event.error === 'string'
-            ? event.error
-            : 'Image generation stream failed.',
-        );
-      }
-      const imageIds = event.imageIds ?? (event.imageId ? [event.imageId] : []);
-      if (type === 'partial' && imageIds.length > 0) {
-        onPartial(imageIds);
-        return;
-      }
-      if (type === 'completed' || imageIds.length > 0) {
-        completed = event;
-      }
-    } catch {
-      // Ignore malformed stream fragments and wait for the completed event.
-    }
+function generatedRef(
+  image: Pick<GalleryImage, 'imageId' | 'params'>,
+): ImageRef {
+  return {
+    imageId: image.imageId,
+    sessionId: GENERATED_SESSION_ID,
+    mimeType: getImageOutputMimeType(image.params),
   };
-
-  while (true) {
-    const { done, value } = await reader.read();
-    buffer += decoder.decode(value, { stream: !done });
-
-    let boundary = buffer.indexOf(boundaryToken);
-    while (boundary >= 0) {
-      handleEvent(buffer.slice(0, boundary));
-      buffer = buffer.slice(boundary + boundaryToken.length);
-      boundary = buffer.indexOf(boundaryToken);
-    }
-
-    if (done) break;
-  }
-
-  if (buffer.trim()) handleEvent(buffer);
-  if (completed) return completed;
-  throw new Error('Image generation stream ended without a completed event.');
-}
-
-function generatedRef(imageId: string, mimeType = 'image/png'): ImageRef {
-  return { imageId, sessionId: GENERATED_SESSION_ID, mimeType };
-}
-
-function downloadExtensionForImage(image: GalleryImage): string {
-  return image.params.output_format === 'jpeg'
-    ? 'jpg'
-    : image.params.output_format ?? 'png';
 }
 
 async function imageApiErrorMessage(res: Response): Promise<string> {
@@ -186,6 +120,152 @@ async function imageApiErrorMessage(res: Response): Promise<string> {
   } catch {
     return text || fallback;
   }
+}
+
+function rememberActiveImageJob(jobId: string): void {
+  if (typeof window === 'undefined') return;
+  try {
+    const existing = JSON.parse(
+      window.localStorage.getItem(ACTIVE_IMAGE_JOBS_KEY) || '[]',
+    );
+    const ids = Array.isArray(existing)
+      ? existing.filter((id): id is string => typeof id === 'string')
+      : [];
+    window.localStorage.setItem(
+      ACTIVE_IMAGE_JOBS_KEY,
+      JSON.stringify([jobId, ...ids.filter((id) => id !== jobId)].slice(0, 5)),
+    );
+  } catch {
+    // localStorage can be disabled; server-side job tracking still works.
+  }
+}
+
+function forgetActiveImageJob(jobId: string): void {
+  if (typeof window === 'undefined') return;
+  try {
+    const existing = JSON.parse(
+      window.localStorage.getItem(ACTIVE_IMAGE_JOBS_KEY) || '[]',
+    );
+    const ids = Array.isArray(existing)
+      ? existing.filter((id): id is string => typeof id === 'string')
+      : [];
+    window.localStorage.setItem(
+      ACTIVE_IMAGE_JOBS_KEY,
+      JSON.stringify(ids.filter((id) => id !== jobId)),
+    );
+  } catch {
+    // localStorage can be disabled; nothing to clean up.
+  }
+}
+
+function rememberedImageJobIds(): string[] {
+  if (typeof window === 'undefined') return [];
+  try {
+    const existing = JSON.parse(
+      window.localStorage.getItem(ACTIVE_IMAGE_JOBS_KEY) || '[]',
+    );
+    return Array.isArray(existing)
+      ? existing.filter((id): id is string => typeof id === 'string')
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+async function startImageJob(body: Record<string, unknown>): Promise<string> {
+  const res = await fetch('/api/images/jobs', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+    credentials: 'include',
+  });
+  if (!res.ok) throw new Error(await imageApiErrorMessage(res));
+  const data = (await res.json()) as { jobId?: string };
+  if (!data.jobId) throw new Error('Image job response did not include jobId.');
+  return data.jobId;
+}
+
+async function fetchImageJob(jobId: string): Promise<ImageJobStatus | null> {
+  const res = await fetch(
+    `/api/images/jobs?jobId=${encodeURIComponent(jobId)}`,
+    {
+      credentials: 'include',
+    },
+  );
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(await imageApiErrorMessage(res));
+  return (await res.json()) as ImageJobStatus;
+}
+
+/**
+ * A mobile radio handoff can interrupt one status request even though the
+ * background job is still healthy. Retry before surfacing that connection
+ * problem, while keeping a 404 distinct so expired jobs do not spin forever.
+ */
+async function fetchImageJobWithRetry(
+  jobId: string,
+): Promise<ImageJobStatus | null> {
+  let lastError: Error | null = null;
+
+  for (let attempt = 0; attempt < IMAGE_JOB_STATUS_ATTEMPTS; attempt += 1) {
+    try {
+      return await fetchImageJob(jobId);
+    } catch (error) {
+      lastError =
+        error instanceof Error ? error : new Error('Unable to check image job');
+      if (attempt < IMAGE_JOB_STATUS_ATTEMPTS - 1) {
+        await delay(1_000 * (attempt + 1));
+      }
+    }
+  }
+
+  throw lastError ?? new Error('Unable to check image job');
+}
+
+async function fetchActiveImageJobs(): Promise<ImageJobStatus[]> {
+  const res = await fetch('/api/images/jobs?active=1', {
+    credentials: 'include',
+  });
+  if (!res.ok) return [];
+  const data = (await res.json()) as { jobs?: ImageJobStatus[] };
+  return Array.isArray(data.jobs) ? data.jobs : [];
+}
+
+function galleryFromJob(
+  job: ImageJobStatus,
+  imageIds: string[],
+  partial = false,
+): GalleryImage[] {
+  const model = resolveImageModel(job.model);
+  const createdAt = job.completedAt ?? Date.now();
+  return imageIds.map((imageId) => ({
+    imageId,
+    prompt: job.prompt,
+    mode: job.mode,
+    model,
+    params: cleanImageParamsForModel(job.params, model),
+    createdAt,
+    ...(partial && { partial: true }),
+  }));
+}
+
+function historyEntryFromJob(job: ImageJobStatus): HistoryEntry {
+  return {
+    id: `hist_${job.completedAt ?? Date.now()}_${job.jobId.slice(0, 8)}`,
+    mode: job.mode,
+    prompt: job.prompt,
+    params: cleanImageParamsForModel(job.params, job.model),
+    inputImages: job.inputImages,
+    maskImage: job.maskImage,
+    outputImageIds: job.outputImageIds,
+    model: job.model,
+    createdAt: job.completedAt ?? Date.now(),
+    usage: job.usage,
+  };
 }
 
 function useElapsedMs(active: boolean, startedAt: number | null): number {
@@ -219,6 +299,7 @@ export function ImagePanel({ onSendToChat }: ImagePanelProps) {
   const expectedCount = useImagePanelStore((s) => s.params.n ?? 1);
   const mode = useImagePanelStore(selectMode);
   const selectedImageId = useImagePanelStore((s) => s.selectedImageId);
+  const inputCount = useImagePanelStore((s) => s.inputImages.length);
   const reuseOutputAsInput = useImagePanelStore((s) => s.reuseOutputAsInput);
   const removeFromGallery = useImagePanelStore((s) => s.removeFromGallery);
   const setSelectedImageId = useImagePanelStore((s) => s.setSelectedImageId);
@@ -226,6 +307,10 @@ export function ImagePanel({ onSendToChat }: ImagePanelProps) {
   const { data: historyData } = useImageHistory();
   const invalidateImageHistory = useInvalidateImageHistory();
   const elapsedMs = useElapsedMs(loading, generationStartedAt);
+  const activeJobIdRef = useRef<string | null>(null);
+  const isDesktop = useIsDesktop();
+  const [outputActionsOpen, setOutputActionsOpen] = useState(false);
+  const [recoverableJobId, setRecoverableJobId] = useState<string | null>(null);
 
   useEffect(() => {
     if (historyData) setHistory(historyData);
@@ -237,7 +322,147 @@ export function ImagePanel({ onSendToChat }: ImagePanelProps) {
     [gallery, selectedImageId],
   );
 
+  useEffect(() => {
+    if (!selectedImage) setOutputActionsOpen(false);
+  }, [selectedImage]);
+
+  const applyCompletedJob = useCallback(
+    (job: ImageJobStatus) => {
+      if (!job.outputImageIds.length) {
+        throw new Error('Image response did not include generated image IDs.');
+      }
+      const entry = job.historyEntry ?? historyEntryFromJob(job);
+      useImagePanelStore
+        .getState()
+        .setGallery(galleryFromJob(job, job.outputImageIds));
+      useImagePanelStore.getState().appendToHistory(entry);
+      invalidateImageHistory();
+    },
+    [invalidateImageHistory],
+  );
+
+  const pollImageJob = useCallback(
+    async (jobId: string, initialStatus?: ImageJobStatus | null) => {
+      activeJobIdRef.current = jobId;
+      rememberActiveImageJob(jobId);
+      const { setError, setLoading, setGenerationStatus, setPartialGallery } =
+        useImagePanelStore.getState();
+      setError(null);
+      setLoading(true);
+      setRecoverableJobId(null);
+
+      let status = initialStatus ?? null;
+      let shouldForgetJob = false;
+      try {
+        while (activeJobIdRef.current === jobId) {
+          status = status ?? (await fetchImageJobWithRetry(jobId));
+          if (!status) {
+            shouldForgetJob = true;
+            setError(
+              'This image job is no longer available. Start a new image.',
+            );
+            return;
+          }
+
+          if (status.partialImageIds.length > 0) {
+            setPartialGallery(
+              galleryFromJob(status, status.partialImageIds, true),
+            );
+          }
+
+          if (status.status === 'queued') {
+            setGenerationStatus('queued', status.createdAt);
+          } else if (status.status === 'running') {
+            setGenerationStatus('generating', status.createdAt);
+          } else if (status.status === 'completed') {
+            setGenerationStatus('finalizing');
+            applyCompletedJob(status);
+            shouldForgetJob = true;
+            return;
+          } else if (status.status === 'error') {
+            setError(status.error ?? 'Image generation failed.');
+            shouldForgetJob = true;
+            return;
+          }
+
+          await delay(status.status === 'queued' ? 1000 : 2000);
+          status = null;
+        }
+      } catch (e) {
+        console.error(e);
+        setRecoverableJobId(jobId);
+        setError(
+          'Unable to refresh image progress. Your job is saved and will reconnect when you are online.',
+        );
+      } finally {
+        if (activeJobIdRef.current === jobId) {
+          activeJobIdRef.current = null;
+          setLoading(false);
+          setGenerationStatus('idle', null);
+          if (shouldForgetJob) {
+            forgetActiveImageJob(jobId);
+            setRecoverableJobId(null);
+          }
+        }
+      }
+    },
+    [applyCompletedJob],
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const resume = async () => {
+      if (activeJobIdRef.current) return;
+      const jobs = await fetchActiveImageJobs().catch(() => []);
+      const byId = new Map(jobs.map((job) => [job.jobId, job]));
+
+      await Promise.all(
+        rememberedImageJobIds().map(async (jobId) => {
+          if (byId.has(jobId)) return;
+          try {
+            const job = await fetchImageJob(jobId);
+            if (job) {
+              byId.set(jobId, job);
+            } else {
+              forgetActiveImageJob(jobId);
+            }
+          } catch {
+            // Preserve the saved id after a transient network failure so the
+            // browser can resume it on the next online event or reload.
+          }
+        }),
+      );
+
+      if (cancelled || activeJobIdRef.current) return;
+      const latest = Array.from(byId.values()).sort(
+        (a, b) => b.createdAt - a.createdAt,
+      )[0];
+      if (!latest) return;
+      if (latest.status === 'error') {
+        forgetActiveImageJob(latest.jobId);
+        return;
+      }
+      void pollImageJob(latest.jobId, latest);
+    };
+
+    void resume();
+    const resumeWhenOnline = () => {
+      void resume();
+    };
+    window.addEventListener('online', resumeWhenOnline);
+    return () => {
+      cancelled = true;
+      window.removeEventListener('online', resumeWhenOnline);
+    };
+  }, [pollImageJob]);
+
   const submit = useCallback(async () => {
+    if (recoverableJobId) {
+      void pollImageJob(recoverableJobId);
+      return;
+    }
+
     const state = useImagePanelStore.getState();
     const {
       prompt,
@@ -249,9 +474,7 @@ export function ImagePanel({ onSendToChat }: ImagePanelProps) {
       setError,
       setLoading,
       setGenerationStatus,
-      setGallery,
       setPartialGallery,
-      appendToHistory,
     } = state;
     const mode = selectMode(state);
 
@@ -275,11 +498,10 @@ export function ImagePanel({ onSendToChat }: ImagePanelProps) {
     setGenerationStatus('queued', Date.now());
     try {
       const finalPrompt = buildFinalPrompt(prompt, preserveList, mode);
-      const endpoint =
-        mode === 'generate' ? '/api/images/generate' : '/api/images/edit';
       const cleanedParams = cleanImageParamsForModel(params, model);
 
       const body: Record<string, unknown> = {
+        mode,
         prompt: finalPrompt,
         model,
         ...cleanedParams,
@@ -290,69 +512,8 @@ export function ImagePanel({ onSendToChat }: ImagePanelProps) {
       }
 
       setGenerationStatus('submitting');
-      const res = await fetch(endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-      setGenerationStatus('generating');
-
-      if (!res.ok) {
-        setError(await imageApiErrorMessage(res));
-        return;
-      }
-
-      const data = await readImageGenerationResponse(res, (imageIds) => {
-        setPartialGallery(
-          imageIds.map((id) => ({
-            imageId: id,
-            prompt: finalPrompt,
-            mode,
-            model,
-            params: cleanedParams,
-            createdAt: Date.now(),
-            partial: true,
-          })),
-        );
-      });
-      setGenerationStatus('finalizing');
-      if (!Array.isArray(data.imageIds) || data.imageIds.length === 0) {
-        throw new Error('Image response did not include generated image IDs.');
-      }
-
-      const responseModel = data.model ?? model;
-      const galleryModel = resolveImageModel(responseModel);
-
-      const entry: HistoryEntry = {
-        id: newEntryId(),
-        mode,
-        prompt: finalPrompt,
-        params: { ...cleanedParams },
-        inputImages: [...inputImages],
-        maskImage,
-        outputImageIds: data.imageIds,
-        model: responseModel,
-        createdAt: Date.now(),
-        usage: data.usage,
-      };
-
-      try {
-        await persistImageHistory(entry);
-        invalidateImageHistory();
-      } catch (e) {
-        console.warn('Failed to persist image history:', e);
-      }
-
-      const nextGallery: GalleryImage[] = data.imageIds.map((id) => ({
-        imageId: id,
-        prompt: data.prompt ?? finalPrompt,
-        mode,
-        model: galleryModel,
-        params: cleanedParams,
-        createdAt: entry.createdAt,
-      }));
-      setGallery(nextGallery);
-      appendToHistory(entry);
+      const jobId = await startImageJob(body);
+      await pollImageJob(jobId);
     } catch (e) {
       console.error(e);
       setError(e instanceof Error ? e.message : 'Request failed');
@@ -360,7 +521,7 @@ export function ImagePanel({ onSendToChat }: ImagePanelProps) {
       setLoading(false);
       setGenerationStatus('idle', null);
     }
-  }, [invalidateImageHistory]);
+  }, [pollImageJob, recoverableJobId]);
 
   const reuseRef = useCallback(
     (ref: ImageRef) => reuseOutputAsInput(ref),
@@ -369,14 +530,17 @@ export function ImagePanel({ onSendToChat }: ImagePanelProps) {
 
   return (
     <div className="relative flex h-full w-full flex-col overflow-hidden bg-neutral-950 text-neutral-100">
-      <header className="z-10 grid flex-none grid-cols-[1fr_auto] items-center gap-2 px-3 py-2 safe-top md:flex md:justify-between md:gap-3 md:px-5 md:py-3">
+      <header className="z-10 grid flex-none grid-cols-[1fr_auto] items-center gap-x-3 gap-y-2 border-b border-white/5 px-3 pb-2 pt-2 safe-top md:grid-cols-[1fr_auto_1fr] md:border-0 md:px-5 md:py-3">
         <h1 className="text-base font-semibold tracking-tight text-neutral-100">
-          Create New
+          <span className="md:hidden">Create</span>
+          <span className="hidden md:inline">Create New</span>
         </h1>
-        <div className="order-3 col-span-2 justify-self-center md:order-none md:col-span-1">
-          <ModeSegmentedControl />
+        <div className="order-3 col-span-2 w-full md:order-none md:col-span-1 md:w-auto md:justify-self-center">
+          <ModeSegmentedControl fullWidth />
         </div>
-        <HistoryToggleButton />
+        <div className="justify-self-end md:col-start-3">
+          <HistoryToggleButton />
+        </div>
       </header>
 
       <div className="relative flex min-h-0 flex-1">
@@ -396,16 +560,32 @@ export function ImagePanel({ onSendToChat }: ImagePanelProps) {
               elapsedMs={elapsedMs}
               selectedImageId={selectedImageId}
               onSelectImage={setSelectedImageId}
-              onReuseAsInput={reuseRef}
-              onSendToChat={onSendToChat}
-              onDelete={removeFromGallery}
+              onOpenSelectedImage={() => setOutputActionsOpen(true)}
+              emptyState={
+                <CreateEmptyState mode={mode} inputCount={inputCount} />
+              }
             />
           </div>
 
           {error && (
             <div className="flex-none px-4 pb-1">
-              <div className="mx-auto max-w-3xl rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-400 backdrop-blur">
-                {error}
+              <div className="mx-auto flex max-w-3xl items-center justify-between gap-3 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-300 backdrop-blur">
+                <span>{error}</span>
+                {!loading && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (recoverableJobId) {
+                        void pollImageJob(recoverableJobId);
+                      } else {
+                        void submit();
+                      }
+                    }}
+                    className="shrink-0 rounded-md px-2 py-1 font-medium text-red-100 transition-colors hover:bg-red-500/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400/50"
+                  >
+                    {recoverableJobId ? 'Check status' : 'Try again'}
+                  </button>
+                )}
               </div>
             </div>
           )}
@@ -427,6 +607,59 @@ export function ImagePanel({ onSendToChat }: ImagePanelProps) {
       </div>
 
       <HistoryDrawer />
+      <OutputActionSheet
+        open={outputActionsOpen && !isDesktop}
+        image={selectedImage}
+        onClose={() => setOutputActionsOpen(false)}
+        onReuseAsInput={reuseRef}
+        onSendToChat={onSendToChat}
+        onDelete={removeFromGallery}
+      />
+    </div>
+  );
+}
+
+function CreateEmptyState({
+  mode,
+  inputCount,
+}: {
+  mode: 'generate' | 'edit';
+  inputCount: number;
+}) {
+  const editingWithInput = mode === 'edit' && inputCount > 0;
+  const title =
+    mode === 'generate'
+      ? 'Start with an idea'
+      : editingWithInput
+      ? 'Your image is ready to edit'
+      : 'Add an image to begin editing';
+  const description =
+    mode === 'generate'
+      ? 'Describe the image you want, then tap Create.'
+      : editingWithInput
+      ? 'Describe the change in the prompt below, then tap Apply edit.'
+      : 'Use Add image in the prompt bar, then describe the change you want.';
+  const steps =
+    mode === 'generate'
+      ? ['Describe', 'Optional settings', 'Create']
+      : ['Add image', 'Describe edit', 'Apply edit'];
+
+  return (
+    <div className="w-full max-w-sm rounded-2xl border border-white/10 bg-neutral-950/75 p-4 text-center shadow-xl backdrop-blur-sm">
+      <h2 className="text-sm font-medium text-neutral-100">{title}</h2>
+      <p className="mx-auto mt-1.5 max-w-xs text-xs leading-relaxed text-neutral-400">
+        {description}
+      </p>
+      <ol className="mt-4 grid grid-cols-3 gap-1 text-[10px] text-neutral-500">
+        {steps.map((step, index) => (
+          <li key={step} className="min-w-0">
+            <span className="mx-auto mb-1 grid h-5 w-5 place-items-center rounded-full bg-white/5 text-[9px] text-neutral-300">
+              {index + 1}
+            </span>
+            <span className="block truncate">{step}</span>
+          </li>
+        ))}
+      </ol>
     </div>
   );
 }
@@ -450,25 +683,9 @@ function OutputDetailPanel({
     );
   }
 
-  const ref = generatedRef(image.imageId);
+  const ref = generatedRef(image);
   const fullUrl = getImageUrl(ref, false);
-  const download = async () => {
-    let url: string | null = null;
-    try {
-      const res = await fetch(fullUrl);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const blob = await res.blob();
-      url = URL.createObjectURL(blob);
-      const anchor = document.createElement('a');
-      anchor.href = url;
-      anchor.download = `${image.imageId}.${downloadExtensionForImage(image)}`;
-      document.body.appendChild(anchor);
-      anchor.click();
-      anchor.remove();
-    } finally {
-      if (url) URL.revokeObjectURL(url);
-    }
-  };
+  const downloadUrl = `${fullUrl}?download=1`;
 
   return (
     <div className="max-h-[44vh] overflow-y-auto border-t border-white/10 p-4">
@@ -497,12 +714,13 @@ function OutputDetailPanel({
             Chat
           </OutputAction>
         )}
-        <OutputAction icon={<IconDownload size={14} />} onClick={download}>
+        <OutputAction icon={<IconDownload size={14} />} href={downloadUrl}>
           Download
         </OutputAction>
         <OutputAction
           icon={<IconExternalLink size={14} />}
-          onClick={() => window.open(fullUrl, '_blank', 'noopener')}
+          href={fullUrl}
+          target="_blank"
         >
           Open
         </OutputAction>
@@ -511,7 +729,7 @@ function OutputDetailPanel({
           danger
           onClick={() => onDelete(image.imageId)}
         >
-          Remove
+          Remove from workspace
         </OutputAction>
       </div>
       <OutputMeta label="Prompt">{image.prompt}</OutputMeta>
@@ -527,24 +745,38 @@ function OutputAction({
   icon,
   children,
   onClick,
+  href,
+  target,
   danger,
 }: {
   icon: React.ReactNode;
   children: React.ReactNode;
-  onClick: () => void;
+  onClick?: () => void;
+  href?: string;
+  target?: string;
   danger?: boolean;
 }) {
+  const className = classNames(
+    'inline-flex h-8 items-center gap-1 rounded-md border px-2 text-xs transition-colors',
+    danger
+      ? 'border-red-500/20 text-red-300 hover:bg-red-500/10'
+      : 'border-white/10 text-neutral-300 hover:bg-white/5 hover:text-neutral-100',
+  );
+  if (href) {
+    return (
+      <a
+        href={href}
+        target={target}
+        rel={target === '_blank' ? 'noopener noreferrer' : undefined}
+        className={className}
+      >
+        {icon}
+        {children}
+      </a>
+    );
+  }
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={classNames(
-        'inline-flex h-8 items-center gap-1 rounded-md border px-2 text-xs transition-colors',
-        danger
-          ? 'border-red-500/20 text-red-300 hover:bg-red-500/10'
-          : 'border-white/10 text-neutral-300 hover:bg-white/5 hover:text-neutral-100',
-      )}
-    >
+    <button type="button" onClick={onClick} className={className}>
       {icon}
       {children}
     </button>

@@ -27,10 +27,12 @@ export const config = {
     responseLimit: false,
     externalResolver: true,
   },
-  maxDuration: 300,
+  // Keep a small persistence/response margin beyond the backend provider
+  // timeout; nginx grants /api/images/ 360 seconds.
+  maxDuration: 360,
 };
 
-const EDIT_TIMEOUT_MS = 300_000;
+const EDIT_TIMEOUT_MS = 330_000;
 const STREAM_PARTIAL_IMAGES = 2;
 const UNSAFE_BROWSER_KEYS = [
   'apiKey',

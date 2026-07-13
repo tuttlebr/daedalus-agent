@@ -18,6 +18,7 @@ Env var contract (same as the agent tools):
 from __future__ import annotations
 
 import base64
+import binascii
 import json
 import logging
 import os
@@ -44,6 +45,103 @@ from pydantic import BaseModel, Field
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/v1/images", tags=["images"])
+
+
+# PNG parsing is intentionally small and dependency-free.  The frontend keeps
+# uploaded originals in Redis, and masks must retain their original alpha and
+# dimensions when passed to the OpenAI Image API.  The VLM derivative is a
+# flattened JPEG, so Pillow/sharp-style reprocessing here would recreate the
+# very failure this validation is meant to prevent.
+_PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
+
+
+def _png_metadata(image_bytes: bytes) -> tuple[int, int, bool] | None:
+    """Return ``(width, height, has_alpha)`` for a valid-enough PNG header.
+
+    This is a preflight check, not a general-purpose image decoder.  It
+    validates the PNG chunk boundaries necessary to trust the IHDR dimensions
+    and recognizes both explicit alpha color types and the PNG ``tRNS`` chunk.
+    ``None`` means the asset cannot be used as the PNG half of an Image API
+    mask edit.
+    """
+    if not image_bytes.startswith(_PNG_SIGNATURE):
+        return None
+
+    offset = len(_PNG_SIGNATURE)
+    width = height = 0
+    color_type: int | None = None
+    saw_ihdr = False
+    saw_iend = False
+    has_alpha = False
+
+    while offset + 12 <= len(image_bytes):
+        chunk_length = int.from_bytes(image_bytes[offset : offset + 4], "big")
+        chunk_type = image_bytes[offset + 4 : offset + 8]
+        chunk_data_start = offset + 8
+        chunk_data_end = chunk_data_start + chunk_length
+        chunk_end = chunk_data_end + 4  # trailing CRC
+        if chunk_end > len(image_bytes):
+            return None
+
+        if chunk_type == b"IHDR":
+            # IHDR must be the first PNG chunk and is always 13 bytes.
+            if saw_ihdr or offset != len(_PNG_SIGNATURE) or chunk_length != 13:
+                return None
+            width = int.from_bytes(
+                image_bytes[chunk_data_start : chunk_data_start + 4], "big"
+            )
+            height = int.from_bytes(
+                image_bytes[chunk_data_start + 4 : chunk_data_start + 8], "big"
+            )
+            color_type = image_bytes[chunk_data_start + 9]
+            if width <= 0 or height <= 0 or color_type not in {0, 2, 3, 4, 6}:
+                return None
+            has_alpha = color_type in {4, 6}
+            saw_ihdr = True
+        elif chunk_type == b"tRNS" and saw_ihdr and color_type in {0, 2, 3}:
+            # A tRNS chunk supplies alpha for grayscale, true-color, and
+            # indexed PNGs. Its detailed value is immaterial for the API's
+            # "contains an alpha channel" requirement.
+            has_alpha = True
+        elif chunk_type == b"IEND":
+            if chunk_length != 0:
+                return None
+            saw_iend = True
+            break
+
+        offset = chunk_end
+
+    if not saw_ihdr or not saw_iend:
+        return None
+    return (width, height, has_alpha)
+
+
+def _mask_validation_error(source_bytes: bytes, mask_bytes: bytes) -> str | None:
+    """Return an actionable Image API mask-preflight error, if any.
+
+    OpenAI requires a mask and its primary source image to share format and
+    dimensions, and the mask must carry alpha.  This panel supports that
+    contract explicitly as a PNG-on-PNG workflow; rejecting unsupported files
+    locally turns an opaque upstream 400/502 into a recoverable user error.
+    """
+    source = _png_metadata(source_bytes)
+    if source is None:
+        return (
+            "mask: the primary input image must be a PNG when using a mask; "
+            "use an uncompressed PNG source and mask of the same dimensions"
+        )
+
+    mask = _png_metadata(mask_bytes)
+    if mask is None:
+        return "mask: upload a PNG mask with an alpha channel"
+    if not mask[2]:
+        return "mask: the PNG mask must contain an alpha channel"
+    if source[:2] != mask[:2]:
+        return (
+            "mask: the PNG mask must have the same dimensions as the primary "
+            "input image"
+        )
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -338,18 +436,23 @@ async def edit(
     client = _get_client(api_key, base_url)
     redis_client = _get_redis()
 
-    # Fetch source images from Redis, decode to bytes for SDK multipart upload
+    # Fetch original image bytes for the multipart upload.  Do not use the
+    # VLM-normalized derivative here: it can be resized and flattened to JPEG,
+    # which breaks source fidelity and removes the alpha channel from masks.
     source_files: list[tuple[str, bytes, str]] = []
     for idx, ref in enumerate(req.imageRefs):
         result = await fetch_image_from_redis(
-            redis_client, ref.model_dump(), expected_user_id=user_id
+            redis_client,
+            ref.model_dump(),
+            expected_user_id=user_id,
+            prefer_vlm_data=False,
         )
         if result[0] is None:
             raise HTTPException(status_code=400, detail=f"image {idx + 1}: {result[1]}")
         image_b64, mime = result
         try:
-            image_bytes = base64.b64decode(image_b64)
-        except (ValueError, TypeError) as e:
+            image_bytes = base64.b64decode(image_b64, validate=True)
+        except (ValueError, TypeError, binascii.Error) as e:
             raise HTTPException(
                 status_code=400, detail=f"image {idx + 1}: decode failed: {e}"
             ) from e
@@ -359,22 +462,26 @@ async def edit(
     mask_file: tuple[str, bytes, str] | None = None
     if req.maskRef is not None:
         mask_result = await fetch_image_from_redis(
-            redis_client, req.maskRef.model_dump(), expected_user_id=user_id
+            redis_client,
+            req.maskRef.model_dump(),
+            expected_user_id=user_id,
+            prefer_vlm_data=False,
         )
         if mask_result[0] is None:
             raise HTTPException(status_code=400, detail=f"mask: {mask_result[1]}")
-        mask_b64, mask_mime = mask_result
+        mask_b64, _mask_mime = mask_result
         try:
-            mask_bytes = base64.b64decode(mask_b64)
-        except (ValueError, TypeError) as e:
+            mask_bytes = base64.b64decode(mask_b64, validate=True)
+        except (ValueError, TypeError, binascii.Error) as e:
             raise HTTPException(
                 status_code=400, detail=f"mask: decode failed: {e}"
             ) from e
-        mask_file = (
-            f"mask.{'jpg' if 'jpeg' in mask_mime else mask_mime.split('/')[-1]}",
-            mask_bytes,
-            mask_mime,
-        )
+        mask_error = _mask_validation_error(source_files[0][1], mask_bytes)
+        if mask_error:
+            raise HTTPException(status_code=400, detail=mask_error)
+        # Validation establishes the actual wire format independently of an
+        # untrusted ImageRef MIME hint, so label the multipart part correctly.
+        mask_file = ("mask.png", mask_bytes, "image/png")
 
     options = req.model_dump(
         exclude_none=True,
