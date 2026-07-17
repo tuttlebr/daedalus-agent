@@ -7,35 +7,51 @@ global:
     allowedNodes: ['daedalus-01', 'daedalus-02', 'daedalus-03', 'daedalus-04']
 
 images:
-  # deploy.sh rebuilds and pushes these application version tags in place, so
-  # every forced rollout must fetch the newly pushed manifest and layers.
-  builder:
-    repository: daedalus.ddns.me:5050/btuttle/daedalus
-    tag: builder-0.1.0
-    pullPolicy: Always
+  # deploy.sh resolves these application tags to immutable registry digests
+  # before Helm runs.
   backend:
     repository: daedalus.ddns.me:5050/btuttle/daedalus
     tag: backend-0.1.0
+    digest: ''
     pullPolicy: Always
   frontend:
     repository: daedalus.ddns.me:5050/btuttle/daedalus
     tag: frontend-0.1.0
+    digest: ''
     pullPolicy: Always
   nginx:
-    repository: nginx
+    repository: nginxinc/nginx-unprivileged
     tag: alpine
-    # `alpine` is a floating upstream tag.
+    digest: 'sha256:a718212f9cf21e241f14067333000a3f0930292f5354fe0db269e9a2a2596b9e'
     pullPolicy: Always
   redis:
-    repository: redis/redis-stack-server
-    # This matches the existing persistent Redis AOF/RDB format. Do not
-    # downgrade it without a separately tested data migration.
-    tag: '7.4.0-v8'
-    pullPolicy: IfNotPresent
-  redisinsight:
-    repository: redis/redisinsight
-    tag: '2.70'
-    pullPolicy: IfNotPresent
+    # Repository-owned, security-updated Redis Stack 7.4.0-v8 image. Keep
+    # this version compatible with the persisted AOF/RDB data.
+    repository: daedalus.ddns.me:5050/btuttle/daedalus
+    tag: redis-0.1.0
+    digest: ''
+    pullPolicy: Always
+
+# Give document upload/download code only the dedicated object-store
+# credential. deploy.sh creates this Secret only from explicit
+# DOCUMENT_OBJECT_* values and never copies the broader MINIO credential or any
+# object-store credential into the general frontend Secret.
+documentObjectStorage:
+  enabled: true
+  endpoint: http://milvus-minio.milvus.svc.cluster.local:9000
+  bucket: nv-ingest
+  region: us-east-1
+  prefix: daedalus-documents
+  expirySeconds: 604800
+  networkPolicy:
+    namespace: milvus
+    port: 9000
+  auth:
+    existingSecret: daedalus-document-objects
+    accessKey: ''
+    secretKey: ''
+    accessKeyKey: DOCUMENT_OBJECT_ACCESS_KEY
+    secretKeyKey: DOCUMENT_OBJECT_SECRET_KEY
 
 backend:
   # Default backend configuration
@@ -51,6 +67,12 @@ backend:
       runAsGroup: 988
       fsGroup: 988
       fsGroupChangePolicy: OnRootMismatch
+      seccompProfile:
+        type: RuntimeDefault
+    containerSecurityContext:
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop: [ALL]
     env:
       # Name of an existing Secret to load via envFrom (external secret)
       fromSecret: 'daedalus-backend-env'
@@ -110,6 +132,12 @@ frontend:
     runAsUser: 1001
     runAsGroup: 1001
     fsGroup: 1001
+    seccompProfile:
+      type: RuntimeDefault
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop: [ALL]
   env:
     fromSecret: 'daedalus-frontend-env'
     createSecret: false
@@ -117,25 +145,45 @@ frontend:
     overrides:
       # Backend API path - controls which NAT API endpoint to use
       # Supported values: /chat, /chat/stream, /generate, /generate/stream, /v1/chat/completions
-      # V8 heap ceiling — sized under the pod memory limit to leave headroom for off-heap Buffers
-      # during large-document base64 decode (200MB doc ≈ 267MB base64 + multiple copies in flight)
-      NODE_OPTIONS: '--max-old-space-size=8192'
+      NODE_OPTIONS: '--max-old-space-size=4096'
   service:
     type: ClusterIP
     port: 3000
+  streamWorker:
+    env:
+      fromSecret: 'daedalus-stream-worker-env'
+      createSecret: false
+      data: {}
+      overrides: {}
 
 nginx:
   enabled: true
-  securityContext: {}
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 101
+    runAsGroup: 101
+    fsGroup: 101
+    seccompProfile:
+      type: RuntimeDefault
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop: [ALL]
   httpPort: 80
+  containerPort: 8080
   https:
     enabled: true
     tlsSecretName: 'daedalus-tls'
+    containerPort: 8443
   config:
     useTemplate: true
     restrictedMode: true # Set to true to block direct API access through nginx
-    clientMaxBodySize: '268M' # Hard ceiling for encoded uploads; routes enforce smaller raw limits
-    documentUploadMaxBodySize: '268M' # Matches Next's static JSON parser ceiling
+    clientMaxBodySize: '32M'
+    documentUploadMaxBodySize: '201M'
+    videoUploadMaxBodySize: '150M'
+    imageUploadMaxBodySize: '14M'
+    transcriptUploadMaxBodySize: '15M'
     # If useTemplate is false, rawConf is used
     rawConf: |
       # Provide nginx conf if not using template
@@ -151,36 +199,39 @@ nginx:
 
 redis:
   enabled: true
+  auth:
+    enabled: true
+    username: daedalus
+    password: ''
+    previousPassword: ''
+    existingSecret: ''
+    secretKey: REDIS_PASSWORD
+    previousSecretKey: REDIS_PREVIOUS_PASSWORD
+  tls:
+    # Supply a Secret containing tls.crt, tls.key, and ca.crt before enabling.
+    enabled: false
+    existingSecret: ''
+    certKey: tls.crt
+    privateKeyKey: tls.key
+    caKey: ca.crt
+    mountPath: /etc/redis-tls
   securityContext:
     runAsNonRoot: true
     runAsUser: 977
     runAsGroup: 988
     fsGroup: 988
     fsGroupChangePolicy: OnRootMismatch
+    seccompProfile:
+      type: RuntimeDefault
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop: [ALL]
   persistence:
     enabled: true
   service:
     type: ClusterIP
     port: 6379
-
-redisinsight:
-  # Keep the administrative UI off in production; enable it only for
-  # time-bounded maintenance through a private access path or port-forward.
-  enabled: false
-  securityContext:
-    runAsNonRoot: true
-    runAsUser: 977
-    runAsGroup: 988
-    fsGroup: 988
-    fsGroupChangePolicy: OnRootMismatch
-  persistence:
-    enabled: true
-  service:
-    type: NodePort
-    nodePorts:
-      https: 30540
-  env:
-    overrides: {}
 
 autonomousAgent:
   # Dedicated autonomous worker that follows UI-managed goals and publishes
@@ -189,7 +240,18 @@ autonomousAgent:
   # Set suspend: true to pause the worker Deployment without removing it
   suspend: false
   replicas: 1
-  securityContext: {}
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 977
+    runAsGroup: 988
+    fsGroup: 988
+    seccompProfile:
+      type: RuntimeDefault
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop: [ALL]
   # Poll timeout for async workflow completion
   requestTimeout: 3600
   # Reuse the loaded backend workflow over SSE.
@@ -201,10 +263,10 @@ autonomousAgent:
     leaseTtlSeconds: 60
     intervalSeconds: 14400
   env:
-    # Optional extra API-key secret. The internal backend auth token is always
-    # injected from the chart-managed internal-api secret so memory tools can
-    # trust the worker's x-user-id header.
-    fromSecret: 'daedalus-backend-env'
+    # Normally empty. The chart injects the internal backend token and Redis
+    # credential directly, and this worker doesn't need model, MCP, Milvus,
+    # MinIO, Phoenix, or document-object credentials.
+    fromSecret: ''
     overrides: {}
 
 ingress:
@@ -214,7 +276,7 @@ ingress:
     nginx.ingress.kubernetes.io/proxy-connect-timeout: '900'
     nginx.ingress.kubernetes.io/proxy-send-timeout: '900'
     nginx.ingress.kubernetes.io/proxy-read-timeout: '900'
-    nginx.ingress.kubernetes.io/proxy-body-size: '1g' # Supports large image/document payloads; base64 adds ~33% overhead
+    nginx.ingress.kubernetes.io/proxy-body-size: '201m'
     nginx.ingress.kubernetes.io/proxy-buffering: 'off'
     nginx.ingress.kubernetes.io/proxy-request-buffering: 'off'
   hosts:

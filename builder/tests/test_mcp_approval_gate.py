@@ -5,9 +5,11 @@ import hashlib
 import json
 import sys
 import types
+from pathlib import Path
 
 import mcp_patches
 import pytest
+import yaml
 
 
 class _FakeRedis:
@@ -23,7 +25,7 @@ class _FakeRedis:
         return self.store.pop(key, None)
 
 
-def test_mcp_success_receipt_is_hashed_exact_short_lived_and_single_use():
+def test_mcp_success_receipt_is_hashed_exact_durable_and_single_use():
     from user_interaction.approval_tokens import (
         consume_mcp_execution_receipt,
         mcp_execution_receipt_key,
@@ -46,7 +48,7 @@ def test_mcp_success_receipt_is_hashed_exact_short_lived_and_single_use():
     assert receipt_key.endswith(hashlib.sha256(token.encode()).hexdigest())
     assert token not in receipt_key
     assert token not in redis.store[receipt_key]
-    assert redis.ttls[receipt_key] == 300
+    assert redis.ttls[receipt_key] == 2 * 60 * 60
     assert consume_mcp_execution_receipt(
         redis,
         user_id="alice",
@@ -129,7 +131,7 @@ def test_gate_records_receipt_only_for_successful_approved_result(
                 raise raised
             return result
 
-    fake_module = types.ModuleType("nat.plugins.mcp.client.tool_client")
+    fake_module = types.ModuleType("nat.plugins.mcp.client.client_base")
     fake_module.MCPToolClient = FakeMCPToolClient
     for module_name in (
         "nat",
@@ -142,7 +144,7 @@ def test_gate_records_receipt_only_for_successful_approved_result(
         monkeypatch.setitem(sys.modules, module_name, module)
     monkeypatch.setitem(
         sys.modules,
-        "nat.plugins.mcp.client.tool_client",
+        "nat.plugins.mcp.client.client_base",
         fake_module,
     )
     from nat_helpers import identity
@@ -168,7 +170,6 @@ def test_gate_records_receipt_only_for_successful_approved_result(
         "_record_approved_mcp_receipt",
         lambda **kwargs: calls["receipts"].append(kwargs) or True,
     )
-    monkeypatch.setattr(mcp_patches, "_mcp_client_available", False)
     monkeypatch.setattr(mcp_patches, "_approval_gate_installed", False)
     mcp_patches._patch_tool_client()
 
@@ -189,8 +190,9 @@ def test_gate_records_receipt_only_for_successful_approved_result(
 
 def test_read_only_mcp_call_does_not_need_token():
     ok, reason = mcp_patches._validate_mcp_approval(
-        "get_pod",
-        {"namespace": "default", "name": "api"},
+        "get_thread",
+        {"thread_id": "abc"},
+        server_name="gmail_mcp_server",
     )
     assert ok is True
     assert reason == "read-only"
@@ -383,14 +385,15 @@ def test_mutating_approval_rejects_changed_arguments_and_burns_token(monkeypatch
     assert "already used" in replay_reason
 
 
-def test_gmail_create_draft_is_not_blocked_by_generic_create_gate():
+def test_unregistered_gmail_create_draft_fails_closed():
     for tool_name in ("create_draft", "gmail_mcp_server.create_draft"):
         ok, reason = mcp_patches._validate_mcp_approval(
             tool_name,
             {"to": "user@example.com", "subject": "Hello", "body": "Draft body"},
+            server_name="gmail_mcp_server",
         )
-        assert ok is True
-        assert reason == "read-only"
+        assert ok is False
+        assert "execution credential" in reason
 
 
 def test_strip_approval_token_removes_nested_values():
@@ -427,23 +430,20 @@ def test_additional_destructive_verbs_require_token(tool_name):
 
 
 @pytest.mark.parametrize(
-    "tool_name,payload",
+    "server_name,tool_name,payload",
     [
-        ("get_pod", {"namespace": "default", "name": "api"}),
-        ("list_labels", {}),  # gmail read tool: 'labels' must NOT match 'label'
-        ("list_events", {}),
-        ("get_thread", {}),
-        ("search_code", {"query": "foo"}),
-        ("list_commits", {}),
-        ("get_file_contents", {}),
-        ("describe_node", {}),
-        ("get_assets", {}),  # 'asset' must NOT match the 'set' token
+        ("gmail_mcp_server", "list_labels", {}),
+        ("gmail_mcp_server", "get_thread", {}),
+        ("calendar_mcp_server", "list_calendars", {}),
+        ("x_mcp_server", "searchSpaces", {"query": "foo"}),
     ],
 )
-def test_read_only_tools_are_not_over_gated(tool_name, payload):
-    # F-005 regression: whole-token matching for short verbs must not over-gate
-    # read-only tool names that merely contain those letters.
-    ok, reason = mcp_patches._validate_mcp_approval(tool_name, payload)
+def test_exact_local_read_only_tools_are_not_over_gated(
+    server_name, tool_name, payload
+):
+    ok, reason = mcp_patches._validate_mcp_approval(
+        tool_name, payload, server_name=server_name
+    )
     assert ok is True, f"{tool_name} should be read-only"
     assert reason == "read-only"
 
@@ -463,6 +463,17 @@ def test_destructive_hint_gates_tool_with_no_listed_verb():
         "shuffle_records",  # no listed verb/token
         {},
         annotations=_Annotations(destructiveHint=True),
+    )
+    assert ok is False
+    assert "execution credential" in reason
+
+
+def test_destructive_hint_tightens_exact_local_read_only_registration():
+    ok, reason = mcp_patches._validate_mcp_approval(
+        "get_thread",
+        {"thread_id": "abc"},
+        annotations=_Annotations(destructiveHint=True),
+        server_name="gmail_mcp_server",
     )
     assert ok is False
     assert "execution credential" in reason
@@ -501,6 +512,29 @@ def test_sensitive_group_unknown_tool_defaults_to_approval():
     assert "execution credential" in reason
 
 
+def test_unknown_read_like_tool_fails_closed_in_non_sensitive_group():
+    ok, reason = mcp_patches._validate_mcp_approval(
+        "get_account_export",
+        {"operation": "get"},
+        annotations=_Annotations(readOnlyHint=True),
+        server_name="gmail_mcp_server",
+    )
+    assert ok is False
+    assert "execution credential" in reason
+
+
+def test_local_read_only_registry_matches_configured_includes():
+    config_path = Path(__file__).parents[2] / "backend" / "tool-calling-config.yaml"
+    config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    groups = config["function_groups"]
+
+    for group_name, registered_tools in mcp_patches._LOCAL_READ_ONLY_MCP_TOOLS.items():
+        configured_tools = {
+            str(tool).casefold() for tool in groups[group_name].get("include", [])
+        }
+        assert configured_tools == set(registered_tools)
+
+
 def test_sensitive_group_read_prefixed_tool_still_requires_approval():
     ok, reason = mcp_patches._validate_mcp_approval(
         "get_pod",
@@ -515,7 +549,6 @@ def test_physical_server_is_bound_to_logical_function_group(monkeypatch):
     physical = "streamable-http:https://mcp.example.test/mcp"
     monkeypatch.setattr(mcp_patches, "_mcp_server_group_names", {})
     monkeypatch.setattr(mcp_patches, "_ambiguous_mcp_servers", set())
-    monkeypatch.setattr(mcp_patches, "_sensitive_mcp_server_names", set())
     client = type(
         "Client",
         (),
@@ -528,7 +561,6 @@ def test_physical_server_is_bound_to_logical_function_group(monkeypatch):
     group = type("Group", (), {"mcp_client": client})()
     mcp_patches._register_mcp_group_identity("k8s_mcp_server", group)
     assert mcp_patches._mcp_server_group_names[physical] == "k8s_mcp_server"
-    assert physical in mcp_patches._sensitive_mcp_server_names
 
     parent = client
     assert mcp_patches._canonical_mcp_server_name(parent) == "k8s_mcp_server"
@@ -546,7 +578,6 @@ def test_physical_server_is_bound_to_logical_function_group(monkeypatch):
 def test_streamable_mcp_groups_with_distinct_urls_do_not_collide(monkeypatch):
     monkeypatch.setattr(mcp_patches, "_mcp_server_group_names", {})
     monkeypatch.setattr(mcp_patches, "_ambiguous_mcp_servers", set())
-    monkeypatch.setattr(mcp_patches, "_sensitive_mcp_server_names", set())
 
     def client(url):
         return type(
@@ -583,21 +614,20 @@ def test_destructive_hint_wins_over_read_only_hint():
     assert ok is False
 
 
-def test_no_annotations_falls_back_to_verb_heuristic():
-    # Absent annotations, the verb denylist still applies (regression guard).
+def test_no_annotations_requires_exact_local_registry_entry():
     ok, _ = mcp_patches._validate_mcp_approval("delete_pod", {}, annotations=None)
     assert ok is False
     ok, reason = mcp_patches._validate_mcp_approval("get_pod", {}, annotations=None)
-    assert ok is True
-    assert reason == "read-only"
+    assert ok is False
+    assert "execution credential" in reason
 
 
-def test_non_bool_hint_is_ignored():
-    # A non-bool annotation value must not change behavior (falls through to verb).
+def test_non_bool_hint_does_not_override_exact_local_registry():
     ok, reason = mcp_patches._validate_mcp_approval(
-        "get_pod",
+        "get_thread",
         {},
         annotations=_Annotations(destructiveHint="yes", readOnlyHint=None),
+        server_name="gmail_mcp_server",
     )
     assert ok is True
     assert reason == "read-only"
@@ -624,23 +654,14 @@ def test_extract_tool_annotations_returns_none_when_absent():
 
 
 def test_verify_approval_gate_fails_closed(monkeypatch):
-    # F-006 regression: MCP client present but gate not installed -> refuse start.
-    monkeypatch.setattr(mcp_patches, "_mcp_client_available", True)
+    # F-006 regression: a missing gate always refuses startup.
     monkeypatch.setattr(mcp_patches, "_approval_gate_installed", False)
-    monkeypatch.delenv("MCP_APPROVAL_GATE_OPTIONAL", raising=False)
     with pytest.raises(RuntimeError):
         mcp_patches._verify_approval_gate_installed()
 
 
-def test_verify_approval_gate_optout_allows_start(monkeypatch):
-    monkeypatch.setattr(mcp_patches, "_mcp_client_available", True)
+def test_verify_approval_gate_has_no_environment_optout(monkeypatch):
     monkeypatch.setattr(mcp_patches, "_approval_gate_installed", False)
     monkeypatch.setenv("MCP_APPROVAL_GATE_OPTIONAL", "1")
-    mcp_patches._verify_approval_gate_installed()  # must not raise
-
-
-def test_verify_approval_gate_skips_when_mcp_absent(monkeypatch):
-    monkeypatch.setattr(mcp_patches, "_mcp_client_available", False)
-    monkeypatch.setattr(mcp_patches, "_approval_gate_installed", False)
-    monkeypatch.delenv("MCP_APPROVAL_GATE_OPTIONAL", raising=False)
-    mcp_patches._verify_approval_gate_installed()  # MCP not in use -> no raise
+    with pytest.raises(RuntimeError):
+        mcp_patches._verify_approval_gate_installed()

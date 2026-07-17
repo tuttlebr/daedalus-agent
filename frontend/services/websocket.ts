@@ -9,7 +9,6 @@
  * Battery-aware: disconnects when backgrounded (unless streaming),
  * extends reconnect delay on low battery.
  */
-import { shouldRunExpensiveOperation } from '@/utils/app/visibilityAwareTimer';
 import { Logger } from '@/utils/logger';
 
 const logger = new Logger('WebSocket');
@@ -87,6 +86,7 @@ const MAX_RECONNECT_DELAY = 30_000; // 30s cap
 const LOW_BATTERY_RECONNECT_DELAY = 60_000; // 60s when battery < 20%
 const JITTER_FACTOR = 0.2; // 20% jitter on reconnect delay
 const MAX_RECONNECT_ATTEMPTS = 20; // Stop after 20 attempts (~10 min at max delay)
+const DEFAULT_WEBSOCKET_URL = process.env.NEXT_PUBLIC_WEBSOCKET_URL || '/ws';
 
 export class WebSocketManager {
   private ws: WebSocket | null = null;
@@ -101,7 +101,7 @@ export class WebSocketManager {
   private subscribedJobs = new Set<string>();
   private subscribedChats = new Set<string>();
 
-  constructor(url: string = '/ws') {
+  constructor(url: string = DEFAULT_WEBSOCKET_URL) {
     this.url = url;
   }
 
@@ -384,7 +384,7 @@ let instance: WebSocketManager | null = null;
 
 export function getWebSocketManager(): WebSocketManager {
   if (!instance) {
-    instance = new WebSocketManager('/ws');
+    instance = new WebSocketManager();
   }
   return instance;
 }

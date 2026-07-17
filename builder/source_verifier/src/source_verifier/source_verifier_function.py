@@ -17,7 +17,7 @@ Registers source-governance tools with NAT:
 Designed to combat hallucination compounding in autonomous agent cycles
 where uncited or incorrectly cited claims accumulate in memory over time.
 
-Reuses webscrape's URL fetching (markitdown + httpx) for lightweight
+Reuses webscrape's pinned public HTTP fetch and local-file conversion for
 source retrieval without consuming a tool call. Claim verification can be
 driven by a Fireworks calibrated classifier, with the existing
 content_distiller-style LLM assessment retained as an optional fallback.
@@ -38,16 +38,14 @@ from nat.builder.builder import Builder, LLMFrameworkEnum
 from nat.builder.function_info import FunctionInfo
 from nat.cli.register_workflow import register_function
 from nat.data_models.function import FunctionBaseConfig
+from nat_helpers.safe_http import PublicAsyncHTTPTransport
 from nat_helpers.url_guard import UnsafeURLError, validate_public_url
 from pydantic import Field
 from webscrape.webscrape_function import (
-    _BROWSER_HEADERS,
-    _BROWSER_USER_AGENT,
-    _get_following_safe_redirects,
-    _html_to_markdown,
+    _httpx_timeout_from_seconds,
     _is_challenge_page,
     _is_valid_content,
-    _scrape_with_markitdown,
+    _scrape_with_httpx_result,
     _validate_url,
 )
 
@@ -149,16 +147,9 @@ def _default_source_registry() -> list[dict[str, Any]]:
             "id": "nvidia_docs",
             "name": "Official NVIDIA Docs",
             "description": (
-                "Official NVIDIA product documentation via direct MCP docs servers."
+                "Official NVIDIA product documentation via one routed docs search."
             ),
-            "tools": [
-                "dynamo_mcp_server",
-                "openshell_mcp_server",
-                "aistore_mcp_server",
-                "aiperf_mcp_server",
-                "nvcf_mcp_server",
-                "dsx_mcp_server",
-            ],
+            "tools": ["nvidia_docs_tool"],
             "default_enabled": True,
             "requires_auth": False,
         },
@@ -618,50 +609,8 @@ async def _classify_claim_with_fireworks(
     }
 
 
-# ---------------------------------------------------------------------------
-# URL fetching helper
-# ---------------------------------------------------------------------------
-async def _scrape_with_httpx_safe(
-    url: str, token_limit: int | None = None, truncation_msg: str = ""
-) -> str | None:
-    """httpx scrape that SSRF-validates every redirect hop (F-002a).
-
-    Mirrors webscrape's httpx strategy but follows redirects manually via
-    ``_get_following_safe_redirects`` so a redirect to an internal/metadata
-    address is rejected (``UnsafeURLError``) instead of silently fetched.
-    """
-    headers = {**_BROWSER_HEADERS, "User-Agent": _BROWSER_USER_AGENT}
-    async with httpx.AsyncClient(
-        headers=headers, follow_redirects=False, timeout=30.0
-    ) as client:
-        response = await _get_following_safe_redirects(
-            client, url, allowed_schemes=["http", "https"]
-        )
-
-    if not response.is_success:
-        logger.info("httpx returned status %d for %s", response.status_code, url)
-        return None
-
-    html = response.text
-    if _is_challenge_page(html):
-        logger.info("httpx response for %s is a challenge page", url)
-        return None
-
-    return await asyncio.to_thread(
-        _html_to_markdown,
-        html,
-        url,
-        token_limit=token_limit,
-        truncation_msg=truncation_msg,
-    )
-
-
 async def _fetch_source(url: str, config: SourceVerifierConfig) -> FetchResult:
-    """Fetch a URL using webscrape strategies (markitdown -> httpx).
-
-    Skips the Playwright browser fallback to stay lightweight.
-    Returns a FetchResult with status and content.
-    """
+    """Fetch through pinned public transports and convert only local files."""
     # Validate URL
     try:
         normalized_url, _ = _validate_url(url, ["http", "https"])
@@ -677,39 +626,34 @@ async def _fetch_source(url: str, config: SourceVerifierConfig) -> FetchResult:
 
     truncation_msg = "\n\n[Source content truncated for verification]"
 
-    # Strategy 1: MarkItDown (fastest, no JS)
     try:
-        content = await asyncio.to_thread(
-            _scrape_with_markitdown,
-            normalized_url,
-            token_limit=config.max_fetch_tokens,
-            truncation_msg=truncation_msg,
-        )
-        if _is_valid_content(content):
-            return FetchResult(status="ok", content=content)
-    except Exception as exc:
-        logger.debug("markitdown failed for %s: %s", normalized_url, exc)
-
-    # Strategy 2: httpx with browser-like headers (redirect hops SSRF-validated)
-    try:
-        content = await asyncio.wait_for(
-            _scrape_with_httpx_safe(
+        content, outcome = await asyncio.wait_for(
+            _scrape_with_httpx_result(
                 normalized_url,
                 token_limit=config.max_fetch_tokens,
                 truncation_msg=truncation_msg,
+                allowed_schemes=["http", "https"],
+                timeout=_httpx_timeout_from_seconds(config.fetch_timeout),
             ),
             timeout=config.fetch_timeout,
         )
         if content and _is_valid_content(content):
             return FetchResult(status="ok", content=content)
-        if content is None:
-            return FetchResult(status="unreachable", error="httpx returned no content")
+        if outcome == "blocked" or (content and _is_challenge_page(content)):
+            return FetchResult(
+                status="challenge_page",
+                error="Content appears to be a challenge page",
+            )
         return FetchResult(
-            status="challenge_page", error="Content appears to be a challenge page"
+            status="unreachable",
+            error=f"Controlled fetch returned {outcome}",
         )
     except UnsafeURLError as exc:
-        # F-002a: a redirect pointed at a non-public address; refuse to follow it.
         return FetchResult(status="invalid_url", error=str(exc))
+    except TimeoutError:
+        return FetchResult(
+            status="unreachable", error=f"Fetch timed out after {config.fetch_timeout}s"
+        )
     except httpx.HTTPStatusError as exc:
         code = exc.response.status_code
         if code == 403:
@@ -721,10 +665,6 @@ async def _fetch_source(url: str, config: SourceVerifierConfig) -> FetchResult:
                 status="unreachable", status_code=404, error="HTTP 404 Not Found"
             )
         return FetchResult(status="unreachable", status_code=code, error=f"HTTP {code}")
-    except TimeoutError:
-        return FetchResult(
-            status="unreachable", error=f"Fetch timed out after {config.fetch_timeout}s"
-        )
     except Exception as exc:
         return FetchResult(status="unreachable", error=str(exc))
 
@@ -750,7 +690,12 @@ async def _check_link_reachable(url: str, timeout: float = 10.0) -> bool:
     except UnsafeURLError:
         return False
     try:
-        async with httpx.AsyncClient(follow_redirects=False, timeout=timeout) as client:
+        async with httpx.AsyncClient(
+            follow_redirects=False,
+            timeout=timeout,
+            transport=PublicAsyncHTTPTransport(),
+            trust_env=False,
+        ) as client:
             current_url = url
             for _ in range(_MAX_LINK_REDIRECTS + 1):
                 resp = await client.head(current_url)
@@ -763,7 +708,8 @@ async def _check_link_reachable(url: str, timeout: float = 10.0) -> bool:
                 validate_public_url(next_url, check_dns=True)
                 current_url = next_url
             return False
-    except Exception:
+    except Exception as exc:
+        logger.debug("Link reachability check failed for %s: %s", url, exc)
         return False
 
 
@@ -1094,14 +1040,18 @@ def _tool_hints(source_id: str, question: str) -> list[dict[str, str]]:
     if source_id == "workspace_data":
         return [{"tool": "gmail_mcp_server"}, {"tool": "calendar_mcp_server"}]
     if source_id == "nvidia_docs":
-        return [
-            {"tool": "dynamo_mcp_server"},
-            {"tool": "openshell_mcp_server"},
-            {"tool": "aistore_mcp_server"},
-            {"tool": "aiperf_mcp_server"},
-            {"tool": "nvcf_mcp_server"},
-            {"tool": "dsx_mcp_server"},
-        ]
+        product_aliases = (
+            ("openshell", ("openshell", "open shell")),
+            ("aistore", ("aistore", "ai store")),
+            ("aiperf", ("aiperf", "ai perf")),
+            ("nvcf", ("nvcf", "cloud function")),
+            ("dsx", ("dsx",)),
+            ("dynamo", ("dynamo",)),
+        )
+        for product, aliases in product_aliases:
+            if any(alias in q for alias in aliases):
+                return [{"tool": "nvidia_docs_tool", "product": product}]
+        return [{"tool": "nvidia_docs_tool"}]
     return []
 
 

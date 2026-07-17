@@ -58,15 +58,7 @@ export interface UseWebSocketReturn {
 export const useWebSocket = (
   options: UseWebSocketOptions = {},
 ): UseWebSocketReturn => {
-  const {
-    enabled = true,
-    onConversationUpdated,
-    onConversationDeleted,
-    onConversationListChanged,
-    onStreamingStateChanged,
-    onConnected,
-    onDisconnected,
-  } = options;
+  const { enabled = true } = options;
 
   const [isConnected, setIsConnected] = useState(false);
   const [streamingStates, setStreamingStates] = useState<

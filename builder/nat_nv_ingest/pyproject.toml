@@ -8,12 +8,21 @@ dynamic = ["version"]
 dependencies = [
   "nvidia-nat[redis,mcp,langchain,phoenix]==1.7.0",
   "azure-storage-blob",
-  "nv-ingest-api==26.1.1",
-  "nv-ingest-client==26.1.1",
+  # Keep the client and API paired. The client imports nv_ingest_api at
+  # runtime even though its wheel metadata doesn't declare that dependency.
+  # In 26.3.0, moviepy moved behind the API package's test extra, which lets
+  # the production runtime use a security-fixed Pillow release.
+  "nv-ingest-api==26.3.0",
+  "nv-ingest-client==26.3.0",
   "milvus-lite",
   "minio",
+  "nat_helpers",
+  "pydantic>=2,<2.14",
   "pymilvus>=2.5.0",
   "pymilvus.model~=0.3.2",
+  "redis>=4.3.6,<6",
+  "smart_milvus",
+  "urllib3>=2.7,<3",
 ]
 requires-python = ">=3.11,<3.14"
 description = "Custom NeMo Agent Toolkit Workflow"

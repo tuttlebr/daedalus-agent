@@ -1,6 +1,20 @@
 ---
 name: nv-html
-description: Generate NVIDIA-branded HTML pages that follow the official brand system — NVIDIA Sans typography, sparing NVIDIA Green (#76B900) accent, alternating dark/light sections, the PACE writing framework, and the component vocabulary defined in DESIGN.md. Use this skill whenever the user asks to create an HTML page, landing page, mini-site, dashboard, status page, event recap, internal portal, or any standalone web deliverable — even when "NVIDIA" is not explicitly named, since the default brand context for this user is NVIDIA. Trigger on requests like "build a page for…", "spin up a landing for…", "make a dashboard showing…", "give me a one-pager on…", "draft an HTML version of…". Replaces generic HTML defaults with NVIDIA standards.
+description: >-
+  Generate NVIDIA-branded HTML pages that follow the official brand system,
+  with NVIDIA Sans typography, sparing NVIDIA Green (#76B900) accent,
+  alternating dark/light sections, the PACE writing framework, and the
+  component vocabulary in DESIGN.md. Use whenever the user asks to create an
+  HTML page, landing page, mini-site, dashboard, status page, HTML report,
+  event recap, internal portal, one-pager, or any standalone web deliverable,
+  and for daily briefing and daily summary pages (this is the intended skill
+  for daily briefings), even when "NVIDIA" is not named, since the default
+  brand context for this user is NVIDIA. Trigger on "build a page for...",
+  "spin up a landing for...", "make a dashboard showing...", "give me a
+  one-pager on...", "draft an HTML version of...", "run my daily briefing".
+  This is the general NVIDIA web builder; use daily-summary only for its fixed
+  Bootstrap calendar/weather/ops/sports/actions template, and
+  creative-ideation to brainstorm ideas rather than produce HTML.
 ---
 
 # NVIDIA-Branded HTML

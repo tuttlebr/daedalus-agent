@@ -1,131 +1,158 @@
 # Daedalus Frontend
 
-Next.js 14 frontend for Daedalus. This app handles authentication, chat orchestration, multimodal uploads, conversation persistence, real-time sync, and PWA behavior on top of the NeMo Agent backends.
+Next.js 15 frontend for Daedalus. It owns authentication, browser chat
+orchestration, multimodal uploads, conversation persistence, real-time updates,
+and PWA behavior on top of the NeMo Agent Toolkit backend.
 
 ## What It Does
 
-- Renders the chat UI, conversation sidebar, settings, Autonomy dashboard, and in-app help
-- Authenticates users and keeps identity in Redis-backed sessions plus a signed identity cookie
-- Submits chat primarily through `/api/chat/async`, which creates a frontend-managed job, opens a pinned backend stream, and returns a `jobId`
-- Submits image creation and edits through `/api/images/jobs`, with Redis-backed status, history, and generated-asset ownership
-- Persists conversations, attachments, generated images, selected conversation state, and async job state in Redis
-- Streams progress and intermediate steps back to clients through Redis Pub/Sub plus the WebSocket sidecar, with HTTP polling fallback
-- Supports multimodal uploads for images, documents, videos, and transcripts
-- Runs as a PWA with install prompts, offline shell support, and recovery of interrupted background jobs
+- Renders chat, conversation history, settings, Create, Autonomy, and help
+- Derives user identity from Redis-backed sessions and a signed identity cookie
+- Enqueues chat and document-ingest jobs on a durable Redis Stream
+- Runs backend streams in a dedicated worker with leases, heartbeats,
+  cancellation, bounded reclaim, and graceful drain
+- Publishes live tokens and status through Redis Pub/Sub and a WebSocket
+  sidecar, with authenticated HTTP polling as recovery
+- Streams document bytes through multipart upload into S3-compatible object
+  storage while keeping only owner-scoped metadata and object references in
+  Redis
+- Retrieves authenticated Milvus collection metadata from the backend instead
+  of deriving collection names in browser-facing code
+- Runs as a PWA with an offline shell and interrupted-job recovery
 
 ## Runtime Model
 
-In Kubernetes, the normal browser request path is:
+The production frontend image serves three roles:
 
-1. Browser sends requests to nginx through the cluster ingress.
-2. nginx proxies `/` and `/api/*` to this Next.js app.
-3. The frontend authenticates the user, stores or reads session and conversation state from Redis, and submits work to the selected backend service.
-4. Backend tokens, intermediate steps, and job status are persisted back through Redis and fanned out to clients over WebSocket or polling.
+1. The frontend deployment runs the Next.js standalone server on port `3000`
+   and the WebSocket sidecar on port `3001` through
+   `scripts/start-runtime.js`.
+2. The separate frontend stream-worker deployment runs `stream-worker.js` from
+   the same image.
+3. nginx proxies `/` and `/api/*` to Next.js and `/ws` to the WebSocket
+   sidecar.
 
-The primary chat path is frontend job-based:
+The normal chat path is:
 
-- `POST /api/chat/async` stores job metadata and immediately returns a `jobId`
-- `GET /api/chat/async?jobId=...` returns live or finalized job state
-- A background stream reader opens `/v1/chat/completions` for normal chat turns
-- Document ingestion opens `/v1/documents/ingest/stream` and forwards structured progress through job state
-- `POST /api/document/markdown` converts an uploaded document to a full Markdown file (proxying `/v1/documents/markdown`) for local download
-- The legacy `/api/chat` route is retired and returns HTTP 410
+1. `POST /api/chat/async` authenticates the caller, validates and bounds the
+   request, writes job state, and appends the job ID to a Redis Stream.
+2. The dedicated worker claims the entry, acquires a per-job lease, selects a
+   backend pod, and opens `/v1/chat/completions` or the document-ingest stream.
+3. The worker persists status and publishes live events. The browser consumes
+   WebSocket events and polls `GET /api/chat/async?jobId=...` whenever the live
+   channel is unavailable or stale.
+4. `DELETE /api/chat/async?jobId=...` records a durable cancellation flag that
+   the worker observes even when the API and worker run in different pods.
 
-The Create image path is also job-based:
+If a worker dies before backend execution starts, another worker may reclaim
+the entry. If it dies after backend execution starts, the replacement fails the
+job closed instead of replaying potentially mutating tools.
 
-- `POST /api/images/jobs` accepts a generate or edit request and returns HTTP 202 with a `jobId`
-- `GET /api/images/jobs?jobId=...` lets the client poll progress, partial images, final output IDs, and errors
-- `/api/images/history` persists restoreable jobs and can deliberately purge unreferenced generated assets when requested
-- `/api/generated-image/:id?download=1` streams the original Redis-backed asset as an attachment
+The Create image path is independently job-based:
+
+- `POST /api/images/jobs` accepts a generate or edit request and returns a
+  `jobId`
+- `GET /api/images/jobs?jobId=...` returns progress, partial images, output IDs,
+  and errors
+- `/api/images/history` persists restorable jobs and can purge unreferenced
+  generated assets when requested
+- `/api/generated-image/:id?download=1` streams an authorized original asset
 
 ## Development
 
+Use Node.js 22.
+
 ```bash
-node --version # use Node.js 22
 npm ci --legacy-peer-deps
 npm run dev
-npm run build
-npm test -- --run
-npm run coverage
 npm run lint
-npm run format
+npx tsc --noEmit --incremental false
+npm run coverage
+npm run build
+npm run e2e
 ```
 
-Default local dev port is `5000`.
+`npm run dev` starts only Next.js on port `5000`. It does not start Redis, the
+backend, object storage, the WebSocket sidecar, or the durable stream worker.
+Use the root Compose stack for an integrated local environment. The E2E command
+builds the production frontend and starts isolated Redis, SeaweedFS, mock
+backend, stream worker, WebSocket, and Next.js processes automatically.
 
 ## Important Environment Variables
 
-The frontend consumes most of its runtime configuration through environment variables or Kubernetes secrets.
+The frontend reads runtime settings from environment variables and Kubernetes
+Secrets. Browser-visible `NEXT_PUBLIC_*` limits are compiled into the bundle.
 
-| Variable                                                          | Purpose                                                                                    |
-| ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
-| `REDIS_URL`                                                       | Redis session, conversation, attachment, and job-state storage                             |
-| `BACKEND_HOST`                                                    | Host-only backend service name used for in-cluster routing                                 |
-| `BACKEND_NAMESPACE`                                               | Namespace used to build backend FQDNs                                                      |
-| `BACKEND_API_PATH`                                                | Default backend path for generated URLs, usually `/v1/chat/completions`                    |
-| `NEXT_PUBLIC_UPLOAD_*`                                            | Build-time upload validation limits for browser-side file checks                           |
-| `DOCUMENT_UPLOAD_MAX_MB`                                          | Raw document limit, capped at 200 MiB (the encoded API request has a 268 MiB hard ceiling) |
-| `DOCUMENT_UPLOAD_MAX_CONCURRENT_PER_USER`                         | Atomic per-user cap on in-progress document uploads (default `2`)                          |
-| `SESSION_SECRET`                                                  | Required in production for signed identity cookies                                         |
-| `DAEDALUS_INTERNAL_API_TOKEN`                                     | Shared token attached to trusted frontend-to-backend requests                              |
-| `RATE_LIMIT_IMAGE_JOB_MAX`, `RATE_LIMIT_IMAGE_JOB_WINDOW_SECONDS` | Per-user Create submission limit (defaults to 5 jobs per 60 seconds)                       |
-| `AUTH_USERNAME`, `AUTH_PASSWORD`                                  | Single-user auth                                                                           |
-| `AUTH_USER_*_*`                                                   | Multi-user auth entries                                                                    |
-| `DAEDALUS_DEFAULT_USER`                                           | Default selected user for initial login experience                                         |
-| `ADMIN_USERNAME`                                                  | Admin username allowed to inspect all usage stats                                          |
-| `NEXT_PUBLIC_VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`               | Optional web-push support                                                                  |
+| Variable                                                | Purpose                                                                     |
+| ------------------------------------------------------- | --------------------------------------------------------------------------- |
+| `REDIS_URL`                                             | Sessions, conversations, attachment metadata, queue, leases, and job state  |
+| `BACKEND_HOST`, `BACKEND_NAMESPACE`, `BACKEND_API_PATH` | In-cluster backend routing                                                  |
+| `DAEDALUS_INTERNAL_API_TOKEN`                           | Trusted frontend and worker calls to the backend                            |
+| `SESSION_SECRET`                                        | Signed identity cookies, required in production                             |
+| `AUTH_USERNAME`, `AUTH_PASSWORD`, `AUTH_USER_*_*`       | Single-user or multi-user login entries                                     |
+| `NEXT_PUBLIC_UPLOAD_*`                                  | Build-time browser upload and batch limits                                  |
+| `DOCUMENT_UPLOAD_MAX_MB`                                | Raw multipart document limit, capped at 200 MiB                             |
+| `DOCUMENT_UPLOAD_MAX_CONCURRENT_PER_USER`               | Atomic in-progress document upload slots, default `2`                       |
+| `DOCUMENT_OBJECT_*`                                     | S3-compatible endpoint, credentials, bucket, prefix, and retention contract |
+| `STREAM_WORKER_*`                                       | Worker concurrency, lease, heartbeat, reclaim, drain, and probe tuning      |
+| `NEXT_PUBLIC_WEBSOCKET_URL`, `WS_*`                     | Browser WebSocket endpoint and sidecar bounds                               |
+| `NEXT_PUBLIC_VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`     | Optional browser push notifications                                         |
 
-See [`../.env.template`](../.env.template), [`env.example`](env.example), and the top-level [`../README.md`](../README.md) for deployment setup.
+Default browser file bounds are 7.5 MiB per image, 75 MiB per video, 200 MiB
+per document, and 10 MiB per transcript. Image and video bounds reserve room
+for their legacy base64 transport. Documents use raw multipart bytes. Server
+routes enforce their own decoded or raw limits, so changing a public limit also
+requires checking the corresponding API and proxy limit.
 
-Document uploads currently use base64 inside a JSON request, so Next.js parses
-the encoded body before the handler can authenticate, rate-limit, or reserve an
-upload slot. Keep ingress/proxy body limits enabled and treat the 200 MiB cap as
-an interim backstop. Production hardening still requires multipart streaming to
-object storage (persisting only an owned reference in Redis) so large bodies are
-bounded before Node.js allocation.
+Document objects are temporary. Configure the selected bucket with lifecycle
+expiration for `DOCUMENT_OBJECT_PREFIX` whose retention matches
+`DOCUMENT_OBJECT_EXPIRY_SECONDS`, which defaults to seven days. Redis metadata
+and object metadata carry the same expiry, but bucket lifecycle is the
+authoritative cleanup for orphaned objects.
+
+Local Compose uses the pinned SeaweedFS S3 endpoint at `object-store:8333` and
+applies the seven-day prefix TTL during startup. Production stays
+provider-neutral through `DOCUMENT_OBJECT_*`.
+
+See [`../.env.template`](../.env.template), [`env.example`](env.example), and
+the top-level [`../README.md`](../README.md) for the complete deployment setup.
 
 ## Key Areas
 
-| Path                         | Responsibility                                                      |
-| ---------------------------- | ------------------------------------------------------------------- |
-| `pages/api/chat/async.ts`    | Async job submission, status polling, stream capture, finalization  |
-| `pages/api/autonomy/`        | Autonomy dashboard API (config, goals, runs, feed items, approvals) |
-| `pages/api/conversations/`   | Conversation CRUD and persistence                                   |
-| `pages/api/document/`        | Document upload, lookup, and ingestion progress                     |
-| `pages/api/images/`          | Redis-backed Create image jobs and history lifecycle                |
-| `pages/api/generated-image/` | Authorized generated-image display and direct downloads             |
-| `pages/api/session/`         | Session and attachment API routes                                   |
-| `pages/api/sync/notify.ts`   | Best-effort cross-session sync notification publisher               |
-| `server/autonomy/store.ts`   | Redis-backed autonomous agent state store                           |
-| `server/session/`            | Redis, session, sanitization, and documentRef validation helpers    |
-| `ws-server.ts`               | WebSocket sidecar backed by Redis Pub/Sub                           |
-| `components/chat/`           | Main chat UI, async job integration, intermediate step rendering    |
-| `components/autonomy/`       | Autonomy dashboard UI                                               |
-| `hooks/useAsyncChat.ts`      | Job lifecycle, polling, WebSocket subscription, recovery            |
-| `hooks/useWebSocket.ts`      | Conversation/autonomy sync and connection lifecycle                 |
-| `utils/app/`                 | Backend URL building, attachment helpers, conversation utilities    |
-
-## Major Features
-
-- Async job execution with resumable status tracking
-- WebSocket-first real-time updates with polling fallback
-- Intermediate step visualization for backend tool execution
-- Redis-backed authentication and conversation sync across devices
-- Upload and rendering support for images, documents, videos, and generated media
-- Document processing workflows that hand off uploaded files to backend tools
-- Autonomy dashboard wired to the autonomous worker through Redis
-- PWA install flow, offline shell, and interrupted-stream recovery
-- Usage tracking, push subscription endpoints, and conversation import and export
+| Path                                   | Responsibility                                                      |
+| -------------------------------------- | ------------------------------------------------------------------- |
+| `pages/api/chat/async.ts`              | Authenticated submission, status polling, and cancellation          |
+| `server/chat/streamQueue.ts`           | Redis Stream enqueue, claim, lease, and acknowledgement primitives  |
+| `server/chat/streamWorker.ts`          | Durable execution, reclaim policy, cancellation, and drain          |
+| `server/chat/streamReader.ts`          | Bounded backend stream parsing and live-event persistence           |
+| `server/chat/streamState.ts`           | Append-only response deltas and normalized intermediate-step state  |
+| `server/documentObjectStore.ts`        | Signed S3-compatible object operations                              |
+| `server/multipartDocument.ts`          | Bounded streaming multipart parser                                  |
+| `pages/api/session/documentStorage.ts` | Owner-scoped document upload, retrieval, and deletion               |
+| `server/milvusMetadata.ts`             | Authenticated and schema-validated collection metadata client       |
+| `pages/api/milvus/collections.ts`      | Session-protected metadata API for the browser                      |
+| `server/autonomy/store.ts`             | Redis-backed autonomous-agent state                                 |
+| `ws-server.ts`                         | Authenticated Redis Pub/Sub to WebSocket sidecar                    |
+| `hooks/useAsyncChat.ts`                | Browser job lifecycle, live subscription, polling, and recovery     |
+| `e2e/`                                 | Production-build browser harness with real Redis and object storage |
 
 ## Testing And Verification
 
-- `npm run test` runs Vitest in watch mode
-- `npm test -- --run` runs the suite once (used by CI)
-- `npm run coverage` runs the test suite with coverage
-- `npm run lint` runs Next.js linting
-- `npm run build` produces the production bundle and injects the precache manifest
+- `npm test -- --run` runs Vitest once
+- `npm run coverage` runs the instrumented suite and enforces regression gates
+- `npm run lint` runs Next.js ESLint checks
+- `npx tsc --noEmit --incremental false` runs a clean type check
+- `npm run build` produces the standalone production bundle and injects the PWA
+  precache manifest
+- `npm run e2e` runs login, streaming, cancellation, multipart upload, approval,
+  WebSocket outage, and disconnect-recovery flows in Chromium
+
+The E2E runner removes its Compose services and volumes unless
+`E2E_KEEP_SERVICES=1` is set. Set `E2E_SKIP_BUILD=1` only when the production
+artifacts are already current.
 
 ## Related Docs
 
 - [`../README.md`](../README.md) for full-stack setup and deployment
-- [`pages/api/milvus/README.md`](pages/api/milvus/README.md) for the current Milvus collection helper status
+- [`pages/api/milvus/README.md`](pages/api/milvus/README.md) for the collection
+  metadata trust boundary

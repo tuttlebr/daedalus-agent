@@ -27,7 +27,6 @@ export interface SessionInfo {
 }
 
 const SESSION_TTL = 300; // 5 minutes - sessions expire if no heartbeat
-const MAX_SESSIONS_PER_USER = 10;
 
 // Register a new session
 export async function registerSession(
@@ -88,7 +87,6 @@ export async function heartbeatSession(
   userId: string,
   sessionId: string,
 ): Promise<boolean> {
-  const redis = getRedis();
   const sessionKey_ = sessionKey(['user', userId, 'session', sessionId]);
 
   const sessionInfo = (await jsonGet(sessionKey_)) as SessionInfo | null;

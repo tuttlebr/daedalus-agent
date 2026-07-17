@@ -1,12 +1,20 @@
 ---
 name: dynamo-bug
-description: File a GitHub bug issue against ai-dynamo/dynamo using context from the current conversation — auto-collects environment info (OS, CUDA, GPU, Python, k8s/helm chart) and assembles a complete bug template. Use whenever the user says "file a bug", "open a Dynamo issue", "report this as a Dynamo bug", "create a GitHub issue for this", or otherwise wants to capture the current investigation as a public bug report on ai-dynamo/dynamo (typically after the debug-session workflow has narrowed down the issue).
+description: >-
+  File a GitHub bug issue against ai-dynamo/dynamo (upstream) from the current
+  conversation, auto-collects environment info (OS, CUDA, GPU, Python,
+  k8s/Helm chart), builds a titled bug template, and files via `gh issue
+  create` after you approve the draft. Use when the user says "file a bug",
+  "open a Dynamo issue", "report this as a Dynamo bug", "create a GitHub issue
+  for this", or wants to capture an investigation as a public upstream bug
+  report. Use dynamo-troubleshoot to diagnose a failing deployment first; use
+  dynamo-docs to document a workaround once the bug is understood.
 user-invocable: true
 ---
 
 # File a Dynamo Bug Issue
 
-> **Related skills:** `debug-session` (set up a worklog and investigation before filing), `dynamo-docs` (update Dynamo Fern docs with workarounds once the bug is understood).
+> **Related skills:** `dynamo-troubleshoot` (diagnose the failing deployment before filing), `dynamo-docs` (update Dynamo Fern docs with workarounds once the bug is understood).
 
 ## Goal
 

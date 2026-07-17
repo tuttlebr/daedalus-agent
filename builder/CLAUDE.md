@@ -61,22 +61,24 @@ The `name=` on the config class is the `_type` referenced in workflow YAML. The 
 
 ### Tools are composed into a workflow elsewhere — not here
 
-These packages only _register_ tools. They are assembled into a running agent by `backend/tool-calling-config.yaml` (repo root), whose `workflow._type` is `tool_calling_agent`, with leaf tools (and MCP function groups) listed under `tool_names`. The agent seeds its graph with the full inbound `messages` list (trimmed to the last `max_history`), preserving in-chat history; `tool_calling_llm` uses Chat Completions, not the Responses API (the Responses API is only supported via `responses_api_agent`, which takes a single input string and so drops all turns but the last). That config also defines MCP servers, embedders, retrievers, and the system prompt. To trace how a tool is used at runtime, match its config `name=` against the `_type:` entries in that file.
+These packages only _register_ tools. They are assembled into a running agent by `backend/tool-calling-config.yaml` (repo root), whose `workflow._type` is `daedalus_per_user_tool_calling_agent`, with leaf tools and MCP function groups listed under `tool_names`. The adapter delegates to NAT's pinned tool-calling implementation, but NAT builds and idle-caches it per authenticated user so OAuth MCP schemas never come from a shared bootstrap. The agent seeds its graph with the full inbound `messages` list (trimmed to the last `max_history`), preserving in-chat history; `tool_calling_llm` uses Chat Completions, not the Responses API (the Responses API is only supported via `responses_api_agent`, which takes a single input string and so drops all turns but the last). That config also defines MCP servers, embedders, retrievers, and the system prompt. To trace how a tool is used at runtime, match its config `name=` against the `_type:` entries in that file.
 
-### Runtime entrypoint and monkeypatch ordering (entrypoint.py)
+### Runtime entrypoint and adapter ordering (entrypoint.py)
 
 The container runs `python entrypoint.py`, which replaces `nat serve` so that **pre-import patches survive**. Order is load-bearing — these run before any NAT import:
 
 1. Assert the exact NAT 1.7.0 and Starlette `<1` runtime contracts.
-2. `_patch_fastapi_daedalus_routes` — wraps `FastAPI.__init__` to attach the backend-wide auth middleware and Daedalus HTTP routers.
+2. Redact request credentials from NAT telemetry and configure Phoenix headers.
 3. `llm_diagnostics.patch()` — forces timeout/`max_retries` on every OpenAI client and enriches retry/connection-error logs with base_url + status (works around NAT passing `timeout=None`).
-4. `mcp_patches.patch()` — bounds each MCP group to one startup attempt without shortening runtime connects, defers interactive OAuth until a user tool call, adds MCP tool-call logging, and installs the **approval-gate** behavior for guarded MCP tools.
+4. `mcp_patches.patch()` bounds shared MCP startup, gives skipped requested groups one five-second shared recovery pass, rejects OAuth schema discovery outside authenticated per-user context, and installs the fail-closed **approval gate**.
 
 Then it sets `sys.argv` to `nat serve --config_file=$NAT_CONFIG_FILE …` and calls `run_cli()` in-process.
 
+NAT application composition uses its supported `general.front_end.runner_class` hook. `nat_helpers.front_end.DaedalusFastApiFrontEndPluginWorker` attaches the backend-wide auth middleware, readiness route, and Daedalus routers to NAT's application only.
+
 ### HTTP routes that bypass the agent loop
 
-`image_api.py` (`/v1/images/*`) and `document_ingest_api.py` (`/v1/documents/*`) are plain FastAPI routers injected into NAT's app by the entrypoint route patch. They exist so the frontend can hit image generation and **bulk document ingest** directly with structured JSON, instead of making an LLM copy hundreds of refs into a tool call. They reuse the same code as the agent tools (`nat_helpers.openai_images`, `nat_nv_ingest`).
+`image_api.py` (`/v1/images/*`) and `document_ingest_api.py` (`/v1/documents/*`) are plain FastAPI routers composed into NAT's app by the configured Daedalus runner. They exist so the frontend can hit image generation and **bulk document ingest** directly with structured JSON, instead of making an LLM copy hundreds of refs into a tool call. They reuse the same code as the agent tools (`nat_helpers.openai_images`, `nat_nv_ingest`).
 
 ### Redis is the shared data plane
 
@@ -91,13 +93,13 @@ Uploaded documents (`document:<sessionId>:<documentId>`, 7-day TTL), generated i
 `conftest.py` makes the whole suite runnable without NAT or heavy deps installed:
 
 - Adds every `*/src` to `sys.path`, so tests import e.g. `from webscrape.webscrape_function import _fn` directly.
-- Installs `MagicMock` modules for the entire `nat.*` framework plus `pymilvus`, `playwright`, `openai`, `redis`, `markitdown`, `optuna`, `kubernetes`, `fastapi`, etc. `FunctionBaseConfig`/`FunctionInfo`/`register_function` get lightweight fakes; `httpx` and `pymilvus...Hit` get **real** classes because code does `isinstance()` on them.
+- Installs `MagicMock` modules for the entire `nat.*` framework plus `pymilvus`, `openai`, `redis`, `markitdown`, `optuna`, `kubernetes`, `fastapi`, etc. `FunctionBaseConfig`/`FunctionInfo`/`register_function` get lightweight fakes; `httpx` and `pymilvus...Hit` get **real** classes because code does `isinstance()` on them.
 
 Consequence: unit tests exercise the **pure helper functions** inside each `*_function.py`, not NAT registration. `register.py` and `agent_skills_function.py` are excluded from coverage (`.coveragerc`). Keep testable logic in standalone helpers, not buried in the `@register_function` generator.
 
 ## Package catalog
 
-- **Search/web**: `webscrape` (httpx + Playwright fallback, robots-aware, challenge-page detection), `perplexity_search`, `rss_feed` (feed → rerank → MarkItDown scrape).
+- **Search/web**: `webscrape` (pinned public HTTP fetch + local-file MarkItDown conversion, robots-aware, challenge-page detection), `perplexity_search`, `rss_feed` (feed → rerank → pinned fetch → local-file MarkItDown conversion).
 - **Retrieval/ingest**: `smart_milvus` (Milvus retriever + `domain_retriever` domain→collection routing), `nat_nv_ingest` (`user_document_tool` ingest/search/list; NvIngest → Milvus; shared vs user collection scoping).
 - **Media**: `visual_media` (one tool, `operation=generate|edit|analyze`; OpenAI images API + VLM).
 - **Transcripts**: `vtt_interpreter`.

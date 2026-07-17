@@ -22,7 +22,9 @@ class _FakeRedis:
     def get(self, k):
         return self.kv.get(k)
 
-    def set(self, k, v, **_kwargs):
+    def set(self, k, v, **kwargs):
+        if kwargs.get("nx") and k in self.kv:
+            return None
         self.kv[k] = v
         return True
 
@@ -42,6 +44,38 @@ class _FakeRedis:
 
     def expire(self, *_args, **_kwargs):
         return True
+
+    def delete(self, k):
+        existed = k in self.kv
+        self.kv.pop(k, None)
+        return int(existed)
+
+    def eval(self, script, num_keys, *args):
+        if "RPOPLPUSH" in script:
+            lease_key, processing_key, queue_key, token = args
+            if self.kv.get(lease_key) != token:
+                return None
+            moved = []
+            while raw := self.rpoplpush(processing_key, queue_key):
+                moved.append(raw)
+            return moved
+        if "LREM" in script:
+            lease_key, processing_key, claim_key, token, raw = args
+            if self.kv.get(lease_key) != token:
+                return 0
+            self.lrem(processing_key, 1, raw)
+            self.delete(claim_key)
+            return 1
+        assert num_keys == 1
+        redis_key, token, *_rest = args
+        if self.kv.get(redis_key) != token:
+            return 0
+        if "EXPIRE" in script:
+            return 1
+        if "DEL" in script:
+            self.kv.pop(redis_key, None)
+            return 1
+        raise AssertionError("unexpected Lua script")
 
     def publish(self, *_args, **_kwargs):
         return 0
@@ -85,6 +119,7 @@ def _store():
 
 def test_dequeue_moves_to_processing_then_complete_removes():
     store = _store()
+    assert store.acquire_lease("u")
     store.redis.lpush(key("u", "queue"), json.dumps({"id": "r1"}))
 
     req = store.dequeue("u", timeout=0)
@@ -99,6 +134,7 @@ def test_dequeue_moves_to_processing_then_complete_removes():
 
 def test_crash_before_complete_is_reclaimed_not_lost():
     store = _store()
+    assert store.acquire_lease("u")
     store.redis.lpush(key("u", "queue"), json.dumps({"id": "r1"}))
     store.dequeue("u", timeout=0)  # in processing; simulate crash (no complete)
     assert store.redis.llen(key("u", "processing")) == 1
@@ -106,6 +142,13 @@ def test_crash_before_complete_is_reclaimed_not_lost():
     # A new worker starts against the same Redis.
     restarted = RedisStore()
     restarted.redis = store.redis
+    assert restarted.acquire_lease("u") is False
+    with pytest.raises(RuntimeError, match="owning the lease"):
+        restarted.reclaim_processing("u")
+
+    # Simulate lease expiry. Only then can the replacement acquire and reclaim.
+    store.redis.delete(key("u", "lease"))
+    assert restarted.acquire_lease("u") is True
     assert restarted.reclaim_processing("u") == 1
     assert restarted.redis.llen(key("u", "processing")) == 0
     # The request is retried rather than silently dropped.
@@ -114,9 +157,50 @@ def test_crash_before_complete_is_reclaimed_not_lost():
 
 def test_poison_message_is_dropped_from_processing():
     store = _store()
+    assert store.acquire_lease("u")
     store.redis.lpush(key("u", "queue"), "{not valid json")
     assert store.dequeue("u", timeout=0) is None
     assert store.redis.llen(key("u", "processing")) == 0
+
+
+def test_processing_claim_tracks_owner_and_visibility_deadline():
+    store = _store()
+    assert store.acquire_lease("u", ttl_seconds=30)
+    store.redis.lpush(key("u", "queue"), json.dumps({"id": "r1"}))
+
+    assert store.dequeue("u", timeout=0) == {"id": "r1"}
+    raw = store._inflight["u"]
+    claim_key = store._processing_claim_key("u", raw)
+    claim = json.loads(store.redis.get(claim_key))
+    assert claim["ownerToken"] == store._lease_tokens["u"]
+    assert claim["visibilityDeadlineAt"] > claim["claimedAt"]
+
+    assert store.refresh_lease("u", ttl_seconds=60) is True
+    refreshed_claim = json.loads(store.redis.get(claim_key))
+    assert refreshed_claim["visibilityDeadlineAt"] >= (
+        refreshed_claim["claimedAt"] + 60_000
+    )
+
+
+def test_refresh_lease_reports_lost_ownership():
+    store = _store()
+    assert store.acquire_lease("u")
+    store.redis.kv[key("u", "lease")] = "replacement-owner"
+
+    assert store.refresh_lease("u") is False
+    assert store.owns_lease("u") is False
+
+
+def test_lost_owner_cannot_acknowledge_processing_entry():
+    store = _store()
+    assert store.acquire_lease("u")
+    store.redis.lpush(key("u", "queue"), json.dumps({"id": "r1"}))
+    assert store.dequeue("u", timeout=0) == {"id": "r1"}
+
+    store.redis.kv[key("u", "lease")] = "replacement-owner"
+
+    assert store.complete("u") is False
+    assert store.redis.llen(key("u", "processing")) == 1
 
 
 def test_append_feed_items_dedupes_against_recent_feed():

@@ -1,6 +1,16 @@
 ---
 name: nat-user-rules
-description: Use first for general NVIDIA NeMo Agent Toolkit coding-agent behavior, task routing, naming conventions, component discovery rules, and cross-skill guidance.
+description: >-
+  Use first and as the entry point for any NVIDIA NeMo Agent Toolkit (NAT)
+  coding-agent task. This is the router that dispatches work to the focused
+  nat-* skills. Covers cross-skill task routing, naming conventions (nat
+  identifier vs NeMo Agent Toolkit prose), the mandatory nat info components
+  discovery rule, and repo-wide conventions. Start here when the request is
+  general, the toolkit repo is in scope, or the correct specific skill is not
+  yet obvious, then load it for the details. Routes to nat-installation,
+  nat-workflow-creation, nat-agent-configuration, nat-tools-and-functions,
+  nat-evaluation, nat-optimization, nat-telemetry, nat-mcp-and-serving, and
+  nat-path-checks.
 author: NVIDIA Corporation and Affiliates
 license: Apache-2.0
 ---

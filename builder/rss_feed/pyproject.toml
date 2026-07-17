@@ -8,10 +8,11 @@ dynamic = ["version"]
 dependencies = [
   "nvidia-nat[redis,mcp,langchain,phoenix]==1.7.0",
   "nat_helpers",
-  "fastfeedparser~=0.4.4",
+  "fastfeedparser>=0.5.10,<0.6",
   "httpx>=0.28",
   "cachetools>=6.2.1",
   "markitdown[all]",
+  "pydantic>=2,<2.14",
   "tiktoken>=0.5.0",
 ]
 requires-python = ">=3.11,<3.14"

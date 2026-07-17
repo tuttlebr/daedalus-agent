@@ -7,6 +7,7 @@ name = "agent_skills"
 dynamic = ["version"]
 dependencies = [
   "nvidia-nat[redis,mcp,langchain,phoenix]==1.7.0",
+  "pydantic>=2,<2.14",
   "pyyaml>=6.0",
 ]
 requires-python = ">=3.11,<3.14"

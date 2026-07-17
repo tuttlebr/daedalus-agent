@@ -123,6 +123,8 @@ function hasInlineDocumentMarker(message: any): boolean {
 export function appendDocumentAttachmentContext(
   message: any,
   verifiedUsername: string,
+  privateCollectionName?: string,
+  databaseName?: string,
 ): any {
   if (!message.attachments || !Array.isArray(message.attachments)) {
     return message;
@@ -152,6 +154,8 @@ export function appendDocumentAttachmentContext(
     ? resolveDocumentCollectionTarget({
         targetCollection,
         username: verifiedUsername,
+        privateCollectionName,
+        databaseName,
         requestedScope: message.metadata?.collectionScope,
         source: 'chat.attachment_context',
       })
@@ -245,6 +249,8 @@ export function compactDocumentIngestionMessage(
 export function getDocumentIngestJobRequest(
   messages: any[],
   verifiedUsername: string,
+  privateCollectionName?: string,
+  databaseName?: string,
 ): DocumentIngestJobRequest | null {
   const message = getLastUserMessage(messages);
   if (!message || !isDocumentIngestionMessage(message)) return null;
@@ -256,10 +262,12 @@ export function getDocumentIngestJobRequest(
     typeof message.metadata?.targetCollection === 'string' &&
     message.metadata.targetCollection.trim()
       ? message.metadata.targetCollection.trim()
-      : verifiedUsername;
+      : privateCollectionName || verifiedUsername;
   const collectionTarget = resolveDocumentCollectionTarget({
     targetCollection,
     username: verifiedUsername,
+    privateCollectionName,
+    databaseName,
     requestedScope: message.metadata?.collectionScope,
     source: 'chat.async_document_ingest',
   });
@@ -284,6 +292,8 @@ export async function processMessages(
   currentSessionId: string,
   verifiedUsername: string,
   jobId: string,
+  privateCollectionName?: string,
+  databaseName?: string,
 ): Promise<any[]> {
   return Promise.all(
     (messages || []).map(async (message: any) => {
@@ -463,7 +473,12 @@ export async function processMessages(
       }
 
       cleanedMessage = compactDocumentIngestionMessage(
-        appendDocumentAttachmentContext(cleanedMessage, verifiedUsername),
+        appendDocumentAttachmentContext(
+          cleanedMessage,
+          verifiedUsername,
+          privateCollectionName,
+          databaseName,
+        ),
         verifiedUsername,
       );
 

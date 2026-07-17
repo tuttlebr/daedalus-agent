@@ -1,56 +1,68 @@
-# Milvus Collections API
+# Milvus Collection Metadata API
 
-## Current State
+## Current Contract
 
-`/api/milvus/collections` is a lightweight frontend-side helper, not a real
-Milvus control-plane API.
+`GET /api/milvus/collections` is the session-protected browser endpoint for
+collection metadata. It no longer invents a fixed collection name or returns a
+fallback list.
 
-Today it:
+The request path is:
 
-- accepts only `GET`
-- derives the current user from the session
-- returns a small predefined collection list that includes the current
-  username and the allow-listed shared upload targets
-- labels each entry as either `shared` or `user` in `collectionOptions`
-- exposes `collectionPolicy` describing the database name, the shared
-  collection names, and the current user's collection
-- falls back to a minimal list (current user plus `nvidia`) if the handler errors
+1. `collections.ts` authenticates the browser session and derives the username
+   from that trusted context.
+2. `server/milvusMetadata.ts` calls the backend
+   `GET /v1/metadata/collections` endpoint with the internal API token and the
+   trusted user identity.
+3. The backend queries Milvus with a bounded timeout and returns the caller's
+   hashed private collection plus the allow-listed shared read targets.
+4. The frontend validates every collection record and rejects any response that
+   marks a shared collection writable.
+5. The route returns the validated JSON with
+   `Cache-Control: private, no-store`.
 
-See [`collections.ts`](collections.ts) for the implementation and
-[`../../../utils/app/milvusCollections.ts`](../../../utils/app/milvusCollections.ts)
-for the `SHARED_MILVUS_COLLECTIONS` constants the handler reuses.
+The response shape is:
 
-## Why It Exists
+```ts
+{
+  databaseName: string;
+  userCollection: MilvusCollectionMetadata;
+  sharedCollections: MilvusCollectionMetadata[];
+  writableCollections: MilvusCollectionMetadata[];
+}
+```
 
-The frontend needs a fast, predictable source for collection names when users
-prepare document-ingestion flows. A stubbed list keeps that UI path working
-without forcing collection discovery through the LLM or requiring a separate
-backend service endpoint.
+Each collection includes `name`, `displayName`, `scope`, `exists`, `readable`,
+and `writable`. `writableCollections` may contain only the authenticated user's
+private collection. Shared collections are allow-listed, readable, and
+read-only.
 
-## Limitations
+## Failure Behavior
 
-- It does not query Milvus directly.
-- It does not reflect the real set of collections in the cluster.
-- It only exposes the shared targets that `nat_nv_ingest` allows writes to:
-  `kubernetes`, `mentalhealth`, `nvidia`, `semianalysis`, and `vetpartner`.
-- Shared and user-scoped collections are intentionally separate collection
-  classes in one Milvus database, not separate databases.
-- It should be treated as a convenience API for the current UI, not as a
-  source of truth.
+- Non-`GET` requests return `405`.
+- Missing or invalid browser authentication fails at the shared session
+  boundary.
+- A backend, Milvus, timeout, or schema-validation failure returns `503`.
+- The route doesn't fall back to guessed names or a stale list.
 
-## Recommended Future Direction
+Failing closed is intentional. Document ingestion must not silently target a
+different collection when the authoritative metadata source is unavailable.
 
-Replace this handler with a structured backend endpoint that:
+## Consumers
 
-1. Authenticates the caller.
-2. Queries Milvus directly.
-3. Returns real collection metadata as JSON.
-4. Supports filtering by user namespace or collection ownership if needed.
-
-Until then, the doc and implementation should remain explicit that this
-endpoint is intentionally a stub.
+- `utils/app/queries/milvus.ts` exposes only `writableCollections` to the
+  document-ingest selection UI.
+- `pages/api/chat/async.ts` and `pages/api/document/process.ts` retrieve the
+  same backend metadata before resolving a target collection.
+- `utils/app/milvusCollections.ts` validates that an ingest target matches the
+  authenticated user's authoritative private collection and records
+  provenance. It isn't a discovery source.
 
 ## Related Components
 
-- [`../../../../builder/nat_nv_ingest/README.md`](../../../../builder/nat_nv_ingest/README.md) for the backend ingest, search, and listing tool that owns the real collection lifecycle
-- [`../../../../builder/smart_milvus/README.md`](../../../../builder/smart_milvus/README.md) for the underlying Milvus retriever
+- [`collections.ts`](collections.ts) for the browser-facing route
+- [`../../../server/milvusMetadata.ts`](../../../server/milvusMetadata.ts) for
+  backend transport and response validation
+- [`../../../../builder/collection_metadata_api.py`](../../../../builder/collection_metadata_api.py)
+  for the authenticated backend endpoint
+- [`../../../../builder/nat_nv_ingest/README.md`](../../../../builder/nat_nv_ingest/README.md)
+  for ingestion and collection ownership rules

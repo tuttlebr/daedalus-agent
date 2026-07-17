@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import mimetypes
 import os
 import re
 import tempfile
@@ -14,6 +15,11 @@ from nat.builder.builder import Builder
 from nat.builder.function_info import FunctionInfo
 from nat.cli.register_workflow import register_function
 from nat.data_models.function import FunctionBaseConfig
+from nat_helpers.safe_http import (
+    PublicAsyncHTTPTransport,
+    PublicHTTPTransport,
+    get_public_response,
+)
 from nat_helpers.url_guard import UnsafeURLError, validate_public_url
 from pydantic import Field
 
@@ -23,13 +29,6 @@ try:
     TIKTOKEN_AVAILABLE = True
 except ImportError:
     TIKTOKEN_AVAILABLE = False
-
-try:
-    from playwright.async_api import async_playwright
-
-    PLAYWRIGHT_AVAILABLE = True
-except ImportError:
-    PLAYWRIGHT_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
 
@@ -83,15 +82,6 @@ _CHALLENGE_SIGNATURES = [
     "reference #",
 ]
 
-_CHALLENGE_TITLE_MARKERS = [
-    "just a moment",
-    "attention required",
-    "checking your browser",
-    "one more step",
-    "access denied",
-    "please wait",
-]
-
 # Cap on redirect hops we will manually follow while re-validating each target.
 _MAX_REDIRECTS = 10
 
@@ -104,7 +94,7 @@ _HTTPX_RETRY_BACKOFF_SECONDS = 0.35
 _HTTPX_RETRY_STATUS_CODES = {408, 425, 429, 500, 502, 503, 504}
 _HTTPX_BLOCKED_STATUS_CODES = {401, 403, 407, 451}
 _HTML_CONTENT_TYPES = {"text/html", "application/xhtml+xml"}
-_MARKITDOWN_FALLBACK_TIMEOUT = 20.0
+_SAFE_FETCH_TIMEOUT = 20.0
 _RETRYABLE_HTTPX_EXCEPTIONS = tuple(
     exc_type
     for exc_type in (
@@ -146,24 +136,11 @@ class WebscrapeFunctionConfig(FunctionBaseConfig, name="webscrape"):
         default="\n\n---\n\n_**Note:** Content truncated to fit within token limit._",
         description="Message appended when content is truncated due to token limits.",
     )
-    use_browser_fallback: bool = Field(
-        default=True,
-        description=(
-            "Fall back to a headless browser when simple scraping fails "
-            "or returns bot-protection pages."
-        ),
-    )
-    browser_timeout: float = Field(
-        default=45.0,
-        ge=5.0,
-        le=120.0,
-        description="Timeout in seconds for browser-based scraping.",
-    )
     timeout: float = Field(
         default=30.0,
         ge=5.0,
         le=120.0,
-        description="Timeout in seconds for non-browser HTTP scraping.",
+        description="Timeout in seconds for the controlled HTTP fetch.",
     )
 
 
@@ -294,6 +271,51 @@ def _html_to_markdown(
             os.unlink(tmp_path)
 
 
+def _resource_suffix(url: str, content_type: str) -> str:
+    """Choose a bounded file suffix so MarkItDown can select a local converter."""
+    media_type = content_type.split(";", 1)[0].strip().lower()
+    guessed = mimetypes.guess_extension(media_type) if media_type else None
+    path_suffix = os.path.splitext(urlparse(url).path)[1].lower()
+    candidate = guessed or path_suffix or ".bin"
+    if not re.fullmatch(r"\.[a-z0-9]{1,10}", candidate):
+        return ".bin"
+    return candidate
+
+
+def _bytes_to_markdown(
+    content: bytes,
+    url: str,
+    *,
+    content_type: str = "",
+    token_limit: int | None = None,
+    truncation_msg: str = "",
+) -> str:
+    """Convert already-fetched bytes without giving MarkItDown network access."""
+    tmp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            suffix=_resource_suffix(url, content_type), delete=False
+        ) as file_obj:
+            file_obj.write(content)
+            tmp_path = file_obj.name
+
+        result = MarkItDown(enable_plugins=True).convert(tmp_path)
+        title_text = result.title or url
+        full_content = f"# {title_text}\n\n_Source: {url}_\n\n" + (
+            result.text_content or ""
+        )
+        if token_limit is not None:
+            full_content, was_truncated = _truncate_to_token_limit(
+                full_content, token_limit, truncation_msg
+            )
+            if was_truncated:
+                logger.info("Content from %s truncated to %d tokens", url, token_limit)
+        return full_content
+    finally:
+        if tmp_path and os.path.exists(tmp_path):
+            os.unlink(tmp_path)
+
+
 # ---------------------------------------------------------------------------
 # Redirect-safe fetch
 # ---------------------------------------------------------------------------
@@ -372,24 +394,40 @@ async def _get_following_safe_redirects(
 
 
 def _scrape_with_markitdown(
-    url: str, token_limit: int | None = None, truncation_msg: str = ""
+    url: str,
+    token_limit: int | None = None,
+    truncation_msg: str = "",
+    *,
+    fetched_content: bytes | None = None,
+    content_type: str = "",
+    timeout: float = _SAFE_FETCH_TIMEOUT,
 ) -> str:
-    """Direct MarkItDown URL conversion fallback."""
-    md = MarkItDown(enable_plugins=True)
-    result = md.convert(url)
+    """Safely fetch a resource, then give MarkItDown only a local file.
 
-    title_text = result.title if result.title else url
-    header = f"# {title_text}\n\n_Source: {url}_\n\n"
-    full_content = header + (result.text_content or "")
+    ``fetched_content`` lets the controlled async HTTP strategy reuse bytes it
+    already downloaded. MarkItDown never receives a URL.
+    """
+    if fetched_content is None:
+        transport = PublicHTTPTransport()
+        with httpx.Client(
+            headers={**_BROWSER_HEADERS, "User-Agent": _BROWSER_USER_AGENT},
+            follow_redirects=False,
+            timeout=timeout,
+            transport=transport,
+            trust_env=False,
+        ) as client:
+            response = get_public_response(client, url)
+            response.raise_for_status()
+        fetched_content = response.content
+        content_type = response.headers.get("content-type", "")
 
-    if token_limit is not None:
-        full_content, was_truncated = _truncate_to_token_limit(
-            full_content, token_limit, truncation_msg
-        )
-        if was_truncated:
-            logger.info("Content from %s truncated to %d tokens", url, token_limit)
-
-    return full_content
+    return _bytes_to_markdown(
+        fetched_content,
+        url,
+        content_type=content_type,
+        token_limit=token_limit,
+        truncation_msg=truncation_msg,
+    )
 
 
 def _httpx_timeout_from_seconds(timeout_seconds: float):
@@ -400,23 +438,6 @@ def _httpx_timeout_from_seconds(timeout_seconds: float):
         read=timeout_seconds,
         write=short_timeout,
         pool=short_timeout,
-    )
-
-
-async def _scrape_with_markitdown_with_timeout(
-    url: str,
-    token_limit: int | None = None,
-    truncation_msg: str = "",
-    timeout: float = _MARKITDOWN_FALLBACK_TIMEOUT,
-) -> str:
-    return await asyncio.wait_for(
-        asyncio.to_thread(
-            _scrape_with_markitdown,
-            url,
-            token_limit=token_limit,
-            truncation_msg=truncation_msg,
-        ),
-        timeout=timeout,
     )
 
 
@@ -452,7 +473,11 @@ async def _scrape_with_httpx_result(
     # follow_redirects=False so _get_following_safe_redirects can SSRF-validate
     # every hop before following it (F-002a).
     async with httpx.AsyncClient(
-        headers=headers, follow_redirects=False, timeout=timeout
+        headers=headers,
+        follow_redirects=False,
+        timeout=timeout,
+        transport=PublicAsyncHTTPTransport(),
+        trust_env=False,
     ) as client:
         response = await _get_following_safe_redirects(
             client,
@@ -473,12 +498,17 @@ async def _scrape_with_httpx_result(
         return None, "http_error"
 
     if not _response_looks_like_html(response):
-        logger.info(
-            "httpx response for %s is not HTML (content-type=%s)",
+        markdown = await asyncio.to_thread(
+            _scrape_with_markitdown,
             url,
-            response.headers.get("content-type", ""),
+            token_limit=token_limit,
+            truncation_msg=truncation_msg,
+            fetched_content=response.content,
+            content_type=response.headers.get("content-type", ""),
         )
-        return None, "non_html"
+        return (
+            (markdown, "ok") if _is_valid_content(markdown) else (markdown, "invalid")
+        )
 
     html = response.text
     if _is_challenge_page(html):
@@ -514,66 +544,6 @@ async def _scrape_with_httpx(
         timeout=timeout,
     )
     return markdown
-
-
-async def _scrape_with_browser(
-    url: str,
-    token_limit: int | None = None,
-    truncation_msg: str = "",
-    timeout: float = 45.0,
-) -> str | None:
-    """Strategy 3: headless Chromium via Playwright (JS rendering + challenge bypass)."""
-    async with async_playwright() as p:
-        browser = await p.chromium.launch(
-            headless=True,
-            args=["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu"],
-        )
-        try:
-            context = await browser.new_context(
-                user_agent=_BROWSER_USER_AGENT,
-                viewport={"width": 1920, "height": 1080},
-            )
-            page = await context.new_page()
-            await page.goto(
-                url,
-                wait_until="domcontentloaded",
-                timeout=int(timeout * 1000),
-            )
-
-            # Wait for Cloudflare / bot-protection challenges to resolve
-            for _ in range(15):
-                title = await page.title()
-                if not any(s in title.lower() for s in _CHALLENGE_TITLE_MARKERS):
-                    break
-                await page.wait_for_timeout(2000)
-
-            # Let the network settle so dynamic content finishes loading
-            try:
-                await page.wait_for_load_state("networkidle", timeout=15000)
-            except Exception:
-                pass  # nosec B110 - networkidle timeout is expected and non-fatal
-
-            # Scroll to bottom to trigger any lazy-loaded content
-            await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-            await page.wait_for_timeout(1000)
-
-            title = await page.title()
-            html = await page.content()
-        finally:
-            await browser.close()
-
-    if _is_challenge_page(html):
-        logger.warning("Browser scrape of %s still returned a challenge page", url)
-        return None
-
-    return await asyncio.to_thread(
-        _html_to_markdown,
-        html,
-        url,
-        title=title,
-        token_limit=token_limit,
-        truncation_msg=truncation_msg,
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -698,11 +668,13 @@ async def webscrape_function(config: WebscrapeFunctionConfig, builder: Builder):
     async def _response_fn(url: str) -> str:
         """Scrape a URL and return its content as markdown.
 
-        Three strategies are tried in order, escalating when the prior one
-        fails or returns a bot-protection challenge page:
-          1. httpx with browser-like headers, timeout, retries, and redirect checks
-          2. MarkItDown direct conversion for non-HTML/document fallbacks
-          3. Headless Chromium via Playwright (handles JS & Cloudflare challenges)
+        A controlled HTTP client performs one bounded fetch with retries,
+        connection-time DNS validation, and per-redirect validation. HTML is
+        converted from the response body and other documents are handed to
+        MarkItDown as temporary local files.
+
+        Direct browser navigation is intentionally unavailable because its DNS,
+        redirect, and subresource connections cannot use the pinned transport.
         """
         try:
             sanitized_input = url.strip()
@@ -731,7 +703,10 @@ async def webscrape_function(config: WebscrapeFunctionConfig, builder: Builder):
                 # follow_redirects=False so each redirect hop is SSRF-validated
                 # inside _check_robots before being followed (F-002a).
                 async with httpx.AsyncClient(
-                    headers=headers, follow_redirects=False
+                    headers=headers,
+                    follow_redirects=False,
+                    transport=PublicAsyncHTTPTransport(),
+                    trust_env=False,
                 ) as client:
                     await _check_robots(
                         url=url,
@@ -744,39 +719,7 @@ async def webscrape_function(config: WebscrapeFunctionConfig, builder: Builder):
                 logger.info("robots.txt disallowed scraping for %s: %s", url, exc)
                 return _format_error(str(exc))
 
-        last_nonblocked_output = None
-        browser_attempted = False
-
-        async def _try_browser() -> str | None:
-            nonlocal browser_attempted
-            browser_attempted = True
-            if not config.use_browser_fallback:
-                return None
-            if not PLAYWRIGHT_AVAILABLE:
-                logger.warning(
-                    "Browser fallback enabled but playwright is not installed; "
-                    "install with: pip install playwright && playwright install chromium"
-                )
-                return None
-
-            try:
-                browser_output = await _scrape_with_browser(
-                    url,
-                    token_limit=config.max_output_tokens,
-                    truncation_msg=config.truncation_message,
-                    timeout=config.browser_timeout,
-                )
-                if browser_output and _is_valid_content(browser_output):
-                    return browser_output
-                if browser_output and not _is_challenge_page(browser_output):
-                    return browser_output
-            except Exception as exc:
-                logger.warning("Browser scraping failed for %s: %s", url, exc)
-            return None
-
-        # --- Strategy 1: httpx with browser-like headers ---
-        httpx_output = None
-        httpx_outcome = "not_attempted"
+        # One controlled fetch handles both HTML and supported document formats.
         try:
             httpx_output, httpx_outcome = await _scrape_with_httpx_result(
                 url,
@@ -788,7 +731,7 @@ async def webscrape_function(config: WebscrapeFunctionConfig, builder: Builder):
             if httpx_output and _is_valid_content(httpx_output):
                 return httpx_output
             if httpx_output and not _is_challenge_page(httpx_output):
-                last_nonblocked_output = httpx_output
+                return httpx_output
         except UnsafeURLError as exc:
             logger.warning("Blocked unsafe redirect while scraping %s: %s", url, exc)
             return _format_error(str(exc))
@@ -796,51 +739,10 @@ async def webscrape_function(config: WebscrapeFunctionConfig, builder: Builder):
             logger.info("httpx scraping failed for %s: %s", url, exc)
             httpx_outcome = "error"
 
-        # A 401/403/challenge page is unlikely to be improved by another raw
-        # HTTP client. Try the browser before falling back to direct MarkItDown.
         if httpx_outcome == "blocked":
-            browser_output = await _try_browser()
-            if browser_output:
-                return browser_output
-
-        # --- Strategy 2: MarkItDown direct conversion ---
-        markdown_output = None
-        try:
-            markdown_output = await _scrape_with_markitdown_with_timeout(
-                url,
-                token_limit=config.max_output_tokens,
-                truncation_msg=config.truncation_message,
-                timeout=min(config.timeout, _MARKITDOWN_FALLBACK_TIMEOUT),
-            )
-        except TimeoutError:
             logger.info(
-                "MarkItDown scraping timed out for %s after %.1fs",
-                url,
-                _MARKITDOWN_FALLBACK_TIMEOUT,
+                "Blocked response for %s won't use an unpinned browser fallback", url
             )
-        except Exception as exc:
-            logger.info("MarkItDown scraping failed for %s: %s", url, exc)
-
-        if markdown_output and _is_valid_content(markdown_output):
-            return markdown_output
-
-        if markdown_output:
-            if not _is_challenge_page(markdown_output):
-                last_nonblocked_output = markdown_output
-            logger.info(
-                "MarkItDown output for %s was not valid page content; "
-                "escalating to fallback strategies",
-                url,
-            )
-
-        # --- Strategy 3: Headless browser via Playwright ---
-        if not browser_attempted:
-            browser_output = await _try_browser()
-            if browser_output:
-                return browser_output
-
-        if last_nonblocked_output:
-            return last_nonblocked_output
 
         return _format_error(
             "Unable to retrieve page content. The site may require JavaScript "
@@ -852,9 +754,9 @@ async def webscrape_function(config: WebscrapeFunctionConfig, builder: Builder):
             _response_fn,
             description=(
                 "Scrape web content from URLs and convert to clean markdown. "
-                "Uses a controlled HTTP fetch first, with automatic fallback to "
-                "MarkItDown direct conversion and a headless browser for sites "
-                "with JavaScript rendering or bot protection."
+                "Uses one controlled HTTP fetch and gives MarkItDown only local "
+                "response files for supported documents. Direct browser navigation is "
+                "disabled to preserve the public-network boundary."
             ),
         )
     except GeneratorExit:

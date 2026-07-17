@@ -1,6 +1,14 @@
 ---
 name: nat-installation
-description: Use when installing or configuring NVIDIA NeMo Agent Toolkit, verifying the `nat` CLI, setting up optional extras, or creating a first hello-world workflow.
+description: >-
+  Use when installing, setting up, or upgrading the NVIDIA NeMo Agent Toolkit
+  (NAT). Covers the nvidia-nat package, uv add and pip install commands,
+  choosing package extras such as langchain, all, eval, ragas, and
+  config-optimizer, Python dependencies and virtual-environment setup,
+  verifying the nat CLI with nat --version, and adapting the first runnable
+  hello-world workflow. Use nat-workflow-creation for building, editing,
+  validating, or running workflow YAML beyond the initial hello-world, and
+  nat-user-rules if you are unsure which nat-* skill applies.
 author: NVIDIA Corporation and Affiliates
 license: Apache-2.0
 ---

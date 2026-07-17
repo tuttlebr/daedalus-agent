@@ -1,6 +1,16 @@
 ---
 name: unifi-network
-description: How to manage UniFi network infrastructure — devices, clients, firewall, VPN, routing, WLANs, Traffic Flows, and statistics. Use this skill when the user mentions UniFi, Ubiquiti, network management, WiFi configuration, firewall rules, port forwarding, VPN, QoS, bandwidth, traffic flows, connected clients, network devices, or any UniFi networking task.
+description: >-
+  How to manage UniFi (Ubiquiti) network infrastructure through the UniFi
+  Network MCP server, covering devices (access points, switches, UDM/USG
+  gateways), clients, WLANs and SSIDs, VPN, routing, port forwarding, QoS,
+  bandwidth, Traffic Flows, and statistics. Use this skill for general UniFi
+  and WiFi management such as listing or configuring devices, clients, WLANs,
+  VPNs and port forwards, seeing who is connected, finding bandwidth hogs, or
+  reading traffic flows. Use firewall-manager to create or change firewall
+  rules and content filtering, firewall-auditor for a scored firewall security
+  audit, network-health-check for device and connectivity health, and
+  unifi-network-setup for first-time controller connection and credentials.
 ---
 
 # UniFi Network MCP Server

@@ -107,6 +107,17 @@ _nat_register_mod.register_retriever_client = _fake_register_passthrough
 _nat_register_mod.register_retriever_provider = _fake_register_passthrough
 
 
+class _FakeFastApiFrontEndPluginWorker:
+    """Minimal NAT runner base used by front-end composition unit tests."""
+
+    def build_app(self):
+        return self._test_app
+
+
+_nat_fastapi_worker_mod = MagicMock()
+_nat_fastapi_worker_mod.FastApiFrontEndPluginWorker = _FakeFastApiFrontEndPluginWorker
+
+
 class _FakeRetrieverProviderInfo:
     def __init__(self, config=None, description: str = ""):
         self.config = config
@@ -174,6 +185,9 @@ _NAT_MOCKS: dict[str, object] = {
     "nat.data_models.component_ref": _nat_data_models_component_ref_mod,
     "nat.data_models.function": _nat_data_models_function_mod,
     "nat.data_models.retriever": _nat_data_models_retriever_mod,
+    "nat.front_ends": MagicMock(),
+    "nat.front_ends.fastapi": MagicMock(),
+    "nat.front_ends.fastapi.fastapi_front_end_plugin_worker": (_nat_fastapi_worker_mod),
     "nat.memory": MagicMock(),
     "nat.memory.models": _nat_memory_models_mod,
     "nat.retriever": MagicMock(),
@@ -204,8 +218,6 @@ _EXTERNAL_MOCKS = [
     "markitdown",
     "fastfeedparser",
     "cachetools",
-    "playwright",
-    "playwright.async_api",
     "openai",
     "pymilvus",
     "pymilvus.client",
@@ -294,20 +306,23 @@ class _FakeHTTPStatusError(_FakeHTTPError):
         self.response = response
 
 
-_httpx_mod = MagicMock()
-_httpx_mod.ConnectTimeout = _FakeConnectTimeout
-_httpx_mod.ConnectError = _FakeConnectError
-_httpx_mod.ReadTimeout = _FakeReadTimeout
-_httpx_mod.TimeoutException = _FakeTimeoutException
-_httpx_mod.NetworkError = _FakeNetworkError
-_httpx_mod.ReadError = _FakeReadError
-_httpx_mod.WriteError = _FakeWriteError
-_httpx_mod.CloseError = _FakeCloseError
-_httpx_mod.RemoteProtocolError = _FakeRemoteProtocolError
-_httpx_mod.ProxyError = _FakeProxyError
-_httpx_mod.HTTPError = _FakeHTTPError
-_httpx_mod.HTTPStatusError = _FakeHTTPStatusError
-sys.modules.setdefault("httpx", _httpx_mod)
+try:
+    import httpx as _httpx_mod
+except ImportError:  # pragma: no cover - minimal test environments only
+    _httpx_mod = MagicMock()
+    _httpx_mod.ConnectTimeout = _FakeConnectTimeout
+    _httpx_mod.ConnectError = _FakeConnectError
+    _httpx_mod.ReadTimeout = _FakeReadTimeout
+    _httpx_mod.TimeoutException = _FakeTimeoutException
+    _httpx_mod.NetworkError = _FakeNetworkError
+    _httpx_mod.ReadError = _FakeReadError
+    _httpx_mod.WriteError = _FakeWriteError
+    _httpx_mod.CloseError = _FakeCloseError
+    _httpx_mod.RemoteProtocolError = _FakeRemoteProtocolError
+    _httpx_mod.ProxyError = _FakeProxyError
+    _httpx_mod.HTTPError = _FakeHTTPError
+    _httpx_mod.HTTPStatusError = _FakeHTTPStatusError
+    sys.modules.setdefault("httpx", _httpx_mod)
 
 # pymilvus.client.abstract needs a real Hit class for isinstance() checks
 sys.modules.setdefault("pymilvus.client.abstract", _pymilvus_abstract_mod)

@@ -8,6 +8,7 @@ simple utility function imports.
 
 import asyncio
 import inspect
+import os
 import socket
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -433,7 +434,14 @@ class TestScrapeWithMarkitdown:
         mock_md.convert.return_value = mock_result
 
         with patch.object(wsmod, "MarkItDown", return_value=mock_md):
-            result = _scrape_with_markitdown("https://example.com")
+            result = _scrape_with_markitdown(
+                "https://example.com",
+                fetched_content=b"<html>content</html>",
+                content_type="text/html",
+            )
+        converted_path = mock_md.convert.call_args.args[0]
+        assert converted_path != "https://example.com"
+        assert not os.path.exists(converted_path)
         assert "Test Page" in result
         assert "Content here" in result
 
@@ -448,7 +456,11 @@ class TestScrapeWithMarkitdown:
         mock_md.convert.return_value = mock_result
 
         with patch.object(wsmod, "MarkItDown", return_value=mock_md):
-            result = _scrape_with_markitdown("https://example.com")
+            result = _scrape_with_markitdown(
+                "https://example.com",
+                fetched_content=b"<html>content</html>",
+                content_type="text/html",
+            )
         assert "https://example.com" in result
 
     def test_with_token_limit(self):
@@ -470,6 +482,8 @@ class TestScrapeWithMarkitdown:
                     "https://example.com",
                     token_limit=20,
                     truncation_msg="TRUNC",
+                    fetched_content=b"<html>content</html>",
+                    content_type="text/html",
                 )
         finally:
             wsmod.TIKTOKEN_AVAILABLE = original
@@ -581,7 +595,7 @@ class TestWebscrapeFunctionResponseFn:
         assert "non-public" in result.lower()
 
     def test_strategy1_success(self):
-        """When HTTP fetch fails and MarkItDown succeeds, return its content."""
+        """The controlled fetch returns locally converted content."""
 
         async def _run():
             import webscrape.webscrape_function as wsmod
@@ -590,29 +604,24 @@ class TestWebscrapeFunctionResponseFn:
                 webscrape_function,
             )
 
-            mock_result = MagicMock()
-            mock_result.title = "Article Title"
-            mock_result.text_content = "Real article content " * 5
-            mock_md = MagicMock()
-            mock_md.convert.return_value = mock_result
-
             # Disable robots.txt check
-            cfg = WebscrapeFunctionConfig(
-                respect_robots_txt=False, use_browser_fallback=False
-            )
+            cfg = WebscrapeFunctionConfig(respect_robots_txt=False)
             builder = MagicMock()
 
-            with patch.object(wsmod, "MarkItDown", return_value=mock_md):
-                with patch.object(
-                    wsmod,
-                    "_scrape_with_httpx_result",
-                    AsyncMock(return_value=(None, "http_error")),
-                ):
-                    fn_info = None
-                    async for item in webscrape_function(cfg, builder):
-                        fn_info = item
-                    result = await fn_info.fn("https://example.com")
-                    return result
+            safe_local_content = (
+                "# Article Title\n\n_Source: https://example.com_\n\n"
+                + "Real article content " * 5
+            )
+            with patch.object(
+                wsmod,
+                "_scrape_with_httpx_result",
+                AsyncMock(return_value=(safe_local_content, "ok")),
+            ):
+                fn_info = None
+                async for item in webscrape_function(cfg, builder):
+                    fn_info = item
+                result = await fn_info.fn("https://example.com")
+                return result
 
         result = run(_run())
         assert "Article Title" in result
@@ -628,34 +637,25 @@ class TestWebscrapeFunctionResponseFn:
                 webscrape_function,
             )
 
-            mock_result = MagicMock()
-            mock_result.title = "Just a Moment"
-            mock_result.text_content = "just a moment checking your browser please wait"
-            mock_md = MagicMock()
-            mock_md.convert.return_value = mock_result
-
-            cfg = WebscrapeFunctionConfig(
-                respect_robots_txt=False, use_browser_fallback=False
-            )
+            cfg = WebscrapeFunctionConfig(respect_robots_txt=False)
             builder = MagicMock()
 
-            with patch.object(wsmod, "MarkItDown", return_value=mock_md):
-                with patch.object(
-                    wsmod,
-                    "_scrape_with_httpx_result",
-                    AsyncMock(return_value=(None, "http_error")),
-                ):
-                    fn_info = None
-                    async for item in webscrape_function(cfg, builder):
-                        fn_info = item
-                    result = await fn_info.fn("https://example.com")
-                    return result
+            with patch.object(
+                wsmod,
+                "_scrape_with_httpx_result",
+                AsyncMock(return_value=(None, "blocked")),
+            ):
+                fn_info = None
+                async for item in webscrape_function(cfg, builder):
+                    fn_info = item
+                result = await fn_info.fn("https://example.com")
+                return result
 
         result = run(_run())
         assert result.startswith("Error: ")
 
-    def test_blocked_httpx_attempt_uses_browser_before_markitdown(self):
-        """A 403/challenge outcome should escalate to browser before direct URL conversion."""
+    def test_blocked_httpx_attempt_disables_browser_navigation(self):
+        """A blocked response must not trigger Chromium URL navigation."""
 
         async def _run():
             import webscrape.webscrape_function as wsmod
@@ -664,38 +664,20 @@ class TestWebscrapeFunctionResponseFn:
                 webscrape_function,
             )
 
-            cfg = WebscrapeFunctionConfig(
-                respect_robots_txt=False, use_browser_fallback=True
-            )
+            cfg = WebscrapeFunctionConfig(respect_robots_txt=False)
             builder = MagicMock()
-            browser_content = (
-                "# Browser Article\n\n_Source: https://example.com_\n\n"
-                + "Browser article content. " * 5
-            )
-
             httpx_result = AsyncMock(return_value=(None, "blocked"))
-            browser_scrape = AsyncMock(return_value=browser_content)
-            markitdown_scrape = AsyncMock(return_value="should not be used")
 
             with patch.object(wsmod, "_scrape_with_httpx_result", httpx_result):
-                with patch.object(wsmod, "PLAYWRIGHT_AVAILABLE", True):
-                    with patch.object(wsmod, "_scrape_with_browser", browser_scrape):
-                        with patch.object(
-                            wsmod,
-                            "_scrape_with_markitdown_with_timeout",
-                            markitdown_scrape,
-                        ):
-                            fn_info = None
-                            async for item in webscrape_function(cfg, builder):
-                                fn_info = item
-                            result = await fn_info.fn("https://example.com")
+                fn_info = None
+                async for item in webscrape_function(cfg, builder):
+                    fn_info = item
+                result = await fn_info.fn("https://example.com")
 
-            markitdown_scrape.assert_not_awaited()
             return result
 
         result = run(_run())
-        assert "Browser Article" in result
-        assert "Browser article content" in result
+        assert result.startswith("Error: ")
 
     def test_robots_txt_blocked(self):
         """robots.txt PermissionError is caught and returned as error message."""

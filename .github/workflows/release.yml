@@ -1,0 +1,244 @@
+name: Immutable Release Images
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  actions: read
+  contents: read
+  packages: write
+  id-token: write
+  attestations: write
+
+jobs:
+  verify-ci:
+    name: Require successful CI for source commit
+    runs-on: ubuntu-latest
+    outputs:
+      run-id: ${{ steps.ci.outputs.run-id }}
+      run-url: ${{ steps.ci.outputs.run-url }}
+    steps:
+      - name: Find completed successful CI run
+        id: ci
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          result="$(gh api \
+            -H 'Accept: application/vnd.github+json' \
+            "/repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$SOURCE_SHA&status=completed&per_page=100" \
+            --jq '.workflow_runs | map(select(.conclusion == "success" and .event == "push" and .head_branch == "main")) | sort_by(.run_number) | last // empty | [.id, .html_url, .head_sha, .conclusion] | @tsv')"
+          IFS=$'\t' read -r run_id run_url head_sha conclusion <<<"$result"
+          if [[ -z "${run_id:-}" || "$head_sha" != "$SOURCE_SHA" || "$conclusion" != success ]]; then
+            echo "No completed successful CI workflow exists for $SOURCE_SHA" >&2
+            exit 1
+          fi
+          echo "run-id=$run_id" >>"$GITHUB_OUTPUT"
+          echo "run-url=$run_url" >>"$GITHUB_OUTPUT"
+
+  release-images:
+    name: Build, scan, sign, and attest
+    needs: verify-ci
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Resolve immutable image names
+        id: images
+        shell: bash
+        run: |
+          owner="${GITHUB_REPOSITORY_OWNER,,}"
+          echo "base=ghcr.io/${owner}/daedalus" >>"$GITHUB_OUTPUT"
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push backend
+        id: backend
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: builder
+          file: builder/Dockerfile
+          build-contexts: |
+            skills=./skills
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.images.outputs.base }}:backend-${{ github.sha }}
+          provenance: mode=max
+          sbom: true
+          cache-from: type=gha,scope=backend
+          cache-to: type=gha,mode=max,scope=backend
+
+      - name: Build and push frontend
+        id: frontend
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: frontend
+          file: frontend/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.images.outputs.base }}:frontend-${{ github.sha }}
+          provenance: mode=max
+          sbom: true
+          cache-from: type=gha,scope=frontend
+          cache-to: type=gha,mode=max,scope=frontend
+
+      - name: Build and push Redis runtime
+        id: redis
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: redis
+          file: redis/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.images.outputs.base }}:redis-${{ github.sha }}
+          provenance: mode=max
+          sbom: true
+          cache-from: type=gha,scope=redis
+          cache-to: type=gha,mode=max,scope=redis
+
+      - name: Scan backend image
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ steps.images.outputs.base }}@${{ steps.backend.outputs.digest }}
+          format: table
+          severity: CRITICAL,HIGH
+          exit-code: '1'
+
+      - name: Scan frontend image
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ steps.images.outputs.base }}@${{ steps.frontend.outputs.digest }}
+          format: table
+          severity: CRITICAL,HIGH
+          exit-code: '1'
+
+      - name: Scan Redis image
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ steps.images.outputs.base }}@${{ steps.redis.outputs.digest }}
+          format: table
+          severity: CRITICAL,HIGH
+          exit-code: '1'
+
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@d58896d6a1865668819e1d91763c7751a165e159 # v3.9.2
+
+      - name: Sign immutable images with GitHub OIDC
+        env:
+          BASE_IMAGE: ${{ steps.images.outputs.base }}
+          BACKEND_DIGEST: ${{ steps.backend.outputs.digest }}
+          FRONTEND_DIGEST: ${{ steps.frontend.outputs.digest }}
+          REDIS_DIGEST: ${{ steps.redis.outputs.digest }}
+        run: |
+          cosign sign --yes "$BASE_IMAGE@$BACKEND_DIGEST"
+          cosign sign --yes "$BASE_IMAGE@$FRONTEND_DIGEST"
+          cosign sign --yes "$BASE_IMAGE@$REDIS_DIGEST"
+
+      - name: Attest backend provenance
+        uses: actions/attest-build-provenance@96b4a1ef7235a096b17240c259729fdd70c83d45 # v2
+        with:
+          subject-name: ${{ steps.images.outputs.base }}
+          subject-digest: ${{ steps.backend.outputs.digest }}
+          push-to-registry: true
+
+      - name: Attest frontend provenance
+        uses: actions/attest-build-provenance@96b4a1ef7235a096b17240c259729fdd70c83d45 # v2
+        with:
+          subject-name: ${{ steps.images.outputs.base }}
+          subject-digest: ${{ steps.frontend.outputs.digest }}
+          push-to-registry: true
+
+      - name: Attest Redis provenance
+        uses: actions/attest-build-provenance@96b4a1ef7235a096b17240c259729fdd70c83d45 # v2
+        with:
+          subject-name: ${{ steps.images.outputs.base }}
+          subject-digest: ${{ steps.redis.outputs.digest }}
+          push-to-registry: true
+
+      - name: Validate digest-pinned Helm render
+        uses: azure/setup-helm@bf6a7d304bc2fdb57e0331155b7ebf2c504acf0a # v4
+
+      - name: Render release chart
+        env:
+          BASE_IMAGE: ${{ steps.images.outputs.base }}
+          BACKEND_DIGEST: ${{ steps.backend.outputs.digest }}
+          FRONTEND_DIGEST: ${{ steps.frontend.outputs.digest }}
+          REDIS_DIGEST: ${{ steps.redis.outputs.digest }}
+        run: |
+          helm lint helm/daedalus
+          helm template daedalus helm/daedalus \
+            --set-string "images.backend.repository=$BASE_IMAGE" \
+            --set-string "images.backend.digest=$BACKEND_DIGEST" \
+            --set-string "images.frontend.repository=$BASE_IMAGE" \
+            --set-string "images.frontend.digest=$FRONTEND_DIGEST" \
+            --set-string "images.redis.repository=$BASE_IMAGE" \
+            --set-string "images.redis.digest=$REDIS_DIGEST" \
+            >release-manifest.yaml
+          test "$(grep -c "$BASE_IMAGE@sha256:" release-manifest.yaml)" -ge 3
+
+      - name: Record commit-to-digest evidence
+        env:
+          BASE_IMAGE: ${{ steps.images.outputs.base }}
+          BACKEND_DIGEST: ${{ steps.backend.outputs.digest }}
+          FRONTEND_DIGEST: ${{ steps.frontend.outputs.digest }}
+          REDIS_DIGEST: ${{ steps.redis.outputs.digest }}
+          CI_RUN_ID: ${{ needs.verify-ci.outputs.run-id }}
+          CI_RUN_URL: ${{ needs.verify-ci.outputs.run-url }}
+        run: |
+          jq -n \
+            --argjson schema_version 1 \
+            --arg commit "$GITHUB_SHA" \
+            --arg workflow_run "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+            --arg source_repository "$GITHUB_REPOSITORY" \
+            --arg source_ref "$GITHUB_REF" \
+            --arg ci_run_id "$CI_RUN_ID" \
+            --arg ci_run_url "$CI_RUN_URL" \
+            --arg backend "$BASE_IMAGE@$BACKEND_DIGEST" \
+            --arg frontend "$BASE_IMAGE@$FRONTEND_DIGEST" \
+            --arg redis "$BASE_IMAGE@$REDIS_DIGEST" \
+            '{
+              schemaVersion:$schema_version,
+              commit:$commit,
+              source:{repository:$source_repository,ref:$source_ref},
+              workflowRun:$workflow_run,
+              ci:{workflow:"ci.yml",runId:$ci_run_id,runUrl:$ci_run_url,headSha:$commit,event:"push",branch:"main",conclusion:"success"},
+              images:{backend:$backend,frontend:$frontend,redis:$redis},
+              security:{scans:{backend:"passed",frontend:"passed",redis:"passed"}},
+              signatures:{backend:"signed",frontend:"signed",redis:"signed"},
+              attestations:{backend:"published",frontend:"published",redis:"published"}
+            }' \
+            >release-metadata.json
+
+      - name: Sign release metadata
+        run: |
+          cosign sign-blob --yes \
+            --output-signature release-metadata.json.sig \
+            --output-certificate release-metadata.json.pem \
+            release-metadata.json
+
+      - name: Upload release evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-evidence-${{ github.sha }}
+          path: |
+            release-metadata.json
+            release-metadata.json.sig
+            release-metadata.json.pem
+            release-manifest.yaml
+          if-no-files-found: error

@@ -9,6 +9,7 @@ import { buildNatRequestHeaders } from './natMessages';
 import {
   ApiRouteError,
   type AsyncJobRequest,
+  type BackgroundExecutionControl,
   type DocumentIngestProgress,
 } from './types';
 
@@ -55,6 +56,7 @@ async function streamDocumentIngestJob(
   jobRequest: AsyncJobRequest,
   verifiedUsername: string,
   onProgress: (progress: DocumentIngestProgress) => Promise<void>,
+  control: BackgroundExecutionControl,
 ): Promise<string> {
   if (!jobRequest.documentIngest) {
     throw new ApiRouteError(
@@ -77,13 +79,29 @@ async function streamDocumentIngestJob(
   };
 
   const controller = new AbortController();
-  const timeoutId = setTimeout(
-    () => controller.abort(),
-    DOCUMENT_INGEST_TIMEOUT_MS,
-  );
+  let timedOut = false;
+  const timeoutId = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, DOCUMENT_INGEST_TIMEOUT_MS);
+  const handleExternalAbort = () => {
+    if (!controller.signal.aborted) {
+      controller.abort(control.signal?.reason);
+    }
+  };
+  if (control.signal) {
+    if (control.signal.aborted) {
+      handleExternalAbort();
+    } else {
+      control.signal.addEventListener('abort', handleExternalAbort, {
+        once: true,
+      });
+    }
+  }
 
   let response: Response;
   try {
+    await control.beforeBackendRequest?.();
     response = await fetch(ingestUrl, {
       method: 'POST',
       headers: buildNatRequestHeaders(
@@ -97,7 +115,13 @@ async function streamDocumentIngestJob(
     });
   } catch (err: any) {
     clearTimeout(timeoutId);
-    if (err?.name === 'AbortError') {
+    control.signal?.removeEventListener('abort', handleExternalAbort);
+    if (control.signal?.aborted) {
+      throw control.signal.reason instanceof Error
+        ? control.signal.reason
+        : err;
+    }
+    if (timedOut || err?.name === 'AbortError') {
       throw new Error(
         `Document ingest timed out after ${DOCUMENT_INGEST_TIMEOUT_MS}ms`,
       );
@@ -107,6 +131,7 @@ async function streamDocumentIngestJob(
 
   if (!response.ok) {
     clearTimeout(timeoutId);
+    control.signal?.removeEventListener('abort', handleExternalAbort);
     const errBody = await response.text().catch(() => '');
     throw new Error(
       `Document ingest failed (${response.status}): ${
@@ -117,6 +142,7 @@ async function streamDocumentIngestJob(
 
   if (!response.body) {
     clearTimeout(timeoutId);
+    control.signal?.removeEventListener('abort', handleExternalAbort);
     throw new Error('Document ingest stream returned no body');
   }
 
@@ -183,6 +209,7 @@ async function streamDocumentIngestJob(
     }
   } finally {
     clearTimeout(timeoutId);
+    control.signal?.removeEventListener('abort', handleExternalAbort);
     try {
       reader.releaseLock();
     } catch {
@@ -200,6 +227,7 @@ export async function startBackgroundDocumentIngest(
   jobId: string,
   jobRequest: AsyncJobRequest,
   verifiedUsername: string,
+  control: BackgroundExecutionControl = {},
 ): Promise<void> {
   const documentCount = jobRequest.documentIngest?.documentRefs.length || 0;
   const collectionName =
@@ -244,9 +272,11 @@ export async function startBackgroundDocumentIngest(
           updatedAt: Date.now(),
         });
       },
+      control,
     );
     await finalizeSuccess(jobId, jobRequest, output);
   } catch (error: any) {
+    if (control.signal?.aborted) throw error;
     logger.error(`Job ${jobId}: Direct document ingest failed`, error);
     await finalizeError(
       jobId,

@@ -47,14 +47,11 @@ function assertSafeRefId(
 }
 
 function normalizeDocumentRef(
-  input: unknown,
+  _input: unknown,
   storedDocument: StoredDocument,
 ): ValidatedDocumentRef {
-  const ref = input as Record<string, unknown>;
-  const filename =
-    toOptionalString(ref.filename) || toOptionalString(storedDocument.filename);
-  const mimeType =
-    toOptionalString(ref.mimeType) || toOptionalString(storedDocument.mimeType);
+  const filename = toOptionalString(storedDocument.filename);
+  const mimeType = toOptionalString(storedDocument.mimeType);
 
   return {
     documentId: storedDocument.id,

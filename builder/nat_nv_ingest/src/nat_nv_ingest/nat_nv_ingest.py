@@ -1,5 +1,6 @@
 import asyncio
 import base64
+import hashlib
 import html as html_mod
 import json
 import logging
@@ -11,12 +12,16 @@ from io import BytesIO
 from typing import Any, Literal, TypedDict
 
 import redis
+import urllib3
 from nat.builder.builder import Builder
 from nat.builder.framework_enum import LLMFrameworkEnum
 from nat.builder.function_info import FunctionInfo
 from nat.cli.register_workflow import register_function
 from nat.data_models.function import FunctionBaseConfig
-from nat_helpers.identity import resolve_authenticated_user_id
+from nat_helpers.identity import (
+    execution_id_from_context_or_none,
+    resolve_authenticated_user_id,
+)
 from nv_ingest_client.client import Ingestor, NvIngestClient
 from pydantic import BaseModel, ConfigDict, Field
 from pymilvus import MilvusClient
@@ -66,6 +71,8 @@ _EMPTY_ROW_RE = re.compile(r"^\|[\s|]*$")
 _NON_ALNUM_RE = re.compile(r"[^a-z0-9\s]")
 _COLLECTION_PART_RE = re.compile(r"[^a-zA-Z0-9_]+")
 _UNDERSCORE_COLLAPSE_RE = re.compile(r"_+")
+_SAFE_DOCUMENT_REF_RE = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
+_SAFE_OBJECT_PREFIX_RE = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
 SHARED_COLLECTION_NAMES = {
     "kubernetes",
     "mentalhealth",
@@ -125,7 +132,11 @@ ERROR_MESSAGE_CHAR_LIMIT = 100
 
 # Default per-document ingest size cap (bytes) applied before base64 decoding.
 # Overridable via the DOCUMENT_INGEST_MAX_SIZE_BYTES env var.
-DEFAULT_DOCUMENT_INGEST_MAX_SIZE_BYTES = 100 * 1024 * 1024
+DEFAULT_DOCUMENT_INGEST_MAX_SIZE_BYTES = 200 * 1024 * 1024
+DEFAULT_DOCUMENT_OBJECT_PREFIX = "daedalus-documents"
+DEFAULT_DOCUMENT_OBJECT_REQUEST_TIMEOUT_MS = 300_000
+MIN_DOCUMENT_OBJECT_REQUEST_TIMEOUT_MS = 100
+MAX_DOCUMENT_OBJECT_REQUEST_TIMEOUT_MS = 900_000
 
 
 def _truncate_error(error: object, limit: int = ERROR_MESSAGE_CHAR_LIMIT) -> str:
@@ -204,6 +215,224 @@ def _document_size_error(document_base64: str, max_bytes: int) -> str | None:
     return None
 
 
+class DocumentStorageError(ValueError):
+    """Safe error raised when an upload reference can't be loaded."""
+
+
+def _document_object_request_timeout_seconds() -> float:
+    """Return the fail-closed object-store request timeout in seconds."""
+    raw = (
+        os.getenv("DOCUMENT_OBJECT_REQUEST_TIMEOUT_MS")
+        or str(DEFAULT_DOCUMENT_OBJECT_REQUEST_TIMEOUT_MS)
+    ).strip()
+    try:
+        timeout_ms = int(raw)
+    except ValueError as exc:
+        raise DocumentStorageError(
+            "Error: Document object storage request timeout is invalid."
+        ) from exc
+    if not (
+        MIN_DOCUMENT_OBJECT_REQUEST_TIMEOUT_MS
+        <= timeout_ms
+        <= MAX_DOCUMENT_OBJECT_REQUEST_TIMEOUT_MS
+    ):
+        raise DocumentStorageError(
+            "Error: Document object storage request timeout is invalid."
+        )
+    return timeout_ms / 1000
+
+
+def _document_object_settings() -> tuple[str, str, str, str | None, str, bool, str]:
+    endpoint = (os.getenv("DOCUMENT_OBJECT_ENDPOINT") or "").strip()
+    access_key = (os.getenv("DOCUMENT_OBJECT_ACCESS_KEY") or "").strip()
+    secret_key = (os.getenv("DOCUMENT_OBJECT_SECRET_KEY") or "").strip()
+    session_token = (os.getenv("DOCUMENT_OBJECT_SESSION_TOKEN") or "").strip() or None
+    bucket = (os.getenv("DOCUMENT_OBJECT_BUCKET") or "").strip()
+    prefix = (
+        os.getenv("DOCUMENT_OBJECT_PREFIX") or DEFAULT_DOCUMENT_OBJECT_PREFIX
+    ).strip()
+    if not endpoint or not access_key or not secret_key or not bucket:
+        raise DocumentStorageError("Error: Document object storage is not configured.")
+    if not _SAFE_OBJECT_PREFIX_RE.fullmatch(prefix):
+        raise DocumentStorageError("Error: Document object storage prefix is invalid.")
+
+    secure = False
+    if endpoint.startswith("https://"):
+        secure = True
+        endpoint = endpoint.removeprefix("https://")
+    elif endpoint.startswith("http://"):
+        endpoint = endpoint.removeprefix("http://")
+    endpoint = endpoint.rstrip("/")
+    if not endpoint or "/" in endpoint:
+        raise DocumentStorageError(
+            "Error: Document object storage endpoint is invalid."
+        )
+    region = (os.getenv("DOCUMENT_OBJECT_REGION") or "us-east-1").strip()
+    return endpoint, access_key, secret_key, session_token, bucket, secure, region
+
+
+def _expected_document_object_key(
+    *, prefix: str, username: str, session_id: str, document_id: str
+) -> str:
+    if not _SAFE_DOCUMENT_REF_RE.fullmatch(
+        session_id
+    ) or not _SAFE_DOCUMENT_REF_RE.fullmatch(document_id):
+        raise DocumentStorageError("Error: Document reference is invalid.")
+    owner_hash = hashlib.sha256(username.encode("utf-8")).hexdigest()[:32]
+    return f"{prefix}/{owner_hash}/{session_id}/{document_id}"
+
+
+def _make_document_minio_client(
+    endpoint: str,
+    access_key: str,
+    secret_key: str,
+    session_token: str | None,
+    secure: bool,
+    region: str,
+) -> Any:
+    # Import lazily so NAT configuration and pure helper tests don't require the
+    # optional client until an object-backed upload is actually read.
+    from minio import Minio
+
+    timeout_seconds = _document_object_request_timeout_seconds()
+    http_client = urllib3.PoolManager(
+        timeout=urllib3.Timeout(
+            total=timeout_seconds,
+            connect=min(timeout_seconds, 10.0),
+            read=timeout_seconds,
+        ),
+        retries=False,
+    )
+
+    return Minio(
+        endpoint,
+        access_key=access_key,
+        secret_key=secret_key,
+        session_token=session_token,
+        secure=secure,
+        region=region,
+        http_client=http_client,
+    )
+
+
+def _read_document_object(
+    *,
+    document_record: dict[str, Any],
+    document_id: str,
+    session_id: str,
+    username: str,
+    config: "NvIngestFunctionConfig",
+    max_bytes: int,
+) -> bytes:
+    endpoint, access_key, secret_key, session_token, bucket, secure, region = (
+        _document_object_settings()
+    )
+    configured_prefix = (
+        os.getenv("DOCUMENT_OBJECT_PREFIX") or DEFAULT_DOCUMENT_OBJECT_PREFIX
+    ).strip()
+    object_key = str(document_record.get("objectKey") or "")
+    object_bucket = str(document_record.get("objectBucket") or "")
+    expected_key = _expected_document_object_key(
+        prefix=configured_prefix,
+        username=username,
+        session_id=session_id,
+        document_id=document_id,
+    )
+    if object_bucket != bucket or object_key != expected_key:
+        raise DocumentStorageError(
+            "Error: Stored document object reference is invalid."
+        )
+
+    declared_size = document_record.get("size")
+    if not isinstance(declared_size, int) or isinstance(declared_size, bool):
+        raise DocumentStorageError("Error: Stored document size is invalid.")
+    if declared_size <= 0:
+        raise DocumentStorageError("Error: Retrieved document data is empty.")
+    if declared_size > max_bytes:
+        raise DocumentStorageError(
+            f"Error: Document exceeds the maximum allowed size ({max_bytes} bytes). "
+            "Please upload a smaller file."
+        )
+    expires_at = document_record.get("expiresAt")
+    if isinstance(expires_at, (int, float)) and expires_at <= time.time() * 1000:
+        raise DocumentStorageError(
+            "Error: Document has expired. Please upload the document again."
+        )
+
+    client = _make_document_minio_client(
+        endpoint, access_key, secret_key, session_token, secure, region
+    )
+    response = None
+    try:
+        response = client.get_object(bucket, object_key)
+        chunks: list[bytes] = []
+        total = 0
+        while True:
+            chunk = response.read(min(1024 * 1024, max_bytes - total + 1))
+            if not chunk:
+                break
+            total += len(chunk)
+            if total > max_bytes:
+                raise DocumentStorageError(
+                    f"Error: Document exceeds the maximum allowed size ({max_bytes} bytes). "
+                    "Please upload a smaller file."
+                )
+            chunks.append(chunk)
+        if total != declared_size:
+            raise DocumentStorageError(
+                "Error: Stored document length doesn't match its metadata."
+            )
+        return b"".join(chunks)
+    except DocumentStorageError:
+        raise
+    except Exception as exc:
+        logger.error("Object storage error retrieving %s: %s", document_id, exc)
+        raise DocumentStorageError(
+            "Error accessing document object storage. Please upload the document again."
+        ) from exc
+    finally:
+        if response is not None:
+            response.close()
+            response.release_conn()
+
+
+async def _load_document_bytes(
+    *,
+    document_record: dict[str, Any],
+    document_id: str,
+    session_id: str,
+    username: str,
+    config: "NvIngestFunctionConfig",
+) -> tuple[bytes, str]:
+    filename = str(document_record.get("filename") or f"{document_id}.bin")
+    max_bytes = document_ingest_max_size_bytes()
+    document_base64 = document_record.get("data")
+    if isinstance(document_base64, str) and document_base64:
+        size_error = _document_size_error(document_base64, max_bytes)
+        if size_error is not None:
+            raise DocumentStorageError(size_error)
+        try:
+            document_bytes = base64.b64decode(document_base64, validate=True)
+        except (ValueError, TypeError) as exc:
+            raise DocumentStorageError(
+                "Error: Retrieved document data is invalid."
+            ) from exc
+        return document_bytes, filename
+
+    if document_record.get("storage") != "object-v1":
+        raise DocumentStorageError("Error: Retrieved document data is empty.")
+    document_bytes = await asyncio.to_thread(
+        _read_document_object,
+        document_record=document_record,
+        document_id=document_id,
+        session_id=session_id,
+        username=username,
+        config=config,
+        max_bytes=max_bytes,
+    )
+    return document_bytes, filename
+
+
 def normalize_collection_part(value: str | None, fallback: str = "anonymous") -> str:
     """Return a Milvus-safe collection name component."""
     raw = (value or "").strip() or fallback
@@ -211,22 +440,94 @@ def normalize_collection_part(value: str | None, fallback: str = "anonymous") ->
     normalized = _UNDERSCORE_COLLAPSE_RE.sub("_", normalized).strip("_").lower()
     if not normalized:
         normalized = fallback
-    if normalized[0].isdigit():
+    if normalized and normalized[0].isdigit():
         normalized = f"u_{normalized}"
     return normalized[:64]
+
+
+def normalize_collection_name(value: str | None, fallback: str = "user_uploads") -> str:
+    """Return a complete Milvus collection name without component truncation."""
+
+    raw = (value or "").strip() or fallback
+    normalized = _COLLECTION_PART_RE.sub("_", raw)
+    normalized = _UNDERSCORE_COLLAPSE_RE.sub("_", normalized).strip("_").lower()
+    if not normalized:
+        normalized = fallback
+    if normalized and normalized[0].isdigit():
+        normalized = f"u_{normalized}"
+    return normalized[:255]
+
+
+def private_user_collection_part(username: str | None) -> str:
+    """Return a readable, collision-resistant namespace for one subject."""
+
+    subject = (username or "").strip() or "anonymous"
+    readable = normalize_collection_part(subject, fallback="anonymous")[:24]
+    subject_hash = hashlib.sha256(subject.encode("utf-8")).hexdigest()
+    return f"{readable}_{subject_hash}"
+
+
+def legacy_user_upload_collection_name(
+    username: str | None,
+    base_collection_name: str | None = "user_uploads",
+) -> str:
+    """Return the pre-hash collection name for an explicit offline migration."""
+
+    base = normalize_collection_part(base_collection_name, fallback="user_uploads")
+    user = normalize_collection_part(username, fallback="anonymous")
+    suffix = f"_{user}"
+    if base == user or base.endswith(suffix):
+        return base
+    return f"{base}{suffix}"
 
 
 def user_upload_collection_name(
     username: str | None,
     base_collection_name: str | None = "user_uploads",
 ) -> str:
-    """Derive the default per-user uploaded-document collection name."""
+    """Derive a private collection from the complete authenticated subject."""
+
     base = normalize_collection_part(base_collection_name, fallback="user_uploads")
-    user = normalize_collection_part(username, fallback="anonymous")
-    suffix = f"_{user}"
-    if base.endswith(suffix):
-        return base
-    return f"{base}{suffix}"
+    user_part = private_user_collection_part(username)
+    return f"{base}_{user_part}"
+
+
+def user_collection_migration_names(
+    username: str | None,
+    base_collection_name: str | None = "user_uploads",
+) -> tuple[str, str]:
+    """Return ``(legacy, current)`` names for a controlled data migration.
+
+    Runtime reads and writes use only the current name. Legacy collections can
+    contain records from colliding normalized subjects, so assigning their data
+    to a user requires an operator to validate ownership before migration.
+    """
+
+    return (
+        legacy_user_upload_collection_name(username, base_collection_name),
+        user_upload_collection_name(username, base_collection_name),
+    )
+
+
+def plan_user_collection_migrations(
+    authenticated_subjects: list[str],
+    base_collection_name: str | None = "user_uploads",
+) -> dict[str, str]:
+    """Build an unambiguous legacy-to-current migration map or fail closed."""
+
+    plan: dict[str, str] = {}
+    for subject in authenticated_subjects:
+        legacy_name, current_name = user_collection_migration_names(
+            subject, base_collection_name
+        )
+        existing_target = plan.get(legacy_name)
+        if existing_target is not None and existing_target != current_name:
+            raise ValueError(
+                f"legacy collection '{legacy_name}' maps to multiple subjects; "
+                "ownership must be resolved before migration"
+            )
+        plan[legacy_name] = current_name
+    return plan
 
 
 def resolve_user_collection_name(
@@ -238,19 +539,30 @@ def resolve_user_collection_name(
     if not collection_name:
         return user_upload_collection_name(username, default_collection_name)
 
-    collection = normalize_collection_part(collection_name, fallback="user_uploads")
-    user = normalize_collection_part(username, fallback="anonymous")
+    collection = normalize_collection_name(collection_name, fallback="user_uploads")
+    user_part = private_user_collection_part(username)
+    legacy_user = normalize_collection_part(username, fallback="anonymous")
 
     if collection in SHARED_COLLECTION_NAMES:
         return collection
-    if collection == user or collection.endswith(f"_{user}"):
+    if collection == user_part or collection.endswith(f"_{user_part}"):
         return collection
+
+    # Map an explicitly supplied legacy name to the new namespace without ever
+    # reading the potentially ambiguous legacy collection. This keeps callers
+    # migration-compatible while preserving tenant isolation.
+    if collection == legacy_user:
+        return user_upload_collection_name(username, collection)
+    legacy_suffix = f"_{legacy_user}"
+    if collection.endswith(legacy_suffix):
+        legacy_base = collection[: -len(legacy_suffix)]
+        return user_upload_collection_name(username, legacy_base)
     return user_upload_collection_name(username, collection)
 
 
 def classify_collection_scope(collection_name: str | None) -> Literal["shared", "user"]:
     """Classify a Milvus collection as shared or user-scoped."""
-    collection = normalize_collection_part(collection_name, fallback="")
+    collection = normalize_collection_name(collection_name, fallback="")
     if collection in SHARED_COLLECTION_NAMES:
         return "shared"
     return "user"
@@ -370,12 +682,26 @@ class NvIngestFunctionConfig(FunctionBaseConfig, name="nat_nv_ingest"):
         ),
     )
     minio_endpoint: str = Field(
-        default="localhost:9000", description="MinIO endpoint for document storage"
+        default_factory=lambda: (os.getenv("MINIO_ENDPOINT") or "").strip(),
+        description="MinIO endpoint for document storage",
     )
-    minio_access_key: str = Field(default="minioadmin", description="MinIO access key")
-    minio_secret_key: str = Field(default="minioadmin", description="MinIO secret key")
+    minio_access_key: str = Field(
+        default_factory=lambda: (os.getenv("MINIO_ACCESS_KEY") or "").strip(),
+        description="MinIO access key",
+    )
+    minio_secret_key: str = Field(
+        default_factory=lambda: (os.getenv("MINIO_SECRET_KEY") or "").strip(),
+        description="MinIO secret key",
+    )
+    minio_session_token: str | None = Field(
+        default_factory=lambda: (
+            (os.getenv("MINIO_SESSION_TOKEN") or "").strip() or None
+        ),
+        description="Optional temporary MinIO/S3 session token",
+    )
     minio_bucket: str = Field(
-        default="nv-ingest", description="MinIO bucket name for extracted assets"
+        default_factory=lambda: (os.getenv("MINIO_BUCKET") or "nv-ingest").strip(),
+        description="MinIO bucket name for extracted assets",
     )
 
     # Chunking / embedding
@@ -1067,10 +1393,8 @@ def _build_ingestor(
             "extract_images": True,
             "table_output_format": "markdown",
             "text_depth": "page",
-            "extract_method": config.extract_method,
+            "extract_method": ("render_as_pdf" if is_office else config.extract_method),
         }
-        if is_office:
-            extract_kwargs["render_as_pdf"] = True
 
     ingestor = Ingestor(client=nv_client).buffers([(filename, BytesIO(document_bytes))])
 
@@ -1258,24 +1582,21 @@ async def _extract_document_to_markdown(
                     "Please upload the document again from your account."
                 )
 
-            document_base64 = document_record.get("data")
-            filename = document_record.get("filename", f"{document_id}.bin")
-            if not document_base64:
+            try:
+                document_bytes, filename = await _load_document_bytes(
+                    document_record=document_record,
+                    document_id=str(document_id),
+                    session_id=str(session_id),
+                    username=username,
+                    config=config,
+                )
+            except DocumentStorageError as exc:
                 return _failure(
-                    "Error: Retrieved document data is empty.",
-                    filename=filename,
+                    str(exc),
+                    filename=str(
+                        document_record.get("filename") or f"{document_id}.bin"
+                    ),
                 )
-            max_bytes = document_ingest_max_size_bytes()
-            size_error = _document_size_error(document_base64, max_bytes)
-            if size_error is not None:
-                logger.warning(
-                    "Document %s (%s) exceeds max ingest size %d bytes",
-                    document_id,
-                    filename,
-                    max_bytes,
-                )
-                return _failure(size_error, filename=filename)
-            document_bytes = base64.b64decode(document_base64)
         except redis.RedisError as e:
             logger.error("Redis error retrieving document: %s", e)
             return _failure(f"Error accessing document storage: {str(e)}")
@@ -1574,28 +1895,21 @@ class NvIngestDocumentProcessor:
                         "Please upload the document again from your account."
                     )
 
-                document_base64 = document_record.get("data")
-                filename = document_record.get("filename", f"{document_id}.bin")
-
-                if not document_base64:
-                    logger.error("Document data is empty for document %s", document_id)
+                try:
+                    document_bytes, filename = await _load_document_bytes(
+                        document_record=document_record,
+                        document_id=str(document_id),
+                        session_id=str(session_id),
+                        username=username,
+                        config=config,
+                    )
+                except DocumentStorageError as exc:
                     return _failure(
-                        "Error: Retrieved document data is empty.",
-                        filename=filename,
+                        str(exc),
+                        filename=str(
+                            document_record.get("filename") or f"{document_id}.bin"
+                        ),
                     )
-
-                max_bytes = document_ingest_max_size_bytes()
-                size_error = _document_size_error(document_base64, max_bytes)
-                if size_error is not None:
-                    logger.warning(
-                        "Document %s (%s) exceeds max ingest size %d bytes",
-                        document_id,
-                        filename,
-                        max_bytes,
-                    )
-                    return _failure(size_error, filename=filename)
-
-                document_bytes = base64.b64decode(document_base64)
             except redis.RedisError as e:
                 logger.error("Redis error retrieving document: %s", e)
                 return _failure(f"Error accessing document storage: {str(e)}")
@@ -1604,7 +1918,7 @@ class NvIngestDocumentProcessor:
                 return _failure(f"Error processing document data: {str(e)}")
 
             logger.info(
-                "Fetched %s from Redis in %.2fs (size=%d bytes)",
+                "Fetched %s from document storage in %.2fs (size=%d bytes)",
                 filename,
                 time.time() - fetch_start,
                 len(document_bytes),
@@ -1612,7 +1926,7 @@ class NvIngestDocumentProcessor:
             await _emit_stage(
                 "fetched",
                 filename,
-                f"Fetched {filename} from Redis ({len(document_bytes)} bytes)",
+                f"Fetched {filename} from document storage ({len(document_bytes)} bytes)",
             )
 
             await _emit_stage("preparing", filename, "Preparing NV-Ingest pipeline")
@@ -2244,8 +2558,8 @@ async def nv_ingest_function(
         if "milvus" not in _retrieval_client_cache:
             async with _retrieval_client_lock:
                 if "milvus" not in _retrieval_client_cache:
-                    _retrieval_client_cache["milvus"] = MilvusClient(
-                        **_milvus_client_kwargs(config)
+                    _retrieval_client_cache["milvus"] = await asyncio.to_thread(
+                        MilvusClient, **_milvus_client_kwargs(config)
                     )
         return _retrieval_client_cache["milvus"]
 
@@ -2261,7 +2575,9 @@ async def nv_ingest_function(
                     )
                     milvus_client = _retrieval_client_cache.get("milvus")
                     if milvus_client is None:
-                        milvus_client = MilvusClient(**_milvus_client_kwargs(config))
+                        milvus_client = await asyncio.to_thread(
+                            MilvusClient, **_milvus_client_kwargs(config)
+                        )
                         _retrieval_client_cache["milvus"] = milvus_client
                     reranker_config = None
                     if config.use_reranker and config.reranker_endpoint:
@@ -2312,6 +2628,153 @@ async def nv_ingest_function(
             logger.error("Error listing Milvus collections: %s", e)
             return "Error listing Milvus collections."
 
+    async def _immutable_document_references(
+        document_refs: list[dict[str, Any]], username: str
+    ) -> list[dict[str, Any]]:
+        """Resolve immutable upload identities before reserving an ingest."""
+
+        redis_client = await document_processor._get_redis()
+        resolved: list[dict[str, Any]] = []
+        for document_ref in document_refs:
+            if not isinstance(document_ref, dict):
+                raise DocumentStorageError(
+                    "Error: Invalid document reference provided."
+                )
+            document_id = document_ref.get("documentId")
+            session_id = document_ref.get("sessionId")
+            if not isinstance(document_id, str) or not isinstance(session_id, str):
+                raise DocumentStorageError(
+                    "Error: Document reference must contain documentId and sessionId."
+                )
+            if not _SAFE_DOCUMENT_REF_RE.fullmatch(
+                document_id
+            ) or not _SAFE_DOCUMENT_REF_RE.fullmatch(session_id):
+                raise DocumentStorageError("Error: Document reference is invalid.")
+
+            raw = await asyncio.to_thread(
+                redis_client.execute_command,
+                "JSON.GET",
+                f"document:{session_id}:{document_id}",
+            )
+            if not raw:
+                raise DocumentStorageError(
+                    "Error: Document not found in storage. Please upload it again."
+                )
+            record = json.loads(raw)
+            if not isinstance(record, dict) or not _can_access_stored_document(
+                record, username
+            ):
+                raise DocumentStorageError(
+                    "Error: You do not have access to this document."
+                )
+
+            identity: dict[str, Any] = {
+                "documentId": document_id,
+                "sessionId": session_id,
+                "size": record.get("size"),
+            }
+            if record.get("storage") == "object-v1":
+                object_key = record.get("objectKey")
+                object_bucket = record.get("objectBucket")
+                if not isinstance(object_key, str) or not isinstance(
+                    object_bucket, str
+                ):
+                    raise DocumentStorageError(
+                        "Error: Stored document object reference is invalid."
+                    )
+                _, _, _, _, configured_bucket, _, _ = _document_object_settings()
+                configured_prefix = (
+                    os.getenv("DOCUMENT_OBJECT_PREFIX")
+                    or DEFAULT_DOCUMENT_OBJECT_PREFIX
+                ).strip()
+                expected_key = _expected_document_object_key(
+                    prefix=configured_prefix,
+                    username=username,
+                    session_id=session_id,
+                    document_id=document_id,
+                )
+                if object_bucket != configured_bucket or object_key != expected_key:
+                    raise DocumentStorageError(
+                        "Error: Stored document object reference is invalid."
+                    )
+                identity.update(
+                    {
+                        "storage": "object-v1",
+                        "objectKey": object_key,
+                        "objectBucket": object_bucket,
+                        "etag": record.get("etag"),
+                    }
+                )
+            elif isinstance(record.get("data"), str) and record["data"]:
+                identity.update(
+                    {
+                        "storage": "legacy-base64",
+                        "payloadSha256": hashlib.sha256(
+                            record["data"].encode("ascii", errors="strict")
+                        ).hexdigest(),
+                    }
+                )
+            else:
+                raise DocumentStorageError("Error: Retrieved document data is empty.")
+            resolved.append(identity)
+        return resolved
+
+    async def _run_idempotent_ingest(
+        *,
+        document_refs: list[dict[str, Any]],
+        username: str,
+        collection_name: str | None,
+        chunk_size: int | None,
+        chunk_overlap: int | None,
+        run: Callable[[], Awaitable[str]],
+    ) -> str:
+        execution_id = execution_id_from_context_or_none()
+        if not execution_id:
+            return await run()
+
+        resolved_collection = resolve_user_collection_name(
+            collection_name,
+            username,
+            config.default_collection_name,
+        )
+        try:
+            immutable_refs = await _immutable_document_references(
+                document_refs, username
+            )
+            from nat_helpers.idempotency import reserve_operation
+
+            reservation = await reserve_operation(
+                user_id=username,
+                execution_id=execution_id,
+                operation="ingest_user_documents",
+                arguments={
+                    "collection": resolved_collection,
+                    "documents": immutable_refs,
+                    "chunkSize": chunk_size or config.chunk_size,
+                    "chunkOverlap": chunk_overlap or config.chunk_overlap,
+                },
+            )
+        except Exception as exc:
+            logger.exception("Unable to reserve autonomous document ingest")
+            return f"Error: document ingest idempotency unavailable: {exc}."
+
+        if not reservation.acquired:
+            if reservation.state == "completed" and reservation.stored_result:
+                return reservation.stored_result
+            return (
+                "Document ingest wasn't repeated because the same autonomous "
+                "operation has an existing or ambiguous execution record."
+            )
+
+        result = await run()
+        from nat_helpers.idempotency import complete_operation
+
+        if not await complete_operation(reservation, result):
+            logger.error(
+                "Document ingest finished but its idempotency result couldn't be finalized"
+            )
+        return result
+
     async def nv_ingest_router(input_message: dict[str, Any]) -> str:
         """Routes NV Ingest requests to the appropriate function."""
         logger.info(
@@ -2360,27 +2823,50 @@ async def nv_ingest_function(
                     "Processing multiple documents: %d files",
                     len(documentRefs) if isinstance(documentRefs, list) else 0,
                 )
-                return await document_processor.process_multiple_documents(
-                    documentRefs=documentRefs,
+
+                async def run_batch() -> str:
+                    return await document_processor.process_multiple_documents(
+                        documentRefs=documentRefs,
+                        username=username,
+                        collection_name=get_param("collection_name"),
+                        collection_scope=get_param("collection_scope"),
+                        provenance=provenance,
+                        chunk_size=inner_request.get("chunk_size"),
+                        chunk_overlap=inner_request.get("chunk_overlap"),
+                    )
+
+                return await _run_idempotent_ingest(
+                    document_refs=documentRefs,
                     username=username,
                     collection_name=get_param("collection_name"),
-                    collection_scope=get_param("collection_scope"),
-                    provenance=provenance,
                     chunk_size=inner_request.get("chunk_size"),
                     chunk_overlap=inner_request.get("chunk_overlap"),
+                    run=run_batch,
                 )
 
             elif "documentRef" in inner_request:
-                ingest_result = await document_processor.process_document(
-                    documentRef=inner_request.get("documentRef"),
+                document_ref = inner_request.get("documentRef")
+
+                async def run_single() -> str:
+                    ingest_result = await document_processor.process_document(
+                        documentRef=document_ref,
+                        username=username,
+                        collection_name=get_param("collection_name"),
+                        collection_scope=get_param("collection_scope"),
+                        provenance=provenance,
+                        chunk_size=inner_request.get("chunk_size"),
+                        chunk_overlap=inner_request.get("chunk_overlap"),
+                    )
+                    return format_single_doc_response(ingest_result)
+
+                return await _run_idempotent_ingest(
+                    document_refs=[document_ref],
                     username=username,
                     collection_name=get_param("collection_name"),
-                    collection_scope=get_param("collection_scope"),
-                    provenance=provenance,
                     chunk_size=inner_request.get("chunk_size"),
                     chunk_overlap=inner_request.get("chunk_overlap"),
+                    run=run_single,
                 )
-                return format_single_doc_response(ingest_result)
 
             return await list_collections(username)
 
@@ -2477,26 +2963,48 @@ async def nv_ingest_function(
             )
         if op == "ingest":
             if documentRefs:
-                return await document_processor.process_multiple_documents(
-                    documentRefs=documentRefs,
+
+                async def run_batch() -> str:
+                    return await document_processor.process_multiple_documents(
+                        documentRefs=documentRefs,
+                        username=effective_username,
+                        collection_name=collection_name,
+                        collection_scope=collection_scope,
+                        provenance=provenance,
+                        chunk_size=chunk_size,
+                        chunk_overlap=chunk_overlap,
+                    )
+
+                return await _run_idempotent_ingest(
+                    document_refs=documentRefs,
                     username=effective_username,
                     collection_name=collection_name,
-                    collection_scope=collection_scope,
-                    provenance=provenance,
                     chunk_size=chunk_size,
                     chunk_overlap=chunk_overlap,
+                    run=run_batch,
                 )
             if documentRef:
-                ingest_result = await document_processor.process_document(
-                    documentRef=documentRef,
+
+                async def run_single() -> str:
+                    ingest_result = await document_processor.process_document(
+                        documentRef=documentRef,
+                        username=effective_username,
+                        collection_name=collection_name,
+                        collection_scope=collection_scope,
+                        provenance=provenance,
+                        chunk_size=chunk_size,
+                        chunk_overlap=chunk_overlap,
+                    )
+                    return format_single_doc_response(ingest_result)
+
+                return await _run_idempotent_ingest(
+                    document_refs=[documentRef],
                     username=effective_username,
                     collection_name=collection_name,
-                    collection_scope=collection_scope,
-                    provenance=provenance,
                     chunk_size=chunk_size,
                     chunk_overlap=chunk_overlap,
+                    run=run_single,
                 )
-                return format_single_doc_response(ingest_result)
             return "Error: documentRef or documentRefs is required for ingestion."
         if op == "extract":
             if documentRefs:

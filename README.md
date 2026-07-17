@@ -30,10 +30,10 @@ What separates Daedalus from a typical chat wrapper:
 
 Daedalus supports two practical ways to run the project.
 
-| Mode                 | What it starts                                                                                     | Best for                                                          |
-| -------------------- | -------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
-| Local Docker Compose | `frontend`, `backend`, `nginx`, `redis`, plus a `builder` utility container                        | Local development and validating one backend config at a time     |
-| Kubernetes via Helm  | Backend, frontend, nginx, Redis, optional RedisInsight, autonomous worker, ingress, PVCs, policies | Persistent multi-user deployments and the full platform footprint |
+| Mode                 | What it starts                                                              | Best for                                                          |
+| -------------------- | --------------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| Local Docker Compose | `frontend`, `backend`, `nginx`, `redis`, plus a `builder` utility container | Local development and validating one backend config at a time     |
+| Kubernetes via Helm  | Backend, frontend, nginx, Redis, autonomous worker, ingress, PVCs, policies | Persistent multi-user deployments and the full platform footprint |
 
 > [!IMPORTANT]
 > The local Compose stack does not start Milvus, NV-Ingest, or Phoenix.
@@ -115,7 +115,6 @@ docker compose up --build
 - Main app through nginx: `http://localhost`
 - Frontend directly: `http://localhost:3000`
 - Backend API: `http://localhost:8000`
-- RedisInsight (bundled with Redis Stack): `http://localhost:8001`
 
 ## Local Development Notes
 
@@ -190,13 +189,13 @@ The Helm chart can deploy:
 
 - Backend deployment
 - Frontend and nginx
-- Redis Stack and optional RedisInsight
+- Redis Stack using the repository-owned, security-updated runtime image
 - An autonomous-agent worker Deployment
 - Ingress, PVCs, PodDisruptionBudget, and network policies
 - A chart-managed internal API token shared by frontend and backend
 - Optional Cilium FQDN-based egress restrictions
 
-Start with [`helm/daedalus/values.yaml`](helm/daedalus/values.yaml) for defaults and [`custom-values.yaml`](custom-values.yaml) for an opinionated production example. The production example disables RedisInsight; enable it only for time-bounded maintenance through a private access path or `kubectl port-forward`.
+Start with [`helm/daedalus/values.yaml`](helm/daedalus/values.yaml) for defaults and [`custom-values.yaml`](custom-values.yaml) for an opinionated production example. RedisInsight isn't shipped. Use an authenticated, time-bounded local client through `kubectl port-forward` when interactive Redis inspection is required. The [Helm Redis runbook](helm/daedalus/README.md#redis-acl-tls-and-rotation) covers ACL credential and TLS certificate rotation.
 
 ### Kubernetes Request Flow
 
@@ -285,6 +284,15 @@ uploader, source, target collection, database name, and timestamp. The backend
 rejects scope mismatches so accidental writes to shared corpora are caught
 before ingestion.
 
+Legacy normalized private collections have an authenticated, operator-only
+migration command at
+[`builder/milvus_collection_migration.py`](builder/milvus_collection_migration.py).
+It migrates one reviewed subject at a time, refuses ambiguous ownership, and
+doesn't expose migration actions to the agent. See the private collection
+migration runbook in
+[`builder/nat_nv_ingest/README.md`](builder/nat_nv_ingest/README.md#private-collection-migration-runbook)
+before cutover.
+
 For implementation details, see
 [`frontend/pages/api/milvus/README.md`](frontend/pages/api/milvus/README.md)
 and [`builder/nat_nv_ingest/README.md`](builder/nat_nv_ingest/README.md).
@@ -335,7 +343,7 @@ telemetry, MCP, or serving work.
 | `autonomous_agent`   | package | Long-running autonomous worker, Redis state store, and prompt runtime |
 | `content_distiller`  | package | Long-content distillation helper                                      |
 | `visual_media`       | package | Unified text-to-image, image edit, and image/video analysis           |
-| `nat_helpers`        | package | Shared identity, memory, image, and URL utilities                     |
+| `nat_helpers`        | package | Shared identity, memory, NVIDIA docs, image, and URL utilities        |
 | `nat_nv_ingest`      | package | Unified user-document ingestion, search, and listing                  |
 | `rss_feed`           | package | RSS fetching, reranking, and scraping                                 |
 | `smart_milvus`       | package | Milvus retrieval, domain routing, and reranking                       |
@@ -345,7 +353,7 @@ telemetry, MCP, or serving work.
 | `webscrape`          | package | Web page extraction                                                   |
 | `entrypoint.py`      | module  | Version-guarded NAT entrypoint with auth and application routes       |
 | `llm_diagnostics.py` | module  | OpenAI SDK logging and timeout enforcement for LLM client resilience  |
-| `mcp_patches.py`     | module  | Bounded MCP startup, OAuth bootstrap, approval, and logging patches   |
+| `mcp_patches.py`     | module  | Bounded MCP startup, OAuth bootstrap, and approval policy adapters    |
 
 Several packages include their own README files under `builder/`.
 

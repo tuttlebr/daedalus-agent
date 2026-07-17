@@ -1,6 +1,14 @@
 ---
 name: unifi-network-setup
-description: Configure the UniFi Network MCP server for Claude Code, Codex, or OpenClaw — set controller host, credentials, and permissions
+description: >-
+  Set up and configure the UniFi Network MCP server connection for Claude
+  Code, Codex, or OpenClaw, including controller host or IP, local admin
+  username and password, optional experimental API key, plus site, port, SSL,
+  and write-permission policy gates. Use for first-time setup, connecting or
+  onboarding a UniFi controller, updating credentials or the API key, enabling
+  write permissions, or when UNIFI_NETWORK_HOST is not configured and another
+  UniFi skill reports the server is unavailable. Use unifi-network for
+  day-to-day network management once the connection works.
 allowed-tools: Read, Bash, AskUserQuestion
 ---
 

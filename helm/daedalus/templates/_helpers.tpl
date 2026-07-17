@@ -38,3 +38,52 @@ affinity:
               {{- end }}
 {{- end }}
 {{- end -}}
+
+{{- /*
+Render an image by immutable digest when configured, otherwise fall back to
+the explicit tag. Call with: include "daedalus.image" .Values.images.backend
+*/ -}}
+{{- define "daedalus.image" -}}
+{{- if .digest -}}
+{{- printf "%s@%s" .repository .digest -}}
+{{- else -}}
+{{- printf "%s:%s" .repository .tag -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "daedalus.redisSecretName" -}}
+{{- .Values.redis.auth.existingSecret | default (printf "%s-redis-auth" (include "daedalus.fullname" .)) -}}
+{{- end -}}
+
+{{- define "daedalus.redisTlsSecretName" -}}
+{{- required "redis.tls.existingSecret is required when redis.tls.enabled=true" .Values.redis.tls.existingSecret -}}
+{{- end -}}
+
+{{- /*
+Restart Redis and every in-chart client when Helm-managed ACL values change.
+External Secret contents are intentionally opaque to Helm and require the
+documented forceRedeploy value during rotation.
+*/ -}}
+{{- define "daedalus.redisAuthConfigChecksum" -}}
+{{- toJson .Values.redis.auth | sha256sum -}}
+{{- end -}}
+
+{{- define "daedalus.documentObjectSecretName" -}}
+{{- .Values.documentObjectStorage.auth.existingSecret | default (printf "%s-document-objects" (include "daedalus.fullname" .)) -}}
+{{- end -}}
+
+{{- define "daedalus.documentObjectNetworkMode" -}}
+{{- $mode := .Values.documentObjectStorage.networkPolicy.mode | default "inCluster" -}}
+{{- if not (has $mode (list "inCluster" "external")) -}}
+{{- fail "documentObjectStorage.networkPolicy.mode must be inCluster or external" -}}
+{{- end -}}
+{{- $mode -}}
+{{- end -}}
+
+{{- define "daedalus.documentObjectRequestTimeoutMs" -}}
+{{- $timeout := int (.Values.documentObjectStorage.requestTimeoutMs | default 300000) -}}
+{{- if or (lt $timeout 100) (gt $timeout 900000) -}}
+{{- fail "documentObjectStorage.requestTimeoutMs must be between 100 and 900000" -}}
+{{- end -}}
+{{- $timeout -}}
+{{- end -}}

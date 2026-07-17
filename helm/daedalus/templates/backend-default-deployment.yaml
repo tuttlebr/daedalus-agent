@@ -28,11 +28,13 @@ spec:
         app.kubernetes.io/instance: {{ .Release.Name }}
       annotations:
         deploy-timestamp: {{ .Values.forceRedeploy | default "" | quote }}
+        checksum/redis-auth-config: {{ include "daedalus.redisAuthConfigChecksum" . }}
         {{- if .Values.backend.default.config.enabled }}
         checksum/backend-config: {{ include (print $.Template.BasePath "/config-backend-default.yaml") . | sha256sum }}
         {{- end }}
     spec:
       {{- include "daedalus.nodePlacement" . | nindent 6 }}
+      automountServiceAccountToken: false
       terminationGracePeriodSeconds: 60
       dnsPolicy: ClusterFirst
       dnsConfig:
@@ -53,8 +55,12 @@ spec:
       {{- end }}
       containers:
         - name: backend
-          image: "{{ .Values.images.backend.repository }}:{{ .Values.images.backend.tag }}"
+          image: {{ include "daedalus.image" .Values.images.backend | quote }}
           imagePullPolicy: {{ .Values.images.backend.pullPolicy }}
+          {{- with .Values.backend.default.containerSecurityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           ports:
             - containerPort: {{ .Values.backend.default.port }}
               name: http
@@ -103,15 +109,58 @@ spec:
               value: {{ (get (.Values.backend.default.env.overrides | default dict) "REDIS_HOST") | default (printf "%s-redis.%s.svc.cluster.local" (include "daedalus.fullname" .) .Release.Namespace) | quote }}
             - name: REDIS_PORT
               value: {{ (get (.Values.backend.default.env.overrides | default dict) "REDIS_PORT") | default (.Values.redis.service.port | default 6379) | quote }}
+            {{- if .Values.redis.auth.enabled }}
+            - name: REDIS_USERNAME
+              value: {{ .Values.redis.auth.username | quote }}
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "daedalus.redisSecretName" . }}
+                  key: {{ .Values.redis.auth.secretKey | default "REDIS_PASSWORD" }}
+            {{- end }}
+            - name: REDIS_TLS_ENABLED
+              value: {{ .Values.redis.tls.enabled | quote }}
+            - name: REDIS_TLS_CA_FILE
+              value: {{ ternary (printf "%s/%s" (.Values.redis.tls.mountPath | default "/etc/redis-tls") (.Values.redis.tls.caKey | default "ca.crt")) "" .Values.redis.tls.enabled | quote }}
             - name: REDIS_URL
-              value: {{ (get (.Values.backend.default.env.overrides | default dict) "REDIS_URL") | default (printf "redis://%s-redis.%s.svc.cluster.local:%v" (include "daedalus.fullname" .) .Release.Namespace (.Values.redis.service.port | default 6379)) | quote }}
+              value: {{ (get (.Values.backend.default.env.overrides | default dict) "REDIS_URL") | default (ternary (printf "%s://$(REDIS_USERNAME):$(REDIS_PASSWORD)@%s-redis.%s.svc.cluster.local:%v%s" (ternary "rediss" "redis" .Values.redis.tls.enabled) (include "daedalus.fullname" .) .Release.Namespace (.Values.redis.service.port | default 6379) (ternary (printf "?ssl_ca_certs=%s/%s" (.Values.redis.tls.mountPath | default "/etc/redis-tls") (.Values.redis.tls.caKey | default "ca.crt")) "" .Values.redis.tls.enabled)) (printf "%s://%s-redis.%s.svc.cluster.local:%v%s" (ternary "rediss" "redis" .Values.redis.tls.enabled) (include "daedalus.fullname" .) .Release.Namespace (.Values.redis.service.port | default 6379) (ternary (printf "?ssl_ca_certs=%s/%s" (.Values.redis.tls.mountPath | default "/etc/redis-tls") (.Values.redis.tls.caKey | default "ca.crt")) "" .Values.redis.tls.enabled)) .Values.redis.auth.enabled) | quote }}
+            {{- if .Values.documentObjectStorage.enabled }}
+            - name: DOCUMENT_OBJECT_ENDPOINT
+              value: {{ required "documentObjectStorage.endpoint is required when enabled" .Values.documentObjectStorage.endpoint | quote }}
+            - name: DOCUMENT_OBJECT_BUCKET
+              value: {{ .Values.documentObjectStorage.bucket | quote }}
+            - name: DOCUMENT_OBJECT_REGION
+              value: {{ .Values.documentObjectStorage.region | quote }}
+            - name: DOCUMENT_OBJECT_PREFIX
+              value: {{ .Values.documentObjectStorage.prefix | quote }}
+            - name: DOCUMENT_OBJECT_EXPIRY_SECONDS
+              value: {{ .Values.documentObjectStorage.expirySeconds | quote }}
+            - name: DOCUMENT_OBJECT_REQUEST_TIMEOUT_MS
+              value: {{ include "daedalus.documentObjectRequestTimeoutMs" . | quote }}
+            - name: DOCUMENT_OBJECT_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "daedalus.documentObjectSecretName" . }}
+                  key: {{ .Values.documentObjectStorage.auth.accessKeyKey | default "DOCUMENT_OBJECT_ACCESS_KEY" }}
+            - name: DOCUMENT_OBJECT_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "daedalus.documentObjectSecretName" . }}
+                  key: {{ .Values.documentObjectStorage.auth.secretKeyKey | default "DOCUMENT_OBJECT_SECRET_KEY" }}
+            - name: DOCUMENT_OBJECT_SESSION_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "daedalus.documentObjectSecretName" . }}
+                  key: {{ .Values.documentObjectStorage.auth.sessionTokenKey | default "DOCUMENT_OBJECT_SESSION_TOKEN" }}
+                  optional: true
+            {{- end }}
             {{- if .Values.backend.default.config.enabled }}
             - name: NAT_CONFIG_FILE
               value: /workspace/config/config.yaml
             {{- end }}
             {{- with .Values.backend.default.env.overrides }}
             {{- range $k, $v := . }}
-            {{- if and (ne $k "DAEDALUS_INTERNAL_API_TOKEN") (ne $k "REDIS_HOST") (ne $k "REDIS_PORT") (ne $k "REDIS_URL") (or (not $.Values.backend.default.config.enabled) (ne $k "NAT_CONFIG_FILE")) }}
+            {{- if and (ne $k "DAEDALUS_INTERNAL_API_TOKEN") (ne $k "REDIS_HOST") (ne $k "REDIS_PORT") (ne $k "REDIS_USERNAME") (ne $k "REDIS_PASSWORD") (ne $k "REDIS_TLS_ENABLED") (ne $k "REDIS_TLS_CA_FILE") (ne $k "REDIS_URL") (or (not $.Values.backend.default.config.enabled) (ne $k "NAT_CONFIG_FILE")) }}
             - name: {{ $k }}
               value: {{ $v | quote }}
             {{- end }}
@@ -132,7 +181,12 @@ spec:
               mountPath: {{ .Values.backend.skills.mountPath | default "/skills" }}
               readOnly: true
             {{- end }}
-      {{- if or .Values.backend.persistence.enabled .Values.backend.skills.enabled .Values.backend.default.config.enabled }}
+            {{- if .Values.redis.tls.enabled }}
+            - name: redis-tls
+              mountPath: {{ .Values.redis.tls.mountPath | default "/etc/redis-tls" }}
+              readOnly: true
+            {{- end }}
+      {{- if or .Values.backend.persistence.enabled .Values.backend.skills.enabled .Values.backend.default.config.enabled .Values.redis.tls.enabled }}
       volumes:
         {{- if .Values.backend.persistence.enabled }}
         - name: backend-data
@@ -154,6 +208,11 @@ spec:
           {{- else }}
           emptyDir: {}
           {{- end }}
+        {{- end }}
+        {{- if .Values.redis.tls.enabled }}
+        - name: redis-tls
+          secret:
+            secretName: {{ include "daedalus.redisTlsSecretName" . }}
         {{- end }}
       {{- end }}
 ---

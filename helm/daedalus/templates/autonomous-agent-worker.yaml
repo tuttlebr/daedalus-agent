@@ -1,4 +1,8 @@
 {{- if .Values.autonomousAgent.enabled }}
+{{- $requestTimeout := int .Values.autonomousAgent.requestTimeout }}
+{{- if or (le $requestTimeout 0) (gt $requestTimeout 6900) }}
+{{- fail "autonomousAgent.requestTimeout must be between 1 and 6900 seconds so the two-hour MCP execution receipt retains a five-minute recovery margin" }}
+{{- end }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -8,6 +12,8 @@ metadata:
     app.kubernetes.io/component: autonomous-agent
 spec:
   replicas: {{ ternary 0 (.Values.autonomousAgent.replicas | default 1) (.Values.autonomousAgent.suspend | default false) }}
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app.kubernetes.io/name: {{ include "daedalus.name" . }}
@@ -18,16 +24,25 @@ spec:
       labels:
         {{- include "daedalus.labels" . | nindent 8 }}
         app.kubernetes.io/component: autonomous-agent
+      annotations:
+        deploy-timestamp: {{ .Values.forceRedeploy | default "" | quote }}
+        checksum/redis-auth-config: {{ include "daedalus.redisAuthConfigChecksum" . }}
     spec:
       {{- include "daedalus.nodePlacement" . | nindent 6 }}
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 90
       {{- with .Values.autonomousAgent.securityContext }}
       securityContext:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       initContainers:
         - name: wait-for-backend
-          image: {{ .Values.images.backend.repository }}:{{ .Values.images.backend.tag }}
+          image: {{ include "daedalus.image" .Values.images.backend | quote }}
           imagePullPolicy: {{ .Values.images.backend.pullPolicy }}
+          {{- with .Values.autonomousAgent.containerSecurityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           command: ["python", "-c"]
           args:
             - |
@@ -48,10 +63,19 @@ spec:
           env:
             - name: BACKEND_BASE_URL
               value: {{ printf "http://%s-backend-default:%v" (include "daedalus.fullname" .) (.Values.backend.default.port | default 8000) }}
+            - name: HOME
+              value: /tmp
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
       containers:
         - name: autonomous-agent
-          image: {{ .Values.images.backend.repository }}:{{ .Values.images.backend.tag }}
+          image: {{ include "daedalus.image" .Values.images.backend | quote }}
           imagePullPolicy: {{ .Values.images.backend.pullPolicy }}
+          {{- with .Values.autonomousAgent.containerSecurityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           command: ["python", "-m", "autonomous_agent.worker"]
           {{- if .Values.autonomousAgent.env.fromSecret }}
           envFrom:
@@ -68,24 +92,57 @@ spec:
                 secretKeyRef:
                   name: {{ printf "%s-internal-api" (include "daedalus.fullname" .) }}
                   key: DAEDALUS_INTERNAL_API_TOKEN
+            {{- if .Values.redis.auth.enabled }}
+            - name: REDIS_USERNAME
+              value: {{ .Values.redis.auth.username | quote }}
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "daedalus.redisSecretName" . }}
+                  key: {{ .Values.redis.auth.secretKey | default "REDIS_PASSWORD" }}
+            {{- end }}
+            - name: REDIS_TLS_ENABLED
+              value: {{ .Values.redis.tls.enabled | quote }}
+            - name: REDIS_TLS_CA_FILE
+              value: {{ ternary (printf "%s/%s" (.Values.redis.tls.mountPath | default "/etc/redis-tls") (.Values.redis.tls.caKey | default "ca.crt")) "" .Values.redis.tls.enabled | quote }}
             - name: REDIS_URL
-              value: {{ printf "redis://%s-redis:%v" (include "daedalus.fullname" .) (.Values.redis.service.port | default 6379) | quote }}
+              value: {{ ternary (printf "%s://$(REDIS_USERNAME):$(REDIS_PASSWORD)@%s-redis:%v%s" (ternary "rediss" "redis" .Values.redis.tls.enabled) (include "daedalus.fullname" .) (.Values.redis.service.port | default 6379) (ternary (printf "?ssl_ca_certs=%s/%s" (.Values.redis.tls.mountPath | default "/etc/redis-tls") (.Values.redis.tls.caKey | default "ca.crt")) "" .Values.redis.tls.enabled)) (printf "%s://%s-redis:%v%s" (ternary "rediss" "redis" .Values.redis.tls.enabled) (include "daedalus.fullname" .) (.Values.redis.service.port | default 6379) (ternary (printf "?ssl_ca_certs=%s/%s" (.Values.redis.tls.mountPath | default "/etc/redis-tls") (.Values.redis.tls.caKey | default "ca.crt")) "" .Values.redis.tls.enabled)) .Values.redis.auth.enabled | quote }}
             - name: AUTONOMOUS_USER_ID
               value: {{ .Values.autonomousAgent.userId | quote }}
             - name: REQUEST_TIMEOUT
-              value: {{ .Values.autonomousAgent.requestTimeout | default 3600 | quote }}
+              value: {{ $requestTimeout | quote }}
             - name: AUTONOMY_WORKER_POLL_INTERVAL
               value: {{ .Values.autonomousAgent.worker.pollIntervalSeconds | default 10 | quote }}
             - name: AUTONOMY_WORKER_LEASE_TTL
               value: {{ .Values.autonomousAgent.worker.leaseTtlSeconds | default 60 | quote }}
             - name: AUTONOMY_INTERVAL_SECONDS
               value: {{ .Values.autonomousAgent.worker.intervalSeconds | default 14400 | quote }}
+            - name: HOME
+              value: /tmp
+            - name: XDG_CACHE_HOME
+              value: /tmp/.cache
             {{- range $key, $val := .Values.autonomousAgent.env.overrides }}
-            {{- if ne $key "DAEDALUS_INTERNAL_API_TOKEN" }}
+            {{- if and (ne $key "DAEDALUS_INTERNAL_API_TOKEN") (ne $key "REDIS_USERNAME") (ne $key "REDIS_PASSWORD") (ne $key "REDIS_TLS_ENABLED") (ne $key "REDIS_TLS_CA_FILE") (ne $key "REDIS_URL") }}
             - name: {{ $key }}
               value: {{ $val | quote }}
             {{- end }}
             {{- end }}
           resources:
             {{- toYaml .Values.autonomousAgent.resources | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            {{- if .Values.redis.tls.enabled }}
+            - name: redis-tls
+              mountPath: {{ .Values.redis.tls.mountPath | default "/etc/redis-tls" }}
+              readOnly: true
+            {{- end }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        {{- if .Values.redis.tls.enabled }}
+        - name: redis-tls
+          secret:
+            secretName: {{ include "daedalus.redisTlsSecretName" . }}
+        {{- end }}
 {{- end }}

@@ -1,4 +1,4 @@
-FROM node:22-alpine AS base
+FROM node:22-alpine@sha256:16e22a550f3863206a3f701448c45f7912c6896a62de43add43bb9c86130c3e2 AS base
 
 # Set timezone to Eastern Time
 ENV TZ=America/New_York
@@ -63,7 +63,11 @@ ENV NEXT_PUBLIC_UPLOAD_LARGE_DOCUMENT_THRESHOLD_KB=$NEXT_PUBLIC_UPLOAD_LARGE_DOC
 RUN npm run build
 
 # Bundle WebSocket sidecar into a single JS file (all dependencies included)
-RUN ./node_modules/.bin/esbuild ws-server.ts --bundle --platform=node --target=node22 --outfile=./ws-build/ws-server.js
+RUN npm run build:websocket
+
+# Bundle the durable chat stream worker. Native and runtime-loaded packages are
+# provided by Next.js standalone tracing in the same production image.
+RUN npm run build:stream-worker
 
 # Production image, copy all the files and run next
 FROM base AS runner
@@ -72,6 +76,19 @@ WORKDIR /app
 ENV NODE_ENV=production
 # Uncomment the following line in case you want to disable telemetry during runtime.
 ENV NEXT_TELEMETRY_DISABLED=1
+
+# The runner executes Node directly. Package managers belong only in the build
+# stages and would otherwise add unused code and vulnerability surface.
+RUN rm -rf \
+    /usr/local/lib/node_modules/npm \
+    /usr/local/lib/node_modules/corepack \
+    /opt/yarn-v1.22.22 && \
+    rm -f \
+    /usr/local/bin/npm \
+    /usr/local/bin/npx \
+    /usr/local/bin/corepack \
+    /usr/local/bin/yarn \
+    /usr/local/bin/yarnpkg
 
 RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 nextjs
@@ -94,6 +111,7 @@ COPY --from=builder --chown=nextjs:nodejs /app/package.json ./package.json
 # Copy WebSocket sidecar
 RUN mkdir -p scripts
 COPY --from=builder --chown=nextjs:nodejs /app/ws-build/ws-server.js ./ws-server.js
+COPY --from=builder --chown=nextjs:nodejs /app/worker-build/stream-worker.js ./stream-worker.js
 COPY --from=builder --chown=nextjs:nodejs /app/scripts/start-runtime.js ./scripts/start-runtime.js
 
 USER nextjs

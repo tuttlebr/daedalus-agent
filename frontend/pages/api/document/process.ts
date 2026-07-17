@@ -13,6 +13,7 @@ import {
 } from '@/utils/server/backendAuth';
 
 import { postToBackend } from '@/server/backend/postToBackend';
+import { getMilvusMetadata } from '@/server/milvusMetadata';
 import { enforceRateLimit, ruleFromEnv } from '@/server/rateLimit';
 import {
   getOrSetSessionId,
@@ -26,7 +27,9 @@ import {
 export const config = {
   api: {
     bodyParser: {
-      sizeLimit: '300mb',
+      // This endpoint accepts document references only. Uploaded bytes already
+      // live in object storage and must never be replayed through JSON.
+      sizeLimit: '1mb',
     },
     // Match the 15-minute timeout used by chat.ts and nginx
     responseLimit: false,
@@ -163,12 +166,24 @@ export default async function handler(
     }
 
     // Ingest mode: collection resolution + synthetic chat message as before.
+    let collectionMetadata;
+    try {
+      collectionMetadata = await getMilvusMetadata(username);
+    } catch (metadataError) {
+      console.error('Collection metadata unavailable:', metadataError);
+      return res.status(503).json({
+        error: 'Collection metadata is temporarily unavailable.',
+        reason: 'collection_metadata_unavailable',
+      });
+    }
     let collectionTarget;
     try {
       collectionTarget = resolveMilvusCollectionTarget({
         targetCollection:
           typeof collection === 'string' ? collection : undefined,
         username,
+        privateCollectionName: collectionMetadata.userCollection.name,
+        databaseName: collectionMetadata.databaseName,
         source: 'document.process',
       });
     } catch (resolveError) {

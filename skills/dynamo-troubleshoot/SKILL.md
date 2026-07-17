@@ -1,6 +1,14 @@
 ---
 name: dynamo-troubleshoot
-description: Diagnose failed or unhealthy Dynamo deployments. Use when pods, model-cache jobs, PVCs, workers, frontend/router health, endpoints, or benchmark jobs fail; use recipe-runner/router-starter before this for normal bring-up.
+description: >-
+  Diagnose failed or unhealthy Dynamo deployments from a read-only debug
+  bundle. Use when Dynamo pods, DynamoGraphDeployment reconciliation,
+  model-cache/download jobs, PVCs, workers, frontend/router health, /v1
+  endpoints, or benchmark jobs fail: CrashLoopBackOff, ImagePullBackOff,
+  Pending, unschedulable, stuck, not ready, or broken. Use
+  dynamo-recipe-runner/dynamo-router-starter before this for normal bring-up,
+  and dynamo-interconnect-check when pods are up but disagg KV transport is
+  silently wrong.
 license: Apache-2.0
 metadata:
   author: Dan Gil <dagil@nvidia.com>

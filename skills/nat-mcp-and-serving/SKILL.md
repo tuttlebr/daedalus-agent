@@ -1,6 +1,13 @@
 ---
 name: nat-mcp-and-serving
-description: Use when serving NeMo Agent Toolkit workflows, exposing workflows through FastAPI, configuring MCP clients or servers, or troubleshooting transport and server setup.
+description: >-
+  Use when serving or deploying NeMo Agent Toolkit workflows as an API and
+  when integrating Model Context Protocol (MCP). Covers nat serve and nat
+  start, the FastAPI front_end, custom HTTP and REST endpoints, streaming
+  responses, and configuring MCP clients (mcp_client) and MCP servers over sse
+  or streamable-http transports, plus transport and server-setup
+  troubleshooting. Use nat-workflow-creation for the workflow logic itself,
+  and nat-tools-and-functions to implement the tools the workflow calls.
 author: NVIDIA Corporation and Affiliates
 license: Apache-2.0
 ---

@@ -19,7 +19,10 @@ const isMobile = (): boolean => {
   );
 };
 
-const WS_FALLBACK_POLL_INTERVAL = 15000;
+const WS_FALLBACK_POLL_INTERVAL = Math.max(
+  1000,
+  Number(process.env.NEXT_PUBLIC_WS_FALLBACK_POLL_INTERVAL_MS) || 15000,
+);
 const SUBMIT_JOB_TIMEOUT_MS = 60_000;
 const STATUS_FETCH_TIMEOUT_MS = 15_000;
 
@@ -98,6 +101,36 @@ interface PersistedJob {
   timestamp: number;
   turnId?: string;
   assistantMessageId?: string;
+}
+
+/**
+ * Find only the assistant response owned by a persisted job.
+ *
+ * New conversation messages always carry metadata.jobId. The turn-only branch
+ * is limited to legacy messages that have no job ID, so an answer from another
+ * concurrent or later job can never be attached to this recovery.
+ */
+export function findCorrelatedAssistantMessage(
+  messages: unknown,
+  job: Pick<PersistedJob, 'jobId' | 'turnId'>,
+): any | null {
+  if (!Array.isArray(messages)) return null;
+  const assistants = [...messages]
+    .reverse()
+    .filter((message: any) => message?.role === 'assistant');
+
+  const exact = assistants.find(
+    (message: any) => message?.metadata?.jobId === job.jobId,
+  );
+  if (exact) return exact;
+
+  if (!job.turnId) return null;
+  return (
+    assistants.find(
+      (message: any) =>
+        !message?.metadata?.jobId && message?.metadata?.turnId === job.turnId,
+    ) || null
+  );
 }
 
 interface CompletionMeta {
@@ -1279,6 +1312,25 @@ export const useAsyncChat = (
               );
               continue;
             }
+            if (status.status === 'error') {
+              completedJobsRef.current.add(job.jobId);
+              onError?.(status.error || 'The job failed before completion.', {
+                partialResponse: status.partialResponse,
+                intermediateSteps: status.intermediateSteps,
+                jobId: job.jobId,
+                conversationId: job.conversationId,
+                turnId: status.turnId || job.turnId,
+                assistantMessageId:
+                  status.assistantMessageId || job.assistantMessageId,
+              });
+              clearPersistedJobs(userId, job.conversationId);
+              removeActiveJob(job.jobId, job.conversationId);
+              continue;
+            }
+
+            // The server still owns a pending or streaming job. Conversation
+            // fallback would only find an older turn, so leave it tracked.
+            continue;
           }
         } catch (e) {
           logger.error(
@@ -1296,21 +1348,22 @@ export const useAsyncChat = (
           );
           if (response.ok) {
             const convData = await response.json();
-            if (convData.messages?.length > 0) {
-              const lastAssistantMsg = [...convData.messages]
-                .reverse()
-                .find((m: any) => m.role === 'assistant');
-              if (lastAssistantMsg && onComplete) {
+            const correlatedAssistant = findCorrelatedAssistantMessage(
+              convData.messages,
+              job,
+            );
+            if (correlatedAssistant) {
+              if (onComplete) {
                 completedJobsRef.current.add(job.jobId);
                 onComplete(
-                  lastAssistantMsg.content,
-                  lastAssistantMsg.intermediateSteps,
+                  correlatedAssistant.content,
+                  correlatedAssistant.intermediateSteps,
                   Date.now(),
                   job.conversationId,
                   {
-                    turnId: lastAssistantMsg.metadata?.turnId || job.turnId,
+                    turnId: correlatedAssistant.metadata?.turnId || job.turnId,
                     assistantMessageId:
-                      lastAssistantMsg.id || job.assistantMessageId,
+                      correlatedAssistant.id || job.assistantMessageId,
                     jobId: job.jobId,
                   },
                 );
@@ -1330,7 +1383,7 @@ export const useAsyncChat = (
         }
       }
     }
-  }, [userId, onComplete, removeActiveJob]);
+  }, [userId, onComplete, onError, removeActiveJob]);
 
   // Immediately refetch when app becomes visible (user returns from background)
   useEffect(() => {

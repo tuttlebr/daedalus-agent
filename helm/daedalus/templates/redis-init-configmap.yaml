@@ -23,13 +23,65 @@ data:
 
     echo "Starting Redis with modules..."
 
+    AUTH_ARGS=()
+    REDIS_CLI_AUTH_ARGS=()
+    if [[ -n "${REDIS_PASSWORD:-}" ]]; then
+      if [[ ! "${REDIS_USERNAME:-}" =~ ^[A-Za-z0-9._-]+$ ]]; then
+        echo "ERROR: REDIS_USERNAME contains unsupported characters" >&2
+        exit 1
+      fi
+      umask 077
+      CURRENT_HASH=$(printf '%s' "$REDIS_PASSWORD" | sha256sum | awk '{print $1}')
+      # Redis replays AOF transactions as the default ACL user. An entirely
+      # disabled default user makes EXEC reject replayed Stream PEL updates,
+      # even though ordinary keys load successfully. Keep that internal user
+      # permission-complete but network-inaccessible behind a fresh password
+      # hash whose random preimage is never stored or exposed.
+      AOF_REPLAY_HASH=$(dd if=/dev/urandom bs=32 count=1 2>/dev/null | sha256sum | awk '{print $1}')
+      {
+        printf 'user default on #%s ~* &* +@all\n' "$AOF_REPLAY_HASH"
+        printf 'user %s on #%s' "$REDIS_USERNAME" "$CURRENT_HASH"
+        if [[ -n "${REDIS_PREVIOUS_PASSWORD:-}" && "$REDIS_PREVIOUS_PASSWORD" != "$REDIS_PASSWORD" ]]; then
+          PREVIOUS_HASH=$(printf '%s' "$REDIS_PREVIOUS_PASSWORD" | sha256sum | awk '{print $1}')
+          printf ' #%s' "$PREVIOUS_HASH"
+        fi
+        # Application clients need all data-structure and scripting commands,
+        # but not server shutdown, module loading, config, flush, or debug.
+        printf ' ~* &* +@all -@dangerous +info\n'
+      } >/tmp/users.acl
+      AUTH_ARGS=(--aclfile /tmp/users.acl)
+      # redis-cli reads these without exposing credentials in process args.
+      export REDISCLI_AUTH="$REDIS_PASSWORD"
+      REDIS_CLI_AUTH_ARGS=(--user "$REDIS_USERNAME")
+    fi
+
+    TLS_ARGS=()
+    REDIS_CLI_TLS_ARGS=()
+    if [[ "${REDIS_TLS_ENABLED:-false}" == "true" ]]; then
+      TLS_ARGS=(
+        --port 0
+        --tls-port 6379
+        --tls-cert-file "$REDIS_TLS_CERT_FILE"
+        --tls-key-file "$REDIS_TLS_KEY_FILE"
+        --tls-ca-cert-file "$REDIS_TLS_CA_FILE"
+        --tls-auth-clients no
+      )
+      REDIS_CLI_TLS_ARGS=(--tls --cacert "$REDIS_TLS_CA_FILE")
+    fi
+
+    redis_cli() {
+      redis-cli "${REDIS_CLI_TLS_ARGS[@]}" "${REDIS_CLI_AUTH_ARGS[@]}" "$@"
+    }
+
     # Start Redis in the background with all required modules.
     # --dir /data ensures RDB and AOF are written to the PVC mount.
     redis-server \
       --dir /data \
       --save 60 1 \
       --appendonly yes \
-      --protected-mode no \
+      --protected-mode yes \
+      "${AUTH_ARGS[@]}" \
+      "${TLS_ARGS[@]}" \
       --loadmodule /opt/redis-stack/lib/rejson.so \
       --loadmodule /opt/redis-stack/lib/redisearch.so \
       --loadmodule /opt/redis-stack/lib/redistimeseries.so \
@@ -40,7 +92,7 @@ data:
     # Wait for Redis to be ready
     echo "Waiting for Redis to be ready..."
     for i in {1..30}; do
-      if redis-cli ping >/dev/null 2>&1; then
+      if redis_cli ping >/dev/null 2>&1; then
         echo "Redis is ready!"
         break
       fi
@@ -52,15 +104,15 @@ data:
     echo "Checking for existing memory_idx index..."
 
     INDEX_READY=false
-    if redis-cli FT.INFO memory_idx >/dev/null 2>&1; then
+    if redis_cli FT.INFO memory_idx >/dev/null 2>&1; then
       echo "memory_idx index already exists, verifying schema..."
-      INDEX_INFO=$(redis-cli FT.INFO memory_idx 2>&1)
+      INDEX_INFO=$(redis_cli FT.INFO memory_idx 2>&1)
       if echo "$INDEX_INFO" | grep -q "HNSW" && echo "$INDEX_INFO" | grep -q "2048"; then
         echo "Index schema is correct, skipping recreation."
         INDEX_READY=true
       else
         echo "Index schema is outdated, dropping index (preserving data)..."
-        redis-cli FT.DROPINDEX memory_idx 2>/dev/null || true
+        redis_cli FT.DROPINDEX memory_idx 2>/dev/null || true
         sleep 1
       fi
     else
@@ -75,7 +127,7 @@ data:
       while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
         echo "Attempt $((RETRY_COUNT + 1)) of $MAX_RETRIES..."
 
-        if redis-cli FT.CREATE memory_idx \
+        if redis_cli FT.CREATE memory_idx \
           ON JSON \
           PREFIX 1 "nat:" \
           SCHEMA \
@@ -87,9 +139,9 @@ data:
           echo "Successfully created memory_idx index"
 
           echo "Verifying index creation..."
-          if redis-cli FT.INFO memory_idx >/dev/null 2>&1; then
+          if redis_cli FT.INFO memory_idx >/dev/null 2>&1; then
             echo "Index verified successfully"
-            redis-cli FT.INFO memory_idx | head -10
+            redis_cli FT.INFO memory_idx | head -10
             break
           else
             echo "Index created but verification failed, retrying..."
@@ -107,7 +159,7 @@ data:
       if [ $RETRY_COUNT -eq $MAX_RETRIES ]; then
         echo "ERROR: Failed to create memory_idx index after $MAX_RETRIES attempts!"
         echo "Attempting one more time with verbose output..."
-        redis-cli --verbose FT.CREATE memory_idx \
+        redis_cli --verbose FT.CREATE memory_idx \
           ON JSON \
           PREFIX 1 "nat:" \
           SCHEMA \
@@ -120,12 +172,12 @@ data:
 
     # List all indexes to confirm
     echo "Listing all RediSearch indexes:"
-    redis-cli FT._LIST
+    redis_cli FT._LIST
 
     # Final verification with delay
     echo "Final verification of memory_idx..."
     sleep 2
-    if redis-cli FT.INFO memory_idx >/dev/null 2>&1; then
+    if redis_cli FT.INFO memory_idx >/dev/null 2>&1; then
       echo "✅ FINAL CHECK: memory_idx index is available and ready"
     else
       echo "❌ FINAL CHECK: memory_idx index is NOT available!"

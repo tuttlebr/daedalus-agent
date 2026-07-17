@@ -1,8 +1,6 @@
-import toast from 'react-hot-toast';
-
 import { apiGet, apiPut, apiPost, ConflictError } from '@/utils/app/api';
 
-import { Conversation, Message } from '@/types/chat';
+import { Conversation } from '@/types/chat';
 
 import {
   paginateConversation,
@@ -21,18 +19,11 @@ import {
   cleanMessagesForStorage,
   stripBase64Content,
 } from './imageHandler';
-import {
-  getUserSessionItem,
-  setUserSessionItem,
-  removeUserSessionItem,
-} from './storage';
+import { setUserSessionItem } from './storage';
 
 // Memory optimization constants
 const MAX_MESSAGES_IN_MEMORY = 50; // Keep only last 50 messages in memory
 const MAX_CONVERSATIONS_IN_MEMORY = 5; // Keep only 5 most recent conversations
-// WeakMap for temporary data to allow garbage collection
-const conversationCache = new WeakMap<Conversation, any>();
-
 /**
  * Fire-and-forget notification to other devices/sessions via Redis pub/sub.
  * Failures are silently logged -- sync is best-effort.

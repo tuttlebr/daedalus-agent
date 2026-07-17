@@ -1,5 +1,3 @@
-import type { NextApiRequest, NextApiResponse } from 'next';
-
 import { getSession } from '@/utils/auth/session';
 
 // --- Import handler and mocked modules ---

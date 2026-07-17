@@ -4,7 +4,6 @@ import {
   IconBrain,
   IconTool,
   IconGitBranch,
-  IconSearch as IconSearchIcon,
   IconCheck,
   IconLoader2,
 } from '@tabler/icons-react';
@@ -14,7 +13,6 @@ import {
   consolidateSteps,
   ConsolidatedStep,
   formatDuration,
-  searchConsolidatedSteps,
 } from '@/utils/app/intermediateSteps';
 
 import {

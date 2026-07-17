@@ -123,6 +123,29 @@ def execution_scope_from_context_or_none() -> str | None:
     return _header_value(headers, "x-daedalus-execution-scope").lower()
 
 
+def execution_id_from_context_or_none() -> str | None:
+    """Return the trusted durable execution ID for autonomous requests.
+
+    The ID is accepted only on the authenticated autonomy path. Interactive
+    requests intentionally return ``None`` so ordinary user retries aren't
+    deduplicated as though they were queue replays.
+    """
+
+    try:
+        from nat.builder.context import Context
+    except Exception:
+        return None
+
+    nat_context = Context.get()
+    headers = getattr(getattr(nat_context, "metadata", None), "headers", None)
+    if headers is None:
+        return None
+    if _header_value(headers, "x-daedalus-execution-scope").lower() != "autonomy":
+        return None
+    execution_id = _header_value(headers, "x-daedalus-execution-id")
+    return execution_id or None
+
+
 def authenticated_user_id_from_context_or_fallback(fallback_user_id: str = "") -> str:
     """Resolve request identity, falling back only when no HTTP context exists."""
 

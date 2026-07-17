@@ -1,6 +1,14 @@
 ---
 name: nat-optimization
-description: Use when configuring or running NeMo Agent Toolkit optimization with `nat optimize`, including Optuna parameter tuning, prompt evolution, optimizer sizing, output interpretation, and optimizer datasets.
+description: >-
+  Use when configuring or running NeMo Agent Toolkit optimization with nat
+  optimize, including Optuna hyperparameter tuning, prompt evolution via
+  genetic algorithm, choosing n_trials and parallelism, the config-optimizer
+  extra, defining the search space and optimizer dataset, and interpreting
+  output artifacts before writing tuned values back to workflow YAML. Use
+  nat-evaluation to define evaluators and measure quality, which optimization
+  then consumes as objectives; do not use this skill for a one-off quality
+  check or for latency/throughput profiling, which belongs to nat-telemetry.
 author: NVIDIA Corporation and Affiliates
 license: Apache-2.0
 ---

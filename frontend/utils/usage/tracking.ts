@@ -130,7 +130,6 @@ export async function trackUserUsage(
   username: string,
   usage: UsageData,
 ): Promise<void> {
-  const redis = getRedis();
   const key = getUserUsageKey(username);
 
   logger.debug('trackUserUsage called', {
@@ -264,8 +263,6 @@ export async function getAllUsageStats(): Promise<UserUsageStats[]> {
  * @param username - The username to reset stats for
  */
 export async function resetUserUsageStats(username: string): Promise<void> {
-  const key = getUserUsageKey(username);
-
   try {
     await initializeUserUsageStats(username);
     logger.info(`Usage stats reset for user ${username}`);

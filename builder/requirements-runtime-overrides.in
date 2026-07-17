@@ -1,0 +1,13 @@
+# NAT 1.7 caps cryptography below 47 even though its runtime code doesn't use
+# the binary elliptic-curve APIs removed in cryptography 47. The 46.x PyPI
+# wheels embed an OpenSSL version affected by GHSA-537c-gmf6-5ccf. Keep this
+# override explicit and narrow so lock regeneration can't silently restore the
+# vulnerable wheel. The image build exercises NAT's installed ABI and the
+# authentication stack through runtime_contract_check.py.
+cryptography>=48.0.1,<49
+
+# nv-ingest-client 26.3.0 pins urllib3 2.6.3, which is affected by
+# CVE-2026-44431 and CVE-2026-44432. The fixed 2.7 API stays inside NAT's
+# declared urllib3<3 compatibility boundary. Keep the override paired with the
+# build-time client pipeline contract until NV-Ingest widens its dependency.
+urllib3>=2.7,<3

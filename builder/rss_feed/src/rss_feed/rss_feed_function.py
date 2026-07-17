@@ -2,9 +2,12 @@ import asyncio
 import html
 import importlib.util
 import logging
+import mimetypes
 import os
 import re
+import tempfile
 from typing import Any
+from urllib.parse import urlparse
 
 import fastfeedparser
 import httpx
@@ -14,6 +17,12 @@ from nat.builder.builder import Builder
 from nat.builder.function_info import FunctionInfo
 from nat.cli.register_workflow import register_function
 from nat.data_models.function import FunctionBaseConfig
+from nat_helpers.safe_http import (
+    PublicAsyncHTTPTransport,
+    PublicHTTPTransport,
+    get_public_response,
+    get_public_response_async,
+)
 from nat_helpers.url_guard import UnsafeURLError, validate_public_url
 from pydantic import BaseModel, Field, HttpUrl
 
@@ -297,9 +306,14 @@ def _feed_url_rejection_reason(url: str) -> str | None:
 
 
 def _scrape_content(
-    url: str, token_limit: int, truncation_msg: str
+    url: str,
+    token_limit: int,
+    truncation_msg: str,
+    *,
+    fetched_content: bytes | None = None,
+    content_type: str = "",
 ) -> tuple[str, bool]:
-    """Scrape content from URL using markitdown."""
+    """Fetch through the SSRF-safe transport and convert a local file."""
     # F-001: feed-supplied links are attacker-influenceable. Reject non-http(s)
     # schemes (blocks file:// local-file reads), literal internal IPs, and
     # hostnames resolving to internal addresses before handing the URL to
@@ -311,8 +325,35 @@ def _scrape_content(
         return f"Error: {exc}", False
 
     try:
+        if fetched_content is None:
+            with httpx.Client(
+                headers={"User-Agent": "daedalus-rss-reader/1.0"},
+                follow_redirects=False,
+                transport=PublicHTTPTransport(),
+                trust_env=False,
+                timeout=30.0,
+            ) as client:
+                response = get_public_response(client, url)
+                response.raise_for_status()
+            fetched_content = response.content
+            content_type = response.headers.get("content-type", "")
+
+        media_type = content_type.split(";", 1)[0].strip().lower()
+        suffix = mimetypes.guess_extension(media_type) if media_type else None
+        suffix = suffix or os.path.splitext(urlparse(url).path)[1].lower() or ".bin"
+        if not re.fullmatch(r"\.[a-z0-9]{1,10}", suffix):
+            suffix = ".bin"
+
         md = MarkItDown(enable_plugins=True)
-        url_markdown = md.convert(url)
+        tmp_path = None
+        try:
+            with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as file_obj:
+                file_obj.write(fetched_content)
+                tmp_path = file_obj.name
+            url_markdown = md.convert(tmp_path)
+        finally:
+            if tmp_path and os.path.exists(tmp_path):
+                os.unlink(tmp_path)
 
         title_text = url_markdown.title if url_markdown.title else url
         header = f"# {title_text}\n\n_Source: {url}_\n\n"
@@ -321,6 +362,9 @@ def _scrape_content(
         content = truncate_text(full_content, token_limit)
         was_truncated = len(content) < len(full_content)
         return content, was_truncated
+    except UnsafeURLError as exc:
+        logger.warning("Blocked SSRF-unsafe feed link '%s': %s", url, exc)
+        return f"Error: {exc}", False
     except Exception as e:
         logger.error("Failed to scrape content from %s: %s", url, e)
         raise
@@ -375,9 +419,13 @@ async def rss_feed_function(
 
             # Fetch and parse RSS feed
             async with httpx.AsyncClient(
-                headers=headers, timeout=config.timeout
+                headers=headers,
+                timeout=config.timeout,
+                follow_redirects=False,
+                transport=PublicAsyncHTTPTransport(),
+                trust_env=False,
             ) as client:
-                response = await client.get(feed_url)
+                response = await get_public_response_async(client, feed_url)
                 response.raise_for_status()
 
             # Parse with fastfeedparser

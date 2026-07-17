@@ -8,16 +8,16 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 import httpx
+import mcp_patches
 import pytest
 
 # Add builder root so we can import mcp_patches directly
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from mcp_patches import (  # noqa: E402
-    _MCP_CONNECT_TIMEOUT,
     _MCP_STARTUP_GROUP_TIMEOUT,
-    _MCP_STARTUP_MAX_RETRIES,
     _STARTUP_RESILIENCE_EXCEPTIONS,
+    _attempt_pending_mcp_recovery,
     _connect_with_graceful_teardown,
     _extract_root_connection_error,
     _initialize_function_group_for_startup,
@@ -26,13 +26,16 @@ from mcp_patches import (  # noqa: E402
     _known_mcp_function_groups,
     _looks_like_mcp_config,
     _mcp_httpx_auth_for_connection,
+    _mcp_recovery_attempted,
     _McpAppError,
+    _pending_mcp_recovery,
     _record_possible_mcp_group,
     _record_skipped_function_group,
     _should_recover_function_group_startup_error,
     _should_skip_tool_resolution_error,
     _skipped_function_groups,
     _tool_ref_text,
+    mcp_capability_status,
 )
 
 
@@ -40,55 +43,115 @@ def run(coro):
     return asyncio.run(coro)
 
 
+def _clear_recovery_state():
+    _skipped_function_groups.clear()
+    _known_mcp_function_groups.clear()
+    _pending_mcp_recovery.clear()
+    _mcp_recovery_attempted.clear()
+
+
+def test_capability_status_distinguishes_required_and_optional(monkeypatch):
+    _clear_recovery_state()
+    try:
+        _known_mcp_function_groups.update({"required_mcp", "optional_mcp"})
+        _skipped_function_groups.update({"required_mcp", "optional_mcp"})
+        monkeypatch.setenv("DAEDALUS_REQUIRED_MCP_GROUPS", "required_mcp")
+
+        assert mcp_capability_status() == {
+            "state": "unready",
+            "available": [],
+            "required": ["required_mcp"],
+            "missing_required": ["required_mcp"],
+            "unavailable_optional": ["optional_mcp"],
+        }
+    finally:
+        _clear_recovery_state()
+
+
+def test_pending_group_recovers_once_before_tool_resolution():
+    _clear_recovery_state()
+    calls = []
+
+    async def _add(_builder, name, config):
+        calls.append((name, config))
+        return MagicMock(mcp_client=None)
+
+    try:
+        _known_mcp_function_groups.add("docs_mcp")
+        _skipped_function_groups.add("docs_mcp")
+        _pending_mcp_recovery["docs_mcp"] = (("config",), {})
+
+        recovered = run(_attempt_pending_mcp_recovery(object(), _add, ["docs_mcp"]))
+        recovered_again = run(
+            _attempt_pending_mcp_recovery(object(), _add, ["docs_mcp"])
+        )
+
+        assert recovered == ["docs_mcp"]
+        assert recovered_again == []
+        assert calls == [("docs_mcp", "config")]
+        assert "docs_mcp" not in _skipped_function_groups
+        assert mcp_capability_status()["state"] == "ready"
+    finally:
+        _clear_recovery_state()
+
+
+def test_pending_group_recovery_has_one_shared_deadline(monkeypatch):
+    _clear_recovery_state()
+    calls = 0
+
+    async def _slow_add(_builder, _name, _config):
+        nonlocal calls
+        calls += 1
+        await asyncio.sleep(0.05)
+        return MagicMock(mcp_client=None)
+
+    try:
+        monkeypatch.setattr(mcp_patches, "_MCP_RECOVERY_TOTAL_TIMEOUT", 0.01)
+        _known_mcp_function_groups.add("slow_mcp")
+        _skipped_function_groups.add("slow_mcp")
+        _pending_mcp_recovery["slow_mcp"] = (("config",), {})
+
+        assert (
+            run(_attempt_pending_mcp_recovery(object(), _slow_add, ["slow_mcp"])) == []
+        )
+        assert (
+            run(_attempt_pending_mcp_recovery(object(), _slow_add, ["slow_mcp"])) == []
+        )
+        assert calls == 1
+        assert "slow_mcp" in _skipped_function_groups
+    finally:
+        _clear_recovery_state()
+
+
 # ---------------------------------------------------------------------------
 # Helpers: connect_to_server teardown tests
 # ---------------------------------------------------------------------------
 
 
-class MockSession:
-    """Stand-in for mcp.ClientSession."""
-
-    def __init__(self, read=None, write=None):
-        pass
-
-    async def initialize(self):
-        pass
-
-    async def __aenter__(self):
-        return self
-
-    async def __aexit__(self, *args):
-        pass
-
-
-def _mock_streams():
-    return (MagicMock(name="read"), MagicMock(name="write"), MagicMock(name="cb"))
-
-
 @asynccontextmanager
 async def _streamable_ok():
-    """Normal streamablehttp_client -- no errors."""
-    yield _mock_streams()
+    """Normal upstream NAT context, no errors."""
+    yield MagicMock(name="session")
 
 
 @asynccontextmanager
 async def _streamable_cancel_on_exit():
     """streamablehttp_client that raises CancelledError during __aexit__."""
-    yield _mock_streams()
+    yield MagicMock(name="session")
     raise asyncio.CancelledError("terminate_session cancelled")
 
 
 @asynccontextmanager
 async def _streamable_cancel_scope_on_exit():
     """streamablehttp_client that raises cancel-scope RuntimeError during __aexit__."""
-    yield _mock_streams()
+    yield MagicMock(name="session")
     raise RuntimeError("Cancelled via cancel scope abc123")
 
 
 @asynccontextmanager
 async def _streamable_conn_error_on_exit():
     """streamablehttp_client that raises ConnectionError during __aexit__."""
-    yield _mock_streams()
+    yield MagicMock(name="session")
     raise ConnectionError("server vanished")
 
 
@@ -105,7 +168,7 @@ class TestConnectToServerTeardown:
 
         async def _run():
             async with _connect_with_graceful_teardown(
-                _streamable_ok(), MockSession, "http://fake/mcp"
+                _streamable_ok(), "http://fake/mcp"
             ) as session:
                 assert session is not None
                 await asyncio.sleep(0)  # simulate work
@@ -118,7 +181,7 @@ class TestConnectToServerTeardown:
         async def _run():
             with pytest.raises(asyncio.CancelledError):
                 async with _connect_with_graceful_teardown(
-                    _streamable_ok(), MockSession, "http://fake/mcp"
+                    _streamable_ok(), "http://fake/mcp"
                 ) as _session:
                     raise asyncio.CancelledError("task cancelled")
 
@@ -130,7 +193,7 @@ class TestConnectToServerTeardown:
         async def _run():
             # Should NOT raise -- the CancelledError from __aexit__ is suppressed
             async with _connect_with_graceful_teardown(
-                _streamable_cancel_on_exit(), MockSession, "http://fake/mcp"
+                _streamable_cancel_on_exit(), "http://fake/mcp"
             ) as _session:
                 await asyncio.sleep(0)
 
@@ -142,7 +205,7 @@ class TestConnectToServerTeardown:
         async def _run():
             # Should NOT raise
             async with _connect_with_graceful_teardown(
-                _streamable_cancel_scope_on_exit(), MockSession, "http://fake/mcp"
+                _streamable_cancel_scope_on_exit(), "http://fake/mcp"
             ) as _session:
                 await asyncio.sleep(0)
 
@@ -154,7 +217,7 @@ class TestConnectToServerTeardown:
         async def _run():
             with pytest.raises(asyncio.CancelledError):
                 async with _connect_with_graceful_teardown(
-                    _streamable_ok(), MockSession, "http://fake/mcp"
+                    _streamable_ok(), "http://fake/mcp"
                 ) as _session:
                     raise RuntimeError("Cancelled via cancel scope xyz")
 
@@ -166,7 +229,7 @@ class TestConnectToServerTeardown:
         async def _run():
             # Should NOT raise -- ConnectionError during __aexit__ is suppressed
             async with _connect_with_graceful_teardown(
-                _streamable_conn_error_on_exit(), MockSession, "http://fake/mcp"
+                _streamable_conn_error_on_exit(), "http://fake/mcp"
             ) as _session:
                 await asyncio.sleep(0)
 
@@ -177,7 +240,7 @@ class TestConnectToServerTeardown:
 
         @asynccontextmanager
         async def _streamable_eg_read_timeout_on_exit():
-            yield _mock_streams()
+            yield MagicMock(name="session")
             raise ExceptionGroup(  # noqa: F821
                 "unhandled errors in a TaskGroup",
                 [httpx.ReadTimeout("")],
@@ -187,7 +250,6 @@ class TestConnectToServerTeardown:
             # Should NOT raise -- ExceptionGroup(ReadTimeout) during __aexit__
             async with _connect_with_graceful_teardown(
                 _streamable_eg_read_timeout_on_exit(),
-                MockSession,
                 "http://fake/mcp",
             ) as _session:
                 await asyncio.sleep(0)
@@ -199,14 +261,13 @@ class TestConnectToServerTeardown:
 
         @asynccontextmanager
         async def _streamable_value_error_on_exit():
-            yield _mock_streams()
+            yield MagicMock(name="session")
             raise ValueError("unexpected config error")
 
         async def _run():
             with pytest.raises(ValueError, match="unexpected config error"):
                 async with _connect_with_graceful_teardown(
                     _streamable_value_error_on_exit(),
-                    MockSession,
                     "http://fake/mcp",
                 ) as _session:
                     await asyncio.sleep(0)
@@ -218,14 +279,13 @@ class TestConnectToServerTeardown:
 
         @asynccontextmanager
         async def _streamable_other_runtime_error():
-            yield _mock_streams()
+            yield MagicMock(name="session")
             raise RuntimeError("something unrelated")
 
         async def _run():
             with pytest.raises(RuntimeError, match="something unrelated"):
                 async with _connect_with_graceful_teardown(
                     _streamable_other_runtime_error(),
-                    MockSession,
                     "http://fake/mcp",
                 ) as _session:
                     await asyncio.sleep(0)
@@ -238,7 +298,7 @@ class TestConnectToServerTeardown:
         async def _run():
             with pytest.raises(ValueError, match="bad input"):
                 async with _connect_with_graceful_teardown(
-                    _streamable_ok(), MockSession, "http://fake/mcp"
+                    _streamable_ok(), "http://fake/mcp"
                 ) as _session:
                     raise ValueError("bad input")
 
@@ -254,9 +314,6 @@ class TestMCPStartupBoundary:
     def teardown_method(self):
         _skipped_function_groups.clear()
         _known_mcp_function_groups.clear()
-
-    def test_runtime_connect_timeout_retains_upstream_allowance(self):
-        assert _MCP_CONNECT_TIMEOUT >= 30.0
 
     def test_pydantic_style_mcp_config_is_detected(self):
         config = types.SimpleNamespace(type="mcp_client")
@@ -337,14 +394,15 @@ class TestMCPBootstrapAuth:
             _httpx_auth=types.SimpleNamespace(user_id=auth_user_id),
         )
 
-    def test_shared_oauth_schema_bootstrap_is_unauthenticated(self):
+    def test_shared_oauth_schema_bootstrap_fails_closed(self):
         client = self._client(
             allow_default=False,
             default_user_id="https://gmailmcp.googleapis.com/mcp",
             auth_user_id="https://gmailmcp.googleapis.com/mcp",
         )
 
-        assert _mcp_httpx_auth_for_connection(client) is None
+        with pytest.raises(RuntimeError, match="authenticated per-user context"):
+            _mcp_httpx_auth_for_connection(client)
 
     def test_real_user_session_retains_interactive_auth(self):
         client = self._client(
@@ -559,12 +617,6 @@ class FakeWorkflowBuilder:
             tools.append(MagicMock(name=f"tool-{name}"))
         return tools
 
-    async def get_function(self, name, *args, **kwargs):
-        """Simulate single function lookup — raises ValueError if not registered."""
-        if name not in self.registered:
-            raise ValueError(f"Function `{name}` not found")
-        return MagicMock(name=f"fn-{name}")
-
 
 class TestStartupResilience:
     """Verify the add_function_group and get_tools resilience wrappers."""
@@ -636,26 +688,10 @@ class TestStartupResilience:
 
         builder_cls.get_tools = resilient_get_tools
 
-        original_get_function = builder_cls.get_function
-
-        @functools.wraps(original_get_function)
-        async def resilient_get_function(self, name, *args, **kwargs):
-            if _tool_ref_text(name) in _skipped_function_groups:
-                return None
-            try:
-                return await original_get_function(self, name, *args, **kwargs)
-            except _STARTUP_RESILIENCE_EXCEPTIONS as exc:
-                if _should_skip_tool_resolution_error(exc, name):
-                    _record_skipped_function_group(name)
-                    return None
-                raise
-
-        builder_cls.get_function = resilient_get_function
-
-        return original_add_fg, original_get_tools, original_get_function
+        return original_add_fg, original_get_tools
 
     def _restore(self, cls, originals):
-        cls.add_function_group, cls.get_tools, cls.get_function = originals
+        cls.add_function_group, cls.get_tools = originals
         _skipped_function_groups.clear()
         _known_mcp_function_groups.clear()
 
@@ -778,150 +814,6 @@ class TestStartupResilience:
             run(_run())
         finally:
             self._restore(FailingBuilder, originals)
-
-    def test_startup_does_not_retry_transient_failure(self):
-        """A transient MCP failure is skipped after one startup attempt."""
-
-        class TransientFailBuilder(FakeWorkflowBuilder):
-            def __init__(self):
-                super().__init__()
-                self.attempts = 0
-
-            async def add_function_group(self, name, *args, **kwargs):
-                self.attempts += 1
-                if self.attempts == 1:
-                    raise httpx.ConnectTimeout("k8s-mcp-server:8080")
-                return await super().add_function_group(name, *args, **kwargs)
-
-        originals = self._apply_patch_with_retry(TransientFailBuilder)
-        try:
-            builder = TransientFailBuilder()
-
-            async def _run():
-                result = await builder.add_function_group("k8s_mcp")
-                assert result is None
-                assert "k8s_mcp" in _skipped_function_groups
-                assert builder.attempts == 1
-
-            run(_run())
-        finally:
-            self._restore(TransientFailBuilder, originals)
-
-    def test_connection_failure_is_attempted_once_then_skipped(self):
-        """An unavailable MCP group never retries inside application startup."""
-
-        class PermanentFailBuilder(FakeWorkflowBuilder):
-            def __init__(self):
-                super().__init__()
-                self.attempts = 0
-
-            async def add_function_group(self, name, *args, **kwargs):
-                self.attempts += 1
-                raise httpx.ConnectTimeout("k8s-mcp-server:8080")
-
-        originals = self._apply_patch_with_retry(PermanentFailBuilder)
-        try:
-            builder = PermanentFailBuilder()
-
-            async def _run():
-                result = await builder.add_function_group("k8s_mcp")
-                assert result is None
-                assert "k8s_mcp" in _skipped_function_groups
-                assert _MCP_STARTUP_MAX_RETRIES == 0
-                assert builder.attempts == 1
-
-            run(_run())
-        finally:
-            self._restore(PermanentFailBuilder, originals)
-
-    def _apply_patch_with_retry(self, builder_cls):
-        """Apply the configured startup attempt count to the fake builder."""
-        import functools
-
-        _skipped_function_groups.clear()
-        _known_mcp_function_groups.clear()
-
-        original_add_fg = builder_cls.add_function_group
-
-        @functools.wraps(original_add_fg)
-        async def resilient(self, name, *args, **kwargs):
-            _record_possible_mcp_group(name, args, kwargs)
-            for attempt in range(_MCP_STARTUP_MAX_RETRIES + 1):
-                try:
-                    return await original_add_fg(self, name, *args, **kwargs)
-                except _STARTUP_RESILIENCE_EXCEPTIONS as exc:
-                    if _is_no_tools_after_degradation_error(exc):
-                        _record_skipped_function_group(name)
-                        return None
-                    if not _should_recover_function_group_startup_error(exc, name):
-                        raise
-                    if attempt < _MCP_STARTUP_MAX_RETRIES:
-                        # Skip the actual sleep in tests
-                        continue
-            _record_skipped_function_group(name)
-            return None
-
-        builder_cls.add_function_group = resilient
-
-        # Reuse the same get_tools/get_function wrappers
-        original_get_tools = builder_cls.get_tools
-
-        async def _resolve_individually(self, tool_names, args, kwargs):
-            resolved = []
-            for tool_name in tool_names:
-                try:
-                    result = await original_get_tools(
-                        self, [tool_name], *args, **kwargs
-                    )
-                except _STARTUP_RESILIENCE_EXCEPTIONS as exc:
-                    if _should_skip_tool_resolution_error(exc, tool_name):
-                        _record_skipped_function_group(tool_name)
-                        continue
-                    raise
-                if result:
-                    resolved.extend(result)
-            return resolved
-
-        @functools.wraps(original_get_tools)
-        async def resilient_get_tools(self, tool_names=None, *args, **kwargs):
-            if tool_names and _skipped_function_groups:
-                tool_names = [
-                    n
-                    for n in tool_names
-                    if _tool_ref_text(n) not in _skipped_function_groups
-                ]
-            try:
-                return await original_get_tools(self, tool_names, *args, **kwargs)
-            except _STARTUP_RESILIENCE_EXCEPTIONS as exc:
-                if tool_names and (
-                    _is_connection_error(exc)
-                    or any(
-                        _should_skip_tool_resolution_error(exc, tool_name)
-                        for tool_name in tool_names
-                    )
-                ):
-                    return await _resolve_individually(self, tool_names, args, kwargs)
-                raise
-
-        builder_cls.get_tools = resilient_get_tools
-
-        original_get_function = builder_cls.get_function
-
-        @functools.wraps(original_get_function)
-        async def resilient_get_function(self, name, *args, **kwargs):
-            if _tool_ref_text(name) in _skipped_function_groups:
-                return None
-            try:
-                return await original_get_function(self, name, *args, **kwargs)
-            except _STARTUP_RESILIENCE_EXCEPTIONS as exc:
-                if _should_skip_tool_resolution_error(exc, name):
-                    _record_skipped_function_group(name)
-                    return None
-                raise
-
-        builder_cls.get_function = resilient_get_function
-
-        return original_add_fg, original_get_tools, original_get_function
 
     def test_non_connection_error_still_raises(self):
         """Non-connection errors (e.g. config errors) still propagate."""
@@ -1179,66 +1071,6 @@ class TestStartupResilience:
         finally:
             self._restore(BuilderWithWrapper, originals)
 
-    def test_get_function_filters_skipped_groups(self):
-        """get_function returns None for skipped groups (reasoning_agent path).
-
-        The reasoning_agent resolves tools individually via get_function()
-        instead of get_tools().  When a function group was skipped at
-        startup, get_function must return None rather than raising
-        ValueError so the reasoning_agent can start with a reduced tool set.
-        """
-
-        class FailingBuilder(FakeWorkflowBuilder):
-            async def add_function_group(self, name, *args, **kwargs):
-                if name == "k8s_mcp_server":
-                    raise httpx.ConnectTimeout("k8s-mcp-server:8080")
-                return await super().add_function_group(name, *args, **kwargs)
-
-        originals = self._apply_patch(FailingBuilder)
-        try:
-            builder = FailingBuilder()
-
-            async def _run():
-                await builder.add_function_group("k8s_mcp_server")
-                await builder.add_function_group("github_mcp")
-
-                assert "k8s_mcp_server" in _skipped_function_groups
-
-                # get_function should return None for skipped group
-                result = await builder.get_function("k8s_mcp_server")
-                assert result is None
-
-                # get_function should work normally for available groups
-                result = await builder.get_function("github_mcp")
-                assert result is not None
-
-            run(_run())
-        finally:
-            self._restore(FailingBuilder, originals)
-
-    def test_get_function_omits_deferred_mcp_connection_failure(self):
-        """get_function also degrades MCP connection failures to unavailable."""
-
-        class DeferredFailBuilder(FakeWorkflowBuilder):
-            async def get_function(self, name, *args, **kwargs):
-                if name == "github_mcp_server":
-                    raise httpx.RemoteProtocolError("GitHub MCP disconnected")
-                return await super().get_function(name, *args, **kwargs)
-
-        originals = self._apply_patch(DeferredFailBuilder)
-        try:
-            builder = DeferredFailBuilder()
-
-            async def _run():
-                await builder.add_function_group("github_mcp_server")
-                result = await builder.get_function("github_mcp_server")
-                assert result is None
-                assert "github_mcp_server" in _skipped_function_groups
-
-            run(_run())
-        finally:
-            self._restore(DeferredFailBuilder, originals)
-
     def test_no_tools_after_mcp_degradation_skips_agent_group(self):
         """An agent left with zero tools after MCP skips should not kill startup."""
 
@@ -1265,37 +1097,6 @@ class TestStartupResilience:
             run(_run())
         finally:
             self._restore(AgentBuilder, originals)
-
-    def test_get_function_available_unchanged(self):
-        """get_function passes through normally when no groups were skipped."""
-        originals = self._apply_patch(FakeWorkflowBuilder)
-        try:
-            builder = FakeWorkflowBuilder()
-
-            async def _run():
-                await builder.add_function_group("tool_a")
-                result = await builder.get_function("tool_a")
-                assert result is not None
-
-            run(_run())
-        finally:
-            self._restore(FakeWorkflowBuilder, originals)
-
-    def test_get_function_missing_not_skipped_still_raises(self):
-        """get_function still raises ValueError for genuinely missing functions."""
-        originals = self._apply_patch(FakeWorkflowBuilder)
-        try:
-            builder = FakeWorkflowBuilder()
-
-            async def _run():
-                import pytest
-
-                with pytest.raises(ValueError, match="not found"):
-                    await builder.get_function("nonexistent_tool")
-
-            run(_run())
-        finally:
-            self._restore(FakeWorkflowBuilder, originals)
 
 
 # ---------------------------------------------------------------------------
@@ -1458,7 +1259,7 @@ class TestMcpErrorNoReconnect:
             async def acall(self, tool_args):
                 raise RuntimeError("auth timed out")
 
-        fake_module = types.ModuleType("nat.plugins.mcp.client.tool_client")
+        fake_module = types.ModuleType("nat.plugins.mcp.client.client_base")
         fake_module.MCPToolClient = FakeMCPToolClient
 
         for module_name in (
@@ -1472,10 +1273,9 @@ class TestMcpErrorNoReconnect:
             monkeypatch.setitem(sys.modules, module_name, module)
         monkeypatch.setitem(
             sys.modules,
-            "nat.plugins.mcp.client.tool_client",
+            "nat.plugins.mcp.client.client_base",
             fake_module,
         )
-        monkeypatch.setattr(mcp_patches, "_mcp_client_available", False)
         monkeypatch.setattr(mcp_patches, "_approval_gate_installed", False)
 
         mcp_patches._patch_tool_client()

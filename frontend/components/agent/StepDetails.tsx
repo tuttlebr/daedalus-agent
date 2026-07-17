@@ -4,7 +4,6 @@ import React, { useState } from 'react';
 import {
   ConsolidatedStep,
   formatDuration,
-  getFriendlyName,
 } from '@/utils/app/intermediateSteps';
 import {
   normalizeLatexDelimiters,
@@ -12,8 +11,6 @@ import {
 } from '@/utils/app/latexNormalizer';
 
 import {
-  IntermediateStep,
-  getEventCategory,
   getEventState,
   IntermediateStepCategory,
   TraceMetadata,

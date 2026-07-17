@@ -1,5 +1,6 @@
 import { NextApiRequest, NextApiResponse } from 'next';
 
+import { cleanupSessionDocuments } from './documentStorage';
 import { cleanupSessionImages } from './imageStorage';
 
 import {
@@ -23,15 +24,18 @@ export default async function handler(
     const sessionId = getOrSetSessionId(req, res);
     const userId = session.username;
 
-    // Cleanup all images associated with this session and user
-    const deletedCount = await cleanupSessionImages(sessionId, userId);
+    const [imagesDeleted, documentsDeleted] = await Promise.all([
+      cleanupSessionImages(sessionId, userId),
+      cleanupSessionDocuments(sessionId, userId),
+    ]);
 
     // Clear session storage
     // Note: Session cleanup is handled by the auth system
 
     return res.status(200).json({
       message: 'Session cleaned up successfully',
-      imagesDeleted: deletedCount,
+      imagesDeleted,
+      documentsDeleted,
     });
   } catch (error) {
     console.error('Error cleaning up session:', error);

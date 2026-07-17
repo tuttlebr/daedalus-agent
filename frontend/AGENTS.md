@@ -1,10 +1,21 @@
 # Repository Guidelines
 
-## Project Structure & Module Organization
+## Project Structure
 
-This is a Next.js 14 TypeScript frontend for Daedalus. Route pages and API handlers live in `pages/`, with backend-facing API routes under `pages/api/`. Reusable UI is organized by domain in `components/` (`chat`, `autonomy`, `images`, `primitives`, etc.). Shared hooks live in `hooks/`, Zustand stores in `state/`, app utilities in `utils/app/`, server-only helpers in `server/`, and websocket client code in `services/`. Static assets, PWA files, icons, and locales are in `public/`. Tests are centralized in `__tests__/` and mirror the source area.
+This is the Next.js 15 TypeScript frontend for Daedalus. Pages and API handlers
+live in `pages/`. Reusable UI is grouped by domain in `components/`, browser
+hooks in `hooks/`, Zustand stores in `state/`, shared application utilities in
+`utils/app/`, and server-only helpers in `server/`. Tests mirror source areas
+under `__tests__/`. Production browser tests and their isolated Compose harness
+live in `e2e/`.
 
-## Build, Test, and Development Commands
+The frontend image has separate runtime roles. The frontend deployment starts
+Next.js and the WebSocket sidecar through `scripts/start-runtime.js`. A distinct
+stream-worker deployment starts `stream-worker.js` from the same image and
+consumes durable Redis Stream entries. Keep worker lifecycle and execution out
+of API request handlers.
+
+## Build, Test, And Development Commands
 
 Use Node.js 22 and install with:
 
@@ -12,26 +23,59 @@ Use Node.js 22 and install with:
 npm ci --legacy-peer-deps
 ```
 
-- `npm run dev`: starts local Next.js development on port `5000`.
-- `npm run build`: builds production output and injects the precache manifest.
-- `npm run start`: serves the built app on port `5000`.
-- `npm run lint`: runs Next.js ESLint checks.
-- `npm test -- --run`: runs Vitest once; `npm test` starts watch mode.
-- `npm run coverage`: runs Vitest with V8 coverage reports.
-- `npm run format`: formats the repository with Prettier.
+- `npm run dev` starts only Next.js on port `5000`.
+- `npm run lint` runs Next.js ESLint checks.
+- `npx tsc --noEmit --incremental false` performs a clean type check.
+- `npm test -- --run` runs Vitest once. `npm test` starts watch mode.
+- `npm run coverage` runs Vitest with enforced V8 coverage gates.
+- `npm run build` builds the production app and injects the PWA precache
+  manifest.
+- `npm run e2e` builds production artifacts, starts isolated dependencies, and
+  runs the Playwright Chromium suite.
+- `npm run format` formats the package with Prettier.
 
-## Coding Style & Naming Conventions
+## Coding Style And Boundaries
 
-Write TypeScript and React with 2-space indentation, single quotes, trailing commas, and semicolons as produced by Prettier. Imports are sorted by `@trivago/prettier-plugin-sort-imports`, then Tailwind classes by `prettier-plugin-tailwindcss`. Use PascalCase for React components (`ChatInput.tsx`), camelCase for hooks and utilities (`useAsyncChat.ts`, `backendApi.ts`), and keep domain-specific files near their owning feature folder.
+Write TypeScript and React with 2-space indentation, single quotes, trailing
+commas, and semicolons as produced by Prettier. Use PascalCase for components
+and camelCase for hooks and utilities.
+
+Every TypeScript file under `pages/api` must default-export a route handler.
+Place shared request logic in `server/`, not under `pages/api`. Never import a
+server-only module into a browser bundle.
+
+The `/api/chat/async` route authenticates and enqueues work. Backend streams
+belong to `server/chat/streamWorker.ts`. Preserve the queue lease, heartbeat,
+backend-start marker, cancellation, and fail-closed reclaim rules when changing
+this path.
+
+Document bytes belong in S3-compatible object storage, not Redis or JSON request
+bodies. Store only owner-scoped references and metadata. Collection names come
+from the authenticated backend metadata endpoint and must not be reconstructed
+from a browser-controlled username.
 
 ## Testing Guidelines
 
-Vitest runs in `jsdom` with globals enabled. Name tests `*.test.ts` or `*.test.tsx` and place them under `__tests__/` using the source path as a guide, such as `__tests__/utils/app/api.test.ts`. Coverage includes `utils`, `components`, `services`, `hooks`, and `pages/api`, with 80% thresholds for lines, functions, branches, and statements. Add or update focused tests for API behavior, stores, hooks, and utility changes.
+Place tests under `__tests__/` using the source path as a guide. Add focused unit
+tests for normal and failure paths. Use the real-Redis integration test for
+consumer-group, reclaim, or lease behavior that mocks can't prove. Use the E2E
+harness for user-visible login, streaming, cancellation, upload, approval, and
+transport-recovery changes.
 
-## Commit & Pull Request Guidelines
+Coverage includes the broad frontend surface, all `server/chat` modules, and
+explicit critical object-store, multipart, collection-metadata, and
+conversation-state files. Thresholds in `vitest.config.ts` are CI regression
+gates. Don't lower them to land a change.
 
-Recent commits use short, imperative summaries such as `Fix optional Exa search config validation` or `Expose autonomous queue visibility`. Keep commits scoped and avoid unrelated formatting churn. Pull requests should describe the change, list verification commands, link related issues, and include screenshots or recordings for UI changes. Call out impacts to `env.example`, auth, Redis-backed state, websocket behavior, or PWA caching.
+## Pull Request And Security Guidance
 
-## Security & Configuration Tips
+Keep commits scoped. Pull requests should explain behavior changes and list the
+commands run. Include screenshots or recordings for visual changes. Call out
+changes to environment variables, auth, Redis state, WebSocket behavior, PWA
+caching, upload limits, or object-store retention.
 
-Do not commit secrets. Use `env.example` and `auth-passwords.json.template` as templates only. Production secrets such as `SESSION_SECRET`, Redis settings, backend routing variables, and internal API tokens must come from environment variables or deployment secrets.
+Don't commit secrets. Production values such as `SESSION_SECRET`, Redis
+credentials, internal backend tokens, object-store credentials, and login
+passwords must come from environment variables or deployment Secrets. Derive
+identity and ownership from the authenticated session, and keep trusted backend
+headers server-side.

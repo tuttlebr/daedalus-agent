@@ -7,24 +7,22 @@ import { resolveTimezoneFromHeaders } from '@/utils/server/backendAuth';
 import { publishStreamingState } from '@/utils/sync/publish';
 
 import { selectStreamBackendBaseUrl } from '@/server/chat/backendSelection';
+import { JOB_EXPIRY_SECONDS } from '@/server/chat/constants';
 import {
-  FINALIZER_LOCK_TTL_MS,
-  JOB_EXPIRY_SECONDS,
-  STREAM_JOB_STALE_TIMEOUT_MS,
-} from '@/server/chat/constants';
+  acquireConversationJobGuard,
+  isConversationJobInitializationStale,
+  releaseConversationJobGuard,
+  replaceStaleConversationJobGuard,
+} from '@/server/chat/conversationJobGuard';
+import { formatIngestPartialResponse } from '@/server/chat/documentIngest';
 import {
-  formatIngestPartialResponse,
-  startBackgroundDocumentIngest,
-} from '@/server/chat/documentIngest';
-import { finalizeError } from '@/server/chat/finalization';
+  finalizeError,
+  resumePendingFinalization,
+} from '@/server/chat/finalization';
 import {
-  abortKey,
   clearOAuthStatusFields,
-  finalizerLockKey,
-  isPlausibleUnixMs,
   isTerminalJobStatus,
   updateJobStatus,
-  withRedisLock,
 } from '@/server/chat/jobState';
 import {
   getDocumentIngestJobRequest,
@@ -35,20 +33,15 @@ import {
   buildNatSessionId,
 } from '@/server/chat/natMessages';
 import { buildSourcePolicyMessage } from '@/server/chat/sourcePolicy';
-import {
-  abortBackgroundStream,
-  startBackgroundStreamReader,
-} from '@/server/chat/streamReader';
-import {
-  ensureStreamJobWatchdog,
-  registerStreamJob,
-} from '@/server/chat/streamWatchdog';
+import { enqueueStreamJob, streamPayloadKey } from '@/server/chat/streamQueue';
+import { getStreamResponse, getStreamSteps } from '@/server/chat/streamState';
 import {
   ApiRouteError,
   type AsyncJobRequest,
   type AsyncJobStatus,
   type DocumentIngestProgress,
 } from '@/server/chat/types';
+import { getMilvusMetadata } from '@/server/milvusMetadata';
 import { enforceRateLimit, ruleFromEnv } from '@/server/rateLimit';
 import { getOrSetSessionId } from '@/server/session/_utils';
 import {
@@ -58,7 +51,6 @@ import {
   jsonSetWithExpiry,
   jsonDel,
   setStreamingState,
-  clearStreamingState,
 } from '@/server/session/redis';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -95,7 +87,9 @@ const CHAT_ASYNC_RATE_LIMIT = ruleFromEnv(
 export const config = {
   api: {
     bodyParser: {
-      sizeLimit: '300mb', // Support large document processing payloads
+      // Attachments are owner-scoped references before chat submission. Keep a
+      // bounded allowance for long text histories without accepting file bytes.
+      sizeLimit: '32mb',
     },
   },
   maxDuration: 900, // 15 minutes
@@ -175,10 +169,75 @@ async function loadStoredConversationMessages(
   }
 }
 
+async function claimConversationForJob(
+  userId: string,
+  conversationId: string,
+  jobId: string,
+): Promise<void> {
+  let acquisition = await acquireConversationJobGuard(
+    userId,
+    conversationId,
+    jobId,
+  );
+  if (acquisition.acquired) return;
+
+  const current = acquisition.current;
+  if (
+    current &&
+    current.userId === userId &&
+    current.conversationId === conversationId
+  ) {
+    const currentStatus = (await jsonGet(
+      sessionKey(['async-job-status', current.jobId]),
+    )) as AsyncJobStatus | null;
+
+    if (currentStatus && isTerminalJobStatus(currentStatus.status)) {
+      await resumePendingFinalization(current.jobId).catch((error) => {
+        logger.warn(
+          `Job ${jobId}: failed to finish prior conversation finalization`,
+          error,
+        );
+      });
+      acquisition = await acquireConversationJobGuard(
+        userId,
+        conversationId,
+        jobId,
+      );
+      if (acquisition.acquired) return;
+    } else if (
+      !currentStatus &&
+      acquisition.currentSerialized &&
+      isConversationJobInitializationStale(current)
+    ) {
+      const replaced = await replaceStaleConversationJobGuard(
+        userId,
+        conversationId,
+        acquisition.currentSerialized,
+        jobId,
+      );
+      if (replaced) return;
+
+      acquisition = await acquireConversationJobGuard(
+        userId,
+        conversationId,
+        jobId,
+      );
+      if (acquisition.acquired) return;
+    }
+  }
+
+  throw new ApiRouteError(
+    409,
+    'Another response is already active for this conversation.',
+    'conversation_job_active',
+  );
+}
+
 async function sanitizeJobStatusForReturn(
   jobId: string,
   status: AsyncJobStatus,
   jobRequest: AsyncJobRequest,
+  options: { persist?: boolean } = {},
 ): Promise<AsyncJobStatus> {
   const updates: Partial<AsyncJobStatus> = {};
 
@@ -218,12 +277,14 @@ async function sanitizeJobStatusForReturn(
     ...updates,
     updatedAt: Date.now(),
   };
-  await updateJobStatus(jobId, {
-    ...updates,
-    updatedAt: sanitized.updatedAt,
-  }).catch((error) => {
-    logger.warn(`Job ${jobId}: Failed to persist sanitized response`, error);
-  });
+  if (options.persist !== false) {
+    await updateJobStatus(jobId, {
+      ...updates,
+      updatedAt: sanitized.updatedAt,
+    }).catch((error) => {
+      logger.warn(`Job ${jobId}: Failed to persist sanitized response`, error);
+    });
+  }
   return sanitized;
 }
 
@@ -231,11 +292,6 @@ export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse,
 ) {
-  // Arm the stale-stream-job watchdog on any request to this route (idempotent
-  // singleton) so a freshly restarted pod sweeps orphans left by the previous
-  // process generation without waiting for a new stream submission (H3).
-  ensureStreamJobWatchdog();
-
   if (req.method === 'POST') {
     return handlePost(req, res);
   } else if (req.method === 'GET') {
@@ -251,6 +307,14 @@ export default async function handler(
 // ── POST: Start a frontend-managed streaming job ────────────────────
 
 async function handlePost(req: NextApiRequest, res: NextApiResponse) {
+  let createdJobId: string | null = null;
+  let acquiredConversationGuard: {
+    userId: string;
+    conversationId: string;
+    jobId: string;
+  } | null = null;
+  let jobEnqueued = false;
+
   try {
     const {
       messages,
@@ -281,6 +345,9 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       return res.status(400).json({ error: 'Invalid messages' });
     }
 
+    const jobId = uuidv4();
+    createdJobId = jobId;
+    const createdAt = Date.now();
     const storedMessages = await loadStoredConversationMessages(
       verifiedUsername,
       conversationId,
@@ -300,9 +367,28 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       }
     }
 
-    const jobId = uuidv4();
     const natSessionId = buildNatSessionId(verifiedUsername);
     const timezone = resolveTimezoneFromHeaders(req.headers);
+    const hasDocumentAttachments = effectiveMessages.some(
+      (message: any) =>
+        Array.isArray(message?.attachments) &&
+        message.attachments.some(
+          (attachment: any) => attachment?.type === 'document',
+        ),
+    );
+    let collectionMetadata = null;
+    if (hasDocumentAttachments) {
+      try {
+        collectionMetadata = await getMilvusMetadata(verifiedUsername);
+      } catch (error) {
+        logger.error(`Job ${jobId}: Collection metadata unavailable`, error);
+        throw new ApiRouteError(
+          503,
+          'Document collection metadata is temporarily unavailable.',
+          'collection_metadata_unavailable',
+        );
+      }
+    }
 
     // Process messages: add attachment references/content for agent context
     const processedMessages = await processMessages(
@@ -310,15 +396,55 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       currentSessionId,
       verifiedUsername,
       jobId,
+      collectionMetadata?.userCollection.name,
+      collectionMetadata?.databaseName,
     );
 
     const documentIngest = getDocumentIngestJobRequest(
       processedMessages,
       verifiedUsername,
+      collectionMetadata?.userCollection.name,
+      collectionMetadata?.databaseName,
     );
     const executionMode: AsyncJobRequest['executionMode'] = documentIngest
       ? 'document_ingest'
       : 'stream';
+
+    const guardedConversationId =
+      typeof conversationId === 'string' && conversationId
+        ? conversationId
+        : null;
+    if (guardedConversationId) {
+      await claimConversationForJob(
+        verifiedUsername,
+        guardedConversationId,
+        jobId,
+      );
+      acquiredConversationGuard = {
+        userId: verifiedUsername,
+        conversationId: guardedConversationId,
+        jobId,
+      };
+    }
+
+    // Publish a provisional status immediately after the guard. This closes the
+    // initialization window used for stale-owner recovery while backend
+    // selection and queue preparation are still in progress.
+    await jsonSetWithExpiry(
+      sessionKey(['async-job-status', jobId]),
+      {
+        jobId,
+        status: 'pending',
+        createdAt,
+        updatedAt: createdAt,
+        conversationId,
+        ...(typeof turnId === 'string' && turnId ? { turnId } : {}),
+        ...(typeof assistantMessageId === 'string' && assistantMessageId
+          ? { assistantMessageId }
+          : {}),
+      } satisfies AsyncJobStatus,
+      JOB_EXPIRY_SECONDS,
+    );
 
     // Strip system messages -- the backend's NAT agent owns the system prompt.
     // Also drop assistant messages with empty content -- these cause 400 errors
@@ -396,7 +522,6 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
 
     // Initialize job status. Direct document ingestion starts as streaming so
     // the first client status read can render progress immediately.
-    const createdAt = Date.now();
     const initialIngestProgress: DocumentIngestProgress | undefined =
       documentIngest
         ? {
@@ -436,26 +561,11 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       JOB_EXPIRY_SECONDS,
     );
 
-    if (documentIngest) {
-      const effectiveUserId = verifiedUsername;
-      if (conversationId) {
-        await setStreamingState(effectiveUserId, conversationId, jobId);
-        await publishStreamingState(
-          effectiveUserId,
-          conversationId,
-          true,
-          jobId,
-        );
-      }
-
-      res.status(200).json({ jobId, status: jobStatus.status });
-      startBackgroundDocumentIngest(jobId, jobRequest, verifiedUsername).catch(
-        (err) => {
-          logger.error(`Job ${jobId}: Background document ingest failed`, err);
-        },
-      );
-      return;
-    }
+    await enqueueStreamJob(jobId, {
+      messagesForNat: messagesWithIdentity,
+      verifiedUsername,
+    });
+    jobEnqueued = true;
 
     // Set streaming state for cross-session UI
     const effectiveUserId = verifiedUsername;
@@ -464,31 +574,32 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       await publishStreamingState(effectiveUserId, conversationId, true, jobId);
     }
 
-    // Respond immediately so the client can start polling / WS listening
-    res.status(200).json({ jobId, status: jobStatus.status });
-
-    // Index this stream job BEFORE starting the reader so the watchdog can
-    // finalize it even if this reader's process dies mid-stream and no client
-    // ever polls (H3). Awaited (one cheap Redis round-trip; the response was
-    // already sent above) so a missed SADD doesn't silently un-index the very
-    // orphan the watchdog exists to recover.
-    await registerStreamJob(jobId);
-    startBackgroundStreamReader(
-      jobId,
-      jobRequest,
-      messagesWithIdentity,
-      verifiedUsername,
-    ).catch((err) => {
-      logger.error(`Job ${jobId}: Background stream reader failed`, err);
-    });
-
-    return;
+    return res.status(200).json({ jobId, status: jobStatus.status });
   } catch (error) {
+    if (!jobEnqueued && createdJobId) {
+      await Promise.all([
+        jsonDel(sessionKey(['async-job-request', createdJobId])),
+        jsonDel(sessionKey(['async-job-status', createdJobId])),
+        jsonDel(streamPayloadKey(createdJobId)),
+        ...(acquiredConversationGuard
+          ? [
+              releaseConversationJobGuard(
+                acquiredConversationGuard.userId,
+                acquiredConversationGuard.conversationId,
+                acquiredConversationGuard.jobId,
+              ),
+            ]
+          : []),
+      ]).catch(() => {});
+    }
     if (error instanceof ApiRouteError) {
       logger.warn(`Rejected async job request: ${error.message}`, {
         status: error.status,
         reason: error.reason,
       });
+      if (error.reason === 'conversation_job_active') {
+        res.setHeader('Retry-After', '2');
+      }
       return res.status(error.status).json({
         error: error.message,
         reason: error.reason,
@@ -533,6 +644,12 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
       (jobStatus.status === 'completed' || jobStatus.status === 'error') &&
       jobStatus.finalizedAt
     ) {
+      await resumePendingFinalization(jobId).catch((error) => {
+        logger.error(
+          `Job ${jobId}: failed to resume terminal side effects`,
+          error,
+        );
+      });
       const sanitized = await sanitizeJobStatusForReturn(
         jobId,
         jobStatus,
@@ -542,55 +659,20 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
     }
 
     if (jobRequest.executionMode === 'stream') {
-      const lastActivityAt = jobStatus.updatedAt || jobStatus.createdAt;
-      if (
-        !isTerminalJobStatus(jobStatus.status) &&
-        isPlausibleUnixMs(lastActivityAt) &&
-        Date.now() - lastActivityAt > STREAM_JOB_STALE_TIMEOUT_MS
-      ) {
-        // Serialize with the stream watchdog / other finalizers and re-check
-        // inside the lock so a stale stream job is finalized exactly once (no
-        // double conversation write or duplicate chat_complete event).
-        await withRedisLock(
-          finalizerLockKey(jobId),
-          FINALIZER_LOCK_TTL_MS,
-          async () => {
-            const fresh =
-              ((await jsonGet(statusKey)) as AsyncJobStatus | null) ||
-              jobStatus;
-            if (fresh.finalizedAt || isTerminalJobStatus(fresh.status)) {
-              return;
-            }
-            abortBackgroundStream(jobId);
-            await finalizeError(
-              jobId,
-              jobRequest,
-              'Backend stream did not produce an update before the timeout. Please try again.',
-            );
-          },
-        );
-        const updated =
-          ((await jsonGet(statusKey)) as AsyncJobStatus | null) || jobStatus;
-        const sanitized = await sanitizeJobStatusForReturn(
-          jobId,
-          updated,
-          jobRequest,
-        );
-        return res.status(200).json(sanitized);
-      }
-      // Streaming steps are persisted separately to avoid rewriting and
-      // publishing the growing array on every event. Merge them into direct
-      // GET responses so the initial fetch and polling fallback stay complete.
-      const liveSteps = (await jsonGet(
-        sessionKey(['async-job-steps', jobId]),
-      )) as any[] | null;
-      const statusWithLiveSteps = liveSteps?.length
-        ? { ...jobStatus, intermediateSteps: liveSteps }
-        : jobStatus;
+      const [liveResponse, liveSteps] = await Promise.all([
+        getStreamResponse(jobId, jobStatus.partialResponse || ''),
+        getStreamSteps(jobId, jobStatus.intermediateSteps || []),
+      ]);
+      const statusWithLiveProgress: AsyncJobStatus = {
+        ...jobStatus,
+        ...(liveResponse ? { partialResponse: liveResponse } : {}),
+        ...(liveSteps.length ? { intermediateSteps: liveSteps } : {}),
+      };
       const sanitized = await sanitizeJobStatusForReturn(
         jobId,
-        statusWithLiveSteps,
+        statusWithLiveProgress,
         jobRequest,
+        { persist: false },
       );
       return res.status(200).json(sanitized);
     }
@@ -633,57 +715,28 @@ async function handleDelete(req: NextApiRequest, res: NextApiResponse) {
 
     const requestKey = sessionKey(['async-job-request', jobId]);
     const statusKey = sessionKey(['async-job-status', jobId]);
-    const stepsKey = sessionKey(['async-job-steps', jobId]);
     const jobRequest = (await jsonGet(requestKey)) as AsyncJobRequest | null;
     if (!jobRequest || jobRequest.userId !== session.username) {
       return res.status(404).json({ error: 'Job not found' });
     }
     const currentStatus = (await jsonGet(statusKey)) as AsyncJobStatus | null;
 
-    await jsonSetWithExpiry(abortKey(jobId), true, JOB_EXPIRY_SECONDS).catch(
-      () => {},
-    );
-    abortBackgroundStream(jobId);
-
-    // Clear streaming state if we have context
-    if (jobRequest?.conversationId && jobRequest?.userId) {
-      await clearStreamingState(
-        jobRequest.userId,
-        jobRequest.conversationId,
-      ).catch(() => {});
-      await publishStreamingState(
-        jobRequest.userId,
-        jobRequest.conversationId,
-        false,
-        jobId as string,
-      ).catch(() => {});
+    let canceled = false;
+    if (currentStatus && !isTerminalJobStatus(currentStatus.status)) {
+      canceled = await finalizeError(jobId, jobRequest, 'Job canceled by user');
     }
 
-    if (currentStatus && !currentStatus.finalizedAt) {
-      const streamSteps = (await jsonGet(stepsKey)) as any[] | null;
-      const partialResponse = stripReplayedAssistantPrefix(
-        currentStatus.partialResponse || '',
-        jobRequest.messages || [],
-      );
-      await updateJobStatus(jobId, {
-        status: 'error',
-        error: 'Job canceled by user',
-        partialResponse,
-        ...clearOAuthStatusFields(),
-        intermediateSteps: streamSteps?.length
-          ? streamSteps
-          : currentStatus.intermediateSteps || [],
-        updatedAt: Date.now(),
-        finalizedAt: Date.now(),
-      });
+    if (canceled) {
+      await Promise.all([
+        jsonDel(requestKey),
+        jsonDel(streamPayloadKey(jobId)),
+      ]);
     }
 
-    await Promise.all([jsonDel(requestKey), jsonDel(stepsKey)]);
+    // The durable abort flag lets the stream worker stop backend work even when
+    // the API and worker run in different processes.
 
-    // The abort flag and local AbortController stop readers from publishing any
-    // more progress after the frontend marks the job canceled.
-
-    return res.status(200).json({ success: true, canceled: true });
+    return res.status(200).json({ success: true, canceled });
   } catch (error) {
     logger.error('Error canceling job', error);
     return res.status(500).json({ error: 'Failed to cancel job' });

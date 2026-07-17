@@ -1,6 +1,7 @@
 """Unit tests for rss_feed utility functions and data models."""
 
 import socket
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -339,12 +340,22 @@ class TestScrapeContent:
         mock_md_instance.convert.return_value = mock_result
         return mock_md_instance
 
+    def _scrape(self, url="https://example.com", token_limit=64000):
+        return _scrape_content(
+            url,
+            token_limit,
+            "TRUNC",
+            fetched_content=b"<html>article</html>",
+            content_type="text/html",
+        )
+
     def test_returns_content_and_flag(self):
         mock_md = self._make_mock_md()
         with patch.object(rss_mod, "MarkItDown", return_value=mock_md):
-            content, was_truncated = _scrape_content(
-                "https://example.com", 64000, "TRUNC"
-            )
+            content, was_truncated = self._scrape()
+        converted_path = mock_md.convert.call_args.args[0]
+        assert converted_path != "https://example.com"
+        assert not rss_mod.os.path.exists(converted_path)
         assert isinstance(content, str)
         assert isinstance(was_truncated, bool)
 
@@ -370,34 +381,60 @@ class TestScrapeContent:
         assert was_truncated is False
         markitdown.assert_not_called()
 
+    def test_redirect_to_metadata_is_rejected_before_markitdown(self):
+        class _Client:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def get(self, _url):
+                return SimpleNamespace(
+                    is_redirect=True,
+                    headers={"location": "http://169.254.169.254/metadata"},
+                )
+
+        markitdown = MagicMock()
+        with patch.object(rss_mod.httpx, "Client", return_value=_Client()):
+            with patch.object(rss_mod, "MarkItDown", markitdown):
+                content, was_truncated = _scrape_content(
+                    "http://8.8.8.8/article", 64000, "TRUNC"
+                )
+
+        assert content.startswith("Error: ")
+        assert "non-public" in content.lower()
+        assert was_truncated is False
+        markitdown.assert_not_called()
+
     def test_content_includes_title(self):
         mock_md = self._make_mock_md(title="My Article Title")
         with patch.object(rss_mod, "MarkItDown", return_value=mock_md):
-            content, _ = _scrape_content("https://example.com", 64000, "TRUNC")
+            content, _ = self._scrape()
         assert "My Article Title" in content
 
     def test_content_includes_source_url(self):
         mock_md = self._make_mock_md()
         with patch.object(rss_mod, "MarkItDown", return_value=mock_md):
-            content, _ = _scrape_content("https://example.com", 64000, "TRUNC")
+            content, _ = self._scrape()
         assert "https://example.com" in content
 
     def test_content_includes_text_body(self):
         mock_md = self._make_mock_md(text_content="This is the article body text.")
         with patch.object(rss_mod, "MarkItDown", return_value=mock_md):
-            content, _ = _scrape_content("https://example.com", 64000, "TRUNC")
+            content, _ = self._scrape()
         assert "This is the article body text." in content
 
     def test_no_title_falls_back_to_url(self):
         mock_md = self._make_mock_md(title=None)
         with patch.object(rss_mod, "MarkItDown", return_value=mock_md):
-            content, _ = _scrape_content("https://example.com/no-title", 64000, "TRUNC")
+            content, _ = self._scrape("https://example.com/no-title")
         assert "https://example.com/no-title" in content
 
     def test_not_truncated_within_limit(self):
         mock_md = self._make_mock_md(text_content="Short content")
         with patch.object(rss_mod, "MarkItDown", return_value=mock_md):
-            _, was_truncated = _scrape_content("https://example.com", 64000, "TRUNC")
+            _, was_truncated = self._scrape()
         assert not was_truncated
 
     def test_raises_on_exception(self):
@@ -405,11 +442,11 @@ class TestScrapeContent:
         mock_md_instance.convert.side_effect = RuntimeError("Connection refused")
         with patch.object(rss_mod, "MarkItDown", return_value=mock_md_instance):
             with pytest.raises(RuntimeError, match="Connection refused"):
-                _scrape_content("https://example.com", 64000, "TRUNC")
+                self._scrape()
 
     def test_none_text_content_handled(self):
         """text_content=None should not crash — treated as empty string."""
         mock_md = self._make_mock_md(title="Title", text_content=None)
         with patch.object(rss_mod, "MarkItDown", return_value=mock_md):
-            content, _ = _scrape_content("https://example.com", 64000, "TRUNC")
+            content, _ = self._scrape()
         assert "Title" in content

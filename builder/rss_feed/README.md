@@ -1,15 +1,17 @@
 # RSS Feed Function
 
 This package registers a single feed search function that fetches RSS entries,
-reranks them against a user query, scrapes the best match with MarkItDown, and
-returns the article body as markdown.
+reranks them against a user query, fetches the best match through a public-IP
+validated transport, converts a local response file with MarkItDown, and returns
+the article body as markdown.
 
 ## What It Does
 
 - Reads one configured RSS feed via `feed_url`, or a map of named feeds via `feeds`
 - Caches parsed entries in memory for `cache_ttl_hours` per feed URL
 - Reranks entries with an external reranker service, sized to a token budget
-- Scrapes the top-ranked article URL with MarkItDown
+- Fetches the top-ranked article through the SSRF-safe transport and gives
+  MarkItDown only a temporary local file
 - Truncates scraped content to fit a token budget
 
 The function is feed-specific. It does not search the open web by itself; use
@@ -70,7 +72,7 @@ failure).
 3. Build compact reranker passages sized to the configured token budget.
 4. Send candidate entries to the reranker.
 5. Select the top-ranked article.
-6. Scrape the article content with MarkItDown.
+6. Fetch the article through the pinned transport and convert its local response file.
 7. Truncate the result if needed and return it.
 
 ## Failure Modes

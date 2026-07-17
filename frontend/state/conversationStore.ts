@@ -132,14 +132,23 @@ export const useConversationStore = create<ConversationStore>()(
 
       setConversations: (conversations) => {
         set((state) => {
-          // Preserve local state for conversations that are actively streaming —
-          // sync events carry stale data that would overwrite in-flight messages.
-          const streamingLocal = new Map<string, Conversation>();
+          // Preserve local state for active streams and for the selected local
+          // draft. A history refresh can race initial selection and must not
+          // silently remove the conversation that owns the visible input.
+          const preservedLocal = new Map<string, Conversation>();
           for (const conv of state.conversations) {
             if (state.streamingConversationIds.has(conv.id)) {
-              streamingLocal.set(conv.id, conv);
+              preservedLocal.set(conv.id, conv);
             }
           }
+          const selectedLocal = state.selectedConversationId
+            ? state.conversations.find(
+                (conversation) =>
+                  conversation.id === state.selectedConversationId,
+              )
+            : undefined;
+          if (selectedLocal)
+            preservedLocal.set(selectedLocal.id, selectedLocal);
 
           const incomingIds = new Set(
             conversations.map((c: Conversation) => c.id),
@@ -147,11 +156,11 @@ export const useConversationStore = create<ConversationStore>()(
 
           // Replace with incoming data, but keep local copies for streaming conversations
           state.conversations = conversations.map((c: Conversation) => {
-            return streamingLocal.get(c.id) ?? c;
+            return preservedLocal.get(c.id) ?? c;
           });
 
-          // Re-add any streaming conversations missing from the incoming list
-          for (const [id, conv] of streamingLocal) {
+          // Re-add preserved conversations missing from the incoming list.
+          for (const [id, conv] of preservedLocal) {
             if (!incomingIds.has(id)) {
               state.conversations.unshift(conv);
             }

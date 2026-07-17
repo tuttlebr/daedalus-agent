@@ -1,6 +1,13 @@
 ---
 name: nat-telemetry
-description: Use when adding, configuring, or troubleshooting NeMo Agent Toolkit logging, tracing, telemetry exporters, OpenTelemetry, Langfuse, LangSmith, Weave, Phoenix, profiling, or observability provider integrations.
+description: >-
+  Use when adding, configuring, or troubleshooting NeMo Agent Toolkit
+  observability, including logging, tracing, spans, telemetry exporters,
+  OpenTelemetry (OTel), and provider integrations for Langfuse, LangSmith,
+  Weights and Biases Weave, and Phoenix, plus workflow profiling. Discover
+  exporters with nat info components -t logging and -t tracing. Use
+  nat-evaluation for measuring answer quality and correctness; this skill
+  covers instrumentation and profiling, not quality scoring.
 author: NVIDIA Corporation and Affiliates
 license: Apache-2.0
 ---

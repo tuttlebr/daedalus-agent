@@ -20,7 +20,6 @@ export const STREAM_ABORT_POLL_INTERVAL_MS = Number(
 export const STREAM_READ_IDLE_TIMEOUT_MS = Number(
   process.env.STREAM_READ_IDLE_TIMEOUT_MS || 5 * 60 * 1000,
 );
-export const STREAM_JOB_STALE_TIMEOUT_MS = 15 * 60 * 1000;
 export const FINALIZER_LOCK_TTL_MS = 30_000;
 export const STATUS_UPDATE_LOCK_TTL_MS = 3_000;
 

@@ -8,8 +8,6 @@ import { Logger } from '@/utils/logger';
 
 import { getNatBaseUrl } from './backendSelection';
 import {
-  JOB_EXPIRY_SECONDS,
-  STREAM_ABORT_POLL_INTERVAL_MS,
   STREAM_READ_IDLE_TIMEOUT_MS,
   STREAM_STATUS_FLUSH_INTERVAL_MS,
   STREAM_STEPS_FLUSH_INTERVAL_MS,
@@ -20,20 +18,23 @@ import {
   debugReplayLog,
 } from './debugReplay';
 import { finalizeError, finalizeSuccess } from './finalization';
-import { abortKey, clearOAuthStatusFields, updateJobStatus } from './jobState';
+import { clearOAuthStatusFields, updateJobStatus } from './jobState';
 import { buildNatRequestHeaders } from './natMessages';
-import type { AsyncJobRequest, AsyncJobStatus, OAuthRequest } from './types';
-
 import {
-  getPublisher,
-  jsonGet,
-  jsonSetWithExpiry,
-  sessionKey,
-} from '@/server/session/redis';
+  appendStreamResponseDelta,
+  appendStreamSteps,
+  clearStreamState,
+} from './streamState';
+import type {
+  AsyncJobRequest,
+  AsyncJobStatus,
+  BackgroundExecutionControl,
+  OAuthRequest,
+} from './types';
+
+import { getPublisher, jsonGet, sessionKey } from '@/server/session/redis';
 
 const logger = new Logger('AsyncJob');
-
-const activeStreamControllers = new Map<string, AbortController>();
 
 class StreamIdleTimeoutError extends Error {
   constructor() {
@@ -94,13 +95,6 @@ async function readStreamChunk(
       abortController.signal.removeEventListener('abort', handleAbort);
     }
   }
-}
-
-export function abortBackgroundStream(jobId: string): boolean {
-  const controller = activeStreamControllers.get(jobId);
-  if (!controller || controller.signal.aborted) return false;
-  controller.abort();
-  return true;
 }
 
 function extractOAuthRequiredPayload(
@@ -169,15 +163,16 @@ function mergeOAuthRequests(
  * Open a streaming connection to the backend's interactive OpenAI-compatible
  * endpoint to capture intermediate steps, OAuth prompts, and content tokens.
  *
- * Runs fire-and-forget after the POST handler returns the jobId.  The
- * accumulated steps are stored in Redis so that handleGet() and
- * finalizeSuccess() can include them.
+ * Runs inside the dedicated stream worker after it owns the queue entry and
+ * lease. Response deltas and steps are appended to normalized Redis keys so
+ * polling and finalization can assemble them without rewriting their history.
  */
 export async function startBackgroundStreamReader(
   jobId: string,
   jobRequest: AsyncJobRequest,
   messagesForNat: any[],
   verifiedUsername: string,
+  control: BackgroundExecutionControl = {},
 ): Promise<void> {
   const streamUrl = buildBackendUrlFromBase(
     getNatBaseUrl(jobRequest),
@@ -195,38 +190,44 @@ export async function startBackgroundStreamReader(
 
   const userId = jobRequest.userId;
   const conversationId = jobRequest.conversationId;
-  const stepsKey = sessionKey(['async-job-steps', jobId]);
   const statusKey = sessionKey(['async-job-status', jobId]);
-  const accumulatedSteps: any[] = [];
+  let accumulatedStepCount = 0;
+  let pendingSteps: any[] = [];
   let partialResponse = '';
+  let pendingResponseDelta = '';
   let lastToolOutput = '';
   let streamDone = false;
   let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
-  let abortPollTimer: NodeJS.Timeout | null = null;
-  let abortCheckInFlight = false;
-  let streamActive = true;
   const abortController = new AbortController();
-
-  const previousController = activeStreamControllers.get(jobId);
-  if (previousController && !previousController.signal.aborted) {
-    previousController.abort();
-  }
-  activeStreamControllers.set(jobId, abortController);
-
-  const checkForRedisAbort = async (): Promise<void> => {
-    if (abortCheckInFlight || !streamActive || abortController.signal.aborted) {
-      return;
+  const handleExternalAbort = () => {
+    if (!abortController.signal.aborted) {
+      abortController.abort(control.signal?.reason);
     }
-    abortCheckInFlight = true;
+  };
+  if (control.signal) {
+    if (control.signal.aborted) {
+      handleExternalAbort();
+    } else {
+      control.signal.addEventListener('abort', handleExternalAbort, {
+        once: true,
+      });
+    }
+  }
+
+  const persistPendingState = async (): Promise<void> => {
+    const responseDelta = pendingResponseDelta;
+    const steps = pendingSteps;
+    pendingResponseDelta = '';
+    pendingSteps = [];
     try {
-      const shouldAbort = await jsonGet(abortKey(jobId));
-      if (shouldAbort && streamActive && !abortController.signal.aborted) {
-        abortController.abort();
-      }
+      await Promise.all([
+        appendStreamResponseDelta(jobId, responseDelta),
+        appendStreamSteps(jobId, steps),
+      ]);
     } catch (error) {
-      logger.debug(`Job ${jobId}: Failed to check stream abort flag`, error);
-    } finally {
-      abortCheckInFlight = false;
+      pendingResponseDelta = responseDelta + pendingResponseDelta;
+      pendingSteps = [...steps, ...pendingSteps];
+      throw error;
     }
   };
 
@@ -260,15 +261,10 @@ export async function startBackgroundStreamReader(
       });
     }
 
-    await checkForRedisAbort();
     if (abortController.signal.aborted) {
       throw abortReason(abortController.signal);
     }
-    abortPollTimer = setInterval(() => {
-      void checkForRedisAbort();
-    }, STREAM_ABORT_POLL_INTERVAL_MS);
-    if (typeof abortPollTimer.unref === 'function') abortPollTimer.unref();
-
+    await control.beforeBackendRequest?.();
     const response = await fetch(streamUrl, {
       method: 'POST',
       headers: buildNatRequestHeaders(
@@ -306,18 +302,48 @@ export async function startBackgroundStreamReader(
       : null;
 
     let lastStatusFlushMs = 0;
+    let lastResponseFlushMs = 0;
     let lastStepsFlushMs = 0;
     let debugDeltaCounter = 0;
 
+    const flushResponse = async (force = false): Promise<void> => {
+      if (!pendingResponseDelta) return;
+      const now = Date.now();
+      if (
+        !force &&
+        now - lastResponseFlushMs < STREAM_STATUS_FLUSH_INTERVAL_MS
+      ) {
+        return;
+      }
+      lastResponseFlushMs = now;
+      const delta = pendingResponseDelta;
+      pendingResponseDelta = '';
+      try {
+        await appendStreamResponseDelta(jobId, delta);
+      } catch (error) {
+        pendingResponseDelta = delta + pendingResponseDelta;
+        throw error;
+      }
+    };
+
     const flushSteps = async (force = false): Promise<void> => {
+      if (pendingSteps.length === 0) return;
       const now = Date.now();
       if (!force && now - lastStepsFlushMs < STREAM_STEPS_FLUSH_INTERVAL_MS)
         return;
       lastStepsFlushMs = now;
-      await jsonSetWithExpiry(stepsKey, accumulatedSteps, JOB_EXPIRY_SECONDS);
+      const steps = pendingSteps;
+      pendingSteps = [];
+      try {
+        await appendStreamSteps(jobId, steps);
+      } catch (error) {
+        pendingSteps = [...steps, ...pendingSteps];
+        throw error;
+      }
     };
 
     const flushStreamingStatus = async (force = false): Promise<void> => {
+      await flushResponse(force);
       const now = Date.now();
       if (!force && now - lastStatusFlushMs < STREAM_STATUS_FLUSH_INTERVAL_MS)
         return;
@@ -332,7 +358,6 @@ export async function startBackgroundStreamReader(
         jobId,
         {
           status: keepOAuthPrompt ? 'oauth_required' : 'streaming',
-          partialResponse,
           ...(keepOAuthPrompt ? {} : clearOAuthStatusFields()),
           updatedAt: now,
         },
@@ -388,10 +413,11 @@ export async function startBackgroundStreamReader(
               }
             }
 
-            accumulatedSteps.push(step);
-            // Persist incrementally so handleGet() can return live steps
+            accumulatedStepCount += 1;
+            pendingSteps.push(step);
+            // Append only new events so live polling doesn't rewrite history.
             await flushSteps();
-            await flushStreamingStatus(true);
+            await flushStreamingStatus();
 
             if (tokenChannel) {
               publisher
@@ -446,6 +472,7 @@ export async function startBackgroundStreamReader(
               parsed,
             );
             if (oauthPayload) {
+              await flushResponse(true);
               const currentStatus = (await jsonGet(
                 statusKey,
               )) as AsyncJobStatus | null;
@@ -458,7 +485,6 @@ export async function startBackgroundStreamReader(
                 authUrl: oauthPayload.authUrl,
                 oauthState: oauthPayload.oauthState,
                 oauthRequests,
-                partialResponse,
                 progress: 0,
                 updatedAt: Date.now(),
               });
@@ -471,6 +497,7 @@ export async function startBackgroundStreamReader(
             );
             if (content && typeof content === 'string') {
               partialResponse += content;
+              pendingResponseDelta += content;
               if (DEBUG_REPLAY_ENABLED) {
                 debugDeltaCounter += 1;
                 if (debugDeltaCounter % 10 === 0 || content.length > 100) {
@@ -513,17 +540,19 @@ export async function startBackgroundStreamReader(
     // If stream produced content but NAT async hasn't finished yet, use
     // lastToolOutput as recovery. Sanitize at the moment of promotion so the
     // user-facing answer is protected even if the raw tool output happens to
-    // contain prior assistant text. Raw step data in accumulatedSteps is left
-    // untouched on purpose so the steps panel still shows the true tool data.
+    // contain prior assistant text. Raw entries in the normalized step list are
+    // left untouched so the steps panel still shows the true tool data.
     if (!partialResponse.trim() && lastToolOutput) {
       partialResponse = stripReplayedAssistantPrefix(
         lastToolOutput,
         jobRequest.messages || [],
       );
+      pendingResponseDelta += partialResponse;
     }
 
-    // Final persist of all accumulated steps
-    await flushSteps(true);
+    // Flush only the final unpersisted deltas before taking the terminal
+    // snapshot. Each normalized key keeps its own bounded TTL.
+    await Promise.all([flushResponse(true), flushSteps(true)]);
     const currentStatus = (await jsonGet(statusKey)) as AsyncJobStatus | null;
     if (currentStatus?.status === 'oauth_required' && !partialResponse.trim()) {
       // The OAuth event already persisted and published the complete prompt.
@@ -539,14 +568,14 @@ export async function startBackgroundStreamReader(
         finalSha: debugReplayHash(partialResponse),
         finalHead: partialResponse.slice(0, 200),
         finalTail: partialResponse.slice(-200),
-        stepsCount: accumulatedSteps.length,
+        stepsCount: accumulatedStepCount,
       });
     }
 
     await finalizeSuccess(jobId, jobRequest, partialResponse);
 
     logger.info(`Job ${jobId}: Stream reader finished`, {
-      steps: accumulatedSteps.length,
+      steps: accumulatedStepCount,
       partialResponseLength: partialResponse.length,
     });
   } catch (err: any) {
@@ -557,6 +586,23 @@ export async function startBackgroundStreamReader(
     ) {
       // Cancellation/finalization is handled by the caller that set the abort.
       logger.info(`Job ${jobId}: Stream reader aborted cleanly`);
+      if (control.signal?.aborted) {
+        const currentStatus = (await jsonGet(
+          statusKey,
+        )) as AsyncJobStatus | null;
+        if (
+          currentStatus?.finalizedAt ||
+          currentStatus?.status === 'completed' ||
+          currentStatus?.status === 'error'
+        ) {
+          pendingResponseDelta = '';
+          pendingSteps = [];
+          await clearStreamState(jobId).catch(() => {});
+        } else {
+          await persistPendingState().catch(() => {});
+        }
+        throw abortReason(control.signal);
+      }
     } else {
       logger.error(`Job ${jobId}: Stream reader error: ${err.message}`);
       if (!partialResponse.trim() && lastToolOutput) {
@@ -564,20 +610,9 @@ export async function startBackgroundStreamReader(
           lastToolOutput,
           jobRequest.messages || [],
         );
+        pendingResponseDelta += partialResponse;
       }
-      await jsonSetWithExpiry(
-        stepsKey,
-        accumulatedSteps,
-        JOB_EXPIRY_SECONDS,
-      ).catch(() => {});
-      await updateJobStatus(
-        jobId,
-        {
-          ...(partialResponse ? { partialResponse } : {}),
-          updatedAt: Date.now(),
-        },
-        { publish: false },
-      ).catch(() => {});
+      await persistPendingState().catch(() => {});
       await finalizeError(
         jobId,
         jobRequest,
@@ -590,16 +625,9 @@ export async function startBackgroundStreamReader(
       });
     }
   } finally {
-    streamActive = false;
-    if (abortPollTimer) {
-      clearInterval(abortPollTimer);
-      abortPollTimer = null;
-    }
+    control.signal?.removeEventListener('abort', handleExternalAbort);
     if (!abortController.signal.aborted) {
       abortController.abort();
-    }
-    if (activeStreamControllers.get(jobId) === abortController) {
-      activeStreamControllers.delete(jobId);
     }
     if (reader) {
       try {

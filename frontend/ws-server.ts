@@ -26,7 +26,6 @@ const PORT = parseInt(process.env.WS_PORT || '3001', 10);
 const REDIS_URL = process.env.REDIS_URL || 'redis://redis:6379';
 const HEARTBEAT_INTERVAL = 45_000; // Server sends pong every 45s
 const CLIENT_TIMEOUT = 90_000; // Close if no ping received in 90s
-const SESSION_EXPIRY = 60 * 60 * 24; // 24 hours (match session.ts)
 // Re-check the session key on a live socket so logout / TTL expiry / sid
 // rotation revokes the realtime channel, not just the next HTTP request.
 const SESSION_REVALIDATE_INTERVAL =

@@ -1,80 +1,20 @@
-"""
-Patch NAT's MCP StreamableHTTP client to add bounded startup behavior,
-daedalus-specific logging, and approval-gate behavior around MCP tool calls.
+"""Version-asserted policy and lifecycle adapters for pinned NAT 1.7 MCP.
 
-Problem 1: NAT 1.7.0 initializes every MCP function group serially during
-application startup. Repeated connection attempts can keep the ASGI lifespan
-from completing until Kubernetes kills the pod, especially when DNS or an MCP
-endpoint is degraded.
+The application owns four boundaries that NAT 1.7 doesn't expose as supported
+hooks:
 
-Problem 2: NAT's MCPToolClient logs "tool call failed:" but often
-swallows the actual exception details, making debugging impossible.
+* enforce exact-call approval and server-side success receipts at
+  ``MCPToolClient.acall``;
+* preserve per-user OAuth during streamable HTTP connection setup and suppress
+  only verified teardown cancellation after a successful session yield;
+* keep application-level MCP errors out of the transport reconnect path; and
+* bound optional MCP group startup, retry requested skipped groups once before
+  tool resolution, and expose required versus optional capability readiness.
 
-Fix 1: Keep the upstream 30 s connect allowance for runtime calls, where DNS
-and interactive authentication can legitimately take longer, but bound each
-MCP function group's startup initialization separately in Fix 5. Read/write/
-pool timeouts still inherit upstream's max(MCP_DEFAULT_SSE_READ_TIMEOUT,
-tool_call_timeout, auth_flow_timeout).
-
-Fix 2: Monkey-patch MCPToolClient to add verbose error logging with
-full tracebacks around tool call execution.
-
-Problem 4: The MCP SDK's terminate_session() catches Exception but not
-CancelledError (a BaseException).  During shutdown, the HTTP DELETE it
-sends raises CancelledError which escapes through __aexit__, producing
-a noisy traceback in the framework's lifespan handler.
-
-Fix 4: Track whether the session yield has returned (teardown phase)
-and suppress CancelledError / cancel-scope RuntimeError that occur
-during cleanup, since the session was already used successfully.
-
-Problem 5: NAT's WorkflowBuilder.populate_builder() treats any component
-initialization failure as fatal.  One unreachable MCP server kills the
-entire startup, blocking all remaining components (LLMs, retrievers,
-memory, functions, workflow) from initializing.
-
-Fix 5: Monkey-patch WorkflowBuilder.add_function_group() to give each MCP
-group one bounded startup attempt and catch connection-related errors
-(including those wrapped in ExceptionGroup / BaseExceptionGroup by anyio's
-TaskGroup, plus MCP-internal cancellation during stream reconnect). Tools from
-an unreachable server are omitted, but an MCP endpoint can never abort startup
-or consume an unbounded portion of the startup probe budget.
-
-Problem 8: When a function group is skipped by Fix 5, downstream agent
-configs still reference its tools by name in their tool_names list.
-WorkflowBuilder.get_tools() raises ValueError for any tool whose function
-group was never registered, crashing the entire startup.
-
-Fix 8: Monkey-patch WorkflowBuilder.get_tools() to filter out tools
-belonging to skipped function groups before resolution.  The agent starts
-with a reduced tool set rather than failing entirely.
-
-Problem 10: The get_tools() filter (Fix 8) only covers agents that
-resolve tools via get_tools() (e.g. tool_calling_agent).  The
-reasoning_agent plugin resolves tools individually by calling
-builder.get_function(tool) for each tool name.  When a function group
-was skipped, get_function() raises ValueError, crashing the entire
-startup — even though all other components built successfully.
-
-Fix 10: Monkey-patch WorkflowBuilder.get_function() to return None for
-names in the skipped set instead of raising.  The reasoning_agent
-receives None and skips the unavailable tool, starting with a reduced
-tool set — identical degraded behaviour to Fix 8.
-
-Problem 9: NAT's MCPBaseClient._with_reconnect() catches ALL exceptions
-from MCP tool calls and attempts session reconnection.  McpError is an
-*application-level* error (e.g. "pod not found", "missing parameter")
-returned by the MCP server — the connection is healthy.  The spurious
-reconnect fails ("generator didn't yield"), triggers cancel-scope
-cascades, and crashes the workflow run instead of returning the
-error to the LLM agent as a normal tool response.
-
-Fix 9: Monkey-patch MCPBaseClient._with_reconnect() so that McpError
-from the inner coro is wrapped in a BaseException sentinel that escapes
-the ``except Exception`` reconnect handler.  The outer wrapper unwraps
-it and re-raises the original McpError, which the LLM framework then
-returns to the agent as a normal tool error response.
-
+Every private method wrapper checks the pinned signature or fails closed. The
+module doesn't own NAT async jobs, Dask, OpenAI clients, HTTPX globally, or a
+background MCP hot-plug layer. Remove each adapter when the pinned upstream NAT
+release provides the corresponding supported hook.
 """
 
 import asyncio
@@ -84,7 +24,6 @@ import json
 import logging
 import os
 import re
-import traceback
 from contextlib import asynccontextmanager
 
 import httpx
@@ -96,8 +35,7 @@ _patched = False
 # F-006: fail-closed tracking for the MCP approval gate. The gate is enforced by
 # the wrapper installed in _patch_tool_client(); if NAT renames/moves its tool
 # execution method the wrapper would silently not install, leaving destructive
-# MCP calls ungated. These flags let patch() detect that and refuse to start.
-_mcp_client_available = False
+# MCP calls ungated. This flag lets patch() detect that and refuse to start.
 _approval_gate_installed = False
 
 # Function groups that were skipped during startup due to connection errors.
@@ -105,8 +43,14 @@ _approval_gate_installed = False
 _skipped_function_groups: set[str] = set()
 
 # MCP function groups seen during startup. Used as a second line of defense
-# when NAT defers remote tool discovery until get_tools()/get_function().
+# when NAT defers remote tool discovery until get_tools().
 _known_mcp_function_groups: set[str] = set()
+
+# A failed MCP group gets one optional recovery attempt immediately before the
+# workflow resolves its tools. Recovery is construction-time only: NAT 1.7 has
+# no supported way to mutate a running agent's tool set after it is built.
+_pending_mcp_recovery: dict[str, tuple[tuple, dict]] = {}
+_mcp_recovery_attempted: set[str] = set()
 
 # NAT identifies MCP clients by their transport endpoint (for example,
 # ``streamable-http:https://...``), while the agent and configuration identify
@@ -115,20 +59,13 @@ _known_mcp_function_groups: set[str] = set()
 # canonical logical identity without hard-coded endpoint aliases.
 _mcp_server_group_names: dict[str, str] = {}
 _ambiguous_mcp_servers: set[str] = set()
-_sensitive_mcp_server_names: set[str] = set()
-
-# MCP runtime connections retain the upstream allowance. In the deployed
-# cluster, a stale Cilium DNS backend added just over 10 seconds to successful
-# lookups, so the previous 10-second override converted recoverable DNS latency
-# into ConnectTimeout before HTTP or OAuth was reached.
-_MCP_CONNECT_TIMEOUT = 30.0
 
 # Startup is different from runtime: every MCP group is built serially inside
 # ASGI lifespan. Give each group one bounded chance, then start without it. The
 # zero retry count is an explicit invariant -- connection retries belong on the
 # runtime/tool-call path, never on the application startup path.
 _MCP_STARTUP_GROUP_TIMEOUT = 15.0
-_MCP_STARTUP_MAX_RETRIES = 0
+_MCP_RECOVERY_TOTAL_TIMEOUT = 5.0
 
 _STARTUP_RESILIENCE_EXCEPTIONS = (
     Exception,
@@ -191,15 +128,9 @@ _CONNECTION_ERROR_TYPES = tuple(
 
 # Destructive/mutating verbs that gate an MCP tool call behind human approval.
 #
-# NOTE: this denylist is DEFENSE-IN-DEPTH only. The primary, robust control is
-# restricting each MCP server to an explicit read-only `include:` allowlist in
-# backend/tool-calling-config.yaml (the externally managed Kubernetes and UniFi
-# servers still expose their discovered surfaces because this repository does
-# not own a stable schema for them). Destructive annotations can only tighten
-# this policy; read-only annotations are advisory. Unknown Kubernetes/UniFi
-# tools default to mutating unless local name/operation evidence is read-only.
-# A denylist cannot enumerate every dangerous verb, so prefer an
-# operator-supplied allowlist; this list is the backstop.
+# NOTE: this denylist is defense in depth. Authorization comes from the exact
+# repository-owned read-only registry below. Remote annotations and name
+# heuristics may tighten the policy, but can never authorize an unknown tool.
 #
 # Distinctive verbs — safe to match anywhere in the tool name (low risk of
 # appearing inside a read-only tool name).
@@ -256,40 +187,23 @@ _MUTATING_TOOL_TOKENS = frozenset(
 
 _WORD_SPLIT_RE = re.compile(r"[^a-z0-9]+")
 
-_NON_DESTRUCTIVE_MCP_TOOLS = {
-    # A Gmail draft is reversible and is not sent to a recipient. Keep it
-    # outside the external-mutation gate; sending remains separately gated.
-    "create_draft",
+# This is an authorization registry, not a discovery cache. Only operations
+# reviewed in this repository may bypass approval. Adding an MCP tool to a NAT
+# `include:` list does not make it read-only automatically.
+_LOCAL_READ_ONLY_MCP_TOOLS: dict[str, frozenset[str]] = {
+    "x_mcp_server": frozenset(
+        {
+            "searchspaces",
+            "searchpostsrecent",
+            "searchpostsall",
+            "searcheligibleposts",
+            "searchcommunities",
+            "searchcommunitynoteswritten",
+        }
+    ),
+    "gmail_mcp_server": frozenset({"search_threads", "get_thread", "list_labels"}),
+    "calendar_mcp_server": frozenset({"list_calendars"}),
 }
-
-_SENSITIVE_MUTATION_DEFAULT_GROUPS = frozenset({"k8s_mcp_server", "unifi_mcp_server"})
-_READ_ONLY_TOOL_PREFIXES = (
-    "describe_",
-    "find_",
-    "get_",
-    "list_",
-    "query_",
-    "read_",
-    "search_",
-    "show_",
-    "status_",
-    "watch_",
-)
-_READ_ONLY_OPERATIONS = frozenset(
-    {
-        "describe",
-        "find",
-        "get",
-        "list",
-        "logs",
-        "query",
-        "read",
-        "search",
-        "show",
-        "status",
-        "watch",
-    }
-)
 
 
 def _flatten_tool_payload(args, kwargs) -> dict:
@@ -361,19 +275,11 @@ def _is_mutating_mcp_call(tool_name: str, payload: dict, annotations=None) -> bo
     # to be treated as mutating even if its name carries no listed verb (closing
     # the denylist gap). A remote server's readOnlyHint is advisory only and may
     # never override local mutation detection; externally managed Kubernetes and
-    # UniFi schemas are not an authorization authority. The per-server read-only
-    # `include:` allowlist remains the primary control where a stable schema is
-    # available.
+    # UniFi schemas are not an authorization authority. The exact local registry
+    # remains the only path that can classify an operation as read-only.
     destructive_hint = _annotation_hint(annotations, "destructiveHint")
     if destructive_hint is True:
         return True
-
-    normalized_tool_name = tool_name.lower().replace(".", "_").replace("-", "_")
-    if (
-        normalized_tool_name in _NON_DESTRUCTIVE_MCP_TOOLS
-        or normalized_tool_name.endswith("_create_draft")
-    ):
-        return False
 
     text_parts = [tool_name]
     for key in ("operation", "command", "action", "method", "verb"):
@@ -389,15 +295,19 @@ def _is_mutating_mcp_call(tool_name: str, payload: dict, annotations=None) -> bo
     return bool(tokens & _MUTATING_TOOL_TOKENS)
 
 
-def _has_local_read_only_evidence(tool_name: str, payload: dict) -> bool:
-    normalized = tool_name.lower().replace(".", "_").replace("-", "_")
-    if normalized.startswith(_READ_ONLY_TOOL_PREFIXES):
-        return True
-    for key in ("operation", "command", "action", "method", "verb"):
-        value = payload.get(key)
-        if isinstance(value, str) and value.strip().lower() in _READ_ONLY_OPERATIONS:
-            return True
-    return False
+def _has_local_read_only_evidence(server_name: str, tool_name: str) -> bool:
+    """Return whether one exact repository-owned operation is read-only."""
+
+    logical_server = _mcp_server_group_names.get(server_name, server_name).casefold()
+    normalized_tool = tool_name.strip().casefold()
+    for separator in (".", "::"):
+        prefix = f"{logical_server}{separator}"
+        if normalized_tool.startswith(prefix):
+            normalized_tool = normalized_tool[len(prefix) :]
+            break
+    return normalized_tool in _LOCAL_READ_ONLY_MCP_TOOLS.get(
+        logical_server, frozenset()
+    )
 
 
 def _canonical_mcp_call(payload: dict, input_schema=None) -> tuple[str, str]:
@@ -429,15 +339,10 @@ def _validate_mcp_approval(
     validated_binding: dict[str, str] | None = None,
 ) -> tuple[bool, str]:
     is_mutating = _is_mutating_mcp_call(tool_name, payload, annotations)
-    if not is_mutating and (
-        server_name in _SENSITIVE_MUTATION_DEFAULT_GROUPS
-        or server_name in _sensitive_mcp_server_names
-    ):
-        # Kubernetes and UniFi are externally managed, broad surfaces without
-        # repository-owned exact read-only allowlists. NAT 1.7 discards MCP
-        # annotations while constructing MCPToolClient, so name prefixes such
-        # as ``get_`` are not sufficient authorization evidence. Fail closed
-        # for the complete sensitive surface.
+    if not _has_local_read_only_evidence(server_name, tool_name):
+        # Unknown operations require approval in every MCP group. In particular,
+        # read-like names, payload verbs, and remote readOnlyHint annotations are
+        # not local authorization evidence.
         is_mutating = True
     if not is_mutating:
         return True, "read-only"
@@ -449,7 +354,7 @@ def _validate_mcp_approval(
     token = str(approval_token or "").strip()
     if not token:
         return False, (
-            f"MCP tool '{tool_name}' appears to mutate external state and "
+            f"MCP tool '{tool_name}' isn't authorized as read-only and "
             "requires a human-approved execution credential. Call "
             "confirm_action with the exact server, tool, and arguments."
         )
@@ -591,12 +496,15 @@ def _tool_ref_text(tool_ref) -> str:
 def _looks_like_mcp_config(args, kwargs) -> bool:
     """Best-effort detection of a NAT mcp_client config object."""
     for candidate in list(args) + list(kwargs.values()):
-        if isinstance(candidate, dict) and candidate.get("_type") == "mcp_client":
+        if isinstance(candidate, dict) and candidate.get("_type") in {
+            "mcp_client",
+            "per_user_mcp_client",
+        }:
             return True
-        if (
-            getattr(candidate, "_type", None) == "mcp_client"
-            or getattr(candidate, "type", None) == "mcp_client"
-        ):
+        if getattr(candidate, "_type", None) in {
+            "mcp_client",
+            "per_user_mcp_client",
+        } or getattr(candidate, "type", None) in {"mcp_client", "per_user_mcp_client"}:
             return True
     return False
 
@@ -655,8 +563,6 @@ def _register_mcp_group_identity(group_name, group) -> None:
     if not isinstance(physical_name, str) or not physical_name.strip():
         return
     logical_name = _tool_ref_text(group_name)
-    if logical_name in _SENSITIVE_MUTATION_DEFAULT_GROUPS:
-        _sensitive_mcp_server_names.add(physical_name)
     if physical_name in _ambiguous_mcp_servers:
         return
     previous = _mcp_server_group_names.get(physical_name)
@@ -687,15 +593,89 @@ def _record_skipped_function_group(name) -> str:
     return text
 
 
+def _required_mcp_function_groups() -> set[str]:
+    """Return operator-declared capabilities that must pass readiness."""
+    raw = os.getenv("DAEDALUS_REQUIRED_MCP_GROUPS", "")
+    return {item.strip() for item in raw.split(",") if item.strip()}
+
+
+def mcp_capability_status() -> dict[str, object]:
+    """Expose required and optional MCP availability without leaking details."""
+    required = _required_mcp_function_groups()
+    available = _known_mcp_function_groups - _skipped_function_groups
+    missing_required = required - available
+    unavailable_optional = _skipped_function_groups - required
+    state = (
+        "unready"
+        if missing_required
+        else ("degraded" if unavailable_optional else "ready")
+    )
+    return {
+        "state": state,
+        "available": sorted(available),
+        "required": sorted(required),
+        "missing_required": sorted(missing_required),
+        "unavailable_optional": sorted(unavailable_optional),
+    }
+
+
+async def _attempt_pending_mcp_recovery(
+    builder,
+    original_add_function_group,
+    requested_names,
+) -> list[str]:
+    """Retry skipped requested groups once within one shared deadline."""
+    requested = {_tool_ref_text(name) for name in requested_names or []}
+    candidates = [
+        name
+        for name in sorted(requested & _skipped_function_groups)
+        if name in _pending_mcp_recovery and name not in _mcp_recovery_attempted
+    ]
+    if not candidates:
+        return []
+
+    recovered: list[str] = []
+    deadline = asyncio.get_running_loop().time() + _MCP_RECOVERY_TOTAL_TIMEOUT
+    for name in candidates:
+        remaining = deadline - asyncio.get_running_loop().time()
+        if remaining <= 0:
+            break
+        args, kwargs = _pending_mcp_recovery[name]
+        _mcp_recovery_attempted.add(name)
+        try:
+            async with asyncio.timeout(remaining):
+                group = await original_add_function_group(
+                    builder, name, *args, **kwargs
+                )
+        except _STARTUP_RESILIENCE_EXCEPTIONS as exc:
+            if _current_task_is_cancelling():
+                raise
+            root = _extract_root_connection_error(exc)
+            logger.warning(
+                "MCP recovery: function_group '%s' remains unavailable: %s(%s)",
+                name,
+                type(root).__name__,
+                root,
+            )
+            continue
+
+        _register_mcp_group_identity(name, group)
+        _skipped_function_groups.discard(name)
+        _pending_mcp_recovery.pop(name, None)
+        recovered.append(name)
+        logger.info("MCP recovery: function_group '%s' recovered", name)
+
+    return recovered
+
+
 def _mcp_httpx_auth_for_connection(client):
     """Return the HTTP auth adapter appropriate for this connection.
 
-    A shared MCP group's first connection exists only to discover public tool
-    schemas. For an interactive provider whose default identity is forbidden
-    for tool calls, running the auth adapter here is both noisy and misleading:
-    there is no user interaction context yet. Per-user session clients have a
-    real user/session id and retain the adapter, so a 401 can start the UI OAuth
-    flow normally when the tool is invoked.
+    Interactive providers that forbid their default identity must be registered
+    as NAT per-user MCP groups. Seeing that default identity here means a shared
+    workflow is trying to discover schemas outside authenticated user context.
+    Refuse the connection so a config regression can't silently restore the old
+    unauthenticated bootstrap path.
     """
     auth = getattr(client, "_httpx_auth", None)
     provider = getattr(client, "_auth_provider", None)
@@ -707,12 +687,10 @@ def _mcp_httpx_auth_for_connection(client):
     default_user_id = getattr(config, "default_user_id", None)
     auth_user_id = getattr(auth, "user_id", None)
     if allow_default is False and default_user_id and auth_user_id == default_user_id:
-        logger.info(
-            "MCP schema bootstrap is unauthenticated; interactive auth is deferred "
-            "until a user invokes a tool (url=%s)",
-            getattr(client, "_url", "unknown"),
+        raise RuntimeError(
+            "OAuth MCP schema discovery requires authenticated per-user context "
+            f"(url={getattr(client, '_url', 'unknown')})"
         )
-        return None
     return auth
 
 
@@ -898,211 +876,74 @@ def _extract_root_connection_error(exc):
 
 
 @asynccontextmanager
-async def _connect_with_graceful_teardown(
-    streamable_ctx, session_cls, url, read_timeout_seconds=None
-):
-    """Connect to an MCP server with graceful teardown error handling.
-
-    Wraps the streamablehttp_client -> ClientSession lifecycle and tracks
-    whether the session ``yield`` has returned.  Cancellation errors that
-    arrive *after* the yield (during ``__aexit__`` of the transport or
-    session) are logged and suppressed instead of propagating, because:
-
-    * The MCP SDK's ``terminate_session()`` catches ``Exception`` but not
-      ``CancelledError`` (a ``BaseException``).  During shutdown the HTTP
-      DELETE it sends raises ``CancelledError`` which escapes the SDK.
-    * anyio cancel-scope ``RuntimeError`` variants behave the same way.
-
-    Errors during the *operational* phase (before the yield returns) are
-    still propagated so that the NAT framework's retry logic can act on
-    them.
-
-    Args:
-        read_timeout_seconds: Timeout for individual MCP request-response
-            pairs (ClientSession read_timeout).  Defaults to the MCP SDK
-            default (60s) when None.  Set this to the configured
-            tool_call_timeout so that slow operations like helm install
-            are not killed prematurely.
-    """
-    from datetime import timedelta
-
-    _in_teardown = False
-
-    def _build_session(session_cls, read, write, timeout_seconds):
-        """Create a session using the SDK's typed timeout parameter only."""
-        if timeout_seconds is None:
-            return session_cls(read, write), False
-
-        try:
-            parameters = inspect.signature(session_cls).parameters
-        except (TypeError, ValueError):
-            parameters = {}
-        if "read_timeout_seconds" not in parameters:
-            logger.warning(
-                "ClientSession has no typed read_timeout_seconds parameter; "
-                "using the SDK default (url=%s)",
-                url,
-            )
-            return session_cls(read, write), False
-
-        return (
-            session_cls(
-                read,
-                write,
-                read_timeout_seconds=timedelta(seconds=timeout_seconds),
-            ),
-            True,
-        )
-
+async def _connect_with_graceful_teardown(upstream_context, url):
+    """Wrap NAT's transport without reimplementing its connection setup."""
+    in_teardown = False
     try:
-        async with streamable_ctx as (read, write, _):
-            session_cm, _timeout_set = _build_session(
-                session_cls, read, write, read_timeout_seconds
-            )
-            async with session_cm as session:
-                await session.initialize()
-                logger.info("MCP session initialized: url=%s", url)
-                yield session
-                # If we reach here the yield returned normally -- we are now
-                # in the teardown phase.  Any CancelledError from this point
-                # is a cleanup artifact (e.g. terminate_session's HTTP DELETE),
-                # not an operational failure.
-                _in_teardown = True
+        async with upstream_context as session:
+            yield session
+            # The caller completed normally. Errors raised while upstream now
+            # exits its SDK transport are cleanup artifacts, not call failures.
+            in_teardown = True
     except asyncio.CancelledError:
-        if _in_teardown:
+        if in_teardown:
             logger.info("MCP session teardown cancelled (url=%s) -- suppressed.", url)
         else:
-            logger.warning(
-                "MCP session cancelled: CancelledError (url=%s). "
-                "Propagating for framework retry.",
-                url,
-            )
             raise
     except RuntimeError as exc:
         if "cancel scope" in str(exc):
-            if _in_teardown:
+            if in_teardown:
                 logger.info(
                     "MCP cancel-scope teardown error suppressed (url=%s).",
                     url,
                 )
             else:
-                # anyio cancel-scope mismatch during operation.  Convert to
-                # CancelledError so the NAT framework's reconnect logic
-                # handles it cleanly.
-                logger.warning(
-                    "MCP cancel scope teardown error (url=%s). "
-                    "Converting to CancelledError for cleaner retry.",
-                    url,
-                )
                 raise asyncio.CancelledError(str(exc)) from exc
         else:
-            logger.error(
-                "MCP connect_to_server failed: url=%s error=%r\n%s",
-                url,
-                exc,
-                traceback.format_exc(),
-            )
             raise
     except Exception as exc:
-        if _in_teardown and _is_connection_error(exc):
+        if in_teardown and _is_connection_error(exc):
             logger.info(
                 "MCP transport cleanup error suppressed during teardown (url=%s): %s",
                 url,
                 type(_extract_root_connection_error(exc)).__name__,
             )
-        elif _is_connection_error(exc):
-            # Connection errors are handled gracefully by startup
-            # resilience (the function group is skipped).  Log at
-            # WARNING with a concise message instead of ERROR with a
-            # full traceback to avoid alarming noise for a handled
-            # condition.
-            logger.warning(
-                "MCP connect_to_server failed (connection error, "
-                "handled by startup resilience): url=%s error=%s",
-                url,
-                type(_extract_root_connection_error(exc)).__name__,
-            )
-            raise
         else:
-            logger.error(
-                "MCP connect_to_server failed: url=%s error=%r\n%s",
-                url,
-                exc,
-                traceback.format_exc(),
-            )
             raise
 
 
 def patch():
-    """Apply MCP StreamableHTTP timeout and diagnostic patches. Safe to call multiple times."""
+    """Apply pinned MCP policy and lifecycle adapters. Safe to call repeatedly."""
     global _patched
     if _patched:
         return
 
     try:
-        try:
-            from nat.plugins.mcp.client.client_base import MCPStreamableHTTPClient
-        except ImportError:
-            from nat.plugins.mcp.client_base import MCPStreamableHTTPClient
-        from mcp import ClientSession
-        from mcp.client.streamable_http import streamable_http_client
-        from mcp.shared._httpx_utils import (
-            MCP_DEFAULT_SSE_READ_TIMEOUT,
-            create_mcp_http_client,
-        )
+        from nat.plugins.mcp.client.client_base import MCPStreamableHTTPClient
+
+        original_connect_to_server = MCPStreamableHTTPClient.connect_to_server
+        signature = inspect.signature(original_connect_to_server)
+        if list(signature.parameters) != ["self"]:
+            raise RuntimeError(
+                f"Unexpected MCPStreamableHTTPClient.connect_to_server signature: {signature}"
+            )
 
         @asynccontextmanager
         async def patched_connect_to_server(self):
-            """
-            Patched connect_to_server that builds the httpx client the same
-            way upstream does (create_mcp_http_client + streamable_http_client)
-            with an explicit runtime-safe connect timeout, and adds the
-            daedalus graceful-teardown wrapper (Fix 4) that swallows
-            CancelledError / cancel-scope RuntimeError raised after the session
-            yield returns.
-            """
-            url = self._url
-            tool_call_timeout_s = self._tool_call_timeout.total_seconds()
-            sse_read_timeout_s = max(
-                MCP_DEFAULT_SSE_READ_TIMEOUT,
-                tool_call_timeout_s,
-                self._auth_flow_timeout.total_seconds(),
-            )
-            timeout = httpx.Timeout(_MCP_CONNECT_TIMEOUT, read=sse_read_timeout_s)
-
-            logger.info("MCP connect_to_server: url=%s timeout=%s", url, timeout)
-
-            http_client = create_mcp_http_client(
-                headers=self._custom_headers if self._custom_headers else None,
-                timeout=timeout,
-                auth=_mcp_httpx_auth_for_connection(self),
-            )
-
-            @asynccontextmanager
-            async def _ctx():
-                async with http_client:
-                    async with streamable_http_client(
-                        url=url, http_client=http_client
-                    ) as (read, write, get_session_id):
-                        self._get_mcp_session_id = get_session_id
-                        yield read, write, get_session_id
-
+            original_auth = getattr(self, "_httpx_auth", None)
+            self._httpx_auth = _mcp_httpx_auth_for_connection(self)
             try:
                 async with _connect_with_graceful_teardown(
-                    _ctx(),
-                    ClientSession,
-                    url,
-                    read_timeout_seconds=tool_call_timeout_s,
+                    original_connect_to_server(self),
+                    getattr(self, "_url", "unknown"),
                 ) as session:
                     yield session
             finally:
-                self._get_mcp_session_id = None
+                self._httpx_auth = original_auth
 
+        patched_connect_to_server._daedalus_transport_wrapper = True
         MCPStreamableHTTPClient.connect_to_server = patched_connect_to_server
-        logger.info(
-            "MCP StreamableHTTP patch applied -- httpx connect=%ss",
-            _MCP_CONNECT_TIMEOUT,
-        )
+        logger.info("MCP StreamableHTTP policy/lifecycle wrapper applied")
 
     except ImportError as exc:
         logger.warning("Could not patch MCP StreamableHTTP client: %s", exc)
@@ -1117,9 +958,6 @@ def patch():
     # Prevent McpError (application errors) from triggering reconnection
     _patch_mcp_error_no_reconnect()
 
-    # Suppress cascade noise from MCP transport cleanup errors
-    _install_mcp_log_filters()
-
     # Make MCP connection failures non-fatal during startup
     _patch_startup_resilience()
 
@@ -1128,19 +966,9 @@ def patch():
 
 def _patch_tool_client():
     """Wrap NAT 1.7's exact ``MCPToolClient.acall(tool_args)`` contract."""
-    global _mcp_client_available, _approval_gate_installed
+    global _approval_gate_installed
     try:
-        try:
-            from nat.plugins.mcp.client.tool_client import MCPToolClient
-        except ImportError:
-            try:
-                from nat.plugins.mcp.client.client_base import MCPToolClient
-            except ImportError:
-                from nat.plugins.mcp.tool_client import MCPToolClient
-
-        # MCP client class imported successfully: the approval gate is now
-        # REQUIRED to attach. If it does not, patch() fails closed (F-006).
-        _mcp_client_available = True
+        from nat.plugins.mcp.client.client_base import MCPToolClient
 
         method_name = "acall"
         original_fn = getattr(MCPToolClient, method_name, None)
@@ -1273,8 +1101,7 @@ def _patch_tool_client():
         )
 
     except ImportError as exc:
-        # MCP client not importable: MCP is not in use, nothing to gate.
-        logger.warning("Could not patch MCPToolClient: %s", exc)
+        logger.warning("Could not patch pinned MCPToolClient: %s", exc)
     except Exception as exc:
         # Leave _approval_gate_installed False so patch() can fail closed.
         logger.warning("Unexpected error patching MCPToolClient: %s", exc)
@@ -1284,20 +1111,13 @@ def _verify_approval_gate_installed():
     """Fail closed if the MCP approval gate did not attach (F-006).
 
     The gate is the only thing forcing destructive MCP tool calls through human
-    approval. If the MCP client class is importable but the gate failed to wrap
-    its tool-execution method (e.g. a NAT upgrade renamed it), continuing would
-    silently leave destructive MCP calls ungated. Refuse to start instead, unless
-    an operator explicitly opts out (MCP_APPROVAL_GATE_OPTIONAL=1) for a
-    deployment that intentionally exposes no mutating MCP tools.
+    approval. If it failed to wrap the pinned tool-execution method, continuing
+    would silently leave destructive MCP calls ungated. Refuse to start.
     """
-    if not _mcp_client_available:
-        return
     installed_on_acall = False
     try:
-        try:
-            from nat.plugins.mcp.client.tool_client import MCPToolClient
-        except ImportError:
-            from nat.plugins.mcp.client.client_base import MCPToolClient
+        from nat.plugins.mcp.client.client_base import MCPToolClient
+
         installed_on_acall = bool(
             getattr(
                 getattr(MCPToolClient, "acall", None), "_daedalus_approval_gate", False
@@ -1307,20 +1127,9 @@ def _verify_approval_gate_installed():
         installed_on_acall = False
     if _approval_gate_installed and installed_on_acall:
         return
-    if (os.getenv("MCP_APPROVAL_GATE_OPTIONAL") or "").strip().lower() in (
-        "1",
-        "true",
-        "yes",
-    ):
-        logger.warning(
-            "MCP approval gate did NOT install, but MCP_APPROVAL_GATE_OPTIONAL is "
-            "set; continuing with destructive MCP calls UNGATED."
-        )
-        return
     logger.critical(
-        "MCP approval gate failed to install on the MCP tool client. Refusing to "
-        "start so destructive MCP tool calls cannot run without approval. Set "
-        "MCP_APPROVAL_GATE_OPTIONAL=1 only if no mutating MCP tools are exposed."
+        "MCP approval gate failed to install on the pinned MCP tool client. "
+        "Refusing to start so destructive MCP calls cannot run without approval."
     )
     raise RuntimeError("MCP approval gate failed to install (fail-closed)")
 
@@ -1405,7 +1214,8 @@ def _patch_startup_resilience():
     remaining components (LLMs, retrievers, memory, functions, workflow) from
     initializing. Each MCP group gets exactly one bounded initialization attempt.
     Connection failures and startup timeouts are logged and skipped instead of
-    being retried inside ASGI lifespan or raised.
+    being retried inside ASGI lifespan or raised. Requested skipped groups get
+    one shared-budget recovery pass immediately before tool resolution.
 
     Part 2 — get_tools filter:
     When a function group is skipped, downstream agent configs still reference
@@ -1414,11 +1224,6 @@ def _patch_startup_resilience():
     skipped groups from the tool_names list before resolution, so the agent
     starts with a reduced (but functional) tool set instead of crashing.
 
-    Part 3 — get_function filter:
-    Some plugins resolve tools individually via builder.get_function(tool)
-    instead of get_tools(). Without this patch, a skipped function group
-    causes ValueError here too. Returns None for skipped groups so the
-    agent can skip the tool.
     """
     try:
         import functools
@@ -1434,10 +1239,14 @@ def _patch_startup_resilience():
             group = await _initialize_function_group_for_startup(
                 original_add_fg, self, name, args, kwargs
             )
-            if group is not None and (
-                _looks_like_mcp_config(args, kwargs) or _is_mcp_tool_ref(name)
-            ):
+            is_mcp_group = _looks_like_mcp_config(args, kwargs) or _is_mcp_tool_ref(
+                name
+            )
+            name_text = _tool_ref_text(name)
+            if group is not None and is_mcp_group:
                 _register_mcp_group_identity(name, group)
+            elif is_mcp_group and name_text in _skipped_function_groups:
+                _pending_mcp_recovery[name_text] = (tuple(args), dict(kwargs))
             return group
 
         WorkflowBuilder.add_function_group = resilient_add_function_group
@@ -1480,6 +1289,12 @@ def _patch_startup_resilience():
 
         @functools.wraps(original_get_tools)
         async def resilient_get_tools(self, tool_names=None, *args, **kwargs):
+            if tool_names:
+                await _attempt_pending_mcp_recovery(
+                    self,
+                    original_add_fg,
+                    tool_names,
+                )
             if tool_names and _skipped_function_groups:
                 skipped = [
                     n
@@ -1530,54 +1345,12 @@ def _patch_startup_resilience():
             )
             if _skipped_function_groups:
                 logger.warning(
-                    "Skipped function groups (unavailable until restart): %s",
+                    "Skipped function groups after bounded recovery: %s",
                     sorted(_skipped_function_groups),
                 )
             return result
 
         WorkflowBuilder.get_tools = resilient_get_tools
-
-        # --- Part 3: get_function filter for skipped groups ---
-        #
-        # The reasoning_agent plugin resolves tools by calling
-        # builder.get_function(tool) for each tool name individually,
-        # unlike tool_calling_agent which calls get_tools(tool_names).
-        # Without this patch, a skipped function group raises ValueError
-        # here and crashes the entire startup.
-        #
-        # Returning None lets the reasoning_agent's builder skip the
-        # tool rather than abort.  The agent starts with a reduced tool
-        # set — identical behaviour to the get_tools filter.
-
-        original_get_function = WorkflowBuilder.get_function
-
-        @functools.wraps(original_get_function)
-        async def resilient_get_function(self, name, *args, **kwargs):
-            name_text = _tool_ref_text(name)
-            if name_text in _skipped_function_groups:
-                logger.warning(
-                    "Startup resilience: get_function('%s') skipped — "
-                    "function group was unreachable at startup.",
-                    name_text,
-                )
-                return None
-            try:
-                return await original_get_function(self, name, *args, **kwargs)
-            except _STARTUP_RESILIENCE_EXCEPTIONS as exc:
-                if _should_skip_tool_resolution_error(exc, name):
-                    skipped_name = _record_skipped_function_group(name)
-                    root = _extract_root_connection_error(exc)
-                    logger.warning(
-                        "Startup resilience: get_function('%s') degraded to "
-                        "unavailable — %s(%s).",
-                        skipped_name,
-                        type(root).__name__,
-                        root,
-                    )
-                    return None
-                raise
-
-        WorkflowBuilder.get_function = resilient_get_function
 
         logger.info("WorkflowBuilder startup resilience patch applied")
 
@@ -1587,38 +1360,3 @@ def _patch_startup_resilience():
         )
     except Exception as exc:
         logger.warning("Unexpected error patching startup resilience: %s", exc)
-
-
-class _MCPCascadeFilter(logging.Filter):
-    """Demote cascade errors that follow MCP ConnectTimeout to DEBUG.
-
-    When an MCP server is temporarily unreachable, the transport logs a
-    ConnectTimeout followed by BrokenResourceError, GeneratorExit
-    RuntimeError, and cancel-scope errors during cleanup.  These are
-    expected consequences of the disconnect, not independent failures.
-    Keeping them at ERROR/WARNING clutters logs and obscures the root cause.
-    """
-
-    _CASCADE_FRAGMENTS = (
-        "BrokenResourceError",
-        "async generator ignored GeneratorExit",
-        "Attempted to exit cancel scope",
-        "Error parsing SSE message",
-    )
-
-    def filter(self, record: logging.LogRecord) -> bool:
-        if record.levelno < logging.WARNING:
-            return True
-        msg = record.getMessage()
-        if any(frag in msg for frag in self._CASCADE_FRAGMENTS):
-            record.levelno = logging.DEBUG
-            record.levelname = "DEBUG"
-        return True
-
-
-def _install_mcp_log_filters():
-    """Attach cascade noise filter to MCP SDK loggers."""
-    cascade_filter = _MCPCascadeFilter()
-    for name in ("mcp", "mcp.client.streamable_http", "root"):
-        logging.getLogger(name).addFilter(cascade_filter)
-    logger.info("MCP cascade log filter installed")

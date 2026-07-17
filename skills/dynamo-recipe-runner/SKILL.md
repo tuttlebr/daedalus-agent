@@ -1,6 +1,14 @@
 ---
 name: dynamo-recipe-runner
-description: Select, validate, patch, and deploy existing NVIDIA Dynamo Kubernetes recipes. Use for model/backend/GPU/deployment-mode recipe bring-up; use router-starter for router-only mode work and troubleshoot for broken deployments.
+description: >-
+  Select, validate, patch, and deploy existing NVIDIA Dynamo Kubernetes
+  recipes (DynamoGraphDeployment manifests) to a working, smoke-tested
+  endpoint. Use for model/backend/GPU/deployment-mode bring-up, e.g. deploying
+  a model on vLLM, SGLang, TRT-LLM, or TokenSpeed in agg or disagg mode on
+  H100/B200. Use dynamo-router-starter for router-only mode setup,
+  dynamo-troubleshoot for broken or failed deployments, and
+  dynamo-interconnect-check to validate disagg RDMA/NIXL transport after
+  deploy.
 license: Apache-2.0
 metadata:
   author: Dan Gil <dagil@nvidia.com>

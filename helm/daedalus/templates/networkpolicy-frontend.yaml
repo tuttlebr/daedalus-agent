@@ -1,3 +1,7 @@
+{{- $documentObjectMode := include "daedalus.documentObjectNetworkMode" . -}}
+{{- $documentObjectInCluster := and .Values.documentObjectStorage.enabled (eq $documentObjectMode "inCluster") -}}
+{{- $documentObjectExternalEnabled := and .Values.documentObjectStorage.enabled (eq $documentObjectMode "external") -}}
+{{- $documentObjectExternal := .Values.documentObjectStorage.networkPolicy.external -}}
 {{- if .Values.backend.networkPolicy.enabled }}
 # Network Policy for Frontend — restricts egress to backend services, Redis, and DNS only
 apiVersion: networking.k8s.io/v1
@@ -40,6 +44,83 @@ spec:
           port: {{ .Values.backend.default.port }}
     {{- end }}
     # Allow access to Redis (session store, usage tracking)
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: {{ include "daedalus.name" . }}
+              app.kubernetes.io/component: redis
+              app.kubernetes.io/instance: {{ .Release.Name }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.redis.service.port }}
+    {{- if $documentObjectInCluster }}
+    # Allow streamed document uploads to the configured in-cluster object store.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.documentObjectStorage.networkPolicy.namespace | quote }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.documentObjectStorage.networkPolicy.port }}
+    {{- else if $documentObjectExternalEnabled }}
+    {{- $externalCidrs := $documentObjectExternal.cidrs | default (list) }}
+    {{- if and (not .Values.backend.networkPolicy.cilium.enabled) (not $externalCidrs) }}
+      {{- fail "documentObjectStorage.networkPolicy.external.cidrs must contain at least one CIDR for standard NetworkPolicy" }}
+    {{- end }}
+    {{- if $externalCidrs }}
+    # External object-store egress is opt-in and limited to explicit CIDRs.
+    - to:
+        {{- range $externalCidrs }}
+        - ipBlock:
+            cidr: {{ . | quote }}
+        {{- end }}
+      ports:
+        - protocol: TCP
+          port: {{ $documentObjectExternal.port | default 443 }}
+    {{- end }}
+    {{- end }}
+{{- end }}
+{{- if and .Values.backend.networkPolicy.enabled .Values.frontend.enabled .Values.frontend.streamWorker.enabled }}
+---
+# The stream worker submits jobs and persists stream state. It does not read or
+# write document objects, so keep object-store egress exclusive to frontend.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "daedalus.fullname" . }}-frontend-stream-worker
+  labels:
+    {{- include "daedalus.labels" . | nindent 4 }}
+    app.kubernetes.io/component: frontend-stream-worker
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "daedalus.name" . }}
+      app.kubernetes.io/component: frontend-stream-worker
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    {{- if .Values.backend.default.enabled }}
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: {{ include "daedalus.name" . }}
+              app.kubernetes.io/component: backend-default
+              app.kubernetes.io/instance: {{ .Release.Name }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.backend.default.port }}
+    {{- end }}
     - to:
         - podSelector:
             matchLabels:

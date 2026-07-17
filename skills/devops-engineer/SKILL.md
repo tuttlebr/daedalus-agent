@@ -1,6 +1,18 @@
 ---
 name: devops-engineer
-description: Creates Dockerfiles, configures CI/CD pipelines, writes Kubernetes manifests, and generates Terraform/Pulumi infrastructure templates. Handles deployment automation, GitOps configuration, incident response runbooks, and internal developer platform tooling. Use when setting up CI/CD pipelines, containerizing applications, managing infrastructure as code, deploying to Kubernetes clusters, configuring cloud platforms, automating releases, or responding to production incidents. Invoke for pipelines, Docker, Kubernetes, GitOps, Terraform, GitHub Actions, on-call, or platform engineering.
+description: >-
+  Creates Dockerfiles, configures CI/CD pipelines (GitHub Actions, GitLab CI,
+  Jenkins, CircleCI), writes Kubernetes manifests, and generates
+  Terraform/Pulumi infrastructure-as-code. Handles containerization (Docker,
+  Docker Compose), deployment strategies (blue-green, canary, rolling), GitOps
+  (ArgoCD, Flux), release and artifact automation, feature flags, internal
+  developer platforms (Backstage), and incident-response runbook authoring.
+  Use when setting up CI/CD, containerizing apps, managing infrastructure as
+  code, provisioning AWS/GCP/Azure, automating releases, or standing up
+  platform/self-service tooling end-to-end. Use kubernetes-specialist for deep
+  single-cluster K8s object authoring and pod debugging (RBAC, NetworkPolicy,
+  pod security, right-sizing); use sre-engineer for SLO/SLI, error budgets,
+  reliability engineering, incident management, and on-call alerting.
 license: MIT
 metadata:
   author: https://github.com/Jeffallan

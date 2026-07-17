@@ -9,36 +9,69 @@ global:
   nodePlacement:
     allowedNodes: [] # e.g. ["daedalus-02", "daedalus-03"]
 
+# Change this value to restart workloads after externally managed Secret
+# content changes. deploy.sh supplies a fresh timestamp automatically.
+forceRedeploy: ''
+
 images:
-  # deploy.sh rebuilds and pushes these application version tags in place, so
-  # every forced rollout must fetch the newly pushed manifest and layers.
-  builder:
-    repository: YOUR_REGISTRY/daedalus
-    tag: builder-0.1.0
-    pullPolicy: Always
+  # Tags are development fallbacks. Release automation resolves and deploys
+  # immutable digests so later tag changes can't alter an existing release.
   backend:
     repository: YOUR_REGISTRY/daedalus
     tag: backend-0.1.0
+    digest: ''
     pullPolicy: Always
   frontend:
     repository: YOUR_REGISTRY/daedalus
     tag: frontend-0.1.0
+    digest: ''
     pullPolicy: Always
   nginx:
-    repository: nginx
+    repository: nginxinc/nginx-unprivileged
     tag: alpine
-    # `alpine` is a floating upstream tag.
+    digest: 'sha256:a718212f9cf21e241f14067333000a3f0930292f5354fe0db269e9a2a2596b9e'
     pullPolicy: Always
   redis:
-    repository: redis/redis-stack-server
-    # Keep the persisted Redis data on its existing compatible major/minor
-    # format. Downgrading this image prevents Redis from reading its AOF/RDB.
-    tag: '7.4.0-v8'
-    pullPolicy: IfNotPresent
-  redisinsight:
-    repository: redis/redisinsight
-    tag: '2.70'
-    pullPolicy: IfNotPresent
+    # This repository-owned image preserves Redis Stack 7.4.0-v8 data and
+    # module compatibility while applying current Ubuntu security updates.
+    repository: YOUR_REGISTRY/daedalus
+    tag: redis-0.1.0
+    digest: ''
+    pullPolicy: Always
+
+# Shared object-store contract for streamed document uploads. Keep credentials
+# in this dedicated Secret rather than any workload's general envFrom Secret.
+# Production credentials should come from an externally managed Secret.
+documentObjectStorage:
+  enabled: false
+  endpoint: ''
+  bucket: nv-ingest
+  region: us-east-1
+  prefix: daedalus-documents
+  expirySeconds: 604800
+  # Shared deadline for frontend S3-compatible uploads and backend object reads.
+  # The applications and chart enforce 100..900000 milliseconds.
+  requestTimeoutMs: 300000
+  networkPolicy:
+    # inCluster selects one namespace and port. external requires explicit
+    # CIDRs for standard NetworkPolicy or exact FQDNs/CIDRs for Cilium. These
+    # rules strictly scope frontend egress. Backend rules are additive when its
+    # general public webscrape egress is enabled; see the chart README.
+    mode: inCluster
+    namespace: milvus
+    port: 9000
+    external:
+      port: 443
+      cidrs: []
+      fqdnNames: []
+  auth:
+    existingSecret: ''
+    accessKey: ''
+    secretKey: ''
+    sessionToken: ''
+    accessKeyKey: DOCUMENT_OBJECT_ACCESS_KEY
+    secretKeyKey: DOCUMENT_OBJECT_SECRET_KEY
+    sessionTokenKey: DOCUMENT_OBJECT_SESSION_TOKEN
 
 backend:
   # Default backend configuration
@@ -52,6 +85,12 @@ backend:
       runAsGroup: 1000
       fsGroup: 1000
       fsGroupChangePolicy: OnRootMismatch
+      seccompProfile:
+        type: RuntimeDefault
+    containerSecurityContext:
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop: [ALL]
     env:
       # Name of an existing Secret to load via envFrom (external secret)
       fromSecret: ''
@@ -135,6 +174,12 @@ frontend:
     runAsUser: 1001
     runAsGroup: 1001
     fsGroup: 1001
+    seccompProfile:
+      type: RuntimeDefault
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop: [ALL]
   resources:
     requests:
       cpu: 250m
@@ -156,16 +201,59 @@ frontend:
       # Backend API path - controls which NAT API endpoint to use
       # Supported values: /chat, /chat/stream, /generate, /generate/stream, /v1/chat/completions
       BACKEND_API_PATH: '/v1/chat/completions'
-      # V8 heap ceiling — sized under the pod memory limit to leave headroom for off-heap Buffers
-      # during large-document base64 decode (200MB doc ≈ 267MB base64 + multiple copies in flight)
-      NODE_OPTIONS: '--max-old-space-size=8192'
+      # Keep the heap below the pod limit. Upload routes enforce much smaller
+      # request limits and stream document bytes outside Redis.
+      NODE_OPTIONS: '--max-old-space-size=4096'
   service:
     type: ClusterIP
     port: 3000
+  streamWorker:
+    # Owns durable backend SSE execution outside the request-serving process.
+    enabled: true
+    replicas: 1
+    # Keep worker-only runtime secrets separate from the request-serving
+    # frontend Secret. Backend model, Milvus, Phoenix, and MinIO credentials
+    # must never be placed here.
+    env:
+      fromSecret: ''
+      createSecret: true
+      data: {}
+      overrides: {}
+    concurrency: 4
+    leaseTtlSeconds: 30
+    heartbeatSeconds: 10
+    cancelPollSeconds: 1
+    reclaimIdleSeconds: 45
+    reclaimScanSeconds: 10
+    readBlockMs: 1000
+    drainTimeoutSeconds: 45
+    healthMaxAgeSeconds: 30
+    terminationGracePeriodSeconds: 60
+    pdb:
+      enabled: true
+      minAvailable: 1
+    resources:
+      requests:
+        cpu: 250m
+        memory: 512Mi
+      limits:
+        cpu: 2000m
+        memory: 4Gi
 
 nginx:
   enabled: true
-  securityContext: {}
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 101
+    runAsGroup: 101
+    fsGroup: 101
+    seccompProfile:
+      type: RuntimeDefault
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop: [ALL]
   resources:
     requests:
       cpu: 250m
@@ -174,14 +262,19 @@ nginx:
       cpu: 2000m
       memory: 8Gi
   httpPort: 80
+  containerPort: 8080
   https:
     enabled: false
     tlsSecretName: ''
+    containerPort: 8443
   config:
     useTemplate: true
     restrictedMode: true # Set to true to block direct API access through nginx
-    clientMaxBodySize: '268M' # Hard ceiling for encoded uploads; routes enforce smaller raw limits
-    documentUploadMaxBodySize: '268M' # Matches Next's static JSON parser ceiling
+    clientMaxBodySize: '32M' # Default hard ceiling for normal JSON requests
+    documentUploadMaxBodySize: '201M' # 200 MiB raw file plus bounded multipart framing
+    videoUploadMaxBodySize: '150M' # Legacy base64 route parser ceiling
+    imageUploadMaxBodySize: '14M' # Legacy base64 route parser ceiling
+    transcriptUploadMaxBodySize: '15M' # Transcript route parser ceiling
     # If useTemplate is false, rawConf is used
     rawConf: |
       # Provide nginx conf if not using template
@@ -196,6 +289,27 @@ nginx:
 
 redis:
   enabled: true
+  auth:
+    # Redis 6+ ACL user used by every application client. Helm creates and
+    # preserves a strong password unless an existing Secret is supplied.
+    enabled: true
+    username: daedalus
+    password: ''
+    # During rotation, set this to the former password for one rollout. Redis
+    # accepts both while old pods drain. Clear it in the next rollout.
+    previousPassword: ''
+    existingSecret: ''
+    secretKey: REDIS_PASSWORD
+    previousSecretKey: REDIS_PREVIOUS_PASSWORD
+  tls:
+    # TLS requires an existing Secret with a server certificate, private key,
+    # and issuing CA. The certificate must cover the Redis Service DNS names.
+    enabled: false
+    existingSecret: ''
+    certKey: tls.crt
+    privateKeyKey: tls.key
+    caKey: ca.crt
+    mountPath: /etc/redis-tls
   # Redis Stack runs fine as a numeric non-root user, and this avoids
   # root-squash/AOF write failures on common Kubernetes PVC backends.
   securityContext:
@@ -204,6 +318,12 @@ redis:
     runAsGroup: 1001
     fsGroup: 1001
     fsGroupChangePolicy: OnRootMismatch
+    seccompProfile:
+      type: RuntimeDefault
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop: [ALL]
   resources:
     requests:
       cpu: 250m
@@ -221,30 +341,6 @@ redis:
     type: ClusterIP
     port: 6379
 
-redisinsight:
-  # Administrative UI is opt-in and should normally be reached only through a
-  # time-bounded private port-forward.
-  enabled: false
-  securityContext: {}
-  resources:
-    requests:
-      cpu: 250m
-      memory: 512Mi
-    limits:
-      cpu: 2000m
-      memory: 8Gi
-  persistence:
-    enabled: true
-    size: 8Gi
-    storageClassName: ''
-    create: true
-    existingClaimName: ''
-  service:
-    type: ClusterIP
-    port: 5540
-  env:
-    overrides: {}
-
 autonomousAgent:
   # Dedicated autonomous worker that curates memories, monitors news feeds,
   # follows UI-managed goals, and publishes state to the Autonomy dashboard.
@@ -252,7 +348,18 @@ autonomousAgent:
   # Set suspend: true to pause the worker Deployment without removing it.
   suspend: false
   replicas: 1
-  securityContext: {}
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    runAsGroup: 1000
+    fsGroup: 1000
+    seccompProfile:
+      type: RuntimeDefault
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop: [ALL]
   # HTTP/poll timeout for a single autonomous backend run
   requestTimeout: 3600
   # Use the already-loaded workflow over SSE.
@@ -267,9 +374,8 @@ autonomousAgent:
     # Default autonomous run interval; can be changed later from the UI dashboard
     intervalSeconds: 14400
   env:
-    # Optional extra API-key secret. The internal backend auth token is always
-    # injected from the chart-managed internal-api secret so memory tools can
-    # trust the worker's x-user-id header.
+    # Normally empty. The internal backend token and Redis credential are
+    # injected directly. Never reuse the backend Secret here.
     fromSecret: ''
     overrides: {}
   resources:
@@ -288,7 +394,9 @@ ingress:
     nginx.ingress.kubernetes.io/proxy-connect-timeout: '900'
     nginx.ingress.kubernetes.io/proxy-send-timeout: '900'
     nginx.ingress.kubernetes.io/proxy-read-timeout: '900'
-    nginx.ingress.kubernetes.io/proxy-body-size: '1g' # Supports large image/document payloads; base64 adds ~33% overhead
+    # Ingress annotations apply to every path in this Ingress. Application and
+    # inner-nginx routes still enforce smaller endpoint-specific ceilings.
+    nginx.ingress.kubernetes.io/proxy-body-size: '201m'
     # Disable buffering for streaming responses
     nginx.ingress.kubernetes.io/proxy-buffering: 'off'
     nginx.ingress.kubernetes.io/proxy-request-buffering: 'off'

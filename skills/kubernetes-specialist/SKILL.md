@@ -1,6 +1,17 @@
 ---
 name: kubernetes-specialist
-description: Use when deploying or managing Kubernetes workloads. Invoke to create deployment manifests, configure pod security policies, set up service accounts, define network isolation rules, debug pod crashes, analyze resource limits, inspect container logs, or right-size workloads. Use for Helm charts, RBAC policies, NetworkPolicies, storage configuration, performance optimization, GitOps pipelines, and multi-cluster management.
+description: >-
+  Use when deploying, configuring, or debugging Kubernetes (K8s) workloads
+  with kubectl and Helm. Invoke to write Deployment/StatefulSet/DaemonSet/Job
+  manifests, configure Services/Ingress/NetworkPolicies, set up RBAC and
+  ServiceAccounts, apply Pod Security Standards, manage ConfigMaps/Secrets and
+  PV/PVC storage, and diagnose pod failures (CrashLoopBackOff, OOMKilled,
+  image-pull errors, failing probes). Also for Helm charts, service mesh
+  (Istio, Linkerd), CRDs/operators, GitOps (ArgoCD, Flux), multi-cluster, and
+  cost/right-sizing (HPA, VPA, spot instances). Use devops-engineer for CI/CD
+  pipelines, Docker image builds, and multi-cloud Terraform IaC; use
+  sre-engineer for SLO/SLI, error budgets, and reliability engineering; for
+  NVIDIA Dynamo, use dynamo-recipe-runner or dynamo-troubleshoot instead.
 license: MIT
 metadata:
   author: https://github.com/Jeffallan

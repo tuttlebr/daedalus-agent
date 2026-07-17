@@ -27,6 +27,18 @@
     route_tool: perplexity_search_tool
     skill: null
 
+- id: nvidia-docs-dynamo-001
+  query: In NVIDIA Dynamo, how do I configure KV-aware routing?
+  expected:
+    route_tool: nvidia_docs_tool
+    skill: null
+
+- id: nvidia-docs-aiperf-001
+  query: What configuration does NVIDIA AIPerf use for concurrency sweeps?
+  expected:
+    route_tool: nvidia_docs_tool
+    skill: null
+
 - id: deep-research-001
   query: |
     Produce a comprehensive report comparing AI inference optimization

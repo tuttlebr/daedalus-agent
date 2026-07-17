@@ -1,10 +1,11 @@
 import React, { useEffect } from 'react';
-import { createRoot, type Root } from 'react-dom/client';
+import { createRoot } from 'react-dom/client';
 import { act } from 'react-dom/test-utils';
 
-import { useAsyncChat } from '@/hooks/useAsyncChat';
-
-import { fetchWithTimeout } from '@/utils/fetchWithTimeout';
+import {
+  findCorrelatedAssistantMessage,
+  useAsyncChat,
+} from '@/hooks/useAsyncChat';
 
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -58,6 +59,61 @@ vi.mock('@/utils/logger', () => ({
 }));
 
 type UseAsyncChatApi = ReturnType<typeof useAsyncChat>;
+
+describe('orphan response correlation', () => {
+  it('selects the exact job response instead of the latest assistant message', () => {
+    const matching = {
+      id: 'assistant-current',
+      role: 'assistant',
+      content: 'current answer',
+      metadata: { jobId: 'job-current', turnId: 'turn-current' },
+    };
+    const unrelatedLater = {
+      id: 'assistant-later',
+      role: 'assistant',
+      content: 'later answer',
+      metadata: { jobId: 'job-later', turnId: 'turn-later' },
+    };
+
+    expect(
+      findCorrelatedAssistantMessage([matching, unrelatedLater], {
+        jobId: 'job-current',
+        turnId: 'turn-current',
+      }),
+    ).toBe(matching);
+  });
+
+  it('does not return an assistant response from another job', () => {
+    expect(
+      findCorrelatedAssistantMessage(
+        [
+          {
+            role: 'assistant',
+            content: 'wrong answer',
+            metadata: { jobId: 'job-other', turnId: 'turn-current' },
+          },
+        ],
+        { jobId: 'job-current', turnId: 'turn-current' },
+      ),
+    ).toBeNull();
+  });
+
+  it('uses turn correlation only for legacy messages without a job ID', () => {
+    const legacy = {
+      id: 'assistant-legacy',
+      role: 'assistant',
+      content: 'legacy answer',
+      metadata: { turnId: 'turn-current' },
+    };
+
+    expect(
+      findCorrelatedAssistantMessage([legacy], {
+        jobId: 'job-current',
+        turnId: 'turn-current',
+      }),
+    ).toBe(legacy);
+  });
+});
 
 function response(body: any, init: { ok?: boolean; status?: number } = {}) {
   return {

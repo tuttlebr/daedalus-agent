@@ -1,6 +1,16 @@
 ---
 name: firewall-manager
-description: Manage UniFi firewall policies using natural language — create, modify, and review firewall rules, content filters, and traffic policies. Use when asked to block traffic, create firewall rules, manage content filtering, set up time-based access controls, or review firewall configuration.
+description: >-
+  Create, change, enable or disable, and reorder UniFi firewall policies and
+  rules from natural language. Block traffic or devices, block apps and
+  websites (TikTok, YouTube, BitTorrent, torrents, gaming, social media), set
+  up content filtering and time-based or parental after-bedtime controls, and
+  apply templates like IoT isolation, guest-network lockdown, and camera
+  isolation. Every change is previewed, snapshotted, and diffed before it
+  touches the controller. Use when the user wants to make or modify firewall
+  rules or content filters, or clean up and optimize existing rules. Use
+  firewall-auditor for a read-only scored security audit of existing rules,
+  and unifi-network for non-firewall network changes.
 ---
 
 # Firewall Manager

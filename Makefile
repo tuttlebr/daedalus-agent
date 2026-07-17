@@ -6,7 +6,7 @@
 # Usage:
 #   make              show this help
 #   make ci           run every CI job sequentially (fail-fast)
-#   make <job>        run a single job (builder, frontend, helm, docker, security, evals)
+#   make <job>        run a single CI counterpart
 #   make tools-check  verify required binaries are installed
 #   make clean        remove generated test/scan artifacts
 #
@@ -25,20 +25,27 @@ TRIVY_RESULTS ?= /tmp/daedalus-trivy-results.sarif
 
 .DEFAULT_GOAL := help
 
-.PHONY: help ci builder test-integration frontend helm docker security evals tools-check clean
+.PHONY: help ci builder test-integration frontend frontend-e2e helm redis-upgrade docker security evals tools-check clean
 
 help: ## show available targets
-	@awk 'BEGIN {FS = ":.*##"} /^[a-zA-Z_-]+:.*##/ { printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
+	@awk 'BEGIN {FS = ":.*##"} /^[a-zA-Z0-9_-]+:.*##/ { printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
 
-ci: tools-check builder frontend helm docker security evals ## run every CI job sequentially
+ci: tools-check builder test-integration frontend frontend-e2e helm redis-upgrade docker security evals ## run every CI job sequentially
 
 builder: ## Python builder pytest with coverage  (CI job: builder)
 	cd builder && uv pip install -e ".[test]"
 	cd builder && uv run python -m pytest --cov --cov-report=xml --cov-report=term-missing --cov-fail-under=65
 
-test-integration: ## builder integration tests vs real Redis, opt-in  (CI job: builder-integration)
-	cd builder && uv pip install -e ".[test]" redis
-	cd builder && PYTEST_USE_REAL_REDIS=1 REDIS_URL=$${REDIS_URL:-redis://localhost:6379} uv run python -m pytest -m integration -v
+test-integration: ## builder integration tests vs real Redis  (CI job: builder-integration)
+	@set -eu; \
+		compose_file="$(CURDIR)/frontend/e2e/docker-compose.yml"; \
+		docker compose -f $$compose_file up -d --build --wait redis; \
+		trap 'docker compose -f $$compose_file down --volumes --remove-orphans' EXIT; \
+		cd builder; \
+		uv pip install -e ".[test]" redis; \
+		PYTEST_USE_REAL_REDIS=1 \
+		REDIS_URL=redis://default:e2e-redis-password@localhost:16379 \
+		uv run python -m pytest -m integration -v
 
 frontend: ## frontend lint, typecheck, test, build  (CI job: frontend)
 	cd frontend && npm ci --legacy-peer-deps
@@ -47,19 +54,32 @@ frontend: ## frontend lint, typecheck, test, build  (CI job: frontend)
 	cd frontend && SESSION_SECRET=ci-session-secret-for-build-only npm run coverage
 	cd frontend && SESSION_SECRET=ci-session-secret-for-build-only npm run build
 
+frontend-e2e: ## real-browser frontend workflows  (CI job: frontend-e2e)
+	cd frontend && npm ci --legacy-peer-deps
+	cd frontend && npx playwright install chromium
+	cd frontend && npm run e2e
+
 helm: ## helm lint + template render  (CI job: helm)
 	helm lint helm/daedalus
 	helm template daedalus helm/daedalus >/tmp/daedalus-rendered.yaml
 
+redis-upgrade: ## persisted Redis Helm upgrade, ACL, and TLS rotation  (CI job: redis-upgrade)
+	bash scripts/test_redis_helm_upgrade.sh
+
 docker: ## docker compose config + build runtime images  (CI job: docker)
-	@if [ ! -f .env ]; then \
-		echo "==> seeding .env from .env.template (local .env was missing)"; \
-		cp .env.template .env; \
-	else \
-		echo "==> reusing existing .env"; \
-	fi
-	docker compose config --quiet
-	docker compose build backend frontend evals
+	@set -eu; \
+		created_env=0; \
+		if [ ! -f .env ]; then \
+			cp .env.template .env; \
+			created_env=1; \
+		fi; \
+		trap 'if [ "$$created_env" = 1 ]; then rm -f .env; fi' EXIT; \
+		docker compose config --quiet; \
+		docker compose build --provenance=mode=max --sbom=true backend frontend evals redis; \
+		for service in backend frontend evals redis; do \
+			image=$$(docker compose config --format json | jq -r ".services.\"$$service\".image"); \
+			trivy image --severity CRITICAL,HIGH --exit-code 1 "$$image"; \
+		done
 
 security: ## gitleaks + trivy filesystem scans  (CI job: security)
 	gitleaks detect --source . --verbose --redact
@@ -73,7 +93,7 @@ evals: ## eval harness compile + dataset validation  (CI job: evals)
 
 tools-check: ## verify required binaries are present
 	@missing=0; \
-	for t in uv helm docker gitleaks trivy node npm python3.12; do \
+	for t in uv helm kind kubectl openssl docker gitleaks trivy node npm python3.12; do \
 		if ! command -v $$t >/dev/null 2>&1; then \
 			echo "  missing: $$t"; \
 			missing=$$((missing+1)); \

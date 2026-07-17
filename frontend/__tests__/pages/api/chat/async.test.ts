@@ -14,11 +14,10 @@ import handler, {
   resolveAsyncBackendBaseUrls,
 } from '@/pages/api/chat/async';
 
-import {
-  STREAM_ABORT_POLL_INTERVAL_MS,
-  STREAM_READ_IDLE_TIMEOUT_MS,
-} from '@/server/chat/constants';
-import { abortBackgroundStream } from '@/server/chat/streamReader';
+import { STREAM_READ_IDLE_TIMEOUT_MS } from '@/server/chat/constants';
+import { startBackgroundDocumentIngest } from '@/server/chat/documentIngest';
+import { finalizeSuccess } from '@/server/chat/finalization';
+import { startBackgroundStreamReader } from '@/server/chat/streamReader';
 import {
   clearStreamingState,
   jsonDel,
@@ -26,6 +25,8 @@ import {
   jsonSetWithExpiry,
 } from '@/server/session/redis';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+const PRIVATE_COLLECTION = 'user_uploads_testuser_hash';
 
 const mocks = vi.hoisted(() => {
   class MockDocumentRefAccessError extends Error {
@@ -50,9 +51,28 @@ const mocks = vi.hoisted(() => {
     validateDocumentRefsForUser: vi.fn(async (refs: any[]) => refs),
     DocumentRefAccessError: MockDocumentRefAccessError,
     publisher,
+    redisDel: vi.fn().mockResolvedValue(0),
+    redisEval: vi.fn().mockResolvedValue(1),
+    redisGet: vi.fn().mockResolvedValue(null),
+    redisSet: vi.fn().mockResolvedValue('OK'),
+    redisLrange: vi.fn().mockResolvedValue([]),
+    redisXadd: vi.fn().mockResolvedValue('1-0'),
     processMarkdownImages: vi.fn(async (s: string) => s),
     setVapidDetails: vi.fn(),
     sendNotification: vi.fn().mockResolvedValue(undefined),
+    getMilvusMetadata: vi.fn().mockResolvedValue({
+      databaseName: 'default',
+      userCollection: {
+        name: 'user_uploads_testuser_hash',
+        displayName: 'My documents',
+        scope: 'user',
+        exists: true,
+        readable: true,
+        writable: true,
+      },
+      sharedCollections: [],
+      writableCollections: [],
+    }),
   };
 });
 
@@ -64,11 +84,21 @@ vi.mock('node:dns/promises', () => ({
 }));
 
 vi.mock('@/server/session/redis', () => ({
+  channels: {
+    userUpdates: (userId: string) => `user:${userId}:updates`,
+    streamingState: (userId: string) => `user:${userId}:streaming`,
+  },
   getPublisher: vi.fn(() => mocks.publisher),
   getRedis: vi.fn(() => ({
-    set: vi.fn().mockResolvedValue('OK'),
-    eval: vi.fn().mockResolvedValue(1),
+    del: mocks.redisDel,
+    set: mocks.redisSet,
+    eval: mocks.redisEval,
+    get: mocks.redisGet,
+    lrange: mocks.redisLrange,
     sismember: vi.fn().mockResolvedValue(1),
+    xadd: mocks.redisXadd,
+    incr: vi.fn().mockResolvedValue(1),
+    expire: vi.fn().mockResolvedValue(1),
   })),
   sessionKey: vi.fn((parts: string[]) => `daedalus:${parts.join(':')}`),
   jsonGet: vi.fn(),
@@ -94,6 +124,10 @@ vi.mock('@/utils/auth/session', () => ({
 vi.mock('@/server/session/documentRefs', () => ({
   validateDocumentRefsForUser: mocks.validateDocumentRefsForUser,
   DocumentRefAccessError: mocks.DocumentRefAccessError,
+}));
+
+vi.mock('@/server/milvusMetadata', () => ({
+  getMilvusMetadata: mocks.getMilvusMetadata,
 }));
 
 // finalizeSuccess/finalizeError dynamically import these. Identity passthrough
@@ -124,6 +158,12 @@ describe('chat/async backend pinning helpers', () => {
     process.env.KUBERNETES_SERVICE_HOST = '10.0.0.1';
     delete process.env.DEPLOYMENT_MODE;
     delete process.env.DAEDALUS_INTERNAL_API_TOKEN;
+    mocks.redisDel.mockResolvedValue(0);
+    mocks.redisEval.mockResolvedValue(1);
+    mocks.redisGet.mockResolvedValue(null);
+    mocks.redisSet.mockResolvedValue('OK');
+    mocks.redisLrange.mockResolvedValue([]);
+    mocks.redisXadd.mockResolvedValue('1-0');
   });
 
   it('resolves pinned backend pod base URLs from the headless service', async () => {
@@ -280,7 +320,7 @@ describe('chat/async backend pinning helpers', () => {
     const message = {
       role: 'user',
       content: 'Ingest these docs',
-      metadata: { targetCollection: 'nvidia' },
+      metadata: { targetCollection: PRIVATE_COLLECTION },
       attachments: [
         {
           type: 'document',
@@ -295,7 +335,11 @@ describe('chat/async backend pinning helpers', () => {
       ],
     };
 
-    const out = appendDocumentAttachmentContext(message, 'testuser');
+    const out = appendDocumentAttachmentContext(
+      message,
+      'testuser',
+      PRIVATE_COLLECTION,
+    );
 
     expect(out.content).toContain('documentRefs=');
     expect(out.content).toContain('"documentId":"doc-a"');
@@ -304,8 +348,8 @@ describe('chat/async backend pinning helpers', () => {
     expect(out.content).toContain(
       'Identity comes only from the trusted request context',
     );
-    expect(out.content).toContain('collection_name="nvidia"');
-    expect(out.content).toContain('collection_scope="shared"');
+    expect(out.content).toContain(`collection_name="${PRIVATE_COLLECTION}"`);
+    expect(out.content).toContain('collection_scope="user"');
   });
 
   it('replaces a client-supplied documentRefs hint with the attachment refs', () => {
@@ -342,7 +386,7 @@ describe('chat/async backend pinning helpers', () => {
     const message = {
       role: 'user',
       content: 'Ingest these docs',
-      metadata: { targetCollection: 'nvidia' },
+      metadata: { targetCollection: PRIVATE_COLLECTION },
       attachments: [
         {
           type: 'document',
@@ -362,7 +406,7 @@ describe('chat/async backend pinning helpers', () => {
     const out = compactDocumentIngestionMessage(message, 'testuser');
 
     expect(out.content).toContain(
-      'Ingest 2 uploaded documents into the "nvidia" collection.',
+      `Ingest 2 uploaded documents into the "${PRIVATE_COLLECTION}" collection.`,
     );
     expect(out.content).not.toContain('documentRefs=');
     expect(out.content).not.toContain('documentRef=');
@@ -377,7 +421,7 @@ describe('chat/async backend pinning helpers', () => {
         {
           role: 'user',
           content: 'Ingest these docs',
-          metadata: { targetCollection: 'nvidia' },
+          metadata: { targetCollection: PRIVATE_COLLECTION },
           attachments: [
             {
               type: 'document',
@@ -393,6 +437,7 @@ describe('chat/async backend pinning helpers', () => {
         },
       ],
       'testuser',
+      PRIVATE_COLLECTION,
     );
 
     expect(job).toEqual(
@@ -409,12 +454,12 @@ describe('chat/async backend pinning helpers', () => {
             filename: 'b.md',
           },
         ],
-        collectionName: 'nvidia',
-        collectionScope: 'shared',
+        collectionName: PRIVATE_COLLECTION,
+        collectionScope: 'user',
         provenance: expect.objectContaining({
           uploader: 'testuser',
-          targetCollection: 'nvidia',
-          collectionScope: 'shared',
+          targetCollection: PRIVATE_COLLECTION,
+          collectionScope: 'user',
           databaseName: 'default',
         }),
         username: 'testuser',
@@ -427,7 +472,7 @@ describe('chat/async backend pinning helpers', () => {
       {
         role: 'user',
         content: 'Ingest these docs',
-        metadata: { targetCollection: 'nvidia' },
+        metadata: { targetCollection: PRIVATE_COLLECTION },
         attachments: [
           {
             type: 'document',
@@ -463,7 +508,7 @@ describe('chat/async backend pinning helpers', () => {
       {
         role: 'user',
         content: 'Ingest these docs',
-        metadata: { targetCollection: 'nvidia' },
+        metadata: { targetCollection: PRIVATE_COLLECTION },
         attachments: [
           {
             type: 'document',
@@ -475,31 +520,36 @@ describe('chat/async backend pinning helpers', () => {
     ];
 
     expect(isDocumentIngestionRequest(messages)).toBe(true);
-    expect(getDocumentIngestJobRequest(messages, 'testuser')).toEqual(
+    expect(
+      getDocumentIngestJobRequest(messages, 'testuser', PRIVATE_COLLECTION),
+    ).toEqual(
       expect.objectContaining({
         documentRefs: [
           { documentId: 'doc-a', sessionId: 'sess-1', filename: 'a.md' },
         ],
-        collectionName: 'nvidia',
-        collectionScope: 'shared',
+        collectionName: PRIVATE_COLLECTION,
+        collectionScope: 'user',
         provenance: expect.objectContaining({
           uploader: 'testuser',
-          targetCollection: 'nvidia',
-          collectionScope: 'shared',
+          targetCollection: PRIVATE_COLLECTION,
+          collectionScope: 'user',
         }),
         username: 'testuser',
       }),
     );
   });
 
-  it('rejects explicit scope mismatches for shared ingestion targets', () => {
+  it('rejects attempts to label a private ingestion target as shared', () => {
     expect(() =>
       getDocumentIngestJobRequest(
         [
           {
             role: 'user',
             content: 'Ingest this doc',
-            metadata: { targetCollection: 'nvidia', collectionScope: 'user' },
+            metadata: {
+              targetCollection: PRIVATE_COLLECTION,
+              collectionScope: 'shared',
+            },
             attachments: [
               {
                 type: 'document',
@@ -510,11 +560,12 @@ describe('chat/async backend pinning helpers', () => {
           },
         ],
         'testuser',
+        PRIVATE_COLLECTION,
       ),
     ).toThrow('does not match');
   });
 
-  it('runs document ingestion through the direct streaming ingest endpoint by default', async () => {
+  it('durably queues document ingestion for the stream worker', async () => {
     mocks.resolve4.mockResolvedValue(['10.0.2.61']);
     mocks.fetchWithTimeout.mockResolvedValue({ ok: true, status: 200 });
     const fetchSpy = vi.fn(() => new Promise(() => {}) as any);
@@ -541,7 +592,7 @@ describe('chat/async backend pinning helpers', () => {
           {
             role: 'user',
             content: 'Ingest these docs',
-            metadata: { targetCollection: 'nvidia' },
+            metadata: { targetCollection: PRIVATE_COLLECTION },
             attachments: [
               {
                 type: 'document',
@@ -561,8 +612,6 @@ describe('chat/async backend pinning helpers', () => {
 
     try {
       await handler(req, res);
-      await new Promise((resolve) => setTimeout(resolve, 0));
-      await new Promise((resolve) => setTimeout(resolve, 0));
     } finally {
       vi.unstubAllGlobals();
     }
@@ -581,17 +630,12 @@ describe('chat/async backend pinning helpers', () => {
       }),
       2000,
     );
-    expect(fetchSpy).toHaveBeenCalledWith(
-      'http://10.0.2.61:8000/v1/documents/ingest/stream',
-      expect.objectContaining({
-        method: 'POST',
-        headers: expect.objectContaining({
-          'Content-Type': 'application/json',
-          Accept: 'text/event-stream',
-          'x-user-id': 'testuser',
-          'x-timezone': 'America/New_York',
-        }),
-      }),
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(mocks.redisXadd).toHaveBeenCalledWith(
+      'daedalus:async-stream-queue',
+      '*',
+      'jobId',
+      expect.any(String),
     );
 
     const storedJobRequest = (jsonSetWithExpiry as any).mock.calls.find(
@@ -607,20 +651,20 @@ describe('chat/async backend pinning helpers', () => {
             filename: 'a.md',
           },
         ],
-        collectionName: 'nvidia',
-        collectionScope: 'shared',
+        collectionName: PRIVATE_COLLECTION,
+        collectionScope: 'user',
         provenance: expect.objectContaining({
           uploader: 'testuser',
-          targetCollection: 'nvidia',
-          collectionScope: 'shared',
+          targetCollection: PRIVATE_COLLECTION,
+          collectionScope: 'user',
         }),
         username: 'testuser',
       }),
     );
 
-    const storedJobStatus = (jsonSetWithExpiry as any).mock.calls.find(
-      ([key]: [string]) => key.includes('async-job-status'),
-    )?.[1];
+    const storedJobStatus = (jsonSetWithExpiry as any).mock.calls
+      .filter(([key]: [string]) => key.includes('async-job-status'))
+      .at(-1)?.[1];
     expect(storedJobStatus.status).toBe('streaming');
     expect(storedJobStatus.progress).toBe(0);
     expect(storedJobStatus.ingestProgress).toEqual(
@@ -632,31 +676,57 @@ describe('chat/async backend pinning helpers', () => {
       }),
     );
 
-    const fetchCalls = fetchSpy.mock.calls as unknown as [
-      string,
-      RequestInit,
-    ][];
-    const ingestCall = fetchCalls[0];
-    const ingestBody = JSON.parse(String(ingestCall[1]?.body ?? '{}'));
-    expect(ingestBody).toEqual(
-      expect.objectContaining({
-        documentRefs: [
-          {
-            documentId: 'doc-a',
-            sessionId: 'sess-1',
-            filename: 'a.md',
-          },
-        ],
-        username: 'testuser',
-        collection_name: 'nvidia',
-        collection_scope: 'shared',
-        provenance: expect.objectContaining({
-          uploader: 'testuser',
-          targetCollection: 'nvidia',
-          collectionScope: 'shared',
-        }),
+    const queuedPayload = Array.from(redisStore.entries()).find(([key]) =>
+      key.includes('async-stream-payload'),
+    )?.[1];
+    expect(queuedPayload).toEqual(
+      expect.objectContaining({ verifiedUsername: 'testuser' }),
+    );
+  });
+
+  it('rejects a second active job for the same user conversation', async () => {
+    mocks.redisSet.mockResolvedValueOnce(null);
+    mocks.redisGet.mockResolvedValueOnce(
+      JSON.stringify({
+        version: 1,
+        userId: 'testuser',
+        conversationId: 'conv-active',
+        jobId: 'job-active',
+        acquiredAt: Date.now(),
       }),
     );
+    (jsonGet as any).mockResolvedValueOnce({
+      jobId: 'job-active',
+      status: 'streaming',
+      createdAt: Date.now() - 100,
+      updatedAt: Date.now(),
+      conversationId: 'conv-active',
+    });
+
+    const req = {
+      method: 'POST',
+      headers: { cookie: 'sid=current-session' },
+      body: {
+        conversationId: 'conv-active',
+        messages: [{ role: 'user', content: 'second turn' }],
+      },
+    } as any;
+    const res = {
+      status: vi.fn().mockReturnThis(),
+      json: vi.fn().mockReturnThis(),
+      setHeader: vi.fn(),
+    } as any;
+
+    await handler(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(409);
+    expect(res.json).toHaveBeenCalledWith({
+      error: 'Another response is already active for this conversation.',
+      reason: 'conversation_job_active',
+    });
+    expect(res.setHeader).toHaveBeenCalledWith('Retry-After', '2');
+    expect(mocks.redisXadd).not.toHaveBeenCalled();
+    expect(mocks.fetchWithTimeout).not.toHaveBeenCalled();
   });
 
   it('rejects document attachments that fail server-side ref validation', async () => {
@@ -676,7 +746,7 @@ describe('chat/async backend pinning helpers', () => {
           {
             role: 'user',
             content: 'Ingest this doc',
-            metadata: { targetCollection: 'nvidia' },
+            metadata: { targetCollection: PRIVATE_COLLECTION },
             attachments: [
               {
                 type: 'document',
@@ -704,7 +774,7 @@ describe('chat/async backend pinning helpers', () => {
     expect(mocks.fetchWithTimeout).not.toHaveBeenCalled();
   });
 
-  it('runs normal chat turns through the streaming backend', async () => {
+  it('queues normal chat turns for the streaming worker', async () => {
     mocks.resolve4.mockResolvedValue(['10.0.2.61']);
     mocks.fetchWithTimeout.mockResolvedValue({ ok: true, status: 200 });
     const fetchSpy = vi.fn(() => new Promise(() => {}) as any);
@@ -755,27 +825,17 @@ describe('chat/async backend pinning helpers', () => {
       expect.objectContaining({ method: 'HEAD' }),
       2000,
     );
-    expect(fetchSpy).toHaveBeenCalledWith(
-      'http://10.0.2.61:8000/v1/chat/completions',
-      expect.objectContaining({
-        method: 'POST',
-        headers: expect.objectContaining({
-          'Content-Type': 'application/json',
-          'x-user-id': 'testuser',
-          'x-timezone': 'Europe/London',
-        }),
-      }),
-    );
+    expect(fetchSpy).not.toHaveBeenCalled();
 
     const storedJobRequest = (jsonSetWithExpiry as any).mock.calls.find(
       ([key]: [string]) => key.includes('async-job-request'),
     )?.[1];
     expect(storedJobRequest.executionMode).toBe('stream');
     expect(storedJobRequest.timezone).toBe('Europe/London');
-    const streamBody = JSON.parse(
-      String((fetchSpy.mock.calls as any[])[0]?.[1]?.body ?? '{}'),
-    );
-    expect(streamBody.messages[1].content).toBe('What is the status?');
+    const queuedPayload = Array.from(redisStore.entries()).find(([key]) =>
+      key.includes('async-stream-payload'),
+    )?.[1];
+    expect(queuedPayload.messagesForNat[1].content).toBe('What is the status?');
   });
 
   it('loads stored conversation history before forwarding a chat turn', async () => {
@@ -835,12 +895,13 @@ describe('chat/async backend pinning helpers', () => {
     }
 
     expect(res.status).toHaveBeenCalledWith(200);
-    const fetchCalls = fetchSpy.mock.calls as unknown as [
-      string,
-      RequestInit,
-    ][];
-    const streamBody = JSON.parse(String(fetchCalls[0][1].body));
-    expect(streamBody.messages.map((message: any) => message.content)).toEqual([
+    expect(fetchSpy).not.toHaveBeenCalled();
+    const queuedPayload = Array.from(redisStore.entries()).find(([key]) =>
+      key.includes('async-stream-payload'),
+    )?.[1];
+    expect(
+      queuedPayload.messagesForNat.map((message: any) => message.content),
+    ).toEqual([
       expect.stringContaining('[IDENTITY]'),
       'Hello',
       'Hi there',
@@ -910,22 +971,29 @@ describe('chat/async backend pinning helpers', () => {
     }
 
     expect(res.status).toHaveBeenCalledWith(200);
-    const streamBody = JSON.parse(
-      String((fetchSpy.mock.calls as any[])[0]?.[1]?.body ?? '{}'),
-    );
-    expect(streamBody.messages[0].content).toContain('[IDENTITY]');
-    expect(streamBody.messages[0].content).toContain(
+    expect(fetchSpy).not.toHaveBeenCalled();
+    const queuedPayload = Array.from(redisStore.entries()).find(([key]) =>
+      key.includes('async-stream-payload'),
+    )?.[1];
+    expect(queuedPayload.messagesForNat[0].content).toContain('[IDENTITY]');
+    expect(queuedPayload.messagesForNat[0].content).toContain(
       'derive identity only from the trusted authenticated request context',
     );
-    expect(streamBody.messages[0].content).not.toContain('Use user_id=');
-    expect(streamBody.messages[1].content).toContain('[SOURCE_POLICY]');
-    expect(streamBody.messages[1].content).toContain(
+    expect(queuedPayload.messagesForNat[0].content).not.toContain(
+      'Use user_id=',
+    );
+    expect(queuedPayload.messagesForNat[1].content).toContain(
+      '[SOURCE_POLICY]',
+    );
+    expect(queuedPayload.messagesForNat[1].content).toContain(
       'enabled_source_ids=["curated_domains"]',
     );
-    expect(streamBody.messages[1].content).toContain(
+    expect(queuedPayload.messagesForNat[1].content).toContain(
       'disabled_source_ids=["perplexity_search"]',
     );
-    expect(streamBody.messages[2].content).toBe('Research inference tooling.');
+    expect(queuedPayload.messagesForNat[2].content).toBe(
+      'Research inference tooling.',
+    );
   });
 
   it('routes follow-up messages through stream mode even when prior turns contained document ingestion', async () => {
@@ -956,7 +1024,7 @@ describe('chat/async backend pinning helpers', () => {
           {
             role: 'user',
             content: 'Ingest these docs',
-            metadata: { targetCollection: 'nvidia' },
+            metadata: { targetCollection: PRIVATE_COLLECTION },
             attachments: [
               {
                 type: 'document',
@@ -967,7 +1035,7 @@ describe('chat/async backend pinning helpers', () => {
           },
           {
             role: 'assistant',
-            content: 'Ingested 1 document into "nvidia".',
+            content: `Ingested 1 document into "${PRIVATE_COLLECTION}".`,
           },
           {
             role: 'user',
@@ -989,14 +1057,7 @@ describe('chat/async backend pinning helpers', () => {
     }
 
     expect(res.status).toHaveBeenCalledWith(200);
-    expect(fetchSpy).toHaveBeenCalledWith(
-      'http://10.0.2.61:8000/v1/chat/completions',
-      expect.anything(),
-    );
-    expect(fetchSpy).not.toHaveBeenCalledWith(
-      'http://10.0.2.61:8000/v1/documents/ingest/stream',
-      expect.anything(),
-    );
+    expect(fetchSpy).not.toHaveBeenCalled();
 
     const storedJobRequest = (jsonSetWithExpiry as any).mock.calls.find(
       ([key]: [string]) => key.includes('async-job-request'),
@@ -1061,18 +1122,12 @@ describe('chat/async backend pinning helpers', () => {
     )?.[1];
     expect(storedJobRequest.executionMode).toBe('stream');
 
-    const fetchCalls = fetchSpy.mock.calls as unknown as [
-      string,
-      RequestInit,
-    ][];
-    const streamCall = fetchCalls.find(([url]) =>
-      url.endsWith('/v1/chat/completions'),
-    );
-    expect(streamCall).toBeDefined();
-    if (!streamCall) throw new Error('Expected chat stream request');
-    const streamPayload = JSON.parse(String(streamCall[1]?.body ?? '{}'));
-    expect(streamPayload.messages[0].content).toContain('[IDENTITY]');
-    expect(streamPayload.messages.slice(1)).toEqual([
+    expect(fetchSpy).not.toHaveBeenCalled();
+    const queuedPayload = Array.from(redisStore.entries()).find(([key]) =>
+      key.includes('async-stream-payload'),
+    )?.[1];
+    expect(queuedPayload.messagesForNat[0].content).toContain('[IDENTITY]');
+    expect(queuedPayload.messagesForNat.slice(1)).toEqual([
       { role: 'user', content: 'Summarize the release notes.' },
       { role: 'assistant', content: priorAssistant },
       {
@@ -1080,15 +1135,15 @@ describe('chat/async backend pinning helpers', () => {
         content: 'Return your last response as a simple HTML file.',
       },
     ]);
-    expect(streamPayload.temperature).toBeUndefined();
-    expect(streamPayload.top_p).toBeUndefined();
-    expect(streamPayload.model).toBeUndefined();
-    expect(streamPayload.max_tokens).toBeUndefined();
-    expect(streamPayload.use_knowledge_base).toBeUndefined();
-    expect(streamPayload.top_k).toBeUndefined();
-    expect(streamPayload.collection_name).toBeUndefined();
-    expect(streamPayload.stop).toBeUndefined();
-    expect(streamPayload.user_id).toBeUndefined();
+    expect(queuedPayload.temperature).toBeUndefined();
+    expect(queuedPayload.top_p).toBeUndefined();
+    expect(queuedPayload.model).toBeUndefined();
+    expect(queuedPayload.max_tokens).toBeUndefined();
+    expect(queuedPayload.use_knowledge_base).toBeUndefined();
+    expect(queuedPayload.top_k).toBeUndefined();
+    expect(queuedPayload.collection_name).toBeUndefined();
+    expect(queuedPayload.stop).toBeUndefined();
+    expect(queuedPayload.user_id).toBeUndefined();
   });
 
   it('sanitizes a completed job fullResponse before returning cached status', async () => {
@@ -1219,8 +1274,7 @@ describe('chat/async backend pinning helpers', () => {
     (jsonGet as any)
       .mockResolvedValueOnce(jobStatus)
       .mockResolvedValueOnce(jobRequest)
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce(jobStatus);
+      .mockResolvedValueOnce(null);
     (jsonSetWithExpiry as any).mockResolvedValue(undefined);
     const req = { method: 'GET', query: { jobId: 'job-123' } } as any;
     const res = {
@@ -1237,15 +1291,7 @@ describe('chat/async backend pinning helpers', () => {
       partialResponse: next,
       updatedAt: expect.any(Number),
     });
-    expect(jsonSetWithExpiry).toHaveBeenCalledWith(
-      'daedalus:async-job-status:job-123',
-      {
-        ...jobStatus,
-        partialResponse: next,
-        updatedAt: expect.any(Number),
-      },
-      3600,
-    );
+    expect(jsonSetWithExpiry).not.toHaveBeenCalled();
   });
 
   it('clears stale OAuth fields once a job is no longer oauth_required', async () => {
@@ -1270,8 +1316,7 @@ describe('chat/async backend pinning helpers', () => {
     (jsonGet as any)
       .mockResolvedValueOnce(jobStatus)
       .mockResolvedValueOnce(jobRequest)
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce(jobStatus);
+      .mockResolvedValueOnce(null);
     (jsonSetWithExpiry as any).mockResolvedValue(undefined);
     const req = { method: 'GET', query: { jobId: 'job-123' } } as any;
     const res = {
@@ -1290,17 +1335,7 @@ describe('chat/async backend pinning helpers', () => {
       oauthRequests: undefined,
       updatedAt: expect.any(Number),
     });
-    expect(jsonSetWithExpiry).toHaveBeenCalledWith(
-      'daedalus:async-job-status:job-123',
-      {
-        ...jobStatus,
-        authUrl: undefined,
-        oauthState: undefined,
-        oauthRequests: undefined,
-        updatedAt: expect.any(Number),
-      },
-      3600,
-    );
+    expect(jsonSetWithExpiry).not.toHaveBeenCalled();
   });
 
   it('rejects transcript attachments owned by another user before creating a job', async () => {
@@ -1352,7 +1387,7 @@ describe('chat/async backend pinning helpers', () => {
     expect(jsonSetWithExpiry).not.toHaveBeenCalled();
   });
 
-  it('finalizes stale stream jobs instead of leaving them pending forever', async () => {
+  it('leaves stale pending jobs for the durable worker reclaim path', async () => {
     const now = 2_000_000_000_000;
     const staleAt = now - 16 * 60 * 1000;
     const jobStatus = {
@@ -1370,25 +1405,10 @@ describe('chat/async backend pinning helpers', () => {
       additionalProps: {},
       userId: 'testuser',
     };
-    const finalizedStatus = {
-      ...jobStatus,
-      status: 'error',
-      error:
-        'Backend stream did not produce an update before the timeout. Please try again.',
-      partialResponse: '',
-      intermediateSteps: [],
-      updatedAt: now,
-      finalizedAt: now,
-    };
-    (jsonGet as any)
-      .mockResolvedValueOnce(jobStatus)
-      .mockResolvedValueOnce(jobRequest)
-      // in-lock re-check before the stale finalizeError (finalizer-lock guard)
-      .mockResolvedValueOnce(jobStatus)
-      .mockResolvedValueOnce(jobStatus)
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce(jobStatus)
-      .mockResolvedValueOnce(finalizedStatus);
+    const store = wireRedisStore({
+      'daedalus:async-job-status:job-stale': jobStatus,
+      'daedalus:async-job-request:job-stale': jobRequest,
+    });
     const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(now);
     const req = { method: 'GET', query: { jobId: 'job-stale' } } as any;
     const res = {
@@ -1404,17 +1424,13 @@ describe('chat/async backend pinning helpers', () => {
     }
 
     expect(res.status).toHaveBeenCalledWith(200);
-    expect(res.json).toHaveBeenCalledWith(finalizedStatus);
-    expect(jsonSetWithExpiry).toHaveBeenCalledWith(
+    expect(res.json).toHaveBeenCalledWith(jobStatus);
+    expect(jsonSetWithExpiry).not.toHaveBeenCalledWith(
       'daedalus:async-job-abort:job-stale',
       true,
       3600,
     );
-    expect(jsonSetWithExpiry).toHaveBeenCalledWith(
-      'daedalus:async-job-status:job-stale',
-      finalizedStatus,
-      3600,
-    );
+    expect(store.get('daedalus:async-job-status:job-stale')).toEqual(jobStatus);
   });
 });
 
@@ -1559,6 +1575,24 @@ function makeSseResponse(
 // pattern, factored out) so background writes are observable after draining.
 function wireRedisStore(initial: Record<string, any> = {}) {
   const store = new Map<string, any>(Object.entries(initial));
+  mocks.redisGet.mockImplementation(async (key: string) =>
+    store.has(key) ? store.get(key) : null,
+  );
+  mocks.redisLrange.mockImplementation(
+    async (key: string, start: number, end: number) => {
+      const values = store.get(key);
+      if (!Array.isArray(values)) return [];
+      const resolvedEnd = end < 0 ? values.length + end + 1 : end + 1;
+      return values.slice(start, resolvedEnd);
+    },
+  );
+  mocks.redisDel.mockImplementation(async (...keys: string[]) => {
+    let removed = 0;
+    for (const key of keys) {
+      if (store.delete(key)) removed += 1;
+    }
+    return removed;
+  });
   (jsonGet as any).mockImplementation(async (key: string) =>
     store.has(key) ? store.get(key) : null,
   );
@@ -1570,6 +1604,80 @@ function wireRedisStore(initial: Record<string, any> = {}) {
   (jsonDel as any).mockImplementation(async (key: string) => {
     const had = store.delete(key);
     return had ? 1 : 0;
+  });
+  mocks.redisEval.mockImplementation(async (...args: any[]) => {
+    const script = args[0] as string;
+    if (script.includes("redis.call('APPEND'")) {
+      const key = args[2] as string;
+      const next = `${store.get(key) || ''}${args[3] as string}`;
+      store.set(key, next);
+      return next.length;
+    }
+    if (script.includes("redis.call('RPUSH'")) {
+      const key = args[2] as string;
+      const current = Array.isArray(store.get(key)) ? store.get(key) : [];
+      const next = [...current, ...args.slice(4)];
+      store.set(key, next);
+      return next.length;
+    }
+    if (script.includes('CLAIM_TERMINAL_FINALIZATION')) {
+      const statusKey = args[2] as string;
+      const journalKey = args[3] as string;
+      const current = store.get(statusKey);
+      if (
+        !current ||
+        current.finalizedAt !== undefined ||
+        current.status === 'completed' ||
+        current.status === 'error'
+      ) {
+        return null;
+      }
+      const updates = JSON.parse(args[4] as string);
+      const removals = JSON.parse(args[5] as string) as string[];
+      const terminal = { ...current, ...updates };
+      for (const field of removals) delete terminal[field];
+      const journal = {
+        ...JSON.parse(args[7] as string),
+        terminalStatus: terminal,
+      };
+      store.set(statusKey, terminal);
+      store.set(journalKey, JSON.stringify(journal));
+      return JSON.stringify({ status: terminal, journal });
+    }
+    if (script.includes('MARK_FINALIZATION_PHASE')) {
+      const journalKey = args[2] as string;
+      const rawJournal = store.get(journalKey);
+      const journal =
+        typeof rawJournal === 'string' ? JSON.parse(rawJournal) : rawJournal;
+      if (!journal || journal.finalizationId !== args[3]) return null;
+      const phase = args[4] as string;
+      const updated = {
+        ...journal,
+        [phase]: journal[phase] ?? Number(args[5]),
+        ...(phase === 'completedAt' ? { state: 'completed' } : {}),
+      };
+      store.set(journalKey, JSON.stringify(updated));
+      return JSON.stringify(updated);
+    }
+    if (script.includes('PUBLISH_FINALIZATION_EVENTS')) {
+      const journalKey = args[2] as string;
+      const rawJournal = store.get(journalKey);
+      const journal =
+        typeof rawJournal === 'string' ? JSON.parse(rawJournal) : rawJournal;
+      if (!journal || journal.finalizationId !== args[3]) return null;
+      if (journal.eventsPublishedAt !== undefined) {
+        return JSON.stringify(journal);
+      }
+      const updated = { ...journal, eventsPublishedAt: Number(args[4]) };
+      store.set(journalKey, JSON.stringify(updated));
+      for (let index = 6; index < args.length; index += 2) {
+        await mocks.publisher.publish(args[index], args[index + 1]);
+      }
+      return JSON.stringify(updated);
+    }
+    // withRedisLock unlock script
+    if (args.length < 6) return 1;
+    return 1;
   });
   return store;
 }
@@ -1617,6 +1725,34 @@ function eventsOfType(type: string): any[] {
     .filter((d) => d && d.type === type);
 }
 
+async function executeQueuedJob(
+  store: Map<string, any>,
+  jobId: string,
+  control: { signal?: AbortSignal } = {},
+): Promise<void> {
+  const jobRequest = store.get(`daedalus:async-job-request:${jobId}`);
+  const payload = store.get(`daedalus:async-stream-payload:${jobId}`);
+  if (!jobRequest || !payload) {
+    throw new Error(`Missing queued payload for ${jobId}`);
+  }
+  if (jobRequest.executionMode === 'document_ingest') {
+    await startBackgroundDocumentIngest(
+      jobId,
+      jobRequest,
+      payload.verifiedUsername,
+      control,
+    );
+    return;
+  }
+  await startBackgroundStreamReader(
+    jobId,
+    jobRequest,
+    payload.messagesForNat,
+    payload.verifiedUsername,
+    control,
+  );
+}
+
 // Drive one POST chat turn through the handler against a scripted SSE stream and
 // (by default) wait until the background reader finalizes the job.
 async function runStreamTurn(
@@ -1652,11 +1788,10 @@ async function runStreamTurn(
     await handler(req, res);
     const jobId = res.json.mock.calls[0]?.[0]?.jobId as string;
     const statusKey = `daedalus:async-job-status:${jobId}`;
+    await executeQueuedJob(store, jobId);
     if (opts.drainPredicate) {
       await drainUntil(opts.drainPredicate);
-    } else if (opts.expectNoFinalize) {
-      await drainUntil(() => false, 15);
-    } else {
+    } else if (!opts.expectNoFinalize) {
       await drainUntil(() => Boolean(store.get(statusKey)?.finalizedAt));
     }
     return { jobId, store, res, fetchSpy, statusKey };
@@ -1688,12 +1823,24 @@ async function startBlockedStreamTurn() {
   const res = makeRes();
   await handler(req, res);
   const jobId = res.json.mock.calls[0]?.[0]?.jobId as string;
+  const controller = new AbortController();
+  const executionPromise = executeQueuedJob(store, jobId, {
+    signal: controller.signal,
+  });
 
   for (let i = 0; i < 10 && read.mock.calls.length === 0; i += 1) {
     await Promise.resolve();
   }
 
-  return { jobId, store, read, cancel, releaseLock };
+  return {
+    jobId,
+    store,
+    read,
+    cancel,
+    releaseLock,
+    controller,
+    executionPromise,
+  };
 }
 
 const TOKEN_CHANNEL = 'user:testuser:chat:conv-1:tokens';
@@ -1715,6 +1862,10 @@ describe('chat/async streaming + finalize (characterization)', () => {
     delete process.env.DAEDALUS_INTERNAL_API_TOKEN;
     delete process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
     delete process.env.VAPID_PRIVATE_KEY;
+    mocks.redisDel.mockResolvedValue(0);
+    mocks.redisGet.mockResolvedValue(null);
+    mocks.redisLrange.mockResolvedValue([]);
+    mocks.redisXadd.mockResolvedValue('1-0');
   });
 
   it('accumulates token deltas across reads and publishes chat_token per delta', async () => {
@@ -1781,6 +1932,59 @@ describe('chat/async streaming + finalize (characterization)', () => {
     expect(
       streamingStatusWrites.every(
         (value: any) => !Object.hasOwn(value, 'intermediateSteps'),
+      ),
+    ).toBe(true);
+  });
+
+  it('persists a long live stream as bounded append-only deltas', async () => {
+    const responseDeltas = Array.from(
+      { length: 200 },
+      (_, index) => `[${index}]`,
+    );
+    const stepLines = Array.from(
+      { length: 200 },
+      (_, index) =>
+        `intermediate_data: {"name":"Function Start: <tool_${index}>","id":"s${index}","parent_id":"root","payload":"input ${index}"}\n`,
+    );
+    const responseLines = responseDeltas.map(
+      (delta) =>
+        `data: ${JSON.stringify({
+          choices: [{ delta: { content: delta } }],
+        })}\n`,
+    );
+
+    const { statusKey } = await runStreamTurn([
+      ...stepLines,
+      ...responseLines,
+      'data: [DONE]\n',
+    ]);
+
+    const appendCalls = (mocks.redisEval as any).mock.calls.filter(
+      ([script]: [string]) => script.includes("redis.call('APPEND'"),
+    );
+    const stepPushCalls = (mocks.redisEval as any).mock.calls.filter(
+      ([script]: [string]) => script.includes("redis.call('RPUSH'"),
+    );
+    expect(appendCalls.map((call: any[]) => call[3]).join('')).toBe(
+      responseDeltas.join(''),
+    );
+    expect(
+      stepPushCalls.reduce(
+        (count: number, call: any[]) => count + call.slice(4).length,
+        0,
+      ),
+    ).toBe(200);
+
+    const liveStatusWrites = (jsonSetWithExpiry as any).mock.calls
+      .filter(([key]: [string]) => key === statusKey)
+      .map(([, value]: [string, any]) => value)
+      .filter((value: any) => value.status === 'streaming');
+    expect(liveStatusWrites.length).toBeGreaterThan(0);
+    expect(
+      liveStatusWrites.every(
+        (value: any) =>
+          !Object.hasOwn(value, 'partialResponse') &&
+          !Object.hasOwn(value, 'intermediateSteps'),
       ),
     ).toBe(true);
   });
@@ -1868,20 +2072,15 @@ describe('chat/async streaming + finalize (characterization)', () => {
       .filter((data) => data.status === 'streaming');
     expect(streamingStatusEvents).toHaveLength(0);
 
-    const streamingUpdateWithContent = (jsonSetWithExpiry as any).mock.calls
+    const streamingUpdate = (jsonSetWithExpiry as any).mock.calls
       .filter(([key]: [string]) => key === statusKey)
       .map(([, value]: [string, any]) => value)
-      .find(
-        (data: any) =>
-          data.status === 'streaming' &&
-          data.partialResponse === 'Other work finished.',
-      );
-    expect(streamingUpdateWithContent).toBeDefined();
-    expect(streamingUpdateWithContent.authUrl).toBeUndefined();
-    expect(streamingUpdateWithContent.oauthRequests).toBeUndefined();
-    expect(Object.hasOwn(streamingUpdateWithContent, 'intermediateSteps')).toBe(
-      false,
-    );
+      .find((data: any) => data.status === 'streaming');
+    expect(streamingUpdate).toBeDefined();
+    expect(streamingUpdate.authUrl).toBeUndefined();
+    expect(streamingUpdate.oauthRequests).toBeUndefined();
+    expect(Object.hasOwn(streamingUpdate, 'partialResponse')).toBe(false);
+    expect(Object.hasOwn(streamingUpdate, 'intermediateSteps')).toBe(false);
   });
 
   it('accumulates multiple OAuth prompts from one stream', async () => {
@@ -1952,15 +2151,24 @@ describe('chat/async streaming + finalize (characterization)', () => {
     }
   });
 
-  it('DELETE interrupts a silent pending read and cleans up its reader', async () => {
-    const { jobId, store, read, cancel, releaseLock } =
-      await startBlockedStreamTurn();
+  it('DELETE records cross-process cancellation and the worker signal cleans up its reader', async () => {
+    const {
+      jobId,
+      store,
+      read,
+      cancel,
+      releaseLock,
+      controller,
+      executionPromise,
+    } = await startBlockedStreamTurn();
     expect(read).toHaveBeenCalledTimes(1);
 
     const req = { method: 'DELETE', query: { jobId } } as any;
     const res = makeRes();
     try {
       await handler(req, res);
+      controller.abort(new Error('Job canceled by user'));
+      await executionPromise.catch(() => {});
       await drainUntil(() => cancel.mock.calls.length > 0);
 
       expect(res.json).toHaveBeenCalledWith({
@@ -1970,7 +2178,7 @@ describe('chat/async streaming + finalize (characterization)', () => {
       expect(read).toHaveBeenCalledTimes(1);
       expect(cancel).toHaveBeenCalledTimes(1);
       expect(releaseLock).toHaveBeenCalledTimes(1);
-      expect(abortBackgroundStream(jobId)).toBe(false);
+      expect(store.get(`daedalus:async-job-abort:${jobId}`)).toBe(true);
       expect(store.get(`daedalus:async-job-status:${jobId}`)?.status).toBe(
         'error',
       );
@@ -1979,36 +2187,16 @@ describe('chat/async streaming + finalize (characterization)', () => {
     }
   });
 
-  it('periodic Redis abort polling interrupts a silent pending read', async () => {
-    vi.useFakeTimers();
-    try {
-      const { jobId, store, read, cancel, releaseLock } =
-        await startBlockedStreamTurn();
-      expect(read).toHaveBeenCalledTimes(1);
-
-      store.set(`daedalus:async-job-abort:${jobId}`, true);
-      await vi.advanceTimersByTimeAsync(STREAM_ABORT_POLL_INTERVAL_MS);
-      await vi.advanceTimersByTimeAsync(0);
-
-      expect(read).toHaveBeenCalledTimes(1);
-      expect(cancel).toHaveBeenCalledTimes(1);
-      expect(releaseLock).toHaveBeenCalledTimes(1);
-    } finally {
-      vi.clearAllTimers();
-      vi.useRealTimers();
-      vi.unstubAllGlobals();
-    }
-  });
-
   it('finalizes a silent pending read after the stream idle timeout', async () => {
     vi.useFakeTimers();
     try {
-      const { jobId, store, read, cancel, releaseLock } =
+      const { jobId, store, read, cancel, releaseLock, executionPromise } =
         await startBlockedStreamTurn();
       expect(read).toHaveBeenCalledTimes(1);
 
       await vi.advanceTimersByTimeAsync(STREAM_READ_IDLE_TIMEOUT_MS);
       await vi.advanceTimersByTimeAsync(0);
+      await executionPromise;
 
       const status = store.get(`daedalus:async-job-status:${jobId}`);
       expect(read).toHaveBeenCalledTimes(1);
@@ -2101,6 +2289,86 @@ describe('chat/async streaming + finalize (characterization)', () => {
 
     expect(clearStreamingState).toHaveBeenCalledWith('testuser', 'conv-1');
     expect(store.get(statusKey)?.status).toBe('completed');
+  });
+
+  it('deduplicates repeated success finalizers before conversation and event side effects', async () => {
+    const jobId = 'duplicate-success';
+    const statusKey = `daedalus:async-job-status:${jobId}`;
+    const jobRequest = {
+      jobId,
+      executionMode: 'stream' as const,
+      natBaseUrl: 'http://10.0.2.61:8000',
+      messages: [{ role: 'user', content: 'hello' }],
+      additionalProps: {},
+      userId: 'testuser',
+      conversationId: 'conv-dedup',
+      turnId: 'turn-dedup',
+      assistantMessageId: 'assistant-dedup',
+    };
+    const store = wireRedisStore({
+      [statusKey]: {
+        jobId,
+        status: 'streaming',
+        createdAt: 1,
+        updatedAt: 2,
+        conversationId: 'conv-dedup',
+      },
+    });
+
+    await finalizeSuccess(jobId, jobRequest, 'Answer.');
+    await finalizeSuccess(jobId, jobRequest, 'Duplicate answer.');
+
+    expect(store.get(statusKey)?.fullResponse).toBe('Answer.');
+    expect(store.get('daedalus:conversation:conv-dedup').messages).toHaveLength(
+      2,
+    );
+    expect(eventsOfType('chat_complete')).toHaveLength(1);
+  });
+
+  it('does not let late success overwrite a cancellation outcome', async () => {
+    const jobId = 'late-success-after-cancel';
+    const statusKey = `daedalus:async-job-status:${jobId}`;
+    const store = wireRedisStore({
+      [statusKey]: {
+        jobId,
+        status: 'error',
+        error: 'Job canceled by user',
+        createdAt: 1,
+        updatedAt: 3,
+        finalizedAt: 3,
+        conversationId: 'conv-canceled',
+      },
+      [`daedalus:async-job-response:${jobId}`]: 'Late response.',
+      [`daedalus:async-job-steps-v2:${jobId}`]: [
+        JSON.stringify({ payload: { event_type: 'TOOL_END' } }),
+      ],
+    });
+
+    await finalizeSuccess(
+      jobId,
+      {
+        jobId,
+        executionMode: 'stream',
+        natBaseUrl: 'http://10.0.2.61:8000',
+        messages: [{ role: 'user', content: 'hello' }],
+        additionalProps: {},
+        userId: 'testuser',
+        conversationId: 'conv-canceled',
+      },
+      'Late answer.',
+    );
+
+    expect(store.get(statusKey)).toEqual(
+      expect.objectContaining({
+        status: 'error',
+        error: 'Job canceled by user',
+        finalizedAt: 3,
+      }),
+    );
+    expect(store.has('daedalus:conversation:conv-canceled')).toBe(false);
+    expect(store.has(`daedalus:async-job-response:${jobId}`)).toBe(false);
+    expect(store.has(`daedalus:async-job-steps-v2:${jobId}`)).toBe(false);
+    expect(eventsOfType('chat_complete')).toHaveLength(0);
   });
 
   it('falls back to a placeholder when finalizing with no generated content', async () => {
@@ -2231,7 +2499,7 @@ describe('chat/async streaming + finalize (characterization)', () => {
           {
             role: 'user',
             content: 'Ingest these docs',
-            metadata: { targetCollection: 'nvidia' },
+            metadata: { targetCollection: PRIVATE_COLLECTION },
             attachments: [
               {
                 type: 'document',
@@ -2248,6 +2516,7 @@ describe('chat/async streaming + finalize (characterization)', () => {
       await handler(req, res);
       const jobId = res.json.mock.calls[0][0].jobId;
       const statusKey = `daedalus:async-job-status:${jobId}`;
+      await executeQueuedJob(store, jobId);
       await drainUntil(() => Boolean(store.get(statusKey)?.finalizedAt));
       const status = store.get(statusKey);
       expect(status?.status).toBe('completed');
@@ -2278,7 +2547,7 @@ describe('chat/async streaming + finalize (characterization)', () => {
           {
             role: 'user',
             content: 'Ingest these docs',
-            metadata: { targetCollection: 'nvidia' },
+            metadata: { targetCollection: PRIVATE_COLLECTION },
             attachments: [
               {
                 type: 'document',
@@ -2295,6 +2564,7 @@ describe('chat/async streaming + finalize (characterization)', () => {
       await handler(req, res);
       const jobId = res.json.mock.calls[0][0].jobId;
       const statusKey = `daedalus:async-job-status:${jobId}`;
+      await executeQueuedJob(store, jobId);
       await drainUntil(() => Boolean(store.get(statusKey)?.finalizedAt));
       const status = store.get(statusKey);
       expect(status?.status).toBe('error');
@@ -2370,6 +2640,47 @@ describe('chat/async streaming + finalize (characterization)', () => {
     expect(mocks.fetchWithTimeout).not.toHaveBeenCalled();
   });
 
+  it('GET assembles normalized live response and steps without growing status', async () => {
+    const jobId = 'stream-running-v2';
+    const now = Date.now();
+    const statusKey = `daedalus:async-job-status:${jobId}`;
+    const store = wireRedisStore({
+      [statusKey]: {
+        jobId,
+        status: 'streaming',
+        createdAt: now,
+        updatedAt: now,
+        conversationId: 'conv-1',
+      },
+      [`daedalus:async-job-request:${jobId}`]: {
+        jobId,
+        executionMode: 'stream',
+        messages: [{ role: 'user', content: 'hello' }],
+        additionalProps: {},
+        userId: 'testuser',
+        conversationId: 'conv-1',
+      },
+      [`daedalus:async-job-response:${jobId}`]: 'Live response',
+      [`daedalus:async-job-steps-v2:${jobId}`]: [
+        JSON.stringify({ payload: { event_type: 'TOOL_START' } }),
+      ],
+    });
+    const req = { method: 'GET', query: { jobId } } as any;
+    const res = makeRes();
+
+    await handler(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(res.json).toHaveBeenCalledWith(
+      expect.objectContaining({
+        partialResponse: 'Live response',
+        intermediateSteps: [{ payload: { event_type: 'TOOL_START' } }],
+      }),
+    );
+    expect(store.get(statusKey)?.partialResponse).toBeUndefined();
+    expect(store.get(statusKey)?.intermediateSteps).toBeUndefined();
+  });
+
   it('DELETE cancels an in-flight job, finalizes it, and cleans up', async () => {
     const jobId = 'del-1';
     const store = wireRedisStore({
@@ -2427,7 +2738,7 @@ describe('chat/async streaming + finalize (characterization)', () => {
     expect(store.get(`daedalus:async-job-abort:${jobId}`)).toBeUndefined();
   });
 
-  it('DELETE on an already-finalized job leaves its status intact but still cleans up', async () => {
+  it('DELETE on an already-finalized job reports no cancellation and leaves ownership data intact', async () => {
     const jobId = 'del-done';
     const store = wireRedisStore({
       [`daedalus:async-job-request:${jobId}`]: {
@@ -2448,11 +2759,11 @@ describe('chat/async streaming + finalize (characterization)', () => {
     const req = { method: 'DELETE', query: { jobId } } as any;
     const res = makeRes();
     await handler(req, res);
-    expect(res.json).toHaveBeenCalledWith({ success: true, canceled: true });
+    expect(res.json).toHaveBeenCalledWith({ success: true, canceled: false });
     const status = store.get(`daedalus:async-job-status:${jobId}`);
     expect(status?.status).toBe('completed');
     expect(status?.fullResponse).toBe('done');
-    expect(store.has(`daedalus:async-job-request:${jobId}`)).toBe(false);
+    expect(store.has(`daedalus:async-job-request:${jobId}`)).toBe(true);
   });
 });
 

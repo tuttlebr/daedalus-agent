@@ -1,6 +1,13 @@
 ---
 name: dynamo-router-starter
-description: Start or patch Dynamo router modes and run router endpoint smoke checks. Use for round-robin, KV-aware, least-loaded, or device-aware routing setup; use recipe-runner for recipe deployment and troubleshoot for failure diagnosis.
+description: >-
+  Start or patch a Dynamo frontend's router mode (DYN_ROUTER_MODE) and run
+  OpenAI-compatible endpoint smoke checks. Use to set up or switch
+  round-robin, KV-aware, least-loaded, device-aware-weighted, direct, or
+  random routing, or to enable KV-cache-aware routing / prefix reuse
+  (including approximate mode when workers do not publish KV events). Use
+  dynamo-recipe-runner for full recipe deployment and dynamo-troubleshoot for
+  failure diagnosis.
 license: Apache-2.0
 metadata:
   author: Dan Gil <dagil@nvidia.com>
@@ -151,7 +158,7 @@ Return:
 
 ## Limitations
 
-- Smoke test is one chat completion; it is not a benchmark. Use `dynamo-benchmark` for throughput/latency numbers.
+- Smoke test is one chat completion; it is not a benchmark. Run a dedicated benchmark Job for throughput/latency numbers.
 - KV-aware mode without worker KV-event publication degrades to approximate mode; this skill flags but does not fix the underlying worker config.
 - Mode comparisons require matched workloads; cross-mode latency claims need separate benchmark runs.
 

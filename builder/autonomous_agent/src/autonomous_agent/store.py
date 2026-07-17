@@ -36,9 +36,32 @@ class RedisStore:
         )
         self._json_supported: bool | None = None
         self._lease_tokens: dict[str, str] = {}
+        self._lease_ttls: dict[str, int] = {}
         # F-013: raw payload of the request currently being processed per user,
         # so it can be removed from the reliable-queue processing list on completion.
         self._inflight: dict[str, str] = {}
+
+    @staticmethod
+    def _processing_claim_key(user_id: str, raw_request: str) -> str:
+        request_hash = hashlib.sha256(raw_request.encode("utf-8")).hexdigest()[:32]
+        return key(user_id, f"processing_claim:{request_hash}")
+
+    def _write_processing_claim(self, user_id: str, raw_request: str) -> None:
+        token = self._lease_tokens.get(user_id)
+        ttl_seconds = self._lease_ttls.get(user_id)
+        if not token or not ttl_seconds:
+            raise RuntimeError("cannot claim a request without an active worker lease")
+        claimed_at = now_ms()
+        claim = {
+            "ownerToken": token,
+            "claimedAt": claimed_at,
+            "visibilityDeadlineAt": claimed_at + ttl_seconds * 1000,
+        }
+        self.redis.set(
+            self._processing_claim_key(user_id, raw_request),
+            json.dumps(claim, sort_keys=True, separators=(",", ":")),
+            ex=ttl_seconds,
+        )
 
     def ping(self) -> None:
         self.redis.ping()
@@ -407,11 +430,17 @@ class RedisStore:
         # the run is recorded does not lose the job — reclaim_processing()
         # re-queues anything left behind on the next startup. brpoplpush pops the
         # queue tail (FIFO with lpush) and pushes to the processing-list head.
+        if not self.owns_lease(user_id):
+            raise RuntimeError("cannot dequeue without owning the worker lease")
         queue_key = key(user_id, "queue")
         processing_key = key(user_id, "processing")
         raw = self.redis.brpoplpush(queue_key, processing_key, timeout)
         if not raw:
             return None
+        lease_ttl = self._lease_ttls.get(user_id, 60)
+        if not self.refresh_lease(user_id, ttl_seconds=lease_ttl):
+            # The request remains in processing for the replacement owner.
+            raise RuntimeError("worker lease was lost while dequeuing a request")
         try:
             parsed = json.loads(raw)
         except json.JSONDecodeError:
@@ -422,9 +451,10 @@ class RedisStore:
                 self.redis.lrem(processing_key, 1, raw)
             return None
         self._inflight[user_id] = raw
+        self._write_processing_claim(user_id, raw)
         return parsed
 
-    def complete(self, user_id: str) -> None:
+    def complete(self, user_id: str) -> bool:
         """Remove the in-flight request from the processing list after handling.
 
         Call once the run has been recorded (success or a recorded failure). If
@@ -433,47 +463,121 @@ class RedisStore:
         """
         raw = self._inflight.pop(user_id, None)
         if raw is None:
-            return
-        with contextlib.suppress(Exception):
-            self.redis.lrem(key(user_id, "processing"), 1, raw)
+            return False
+        token = self._lease_tokens.get(user_id)
+        if not token:
+            return False
+        return bool(
+            self.redis.eval(
+                """
+                if redis.call("GET", KEYS[1]) ~= ARGV[1] then
+                    return 0
+                end
+                redis.call("LREM", KEYS[2], 1, ARGV[2])
+                redis.call("DEL", KEYS[3])
+                return 1
+                """,
+                3,
+                key(user_id, "lease"),
+                key(user_id, "processing"),
+                self._processing_claim_key(user_id, raw),
+                token,
+                raw,
+            )
+        )
 
     def reclaim_processing(self, user_id: str) -> int:
-        """Re-queue requests left in the processing list by a crashed worker."""
+        """Re-queue crashed work only while holding the user's current lease."""
+
+        token = self._lease_tokens.get(user_id)
+        if not token:
+            raise RuntimeError(
+                "cannot reclaim processing work without owning the lease"
+            )
         processing_key = key(user_id, "processing")
         queue_key = key(user_id, "queue")
-        reclaimed = 0
-        while self.redis.rpoplpush(processing_key, queue_key):
-            reclaimed += 1
-        return reclaimed
+        moved = self.redis.eval(
+            """
+            if redis.call("GET", KEYS[1]) ~= ARGV[1] then
+                return false
+            end
+            local moved = {}
+            while true do
+                local value = redis.call("RPOPLPUSH", KEYS[2], KEYS[3])
+                if not value then
+                    break
+                end
+                table.insert(moved, value)
+            end
+            return moved
+            """,
+            3,
+            key(user_id, "lease"),
+            processing_key,
+            queue_key,
+            token,
+        )
+        if moved is None or moved is False:
+            self._lease_tokens.pop(user_id, None)
+            self._lease_ttls.pop(user_id, None)
+            raise RuntimeError("cannot reclaim processing work after losing the lease")
+        local_inflight = self._inflight.get(user_id)
+        if local_inflight in moved:
+            self._inflight.pop(user_id, None)
+        for raw in moved:
+            with contextlib.suppress(Exception):
+                self.redis.delete(self._processing_claim_key(user_id, raw))
+        return len(moved)
 
     def acquire_lease(self, user_id: str, ttl_seconds: int = 60) -> bool:
         token = f"{os.getpid()}:{uuid.uuid4().hex}"
+        ttl_seconds = max(1, int(ttl_seconds))
         acquired = bool(
             self.redis.set(key(user_id, "lease"), token, nx=True, ex=ttl_seconds)
         )
         if acquired:
             self._lease_tokens[user_id] = token
+            self._lease_ttls[user_id] = ttl_seconds
         return acquired
 
-    def refresh_lease(self, user_id: str, ttl_seconds: int = 60) -> None:
+    def owns_lease(self, user_id: str) -> bool:
         token = self._lease_tokens.get(user_id)
         if not token:
-            return
-        self.redis.eval(
-            """
-            if redis.call("GET", KEYS[1]) == ARGV[1] then
-                return redis.call("EXPIRE", KEYS[1], ARGV[2])
-            end
-            return 0
-            """,
-            1,
-            key(user_id, "lease"),
-            token,
-            int(ttl_seconds),
+            return False
+        return self.redis.get(key(user_id, "lease")) == token
+
+    def refresh_lease(self, user_id: str, ttl_seconds: int = 60) -> bool:
+        token = self._lease_tokens.get(user_id)
+        if not token:
+            return False
+        ttl_seconds = max(1, int(ttl_seconds))
+        refreshed = bool(
+            self.redis.eval(
+                """
+                if redis.call("GET", KEYS[1]) == ARGV[1] then
+                    return redis.call("EXPIRE", KEYS[1], ARGV[2])
+                end
+                return 0
+                """,
+                1,
+                key(user_id, "lease"),
+                token,
+                ttl_seconds,
+            )
         )
+        if not refreshed:
+            self._lease_tokens.pop(user_id, None)
+            self._lease_ttls.pop(user_id, None)
+            return False
+        self._lease_ttls[user_id] = ttl_seconds
+        raw = self._inflight.get(user_id)
+        if raw is not None:
+            self._write_processing_claim(user_id, raw)
+        return True
 
     def release_lease(self, user_id: str) -> None:
         token = self._lease_tokens.pop(user_id, None)
+        self._lease_ttls.pop(user_id, None)
         if not token:
             return
         self.redis.eval(

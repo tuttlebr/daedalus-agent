@@ -684,10 +684,11 @@ class TestGetFollowingSafeRedirects:
         asyncio.run(_run())
 
     def test_redirect_hostname_resolving_private_is_rejected(self, monkeypatch):
-        def _private_dns(_host, *_args, **_kwargs):
-            return [(socket.AF_INET, None, None, "", ("10.0.0.8", 0))]
+        def _dns(host, *_args, **_kwargs):
+            address = "10.0.0.8" if host == "rebind.example" else "93.184.216.34"
+            return [(socket.AF_INET, None, None, "", (address, 0))]
 
-        monkeypatch.setattr(socket, "getaddrinfo", _private_dns)
+        monkeypatch.setattr(socket, "getaddrinfo", _dns)
 
         async def _run():
             redirect = _mk_response(302, location="https://rebind.example/internal")
@@ -807,7 +808,7 @@ class TestScrapeWithHttpxResult:
 
         asyncio.run(_run())
 
-    def test_non_html_success_returns_non_html_outcome(self, monkeypatch):
+    def test_non_html_success_converts_already_fetched_bytes(self, monkeypatch):
         async def _run():
             response = _mk_response(
                 200,
@@ -817,11 +818,24 @@ class TestScrapeWithHttpxResult:
             )
             client = _QueuedClient([response])
             self._patch_client(monkeypatch, client)
+            local_conversion = MagicMock(
+                return_value=(
+                    "# PDF\n\n_Source: https://example.com/file.pdf_\n\n"
+                    + "Converted PDF content. " * 5
+                )
+            )
+            monkeypatch.setattr(
+                webscrape_mod, "_scrape_with_markitdown", local_conversion
+            )
 
             content, outcome = await _scrape_with_httpx_result(
                 "https://example.com/file.pdf"
             )
-            assert content is None
-            assert outcome == "non_html"
+            assert "Converted PDF content" in content
+            assert outcome == "ok"
+            assert local_conversion.call_args.kwargs["fetched_content"] == b"%PDF-1.7"
+            assert (
+                local_conversion.call_args.kwargs["content_type"] == "application/pdf"
+            )
 
         asyncio.run(_run())

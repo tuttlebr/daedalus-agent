@@ -1,5 +1,9 @@
 """Contract checks between backend YAML and custom tool signatures."""
 
+import ast
+import re
+import sys
+import tomllib
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -13,6 +17,27 @@ NAT_ENTRY_SKILL = (
 )
 SKILLS_DIR = Path(__file__).resolve().parents[2] / "skills"
 DOCKERFILE = Path(__file__).resolve().parents[1] / "Dockerfile"
+DOCKERIGNORE = DOCKERFILE.parent / ".dockerignore"
+RUNTIME_REQUIREMENTS = DOCKERFILE.parent / "requirements-runtime.in"
+RUNTIME_OVERRIDES = DOCKERFILE.parent / "requirements-runtime-overrides.in"
+NAT_NV_INGEST_SAMPLE_CONFIG = (
+    DOCKERFILE.parent
+    / "nat_nv_ingest"
+    / "src"
+    / "nat_nv_ingest"
+    / "configs"
+    / "config.yml"
+)
+WEBSCRAPE_SAMPLE_CONFIG = (
+    DOCKERFILE.parent / "webscrape" / "src" / "webscrape" / "configs" / "config.yml"
+)
+RUNTIME_LOCKS = {
+    "x86_64-unknown-linux-gnu": (DOCKERFILE.parent / "pylock.runtime-linux-amd64.toml"),
+    "aarch64-unknown-linux-gnu": (
+        DOCKERFILE.parent / "pylock.runtime-linux-arm64.toml"
+    ),
+}
+NAT_COMMIT = "9d320c3645fe654cd68e59d0843ed7a294673a17"
 NGINX_TEMPLATE = (
     Path(__file__).resolve().parents[2]
     / "helm"
@@ -34,12 +59,26 @@ NETWORK_POLICY_BACKEND_TEMPLATE = (
     / "templates"
     / "networkpolicy-backend.yaml"
 )
+NETWORK_POLICY_FRONTEND_TEMPLATE = (
+    Path(__file__).resolve().parents[2]
+    / "helm"
+    / "daedalus"
+    / "templates"
+    / "networkpolicy-frontend.yaml"
+)
 CILIUM_BACKEND_TEMPLATE = (
     Path(__file__).resolve().parents[2]
     / "helm"
     / "daedalus"
     / "templates"
     / "cilium-backend.yaml"
+)
+CILIUM_FRONTEND_TEMPLATE = (
+    Path(__file__).resolve().parents[2]
+    / "helm"
+    / "daedalus"
+    / "templates"
+    / "cilium-frontend.yaml"
 )
 BACKEND_DEPLOYMENT_TEMPLATE = (
     Path(__file__).resolve().parents[2]
@@ -160,35 +199,199 @@ def _template_env_names() -> set[str]:
     }
 
 
-def test_backend_dockerfile_chmods_runtime_files_after_copy():
-    lines = DOCKERFILE.read_text(encoding="utf-8").splitlines()
-    chmod_lines = [
-        i for i, line in enumerate(lines) if line.strip() == "RUN chmod -R a+rX \\"
-    ]
-    assert chmod_lines
-    chmod_line = max(chmod_lines)
+def _normalized_distribution_name(dependency: str) -> str:
+    match = re.match(r"[A-Za-z0-9_.-]+", dependency)
+    assert match, dependency
+    return re.sub(r"[-_.]+", "-", match.group(0)).lower()
 
-    runtime_copies = [
-        "COPY entrypoint.py /workspace/entrypoint.py",
-        "COPY llm_diagnostics.py /workspace/llm_diagnostics.py",
-        "COPY mcp_patches.py /workspace/mcp_patches.py",
-        "COPY image_api.py /workspace/image_api.py",
-        "COPY document_ingest_api.py /workspace/document_ingest_api.py",
-    ]
-    for copy_instruction in runtime_copies:
-        copy_lines = [
-            i for i, line in enumerate(lines) if line.strip() == copy_instruction
+
+def _declared_runtime_dependencies(manifest: Path) -> set[str]:
+    project = tomllib.loads(manifest.read_text(encoding="utf-8"))["project"]
+    return {
+        _normalized_distribution_name(dependency)
+        for dependency in project.get("dependencies", [])
+    }
+
+
+def _imported_runtime_distributions(package_dir: Path) -> set[str]:
+    builder_dir = DOCKERFILE.parent
+    local_modules = {
+        manifest.parent.name for manifest in builder_dir.glob("*/pyproject.toml")
+    }
+    local_modules.update(path.stem for path in builder_dir.glob("*.py"))
+    import_to_distribution = {
+        "langchain_core": "langchain-core",
+        "nat": "nvidia-nat",
+        "nv_ingest_client": "nv-ingest-client",
+        "yaml": "pyyaml",
+    }
+    imported: set[str] = set()
+
+    for source in (package_dir / "src").rglob("*.py"):
+        tree = ast.parse(source.read_text(encoding="utf-8"), filename=str(source))
+        for node in ast.walk(tree):
+            module = None
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    top_level = alias.name.split(".", 1)[0]
+                    if (
+                        top_level not in sys.stdlib_module_names
+                        and top_level not in local_modules
+                    ):
+                        imported.add(import_to_distribution.get(top_level, top_level))
+            elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+                module = node.module.split(".", 1)[0]
+            if (
+                module
+                and module not in sys.stdlib_module_names
+                and module not in local_modules
+            ):
+                imported.add(import_to_distribution.get(module, module))
+
+    return {_normalized_distribution_name(name) for name in imported}
+
+
+def test_backend_dockerfile_assigns_runtime_files_to_non_root_user():
+    dockerfile = DOCKERFILE.read_text(encoding="utf-8")
+    final_stage = dockerfile.split("FROM runtime_base AS backend", 1)[1]
+
+    assert "COPY --from=build --chown=1000:1000 /workspace /workspace" in final_stage
+    assert "COPY --from=skills --chown=1000:1000 . /skills" in final_stage
+    assert final_stage.index("--chown=1000:1000") < final_stage.index("USER 1000:1000")
+    assert "chmod -R" not in final_stage
+    assert "/workspace/.tmp" not in dockerfile
+
+
+def test_backend_build_context_excludes_local_generated_metadata():
+    dockerignore = DOCKERIGNORE.read_text(encoding="utf-8")
+
+    assert ".venv/" in dockerignore
+    assert "**/*.egg-info/" in dockerignore
+    assert "**/__pycache__/" in dockerignore
+    assert "tests/" in dockerignore
+
+
+def test_local_packages_declare_every_direct_runtime_import():
+    for manifest in sorted(DOCKERFILE.parent.glob("*/pyproject.toml")):
+        imported = _imported_runtime_distributions(manifest.parent)
+        declared = _declared_runtime_dependencies(manifest)
+        assert imported <= declared, (
+            manifest,
+            f"undeclared direct imports: {sorted(imported - declared)}",
+        )
+
+
+def test_runtime_locks_cover_local_sources_nat_commit_and_registry_hashes():
+    requirement_text = RUNTIME_REQUIREMENTS.read_text(encoding="utf-8")
+    local_paths = {
+        line.removeprefix("-e ./").strip()
+        for line in requirement_text.splitlines()
+        if line.startswith("-e ./")
+    }
+    assert local_paths
+
+    for platform, lock_path in RUNTIME_LOCKS.items():
+        lock_text = lock_path.read_text(encoding="utf-8")
+        lock = tomllib.loads(lock_text)
+        packages = lock["packages"]
+        by_name = {package["name"]: package for package in packages}
+        assert lock["lock-version"] == "1.0"
+        assert f"--python-platform {platform}" in lock_text.splitlines()[1]
+        assert (
+            "--overrides requirements-runtime-overrides.in" in lock_text.splitlines()[1]
+        )
+        assert by_name["cryptography"]["version"] == "48.0.1"
+        assert by_name["fastfeedparser"]["version"] == "0.5.10"
+        assert by_name["pillow"]["version"] == "12.3.0"
+        assert by_name["starlette"]["version"] == "1.3.1"
+        assert by_name["urllib3"]["version"] == "2.7.0"
+        assert by_name["nv-ingest-api"]["version"] == "26.3.0"
+        assert by_name["nv-ingest-client"]["version"] == "26.3.0"
+        assert "moviepy" not in by_name
+
+        locked_local_paths = {
+            package["directory"]["path"]
+            for package in packages
+            if "directory" in package
+        }
+        assert locked_local_paths == local_paths
+        assert all(
+            package["directory"].get("editable") is True
+            for package in packages
+            if "directory" in package
+        )
+
+        vcs_packages = [package for package in packages if "vcs" in package]
+        assert vcs_packages
+        assert all(package["name"].startswith("nvidia-nat") for package in vcs_packages)
+        assert all(
+            package["vcs"]["requested-revision"] == NAT_COMMIT
+            and package["vcs"]["commit-id"] == NAT_COMMIT
+            for package in vcs_packages
+        )
+
+        registry_packages = [
+            package
+            for package in packages
+            if "directory" not in package and "vcs" not in package
         ]
-        assert copy_lines
-        assert max(copy_lines) < chmod_line
+        assert registry_packages
+        for package in registry_packages:
+            artifacts = []
+            if "sdist" in package:
+                artifacts.append(package["sdist"])
+            artifacts.extend(package.get("wheels", []))
+            if "archive" in package:
+                artifacts.append(package["archive"])
+            assert artifacts, package["name"]
+            assert all(
+                artifact.get("hashes", {}).get("sha256") for artifact in artifacts
+            )
 
-    assert "/workspace/.tmp" not in "\n".join(lines)
+
+def test_backend_image_installs_only_from_frozen_runtime_locks():
+    dockerfile = DOCKERFILE.read_text(encoding="utf-8")
+    final_stage = dockerfile.split("FROM runtime_base AS backend", 1)[1]
+
+    assert "COPY pylock.runtime-linux-amd64.toml" in dockerfile
+    assert "COPY pylock.runtime-linux-arm64.toml" in dockerfile
+    assert "--require-hashes" in dockerfile
+    assert "${TARGETARCH}" in dockerfile
+    assert "Unsupported TARGETARCH" in dockerfile
+    assert "git+https://github.com/NVIDIA/NeMo-Agent-Toolkit" not in dockerfile
+    assert "nat workflow reinstall" not in dockerfile
+    assert "FROM build AS base" in dockerfile
+
+    assert "FROM runtime_base AS backend" in dockerfile
+    assert "build-essential" not in final_stage
+    assert "clang" not in final_stage
+    assert " git" not in final_stage
+    assert "COPY --from=uv_base" not in final_stage
 
 
 def test_backend_config_env_placeholders_are_declared_in_template():
     config_text = CONFIG.read_text(encoding="utf-8")
 
     assert _env_placeholders(config_text) - _template_env_names() == set()
+
+
+def test_backend_uses_owned_nat_front_end_runner():
+    front_end = _config()["general"]["front_end"]
+
+    assert (
+        front_end["runner_class"]
+        == "nat_helpers.front_end.DaedalusFastApiFrontEndPluginWorker"
+    )
+
+
+def test_backend_uses_registered_redis_acl_tls_memory_provider():
+    memory = _config()["memory"]["redis_memory"]
+
+    assert memory["_type"] == "daedalus_redis_memory"
+    assert memory["username"] == "${REDIS_USERNAME}"
+    assert memory["password"] == "${REDIS_PASSWORD}"
+    assert memory["ssl"] == "${REDIS_TLS_ENABLED}"
+    assert memory["ssl_ca_certs"] == "${REDIS_TLS_CA_FILE}"
 
 
 def test_backend_config_uses_canonical_env_names():
@@ -296,7 +499,7 @@ def test_workflow_uses_single_tool_calling_agent_schema():
             config["llms"]["tool_calling_llm"].get("api_type", "chat_completions")
             != "responses"
         ), path
-        assert workflow["_type"] == "tool_calling_agent", path
+        assert workflow["_type"] == "daedalus_per_user_tool_calling_agent", path
         assert "tool_names" in workflow, path
         assert "nat_tools" not in workflow, path
         # max_history bounds how many recent messages stay in the prompt each
@@ -331,7 +534,7 @@ def test_backend_config_omits_unsupported_sampling_parameters():
         assert keys.isdisjoint(unsupported), path
 
 
-def test_workflow_exposes_configured_nvidia_docs_servers():
+def test_workflow_exposes_one_routed_nvidia_docs_capability():
     for path in DEPLOYED_CONFIGS:
         config = _config(path)
         tools = set(config["workflow"]["tool_names"])
@@ -340,10 +543,20 @@ def test_workflow_exposes_configured_nvidia_docs_servers():
             source for source in source_registry if source["id"] == "nvidia_docs"
         )
 
-        assert "aistore_mcp_server" in config["function_groups"], path
-        assert "aistore_mcp_server" in tools, path
+        legacy_groups = {
+            "dynamo_mcp_server",
+            "openshell_mcp_server",
+            "aistore_mcp_server",
+            "aiperf_mcp_server",
+            "nvcf_mcp_server",
+            "dsx_mcp_server",
+        }
+        assert not legacy_groups & set(config["function_groups"]), path
+        assert not legacy_groups & tools, path
+        assert config["functions"]["nvidia_docs_tool"]["_type"] == "nvidia_docs"
+        assert "nvidia_docs_tool" in tools, path
         assert "AIStore" in nvidia_docs["description"], path
-        assert "aistore_mcp_server" in nvidia_docs["tools"], path
+        assert nvidia_docs["tools"] == ["nvidia_docs_tool"], path
 
 
 def test_responses_api_workflow_exposes_required_leaf_tools():
@@ -447,10 +660,16 @@ def test_google_workspace_mcp_uses_per_user_oauth():
             assert set(provider["scopes"]) == values["scopes"], path
 
             group = function_groups[name]
+            assert group["_type"] == "per_user_mcp_client", path
             assert group["include"] == values["include"], path
             assert group["server"]["auth_provider"] == name, path
             assert group["server"]["url"] == values["server_url"], path
             assert group["auth_flow_timeout"] >= 600, path
+
+        general = config["general"]
+        assert general["per_user_workflow_timeout"] <= 600, path
+        assert general["per_user_workflow_cleanup_interval"] <= 60, path
+        assert general["enable_per_user_monitoring"] is False, path
 
 
 def test_interactive_extensions_are_enabled_for_mcp_oauth():
@@ -506,6 +725,43 @@ def test_backend_network_policy_uses_explicit_namespace_access():
     assert "{{- if not .Values.backend.networkPolicy.cilium.enabled }}" in template
 
 
+def test_document_object_policies_share_in_cluster_and_external_settings():
+    standard = (
+        NETWORK_POLICY_BACKEND_TEMPLATE.read_text(encoding="utf-8"),
+        NETWORK_POLICY_FRONTEND_TEMPLATE.read_text(encoding="utf-8"),
+    )
+    cilium = (
+        CILIUM_BACKEND_TEMPLATE.read_text(encoding="utf-8"),
+        CILIUM_FRONTEND_TEMPLATE.read_text(encoding="utf-8"),
+    )
+
+    for template in (*standard, *cilium):
+        assert "daedalus.documentObjectNetworkMode" in template
+        assert ".Values.documentObjectStorage.networkPolicy.namespace" in template
+        assert ".Values.documentObjectStorage.networkPolicy.port" in template
+        assert "documentObjectExternal" in template
+
+    for template in standard:
+        assert "$documentObjectExternal.cidrs" in template
+        assert "ipBlock:" in template
+
+    for template in cilium:
+        assert "$documentObjectExternal.fqdnNames" in template
+        assert "toFQDNs:" in template
+        assert "document-objects-cidr" in template
+
+
+def test_document_object_timeout_is_shared_by_upload_and_ingest_paths():
+    backend = BACKEND_DEPLOYMENT_TEMPLATE.read_text(encoding="utf-8")
+    frontend = FRONTEND_DEPLOYMENT_TEMPLATE.read_text(encoding="utf-8")
+    compose = DOCKER_COMPOSE.read_text(encoding="utf-8")
+
+    for template in (backend, frontend):
+        assert "DOCUMENT_OBJECT_REQUEST_TIMEOUT_MS" in template
+        assert "daedalus.documentObjectRequestTimeoutMs" in template
+    assert compose.count("- DOCUMENT_OBJECT_REQUEST_TIMEOUT_MS=") == 2
+
+
 def test_standard_and_cilium_web_egress_have_matching_ports_and_exclusions():
     standard = NETWORK_POLICY_BACKEND_TEMPLATE.read_text(encoding="utf-8")
     cilium = CILIUM_BACKEND_TEMPLATE.read_text(encoding="utf-8")
@@ -543,7 +799,7 @@ def test_cilium_policy_allows_every_literal_external_mcp_hostname():
     external_hosts = set()
 
     for group in config["function_groups"].values():
-        if group.get("_type") != "mcp_client":
+        if group.get("_type") not in {"mcp_client", "per_user_mcp_client"}:
             continue
         url = str(group.get("server", {}).get("url", ""))
         if not url.startswith("https://"):
@@ -692,17 +948,49 @@ def test_frontend_has_no_legacy_async_job_settings():
 
 def test_runtime_omits_legacy_async_job_dependencies():
     dockerfile = DOCKERFILE.read_text(encoding="utf-8")
+    runtime_requirements = RUNTIME_REQUIREMENTS.read_text(encoding="utf-8")
     assert "aiosqlite" not in dockerfile
     assert "sqlalchemy[asyncio]" not in dockerfile
-    assert '"starlette<1.0"' in dockerfile
+    # NAT's supported FastAPI runner imports SQLAlchemy's asyncio module even
+    # when async job endpoints are disabled, so its missing transitive runtime
+    # requirement must remain explicit.
+    assert "greenlet>=3,<4" in runtime_requirements
+    assert "cryptography>=48.0.1,<49" in runtime_requirements
+    assert "fastfeedparser>=0.5.10,<0.6" in runtime_requirements
+    assert "pillow>=12.2,<13" in runtime_requirements
+    assert "starlette>=1.3.1,<2" in runtime_requirements
+    assert "urllib3>=2.7,<3" in runtime_requirements
     assert "async_endpoints" not in dockerfile
     assert "dask" not in dockerfile.lower()
     assert "distributed" not in dockerfile.lower()
+
+    overrides = {
+        line.strip()
+        for line in RUNTIME_OVERRIDES.read_text(encoding="utf-8").splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    }
+    assert overrides == {"cryptography>=48.0.1,<49", "urllib3>=2.7,<3"}
 
     for manifest in DOCKERFILE.parent.glob("*/pyproject.toml"):
         project = manifest.read_text(encoding="utf-8")
         if "nvidia-nat[" in project:
             assert "async_endpoints" not in project, manifest
+
+
+def test_nv_ingest_sample_config_has_no_fallback_credentials_or_bind_addresses():
+    raw = NAT_NV_INGEST_SAMPLE_CONFIG.read_text(encoding="utf-8")
+    config = yaml.safe_load(raw)
+
+    assert "minioadmin" not in raw
+    assert "0.0.0.0" not in raw
+    assert set(config["functions"]) == {"user_document_tool"}
+    assert config["workflow"]["tool_names"] == ["user_document_tool"]
+
+
+def test_webscrape_sample_config_has_no_scaffold_placeholder():
+    config = yaml.safe_load(WEBSCRAPE_SAMPLE_CONFIG.read_text(encoding="utf-8"))
+
+    assert config["workflow"] == {"_type": "webscrape"}
 
 
 def test_top_level_workflow_exposes_source_verifier_when_add_memory_requires_it():

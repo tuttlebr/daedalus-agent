@@ -68,6 +68,16 @@ export interface AsyncJobStatus {
   assistantMessageId?: string;
 }
 
+export interface BackgroundExecutionControl {
+  signal?: AbortSignal;
+  beforeBackendRequest?: () => Promise<void>;
+}
+
+export interface StreamQueuePayload {
+  messagesForNat: any[];
+  verifiedUsername: string;
+}
+
 export class ApiRouteError extends Error {
   status: number;
   reason: string;

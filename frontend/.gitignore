@@ -6,12 +6,16 @@
 
 # testing
 /coverage
+/playwright-report
+/test-results
 
 # production
 /build
 
 # next
 /.next
+/worker-build
+/ws-build
 /out
 
 # misc

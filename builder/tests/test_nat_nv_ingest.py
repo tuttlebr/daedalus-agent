@@ -1,13 +1,17 @@
 """Unit tests for nat_nv_ingest configuration and pure helpers."""
 
 import asyncio
+import threading
 from unittest.mock import MagicMock
 
 import pytest
 from nat_nv_ingest.nat_nv_ingest import (
     DEFAULT_DOCUMENT_INGEST_MAX_SIZE_BYTES,
     DEFAULT_DOCUMENT_MARKDOWN_MAX_CHARS,
+    DEFAULT_DOCUMENT_OBJECT_PREFIX,
+    DEFAULT_DOCUMENT_OBJECT_REQUEST_TIMEOUT_MS,
     ERROR_MESSAGE_CHAR_LIMIT,
+    DocumentStorageError,
     IngestResult,
     NvIngestFunctionConfig,
     _apply_char_limit,
@@ -15,9 +19,14 @@ from nat_nv_ingest.nat_nv_ingest import (
     _can_access_stored_document,
     _dedup_document_refs,
     _dedup_entries,
+    _document_object_request_timeout_seconds,
+    _document_object_settings,
     _document_size_error,
     _estimated_decoded_size,
+    _expected_document_object_key,
     _extract_dense_dim,
+    _load_document_bytes,
+    _make_document_minio_client,
     _milvus_client_kwargs,
     _milvus_vdb_auth_kwargs,
     _normalize_for_dedup,
@@ -31,10 +40,14 @@ from nat_nv_ingest.nat_nv_ingest import (
     document_markdown_max_chars,
     format_batch_response,
     format_single_doc_response,
+    legacy_user_upload_collection_name,
     normalize_collection_part,
     nv_ingest_function,
+    plan_user_collection_migrations,
+    private_user_collection_part,
     resolve_user_collection_name,
     results_to_markdown,
+    user_collection_migration_names,
     user_upload_collection_name,
     validate_collection_scope,
     validate_user_collection_write_scope,
@@ -51,6 +64,10 @@ class TestNvIngestFunctionConfig:
         monkeypatch.delenv("MILVUS_USER", raising=False)
         monkeypatch.delenv("MILVUS_PASSWORD", raising=False)
         monkeypatch.delenv("MILVUS_TOKEN", raising=False)
+        monkeypatch.delenv("MINIO_ENDPOINT", raising=False)
+        monkeypatch.delenv("MINIO_ACCESS_KEY", raising=False)
+        monkeypatch.delenv("MINIO_SECRET_KEY", raising=False)
+        monkeypatch.delenv("MINIO_BUCKET", raising=False)
 
         config = NvIngestFunctionConfig()
         assert config.nv_ingest_host == "localhost"
@@ -59,9 +76,10 @@ class TestNvIngestFunctionConfig:
         assert config.milvus_username is None
         assert config.milvus_password is None
         assert config.milvus_token is None
-        assert config.minio_endpoint == "localhost:9000"
-        assert config.minio_access_key == "minioadmin"
-        assert config.minio_secret_key == "minioadmin"
+        assert config.minio_endpoint == ""
+        assert config.minio_access_key == ""
+        assert config.minio_secret_key == ""
+        assert config.minio_bucket == "nv-ingest"
         assert config.chunk_size == 1024
         assert config.chunk_overlap == 150
         assert config.embedder_dim == 2048
@@ -205,6 +223,54 @@ class TestNvIngestFunctionConfig:
         assert FakeIngestor.vdb_upload_kwargs["username"] == "root"
         assert FakeIngestor.vdb_upload_kwargs["password"] == "Milvus"
 
+    @pytest.mark.parametrize(
+        ("filename", "expected_method"),
+        [
+            ("notes.txt", None),
+            ("document.pdf", "pdfium"),
+            ("document.docx", "render_as_pdf"),
+            ("slides.pptx", "render_as_pdf"),
+        ],
+    )
+    def test_build_ingestor_uses_supported_extract_method(
+        self, monkeypatch, filename, expected_method
+    ):
+        class FakeIngestor:
+            extract_kwargs = None
+
+            def __init__(self, client):
+                self.client = client
+
+            def buffers(self, _buffers):
+                return self
+
+            def extract(self, **kwargs):
+                FakeIngestor.extract_kwargs = kwargs
+                return self
+
+            def filter(self, **_kwargs):
+                return self
+
+        import nat_nv_ingest.nat_nv_ingest as mod
+
+        monkeypatch.setattr(mod, "Ingestor", FakeIngestor)
+        _build_ingestor(
+            nv_client=object(),
+            document_bytes=b"runtime contract",
+            filename=filename,
+            config=NvIngestFunctionConfig(),
+            collection_name="docs",
+            chunk_size=1024,
+            chunk_overlap=150,
+            extract_only=True,
+        )
+
+        if expected_method is None:
+            assert "extract_method" not in FakeIngestor.extract_kwargs
+        else:
+            assert FakeIngestor.extract_kwargs["extract_method"] == expected_method
+        assert "render_as_pdf" not in FakeIngestor.extract_kwargs
+
 
 class TestCollectionResolution:
     def test_normalizes_collection_parts(self):
@@ -214,12 +280,48 @@ class TestCollectionResolution:
         assert normalize_collection_part("123") == "u_123"
 
     def test_user_upload_collection_name_uses_base_and_user(self):
-        assert user_upload_collection_name("Brandon Smith") == (
-            "user_uploads_brandon_smith"
-        )
+        collection = user_upload_collection_name("Brandon Smith")
+        assert collection.startswith("user_uploads_brandon_smith_")
+        assert len(collection.rsplit("_", 1)[-1]) == 64
+
+    @pytest.mark.parametrize(
+        "left,right",
+        [
+            ("a-b", "a_b"),
+            ("Alice", "alice"),
+            ("x" * 80 + "a", "x" * 80 + "b"),
+        ],
+    )
+    def test_private_collection_names_do_not_share_lossy_normalization_collisions(
+        self, left, right
+    ):
+        assert normalize_collection_part(left) == normalize_collection_part(right)
+        assert private_user_collection_part(left) != private_user_collection_part(right)
+        assert user_upload_collection_name(left) != user_upload_collection_name(right)
+
+    def test_migration_helper_exposes_legacy_and_current_names(self):
+        legacy, current = user_collection_migration_names("alice")
+        assert legacy == "user_uploads_alice"
+        assert current == user_upload_collection_name("alice")
+        assert legacy != current
+        assert legacy_user_upload_collection_name("alice") == legacy
+        assert resolve_user_collection_name(legacy, "alice") == current
+
+    def test_migration_plan_fails_closed_for_ambiguous_legacy_collection(self):
+        with pytest.raises(ValueError, match="maps to multiple subjects"):
+            plan_user_collection_migrations(["a-b", "a_b"])
+
+    def test_migration_plan_maps_distinct_legacy_collections(self):
+        plan = plan_user_collection_migrations(["alice", "bob"])
+        assert plan == {
+            "user_uploads_alice": user_upload_collection_name("alice"),
+            "user_uploads_bob": user_upload_collection_name("bob"),
+        }
 
     def test_resolve_scopes_explicit_collection_to_user(self):
-        assert resolve_user_collection_name("My Docs", "brandon") == "my_docs_brandon"
+        assert resolve_user_collection_name(
+            "My Docs", "brandon"
+        ) == user_upload_collection_name("brandon", "my_docs")
 
     def test_resolve_allows_shared_collection_allowlist(self):
         assert resolve_user_collection_name("nvidia", "brandon") == "nvidia"
@@ -246,16 +348,19 @@ class TestCollectionResolution:
             validate_user_collection_write_scope("nvidia", "shared")
 
     def test_resolve_allows_current_user_collection_exactly(self):
-        assert resolve_user_collection_name("brandon", "brandon") == "brandon"
+        expected = user_upload_collection_name("brandon", "brandon")
+        assert resolve_user_collection_name("brandon", "brandon") == expected
+        assert resolve_user_collection_name(expected, "brandon") == expected
 
     def test_resolve_does_not_allow_cross_user_suffix(self):
-        assert (
-            resolve_user_collection_name("user_uploads_alice", "brandon")
-            == "user_uploads_alice_brandon"
-        )
+        assert resolve_user_collection_name(
+            "user_uploads_alice", "brandon"
+        ) == user_upload_collection_name("brandon", "user_uploads_alice")
 
     def test_resolve_derives_per_user_default(self):
-        assert resolve_user_collection_name(None, "brandon") == "user_uploads_brandon"
+        assert resolve_user_collection_name(None, "brandon") == (
+            user_upload_collection_name("brandon")
+        )
 
 
 def test_user_document_tool_rejects_legacy_cross_user_assertion(monkeypatch):
@@ -293,16 +398,20 @@ def test_user_document_tool_lists_only_callers_collection_and_shared_allowlist(
     async def _run():
         import nat_nv_ingest.nat_nv_ingest as mod
 
+        event_loop_thread = threading.get_ident()
+        client_threads = {}
+
         class FakeMilvusClient:
             def __init__(self, **_kwargs):
-                pass
+                client_threads["construct"] = threading.get_ident()
 
             def list_collections(self):
+                client_threads["list"] = threading.get_ident()
                 return [
-                    "user_uploads_bob",
+                    user_upload_collection_name("bob"),
                     "private_finance",
                     "nvidia",
-                    "user_uploads_alice",
+                    user_upload_collection_name("alice"),
                     "vetpartner",
                 ]
 
@@ -315,7 +424,10 @@ def test_user_document_tool_lists_only_callers_collection_and_shared_allowlist(
         generator = nv_ingest_function(NvIngestFunctionConfig(), MagicMock())
         function_info = await generator.__anext__()
         try:
-            return await function_info.fn(operation="list_collections")
+            result = await function_info.fn(operation="list_collections")
+            assert client_threads["construct"] != event_loop_thread
+            assert client_threads["list"] != event_loop_thread
+            return result
         finally:
             await generator.aclose()
 
@@ -324,10 +436,10 @@ def test_user_document_tool_lists_only_callers_collection_and_shared_allowlist(
     assert result.splitlines() == [
         "Available collections:",
         "nvidia",
-        "user_uploads_alice",
+        user_upload_collection_name("alice"),
         "vetpartner",
     ]
-    assert "user_uploads_bob" not in result
+    assert user_upload_collection_name("bob") not in result
     assert "private_finance" not in result
 
 
@@ -439,6 +551,100 @@ def test_user_document_tool_delegates_ingestion_to_one_processor(monkeypatch):
     assert "Successfully processed" in single
     assert batch == "batch-result"
     assert "extracted" in extracted
+
+
+def test_autonomous_document_ingest_fails_closed_on_ambiguous_reservation(
+    monkeypatch,
+):
+    monkeypatch.setenv("DOCUMENT_OBJECT_ENDPOINT", "minio:9000")
+    monkeypatch.setenv("DOCUMENT_OBJECT_ACCESS_KEY", "access")
+    monkeypatch.setenv("DOCUMENT_OBJECT_SECRET_KEY", "secret")
+    monkeypatch.setenv("DOCUMENT_OBJECT_BUCKET", "nv-ingest")
+
+    async def _run():
+        import json
+
+        import nat_nv_ingest.nat_nv_ingest as mod
+        from nat_helpers import idempotency
+        from nat_helpers.idempotency import Reservation
+
+        captured = {}
+        created = []
+        object_key = _expected_document_object_key(
+            prefix=DEFAULT_DOCUMENT_OBJECT_PREFIX,
+            username="alice",
+            session_id="session-1",
+            document_id="doc-1",
+        )
+        record = json.dumps(
+            {
+                "id": "doc-1",
+                "sessionId": "session-1",
+                "userId": "alice",
+                "storage": "object-v1",
+                "objectKey": object_key,
+                "objectBucket": "nv-ingest",
+                "etag": "etag-1",
+                "size": 12,
+            }
+        )
+
+        class FakeProcessor:
+            def __init__(self, config):
+                self.config = config
+                self.calls = []
+                created.append(self)
+
+            async def _get_redis(self):
+                redis_client = MagicMock()
+                redis_client.execute_command.return_value = record
+                return redis_client
+
+            async def process_document(self, **kwargs):
+                self.calls.append(kwargs)
+                raise AssertionError("ambiguous reservation must not repeat ingestion")
+
+        async def reserve_operation(**kwargs):
+            captured.update(kwargs)
+            return Reservation("key", None, "in_progress")
+
+        monkeypatch.setattr(mod, "NvIngestDocumentProcessor", FakeProcessor)
+        monkeypatch.setattr(
+            mod, "resolve_authenticated_user_id", lambda _asserted="": "alice"
+        )
+        monkeypatch.setattr(
+            mod, "execution_id_from_context_or_none", lambda: "execution-1"
+        )
+        monkeypatch.setattr(idempotency, "reserve_operation", reserve_operation)
+
+        generator = nv_ingest_function(
+            NvIngestFunctionConfig(
+                minio_endpoint="minio:9000",
+                minio_access_key="access",
+                minio_secret_key="secret",
+            ),
+            MagicMock(),
+        )
+        function_info = await generator.__anext__()
+        try:
+            result = await function_info.fn(
+                operation="ingest",
+                documentRef={"documentId": "doc-1", "sessionId": "session-1"},
+            )
+        finally:
+            await generator.aclose()
+        return result, captured, created
+
+    result, captured, created = asyncio.run(_run())
+
+    assert "wasn't repeated" in result
+    assert created[0].calls == []
+    assert captured["user_id"] == "alice"
+    assert captured["execution_id"] == "execution-1"
+    assert captured["arguments"]["collection"] == user_upload_collection_name("alice")
+    assert captured["arguments"]["documents"][0]["objectKey"].endswith(
+        "/session-1/doc-1"
+    )
 
 
 class TestStoredDocumentAccess:
@@ -1245,3 +1451,231 @@ class TestDocumentMarkdownMaxChars:
         assert result["filename"] == "big.pdf"
         # Rejected before any NV-Ingest work began.
         get_nv_client.assert_not_called()
+
+
+class TestDocumentObjectStorage:
+    def test_request_timeout_defaults_to_five_minutes(self, monkeypatch):
+        monkeypatch.delenv("DOCUMENT_OBJECT_REQUEST_TIMEOUT_MS", raising=False)
+        assert _document_object_request_timeout_seconds() == (
+            DEFAULT_DOCUMENT_OBJECT_REQUEST_TIMEOUT_MS / 1000
+        )
+
+    def test_request_timeout_accepts_bounded_override(self, monkeypatch):
+        monkeypatch.setenv("DOCUMENT_OBJECT_REQUEST_TIMEOUT_MS", "1250")
+        assert _document_object_request_timeout_seconds() == 1.25
+
+    @pytest.mark.parametrize("value", ["invalid", "0", "99", "900001"])
+    def test_request_timeout_rejects_invalid_values(self, monkeypatch, value):
+        monkeypatch.setenv("DOCUMENT_OBJECT_REQUEST_TIMEOUT_MS", value)
+        with pytest.raises(DocumentStorageError, match="request timeout is invalid"):
+            _document_object_request_timeout_seconds()
+
+    def test_minio_client_has_bounded_http_timeouts(self, monkeypatch):
+        import sys
+        from types import SimpleNamespace
+        from unittest.mock import MagicMock, patch
+
+        monkeypatch.setenv("DOCUMENT_OBJECT_REQUEST_TIMEOUT_MS", "2500")
+        minio_client = MagicMock()
+        minio_constructor = MagicMock(return_value=minio_client)
+        http_client = MagicMock()
+        timeout = MagicMock()
+
+        with (
+            patch.dict(
+                sys.modules,
+                {"minio": SimpleNamespace(Minio=minio_constructor)},
+            ),
+            patch(
+                "nat_nv_ingest.nat_nv_ingest.urllib3.Timeout",
+                return_value=timeout,
+            ) as make_timeout,
+            patch(
+                "nat_nv_ingest.nat_nv_ingest.urllib3.PoolManager",
+                return_value=http_client,
+            ) as make_pool,
+        ):
+            result = _make_document_minio_client(
+                "minio:9000",
+                "access",
+                "secret",
+                "session-token",
+                True,
+                "us-east-1",
+            )
+
+        assert result is minio_client
+        make_timeout.assert_called_once_with(total=2.5, connect=2.5, read=2.5)
+        make_pool.assert_called_once_with(timeout=timeout, retries=False)
+        minio_constructor.assert_called_once_with(
+            "minio:9000",
+            access_key="access",
+            secret_key="secret",
+            session_token="session-token",
+            secure=True,
+            region="us-east-1",
+            http_client=http_client,
+        )
+
+    def test_document_object_settings_do_not_reuse_nv_ingest_minio_config(
+        self, monkeypatch
+    ):
+        for name in (
+            "DOCUMENT_OBJECT_ENDPOINT",
+            "DOCUMENT_OBJECT_ACCESS_KEY",
+            "DOCUMENT_OBJECT_SECRET_KEY",
+            "DOCUMENT_OBJECT_BUCKET",
+        ):
+            monkeypatch.delenv(name, raising=False)
+        monkeypatch.setenv("MINIO_ENDPOINT", "minio:9000")
+        monkeypatch.setenv("MINIO_ACCESS_KEY", "broad-access")
+        monkeypatch.setenv("MINIO_SECRET_KEY", "broad-secret")
+        monkeypatch.setenv("MINIO_BUCKET", "nv-ingest")
+
+        with pytest.raises(DocumentStorageError, match="is not configured"):
+            _document_object_settings()
+
+    def test_legacy_base64_record_remains_readable(self):
+        import base64
+
+        payload = b"%PDF-legacy"
+        result, filename = asyncio.run(
+            _load_document_bytes(
+                document_record={
+                    "data": base64.b64encode(payload).decode("ascii"),
+                    "filename": "legacy.pdf",
+                    "userId": "alice",
+                },
+                document_id="doc-1",
+                session_id="session-1",
+                username="alice",
+                config=NvIngestFunctionConfig(),
+            )
+        )
+        assert result == payload
+        assert filename == "legacy.pdf"
+
+    def test_object_record_is_streamed_with_exact_size(self, monkeypatch):
+        from unittest.mock import MagicMock, patch
+
+        monkeypatch.setenv("DOCUMENT_OBJECT_ENDPOINT", "minio:9000")
+        monkeypatch.setenv("DOCUMENT_OBJECT_ACCESS_KEY", "access")
+        monkeypatch.setenv("DOCUMENT_OBJECT_SECRET_KEY", "secret")
+        monkeypatch.delenv("DOCUMENT_OBJECT_SESSION_TOKEN", raising=False)
+        monkeypatch.setenv("DOCUMENT_OBJECT_BUCKET", "documents")
+        payload = b"%PDF-object"
+        key = _expected_document_object_key(
+            prefix=DEFAULT_DOCUMENT_OBJECT_PREFIX,
+            username="alice",
+            session_id="session-1",
+            document_id="doc-1",
+        )
+        response = MagicMock()
+        chunks = iter([payload[:4], payload[4:], b""])
+        response.read.side_effect = lambda _size: next(chunks)
+        client = MagicMock()
+        client.get_object.return_value = response
+        config = NvIngestFunctionConfig()
+
+        with patch(
+            "nat_nv_ingest.nat_nv_ingest._make_document_minio_client",
+            return_value=client,
+        ):
+            result, filename = asyncio.run(
+                _load_document_bytes(
+                    document_record={
+                        "storage": "object-v1",
+                        "objectKey": key,
+                        "objectBucket": "documents",
+                        "size": len(payload),
+                        "filename": "object.pdf",
+                        "userId": "alice",
+                    },
+                    document_id="doc-1",
+                    session_id="session-1",
+                    username="alice",
+                    config=config,
+                )
+            )
+
+        assert result == payload
+        assert filename == "object.pdf"
+        client.get_object.assert_called_once_with("documents", key)
+        response.close.assert_called_once()
+        response.release_conn.assert_called_once()
+
+    def test_object_record_passes_temporary_session_token(self, monkeypatch):
+        from unittest.mock import MagicMock, patch
+
+        monkeypatch.setenv("DOCUMENT_OBJECT_SESSION_TOKEN", "temporary-token")
+        monkeypatch.setenv("DOCUMENT_OBJECT_ENDPOINT", "minio:9000")
+        monkeypatch.setenv("DOCUMENT_OBJECT_ACCESS_KEY", "access")
+        monkeypatch.setenv("DOCUMENT_OBJECT_SECRET_KEY", "secret")
+        monkeypatch.setenv("DOCUMENT_OBJECT_BUCKET", "documents")
+        payload = b"%PDF-object"
+        key = _expected_document_object_key(
+            prefix=DEFAULT_DOCUMENT_OBJECT_PREFIX,
+            username="alice",
+            session_id="session-1",
+            document_id="doc-1",
+        )
+        response = MagicMock()
+        response.read.side_effect = [payload, b""]
+        client = MagicMock()
+        client.get_object.return_value = response
+        config = NvIngestFunctionConfig()
+
+        with patch(
+            "nat_nv_ingest.nat_nv_ingest._make_document_minio_client",
+            return_value=client,
+        ) as make_client:
+            result, _ = asyncio.run(
+                _load_document_bytes(
+                    document_record={
+                        "storage": "object-v1",
+                        "objectKey": key,
+                        "objectBucket": "documents",
+                        "size": len(payload),
+                        "filename": "object.pdf",
+                        "userId": "alice",
+                    },
+                    document_id="doc-1",
+                    session_id="session-1",
+                    username="alice",
+                    config=config,
+                )
+            )
+
+        assert result == payload
+        make_client.assert_called_once_with(
+            "minio:9000",
+            "access",
+            "secret",
+            "temporary-token",
+            False,
+            "us-east-1",
+        )
+
+    def test_object_record_rejects_a_foreign_key_before_fetch(self, monkeypatch):
+        monkeypatch.setenv("DOCUMENT_OBJECT_ENDPOINT", "minio:9000")
+        monkeypatch.setenv("DOCUMENT_OBJECT_ACCESS_KEY", "access")
+        monkeypatch.setenv("DOCUMENT_OBJECT_SECRET_KEY", "secret")
+        monkeypatch.setenv("DOCUMENT_OBJECT_BUCKET", "nv-ingest")
+        record = {
+            "storage": "object-v1",
+            "objectKey": "daedalus-documents/foreign/session-1/doc-1",
+            "objectBucket": "nv-ingest",
+            "size": 10,
+            "filename": "object.pdf",
+            "userId": "alice",
+        }
+        with pytest.raises(DocumentStorageError, match="reference is invalid"):
+            asyncio.run(
+                _load_document_bytes(
+                    document_record=record,
+                    document_id="doc-1",
+                    session_id="session-1",
+                    username="alice",
+                    config=NvIngestFunctionConfig(),
+                )
+            )

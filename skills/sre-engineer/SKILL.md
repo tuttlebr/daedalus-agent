@@ -1,6 +1,16 @@
 ---
 name: sre-engineer
-description: Defines service level objectives, creates error budget policies, designs incident response procedures, develops capacity models, and produces monitoring configurations and automation scripts for production systems. Use when defining SLIs/SLOs, managing error budgets, building reliable systems at scale, incident management, chaos engineering, toil reduction, or capacity planning.
+description: >-
+  Site Reliability Engineering (SRE). Defines SLIs/SLOs, creates error-budget
+  policies and burn-rate alerts, designs golden-signal monitoring (Prometheus,
+  Grafana), builds capacity models, reduces toil with automation scripts, and
+  runs chaos/resilience experiments. Use for defining service level
+  objectives, managing error budgets, reliability engineering at scale,
+  incident management, blameless postmortems, MTTR and toil reduction,
+  capacity planning, or on-call alerting and Grafana dashboard design. Use
+  devops-engineer for building CI/CD pipelines, IaC, and hands-on
+  deploy/rollback; use kubernetes-specialist for authoring and debugging
+  Kubernetes manifests, RBAC, and pod failures.
 license: MIT
 metadata:
   author: https://github.com/Jeffallan

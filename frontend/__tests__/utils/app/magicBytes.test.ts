@@ -3,6 +3,7 @@ import {
   validateZipMagicBytes,
   validateVideoMagicBytes,
   validateHtmlContent,
+  validateTextContent,
   validateMagicBytes,
 } from '@/utils/app/magicBytes';
 
@@ -255,8 +256,16 @@ describe('validateMagicBytes', () => {
     expect(validateMagicBytes(randomBuffer, 'application/octet-stream')).toBe(
       true,
     );
-    expect(validateMagicBytes(randomBuffer, 'text/plain')).toBe(true);
     expect(validateMagicBytes(randomBuffer, 'image/png')).toBe(true);
+  });
+
+  it('validates UTF-8 text and rejects binary text payloads', () => {
+    expect(validateTextContent(Buffer.from('plain UTF-8 text'))).toBe(true);
+    expect(validateMagicBytes(Buffer.from('markdown'), 'text/markdown')).toBe(
+      true,
+    );
+    expect(validateTextContent(Buffer.from([0x61, 0x00, 0x62]))).toBe(false);
+    expect(validateTextContent(Buffer.from([0xff, 0xfe, 0xfd]))).toBe(false);
   });
 
   it('is case-insensitive for MIME type matching', () => {

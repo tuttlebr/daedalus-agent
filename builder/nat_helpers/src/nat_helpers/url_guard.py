@@ -9,9 +9,9 @@ range; this guard additionally rejects:
   * literal internal-IP targets (127.0.0.1, 169.254.169.254, RFC1918, ...).
 
 With ``check_dns=True`` it also resolves a hostname and rejects it if any
-returned address is non-public (DNS-rebinding defense). Fetching call sites use
-this strict mode; ``check_dns=False`` is reserved for the guard's isolated unit
-tests, which exercise scheme and literal-IP handling without network access.
+returned address is non-public. Fetching call sites pair this with the pinned
+transports in ``nat_helpers.safe_http`` so the validated result is the address
+used for the connection. ``check_dns=False`` is reserved for isolated tests.
 """
 
 import ipaddress
@@ -40,6 +40,39 @@ def _ip_is_public(ip: str) -> bool:
     )
 
 
+def resolve_public_addresses(host: str) -> tuple[str, ...]:
+    """Resolve *host* and return only an entirely public address set.
+
+    Mixed public/private DNS answers fail closed. Callers can safely pin a TCP
+    connection to the first returned address because every candidate has been
+    validated from the same resolution result.
+    """
+    try:
+        literal = ipaddress.ip_address(host)
+    except ValueError:
+        literal = None
+
+    if literal is not None:
+        if not _ip_is_public(host):
+            raise UnsafeURLError(f"URL host '{host}' is a non-public address.")
+        return (host,)
+
+    try:
+        infos = socket.getaddrinfo(host, None, proto=socket.IPPROTO_TCP)
+    except socket.gaierror as exc:
+        raise UnsafeURLError(f"Could not resolve host '{host}': {exc}") from exc
+
+    addresses = tuple(dict.fromkeys(info[4][0] for info in infos))
+    if not addresses:
+        raise UnsafeURLError(f"Host '{host}' did not resolve to any address.")
+    for ip in addresses:
+        if not _ip_is_public(ip):
+            raise UnsafeURLError(
+                f"URL host '{host}' resolves to a non-public address ({ip})."
+            )
+    return addresses
+
+
 def validate_public_url(
     url: str,
     *,
@@ -64,33 +97,14 @@ def validate_public_url(
     if not host:
         raise UnsafeURLError("URL is missing a host.")
 
-    # Literal IP host: check directly (no DNS needed). Note UnsafeURLError is a
-    # ValueError subclass, so resolve the parse result before raising to avoid
-    # the local except swallowing the rejection.
-    literal_ip = True
-    try:
-        ipaddress.ip_address(host)
-    except ValueError:
-        literal_ip = False
-    if literal_ip:
-        if not _ip_is_public(host):
+    if not check_dns:
+        try:
+            literal = ipaddress.ip_address(host)
+        except ValueError:
+            literal = None
+        if literal is not None and not _ip_is_public(host):
             raise UnsafeURLError(f"URL host '{host}' is a non-public address.")
         return url
 
-    if not check_dns:
-        return url
-
-    try:
-        infos = socket.getaddrinfo(host, None, proto=socket.IPPROTO_TCP)
-    except socket.gaierror as exc:
-        raise UnsafeURLError(f"Could not resolve host '{host}': {exc}") from exc
-
-    addresses = {info[4][0] for info in infos}
-    if not addresses:
-        raise UnsafeURLError(f"Host '{host}' did not resolve to any address.")
-    for ip in addresses:
-        if not _ip_is_public(ip):
-            raise UnsafeURLError(
-                f"URL host '{host}' resolves to a non-public address ({ip})."
-            )
+    resolve_public_addresses(host)
     return url

@@ -40,7 +40,7 @@ describe('documentRefs validation', () => {
       {
         documentId: 'doc-a',
         sessionId: 'sess-1',
-        filename: 'upload.pdf',
+        filename: 'stored.pdf',
         mimeType: 'application/pdf',
         userId: 'alice',
       },

@@ -1,0 +1,45 @@
+name: daedalus-e2e
+
+services:
+  redis:
+    build:
+      context: ../../redis
+      dockerfile: Dockerfile
+    image: daedalus-e2e-redis:7.4.0-v8-hardened
+    environment:
+      REDIS_ARGS: --requirepass e2e-redis-password
+    ports:
+      - 127.0.0.1:16379:6379
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - redis-cli -a e2e-redis-password --no-auth-warning ping | grep -q PONG
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    restart: 'no'
+
+  seaweedfs:
+    image: chrislusf/seaweedfs:4.39@sha256:c7d6c721b30ae711db766bbbfd40192776e263d4e51e22f57baef7bef93c12c6
+    command: mini -dir=/data -s3 -bucket=daedalus-e2e-documents
+    environment:
+      S3_BUCKET: daedalus-e2e-documents
+      AWS_ACCESS_KEY_ID: e2e-s3-access
+      AWS_SECRET_ACCESS_KEY: e2e-s3-secret-key
+    ports:
+      - 127.0.0.1:18333:8333
+    volumes:
+      - seaweed-data:/data
+    healthcheck:
+      test:
+        - CMD
+        - curl
+        - -f
+        - http://localhost:9333/cluster/status
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    restart: 'no'
+
+volumes:
+  seaweed-data:

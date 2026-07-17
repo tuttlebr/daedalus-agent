@@ -11,6 +11,8 @@ import time
 import traceback
 from typing import Any
 
+from user_interaction.approval_tokens import DEFAULT_MCP_RECEIPT_TTL_SECONDS
+
 from .backend_client import BackendClient, OAuthRequiredError
 from .models import new_approval, new_run, now_ms
 from .prompt import (
@@ -26,6 +28,15 @@ from .prompt import (
 from .store import RedisStore
 
 STOP = False
+
+# A receipt can be created before the backend finishes the approved run. Keep
+# a fixed recovery window after the HTTP deadline so the worker can consume
+# that proof before it expires. Configuration that violates this relationship
+# fails at worker startup instead of silently weakening duplicate prevention.
+MCP_RECEIPT_RECOVERY_MARGIN_SECONDS = 5 * 60
+MAX_AUTONOMOUS_REQUEST_TIMEOUT_SECONDS = (
+    DEFAULT_MCP_RECEIPT_TTL_SECONDS - MCP_RECEIPT_RECOVERY_MARGIN_SECONDS
+)
 
 
 def log(message: str) -> None:
@@ -301,10 +312,15 @@ def run_once(
             request=prompt_request,
         )
         store.log_event(user_id, run["id"], "backend_call", "Calling backend workflow.")
+        execution_id = str(request.get("id") or run["id"])
         response = (
-            backend.call(messages, approval_token=approval_token)
+            backend.call(
+                messages,
+                approval_token=approval_token,
+                execution_id=execution_id,
+            )
             if approval_token and action_type == "mcp_mutation"
-            else backend.call(messages)
+            else backend.call(messages, execution_id=execution_id)
         )
         if approval_key and action_type == "mcp_mutation":
             if not consume_mcp_success_receipt():
@@ -317,7 +333,14 @@ def run_once(
         # F-016: the lease was lost while this run was in flight, so another
         # worker may now own this user. Abort before writing any shared state
         # (feed / workspace / approvals) to avoid clobbering the new owner.
-        if abort is not None and abort.is_set():
+        lease_lost = abort is not None and abort.is_set()
+        owns_lease = getattr(store, "owns_lease", None)
+        if abort is not None and callable(owns_lease):
+            try:
+                lease_lost = lease_lost or not bool(owns_lease(user_id))
+            except Exception:
+                lease_lost = True
+        if lease_lost:
             run["status"] = "aborted"
             run["completedAt"] = now_ms()
             run["summary"] = "Run aborted after losing the worker lease."
@@ -493,12 +516,32 @@ def run_once(
                     revoke_token(user_id, approval_token)
 
 
+def _request_timeout_seconds() -> int:
+    raw_timeout = os.getenv("REQUEST_TIMEOUT", "3600")
+    try:
+        request_timeout = int(raw_timeout)
+    except ValueError as exc:
+        raise ValueError(
+            "REQUEST_TIMEOUT must be an integer number of seconds"
+        ) from exc
+    if request_timeout <= 0:
+        raise ValueError("REQUEST_TIMEOUT must be greater than zero")
+    if request_timeout > MAX_AUTONOMOUS_REQUEST_TIMEOUT_SECONDS:
+        raise ValueError(
+            "REQUEST_TIMEOUT must be at most "
+            f"{MAX_AUTONOMOUS_REQUEST_TIMEOUT_SECONDS} seconds so the "
+            f"{DEFAULT_MCP_RECEIPT_TTL_SECONDS}-second MCP execution receipt "
+            "retains its recovery margin"
+        )
+    return request_timeout
+
+
 def make_backend(user_id: str) -> BackendClient:
     return BackendClient(
         base_url=os.getenv("BACKEND_BASE_URL", "http://daedalus-backend-default:8000"),
         api_path=os.getenv("BACKEND_API_PATH", "/v1/chat/completions"),
         user_id=user_id,
-        request_timeout=int(os.getenv("REQUEST_TIMEOUT", "3600")),
+        request_timeout=_request_timeout_seconds(),
     )
 
 
@@ -520,13 +563,17 @@ def run_with_lease_heartbeat(
     def heartbeat() -> None:
         while not stop.wait(heartbeat_interval):
             try:
-                store.refresh_lease(user_id, ttl_seconds=lease_ttl)
+                if not store.refresh_lease(user_id, ttl_seconds=lease_ttl):
+                    abort.set()
+                    log("worker lease lost; aborting current run")
+                    return
             except Exception as exc:
                 log(f"lease heartbeat failed; aborting current run: {exc}")
                 abort.set()
                 return
 
-    store.refresh_lease(user_id, ttl_seconds=lease_ttl)
+    if not store.refresh_lease(user_id, ttl_seconds=lease_ttl):
+        raise RuntimeError("worker lease was lost before the run started")
     thread = threading.Thread(
         target=heartbeat, name="autonomy-lease-heartbeat", daemon=True
     )
@@ -555,11 +602,6 @@ def main() -> int:
 
     store = RedisStore()
     store.ping()
-    # F-013: re-queue any request a previous worker popped but did not finish
-    # (crash / OOM / SIGKILL mid-run) so it is retried rather than silently lost.
-    reclaimed = store.reclaim_processing(user_id)
-    if reclaimed:
-        log(f"reclaimed {reclaimed} in-flight request(s) from a previous worker")
     backend = make_backend(user_id)
     start_queue_monitor(store, user_id)
     log(f"worker starting for user={user_id}")
@@ -575,6 +617,14 @@ def main() -> int:
             time.sleep(poll_interval)
             continue
         try:
+            # Reclaim only after acquiring the per-user lease. A replacement pod
+            # cannot move a live owner's request during a rolling overlap.
+            reclaimed = store.reclaim_processing(user_id)
+            if reclaimed:
+                log(
+                    f"reclaimed {reclaimed} in-flight request(s) "
+                    "from a previous worker"
+                )
             scheduled = store.maybe_enqueue_scheduled(user_id)
             if scheduled:
                 log(f"scheduled request enqueued: {_request_summary(scheduled)}")
@@ -601,11 +651,13 @@ def main() -> int:
                 # F-013: the run has been recorded (incl. recorded failures), so
                 # remove it from the processing list. If the worker had crashed
                 # before reaching here, reclaim_processing() would have re-queued it.
-                store.complete(user_id)
+                if run.get("status") != "aborted":
+                    store.complete(user_id)
                 if run_once_only:
                     return 0
             else:
-                store.refresh_lease(user_id, ttl_seconds=lease_ttl)
+                if not store.refresh_lease(user_id, ttl_seconds=lease_ttl):
+                    raise RuntimeError("worker lease was lost while idle")
             consecutive_errors = 0
         except Exception:
             consecutive_errors += 1

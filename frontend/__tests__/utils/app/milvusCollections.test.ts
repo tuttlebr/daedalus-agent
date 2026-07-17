@@ -1,72 +1,67 @@
 import {
   MilvusCollectionOwnershipError,
-  classifyMilvusCollectionScope,
   resolveMilvusCollectionTarget,
 } from '@/utils/app/milvusCollections';
 
 import { describe, expect, it } from 'vitest';
 
 describe('milvus collection policy helpers', () => {
-  it('classifies allow-listed domain collections as shared', () => {
-    expect(classifyMilvusCollectionScope('nvidia')).toBe('shared');
-    expect(classifyMilvusCollectionScope('vetpartner')).toBe('shared');
-  });
-
-  it('classifies arbitrary collections as user-scoped', () => {
-    expect(classifyMilvusCollectionScope('project-notes')).toBe('user');
-  });
-
-  it('records provenance for shared collection ingestion targets', () => {
+  it('uses the backend-authoritative hashed private collection', () => {
     const target = resolveMilvusCollectionTarget({
-      targetCollection: 'nvidia',
+      targetCollection: 'user_uploads_alice_0123456789abcdef',
       username: 'alice',
-      requestedScope: 'shared',
+      privateCollectionName: 'user_uploads_alice_0123456789abcdef',
+      databaseName: 'tenant-data',
+      requestedScope: 'user',
       source: 'test',
       now: () => new Date('2026-05-21T12:00:00.000Z'),
     });
 
     expect(target).toEqual({
-      collectionName: 'nvidia',
-      collectionScope: 'shared',
+      collectionName: 'user_uploads_alice_0123456789abcdef',
+      collectionScope: 'user',
       provenance: {
         uploader: 'alice',
         source: 'test',
-        targetCollection: 'nvidia',
-        requestedCollection: 'nvidia',
-        collectionScope: 'shared',
-        databaseName: 'default',
+        targetCollection: 'user_uploads_alice_0123456789abcdef',
+        requestedCollection: 'user_uploads_alice_0123456789abcdef',
+        collectionScope: 'user',
+        databaseName: 'tenant-data',
         timestamp: '2026-05-21T12:00:00.000Z',
       },
     });
   });
 
-  it('rejects accidental shared-target scope mismatches', () => {
+  it('rejects shared collection writes even when the client asks for shared', () => {
     expect(() =>
       resolveMilvusCollectionTarget({
         targetCollection: 'nvidia',
         username: 'alice',
-        requestedScope: 'user',
+        privateCollectionName: 'user_uploads_alice_hash',
+        requestedScope: 'shared',
         source: 'test',
       }),
     ).toThrow('does not match');
   });
 
-  it('defaults a user-scoped target to the caller username', () => {
-    const target = resolveMilvusCollectionTarget({
-      username: 'alice',
-      source: 'test',
-    });
-    expect(target.collectionName).toBe('alice');
-    expect(target.collectionScope).toBe('user');
-  });
-
-  it('allows a user to target their own collection', () => {
+  it('maps a legacy username target to the authoritative private name', () => {
     const target = resolveMilvusCollectionTarget({
       targetCollection: 'alice',
       username: 'alice',
+      privateCollectionName: 'user_uploads_alice_hash',
       source: 'test',
     });
-    expect(target.collectionName).toBe('alice');
+    expect(target.collectionName).toBe('user_uploads_alice_hash');
+    expect(target.collectionScope).toBe('user');
+  });
+
+  it('defaults to the authoritative private collection', () => {
+    const target = resolveMilvusCollectionTarget({
+      username: 'alice',
+      privateCollectionName: 'user_uploads_alice_hash',
+      source: 'test',
+    });
+    expect(target.collectionName).toBe('user_uploads_alice_hash');
     expect(target.collectionScope).toBe('user');
   });
 
@@ -75,6 +70,7 @@ describe('milvus collection policy helpers', () => {
       resolveMilvusCollectionTarget({
         targetCollection: 'bob',
         username: 'alice',
+        privateCollectionName: 'user_uploads_alice_hash',
         source: 'test',
       }),
     ).toThrow(MilvusCollectionOwnershipError);
@@ -85,6 +81,7 @@ describe('milvus collection policy helpers', () => {
       resolveMilvusCollectionTarget({
         targetCollection: 'project-notes',
         username: 'alice',
+        privateCollectionName: 'user_uploads_alice_hash',
         source: 'test',
       }),
     ).toThrow(MilvusCollectionOwnershipError);

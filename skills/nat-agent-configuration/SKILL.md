@@ -1,6 +1,14 @@
 ---
 name: nat-agent-configuration
-description: Use when selecting, configuring, composing, or troubleshooting NeMo Agent Toolkit agents and control-flow components, including ReAct, tool-calling, ReWOO, reasoning, router, sequential, parallel, and sub-agent patterns.
+description: >-
+  Use when selecting, configuring, composing, or troubleshooting NeMo Agent
+  Toolkit built-in agents and control-flow components, including ReAct
+  (react_agent), tool-calling (tool_calling_agent), ReWOO (rewoo_agent),
+  reasoning (reasoning_agent), router (router_agent), sequential and parallel
+  executors, sub-agents as tools, and multi-agent orchestration. Use this to
+  pick and wire the agent type in workflow YAML. Use nat-tools-and-functions
+  to write a custom agent or tool in Python, and nat-workflow-creation for
+  general workflow YAML, running, and validation.
 author: NVIDIA Corporation and Affiliates
 license: Apache-2.0
 ---

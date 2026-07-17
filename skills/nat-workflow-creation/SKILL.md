@@ -1,6 +1,14 @@
 ---
 name: nat-workflow-creation
-description: Use when creating, editing, validating, running, or troubleshooting NeMo Agent Toolkit workflow YAML, component discovery, LLM configuration, and common `nat` CLI commands.
+description: >-
+  Use when creating, scaffolding, editing, validating, running, or
+  troubleshooting NeMo Agent Toolkit workflow YAML and config files. Covers
+  nat workflow create, nat run, nat validate, config_file and workflow.yml
+  handling, config overrides, component discovery via nat info components, and
+  LLM provider configuration. Use nat-agent-configuration for choosing and
+  wiring which agent runs the workflow, nat-tools-and-functions for writing
+  custom Python tools, functions, or components, and nat-installation for
+  install and package extras.
 author: NVIDIA Corporation and Affiliates
 license: Apache-2.0
 ---

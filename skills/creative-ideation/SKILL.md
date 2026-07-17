@@ -1,7 +1,18 @@
 ---
 name: creative-ideation
 title: Creative Ideation — Routed Library of Creative Methods
-description: 'Generate ideas via named methods from creative practice.'
+description: >-
+  Generate, expand, refine, or choose between ideas using named
+  creative-practice methods (SCAMPER, TRIZ, Oblique Strategies, lateral
+  thinking, first principles, biomimicry, Oulipo, premortem and inversion,
+  jobs-to-be-done, affinity diagrams, and more), routed to the method that
+  fits the situation. Use when the user wants to brainstorm, is stuck or
+  blocked, says "inspire me", "give me ideas", "what should I
+  make/build/write", "invent X", "make this weirder", "help me pick between
+  options", or "give me a research question", across any domain (text, art,
+  software, systems, product, research, or life decisions). This produces
+  ideas and directions, not deliverables; use nv-html when the ask is to
+  actually build an HTML page or dashboard.
 version: 2.1.0
 author: SHL0MS
 license: MIT

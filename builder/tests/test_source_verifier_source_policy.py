@@ -127,6 +127,23 @@ def test_plan_sources_reports_unknown_sources():
     assert any("unknown source ids" in warning for warning in result["warnings"])
 
 
+@pytest.mark.parametrize(
+    "question,product",
+    [
+        ("How does Dynamo KV routing work?", "dynamo"),
+        ("Configure OpenShell sandbox policy", "openshell"),
+        ("Run an AIPerf concurrency sweep", "aiperf"),
+        ("Deploy an NVCF cloud function", "nvcf"),
+    ],
+)
+def test_nvidia_docs_hints_route_through_one_product_capability(question, product):
+    from source_verifier.source_verifier_function import _tool_hints
+
+    assert _tool_hints("nvidia_docs", question) == [
+        {"tool": "nvidia_docs_tool", "product": product}
+    ]
+
+
 # ---------------------------------------------------------------------------
 # F-002b: _check_link_reachable SSRF validation
 # ---------------------------------------------------------------------------
@@ -221,8 +238,6 @@ def test_fetch_source_rejects_redirect_to_internal():
 
     config = mod.SourceVerifierConfig(enabled_operations=["plan_sources"])
 
-    # markitdown strategy is exercised first; force it to fail so the redirect-safe
-    # httpx strategy runs.
     responses = [
         _FakeResponse(
             is_redirect=True, location="http://169.254.169.254/latest/meta-data/"
@@ -232,9 +247,6 @@ def test_fetch_source_rejects_redirect_to_internal():
     client = _QueuedClient(responses)
 
     with pytest.MonkeyPatch.context() as mp:
-        mp.setattr(
-            mod, "_scrape_with_markitdown", MagicMock(side_effect=RuntimeError("no js"))
-        )
         mp.setattr(mod.httpx, "AsyncClient", lambda *a, **k: client)
         result = run(mod._fetch_source("https://example.com/redirector", config))
 
@@ -269,16 +281,16 @@ def test_fetch_source_rejects_hostname_resolving_private(monkeypatch):
     import source_verifier.source_verifier_function as mod
 
     config = mod.SourceVerifierConfig(enabled_operations=["plan_sources"])
-    markitdown = MagicMock()
+    controlled_fetch = MagicMock()
     monkeypatch.setattr(
         socket,
         "getaddrinfo",
         lambda *_args, **_kwargs: [(socket.AF_INET, None, None, "", ("10.0.0.10", 0))],
     )
-    monkeypatch.setattr(mod, "_scrape_with_markitdown", markitdown)
+    monkeypatch.setattr(mod, "_scrape_with_httpx_result", controlled_fetch)
 
     result = run(mod._fetch_source("https://rebind.example/private", config))
 
     assert result.status == "invalid_url"
     assert "non-public" in result.error.lower()
-    markitdown.assert_not_called()
+    controlled_fetch.assert_not_called()

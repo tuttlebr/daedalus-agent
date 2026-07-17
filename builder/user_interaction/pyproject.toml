@@ -8,6 +8,8 @@ dynamic = ["version"]
 dependencies = [
   "nvidia-nat[redis,mcp,langchain,phoenix]==1.7.0",
   "nat_helpers",
+  "pydantic>=2,<2.14",
+  "redis>=4.3.6,<6",
 ]
 requires-python = ">=3.11,<3.14"
 description = "Structured user interaction tools for NeMo Agent Toolkit. Provides frameworks for clarification, confirmation, and preference gathering."

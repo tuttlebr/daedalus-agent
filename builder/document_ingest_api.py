@@ -127,6 +127,7 @@ def _default_config() -> NvIngestFunctionConfig:
         ),
         minio_access_key=os.getenv("MINIO_ACCESS_KEY", "minioadmin"),
         minio_secret_key=os.getenv("MINIO_SECRET_KEY", "minioadmin"),
+        minio_session_token=os.getenv("MINIO_SESSION_TOKEN") or None,
         minio_bucket=os.getenv("MINIO_BUCKET", "nv-ingest"),
         chunk_size=_env_int("DOCUMENT_INGEST_CHUNK_SIZE", 1024),
         chunk_overlap=_env_int("DOCUMENT_INGEST_CHUNK_OVERLAP", 150),

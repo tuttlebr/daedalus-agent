@@ -1,6 +1,14 @@
 ---
 name: nat-evaluation
-description: Use when designing, configuring, running, or troubleshooting NeMo Agent Toolkit evaluations, datasets, evaluator selection, ATIF surfaces, quality gates, custom evaluators, and `nat eval`.
+description: >-
+  Use when designing, configuring, running, or troubleshooting NeMo Agent
+  Toolkit evaluation and agent quality measurement with nat eval, including
+  datasets, evaluator selection, RAGAS metrics (AnswerAccuracy,
+  ResponseGroundedness), LLM-as-judge scoring, trajectory and tool-call
+  accuracy, reference answers, quality gates, regression testing, ATIF
+  surfaces, and reward signals. Use nat-optimization to tune or search
+  parameters and prompts with nat optimize, and nat-tools-and-functions to
+  write a custom evaluator in Python.
 author: NVIDIA Corporation and Affiliates
 license: Apache-2.0
 ---

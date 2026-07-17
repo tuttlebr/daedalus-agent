@@ -9,7 +9,10 @@ from nat.builder.function_info import FunctionInfo
 from nat.cli.register_workflow import register_function
 from nat.data_models.component_ref import MemoryRef
 from nat.data_models.function import FunctionBaseConfig
-from nat_helpers.identity import authenticated_user_id_from_context
+from nat_helpers.identity import (
+    authenticated_user_id_from_context,
+    execution_id_from_context_or_none,
+)
 from pydantic import BaseModel, ConfigDict, Field
 
 logger = logging.getLogger(__name__)
@@ -167,15 +170,50 @@ async def daedalus_add_memory(config: DaedalusAddMemoryConfig, builder: Builder)
             metadata=_merge_metadata(input_data.metadata, input_data.key_value_pairs),
         )
 
+        reservation = None
+        execution_id = execution_id_from_context_or_none()
+        if execution_id:
+            from nat_helpers.idempotency import reserve_operation
+
+            try:
+                reservation = await reserve_operation(
+                    user_id=user_id,
+                    execution_id=execution_id,
+                    operation="add_memory",
+                    arguments={
+                        "memory": memory_text,
+                        "tags": input_data.tags,
+                        "metadata": item.metadata,
+                    },
+                )
+            except Exception as exc:
+                logger.exception("Unable to reserve autonomous memory write")
+                return f"Error: add_memory idempotency unavailable: {exc}."
+            if not reservation.acquired:
+                if reservation.state == "completed" and reservation.stored_result:
+                    return reservation.stored_result
+                return (
+                    "Memory write wasn't repeated because the same autonomous "
+                    "operation has an existing or ambiguous execution record."
+                )
+
         try:
             await memory_editor.add_items([item])
         except Exception as exc:
             logger.exception("Error adding memory")
             return f"Error adding memory: {exc}"
 
-        return (
+        result = (
             "Memory added successfully. You can continue. Please respond to the user."
         )
+        if reservation is not None:
+            from nat_helpers.idempotency import complete_operation
+
+            if not await complete_operation(reservation, result):
+                logger.error(
+                    "Memory write succeeded but its idempotency result couldn't be finalized"
+                )
+        return result
 
     yield FunctionInfo.from_fn(
         _arun,

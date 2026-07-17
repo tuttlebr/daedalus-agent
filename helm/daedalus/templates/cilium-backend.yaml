@@ -1,4 +1,13 @@
+{{- $documentObjectMode := include "daedalus.documentObjectNetworkMode" . -}}
+{{- $documentObjectInCluster := and .Values.documentObjectStorage.enabled (eq $documentObjectMode "inCluster") -}}
+{{- $documentObjectExternalEnabled := and .Values.documentObjectStorage.enabled (eq $documentObjectMode "external") -}}
+{{- $documentObjectExternal := .Values.documentObjectStorage.networkPolicy.external -}}
+{{- $documentObjectExternalCidrs := $documentObjectExternal.cidrs | default (list) -}}
+{{- $documentObjectExternalFqdns := $documentObjectExternal.fqdnNames | default (list) -}}
 {{- if .Values.backend.networkPolicy.cilium.enabled }}
+{{- if and $documentObjectExternalEnabled (not $documentObjectExternalCidrs) (not $documentObjectExternalFqdns) }}
+  {{- fail "documentObjectStorage.networkPolicy.external requires at least one explicit CIDR or FQDN for Cilium" }}
+{{- end }}
 {{- $components := list }}
 {{- if .Values.backend.default.enabled }}
   {{- $components = append $components "backend-default" }}
@@ -38,6 +47,18 @@ spec:
         - ports:
             - port: {{ $.Values.backend.default.port | quote }}
               protocol: TCP
+    {{- if and $.Values.frontend.enabled $.Values.frontend.streamWorker.enabled }}
+    # Durable frontend stream worker traffic
+    - fromEndpoints:
+        - matchLabels:
+            app.kubernetes.io/name: {{ include "daedalus.name" $ }}
+            app.kubernetes.io/component: frontend-stream-worker
+            app.kubernetes.io/instance: {{ $.Release.Name }}
+      toPorts:
+        - ports:
+            - port: {{ $.Values.backend.default.port | quote }}
+              protocol: TCP
+    {{- end }}
     # Nginx-to-backend traffic
     - fromEndpoints:
         - matchLabels:
@@ -159,14 +180,26 @@ spec:
             - port: "19530"
               protocol: TCP
 
-    # MinIO object storage (milvus namespace)
+    {{- if $documentObjectInCluster }}
+    # Object storage used by backend document ingestion
     - toEndpoints:
         - matchLabels:
-            io.kubernetes.pod.namespace: milvus
+            io.kubernetes.pod.namespace: {{ $.Values.documentObjectStorage.networkPolicy.namespace | quote }}
       toPorts:
         - ports:
-            - port: "9000"
+            - port: {{ $.Values.documentObjectStorage.networkPolicy.port | quote }}
               protocol: TCP
+    {{- else if and $documentObjectExternalEnabled $documentObjectExternalFqdns }}
+    # External object store, limited to exact operator-provided FQDNs.
+    - toFQDNs:
+        {{- range $documentObjectExternalFqdns }}
+        - matchName: {{ . | quote }}
+        {{- end }}
+      toPorts:
+        - ports:
+            - port: {{ $documentObjectExternal.port | default 443 | quote }}
+              protocol: TCP
+    {{- end }}
 
     # NV-Ingest document processing
     - toEndpoints:
@@ -294,6 +327,32 @@ spec:
             - port: "443"
               protocol: TCP
     {{- end }}
+{{- if and $documentObjectExternalEnabled $documentObjectExternalCidrs }}
+---
+# Keep CIDR and FQDN rules separate for Cilium 1.19 compatibility.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: {{ include "daedalus.fullname" $ }}-{{ $component }}-document-objects-cidr
+  labels:
+    {{- include "daedalus.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: {{ $component }}
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "daedalus.name" $ }}
+      app.kubernetes.io/component: {{ $component }}
+      app.kubernetes.io/instance: {{ $.Release.Name }}
+  egress:
+    - toCIDRSet:
+        {{- range $documentObjectExternalCidrs }}
+        - cidr: {{ . | quote }}
+        {{- end }}
+      toPorts:
+        - ports:
+            - port: {{ $documentObjectExternal.port | default 443 | quote }}
+              protocol: TCP
+{{- end }}
 ---
 {{- if $.Values.backend.networkPolicy.cilium.webscrape.enabled }}
 # Webscrape egress for {{ $component }}.

@@ -1,6 +1,15 @@
 ---
 name: firewall-auditor
-description: Audit UniFi firewall policies for conflicts, redundancies, security gaps, and best practices. Use when asked to review firewall rules, check for security issues, audit network policies, or optimize firewall configuration.
+description: >-
+  Run a read-only, scored security audit of an existing UniFi firewall. Grade
+  segmentation, egress control, rule hygiene, and topology against 16
+  benchmarks, flag conflicts, redundancies, shadowed rules, and security gaps,
+  suggest fix templates, and track the security score's trend over time. Use
+  when asked how secure the firewall is, for a firewall security score, a
+  firewall audit, or a best-practice review of existing rules. Reports
+  findings but never changes the controller, so use firewall-manager to apply
+  fixes and network-health-check for device and connectivity health rather
+  than firewall security.
 ---
 
 # Firewall Policy Auditor

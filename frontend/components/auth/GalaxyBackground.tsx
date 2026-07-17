@@ -6,9 +6,6 @@ import { useReducedMotion } from '@/hooks/useReducedMotion';
 
 const PARTICLE_COUNT = 80;
 const CONNECTION_DISTANCE = 120;
-const NVIDIA_GREEN = '#76b900';
-const CONNECTION_COLOR = 'rgba(118, 185, 0, 0.08)';
-const PARTICLE_COLOR = 'rgba(118, 185, 0, 0.4)';
 
 interface Particle {
   x: number;

@@ -2,17 +2,19 @@ import { useQuery } from '@tanstack/react-query';
 
 import { queryKeys } from './keys';
 
+import type { MilvusCollectionMetadata } from '@/server/milvusMetadata';
+
 interface MilvusCollectionsResponse {
-  collections?: string[];
+  writableCollections?: MilvusCollectionMetadata[];
 }
 
-async function fetchMilvusCollections(): Promise<string[]> {
+async function fetchMilvusCollections(): Promise<MilvusCollectionMetadata[]> {
   const res = await fetch('/api/milvus/collections', {
     credentials: 'include',
   });
   if (!res.ok) return [];
   const data = (await res.json()) as MilvusCollectionsResponse;
-  return data.collections ?? [];
+  return data.writableCollections ?? [];
 }
 
 export function useMilvusCollections(enabled = true) {

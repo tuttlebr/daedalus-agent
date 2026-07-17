@@ -1,6 +1,13 @@
 ---
 name: nat-path-checks
-description: Use when fixing NeMo Agent Toolkit documentation path-check failures, especially failed `ci/scripts/path_checks.py` output, slash-delimited text mistaken for paths, relative path references, Markdown code escaping, and path-check allowlist decisions.
+description: >-
+  Use when fixing NeMo Agent Toolkit documentation path-check failures,
+  especially failed ci/scripts/path_checks.py output from CI or pre-commit,
+  including slash-delimited prose mistaken for file paths, relative path
+  references, Markdown code escaping, markdown-link-check errors, and
+  path-check allowlist decisions (ALLOWLISTED_WORDS, IGNORED_PATHS,
+  ALLOWLISTED_FILE_PATH_PAIRS). A narrow documentation-lint remediation skill
+  for path and Markdown link checks only.
 author: NVIDIA Corporation and Affiliates
 license: Apache-2.0
 ---

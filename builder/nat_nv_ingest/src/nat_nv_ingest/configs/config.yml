@@ -1,28 +1,14 @@
 functions:
-  current_datetime:
-    _type: current_datetime
-  list_collections:
+  user_document_tool:
     _type: nat_nv_ingest
-    redis_url: 'redis://daedalus-redis.daedalus.svc.cluster.local:6379'
-    nv_ingest_host: '0.0.0.0'
-    nv_ingest_port: 7670
-    milvus_uri: 'http://0.0.0.0:32073'
-    minio_endpoint: '0.0.0.0:9000'
-    minio_access_key: 'minioadmin'
-    minio_secret_key: 'minioadmin'
-    chunk_size: 1024
-    chunk_overlap: 150
-    embedder_dim: 2048
-    recreate_collection: false
-  nat_nv_ingest:
-    _type: nat_nv_ingest
-    redis_url: 'redis://daedalus-redis.daedalus.svc.cluster.local:6379'
-    nv_ingest_host: '0.0.0.0'
-    nv_ingest_port: 7670
-    milvus_uri: 'http://0.0.0.0:32073'
-    minio_endpoint: '0.0.0.0:9000'
-    minio_access_key: 'minioadmin'
-    minio_secret_key: 'minioadmin'
+    redis_url: ${REDIS_URL}
+    nv_ingest_host: ${NV_INGEST_HOST}
+    nv_ingest_port: ${NV_INGEST_PORT}
+    milvus_uri: ${MILVUS_URI}
+    minio_endpoint: ${MINIO_ENDPOINT}
+    minio_access_key: ${MINIO_ACCESS_KEY}
+    minio_secret_key: ${MINIO_SECRET_KEY}
+    minio_bucket: ${MINIO_BUCKET}
     chunk_size: 1024
     chunk_overlap: 150
     embedder_dim: 2048
@@ -36,4 +22,4 @@ llms:
 workflow:
   _type: react_agent
   llm_name: nim_llm
-  tool_names: [current_datetime, list_collections, nat_nv_ingest]
+  tool_names: [user_document_tool]

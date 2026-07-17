@@ -150,6 +150,7 @@ temp/
 Temporary Items
 test-security.sh
 test*.sh
+!scripts/test_redis_helm_upgrade.sh
 Thumbs.db
 *.tmp
 tmp/

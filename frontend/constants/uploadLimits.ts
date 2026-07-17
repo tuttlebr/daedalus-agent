@@ -1,14 +1,14 @@
 /**
  * Centralized upload limits for file uploads.
  *
- * IMPORTANT: These limits account for base64 encoding overhead.
- * Base64 encoding increases file size by ~33%, so client-side limits
- * should be ~75% of server-side limits to ensure uploads don't fail.
+ * Image and video limits account for their legacy base64 transport overhead.
+ * Documents stream as multipart bytes, so their client and server limits match.
  *
  * Default raw limits before base64 overhead:
- * - Image: 100MB
+ * - Image: 10MB
  * - Video: 100MB
  * - Document: 200MB
+ * - Transcript: 10MB
  */
 
 const MB = 1024 * 1024;
@@ -80,8 +80,14 @@ const BASE64_OVERHEAD_FACTOR = positiveNumberFromEnv(
 );
 
 // Server-side limits (raw)
-const SERVER_IMAGE_LIMIT = mbToBytes(
-  positiveNumberFromEnv(['NEXT_PUBLIC_UPLOAD_IMAGE_SERVER_LIMIT_MB'], 100),
+// imageStorage has a fixed 10 MiB decoded-image ceiling. Never let a public
+// build-time override advertise more than that route can accept.
+const IMAGE_ROUTE_RAW_LIMIT = 10 * MB;
+const SERVER_IMAGE_LIMIT = Math.min(
+  mbToBytes(
+    positiveNumberFromEnv(['NEXT_PUBLIC_UPLOAD_IMAGE_SERVER_LIMIT_MB'], 10),
+  ),
+  IMAGE_ROUTE_RAW_LIMIT,
 );
 const SERVER_VIDEO_LIMIT = mbToBytes(
   positiveNumberFromEnv(['NEXT_PUBLIC_UPLOAD_VIDEO_SERVER_LIMIT_MB'], 100),
@@ -89,6 +95,7 @@ const SERVER_VIDEO_LIMIT = mbToBytes(
 const SERVER_DOCUMENT_LIMIT = mbToBytes(
   positiveNumberFromEnv(['NEXT_PUBLIC_UPLOAD_DOCUMENT_SERVER_LIMIT_MB'], 200),
 );
+const TRANSCRIPT_ROUTE_RAW_LIMIT = 10 * MB;
 
 const IMAGE_MAX_SIZE_BYTES = Math.floor(
   SERVER_IMAGE_LIMIT * BASE64_OVERHEAD_FACTOR,
@@ -96,16 +103,17 @@ const IMAGE_MAX_SIZE_BYTES = Math.floor(
 const VIDEO_MAX_SIZE_BYTES = Math.floor(
   SERVER_VIDEO_LIMIT * BASE64_OVERHEAD_FACTOR,
 );
-const DOCUMENT_MAX_SIZE_BYTES = Math.floor(
-  SERVER_DOCUMENT_LIMIT * BASE64_OVERHEAD_FACTOR,
-);
-const TRANSCRIPT_MAX_SIZE_BYTES = mbToBytes(
-  positiveNumberFromEnv(['NEXT_PUBLIC_UPLOAD_TRANSCRIPT_MAX_MB'], 50),
+const DOCUMENT_MAX_SIZE_BYTES = SERVER_DOCUMENT_LIMIT;
+const TRANSCRIPT_MAX_SIZE_BYTES = Math.min(
+  mbToBytes(
+    positiveNumberFromEnv(['NEXT_PUBLIC_UPLOAD_TRANSCRIPT_MAX_MB'], 10),
+  ),
+  TRANSCRIPT_ROUTE_RAW_LIMIT,
 );
 
 /**
  * Client-side upload limits in bytes.
- * These are conservative to account for base64 encoding overhead.
+ * Image and video values are conservative to account for base64 overhead.
  */
 export const UPLOAD_LIMITS = {
   // Image limits
@@ -120,9 +128,6 @@ export const UPLOAD_LIMITS = {
   DOCUMENT_MAX_SIZE_BYTES,
   DOCUMENT_MAX_SIZE_MB: bytesToDisplayMb(DOCUMENT_MAX_SIZE_BYTES),
   DOCUMENT_SERVER_LIMIT_BYTES: SERVER_DOCUMENT_LIMIT,
-  DOCUMENT_SERVER_MAX_BASE64_CHARS: maxBase64EncodedLength(
-    SERVER_DOCUMENT_LIMIT,
-  ),
 
   // Transcript limits (VTT, SRT - text files, smaller limit)
   TRANSCRIPT_MAX_SIZE_BYTES,
@@ -135,7 +140,7 @@ export const UPLOAD_LIMITS = {
   ),
   MAX_DOCUMENTS_PER_BATCH: positiveIntegerFromEnv(
     ['NEXT_PUBLIC_UPLOAD_MAX_DOCUMENTS_PER_BATCH'],
-    500,
+    20,
   ),
   MAX_VIDEOS_PER_BATCH: positiveIntegerFromEnv(
     ['NEXT_PUBLIC_UPLOAD_MAX_VIDEOS_PER_BATCH'],
@@ -160,22 +165,6 @@ export const UPLOAD_LIMITS = {
     ),
   ),
 } as const;
-
-/** Maximum number of base64 characters needed to represent a byte limit. */
-export function maxBase64EncodedLength(rawByteLimit: number): number {
-  return Math.ceil(rawByteLimit / 3) * 4;
-}
-
-/**
- * Return the encoded payload length without allocating a second full string.
- * Data URLs produced by FileReader have a short metadata prefix before the
- * comma; plain base64 values are also accepted by the upload API.
- */
-export function base64PayloadLength(value: string): number {
-  if (!value.startsWith('data:')) return value.length;
-  const separator = value.indexOf(',');
-  return separator === -1 ? value.length : value.length - separator - 1;
-}
 
 /**
  * Human-readable file size formatting

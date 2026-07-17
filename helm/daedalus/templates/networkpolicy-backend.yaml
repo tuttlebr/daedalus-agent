@@ -1,3 +1,7 @@
+{{- $documentObjectMode := include "daedalus.documentObjectNetworkMode" . -}}
+{{- $documentObjectInCluster := and .Values.documentObjectStorage.enabled (eq $documentObjectMode "inCluster") -}}
+{{- $documentObjectExternalEnabled := and .Values.documentObjectStorage.enabled (eq $documentObjectMode "external") -}}
+{{- $documentObjectExternal := .Values.documentObjectStorage.networkPolicy.external -}}
 {{- if and .Values.backend.networkPolicy.enabled (not .Values.backend.networkPolicy.cilium.enabled) }}
 ---
 # Network Policy for Default Backend
@@ -27,6 +31,18 @@ spec:
       ports:
         - protocol: TCP
           port: {{ .Values.backend.default.port }}
+    {{- if and .Values.frontend.enabled .Values.frontend.streamWorker.enabled }}
+    # Allow traffic from durable frontend stream workers
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: {{ include "daedalus.name" . }}
+              app.kubernetes.io/component: frontend-stream-worker
+              app.kubernetes.io/instance: {{ .Release.Name }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.backend.default.port }}
+    {{- end }}
     # Allow traffic from nginx pods
     - from:
         - podSelector:
@@ -100,14 +116,30 @@ spec:
       ports:
         - protocol: TCP
           port: 19530
-    # Allow access to MinIO (milvus namespace)
+    {{- if $documentObjectInCluster }}
+    # Allow backend ingestion to read from the configured object store.
     - to:
         - namespaceSelector:
             matchLabels:
-              kubernetes.io/metadata.name: milvus
+              kubernetes.io/metadata.name: {{ .Values.documentObjectStorage.networkPolicy.namespace | quote }}
       ports:
         - protocol: TCP
-          port: 9000
+          port: {{ .Values.documentObjectStorage.networkPolicy.port }}
+    {{- else if $documentObjectExternalEnabled }}
+    {{- $externalCidrs := $documentObjectExternal.cidrs | default (list) }}
+    {{- if not $externalCidrs }}
+      {{- fail "documentObjectStorage.networkPolicy.external.cidrs must contain at least one CIDR for standard NetworkPolicy" }}
+    {{- end }}
+    # External object-store egress is opt-in and limited to explicit CIDRs.
+    - to:
+        {{- range $externalCidrs }}
+        - ipBlock:
+            cidr: {{ . | quote }}
+        {{- end }}
+      ports:
+        - protocol: TCP
+          port: {{ $documentObjectExternal.port | default 443 }}
+    {{- end }}
     # Allow access to NV-Ingest (nv-ingest namespace)
     - to:
         - namespaceSelector:

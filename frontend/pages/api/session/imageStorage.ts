@@ -18,7 +18,8 @@ import sharp from 'sharp';
 export const config = {
   api: {
     bodyParser: {
-      sizeLimit: '10mb',
+      // A 10 MiB decoded image needs about 13.34 MiB as base64 JSON.
+      sizeLimit: '14mb',
     },
   },
 };

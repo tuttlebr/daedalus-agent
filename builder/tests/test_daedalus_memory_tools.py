@@ -140,6 +140,35 @@ def test_execution_scope_distinguishes_direct_chat_and_autonomy(monkeypatch):
     assert identity.execution_scope_from_context_or_none() == ""
 
 
+def test_execution_id_is_available_only_in_autonomy_scope(monkeypatch):
+    import nat_helpers.identity as identity
+
+    class _Context:
+        metadata = SimpleNamespace(headers=None)
+
+        @staticmethod
+        def get():
+            return _Context
+
+    monkeypatch.setitem(
+        sys.modules,
+        "nat.builder.context",
+        SimpleNamespace(Context=_Context),
+    )
+
+    _Context.metadata.headers = {
+        "x-daedalus-execution-scope": "interactive",
+        "x-daedalus-execution-id": "request-1",
+    }
+    assert identity.execution_id_from_context_or_none() is None
+
+    _Context.metadata.headers = {
+        "x-daedalus-execution-scope": "autonomy",
+        "x-daedalus-execution-id": "request-1",
+    }
+    assert identity.execution_id_from_context_or_none() == "request-1"
+
+
 def test_add_memory_uses_authenticated_user_not_llm_supplied_user_id(monkeypatch):
     async def _run():
         from nat_helpers import daedalus_memory_tools as tools
@@ -176,6 +205,71 @@ def test_add_memory_uses_authenticated_user_not_llm_supplied_user_id(monkeypatch
     assert added[0].memory == "The user's name is Brandon Tuttle."
     assert added[0].tags == ["user_profile"]
     assert added[0].metadata == {"type": "preference"}
+
+
+def test_add_memory_replays_completed_autonomous_write_without_second_effect(
+    monkeypatch,
+):
+    async def _run():
+        from nat_helpers import daedalus_memory_tools as tools
+        from nat_helpers import idempotency
+
+        monkeypatch.setattr(
+            tools,
+            "authenticated_user_id_from_context",
+            lambda: "tuttlebr",
+        )
+        monkeypatch.setattr(
+            tools,
+            "execution_id_from_context_or_none",
+            lambda: "request-123",
+        )
+
+        reservations = [
+            SimpleNamespace(
+                acquired=True,
+                state="in_progress",
+                stored_result=None,
+            ),
+            SimpleNamespace(
+                acquired=False,
+                state="completed",
+                stored_result="Memory added successfully. replayed",
+            ),
+        ]
+
+        async def reserve_operation(**kwargs):
+            assert kwargs["user_id"] == "tuttlebr"
+            assert kwargs["execution_id"] == "request-123"
+            return reservations.pop(0)
+
+        completions = []
+
+        async def complete_operation(reservation, result):
+            completions.append((reservation, result))
+            return True
+
+        monkeypatch.setattr(idempotency, "reserve_operation", reserve_operation)
+        monkeypatch.setattr(idempotency, "complete_operation", complete_operation)
+
+        editor = FakeMemoryEditor()
+        emitted = []
+        async for item in tools.daedalus_add_memory(
+            tools.DaedalusAddMemoryConfig(memory="redis_memory"),
+            FakeBuilder(editor),
+        ):
+            emitted.append(item)
+        add_input = tools.AddMemoryInput(memory="Remember this")
+        first = await emitted[0].fn(add_input)
+        replay = await emitted[0].fn(add_input)
+        return first, replay, editor.added, completions
+
+    first, replay, added, completions = run(_run())
+
+    assert first.startswith("Memory added successfully")
+    assert replay == "Memory added successfully. replayed"
+    assert len(added) == 1
+    assert len(completions) == 1
 
 
 def test_get_memory_uses_authenticated_user_not_llm_supplied_user_id(monkeypatch):

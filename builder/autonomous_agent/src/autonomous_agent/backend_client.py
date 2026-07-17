@@ -141,10 +141,17 @@ class BackendClient:
         messages: list[dict[str, str]],
         *,
         approval_token: str = "",
+        execution_id: str = "",
     ) -> str:
-        return self._call_stream(messages, approval_token=approval_token)
+        return self._call_stream(
+            messages,
+            approval_token=approval_token,
+            execution_id=execution_id,
+        )
 
-    def _headers(self, *, approval_token: str = "") -> dict[str, str]:
+    def _headers(
+        self, *, approval_token: str = "", execution_id: str = ""
+    ) -> dict[str, str]:
         headers = {
             "x-user-id": self.user_id,
             "x-timezone": DEFAULT_TIMEZONE,
@@ -159,6 +166,8 @@ class BackendClient:
             headers["x-daedalus-internal-token"] = token
         if approval_token.strip():
             headers["x-daedalus-approval-token"] = approval_token.strip()
+        if execution_id.strip():
+            headers["x-daedalus-execution-id"] = execution_id.strip()
         return headers
 
     def _call_stream(
@@ -166,6 +175,7 @@ class BackendClient:
         messages: list[dict[str, str]],
         *,
         approval_token: str = "",
+        execution_id: str = "",
     ) -> str:
         url = f"{self.base_url}{self.api_path}"
         payload = {
@@ -178,7 +188,10 @@ class BackendClient:
         with requests.post(
             url,
             json=payload,
-            headers=self._headers(approval_token=approval_token),
+            headers=self._headers(
+                approval_token=approval_token,
+                execution_id=execution_id,
+            ),
             stream=True,
             timeout=self.request_timeout,
         ) as resp:

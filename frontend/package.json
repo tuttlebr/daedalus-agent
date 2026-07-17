@@ -5,11 +5,16 @@
   "scripts": {
     "dev": "next dev -p 5000 -H 0.0.0.0",
     "build": "next build && node scripts/inject-precache.js",
+    "build:websocket": "esbuild ws-server.ts --bundle --platform=node --target=node22 --outfile=./ws-build/ws-server.js",
+    "build:stream-worker": "esbuild stream-worker.ts --bundle --platform=node --target=node22 --external:sharp --external:web-push --outfile=./worker-build/stream-worker.js",
     "start": "next start -p 5000 -H 0.0.0.0",
+    "start:stream-worker": "node stream-worker.js",
     "lint": "next lint",
     "format": "prettier --write .",
     "test": "vitest",
-    "coverage": "vitest run --coverage"
+    "coverage": "vitest run --coverage",
+    "e2e": "node e2e/run-e2e.mjs",
+    "e2e:test": "playwright test"
   },
   "dependencies": {
     "@fontsource/ibm-plex-serif": "^5.2.7",
@@ -18,13 +23,12 @@
     "bcryptjs": "^2.4.3",
     "classnames": "^2.5.1",
     "cookie": "^0.7.2",
-    "critters": "^0.0.22",
     "html-to-image": "^1.11.11",
     "i18next": "^25.10.10",
     "immer": "^10.1.1",
     "ioredis": "^5.8.0",
     "katex": "^0.16.25",
-    "mermaid": "^11.14.0",
+    "mermaid": "^11.16.0",
     "next": "^15.5.20",
     "next-i18next": "^16.0.5",
     "react": "^18.2.0",
@@ -51,6 +55,7 @@
     "esbuild": "0.25.12"
   },
   "devDependencies": {
+    "@playwright/test": "1.61.1",
     "@tailwindcss/typography": "^0.5.9",
     "@trivago/prettier-plugin-sort-imports": "^4.3.0",
     "@types/bcryptjs": "^2.4.2",

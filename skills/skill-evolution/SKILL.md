@@ -1,6 +1,15 @@
 ---
 name: skill-evolution
-description: Use before creating, editing, or deciding whether to update any AI coding agent skill in this repository, including corrections to existing skill behavior, references, or routing.
+description: >-
+  Use when creating, adding, editing, refactoring, or deciding whether to
+  update any agent skill in this repository, including its SKILL.md,
+  frontmatter name/description, body, references/ files, or AGENTS.md routing
+  entry. Covers generalizing a user correction into a reusable skill,
+  remembering a recovery path, fixing stale links, commands, or component
+  types, splitting an overlong skill into references, and retuning task
+  routing between skills. Use nat-user-rules for routing NeMo Agent Toolkit
+  work to the focused nat-* skills; use skill-evolution to change the skill
+  files themselves.
 author: NVIDIA Corporation and Affiliates
 license: Apache-2.0
 ---

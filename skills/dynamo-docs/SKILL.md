@@ -1,11 +1,20 @@
 ---
 name: dynamo-docs
-description: Maintain the Dynamo Fern documentation site — add new pages, update existing content, move pages between sections, or remove pages, including navigation (index.yml) updates, callout conversion, and `fern check` validation. Use whenever the user wants to "write Dynamo docs", "update the Dynamo docs site", "add a page to the Dynamo Fern site", "move a Dynamo doc to <section>", "fix a broken link in Dynamo docs", "remove a doc page", or otherwise asks for documentation changes scoped to ai-dynamo/dynamo's Fern-based docs site (paths under `docs/`, configured by `fern/docs.yml`).
+description: >-
+  Maintain the Dynamo Fern documentation site: add, update, move, or remove
+  pages (guides, tutorials, how-tos, references), including navigation
+  (index.yml) updates, callout conversion, and `fern check` validation. Use
+  whenever the user wants to "write Dynamo docs", "update the Dynamo docs
+  site", "add a page/guide to the Dynamo Fern site", "move a Dynamo doc to
+  <section>", "fix a broken link in Dynamo docs", "remove a doc page", or
+  otherwise asks for documentation changes scoped to ai-dynamo/dynamo's
+  Fern-based docs site (paths under `docs/`, configured by `fern/docs.yml`).
+  Use dynamo-bug to file an upstream code bug instead of a docs change.
 ---
 
 # Dynamo Docs Maintenance
 
-> **Related skills:** `dynamo-bug` (file an upstream bug against ai-dynamo/dynamo), `debug-session` (structured investigation that often surfaces gaps the docs should fill).
+> **Related skills:** `dynamo-bug` (file an upstream bug against ai-dynamo/dynamo), `dynamo-troubleshoot` (diagnose a deployment; investigation often surfaces gaps the docs should fill).
 
 Unified skill for adding, updating, moving, and removing pages on the Dynamo Fern documentation site.
 

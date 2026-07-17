@@ -8,6 +8,8 @@ volumes:
       device: nginx/ssl
   generated_images:
     driver: local
+  document_objects:
+    driver: local
 
 services:
   builder:
@@ -15,8 +17,6 @@ services:
       context: builder
       dockerfile: Dockerfile
       target: base
-      args:
-        NAT_VERSION: v1.7.0
     image: ${DOCKER_REGISTRY:-docker.io/library}/daedalus:builder-${DAEDALUS_VERSION:-0.1.0}
     working_dir: /builder
     volumes:
@@ -30,8 +30,6 @@ services:
       target: backend
       additional_contexts:
         skills: ./skills
-      args:
-        NAT_VERSION: v1.7.0
     image: ${DOCKER_REGISTRY:-docker.io/library}/daedalus:backend-${DAEDALUS_VERSION:-0.1.0}
     env_file:
       - .env
@@ -43,6 +41,22 @@ services:
       - ALLOW_INSECURE_INTERNAL=1
       - REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
       - SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_USERNAME=${REDIS_USERNAME:-default}
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-local-compose-redis-password-change-me}
+      - REDIS_URL=redis://${REDIS_USERNAME:-default}:${REDIS_PASSWORD:-local-compose-redis-password-change-me}@redis:6379
+      - REDIS_TLS_ENABLED=false
+      - REDIS_TLS_CA_FILE=
+      - DOCUMENT_OBJECT_ENDPOINT=http://object-store:8333
+      - DOCUMENT_OBJECT_ACCESS_KEY=${DOCUMENT_OBJECT_ACCESS_KEY:-daedalus-local}
+      - DOCUMENT_OBJECT_SECRET_KEY=${DOCUMENT_OBJECT_SECRET_KEY:-local-compose-minio-secret-change-me}
+      - DOCUMENT_OBJECT_SESSION_TOKEN=${DOCUMENT_OBJECT_SESSION_TOKEN:-}
+      - DOCUMENT_OBJECT_BUCKET=${DOCUMENT_OBJECT_BUCKET:-nv-ingest}
+      - DOCUMENT_OBJECT_REGION=${DOCUMENT_OBJECT_REGION:-us-east-1}
+      - DOCUMENT_OBJECT_PREFIX=${DOCUMENT_OBJECT_PREFIX:-daedalus-documents}
+      - DOCUMENT_OBJECT_EXPIRY_SECONDS=${DOCUMENT_OBJECT_EXPIRY_SECONDS:-604800}
+      - DOCUMENT_OBJECT_REQUEST_TIMEOUT_MS=${DOCUMENT_OBJECT_REQUEST_TIMEOUT_MS:-300000}
     ports:
       - '127.0.0.1:${BACKEND_PORT:-8000}:8000'
     networks:
@@ -50,9 +64,26 @@ services:
     volumes:
       - ${BACKEND_CONFIG_FILE:-./backend/tool-calling-config.yaml}:/workspace/config.yaml:ro
       - ${DOCKER_VOLUME_DIRECTORY:-.}/skills:/skills:ro
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'python',
+          '-c',
+          'import urllib.request; urllib.request.urlopen("http://127.0.0.1:8000/health/ready", timeout=5)',
+        ]
+      interval: 10s
+      timeout: 6s
+      retries: 30
+      start_period: 30s
+    depends_on:
+      redis:
+        condition: service_healthy
+      object-store-init:
+        condition: service_completed_successfully
 
   nginx:
-    image: nginx:alpine
+    image: nginx:alpine@sha256:7068961d45b07b2af510ac002e9daa63a1d3eba2111202d6768798690800fffd
     ports:
       - '${NGINX_HTTP_PORT:-80}:80'
       - '${NGINX_HTTPS_PORT:-443}:443'
@@ -70,13 +101,13 @@ services:
       context: frontend
       dockerfile: Dockerfile
       args:
-        NEXT_PUBLIC_UPLOAD_IMAGE_SERVER_LIMIT_MB: ${NEXT_PUBLIC_UPLOAD_IMAGE_SERVER_LIMIT_MB:-100}
+        NEXT_PUBLIC_UPLOAD_IMAGE_SERVER_LIMIT_MB: ${NEXT_PUBLIC_UPLOAD_IMAGE_SERVER_LIMIT_MB:-10}
         NEXT_PUBLIC_UPLOAD_VIDEO_SERVER_LIMIT_MB: ${NEXT_PUBLIC_UPLOAD_VIDEO_SERVER_LIMIT_MB:-100}
         NEXT_PUBLIC_UPLOAD_DOCUMENT_SERVER_LIMIT_MB: ${NEXT_PUBLIC_UPLOAD_DOCUMENT_SERVER_LIMIT_MB:-200}
-        NEXT_PUBLIC_UPLOAD_TRANSCRIPT_MAX_MB: ${NEXT_PUBLIC_UPLOAD_TRANSCRIPT_MAX_MB:-50}
+        NEXT_PUBLIC_UPLOAD_TRANSCRIPT_MAX_MB: ${NEXT_PUBLIC_UPLOAD_TRANSCRIPT_MAX_MB:-10}
         NEXT_PUBLIC_UPLOAD_BASE64_OVERHEAD_FACTOR: ${NEXT_PUBLIC_UPLOAD_BASE64_OVERHEAD_FACTOR:-0.75}
         NEXT_PUBLIC_UPLOAD_MAX_IMAGES_PER_BATCH: ${NEXT_PUBLIC_UPLOAD_MAX_IMAGES_PER_BATCH:-15}
-        NEXT_PUBLIC_UPLOAD_MAX_DOCUMENTS_PER_BATCH: ${NEXT_PUBLIC_UPLOAD_MAX_DOCUMENTS_PER_BATCH:-500}
+        NEXT_PUBLIC_UPLOAD_MAX_DOCUMENTS_PER_BATCH: ${NEXT_PUBLIC_UPLOAD_MAX_DOCUMENTS_PER_BATCH:-20}
         NEXT_PUBLIC_UPLOAD_MAX_VIDEOS_PER_BATCH: ${NEXT_PUBLIC_UPLOAD_MAX_VIDEOS_PER_BATCH:-1}
         NEXT_PUBLIC_UPLOAD_IMAGE_COMPRESSION_THRESHOLD_KB: ${NEXT_PUBLIC_UPLOAD_IMAGE_COMPRESSION_THRESHOLD_KB:-2000}
         NEXT_PUBLIC_UPLOAD_MAX_EXTRACTED_TEXT_CHARS: ${NEXT_PUBLIC_UPLOAD_MAX_EXTRACTED_TEXT_CHARS:-128000}
@@ -90,6 +121,21 @@ services:
       - BACKEND_HOST=${BACKEND_HOST:-backend}
       - BACKEND_PORT=${BACKEND_PORT:-8000}
       - BACKEND_API_PATH=${BACKEND_API_PATH:-/v1/chat/completions}
+      - REDIS_USERNAME=${REDIS_USERNAME:-default}
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-local-compose-redis-password-change-me}
+      - REDIS_URL=redis://${REDIS_USERNAME:-default}:${REDIS_PASSWORD:-local-compose-redis-password-change-me}@redis:6379
+      - REDIS_TLS_ENABLED=false
+      - DOCUMENT_UPLOAD_MAX_MB=${DOCUMENT_UPLOAD_MAX_MB:-200}
+      - DOCUMENT_UPLOAD_MAX_CONCURRENT_PER_USER=${DOCUMENT_UPLOAD_MAX_CONCURRENT_PER_USER:-2}
+      - DOCUMENT_OBJECT_ENDPOINT=http://object-store:8333
+      - DOCUMENT_OBJECT_ACCESS_KEY=${DOCUMENT_OBJECT_ACCESS_KEY:-daedalus-local}
+      - DOCUMENT_OBJECT_SECRET_KEY=${DOCUMENT_OBJECT_SECRET_KEY:-local-compose-minio-secret-change-me}
+      - DOCUMENT_OBJECT_SESSION_TOKEN=${DOCUMENT_OBJECT_SESSION_TOKEN:-}
+      - DOCUMENT_OBJECT_BUCKET=${DOCUMENT_OBJECT_BUCKET:-nv-ingest}
+      - DOCUMENT_OBJECT_REGION=${DOCUMENT_OBJECT_REGION:-us-east-1}
+      - DOCUMENT_OBJECT_PREFIX=${DOCUMENT_OBJECT_PREFIX:-daedalus-documents}
+      - DOCUMENT_OBJECT_EXPIRY_SECONDS=${DOCUMENT_OBJECT_EXPIRY_SECONDS:-604800}
+      - DOCUMENT_OBJECT_REQUEST_TIMEOUT_MS=${DOCUMENT_OBJECT_REQUEST_TIMEOUT_MS:-300000}
     ports:
       - '3000:3000'
     networks:
@@ -97,16 +143,62 @@ services:
     image: ${DOCKER_REGISTRY:-docker.io/library}/daedalus:frontend-${DAEDALUS_VERSION:-0.1.0}
     depends_on:
       backend:
-        condition: service_started
+        condition: service_healthy
       nginx:
         condition: service_started
       redis:
-        condition: service_started
+        condition: service_healthy
+      stream-worker:
+        condition: service_healthy
+      object-store-init:
+        condition: service_completed_successfully
+
+  stream-worker:
+    image: ${DOCKER_REGISTRY:-docker.io/library}/daedalus:frontend-${DAEDALUS_VERSION:-0.1.0}
+    command: ['node', 'stream-worker.js']
+    environment:
+      - DEPLOYMENT_MODE=local
+      - BACKEND_HOST=${BACKEND_HOST:-backend}
+      - BACKEND_PORT=${BACKEND_PORT:-8000}
+      - BACKEND_API_PATH=${BACKEND_API_PATH:-/v1/chat/completions}
+      - REDIS_USERNAME=${REDIS_USERNAME:-default}
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-local-compose-redis-password-change-me}
+      - REDIS_URL=redis://${REDIS_USERNAME:-default}:${REDIS_PASSWORD:-local-compose-redis-password-change-me}@redis:6379
+      - REDIS_TLS_ENABLED=false
+      - STREAM_WORKER_CONCURRENCY=${STREAM_WORKER_CONCURRENCY:-4}
+      - STREAM_WORKER_LEASE_TTL_SECONDS=${STREAM_WORKER_LEASE_TTL_SECONDS:-30}
+      - STREAM_WORKER_HEARTBEAT_SECONDS=${STREAM_WORKER_HEARTBEAT_SECONDS:-10}
+      - STREAM_WORKER_CANCEL_POLL_SECONDS=${STREAM_WORKER_CANCEL_POLL_SECONDS:-1}
+      - STREAM_WORKER_RECLAIM_IDLE_SECONDS=${STREAM_WORKER_RECLAIM_IDLE_SECONDS:-45}
+      - STREAM_WORKER_RECLAIM_SCAN_SECONDS=${STREAM_WORKER_RECLAIM_SCAN_SECONDS:-10}
+      - STREAM_WORKER_DRAIN_TIMEOUT_SECONDS=${STREAM_WORKER_DRAIN_TIMEOUT_SECONDS:-45}
+    restart: unless-stopped
+    stop_signal: SIGTERM
+    stop_grace_period: 60s
+    networks:
+      - ${NETWORK_NAME:-daedalus-network}
+    depends_on:
+      backend:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD', 'node', 'stream-worker.js', '--healthcheck']
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
 
   redis:
-    # Keep this aligned with the Helm chart: a lower Redis version cannot read
-    # an AOF/RDB written by the existing 7.4 persistent volume.
-    image: redis/redis-stack:7.4.0-v8
+    # Preserve Redis Stack 7.4.0-v8 data and module compatibility while
+    # applying current Ubuntu security updates in a repository-owned image.
+    build:
+      context: redis
+      dockerfile: Dockerfile
+    image: ${DOCKER_REGISTRY:-docker.io/library}/daedalus:redis-${DAEDALUS_VERSION:-0.1.0}
+    environment:
+      - REDIS_USERNAME=${REDIS_USERNAME:-default}
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-local-compose-redis-password-change-me}
     command:
       [
         'redis-server',
@@ -115,17 +207,89 @@ services:
         '1',
         '--appendonly',
         'yes',
+        '--user',
+        'default',
+        'reset',
+        '--user',
+        '${REDIS_USERNAME:-default}',
+        'on',
+        '>${REDIS_PASSWORD:-local-compose-redis-password-change-me}',
+        '~*',
+        '&*',
+        '+@all',
+        '-@dangerous',
+        '+info',
         '--loadmodule',
         '/opt/redis-stack/lib/rejson.so',
+        '--loadmodule',
+        '/opt/redis-stack/lib/redisearch.so',
+        '--loadmodule',
+        '/opt/redis-stack/lib/redistimeseries.so',
+        '--loadmodule',
+        '/opt/redis-stack/lib/redisbloom.so',
       ]
     restart: unless-stopped
     volumes:
       - ${DOCKER_VOLUME_DIRECTORY:-.}/redis/data:/data
     ports:
       - '127.0.0.1:6379:6379'
-      - '127.0.0.1:8001:8001' # RedisInsight is host-local only.
     networks:
       - ${NETWORK_NAME:-daedalus-network}
+    healthcheck:
+      test:
+        [
+          'CMD-SHELL',
+          'redis-cli --no-auth-warning --user "$$REDIS_USERNAME" -a "$$REDIS_PASSWORD" ping | grep -q PONG',
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+
+  object-store:
+    image: chrislusf/seaweedfs:4.39@sha256:c7d6c721b30ae711db766bbbfd40192776e263d4e51e22f57baef7bef93c12c6
+    command: ['mini', '-dir=/data']
+    environment:
+      - AWS_ACCESS_KEY_ID=${DOCUMENT_OBJECT_ACCESS_KEY:-daedalus-local}
+      - AWS_SECRET_ACCESS_KEY=${DOCUMENT_OBJECT_SECRET_KEY:-local-compose-minio-secret-change-me}
+      - S3_BUCKET=${DOCUMENT_OBJECT_BUCKET:-nv-ingest}
+    restart: unless-stopped
+    volumes:
+      - document_objects:/data
+    networks:
+      - ${NETWORK_NAME:-daedalus-network}
+    expose:
+      - '8333'
+    healthcheck:
+      test:
+        [
+          'CMD-SHELL',
+          'code=$$(curl -sS -o /dev/null -w "%{http_code}" http://127.0.0.1:8333/ || true); test "$$code" = 200 -o "$$code" = 403',
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
+
+  object-store-init:
+    image: chrislusf/seaweedfs:4.39@sha256:c7d6c721b30ae711db766bbbfd40192776e263d4e51e22f57baef7bef93c12c6
+    entrypoint: ['/bin/sh', '-ec']
+    command:
+      - |
+        printf '%s\n' \
+          "fs.configure -locationPrefix=/buckets/$${DOCUMENT_OBJECT_BUCKET}/$${DOCUMENT_OBJECT_PREFIX}/ -ttl=7d -apply" |
+          weed -logtostderr=true shell -master=object-store:9333 -filer=object-store:8888
+    environment:
+      - DOCUMENT_OBJECT_BUCKET=${DOCUMENT_OBJECT_BUCKET:-nv-ingest}
+      - DOCUMENT_OBJECT_PREFIX=${DOCUMENT_OBJECT_PREFIX:-daedalus-documents}
+    networks:
+      - ${NETWORK_NAME:-daedalus-network}
+    tmpfs:
+      - /data
+    depends_on:
+      object-store:
+        condition: service_healthy
+    restart: 'no'
 
   evals:
     build:

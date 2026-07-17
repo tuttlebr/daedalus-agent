@@ -472,7 +472,6 @@ export async function setStreamingState(
   conversationId: string,
   sessionId: string,
 ): Promise<void> {
-  const client = getRedis();
   const key = sessionKey([
     'streaming',
     'user',
@@ -496,7 +495,6 @@ export async function clearStreamingState(
   userId: string,
   conversationId: string,
 ): Promise<void> {
-  const client = getRedis();
   const key = sessionKey([
     'streaming',
     'user',

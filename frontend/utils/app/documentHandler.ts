@@ -1,10 +1,6 @@
 import { Logger } from '@/utils/logger';
 
-import {
-  UPLOAD_LIMITS,
-  base64PayloadLength,
-  formatFileSize,
-} from '@/constants/uploadLimits';
+import { UPLOAD_LIMITS, formatFileSize } from '@/constants/uploadLimits';
 
 const logger = new Logger('DocumentHandler');
 
@@ -16,40 +12,38 @@ export interface DocumentReference {
   mimeType?: string;
 }
 
-export function assertDocumentEncodedSize(
-  base64Data: string,
-  filename: string,
-  maxEncodedChars: number = UPLOAD_LIMITS.DOCUMENT_SERVER_MAX_BASE64_CHARS,
+export function assertDocumentFileSize(
+  file: Pick<File, 'name' | 'size'>,
+  maxBytes: number = UPLOAD_LIMITS.DOCUMENT_SERVER_LIMIT_BYTES,
 ): void {
-  if (base64PayloadLength(base64Data) > maxEncodedChars) {
+  if (file.size > maxBytes) {
     throw new Error(
-      `File "${filename}" exceeds the server upload limit (${formatFileSize(
+      `File "${file.name}" exceeds the server upload limit (${formatFileSize(
         UPLOAD_LIMITS.DOCUMENT_SERVER_LIMIT_BYTES,
       )}).`,
     );
   }
 }
 
-// Upload document to Redis and return reference
+// Stream a document to owner-scoped object storage and return its reference.
 export async function uploadDocument(
-  base64Data: string,
-  filename: string,
-  mimeType: string = 'application/octet-stream',
+  file: File,
   signal?: AbortSignal,
 ): Promise<DocumentReference> {
   try {
-    // Reject oversized values before JSON.stringify creates another full copy.
-    // The server repeats this check against its private runtime limit.
-    assertDocumentEncodedSize(base64Data, filename);
+    assertDocumentFileSize(file);
+    const mimeType = file.type || 'application/octet-stream';
+    const formData = new FormData();
+    formData.append('file', file, file.name);
 
     const response = await fetch('/api/session/documentStorage', {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json',
+        'X-Document-Size': String(file.size),
       },
       credentials: 'include',
       signal,
-      body: JSON.stringify({ base64Data, filename, mimeType }),
+      body: formData,
     });
 
     const contentType = response.headers.get('content-type') || '';
@@ -63,7 +57,7 @@ export async function uploadDocument(
       }
       if (response.status === 413) {
         throw new Error(
-          `File "${filename}" is too large to upload. Please reduce the file size and try again.`,
+          `File "${file.name}" is too large to upload. Please reduce the file size and try again.`,
         );
       }
       throw new Error(`Upload failed with status ${response.status}`);
@@ -75,8 +69,20 @@ export async function uploadDocument(
       );
     }
 
-    const { documentId, sessionId, userId } = await response.json();
-    return { documentId, sessionId, userId, filename, mimeType };
+    const {
+      documentId,
+      sessionId,
+      userId,
+      filename: storedFilename,
+      mimeType: storedMimeType,
+    } = await response.json();
+    return {
+      documentId,
+      sessionId,
+      userId,
+      filename: storedFilename || file.name,
+      mimeType: storedMimeType || mimeType,
+    };
   } catch (error) {
     logger.error('Error uploading document', error);
     throw error;

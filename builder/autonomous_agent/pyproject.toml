@@ -9,6 +9,8 @@ requires-python = ">=3.11"
 description = "Daedalus autonomous agent worker"
 dependencies = [
     "requests>=2",
+    "redis>=4.3.6,<6",
+    "user_interaction",
 ]
 
 [tool.setuptools.packages.find]

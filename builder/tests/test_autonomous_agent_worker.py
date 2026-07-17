@@ -1,5 +1,6 @@
 import json
 
+import pytest
 from autonomous_agent.backend_client import (
     OAuthRequiredError,
     extract_oauth_required_payload,
@@ -16,10 +17,12 @@ from autonomous_agent.prompt import (
     request_approval_key,
 )
 from autonomous_agent.worker import (
+    MAX_AUTONOMOUS_REQUEST_TIMEOUT_SECONDS,
     _approval_reason,
     apply_workspace_updates,
     make_backend,
     run_once,
+    run_with_lease_heartbeat,
 )
 
 
@@ -119,10 +122,12 @@ class FakeBackend:
         self.response = response
         self.messages = None
         self.approval_token = ""
+        self.execution_id = ""
 
-    def call(self, messages, *, approval_token=""):
+    def call(self, messages, *, approval_token="", execution_id=""):
         self.messages = messages
         self.approval_token = approval_token
+        self.execution_id = execution_id
         return self.response
 
 
@@ -222,13 +227,14 @@ def test_run_once_stores_structured_feed_and_completed_run():
         store=store,
         backend=backend,
         user_id="test-user",
-        request={"trigger": "manual", "prompt": "go"},
+        request={"id": "request-123", "trigger": "manual", "prompt": "go"},
     )
 
     assert run["status"] == "completed"
     assert store.feed[0]["title"] == "Signal"
     assert store.runs[0]["summary"] == "Found a durable signal."
     assert backend.messages[0]["content"].startswith("[IDENTITY]")
+    assert backend.execution_id == "request-123"
 
 
 def test_build_messages_includes_already_surfaced_digest():
@@ -543,7 +549,7 @@ def test_extract_approval_metadata_defaults_to_mcp_mutation():
 
 def test_run_once_pauses_when_backend_requires_oauth():
     class OAuthBackend:
-        def call(self, messages):
+        def call(self, messages, *, execution_id=""):
             raise OAuthRequiredError(
                 "OAuth authorization is required.",
                 auth_url="https://accounts.google.com/o/oauth2/v2/auth?state=abc",
@@ -614,6 +620,7 @@ def test_backend_client_streams_through_loaded_workflow_by_default(monkeypatch):
         backend.call(
             [{"role": "user", "content": "go"}],
             approval_token="approved-secret",
+            execution_id="request-123",
         )
         == "done"
     )
@@ -629,6 +636,7 @@ def test_backend_client_streams_through_loaded_workflow_by_default(monkeypatch):
     assert kwargs["headers"]["x-user-id"] == "test-user"
     assert kwargs["headers"]["x-daedalus-execution-scope"] == "autonomy"
     assert kwargs["headers"]["x-daedalus-approval-token"] == "approved-secret"
+    assert kwargs["headers"]["x-daedalus-execution-id"] == "request-123"
     assert "approved-secret" not in json.dumps(kwargs["json"])
 
 
@@ -640,6 +648,31 @@ def test_make_backend_uses_canonical_base_url_env(monkeypatch):
 
     assert backend.base_url == "http://backend:8000"
     assert backend.api_path == "/v1/chat/completions"
+
+
+@pytest.mark.parametrize("request_timeout", ["0", "not-a-number"])
+def test_make_backend_rejects_invalid_request_timeout(monkeypatch, request_timeout):
+    monkeypatch.setenv("REQUEST_TIMEOUT", request_timeout)
+
+    with pytest.raises(ValueError, match="REQUEST_TIMEOUT"):
+        make_backend("test-user")
+
+
+def test_make_backend_rejects_timeout_that_can_outlive_mcp_receipt(monkeypatch):
+    monkeypatch.setenv(
+        "REQUEST_TIMEOUT", str(MAX_AUTONOMOUS_REQUEST_TIMEOUT_SECONDS + 1)
+    )
+
+    with pytest.raises(ValueError, match="MCP execution receipt"):
+        make_backend("test-user")
+
+
+def test_make_backend_accepts_maximum_receipt_safe_timeout(monkeypatch):
+    monkeypatch.setenv("REQUEST_TIMEOUT", str(MAX_AUTONOMOUS_REQUEST_TIMEOUT_SECONDS))
+
+    backend = make_backend("test-user")
+
+    assert backend.request_timeout == MAX_AUTONOMOUS_REQUEST_TIMEOUT_SECONDS
 
 
 def test_output_requests_approval_requires_structured_marker():
@@ -879,4 +912,72 @@ def test_run_once_aborts_when_lease_lost():
     )
 
     assert run["status"] == "aborted"
+    assert store.feed == []
+
+
+def test_run_with_lease_heartbeat_fails_before_backend_after_lease_loss():
+    class LostLeaseStore(FakeStore):
+        def refresh_lease(self, _user_id, *, ttl_seconds):
+            assert ttl_seconds == 60
+            return False
+
+    store = LostLeaseStore()
+    backend = FakeBackend(json.dumps({"summary": "must not execute"}))
+
+    import pytest
+
+    with pytest.raises(RuntimeError, match="lost before the run started"):
+        run_with_lease_heartbeat(
+            store=store,
+            backend=backend,
+            user_id="test-user",
+            request={"trigger": "scheduled"},
+            lease_ttl=60,
+        )
+
+    assert backend.messages is None
+
+
+def test_run_with_lease_heartbeat_aborts_when_refresh_loses_ownership():
+    import threading
+
+    class SequencedLeaseStore(FakeStore):
+        def __init__(self):
+            super().__init__()
+            self.refresh_calls = 0
+            self.lease_lost = threading.Event()
+
+        def refresh_lease(self, _user_id, *, ttl_seconds):
+            assert ttl_seconds == 1
+            self.refresh_calls += 1
+            if self.refresh_calls == 1:
+                return True
+            self.lease_lost.set()
+            return False
+
+        def owns_lease(self, _user_id):
+            return self.refresh_calls < 2
+
+    class WaitForLeaseLossBackend(FakeBackend):
+        def call(self, messages, *, approval_token="", execution_id=""):
+            assert store.lease_lost.wait(timeout=2)
+            return super().call(
+                messages,
+                approval_token=approval_token,
+                execution_id=execution_id,
+            )
+
+    store = SequencedLeaseStore()
+    backend = WaitForLeaseLossBackend(json.dumps({"summary": "late result"}))
+
+    run = run_with_lease_heartbeat(
+        store=store,
+        backend=backend,
+        user_id="test-user",
+        request={"trigger": "scheduled"},
+        lease_ttl=1,
+    )
+
+    assert run["status"] == "aborted"
+    assert store.refresh_calls >= 2
     assert store.feed == []

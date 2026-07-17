@@ -6,8 +6,6 @@ import { memo, useState, useEffect, useCallback } from 'react';
 import { Button, IconButton } from '@/components/primitives';
 import { GlassCard } from '@/components/surfaces';
 
-import classNames from 'classnames';
-
 /**
  * PWA install prompt that appears 2-3 seconds after first visit.
  * Dismissible with 7-day cooldown or permanent hide.

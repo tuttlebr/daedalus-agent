@@ -1,11 +1,16 @@
 ---
 name: daily-summary
 description: >-
-  Generate a standalone, NVIDIA-styled daily summary webpage using Bootstrap
-  layout primitives while preserving the visual design of the provided daily
-  summary render. This skill is for producing a polished HTML daily briefing
-  where an LLM inserts the latest calendar, weather, operations, sports, and
-  action-item updates into a consistent template.
+  Fill in ONE specific pre-built Bootstrap daily-briefing template with a
+  fixed section set (hero/BLUF, calendar, weather, work and AI-infrastructure
+  status, sports, must-know, next best actions, sources checked) and a strict
+  HTML-only output contract using {{handlebars}} placeholders. Use ONLY when
+  the user explicitly asks for this exact Bootstrap fixed-section daily
+  template. Do NOT grab this for a generic daily briefing or daily summary;
+  the backend routes those and general NVIDIA-styled daily pages to nv-html,
+  the default NVIDIA HTML builder. Use nv-html for any custom NVIDIA-branded
+  page, dashboard, or briefing layout; use this skill only when the caller
+  specifically wants this hardcoded Bootstrap template preserved.
 ---
 
 # Daily Summary Bootstrap Template Skill

@@ -1,10 +1,6 @@
 import { NextApiRequest, NextApiResponse } from 'next';
 
-import {
-  classifyMilvusCollectionScope,
-  SHARED_MILVUS_COLLECTIONS,
-} from '@/utils/app/milvusCollections';
-
+import { getMilvusMetadata } from '@/server/milvusMetadata';
 import { requireAuthenticatedUser } from '@/server/session/_utils';
 
 export default async function handler(
@@ -23,29 +19,13 @@ export default async function handler(
   const username = session.username;
 
   try {
-    // This is a lightweight helper for the upload UI. Shared collections are
-    // intentional first-class corpora in the same Milvus database as
-    // user-scoped collections, but they are explicitly labeled for ingestion
-    // policy and audit handling.
-    const collections = [username, ...SHARED_MILVUS_COLLECTIONS];
-
-    // Remove duplicates and sort
-    const uniqueCollections = Array.from(new Set(collections)).sort();
-
-    res.status(200).json({
-      collections: uniqueCollections,
-      collectionOptions: uniqueCollections.map((name) => ({
-        name,
-        scope: classifyMilvusCollectionScope(name),
-      })),
-      collectionPolicy: {
-        databaseName: 'default',
-        sharedCollections: SHARED_MILVUS_COLLECTIONS,
-        userCollection: username,
-      },
-    });
+    const metadata = await getMilvusMetadata(username);
+    res.setHeader('Cache-Control', 'private, no-store');
+    return res.status(200).json(metadata);
   } catch (error) {
     console.error('Error fetching collections:', error);
-    res.status(500).json({ error: 'Failed to fetch collections' });
+    return res
+      .status(503)
+      .json({ error: 'Collection metadata is unavailable' });
   }
 }

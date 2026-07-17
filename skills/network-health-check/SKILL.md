@@ -1,6 +1,14 @@
 ---
 name: network-health-check
-description: Run a UniFi network health check — diagnose device status, connectivity issues, firmware updates, and system health. Use when asked to check network health, find what's down, diagnose connectivity issues, or get a network status summary.
+description: >-
+  Run a UniFi network health check covering whether everything is online, what
+  is down or offline, device and gateway status, firmware updates needed,
+  active alarms, controller uptime, and per-subsystem WAN, LAN, WLAN, and VPN
+  health. Use when asked to check network health, find offline or problematic
+  devices, review alarms, diagnose connectivity, WAN, or internet-down issues,
+  or get a network status summary. Use firewall-auditor for a scored firewall
+  security audit and firewall-manager or unifi-network to change
+  configuration, rather than diagnosing device and connectivity health.
 ---
 
 # Network Health Check

@@ -1,0 +1,174 @@
+{{- if and .Values.frontend.enabled .Values.frontend.streamWorker.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "daedalus.fullname" . }}-frontend-stream-worker
+  labels:
+    {{- include "daedalus.labels" . | nindent 4 }}
+    app.kubernetes.io/component: frontend-stream-worker
+spec:
+  replicas: {{ .Values.frontend.streamWorker.replicas | default 1 }}
+  revisionHistoryLimit: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "daedalus.name" . }}
+      app.kubernetes.io/component: frontend-stream-worker
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ include "daedalus.name" . }}
+        app.kubernetes.io/component: frontend-stream-worker
+        app.kubernetes.io/instance: {{ .Release.Name }}
+      annotations:
+        deploy-timestamp: {{ .Values.forceRedeploy | default "" | quote }}
+        checksum/redis-auth-config: {{ include "daedalus.redisAuthConfigChecksum" . }}
+    spec:
+      {{- include "daedalus.nodePlacement" . | nindent 6 }}
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: {{ .Values.frontend.streamWorker.terminationGracePeriodSeconds | default 60 }}
+      dnsPolicy: ClusterFirst
+      dnsConfig:
+        options:
+          - name: ndots
+            value: "1"
+          - name: single-request-reopen
+          - name: timeout
+            value: "2"
+          - name: attempts
+            value: "3"
+      {{- with .Values.frontend.securityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: frontend-stream-worker
+          image: {{ include "daedalus.image" .Values.images.frontend | quote }}
+          imagePullPolicy: {{ .Values.images.frontend.pullPolicy }}
+          {{- with .Values.frontend.containerSecurityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          command: ["node", "stream-worker.js"]
+          env:
+            - name: DAEDALUS_INTERNAL_API_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ printf "%s-internal-api" (include "daedalus.fullname" .) }}
+                  key: DAEDALUS_INTERNAL_API_TOKEN
+            {{- if .Values.redis.auth.enabled }}
+            - name: REDIS_USERNAME
+              value: {{ .Values.redis.auth.username | quote }}
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "daedalus.redisSecretName" . }}
+                  key: {{ .Values.redis.auth.secretKey | default "REDIS_PASSWORD" }}
+            {{- end }}
+            - name: REDIS_TLS_ENABLED
+              value: {{ .Values.redis.tls.enabled | quote }}
+            {{- if .Values.redis.tls.enabled }}
+            - name: NODE_EXTRA_CA_CERTS
+              value: {{ printf "%s/%s" (.Values.redis.tls.mountPath | default "/etc/redis-tls") (.Values.redis.tls.caKey | default "ca.crt") | quote }}
+            {{- end }}
+            - name: REDIS_URL
+              value: {{ (get (.Values.frontend.env.overrides | default dict) "REDIS_URL") | default (ternary (printf "%s://$(REDIS_USERNAME):$(REDIS_PASSWORD)@%s-redis.%s.svc.cluster.local:%v" (ternary "rediss" "redis" .Values.redis.tls.enabled) (include "daedalus.fullname" .) .Release.Namespace (.Values.redis.service.port | default 6379)) (printf "%s://%s-redis.%s.svc.cluster.local:%v" (ternary "rediss" "redis" .Values.redis.tls.enabled) (include "daedalus.fullname" .) .Release.Namespace (.Values.redis.service.port | default 6379)) .Values.redis.auth.enabled) | quote }}
+            - name: BACKEND_HOST
+              value: {{ (get (.Values.frontend.env.overrides | default dict) "BACKEND_HOST") | default (printf "%s-backend" (include "daedalus.fullname" .)) | quote }}
+            - name: BACKEND_NAMESPACE
+              value: {{ .Release.Namespace | quote }}
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: BACKEND_API_PATH
+              value: {{ (get (.Values.frontend.env.overrides | default dict) "BACKEND_API_PATH") | default "/v1/chat/completions" | quote }}
+            - name: STREAM_WORKER_CONCURRENCY
+              value: {{ .Values.frontend.streamWorker.concurrency | default 4 | quote }}
+            - name: STREAM_WORKER_LEASE_TTL_SECONDS
+              value: {{ .Values.frontend.streamWorker.leaseTtlSeconds | default 30 | quote }}
+            - name: STREAM_WORKER_HEARTBEAT_SECONDS
+              value: {{ .Values.frontend.streamWorker.heartbeatSeconds | default 10 | quote }}
+            - name: STREAM_WORKER_CANCEL_POLL_SECONDS
+              value: {{ .Values.frontend.streamWorker.cancelPollSeconds | default 1 | quote }}
+            - name: STREAM_WORKER_RECLAIM_IDLE_SECONDS
+              value: {{ .Values.frontend.streamWorker.reclaimIdleSeconds | default 45 | quote }}
+            - name: STREAM_WORKER_RECLAIM_SCAN_SECONDS
+              value: {{ .Values.frontend.streamWorker.reclaimScanSeconds | default 10 | quote }}
+            - name: STREAM_WORKER_READ_BLOCK_MS
+              value: {{ .Values.frontend.streamWorker.readBlockMs | default 1000 | quote }}
+            - name: STREAM_WORKER_DRAIN_TIMEOUT_SECONDS
+              value: {{ .Values.frontend.streamWorker.drainTimeoutSeconds | default 45 | quote }}
+            - name: STREAM_WORKER_HEALTH_MAX_AGE_SECONDS
+              value: {{ .Values.frontend.streamWorker.healthMaxAgeSeconds | default 30 | quote }}
+            {{- with .Values.frontend.streamWorker.env.overrides }}
+            {{- range $k, $v := . }}
+            {{- if not (regexMatch "^(DEPLOYMENT_MODE|BACKEND_(HOST|NAMESPACE|PORT|API_PATH)|DOCUMENT_INGEST_TIMEOUT_MS|NAT_(SUBMIT_MAX_RETRIES|RETRY_DELAY_MS|CONNECTIVITY_TIMEOUT_MS)|STREAM_(ABORT_POLL_INTERVAL_MS|READ_IDLE_TIMEOUT_MS)|DAEDALUS_DEBUG_REPLAY|NEXT_PUBLIC_VAPID_PUBLIC_KEY|VAPID_PRIVATE_KEY|REDIS_(MAX_RETRIES_PER_REQUEST|COMMAND_TIMEOUT_MS)|STREAM_WORKER_[A-Z0-9_]+|LOG_LEVEL)$" $k) }}
+            {{- fail (printf "frontend.streamWorker.env.overrides key %s is not in the stream-worker workload allowlist" $k) }}
+            {{- end }}
+            {{- if and (ne $k "REDIS_URL") (ne $k "REDIS_USERNAME") (ne $k "REDIS_PASSWORD") (ne $k "REDIS_TLS_ENABLED") (ne $k "NODE_EXTRA_CA_CERTS") (ne $k "BACKEND_HOST") (ne $k "BACKEND_API_PATH") (ne $k "DAEDALUS_INTERNAL_API_TOKEN") }}
+            - name: {{ $k }}
+              value: {{ $v | quote }}
+            {{- end }}
+            {{- end }}
+            {{- end }}
+          envFrom:
+            - secretRef:
+                name: {{ .Values.frontend.streamWorker.env.fromSecret | default (printf "%s-stream-worker-env" (include "daedalus.fullname" .)) }}
+          livenessProbe:
+            exec:
+              command: ["node", "stream-worker.js", "--healthcheck"]
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          readinessProbe:
+            exec:
+              command: ["node", "stream-worker.js", "--readycheck"]
+            initialDelaySeconds: 2
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 2
+          {{- with .Values.frontend.streamWorker.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            {{- if .Values.redis.tls.enabled }}
+            - name: redis-tls
+              mountPath: {{ .Values.redis.tls.mountPath | default "/etc/redis-tls" }}
+              readOnly: true
+            {{- end }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        {{- if .Values.redis.tls.enabled }}
+        - name: redis-tls
+          secret:
+            secretName: {{ include "daedalus.redisTlsSecretName" . }}
+        {{- end }}
+---
+{{- if .Values.frontend.streamWorker.pdb.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "daedalus.fullname" . }}-frontend-stream-worker
+  labels:
+    {{- include "daedalus.labels" . | nindent 4 }}
+    app.kubernetes.io/component: frontend-stream-worker
+spec:
+  minAvailable: {{ .Values.frontend.streamWorker.pdb.minAvailable | default 1 }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "daedalus.name" . }}
+      app.kubernetes.io/component: frontend-stream-worker
+      app.kubernetes.io/instance: {{ .Release.Name }}
+{{- end }}
+{{- end }}

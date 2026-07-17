@@ -7,7 +7,6 @@ import dynamic from 'next/dynamic';
 
 import { Logger } from '@/utils/logger';
 
-import { useConversationStore } from '@/state';
 import * as htmlToImage from 'html-to-image';
 import {
   BarChart,
@@ -74,12 +73,6 @@ const Chart = (props: any) => {
     XAxisLabel = '',
     YAxisLabel = '',
   } = data;
-
-  const selectedConversation = useConversationStore((s) => {
-    const id = s.selectedConversationId;
-    return id ? s.conversations.find((c) => c.id === id) : undefined;
-  });
-  const conversations = useConversationStore((s) => s.conversations);
 
   // NVIDIA brand colors for charts
   const colors = {

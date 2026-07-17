@@ -4,7 +4,6 @@ import {
   searchSteps,
   migrateOldStepFormat,
   consolidateSteps,
-  searchConsolidatedSteps,
 } from '@/utils/app/intermediateSteps';
 import {
   loadIntermediateSteps,
@@ -22,7 +21,7 @@ import {
 import { StepTimeline } from './StepTimeline';
 import { ViewToggle } from './ViewToggle';
 
-import { useConversationStore, useUISettingsStore } from '@/state';
+import { useConversationStore } from '@/state';
 
 const logger = new Logger('IntermediateSteps');
 

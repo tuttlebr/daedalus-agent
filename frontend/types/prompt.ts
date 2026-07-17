@@ -1,8 +1,0 @@
-export interface Prompt {
-  id: string;
-  name: string;
-  description: string;
-  content: string;
-  model?: string;
-  folderId: string | null;
-}

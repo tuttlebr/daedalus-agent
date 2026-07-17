@@ -14,9 +14,19 @@ from types import SimpleNamespace
 
 import mcp_patches
 from entrypoint import _patch_request_metadata_redaction
+from packaging.version import Version
 from pydantic import BaseModel
 
 EXPECTED_NAT_VERSION = "1.7.0"
+EXPECTED_NV_INGEST_VERSION = "26.3.0"
+
+SECURITY_DEPENDENCY_RANGES = {
+    "cryptography": (Version("48.0.1"), Version("49")),
+    "fastfeedparser": (Version("0.5.10"), Version("0.6")),
+    "pillow": (Version("12.2"), Version("13")),
+    "starlette": (Version("1.3.1"), Version("2")),
+    "urllib3": (Version("2.7"), Version("3")),
+}
 
 
 def main() -> None:
@@ -26,6 +36,55 @@ def main() -> None:
             raise RuntimeError(
                 f"{distribution} {installed} does not match {EXPECTED_NAT_VERSION}"
             )
+
+    for distribution, (minimum, maximum) in SECURITY_DEPENDENCY_RANGES.items():
+        installed = Version(version(distribution))
+        if not minimum <= installed < maximum:
+            raise RuntimeError(
+                f"{distribution} {installed} is outside the security-tested "
+                f"range >={minimum},<{maximum}"
+            )
+
+    for distribution in ("nv-ingest-api", "nv-ingest-client"):
+        installed = version(distribution)
+        if installed != EXPECTED_NV_INGEST_VERSION:
+            raise RuntimeError(
+                f"{distribution} {installed} does not match "
+                f"{EXPECTED_NV_INGEST_VERSION}"
+            )
+
+    # The client imports API schemas while constructing each extraction task,
+    # but its wheel metadata doesn't declare the API package. Exercise the real
+    # paired packages and every file-type path the application exposes. Stub
+    # only the live Milvus dimension probe so this remains a build-time check.
+    import nat_nv_ingest.nat_nv_ingest as ingest_module
+    from nat_nv_ingest.nat_nv_ingest import NvIngestFunctionConfig, _build_ingestor
+    from nv_ingest_client.client import Ingestor
+
+    original_dimension_check = ingest_module._validate_embedding_dimension
+    ingest_module._validate_embedding_dimension = lambda *_args, **_kwargs: None
+    try:
+        for filename in (
+            "contract.txt",
+            "contract.pdf",
+            "contract.docx",
+            "contract.pptx",
+        ):
+            ingestor = _build_ingestor(
+                nv_client=SimpleNamespace(),
+                document_bytes=b"runtime contract",
+                filename=filename,
+                config=NvIngestFunctionConfig(enable_image_filter=False),
+                collection_name="runtime_contract",
+                chunk_size=256,
+                chunk_overlap=32,
+            )
+            if not isinstance(ingestor, Ingestor):
+                raise RuntimeError(
+                    f"NV-Ingest didn't build a real chain for {filename}"
+                )
+    finally:
+        ingest_module._validate_embedding_dimension = original_dimension_check
 
     # NAT serializes RequestAttributes into every tracing span. Prove the
     # installed ABI is patched before any internal or approval secret can be
@@ -46,20 +105,77 @@ def main() -> None:
     if "runtime-" in serialized_attributes or "headers" in serialized_attributes:
         raise RuntimeError("Sensitive request headers remain in NAT trace metadata")
 
-    from nat.plugins.mcp.client.client_base import MCPToolClient
+    # NAT 1.7 exposes runner_class as its supported application-composition
+    # hook. Prove the configured Daedalus worker remains a valid subclass so
+    # route ownership never falls back to a process-wide FastAPI patch.
+    from nat.front_ends.fastapi.fastapi_front_end_plugin_worker import (
+        FastApiFrontEndPluginWorker,
+    )
+    from nat_helpers.front_end import DaedalusFastApiFrontEndPluginWorker
+
+    if not issubclass(DaedalusFastApiFrontEndPluginWorker, FastApiFrontEndPluginWorker):
+        raise RuntimeError("Daedalus NAT runner no longer satisfies the pinned ABI")
+
+    # Import the package registration module exactly as NAT's component loader
+    # does, then prove the narrow Redis ACL/TLS provider is registered against
+    # the installed runtime and still exposes every connection-security field.
+    import nat_helpers.register  # noqa: F401
+    from nat.cli.type_registry import GlobalTypeRegistry
+    from nat_helpers.secure_redis_memory import DaedalusRedisMemoryClientConfig
+
+    redis_fields = set(DaedalusRedisMemoryClientConfig.model_fields)
+    required_redis_fields = {"username", "password", "ssl", "ssl_ca_certs"}
+    if not required_redis_fields <= redis_fields:
+        raise RuntimeError(
+            "Daedalus Redis memory provider lost required ACL/TLS fields"
+        )
+    registered_redis = GlobalTypeRegistry.get().get_memory(
+        DaedalusRedisMemoryClientConfig
+    )
+    if registered_redis.config_type is not DaedalusRedisMemoryClientConfig:
+        raise RuntimeError("Daedalus Redis memory provider wasn't registered")
+
+    # OAuth-backed MCP groups must discover and cache their schemas inside a
+    # real authenticated user's workflow. Prove the per-user tool-calling
+    # registration exists in the pinned NAT registry and carries explicit API
+    # schemas so the shared application can start without building it.
+    from nat_helpers.per_user_tool_calling import (
+        DaedalusPerUserToolCallAgentWorkflowConfig,
+    )
+
+    per_user_agent = GlobalTypeRegistry.get().get_function(
+        DaedalusPerUserToolCallAgentWorkflowConfig
+    )
+    if not per_user_agent.is_per_user:
+        raise RuntimeError("Daedalus tool-calling workflow isn't per-user")
+    if (
+        per_user_agent.per_user_function_input_schema is None
+        or per_user_agent.per_user_function_single_output_schema is None
+        or per_user_agent.per_user_function_streaming_output_schema is None
+    ):
+        raise RuntimeError("Per-user tool-calling API schemas aren't registered")
+
+    from nat.plugins.mcp.client.client_base import (
+        MCPStreamableHTTPClient,
+        MCPToolClient,
+    )
 
     signature = inspect.signature(MCPToolClient.acall)
     if list(signature.parameters) != ["self", "tool_args"]:
         raise RuntimeError(f"Unexpected MCPToolClient.acall signature: {signature}")
 
-    mcp_patches._patch_tool_client()
+    mcp_patches.patch()
     if not getattr(MCPToolClient.acall, "_daedalus_approval_gate", False):
         raise RuntimeError("MCP approval gate did not attach to acall")
+    if not getattr(
+        MCPStreamableHTTPClient.connect_to_server,
+        "_daedalus_transport_wrapper",
+        False,
+    ):
+        raise RuntimeError("MCP transport policy wrapper did not attach")
 
     # NAT's public server_name is transport-only. Verify the adapter binds two
     # real pinned StreamableHTTP clients by transport + URL without collision.
-    from nat.plugins.mcp.client.client_base import MCPStreamableHTTPClient
-
     mcp_patches._mcp_server_group_names.clear()
     mcp_patches._ambiguous_mcp_servers.clear()
     first = MCPStreamableHTTPClient("https://first.example.test/mcp")
@@ -211,7 +327,8 @@ def main() -> None:
         original_make_client = approval_tokens.make_redis_client
         approval_tokens.make_redis_client = lambda _url=None: fake_redis
         previous_internal_token = os.environ.get("DAEDALUS_INTERNAL_API_TOKEN")
-        os.environ["DAEDALUS_INTERNAL_API_TOKEN"] = secrets.token_urlsafe(24)
+        runtime_internal_token = secrets.token_urlsafe(24)
+        os.environ["DAEDALUS_INTERNAL_API_TOKEN"] = runtime_internal_token
         try:
             for suffix in ("success", "mcp-error", "timeout"):
                 parent = RuntimeParent(outcome=suffix)
@@ -264,7 +381,7 @@ def main() -> None:
                 metadata._request.headers = Headers(
                     {
                         "x-user-id": "runtime-user",
-                        "x-daedalus-internal-token": "runtime-internal-secret",
+                        "x-daedalus-internal-token": runtime_internal_token,
                         "x-daedalus-approval-token": token,
                     }
                 )

@@ -1,6 +1,14 @@
+{{- $documentObjectMode := include "daedalus.documentObjectNetworkMode" . -}}
+{{- $documentObjectInCluster := and .Values.documentObjectStorage.enabled (eq $documentObjectMode "inCluster") -}}
+{{- $documentObjectExternalEnabled := and .Values.documentObjectStorage.enabled (eq $documentObjectMode "external") -}}
+{{- $documentObjectExternal := .Values.documentObjectStorage.networkPolicy.external -}}
+{{- $documentObjectExternalCidrs := $documentObjectExternal.cidrs | default (list) -}}
+{{- $documentObjectExternalFqdns := $documentObjectExternal.fqdnNames | default (list) -}}
 {{- if .Values.backend.networkPolicy.cilium.enabled }}
-# Cilium egress policy for frontend — no external access.
-# Frontend can only reach backend pods, Redis, and DNS.
+{{- if and $documentObjectExternalEnabled (not $documentObjectExternalCidrs) (not $documentObjectExternalFqdns) }}
+  {{- fail "documentObjectStorage.networkPolicy.external requires at least one explicit CIDR or FQDN for Cilium" }}
+{{- end }}
+# Cilium egress policy for frontend. External object-store access is opt-in.
 apiVersion: cilium.io/v2
 kind: CiliumNetworkPolicy
 metadata:
@@ -80,4 +88,127 @@ spec:
         - ports:
             - port: {{ .Values.redis.service.port | quote }}
               protocol: TCP
+    {{- if $documentObjectInCluster }}
+    # In-cluster object store for streamed documents
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: {{ .Values.documentObjectStorage.networkPolicy.namespace | quote }}
+      toPorts:
+        - ports:
+            - port: {{ .Values.documentObjectStorage.networkPolicy.port | quote }}
+              protocol: TCP
+    {{- else if and $documentObjectExternalEnabled $documentObjectExternalFqdns }}
+    # External object store, limited to exact operator-provided FQDNs.
+    - toFQDNs:
+        {{- range $documentObjectExternalFqdns }}
+        - matchName: {{ . | quote }}
+        {{- end }}
+      toPorts:
+        - ports:
+            - port: {{ $documentObjectExternal.port | default 443 | quote }}
+              protocol: TCP
+    {{- end }}
+{{- if and .Values.frontend.enabled .Values.frontend.streamWorker.enabled }}
+---
+# The stream worker has no document-object credential and needs only DNS,
+# backend, and Redis egress.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: {{ include "daedalus.fullname" . }}-frontend-stream-worker-cilium
+  labels:
+    {{- include "daedalus.labels" . | nindent 4 }}
+    app.kubernetes.io/component: frontend-stream-worker
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "daedalus.name" . }}
+      app.kubernetes.io/component: frontend-stream-worker
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  egress:
+    - toServices:
+        - k8sService:
+            serviceName: kube-dns
+            namespace: kube-system
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
+          rules:
+            dns:
+              - matchPattern: "*"
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
+          rules:
+            dns:
+              - matchPattern: "*"
+    - toEntities:
+        - host
+        - remote-node
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
+          rules:
+            dns:
+              - matchPattern: "*"
+    {{- if .Values.backend.default.enabled }}
+    - toEndpoints:
+        - matchLabels:
+            app.kubernetes.io/name: {{ include "daedalus.name" . }}
+            app.kubernetes.io/component: backend-default
+            app.kubernetes.io/instance: {{ .Release.Name }}
+      toPorts:
+        - ports:
+            - port: {{ .Values.backend.default.port | quote }}
+              protocol: TCP
+    {{- end }}
+    - toEndpoints:
+        - matchLabels:
+            app.kubernetes.io/name: {{ include "daedalus.name" . }}
+            app.kubernetes.io/component: redis
+            app.kubernetes.io/instance: {{ .Release.Name }}
+      toPorts:
+        - ports:
+            - port: {{ .Values.redis.service.port | quote }}
+              protocol: TCP
+{{- end }}
+{{- if and $documentObjectExternalEnabled $documentObjectExternalCidrs }}
+---
+# Keep CIDR and FQDN rules separate for Cilium 1.19 compatibility.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: {{ include "daedalus.fullname" . }}-frontend-document-objects-cidr
+  labels:
+    {{- include "daedalus.labels" . | nindent 4 }}
+    app.kubernetes.io/component: frontend
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "daedalus.name" . }}
+      app.kubernetes.io/component: frontend
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  egress:
+    - toCIDRSet:
+        {{- range $documentObjectExternalCidrs }}
+        - cidr: {{ . | quote }}
+        {{- end }}
+      toPorts:
+        - ports:
+            - port: {{ $documentObjectExternal.port | default 443 | quote }}
+              protocol: TCP
+{{- end }}
 {{- end }}

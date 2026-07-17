@@ -190,7 +190,7 @@ Use this to:
 Good coverage targets:
 
 - ~5 cases per major direct route (research, ops, media, user_data) → 20
-- ~5 skill-match cases (pr-monitor, debug-session, code-review, etc.)
+- ~5 skill-match cases (pr-monitor, dynamo-troubleshoot, nat-user-rules, etc.)
 - ~5 conversational and edge cases
 - ~15 factuality cases (research-heavy, findings-inducing)
 - p95 token and latency budgets per major workflow

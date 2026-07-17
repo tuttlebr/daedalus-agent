@@ -73,6 +73,16 @@ export function validateHtmlContent(buffer: Buffer): boolean {
   );
 }
 
+export function validateTextContent(buffer: Buffer): boolean {
+  if (buffer.includes(0)) return false;
+  try {
+    new TextDecoder('utf-8', { fatal: true }).decode(buffer);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Validate that a buffer matches the expected MIME type.
  * Returns true if valid, false if magic bytes don't match.
@@ -100,6 +110,14 @@ export function validateMagicBytes(buffer: Buffer, mimeType: string): boolean {
 
   if (mime === 'text/html' || mime === 'application/xhtml+xml') {
     return validateHtmlContent(buffer);
+  }
+
+  if (
+    mime === 'text/plain' ||
+    mime === 'text/markdown' ||
+    mime === 'text/x-markdown'
+  ) {
+    return validateTextContent(buffer);
   }
 
   // Unknown type — allow (no validation rule)

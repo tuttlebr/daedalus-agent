@@ -225,7 +225,6 @@ export async function updateUserPassword(
   const user = await getUserByUsername(username);
   if (!user) return false;
 
-  const redis = getRedis();
   const userKey = sessionKey(['user', username]);
 
   user.passwordHash = await bcrypt.hash(newPassword, 10);

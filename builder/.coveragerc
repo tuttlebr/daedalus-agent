@@ -5,6 +5,7 @@ source =
     image_api
     llm_diagnostics
     mcp_patches
+    milvus_collection_migration
     profile_import_api
     agent_skills/src
     autonomous_agent/src

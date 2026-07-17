@@ -68,7 +68,7 @@ function_groups:
       transport: streamable-http
       url: http://xmcp.xmcp.svc.cluster.local:8000/mcp
   gmail_mcp_server:
-    _type: mcp_client
+    _type: per_user_mcp_client
     include:
       - search_threads
       - get_thread
@@ -79,8 +79,6 @@ function_groups:
     reconnect_max_attempts: 3
     reconnect_initial_backoff: 5.0
     reconnect_max_backoff: 60.0
-    max_sessions: 8
-    session_idle_timeout: 600
     use_native_tool_calling: true
     tool_overrides:
       search_threads:
@@ -96,7 +94,7 @@ function_groups:
       transport: streamable-http
       url: https://gmailmcp.googleapis.com/mcp/v1
   calendar_mcp_server:
-    _type: mcp_client
+    _type: per_user_mcp_client
     include:
       - list_calendars
     tool_call_timeout: 60
@@ -105,139 +103,11 @@ function_groups:
     reconnect_max_attempts: 3
     reconnect_initial_backoff: 5.0
     reconnect_max_backoff: 60.0
-    max_sessions: 8
-    session_idle_timeout: 600
     use_native_tool_calling: true
     server:
       auth_provider: calendar_mcp_server
       transport: streamable-http
       url: https://calendarmcp.googleapis.com/mcp/v1
-  dynamo_mcp_server:
-    _type: mcp_client
-    include:
-      - searchDocs
-    tool_call_timeout: 60
-    auth_flow_timeout: 30
-    reconnect_enabled: true
-    reconnect_max_attempts: 3
-    reconnect_initial_backoff: 5.0
-    reconnect_max_backoff: 60.0
-    max_sessions: 8
-    session_idle_timeout: 600
-    tool_overrides:
-      searchDocs:
-        description: >-
-          Search NVIDIA Dynamo inference runtime docs. Args: query.
-          Returns: doc passages. Use for Dynamo-specific API/config
-          questions.
-    server:
-      transport: streamable-http
-      url: https://docs.nvidia.com/dynamo/_mcp/server
-  openshell_mcp_server:
-    _type: mcp_client
-    include:
-      - searchDocs
-    tool_call_timeout: 60
-    auth_flow_timeout: 30
-    reconnect_enabled: true
-    reconnect_max_attempts: 3
-    reconnect_initial_backoff: 5.0
-    reconnect_max_backoff: 60.0
-    max_sessions: 8
-    session_idle_timeout: 600
-    tool_overrides:
-      searchDocs:
-        description: >-
-          Search NVIDIA OpenShell docs. Args: query.
-          Returns: doc passages. Use for OpenShell-specific API/config
-          questions.
-    server:
-      transport: streamable-http
-      url: https://docs.nvidia.com/openshell/_mcp/server
-  aistore_mcp_server:
-    _type: mcp_client
-    include:
-      - searchDocs
-    tool_call_timeout: 60
-    auth_flow_timeout: 30
-    reconnect_enabled: true
-    reconnect_max_attempts: 3
-    reconnect_initial_backoff: 5.0
-    reconnect_max_backoff: 60.0
-    max_sessions: 8
-    session_idle_timeout: 600
-    tool_overrides:
-      searchDocs:
-        description: >-
-          Search NVIDIA AIStore docs. Args: query.
-          Returns: doc passages. Use for AIStore-specific API/config
-          questions.
-    server:
-      transport: streamable-http
-      url: https://docs.nvidia.com/aistore/_mcp/server
-  aiperf_mcp_server:
-    _type: mcp_client
-    include:
-      - searchDocs
-    tool_call_timeout: 60
-    auth_flow_timeout: 30
-    reconnect_enabled: true
-    reconnect_max_attempts: 3
-    reconnect_initial_backoff: 5.0
-    reconnect_max_backoff: 60.0
-    max_sessions: 8
-    session_idle_timeout: 600
-    tool_overrides:
-      searchDocs:
-        description: >-
-          Search NVIDIA AIPerf docs. Args: query.
-          Returns: doc passages. Use for AIPerf-specific API/config
-          questions.
-    server:
-      transport: streamable-http
-      url: https://docs.nvidia.com/aiperf/_mcp/server
-  nvcf_mcp_server:
-    _type: mcp_client
-    include:
-      - searchDocs
-    tool_call_timeout: 60
-    auth_flow_timeout: 30
-    reconnect_enabled: true
-    reconnect_max_attempts: 3
-    reconnect_initial_backoff: 5.0
-    reconnect_max_backoff: 60.0
-    max_sessions: 8
-    session_idle_timeout: 600
-    tool_overrides:
-      searchDocs:
-        description: >-
-          Search NVIDIA Cloud Functions docs. Args: query.
-          Returns: doc passages. Use for NVIDIA Cloud Functions-specific
-          API/config questions.
-    server:
-      transport: streamable-http
-      url: https://docs.nvidia.com/nvcf/_mcp/server
-  dsx_mcp_server:
-    _type: mcp_client
-    include:
-      - searchDocs
-    tool_call_timeout: 60
-    auth_flow_timeout: 30
-    reconnect_enabled: true
-    reconnect_max_attempts: 3
-    reconnect_initial_backoff: 5.0
-    reconnect_max_backoff: 60.0
-    max_sessions: 8
-    session_idle_timeout: 600
-    tool_overrides:
-      searchDocs:
-        description: >-
-          Search NVIDIA DSX docs. Args: query.
-          Returns: doc passages. Use for DSX-specific API/config
-          questions.
-    server:
-      transport: streamable-http
-      url: https://docs.nvidia.com/dsx/_mcp/server
   k8s_mcp_server:
     _type: mcp_client
     tool_call_timeout: 60
@@ -568,11 +438,11 @@ functions:
     allowed_schemes:
       - http
       - https
-    browser_timeout: 60
     description: >-
       Fetch ONE known URL and convert to markdown. Uses a controlled
-      HTTP fetch first, then MarkItDown and headless browser fallback
-      for document, JS, or bot-protected sites. Trigger: you already
+      HTTP fetch with connection-time public-IP validation, then gives
+      MarkItDown only a local file. Direct browser navigation is disabled.
+      Trigger: you already
       have the URL (from Perplexity Search, an RSS entry, or the
       user). Args: url (http/https only). Returns: markdown up to n
       tokens. Fails when: URL unknown (use perplexity_search_tool
@@ -580,7 +450,6 @@ functions:
     max_output_tokens: 20000
     respect_robots_txt: false
     timeout: 60
-    use_browser_fallback: true
     user_agent: daedalus-webscraper/0.1.0
     verbose: false
   llm_sandbox_tool:
@@ -595,6 +464,17 @@ functions:
       timeout, truncation, and request id. Fails when LLM_SANDBOX_API_KEY
       is unset, the service is unreachable, the command is not allowlisted,
       or sandbox policy rejects the command.
+    verbose: false
+  nvidia_docs_tool:
+    _type: nvidia_docs
+    timeout: 60
+    description: >-
+      Search official NVIDIA Dynamo, OpenShell, AIStore, AIPerf, NVCF,
+      or DSX documentation through one routed capability. Args: product
+      (dynamo, openshell, aistore, aiperf, nvcf, or dsx) and query.
+      Returns official documentation search results from the fixed product
+      endpoint. Use for product-specific API, configuration, and behavior
+      questions.
     verbose: false
   source_verifier_tool:
     _type: source_verifier
@@ -651,15 +531,10 @@ functions:
         requires_auth: false
       - id: nvidia_docs
         name: Official NVIDIA Docs
-        description: Official NVIDIA product docs via MCP docs specialists,
+        description: Official NVIDIA product docs via one routed MCP capability,
           including Dynamo, OpenShell, AIStore, AIPerf, NVCF, and DSX.
         tools:
-          - dynamo_mcp_server
-          - openshell_mcp_server
-          - aistore_mcp_server
-          - aiperf_mcp_server
-          - nvcf_mcp_server
-          - dsx_mcp_server
+          - nvidia_docs_tool
         default_enabled: true
         requires_auth: false
       - id: uploaded_documents
@@ -703,8 +578,14 @@ functions:
       and unsupported exact claims fail closed.
     verbose: false
 general:
+  # Authenticated workflows, including their user-specific MCP schemas and
+  # OAuth sessions, are reused briefly and then deterministically reclaimed.
+  per_user_workflow_timeout: 600
+  per_user_workflow_cleanup_interval: 60
+  enable_per_user_monitoring: false
   front_end:
     _type: fastapi
+    runner_class: nat_helpers.front_end.DaedalusFastApiFrontEndPluginWorker
     enable_interactive_extensions: true
     step_adaptor:
       mode: custom
@@ -744,15 +625,19 @@ llms:
     model_name: ${DEFAULT_LLM_MODEL_MODEL}
 memory:
   redis_memory:
-    _type: nat.plugins.redis/redis_memory
+    _type: daedalus_redis_memory
     db: 0
     embedder: milvus_embedder
     host: ${REDIS_HOST}
     key_prefix: nat
+    password: ${REDIS_PASSWORD}
     port: ${REDIS_PORT}
+    ssl: ${REDIS_TLS_ENABLED}
+    ssl_ca_certs: ${REDIS_TLS_CA_FILE}
+    username: ${REDIS_USERNAME}
     verbose: false
 workflow:
-  _type: tool_calling_agent
+  _type: daedalus_per_user_tool_calling_agent
   llm_name: tool_calling_llm
   max_iterations: 32
   max_history: 100
@@ -852,12 +737,7 @@ workflow:
     - webscrape_tool
     - llm_sandbox_tool
     - content_distiller_tool
-    - dynamo_mcp_server
-    - openshell_mcp_server
-    - aistore_mcp_server
-    - aiperf_mcp_server
-    - nvcf_mcp_server
-    - dsx_mcp_server
+    - nvidia_docs_tool
     - k8s_mcp_server
     - unifi_mcp_server
     - user_document_tool

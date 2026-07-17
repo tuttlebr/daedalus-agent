@@ -42,6 +42,9 @@ repos:
         args: [--fix=auto]
       - id: check-added-large-files
         args: ['--maxkb=1024']
+        # PEP 751 records the signed hash for every candidate wheel. These two
+        # generated runtime locks are intentionally larger than the general cap.
+        exclude: '^builder/pylock\.runtime-linux-(amd64|arm64)\.toml$'
       - id: check-merge-conflict
       - id: detect-private-key
       - id: detect-aws-credentials
@@ -84,7 +87,10 @@ repos:
     rev: 5.13.2
     hooks:
       - id: isort
-        args: [--profile, black]
+        # The repository's Redis image lives in top-level redis/, but Python's
+        # redis client remains a third-party package. Pin the classification so
+        # isort doesn't rewrite valid imports when that build context exists.
+        args: [--profile, black, -o, redis]
 
   - repo: https://github.com/asottile/pyupgrade
     rev: v3.17.0

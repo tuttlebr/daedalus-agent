@@ -21,28 +21,90 @@ spec:
         app.kubernetes.io/name: {{ include "daedalus.name" . }}
         app.kubernetes.io/component: redis
         app.kubernetes.io/instance: {{ .Release.Name }}
+      annotations:
+        deploy-timestamp: {{ .Values.forceRedeploy | default "" | quote }}
+        checksum/redis-auth-config: {{ include "daedalus.redisAuthConfigChecksum" . }}
+        checksum/redis-init: {{ include (print $.Template.BasePath "/redis-init-configmap.yaml") . | sha256sum }}
     spec:
       {{- include "daedalus.nodePlacement" . | nindent 6 }}
+      automountServiceAccountToken: false
       {{- with .Values.redis.securityContext }}
       securityContext:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       containers:
         - name: redis
-          image: "{{ .Values.images.redis.repository }}:{{ .Values.images.redis.tag }}"
+          image: {{ include "daedalus.image" .Values.images.redis | quote }}
           imagePullPolicy: {{ .Values.images.redis.pullPolicy }}
+          {{- with .Values.redis.containerSecurityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           command: ["/bin/bash", "/scripts/init-redis.sh"]
+          env:
+          {{- if .Values.redis.auth.enabled }}
+            - name: REDIS_USERNAME
+              value: {{ .Values.redis.auth.username | quote }}
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "daedalus.redisSecretName" . }}
+                  key: {{ .Values.redis.auth.secretKey | default "REDIS_PASSWORD" }}
+            - name: REDIS_PREVIOUS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "daedalus.redisSecretName" . }}
+                  key: {{ .Values.redis.auth.previousSecretKey | default "REDIS_PREVIOUS_PASSWORD" }}
+                  optional: true
+            - name: REDISCLI_AUTH
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "daedalus.redisSecretName" . }}
+                  key: {{ .Values.redis.auth.secretKey | default "REDIS_PASSWORD" }}
+          {{- end }}
+            - name: REDIS_TLS_ENABLED
+              value: {{ .Values.redis.tls.enabled | quote }}
+            {{- if .Values.redis.tls.enabled }}
+            - name: REDIS_TLS_CERT_FILE
+              value: {{ printf "%s/%s" (.Values.redis.tls.mountPath | default "/etc/redis-tls") (.Values.redis.tls.certKey | default "tls.crt") | quote }}
+            - name: REDIS_TLS_KEY_FILE
+              value: {{ printf "%s/%s" (.Values.redis.tls.mountPath | default "/etc/redis-tls") (.Values.redis.tls.privateKeyKey | default "tls.key") | quote }}
+            - name: REDIS_TLS_CA_FILE
+              value: {{ printf "%s/%s" (.Values.redis.tls.mountPath | default "/etc/redis-tls") (.Values.redis.tls.caKey | default "ca.crt") | quote }}
+            {{- end }}
           ports:
             - containerPort: 6379
               name: redis
           livenessProbe:
             exec:
-              command: ["redis-cli", "ping"]
+              command:
+                - redis-cli
+                {{- if .Values.redis.tls.enabled }}
+                - --tls
+                - --cacert
+                - {{ printf "%s/%s" (.Values.redis.tls.mountPath | default "/etc/redis-tls") (.Values.redis.tls.caKey | default "ca.crt") | quote }}
+                {{- end }}
+                {{- if .Values.redis.auth.enabled }}
+                - --user
+                - {{ .Values.redis.auth.username | quote }}
+                {{- end }}
+                - ping
             initialDelaySeconds: 15
             periodSeconds: 15
           readinessProbe:
             exec:
-              command: ["redis-cli", "ping"]
+              command:
+                - redis-cli
+                {{- if .Values.redis.tls.enabled }}
+                - --tls
+                - --cacert
+                - {{ printf "%s/%s" (.Values.redis.tls.mountPath | default "/etc/redis-tls") (.Values.redis.tls.caKey | default "ca.crt") | quote }}
+                {{- end }}
+                {{- if .Values.redis.auth.enabled }}
+                - --user
+                - {{ .Values.redis.auth.username | quote }}
+                {{- end }}
+                - ping
             initialDelaySeconds: 5
             periodSeconds: 10
           {{- with .Values.redis.resources }}
@@ -55,6 +117,11 @@ spec:
             {{- if .Values.redis.persistence.enabled }}
             - name: redis-data
               mountPath: /data
+            {{- end }}
+            {{- if .Values.redis.tls.enabled }}
+            - name: redis-tls
+              mountPath: {{ .Values.redis.tls.mountPath | default "/etc/redis-tls" }}
+              readOnly: true
             {{- end }}
       volumes:
         - name: init-script
@@ -70,6 +137,11 @@ spec:
           persistentVolumeClaim:
             claimName: {{ .Values.redis.persistence.existingClaimName }}
           {{- end }}
+        {{- end }}
+        {{- if .Values.redis.tls.enabled }}
+        - name: redis-tls
+          secret:
+            secretName: {{ include "daedalus.redisTlsSecretName" . }}
         {{- end }}
 ---
 apiVersion: v1

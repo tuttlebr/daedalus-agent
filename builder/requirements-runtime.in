@@ -1,0 +1,35 @@
+# Runtime dependency source of truth. Regenerate both Linux locks with uv 0.9.15:
+# uv pip compile --python-version 3.12 \
+#   --python-platform x86_64-unknown-linux-gnu --prerelease=allow \
+#   --overrides requirements-runtime-overrides.in \
+#   --format pylock.toml --output-file pylock.runtime-linux-amd64.toml \
+#   requirements-runtime.in
+# uv pip compile --python-version 3.12 \
+#   --python-platform aarch64-unknown-linux-gnu --prerelease=allow \
+#   --overrides requirements-runtime-overrides.in \
+#   --format pylock.toml --output-file pylock.runtime-linux-arm64.toml \
+#   requirements-runtime.in
+
+nvidia-nat[redis,mcp,langchain,phoenix] @ git+https://github.com/NVIDIA/NeMo-Agent-Toolkit.git@9d320c3645fe654cd68e59d0843ed7a294673a17
+cryptography>=48.0.1,<49
+fastfeedparser>=0.5.10,<0.6
+greenlet>=3,<4
+pillow>=12.2,<13
+pydantic<2.14
+starlette>=1.3.1,<2
+urllib3>=2.7,<3
+
+-e ./nat_helpers
+-e ./visual_media
+-e ./nat_nv_ingest
+-e ./smart_milvus
+-e ./webscrape
+-e ./rss_feed
+-e ./vtt_interpreter
+-e ./agent_skills
+-e ./perplexity_search
+-e ./content_distiller
+-e ./source_verifier
+-e ./user_interaction
+-e ./autonomous_agent
+-e ./llm_sandbox

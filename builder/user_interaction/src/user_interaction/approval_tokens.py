@@ -11,6 +11,7 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
+from urllib.parse import quote, urlencode, urlsplit, urlunsplit
 
 try:  # pragma: no cover - import availability depends on runtime image
     import redis
@@ -20,7 +21,10 @@ except Exception:  # pragma: no cover
 
 DEFAULT_APPROVAL_TTL_SECONDS = 300
 DEFAULT_PENDING_APPROVAL_TTL_SECONDS = 7 * 24 * 60 * 60
-DEFAULT_MCP_RECEIPT_TTL_SECONDS = 300
+# Execution credentials remain short lived, but a success receipt may be
+# written early in a backend request that is allowed to run for one hour. Keep
+# proof long enough for that request plus retry/recovery margin.
+DEFAULT_MCP_RECEIPT_TTL_SECONDS = 2 * 60 * 60
 
 _SENSITIVE_ARGUMENT_KEY = re.compile(
     r"(?:authorization|cookie|credential|password|secret|token|api[_-]?key)",
@@ -267,12 +271,39 @@ def build_redis_url(redis_url: str | None = None) -> str:
     env_url = _norm(os.getenv("REDIS_URL"))
     if env_url:
         port = _norm(os.getenv("REDIS_PORT"))
-        if port and env_url.count(":") == 1 and "://" in env_url:
-            return f"{env_url}:{port}"
+        parsed = urlsplit(env_url)
+        if port and parsed.scheme and parsed.hostname and parsed.port is None:
+            parsed = parsed._replace(netloc=f"{parsed.netloc}:{port}")
+            return urlunsplit(parsed)
         return env_url
-    host = _norm(os.getenv("RI_REDIS_HOST_DAEDALUS"), "localhost")
+    host = _norm(os.getenv("REDIS_HOST"), "localhost")
     port = _norm(os.getenv("REDIS_PORT"), "6379")
-    return f"redis://{host}:{port}"
+    tls_enabled = _norm(os.getenv("REDIS_TLS_ENABLED")).lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+    scheme = "rediss" if tls_enabled else "redis"
+
+    # Preserve the password exactly while URL-encoding both ACL fields. This
+    # fallback is used when a deployment provides the standard Redis variables
+    # but intentionally omits REDIS_URL.
+    raw_password = os.getenv("REDIS_PASSWORD")
+    credentials = ""
+    if raw_password:
+        username = _norm(os.getenv("REDIS_USERNAME"), "default")
+        credentials = f"{quote(username, safe='')}:{quote(raw_password, safe='')}@"
+
+    authority_host = host
+    if ":" in host and not host.startswith("["):
+        authority_host = f"[{host}]"
+    url = f"{scheme}://{credentials}{authority_host}:{port}"
+
+    ca_file = _norm(os.getenv("REDIS_TLS_CA_FILE"))
+    if tls_enabled and ca_file:
+        url = f"{url}?{urlencode({'ssl_ca_certs': ca_file})}"
+    return url
 
 
 def make_redis_client(redis_url: str | None = None):

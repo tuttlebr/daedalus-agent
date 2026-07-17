@@ -1,73 +1,128 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
-
-This is the **Next.js 14 frontend** (`frontend/`) of the larger `daedalus-agent` monorepo. It handles auth, chat orchestration, multimodal uploads, conversation persistence, real-time sync, and PWA behavior on top of the NeMo Agent (NAT) backends. The Python backend lives in `../builder/`, runtime backend config in `../backend/`, Helm in `../helm/`. See `../AGENTS.md` for repo-wide guidelines and `README.md` for the full feature/env reference.
+This file gives implementation guidance for the `frontend/` package in the
+Daedalus monorepo. It is a Next.js 15 Pages Router application that owns login,
+chat submission and recovery, multimodal uploads, conversation persistence,
+real-time fanout, and PWA behavior. Python backend code lives in `../builder/`,
+runtime workflow config in `../backend/`, and Kubernetes packaging in
+`../helm/`.
 
 ## Commands
 
-Use **Node.js 22**. `legacy-peer-deps` is set in `.npmrc`, but install scripts still pass it explicitly.
+Use Node.js 22. The repository's `.npmrc` enables legacy peer dependency
+resolution, and CI passes the option explicitly.
 
 ```bash
-npm ci --legacy-peer-deps        # install
-npm run dev                      # dev server on port 5000 (Next.js only — see runtime note)
-npm run build                    # next build + scripts/inject-precache.js (PWA precache manifest)
-npm run lint                     # next lint (eslint)
-npm run format                   # prettier --write .
-
-npm test                         # vitest watch mode
-npm test -- --run                # run suite once (CI)
-npm test -- --run __tests__/utils/app/backendApi.test.ts   # single file
-npm test -- -t "rejects expired"                            # single test by name
-npm run coverage                 # vitest run --coverage (80% thresholds configured in vitest.config.ts; NOT run by CI/Makefile)
-npm run analyze                  # ANALYZE=true next build (bundle analyzer)
+npm ci --legacy-peer-deps
+npm run dev
+npm run lint
+npx tsc --noEmit --incremental false
+npm test -- --run
+npm run coverage
+npm run build
+npm run e2e
 ```
 
-Validation gate before committing (from `../AGENTS.md`): `npm run lint && npm test -- --run && npm run build`.
+Focused Vitest examples:
 
-## Architecture
+```bash
+npm test -- --run __tests__/server/chat/streamWorker.test.ts
+npm test -- -t "rejects expired"
+```
 
-### Dual-process runtime
+CI runs lint, a clean type check, coverage gates, a production build, and a
+separate real-browser E2E job.
 
-In production the container runs **two Node processes** via `scripts/start-runtime.js`:
+## Production Roles
 
-- **Next.js** standalone (`server.js`, port 3000)
-- **WebSocket sidecar** (`ws-server.js`, port 3001) — bundled from `ws-server.ts` by esbuild at build time
+The production image contains three entry points:
 
-The wrapper exits the container if **either** process dies. `npm run dev` starts only Next.js; without the sidecar, real-time updates fall back to HTTP polling. nginx proxies `/` and `/api/*` to Next.js and `/ws` to the sidecar.
+- `scripts/start-runtime.js` supervises the Next.js standalone server
+  (`server.js`, port `3000`) and WebSocket sidecar (`ws-server.js`, port `3001`)
+  in the frontend deployment.
+- `stream-worker.js` runs in a separate Kubernetes deployment from the same
+  image. It must not be added to `start-runtime.js` because the worker has its
+  own replica count, probes, drain policy, and disruption budget.
+- nginx sends `/` and `/api/*` to Next.js and `/ws` to the WebSocket sidecar.
 
-### Redis is the backbone
+`npm run dev` starts only Next.js on port `5000`. Use root Compose for the full
+local stack or `npm run e2e` for the isolated production-build harness.
 
-`server/session/redis.ts` is the central client. Redis stores sessions, conversations, attachments, async-job state, streaming state, autonomy state, and powers Pub/Sub fanout. Notable: IPv4-first DNS + a DNS cache (`server/session/dns-cache.ts`) to survive Kubernetes CoreDNS stalls, RedisJSON capability detection, dedicated pub/sub clients, and throttled error logging. Bounded retries/timeouts prevent API requests from hanging on Redis outages.
+## Durable Chat Execution
 
-### Async job chat model (the primary path)
+`pages/api/chat/async.ts` is the authenticated HTTP boundary:
 
-`pages/api/chat/async.ts` (~2900 lines) is the core orchestrator:
+- `POST` validates the request, writes owner-scoped job state and payload, then
+  appends the job ID to the Redis Stream in `server/chat/streamQueue.ts`.
+- `GET` returns sanitized live or terminal state for the job owner.
+- `DELETE` records a durable abort flag and claims terminal state atomically.
 
-- `POST /api/chat/async` — stores job metadata, returns a `jobId` immediately, then opens a pinned backend stream (`/v1/chat/completions` for chat, `/v1/documents/ingest/stream` for document ingest) and persists tokens/intermediate-steps/status to Redis.
-- `GET /api/chat/async?jobId=...` — returns live or finalized job state (polling fallback).
-- Client side: `hooks/useAsyncChat.ts` owns job lifecycle, WebSocket subscription, polling fallback, and recovery of jobs interrupted by reload/offline.
+`server/chat/streamWorker.ts` owns backend execution. It uses a Redis consumer
+group, per-job ownership leases, heartbeats, bounded concurrency, cancellation
+polling, stale-entry reclaim, and graceful drain. A reclaimed entry is safe to
+retry only before the backend-start marker exists. After that marker, the
+worker fails the job closed because backend tool execution is not resumable.
 
-### Real-time fanout
+`server/chat/streamReader.ts` parses the pinned backend stream.
+`server/chat/streamState.ts` appends only new response bytes and intermediate
+steps, so live progress doesn't rewrite a growing JSON document on every
+flush. Live events are published through Redis Pub/Sub to the WebSocket
+sidecar. `hooks/useAsyncChat.ts` owns subscription, polling fallback, idle
+detection, cancellation, and reload recovery in the browser.
 
-Backend tokens → Redis Pub/Sub → WS sidecar → browser, with HTTP polling fallback. Client transport is the `WebSocketManager` singleton in `services/websocket.ts`; `hooks/useAsyncChat.ts` owns chat events while `hooks/useWebSocket.ts` owns conversation and autonomy sync.
+## Redis Boundaries
 
-### Backend routing
+`server/session/redis.ts` is the central client. Redis stores sessions,
+conversations, attachment metadata, async job state, queue entries, leases,
+autonomy state, and Pub/Sub events. It supports RedisJSON with a compatibility
+fallback, dedicated subscribers, bounded command retries, IPv4-first DNS, and
+throttled error logging.
 
-`utils/app/backendApi.ts` is the single source of truth for backend URLs. In Kubernetes it builds FQDNs like `{BACKEND_HOST}-default.{BACKEND_NAMESPACE}.svc.cluster.local`, supports per-pod discovery for pinned streams, and adapts payloads across NAT API formats (`/v1/chat/completions`, `/chat`, `/generate`). Trusted frontend→backend calls attach `DAEDALUS_INTERNAL_API_TOKEN` via `utils/server/backendAuth.ts`.
+Keep server helpers outside `pages/api`. The route-inventory test requires each
+TypeScript file under `pages/api` to default-export a route handler.
 
-### Client state
+## Documents And Collection Metadata
 
-Zustand stores in `state/` (`conversationStore`, `uiSettingsStore`, `imagePanelStore`), re-exported from `state/index.ts` with selectors and convenience hooks — import from `@/state`. Anything under `server/` is server-only and must never be imported into client bundles.
+New document uploads are authenticated multipart streams. The API parses a
+single bounded file with `server/multipartDocument.ts`, writes it to the
+configured S3-compatible store through `server/documentObjectStore.ts`, and
+keeps only owner-scoped metadata and an immutable object reference in Redis.
+Legacy base64 records are read-only compatibility data.
 
-## Conventions & gotchas
+`server/milvusMetadata.ts` calls the backend's authenticated
+`/v1/metadata/collections` endpoint with the trusted internal token and user
+identity. It validates the returned schema and rejects shared collections as
+writable targets. `pages/api/milvus/collections.ts` exposes that metadata to an
+authenticated browser session with `Cache-Control: private, no-store` and
+returns `503` when the backend source of truth is unavailable.
 
-- **`pages/api` route-inventory rule** (enforced by `__tests__/pages/api/routeInventory.test.ts`): every `.ts`/`.tsx` file under `pages/api` must `export default` a route handler. Shared server helpers must **not** live under `pages/api` — put them in `server/` (this is why `server/session/` exists alongside `pages/api/session/`).
-- **Path alias** `@/*` maps to the frontend root (configured in both `tsconfig.json` and `vitest.config.ts`).
-- **Strict TypeScript**; `next.config.js` sets `ignoreBuildErrors: false`, so the production build fails on any TS error.
-- **Import ordering** is enforced by Prettier (`prettier.config.js`): react → next → hooks → services → utils → types → pages → components → relative, with blank-line separation. Single quotes, trailing commas (`all`), Tailwind class sorting.
-- **Coverage thresholds** are 80% (lines/functions/branches/statements) over `utils`, `components`, `services`, `hooks`, `pages/api` — but only when you run `npm run coverage`. CI and `make frontend` run `npm test -- --run` (no `--coverage`), so the thresholds are **not** an enforced merge gate, and `server/**` is outside the coverage scope. Wiring coverage into CI is a follow-up decision (it currently won't pass because components/hooks are untested by design).
-- **Tests** mirror source under `__tests__/` and are named `*.test.ts(x)`. `@testing-library/react` is **not** installed — hooks are tested through their delegated singletons/types, not `renderHook`.
-- **Large uploads**: `next.config.js` sets bodyParser/serverActions to 300mb and `proxyTimeout` to 15 min; chat/document routes set `maxDuration: 900` — these must stay aligned with nginx timeouts.
-- **CSP / security headers** are defined in `next.config.js` (`'unsafe-eval'` is required by mermaid.js diagram rendering; `'unsafe-inline'` by Next.js/styled-jsx).
-- Runtime config comes from env vars / K8s secrets — see the table in `README.md` and `env.example`. `SESSION_SECRET` is required in production.
+## Conventions And Guardrails
+
+- `@/*` maps to the frontend root in TypeScript and Vitest.
+- TypeScript is strict and production builds don't ignore type errors.
+- Anything under `server/` is server-only and must not enter client bundles.
+- Trusted backend calls use `DAEDALUS_INTERNAL_API_TOKEN` through
+  `utils/server/backendAuth.ts`. Never accept user identity from a request body
+  when a session-derived value exists.
+- Upload limits are split by transport. Documents are raw multipart bytes;
+  images and videos still reserve room for base64 encoding. Keep browser,
+  route, nginx, and object-store limits consistent.
+- `next.config.js` sets a 15-minute proxy timeout for long document operations.
+  Individual routes own their body limits. There is no global 300 MB parser.
+- Security headers are defined in `next.config.js`. Mermaid currently requires
+  `unsafe-eval`, and Next.js and styled-jsx require `unsafe-inline`.
+- Prettier enforces single quotes, trailing commas, import ordering, and
+  Tailwind class sorting.
+
+## Coverage And E2E
+
+`vitest.config.ts` instruments the broad frontend surface plus the critical
+durable-chat, object-store, multipart, Milvus-metadata, and conversation-state
+modules. Its thresholds are measured regression gates, not an aspirational
+80 percent claim. CI runs `npm run coverage` and fails when they regress.
+
+The E2E harness builds the production app and bundles the WebSocket sidecar and
+stream worker. It starts isolated Redis and SeaweedFS containers, plus a
+deterministic trusted-context mock backend. The Chromium suite covers login,
+streaming, cancellation, byte-for-byte multipart storage, redacted approval
+denial, WebSocket-unavailable polling, and live-disconnect recovery.
