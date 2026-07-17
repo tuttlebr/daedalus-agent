@@ -130,12 +130,13 @@ export const UserMessage = memo(
                 <MarkdownRenderer
                   content={content}
                   messageIndex={messageIndex}
-                  className="prose dark:prose-invert prose-sm max-w-none prose-p:my-1"
+                  className="prose dark:prose-invert prose-sm max-w-none break-words prose-p:my-1"
                 />
               </div>
 
-              {/* Copy button — always visible on touch, hover-only on desktop */}
-              <div className="absolute -bottom-1 -left-10 opacity-100 transition-opacity md:opacity-0 md:group-hover:opacity-100">
+              {/* Copy button — below the bubble so it never clips off-screen;
+                  always visible on touch, hover-only on desktop */}
+              <div className="mt-1 flex justify-end opacity-100 transition-opacity md:opacity-0 md:group-hover:opacity-100 md:focus-within:opacity-100">
                 <IconButton
                   icon={copied ? <IconCheck /> : <IconCopy />}
                   aria-label="Copy message"

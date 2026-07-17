@@ -45,6 +45,10 @@ export interface UISettingsState {
 
   // Search
   searchTerm: string;
+
+  // Autonomy feed lane filter ('all' or a lane id); persisted so the
+  // selection survives switching views, which unmounts the dashboard.
+  autonomyLaneFilter: string;
 }
 
 export interface UISettingsActions {
@@ -80,6 +84,9 @@ export interface UISettingsActions {
   // Search
   setSearchTerm: (term: string) => void;
 
+  // Autonomy
+  setAutonomyLaneFilter: (lane: string) => void;
+
   // Reset
   resetToDefaults: () => void;
 }
@@ -108,6 +115,7 @@ const initialState: UISettingsState = {
   folders: [],
   currentFolder: undefined,
   searchTerm: '',
+  autonomyLaneFilter: 'all',
 };
 
 // ============================================================================
@@ -217,6 +225,12 @@ export const useUISettingsStore = create<UISettingsStore>()(
         setSearchTerm: (term) => set({ searchTerm: term }),
 
         // ======================================================================
+        // Autonomy
+        // ======================================================================
+
+        setAutonomyLaneFilter: (lane) => set({ autonomyLaneFilter: lane }),
+
+        // ======================================================================
         // Reset
         // ======================================================================
 
@@ -236,6 +250,7 @@ export const useUISettingsStore = create<UISettingsStore>()(
           enableIntermediateSteps: state.enableIntermediateSteps,
           expandIntermediateSteps: state.expandIntermediateSteps,
           intermediateStepsView: state.intermediateStepsView,
+          autonomyLaneFilter: state.autonomyLaneFilter,
         }),
       },
     ),

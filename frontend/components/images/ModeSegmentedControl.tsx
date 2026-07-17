@@ -44,7 +44,7 @@ export const ModeSegmentedControl = memo(function ModeSegmentedControl({
             disabled={loading}
             onClick={() => setMode(item.value)}
             className={classNames(
-              'inline-flex h-10 min-w-[96px] items-center justify-center gap-1.5 rounded-md px-3 text-xs font-medium transition-colors md:h-8',
+              'inline-flex h-11 min-w-[96px] items-center justify-center gap-1.5 rounded-md px-3 text-xs font-medium transition-colors md:h-8',
               fullWidth && 'min-w-0 w-full',
               selected
                 ? 'bg-white text-black'

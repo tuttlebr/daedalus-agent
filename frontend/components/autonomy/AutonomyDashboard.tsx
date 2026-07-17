@@ -7,6 +7,7 @@ import React, {
   useRef,
   useState,
 } from 'react';
+import toast from 'react-hot-toast';
 
 import { useWebSocket } from '@/hooks/useWebSocket';
 
@@ -76,6 +77,8 @@ async function fetchJson<T>(url: string): Promise<T> {
 export function AutonomyDashboard() {
   const [state, setState] = useState<DashboardState>(emptyState);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const workspaceButtonRef = useRef<HTMLButtonElement>(null);
@@ -165,10 +168,17 @@ export function AutonomyDashboard() {
   );
 
   const refresh = useCallback(async () => {
+    setRefreshing(true);
     try {
       await refreshResources(ALL_RESOURCES);
+      setLoadError(false);
+    } catch (err) {
+      // Surface load failures instead of silently rendering an empty feed.
+      console.error('Failed to refresh autonomy dashboard:', err);
+      setLoadError(true);
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   }, [refreshResources]);
 
@@ -305,6 +315,9 @@ export function AutonomyDashboard() {
         });
         if (!response.ok) throw new Error('Failed to update config');
         await refresh();
+      } catch (err) {
+        console.error(err);
+        toast.error('Could not update the autonomy settings. Try again.');
       } finally {
         setBusy(null);
       }
@@ -323,6 +336,9 @@ export function AutonomyDashboard() {
         });
         if (!response.ok) throw new Error('Failed to queue run');
         await refresh();
+      } catch (err) {
+        console.error(err);
+        toast.error('Could not queue the run. Try again.');
       } finally {
         setBusy(null);
       }
@@ -341,6 +357,9 @@ export function AutonomyDashboard() {
         });
         if (!response.ok) throw new Error('Failed to queue active goals');
         await refresh();
+      } catch (err) {
+        console.error(err);
+        toast.error('Could not run the active goals. Try again.');
       } finally {
         setBusy(null);
       }
@@ -360,6 +379,9 @@ export function AutonomyDashboard() {
         });
         if (!response.ok) throw new Error('Failed to create goal');
         await refresh();
+      } catch (err) {
+        console.error(err);
+        toast.error('Could not create the goal. Try again.');
       } finally {
         setBusy(null);
       }
@@ -420,6 +442,9 @@ export function AutonomyDashboard() {
         );
         if (!response.ok) throw new Error('Failed to delete goal');
         await refresh();
+      } catch (err) {
+        console.error(err);
+        toast.error('Could not delete the goal. Try again.');
       } finally {
         setBusy(null);
       }
@@ -438,6 +463,13 @@ export function AutonomyDashboard() {
         });
         if (!response.ok) throw new Error('Failed to resolve approval');
         await refresh();
+      } catch (err) {
+        console.error(err);
+        toast.error(
+          decision === 'approved'
+            ? 'Could not approve the request. It is still pending.'
+            : 'Could not deny the request. It is still pending.',
+        );
       } finally {
         setBusy(null);
       }
@@ -453,6 +485,9 @@ export function AutonomyDashboard() {
         method: 'POST',
       });
       await refresh();
+    } catch (err) {
+      console.error(err);
+      toast.error('Could not cancel the run. Try again.');
     } finally {
       setBusy(null);
     }
@@ -484,10 +519,34 @@ export function AutonomyDashboard() {
     );
   }
 
+  // A failed first load must not masquerade as an empty feed.
+  if (loadError && !state.config && state.feed.length === 0) {
+    return (
+      <div className="h-full overflow-y-auto bg-[#0a0b0c] text-dark-text-primary">
+        <div className="mx-auto flex h-full max-w-[720px] flex-col items-center justify-center gap-4 px-4 text-center">
+          <p className="text-sm text-dark-text-secondary">
+            Could not load the autonomy dashboard. Check your connection and try
+            again.
+          </p>
+          <button
+            type="button"
+            onClick={() => {
+              setLoading(true);
+              void refresh();
+            }}
+            className="min-h-touch-min rounded-lg border border-white/[0.1] bg-white/[0.04] px-4 py-2 text-sm text-dark-text-primary transition-colors hover:border-nvidia-green/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nvidia-green/40"
+          >
+            Retry
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="h-full overflow-y-auto bg-[#0a0b0c] text-dark-text-primary">
       <BackgroundGrain />
-      <div className="relative mx-auto w-full max-w-[760px] px-4 pt-1 md:px-6 pb-[calc(96px+env(safe-area-inset-bottom))] md:pb-24">
+      <div className="relative mx-auto w-full max-w-[760px] px-4 pt-1 pb-8 md:px-6">
         <StatusStrip
           ref={workspaceButtonRef}
           config={state.config}
@@ -497,6 +556,7 @@ export function AutonomyDashboard() {
           queuedRequests={state.queue.length}
           onOpenWorkspace={() => setDrawerOpen(true)}
           onRefresh={() => refresh()}
+          refreshing={refreshing}
           wsConnected={wsConnected}
         />
         <ApprovalBanner

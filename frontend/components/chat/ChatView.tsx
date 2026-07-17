@@ -1,6 +1,7 @@
 'use client';
 
 import {
+  IconArrowDown,
   IconCheck,
   IconExternalLink,
   IconMenu2,
@@ -45,6 +46,9 @@ const MAX_HEARTBEAT_CATEGORIES = 24;
 const INITIAL_VISIBLE_MESSAGES = 80;
 const LOAD_OLDER_MESSAGES_STEP = 40;
 const OAUTH_SUCCESS_VISIBLE_MS = 3000;
+// Within this distance of the bottom the view still counts as "at bottom"
+// and streaming auto-scroll stays engaged.
+const AT_BOTTOM_THRESHOLD_PX = 120;
 
 type OAuthPromptState = OAuthPrompt & {
   opened?: boolean;
@@ -191,21 +195,38 @@ export const ChatView = memo(() => {
   const selectedIdRef = useRef(selectedConversationId);
   selectedIdRef.current = selectedConversationId;
 
-  // Scroll management
+  // Scroll management. Auto-scroll only sticks while the user is at (or
+  // near) the bottom; scrolling up to re-read pauses it and shows a
+  // "jump to latest" affordance instead of yanking the view back down.
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const scrollFrameRef = useRef<number | null>(null);
+  const isAtBottomRef = useRef(true);
+  const [showScrollToBottom, setShowScrollToBottom] = useState(false);
+
+  const handleScroll = useCallback(() => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+    const atBottom =
+      container.scrollHeight - container.scrollTop - container.clientHeight <
+      AT_BOTTOM_THRESHOLD_PX;
+    isAtBottomRef.current = atBottom;
+    setShowScrollToBottom(!atBottom);
+  }, []);
 
   const scrollToBottom = useCallback(() => {
+    isAtBottomRef.current = true;
+    setShowScrollToBottom(false);
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, []);
 
   const scrollToBottomSoon = useCallback(() => {
+    if (!isAtBottomRef.current) return;
     if (scrollFrameRef.current !== null) return;
     scrollFrameRef.current = requestAnimationFrame(() => {
       scrollFrameRef.current = null;
       const container = scrollContainerRef.current;
-      if (container) {
+      if (container && isAtBottomRef.current) {
         container.scrollTop = container.scrollHeight;
       }
     });
@@ -417,11 +438,24 @@ export const ChatView = memo(() => {
   );
 
   useEffect(() => {
-    scrollToBottom();
+    if (isAtBottomRef.current) {
+      scrollToBottom();
+    }
   }, [selectedConversation?.messages?.length, scrollToBottom]);
 
   useEffect(() => {
     setVisibleMessageCount(INITIAL_VISIBLE_MESSAGES);
+  }, [selectedConversationId]);
+
+  // Jump straight to the latest messages when switching conversations
+  // (no long smooth-scroll animation through the history).
+  useEffect(() => {
+    isAtBottomRef.current = true;
+    setShowScrollToBottom(false);
+    const container = scrollContainerRef.current;
+    if (container) {
+      container.scrollTop = container.scrollHeight;
+    }
   }, [selectedConversationId]);
 
   useEffect(() => {
@@ -954,89 +988,112 @@ export const ChatView = memo(() => {
       </header>
 
       {/* Messages */}
-      <div
-        ref={scrollContainerRef}
-        className="flex-1 overflow-y-auto overscroll-contain scrollbar-hide [-webkit-overflow-scrolling:touch]"
-      >
-        {!hasMessages ? (
-          <EmptyState />
-        ) : (
-          <div className="chat-content-rail py-6 space-y-6">
-            {hiddenMessageCount > 0 && (
-              <div className="flex justify-center">
-                <button
-                  type="button"
-                  onClick={() =>
-                    setVisibleMessageCount((count) =>
-                      Math.min(
-                        messages.length,
-                        count + LOAD_OLDER_MESSAGES_STEP,
-                      ),
-                    )
-                  }
-                  className="rounded-md border border-white/[0.08] bg-white/[0.03] px-3 py-1.5 text-xs text-dark-text-muted hover:text-dark-text-primary"
-                >
-                  Show {Math.min(hiddenMessageCount, LOAD_OLDER_MESSAGES_STEP)}{' '}
-                  older messages
-                </button>
-              </div>
-            )}
+      <div className="relative min-h-0 flex-1">
+        <div
+          ref={scrollContainerRef}
+          onScroll={handleScroll}
+          className="h-full overflow-y-auto overscroll-contain scrollbar-hide [-webkit-overflow-scrolling:touch]"
+        >
+          {!hasMessages ? (
+            <EmptyState
+              onSuggestion={
+                isAutonomousConversation
+                  ? undefined
+                  : (text) =>
+                      handleSend({ role: 'user', content: text, metadata: {} })
+              }
+            />
+          ) : (
+            <div className="chat-content-rail py-6 space-y-6">
+              {hiddenMessageCount > 0 && (
+                <div className="flex justify-center">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setVisibleMessageCount((count) =>
+                        Math.min(
+                          messages.length,
+                          count + LOAD_OLDER_MESSAGES_STEP,
+                        ),
+                      )
+                    }
+                    className="rounded-md border border-white/[0.08] bg-white/[0.03] px-3 py-1.5 text-xs text-dark-text-muted hover:text-dark-text-primary"
+                  >
+                    Show{' '}
+                    {Math.min(hiddenMessageCount, LOAD_OLDER_MESSAGES_STEP)}{' '}
+                    older messages
+                  </button>
+                </div>
+              )}
 
-            {visibleMessages.map((msg, i) => {
-              const messageIndex = hiddenMessageCount + i;
-              const isLastMessage = messageIndex === messages.length - 1;
-              const ingestProgress = selectedConversationId
-                ? jobStatusByConversationId[selectedConversationId]
-                    ?.ingestProgress
-                : undefined;
-              const isAssistantStreaming =
-                isStreaming &&
-                isLastMessage &&
-                msg.role !== 'user' &&
-                !ingestProgress;
+              {visibleMessages.map((msg, i) => {
+                const messageIndex = hiddenMessageCount + i;
+                const isLastMessage = messageIndex === messages.length - 1;
+                const ingestProgress = selectedConversationId
+                  ? jobStatusByConversationId[selectedConversationId]
+                      ?.ingestProgress
+                  : undefined;
+                const isAssistantStreaming =
+                  isStreaming &&
+                  isLastMessage &&
+                  msg.role !== 'user' &&
+                  !ingestProgress;
 
-              const canRetry =
-                isLastMessage &&
-                msg.role !== 'user' &&
-                msg.errorMessages?.recoverable === true &&
-                !isStreaming;
-              return (
-                <MessageBubble
-                  key={msg.id || `msg-${messageIndex}`}
-                  message={msg}
-                  messageIndex={messageIndex}
-                  isStreaming={isAssistantStreaming}
-                  onRetry={canRetry ? handleRetryMessage : undefined}
-                />
-              );
-            })}
+                const canRetry =
+                  isLastMessage &&
+                  msg.role !== 'user' &&
+                  msg.errorMessages?.recoverable === true &&
+                  !isStreaming;
+                return (
+                  <MessageBubble
+                    key={msg.id || `msg-${messageIndex}`}
+                    message={msg}
+                    messageIndex={messageIndex}
+                    isStreaming={isAssistantStreaming}
+                    onRetry={canRetry ? handleRetryMessage : undefined}
+                  />
+                );
+              })}
 
-            {/* Document ingestion progress (replaces heartbeat for ingestion jobs) */}
-            {isStreaming &&
-            selectedConversationId &&
-            jobStatusByConversationId[selectedConversationId]
-              ?.ingestProgress ? (
-              <div className="w-full">
-                <DocumentIngestProgress
-                  progress={
-                    jobStatusByConversationId[selectedConversationId]!
-                      .ingestProgress!
-                  }
-                />
-              </div>
-            ) : (
-              isStreaming && (
+              {/* Document ingestion progress (replaces heartbeat for ingestion jobs) */}
+              {isStreaming &&
+              selectedConversationId &&
+              jobStatusByConversationId[selectedConversationId]
+                ?.ingestProgress ? (
                 <div className="w-full">
-                  <AgentHeartbeat
-                    currentActivityText={activityText}
-                    completedStepCategories={stepCategories}
+                  <DocumentIngestProgress
+                    progress={
+                      jobStatusByConversationId[selectedConversationId]!
+                        .ingestProgress!
+                    }
                   />
                 </div>
-              )
-            )}
+              ) : (
+                isStreaming && (
+                  <div className="w-full">
+                    <AgentHeartbeat
+                      currentActivityText={activityText}
+                      completedStepCategories={stepCategories}
+                    />
+                  </div>
+                )
+              )}
 
-            <div ref={messagesEndRef} />
-          </div>
+              <div ref={messagesEndRef} />
+            </div>
+          )}
+        </div>
+
+        {/* Jump to latest — shown when the user has scrolled up */}
+        {showScrollToBottom && hasMessages && (
+          <button
+            type="button"
+            onClick={scrollToBottom}
+            aria-label="Jump to latest messages"
+            className="absolute bottom-4 right-4 z-10 flex h-11 w-11 items-center justify-center rounded-full border border-white/[0.1] bg-dark-bg-elevated/90 text-dark-text-secondary shadow-lg backdrop-blur-md transition-colors hover:text-dark-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nvidia-green/40 md:h-10 md:w-10"
+          >
+            <IconArrowDown size={20} />
+          </button>
         )}
       </div>
 
@@ -1105,16 +1162,41 @@ export const ChatView = memo(() => {
 
 ChatView.displayName = 'ChatView';
 
-const EmptyState = memo(() => (
-  <div className="h-full flex flex-col items-center justify-center px-4">
-    <div className="text-center animate-morph-in space-y-4 max-w-sm">
-      <img
-        src="/main-logo.png"
-        alt="Daedalus"
-        className="h-20 w-auto mx-auto opacity-60"
-      />
+const SUGGESTED_PROMPTS = [
+  'Summarize the latest developments on a topic I follow',
+  'Help me draft a technical document',
+  'Analyze an uploaded file or image',
+];
+
+const EmptyState = memo(
+  ({ onSuggestion }: { onSuggestion?: (text: string) => void }) => (
+    <div className="h-full flex flex-col items-center justify-center px-4">
+      <div className="text-center animate-morph-in space-y-5 max-w-sm">
+        <img
+          src="/main-logo.png"
+          alt="Daedalus"
+          className="h-20 w-auto mx-auto opacity-60"
+        />
+        <p className="text-sm text-dark-text-muted">
+          Ask a question, attach files, or try one of these:
+        </p>
+        {onSuggestion && (
+          <div className="flex flex-col gap-2">
+            {SUGGESTED_PROMPTS.map((prompt) => (
+              <button
+                key={prompt}
+                type="button"
+                onClick={() => onSuggestion(prompt)}
+                className="min-h-touch-min rounded-xl border border-white/[0.08] bg-white/[0.03] px-4 py-2.5 text-sm text-dark-text-secondary transition-colors hover:border-nvidia-green/40 hover:text-dark-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nvidia-green/40"
+              >
+                {prompt}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
-  </div>
-));
+  ),
+);
 
 EmptyState.displayName = 'EmptyState';

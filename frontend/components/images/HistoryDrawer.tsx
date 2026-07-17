@@ -72,6 +72,14 @@ export function HistoryDrawer() {
   const [isClearing, setIsClearing] = useState(false);
   const [deleteAssetsWithHistory, setDeleteAssetsWithHistory] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+
+  // Auto-disarm the per-entry delete confirmation after a few seconds
+  useEffect(() => {
+    if (!confirmDeleteId) return;
+    const timer = window.setTimeout(() => setConfirmDeleteId(null), 3000);
+    return () => window.clearTimeout(timer);
+  }, [confirmDeleteId]);
   const [pendingDeleteIds, setPendingDeleteIds] = useState<Set<string>>(
     () => new Set(),
   );
@@ -194,13 +202,17 @@ export function HistoryDrawer() {
           'absolute top-0 right-0 bottom-0 w-full md:w-[360px]',
           'bg-neutral-950/95 backdrop-blur-xl border-l border-white/10',
           'z-50',
-          'transition-transform duration-200 ease-out',
-          open ? 'translate-x-0' : 'translate-x-full',
+          // visibility rides the same transition so the closed drawer is
+          // removed from the tab order and accessibility tree only after
+          // the slide-out finishes.
+          'transition-[transform,visibility] duration-200 ease-out',
+          open ? 'visible translate-x-0' : 'invisible translate-x-full',
           'flex flex-col',
         )}
         role="dialog"
         aria-modal="true"
         aria-label="Session history"
+        aria-hidden={!open}
       >
         <div className="safe-top flex items-center justify-between px-4 py-3 border-b border-white/5">
           <div>
@@ -280,22 +292,43 @@ export function HistoryDrawer() {
                     </button>
                     <button
                       type="button"
-                      aria-label="Delete entry"
+                      aria-label={
+                        confirmDeleteId === entry.id
+                          ? 'Tap again to confirm delete'
+                          : 'Delete entry'
+                      }
+                      title={
+                        confirmDeleteId === entry.id
+                          ? 'Tap again to confirm delete'
+                          : 'Delete entry'
+                      }
                       onClick={(e) => {
                         e.preventDefault();
                         e.stopPropagation();
-                        handleDelete(entry.id);
+                        // Two-tap confirm: the button sits over the restore
+                        // target, so a stray tap must not destroy a creation.
+                        if (confirmDeleteId === entry.id) {
+                          setConfirmDeleteId(null);
+                          handleDelete(entry.id);
+                        } else {
+                          setConfirmDeleteId(entry.id);
+                        }
                       }}
                       disabled={isDeletingThis}
                       className={classNames(
                         'absolute top-1 right-1 grid h-11 w-11 place-items-center rounded-md touch-manipulation',
-                        'text-neutral-500 hover:text-nvidia-red hover:bg-nvidia-red/10',
-                        'opacity-100 md:opacity-0 md:group-hover:opacity-100 md:focus-visible:opacity-100',
+                        confirmDeleteId === entry.id
+                          ? 'bg-nvidia-red/20 text-nvidia-red opacity-100'
+                          : 'text-neutral-500 hover:text-nvidia-red hover:bg-nvidia-red/10 opacity-100 md:opacity-0 md:group-hover:opacity-100 md:focus-visible:opacity-100',
                         'transition-all disabled:opacity-50',
                         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nvidia-red/40',
                       )}
                     >
-                      <IconX size={14} />
+                      {confirmDeleteId === entry.id ? (
+                        <IconTrash size={14} />
+                      ) : (
+                        <IconX size={14} />
+                      )}
                     </button>
                   </div>
                 );

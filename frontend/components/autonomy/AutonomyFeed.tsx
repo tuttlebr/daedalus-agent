@@ -8,7 +8,9 @@ import { DayGroup } from './DayGroup';
 import { EmptyState } from './EmptyState';
 import { FeedItem } from './FeedItem';
 import { LaneFilterChips } from './LaneFilterChips';
-import { groupByDay, type LaneFilter, normalizeLane } from './utils';
+import { groupByDay, type LaneFilter, laneOrder, normalizeLane } from './utils';
+
+import { useUISettingsStore } from '@/state';
 
 interface AutonomyFeedProps {
   items: AutonomyFeedItem[];
@@ -18,7 +20,15 @@ interface AutonomyFeedProps {
 const PAGE_SIZE = 30;
 
 export function AutonomyFeed({ items, config }: AutonomyFeedProps) {
-  const [lane, setLane] = useState<LaneFilter>('all');
+  // Lane filter lives in the persisted UI store so the selection survives
+  // switching views (which unmounts this component) and reloads.
+  const storedLane = useUISettingsStore((s) => s.autonomyLaneFilter);
+  const setLane = useUISettingsStore((s) => s.setAutonomyLaneFilter);
+  const lane: LaneFilter = (['all', ...laneOrder()] as string[]).includes(
+    storedLane,
+  )
+    ? (storedLane as LaneFilter)
+    : 'all';
   const [expandedIds, setExpandedIds] = useState<Set<string>>(() => new Set());
   const [focusedId, setFocusedId] = useState<string | null>(null);
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
@@ -99,14 +109,20 @@ export function AutonomyFeed({ items, config }: AutonomyFeedProps) {
 
   useEffect(() => {
     function handleKey(event: KeyboardEvent) {
-      const tag = (event.target as HTMLElement | null)?.tagName?.toLowerCase();
+      const target = event.target as HTMLElement | null;
+      const tag = target?.tagName?.toLowerCase();
       if (
         tag === 'input' ||
         tag === 'textarea' ||
-        (event.target as HTMLElement | null)?.isContentEditable
+        tag === 'select' ||
+        target?.isContentEditable
       ) {
         return;
       }
+      // Never hijack keys inside open dialogs, and let Enter activate the
+      // button or link it is aimed at instead of toggling a feed item.
+      if (target?.closest('[role="dialog"]')) return;
+      if (event.key === 'Enter' && target?.closest('button, a')) return;
       if (event.metaKey || event.ctrlKey || event.altKey) return;
       if (!['j', 'k', 'o', 'Enter'].includes(event.key)) return;
       if (!flatIds.length) return;

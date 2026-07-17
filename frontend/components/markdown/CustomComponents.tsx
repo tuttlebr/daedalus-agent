@@ -153,9 +153,13 @@ export const getReactMarkDownCustomComponents = (
 
       table: memo(
         ({ children }: MarkdownComponentProps) => (
-          <table className="border-collapse border border-black dark:border-white w-full table-fixed my-3">
-            {children}
-          </table>
+          // Wide tables scroll horizontally instead of crushing columns
+          // into unreadable slivers on narrow screens.
+          <div className="my-3 max-w-full overflow-x-auto overscroll-x-contain">
+            <table className="border-collapse border border-black dark:border-white min-w-full table-auto">
+              {children}
+            </table>
+          </div>
         ),
         (
           prevProps: MarkdownComponentProps,

@@ -99,10 +99,15 @@ export function WorkspaceDrawer({
         return;
       }
       if (event.key !== 'Tab') return;
-      const focusable = panelRef.current?.querySelectorAll<HTMLElement>(
+      const candidates = panelRef.current?.querySelectorAll<HTMLElement>(
         'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"]), summary',
       );
-      if (!focusable?.length) return;
+      // Skip elements that are not actually focusable (e.g. controls inside
+      // a collapsed <details>), otherwise focus() no-ops and the trap leaks.
+      const focusable = Array.from(candidates ?? []).filter(
+        (el) => el.offsetParent !== null,
+      );
+      if (!focusable.length) return;
       const first = focusable[0];
       const last = focusable[focusable.length - 1];
       if (event.shiftKey && document.activeElement === first) {
@@ -207,10 +212,14 @@ export function WorkspaceDrawer({
         aria-modal="true"
         aria-label="Daedalus workspace"
         className={classNames(
-          'absolute right-0 top-0 flex h-full w-full flex-col bg-[#0c0d0e] shadow-2xl ring-1 ring-white/[0.04]',
-          'transition-transform duration-300 ease-out motion-reduce:transition-none',
-          'md:w-[420px] lg:w-[460px]',
-          open ? 'translate-x-0' : 'translate-x-full',
+          'absolute right-0 top-0 flex h-full flex-col bg-[#0c0d0e] shadow-2xl ring-1 ring-white/[0.04]',
+          // Leave a tappable backdrop gutter on phones so the drawer can be
+          // dismissed by tapping outside, like on desktop.
+          'w-[calc(100%-3rem)] max-w-md md:w-[420px] md:max-w-none lg:w-[460px]',
+          // visibility rides the transition so the closed drawer leaves the
+          // tab order and accessibility tree after the slide-out finishes.
+          'transition-[transform,visibility] duration-300 ease-out motion-reduce:transition-none',
+          open ? 'visible translate-x-0' : 'invisible translate-x-full',
         )}
       >
         <header className="safe-top flex items-center justify-between border-b border-white/[0.04] px-5 py-4">

@@ -183,7 +183,7 @@ const CanvasTile = memo(function CanvasTile({
         useThumbnail
         showControls={false}
         enableFullscreen={false}
-        className="w-full h-full object-cover"
+        className="w-full h-full bg-black/40 object-contain"
       />
       {image.partial && (
         <div className="absolute left-2 top-2 rounded-full bg-black/70 px-2 py-1 text-[10px] font-medium uppercase tracking-wider text-neutral-200">

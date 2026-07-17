@@ -130,14 +130,17 @@ export const CodeBlock: FC<Props> = memo(
               </button>
             )}
             <button
-              className="flex gap-1.5 items-center rounded bg-none p-1 text-xs text-white"
+              aria-label={isCopied ? 'Copied' : 'Copy code'}
+              className="flex min-h-[36px] gap-1.5 items-center rounded bg-none px-1.5 text-xs text-white hover:text-nvidia-green transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nvidia-green/40"
               onClick={(e) => copyToClipboard(e)}
             >
               {isCopied ? <IconCheck size={18} /> : <IconClipboard size={18} />}
               {isCopied ? t('Copied!') : t('Copy code')}
             </button>
             <button
-              className="flex items-center rounded bg-none p-1 text-xs text-white"
+              aria-label="Download code"
+              title="Download code"
+              className="flex min-h-[36px] items-center rounded bg-none px-1.5 text-xs text-white hover:text-nvidia-green transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nvidia-green/40"
               onClick={(e) => downloadAsFile(e)}
             >
               <IconDownload size={18} />
@@ -175,8 +178,10 @@ export const CodeBlock: FC<Props> = memo(
               maxHeight: '50vh',
               display: 'block',
               boxSizing: 'border-box',
-              whiteSpace: 'pre-wrap',
-              wordBreak: 'break-word',
+              // Preserve indentation and scroll horizontally instead of
+              // wrapping lines arbitrarily (unreadable for code).
+              whiteSpace: 'pre',
+              wordBreak: 'normal',
               overflowX: 'auto',
               overflowY: 'auto',
               fontFamily: "'JetBrains Mono', monospace",
@@ -189,7 +194,7 @@ export const CodeBlock: FC<Props> = memo(
                 fontSize: '14px',
               },
             }}
-            wrapLongLines={true}
+            wrapLongLines={false}
           >
             {formattedValue}
           </SyntaxHighlighter>

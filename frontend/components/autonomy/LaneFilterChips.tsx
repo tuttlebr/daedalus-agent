@@ -27,7 +27,8 @@ export function LaneFilterChips({
     <div
       role="radiogroup"
       aria-label="Filter by lane"
-      className="mx-auto flex max-w-[720px] items-center gap-1 px-1 pb-3"
+      // Chips scroll horizontally on narrow screens instead of squeezing
+      className="no-scrollbar mx-auto flex max-w-[720px] items-center gap-1 overflow-x-auto px-1 pb-3"
     >
       {FILTERS.map((filter) => {
         const active = filter === value;
@@ -42,7 +43,7 @@ export function LaneFilterChips({
             aria-checked={active}
             onClick={() => onChange(filter)}
             className={classNames(
-              'group inline-flex min-h-[36px] items-center gap-1.5 rounded-full px-3 py-2 text-[11px] font-medium tracking-wide transition',
+              'group inline-flex min-h-[44px] shrink-0 items-center gap-1.5 rounded-full px-3 py-2 text-[11px] font-medium tracking-wide transition md:min-h-[36px]',
               'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nvidia-green/40',
               active
                 ? 'bg-white/[0.07] text-dark-text-primary'

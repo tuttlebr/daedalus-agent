@@ -1,7 +1,7 @@
 'use client';
 
 import { IconAlertTriangle, IconExternalLink } from '@tabler/icons-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 import type { AutonomyApproval } from '@/types/autonomy';
 
@@ -72,6 +72,42 @@ function ApprovalCard({
   busy: boolean;
   onResolve: (id: string, decision: 'approved' | 'denied') => void;
 }) {
+  const [pendingDecision, setPendingDecision] = useState<
+    'approved' | 'denied' | null
+  >(null);
+  const [confirmingApprove, setConfirmingApprove] = useState(false);
+
+  // High-risk and MCP-mutation actions get a two-step approve so a single
+  // stray tap can't execute a destructive write.
+  const needsConfirm =
+    approval.actionType === 'mcp_mutation' ||
+    (!!approval.risk && approval.risk !== 'low');
+
+  // Reset transient button state when the resolve request settles.
+  useEffect(() => {
+    if (!busy) setPendingDecision(null);
+  }, [busy]);
+
+  useEffect(() => {
+    if (!confirmingApprove) return;
+    const timer = window.setTimeout(() => setConfirmingApprove(false), 5000);
+    return () => window.clearTimeout(timer);
+  }, [confirmingApprove]);
+
+  const resolve = (decision: 'approved' | 'denied') => {
+    setPendingDecision(decision);
+    setConfirmingApprove(false);
+    onResolve(approval.id, decision);
+  };
+
+  const handleApprove = () => {
+    if (needsConfirm && !confirmingApprove) {
+      setConfirmingApprove(true);
+      return;
+    }
+    resolve('approved');
+  };
+
   return (
     <article className="rounded-md border-l-2 border-amber-400/70 bg-amber-400/[0.05] px-4 py-3">
       <div className="flex items-start gap-3">
@@ -130,18 +166,23 @@ function ApprovalCard({
             )}
             <Button
               size="md"
-              variant="success"
-              isLoading={busy}
-              onClick={() => onResolve(approval.id, 'approved')}
+              variant={confirmingApprove ? 'danger' : 'success'}
+              isLoading={busy && pendingDecision === 'approved'}
+              disabled={busy}
+              onClick={handleApprove}
             >
-              {approval.actionType === 'oauth_authorization'
+              {confirmingApprove
+                ? 'Tap again to approve'
+                : approval.actionType === 'oauth_authorization'
                 ? 'Continue'
                 : 'Approve'}
             </Button>
             <Button
               size="md"
               variant="ghost"
-              onClick={() => onResolve(approval.id, 'denied')}
+              isLoading={busy && pendingDecision === 'denied'}
+              disabled={busy}
+              onClick={() => resolve('denied')}
             >
               Deny
             </Button>

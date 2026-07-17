@@ -15,10 +15,12 @@ import {
 import React, { memo, useState, useRef, useCallback, useEffect } from 'react';
 import toast from 'react-hot-toast';
 
+import { useIsMobile } from '@/hooks/useMediaQuery';
+
 import { uploadDocument } from '@/utils/app/documentHandler';
 import { uploadImage } from '@/utils/app/imageHandler';
-import { classifyMilvusCollectionScope } from '@/utils/app/milvusCollections';
 import { useMilvusCollections } from '@/utils/app/queries';
+import { admitUploadBatch } from '@/utils/app/uploadBatch';
 import { uploadVideo, getVideoMimeType } from '@/utils/app/videoHandler';
 import { uploadVTTFile, isVTTFile } from '@/utils/app/vttHandler';
 
@@ -42,6 +44,13 @@ interface UploadingFile {
   progress: number;
   error?: string;
 }
+
+interface PendingUpload {
+  id: string;
+  file: File;
+}
+
+const MAX_CONCURRENT_UPLOADS = 2;
 
 // Sentinel value for the "skip ingestion" option in the collection dropdown.
 // Picked so it can't collide with a real Milvus collection name (underscores
@@ -116,6 +125,7 @@ export const ChatInput = memo(
     const [showCollections, setShowCollections] = useState(false);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const isMobile = useIsMobile();
 
     const hasDocumentAttachment = attachments.some(
       (a) => a.type === 'document',
@@ -124,6 +134,10 @@ export const ChatInput = memo(
       hasDocumentAttachment,
     );
     const uploadControllers = useRef<Map<string, AbortController>>(new Map());
+    const pendingUploads = useRef<PendingUpload[]>([]);
+    const activeUploadCount = useRef(0);
+    const uploadQueueDrain = useRef<() => void>(() => {});
+    const uploadComponentMounted = useRef(true);
     const isUploading = uploading.some((u) => u.progress < 100 && !u.error);
     const canSend =
       (content.trim() || attachments.length > 0) &&
@@ -202,15 +216,15 @@ export const ChatInput = memo(
             return;
           }
 
-          const base64 = await fileToBase64(file);
-          if (controller.signal.aborted) {
-            throw new DOMException('Upload aborted', 'AbortError');
-          }
           setUploading((prev) =>
             prev.map((u) => (u.id === uploadId ? { ...u, progress: 50 } : u)),
           );
 
           if (type === 'image') {
+            const base64 = await fileToBase64(file);
+            if (controller.signal.aborted) {
+              throw new DOMException('Upload aborted', 'AbortError');
+            }
             const imageRef = await uploadImage(
               base64,
               file.type,
@@ -234,12 +248,7 @@ export const ChatInput = memo(
             };
             setAttachments((prev) => [...prev, attachment]);
           } else if (type === 'document') {
-            const documentRef = await uploadDocument(
-              base64,
-              file.name,
-              file.type || 'application/octet-stream',
-              controller.signal,
-            );
+            const documentRef = await uploadDocument(file, controller.signal);
             setUploading((prev) =>
               prev.map((u) =>
                 u.id === uploadId ? { ...u, progress: 100 } : u,
@@ -252,13 +261,20 @@ export const ChatInput = memo(
               documentRef: {
                 documentId: documentRef.documentId,
                 sessionId: documentRef.sessionId,
-                filename: file.name,
-                mimeType: file.type,
+                filename: documentRef.filename || file.name,
+                mimeType:
+                  documentRef.mimeType ||
+                  file.type ||
+                  'application/octet-stream',
                 ...(documentRef.userId && { userId: documentRef.userId }),
               },
             };
             setAttachments((prev) => [...prev, attachment]);
           } else if (type === 'video') {
+            const base64 = await fileToBase64(file);
+            if (controller.signal.aborted) {
+              throw new DOMException('Upload aborted', 'AbortError');
+            }
             const videoRef = await uploadVideo(
               base64,
               file.name,
@@ -307,18 +323,89 @@ export const ChatInput = memo(
       [],
     );
 
+    const drainUploadQueue = useCallback(() => {
+      while (
+        uploadComponentMounted.current &&
+        activeUploadCount.current < MAX_CONCURRENT_UPLOADS &&
+        pendingUploads.current.length > 0
+      ) {
+        const next = pendingUploads.current.shift();
+        if (!next) break;
+        activeUploadCount.current += 1;
+        void uploadFile(next.file, next.id).finally(() => {
+          activeUploadCount.current = Math.max(
+            0,
+            activeUploadCount.current - 1,
+          );
+          uploadQueueDrain.current();
+        });
+      }
+    }, [uploadFile]);
+    uploadQueueDrain.current = drainUploadQueue;
+
+    const enqueueUpload = useCallback(
+      (file: File, existingUploadId?: string) => {
+        if (
+          existingUploadId &&
+          (uploadControllers.current.has(existingUploadId) ||
+            pendingUploads.current.some(
+              (upload) => upload.id === existingUploadId,
+            ))
+        ) {
+          return;
+        }
+        const type = classifyFile(file);
+        const validation = validateFileSize(file, type);
+        if (!validation.valid) {
+          toast.error(validation.error || 'File too large');
+          return;
+        }
+
+        const uploadId =
+          existingUploadId ?? `upload-${Date.now()}-${Math.random()}`;
+        if (existingUploadId) {
+          setUploading((prev) =>
+            prev.map((upload) =>
+              upload.id === uploadId
+                ? { ...upload, progress: 0, error: undefined }
+                : upload,
+            ),
+          );
+        } else {
+          setUploading((prev) => [
+            ...prev,
+            { id: uploadId, file, type, progress: 0 },
+          ]);
+        }
+        pendingUploads.current.push({ id: uploadId, file });
+        uploadQueueDrain.current();
+      },
+      [],
+    );
+
     const cancelUpload = useCallback((uploadId: string) => {
       const controller = uploadControllers.current.get(uploadId);
-      if (controller) controller.abort();
+      if (controller) {
+        controller.abort();
+        return;
+      }
+
+      const queuedIndex = pendingUploads.current.findIndex(
+        (upload) => upload.id === uploadId,
+      );
+      if (queuedIndex >= 0) {
+        pendingUploads.current.splice(queuedIndex, 1);
+        setUploading((prev) => prev.filter((upload) => upload.id !== uploadId));
+      }
     }, []);
 
     const retryUpload = useCallback(
       (uploadId: string) => {
         const entry = uploading.find((u) => u.id === uploadId);
         if (!entry) return;
-        uploadFile(entry.file, uploadId);
+        enqueueUpload(entry.file, uploadId);
       },
-      [uploading, uploadFile],
+      [uploading, enqueueUpload],
     );
 
     const dismissUpload = useCallback((uploadId: string) => {
@@ -326,8 +413,11 @@ export const ChatInput = memo(
     }, []);
 
     useEffect(() => {
+      uploadComponentMounted.current = true;
       const controllers = uploadControllers.current;
       return () => {
+        uploadComponentMounted.current = false;
+        pendingUploads.current = [];
         controllers.forEach((c) => c.abort());
         controllers.clear();
       };
@@ -335,40 +425,65 @@ export const ChatInput = memo(
 
     const handleFileSelect = useCallback(
       (files: File[]) => {
-        const existingDocs = attachments.filter(
-          (a) => a.type === 'document',
-        ).length;
-        const allowed: File[] = [];
-        let droppedDocs = 0;
-        for (const file of files) {
-          if (classifyFile(file) === 'document') {
-            if (
-              existingDocs +
-                allowed.filter((f) => classifyFile(f) === 'document').length >=
-              UPLOAD_LIMITS.MAX_DOCUMENTS_PER_BATCH
-            ) {
-              droppedDocs += 1;
-              continue;
-            }
-          }
-          allowed.push(file);
-        }
+        const activeOrQueued = uploading.filter(
+          (upload) => upload.progress < 100 && !upload.error,
+        );
+        const existingCounts = {
+          image:
+            attachments.filter((attachment) => attachment.type === 'image')
+              .length +
+            activeOrQueued.filter((upload) => upload.type === 'image').length,
+          document:
+            attachments.filter((attachment) => attachment.type === 'document')
+              .length +
+            activeOrQueued.filter((upload) => upload.type === 'document')
+              .length,
+          video:
+            attachments.filter((attachment) => attachment.type === 'video')
+              .length +
+            activeOrQueued.filter((upload) => upload.type === 'video').length,
+          transcript:
+            attachments.filter((attachment) => attachment.type === 'transcript')
+              .length +
+            activeOrQueued.filter((upload) => upload.type === 'transcript')
+              .length,
+        };
+        const limits = {
+          image: UPLOAD_LIMITS.MAX_IMAGES_PER_BATCH,
+          document: UPLOAD_LIMITS.MAX_DOCUMENTS_PER_BATCH,
+          video: UPLOAD_LIMITS.MAX_VIDEOS_PER_BATCH,
+          transcript: UPLOAD_LIMITS.MAX_DOCUMENTS_PER_BATCH,
+        };
+        const { accepted: allowed, rejected: droppedCounts } = admitUploadBatch(
+          files,
+          classifyFile,
+          existingCounts,
+          limits,
+        );
 
-        if (droppedDocs > 0) {
+        const rejectedTypes = (
+          Object.entries(droppedCounts) as Array<
+            [keyof typeof droppedCounts, number]
+          >
+        ).filter(([, count]) => count > 0);
+        if (rejectedTypes.length > 0) {
+          const summary = rejectedTypes
+            .map(
+              ([type, count]) =>
+                `${count} ${type} file${count === 1 ? '' : 's'}`,
+            )
+            .join(', ');
           toast.error(
-            `Only ${UPLOAD_LIMITS.MAX_DOCUMENTS_PER_BATCH} documents can be ingested per request. ` +
-              `Skipped ${droppedDocs} file${
-                droppedDocs === 1 ? '' : 's'
-              } — split into multiple requests.`,
+            `Upload batch limit reached. Skipped ${summary}. Split them into multiple requests.`,
             { duration: 8000 },
           );
         }
 
         for (const file of allowed) {
-          uploadFile(file);
+          enqueueUpload(file);
         }
       },
-      [attachments, uploadFile],
+      [attachments, uploading, enqueueUpload],
     );
 
     const removeAttachment = useCallback((index: number) => {
@@ -563,8 +678,7 @@ export const ChatInput = memo(
           ...(!isInlineMode && selectedCollection
             ? {
                 targetCollection: selectedCollection,
-                collectionScope:
-                  classifyMilvusCollectionScope(selectedCollection),
+                collectionScope: 'user',
               }
             : {}),
         },
@@ -588,21 +702,32 @@ export const ChatInput = memo(
 
     const handleKeyDown = useCallback(
       (e: React.KeyboardEvent) => {
-        if (e.key === 'Enter' && !e.shiftKey) {
+        // On mobile, Enter inserts a newline and the send button submits.
+        // Never submit mid-IME-composition (e.g. CJK input).
+        if (
+          e.key === 'Enter' &&
+          !e.shiftKey &&
+          !e.nativeEvent.isComposing &&
+          !isMobile
+        ) {
           e.preventDefault();
           handleSend();
         }
       },
-      [handleSend],
+      [handleSend, isMobile],
     );
 
-    // Listen for bottom nav events
-    useEffect(() => {
-      const handleAttach = () => fileInputRef.current?.click();
-      document.addEventListener('daedalus:attach-file', handleAttach);
-      return () =>
-        document.removeEventListener('daedalus:attach-file', handleAttach);
-    }, []);
+    // Paste-to-upload: screenshots and files from the clipboard
+    const handlePaste = useCallback(
+      (e: React.ClipboardEvent) => {
+        const files = Array.from(e.clipboardData?.files ?? []);
+        if (files.length > 0) {
+          e.preventDefault();
+          handleFileSelect(files);
+        }
+      },
+      [handleFileSelect],
+    );
 
     return (
       <GlassToolbar className="flex-shrink-0 py-3">
@@ -759,16 +884,16 @@ export const ChatInput = memo(
                       ── knowledge bases ──
                     </option>
                   )}
-                  {collections.map((col) => (
-                    <option key={col} value={col}>
-                      {col}
+                  {collections.map((collection) => (
+                    <option key={collection.name} value={collection.name}>
+                      {collection.displayName}
                     </option>
                   ))}
                 </select>
               </div>
             )}
 
-            {/* Input row - attach hidden on mobile (in BottomNav instead) */}
+            {/* Input row */}
             <div className="flex items-end gap-2">
               <IconButton
                 icon={<IconPaperclip />}
@@ -776,7 +901,7 @@ export const ChatInput = memo(
                 variant="ghost"
                 size="sm"
                 onClick={() => fileInputRef.current?.click()}
-                className="hidden md:flex flex-shrink-0 mb-0.5"
+                className="flex-shrink-0 mb-0.5"
               />
 
               <div className="flex-1 min-w-0">
@@ -785,6 +910,7 @@ export const ChatInput = memo(
                   value={content}
                   onChange={(e) => setContent(e.target.value)}
                   onKeyDown={handleKeyDown}
+                  onPaste={handlePaste}
                   placeholder={
                     hasDocumentAttachment
                       ? 'Add instructions or send to ingest...'

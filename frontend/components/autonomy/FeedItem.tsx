@@ -66,9 +66,9 @@ function FeedItemImpl({
         )}
       />
 
-      <header className="flex items-baseline gap-2 font-mono text-[10px] uppercase tracking-[0.16em] text-dark-text-subtle">
-        <span className="text-dark-text-muted">{LANE_LABELS[lane]}</span>
-        <span>·</span>
+      <header className="flex items-baseline gap-2 font-mono text-[11px] uppercase tracking-[0.16em] text-dark-text-muted">
+        <span>{LANE_LABELS[lane]}</span>
+        <span aria-hidden>·</span>
         <time dateTime={new Date(item.createdAt).toISOString()}>
           {timeOfDay(item.createdAt)}
         </time>
@@ -120,7 +120,7 @@ function FeedItemImpl({
         </div>
       )}
 
-      <footer className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[11px] text-dark-text-subtle">
+      <footer className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-xs text-dark-text-muted">
         {hasBody && (
           <button
             type="button"

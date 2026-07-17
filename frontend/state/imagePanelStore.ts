@@ -19,6 +19,7 @@ import {
 } from '@/utils/app/imageModelCapabilities';
 
 import { create } from 'zustand';
+import { createJSONStorage, persist } from 'zustand/middleware';
 import { subscribeWithSelector } from 'zustand/middleware';
 
 export type {
@@ -159,142 +160,173 @@ const INITIAL_STATE: ImagePanelState = {
 };
 
 export const useImagePanelStore = create<ImagePanelStore>()(
-  subscribeWithSelector((set, get) => ({
-    ...INITIAL_STATE,
+  subscribeWithSelector(
+    persist(
+      (set, get) => ({
+        ...INITIAL_STATE,
 
-    setMode: (mode) => set({ mode, error: null }),
-    setModel: (model) =>
-      set((s) => ({
-        model,
-        params: cleanImageParamsForModel(s.params, model),
-      })),
-    setPrompt: (prompt) => set({ prompt }),
-    setParam: (key, value) =>
-      set((s) => ({
-        params: cleanImageParamsForModel(
-          value === undefined
-            ? omit(s.params, key)
-            : { ...s.params, [key]: value },
-          s.model,
-        ),
-      })),
-    resetParams: () =>
-      set((s) => ({
-        params: cleanImageParamsForModel(DEFAULT_PARAMS, s.model),
-      })),
+        setMode: (mode) => set({ mode, error: null }),
+        setModel: (model) =>
+          set((s) => ({
+            model,
+            params: cleanImageParamsForModel(s.params, model),
+          })),
+        setPrompt: (prompt) => set({ prompt }),
+        setParam: (key, value) =>
+          set((s) => ({
+            params: cleanImageParamsForModel(
+              value === undefined
+                ? omit(s.params, key)
+                : { ...s.params, [key]: value },
+              s.model,
+            ),
+          })),
+        resetParams: () =>
+          set((s) => ({
+            params: cleanImageParamsForModel(DEFAULT_PARAMS, s.model),
+          })),
 
-    addInputImages: (refs) =>
-      set((s) => {
-        const byId = new Map(s.inputImages.map((r) => [r.imageId, r]));
-        for (const r of refs) byId.set(r.imageId, r);
-        return { inputImages: Array.from(byId.values()), mode: 'edit' };
+        addInputImages: (refs) =>
+          set((s) => {
+            const byId = new Map(s.inputImages.map((r) => [r.imageId, r]));
+            for (const r of refs) byId.set(r.imageId, r);
+            return { inputImages: Array.from(byId.values()), mode: 'edit' };
+          }),
+        removeInputImage: (imageId) =>
+          set((s) => {
+            const removedPrimary = s.inputImages[0]?.imageId === imageId;
+            return {
+              inputImages: s.inputImages.filter((r) => r.imageId !== imageId),
+              // A mask is always tied to Image 1. If it changes, discard the
+              // invalid pairing instead of letting users submit a broken edit.
+              maskImage: removedPrimary ? null : s.maskImage,
+            };
+          }),
+        clearInputImages: () => set({ inputImages: [], maskImage: null }),
+
+        setMaskImage: (ref) => set({ maskImage: ref }),
+
+        setPreserveList: (preserveList) => set({ preserveList }),
+
+        reuseOutputAsInput: (ref) =>
+          set((s) => {
+            const byId = new Map(s.inputImages.map((r) => [r.imageId, r]));
+            byId.set(ref.imageId, ref);
+            return { inputImages: Array.from(byId.values()), mode: 'edit' };
+          }),
+
+        setGallery: (gallery) =>
+          set((s) => ({
+            gallery,
+            partialGallery: [],
+            selectedImageId:
+              gallery[0]?.imageId ??
+              (gallery.some((img) => img.imageId === s.selectedImageId)
+                ? s.selectedImageId
+                : null),
+          })),
+        setPartialGallery: (partialGallery) => set({ partialGallery }),
+        setSelectedImageId: (selectedImageId) => set({ selectedImageId }),
+        removeFromGallery: (imageId) =>
+          set((s) => {
+            const gallery = s.gallery.filter((g) => g.imageId !== imageId);
+            return {
+              gallery,
+              selectedImageId:
+                s.selectedImageId === imageId
+                  ? gallery[0]?.imageId ?? null
+                  : s.selectedImageId,
+            };
+          }),
+        setHistory: (history) =>
+          set((s) => {
+            const nextHistory = history.slice(0, 50);
+            const latest = nextHistory[0];
+            const gallery =
+              s.gallery.length === 0 && latest
+                ? galleryFromHistoryEntry(latest)
+                : s.gallery;
+            return {
+              history: nextHistory,
+              gallery,
+              selectedImageId: s.selectedImageId ?? gallery[0]?.imageId ?? null,
+            };
+          }),
+        appendToHistory: (entry) =>
+          set((s) => ({
+            history: [
+              entry,
+              ...s.history.filter((item) => item.id !== entry.id),
+            ].slice(0, 50),
+          })),
+        restoreFromHistory: (entryId) => {
+          const entry = get().history.find((e) => e.id === entryId);
+          if (!entry) return;
+          set({
+            mode: entry.mode,
+            model: resolveEntryModel(entry.model),
+            prompt: entry.prompt,
+            params: cleanImageParamsForModel(entry.params, entry.model),
+            inputImages: [...entry.inputImages],
+            maskImage: entry.maskImage,
+            gallery: galleryFromHistoryEntry(entry),
+            partialGallery: [],
+            selectedImageId: entry.outputImageIds[0] ?? null,
+            error: null,
+          });
+        },
+        removeFromHistory: (entryId) =>
+          set((s) => ({ history: s.history.filter((e) => e.id !== entryId) })),
+        clearHistory: () =>
+          set({
+            history: [],
+          }),
+
+        setLoading: (loading) => set({ loading }),
+        setGenerationStatus: (generationStatus, generationStartedAt) =>
+          set((s) => ({
+            generationStatus,
+            generationStartedAt:
+              generationStartedAt === undefined
+                ? s.generationStartedAt
+                : generationStartedAt,
+          })),
+        setError: (error) => set({ error }),
+
+        setHistoryOpen: (open) => set({ historyOpen: open }),
+        toggleHistory: () => set((s) => ({ historyOpen: !s.historyOpen })),
+
+        clearAll: () => set({ ...INITIAL_STATE, history: get().history }),
       }),
-    removeInputImage: (imageId) =>
-      set((s) => {
-        const removedPrimary = s.inputImages[0]?.imageId === imageId;
-        return {
-          inputImages: s.inputImages.filter((r) => r.imageId !== imageId),
-          // A mask is always tied to Image 1. If it changes, discard the
-          // invalid pairing instead of letting users submit a broken edit.
-          maskImage: removedPrimary ? null : s.maskImage,
-        };
-      }),
-    clearInputImages: () => set({ inputImages: [], maskImage: null }),
-
-    setMaskImage: (ref) => set({ maskImage: ref }),
-
-    setPreserveList: (preserveList) => set({ preserveList }),
-
-    reuseOutputAsInput: (ref) =>
-      set((s) => {
-        const byId = new Map(s.inputImages.map((r) => [r.imageId, r]));
-        byId.set(ref.imageId, ref);
-        return { inputImages: Array.from(byId.values()), mode: 'edit' };
-      }),
-
-    setGallery: (gallery) =>
-      set((s) => ({
-        gallery,
-        partialGallery: [],
-        selectedImageId:
-          gallery[0]?.imageId ??
-          (gallery.some((img) => img.imageId === s.selectedImageId)
-            ? s.selectedImageId
-            : null),
-      })),
-    setPartialGallery: (partialGallery) => set({ partialGallery }),
-    setSelectedImageId: (selectedImageId) => set({ selectedImageId }),
-    removeFromGallery: (imageId) =>
-      set((s) => {
-        const gallery = s.gallery.filter((g) => g.imageId !== imageId);
-        return {
-          gallery,
-          selectedImageId:
-            s.selectedImageId === imageId
-              ? gallery[0]?.imageId ?? null
-              : s.selectedImageId,
-        };
-      }),
-    setHistory: (history) =>
-      set((s) => {
-        const nextHistory = history.slice(0, 50);
-        const latest = nextHistory[0];
-        const gallery =
-          s.gallery.length === 0 && latest
-            ? galleryFromHistoryEntry(latest)
-            : s.gallery;
-        return {
-          history: nextHistory,
-          gallery,
-          selectedImageId: s.selectedImageId ?? gallery[0]?.imageId ?? null,
-        };
-      }),
-    appendToHistory: (entry) =>
-      set((s) => ({
-        history: [
-          entry,
-          ...s.history.filter((item) => item.id !== entry.id),
-        ].slice(0, 50),
-      })),
-    restoreFromHistory: (entryId) => {
-      const entry = get().history.find((e) => e.id === entryId);
-      if (!entry) return;
-      set({
-        mode: entry.mode,
-        model: resolveEntryModel(entry.model),
-        prompt: entry.prompt,
-        params: cleanImageParamsForModel(entry.params, entry.model),
-        inputImages: [...entry.inputImages],
-        maskImage: entry.maskImage,
-        gallery: galleryFromHistoryEntry(entry),
-        partialGallery: [],
-        selectedImageId: entry.outputImageIds[0] ?? null,
-        error: null,
-      });
-    },
-    removeFromHistory: (entryId) =>
-      set((s) => ({ history: s.history.filter((e) => e.id !== entryId) })),
-    clearHistory: () =>
-      set({
-        history: [],
-      }),
-
-    setLoading: (loading) => set({ loading }),
-    setGenerationStatus: (generationStatus, generationStartedAt) =>
-      set((s) => ({
-        generationStatus,
-        generationStartedAt:
-          generationStartedAt === undefined
-            ? s.generationStartedAt
-            : generationStartedAt,
-      })),
-    setError: (error) => set({ error }),
-
-    setHistoryOpen: (open) => set({ historyOpen: open }),
-    toggleHistory: () => set((s) => ({ historyOpen: !s.historyOpen })),
-
-    clearAll: () => set({ ...INITIAL_STATE, history: get().history }),
-  })),
+      {
+        name: 'image-panel-settings',
+        storage: createJSONStorage(() => localStorage),
+        // Persist only user preferences — never transient job/gallery state.
+        partialize: (state) => ({
+          model: state.model,
+          params: state.params,
+          preserveList: state.preserveList,
+        }),
+        merge: (persisted, current) => {
+          const saved = (persisted ?? {}) as Partial<ImagePanelState>;
+          const model = saved.model
+            ? resolveImageModel(saved.model)
+            : current.model;
+          return {
+            ...current,
+            model,
+            preserveList: saved.preserveList ?? current.preserveList,
+            // Re-validate saved params against the (possibly updated)
+            // model capabilities instead of trusting stale localStorage.
+            params: cleanImageParamsForModel(
+              saved.params ?? current.params,
+              model,
+            ),
+          };
+        },
+      },
+    ),
+  ),
 );
 
 /** Select the explicit image workflow mode. */

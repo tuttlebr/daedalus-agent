@@ -96,7 +96,7 @@ export const AssistantMessage = memo(
     };
 
     const proseClasses =
-      'prose dark:prose-invert prose-sm max-w-none prose-p:my-1.5 prose-pre:my-2 prose-ul:my-1.5 prose-ol:my-1.5 prose-headings:text-dark-text-primary prose-a:text-nvidia-green prose-code:text-nvidia-green-light prose-strong:text-dark-text-primary';
+      'prose dark:prose-invert prose-sm max-w-none break-words prose-p:my-1.5 prose-pre:my-2 prose-ul:my-1.5 prose-ol:my-1.5 prose-headings:text-dark-text-primary prose-a:text-nvidia-green prose-code:text-nvidia-green-light prose-strong:text-dark-text-primary';
     const feedClasses = 'autonomous-feed-render max-w-none';
 
     return (
@@ -166,7 +166,11 @@ export const AssistantMessage = memo(
           {/* Message content */}
           {(content || isStreaming) && (
             <div className="relative w-full min-w-0">
+              {/* Announce streamed tokens to screen readers as they arrive */}
               <div
+                aria-live="polite"
+                aria-atomic="false"
+                aria-busy={isStreaming}
                 className={classNames(
                   'min-w-0 text-dark-text-primary text-sm',
                   isAutonomousFeedHtml

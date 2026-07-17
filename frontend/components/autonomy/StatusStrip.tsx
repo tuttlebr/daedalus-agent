@@ -17,6 +17,8 @@ interface StatusStripProps {
   queuedRequests: number;
   onOpenWorkspace: () => void;
   onRefresh: () => void;
+  /** True while a manual/automatic refresh is in flight */
+  refreshing?: boolean;
   wsConnected: boolean;
 }
 
@@ -30,6 +32,7 @@ export const StatusStrip = forwardRef<HTMLButtonElement, StatusStripProps>(
       queuedRequests,
       onOpenWorkspace,
       onRefresh,
+      refreshing = false,
       wsConnected,
     },
     workspaceButtonRef,
@@ -88,8 +91,15 @@ export const StatusStrip = forwardRef<HTMLButtonElement, StatusStripProps>(
                 {pendingApprovals}
               </span>
             )}
-            <IconChrome onClick={onRefresh} label="Refresh">
-              <IconRefresh size={15} />
+            <IconChrome
+              onClick={onRefresh}
+              label={refreshing ? 'Refreshing' : 'Refresh'}
+              disabled={refreshing}
+            >
+              <IconRefresh
+                size={15}
+                className={refreshing ? 'animate-spin' : undefined}
+              />
             </IconChrome>
             <IconChrome
               onClick={onOpenWorkspace}
@@ -146,15 +156,21 @@ function Sep() {
 
 const IconChrome = forwardRef<
   HTMLButtonElement,
-  { children: ReactNode; onClick: () => void; label: string }
->(function IconChrome({ children, onClick, label }, ref) {
+  {
+    children: ReactNode;
+    onClick: () => void;
+    label: string;
+    disabled?: boolean;
+  }
+>(function IconChrome({ children, onClick, label, disabled = false }, ref) {
   return (
     <button
       ref={ref}
       type="button"
       onClick={onClick}
       aria-label={label}
-      className="grid h-11 w-11 place-items-center rounded-full text-dark-text-muted transition hover:bg-white/[0.06] hover:text-dark-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nvidia-green/40"
+      disabled={disabled}
+      className="grid h-11 w-11 place-items-center rounded-full text-dark-text-muted transition hover:bg-white/[0.06] hover:text-dark-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nvidia-green/40 disabled:pointer-events-none disabled:opacity-60"
     >
       {children}
     </button>

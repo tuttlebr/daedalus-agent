@@ -523,6 +523,23 @@ export function ImagePanel({ onSendToChat }: ImagePanelProps) {
     }
   }, [pollImageJob, recoverableJobId]);
 
+  // Stop waiting on the in-flight job and unlock the panel. The job keeps
+  // running server-side (there is no abort API yet), so it stays resumable.
+  const stopWaiting = useCallback(() => {
+    const jobId = activeJobIdRef.current;
+    activeJobIdRef.current = null;
+    const { setLoading, setGenerationStatus, setPartialGallery, setError } =
+      useImagePanelStore.getState();
+    setLoading(false);
+    setGenerationStatus('idle', null);
+    setPartialGallery([]);
+    setError(null);
+    if (jobId) {
+      forgetActiveImageJob(jobId);
+      setRecoverableJobId(null);
+    }
+  }, []);
+
   const reuseRef = useCallback(
     (ref: ImageRef) => reuseOutputAsInput(ref),
     [reuseOutputAsInput],
@@ -590,7 +607,7 @@ export function ImagePanel({ onSendToChat }: ImagePanelProps) {
             </div>
           )}
 
-          <ImagesDock onSubmit={submit} />
+          <ImagesDock onSubmit={submit} onStop={stopWaiting} />
         </main>
 
         <aside className="hidden w-[360px] flex-none flex-col border-l border-white/10 bg-neutral-950/90 lg:flex">

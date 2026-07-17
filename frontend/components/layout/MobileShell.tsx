@@ -37,6 +37,7 @@ export const MobileShell = memo(
           open={showChatbar}
           onClose={() => setShowChatbar(false)}
           position="left"
+          aria-label="Navigation menu"
         >
           <GlassPanel
             position="left"

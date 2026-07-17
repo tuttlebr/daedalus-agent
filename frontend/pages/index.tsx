@@ -19,11 +19,7 @@ import {
   cleanConversationHistory,
   cleanSelectedConversation,
 } from '@/utils/app/clean';
-import {
-  saveConversation,
-  saveConversations,
-  loadConversation,
-} from '@/utils/app/conversation';
+import { saveConversation, loadConversation } from '@/utils/app/conversation';
 import { sanitizeConversationAssistantReplays } from '@/utils/app/conversationReplay';
 import { getWorkflowName } from '@/utils/app/helper';
 import { getUserSessionItem, setUserSessionItem } from '@/utils/app/storage';
@@ -280,8 +276,7 @@ const Home = () => {
       }
     };
 
-    fetchConversations();
-    loadSelectedConversation();
+    void fetchConversations().then(loadSelectedConversation);
   }, [t]);
 
   useEffect(() => {
@@ -297,7 +292,7 @@ const Home = () => {
         <meta name="description" content={workflow} />
         <meta
           name="viewport"
-          content="width=device-width, initial-scale=1, viewport-fit=cover"
+          content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content"
         />
         <meta name="format-detection" content="telephone=no" />
         <meta

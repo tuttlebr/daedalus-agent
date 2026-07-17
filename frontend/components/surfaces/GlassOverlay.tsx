@@ -1,6 +1,8 @@
 'use client';
 
-import React, { memo, useEffect, useCallback } from 'react';
+import React, { memo, useEffect } from 'react';
+
+import { useFocusTrap } from '@/hooks/useFocusTrap';
 
 import classNames from 'classnames';
 
@@ -10,6 +12,8 @@ export interface GlassOverlayProps {
   children: React.ReactNode;
   position?: 'left' | 'right' | 'center' | 'bottom';
   className?: string;
+  /** Accessible name for the dialog announced by screen readers */
+  'aria-label'?: string;
 }
 
 /**
@@ -23,23 +27,30 @@ export const GlassOverlay = memo(
     children,
     position = 'center',
     className = '',
+    'aria-label': ariaLabel,
   }: GlassOverlayProps) => {
-    const handleKeyDown = useCallback(
-      (e: KeyboardEvent) => {
-        if (e.key === 'Escape') onClose();
-      },
-      [onClose],
-    );
+    // Trap Tab focus inside the overlay, close on Escape, and restore focus
+    // to the trigger on close. autoFocus is off so opening the overlay never
+    // pops the mobile keyboard when the first focusable element is an input;
+    // the panel container receives focus instead.
+    const { containerRef } = useFocusTrap({
+      isActive: open,
+      onEscape: onClose,
+      autoFocus: false,
+      restoreFocus: true,
+    });
 
     useEffect(() => {
       if (!open) return;
-      document.addEventListener('keydown', handleKeyDown);
       document.body.style.overflow = 'hidden';
+      const focusTimer = window.setTimeout(() => {
+        containerRef.current?.focus();
+      }, 0);
       return () => {
-        document.removeEventListener('keydown', handleKeyDown);
+        window.clearTimeout(focusTimer);
         document.body.style.overflow = '';
       };
-    }, [open, handleKeyDown]);
+    }, [open, containerRef]);
 
     if (!open) return null;
 
@@ -65,6 +76,7 @@ export const GlassOverlay = memo(
         )}
         role="dialog"
         aria-modal="true"
+        aria-label={ariaLabel}
       >
         {/* Backdrop */}
         <div
@@ -75,8 +87,10 @@ export const GlassOverlay = memo(
 
         {/* Content */}
         <div
+          ref={containerRef}
+          tabIndex={-1}
           className={classNames(
-            'relative z-10',
+            'relative z-10 outline-none',
             panelAnimation[position],
             className,
           )}

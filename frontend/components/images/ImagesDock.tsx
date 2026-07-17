@@ -1,7 +1,7 @@
 'use client';
 
-import { IconArrowUp } from '@tabler/icons-react';
-import React, { memo, useCallback, useEffect, useRef } from 'react';
+import { IconArrowUp, IconSquare } from '@tabler/icons-react';
+import React, { memo, useEffect, useRef } from 'react';
 
 import { AttachmentsPopover } from './AttachmentsPopover';
 import { ParamsPopover } from './ParamsPopover';
@@ -12,6 +12,8 @@ import classNames from 'classnames';
 
 interface ImagesDockProps {
   onSubmit: () => void;
+  /** Stop waiting on the in-flight generation and unlock the panel */
+  onStop?: () => void;
 }
 
 /**
@@ -21,6 +23,7 @@ interface ImagesDockProps {
  */
 export const ImagesDock = memo(function ImagesDock({
   onSubmit,
+  onStop,
 }: ImagesDockProps) {
   const prompt = useImagePanelStore((s) => s.prompt);
   const setPrompt = useImagePanelStore((s) => s.setPrompt);
@@ -86,6 +89,7 @@ export const ImagesDock = memo(function ImagesDock({
           loading={loading}
           mode={mode}
           onSubmit={onSubmit}
+          onStop={onStop}
           submitDisabled={submitDisabled}
         />
       </div>
@@ -97,6 +101,7 @@ interface DockActionsRowProps {
   loading: boolean;
   mode: 'generate' | 'edit';
   onSubmit: () => void;
+  onStop?: () => void;
   submitDisabled: boolean;
 }
 
@@ -104,6 +109,7 @@ const DockActionsRow = memo(function DockActionsRow({
   loading,
   mode,
   onSubmit,
+  onStop,
   submitDisabled,
 }: DockActionsRowProps) {
   return (
@@ -122,12 +128,16 @@ const DockActionsRow = memo(function DockActionsRow({
 
       <div className="flex items-center gap-2 pr-1">
         <SettingsSummary />
-        <SubmitButton
-          onClick={onSubmit}
-          disabled={submitDisabled}
-          loading={loading}
-          mode={mode}
-        />
+        {loading && onStop ? (
+          <StopButton onClick={onStop} />
+        ) : (
+          <SubmitButton
+            onClick={onSubmit}
+            disabled={submitDisabled}
+            loading={loading}
+            mode={mode}
+          />
+        )}
       </div>
     </div>
   );
@@ -144,15 +154,38 @@ function SettingsSummary() {
     params.size ?? 'auto',
     params.quality ?? 'auto',
   ];
+  const compactParts = [`${params.n ?? 1}x`, params.size ?? 'auto'];
 
   return (
-    <span
+    <>
+      {/* Condensed summary on phones so users can confirm settings at a glance */}
+      <span className="inline-flex rounded-full bg-white/5 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-neutral-500 sm:hidden">
+        {compactParts.join(' · ')}
+      </span>
+      <span className="hidden rounded-full bg-white/5 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-neutral-500 sm:inline-flex">
+        {parts.join(' · ')}
+      </span>
+    </>
+  );
+}
+
+function StopButton({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label="Stop waiting for this generation"
+      title="Stop waiting (the panel unlocks; the job keeps running server-side)"
       className={classNames(
-        'hidden rounded-full bg-white/5 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-neutral-500 sm:inline-flex',
+        'inline-flex h-11 items-center justify-center gap-1.5 rounded-xl px-3 text-xs font-semibold touch-manipulation',
+        'bg-nvidia-red/15 text-nvidia-red border border-nvidia-red/30',
+        'transition-all hover:bg-nvidia-red/25 active:scale-95',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nvidia-red/40',
       )}
     >
-      {parts.join(' · ')}
-    </span>
+      <IconSquare size={16} strokeWidth={2.5} />
+      <span>Stop</span>
+    </button>
   );
 }
 

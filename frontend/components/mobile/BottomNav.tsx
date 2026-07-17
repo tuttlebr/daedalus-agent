@@ -2,7 +2,7 @@
 
 import {
   IconMenu2,
-  IconPaperclip,
+  IconMessageCircle,
   IconPlus,
   IconRobot,
   IconSparkles,
@@ -36,11 +36,12 @@ export const BottomNav = memo(() => {
       onClick: () => setShowChatbar(!showChatbar),
     },
     {
-      icon: IconPaperclip,
-      label: 'Attach',
-      active: false,
+      icon: IconMessageCircle,
+      label: 'Chat',
+      active: activeView === 'chat',
       onClick: () => {
-        document.dispatchEvent(new CustomEvent('daedalus:attach-file'));
+        setShowChatbar(false);
+        setActiveView('chat');
       },
     },
     {
@@ -56,14 +57,17 @@ export const BottomNav = memo(() => {
       icon: IconRobot,
       label: 'Auto',
       active: activeView === 'autonomy',
-      onClick: () =>
-        setActiveView(activeView === 'autonomy' ? 'chat' : 'autonomy'),
+      onClick: () => {
+        setShowChatbar(false);
+        setActiveView('autonomy');
+      },
     },
     {
       icon: IconPlus,
       label: 'New',
       active: false,
       onClick: () => {
+        setShowChatbar(false);
         setActiveView('chat');
         const newConv: Conversation = {
           id: uuidv4(),
