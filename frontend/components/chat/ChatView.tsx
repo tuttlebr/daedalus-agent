@@ -164,7 +164,6 @@ export const ChatView = memo(() => {
   const setStreaming = useConversationStore((s) => s.setStreaming);
 
   const toggleChatbar = useUISettingsStore((s) => s.toggleChatbar);
-  const chatCompletionURL = useUISettingsStore((s) => s.chatCompletionURL);
   const enableIntermediateSteps = useUISettingsStore(
     (s) => s.enableIntermediateSteps,
   );
@@ -829,7 +828,6 @@ export const ChatView = memo(() => {
       try {
         await startAsyncJob(
           cleanedMessages,
-          chatCompletionURL,
           additionalProps,
           userId,
           convId,
@@ -864,7 +862,6 @@ export const ChatView = memo(() => {
       setStreaming,
       updateAssistantMessage,
       startAsyncJob,
-      chatCompletionURL,
       enableIntermediateSteps,
       userId,
       scrollToBottom,

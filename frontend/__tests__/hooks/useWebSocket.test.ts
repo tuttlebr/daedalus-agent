@@ -42,17 +42,13 @@ vi.mock('@/services/websocket', () => ({
   WebSocketManager: vi.fn(),
 }));
 
-vi.mock('@/hooks/useOnlineStatus', () => ({
-  invalidateServiceWorkerCache: vi.fn(),
-}));
-
 vi.mock('@/utils/logger', () => ({
-  Logger: vi.fn().mockImplementation(() => ({
-    info: vi.fn(),
-    warn: vi.fn(),
-    error: vi.fn(),
-    debug: vi.fn(),
-  })),
+  Logger: class MockLogger {
+    info = vi.fn();
+    warn = vi.fn();
+    error = vi.fn();
+    debug = vi.fn();
+  },
 }));
 
 function ConnectionProbe({
@@ -140,9 +136,6 @@ describe('useWebSocket module', () => {
         'selected_conversation_changed',
         'streaming_started',
         'streaming_ended',
-        'chat_token',
-        'chat_intermediate_step',
-        'chat_complete',
         'battery_critical',
       ];
 
@@ -190,9 +183,6 @@ describe('useWebSocket module', () => {
         onConversationListChanged: vi.fn(),
         onSelectedConversationChanged: vi.fn(),
         onStreamingStateChanged: vi.fn(),
-        onChatToken: vi.fn(),
-        onChatIntermediateStep: vi.fn(),
-        onChatComplete: vi.fn(),
         onConnected: vi.fn(),
         onDisconnected: vi.fn(),
       };

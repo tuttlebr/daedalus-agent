@@ -82,7 +82,6 @@ export interface UserContext {
 }
 
 export interface ChatBody {
-  chatCompletionURL?: string;
   messages?: Message[];
   additionalProps?: {
     enableIntermediateSteps?: boolean;

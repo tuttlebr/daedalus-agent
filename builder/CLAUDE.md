@@ -57,7 +57,7 @@ async def webscrape_function(config, builder):
     yield FunctionInfo.from_fn(_fn, description="...")
 ```
 
-The `name=` on the config class is the `_type` referenced in workflow YAML. Retrievers (`smart_milvus`) use `register_retriever_client`/`register_retriever_provider` analogously.
+The `name=` on the config class is the `_type` referenced in workflow YAML. The `smart_milvus` package exposes `domain_retriever` as a normal registered function while retaining `MilvusRetriever` as its shared implementation.
 
 ### Tools are composed into a workflow elsewhere — not here
 
@@ -67,17 +67,16 @@ These packages only _register_ tools. They are assembled into a running agent by
 
 The container runs `python entrypoint.py`, which replaces `nat serve` so that **pre-import patches survive**. Order is load-bearing — these run before any NAT import:
 
-1. Seed optional env defaults declared in `OPTIONAL_STRING_ENV_DEFAULTS` so NAT `${...}` interpolation doesn't emit `None`.
-2. `_patch_starlette_compat` — re-adds `add_event_handler`/`add_route`/`add_websocket_route` removed in Starlette 1.0 but still called by NAT 1.4.x/1.7.
-3. `_patch_fastapi_daedalus_routes` — wraps `FastAPI.__init__` to `include_router` the Daedalus HTTP routers (below) onto NAT's app.
-4. `llm_diagnostics.patch()` — forces timeout/`max_retries` on every OpenAI client and enriches retry/connection-error logs with base_url + status (works around NAT passing `timeout=None`).
-5. `mcp_patches.patch()` — bounds each MCP group to one startup attempt without shortening runtime connects, defers interactive OAuth until a user tool call, adds MCP tool-call logging, and installs the **approval-gate** behavior for guarded MCP tools.
+1. Assert the exact NAT 1.7.0 and Starlette `<1` runtime contracts.
+2. `_patch_fastapi_daedalus_routes` — wraps `FastAPI.__init__` to attach the backend-wide auth middleware and Daedalus HTTP routers.
+3. `llm_diagnostics.patch()` — forces timeout/`max_retries` on every OpenAI client and enriches retry/connection-error logs with base_url + status (works around NAT passing `timeout=None`).
+4. `mcp_patches.patch()` — bounds each MCP group to one startup attempt without shortening runtime connects, defers interactive OAuth until a user tool call, adds MCP tool-call logging, and installs the **approval-gate** behavior for guarded MCP tools.
 
 Then it sets `sys.argv` to `nat serve --config_file=$NAT_CONFIG_FILE …` and calls `run_cli()` in-process.
 
 ### HTTP routes that bypass the agent loop
 
-`image_api.py` (`/v1/images/*`) and `document_ingest_api.py` (`/v1/documents/*`) are plain FastAPI routers injected into NAT's app by entrypoint patch #3. They exist so the frontend can hit image generation and **bulk document ingest** directly with structured JSON, instead of making an LLM copy hundreds of refs into a tool call. They reuse the same code as the agent tools (`nat_helpers.openai_images`, `nat_nv_ingest`).
+`image_api.py` (`/v1/images/*`) and `document_ingest_api.py` (`/v1/documents/*`) are plain FastAPI routers injected into NAT's app by the entrypoint route patch. They exist so the frontend can hit image generation and **bulk document ingest** directly with structured JSON, instead of making an LLM copy hundreds of refs into a tool call. They reuse the same code as the agent tools (`nat_helpers.openai_images`, `nat_nv_ingest`).
 
 ### Redis is the shared data plane
 
@@ -98,12 +97,12 @@ Consequence: unit tests exercise the **pure helper functions** inside each `*_fu
 
 ## Package catalog
 
-- **Search/web**: `webscrape` (httpx + Playwright fallback, robots-aware, challenge-page detection), `serpapi_search`, `perplexity_search`, `rss_feed` (feed → rerank → MarkItDown scrape).
+- **Search/web**: `webscrape` (httpx + Playwright fallback, robots-aware, challenge-page detection), `perplexity_search`, `rss_feed` (feed → rerank → MarkItDown scrape).
 - **Retrieval/ingest**: `smart_milvus` (Milvus retriever + `domain_retriever` domain→collection routing), `nat_nv_ingest` (`user_document_tool` ingest/search/list; NvIngest → Milvus; shared vs user collection scoping).
 - **Media**: `visual_media` (one tool, `operation=generate|edit|analyze`; OpenAI images API + VLM).
 - **Transcripts**: `vtt_interpreter`.
 - **Agent infra**: `agent_skills` (Anthropic-style progressive-disclosure skills from `/skills`; strips secret env vars before running skill scripts), `user_interaction` (HITL approval tokens), `source_verifier`, `content_distiller`.
-- **`nat_helpers`**: shared, non-NAT utilities (Redis image storage, OpenAI images client, result scraping, geolocation) imported by the packages and HTTP routes above.
+- **`nat_helpers`**: shared utilities for identity, memory, Redis media storage, OpenAI images, and URL validation imported by the packages and HTTP routes above.
 
 ## Conventions
 

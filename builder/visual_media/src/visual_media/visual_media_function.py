@@ -10,6 +10,7 @@ from nat.builder.builder import Builder
 from nat.builder.function_info import FunctionInfo
 from nat.cli.register_workflow import register_function
 from nat.data_models.function import FunctionBaseConfig
+from nat_helpers.identity import resolve_authenticated_user_id
 from nat_helpers.image_utils import (
     fetch_image_from_redis,
     fetch_video_from_redis,
@@ -19,7 +20,7 @@ from nat_helpers.image_utils import (
 from nat_helpers.openai_images import edit_images, generate_images
 from nat_helpers.url_guard import UnsafeURLError, validate_public_url
 from openai import AsyncOpenAI
-from pydantic import Field
+from pydantic import BaseModel, ConfigDict, Field
 
 logger = logging.getLogger(__name__)
 
@@ -130,6 +131,20 @@ class VisualMediaFunctionConfig(FunctionBaseConfig, name="visual_media"):
     )
 
 
+class VisualMediaInput(BaseModel):
+    """LLM-facing visual-media input; request identity is intentionally absent."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    operation: Literal["generate", "edit", "analyze"]
+    prompt: str = ""
+    imageRef: str | dict | list[dict] | None = None
+    image_url: str | None = None
+    videoRef: str | dict | None = None
+    video_url: str | None = None
+    question: str = ""
+
+
 def _configured_key(value: str | None, env_name: str) -> str:
     configured = (value or "").strip()
     if configured.startswith("${") and configured.endswith("}"):
@@ -178,7 +193,7 @@ def _validated_user_id(
         return (
             None,
             "Error: user_id is required for uploaded user-scoped media. "
-            "Pass user_id from the authenticated [IDENTITY] message.",
+            "The backend must supply an authenticated request identity.",
         )
     return (expected or None, None)
 
@@ -232,9 +247,9 @@ async def visual_media_function(config: VisualMediaFunctionConfig, builder: Buil
     async def _generate(prompt: str, user_id: str | None) -> str:
         if not prompt or not prompt.strip():
             return "Error: prompt is required for operation='generate'."
-        owner_user_id = (user_id or config.user or "").strip()
+        owner_user_id = (user_id or "").strip()
         if not owner_user_id:
-            return "Error: user_id is required for operation='generate'."
+            return "Error: authenticated request identity is required for generation."
 
         results = await generate_images(
             _get_image_client("generate"),
@@ -321,7 +336,7 @@ async def visual_media_function(config: VisualMediaFunctionConfig, builder: Buil
                 result.mime_type,
                 prompt,
                 source="visual_media.edit",
-                user_id=expected_user_id or config.user,
+                user_id=expected_user_id,
             )
             refs.append(f"![Edited image](/api/generated-image/{image_id})")
         return "\n".join(refs) if refs else "Error: No image was returned."
@@ -433,15 +448,31 @@ async def visual_media_function(config: VisualMediaFunctionConfig, builder: Buil
             videoRef: Uploaded video reference for analyze.
             video_url: Public video URL for analyze.
             question: Analysis question. Falls back to prompt.
-            user_id: Authenticated username from the [IDENTITY] message.
-                Required for generate and for user-scoped edit/analyze inputs.
+            user_id: Deprecated direct-call identity assertion. The LLM-facing
+                schema omits it; HTTP requests use the trusted NAT context.
         """
         op = (operation or "").strip().lower()
         try:
+            effective_user_id: str | None = None
+            needs_identity = (
+                bool(user_id)
+                or op in {"generate", "edit"}
+                or (op == "analyze" and bool(imageRef or videoRef))
+            )
+            if needs_identity:
+                try:
+                    effective_user_id = resolve_authenticated_user_id(user_id)
+                except ValueError as exc:
+                    logger.warning(
+                        "Denied visual media request without trusted identity: %s",
+                        exc,
+                    )
+                    return f"Error: visual media request denied: {exc}."
+
             if op == "generate":
-                return await _generate(prompt, user_id)
+                return await _generate(prompt, effective_user_id)
             if op == "edit":
-                return await _edit(prompt, imageRef, user_id)
+                return await _edit(prompt, imageRef, effective_user_id)
             if op == "analyze":
                 if isinstance(imageRef, list):
                     return (
@@ -454,7 +485,7 @@ async def visual_media_function(config: VisualMediaFunctionConfig, builder: Buil
                     image_url,
                     videoRef,
                     video_url,
-                    user_id,
+                    effective_user_id,
                 )
             return "Error: operation must be one of generate, edit, analyze."
         except httpx.HTTPStatusError as exc:
@@ -480,10 +511,12 @@ async def visual_media_function(config: VisualMediaFunctionConfig, builder: Buil
                 "Unified visual media tool. Args: operation='generate' to create "
                 "a new image from prompt; operation='edit' to modify uploaded "
                 "imageRef with prompt; operation='analyze' to answer a question "
-                "about imageRef, image_url, videoRef, or video_url. Pass user_id "
-                "from [IDENTITY] for every generate/edit/analyze call. Image "
-                "outputs return markdown refs that must be forwarded verbatim."
+                "about imageRef, image_url, videoRef, or video_url. The backend "
+                "derives media ownership from the authenticated request; never "
+                "pass user_id. Image outputs return markdown refs that must be "
+                "forwarded verbatim."
             ),
+            input_schema=VisualMediaInput,
         )
     except GeneratorExit:
         logger.warning("visual_media function exited early!")

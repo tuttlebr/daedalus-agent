@@ -7,9 +7,10 @@ from nat.builder.builder import Builder
 from nat.builder.function_info import FunctionInfo
 from nat.cli.register_workflow import register_function
 from nat.data_models.function import FunctionBaseConfig
+from nat_helpers.identity import resolve_authenticated_user_id
 from nat_helpers.image_utils import fetch_vtt_from_redis
 from openai import AsyncOpenAI
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 logger = logging.getLogger(__name__)
 
@@ -84,6 +85,8 @@ class VttInterpreterFunctionConfig(
 class VttInterpreterInput(BaseModel):
     """Input model for the VTT interpreter function."""
 
+    model_config = ConfigDict(extra="forbid")
+
     vtt_id: str | None = Field(
         None,
         description="Id of an uploaded transcript stored in Redis. Preferred for "
@@ -94,11 +97,6 @@ class VttInterpreterInput(BaseModel):
         None,
         description="Session id that scopes the uploaded transcript. Required when "
         "vtt_id is provided.",
-    )
-    user_id: str | None = Field(
-        None,
-        description="Authenticated user id from the [IDENTITY] message. Used to "
-        "verify ownership of the stored transcript.",
     )
     transcript_text: str | None = Field(
         None,
@@ -300,17 +298,22 @@ async def vtt_interpreter_function(
             user_instructions: Optional instructions for how to process the transcript
             vtt_id: Id of an uploaded transcript stored in Redis
             session_id: Session id scoping the uploaded transcript (with vtt_id)
-            user_id: Authenticated user id, used to verify transcript ownership
+            user_id: Deprecated direct-call identity assertion. The LLM-facing
+                schema omits it; HTTP requests use the trusted NAT context.
 
         Returns:
             Processed transcript output in markdown format
         """
         try:
+            effective_user_id: str | None = None
+            if vtt_id or user_id:
+                effective_user_id = resolve_authenticated_user_id(user_id)
+
             # Prefer the uploaded-transcript ref: fetch from Redis rather than
             # receiving the full transcript through the model.
             if vtt_id:
                 transcript_text, fetch_error = await fetch_vtt_from_redis(
-                    redis_client, session_id, vtt_id, user_id
+                    redis_client, session_id, vtt_id, effective_user_id
                 )
                 if fetch_error:
                     return fetch_error
@@ -431,6 +434,7 @@ Please organize this into the four required sections, being careful not to add a
             "identify what a specific person said, or any other analysis the user requests. "
             "For an uploaded transcript, pass vtt_id and session_id (from the attachment instruction) "
             "and the tool fetches the transcript itself — do NOT paste the transcript text. "
+            "The backend derives transcript ownership from the authenticated request; never pass user_id. "
             "For a transcript pasted directly into the chat, pass transcript_text. "
             "Pass any specific user asks as user_instructions. "
             "When no specific instructions are provided, produces default structured meeting notes "
@@ -442,6 +446,7 @@ Please organize this into the four required sections, being careful not to add a
         function_info = FunctionInfo.from_fn(
             interpret_vtt_transcript,
             description=description,
+            input_schema=VttInterpreterInput,
         )
         yield function_info
     except GeneratorExit:

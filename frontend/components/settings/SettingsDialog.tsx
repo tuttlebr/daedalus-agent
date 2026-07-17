@@ -3,7 +3,6 @@
 import {
   IconSettings,
   IconBrain,
-  IconBolt,
   IconActivity,
   IconDatabase,
 } from '@tabler/icons-react';
@@ -21,12 +20,11 @@ interface SettingsDialogProps {
   onClose: () => void;
 }
 
-type Tab = 'general' | 'agent' | 'performance' | 'data';
+type Tab = 'general' | 'agent' | 'data';
 
 const TABS: { id: Tab; label: string; icon: React.ElementType }[] = [
   { id: 'general', label: 'General', icon: IconSettings },
   { id: 'agent', label: 'Agent', icon: IconBrain },
-  { id: 'performance', label: 'Performance', icon: IconBolt },
   { id: 'data', label: 'Data', icon: IconDatabase },
 ];
 
@@ -56,15 +54,6 @@ export const SettingsDialog = memo(({ open, onClose }: SettingsDialogProps) => {
   const setIntermediateStepsView = useUISettingsStore(
     (s) => s.setIntermediateStepsView,
   );
-  const enableBackgroundProcessing = useUISettingsStore(
-    (s) => s.enableBackgroundProcessing,
-  );
-  const setEnableBackgroundProcessing = useUISettingsStore(
-    (s) => s.setEnableBackgroundProcessing,
-  );
-  const energySavingMode = useUISettingsStore((s) => s.energySavingMode);
-  const setEnergySavingMode = useUISettingsStore((s) => s.setEnergySavingMode);
-
   return (
     <Dialog open={open} onClose={onClose} title="Settings" size="lg">
       <div className="flex flex-col md:flex-row gap-4 md:gap-6">
@@ -157,29 +146,6 @@ export const SettingsDialog = memo(({ open, onClose }: SettingsDialogProps) => {
                   }
                   size="sm"
                   accentColors={['bg-nvidia-green', 'bg-nvidia-green']}
-                />
-              </SettingRow>
-            </>
-          )}
-
-          {activeTab === 'performance' && (
-            <>
-              <SettingRow
-                label="Background Processing"
-                description="Continue processing when the app is backgrounded"
-              >
-                <ToggleSwitch
-                  checked={enableBackgroundProcessing}
-                  onChange={setEnableBackgroundProcessing}
-                />
-              </SettingRow>
-              <SettingRow
-                label="Energy Saving Mode"
-                description="Reduce animations and background activity"
-              >
-                <ToggleSwitch
-                  checked={energySavingMode}
-                  onChange={setEnergySavingMode}
                 />
               </SettingRow>
             </>

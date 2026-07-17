@@ -77,33 +77,6 @@ export async function withRedisLock<T>(
   return null;
 }
 
-export function mapNatStatus(natStatus: string): AsyncJobStatus['status'] {
-  switch (natStatus) {
-    case 'submitted':
-      return 'pending';
-    case 'running':
-      return 'streaming';
-    case 'success':
-      return 'completed';
-    case 'failure':
-    case 'interrupted':
-      return 'error';
-    default:
-      logger.warn(`Unknown NAT job status: ${natStatus}`);
-      return 'pending';
-  }
-}
-
-export function extractNatOutput(
-  output: { value: string } | string | null,
-): string {
-  if (!output) return '';
-  if (typeof output === 'string') return output;
-  if (typeof output === 'object' && 'value' in output)
-    return String(output.value);
-  return JSON.stringify(output);
-}
-
 export function isTerminalJobStatus(status: AsyncJobStatus['status']): boolean {
   return status === 'completed' || status === 'error';
 }
@@ -115,6 +88,7 @@ export function isPlausibleUnixMs(value: unknown): value is number {
 export async function updateJobStatus(
   jobId: string,
   updates: Partial<AsyncJobStatus>,
+  options: { publish?: boolean } = {},
 ): Promise<void> {
   const statusKey = sessionKey(['async-job-status', jobId]);
   const isTerminalWrite =
@@ -159,15 +133,19 @@ export async function updateJobStatus(
 
       await jsonSetWithExpiry(statusKey, updatedStatus, JOB_EXPIRY_SECONDS);
 
-      // Publish status update via Redis Pub/Sub for WebSocket sidecar
-      try {
-        const publisher = getPublisher();
-        await publisher.publish(
-          `job:${jobId}:status`,
-          JSON.stringify(updatedStatus),
-        );
-      } catch (err) {
-        logger.error(`Failed to publish job status for ${jobId}`, err);
+      if (options.publish !== false) {
+        // Publish status update via Redis Pub/Sub for WebSocket sidecar.
+        // Streaming readers may persist polling state without duplicating the
+        // granular chat_token/chat_intermediate_step channels.
+        try {
+          const publisher = getPublisher();
+          await publisher.publish(
+            `job:${jobId}:status`,
+            JSON.stringify(updatedStatus),
+          );
+        } catch (err) {
+          logger.error(`Failed to publish job status for ${jobId}`, err);
+        }
       }
       return true;
     },

@@ -63,3 +63,24 @@ def test_makefile_builder_mirrors_ci_pytest_flags():
         f"  CI:       {sorted(ci_flags)}\n"
         "They must match — update both in the same commit (the Makefile mirrors CI)."
     )
+
+
+def test_trivy_fails_ci_and_local_gate_on_high_or_critical_findings():
+    ci = yaml.safe_load(_CI.read_text())
+    security_steps = ci["jobs"]["security"]["steps"]
+    trivy_step = next(
+        step
+        for step in security_steps
+        if str(step.get("uses", "")).startswith("aquasecurity/trivy-action@")
+    )
+    upload_step = next(
+        step
+        for step in security_steps
+        if str(step.get("uses", "")).startswith("github/codeql-action/upload-sarif@")
+    )
+    makefile = _MAKEFILE.read_text()
+
+    assert trivy_step["with"]["severity"] == "CRITICAL,HIGH"
+    assert str(trivy_step["with"]["exit-code"]) == "1"
+    assert "always()" in upload_step["if"]
+    assert "trivy fs --severity CRITICAL,HIGH --exit-code 1 --format sarif" in makefile

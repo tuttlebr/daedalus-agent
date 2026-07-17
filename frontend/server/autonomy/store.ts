@@ -13,6 +13,7 @@ import {
 import { sanitizeSourcePolicy } from '@/server/chat/sourcePolicy';
 import { positiveIntegerFromEnv } from '@/server/config/env';
 import { getRedis, jsonGet, jsonSet, sessionKey } from '@/server/session/redis';
+import { createHash, randomBytes } from 'node:crypto';
 import { v4 as uuidv4 } from 'uuid';
 
 const DEFAULT_INTERVAL_SECONDS = 14_400;
@@ -30,6 +31,222 @@ const VALID_ACTION_POLICIES = new Set([
 ]);
 const VALID_GOAL_STATUSES = new Set(['active', 'paused', 'completed']);
 const MAX_IMPORTED_GOALS = 100;
+const APPROVAL_RESOLUTION_TTL_SECONDS = 7 * 24 * 60 * 60;
+
+function pendingApprovalKey(userId: string, requestId: string): string {
+  const safeUser = createHash('sha256')
+    .update(userId.trim())
+    .digest('hex')
+    .slice(0, 16);
+  return `approval-pending:${safeUser}:${requestId.trim()}`;
+}
+
+type PendingMcpApproval = {
+  request_id: string;
+  user_id: string;
+  action_type: 'mcp_mutation';
+  action: string;
+  reason: string;
+  target: string;
+  server_name: string;
+  tool_name: string;
+  canonical_arguments: string;
+  arguments_preview: string;
+  arguments_sha256: string;
+};
+
+type ApprovalExecution = {
+  approvalId: string;
+  actionType: string;
+  action: string;
+  target: string;
+  serverName?: string;
+  toolName?: string;
+  canonicalArguments?: string;
+  argumentsSha256?: string;
+  originalPrompt?: string;
+};
+
+type ApprovalResolutionMarker = {
+  status: 'approved' | 'denied';
+  approval: AutonomyApproval;
+  requestId?: string;
+};
+
+async function loadPendingMcpApproval(
+  userId: string,
+  approval: AutonomyApproval,
+): Promise<PendingMcpApproval> {
+  const requestId = approval.approvalRequestId?.trim();
+  if (!requestId) {
+    throw new Error('MCP approval is missing its protected request id');
+  }
+  const raw = await getRedis().get(pendingApprovalKey(userId, requestId));
+  if (!raw) {
+    throw new Error('MCP approval intent is missing or expired');
+  }
+
+  let pending: PendingMcpApproval;
+  try {
+    pending = JSON.parse(raw) as PendingMcpApproval;
+  } catch {
+    throw new Error('MCP approval intent is invalid');
+  }
+  const canonicalHash = createHash('sha256')
+    .update(pending.canonical_arguments || '')
+    .digest('hex');
+  if (
+    pending.request_id !== requestId ||
+    pending.user_id !== userId.trim() ||
+    pending.action_type !== 'mcp_mutation' ||
+    !pending.target ||
+    pending.target === '*' ||
+    !pending.server_name ||
+    !pending.tool_name ||
+    !pending.canonical_arguments ||
+    canonicalHash !== pending.arguments_sha256
+  ) {
+    throw new Error('MCP approval intent failed integrity validation');
+  }
+  return pending;
+}
+
+function approvalResolutionKey(userId: string, approvalId: string): string {
+  return autonomyKey(userId, `approval-resolution:${approvalId}`);
+}
+
+function parseApprovalResolutionMarker(
+  raw: unknown,
+  approvalId: string,
+): ApprovalResolutionMarker | null {
+  if (typeof raw !== 'string' || !raw) return null;
+  try {
+    const marker = JSON.parse(raw) as ApprovalResolutionMarker;
+    if (
+      !['approved', 'denied'].includes(marker.status) ||
+      marker.approval?.id !== approvalId ||
+      marker.approval?.status !== marker.status
+    ) {
+      return null;
+    }
+    return marker;
+  } catch {
+    return null;
+  }
+}
+
+async function commitApprovalResolution(
+  userId: string,
+  approvalId: string,
+  marker: ApprovalResolutionMarker,
+  request: QueueRequest | null,
+  execution: ApprovalExecution | undefined,
+  pendingRequestId?: string,
+): Promise<ApprovalResolutionMarker> {
+  const redis = getRedis();
+  const markerKey = approvalResolutionKey(userId, approvalId);
+  const requestId = request?.id || marker.requestId || approvalId;
+  const executionKey = autonomyKey(userId, `approval-execution:${requestId}`);
+  const queueKey = autonomyKey(userId, 'queue');
+  const approvalsKey = autonomyKey(userId, 'approvals');
+  const pendingKey = pendingRequestId
+    ? pendingApprovalKey(userId, pendingRequestId)
+    : markerKey;
+  const markerJson = JSON.stringify(marker);
+  const executionJson = execution ? JSON.stringify(execution) : '';
+  const requestJson = request ? JSON.stringify(request) : '';
+
+  const result = (await redis.eval(
+    `
+      local function key_type(key)
+        local value = redis.call('TYPE', key)
+        if type(value) == 'table' then return value['ok'] end
+        return value
+      end
+      local function update_approval(raw_approval)
+        local approval_type = key_type(KEYS[5])
+        local raw_approvals
+        if approval_type == 'string' then
+          raw_approvals = redis.call('GET', KEYS[5])
+        elseif approval_type == 'none' then
+          return redis.error_reply('approval projection is missing')
+        elseif string.find(string.lower(approval_type), 'rejson') then
+          raw_approvals = redis.call('JSON.GET', KEYS[5])
+        else
+          return redis.error_reply('approval projection has incompatible type')
+        end
+        local approvals = cjson.decode(raw_approvals or '[]')
+        local replacement = cjson.decode(raw_approval)
+        local found = false
+        for index, approval in ipairs(approvals) do
+          if approval['id'] == ARGV[7] then
+            approvals[index] = replacement
+            found = true
+            break
+          end
+        end
+        if not found then return redis.error_reply('approval projection entry is missing') end
+        local encoded = cjson.encode(approvals)
+        if approval_type == 'string' then
+          redis.call('SET', KEYS[5], encoded)
+        else
+          redis.call('JSON.SET', KEYS[5], '$', encoded)
+        end
+      end
+
+      local existing = redis.call('GET', KEYS[1])
+      if existing then
+        local existing_marker = cjson.decode(existing)
+        update_approval(cjson.encode(existing_marker['approval']))
+        return {0, existing}
+      end
+
+      local marker_type = key_type(KEYS[1])
+      local execution_type = key_type(KEYS[2])
+      local queue_type = key_type(KEYS[3])
+      local pending_type = key_type(KEYS[4])
+      if marker_type ~= 'none' and marker_type ~= 'string' then
+        return redis.error_reply('approval marker key has incompatible type')
+      end
+      if execution_type ~= 'none' and execution_type ~= 'string' then
+        return redis.error_reply('approval execution key has incompatible type')
+      end
+      if queue_type ~= 'none' and queue_type ~= 'list' then
+        return redis.error_reply('approval queue key has incompatible type')
+      end
+      if ARGV[6] == '1' and pending_type ~= 'none' and pending_type ~= 'string' then
+        return redis.error_reply('pending approval key has incompatible type')
+      end
+
+      update_approval(ARGV[8])
+      redis.call('SET', KEYS[1], ARGV[1], 'EX', ARGV[4], 'NX')
+      if ARGV[2] ~= '' then
+        redis.call('SET', KEYS[2], ARGV[2], 'EX', ARGV[5])
+      end
+      if ARGV[3] ~= '' then redis.call('LPUSH', KEYS[3], ARGV[3]) end
+      if ARGV[6] == '1' then redis.call('DEL', KEYS[4]) end
+      return {1, ARGV[1]}
+    `,
+    5,
+    markerKey,
+    executionKey,
+    queueKey,
+    pendingKey,
+    approvalsKey,
+    markerJson,
+    executionJson,
+    requestJson,
+    APPROVAL_RESOLUTION_TTL_SECONDS,
+    APPROVAL_RESOLUTION_TTL_SECONDS,
+    pendingRequestId ? '1' : '0',
+    approvalId,
+    JSON.stringify(marker.approval),
+  )) as [number | string, string];
+
+  const committed = parseApprovalResolutionMarker(result?.[1], approvalId);
+  if (!committed) throw new Error('Approval resolution commit was invalid');
+  return committed;
+}
 
 function clampInt(
   value: unknown,
@@ -388,6 +605,8 @@ type EnqueueRunInput = {
   prompt?: string;
   requestedBy?: string;
   scope?: string;
+  approvalId?: string;
+  actionType?: string;
 };
 
 type QueueRequest = {
@@ -397,6 +616,8 @@ type QueueRequest = {
   prompt: string;
   requestedBy: string;
   createdAt: number;
+  approvalId?: string;
+  actionType?: string;
 };
 
 function clippedPrompt(input: Pick<EnqueueRunInput, 'prompt'>): string {
@@ -449,13 +670,17 @@ function newQueueRequest(
     prompt: clippedPrompt(input),
     requestedBy: input.requestedBy || 'ui',
     createdAt: queuedAt,
+    ...(input.approvalId ? { approvalId: input.approvalId } : {}),
+    ...(input.actionType ? { actionType: input.actionType } : {}),
   };
 }
 
 export async function enqueueRun(
   userId: string,
   input: EnqueueRunInput,
-  options: { enforceDepthCap?: boolean } = {},
+  options: {
+    enforceDepthCap?: boolean;
+  } = {},
 ): Promise<{ id: string; queuedAt: number }> {
   const redis = getRedis();
   const queueKey = autonomyKey(userId, 'queue');
@@ -563,7 +788,14 @@ export async function listApprovals(
   return getList<AutonomyApproval>(userId, 'approvals');
 }
 
-export async function updateApproval(
+export class ApprovalDecisionInProgressError extends Error {
+  constructor() {
+    super('This approval decision is already being processed.');
+    this.name = 'ApprovalDecisionInProgressError';
+  }
+}
+
+async function updateApprovalWithLockHeld(
   userId: string,
   approvalId: string,
   status: 'approved' | 'denied',
@@ -572,20 +804,87 @@ export async function updateApproval(
   const index = approvals.findIndex((approval) => approval.id === approvalId);
   if (index === -1) return null;
 
+  const pending = approvals[index];
+  // A decision is a one-way state transition. In particular, a repeated
+  // approval must never mint another executable credential or enqueue a
+  // second resumed run.
+  if (pending.status !== 'pending') return pending;
+
+  const existingMarker = parseApprovalResolutionMarker(
+    await getRedis().get(approvalResolutionKey(userId, approvalId)),
+    approvalId,
+  );
+  if (existingMarker) {
+    const repaired = await commitApprovalResolution(
+      userId,
+      approvalId,
+      existingMarker,
+      null,
+      undefined,
+    );
+    approvals[index] = repaired.approval;
+    await publishSyncEvent(userId, {
+      type: 'autonomy_status',
+      timestamp: nowMs(),
+      data: { approval: approvals[index] },
+    }).catch(() => {});
+    return approvals[index];
+  }
+
+  const isOAuthAuthorization = pending.actionType === 'oauth_authorization';
+  const isResearchPlan = pending.actionType === 'deep_research_plan';
+  let approvalExecution: ApprovalExecution | undefined;
+  let approvedRecord = pending;
+  if (status === 'approved' && !isOAuthAuthorization && !isResearchPlan) {
+    if (pending.actionType === 'mcp_mutation') {
+      const intent = await loadPendingMcpApproval(userId, pending);
+      approvedRecord = {
+        ...pending,
+        action: intent.action,
+        reason: intent.reason,
+        target: intent.target,
+        serverName: intent.server_name,
+        toolName: intent.tool_name,
+        approvalRequestId: intent.request_id,
+        argumentsPreview: intent.arguments_preview,
+        argumentsSha256: intent.arguments_sha256,
+      };
+      approvalExecution = {
+        approvalId: pending.id,
+        actionType: 'mcp_mutation',
+        action: intent.action,
+        target: intent.target,
+        serverName: intent.server_name,
+        toolName: intent.tool_name,
+        canonicalArguments: intent.canonical_arguments,
+        argumentsSha256: intent.arguments_sha256,
+      };
+    } else {
+      approvalExecution = {
+        approvalId: pending.id,
+        actionType: pending.actionType,
+        action: pending.action,
+        target: pending.target || '',
+      };
+    }
+  }
+
   approvals[index] = {
-    ...approvals[index],
+    ...approvedRecord,
     status,
     resolvedAt: nowMs(),
   };
-  await setValue(userId, 'approvals', approvals);
 
+  let queuedRequest: QueueRequest | null = null;
   if (status === 'approved') {
     const approved = approvals[index];
     const pausedRun = (await listRuns(userId)).find(
       (run) => run.id === approved.runId,
     );
-    const isOAuthAuthorization = approved.actionType === 'oauth_authorization';
     const originalPrompt = pausedRun?.prompt?.trim();
+    if (approvalExecution && originalPrompt) {
+      approvalExecution.originalPrompt = originalPrompt;
+    }
     const prompt = isOAuthAuthorization
       ? (
           `OAuth authorization has been completed for target ${
@@ -595,26 +894,86 @@ export async function updateApproval(
           (originalPrompt ? `Original manual prompt: ${originalPrompt}` : '')
         ).trim()
       : `Continue the paused autonomous run ${approved.runId}. ` +
-        `The user approved action ${approved.actionType} ` +
+        `The user approved the displayed ${approved.actionType} action ` +
         `for target ${approved.target || '*'}. ` +
-        (approved.approvalToken
-          ? `Use approval_token="${approved.approvalToken}".`
-          : 'Proceed only if the backend can validate approval.');
+        (approvalExecution
+          ? 'The worker will supply the scoped execution context privately.'
+          : 'Proceed only if the backend can validate approval.') +
+        (!approvalExecution && originalPrompt
+          ? ` Original manual prompt: ${originalPrompt}`
+          : '');
 
-    await enqueueRun(userId, {
-      trigger: 'approval',
-      requestedBy: 'ui',
-      prompt,
-    });
+    queuedRequest = newQueueRequest(
+      {
+        trigger: 'approval',
+        requestedBy: 'ui',
+        prompt,
+        approvalId: approved.id,
+        actionType: approved.actionType,
+      },
+      nowMs(),
+    );
   }
+
+  const committed = await commitApprovalResolution(
+    userId,
+    approvalId,
+    {
+      status,
+      approval: approvals[index],
+      ...(queuedRequest ? { requestId: queuedRequest.id } : {}),
+    },
+    queuedRequest,
+    approvalExecution,
+    pending.actionType === 'mcp_mutation'
+      ? pending.approvalRequestId
+      : undefined,
+  );
+  approvals[index] = committed.approval;
+
+  // The executable continuation, decision marker, exact public-record update,
+  // queue entry, and protected pending-intent deletion commit in one script.
+  // The script reads the latest approval list, so concurrent worker appends are
+  // preserved instead of being overwritten by a stale whole-list projection.
 
   await publishSyncEvent(userId, {
     type: 'autonomy_status',
     timestamp: nowMs(),
     data: { approval: approvals[index] },
-  });
+  }).catch(() => {});
+  if (queuedRequest) {
+    await publishSyncEvent(userId, {
+      type: 'autonomy_status',
+      timestamp: queuedRequest.createdAt,
+      data: { queued: queuedRequest },
+    }).catch(() => {});
+  }
 
   return approvals[index];
+}
+
+export async function updateApproval(
+  userId: string,
+  approvalId: string,
+  status: 'approved' | 'denied',
+): Promise<AutonomyApproval | null> {
+  const redis = getRedis();
+  const lockKey = autonomyKey(userId, `approval-decision:${approvalId}`);
+  const lockOwner = randomBytes(16).toString('base64url');
+  const acquired = await redis.set(lockKey, lockOwner, 'EX', 15, 'NX');
+  if (acquired !== 'OK') throw new ApprovalDecisionInProgressError();
+
+  try {
+    return await updateApprovalWithLockHeld(userId, approvalId, status);
+  } finally {
+    await redis.eval(
+      "if redis.call('GET',KEYS[1]) == ARGV[1] then " +
+        "return redis.call('DEL',KEYS[1]) else return 0 end",
+      1,
+      lockKey,
+      lockOwner,
+    );
+  }
 }
 
 export async function cancelRun(userId: string, runId: string): Promise<void> {

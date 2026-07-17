@@ -62,7 +62,7 @@ spec:
             - name: BACKEND_BASE_URL
               value: {{ printf "http://%s-backend-default:%v" (include "daedalus.fullname" .) (.Values.backend.default.port | default 8000) }}
             - name: BACKEND_API_PATH
-              value: {{ .Values.autonomousAgent.backendApiPath | default "/v1/workflow/async" | quote }}
+              value: {{ .Values.autonomousAgent.backendApiPath | default "/v1/chat/completions" | quote }}
             - name: DAEDALUS_INTERNAL_API_TOKEN
               valueFrom:
                 secretKeyRef:

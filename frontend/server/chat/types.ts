@@ -8,8 +8,7 @@ export interface AsyncJobRequest {
   natBaseUrl: string;
   natSessionId?: string;
   timezone?: string;
-  executionMode?: 'stream' | 'nat_async' | 'document_ingest';
-  natMessages?: any[];
+  executionMode: 'stream' | 'document_ingest';
   documentIngest?: DocumentIngestJobRequest;
   messages: any[];
   additionalProps: any;
@@ -67,16 +66,6 @@ export interface AsyncJobStatus {
   finalizedAt?: number;
   turnId?: string;
   assistantMessageId?: string;
-}
-
-export interface NatAsyncJobResponse {
-  job_id: string;
-  status: 'submitted' | 'running' | 'success' | 'failure' | 'interrupted';
-  error: string | null;
-  output: { value: string } | string | null;
-  created_at: string;
-  updated_at: string;
-  expires_at: string;
 }
 
 export class ApiRouteError extends Error {

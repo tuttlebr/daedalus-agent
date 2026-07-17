@@ -170,7 +170,8 @@ export function appendDocumentAttachmentContext(
   const documentContext =
     `\n\n[User has attached ${documentRefs.length} ${noun}. ` +
     `For ingestion, call user_document_tool with operation="ingest", ` +
-    `${refArg}, username="${verifiedUsername}"${collectionArg}.]`;
+    `${refArg}${collectionArg}. Identity comes only from the trusted request ` +
+    `context; do not pass username.]`;
 
   return {
     ...message,
@@ -270,30 +271,6 @@ export function getDocumentIngestJobRequest(
     provenance: collectionTarget.provenance,
     username: verifiedUsername,
   };
-}
-
-export function buildDocumentIngestNatMessages(
-  documentIngest: DocumentIngestJobRequest,
-): any[] {
-  const refArg =
-    documentIngest.documentRefs.length === 1
-      ? `documentRef=${JSON.stringify(documentIngest.documentRefs[0])}`
-      : `documentRefs=${JSON.stringify(documentIngest.documentRefs)}`;
-  const noun =
-    documentIngest.documentRefs.length === 1 ? 'document' : 'documents';
-
-  return [
-    {
-      role: 'user',
-      content:
-        `Process ${documentIngest.documentRefs.length} uploaded ${noun} ` +
-        `using user_document_tool with operation="ingest", ${refArg}, ` +
-        `username="${documentIngest.username}", and ` +
-        `collection_name="${documentIngest.collectionName}", ` +
-        `collection_scope="${documentIngest.collectionScope}", and ` +
-        `provenance=${JSON.stringify(documentIngest.provenance)}.`,
-    },
-  ];
 }
 
 /**

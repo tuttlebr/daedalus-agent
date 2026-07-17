@@ -63,7 +63,7 @@ ENV NEXT_PUBLIC_UPLOAD_LARGE_DOCUMENT_THRESHOLD_KB=$NEXT_PUBLIC_UPLOAD_LARGE_DOC
 RUN npm run build
 
 # Bundle WebSocket sidecar into a single JS file (all dependencies included)
-RUN npx esbuild ws-server.ts --bundle --platform=node --target=node22 --outfile=./ws-build/ws-server.js
+RUN ./node_modules/.bin/esbuild ws-server.ts --bundle --platform=node --target=node22 --outfile=./ws-build/ws-server.js
 
 # Production image, copy all the files and run next
 FROM base AS runner
@@ -85,6 +85,7 @@ RUN chown nextjs:nodejs .next
 # Automatically leverage output traces to reduce image size
 # https://nextjs.org/docs/advanced-features/output-file-tracing
 COPY --from=builder --chown=nextjs:nodejs /app/next.config.js ./
+COPY --from=builder --chown=nextjs:nodejs /app/next-i18next.config.js ./
 COPY --from=builder --chown=nextjs:nodejs /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static

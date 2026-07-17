@@ -1,11 +1,8 @@
 import json
 
 from autonomous_agent.backend_client import (
-    BackendClient,
     OAuthRequiredError,
-    extract_async_job_id,
     extract_oauth_required_payload,
-    messages_to_input_message,
 )
 from autonomous_agent.dedupe import dedupe_feed_items
 from autonomous_agent.models import now_ms
@@ -43,6 +40,11 @@ class FakeStore:
         self.feed = []
         self.approvals = []
         self.applied_approvals = set()
+        self.pending_approvals = {}
+        self.approval_executions = {}
+        self.revoked_approval_tokens = []
+        self.mcp_receipt_valid = False
+        self.receipt_consumptions = []
 
     def get_config(self, user_id):
         return self.config
@@ -80,6 +82,22 @@ class FakeStore:
     def append_approval(self, user_id, approval):
         self.approvals.append(approval)
 
+    def get_pending_approval(self, user_id, request_id):
+        return self.pending_approvals.get(request_id)
+
+    def get_approval_execution(self, user_id, request_id):
+        return self.approval_executions.pop(request_id, None)
+
+    def issue_approval_token(self, user_id, execution, **kwargs):
+        return "secret-mcp-token"
+
+    def revoke_approval_token(self, user_id, token):
+        self.revoked_approval_tokens.append(token)
+
+    def consume_mcp_execution_receipt(self, user_id, token, execution):
+        self.receipt_consumptions.append((user_id, token, dict(execution)))
+        return self.mcp_receipt_valid
+
     def cancel_requested(self, user_id, run_id):
         return False
 
@@ -100,9 +118,11 @@ class FakeBackend:
     def __init__(self, response):
         self.response = response
         self.messages = None
+        self.approval_token = ""
 
-    def call(self, messages):
+    def call(self, messages, *, approval_token=""):
         self.messages = messages
+        self.approval_token = approval_token
         return self.response
 
 
@@ -237,6 +257,83 @@ def test_build_messages_includes_already_surfaced_digest():
     assert "Avoid redundancy" in prompt
 
 
+def test_build_messages_never_delegates_identity_to_tool_arguments():
+    messages = build_messages(
+        user_id="test-user",
+        config={"actionPolicy": "broad_autonomy"},
+        workspace={},
+        goals=[],
+        recent_runs=[],
+        request={"trigger": "scheduled"},
+    )
+
+    prompt = messages[-1]["content"]
+    assert "derive identity only from the trusted authenticated" in prompt
+    assert "Never pass user_id, username" in prompt
+    assert 'Use user_id="test-user"' not in prompt
+
+
+def test_build_messages_bounds_persisted_workspace_and_history_context():
+    recent = now_ms()
+    messages = build_messages(
+        user_id="test-user",
+        config={"actionPolicy": "broad_autonomy", "feedDedupeWindowDays": 14},
+        workspace={
+            name: "§" * 10_000
+            for name in (
+                "identity",
+                "soul",
+                "schema",
+                "interests",
+                "user",
+                "heartbeat",
+                "memory",
+                "inner_state",
+            )
+        },
+        goals=[],
+        recent_runs=[
+            {
+                "id": "i" * 1_000,
+                "trigger": "t" * 1_000,
+                "status": "s" * 1_000,
+                "summary": "¶" * 10_000,
+                "completedAt": "c" * 1_000,
+            }
+            for _ in range(8)
+        ],
+        recent_feed=[
+            {
+                "title": "T" * 500,
+                "bluf": "B" * 500,
+                "sourceUrl": f"https://{'d' * 200}.example/item/{index}",
+                "threadKey": "K" * 500,
+                "createdAt": recent - index,
+            }
+            for index in range(30)
+        ],
+        request={"trigger": "scheduled"},
+    )
+
+    prompt = messages[-1]["content"]
+    runtime = json.loads(prompt.split("Runtime input:\n", 1)[1])
+
+    assert prompt.count("§") < 8 * 2_500
+    assert "…[truncated]…" in prompt
+    assert len(runtime["recent_runs"]) == 5
+    assert all(len(run["summary"]) <= 600 for run in runtime["recent_runs"])
+    assert all(len(run["id"]) <= 128 for run in runtime["recent_runs"])
+    assert all(len(run["completedAt"]) <= 128 for run in runtime["recent_runs"])
+    assert len(runtime["already_surfaced"]) == 20
+    assert all(
+        len(item["title"]) <= 96
+        and len(item["bluf"]) <= 140
+        and len(item["source"]) <= 80
+        and len(item["threadKey"]) <= 96
+        for item in runtime["already_surfaced"]
+    )
+
+
 def test_build_messages_scopes_goal_run_to_selected_goal():
     messages = build_messages(
         user_id="test-user",
@@ -338,11 +435,24 @@ def test_run_once_dedupes_feed_items_already_surfaced():
 
 
 def test_run_once_pauses_when_backend_requests_approval():
+    arguments_hash = "a" * 64
     store = FakeStore()
+    store.pending_approvals["pending-1"] = {
+        "user_id": "test-user",
+        "action": "Delete thing",
+        "target": "prod-item",
+        "server_name": "inventory",
+        "tool_name": "delete_item",
+        "arguments_preview": '{"id":"prod-item"}',
+        "arguments_sha256": arguments_hash,
+    }
     backend = FakeBackend(
         "**Action requiring confirmation:**\n\nDelete thing\n\nProceed? (yes/no)\n"
-        "If approved, use this single-use approval token with the destructive "
-        "tool call: `tok_123`"
+        "No executable credential has been created.\n"
+        "Approval scope: action_type=`mcp_mutation`, target=`prod-item`, "
+        "server_name=`inventory`, tool_name=`delete_item`, "
+        "approval_request_id=`pending-1`, "
+        f"arguments_sha256=`{arguments_hash}`."
     )
 
     run = run_once(
@@ -353,8 +463,14 @@ def test_run_once_pauses_when_backend_requests_approval():
     )
 
     assert run["status"] == "waiting_approval"
-    assert store.approvals[0]["approvalToken"] == "tok_123"
     assert store.approvals[0]["actionType"] == "mcp_mutation"
+    assert store.approvals[0]["target"] == "prod-item"
+    assert store.approvals[0]["serverName"] == "inventory"
+    assert store.approvals[0]["toolName"] == "delete_item"
+    assert store.approvals[0]["approvalRequestId"] == "pending-1"
+    assert store.approvals[0]["argumentsPreview"] == '{"id":"prod-item"}'
+    assert store.approvals[0]["argumentsSha256"] == arguments_hash
+    assert "approvalToken" not in store.approvals[0]
     assert output_requests_approval(backend.response)
 
 
@@ -366,9 +482,9 @@ def test_run_once_preserves_deep_research_plan_approval_metadata():
         "1. Source Registry\n"
         "2. Plan Approval\n\n"
         "Reply yes to approve this plan, or describe changes.\n"
-        "Approval token recorded for this plan: `tok_plan`\n"
-        "Token scope: action_type=`deep_research_plan`, target=`aiq-report`, "
-        "expires_in=3600s."
+        "No executable credential has been created.\n"
+        "Approval scope: action_type=`deep_research_plan`, "
+        "target=`aiq-report`."
     )
 
     run = run_once(
@@ -380,7 +496,7 @@ def test_run_once_preserves_deep_research_plan_approval_metadata():
 
     assert run["status"] == "waiting_approval"
     approval = store.approvals[0]
-    assert approval["approvalToken"] == "tok_plan"
+    assert "approvalToken" not in approval
     assert approval["actionType"] == "deep_research_plan"
     assert approval["target"] == "aiq-report"
     assert approval["risk"] == "low"
@@ -416,14 +532,13 @@ def test_build_messages_includes_sanitized_source_policy_message():
 
 def test_extract_approval_metadata_defaults_to_mcp_mutation():
     metadata = extract_approval_metadata(
-        "**Action requiring confirmation:**\n\nDelete thing\n\n"
-        "Proceed? (yes/no)\n"
-        "If approved, use this single-use approval token with the destructive "
-        "tool call: `tok_123`"
+        "**Action requiring confirmation:**\n\nDelete thing\n\nProceed? (yes/no)"
     )
 
-    assert metadata["approval_token"] == "tok_123"
     assert metadata["action_type"] == "mcp_mutation"
+    assert metadata["server_name"] == ""
+    assert metadata["tool_name"] == ""
+    assert metadata["arguments_sha256"] == ""
 
 
 def test_run_once_pauses_when_backend_requires_oauth():
@@ -465,243 +580,66 @@ def test_extract_oauth_required_payload_from_sse_event():
     }
 
 
-def test_extract_async_job_id_accepts_common_response_shapes():
-    assert extract_async_job_id({"job_id": "server-job"}, "local-job") == "server-job"
+def test_backend_client_streams_through_loaded_workflow_by_default(monkeypatch):
+    calls = []
+
+    class FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def raise_for_status(self):
+            return None
+
+        def iter_lines(self, *, decode_unicode):
+            assert decode_unicode is True
+            return iter(
+                [
+                    'data: {"choices":[{"delta":{"content":"done"}}]}',
+                    "data: [DONE]",
+                ]
+            )
+
+    def fake_post(url, **kwargs):
+        calls.append((url, kwargs))
+        return FakeResponse()
+
+    monkeypatch.delenv("BACKEND_API_PATH", raising=False)
+    monkeypatch.setattr("autonomous_agent.backend_client.requests.post", fake_post)
+
+    backend = make_backend("test-user")
     assert (
-        extract_async_job_id({"job": {"id": "nested-job"}}, "local-job") == "nested-job"
-    )
-    assert extract_async_job_id({}, "local-job") == "local-job"
-
-
-def test_messages_to_input_message_flattens_chat_messages_for_async_generate():
-    prompt = messages_to_input_message(
-        [
-            {"role": "system", "content": "Rules"},
-            {"role": "user", "content": "Run goals"},
-            {"role": "assistant", "content": ""},
-        ]
+        backend.call(
+            [{"role": "user", "content": "go"}],
+            approval_token="approved-secret",
+        )
+        == "done"
     )
 
-    assert prompt == "[SYSTEM]\nRules\n\n[USER]\nRun goals"
-
-
-def test_backend_client_uses_returned_async_job_id(monkeypatch):
-    requested_urls = []
-    submitted_payloads = []
-    submitted_headers = []
-    status_headers = []
-
-    class FakeResponse:
-        status_code = 200
-
-        def __init__(self, payload):
-            self.payload = payload
-
-        def raise_for_status(self):
-            return None
-
-        def json(self):
-            return self.payload
-
-    def fake_post(*args, **kwargs):
-        submitted_payloads.append(kwargs["json"])
-        submitted_headers.append(kwargs["headers"])
-        return FakeResponse({"job_id": "server-job"})
-
-    def fake_get(url, *args, **kwargs):
-        requested_urls.append(url)
-        status_headers.append(kwargs["headers"])
-        return FakeResponse({"status": "success", "output": {"value": "done"}})
-
-    monkeypatch.setattr("autonomous_agent.backend_client.requests.post", fake_post)
-    monkeypatch.setattr("autonomous_agent.backend_client.requests.get", fake_get)
-    monkeypatch.setattr("autonomous_agent.backend_client.time.sleep", lambda _: None)
-
-    backend = BackendClient(
-        base_url="http://backend:8000",
-        api_path="/v1/workflow/async",
-        user_id="test-user",
-        request_timeout=30,
-        poll_interval=1,
-    )
-
-    assert backend.call([{"role": "user", "content": "go"}]) == "done"
-    assert submitted_payloads[0]["input_message"] == "[USER]\ngo"
-    assert "messages" not in submitted_payloads[0]
-    assert submitted_headers[0]["x-timezone"] == "America/New_York"
-    assert status_headers[0]["x-timezone"] == "America/New_York"
-    assert requested_urls == ["http://backend:8000/v1/workflow/async/job/server-job"]
-
-
-def test_backend_client_submit_error_includes_response_body(monkeypatch):
-    import requests as _requests
-
-    class FakeResponse:
-        text = '{"detail":[{"loc":["body","input_message"],"msg":"Field required"}]}'
-
-        def raise_for_status(self):
-            raise _requests.HTTPError("422 Client Error: Unprocessable Entity for url")
-
-    monkeypatch.setattr(
-        "autonomous_agent.backend_client.requests.post",
-        lambda *args, **kwargs: FakeResponse(),
-    )
-
-    backend = BackendClient(
-        base_url="http://backend:8000",
-        api_path="/v1/workflow/async",
-        user_id="test-user",
-        request_timeout=30,
-        poll_interval=1,
-    )
-
-    try:
-        backend.call([{"role": "user", "content": "go"}])
-    except _requests.HTTPError as exc:
-        assert "input_message" in str(exc)
-        assert "Field required" in str(exc)
-    else:
-        raise AssertionError("expected submit validation error")
-
-
-def test_backend_client_fails_fast_after_repeated_async_404(monkeypatch):
-    class FakeResponse:
-        status_code = 404
-
-        def __init__(self, payload=None):
-            self.payload = payload or {}
-
-        def raise_for_status(self):
-            return None
-
-        def json(self):
-            return self.payload
-
-    def fake_post(*args, **kwargs):
-        response = FakeResponse({"job_id": "missing-job"})
-        response.status_code = 202
-        return response
-
-    monkeypatch.setattr("autonomous_agent.backend_client.requests.post", fake_post)
-    monkeypatch.setattr(
-        "autonomous_agent.backend_client.requests.get",
-        lambda *args, **kwargs: FakeResponse(),
-    )
-    monkeypatch.setattr("autonomous_agent.backend_client.time.sleep", lambda _: None)
-
-    backend = BackendClient(
-        base_url="http://backend:8000",
-        api_path="/v1/workflow/async",
-        user_id="test-user",
-        request_timeout=30,
-        poll_interval=1,
-    )
-
-    try:
-        backend.call([{"role": "user", "content": "go"}])
-    except RuntimeError as exc:
-        assert "missing-job" in str(exc)
-        assert "not found" in str(exc)
-    else:
-        raise AssertionError("expected repeated async 404s to fail fast")
+    url, kwargs = calls[0]
+    assert url.endswith("/v1/chat/completions")
+    assert kwargs["stream"] is True
+    assert kwargs["json"] == {
+        "messages": [{"role": "user", "content": "go"}],
+        "stream": True,
+        "stream_options": {"include_usage": True},
+    }
+    assert kwargs["headers"]["x-user-id"] == "test-user"
+    assert kwargs["headers"]["x-daedalus-execution-scope"] == "autonomy"
+    assert kwargs["headers"]["x-daedalus-approval-token"] == "approved-secret"
+    assert "approved-secret" not in json.dumps(kwargs["json"])
 
 
 def test_make_backend_uses_canonical_base_url_env(monkeypatch):
     monkeypatch.setenv("BACKEND_BASE_URL", "http://backend:8000")
-    monkeypatch.setenv("BACKEND_API_PATH", "/v1/workflow/async")
+    monkeypatch.setenv("BACKEND_API_PATH", "/v1/chat/completions")
 
     backend = make_backend("test-user")
 
     assert backend.base_url == "http://backend:8000"
-    assert backend.api_path == "/v1/workflow/async"
-
-
-def test_backend_client_fails_fast_after_repeated_network_errors(monkeypatch):
-    # F-014: an unreachable backend must fast-fail after a few consecutive
-    # connection errors instead of retrying until the long request deadline.
-    import requests as _requests
-
-    class FakeResponse:
-        status_code = 202
-
-        def raise_for_status(self):
-            return None
-
-        def json(self):
-            return {"job_id": "job-1"}
-
-    attempts = {"get": 0}
-
-    def fake_get(*args, **kwargs):
-        attempts["get"] += 1
-        raise _requests.RequestException("connection refused")
-
-    monkeypatch.setattr(
-        "autonomous_agent.backend_client.requests.post",
-        lambda *a, **k: FakeResponse(),
-    )
-    monkeypatch.setattr("autonomous_agent.backend_client.requests.get", fake_get)
-    monkeypatch.setattr("autonomous_agent.backend_client.time.sleep", lambda _: None)
-
-    backend = BackendClient(
-        base_url="http://backend:8000",
-        api_path="/v1/workflow/async",
-        user_id="test-user",
-        request_timeout=3600,
-        poll_interval=1,
-    )
-
-    try:
-        backend.call([{"role": "user", "content": "go"}])
-    except _requests.RequestException as exc:
-        assert "connection refused" in str(exc)
-    else:
-        raise AssertionError("expected repeated network errors to fail fast")
-
-    # Stops at the 3rd consecutive failure rather than draining the deadline.
-    assert attempts["get"] == 3
-
-
-def test_backend_client_recovers_when_network_error_is_transient(monkeypatch):
-    # F-014: a single blip must NOT fail the job — the counter resets on a
-    # successful poll, so a later success still returns the output.
-    import requests as _requests
-
-    class FakeResponse:
-        def __init__(self, payload, status_code=200):
-            self.payload = payload
-            self.status_code = status_code
-
-        def raise_for_status(self):
-            return None
-
-        def json(self):
-            return self.payload
-
-    calls = {"get": 0}
-
-    def fake_get(*args, **kwargs):
-        calls["get"] += 1
-        if calls["get"] == 1:
-            raise _requests.RequestException("transient blip")
-        return FakeResponse({"status": "success", "output": {"value": "done"}})
-
-    monkeypatch.setattr(
-        "autonomous_agent.backend_client.requests.post",
-        lambda *a, **k: FakeResponse({"job_id": "job-1"}, status_code=202),
-    )
-    monkeypatch.setattr("autonomous_agent.backend_client.requests.get", fake_get)
-    monkeypatch.setattr("autonomous_agent.backend_client.time.sleep", lambda _: None)
-
-    backend = BackendClient(
-        base_url="http://backend:8000",
-        api_path="/v1/workflow/async",
-        user_id="test-user",
-        request_timeout=3600,
-        poll_interval=1,
-    )
-
-    assert backend.call([{"role": "user", "content": "go"}]) == "done"
+    assert backend.api_path == "/v1/chat/completions"
 
 
 def test_output_requests_approval_requires_structured_marker():
@@ -744,8 +682,7 @@ def test_approval_reason_is_structured_not_raw_llm_text():
     metadata = extract_approval_metadata(
         "**Action requiring confirmation:**\n\nDelete prod table\n\n"
         "Proceed? (yes/no)\n"
-        "Token scope: action_type=`mcp_mutation`, target=`prod-db`.\n"
-        "If approved, use this single-use approval token: `tok_x`"
+        "Approval scope: action_type=`mcp_mutation`, target=`prod-db`."
     )
     reason = _approval_reason(metadata)
 
@@ -757,12 +694,21 @@ def test_approval_reason_is_structured_not_raw_llm_text():
 def test_run_once_stores_structured_reason_not_raw_response():
     # F-017a: the raw LLM body must not be persisted as the approval reason.
     store = FakeStore()
+    store.pending_approvals["pending-2"] = {
+        "user_id": "test-user",
+        "action": "Delete the production index",
+        "target": "prod-index",
+        "server_name": "inventory",
+        "tool_name": "delete_index",
+        "arguments_preview": '{"name":"prod-index"}',
+        "arguments_sha256": "b" * 64,
+    }
     raw = (
         "**Action requiring confirmation:** Delete the production index\n\n"
         "SECRET INTERNAL CHAIN OF THOUGHT THAT SHOULD NOT BE PUBLISHED\n\n"
         "Proceed? (yes/no)\n"
-        "Token scope: action_type=`mcp_mutation`, target=`prod-index`.\n"
-        "If approved, use this single-use approval token: `tok_999`"
+        "Approval scope: action_type=`mcp_mutation`, target=`prod-index`, "
+        "approval_request_id=`pending-2`."
     )
     backend = FakeBackend(raw)
 
@@ -781,19 +727,14 @@ def test_run_once_stores_structured_reason_not_raw_response():
 
 
 def test_request_approval_key_only_for_approval_follow_ups():
-    # F-015: the idempotency key is the granted token, only for approval reruns.
+    # F-015: the public approval id is stable; the secret never enters prompts.
     assert (
-        request_approval_key(
-            {"trigger": "approval", "prompt": 'Use approval_token="tok_abc".'}
-        )
-        == "tok_abc"
+        request_approval_key({"trigger": "approval", "approvalId": "approval-abc"})
+        == "approval-abc"
     )
     # A normal manual/scheduled request is never treated as a rerun.
     assert (
-        request_approval_key(
-            {"trigger": "manual", "prompt": 'Use approval_token="tok_abc".'}
-        )
-        == ""
+        request_approval_key({"trigger": "manual", "approvalId": "approval-abc"}) == ""
     )
     assert request_approval_key({"trigger": "approval", "prompt": "no token"}) == ""
 
@@ -808,11 +749,25 @@ def test_run_once_skips_already_applied_approval():
         }
     )
     backend = FakeBackend(response)
-    request = {"trigger": "approval", "prompt": 'Use approval_token="tok_send".'}
+    request = {
+        "id": "request-send",
+        "trigger": "approval",
+        "approvalId": "approval-send",
+        "actionType": "delete_memory",
+        "prompt": "Continue the approved action.",
+    }
+    store.approval_executions["request-send"] = {
+        "token": "tok_send",
+        "approvalId": "approval-send",
+        "actionType": "delete_memory",
+        "action": "Delete memory",
+        "target": "test-user",
+    }
 
     first = run_once(store=store, backend=backend, user_id="test-user", request=request)
     assert first["status"] == "completed"
-    assert "tok_send" in store.applied_approvals
+    assert "approval-send" in store.applied_approvals
+    assert "secret-mcp-token" in backend.messages[-1]["content"]
 
     # A re-enqueue of the same approved request is skipped, not re-run.
     second_backend = FakeBackend(response)
@@ -826,6 +781,76 @@ def test_run_once_skips_already_applied_approval():
     assert second_backend.messages is None  # backend was never called again
     # The feed did not grow from a duplicate execution.
     assert len(store.feed) == 1
+
+
+def test_mcp_approval_credential_is_header_only_and_exact_context_is_private():
+    store = FakeStore()
+    store.mcp_receipt_valid = True
+    request = {
+        "id": "request-scale",
+        "trigger": "approval",
+        "approvalId": "approval-scale",
+        "actionType": "mcp_mutation",
+        "prompt": "Continue the approved action.",
+    }
+    store.approval_executions["request-scale"] = {
+        "approvalId": "approval-scale",
+        "actionType": "mcp_mutation",
+        "action": "Scale API to three replicas",
+        "target": "production/api",
+        "serverName": "k8s_mcp_server",
+        "toolName": "scale_deployment",
+        "canonicalArguments": ('{"name":"api","namespace":"production","replicas":3}'),
+        "argumentsSha256": "0" * 64,
+        "originalPrompt": "Scale the production API to three replicas.",
+    }
+    backend = FakeBackend(json.dumps({"summary": "Scaled", "feed_items": []}))
+
+    run = run_once(store=store, backend=backend, user_id="test-user", request=request)
+
+    assert run["status"] == "completed"
+    assert backend.approval_token == "secret-mcp-token"
+    assert store.revoked_approval_tokens == ["secret-mcp-token"]
+    assert "approval-scale" in store.applied_approvals
+    assert len(store.receipt_consumptions) == 1
+    rendered_messages = json.dumps(backend.messages)
+    assert "secret-mcp-token" not in rendered_messages
+    assert any(
+        "replicas" in message["content"] and "production" in message["content"]
+        for message in backend.messages
+    )
+
+
+def test_mcp_approval_is_not_applied_when_backend_never_proves_tool_success():
+    store = FakeStore()
+    request = {
+        "id": "request-scale",
+        "trigger": "approval",
+        "approvalId": "approval-scale",
+        "actionType": "mcp_mutation",
+        "prompt": "Continue the approved action.",
+    }
+    store.approval_executions["request-scale"] = {
+        "approvalId": "approval-scale",
+        "actionType": "mcp_mutation",
+        "action": "Scale API to three replicas",
+        "target": "production/api",
+        "serverName": "k8s_mcp_server",
+        "toolName": "scale_deployment",
+        "canonicalArguments": ('{"name":"api","namespace":"production","replicas":3}'),
+        "argumentsSha256": "0" * 64,
+    }
+    # A plausible final answer is not execution evidence. This fake backend did
+    # not pass through the MCP gate, so no receipt exists.
+    backend = FakeBackend(json.dumps({"summary": "Scaled", "feed_items": []}))
+
+    run = run_once(store=store, backend=backend, user_id="test-user", request=request)
+
+    assert run["status"] == "failed"
+    assert "success receipt" in run["error"]
+    assert "approval-scale" not in store.applied_approvals
+    assert len(store.receipt_consumptions) == 1
+    assert store.revoked_approval_tokens == ["secret-mcp-token"]
 
 
 def test_run_once_aborts_when_lease_lost():

@@ -34,7 +34,7 @@ ci: tools-check builder frontend helm docker security evals ## run every CI job 
 
 builder: ## Python builder pytest with coverage  (CI job: builder)
 	cd builder && uv pip install -e ".[test]"
-	cd builder && uv run python -m pytest --cov --cov-report=xml --cov-report=term-missing
+	cd builder && uv run python -m pytest --cov --cov-report=xml --cov-report=term-missing --cov-fail-under=65
 
 test-integration: ## builder integration tests vs real Redis, opt-in  (CI job: builder-integration)
 	cd builder && uv pip install -e ".[test]" redis
@@ -44,7 +44,7 @@ frontend: ## frontend lint, typecheck, test, build  (CI job: frontend)
 	cd frontend && npm ci --legacy-peer-deps
 	cd frontend && npm run lint
 	cd frontend && npx tsc --noEmit --incremental false
-	cd frontend && SESSION_SECRET=ci-session-secret-for-build-only npm test -- --run
+	cd frontend && SESSION_SECRET=ci-session-secret-for-build-only npm run coverage
 	cd frontend && SESSION_SECRET=ci-session-secret-for-build-only npm run build
 
 helm: ## helm lint + template render  (CI job: helm)
@@ -63,7 +63,7 @@ docker: ## docker compose config + build runtime images  (CI job: docker)
 
 security: ## gitleaks + trivy filesystem scans  (CI job: security)
 	gitleaks detect --source . --verbose --redact
-	trivy fs --severity CRITICAL,HIGH --format sarif . >$(TRIVY_RESULTS)
+	trivy fs --severity CRITICAL,HIGH --exit-code 1 --format sarif . >$(TRIVY_RESULTS)
 	test -s $(TRIVY_RESULTS)
 
 evals: ## eval harness compile + dataset validation  (CI job: evals)

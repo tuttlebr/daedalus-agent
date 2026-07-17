@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   smembers: vi.fn(),
   srem: vi.fn(),
   finalizeError: vi.fn(),
+  abortBackgroundStream: vi.fn(),
   withRedisLock: vi.fn(),
   isTerminalJobStatus: vi.fn(),
 }));
@@ -20,6 +21,10 @@ vi.mock('@/server/session/redis', () => ({
 
 vi.mock('@/server/chat/finalization', () => ({
   finalizeError: mocks.finalizeError,
+}));
+
+vi.mock('@/server/chat/streamReader', () => ({
+  abortBackgroundStream: mocks.abortBackgroundStream,
 }));
 
 vi.mock('@/server/chat/jobState', () => ({
@@ -70,6 +75,10 @@ describe('streamWatchdog.sweepStreamJobs', () => {
       request,
       expect.any(String),
     );
+    expect(mocks.abortBackgroundStream).toHaveBeenCalledWith('job-stale');
+    expect(
+      mocks.abortBackgroundStream.mock.invocationCallOrder[0],
+    ).toBeLessThan(mocks.finalizeError.mock.invocationCallOrder[0]);
     expect(mocks.srem).toHaveBeenCalledWith('async-stream-jobs', 'job-stale');
   });
 

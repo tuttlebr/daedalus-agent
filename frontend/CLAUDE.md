@@ -47,11 +47,10 @@ The wrapper exits the container if **either** process dies. `npm run dev` starts
 - `POST /api/chat/async` — stores job metadata, returns a `jobId` immediately, then opens a pinned backend stream (`/v1/chat/completions` for chat, `/v1/documents/ingest/stream` for document ingest) and persists tokens/intermediate-steps/status to Redis.
 - `GET /api/chat/async?jobId=...` — returns live or finalized job state (polling fallback).
 - Client side: `hooks/useAsyncChat.ts` owns job lifecycle, WebSocket subscription, polling fallback, and recovery of jobs interrupted by reload/offline.
-- The legacy synchronous `pages/api/chat.ts` route is retired and returns **HTTP 410**.
 
 ### Real-time fanout
 
-Backend tokens → Redis Pub/Sub → WS sidecar → browser, with HTTP polling fallback. Client transport is the `WebSocketManager` singleton in `services/websocket.ts`, surfaced via `hooks/useWebSocket.ts`.
+Backend tokens → Redis Pub/Sub → WS sidecar → browser, with HTTP polling fallback. Client transport is the `WebSocketManager` singleton in `services/websocket.ts`; `hooks/useAsyncChat.ts` owns chat events while `hooks/useWebSocket.ts` owns conversation and autonomy sync.
 
 ### Backend routing
 

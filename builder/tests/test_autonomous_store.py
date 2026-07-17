@@ -2,6 +2,7 @@
 
 import json
 
+import pytest
 from autonomous_agent.models import now_ms
 from autonomous_agent.store import RedisStore, key
 
@@ -24,6 +25,13 @@ class _FakeRedis:
     def set(self, k, v, **_kwargs):
         self.kv[k] = v
         return True
+
+    def setex(self, k, _ttl, v):
+        self.kv[k] = v
+        return True
+
+    def getdel(self, k):
+        return self.kv.pop(k, None)
 
     def sadd(self, k, *members):
         self.sets.setdefault(k, set()).update(members)
@@ -185,6 +193,30 @@ def test_applied_approval_round_trip():
     assert store.is_approval_applied("u", "") is False
 
 
+def test_store_consumes_only_exact_mcp_execution_receipt():
+    from user_interaction.approval_tokens import record_mcp_execution_receipt
+
+    store = _store()
+    token = "worker-only-secret"
+    execution = {
+        "actionType": "mcp_mutation",
+        "serverName": "k8s_mcp_server",
+        "toolName": "scale_deployment",
+        "argumentsSha256": "a" * 64,
+    }
+    record_mcp_execution_receipt(
+        store.redis,
+        user_id="u",
+        token=token,
+        server_name=execution["serverName"],
+        tool_name=execution["toolName"],
+        arguments_sha256=execution["argumentsSha256"],
+    )
+
+    assert store.consume_mcp_execution_receipt("u", token, execution)
+    assert not store.consume_mcp_execution_receipt("u", token, execution)
+
+
 class _TxnRedis(_FakeRedis):
     """Fake Redis supporting WATCH/MULTI/EXEC so atomic_update can be tested.
 
@@ -247,6 +279,7 @@ class _TxnPipeline:
 def _txn_store():
     store = RedisStore()
     store.redis = _TxnRedis()
+    store._watch_error_type = _WatchError
     return store
 
 
@@ -279,3 +312,160 @@ def test_atomic_update_retries_on_concurrent_writer_without_losing_updates():
     ids = {r["id"] for r in store.list_runs("u")}
     # Both the concurrent run and ours survive — no lost update.
     assert ids == {"other", "mine"}
+
+
+def test_atomic_update_never_falls_back_to_non_atomic_write_after_conflicts():
+    store = _txn_store()
+    runs_key = key("u", "runs")
+    state = {"writes": 0}
+
+    def racing_writer():
+        state["writes"] += 1
+        store.redis.kv[runs_key] = json.dumps([{"id": f"other-{state['writes']}"}])
+
+    store.redis.on_watch = racing_writer
+
+    with pytest.raises(_WatchError, match="watched key changed"):
+        store.atomic_update(
+            runs_key,
+            lambda current: (current + [{"id": "mine"}], None),
+            retries=2,
+        )
+
+    # The last concurrent value remains intact; an unsafe final GET/SET fallback
+    # would have appended "mine" after the retries were exhausted.
+    assert json.loads(store.redis.kv[runs_key]) == [{"id": "other-2"}]
+
+
+class _JsonTxnRedis(_FakeRedis):
+    """RedisJSON-aware transaction fake that rejects string key commands."""
+
+    def __init__(self):
+        super().__init__()
+        self.json_kv: dict[str, str] = {}
+        self.on_watch = None
+        self.json_commands: list[str] = []
+
+    def execute_command(self, command, *args):
+        command = str(command).upper()
+        self.json_commands.append(command)
+        if command == "JSON.GET":
+            return self.json_kv.get(args[0])
+        if command == "JSON.SET":
+            redis_key, _path, value = args
+            self.json_kv[redis_key] = value
+            return "OK"
+        raise AssertionError(f"unexpected RedisJSON command: {command}")
+
+    def get(self, _redis_key):
+        raise AssertionError("plain GET cannot read a RedisJSON key")
+
+    def set(self, _redis_key, _value, **_kwargs):
+        raise AssertionError("plain SET cannot write a RedisJSON key")
+
+    def pipeline(self):
+        return _JsonTxnPipeline(self)
+
+
+class _JsonTxnPipeline:
+    def __init__(self, redis):
+        self.redis = redis
+        self.watched_key = None
+        self.watched_version = None
+        self.queued: list[tuple[str, str]] = []
+        self.buffering = False
+
+    def watch(self, redis_key):
+        self.watched_key = redis_key
+        self.watched_version = self.redis.json_kv.get(redis_key)
+        if callable(self.redis.on_watch):
+            self.redis.on_watch()
+
+    def get(self, _redis_key):
+        raise AssertionError("plain GET cannot read a RedisJSON key")
+
+    def set(self, _redis_key, _value):
+        raise AssertionError("plain SET cannot write a RedisJSON key")
+
+    def execute_command(self, command, *args):
+        command = str(command).upper()
+        self.redis.json_commands.append(command)
+        if command == "JSON.GET" and not self.buffering:
+            return self.redis.json_kv.get(args[0])
+        if command == "JSON.SET" and self.buffering:
+            redis_key, _path, value = args
+            self.queued.append((redis_key, value))
+            return self
+        raise AssertionError(f"unexpected transactional command: {command}")
+
+    def multi(self):
+        self.buffering = True
+
+    def execute(self):
+        if self.redis.json_kv.get(self.watched_key) != self.watched_version:
+            raise _WatchError("watched RedisJSON key changed")
+        for redis_key, value in self.queued:
+            self.redis.json_kv[redis_key] = value
+        self.queued = []
+        self.buffering = False
+
+    def reset(self):
+        self.queued = []
+        self.buffering = False
+
+
+def _json_txn_store():
+    store = RedisStore()
+    store.redis = _JsonTxnRedis()
+    store._watch_error_type = _WatchError
+    return store
+
+
+def test_atomic_update_uses_redisjson_commands_inside_transaction():
+    store = _json_txn_store()
+    redis_key = key("u", "approvals")
+
+    result = store.atomic_update(
+        redis_key,
+        lambda current: (current + [{"id": "approval-1"}], "stored"),
+    )
+
+    assert result == "stored"
+    assert json.loads(store.redis.json_kv[redis_key]) == [{"id": "approval-1"}]
+    assert store.redis.json_commands.count("JSON.GET") >= 2  # probe + WATCH read
+    assert "JSON.SET" in store.redis.json_commands
+
+
+def test_append_event_retries_redisjson_conflict_without_losing_event():
+    store = _json_txn_store()
+    events_key = key("u", "events")
+    state = {"fired": False}
+
+    def racing_writer():
+        if state["fired"]:
+            return
+        state["fired"] = True
+        store.redis.json_kv[events_key] = json.dumps([{"id": "other"}])
+
+    store.redis.on_watch = racing_writer
+    store.append_event("u", {"id": "mine"})
+
+    assert [event["id"] for event in store.json_get(events_key)] == ["mine", "other"]
+
+
+class _BrokenTxnRedis(_TxnRedis):
+    def pipeline(self):
+        return _BrokenTxnPipeline(self)
+
+
+class _BrokenTxnPipeline(_TxnPipeline):
+    def get(self, _redis_key):
+        raise RuntimeError("redis connection failed")
+
+
+def test_atomic_update_does_not_hide_non_watch_redis_errors():
+    store = RedisStore()
+    store.redis = _BrokenTxnRedis()
+
+    with pytest.raises(RuntimeError, match="redis connection failed"):
+        store.atomic_update(key("u", "runs"), lambda current: (current, None))

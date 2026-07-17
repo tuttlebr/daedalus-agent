@@ -54,15 +54,16 @@ export const registerServiceWorker = async () => {
   }
 };
 
-// Names of the Cache Storage buckets that may hold user-private data. These
-// MUST match CONVERSATION_CACHE / RUNTIME_CACHE in public/sw.js.
+// Names of current or legacy Cache Storage buckets that may hold user-private
+// data. Keep the legacy conversation bucket until all old workers have aged
+// out; the current service worker never caches authenticated API responses.
 const PRIVATE_CACHE_NAMES = ['daedalus-conversations-v1', 'daedalus-runtime'];
 
 /**
  * Drop caches that may contain user-private data (conversation history /
  * per-conversation responses, runtime-cached HTML). Call on login and logout so
  * a previous user's offline-cached data cannot be served to the next user on a
- * shared device. Fire-and-forget; never throws.
+ * shared device. Callers await this before switching authenticated identity.
  */
 export const clearPrivateCaches = async (): Promise<void> => {
   if (typeof window === 'undefined') return;

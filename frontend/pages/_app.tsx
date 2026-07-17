@@ -3,12 +3,11 @@ import { useEffect, useState } from 'react';
 import { Toaster } from 'react-hot-toast';
 import toast from 'react-hot-toast';
 
-import { appWithTranslation } from 'next-i18next';
+import { appWithTranslation } from 'next-i18next/pages';
 import type { AppProps } from 'next/app';
 import Head from 'next/head';
 import { useRouter } from 'next/router';
 
-import { startMemoryMonitoring } from '@/utils/app/memoryMonitor';
 import {
   registerServiceWorker,
   setupOfflineDetection,
@@ -53,12 +52,6 @@ function App({ Component, pageProps }: AppProps<{}>) {
       () => toast.error('You are offline. Some features may be limited.'),
       () => toast.success('Back online!'),
     );
-
-    startMemoryMonitoring({
-      warningThreshold: 80,
-      criticalThreshold: 90,
-      checkInterval: 60000,
-    });
 
     const onRejection = (event: PromiseRejectionEvent) => {
       reportError(event.reason ?? new Error('Unhandled promise rejection'), {

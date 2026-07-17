@@ -67,9 +67,7 @@ class TestParseVttTranscript:
         assert parse_vtt_transcript("WEBVTT\n\n") == []
 
     def test_single_entry_with_speaker_tag(self):
-        vtt = (
-            "WEBVTT\n\n" "00:00:01.000 --> 00:00:02.000\n" "<v Alice>Hello world</v>\n"
-        )
+        vtt = "WEBVTT\n\n00:00:01.000 --> 00:00:02.000\n<v Alice>Hello world</v>\n"
         entries = parse_vtt_transcript(vtt)
         assert len(entries) == 1
         assert entries[0].speaker == "Alice"
@@ -116,7 +114,7 @@ class TestParseVttTranscript:
         assert entries[0].text == "Hi"
 
     def test_multiline_content_joined(self):
-        vtt = "WEBVTT\n\n" "00:00:01.000 --> 00:00:02.000\n" "Line one\n" "Line two\n"
+        vtt = "WEBVTT\n\n00:00:01.000 --> 00:00:02.000\nLine one\nLine two\n"
         entries = parse_vtt_transcript(vtt)
         assert len(entries) == 1
         full_text = entries[0].text
@@ -124,11 +122,7 @@ class TestParseVttTranscript:
         assert "Line two" in full_text
 
     def test_html_tags_stripped_for_unknown_speaker(self):
-        vtt = (
-            "WEBVTT\n\n"
-            "00:00:01.000 --> 00:00:02.000\n"
-            "<b>Bold</b> and <i>italic</i>\n"
-        )
+        vtt = "WEBVTT\n\n00:00:01.000 --> 00:00:02.000\n<b>Bold</b> and <i>italic</i>\n"
         entries = parse_vtt_transcript(vtt)
         assert len(entries) == 1
         assert "<b>" not in entries[0].text
@@ -141,9 +135,7 @@ class TestParseVttTranscript:
 
     def test_speaker_name_with_spaces(self):
         vtt = (
-            "WEBVTT\n\n"
-            "00:00:01.000 --> 00:00:02.000\n"
-            "<v John Smith>Good morning</v>\n"
+            "WEBVTT\n\n00:00:01.000 --> 00:00:02.000\n<v John Smith>Good morning</v>\n"
         )
         entries = parse_vtt_transcript(vtt)
         assert len(entries) == 1

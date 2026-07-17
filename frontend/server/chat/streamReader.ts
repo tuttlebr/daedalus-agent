@@ -9,6 +9,8 @@ import { Logger } from '@/utils/logger';
 import { getNatBaseUrl } from './backendSelection';
 import {
   JOB_EXPIRY_SECONDS,
+  STREAM_ABORT_POLL_INTERVAL_MS,
+  STREAM_READ_IDLE_TIMEOUT_MS,
   STREAM_STATUS_FLUSH_INTERVAL_MS,
   STREAM_STEPS_FLUSH_INTERVAL_MS,
 } from './constants';
@@ -30,6 +32,76 @@ import {
 } from '@/server/session/redis';
 
 const logger = new Logger('AsyncJob');
+
+const activeStreamControllers = new Map<string, AbortController>();
+
+class StreamIdleTimeoutError extends Error {
+  constructor() {
+    super(
+      `Backend response stream was idle for ${Math.round(
+        STREAM_READ_IDLE_TIMEOUT_MS / 1000,
+      )} seconds`,
+    );
+    this.name = 'StreamIdleTimeoutError';
+  }
+}
+
+function abortReason(signal: AbortSignal): Error {
+  if (signal.reason instanceof Error) return signal.reason;
+  const error = new Error('Background response stream aborted');
+  error.name = 'AbortError';
+  return error;
+}
+
+async function readStreamChunk(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  abortController: AbortController,
+): Promise<ReadableStreamReadResult<Uint8Array>> {
+  let idleTimer: ReturnType<typeof setTimeout> | null = null;
+  let handleAbort: (() => void) | null = null;
+
+  const abortPromise = new Promise<never>((_, reject) => {
+    handleAbort = () => reject(abortReason(abortController.signal));
+    if (abortController.signal.aborted) {
+      handleAbort();
+      return;
+    }
+    abortController.signal.addEventListener('abort', handleAbort, {
+      once: true,
+    });
+  });
+
+  const idlePromise = new Promise<never>((_, reject) => {
+    idleTimer = setTimeout(() => {
+      const error = new StreamIdleTimeoutError();
+      reject(error);
+      if (!abortController.signal.aborted) {
+        abortController.abort(error);
+      }
+    }, STREAM_READ_IDLE_TIMEOUT_MS);
+    if (typeof (idleTimer as NodeJS.Timeout).unref === 'function') {
+      (idleTimer as NodeJS.Timeout).unref();
+    }
+  });
+
+  try {
+    // Keep exactly one reader.read() pending. An abort or idle timeout exits
+    // the stream instead of starting another read against the same reader.
+    return await Promise.race([reader.read(), abortPromise, idlePromise]);
+  } finally {
+    if (idleTimer) clearTimeout(idleTimer);
+    if (handleAbort) {
+      abortController.signal.removeEventListener('abort', handleAbort);
+    }
+  }
+}
+
+export function abortBackgroundStream(jobId: string): boolean {
+  const controller = activeStreamControllers.get(jobId);
+  if (!controller || controller.signal.aborted) return false;
+  controller.abort();
+  return true;
+}
 
 function extractOAuthRequiredPayload(
   eventName: string | null,
@@ -111,20 +183,9 @@ export async function startBackgroundStreamReader(
     getNatBaseUrl(jobRequest),
     '/v1/chat/completions',
   );
-  // NOTE: model / collection_name / max_tokens / top_k are OpenAPI
-  // placeholder values. The backend NAT agent owns model and generation config
-  // and ignores these; they exist only to satisfy the request schema. Do not
-  // rely on them to control generation (F-024).
   const payload = {
     messages: messagesForNat,
-    model: 'string',
-    max_tokens: 0,
-    use_knowledge_base: true,
-    top_k: 0,
-    collection_name: 'string',
-    stop: true,
     stream: true,
-    user_id: verifiedUsername,
     additional_props: {
       ...(jobRequest.additionalProps || {}),
       enableIntermediateSteps: true,
@@ -140,6 +201,34 @@ export async function startBackgroundStreamReader(
   let partialResponse = '';
   let lastToolOutput = '';
   let streamDone = false;
+  let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
+  let abortPollTimer: NodeJS.Timeout | null = null;
+  let abortCheckInFlight = false;
+  let streamActive = true;
+  const abortController = new AbortController();
+
+  const previousController = activeStreamControllers.get(jobId);
+  if (previousController && !previousController.signal.aborted) {
+    previousController.abort();
+  }
+  activeStreamControllers.set(jobId, abortController);
+
+  const checkForRedisAbort = async (): Promise<void> => {
+    if (abortCheckInFlight || !streamActive || abortController.signal.aborted) {
+      return;
+    }
+    abortCheckInFlight = true;
+    try {
+      const shouldAbort = await jsonGet(abortKey(jobId));
+      if (shouldAbort && streamActive && !abortController.signal.aborted) {
+        abortController.abort();
+      }
+    } catch (error) {
+      logger.debug(`Job ${jobId}: Failed to check stream abort flag`, error);
+    } finally {
+      abortCheckInFlight = false;
+    }
+  };
 
   try {
     logger.info(
@@ -171,7 +260,15 @@ export async function startBackgroundStreamReader(
       });
     }
 
-    const abortController = new AbortController();
+    await checkForRedisAbort();
+    if (abortController.signal.aborted) {
+      throw abortReason(abortController.signal);
+    }
+    abortPollTimer = setInterval(() => {
+      void checkForRedisAbort();
+    }, STREAM_ABORT_POLL_INTERVAL_MS);
+    if (typeof abortPollTimer.unref === 'function') abortPollTimer.unref();
+
     const response = await fetch(streamUrl, {
       method: 'POST',
       headers: buildNatRequestHeaders(
@@ -199,7 +296,7 @@ export async function startBackgroundStreamReader(
       return;
     }
 
-    const reader = response.body.getReader();
+    reader = response.body.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
     let currentSseEvent: string | null = null;
@@ -208,10 +305,6 @@ export async function startBackgroundStreamReader(
       ? `user:${userId}:chat:${conversationId}:tokens`
       : null;
 
-    // Rate-limited abort check: at most once per second to avoid Redis overhead.
-    // handleGet sets abortKey before calling finalizeSuccess so the parallel
-    // stream reader stops publishing events and updating job status.
-    let lastAbortCheckMs = 0;
     let lastStatusFlushMs = 0;
     let lastStepsFlushMs = 0;
     let debugDeltaCounter = 0;
@@ -235,31 +328,20 @@ export async function startBackgroundStreamReader(
         !partialResponse.trim() &&
         (Boolean(currentStatus.authUrl) ||
           Boolean(currentStatus.oauthRequests?.length));
-      await updateJobStatus(jobId, {
-        status: keepOAuthPrompt ? 'oauth_required' : 'streaming',
-        partialResponse,
-        intermediateSteps: accumulatedSteps,
-        ...(keepOAuthPrompt ? {} : clearOAuthStatusFields()),
-        updatedAt: now,
-      });
+      await updateJobStatus(
+        jobId,
+        {
+          status: keepOAuthPrompt ? 'oauth_required' : 'streaming',
+          partialResponse,
+          ...(keepOAuthPrompt ? {} : clearOAuthStatusFields()),
+          updatedAt: now,
+        },
+        { publish: false },
+      );
     };
 
     while (true) {
-      // Check for abort signal from handleGet (job already finalized)
-      const nowMs = Date.now();
-      if (nowMs - lastAbortCheckMs > 1000) {
-        lastAbortCheckMs = nowMs;
-        const shouldAbort = await jsonGet(abortKey(jobId));
-        if (shouldAbort) {
-          logger.info(
-            `Job ${jobId}: Stream reader received abort signal — job finalized, stopping`,
-          );
-          abortController.abort();
-          return;
-        }
-      }
-
-      const { done, value } = await reader.read();
+      const { done, value } = await readStreamChunk(reader, abortController);
       if (done) break;
 
       buffer += decoder.decode(value, { stream: true });
@@ -377,7 +459,6 @@ export async function startBackgroundStreamReader(
                 oauthState: oauthPayload.oauthState,
                 oauthRequests,
                 partialResponse,
-                intermediateSteps: accumulatedSteps,
                 progress: 0,
                 updatedAt: Date.now(),
               });
@@ -445,13 +526,9 @@ export async function startBackgroundStreamReader(
     await flushSteps(true);
     const currentStatus = (await jsonGet(statusKey)) as AsyncJobStatus | null;
     if (currentStatus?.status === 'oauth_required' && !partialResponse.trim()) {
-      await updateJobStatus(jobId, {
-        status: 'oauth_required',
-        partialResponse,
-        intermediateSteps: accumulatedSteps,
-        progress: 0,
-        updatedAt: Date.now(),
-      });
+      // The OAuth event already persisted and published the complete prompt.
+      // Leave it untouched here so stream shutdown does not emit a duplicate
+      // status event whose only difference is updatedAt.
       return;
     }
 
@@ -473,11 +550,13 @@ export async function startBackgroundStreamReader(
       partialResponseLength: partialResponse.length,
     });
   } catch (err: any) {
-    if (err.name === 'AbortError') {
-      // Clean abort — job was finalized by handleGet, not a real error.
-      logger.info(
-        `Job ${jobId}: Stream reader aborted cleanly (job finalized)`,
-      );
+    const idleTimedOut = err?.name === 'StreamIdleTimeoutError';
+    if (
+      !idleTimedOut &&
+      (err?.name === 'AbortError' || abortController.signal.aborted)
+    ) {
+      // Cancellation/finalization is handled by the caller that set the abort.
+      logger.info(`Job ${jobId}: Stream reader aborted cleanly`);
     } else {
       logger.error(`Job ${jobId}: Stream reader error: ${err.message}`);
       if (!partialResponse.trim() && lastToolOutput) {
@@ -491,11 +570,14 @@ export async function startBackgroundStreamReader(
         accumulatedSteps,
         JOB_EXPIRY_SECONDS,
       ).catch(() => {});
-      await updateJobStatus(jobId, {
-        ...(partialResponse ? { partialResponse } : {}),
-        intermediateSteps: accumulatedSteps,
-        updatedAt: Date.now(),
-      }).catch(() => {});
+      await updateJobStatus(
+        jobId,
+        {
+          ...(partialResponse ? { partialResponse } : {}),
+          updatedAt: Date.now(),
+        },
+        { publish: false },
+      ).catch(() => {});
       await finalizeError(
         jobId,
         jobRequest,
@@ -506,6 +588,30 @@ export async function startBackgroundStreamReader(
           finalizeErr,
         );
       });
+    }
+  } finally {
+    streamActive = false;
+    if (abortPollTimer) {
+      clearInterval(abortPollTimer);
+      abortPollTimer = null;
+    }
+    if (!abortController.signal.aborted) {
+      abortController.abort();
+    }
+    if (activeStreamControllers.get(jobId) === abortController) {
+      activeStreamControllers.delete(jobId);
+    }
+    if (reader) {
+      try {
+        await reader.cancel();
+      } catch {
+        // The body may already be closed or aborted.
+      }
+      try {
+        reader.releaseLock();
+      } catch {
+        // The response body may already have released its lock on abort.
+      }
     }
   }
 }

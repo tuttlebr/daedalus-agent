@@ -1,7 +1,6 @@
 """Tests for the content_distiller package -- secondary LLM content processing."""
 
 import asyncio
-import json
 from unittest.mock import AsyncMock, MagicMock
 
 
@@ -27,9 +26,9 @@ async def _get_tools(config_overrides=None):
 
 
 class TestContentDistillerRegistration:
-    def test_yields_three_function_infos(self):
+    def test_yields_one_function_info(self):
         items, _ = run(_get_tools())
-        assert len(items) == 3
+        assert len(items) == 1
 
     def test_all_have_fn_and_description(self):
         items, _ = run(_get_tools())
@@ -40,9 +39,7 @@ class TestContentDistillerRegistration:
     def test_tool_names(self):
         items, _ = run(_get_tools())
         fn_names = [item.fn.__name__ for item in items]
-        assert "distill_content" in fn_names
-        assert "extract_structured" in fn_names
-        assert "synthesize" in fn_names
+        assert fn_names == ["distill_content"]
 
 
 class TestDistillContent:
@@ -174,48 +171,6 @@ class TestDistillContent:
 
         run(_run())
 
-    def test_synthesize_uses_strong_llm(self):
-        """synthesize should use llm_name (strong model), not fast_llm_name."""
-
-        async def _run():
-            from content_distiller.content_distiller_function import (
-                ContentDistillerConfig,
-                content_distiller_function,
-            )
-
-            config = ContentDistillerConfig(
-                fast_llm_name="fast_model",
-                llm_name="strong_model",
-            )
-            builder = MagicMock()
-
-            llm_names_called = []
-
-            async def mock_get_llm(name, **kwargs):
-                llm_names_called.append(name)
-                mock_llm = MagicMock()
-                mock_result = MagicMock()
-                mock_result.content = "Synthesized"
-                mock_llm.bind.return_value.ainvoke = AsyncMock(return_value=mock_result)
-                return mock_llm
-
-            builder.get_llm = mock_get_llm
-
-            items = []
-            async for item in content_distiller_function(config, builder):
-                items.append(item)
-
-            synth_fn = items[2].fn
-            await synth_fn(
-                fragments="Source A\n---\nSource B",
-                synthesis_goal="Compare",
-            )
-            # synthesize should call the strong model
-            assert "strong_model" in llm_names_called
-            assert "fast_model" not in llm_names_called
-
-        run(_run())
-
     def test_distill_uses_fast_llm(self):
         """distill_content should use fast_llm_name."""
 
@@ -252,68 +207,5 @@ class TestDistillContent:
             # distill should call the fast model
             assert "fast_model" in llm_names_called
             assert "strong_model" not in llm_names_called
-
-        run(_run())
-
-
-class TestExtractStructured:
-    def test_extraction_call(self):
-        async def _run():
-            from content_distiller.content_distiller_function import (
-                ContentDistillerConfig,
-                content_distiller_function,
-            )
-
-            config = ContentDistillerConfig()
-            builder = MagicMock()
-
-            mock_llm = MagicMock()
-            mock_result = MagicMock()
-            mock_result.content = '{"company": "NVIDIA", "ceo": "Jensen Huang"}'
-            mock_llm.bind.return_value.ainvoke = AsyncMock(return_value=mock_result)
-            builder.get_llm = AsyncMock(return_value=mock_llm)
-
-            items = []
-            async for item in content_distiller_function(config, builder):
-                items.append(item)
-
-            extract_fn = items[1].fn
-            result = await extract_fn(
-                content="NVIDIA is led by CEO Jensen Huang...",
-                schema_description="Extract: company name, CEO",
-            )
-            data = json.loads(result)
-            assert data["company"] == "NVIDIA"
-
-        run(_run())
-
-
-class TestSynthesize:
-    def test_synthesis_call(self):
-        async def _run():
-            from content_distiller.content_distiller_function import (
-                ContentDistillerConfig,
-                content_distiller_function,
-            )
-
-            config = ContentDistillerConfig()
-            builder = MagicMock()
-
-            mock_llm = MagicMock()
-            mock_result = MagicMock()
-            mock_result.content = "Both sources agree that AI is transformative."
-            mock_llm.bind.return_value.ainvoke = AsyncMock(return_value=mock_result)
-            builder.get_llm = AsyncMock(return_value=mock_llm)
-
-            items = []
-            async for item in content_distiller_function(config, builder):
-                items.append(item)
-
-            synth_fn = items[2].fn
-            result = await synth_fn(
-                fragments="SOURCE 1: AI is great\n---\nSOURCE 2: AI is transformative",
-                synthesis_goal="Compare perspectives on AI",
-            )
-            assert "agree" in result.lower() or "transformative" in result.lower()
 
         run(_run())

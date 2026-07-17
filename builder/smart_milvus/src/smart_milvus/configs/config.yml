@@ -4,46 +4,44 @@ general:
       console:
         _type: console
         level: WARN
-
   front_end:
     _type: fastapi
 
-workflow:
-  _type: nat.workflows.react
+embedders:
+  milvus_embedder:
+    _type: nim
+    model_name: nvidia/nv-embedqa-e5-v5
 
-  # Milvus retriever configuration
-  retrievers:
-    - _type: smart_milvus
-      uri: 'http://localhost:19530' # Update with your Milvus URI
-      embedding_model: 'milvus_embedder' # or another embedder
-      database_name: 'default'
-      collection_name: null # Will be set dynamically
-      content_field: null
-      top_k: 5
-      vector_field_name: 'vector'
-      description: "Search for relevant documents in Milvus vector database. REQUIRED PARAMETERS: query (the search text) and collection_name (the Milvus collection to search). Example: search(query='What is machine learning?', collection_name='my_collection')"
-      # Optional reranker configuration
-      use_reranker: false # Set to true to enable reranking
-      reranker_endpoint: 'https://ai.api.nvidia.com/v1/ranking'
-      reranker_model: 'nvidia/llama-3.2-nv-rerankqa-1b-v2'
-      reranker_top_n: null # Number of results after reranking (null = all)
-      reranker_api_key: null # Or set via NVIDIA_API_KEY env var
+functions:
+  domain_retriever:
+    _type: domain_retriever
+    uri: http://localhost:19530
+    embedding_model: milvus_embedder
+    database_name: default
+    content_field: text
+    vector_field: vector
+    top_k: 10
+    use_reranker: false
+    domain_collections:
+      nvidia: nvidia
+      semianalysis: semianalysis
+      kubernetes: kubernetes
+      veterinarian: vetpartner
+      mentalhealth: mentalhealth
 
-  # LLM configuration
-  llm:
+llms:
+  assistant_llm:
     _type: openai
-    model: 'gpt-3.5-turbo'
+    model_name: gpt-4o-mini
 
-  # Agent settings
-  max_steps: 10
+workflow:
+  _type: tool_calling_agent
+  llm_name: assistant_llm
+  tool_names: [domain_retriever]
+  max_iterations: 10
   system_prompt: |
-    Role: Milvus-backed retrieval assistant.
-
-    Goal: answer questions using relevant documents from the configured Milvus
-    collection.
-
-    Tool rule: use the retriever when the answer depends on indexed document
-    content, and include the collection_name required by the retriever.
-
-    Output: answer concisely from retrieved evidence. If retrieval does not
-    provide enough support, state what is missing instead of inventing details.
+    Role: Curated-domain retrieval assistant.
+    Goal: Answer questions with evidence from the configured Milvus domains.
+    Call domain_retriever with a query and one configured domain. If retrieval
+    does not provide enough support, state what is missing.
+    Output: A concise evidence-backed answer.

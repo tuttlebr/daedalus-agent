@@ -62,7 +62,7 @@ function_groups:
     reconnect_max_attempts: 3
     reconnect_initial_backoff: 5.0
     reconnect_max_backoff: 60.0
-    max_sessions: 16
+    max_sessions: 8
     session_idle_timeout: 600
     server:
       transport: streamable-http
@@ -79,7 +79,7 @@ function_groups:
     reconnect_max_attempts: 3
     reconnect_initial_backoff: 5.0
     reconnect_max_backoff: 60.0
-    max_sessions: 16
+    max_sessions: 8
     session_idle_timeout: 600
     use_native_tool_calling: true
     tool_overrides:
@@ -105,7 +105,7 @@ function_groups:
     reconnect_max_attempts: 3
     reconnect_initial_backoff: 5.0
     reconnect_max_backoff: 60.0
-    max_sessions: 16
+    max_sessions: 8
     session_idle_timeout: 600
     use_native_tool_calling: true
     server:
@@ -114,13 +114,15 @@ function_groups:
       url: https://calendarmcp.googleapis.com/mcp/v1
   dynamo_mcp_server:
     _type: mcp_client
+    include:
+      - searchDocs
     tool_call_timeout: 60
     auth_flow_timeout: 30
     reconnect_enabled: true
     reconnect_max_attempts: 3
     reconnect_initial_backoff: 5.0
     reconnect_max_backoff: 60.0
-    max_sessions: 16
+    max_sessions: 8
     session_idle_timeout: 600
     tool_overrides:
       searchDocs:
@@ -141,7 +143,7 @@ function_groups:
     reconnect_max_attempts: 3
     reconnect_initial_backoff: 5.0
     reconnect_max_backoff: 60.0
-    max_sessions: 16
+    max_sessions: 8
     session_idle_timeout: 600
     tool_overrides:
       searchDocs:
@@ -162,7 +164,7 @@ function_groups:
     reconnect_max_attempts: 3
     reconnect_initial_backoff: 5.0
     reconnect_max_backoff: 60.0
-    max_sessions: 16
+    max_sessions: 8
     session_idle_timeout: 600
     tool_overrides:
       searchDocs:
@@ -183,7 +185,7 @@ function_groups:
     reconnect_max_attempts: 3
     reconnect_initial_backoff: 5.0
     reconnect_max_backoff: 60.0
-    max_sessions: 16
+    max_sessions: 8
     session_idle_timeout: 600
     tool_overrides:
       searchDocs:
@@ -204,7 +206,7 @@ function_groups:
     reconnect_max_attempts: 3
     reconnect_initial_backoff: 5.0
     reconnect_max_backoff: 60.0
-    max_sessions: 16
+    max_sessions: 8
     session_idle_timeout: 600
     tool_overrides:
       searchDocs:
@@ -225,7 +227,7 @@ function_groups:
     reconnect_max_attempts: 3
     reconnect_initial_backoff: 5.0
     reconnect_max_backoff: 60.0
-    max_sessions: 16
+    max_sessions: 8
     session_idle_timeout: 600
     tool_overrides:
       searchDocs:
@@ -244,7 +246,7 @@ function_groups:
     reconnect_max_attempts: 3
     reconnect_initial_backoff: 5.0
     reconnect_max_backoff: 60.0
-    max_sessions: 16
+    max_sessions: 8
     session_idle_timeout: 600
     server:
       transport: streamable-http
@@ -258,7 +260,7 @@ function_groups:
     reconnect_max_attempts: 3
     reconnect_initial_backoff: 5.0
     reconnect_max_backoff: 60.0
-    max_sessions: 16
+    max_sessions: 8
     session_idle_timeout: 600
     server:
       transport: streamable-http
@@ -285,7 +287,7 @@ functions:
       skill_name and optional resource for loading. Returns: skill metadata,
       instructions, or resource content. Fails when: skill not found or
       requested resource path escapes skill dir.
-    verbose: true
+    verbose: false
   add_memory:
     _type: daedalus_add_memory
     description: >-
@@ -308,7 +310,7 @@ functions:
       when: memory empty, authenticated identity is missing or invalid,
       or a finding lacks a prior verify_claim pass.
     memory: redis_memory
-    verbose: true
+    verbose: false
   current_datetime_tool:
     _type: current_datetime
     description: >-
@@ -316,17 +318,7 @@ functions:
       time-relative query ("today", "this week", "how old is X").
       Args: none. Returns: ISO datetime + timezone. Fails when:
       never.
-    verbose: true
-  delete_memory:
-    _type: delete_memory
-    description: >-
-      Permanently delete ALL memories for a user. Destructive,
-      irreversible bulk wipe. Trigger: user explicitly says
-      "delete/erase/wipe my memories". Args: user_id. Returns:
-      deletion count. Fails when: called without prior
-      user_interaction_tool.confirm_action (you MUST confirm first).
-    memory: redis_memory
-    verbose: true
+    verbose: false
   get_memory:
     _type: daedalus_get_memory
     description: >-
@@ -341,8 +333,8 @@ functions:
       not pass user_id. Returns: ranked entries with metadata. Fails:
       missing or invalid authenticated identity returns an error.
     memory: redis_memory
-    top_k: 16
-    verbose: true
+    top_k: 8
+    verbose: false
   visual_media_tool:
     _type: visual_media
     generation_api_endpoint: ${IMAGE_GENERATION_BASE_URL}
@@ -358,16 +350,15 @@ functions:
       Unified visual media tool. operation=generate creates a new
       image from prompt; operation=edit modifies uploaded imageRef
       with prompt; operation=analyze answers questions about imageRef,
-      image_url, videoRef, or video_url. Pass user_id from [IDENTITY]
-      for every generate/edit/analyze call so generated image outputs
-      are owned by the authenticated user. Image outputs are markdown
-      refs and must be forwarded verbatim. Never use this tool for a
-      daily summary or daily briefing unless the user explicitly asks
-      for an image or video.
+      image_url, videoRef, or video_url. The backend derives ownership
+      from the authenticated request; never pass user_id. Image outputs
+      are markdown refs and must be forwarded verbatim. Never use this
+      tool for a daily summary or daily briefing unless the user
+      explicitly asks for an image or video.
     redis_url: ${REDIS_URL}
     image_timeout: 300
     comprehension_timeout: 300
-    verbose: true
+    verbose: false
   domain_retriever_tool:
     _type: domain_retriever
     description: >-
@@ -381,7 +372,7 @@ functions:
     database_name: default
     content_field: text
     vector_field: vector
-    top_k: 16
+    top_k: 10
     use_reranker: true
     reranker_api_key: ${RERANKER_API_KEY}
     reranker_endpoint: ${RERANKER_BASE_URL}
@@ -393,7 +384,7 @@ functions:
       kubernetes: kubernetes
       veterinarian: vetpartner
       mentalhealth: mentalhealth
-    verbose: true
+    verbose: false
   user_document_tool:
     _type: nat_nv_ingest
     chunk_overlap: 150
@@ -401,13 +392,12 @@ functions:
     default_collection_name: user_uploads
     description: >-
       Ingest or search user-uploaded documents. operation=ingest
-      accepts documentRef or documentRefs plus username. operation=search
-      accepts query plus username. collection_name is optional. Shared
-      allow-listed names (nvidia, semianalysis, kubernetes, vetpartner,
-      mentalhealth) are used exactly; private arbitrary names are scoped
-      to the authenticated user. Shared and user-scoped collections live
-      in the same Milvus database; pass collection_scope and provenance
-      when ingesting so shared-corpus writes are auditable.
+      accepts documentRef or documentRefs; operation=search accepts query.
+      The backend derives identity from the authenticated request; never
+      pass username. Ingestion is always scoped to the user's private
+      collection and rejects shared targets. Search may read the user's
+      private collection or an allow-listed shared collection (nvidia,
+      semianalysis, kubernetes, vetpartner, or mentalhealth).
     milvus_uri: ${MILVUS_URI}
     minio_access_key: ${MINIO_ACCESS_KEY}
     minio_endpoint: ${MINIO_ENDPOINT}
@@ -445,10 +435,10 @@ functions:
     reranker_endpoint: ${RERANKER_BASE_URL}
     reranker_model: ${RERANKER_MODEL}
     reranker_top_n: 5
-    top_k: 16
+    top_k: 10
     use_reranker: true
     vector_field: vector
-    verbose: true
+    verbose: false
   curated_feed_search_tool:
     _type: rss_feed
     description: >-
@@ -497,7 +487,7 @@ functions:
     reranker_model: ${RERANKER_MODEL}
     reranker_max_passage_tokens: 192
     reranker_max_total_tokens: 7000
-    verbose: true
+    verbose: false
   vtt_interpreter_tool:
     _type: vtt_interpreter
     api_endpoint: ${DEFAULT_LLM_MODEL_BASE_URL}
@@ -512,10 +502,12 @@ functions:
       for an uploaded transcript pass vtt_id and session_id (the tool
       fetches it from Redis — do not paste the transcript); for a
       pasted transcript pass transcript_text; optional
-      user_instructions. Returns: processed markdown. Fails when:
-      content is not valid VTT/SRT or the LLM endpoint errors.
+      user_instructions. The backend derives transcript ownership from
+      the authenticated request; never pass user_id. Returns: processed
+      markdown. Fails when: content is not valid VTT/SRT or the LLM
+      endpoint errors.
     timeout: 120
-    verbose: true
+    verbose: false
   content_distiller_tool:
     _type: content_distiller
     fast_llm_name: default_llm
@@ -530,64 +522,29 @@ functions:
       ~5000 tokens; for shorter outputs incorporate directly. Args:
       content, optional focus, max_words, and output_format. Returns:
       distilled text. Fails when: input exceeds 100000 chars.
-    verbose: true
+    verbose: false
   user_interaction_tool:
     _type: user_interaction
     max_options: 6
     redis_url: ${REDIS_URL}
-    # F-014: approval tokens are scraped by the autonomous worker and re-injected
-    # when a human approves from the dashboard, which can be minutes later. A 300s
-    # TTL expired before approval, so the approved action silently never ran. Widen
-    # to a realistic human-approval window. (Robust fix: re-mint a fresh token on
-    # resume rather than reusing the paused run's token — tracked as a follow-up.)
-    approval_ttl_seconds: 3600
+    # Credentials are minted only after an authenticated UI approval, so a short
+    # execution window is sufficient and no usable token exists while pending.
     enabled_operations:
       - clarify
       - confirm_action
+      - confirm_research_plan
       - delete_memory_guarded
     description: >-
       Structured user I/O. clarify (ask with selectable options),
-      confirm_action (approval-token request before destructive or
-      irreversible actions: k8s mutate, memory delete),
+      confirm_action (pending approval request before destructive or
+      irreversible actions: k8s mutate, memory delete; for MCP pass the exact
+      function-group name, remote tool name, and final JSON arguments),
+      confirm_research_plan (approve expensive deep research),
       delete_memory_guarded (requires approval_token). Args depend on
       operation. Returns: formatted prompt or guarded action result.
       Fails when: options exceed 6 entries or approval is
       missing/expired.
-    verbose: true
-  research_plan_approval_tool:
-    _type: user_interaction
-    max_options: 8
-    redis_url: ${REDIS_URL}
-    approval_ttl_seconds: 3600
-    enabled_operations:
-      - confirm_research_plan
-    description: >-
-      Approval-only tool for deep research in the top-level workflow. Use
-      confirm_research_plan(title, sections_json, source_strategy_json,
-      estimated_tool_calls, risks, target) after planning and before
-      expensive AIQ-style deep research starts. It presents the plan, selected
-      sources, estimated cost/risk, and pauses for a yes/no or revision
-      response. The backend derives user identity from the authenticated
-      request.
-    verbose: true
-  ops_confirmation_tool:
-    _type: user_interaction
-    max_options: 6
-    redis_url: ${REDIS_URL}
-    # F-014: approval tokens are scraped by the autonomous worker and re-injected
-    # when a human approves from the dashboard, which can be minutes later. A 300s
-    # TTL expired before approval, so the approved action silently never ran. Widen
-    # to a realistic human-approval window. (Robust fix: re-mint a fresh token on
-    # resume rather than reusing the paused run's token — tracked as a follow-up.)
-    approval_ttl_seconds: 3600
-    enabled_operations:
-      - confirm_action
-    description: >-
-      Confirmation-only tool for top-level Kubernetes operations. Request
-      explicit user confirmation before destructive Kubernetes operations and
-      return an approval token scoped to the requested mutation. Never use for
-      add_memory, memory_update, or explicit "remember" requests.
-    verbose: true
+    verbose: false
   perplexity_search_tool:
     _type: perplexity_search
     description: >-
@@ -605,7 +562,7 @@ functions:
       filters in MM/DD/YYYY format. Returns: ranked URLs with snippets
       and freshness metadata. Fails when PERPLEXITY_SEARCH_API_KEY is
       missing or rate-limited.
-    verbose: true
+    verbose: false
   webscrape_tool:
     _type: webscrape
     allowed_schemes:
@@ -625,7 +582,7 @@ functions:
     timeout: 60
     use_browser_fallback: true
     user_agent: daedalus-webscraper/0.1.0
-    verbose: true
+    verbose: false
   llm_sandbox_tool:
     _type: llm_sandbox
     description: >-
@@ -638,12 +595,9 @@ functions:
       timeout, truncation, and request id. Fails when LLM_SANDBOX_API_KEY
       is unset, the service is unreachable, the command is not allowlisted,
       or sandbox policy rejects the command.
-    verbose: true
+    verbose: false
   source_verifier_tool:
     _type: source_verifier
-    # When configured, the fine-tuned model emits one of S/P/U/I and its
-    # calibrated first-token log-probability becomes the verifier confidence.
-    # Without both values, the verifier uses fast_llm_name as a safe fallback.
     verification_driver: fireworks_classifier
     fireworks_api_key: ${FIREWORKS_API_KEY}
     fireworks_model: ${FIREWORKS_SOURCE_VERIFIER_MODEL}
@@ -663,23 +617,8 @@ functions:
     wrapper_type: LANGCHAIN
     enabled_operations:
       - verify_claim
-    description: >-
-      Verify citations. verify_claim(claim, source_url) checks one
-      exact final claim against one source; do not use it for
-      speculative candidate claims, placeholder URLs, or search-snippet
-      claims. For latest/current claims, prefer official latest/ docs
-      pages, release indexes, or package indexes; a version-specific
-      release note alone is not proof of latest/current. REQUIRED
-      before every add_memory with type=finding or type=project_update.
-      Returns: supported | partially_supported | unsupported |
-      source_unreachable, calibrated confidence, and classifier metadata
-      (or evidence when using the LLM fallback). Fails when: source_url
-      malformed or unreachable.
-    verbose: true
-  source_policy_tool:
-    _type: source_verifier
-    enabled_operations:
       - plan_sources
+      - audit_citations
     source_registry:
       - id: curated_domains
         name: Curated Knowledge Domains
@@ -746,43 +685,27 @@ functions:
         default_enabled: true
         requires_auth: false
     description: >-
-      AIQ-style source registry planner. plan_sources(research_question,
+      Unified evidence tool. verify_claim(claim, source_url) checks one exact
+      final claim against one source (not speculative candidate claims) and is
+      required before storing findings or project updates; a version-specific
+      release note alone is not proof of a latest/current claim.
+      plan_sources(research_question,
       selected_sources_json, disabled_sources_json, depth) returns selected
       source families, recommended tool order, source-specific hints, blocked
-      tools, approval hint, and citation ledger contract. Use before deep
-      research and whenever the user asks to include or exclude sources.
-    verbose: true
-  citation_auditor_tool:
-    _type: source_verifier
-    fast_llm_name: default_llm
-    llm_name: default_llm
-    max_source_chars: 80000
-    max_output_tokens: 4096
-    fetch_timeout: 20.0
-    max_fetch_tokens: 20000
-    wrapper_type: LANGCHAIN
-    enabled_operations:
-      - audit_citations
-    description: >-
-      Audit final markdown citations before research answers are returned.
+      tools, approval hint, and citation ledger contract. Use it before deep
+      research or source overrides. audit_citations audits final markdown
+      citations before research answers are returned.
       audit_citations(answer_markdown, source_urls_json, require_references)
       checks [N] citations, validates reference URLs, rejects placeholder or
       unsafe URLs, verifies every reference URL appears in the provided source
       ledger when source_urls_json is supplied, and returns repaired_markdown.
-      Use after drafting citation-backed research; revise once when
-      passed=false. This is not semantic claim verification; use
-      source_verifier_tool.verify_claim for exact high-stakes factual claims
-      or memory writes.
-    verbose: true
+      Revise once when passed=false. Returns stable JSON results; URL failures
+      and unsupported exact claims fail closed.
+    verbose: false
 general:
   front_end:
     _type: fastapi
     enable_interactive_extensions: true
-    max_running_async_jobs: 8
-    dask_workers: processes
-    dask_threads_per_worker: 1
-    dask_worker_memory_limit: '6GiB'
-    dask_log_level: WARNING
     step_adaptor:
       mode: custom
       custom_event_types:
@@ -802,9 +725,6 @@ general:
         - CUSTOM_END
         - SPAN_START
         - SPAN_END
-    # NAT async jobs use a pod-local Dask cluster; keep a single backend
-    # process per pod so requests don't bounce across isolated local schedulers.
-    workers: 1
   telemetry:
     tracing:
       phoenix:
@@ -830,7 +750,7 @@ memory:
     host: ${REDIS_HOST}
     key_prefix: nat
     port: ${REDIS_PORT}
-    verbose: true
+    verbose: false
 workflow:
   _type: tool_calling_agent
   llm_name: tool_calling_llm
@@ -838,9 +758,9 @@ workflow:
   max_history: 100
   handle_tool_errors: true
   system_prompt: |
-    You are Daedalus, a direct tool-using assistant for an authenticated user.
+    Role: You are Daedalus, a direct tool-using assistant for an authenticated user.
 
-    Optimize in this order:
+    Goal: Optimize in this order:
     1. Accuracy and intellectual honesty
     2. Task completion
     3. Efficiency
@@ -898,7 +818,7 @@ workflow:
     - Store explicit memory requests without confirmation. Verify factual findings
       and project updates before storing them. Require confirmation for deletion.
 
-    Communication style:
+    Output and communication style:
     - Lead with the answer, outcome, or recommended action.
     - Match length to task complexity. Default to one short paragraph or no more
       than five prioritized bullets unless completeness requires more.
@@ -924,10 +844,7 @@ workflow:
     - get_memory
     - add_memory
     - current_datetime_tool
-    - source_policy_tool
     - source_verifier_tool
-    - citation_auditor_tool
-    - research_plan_approval_tool
     - domain_retriever_tool
     - curated_feed_search_tool
     - perplexity_search_tool
@@ -943,7 +860,6 @@ workflow:
     - dsx_mcp_server
     - k8s_mcp_server
     - unifi_mcp_server
-    - ops_confirmation_tool
     - user_document_tool
     - gmail_mcp_server
     - calendar_mcp_server
@@ -951,5 +867,5 @@ workflow:
     - user_interaction_tool
     - visual_media_tool
     - vtt_interpreter_tool
-  verbose: true
+  verbose: false
   workflow_alias: Daedalus

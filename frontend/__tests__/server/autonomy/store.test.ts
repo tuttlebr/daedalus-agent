@@ -6,13 +6,19 @@ import {
   normalizeImportedGoals,
   QueueFullError,
   sanitizeConfigPatch,
+  updateApproval,
 } from '@/server/autonomy/store';
+import { createHash } from 'node:crypto';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   getRedis: vi.fn(),
   llen: vi.fn(),
   lpush: vi.fn(),
+  get: vi.fn(),
+  setex: vi.fn(),
+  set: vi.fn(),
+  eval: vi.fn(),
   jsonGet: vi.fn(),
   jsonSet: vi.fn(),
 }));
@@ -60,6 +66,275 @@ describe('autonomy store config sanitization', () => {
         },
       }),
     ).toEqual({});
+  });
+});
+
+describe('autonomy approval credential boundary', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.setex.mockResolvedValue('OK');
+    mocks.set.mockResolvedValue('OK');
+    mocks.eval.mockImplementation(async (...args: any[]) => {
+      const script = String(args[0] || '');
+      if (script.includes('approval marker key has incompatible type')) {
+        return [1, args[7]];
+      }
+      return 1;
+    });
+    mocks.lpush.mockResolvedValue(1);
+    mocks.getRedis.mockReturnValue({
+      llen: mocks.llen,
+      lpush: mocks.lpush,
+      get: mocks.get,
+      setex: mocks.setex,
+      set: mocks.set,
+      eval: mocks.eval,
+    });
+  });
+
+  it('mints an exact credential only while resolving a pending approval', async () => {
+    const canonicalArguments =
+      '{"name":"api","namespace":"production","replicas":3}';
+    const argumentsSha256 = createHash('sha256')
+      .update(canonicalArguments)
+      .digest('hex');
+    let approvals: any[] = [
+      {
+        id: 'approval-1',
+        runId: 'run-1',
+        status: 'pending',
+        action: 'Scale API',
+        reason: 'operator request',
+        actionType: 'mcp_mutation',
+        target: 'production/api',
+        serverName: 'k8s_mcp_server',
+        toolName: 'scale_deployment',
+        approvalRequestId: 'pending-1',
+        argumentsPreview: canonicalArguments,
+        argumentsSha256,
+        risk: 'medium',
+        createdAt: 1,
+      },
+    ];
+    mocks.jsonGet.mockImplementation(async (key: string) => {
+      if (key.endsWith(':approvals')) return approvals;
+      return [];
+    });
+    mocks.jsonSet.mockImplementation(
+      async (key: string, _path: string, value: unknown) => {
+        if (key.endsWith(':approvals')) approvals = value as any[];
+      },
+    );
+    const pendingIntent = JSON.stringify({
+      request_id: 'pending-1',
+      user_id: 'alice',
+      action_type: 'mcp_mutation',
+      action: 'Scale API',
+      reason: 'operator request',
+      target: 'production/api',
+      server_name: 'k8s_mcp_server',
+      tool_name: 'scale_deployment',
+      canonical_arguments: canonicalArguments,
+      arguments_preview: canonicalArguments,
+      arguments_sha256: argumentsSha256,
+    });
+    let resolutionMarker = '';
+    mocks.get.mockImplementation(async (key: string) =>
+      key.includes('approval-resolution:')
+        ? resolutionMarker || null
+        : pendingIntent,
+    );
+    mocks.eval.mockImplementation(async (...args: any[]) => {
+      const script = String(args[0] || '');
+      if (!script.includes('approval marker key has incompatible type'))
+        return 1;
+      if (resolutionMarker) return [0, resolutionMarker];
+      resolutionMarker = args[7];
+      const resolvedApproval = JSON.parse(args[14]);
+      approvals = approvals.map((approval) =>
+        approval.id === resolvedApproval.id ? resolvedApproval : approval,
+      );
+      return [1, resolutionMarker];
+    });
+
+    const resolved = await updateApproval('alice', 'approval-1', 'approved');
+
+    expect(resolved?.status).toBe('approved');
+    expect(resolved).not.toHaveProperty('approvalToken');
+    expect(mocks.setex).not.toHaveBeenCalled();
+    const commitCall = mocks.eval.mock.calls.find(([script]) =>
+      String(script).includes('approval marker key has incompatible type'),
+    )!;
+    const executionKey = commitCall[3];
+    const rawExecution = commitCall[8];
+    expect(executionKey).toMatch(/^autonomy:alice:approval-execution:request_/);
+    expect(JSON.parse(rawExecution)).toMatchObject({
+      approvalId: 'approval-1',
+      actionType: 'mcp_mutation',
+      serverName: 'k8s_mcp_server',
+      toolName: 'scale_deployment',
+      canonicalArguments,
+      argumentsSha256,
+    });
+    expect(commitCall[5]).toMatch(/^approval-pending:/);
+    expect(commitCall[12]).toBe('1');
+    const queued = commitCall[9] as string;
+    expect(queued).not.toContain('approval_token');
+    expect(queued).not.toContain(canonicalArguments);
+    expect(JSON.parse(queued)).toMatchObject({
+      trigger: 'approval',
+      approvalId: 'approval-1',
+      actionType: 'mcp_mutation',
+    });
+
+    await updateApproval('alice', 'approval-1', 'approved');
+    const commitCalls = mocks.eval.mock.calls.filter(([script]) =>
+      String(script).includes('approval marker key has incompatible type'),
+    );
+    expect(commitCalls).toHaveLength(1);
+  });
+
+  it('does not mint a credential when an approval is denied', async () => {
+    mocks.jsonGet.mockResolvedValue([
+      {
+        id: 'approval-2',
+        runId: 'run-2',
+        status: 'pending',
+        action: 'Delete',
+        reason: 'request',
+        actionType: 'delete_memory',
+        target: 'alice',
+        risk: 'high',
+        createdAt: 1,
+      },
+    ]);
+
+    const resolved = await updateApproval('alice', 'approval-2', 'denied');
+
+    expect(resolved?.status).toBe('denied');
+    expect(mocks.setex).not.toHaveBeenCalled();
+    expect(mocks.lpush).not.toHaveBeenCalled();
+    const commitCall = mocks.eval.mock.calls.find(([script]) =>
+      String(script).includes('approval marker key has incompatible type'),
+    )!;
+    expect(commitCall[8]).toBe('');
+    expect(commitCall[9]).toBe('');
+  });
+
+  it('fails closed when protected MCP intent integrity does not match', async () => {
+    mocks.jsonGet.mockResolvedValue([
+      {
+        id: 'approval-bad',
+        runId: 'run-bad',
+        status: 'pending',
+        action: 'Scale API',
+        reason: 'request',
+        actionType: 'mcp_mutation',
+        target: 'production/api',
+        serverName: 'k8s_mcp_server',
+        toolName: 'scale_deployment',
+        approvalRequestId: 'pending-bad',
+        argumentsSha256: 'a'.repeat(64),
+        risk: 'medium',
+        createdAt: 1,
+      },
+    ]);
+    mocks.get.mockResolvedValue(
+      JSON.stringify({
+        request_id: 'pending-bad',
+        user_id: 'alice',
+        action_type: 'mcp_mutation',
+        action: 'Scale API',
+        reason: 'request',
+        target: 'production/api',
+        server_name: 'k8s_mcp_server',
+        tool_name: 'scale_deployment',
+        canonical_arguments: '{"replicas":30}',
+        arguments_preview: '{"replicas":3}',
+        arguments_sha256: '0'.repeat(64),
+      }),
+    );
+
+    await expect(
+      updateApproval('alice', 'approval-bad', 'approved'),
+    ).rejects.toThrow('integrity validation');
+    expect(mocks.setex).not.toHaveBeenCalled();
+    expect(mocks.lpush).not.toHaveBeenCalled();
+  });
+
+  it('does not enqueue twice when the atomic commit reply is lost', async () => {
+    const canonicalArguments = '{"name":"api","replicas":3}';
+    const argumentsSha256 = createHash('sha256')
+      .update(canonicalArguments)
+      .digest('hex');
+    let approvals: any[] = [
+      {
+        id: 'approval-retry',
+        runId: 'run-retry',
+        status: 'pending',
+        action: 'Scale API',
+        reason: 'operator request',
+        actionType: 'mcp_mutation',
+        target: 'production/api',
+        serverName: 'k8s_mcp_server',
+        toolName: 'scale_deployment',
+        approvalRequestId: 'pending-retry',
+        argumentsPreview: canonicalArguments,
+        argumentsSha256,
+        risk: 'medium',
+        createdAt: 1,
+      },
+    ];
+    const pendingIntent = JSON.stringify({
+      request_id: 'pending-retry',
+      user_id: 'alice',
+      action_type: 'mcp_mutation',
+      action: 'Scale API',
+      reason: 'operator request',
+      target: 'production/api',
+      server_name: 'k8s_mcp_server',
+      tool_name: 'scale_deployment',
+      canonical_arguments: canonicalArguments,
+      arguments_preview: canonicalArguments,
+      arguments_sha256: argumentsSha256,
+    });
+    let resolutionMarker = '';
+    let queuedPayload = '';
+    let commitCount = 0;
+    mocks.jsonGet.mockImplementation(async (key: string) =>
+      key.endsWith(':approvals') ? approvals : [],
+    );
+    mocks.get.mockImplementation(async (key: string) =>
+      key.includes('approval-resolution:')
+        ? resolutionMarker || null
+        : pendingIntent,
+    );
+    mocks.eval.mockImplementation(async (...args: any[]) => {
+      const script = String(args[0] || '');
+      if (!script.includes('approval marker key has incompatible type'))
+        return 1;
+      if (resolutionMarker) return [0, resolutionMarker];
+      commitCount += 1;
+      resolutionMarker = args[7];
+      queuedPayload = args[9];
+      const resolvedApproval = JSON.parse(args[14]);
+      approvals = approvals.map((approval) =>
+        approval.id === resolvedApproval.id ? resolvedApproval : approval,
+      );
+      throw new Error('Redis reply lost after commit');
+    });
+
+    await expect(
+      updateApproval('alice', 'approval-retry', 'approved'),
+    ).rejects.toThrow('Redis reply lost after commit');
+    await expect(
+      updateApproval('alice', 'approval-retry', 'approved'),
+    ).resolves.toMatchObject({ status: 'approved' });
+
+    expect(commitCount).toBe(1);
+    expect(JSON.parse(queuedPayload)).toMatchObject({
+      approvalId: 'approval-retry',
+    });
   });
 });
 

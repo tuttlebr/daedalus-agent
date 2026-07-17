@@ -1,5 +1,6 @@
 import asyncio
 import json
+import socket
 from unittest.mock import MagicMock
 
 import pytest
@@ -150,6 +151,27 @@ def test_check_link_reachable_rejects_metadata_url_without_fetch():
     assert "client" not in captured
 
 
+def test_check_link_reachable_rejects_hostname_resolving_private(monkeypatch):
+    import source_verifier.source_verifier_function as mod
+
+    captured = {}
+
+    def _private_dns(_host, *_args, **_kwargs):
+        return [(socket.AF_INET, None, None, "", ("10.0.0.9", 0))]
+
+    def _client_factory(*_args, **_kwargs):
+        captured["constructed"] = True
+        raise AssertionError("unsafe hostname must be denied before HTTP")
+
+    monkeypatch.setattr(socket, "getaddrinfo", _private_dns)
+    monkeypatch.setattr(mod.httpx, "AsyncClient", _client_factory)
+
+    result = run(mod._check_link_reachable("https://rebind.example/private"))
+
+    assert result is False
+    assert captured == {}
+
+
 def test_check_link_reachable_rejects_redirect_to_internal():
     import source_verifier.source_verifier_function as mod
 
@@ -241,3 +263,22 @@ def test_fetch_source_rejects_literal_internal_url():
 
     assert result.status == "invalid_url"
     assert called["http"] is False
+
+
+def test_fetch_source_rejects_hostname_resolving_private(monkeypatch):
+    import source_verifier.source_verifier_function as mod
+
+    config = mod.SourceVerifierConfig(enabled_operations=["plan_sources"])
+    markitdown = MagicMock()
+    monkeypatch.setattr(
+        socket,
+        "getaddrinfo",
+        lambda *_args, **_kwargs: [(socket.AF_INET, None, None, "", ("10.0.0.10", 0))],
+    )
+    monkeypatch.setattr(mod, "_scrape_with_markitdown", markitdown)
+
+    result = run(mod._fetch_source("https://rebind.example/private", config))
+
+    assert result.status == "invalid_url"
+    assert "non-public" in result.error.lower()
+    markitdown.assert_not_called()

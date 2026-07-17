@@ -1,7 +1,190 @@
 """Tests for MCP destructive-action approval helpers."""
 
+import asyncio
+import hashlib
+import json
+import sys
+import types
+
 import mcp_patches
 import pytest
+
+
+class _FakeRedis:
+    def __init__(self):
+        self.store = {}
+        self.ttls = {}
+
+    def setex(self, key, ttl, value):
+        self.store[key] = value
+        self.ttls[key] = ttl
+
+    def getdel(self, key):
+        return self.store.pop(key, None)
+
+
+def test_mcp_success_receipt_is_hashed_exact_short_lived_and_single_use():
+    from user_interaction.approval_tokens import (
+        consume_mcp_execution_receipt,
+        mcp_execution_receipt_key,
+        record_mcp_execution_receipt,
+    )
+
+    redis = _FakeRedis()
+    token = "worker-only-secret-token"
+    arguments_hash = hashlib.sha256(b'{"name":"api","replicas":3}').hexdigest()
+    record_mcp_execution_receipt(
+        redis,
+        user_id="alice",
+        token=token,
+        server_name="k8s_mcp_server",
+        tool_name="scale_deployment",
+        arguments_sha256=arguments_hash,
+    )
+
+    receipt_key = mcp_execution_receipt_key(token)
+    assert receipt_key.endswith(hashlib.sha256(token.encode()).hexdigest())
+    assert token not in receipt_key
+    assert token not in redis.store[receipt_key]
+    assert redis.ttls[receipt_key] == 300
+    assert consume_mcp_execution_receipt(
+        redis,
+        user_id="alice",
+        token=token,
+        server_name="k8s_mcp_server",
+        tool_name="scale_deployment",
+        arguments_sha256=arguments_hash,
+    )
+    assert not consume_mcp_execution_receipt(
+        redis,
+        user_id="alice",
+        token=token,
+        server_name="k8s_mcp_server",
+        tool_name="scale_deployment",
+        arguments_sha256=arguments_hash,
+    )
+
+
+def test_mcp_success_receipt_mismatch_is_consumed():
+    from user_interaction.approval_tokens import (
+        consume_mcp_execution_receipt,
+        record_mcp_execution_receipt,
+    )
+
+    redis = _FakeRedis()
+    token = "worker-only-secret-token"
+    arguments_hash = "a" * 64
+    record_mcp_execution_receipt(
+        redis,
+        user_id="alice",
+        token=token,
+        server_name="k8s_mcp_server",
+        tool_name="scale_deployment",
+        arguments_sha256=arguments_hash,
+    )
+    assert not consume_mcp_execution_receipt(
+        redis,
+        user_id="alice",
+        token=token,
+        server_name="k8s_mcp_server",
+        tool_name="delete_deployment",
+        arguments_sha256=arguments_hash,
+    )
+    assert not consume_mcp_execution_receipt(
+        redis,
+        user_id="alice",
+        token=token,
+        server_name="k8s_mcp_server",
+        tool_name="scale_deployment",
+        arguments_sha256=arguments_hash,
+    )
+
+
+@pytest.mark.parametrize(
+    "result,raised,receipt_expected",
+    [
+        ("scaled", None, True),
+        ("MCPToolClient tool call failed: rejected", None, False),
+        (None, TimeoutError("tool timed out"), False),
+    ],
+)
+def test_gate_records_receipt_only_for_successful_approved_result(
+    monkeypatch, result, raised, receipt_expected
+):
+    calls = {"tool": 0, "receipts": []}
+
+    class FakeMCPToolClient:
+        _tool_name = "scale_deployment"
+        input_schema = None
+
+        def __init__(self):
+            self._parent_client = types.SimpleNamespace(
+                server_name="k8s_mcp_server",
+                _reconnect_enabled=True,
+            )
+
+        async def acall(self, tool_args):
+            calls["tool"] += 1
+            if raised is not None:
+                raise raised
+            return result
+
+    fake_module = types.ModuleType("nat.plugins.mcp.client.tool_client")
+    fake_module.MCPToolClient = FakeMCPToolClient
+    for module_name in (
+        "nat",
+        "nat.plugins",
+        "nat.plugins.mcp",
+        "nat.plugins.mcp.client",
+    ):
+        module = types.ModuleType(module_name)
+        module.__path__ = []
+        monkeypatch.setitem(sys.modules, module_name, module)
+    monkeypatch.setitem(
+        sys.modules,
+        "nat.plugins.mcp.client.tool_client",
+        fake_module,
+    )
+    from nat_helpers import identity
+
+    monkeypatch.setattr(identity, "approval_token_from_context", lambda: "secret")
+
+    def approve(*args, **_kwargs):
+        args[-1].update(
+            {
+                "user_id": "alice",
+                "action_type": "mcp_mutation",
+                "target": "production/api",
+                "server_name": "k8s_mcp_server",
+                "tool_name": "scale_deployment",
+                "arguments_sha256": "a" * 64,
+            }
+        )
+        return True, "approved"
+
+    monkeypatch.setattr(mcp_patches, "_validate_mcp_approval", approve)
+    monkeypatch.setattr(
+        mcp_patches,
+        "_record_approved_mcp_receipt",
+        lambda **kwargs: calls["receipts"].append(kwargs) or True,
+    )
+    monkeypatch.setattr(mcp_patches, "_mcp_client_available", False)
+    monkeypatch.setattr(mcp_patches, "_approval_gate_installed", False)
+    mcp_patches._patch_tool_client()
+
+    wrapped_result = asyncio.run(
+        FakeMCPToolClient().acall({"name": "api", "replicas": 3})
+    )
+
+    assert calls["tool"] == 1
+    assert bool(calls["receipts"]) is receipt_expected
+    if receipt_expected:
+        assert calls["receipts"][0]["approval_token"] == "secret"
+        assert calls["receipts"][0]["validated_binding"]["tool_name"] == (
+            "scale_deployment"
+        )
+    if raised is not None:
+        assert "mcp_tool_failed" in wrapped_result
 
 
 def test_read_only_mcp_call_does_not_need_token():
@@ -19,7 +202,185 @@ def test_mutating_mcp_call_requires_token():
         {"namespace": "default", "name": "api"},
     )
     assert ok is False
-    assert "approval_token" in reason
+    assert "execution credential" in reason
+
+
+def test_mutating_approval_is_exact_and_single_use(monkeypatch):
+    from nat_helpers import identity
+    from user_interaction import approval_tokens
+    from user_interaction.approval_tokens import ApprovalRequest, issue_approval_token
+
+    redis = _FakeRedis()
+    payload = {
+        "namespace": "production",
+        "name": "api",
+        "replicas": 3,
+    }
+    arguments_hash = hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+    token = issue_approval_token(
+        redis,
+        ApprovalRequest(
+            user_id="alice",
+            action_type="mcp_mutation",
+            target="production/api",
+            server_name="k8s_mcp_server",
+            tool_name="scale_deployment",
+            arguments_sha256=arguments_hash,
+            canonical_arguments=json.dumps(
+                payload, sort_keys=True, separators=(",", ":")
+            ),
+        ),
+    )
+    monkeypatch.setattr(
+        identity,
+        "authenticated_user_id_from_context_or_fallback",
+        lambda _asserted: "alice",
+    )
+    monkeypatch.setattr(approval_tokens, "make_redis_client", lambda _url: redis)
+
+    ok, reason = mcp_patches._validate_mcp_approval(
+        "scale_deployment",
+        payload,
+        server_name="k8s_mcp_server",
+        approval_token=token,
+    )
+    assert (ok, reason) == (True, "approved")
+
+    replay_ok, replay_reason = mcp_patches._validate_mcp_approval(
+        "scale_deployment",
+        payload,
+        server_name="k8s_mcp_server",
+        approval_token=token,
+    )
+    assert replay_ok is False
+    assert "already used" in replay_reason
+
+
+def test_receipt_keeps_original_approved_hash_when_schema_adds_default(monkeypatch):
+    from nat_helpers import identity
+    from pydantic import BaseModel
+    from user_interaction import approval_tokens
+    from user_interaction.approval_tokens import (
+        ApprovalRequest,
+        consume_mcp_execution_receipt,
+        issue_approval_token,
+    )
+
+    class ToolInput(BaseModel):
+        name: str
+        propagation_policy: str = "Foreground"
+
+    redis = _FakeRedis()
+    approved_payload = {"name": "api"}
+    canonical_arguments = json.dumps(
+        approved_payload, sort_keys=True, separators=(",", ":")
+    )
+    approved_hash = hashlib.sha256(canonical_arguments.encode()).hexdigest()
+    normalized_arguments = json.dumps(
+        ToolInput.model_validate(approved_payload).model_dump(mode="json"),
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    assert hashlib.sha256(normalized_arguments.encode()).hexdigest() != approved_hash
+    token = issue_approval_token(
+        redis,
+        ApprovalRequest(
+            user_id="alice",
+            action_type="mcp_mutation",
+            target="production/api",
+            server_name="k8s_mcp_server",
+            tool_name="delete_deployment",
+            arguments_sha256=approved_hash,
+            canonical_arguments=canonical_arguments,
+        ),
+    )
+    monkeypatch.setattr(
+        identity,
+        "authenticated_user_id_from_context_or_fallback",
+        lambda _asserted: "alice",
+    )
+    monkeypatch.setattr(approval_tokens, "make_redis_client", lambda _url: redis)
+    binding = {}
+
+    ok, reason = mcp_patches._validate_mcp_approval(
+        "delete_deployment",
+        approved_payload,
+        server_name="k8s_mcp_server",
+        approval_token=token,
+        input_schema=ToolInput,
+        validated_binding=binding,
+    )
+
+    assert (ok, reason) == (True, "approved")
+    assert binding["arguments_sha256"] == approved_hash
+    assert mcp_patches._record_approved_mcp_receipt(
+        approval_token=token,
+        validated_binding=binding,
+    )
+    assert consume_mcp_execution_receipt(
+        redis,
+        user_id="alice",
+        token=token,
+        server_name="k8s_mcp_server",
+        tool_name="delete_deployment",
+        arguments_sha256=approved_hash,
+    )
+
+
+def test_mutating_approval_rejects_changed_arguments_and_burns_token(monkeypatch):
+    from nat_helpers import identity
+    from user_interaction import approval_tokens
+    from user_interaction.approval_tokens import ApprovalRequest, issue_approval_token
+
+    redis = _FakeRedis()
+    approved_payload = {
+        "namespace": "production",
+        "name": "api",
+        "replicas": 3,
+    }
+    arguments_hash = hashlib.sha256(
+        json.dumps(approved_payload, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+    token = issue_approval_token(
+        redis,
+        ApprovalRequest(
+            user_id="alice",
+            action_type="mcp_mutation",
+            target="production/api",
+            server_name="k8s_mcp_server",
+            tool_name="scale_deployment",
+            arguments_sha256=arguments_hash,
+            canonical_arguments=json.dumps(
+                approved_payload, sort_keys=True, separators=(",", ":")
+            ),
+        ),
+    )
+    monkeypatch.setattr(
+        identity,
+        "authenticated_user_id_from_context_or_fallback",
+        lambda _asserted: "alice",
+    )
+    monkeypatch.setattr(approval_tokens, "make_redis_client", lambda _url: redis)
+
+    ok, reason = mcp_patches._validate_mcp_approval(
+        "scale_deployment",
+        {**approved_payload, "replicas": 20},
+        server_name="k8s_mcp_server",
+        approval_token=token,
+    )
+    assert ok is False
+    assert "arguments mismatch" in reason
+
+    replay_ok, replay_reason = mcp_patches._validate_mcp_approval(
+        "scale_deployment",
+        approved_payload,
+        server_name="k8s_mcp_server",
+        approval_token=token,
+    )
+    assert replay_ok is False
+    assert "already used" in replay_reason
 
 
 def test_gmail_create_draft_is_not_blocked_by_generic_create_gate():
@@ -62,7 +423,7 @@ def test_additional_destructive_verbs_require_token(tool_name):
     # (notably kubectl exec/cordon/drain/set/rollout) must be gated.
     ok, reason = mcp_patches._validate_mcp_approval(tool_name, {})
     assert ok is False, f"{tool_name} should require approval"
-    assert "approval_token" in reason
+    assert "execution credential" in reason
 
 
 @pytest.mark.parametrize(
@@ -104,7 +465,7 @@ def test_destructive_hint_gates_tool_with_no_listed_verb():
         annotations=_Annotations(destructiveHint=True),
     )
     assert ok is False
-    assert "approval_token" in reason
+    assert "execution credential" in reason
 
 
 def test_destructive_hint_via_dict_annotations():
@@ -117,16 +478,99 @@ def test_destructive_hint_via_dict_annotations():
     assert ok is False
 
 
-def test_read_only_hint_exempts_tool_with_mutating_verb():
-    # readOnlyHint=True trusts the server's declaration that the tool cannot
-    # mutate state, even though "update" appears in the name.
+def test_read_only_hint_cannot_override_local_mutating_verb():
+    # Remote annotations are advisory and cannot authorize a locally detected
+    # mutation, even when the server claims the operation is read-only.
     ok, reason = mcp_patches._validate_mcp_approval(
         "update_dashboard_view",
         {},
         annotations=_Annotations(readOnlyHint=True),
     )
-    assert ok is True
-    assert reason == "read-only"
+    assert ok is False
+    assert "execution credential" in reason
+
+
+def test_sensitive_group_unknown_tool_defaults_to_approval():
+    ok, reason = mcp_patches._validate_mcp_approval(
+        "reconcile",
+        {},
+        annotations=_Annotations(readOnlyHint=True),
+        server_name="k8s_mcp_server",
+    )
+    assert ok is False
+    assert "execution credential" in reason
+
+
+def test_sensitive_group_read_prefixed_tool_still_requires_approval():
+    ok, reason = mcp_patches._validate_mcp_approval(
+        "get_pod",
+        {"namespace": "default", "name": "api"},
+        server_name="k8s_mcp_server",
+    )
+    assert ok is False
+    assert "execution credential" in reason
+
+
+def test_physical_server_is_bound_to_logical_function_group(monkeypatch):
+    physical = "streamable-http:https://mcp.example.test/mcp"
+    monkeypatch.setattr(mcp_patches, "_mcp_server_group_names", {})
+    monkeypatch.setattr(mcp_patches, "_ambiguous_mcp_servers", set())
+    monkeypatch.setattr(mcp_patches, "_sensitive_mcp_server_names", set())
+    client = type(
+        "Client",
+        (),
+        {
+            "server_name": "streamable-http",
+            "_transport": "streamable-http",
+            "_url": "https://mcp.example.test/mcp",
+        },
+    )()
+    group = type("Group", (), {"mcp_client": client})()
+    mcp_patches._register_mcp_group_identity("k8s_mcp_server", group)
+    assert mcp_patches._mcp_server_group_names[physical] == "k8s_mcp_server"
+    assert physical in mcp_patches._sensitive_mcp_server_names
+
+    parent = client
+    assert mcp_patches._canonical_mcp_server_name(parent) == "k8s_mcp_server"
+
+    ok, reason = mcp_patches._validate_mcp_approval(
+        "reconcile",
+        {},
+        annotations=_Annotations(readOnlyHint=True),
+        server_name=physical,
+    )
+    assert ok is False
+    assert "execution credential" in reason
+
+
+def test_streamable_mcp_groups_with_distinct_urls_do_not_collide(monkeypatch):
+    monkeypatch.setattr(mcp_patches, "_mcp_server_group_names", {})
+    monkeypatch.setattr(mcp_patches, "_ambiguous_mcp_servers", set())
+    monkeypatch.setattr(mcp_patches, "_sensitive_mcp_server_names", set())
+
+    def client(url):
+        return type(
+            "Client",
+            (),
+            {
+                "server_name": "streamable-http",
+                "_transport": "streamable-http",
+                "_url": url,
+            },
+        )()
+
+    k8s_client = client("https://k8s.example.test/mcp")
+    unifi_client = client("https://unifi.example.test/mcp")
+    mcp_patches._register_mcp_group_identity(
+        "k8s_mcp_server", type("Group", (), {"mcp_client": k8s_client})()
+    )
+    mcp_patches._register_mcp_group_identity(
+        "unifi_mcp_server", type("Group", (), {"mcp_client": unifi_client})()
+    )
+
+    assert not mcp_patches._ambiguous_mcp_servers
+    assert mcp_patches._canonical_mcp_server_name(k8s_client) == "k8s_mcp_server"
+    assert mcp_patches._canonical_mcp_server_name(unifi_client) == "unifi_mcp_server"
 
 
 def test_destructive_hint_wins_over_read_only_hint():

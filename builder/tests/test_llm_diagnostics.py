@@ -18,6 +18,14 @@ class _FakeAsyncClient:
         self._transport = object()
 
 
+def test_expensive_diagnostics_are_opt_in(monkeypatch):
+    monkeypatch.delenv("DAEDALUS_LLM_DIAGNOSTICS", raising=False)
+    assert llm_diagnostics._diagnostics_enabled() is False
+
+    monkeypatch.setenv("DAEDALUS_LLM_DIAGNOSTICS", "true")
+    assert llm_diagnostics._diagnostics_enabled() is True
+
+
 def test_recycle_swaps_transport():
     client = _FakeAsyncClient()
     old = client._transport

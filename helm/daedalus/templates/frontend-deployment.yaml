@@ -71,12 +71,9 @@ spec:
                   fieldPath: metadata.namespace
             - name: BACKEND_API_PATH
               value: {{ (get (.Values.frontend.env.overrides | default dict) "BACKEND_API_PATH") | default "/v1/chat/completions" | quote }}
-            {{- $backendApiPath := (get (.Values.frontend.env.overrides | default dict) "BACKEND_API_PATH") | default "/v1/chat/completions" }}
-            - name: NEXT_PUBLIC_HTTP_CHAT_COMPLETION_URL
-              value: {{ (get (.Values.frontend.env.overrides | default dict) "NEXT_PUBLIC_HTTP_CHAT_COMPLETION_URL") | default (printf "http://%s-backend-default.%s.svc.cluster.local:8000%s" (include "daedalus.fullname" .) .Release.Namespace $backendApiPath) | quote }}
             {{- with .Values.frontend.env.overrides }}
             {{- range $k, $v := . }}
-            {{- if and (ne $k "REDIS_URL") (ne $k "BACKEND_HOST") (ne $k "BACKEND_API_PATH") (ne $k "NEXT_PUBLIC_HTTP_CHAT_COMPLETION_URL") (ne $k "DAEDALUS_INTERNAL_API_TOKEN") }}
+            {{- if and (ne $k "REDIS_URL") (ne $k "BACKEND_HOST") (ne $k "BACKEND_API_PATH") (ne $k "DAEDALUS_INTERNAL_API_TOKEN") }}
             - name: {{ $k }}
               value: {{ $v | quote }}
             {{- end }}

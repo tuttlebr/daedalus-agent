@@ -13,7 +13,7 @@ returns the article body as markdown.
 - Truncates scraped content to fit a token budget
 
 The function is feed-specific. It does not search the open web by itself; use
-the `webscrape` and `serpapi_search` packages for that.
+`perplexity_search` for web discovery or `webscrape` for a known URL.
 
 ## Configuration
 

@@ -1,5 +1,11 @@
 import { Logger } from '@/utils/logger';
 
+import {
+  UPLOAD_LIMITS,
+  base64PayloadLength,
+  formatFileSize,
+} from '@/constants/uploadLimits';
+
 const logger = new Logger('DocumentHandler');
 
 export interface DocumentReference {
@@ -10,6 +16,20 @@ export interface DocumentReference {
   mimeType?: string;
 }
 
+export function assertDocumentEncodedSize(
+  base64Data: string,
+  filename: string,
+  maxEncodedChars: number = UPLOAD_LIMITS.DOCUMENT_SERVER_MAX_BASE64_CHARS,
+): void {
+  if (base64PayloadLength(base64Data) > maxEncodedChars) {
+    throw new Error(
+      `File "${filename}" exceeds the server upload limit (${formatFileSize(
+        UPLOAD_LIMITS.DOCUMENT_SERVER_LIMIT_BYTES,
+      )}).`,
+    );
+  }
+}
+
 // Upload document to Redis and return reference
 export async function uploadDocument(
   base64Data: string,
@@ -18,6 +38,10 @@ export async function uploadDocument(
   signal?: AbortSignal,
 ): Promise<DocumentReference> {
   try {
+    // Reject oversized values before JSON.stringify creates another full copy.
+    // The server repeats this check against its private runtime limit.
+    assertDocumentEncodedSize(base64Data, filename);
+
     const response = await fetch('/api/session/documentStorage', {
       method: 'POST',
       headers: {

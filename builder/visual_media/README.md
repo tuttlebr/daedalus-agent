@@ -70,20 +70,22 @@ visual_media(
     videoRef: str | dict | None = None,
     video_url: str | None = None,
     question: str = "",
-    user_id: str = "",
 ) -> str
 ```
+
+The backend derives media ownership from trusted NAT request metadata. A
+legacy direct caller may still supply `user_id`, but it is only an equality
+assertion and is intentionally absent from the LLM-facing schema.
 
 Examples:
 
 ```python
 # Generate
-await visual_media(operation="generate", prompt="A cinematic lighthouse in a storm",
-                  user_id="alice")
+await visual_media(operation="generate", prompt="A cinematic lighthouse in a storm")
 
 # Edit
 await visual_media(operation="edit", prompt="Change the sky to golden hour. Keep the subject identical.",
-                  imageRef={"imageId": "...", "sessionId": "..."}, user_id="alice")
+                  imageRef={"imageId": "...", "sessionId": "..."})
 
 # Analyze
 await visual_media(operation="analyze", question="What is shown here?",
@@ -99,7 +101,7 @@ Returns an `Error: ...` prefixed string when:
 - the model returns no image
 - Redis storage fails
 - a required field is missing for the chosen operation
-- `user_id` is missing for a user-scoped operation
+- trusted request identity is missing or a legacy identity assertion mismatches it
 
 ## Requirements
 

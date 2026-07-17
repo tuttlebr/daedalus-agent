@@ -1,5 +1,8 @@
 """Unit tests for nat_nv_ingest configuration and pure helpers."""
 
+import asyncio
+from unittest.mock import MagicMock
+
 import pytest
 from nat_nv_ingest.nat_nv_ingest import (
     DEFAULT_DOCUMENT_INGEST_MAX_SIZE_BYTES,
@@ -29,10 +32,12 @@ from nat_nv_ingest.nat_nv_ingest import (
     format_batch_response,
     format_single_doc_response,
     normalize_collection_part,
+    nv_ingest_function,
     resolve_user_collection_name,
     results_to_markdown,
     user_upload_collection_name,
     validate_collection_scope,
+    validate_user_collection_write_scope,
 )
 
 # ---------------------------------------------------------------------------
@@ -236,6 +241,10 @@ class TestCollectionResolution:
         else:
             raise AssertionError("Expected collection scope mismatch")
 
+    def test_user_facing_write_scope_rejects_shared_collection(self):
+        with pytest.raises(ValueError, match="Shared collection writes"):
+            validate_user_collection_write_scope("nvidia", "shared")
+
     def test_resolve_allows_current_user_collection_exactly(self):
         assert resolve_user_collection_name("brandon", "brandon") == "brandon"
 
@@ -247,6 +256,189 @@ class TestCollectionResolution:
 
     def test_resolve_derives_per_user_default(self):
         assert resolve_user_collection_name(None, "brandon") == "user_uploads_brandon"
+
+
+def test_user_document_tool_rejects_legacy_cross_user_assertion(monkeypatch):
+    async def _run():
+        import nat_nv_ingest.nat_nv_ingest as mod
+
+        def _trusted_identity(asserted=""):
+            if asserted and asserted != "alice":
+                raise ValueError(
+                    "supplied user identity does not match the authenticated request"
+                )
+            return "alice"
+
+        monkeypatch.setattr(mod, "resolve_authenticated_user_id", _trusted_identity)
+        generator = nv_ingest_function(NvIngestFunctionConfig(), MagicMock())
+        function_info = await generator.__anext__()
+        try:
+            return await function_info.fn(
+                operation="search",
+                query="show me private documents",
+                username="mallory",
+            )
+        finally:
+            await generator.aclose()
+
+    result = asyncio.run(_run())
+
+    assert "denied" in result.lower()
+    assert "does not match" in result.lower()
+
+
+def test_user_document_tool_lists_only_callers_collection_and_shared_allowlist(
+    monkeypatch,
+):
+    async def _run():
+        import nat_nv_ingest.nat_nv_ingest as mod
+
+        class FakeMilvusClient:
+            def __init__(self, **_kwargs):
+                pass
+
+            def list_collections(self):
+                return [
+                    "user_uploads_bob",
+                    "private_finance",
+                    "nvidia",
+                    "user_uploads_alice",
+                    "vetpartner",
+                ]
+
+        monkeypatch.setattr(mod, "MilvusClient", FakeMilvusClient)
+        monkeypatch.setattr(
+            mod,
+            "resolve_authenticated_user_id",
+            lambda _asserted="": "alice",
+        )
+        generator = nv_ingest_function(NvIngestFunctionConfig(), MagicMock())
+        function_info = await generator.__anext__()
+        try:
+            return await function_info.fn(operation="list_collections")
+        finally:
+            await generator.aclose()
+
+    result = asyncio.run(_run())
+
+    assert result.splitlines() == [
+        "Available collections:",
+        "nvidia",
+        "user_uploads_alice",
+        "vetpartner",
+    ]
+    assert "user_uploads_bob" not in result
+    assert "private_finance" not in result
+
+
+def test_user_document_tool_rejects_shared_ingest_before_storage(monkeypatch):
+    async def _run():
+        import nat_nv_ingest.nat_nv_ingest as mod
+
+        monkeypatch.setattr(
+            mod,
+            "resolve_authenticated_user_id",
+            lambda _asserted="": "alice",
+        )
+        generator = nv_ingest_function(NvIngestFunctionConfig(), MagicMock())
+        function_info = await generator.__anext__()
+        try:
+            return await function_info.fn(
+                operation="ingest",
+                documentRef={"documentId": "doc-1", "sessionId": "session-1"},
+                collection_name="nvidia",
+                collection_scope="shared",
+            )
+        finally:
+            await generator.aclose()
+
+    result = asyncio.run(_run())
+
+    assert "Shared collection writes are not permitted" in result
+
+
+def test_user_document_tool_delegates_ingestion_to_one_processor(monkeypatch):
+    async def _run():
+        import nat_nv_ingest.nat_nv_ingest as mod
+
+        created = []
+
+        class FakeProcessor:
+            def __init__(self, config):
+                self.config = config
+                self.calls = []
+                created.append(self)
+
+            async def process_document(self, **kwargs):
+                self.calls.append(("ingest", kwargs))
+                return {
+                    "status": "success",
+                    "filename": "single.pdf",
+                    "chunks": 1,
+                    "failures": 0,
+                    "pages": 1,
+                    "collection": "user_uploads_alice",
+                    "markdown": "",
+                    "error": "",
+                }
+
+            async def process_multiple_documents(self, **kwargs):
+                self.calls.append(("batch", kwargs))
+                return "batch-result"
+
+            async def extract_document(self, **kwargs):
+                self.calls.append(("extract", kwargs))
+                return {
+                    "status": "success",
+                    "filename": "single.pdf",
+                    "pages": 1,
+                    "markdown": "extracted",
+                    "truncated": False,
+                    "original_chars": 9,
+                    "error": "",
+                }
+
+        monkeypatch.setattr(mod, "NvIngestDocumentProcessor", FakeProcessor)
+        monkeypatch.setattr(
+            mod,
+            "resolve_authenticated_user_id",
+            lambda _asserted="": "alice",
+        )
+
+        config = NvIngestFunctionConfig()
+        generator = nv_ingest_function(config, MagicMock())
+        function_info = await generator.__anext__()
+        try:
+            single = await function_info.fn(
+                operation="ingest",
+                documentRef={"documentId": "one", "sessionId": "session"},
+            )
+            batch = await function_info.fn(
+                operation="ingest",
+                documentRefs=[{"documentId": "two", "sessionId": "session"}],
+            )
+            extracted = await function_info.fn(
+                operation="extract",
+                documentRef={"documentId": "three", "sessionId": "session"},
+            )
+        finally:
+            await generator.aclose()
+
+        return config, created, single, batch, extracted
+
+    config, created, single, batch, extracted = asyncio.run(_run())
+
+    assert len(created) == 1
+    assert created[0].config is config
+    assert [name for name, _kwargs in created[0].calls] == [
+        "ingest",
+        "batch",
+        "extract",
+    ]
+    assert all(kwargs["username"] == "alice" for _name, kwargs in created[0].calls)
+    assert "Successfully processed" in single
+    assert batch == "batch-result"
+    assert "extracted" in extracted
 
 
 class TestStoredDocumentAccess:
@@ -901,19 +1093,6 @@ class TestProcessMultipleDocumentsProgress:
         assert long_text.strip() not in message
         assert "..." in message
         assert len(message) <= len("Failed a.pdf: ") + ERROR_MESSAGE_CHAR_LIMIT + 3
-
-
-# ---------------------------------------------------------------------------
-# html_to_markdown_udf module importability
-# ---------------------------------------------------------------------------
-
-
-class TestHtmlToMarkdownUdfImport:
-    def test_module_importable(self):
-        """The html_to_markdown_udf module should be importable without errors."""
-        import nat_nv_ingest.html_to_markdown_udf as html_mod  # noqa: F401
-
-        assert html_mod is not None
 
 
 # ---------------------------------------------------------------------------

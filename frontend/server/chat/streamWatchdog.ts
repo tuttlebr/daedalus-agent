@@ -11,6 +11,7 @@ import {
   isTerminalJobStatus,
   withRedisLock,
 } from './jobState';
+import { abortBackgroundStream } from './streamReader';
 import type { AsyncJobRequest, AsyncJobStatus } from './types';
 
 import { positiveIntegerFromEnv } from '@/server/config/env';
@@ -104,6 +105,7 @@ export async function sweepStreamJobs(): Promise<void> {
               STREAM_JOB_STALE_TIMEOUT_MS / 1000
             }s; finalizing as error (orphaned reader).`,
           );
+          abortBackgroundStream(jobId);
           await finalizeError(
             jobId,
             jobRequest,

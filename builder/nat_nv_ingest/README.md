@@ -11,10 +11,11 @@ scoped to the requesting user.
 - Registers a single `user_document_tool(operation, ...)` function with three operations:
   - `operation="ingest"` for `documentRef` (single document) or `documentRefs` (batch)
   - `operation="search"` for natural-language queries against the user's collection
-  - `operation="list_collections"` to enumerate available Milvus collections
+  - `operation="list_collections"` to enumerate the caller's private collection
+    and allow-listed shared collections without exposing other tenants
 - Streams structured progress (`fetching`, `submitting`, `processing`, `indexing`, `postprocessing`, etc.) through an optional callback for the document ingest HTTP route
-- Routes shared and per-user uploads to the right collection automatically
-- Validates `collection_scope` (`shared` or `user`) and logs `provenance` metadata for every ingest request
+- Routes every user upload to a private per-user collection; shared collection writes are rejected
+- Allows search reads from private or allow-listed shared collections
 - Returns extracted markdown plus a structured summary footer that the frontend parses for the upload-progress UI
 
 Despite the older PDF-centric naming in some workflows, the tool is broader
@@ -90,7 +91,6 @@ The registered function is:
 user_document_tool(
     operation: str = "search",
     query: str = "",
-    username: str = "",
     collection_name: str | None = None,
     collection_scope: str | None = None,
     provenance: dict[str, Any] | None = None,
@@ -100,16 +100,17 @@ user_document_tool(
     filters: str | None = None,
     chunk_size: int | None = None,
     chunk_overlap: int | None = None,
-    input_message: dict[str, Any] | None = None,
 ) -> str
 ```
 
-`input_message` is kept for backwards compatibility with raw request payloads.
+The backend derives identity from trusted NAT request metadata. Legacy direct
+callers may still supply `username` or `input_message`, but `username` is only
+an equality assertion against request identity and is not in the LLM schema.
 
 ## Daedalus Integration
 
 1. The frontend uploads documents and stores them in Redis with the shared `document:<sessionId>:<documentId>` key shape.
-2. The frontend or agent calls the tool with `operation="ingest"` and `documentRef` (or `documentRefs` for batches), plus the authenticated `username` and an optional `collection_name`.
+2. The frontend or agent calls the tool with `operation="ingest"` and `documentRef` (or `documentRefs` for batches); the backend supplies the authenticated identity.
 3. The tool retrieves each document, runs NV-Ingest extraction in a worker thread, and writes the resulting chunks into Milvus.
 4. The frontend or agent later calls the same tool with `operation="search"` to retrieve passages for the same user.
 5. The assistant reports success, partial success, or failure back to the user, with footer metadata the upload UI surfaces in its progress badge.
@@ -134,9 +135,9 @@ attachment; filename="<name>.md"`). Untruncated, bounded only by
 ## Collection Scoping
 
 - Shared and user-scoped collections intentionally live in the same Milvus database.
-- The allow-listed shared collection names are `kubernetes`, `mentalhealth`, `nvidia`, `semianalysis`, and `vetpartner`; they are used exactly as supplied.
-- Any other arbitrary name is scoped to the authenticated user before it reaches Milvus.
-- Callers can pass `collection_scope` (`shared` or `user`) and `provenance` metadata. Scope mismatches are rejected, and provenance is logged so shared-corpus writes carry uploader, source, and target context.
+- Search may read the allow-listed shared collections `kubernetes`, `mentalhealth`, `nvidia`, `semianalysis`, and `vetpartner`.
+- User-facing ingestion rejects those shared targets. Every accepted write is scoped to the authenticated user's private collection.
+- `collection_scope` mismatches are rejected and optional `provenance` remains available for private-ingest audit context.
 
 ## Practical Limits
 

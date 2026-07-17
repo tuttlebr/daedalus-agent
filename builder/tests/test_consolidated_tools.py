@@ -1,14 +1,64 @@
 """Tests for consolidated production tool configs."""
 
-from nat_nv_ingest.nat_nv_ingest import NvIngestFunctionConfig
+import asyncio
+from unittest.mock import MagicMock
+
+import pytest
+from nat_nv_ingest.nat_nv_ingest import NvIngestFunctionConfig, UserDocumentInput
+from pydantic import ValidationError
 from rss_feed.rss_feed_function import RssFeedFunctionConfig
 from smart_milvus.register import DomainRetrieverConfig
 from visual_media.visual_media_function import (
     VisualMediaFunctionConfig,
+    VisualMediaInput,
     _chat_completions_url,
     _validate_analyze_url,
     _validated_user_id,
+    visual_media_function,
 )
+
+
+def test_identity_fields_are_absent_from_llm_facing_tool_schemas():
+    assert "username" not in UserDocumentInput.model_fields
+    assert "collection_scope" not in UserDocumentInput.model_fields
+    assert "user_id" not in VisualMediaInput.model_fields
+
+    with pytest.raises(ValidationError):
+        UserDocumentInput.model_validate(
+            {"operation": "search", "query": "private", "username": "mallory"}
+        )
+    with pytest.raises(ValidationError):
+        VisualMediaInput.model_validate(
+            {"operation": "generate", "prompt": "test", "user_id": "mallory"}
+        )
+
+
+def test_visual_media_rejects_legacy_cross_user_assertion(monkeypatch):
+    async def _run():
+        import visual_media.visual_media_function as mod
+
+        def _trusted_identity(asserted=""):
+            if asserted and asserted != "alice":
+                raise ValueError(
+                    "supplied user identity does not match the authenticated request"
+                )
+            return "alice"
+
+        monkeypatch.setattr(mod, "resolve_authenticated_user_id", _trusted_identity)
+        generator = visual_media_function(VisualMediaFunctionConfig(), MagicMock())
+        function_info = await generator.__anext__()
+        try:
+            return await function_info.fn(
+                operation="generate",
+                prompt="draw another user's private photo",
+                user_id="mallory",
+            )
+        finally:
+            await generator.aclose()
+
+    result = asyncio.run(_run())
+
+    assert "does not match" in result.lower()
 
 
 def test_visual_media_config_groups_image_and_vlm_settings():

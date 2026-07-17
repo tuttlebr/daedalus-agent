@@ -8,6 +8,7 @@ simple utility function imports.
 
 import asyncio
 import inspect
+import socket
 from unittest.mock import AsyncMock, MagicMock, patch
 
 # ---------------------------------------------------------------------------
@@ -102,6 +103,51 @@ class TestVttInterpreterFunctionGenerator:
 
         result = run(_run())
         assert "Error" in result
+
+    def test_uploaded_vtt_rejects_legacy_cross_user_assertion(self):
+        async def _run():
+            import vtt_interpreter.vtt_interpreter_function as mod
+            from vtt_interpreter.vtt_interpreter_function import (
+                VttInterpreterFunctionConfig,
+                vtt_interpreter_function,
+            )
+
+            def _trusted_identity(asserted=""):
+                if asserted and asserted != "alice":
+                    raise ValueError(
+                        "supplied user identity does not match the authenticated request"
+                    )
+                return "alice"
+
+            with (
+                patch.object(
+                    mod,
+                    "resolve_authenticated_user_id",
+                    side_effect=_trusted_identity,
+                ),
+                patch.object(
+                    mod, "fetch_vtt_from_redis", new_callable=AsyncMock
+                ) as fetch,
+            ):
+                generator = vtt_interpreter_function(
+                    VttInterpreterFunctionConfig(), MagicMock()
+                )
+                function_info = await generator.__anext__()
+                try:
+                    result = await function_info.fn(
+                        vtt_id="private-vtt",
+                        session_id="session-1",
+                        user_id="mallory",
+                    )
+                finally:
+                    await generator.aclose()
+
+            fetch.assert_not_awaited()
+            return result
+
+        result = run(_run())
+
+        assert "does not match" in result.lower()
 
     def test_interpret_vtt_calls_openai(self):
         """interpret_vtt_transcript makes an OpenAI chat completion call."""
@@ -286,6 +332,7 @@ class TestVttInterpreterConfigModels:
 
         inp = VttInterpreterInput(transcript_text="some VTT content")
         assert inp.transcript_text == "some VTT content"
+        assert "user_id" not in VttInterpreterInput.model_fields
         forbidden_key = "max" + "_" + "tokens"
         assert forbidden_key not in VttInterpreterInput.model_fields
 
@@ -498,6 +545,41 @@ class TestWebscrapeFunctionResponseFn:
         result = run(_run())
         assert result.startswith("Error: ")
 
+    def test_hostname_resolving_private_is_rejected_before_scrape(self, monkeypatch):
+        async def _run():
+            import webscrape.webscrape_function as wsmod
+            from webscrape.webscrape_function import (
+                WebscrapeFunctionConfig,
+                webscrape_function,
+            )
+
+            monkeypatch.setattr(
+                socket,
+                "getaddrinfo",
+                lambda *_args, **_kwargs: [
+                    (socket.AF_INET, None, None, "", ("10.0.0.7", 0))
+                ],
+            )
+            http_fetch = AsyncMock()
+            with patch.object(wsmod, "_scrape_with_httpx_result", http_fetch):
+                generator = webscrape_function(
+                    WebscrapeFunctionConfig(respect_robots_txt=False),
+                    MagicMock(),
+                )
+                function_info = await generator.__anext__()
+                try:
+                    result = await function_info.fn("https://rebind.example/private")
+                finally:
+                    await generator.aclose()
+
+            http_fetch.assert_not_awaited()
+            return result
+
+        result = run(_run())
+
+        assert result.startswith("Error: ")
+        assert "non-public" in result.lower()
+
     def test_strategy1_success(self):
         """When HTTP fetch fails and MarkItDown succeeds, return its content."""
 
@@ -652,317 +734,6 @@ class TestWebscrapeFunctionResponseFn:
 
 
 # ---------------------------------------------------------------------------
-# result_scraper _prepare_markdown and _scrape_group
-# ---------------------------------------------------------------------------
-
-
-class TestResultScraperPrepareMarkdown:
-    def test_basic_conversion(self):
-        import nat_helpers.result_scraper as scraper_mod
-        from nat_helpers.result_scraper import _prepare_markdown
-
-        mock_result = MagicMock()
-        mock_result.title = "Test Article"
-        mock_result.text_content = "Article content here"
-        mock_md = MagicMock()
-        mock_md.convert.return_value = mock_result
-
-        with patch.object(scraper_mod, "MarkItDown", return_value=mock_md):
-            content, was_truncated = _prepare_markdown(
-                url="https://example.com",
-                token_limit=64000,
-                truncation_msg="TRUNC",
-            )
-        assert "Test Article" in content
-        assert "Article content here" in content
-        assert "https://example.com" in content
-        assert not was_truncated
-
-    def test_no_title_uses_url(self):
-        import nat_helpers.result_scraper as scraper_mod
-        from nat_helpers.result_scraper import _prepare_markdown
-
-        mock_result = MagicMock()
-        mock_result.title = None
-        mock_result.text_content = "Content"
-        mock_md = MagicMock()
-        mock_md.convert.return_value = mock_result
-
-        with patch.object(scraper_mod, "MarkItDown", return_value=mock_md):
-            content, _ = _prepare_markdown(
-                url="https://no-title.com",
-                token_limit=64000,
-                truncation_msg="TRUNC",
-            )
-        assert "https://no-title.com" in content
-
-    def test_truncation_when_over_limit(self):
-        import nat_helpers.result_scraper as scraper_mod
-        from nat_helpers.result_scraper import _prepare_markdown
-
-        mock_result = MagicMock()
-        mock_result.title = "Title"
-        mock_result.text_content = "word " * 5000
-
-        mock_md = MagicMock()
-        mock_md.convert.return_value = mock_result
-
-        original = scraper_mod.TIKTOKEN_AVAILABLE
-        try:
-            scraper_mod.TIKTOKEN_AVAILABLE = False
-            with patch.object(scraper_mod, "MarkItDown", return_value=mock_md):
-                content, was_truncated = _prepare_markdown(
-                    url="https://example.com",
-                    token_limit=50,
-                    truncation_msg="---END---",
-                )
-        finally:
-            scraper_mod.TIKTOKEN_AVAILABLE = original
-        assert was_truncated
-        assert "---END---" in content
-
-
-class TestScrapeGroup:
-    def test_empty_entries(self):
-        async def _run():
-            from nat_helpers.result_scraper import (
-                SerpLinkScraperSettings,
-                _scrape_group,
-            )
-
-            config = SerpLinkScraperSettings()
-            mock_client = AsyncMock()
-            outcome = await _scrape_group(
-                entries=[],
-                source_type="organic",
-                config=config,
-                client=mock_client,
-            )
-            return outcome
-
-        outcome = run(_run())
-        assert outcome.source_type == "organic"
-        assert outcome.content is None
-        assert outcome.error == "No valid links to scrape."
-
-    def test_entry_with_no_link_skipped(self):
-        async def _run():
-            from nat_helpers.result_scraper import (
-                SerpLinkScraperSettings,
-                _scrape_group,
-            )
-
-            config = SerpLinkScraperSettings()
-            mock_client = AsyncMock()
-            entries = [{"title": "No link here"}]  # no 'link' key
-            outcome = await _scrape_group(
-                entries=entries,
-                source_type="organic",
-                config=config,
-                client=mock_client,
-            )
-            return outcome
-
-        outcome = run(_run())
-        assert outcome.content is None
-
-    def test_entry_with_invalid_url_skipped(self):
-        async def _run():
-            from nat_helpers.result_scraper import (
-                SerpLinkScraperSettings,
-                _scrape_group,
-            )
-
-            config = SerpLinkScraperSettings()
-            mock_client = AsyncMock()
-            entries = [{"link": "ftp://invalid-scheme.com", "title": "FTP link"}]
-            outcome = await _scrape_group(
-                entries=entries,
-                source_type="organic",
-                config=config,
-                client=mock_client,
-            )
-            return outcome
-
-        outcome = run(_run())
-        assert outcome.content is None
-        assert outcome.error is not None
-
-    def test_max_attempts_limit(self):
-        async def _run():
-            import nat_helpers.result_scraper as scraper_mod
-            from nat_helpers.result_scraper import (
-                SerpLinkScraperSettings,
-                _scrape_group,
-            )
-
-            config = SerpLinkScraperSettings(max_attempts_per_group=2)
-            mock_client = AsyncMock()
-
-            # All entries will fail to produce content
-            entries = [
-                {"link": "https://example1.com", "title": "Page 1"},
-                {"link": "https://example2.com", "title": "Page 2"},
-                {"link": "https://example3.com", "title": "Page 3"},  # beyond limit
-            ]
-
-            def mock_prepare(*args, **kwargs):
-                raise Exception("Scrape failed")
-
-            with patch.object(
-                scraper_mod, "_prepare_markdown", side_effect=mock_prepare
-            ):
-                with patch.object(scraper_mod, "_check_robots", new=AsyncMock()):
-                    outcome = await _scrape_group(
-                        entries=entries,
-                        source_type="organic",
-                        config=config,
-                        client=mock_client,
-                    )
-            return outcome
-
-        outcome = run(_run())
-        assert outcome.attempts == 2  # stopped at max
-
-    def test_successful_scrape(self):
-        async def _run():
-            import nat_helpers.result_scraper as scraper_mod
-            from nat_helpers.result_scraper import (
-                SerpLinkScraperSettings,
-                _scrape_group,
-            )
-
-            config = SerpLinkScraperSettings(respect_robots_txt=False)
-            mock_client = AsyncMock()
-
-            entries = [{"link": "https://example.com/article", "title": "Good Article"}]
-
-            def mock_prepare(*, url, token_limit, truncation_msg):
-                return (f"# Good Article\n\n_Source: {url}_\n\nContent here", False)
-
-            with patch.object(
-                scraper_mod, "_prepare_markdown", side_effect=mock_prepare
-            ):
-                outcome = await _scrape_group(
-                    entries=entries,
-                    source_type="top_story",
-                    config=config,
-                    client=mock_client,
-                )
-            return outcome
-
-        outcome = run(_run())
-        assert outcome.content is not None
-        assert "Good Article" in outcome.content
-        assert outcome.link == "https://example.com/article"
-        assert outcome.title == "Good Article"
-        assert outcome.attempts == 1
-        assert not outcome.was_truncated
-
-    def test_robots_txt_blocks_entry(self):
-        async def _run():
-            import nat_helpers.result_scraper as scraper_mod
-            from nat_helpers.result_scraper import (
-                SerpLinkScraperSettings,
-                _scrape_group,
-            )
-
-            config = SerpLinkScraperSettings(respect_robots_txt=True)
-            mock_client = AsyncMock()
-
-            entries = [{"link": "https://blocked.com/page", "title": "Blocked"}]
-
-            async def robots_blocks(**kwargs):
-                raise PermissionError("robots.txt disallows")
-
-            with patch.object(scraper_mod, "_check_robots", side_effect=robots_blocks):
-                outcome = await _scrape_group(
-                    entries=entries,
-                    source_type="organic",
-                    config=config,
-                    client=mock_client,
-                )
-            return outcome
-
-        outcome = run(_run())
-        assert outcome.content is None
-        assert "robots" in (outcome.error or "").lower() or outcome.error is not None
-
-
-class TestScrapeSerp:
-    def test_scrape_serp_links_basic(self):
-        async def _run():
-            import nat_helpers.result_scraper as scraper_mod
-            from nat_helpers.result_scraper import (
-                SerpLinkScraperSettings,
-                scrape_serp_links,
-            )
-
-            settings = SerpLinkScraperSettings(respect_robots_txt=False)
-
-            def mock_prepare(*, url, token_limit, truncation_msg):
-                return (f"# Title\n\n_Source: {url}_\n\nContent", False)
-
-            with patch.object(
-                scraper_mod, "_prepare_markdown", side_effect=mock_prepare
-            ):
-                organic, top_story = await scrape_serp_links(
-                    organic_entries=[
-                        {"link": "https://organic.com", "title": "Organic"}
-                    ],
-                    top_story_entries=[
-                        {"link": "https://top.com", "title": "Top Story"}
-                    ],
-                    settings=settings,
-                )
-            return organic, top_story
-
-        organic, top_story = run(_run())
-        assert organic.content is not None
-        assert top_story.content is not None
-
-    def test_scrape_serp_links_empty(self):
-        async def _run():
-            from nat_helpers.result_scraper import scrape_serp_links
-
-            organic, top_story = await scrape_serp_links(
-                organic_entries=[],
-                top_story_entries=[],
-            )
-            return organic, top_story
-
-        organic, top_story = run(_run())
-        assert organic.content is None
-        assert top_story.content is None
-
-    def test_scrape_serp_links_no_settings(self):
-        """scrape_serp_links creates default settings when settings=None."""
-
-        async def _run():
-            import nat_helpers.result_scraper as scraper_mod
-            from nat_helpers.result_scraper import scrape_serp_links
-
-            def mock_prepare(*, url, token_limit, truncation_msg):
-                return ("# Content", False)
-
-            with patch.object(
-                scraper_mod, "_prepare_markdown", side_effect=mock_prepare
-            ):
-                with patch.object(scraper_mod, "_check_robots", new=AsyncMock()):
-                    organic, top_story = await scrape_serp_links(
-                        organic_entries=[
-                            {"link": "https://example.com", "title": "Ex"}
-                        ],
-                        top_story_entries=[],
-                        settings=None,  # use defaults
-                    )
-            return organic
-
-        organic = run(_run())
-        assert isinstance(organic.source_type, str)
-
-
-# ---------------------------------------------------------------------------
 # rss_feed inner functions via running the generator
 # ---------------------------------------------------------------------------
 
@@ -973,7 +744,9 @@ class TestRssFeedInnerFunctions:
         from rss_feed.rss_feed_function import RssFeedFunctionConfig
 
         defaults = {
-            "feed_url": "https://feeds.example.com/rss",
+            # Public literal avoids live DNS while still exercising the strict
+            # URL guard before the mocked HTTP client is used.
+            "feed_url": "https://8.8.8.8/rss",
             "reranker_endpoint": "http://reranker:8080/v1/ranking",
             "reranker_model": "nvidia/test-reranker",
         }

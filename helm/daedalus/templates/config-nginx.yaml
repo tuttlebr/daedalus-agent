@@ -17,24 +17,15 @@ data:
 {{- $backendDefaultSvc := (lookup "v1" "Service" .Release.Namespace (printf "%s-backend-default" (include "daedalus.fullname" .))) -}}
 {{- $backendDefaultUpstreamHost := dig "spec" "clusterIP" $backendDefaultHost ($backendDefaultSvc | default dict) -}}
 {{- $_ := set . "_backendDefaultUpstream" (printf "http://%s:%v" $backendDefaultUpstreamHost .Values.backend.default.port) -}}
-{{- if .Values.nginx.config.restrictedMode }}
-{{ tpl (printf "%s" (include "nginx.frontend.conf.restricted" .)) . | indent 4 }}
+{{ tpl (printf "%s" (include "nginx.frontend.conf.template" .)) . | nindent 4 }}
 {{- else }}
-{{- $backendHost := .Values.nginx.config.backendHost | default (printf "%s-backend.%s.svc.cluster.local" (include "daedalus.fullname" .) .Release.Namespace) -}}
-{{- $backendPort := .Values.nginx.config.backendPort | default 8000 -}}
-{{- $_ := set . "_backendHost" $backendHost -}}
-{{- $_ := set . "_backendPort" $backendPort -}}
-{{ tpl (printf "%s" (include "nginx.frontend.conf.template" .)) . | indent 4 }}
-{{- end }}
-{{- else }}
-{{ .Values.nginx.config.rawConf | indent 4 }}
+{{ .Values.nginx.config.rawConf | nindent 4 }}
 {{- end }}
 {{- end }}
 
-{{/* Inline the nginx template from repository with variables */}}
+{{/* Single nginx template; restrictedMode only changes direct-backend routes. */}}
 {{- define "nginx.frontend.conf.template" -}}
-{{`# Nginx configuration template for Next.js frontend with API routing
-# This template supports environment variable substitution
+{{`# Nginx configuration for the Next.js frontend and API routing
 
 # Map directive for conditional WebSocket upgrade header
 map $http_upgrade $connection_upgrade {
@@ -72,8 +63,16 @@ server {
     access_log /var/log/nginx/access.log;
     error_log /var/log/nginx/error.log;
 
+    # This confirms that nginx itself is alive without making its lifecycle
+    # depend on the frontend application. Readiness still probes the frontend
+    # health route, so traffic is only sent here when the application is ready.
+    location = /healthz {
+        access_log off;
+        return 204;
+    }
+
     # Client settings
-    client_max_body_size {{ .Values.nginx.config.clientMaxBodySize | default "1G" }};  # Support large image/document payloads (base64 adds ~33% overhead)
+    client_max_body_size {{ .Values.nginx.config.clientMaxBodySize | default "268M" }};  # Encoded upload ceiling; application routes enforce raw limits
     client_body_timeout 900s;
     client_header_timeout 900s;
 
@@ -83,6 +82,37 @@ server {
     proxy_read_timeout 900s;
     proxy_buffering off;
     proxy_request_buffering off;
+
+    {{- if .Values.nginx.config.restrictedMode }}
+    # OAuth callback required by NAT's interactive MCP OAuth flow.
+    # Keep this exact route open while blocking all other direct backend paths.
+    location = /auth/redirect {
+        proxy_pass {{ ._backendDefaultUpstream }};
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # Browser and API traffic must go through the frontend in restricted mode.
+    location ~ ^/(v1|generate|chat|evaluate|upload|tools|health|auth)(/|$) {
+        return 403 "Direct API access is forbidden. Please use the application interface.";
+    }
+    {{- end }}
+
+    # Reject oversized base64 document JSON before it reaches Next.js. This
+    # matches the route's static parser ceiling.
+    location = /api/session/documentStorage {
+        client_max_body_size {{ .Values.nginx.config.documentUploadMaxBodySize | default "268M" }};
+        proxy_pass {{ ._frontendHTTPUpstream }};
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_request_buffering off;
+    }
 
     # Frontend API routes - Long-running AI requests
     location /api/chat {
@@ -189,6 +219,7 @@ server {
         proxy_set_header Accept-Encoding "";
     }
 
+    {{- if not .Values.nginx.config.restrictedMode }}
     # API routes - OpenAI compatible endpoint
     location /v1/ {
         proxy_pass {{ ._backendDefaultUpstream }};
@@ -306,7 +337,7 @@ server {
         proxy_set_header X-Forwarded-Proto $scheme;
 
         # Large file uploads
-        client_max_body_size {{ .Values.nginx.config.clientMaxBodySize | default "1G" }};
+        client_max_body_size {{ .Values.nginx.config.clientMaxBodySize | default "268M" }};
         proxy_request_buffering off;
     }
 
@@ -334,8 +365,10 @@ server {
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
     }
+    {{- end }}
 
     # Image serving endpoint - serve directly from volume
+    {{- if or (not .Values.nginx.config.restrictedMode) .Values.nginx.imageVolume.enabled }}
     location /images/ {
         alias /tmp/generated_images/;
         try_files $uri =404;
@@ -354,11 +387,11 @@ server {
             add_header Cache-Control "public, max-age=3600";
         }
     }
+    {{- end }}
 
-    # Health check endpoint (backend doesn not have /health, use /docs as health check)
-    location /health {
-        # Always use default backend for health checks
-        rewrite ^ /docs break;
+    {{- if not .Values.nginx.config.restrictedMode }}
+    # Backend health check endpoint
+    location = /health {
         proxy_pass {{ ._backendDefaultUpstream }};
         proxy_http_version 1.1;
         proxy_set_header Host $host;
@@ -366,6 +399,7 @@ server {
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
     }
+    {{- end }}
 
     # Static files caching
     location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$ {
@@ -403,210 +437,6 @@ server {
     }
 
     # Error pages
-    error_page 500 502 503 504 /50x.html;
-    location = /50x.html {
-        root /usr/share/nginx/html;
-    }
-}
-`}}
-{{- end }}
-
-{{/* Restricted nginx template - blocks direct API access */}}
-{{- define "nginx.frontend.conf.restricted" -}}
-{{`# Nginx configuration for restricted mode - NO direct backend access
-# All API calls must go through the frontend
-
-# Map directive for conditional WebSocket upgrade header
-map $http_upgrade $connection_upgrade {
-    default upgrade;
-    ''      close;
-}
-
-server {
-    listen 80;
-    {{- if .Values.nginx.https.enabled }}
-    listen 443 ssl http2;
-    {{- end }}
-    server_name localhost;
-
-    # Upstreams are rendered by Helm. Prefer Service ClusterIPs when available
-    # so frontend availability does not depend on per-request nginx DNS lookups.
-
-    # Security headers
-    add_header X-Frame-Options "DENY" always;
-    add_header X-Content-Type-Options "nosniff" always;
-    add_header X-XSS-Protection "1; mode=block" always;
-    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
-
-    {{- if .Values.nginx.https.enabled }}
-    ssl_certificate /etc/nginx/ssl/tls.crt;
-    ssl_certificate_key /etc/nginx/ssl/tls.key;
-    ssl_protocols TLSv1.2 TLSv1.3;
-    ssl_ciphers HIGH:!aNULL:!MD5;
-    ssl_prefer_server_ciphers on;
-    {{- end }}
-
-    # Logging
-    access_log /var/log/nginx/access.log;
-    error_log /var/log/nginx/error.log;
-
-    # Client settings
-    client_max_body_size {{ .Values.nginx.config.clientMaxBodySize | default "1G" }};  # Support large image/document payloads (base64 adds ~33% overhead)
-    client_body_timeout 900s;
-    client_header_timeout 900s;
-
-    # OAuth callback required by NAT's interactive MCP OAuth flow.
-    # Keep this exact route open while blocking all other direct backend auth paths.
-    location = /auth/redirect {
-        proxy_pass {{ ._backendDefaultUpstream }};
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-
-    # Block direct API access - return 403 Forbidden
-    location ~ ^/(v1|generate|chat|evaluate|upload|tools|health|auth)/ {
-        return 403 "Direct API access is forbidden. Please use the application interface.";
-    }
-
-    # Frontend API routes - Long-running AI requests
-    location /api/chat {
-        proxy_pass {{ ._frontendHTTPUpstream }};
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection 'upgrade';
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_cache_bypass $http_upgrade;
-
-        # Disable buffering for streaming responses
-        proxy_buffering off;
-        proxy_request_buffering off;
-        proxy_cache off;
-        proxy_set_header X-Accel-Buffering no;
-
-        # Increase timeouts for long AI requests (10 minutes)
-        proxy_connect_timeout 600s;
-        proxy_send_timeout 600s;
-        proxy_read_timeout 600s;
-
-        # Enable chunked responses
-        chunked_transfer_encoding on;
-    }
-
-    # Image generation and editing can take up to the backend's 300s request
-    # limit. Keep the browser-to-frontend hop alive past that limit and retain
-    # streaming semantics for the legacy image endpoints.
-    location /api/images/ {
-        proxy_pass {{ ._frontendHTTPUpstream }};
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection 'upgrade';
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_cache_bypass $http_upgrade;
-
-        proxy_buffering off;
-        proxy_request_buffering off;
-        proxy_cache off;
-        proxy_set_header X-Accel-Buffering no;
-        proxy_max_temp_file_size 0;
-
-        proxy_connect_timeout 360s;
-        proxy_send_timeout 360s;
-        proxy_read_timeout 360s;
-        chunked_transfer_encoding on;
-    }
-
-    # Other frontend API routes
-    location /api/ {
-        proxy_pass {{ ._frontendHTTPUpstream }};
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection 'upgrade';
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_cache_bypass $http_upgrade;
-
-        # Standard timeout for other API routes
-        proxy_connect_timeout 120s;
-        proxy_send_timeout 120s;
-        proxy_read_timeout 120s;
-        proxy_buffering off;
-        proxy_request_buffering off;
-        proxy_max_temp_file_size 0;
-    }
-
-    # WebSocket sidecar - real-time communication
-    location /ws {
-        proxy_pass {{ ._frontendWSUpstream }};
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_read_timeout 3600s;
-        proxy_send_timeout 3600s;
-        proxy_buffering off;
-    }
-
-    # Main application - Next.js frontend ONLY
-    location / {
-        proxy_pass {{ ._frontendHTTPUpstream }};
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection $connection_upgrade;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_cache_bypass $http_upgrade;
-    }
-
-    # Next.js specific routes
-    location /_next/ {
-        proxy_pass {{ ._frontendHTTPUpstream }};
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        expires 1y;
-        add_header Cache-Control "public, immutable";
-    }
-
-    # Static files
-    location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$ {
-        proxy_pass {{ ._frontendHTTPUpstream }};
-        expires 1y;
-        add_header Cache-Control "public, immutable";
-    }
-
-    # Handle favicon
-    location /favicon.ico {
-        proxy_pass {{ ._frontendHTTPUpstream }}/favicon.ico;
-        expires 1d;
-        add_header Cache-Control "public";
-    }
-
-    # Image serving endpoint (if needed)
-    {{- if .Values.nginx.imageVolume.enabled }}
-    location /images/ {
-        alias /tmp/generated_images/;
-        try_files $uri =404;
-    }
-    {{- end }}
-
     error_page 500 502 503 504 /50x.html;
     location = /50x.html {
         root /usr/share/nginx/html;

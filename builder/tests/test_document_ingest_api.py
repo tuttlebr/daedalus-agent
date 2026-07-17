@@ -145,6 +145,23 @@ class TestIngestRequest:
         assert exc_info.value.status_code == 400
         assert "does not match" in exc_info.value.detail
 
+    def test_resolve_request_rejects_shared_collection_write(self, monkeypatch):
+        monkeypatch.delenv("DAEDALUS_INTERNAL_API_TOKEN", raising=False)
+        monkeypatch.setenv("ALLOW_INSECURE_INTERNAL", "1")
+        monkeypatch.setattr(document_ingest_api, "HTTPException", _FakeHTTPException)
+
+        req = IngestRequest(
+            documentRef=DocumentRef(documentId="doc-a", sessionId="sess-1"),
+            collection_name="nvidia",
+            collection_scope="shared",
+            username="alice",
+        )
+        with pytest.raises(_FakeHTTPException) as exc_info:
+            _resolve_request(req, "alice")
+
+        assert exc_info.value.status_code == 403
+        assert "Shared collection writes" in exc_info.value.detail
+
     def test_rejects_empty_document_id(self):
         with pytest.raises(ValidationError):
             DocumentRef(documentId="", sessionId="sess-1")

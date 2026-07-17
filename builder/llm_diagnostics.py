@@ -44,6 +44,16 @@ _http_client_registry: dict[str, object] = {}  # base_url -> httpx (Async)Client
 _connection_error_counts: dict[str, int] = {}
 
 
+def _diagnostics_enabled() -> bool:
+    """Return whether expensive retry enrichment/pool recovery is enabled."""
+
+    return (os.environ.get("DAEDALUS_LLM_DIAGNOSTICS") or "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+    }
+
+
 def _recycle_client_pool(http_client) -> bool:
     """Swap in a fresh httpx transport so the next request uses new connections.
 
@@ -198,9 +208,10 @@ def _wrap_init(original_init, client_kind: str):
             if http_client is not None and isinstance(
                 http_client, (httpx.Client, httpx.AsyncClient)
             ):
-                # F-007: keep a reference so the circuit breaker can recycle this
-                # client's pool after repeated connection errors.
-                _http_client_registry[base_url.rstrip("/")] = http_client
+                if _diagnostics_enabled():
+                    # Keep a reference only when the opt-in diagnostic circuit
+                    # breaker is active. Timeout enforcement remains always on.
+                    _http_client_registry[base_url.rstrip("/")] = http_client
                 desired = httpx.Timeout(
                     connect=_CONNECT_TIMEOUT,
                     read=timeout_seconds,
@@ -217,8 +228,10 @@ def _wrap_init(original_init, client_kind: str):
                         desired,
                     )
 
-        logger.info("Initialized OpenAI client: %s", label)
+        if _diagnostics_enabled():
+            logger.info("Initialized OpenAI client: %s", label)
 
+    wrapper._daedalus_llm_policy = True
     return wrapper
 
 
@@ -227,19 +240,21 @@ def patch():
     try:
         import openai
 
-        openai.AsyncOpenAI.__init__ = _wrap_init(
-            openai.AsyncOpenAI.__init__, "AsyncOpenAI"
-        )
-        openai.OpenAI.__init__ = _wrap_init(openai.OpenAI.__init__, "OpenAI")
+        if not getattr(openai.AsyncOpenAI.__init__, "_daedalus_llm_policy", False):
+            openai.AsyncOpenAI.__init__ = _wrap_init(
+                openai.AsyncOpenAI.__init__, "AsyncOpenAI"
+            )
+        if not getattr(openai.OpenAI.__init__, "_daedalus_llm_policy", False):
+            openai.OpenAI.__init__ = _wrap_init(openai.OpenAI.__init__, "OpenAI")
     except Exception as exc:
         logger.warning("Could not patch OpenAI client __init__: %s", exc)
 
-    retry_filter = _OpenAIRetryFilter()
+    if _diagnostics_enabled():
+        retry_logger = logging.getLogger("openai._base_client")
+        if not any(
+            isinstance(current, _OpenAIRetryFilter) for current in retry_logger.filters
+        ):
+            retry_logger.addFilter(_OpenAIRetryFilter())
+        logger.info("Opt-in LLM retry diagnostics enabled")
 
-    # IMPORTANT: Python logging filters do NOT propagate to child loggers.
-    # The retry messages come from "openai._base_client", so the filter must
-    # be registered there explicitly — not just on the "openai" parent logger.
-    for logger_name in ("openai", "openai._base_client", "httpx"):
-        logging.getLogger(logger_name).addFilter(retry_filter)
-
-    logger.info("LLM diagnostics patches applied")
+    logger.info("LLM timeout and retry policy applied")

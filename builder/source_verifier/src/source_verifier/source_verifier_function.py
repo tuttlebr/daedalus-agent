@@ -7,14 +7,6 @@ Registers source-governance tools with NAT:
                     verdict (supported / partially_supported / unsupported /
                     source_unreachable) with evidence excerpts.
 
-  verify_memory     Verify an existing memory entry's citations and logic.
-                    Routes by memory type: findings get source-checked,
-                    syntheses get logic-checked, reports are skipped.
-
-  audit_memories    Batch-verify a set of memories (output of get_memory).
-                    Returns a structured audit report with per-memory
-                    verdicts and an aggregate summary.
-
   audit_citations   Deterministically audit a markdown answer's inline
                     citations and reference URLs against an optional source
                     ledger captured from tool results.
@@ -99,7 +91,7 @@ def _default_source_registry() -> list[dict[str, Any]]:
             "id": "curated_domains",
             "name": "Curated Knowledge Domains",
             "description": (
-                "Milvus-backed curated corpora for established reference " "questions."
+                "Milvus-backed curated corpora for established reference questions."
             ),
             "tools": ["domain_retriever_tool"],
             "default_enabled": True,
@@ -139,8 +131,7 @@ def _default_source_registry() -> list[dict[str, Any]]:
             "id": "uploaded_documents",
             "name": "Uploaded Documents",
             "description": (
-                "Authenticated user's uploaded documents and shared upload "
-                "collections."
+                "Authenticated user's uploaded documents and shared upload collections."
             ),
             "tools": ["user_document_tool"],
             "default_enabled": False,
@@ -158,7 +149,7 @@ def _default_source_registry() -> list[dict[str, Any]]:
             "id": "nvidia_docs",
             "name": "Official NVIDIA Docs",
             "description": (
-                "Official NVIDIA product documentation via direct MCP docs " "servers."
+                "Official NVIDIA product documentation via direct MCP docs servers."
             ),
             "tools": [
                 "dynamo_mcp_server",
@@ -301,8 +292,8 @@ class SourceVerifierConfig(FunctionBaseConfig, name="source_verifier"):
         default=None,
         description=(
             "Optional allow-list of operations to register. Supported values: "
-            "verify_claim, verify_memory, audit_memories, audit_citations, "
-            "plan_sources. When omitted, all operations are registered."
+            "verify_claim, audit_citations, plan_sources. When omitted, all "
+            "operations are registered."
         ),
     )
     source_registry: list[dict[str, Any]] = Field(
@@ -677,11 +668,10 @@ async def _fetch_source(url: str, config: SourceVerifierConfig) -> FetchResult:
     except ValueError as exc:
         return FetchResult(status="invalid_url", error=str(exc))
 
-    # F-001: source URLs come from LLM output / stored memories. Reject non-http(s)
-    # schemes and literal internal IPs before fetching (network policy covers the
-    # hostname-resolves-to-internal case).
+    # F-001: source URLs come from LLM output / stored memories. Reject
+    # non-http(s) schemes and hosts resolving to non-public addresses.
     try:
-        validate_public_url(normalized_url, check_dns=False)
+        validate_public_url(normalized_url, check_dns=True)
     except UnsafeURLError as exc:
         return FetchResult(status="invalid_url", error=str(exc))
 
@@ -756,7 +746,7 @@ async def _check_link_reachable(url: str, timeout: float = 10.0) -> bool:
     ``https://attacker.com -> http://169.254.169.254/`` bypass.
     """
     try:
-        validate_public_url(url, check_dns=False)
+        validate_public_url(url, check_dns=True)
     except UnsafeURLError:
         return False
     try:
@@ -770,7 +760,7 @@ async def _check_link_reachable(url: str, timeout: float = 10.0) -> bool:
                 if not location:
                     return resp.is_success
                 next_url = urljoin(current_url, location)
-                validate_public_url(next_url, check_dns=False)
+                validate_public_url(next_url, check_dns=True)
                 current_url = next_url
             return False
     except Exception:
@@ -1121,7 +1111,7 @@ def _safe_audit_url(url: str) -> tuple[bool, str | None]:
     if hostname in _PLACEHOLDER_HOSTS:
         return False, "placeholder_url"
     try:
-        validate_public_url(url, check_dns=False)
+        validate_public_url(url, check_dns=True)
     except UnsafeURLError as exc:
         return False, f"unsafe_url: {exc}"
     return True, None
@@ -1189,26 +1179,6 @@ Output: return JSON only, with no markdown fences, using exactly these fields:
   "evidence": "<direct quote or close paraphrase from source, max 200 words, or null if none>",
   "reasoning": "<1-2 sentences explaining your assessment>",
   "claim_issues": ["<specific factual error or unsupported assertion>", ...]
-}"""
-
-_VERIFY_SYNTHESIS_SYSTEM = """\
-Role: synthesis verification specialist.
-
-Goal: assess whether a synthesis memory's cross-domain conclusions are logically
-warranted by its constituent claims.
-
-Assess whether:
-1. The stated connections follow logically from the constituent claims.
-2. The conclusions are warranted (not overgeneralized).
-3. There are any logical leaps, unsupported generalizations, or spurious
-   connections.
-
-Output: return JSON only, with no markdown fences, using exactly these fields:
-{
-  "verdict": "sound" | "partially_sound" | "unsound",
-  "confidence": <float 0.0-1.0>,
-  "reasoning": "<2-3 sentences explaining your assessment>",
-  "logic_issues": ["<specific logical problem>", ...]
 }"""
 
 
@@ -1510,7 +1480,7 @@ async def source_verifier_function(config: SourceVerifierConfig, builder: Builde
                 "approval_recommended": approval_recommended,
                 "source_ledger_contract": {
                     "capture_fields": ["url", "title", "tool", "source_id"],
-                    "audit_tool": "citation_auditor_tool.audit_citations",
+                    "audit_tool": "source_verifier_tool.audit_citations",
                     "rule": (
                         "Only final URLs observed from selected source tools may "
                         "appear in the References section."
@@ -1699,383 +1669,6 @@ async def source_verifier_function(config: SourceVerifierConfig, builder: Builde
         )
 
     # ------------------------------------------------------------------
-    # Tool 4 -- verify_memory
-    # ------------------------------------------------------------------
-    async def verify_memory(
-        memory_text: str,
-        metadata_json: str = "",
-    ) -> str:
-        """Verify an existing memory entry's citations and claims.
-
-        Routes verification by memory type:
-        - finding/project_update: verifies source_url supports the BLUF claim
-        - synthesis: assesses whether stated connections are logically sound
-        - cycle_report/dream: skipped (meta-observations, not factual claims)
-
-        Also checks reachability of all inline markdown links.
-
-        Args:
-            memory_text: The full memory text (BLUF + context + source link).
-            metadata_json: JSON string of the memory's metadata
-                (key_value_pairs). Should include 'type' and 'source_url'.
-
-        Returns:
-            JSON verification report with status, issues, inline link
-            checks, and a recommendation (retain/flag_for_review/remove).
-        """
-        # Parse metadata
-        try:
-            metadata = json.loads(metadata_json) if metadata_json else {}
-        except (json.JSONDecodeError, TypeError):
-            metadata = {}
-
-        mem_type = metadata.get("type", "unknown")
-        source_url = metadata.get("source_url", "")
-
-        # Extract inline links from memory text
-        inline_links = _extract_markdown_links(memory_text)
-
-        # Skip non-factual memory types
-        if mem_type in ("cycle_report", "dream"):
-            return json.dumps(
-                {
-                    "memory_type": mem_type,
-                    "verification_status": "skipped",
-                    "source_url_status": "n/a",
-                    "claim_verdict": None,
-                    "inline_links": [],
-                    "issues": [],
-                    "recommendation": "retain",
-                }
-            )
-
-        issues: list[str] = []
-
-        # Check inline link reachability (concurrent)
-        link_results = []
-        if inline_links:
-            reachable_checks = await asyncio.gather(
-                *[_check_link_reachable(link["url"]) for link in inline_links],
-                return_exceptions=True,
-            )
-            for link, reachable in zip(inline_links, reachable_checks):
-                is_ok = reachable is True
-                link_results.append({"url": link["url"], "reachable": is_ok})
-                if not is_ok:
-                    issues.append(f"Inline link unreachable: {link['url']}")
-
-        # Handle synthesis type separately
-        if mem_type == "synthesis":
-            synthesis_prompt = (
-                f"SYNTHESIS MEMORY:\n{memory_text}\n\n"
-                f"METADATA: {json.dumps(metadata)}\n\n"
-                f"Assess the logical soundness of this synthesis."
-            )
-            raw = await _call_llm(
-                builder,
-                config,
-                _VERIFY_SYNTHESIS_SYSTEM,
-                synthesis_prompt,
-                llm_name=config.llm_name,
-            )
-            parsed = _parse_llm_json(raw)
-            verdict_map = {
-                "sound": "verified",
-                "partially_sound": "partially_verified",
-                "unsound": "failed",
-            }
-            synth_verdict = parsed.get("verdict", "")
-            status = verdict_map.get(synth_verdict, "failed")
-            if parsed.get("logic_issues"):
-                issues.extend(parsed["logic_issues"])
-
-            recommendation = "retain"
-            if status == "failed":
-                recommendation = "flag_for_review"
-            elif issues:
-                recommendation = "flag_for_review"
-
-            return json.dumps(
-                {
-                    "memory_type": mem_type,
-                    "verification_status": status,
-                    "source_url_status": "n/a",
-                    "claim_verdict": parsed,
-                    "inline_links": link_results,
-                    "issues": issues,
-                    "recommendation": recommendation,
-                },
-                indent=2,
-            )
-
-        # For findings and project_updates: verify source_url
-        if not source_url:
-            # Try to extract URL from inline links as fallback
-            if inline_links:
-                source_url = inline_links[0]["url"]
-            else:
-                issues.append("No source_url in metadata and no inline links found")
-                return json.dumps(
-                    {
-                        "memory_type": mem_type,
-                        "verification_status": "failed",
-                        "source_url_status": "missing",
-                        "claim_verdict": None,
-                        "inline_links": link_results,
-                        "issues": issues,
-                        "recommendation": "flag_for_review",
-                    },
-                    indent=2,
-                )
-
-        # Extract the BLUF claim (first sentence or up to first period)
-        claim = memory_text.strip()
-        if claim.startswith("BLUF:"):
-            claim = claim[5:].strip()
-        # Use up to the first two sentences as the claim
-        sentences = claim.split(". ")
-        if len(sentences) > 2:
-            claim = ". ".join(sentences[:2]) + "."
-
-        # Call verify_claim internally
-        claim_result_raw = await verify_claim(
-            claim=claim,
-            source_url=source_url,
-            context=f"Verifying a stored {mem_type} memory",
-        )
-        claim_result = json.loads(claim_result_raw)
-
-        # Determine overall status
-        verdict = claim_result.get("verdict", "")
-        if verdict == "supported":
-            status = "verified"
-        elif verdict == "partially_supported":
-            status = "partially_verified"
-        elif verdict == "source_unreachable":
-            status = "partially_verified"
-            issues.append("Source URL is currently unreachable")
-        else:
-            status = "failed"
-
-        if claim_result.get("claim_issues"):
-            issues.extend(claim_result["claim_issues"])
-
-        source_url_status = "reachable"
-        if not claim_result.get("source_reachable", True):
-            source_url_status = "unreachable"
-
-        recommendation = "retain"
-        if status == "failed":
-            recommendation = "remove"
-        elif status == "partially_verified" or issues:
-            recommendation = "flag_for_review"
-
-        return json.dumps(
-            {
-                "memory_type": mem_type,
-                "verification_status": status,
-                "source_url_status": source_url_status,
-                "claim_verdict": claim_result,
-                "inline_links": link_results,
-                "issues": issues,
-                "recommendation": recommendation,
-            },
-            indent=2,
-        )
-
-    # ------------------------------------------------------------------
-    # Tool 5 -- audit_memories
-    # ------------------------------------------------------------------
-    async def audit_memories(
-        memories_json: str,
-        verify_sources: bool = True,
-    ) -> str:
-        """Batch-verify a set of memories for citation quality.
-
-        Pass the output of get_memory as memories_json. Each memory should
-        have 'text' and optionally 'metadata' fields. Checks each memory's
-        sources and claims, returns a structured audit report.
-
-        Usage: call get_memory(query=..., top_k=N) first, then pass the
-        results here for verification.
-
-        Args:
-            memories_json: JSON string containing an array of memory objects.
-                Each object should have at minimum a 'text' field and ideally
-                a 'metadata' field with 'type' and 'source_url'. The format
-                from get_memory is accepted directly.
-            verify_sources: If true (default), fetch and verify source URLs.
-                If false, only check link reachability and metadata
-                completeness (faster but less thorough).
-
-        Returns:
-            JSON audit report with per-memory verdicts, aggregate counts,
-            and a human-readable summary with recommendations.
-        """
-        try:
-            memories = json.loads(memories_json) if memories_json else []
-        except (json.JSONDecodeError, TypeError):
-            return json.dumps(
-                {
-                    "error": "Invalid memories_json: could not parse as JSON array.",
-                    "total_memories": 0,
-                }
-            )
-
-        if not isinstance(memories, list):
-            # Try to handle a single memory object
-            if isinstance(memories, dict):
-                memories = [memories]
-            else:
-                return json.dumps(
-                    {
-                        "error": "memories_json must be a JSON array of memory objects.",
-                        "total_memories": 0,
-                    }
-                )
-
-        if not memories:
-            return json.dumps(
-                {
-                    "total_memories": 0,
-                    "verified": 0,
-                    "failed": 0,
-                    "skipped": 0,
-                    "unreachable": 0,
-                    "results": [],
-                    "summary": "No memories to audit.",
-                }
-            )
-
-        results = []
-        counts = {
-            "verified": 0,
-            "partially_verified": 0,
-            "failed": 0,
-            "skipped": 0,
-            "unreachable": 0,
-        }
-
-        for mem in memories:
-            if isinstance(mem, str):
-                # Plain text memory with no metadata
-                mem = {"text": mem}
-
-            text = mem.get("text", mem.get("memory", ""))
-            metadata = mem.get("metadata", mem.get("key_value_pairs", {}))
-            if isinstance(metadata, str):
-                try:
-                    metadata = json.loads(metadata)
-                except (json.JSONDecodeError, TypeError):
-                    metadata = {}
-
-            # Get the inner key_value_pairs if present
-            if "key_value_pairs" in metadata:
-                metadata = metadata["key_value_pairs"]
-
-            if not text:
-                results.append(
-                    {
-                        "memory_preview": "(empty)",
-                        "type": metadata.get("type", "unknown"),
-                        "verification_status": "skipped",
-                        "issues": ["Empty memory text"],
-                    }
-                )
-                counts["skipped"] += 1
-                continue
-
-            preview = text[:120] + "..." if len(text) > 120 else text
-
-            if not verify_sources:
-                # Lightweight check: metadata completeness + link reachability
-                mem_type = metadata.get("type", "unknown")
-                mem_issues = []
-                if mem_type in ("finding", "project_update") and not metadata.get(
-                    "source_url"
-                ):
-                    links = _extract_markdown_links(text)
-                    if not links:
-                        mem_issues.append("Missing source_url and no inline links")
-                results.append(
-                    {
-                        "memory_preview": preview,
-                        "type": mem_type,
-                        "verification_status": "skipped"
-                        if not mem_issues
-                        else "flag_for_review",
-                        "issues": mem_issues,
-                    }
-                )
-                if mem_issues:
-                    counts["failed"] += 1
-                else:
-                    counts["skipped"] += 1
-                continue
-
-            # Full verification
-            result_raw = await verify_memory(
-                memory_text=text,
-                metadata_json=json.dumps(metadata),
-            )
-            result = json.loads(result_raw)
-            status = result.get("verification_status", "failed")
-
-            # Count unreachable as a separate category
-            source_status = result.get("source_url_status", "")
-            if source_status == "unreachable":
-                counts["unreachable"] += 1
-            elif status in counts:
-                counts[status] += 1
-            else:
-                counts["failed"] += 1
-
-            results.append(
-                {
-                    "memory_preview": preview,
-                    "type": result.get("memory_type", "unknown"),
-                    "verification_status": status,
-                    "source_url": metadata.get("source_url", ""),
-                    "issues": result.get("issues", []),
-                    "recommendation": result.get("recommendation", ""),
-                }
-            )
-
-        # Build summary
-        total = len(memories)
-        parts = []
-        if counts["verified"]:
-            parts.append(f"{counts['verified']} verified")
-        if counts["partially_verified"]:
-            parts.append(f"{counts['partially_verified']} partially verified")
-        if counts["failed"]:
-            parts.append(f"{counts['failed']} failed")
-        if counts["unreachable"]:
-            parts.append(f"{counts['unreachable']} unreachable")
-        if counts["skipped"]:
-            parts.append(f"{counts['skipped']} skipped")
-
-        summary = f"{total} memories audited: {', '.join(parts)}."
-
-        failed_items = [r for r in results if r.get("verification_status") == "failed"]
-        if failed_items:
-            summary += f" {len(failed_items)} memories should be reviewed or removed."
-
-        return json.dumps(
-            {
-                "total_memories": total,
-                "verified": counts["verified"],
-                "partially_verified": counts["partially_verified"],
-                "failed": counts["failed"],
-                "unreachable": counts["unreachable"],
-                "skipped": counts["skipped"],
-                "results": results,
-                "summary": summary,
-            },
-            indent=2,
-        )
-
-    # ------------------------------------------------------------------
     # Register all tools with NAT
     # ------------------------------------------------------------------
     try:
@@ -2119,32 +1712,6 @@ async def source_verifier_function(config: SourceVerifierConfig, builder: Builde
                     "invalid_citations, warnings, and repaired_markdown. Use before "
                     "finalizing citation-backed research reports; revise once when "
                     "passed is false."
-                ),
-            )
-
-        if _enabled("verify_memory"):
-            yield FunctionInfo.from_fn(
-                verify_memory,
-                description=(
-                    "Verify an existing memory entry's citations and logical "
-                    "soundness. Pass the memory text and its metadata JSON. "
-                    "For findings: checks source_url reachability and verifies "
-                    "claims against the source. For syntheses: assesses whether "
-                    "connections are logically sound. Returns verification status, "
-                    "issues, and recommendation (retain/flag_for_review/remove)."
-                ),
-            )
-
-        if _enabled("audit_memories"):
-            yield FunctionInfo.from_fn(
-                audit_memories,
-                description=(
-                    "Batch-verify a set of memories for citation quality. First "
-                    "call get_memory to retrieve memories, then pass the results "
-                    "here as memories_json. Returns a structured audit report with "
-                    "per-memory verdicts, aggregate counts (verified/failed/"
-                    "unreachable/skipped), and recommendations. Use during memory "
-                    "maintenance cycles to catch dead links and unsupported claims."
                 ),
             )
 

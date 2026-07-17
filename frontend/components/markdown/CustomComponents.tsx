@@ -74,18 +74,12 @@ export const getReactMarkDownCustomComponents = (
           // Handle mermaid diagrams
           const detectedLang = (match && match.length > 1 && match[1]) || '';
           if (detectedLang === 'mermaid') {
-            return (
-              <LazyMermaidChart
-                key={Math.random()}
-                value={textContent.replace(/\n$/, '')}
-              />
-            );
+            return <LazyMermaidChart value={textContent.replace(/\n$/, '')} />;
           }
 
           // Handle code blocks
           return (
             <LazyCodeBlock
-              key={Math.random()}
               language={detectedLang}
               value={textContent.replace(/\n$/, '')}
               {...props}

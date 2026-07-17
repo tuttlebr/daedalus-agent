@@ -89,6 +89,32 @@ function ApprovalCard({
               {approval.reason}
             </p>
           )}
+          {approval.actionType === 'mcp_mutation' && (
+            <div className="mt-3 space-y-2 rounded border border-amber-300/15 bg-black/20 p-3 font-mono text-[11px] leading-relaxed text-amber-50/80">
+              <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1">
+                <dt className="text-amber-200/60">server</dt>
+                <dd className="break-all">
+                  {approval.serverName || 'missing'}
+                </dd>
+                <dt className="text-amber-200/60">tool</dt>
+                <dd className="break-all">{approval.toolName || 'missing'}</dd>
+                <dt className="text-amber-200/60">target</dt>
+                <dd className="break-all">{approval.target || 'missing'}</dd>
+              </dl>
+              <div>
+                <p className="mb-1 text-amber-200/60">arguments</p>
+                <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-all rounded bg-black/20 p-2 text-[10px] text-amber-50/75">
+                  {approval.argumentsPreview || 'Exact arguments unavailable'}
+                </pre>
+              </div>
+            </div>
+          )}
+          {approval.actionType !== 'mcp_mutation' && approval.target && (
+            <dl className="mt-3 grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 rounded border border-amber-300/15 bg-black/20 p-3 font-mono text-[11px] text-amber-50/80">
+              <dt className="text-amber-200/60">target</dt>
+              <dd className="break-all">{approval.target}</dd>
+            </dl>
+          )}
           <div className="mt-3 flex flex-wrap items-center gap-2">
             {approval.authUrl && (
               <Button

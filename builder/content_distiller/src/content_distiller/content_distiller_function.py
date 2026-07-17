@@ -1,18 +1,10 @@
 """Secondary LLM content processing for NeMo Agent Toolkit.
 
-Registers three tools with NAT:
+Registers one tool with NAT:
 
   distill_content     Summarize or focus long content using a secondary
                       LLM call. Reduces noise from web scrapes, RSS feeds,
                       retriever results, and other verbose sources.
-
-  extract_structured  Extract structured key-value data from unstructured
-                      text using a secondary LLM call with a user-defined
-                      schema description.
-
-  synthesize          Combine multiple content fragments into a coherent
-                      synthesis, resolving contradictions and identifying
-                      gaps.
 
 Inspired by Claude Code's WebFetch two-stage fetch+summarize pattern
 and the general principle that a dedicated processing step between raw
@@ -33,24 +25,20 @@ logger = logging.getLogger(__name__)
 class ContentDistillerConfig(FunctionBaseConfig, name="content_distiller"):
     """Configuration for the content_distiller function.
 
-    Supports per-task LLM routing: lightweight tasks (distill, extract)
-    can use a fast/cheap model while synthesis uses a stronger one.
+    Uses a fast/cheap model for distillation with a configurable fallback.
     """
 
     fast_llm_name: str = Field(
         default="distill_llm",
         description=(
-            "LLM for lightweight tasks: distill_content and extract_structured. "
+            "LLM for distill_content. "
             "Should be a fast, cost-effective model (e.g. Haiku-class). "
             "Falls back to llm_name if the named LLM is not configured."
         ),
     )
     llm_name: str = Field(
         default="tool_calling_llm",
-        description=(
-            "LLM for complex tasks: synthesize (conflict resolution, gap analysis). "
-            "Also used as fallback when fast_llm_name is unavailable."
-        ),
+        description=("Fallback LLM used when fast_llm_name is unavailable."),
     )
     max_input_chars: int = Field(
         default=100000,
@@ -71,9 +59,8 @@ class ContentDistillerConfig(FunctionBaseConfig, name="content_distiller"):
     enabled_operations: list[str] | None = Field(
         default=None,
         description=(
-            "Optional allow-list of operations to register. Supported values: "
-            "distill_content, extract_structured, synthesize. When omitted, all "
-            "operations are registered."
+            "Optional allow-list of operations to register. The supported value "
+            "is distill_content. When omitted, distill_content is registered."
         ),
     )
 
@@ -258,145 +245,7 @@ async def content_distiller_function(config: ContentDistillerConfig, builder: Bu
         return result
 
     # ------------------------------------------------------------------
-    # Tool 2 -- extract_structured
-    # ------------------------------------------------------------------
-    async def extract_structured(
-        content: str,
-        schema_description: str,
-        output_as_json: bool = True,
-    ) -> str:
-        """Extract structured data from unstructured text using a secondary LLM.
-
-        Use this to pull specific fields, entities, or data points from
-        raw content into a structured format. Useful for processing search
-        results, articles, documents, or any text where you need specific
-        pieces of information.
-
-        Args:
-            content: The raw content to extract from.
-            schema_description: Natural-language description of what to
-                extract. Be specific about the fields you want.
-                Examples:
-                - "Extract: company name, founding year, CEO, headquarters, products"
-                - "Extract all dates mentioned with their associated events"
-                - "Extract: pros (list), cons (list), overall_recommendation"
-                - "For each person mentioned: name, role, key quote"
-            output_as_json: If true (default), output as JSON. If false,
-                output as a readable formatted list.
-
-        Returns:
-            Structured extraction results.
-        """
-        effective_content, truncated = _truncate_content(
-            content, config.max_input_chars
-        )
-
-        format_instruction = (
-            "Return the result as valid JSON. Use null for fields where "
-            "information is not available in the source. Use arrays for "
-            "repeated structures."
-            if output_as_json
-            else "Return the result as a clearly formatted readable list "
-            "with field labels."
-        )
-
-        system_prompt = (
-            "Role: precision data extraction specialist. Goal: extract exactly "
-            "the requested fields from the provided content. Include only "
-            "information explicitly stated or directly inferable from the "
-            "source. Use null or 'not found' for missing fields. Return only "
-            "the requested structured output and do not fabricate data."
-        )
-
-        user_prompt = (
-            f"Schema to extract: {schema_description}\n\n"
-            f"{format_instruction}\n\n"
-            f"Content to extract from:\n\n{effective_content}"
-        )
-
-        result = await _call_llm(
-            builder,
-            config,
-            system_prompt,
-            user_prompt,
-            llm_name=config.fast_llm_name,
-        )
-
-        if truncated:
-            result += "\n\n[Note: Source content was truncated before extraction.]"
-
-        return result
-
-    # ------------------------------------------------------------------
-    # Tool 3 -- synthesize
-    # ------------------------------------------------------------------
-    async def synthesize(
-        fragments: str,
-        synthesis_goal: str,
-        resolve_conflicts: bool = True,
-    ) -> str:
-        """Synthesize multiple content fragments into a coherent whole.
-
-        Use this after gathering information from multiple tools (search
-        results, multiple RSS feeds, retriever chunks, web scrapes) to
-        combine them into a unified analysis. Identifies agreements,
-        contradictions, and gaps across sources.
-
-        Args:
-            fragments: The content fragments to synthesize. Separate
-                distinct sources with "---" on its own line, or use
-                labeled sections like "SOURCE 1:", "SOURCE 2:", etc.
-            synthesis_goal: What the synthesis should achieve. Examples:
-                - "Compare these perspectives on AI regulation"
-                - "Build a timeline of events from these sources"
-                - "Identify consensus and disagreements about the product launch"
-                - "Create a unified summary of NVIDIA's Q4 earnings from these reports"
-            resolve_conflicts: If true (default), explicitly identify and
-                attempt to resolve contradictions between sources. If false,
-                present all perspectives without judgment.
-
-        Returns:
-            Synthesized content combining all fragments.
-        """
-        effective_content, truncated = _truncate_content(
-            fragments, config.max_input_chars
-        )
-
-        conflict_instruction = (
-            "When sources contradict each other, explicitly note the "
-            "contradiction and assess which source is more likely correct "
-            "based on specificity, recency, and authority. Flag unresolvable "
-            "conflicts clearly."
-            if resolve_conflicts
-            else "Present all perspectives without attempting to resolve "
-            "contradictions. Let the reader decide."
-        )
-
-        system_prompt = (
-            "Role: research synthesis specialist. Goal: combine the provided "
-            "fragments into a coherent analysis that answers the synthesis "
-            "goal. Preserve attribution when sources disagree, identify gaps "
-            "where important questions remain unanswered, and avoid adding "
-            "claims that are not supported by the fragments. Stop when the "
-            "synthesis goal is answered. Do not use em dashes. Write naturally "
-            "and concisely."
-        )
-
-        user_prompt = (
-            f"Synthesis goal: {synthesis_goal}\n\n"
-            f"{conflict_instruction}\n\n"
-            f"Sources to synthesize:\n\n{effective_content}"
-        )
-
-        result = await _call_llm(builder, config, system_prompt, user_prompt)
-
-        if truncated:
-            result += "\n\n[Note: Source content was truncated before synthesis.]"
-
-        return result
-
-    # ------------------------------------------------------------------
-    # Register all three tools with NAT
+    # Register the distillation tool with NAT
     # ------------------------------------------------------------------
     try:
         if _enabled("distill_content"):
@@ -408,29 +257,6 @@ async def content_distiller_function(config: ContentDistillerConfig, builder: Bu
                     "them into your response: web scrapes, RSS articles, retriever "
                     "chunks, transcripts, or any long text. Supports prose, bullet, "
                     "and tldr output formats with optional topic focus."
-                ),
-            )
-
-        if _enabled("extract_structured"):
-            yield FunctionInfo.from_fn(
-                extract_structured,
-                description=(
-                    "Extract structured data from unstructured text using a secondary "
-                    "LLM. Pull specific fields, entities, or data points from raw "
-                    "content into JSON or formatted output. Describe the schema you "
-                    "want in natural language."
-                ),
-            )
-
-        if _enabled("synthesize"):
-            yield FunctionInfo.from_fn(
-                synthesize,
-                description=(
-                    "Synthesize multiple content fragments from different sources "
-                    "into a coherent analysis. Use after gathering information from "
-                    "multiple tools (search, RSS, retrievers, web scrapes) to combine "
-                    "them into a unified result. Identifies agreements, contradictions, "
-                    "and information gaps across sources."
                 ),
             )
 

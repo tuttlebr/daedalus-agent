@@ -35,8 +35,8 @@
       practical recommendations for a production agent platform.
   expected:
     required_tools:
-      - source_policy_tool
-      - research_plan_approval_tool
+      - source_verifier_tool
+      - user_interaction_tool
     skill: null
 
 - id: ops-001

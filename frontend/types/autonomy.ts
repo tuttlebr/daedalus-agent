@@ -112,8 +112,13 @@ export interface AutonomyApproval {
   reason: string;
   actionType: string;
   target?: string;
+  serverName?: string;
+  toolName?: string;
+  approvalRequestId?: string;
+  /** Canonical MCP arguments with credential-like fields redacted. */
+  argumentsPreview?: string;
+  argumentsSha256?: string;
   risk: 'low' | 'medium' | 'high' | string;
-  approvalToken?: string;
   authUrl?: string;
   oauthState?: string;
   createdAt: number;

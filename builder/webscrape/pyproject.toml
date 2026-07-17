@@ -6,7 +6,7 @@ requires = ["setuptools>=64.0.0", "wheel"]
 name = "webscrape"
 dynamic = ["version"]
 dependencies = [
-  "nvidia-nat[redis,mcp,langchain,phoenix,async_endpoints]==1.7.0",
+  "nvidia-nat[redis,mcp,langchain,phoenix]==1.7.0",
   "nat_helpers",
   "httpx>=0.28",
   "markitdown[all]",

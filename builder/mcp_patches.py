@@ -61,40 +61,12 @@ names in the skipped set instead of raising.  The reasoning_agent
 receives None and skips the unavailable tool, starting with a reduced
 tool set — identical degraded behaviour to Fix 8.
 
-Problem 6: NAT's async_job.run_generation() places the
-update_status(SUCCESS) call AFTER the ``async with load_workflow``
-block.  When WorkflowBuilder cleanup raises (e.g. RuntimeError from
-async generator teardown of MCP connections), the exception prevents
-the SUCCESS update from executing.  The except handler then marks the
-job as FAILURE even though the workflow produced a valid result.
-
-Fix 6: Monkey-patch run_generation() to save the result INSIDE the
-load_workflow context (after generate_single_response completes but
-before cleanup starts).  If cleanup subsequently raises and the result
-was already saved, the error is logged as a warning rather than
-overwriting the SUCCESS status.
-
-Problem 7: When an active cancel scope injects CancelledError into the
-workflow (e.g. during MCP reconnect backoff), the error handler's own
-``await job_store.update_status()`` is also cancelled by the same scope.
-The job is left permanently in RUNNING status, causing the frontend to
-poll indefinitely.  Additionally, ``except Exception`` in the inner
-cleanup handler misses CancelledError in Python 3.9+ (it became a
-BaseException), so cleanup cancellations bypass the result-saved check.
-
-Fix 7: Schedule error-handler status updates via
-``asyncio.ensure_future()`` (fire-and-forget) so they run as independent
-tasks outside the cancel scope.  ``asyncio.shield()`` alone is
-insufficient because the ``await`` itself is cancelled by the scope.
-Catch CancelledError alongside Exception in the inner cleanup handler
-so the result-saved check runs for all error types.
-
 Problem 9: NAT's MCPBaseClient._with_reconnect() catches ALL exceptions
 from MCP tool calls and attempts session reconnection.  McpError is an
 *application-level* error (e.g. "pod not found", "missing parameter")
 returned by the MCP server — the connection is healthy.  The spurious
 reconnect fails ("generator didn't yield"), triggers cancel-scope
-cascades, and crashes the entire async job instead of returning the
+cascades, and crashes the workflow run instead of returning the
 error to the LLM agent as a normal tool response.
 
 Fix 9: Monkey-patch MCPBaseClient._with_reconnect() so that McpError
@@ -103,19 +75,11 @@ the ``except Exception`` reconnect handler.  The outer wrapper unwraps
 it and re-raises the original McpError, which the LLM framework then
 returns to the agent as a normal tool error response.
 
-Problem 11: NAT's ``JobStore.submit_job()`` uses Dask for distributed
-job execution, but the local Dask scheduler is prone to connection
-timeouts and hangs that freeze the event loop and kill the pod.
-
-Fix 11: Monkey-patch ``JobStore.submit_job()`` to bypass Dask entirely.
-Async job functions run as ``asyncio.Task`` instances on the existing
-event loop, while synchronous job functions are offloaded to a worker
-thread.  The HTTP handler returns immediately after creating the job in
-the database.  An in-flight set prevents duplicate submissions when the
-frontend retries with the same job ID.
 """
 
 import asyncio
+import hashlib
+import inspect
 import json
 import logging
 import os
@@ -143,6 +107,15 @@ _skipped_function_groups: set[str] = set()
 # MCP function groups seen during startup. Used as a second line of defense
 # when NAT defers remote tool discovery until get_tools()/get_function().
 _known_mcp_function_groups: set[str] = set()
+
+# NAT identifies MCP clients by their transport endpoint (for example,
+# ``streamable-http:https://...``), while the agent and configuration identify
+# the capability by function-group name (for example, ``k8s_mcp_server``).
+# Populate this map from the actual built group so approval scope uses one
+# canonical logical identity without hard-coded endpoint aliases.
+_mcp_server_group_names: dict[str, str] = {}
+_ambiguous_mcp_servers: set[str] = set()
+_sensitive_mcp_server_names: set[str] = set()
 
 # MCP runtime connections retain the upstream allowance. In the deployed
 # cluster, a stale Cilium DNS backend added just over 10 seconds to successful
@@ -220,10 +193,13 @@ _CONNECTION_ERROR_TYPES = tuple(
 #
 # NOTE: this denylist is DEFENSE-IN-DEPTH only. The primary, robust control is
 # restricting each MCP server to an explicit read-only `include:` allowlist in
-# backend/tool-calling-config.yaml (every server there already does this EXCEPT
-# k8s_mcp_server, which exposes its full tool surface) and/or honoring MCP tool
-# annotations (readOnlyHint/destructiveHint). A denylist cannot enumerate every
-# dangerous verb, so prefer the allowlist; this list is the backstop.
+# backend/tool-calling-config.yaml (the externally managed Kubernetes and UniFi
+# servers still expose their discovered surfaces because this repository does
+# not own a stable schema for them). Destructive annotations can only tighten
+# this policy; read-only annotations are advisory. Unknown Kubernetes/UniFi
+# tools default to mutating unless local name/operation evidence is read-only.
+# A denylist cannot enumerate every dangerous verb, so prefer an
+# operator-supplied allowlist; this list is the backstop.
 #
 # Distinctive verbs — safe to match anywhere in the tool name (low risk of
 # appearing inside a read-only tool name).
@@ -281,11 +257,39 @@ _MUTATING_TOOL_TOKENS = frozenset(
 _WORD_SPLIT_RE = re.compile(r"[^a-z0-9]+")
 
 _NON_DESTRUCTIVE_MCP_TOOLS = {
-    # A Gmail draft is reversible and is not sent to a recipient. The remote
-    # MCP schema does not expose Daedalus's approval_token field, so enforce
-    # explicit confirmation in the agent instructions instead of this wrapper.
+    # A Gmail draft is reversible and is not sent to a recipient. Keep it
+    # outside the external-mutation gate; sending remains separately gated.
     "create_draft",
 }
+
+_SENSITIVE_MUTATION_DEFAULT_GROUPS = frozenset({"k8s_mcp_server", "unifi_mcp_server"})
+_READ_ONLY_TOOL_PREFIXES = (
+    "describe_",
+    "find_",
+    "get_",
+    "list_",
+    "query_",
+    "read_",
+    "search_",
+    "show_",
+    "status_",
+    "watch_",
+)
+_READ_ONLY_OPERATIONS = frozenset(
+    {
+        "describe",
+        "find",
+        "get",
+        "list",
+        "logs",
+        "query",
+        "read",
+        "search",
+        "show",
+        "status",
+        "watch",
+    }
+)
 
 
 def _flatten_tool_payload(args, kwargs) -> dict:
@@ -355,16 +359,14 @@ def _is_mutating_mcp_call(tool_name: str, payload: dict, annotations=None) -> bo
     # F-009: honor MCP tool annotations when the server/client exposes them, in
     # ADDITION to the verb heuristic below. destructiveHint=True forces the call
     # to be treated as mutating even if its name carries no listed verb (closing
-    # the denylist gap); readOnlyHint=True trusts the server's declaration that
-    # the tool cannot mutate state. The robust, per-server read-only `include:`
-    # allowlist still lives in backend/tool-calling-config.yaml and is the
-    # primary control — see the _MUTATING_TOOL_FRAGMENTS note above.
+    # the denylist gap). A remote server's readOnlyHint is advisory only and may
+    # never override local mutation detection; externally managed Kubernetes and
+    # UniFi schemas are not an authorization authority. The per-server read-only
+    # `include:` allowlist remains the primary control where a stable schema is
+    # available.
     destructive_hint = _annotation_hint(annotations, "destructiveHint")
     if destructive_hint is True:
         return True
-    read_only_hint = _annotation_hint(annotations, "readOnlyHint")
-    if read_only_hint is True:
-        return False
 
     normalized_tool_name = tool_name.lower().replace(".", "_").replace("-", "_")
     if (
@@ -387,53 +389,181 @@ def _is_mutating_mcp_call(tool_name: str, payload: dict, annotations=None) -> bo
     return bool(tokens & _MUTATING_TOOL_TOKENS)
 
 
+def _has_local_read_only_evidence(tool_name: str, payload: dict) -> bool:
+    normalized = tool_name.lower().replace(".", "_").replace("-", "_")
+    if normalized.startswith(_READ_ONLY_TOOL_PREFIXES):
+        return True
+    for key in ("operation", "command", "action", "method", "verb"):
+        value = payload.get(key)
+        if isinstance(value, str) and value.strip().lower() in _READ_ONLY_OPERATIONS:
+            return True
+    return False
+
+
+def _canonical_mcp_call(payload: dict, input_schema=None) -> tuple[str, str]:
+    """Canonicalize the exact arguments used for approval and receipts."""
+
+    canonical_payload = dict(payload)
+    canonical_payload.pop("approval_token", None)
+    if input_schema is not None:
+        canonical_payload = input_schema.model_validate(canonical_payload).model_dump(
+            exclude_none=True, mode="json"
+        )
+    canonical_arguments = json.dumps(
+        canonical_payload,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    )
+    arguments_sha256 = hashlib.sha256(canonical_arguments.encode("utf-8")).hexdigest()
+    return canonical_arguments, arguments_sha256
+
+
 def _validate_mcp_approval(
-    tool_name: str, payload: dict, annotations=None
+    tool_name: str,
+    payload: dict,
+    annotations=None,
+    server_name: str = "",
+    approval_token: str | None = None,
+    input_schema=None,
+    validated_binding: dict[str, str] | None = None,
 ) -> tuple[bool, str]:
-    if not _is_mutating_mcp_call(tool_name, payload, annotations):
+    is_mutating = _is_mutating_mcp_call(tool_name, payload, annotations)
+    if not is_mutating and (
+        server_name in _SENSITIVE_MUTATION_DEFAULT_GROUPS
+        or server_name in _sensitive_mcp_server_names
+    ):
+        # Kubernetes and UniFi are externally managed, broad surfaces without
+        # repository-owned exact read-only allowlists. NAT 1.7 discards MCP
+        # annotations while constructing MCPToolClient, so name prefixes such
+        # as ``get_`` are not sufficient authorization evidence. Fail closed
+        # for the complete sensitive surface.
+        is_mutating = True
+    if not is_mutating:
         return True, "read-only"
 
-    token = str(payload.get("approval_token") or "").strip()
-    user_id = str(
-        payload.get("user_id")
-        or payload.get("username")
-        or payload.get("user")
-        or "anonymous"
-    ).strip()
-    target = str(
-        payload.get("target")
-        or payload.get("namespace")
-        or payload.get("repo")
-        or payload.get("name")
-        or tool_name
-    ).strip()
-
+    # The pinned NAT adapter validates and dumps the remote MCP input schema
+    # before MCPToolClient.acall(). A synthetic approval_token argument is
+    # therefore stripped (or rejected) before this gate. Transport the
+    # credential out of band in trusted request metadata instead.
+    token = str(approval_token or "").strip()
     if not token:
         return False, (
             f"MCP tool '{tool_name}' appears to mutate external state and "
-            "requires approval_token."
+            "requires a human-approved execution credential. Call "
+            "confirm_action with the exact server, tool, and arguments."
         )
 
+    try:
+        from nat_helpers.identity import authenticated_user_id_from_context_or_fallback
+
+        # Remote MCP schemas may legitimately use fields such as `user` as the
+        # target of an administrative operation. They are never an identity
+        # authority; resolve the actor solely from trusted request context.
+        user_id = authenticated_user_id_from_context_or_fallback("")
+    except Exception as exc:
+        logger.warning(
+            "MCP approval identity resolution failed: error_class=%s",
+            type(exc).__name__,
+        )
+        return False, "authenticated approval context is invalid"
+    if not user_id:
+        return False, "authenticated approval context is required"
     try:
         from user_interaction.approval_tokens import (
             make_redis_client,
             validate_approval_token,
         )
 
+        _canonical_arguments, arguments_sha256 = _canonical_mcp_call(
+            payload, input_schema
+        )
+
+        def _normalized_approved_hash(approved_arguments: str) -> str:
+            approved_payload = json.loads(approved_arguments)
+            if not isinstance(approved_payload, dict):
+                raise ValueError("approved MCP arguments must be an object")
+            return _canonical_mcp_call(approved_payload, input_schema)[1]
+
+        def _capture_validated_binding(binding: dict[str, str]) -> None:
+            if validated_binding is not None:
+                validated_binding.clear()
+                validated_binding.update(binding)
+
         ok, reason = validate_approval_token(
             make_redis_client(os.getenv("APPROVAL_REDIS_URL")),
             user_id=user_id,
             token=token,
             action_type="mcp_mutation",
-            target=target or tool_name,
+            # Full canonical arguments already bind the exact target. A second
+            # schema-specific target derivation (namespace vs namespace/name,
+            # repo, etc.) is redundant and caused valid approvals to mismatch.
+            target="",
+            server_name=server_name,
+            tool_name=tool_name,
+            arguments_sha256=arguments_sha256,
+            normalize_arguments_hash=_normalized_approved_hash,
             consume=True,
+            on_validated=_capture_validated_binding,
         )
     except Exception as exc:
-        return False, f"approval validation failed: {exc}"
+        logger.warning(
+            "MCP approval validation failed: error_class=%s",
+            type(exc).__name__,
+        )
+        return False, "approval validation is unavailable"
 
     if not ok:
-        return False, reason
+        return False, reason.replace("approval_token", "approval credential")
     return True, "approved"
+
+
+def _mcp_result_is_error(result) -> bool:
+    """Recognize MCP protocol errors after pinned NAT string conversion."""
+
+    if getattr(result, "isError", None) is True:
+        return True
+    if isinstance(result, dict) and result.get("isError") is True:
+        return True
+    return isinstance(result, str) and result.lstrip().startswith(
+        "MCPToolClient tool call failed:"
+    )
+
+
+def _record_approved_mcp_receipt(
+    *,
+    approval_token: str,
+    validated_binding: dict[str, str],
+) -> bool:
+    """Persist a short-lived receipt after the exact approved call succeeds."""
+
+    try:
+        from user_interaction.approval_tokens import (
+            make_redis_client,
+            record_mcp_execution_receipt,
+        )
+
+        if validated_binding.get("action_type") != "mcp_mutation":
+            raise ValueError("validated MCP receipt binding is missing")
+        record_mcp_execution_receipt(
+            make_redis_client(os.getenv("APPROVAL_REDIS_URL")),
+            user_id=validated_binding.get("user_id", ""),
+            token=approval_token,
+            server_name=validated_binding.get("server_name", ""),
+            tool_name=validated_binding.get("tool_name", ""),
+            arguments_sha256=validated_binding.get("arguments_sha256", ""),
+        )
+        return True
+    except Exception as exc:
+        # The remote mutation already succeeded. Never turn a receipt-storage
+        # failure into a tool error that could induce the model to retry it.
+        logger.error(
+            "MCP success receipt was not recorded: server=%s tool=%s error_class=%s",
+            validated_binding.get("server_name", "unknown"),
+            validated_binding.get("tool_name", "unknown"),
+            type(exc).__name__,
+        )
+        return False
 
 
 def _strip_approval_token(args, kwargs) -> None:
@@ -481,6 +611,74 @@ def _is_mcp_tool_ref(tool_ref) -> bool:
 def _record_possible_mcp_group(name, args, kwargs) -> None:
     if _is_mcp_tool_ref(name) or _looks_like_mcp_config(args, kwargs):
         _known_mcp_function_groups.add(_tool_ref_text(name))
+
+
+def _mcp_client_physical_identity(client) -> str:
+    """Return the stable endpoint identity shared by base and per-user clients.
+
+    NAT 1.7's ``server_name`` property is only the transport name (for example,
+    ``streamable-http``), so it cannot distinguish two MCP servers using the
+    same transport.  The concrete clients retain their endpoint in ``_url``;
+    combining that with the transport gives the same identity for the shared
+    schema client and every per-user execution client.
+    """
+
+    if client is None:
+        return ""
+    transport = (
+        getattr(client, "_transport", None)
+        or getattr(client, "transport", None)
+        or getattr(client, "server_name", None)
+    )
+    endpoint = getattr(client, "_url", None)
+    if endpoint:
+        return f"{transport or 'unknown'}:{endpoint}"
+
+    # Stdio clients do not have a URL. Include their command when NAT exposes
+    # it; otherwise retain the transport-only identity and let collision
+    # tracking fail closed if more than one logical group shares it.
+    command = getattr(client, "_command", None)
+    if command:
+        return f"{transport or 'stdio'}:{command}"
+    return str(transport or "")
+
+
+def _register_mcp_group_identity(group_name, group) -> None:
+    """Bind NAT's physical client identity to its configured function group."""
+
+    if group is None:
+        return
+    client = getattr(group, "mcp_client", None)
+    physical_name = _mcp_client_physical_identity(client)
+    if not physical_name:
+        physical_name = getattr(group, "mcp_client_server_name", None)
+    if not isinstance(physical_name, str) or not physical_name.strip():
+        return
+    logical_name = _tool_ref_text(group_name)
+    if logical_name in _SENSITIVE_MUTATION_DEFAULT_GROUPS:
+        _sensitive_mcp_server_names.add(physical_name)
+    if physical_name in _ambiguous_mcp_servers:
+        return
+    previous = _mcp_server_group_names.get(physical_name)
+    if previous and previous != logical_name:
+        # Two logical groups sharing one endpoint cannot be distinguished from
+        # MCPToolClient alone. Fail closed by retaining the physical identity;
+        # an approval using either ambiguous logical alias will not validate.
+        _mcp_server_group_names.pop(physical_name, None)
+        _ambiguous_mcp_servers.add(physical_name)
+        logger.error(
+            "Ambiguous MCP endpoint identity: server=%s groups=%s,%s",
+            physical_name,
+            previous,
+            logical_name,
+        )
+        return
+    _mcp_server_group_names[physical_name] = logical_name
+
+
+def _canonical_mcp_server_name(parent_client) -> str:
+    physical_name = _mcp_client_physical_identity(parent_client) or "unknown"
+    return _mcp_server_group_names.get(physical_name, physical_name)
 
 
 def _record_skipped_function_group(name) -> str:
@@ -729,147 +927,39 @@ async def _connect_with_graceful_teardown(
     from datetime import timedelta
 
     _in_teardown = False
-    _DEFAULT_SDK_TIMEOUT = timedelta(seconds=60)
 
     def _build_session(session_cls, read, write, timeout_seconds):
-        """Create a ClientSession context manager, injecting the timeout.
-
-        Strategy:
-          1. Try known constructor kwarg names (varies by SDK version).
-          2. If no kwarg works, construct without and override attributes.
-
-        Returns (context_manager, timeout_set_via_kwargs: bool).
-        """
+        """Create a session using the SDK's typed timeout parameter only."""
         if timeout_seconds is None:
             return session_cls(read, write), False
 
-        td = timedelta(seconds=timeout_seconds)
-        # Try every known kwarg name + type combination.
-        for kwargs in (
-            {"read_timeout_seconds": td},
-            {"read_timeout_seconds": timeout_seconds},
-            {"read_timeout": td},
-            {"read_timeout": timeout_seconds},
-        ):
-            try:
-                cm = session_cls(read, write, **kwargs)
-                logger.info(
-                    "ClientSession accepts %s (url=%s)",
-                    list(kwargs.keys())[0],
-                    url,
-                )
-                return cm, True
-            except TypeError:
-                continue
-
-        logger.info(
-            "ClientSession constructor rejects timeout kwargs; "
-            "will override instance attributes after construction (url=%s)",
-            url,
-        )
-        return session_cls(read, write), False
-
-    def _force_session_timeout(session, seconds):
-        """Scan the session's instance attributes for the 60 s SDK default
-        and replace it with the configured timeout.
-
-        The MCP SDK's BaseSession stores the timeout as a private
-        attribute (typically ``_read_timeout_seconds``) whose name and
-        type (``timedelta`` vs ``float``) vary across releases.  Rather
-        than guessing names, we scan ``vars(session)`` for any value
-        that equals the well-known 60 s default.
-        """
-        td = timedelta(seconds=seconds)
-        overridden = False
-
-        # Pass 1 -- instance attributes set by __init__
-        for attr_name in list(vars(session)):
-            val = getattr(session, attr_name, None)
-            if isinstance(val, timedelta) and val == _DEFAULT_SDK_TIMEOUT:
-                setattr(session, attr_name, td)
-                logger.info(
-                    "MCP session timeout: %s = %s -> %s (url=%s)",
-                    attr_name,
-                    val,
-                    td,
-                    url,
-                )
-                overridden = True
-            elif isinstance(val, (int, float)) and abs(val - 60.0) < 0.1:
-                setattr(session, attr_name, float(seconds))
-                logger.info(
-                    "MCP session timeout: %s = %s -> %s (url=%s)",
-                    attr_name,
-                    val,
-                    seconds,
-                    url,
-                )
-                overridden = True
-
-        if overridden:
-            return
-
-        # Pass 2 -- inherited / class-level attributes with "timeout" in name
-        for attr_name in dir(session):
-            if attr_name.startswith("__") or "timeout" not in attr_name.lower():
-                continue
-            try:
-                val = getattr(session, attr_name)
-            except Exception:  # nosec B112 - intentional: skip inaccessible attrs
-                continue
-            if callable(val):
-                continue
-            if isinstance(val, timedelta) and val == _DEFAULT_SDK_TIMEOUT:
-                setattr(session, attr_name, td)
-                logger.info(
-                    "MCP session timeout (class): %s = %s -> %s (url=%s)",
-                    attr_name,
-                    val,
-                    td,
-                    url,
-                )
-                overridden = True
-            elif isinstance(val, (int, float)) and abs(val - 60.0) < 0.1:
-                setattr(session, attr_name, float(seconds))
-                logger.info(
-                    "MCP session timeout (class): %s = %s -> %s (url=%s)",
-                    attr_name,
-                    val,
-                    seconds,
-                    url,
-                )
-                overridden = True
-
-        if not overridden:
-            # Dump everything for debugging so the next deploy shows
-            # exactly what the SDK stores.
-            timeout_attrs = {}
-            for a in dir(session):
-                if a.startswith("__"):
-                    continue
-                try:
-                    v = getattr(session, a)
-                except Exception:  # nosec B112 - intentional: skip inaccessible attrs
-                    continue
-                if callable(v):
-                    continue
-                if isinstance(v, (int, float, timedelta)):
-                    timeout_attrs[a] = repr(v)
+        try:
+            parameters = inspect.signature(session_cls).parameters
+        except (TypeError, ValueError):
+            parameters = {}
+        if "read_timeout_seconds" not in parameters:
             logger.warning(
-                "Could not locate 60 s default to override. "
-                "All numeric/timedelta attrs: %s (url=%s)",
-                timeout_attrs,
+                "ClientSession has no typed read_timeout_seconds parameter; "
+                "using the SDK default (url=%s)",
                 url,
             )
+            return session_cls(read, write), False
+
+        return (
+            session_cls(
+                read,
+                write,
+                read_timeout_seconds=timedelta(seconds=timeout_seconds),
+            ),
+            True,
+        )
 
     try:
         async with streamable_ctx as (read, write, _):
-            session_cm, timeout_set = _build_session(
+            session_cm, _timeout_set = _build_session(
                 session_cls, read, write, read_timeout_seconds
             )
             async with session_cm as session:
-                if read_timeout_seconds is not None and not timeout_set:
-                    _force_session_timeout(session, read_timeout_seconds)
                 await session.initialize()
                 logger.info("MCP session initialized: url=%s", url)
                 yield session
@@ -1033,17 +1123,11 @@ def patch():
     # Make MCP connection failures non-fatal during startup
     _patch_startup_resilience()
 
-    # Fix async job result loss when workflow cleanup raises
-    _patch_async_job_result_saving()
-
-    # Bypass Dask for job submission — run jobs as asyncio tasks
-    _patch_async_job_submit()
-
     _patched = True
 
 
 def _patch_tool_client():
-    """Wrap MCPToolClient tool execution with the approval gate + error logging."""
+    """Wrap NAT 1.7's exact ``MCPToolClient.acall(tool_args)`` contract."""
     global _mcp_client_available, _approval_gate_installed
     try:
         try:
@@ -1058,49 +1142,49 @@ def _patch_tool_client():
         # REQUIRED to attach. If it does not, patch() fails closed (F-006).
         _mcp_client_available = True
 
-        # Find the method that executes tool calls -- try common names
-        original_fn = None
-        method_name = None
-        for name in (
-            "_call_tool",
-            "_execute_tool",
-            "call_tool",
-            "_run_tool",
-            "_invoke",
-        ):
-            fn = getattr(MCPToolClient, name, None)
-            if fn is not None and callable(fn):
-                original_fn = fn
-                method_name = name
-                break
-
-        if original_fn is None:
-            # Fallback: wrap __call__ or run
-            for name in ("__call__", "run", "_run", "execute"):
-                fn = getattr(MCPToolClient, name, None)
-                if fn is not None and callable(fn):
-                    original_fn = fn
-                    method_name = name
-                    break
-
-        if original_fn is None:
+        method_name = "acall"
+        original_fn = getattr(MCPToolClient, method_name, None)
+        if original_fn is None or not inspect.iscoroutinefunction(original_fn):
             logger.warning(
-                "MCPToolClient: could not find tool execution method to patch. "
-                "Available methods: %s",
-                [m for m in dir(MCPToolClient) if not m.startswith("__")],
+                "MCPToolClient.acall is missing or is not async; refusing to "
+                "attach the approval gate to an unverified execution path"
+            )
+            return
+
+        signature = inspect.signature(original_fn)
+        parameter_names = list(signature.parameters)
+        if parameter_names != ["self", "tool_args"]:
+            logger.warning(
+                "Unexpected MCPToolClient.acall signature %s (expected "
+                "(self, tool_args)); approval gate not installed",
+                signature,
             )
             return
 
         import functools
 
         @functools.wraps(original_fn)
-        async def wrapped(self, *args, **kwargs):
+        async def wrapped(self, tool_args):
             tool_name = getattr(self, "_tool_name", getattr(self, "name", "unknown"))
-            url = getattr(self, "_url", getattr(self, "url", "unknown"))
-            payload = _flatten_tool_payload(args, kwargs)
+            parent_client = getattr(self, "_parent_client", None)
+            server_name = _canonical_mcp_server_name(parent_client)
+            payload = _flatten_tool_payload((tool_args,), {})
             annotations = _extract_tool_annotations(self)
+            try:
+                from nat_helpers.identity import approval_token_from_context
+
+                approval_token = approval_token_from_context()
+            except Exception:
+                approval_token = None
+            validated_binding: dict[str, str] = {}
             approved, approval_reason = _validate_mcp_approval(
-                tool_name, payload, annotations
+                tool_name,
+                payload,
+                annotations,
+                server_name,
+                approval_token,
+                getattr(self, "input_schema", None),
+                validated_binding,
             )
             if not approved:
                 logger.warning(
@@ -1109,28 +1193,75 @@ def _patch_tool_client():
                     approval_reason,
                 )
                 raise PermissionError(approval_reason)
-            _strip_approval_token(args, kwargs)
+            _strip_approval_token((tool_args,), {})
             logger.info(
-                "MCP tool call start: tool=%s url=%s args=%s kwargs=%s",
+                "MCP tool call start: server=%s tool=%s",
+                server_name,
                 tool_name,
-                url,
-                args[:2] if args else "()",
-                {k: v for k, v in kwargs.items() if k != "self"},
             )
             try:
-                result = await original_fn(self, *args, **kwargs)
-                logger.info("MCP tool call success: tool=%s", tool_name)
+                # A mutation that timed out after the server committed is
+                # ambiguous and must never be replayed automatically under one
+                # human approval. NAT's parent call_tool normally reconnects
+                # and invokes the same coroutine again. Suppress that replay
+                # for the approved call, then restore the configured behavior.
+                if approval_reason == "approved" and parent_client is not None:
+                    mutation_lock = getattr(
+                        parent_client, "_daedalus_mutation_lock", None
+                    )
+                    if mutation_lock is None:
+                        mutation_lock = asyncio.Lock()
+                        setattr(
+                            parent_client,
+                            "_daedalus_mutation_lock",
+                            mutation_lock,
+                        )
+                    async with mutation_lock:
+                        reconnect_enabled = getattr(
+                            parent_client, "_reconnect_enabled", None
+                        )
+                        if reconnect_enabled is not None:
+                            parent_client._reconnect_enabled = False
+                        try:
+                            result = await original_fn(self, tool_args)
+                        finally:
+                            if reconnect_enabled is not None:
+                                parent_client._reconnect_enabled = reconnect_enabled
+                else:
+                    result = await original_fn(self, tool_args)
+                if _mcp_result_is_error(result):
+                    # Pinned NAT converts CallToolResult(isError=True) into this
+                    # normal-looking string return. It is not a successful call
+                    # and must never mint an execution receipt.
+                    logger.error(
+                        "MCP tool call returned an application error: "
+                        "server=%s tool=%s",
+                        server_name,
+                        tool_name,
+                    )
+                else:
+                    if approval_reason == "approved":
+                        _record_approved_mcp_receipt(
+                            approval_token=approval_token,
+                            validated_binding=validated_binding,
+                        )
+                    logger.info(
+                        "MCP tool call success: server=%s tool=%s",
+                        server_name,
+                        tool_name,
+                    )
                 return result
             except Exception as exc:
                 logger.error(
-                    "MCP tool call FAILED: tool=%s url=%s error=%s(%s)\n%s",
+                    "MCP tool call failed: server=%s tool=%s error_class=%s",
+                    server_name,
                     tool_name,
-                    url,
                     type(exc).__name__,
-                    exc,
-                    traceback.format_exc(),
                 )
-                return f"Error: {tool_name} failed: {type(exc).__name__}: {exc}"
+                return (
+                    f'{{"error":"mcp_tool_failed","tool":{json.dumps(tool_name)},'
+                    f'"error_class":{json.dumps(type(exc).__name__)}}}'
+                )
 
         wrapped._daedalus_approval_gate = True
         setattr(MCPToolClient, method_name, wrapped)
@@ -1159,7 +1290,22 @@ def _verify_approval_gate_installed():
     an operator explicitly opts out (MCP_APPROVAL_GATE_OPTIONAL=1) for a
     deployment that intentionally exposes no mutating MCP tools.
     """
-    if _approval_gate_installed or not _mcp_client_available:
+    if not _mcp_client_available:
+        return
+    installed_on_acall = False
+    try:
+        try:
+            from nat.plugins.mcp.client.tool_client import MCPToolClient
+        except ImportError:
+            from nat.plugins.mcp.client.client_base import MCPToolClient
+        installed_on_acall = bool(
+            getattr(
+                getattr(MCPToolClient, "acall", None), "_daedalus_approval_gate", False
+            )
+        )
+    except ImportError:
+        installed_on_acall = False
+    if _approval_gate_installed and installed_on_acall:
         return
     if (os.getenv("MCP_APPROVAL_GATE_OPTIONAL") or "").strip().lower() in (
         "1",
@@ -1285,9 +1431,14 @@ def _patch_startup_resilience():
 
         @functools.wraps(original_add_fg)
         async def resilient_add_function_group(self, name, *args, **kwargs):
-            return await _initialize_function_group_for_startup(
+            group = await _initialize_function_group_for_startup(
                 original_add_fg, self, name, args, kwargs
             )
+            if group is not None and (
+                _looks_like_mcp_config(args, kwargs) or _is_mcp_tool_ref(name)
+            ):
+                _register_mcp_group_identity(name, group)
+            return group
 
         WorkflowBuilder.add_function_group = resilient_add_function_group
 
@@ -1463,319 +1614,6 @@ class _MCPCascadeFilter(logging.Filter):
             record.levelno = logging.DEBUG
             record.levelname = "DEBUG"
         return True
-
-
-def _patch_async_job_result_saving():
-    """Fix NAT async job result loss caused by workflow cleanup errors.
-
-    Problem A: NAT's run_generation() in async_job.py places
-    update_status(SUCCESS) AFTER the ``async with load_workflow`` block.
-    When the WorkflowBuilder cleanup raises (e.g. RuntimeError from async
-    generator teardown of MCP connections), the exception skips the
-    SUCCESS update and the except handler marks the job as FAILURE — even
-    though the workflow produced a valid result.
-
-    Fix A: Monkey-patch run_generation() to save the result INSIDE the
-    load_workflow context, before cleanup runs.  Cleanup errors are then
-    logged as warnings but do not affect job status.
-
-    Problem B: When an active cancel scope injects CancelledError into the
-    workflow, the error handler's own ``await job_store.update_status()``
-    is also cancelled by the same scope, leaving the job permanently stuck
-    in RUNNING status.  Additionally, ``except Exception`` misses
-    CancelledError in Python 3.9+ (it became a BaseException), so cleanup
-    cancellations bypass the result-already-saved check entirely.
-
-    Fix B: Schedule error-handler status updates via
-    ``asyncio.ensure_future()`` (fire-and-forget) so they run as
-    independent tasks outside the cancel scope.  ``asyncio.shield()``
-    alone is insufficient because the ``await`` itself is cancelled.
-    Catch CancelledError alongside Exception in the inner cleanup
-    handler.
-    """
-    try:
-        import nat.front_ends.fastapi.async_jobs.async_job as async_job_mod
-
-        async def patched_run_generation(
-            configure_logging,
-            log_level,
-            scheduler_address,
-            db_url,
-            config_file_path,
-            job_id,
-            payload,
-            serialized_request=None,
-        ):
-            from nat.front_ends.fastapi.async_jobs.job_store import JobStatus, JobStore
-            from nat.front_ends.fastapi.response_helpers import generate_single_response
-            from nat.runtime.loader import load_workflow
-
-            _logger = async_job_mod._configure_logging(configure_logging, log_level)
-
-            job_store = None
-            try:
-                job_store = JobStore(scheduler_address=scheduler_address, db_url=db_url)
-                await job_store.update_status(job_id, JobStatus.RUNNING)
-
-                http_connection = None
-                if serialized_request is not None:
-                    from fastapi import Request
-
-                    http_connection = Request(scope=serialized_request)
-
-                result = None
-                try:
-                    async with load_workflow(config_file_path) as local_session_manager:
-                        async with local_session_manager.session(
-                            http_connection=http_connection
-                        ) as session:
-                            result = await generate_single_response(
-                                payload,
-                                session,
-                                result_type=session.workflow.single_output_schema,
-                            )
-                        # Save result INSIDE the context, before cleanup
-                        await job_store.update_status(
-                            job_id, JobStatus.SUCCESS, output=result
-                        )
-                        _logger.info("Async job %s result saved successfully", job_id)
-                except (Exception, asyncio.CancelledError) as cleanup_err:
-                    # Check if we already saved the result before the error.
-                    # Catch CancelledError too: in Python 3.9+ it is a
-                    # BaseException and would bypass ``except Exception``,
-                    # skipping the result-already-saved check and letting the
-                    # outer handler overwrite a SUCCESS status.
-                    if result is not None:
-                        try:
-                            job = await asyncio.shield(job_store.get_job(job_id))
-                            if job and job.status == JobStatus.SUCCESS:
-                                _logger.warning(
-                                    "Async job %s completed but cleanup failed "
-                                    "(result already saved): %s",
-                                    job_id,
-                                    cleanup_err,
-                                )
-                                return
-                            # Result exists in memory but was not persisted
-                            # (e.g. update_status(SUCCESS) itself was
-                            # cancelled).  Retry the save.
-                            await asyncio.shield(
-                                job_store.update_status(
-                                    job_id, JobStatus.SUCCESS, output=result
-                                )
-                            )
-                            _logger.info(
-                                "Async job %s result saved on retry "
-                                "after cleanup error",
-                                job_id,
-                            )
-                            return
-                        except (asyncio.CancelledError, Exception):
-                            pass
-                    raise
-
-            except asyncio.CancelledError:
-                _logger.info("Async job %s cancelled", job_id)
-                if job_store is not None:
-                    # Don't ``await`` — the active cancel scope cancels every
-                    # await point, even through asyncio.shield().  Fire-and-
-                    # forget as an independent task on the event loop instead.
-                    _bg = asyncio.ensure_future(
-                        job_store.update_status(
-                            job_id, JobStatus.INTERRUPTED, error="cancelled"
-                        )
-                    )
-                    _bg.add_done_callback(
-                        lambda t: t.exception() if not t.cancelled() else None
-                    )
-            except Exception as e:
-                _logger.exception("Error in async job %s", job_id)
-                if job_store is not None:
-                    _bg = asyncio.ensure_future(
-                        job_store.update_status(job_id, JobStatus.FAILURE, error=str(e))
-                    )
-                    _bg.add_done_callback(
-                        lambda t: t.exception() if not t.cancelled() else None
-                    )
-
-        async_job_mod.run_generation = patched_run_generation
-        logger.info(
-            "Async job run_generation patch applied — "
-            "result saved before workflow cleanup"
-        )
-
-    except ImportError as exc:
-        logger.warning("Could not patch async job run_generation: %s", exc)
-    except Exception as exc:
-        logger.warning("Unexpected error patching async job run_generation: %s", exc)
-
-
-# Tracks job IDs whose background submission is still in flight.
-# Prevents duplicate submissions when the frontend retries with the same ID.
-_inflight_submissions: set[str] = set()
-
-# Strong references to background tasks so they aren't garbage-collected.
-_background_tasks: set[asyncio.Task] = set()
-
-
-def _max_concurrent_jobs() -> int:
-    """Bound on concurrently-executing background workflow runs (F-010).
-
-    Configurable via MCP_MAX_CONCURRENT_JOBS; defaults to 8. A burst of job
-    submissions must not spawn unbounded concurrent workflow runs (each one
-    loads a workflow + holds MCP/LLM connections), which can exhaust memory
-    and connection pools. Values <= 0 fall back to the default.
-    """
-    raw = (os.getenv("MCP_MAX_CONCURRENT_JOBS") or "").strip()
-    try:
-        value = int(raw)
-    except ValueError:
-        return 8
-    return value if value > 0 else 8
-
-
-# Bounds concurrent background job execution. Lazily created on the running
-# event loop inside the submit patch so it binds to the correct loop.
-_job_semaphore: asyncio.Semaphore | None = None
-
-
-def _get_job_semaphore() -> asyncio.Semaphore:
-    """Return the process-wide job concurrency semaphore (lazy init)."""
-    global _job_semaphore
-    if _job_semaphore is None:
-        _job_semaphore = asyncio.Semaphore(_max_concurrent_jobs())
-    return _job_semaphore
-
-
-def _patch_async_job_submit():
-    """Bypass Dask for job submission — run jobs as asyncio tasks.
-
-    NAT's ``JobStore.submit_job()`` uses Dask's distributed scheduler
-    to execute job functions.  The Dask scheduler is prone to connection
-    timeouts that freeze the event loop and kill the pod.
-
-    This patch replaces the Dask-based submission with direct asyncio task
-    execution.  Job functions run on the existing event loop (or in a thread
-    for sync functions), eliminating the Dask dependency entirely.
-    """
-    try:
-        from nat.front_ends.fastapi.async_jobs.job_store import JobStore
-
-        if getattr(JobStore.submit_job, "_daedalus_dask_bypass", False):
-            logger.info("JobStore.submit_job patch already applied")
-            return
-
-        _original_submit_job = JobStore.submit_job
-
-        async def patched_submit_job(
-            self,
-            *,
-            job_id=None,
-            config_file=None,
-            expiry_seconds=JobStore.DEFAULT_EXPIRY,
-            sync_timeout=0,
-            job_fn=None,
-            job_args=None,
-            **job_kwargs,
-        ):
-            from nat.front_ends.fastapi.async_jobs.job_store import JobStatus
-
-            job_args = job_args or []
-
-            # Async DB work — safe on the event loop
-            job_id = await self._create_job(
-                job_id=job_id,
-                config_file=config_file,
-                expiry_seconds=expiry_seconds,
-            )
-
-            # ── Deduplication guard ──────────────────────────────────────
-            if job_id in _inflight_submissions:
-                logger.warning(
-                    "Job submission already in flight for job %s, skipping duplicate",
-                    job_id,
-                )
-                return (job_id, None)
-
-            _inflight_submissions.add(job_id)
-
-            # Bound concurrent workflow runs (F-010). Acquired INSIDE the
-            # background task so submit_job still returns immediately; a burst
-            # of submissions queues here rather than spawning unbounded
-            # concurrent runs. NOTE (residual): this bound is per-process and
-            # in-memory only — it does not survive a pod restart, and durable
-            # resume of queued/in-flight jobs across restarts is broader work
-            # tracked separately (see Fix 11 / async-job durability).
-            semaphore = _get_job_semaphore()
-
-            async def _run_job():
-                """Execute the job function directly, bypassing Dask."""
-                try:
-                    async with semaphore:
-                        if asyncio.iscoroutinefunction(job_fn):
-                            result = await job_fn(*job_args, **job_kwargs)
-                        else:
-                            result = await asyncio.to_thread(
-                                job_fn, *job_args, **job_kwargs
-                            )
-                        if asyncio.iscoroutine(result):
-                            result = await result
-                        return result
-                except Exception as exc:
-                    _msg = f"Job {job_id} failed: {exc}"
-                    logger.error(_msg)
-                    try:
-                        await self.update_status(job_id, JobStatus.FAILURE, error=_msg)
-                    except Exception:
-                        logger.exception("Failed to mark job %s as FAILURE", job_id)
-                    raise
-                finally:
-                    _inflight_submissions.discard(job_id)
-
-            # Fire-and-forget background execution.  sync_timeout only waits
-            # for an early result; it must not cancel the real job on timeout.
-            task = asyncio.create_task(_run_job())
-            _background_tasks.add(task)
-
-            def _finalize_task(done_task):
-                _background_tasks.discard(done_task)
-                if not done_task.cancelled():
-                    done_task.exception()
-
-            task.add_done_callback(_finalize_task)
-
-            # ── sync_timeout > 0: caller wants to wait for result ────────
-            if sync_timeout > 0:
-                try:
-                    await asyncio.wait_for(asyncio.shield(task), timeout=sync_timeout)
-                    job = await self.get_job(job_id)
-                    return (job_id, job)
-                except TimeoutError:
-                    logger.warning(
-                        "Job %s did not complete within sync_timeout=%ds, "
-                        "continuing in background",
-                        job_id,
-                        sync_timeout,
-                    )
-                except Exception as exc:
-                    _msg = f"Job {job_id} failed: {exc}"
-                    logger.error(_msg)
-                    raise RuntimeError(_msg) from exc
-
-            return (job_id, None)
-
-        patched_submit_job._daedalus_dask_bypass = True
-        patched_submit_job._daedalus_original_submit_job = _original_submit_job
-        JobStore.submit_job = patched_submit_job
-        logger.info(
-            "JobStore.submit_job patch applied — "
-            "jobs run as asyncio tasks (Dask bypassed)"
-        )
-
-    except ImportError as exc:
-        logger.warning("Could not patch JobStore.submit_job: %s", exc)
-    except Exception as exc:
-        logger.warning("Unexpected error patching JobStore.submit_job: %s", exc)
 
 
 def _install_mcp_log_filters():

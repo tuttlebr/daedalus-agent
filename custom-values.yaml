@@ -7,6 +7,8 @@ global:
     allowedNodes: ['daedalus-01', 'daedalus-02', 'daedalus-03', 'daedalus-04']
 
 images:
+  # deploy.sh rebuilds and pushes these application version tags in place, so
+  # every forced rollout must fetch the newly pushed manifest and layers.
   builder:
     repository: daedalus.ddns.me:5050/btuttle/daedalus
     tag: builder-0.1.0
@@ -22,15 +24,18 @@ images:
   nginx:
     repository: nginx
     tag: alpine
+    # `alpine` is a floating upstream tag.
     pullPolicy: Always
   redis:
     repository: redis/redis-stack-server
+    # This matches the existing persistent Redis AOF/RDB format. Do not
+    # downgrade it without a separately tested data migration.
     tag: '7.4.0-v8'
-    pullPolicy: Always
+    pullPolicy: IfNotPresent
   redisinsight:
     repository: redis/redisinsight
-    tag: '3.2'
-    pullPolicy: Always
+    tag: '2.70'
+    pullPolicy: IfNotPresent
 
 backend:
   # Default backend configuration
@@ -112,9 +117,6 @@ frontend:
     overrides:
       # Backend API path - controls which NAT API endpoint to use
       # Supported values: /chat, /chat/stream, /generate, /generate/stream, /v1/chat/completions
-      # Uploaded document ingestion uses the direct streaming endpoint by default.
-      # Set to "0" only to force the legacy NAT async fallback.
-      DAEDALUS_DIRECT_DOCUMENT_INGEST_STREAM: '1'
       # V8 heap ceiling — sized under the pod memory limit to leave headroom for off-heap Buffers
       # during large-document base64 decode (200MB doc ≈ 267MB base64 + multiple copies in flight)
       NODE_OPTIONS: '--max-old-space-size=8192'
@@ -132,13 +134,11 @@ nginx:
   config:
     useTemplate: true
     restrictedMode: true # Set to true to block direct API access through nginx
-    clientMaxBodySize: '1G' # Supports large image/document payloads; base64 adds ~33% overhead
+    clientMaxBodySize: '268M' # Hard ceiling for encoded uploads; routes enforce smaller raw limits
+    documentUploadMaxBodySize: '268M' # Matches Next's static JSON parser ceiling
     # If useTemplate is false, rawConf is used
     rawConf: |
       # Provide nginx conf if not using template
-    # Leave empty to default to the in-cluster FQDN of the backend Service
-    backendHost: ''
-    backendPort: 8000
   imageVolume:
     enabled: true
     storageClassName: ''
@@ -164,7 +164,9 @@ redis:
     port: 6379
 
 redisinsight:
-  enabled: true
+  # Keep the administrative UI off in production; enable it only for
+  # time-bounded maintenance through a private access path or port-forward.
+  enabled: false
   securityContext:
     runAsNonRoot: true
     runAsUser: 977
@@ -190,8 +192,8 @@ autonomousAgent:
   securityContext: {}
   # Poll timeout for async workflow completion
   requestTimeout: 3600
-  # Which backend API path to use (/v1/workflow/async for submit+poll, /chat/stream for SSE)
-  backendApiPath: '/v1/workflow/async'
+  # Reuse the loaded backend workflow over SSE.
+  backendApiPath: '/v1/chat/completions'
   # User whose memory and conversation history the agent operates on
   userId: 'tuttlebr'
   worker:

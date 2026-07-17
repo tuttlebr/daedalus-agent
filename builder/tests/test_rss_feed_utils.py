@@ -1,5 +1,6 @@
 """Unit tests for rss_feed utility functions and data models."""
 
+import socket
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -271,11 +272,39 @@ class TestRssSearchResponse:
 
 
 class TestFeedUrlRejectionReason:
-    def test_public_https_feed_allowed(self):
+    def test_public_https_feed_allowed(self, monkeypatch):
+        monkeypatch.setattr(
+            socket,
+            "getaddrinfo",
+            lambda *_args, **_kwargs: [
+                (socket.AF_INET, None, None, "", ("93.184.216.34", 0))
+            ],
+        )
         assert _feed_url_rejection_reason("https://feeds.example.com/rss") is None
 
-    def test_public_http_feed_allowed(self):
+    def test_public_http_feed_allowed(self, monkeypatch):
+        monkeypatch.setattr(
+            socket,
+            "getaddrinfo",
+            lambda *_args, **_kwargs: [
+                (socket.AF_INET, None, None, "", ("93.184.216.34", 0))
+            ],
+        )
         assert _feed_url_rejection_reason("http://feeds.example.com/rss") is None
+
+    def test_hostname_resolving_private_is_rejected(self, monkeypatch):
+        monkeypatch.setattr(
+            socket,
+            "getaddrinfo",
+            lambda *_args, **_kwargs: [
+                (socket.AF_INET, None, None, "", ("169.254.169.254", 0))
+            ],
+        )
+
+        reason = _feed_url_rejection_reason("https://rebind.example/rss")
+
+        assert reason is not None
+        assert "non-public" in reason.lower()
 
     def test_non_http_scheme_rejected(self):
         reason = _feed_url_rejection_reason("file:///etc/passwd")
@@ -318,6 +347,28 @@ class TestScrapeContent:
             )
         assert isinstance(content, str)
         assert isinstance(was_truncated, bool)
+
+    def test_hostname_resolving_private_is_rejected_before_markitdown(
+        self, monkeypatch
+    ):
+        monkeypatch.setattr(
+            socket,
+            "getaddrinfo",
+            lambda *_args, **_kwargs: [
+                (socket.AF_INET, None, None, "", ("10.0.0.6", 0))
+            ],
+        )
+        markitdown = MagicMock()
+
+        with patch.object(rss_mod, "MarkItDown", markitdown):
+            content, was_truncated = _scrape_content(
+                "https://rebind.example/article", 64000, "TRUNC"
+            )
+
+        assert content.startswith("Error: ")
+        assert "non-public" in content.lower()
+        assert was_truncated is False
+        markitdown.assert_not_called()
 
     def test_content_includes_title(self):
         mock_md = self._make_mock_md(title="My Article Title")

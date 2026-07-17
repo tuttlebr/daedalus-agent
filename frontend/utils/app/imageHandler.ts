@@ -34,14 +34,18 @@ export async function uploadImage(
   base64Data: string,
   mimeType: string = 'image/jpeg',
   signal?: AbortSignal,
+  owner?: { sessionId: string; userId: string },
 ): Promise<ImageReference> {
   try {
     if (typeof window === 'undefined') {
       const { storeImage } = await import('@/pages/api/session/imageStorage');
-      const { randomUUID } = await import('crypto');
+      if (!owner?.sessionId || !owner.userId) {
+        throw new Error(
+          'Server-side image storage requires an authenticated owner',
+        );
+      }
 
-      const sessionId = randomUUID();
-      const userId = undefined;
+      const { sessionId, userId } = owner;
 
       const stored = await storeImage(sessionId, userId, base64Data, mimeType);
 
@@ -631,7 +635,10 @@ export function stripBase64Content(obj: any): any {
 }
 
 // Process markdown content to extract and store base64 images, replacing them with references
-export async function processMarkdownImages(content: string): Promise<string> {
+export async function processMarkdownImages(
+  content: string,
+  owner?: { sessionId: string; userId: string },
+): Promise<string> {
   if (!content || typeof content !== 'string') {
     return content;
   }
@@ -667,7 +674,12 @@ export async function processMarkdownImages(content: string): Promise<string> {
         const mimeType = mimeTypeMatch ? mimeTypeMatch[1] : 'image/png';
 
         // Upload to Redis
-        const imageRef = await uploadImage(base64Data, mimeType);
+        const imageRef = await uploadImage(
+          base64Data,
+          mimeType,
+          undefined,
+          owner,
+        );
 
         // Create a reference URL that can be rendered
         const imageUrl = getImageUrl(imageRef);

@@ -1,27 +1,38 @@
 """Tests for the backend container entrypoint."""
 
 import logging
-import os
 
 import entrypoint
 import fastapi
 import pytest
 
 
-def test_optional_tool_env_defaults_do_not_seed_unlisted_keys(monkeypatch):
-    monkeypatch.delenv("UNLISTED_OPTIONAL_KEY", raising=False)
+def test_runtime_versions_accept_the_pinned_abi(monkeypatch):
+    versions = {
+        "nvidia-nat-core": "1.7.0",
+        "nvidia-nat-mcp": "1.7.0",
+        "starlette": "0.48.0",
+    }
+    monkeypatch.setattr(entrypoint, "version", versions.__getitem__)
 
-    entrypoint._configure_optional_tool_env(logging.getLogger("test"))
-
-    assert "UNLISTED_OPTIONAL_KEY" not in os.environ
+    entrypoint._assert_runtime_versions()
 
 
-def test_optional_tool_env_defaults_leave_existing_env_untouched(monkeypatch):
-    monkeypatch.setenv("UNLISTED_OPTIONAL_KEY", "real-key")
+@pytest.mark.parametrize(
+    "distribution,installed",
+    [("nvidia-nat-core", "1.8.0"), ("nvidia-nat-mcp", "1.6.0")],
+)
+def test_runtime_versions_reject_unknown_nat_abi(monkeypatch, distribution, installed):
+    versions = {
+        "nvidia-nat-core": "1.7.0",
+        "nvidia-nat-mcp": "1.7.0",
+        "starlette": "0.48.0",
+    }
+    versions[distribution] = installed
+    monkeypatch.setattr(entrypoint, "version", versions.__getitem__)
 
-    entrypoint._configure_optional_tool_env(logging.getLogger("test"))
-
-    assert os.environ["UNLISTED_OPTIONAL_KEY"] == "real-key"
+    with pytest.raises(RuntimeError, match="Unsupported"):
+        entrypoint._assert_runtime_versions()
 
 
 class _FakeFastAPI:
@@ -29,9 +40,17 @@ class _FakeFastAPI:
 
     def __init__(self, *args, **kwargs):
         self.included_routers = []
+        self.middleware = []
+        self.routes = []
+
+    def add_middleware(self, middleware):
+        self.middleware.append(middleware)
 
     def include_router(self, router):
         self.included_routers.append(router)
+
+    def add_api_route(self, path, endpoint, **kwargs):
+        self.routes.append((path, endpoint, kwargs))
 
 
 def test_daedalus_routes_attached_on_fastapi_construction(monkeypatch):
@@ -43,6 +62,8 @@ def test_daedalus_routes_attached_on_fastapi_construction(monkeypatch):
 
     app = fastapi.FastAPI()
     assert len(app.included_routers) == 3
+    assert len(app.middleware) == 1
+    assert [path for path, _endpoint, _kwargs in app.routes] == ["/health/ready"]
     assert getattr(app, "_daedalus_routes_attached", False) is True
 
 

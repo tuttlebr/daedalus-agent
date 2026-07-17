@@ -22,7 +22,6 @@ ENV UV_CONCURRENT_DOWNLOADS=4
 
 RUN export DEBIAN_FRONTEND=noninteractive && \
     apt-get update && \
-    apt upgrade -y && \
     apt-get install --no-install-recommends -y \
     build-essential \
     ca-certificates \
@@ -43,21 +42,22 @@ ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
 
 WORKDIR /workspace
 
+# Install the runtime and compatibility constraints used by the loaded workflow.
 RUN --mount=type=cache,id=uv_cache,target=/root/.cache/uv,sharing=locked \
     uv venv --python ${PYTHON_VERSION} /workspace/.venv && \
     . /workspace/.venv/bin/activate && \
     uv pip install --prerelease=allow \
-    "nvidia-nat[redis,mcp,langchain,phoenix,async_endpoints] @ git+https://github.com/NVIDIA/NeMo-Agent-Toolkit.git@${NAT_VERSION}" \
-    "pydantic<2.14"
+    "nvidia-nat[redis,mcp,langchain,phoenix] @ git+https://github.com/NVIDIA/NeMo-Agent-Toolkit.git@${NAT_VERSION}" \
+    "pydantic<2.14" \
+    "starlette<1.0"
 
 ENV PATH="/workspace/.venv/bin:$PATH"
 
 FROM base AS backend
 SHELL ["/bin/bash", "-c"]
 WORKDIR /workspace
-RUN source /workspace/.venv/bin/activate
 
-ARG BUILDER_PACKAGES="nat_helpers visual_media nat_nv_ingest smart_milvus webscrape rss_feed vtt_interpreter agent_skills serpapi_search perplexity_search content_distiller source_verifier user_interaction autonomous_agent llm_sandbox"
+ARG BUILDER_PACKAGES="nat_helpers visual_media nat_nv_ingest smart_milvus webscrape rss_feed vtt_interpreter agent_skills perplexity_search content_distiller source_verifier user_interaction autonomous_agent llm_sandbox"
 
 # Install dependency metadata before copying source so normal code edits do not
 # invalidate the expensive dependency resolution and download layer.
@@ -69,7 +69,6 @@ COPY webscrape/pyproject.toml /workspace/webscrape/
 COPY rss_feed/pyproject.toml /workspace/rss_feed/
 COPY vtt_interpreter/pyproject.toml /workspace/vtt_interpreter/
 COPY agent_skills/pyproject.toml /workspace/agent_skills/
-COPY serpapi_search/pyproject.toml /workspace/serpapi_search/
 COPY perplexity_search/pyproject.toml /workspace/perplexity_search/
 COPY content_distiller/pyproject.toml /workspace/content_distiller/
 COPY source_verifier/pyproject.toml /workspace/source_verifier/
@@ -97,7 +96,6 @@ COPY webscrape /workspace/webscrape
 COPY rss_feed /workspace/rss_feed
 COPY vtt_interpreter /workspace/vtt_interpreter
 COPY agent_skills /workspace/agent_skills
-COPY serpapi_search /workspace/serpapi_search
 COPY perplexity_search /workspace/perplexity_search
 COPY content_distiller /workspace/content_distiller
 COPY source_verifier /workspace/source_verifier
@@ -117,7 +115,6 @@ RUN --mount=type=cache,id=uv_cache,target=/root/.cache/uv,sharing=locked \
     NAT_VERSION= nat workflow reinstall rss_feed && \
     NAT_VERSION= nat workflow reinstall vtt_interpreter && \
     NAT_VERSION= nat workflow reinstall agent_skills && \
-    NAT_VERSION= nat workflow reinstall serpapi_search && \
     NAT_VERSION= nat workflow reinstall perplexity_search && \
     NAT_VERSION= nat workflow reinstall content_distiller && \
     NAT_VERSION= nat workflow reinstall source_verifier && \
@@ -127,13 +124,16 @@ RUN --mount=type=cache,id=uv_cache,target=/root/.cache/uv,sharing=locked \
 COPY entrypoint.py /workspace/entrypoint.py
 COPY llm_diagnostics.py /workspace/llm_diagnostics.py
 COPY mcp_patches.py /workspace/mcp_patches.py
+COPY runtime_contract_check.py /workspace/runtime_contract_check.py
 COPY image_api.py /workspace/image_api.py
 COPY document_ingest_api.py /workspace/document_ingest_api.py
 COPY profile_import_api.py /workspace/profile_import_api.py
 COPY --from=skills . /skills
 
-# Ensure baked files are accessible when running as non-root (K8s securityContext),
-# and provide NAT's cwd-relative async job temp directory.
+# Exercise the real installed NAT ABI, not the unit-test framework fakes.
+RUN python /workspace/runtime_contract_check.py
+
+# Ensure baked files are accessible when running as non-root (K8s securityContext).
 RUN chmod -R a+rX \
     /workspace/nat_helpers \
     /workspace/visual_media \
@@ -143,7 +143,6 @@ RUN chmod -R a+rX \
     /workspace/rss_feed \
     /workspace/vtt_interpreter \
     /workspace/agent_skills \
-    /workspace/serpapi_search \
     /workspace/perplexity_search \
     /workspace/content_distiller \
     /workspace/source_verifier \
@@ -153,12 +152,12 @@ RUN chmod -R a+rX \
     /workspace/entrypoint.py \
     /workspace/llm_diagnostics.py \
     /workspace/mcp_patches.py \
+    /workspace/runtime_contract_check.py \
     /workspace/image_api.py \
     /workspace/document_ingest_api.py \
     /workspace/profile_import_api.py \
-    /skills && \
-    mkdir -p /workspace/.tmp && \
-    chmod 1777 /workspace/.tmp
+    /skills
 
 WORKDIR /workspace
+USER 1000:1000
 ENTRYPOINT ["python", "entrypoint.py"]

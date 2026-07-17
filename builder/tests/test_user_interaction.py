@@ -16,6 +16,9 @@ class FakeRedis:
     def get(self, key):
         return self.store.get(key)
 
+    def getdel(self, key):
+        return self.store.pop(key, None)
+
     def delete(self, *keys):
         deleted = 0
         for key in keys:
@@ -28,6 +31,11 @@ class FakeRedis:
         import fnmatch
 
         return (key for key in list(self.store) if fnmatch.fnmatch(key, pattern))
+
+    def execute_command(self, command, key):
+        if command != "JSON.GET":
+            raise ValueError(command)
+        return self.store.get(key)
 
 
 def run(coro):
@@ -70,6 +78,33 @@ class TestUserInteractionRegistration:
         assert "confirm_research_plan" in fn_names
         assert "present_options" in fn_names
         assert "delete_memory_guarded" in fn_names
+
+
+def test_mcp_argument_preview_redacts_nested_and_embedded_credentials():
+    from user_interaction.approval_tokens import (
+        canonicalize_mcp_arguments,
+        redacted_mcp_arguments,
+    )
+
+    canonical, _ = canonicalize_mcp_arguments(
+        json.dumps(
+            {
+                "name": "safe-resource",
+                "headers": {"Authorization": "Bearer nested-secret"},
+                "command": "curl -H 'Authorization: Bearer command-secret' https://x",
+                "env": ["API_TOKEN=environment-secret", "MODE=production"],
+                "url": "https://user:url-secret@example.test/path",
+            }
+        )
+    )
+
+    preview = redacted_mcp_arguments(canonical)
+    assert "safe-resource" in preview
+    assert "nested-secret" not in preview
+    assert "command-secret" not in preview
+    assert "environment-secret" not in preview
+    assert "url-secret" not in preview
+    assert preview.count("[REDACTED]") >= 4
 
 
 class TestClarify:
@@ -175,27 +210,120 @@ class TestConfirmAction:
 
         run(_run())
 
-    def test_confirmation_can_issue_approval_token(self):
+    def test_confirmation_does_not_issue_approval_token(self):
         async def _run():
+            fake_redis = FakeRedis()
+            items = await _get_tools()
+            confirm_fn = next(i.fn for i in items if i.fn.__name__ == "confirm_action")
+            result = await confirm_fn(
+                action="Delete memories",
+                reason="User requested it",
+                user_id="brandon",
+                action_type="delete_memory",
+                target="brandon",
+            )
+            assert "No executable credential has been created" in result
+            assert "Approval scope" in result
+            assert fake_redis.store == {}
+
+        run(_run())
+
+    def test_mcp_confirmation_records_exact_server_tool_and_arguments(self):
+        async def _run():
+            fake_redis = FakeRedis()
             import user_interaction.user_interaction_function as mod
 
-            fake_redis = FakeRedis()
             with patch.object(mod, "make_redis_client", return_value=fake_redis):
                 items = await _get_tools()
                 confirm_fn = next(
                     i.fn for i in items if i.fn.__name__ == "confirm_action"
                 )
                 result = await confirm_fn(
-                    action="Delete memories",
+                    action="Scale the production API",
                     reason="User requested it",
                     user_id="brandon",
-                    action_type="delete_memory",
-                    target="brandon",
+                    action_type="mcp_mutation",
+                    target="production/api",
+                    server_name="k8s_mcp_server",
+                    tool_name="scale_deployment",
+                    arguments_json=json.dumps(
+                        {
+                            "namespace": "production",
+                            "name": "api",
+                            "replicas": 3,
+                            "api_token": "must-not-be-displayed",
+                        }
+                    ),
                 )
-            assert "approval token" in result.lower()
-            assert len(fake_redis.store) == 1
+            return result, fake_redis
 
-        run(_run())
+        result, fake_redis = run(_run())
+
+        assert "server_name=`k8s_mcp_server`" in result
+        assert "tool_name=`scale_deployment`" in result
+        assert "approval_request_id=`" in result
+        assert "arguments_sha256=`" in result
+        assert "approval_token" not in result
+        assert "must-not-be-displayed" not in result
+        assert "[REDACTED]" in result
+        assert len(fake_redis.store) == 1
+        pending_key, raw_pending = next(iter(fake_redis.store.items()))
+        assert pending_key.startswith("approval-pending:")
+        pending = json.loads(raw_pending)
+        assert pending["canonical_arguments"].endswith('"replicas":3}')
+        assert pending["arguments_preview"].startswith('{"api_token":"[REDACTED]"')
+
+    def test_interactive_chat_cannot_create_mcp_mutation_intent(self):
+        async def _run():
+            fake_redis = FakeRedis()
+            import sys
+            from types import SimpleNamespace
+
+            import user_interaction.user_interaction_function as mod
+
+            class _ChatContext:
+                @staticmethod
+                def get():
+                    return SimpleNamespace(
+                        metadata=SimpleNamespace(
+                            headers={
+                                "x-user-id": "brandon",
+                                "x-daedalus-execution-scope": "",
+                            }
+                        )
+                    )
+
+            with (
+                patch.object(mod, "make_redis_client", return_value=fake_redis),
+                patch.object(
+                    mod,
+                    "_authenticated_user_or_fallback",
+                    return_value="brandon",
+                ),
+                patch.dict(
+                    sys.modules,
+                    {"nat.builder.context": SimpleNamespace(Context=_ChatContext)},
+                ),
+            ):
+                items = await _get_tools()
+                confirm_fn = next(
+                    i.fn for i in items if i.fn.__name__ == "confirm_action"
+                )
+                result = await confirm_fn(
+                    action="Scale the production API",
+                    reason="Requested in chat",
+                    user_id="brandon",
+                    action_type="mcp_mutation",
+                    target="production/api",
+                    server_name="k8s_mcp_server",
+                    tool_name="scale_deployment",
+                    arguments_json='{"replicas":3}',
+                )
+            return result, fake_redis
+
+        result, fake_redis = run(_run())
+        assert "only through the Autonomy dashboard" in result
+        assert fake_redis.store == {}
 
     def test_memory_update_redirects_to_add_memory_without_confirmation(self):
         async def _run():
@@ -334,32 +462,26 @@ class TestConfirmResearchPlan:
         assert "Estimated tool calls" in result
         assert "Reply yes" in result
 
-    def test_records_scoped_approval_token(self):
+    def test_records_scoped_pending_approval_without_token(self):
         async def _run():
-            import user_interaction.user_interaction_function as mod
-
             fake_redis = FakeRedis()
-            with patch.object(mod, "make_redis_client", return_value=fake_redis):
-                items = await _get_tools()
-                confirm_fn = next(
-                    i.fn for i in items if i.fn.__name__ == "confirm_research_plan"
-                )
-                result = await confirm_fn(
-                    title="Deep report",
-                    sections_json=json.dumps(["Plan", "Evidence"]),
-                    user_id="brandon",
-                    target="report:aiq",
-                )
+            items = await _get_tools()
+            confirm_fn = next(
+                i.fn for i in items if i.fn.__name__ == "confirm_research_plan"
+            )
+            result = await confirm_fn(
+                title="Deep report",
+                sections_json=json.dumps(["Plan", "Evidence"]),
+                user_id="brandon",
+                target="report:aiq",
+            )
             return result, fake_redis
 
         result, fake_redis = run(_run())
 
-        assert "Approval token recorded" in result
+        assert "No approval credential has been created" in result
         assert "deep_research_plan" in result
-        assert len(fake_redis.store) == 1
-        payload = json.loads(next(iter(fake_redis.store.values())))
-        assert payload["action_type"] == "deep_research_plan"
-        assert payload["target"] == "report:aiq"
+        assert fake_redis.store == {}
 
 
 class TestDeleteMemoryGuarded:
@@ -394,8 +516,12 @@ class TestDeleteMemoryGuarded:
                     target="brandon",
                 ),
             )
-            fake_redis.store["nat:memory:brandon:1"] = "a"
-            fake_redis.store["nat:memory:someoneelse:1"] = "b"
+            fake_redis.store["nat:memory:deadbeef"] = json.dumps(
+                {"user_id": "brandon", "memory": "a"}
+            )
+            fake_redis.store["nat:memory:brandon12"] = json.dumps(
+                {"user_id": "someoneelse", "memory": "b"}
+            )
 
             import user_interaction.user_interaction_function as mod
 
@@ -408,8 +534,8 @@ class TestDeleteMemoryGuarded:
                 second = await delete_fn(user_id="brandon", approval_token=token)
 
             assert "Deleted 1" in result
-            assert "nat:memory:brandon:1" not in fake_redis.store
-            assert "nat:memory:someoneelse:1" in fake_redis.store
+            assert "nat:memory:deadbeef" not in fake_redis.store
+            assert "nat:memory:brandon12" in fake_redis.store
             assert "denied" in second
 
         run(_run())
@@ -430,8 +556,12 @@ class TestDeleteMemoryGuarded:
                     target="tuttlebr",
                 ),
             )
-            fake_redis.store["nat:memory:tuttlebr:1"] = "a"
-            fake_redis.store["nat:memory:Brandon Tuttle:1"] = "b"
+            fake_redis.store["nat:memory:1234abcd"] = json.dumps(
+                {"user_id": "tuttlebr", "memory": "a"}
+            )
+            fake_redis.store["nat:memory:tuttlebr"] = json.dumps(
+                {"user_id": "Brandon Tuttle", "memory": "b"}
+            )
 
             import user_interaction.user_interaction_function as mod
 
@@ -453,7 +583,27 @@ class TestDeleteMemoryGuarded:
                 )
 
             assert "Deleted 1" in result
-            assert "nat:memory:tuttlebr:1" not in fake_redis.store
-            assert "nat:memory:Brandon Tuttle:1" in fake_redis.store
+            assert "nat:memory:1234abcd" not in fake_redis.store
+            assert "nat:memory:tuttlebr" in fake_redis.store
 
         run(_run())
+
+    def test_confirm_delete_memory_rejects_different_target(self):
+        async def _run():
+            import user_interaction.user_interaction_function as mod
+
+            with patch.object(
+                mod, "_authenticated_user_or_fallback", return_value="alice"
+            ):
+                items = await _get_tools()
+                confirm_fn = next(
+                    i.fn for i in items if i.fn.__name__ == "confirm_action"
+                )
+                return await confirm_fn(
+                    action="Delete my memory",
+                    reason="requested",
+                    action_type="delete_memory",
+                    target="harmless-label",
+                )
+
+        assert "must match the authenticated user" in run(_run())

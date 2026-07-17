@@ -1,9 +1,8 @@
 # Smart Milvus Retriever
 
-This package provides a Milvus-backed retriever for NeMo Agent workflows used
-by Daedalus and related builder configs. It registers a generic
-`smart_milvus` retriever client and a higher-level `domain_retriever`
-function that maps named domains to curated collections.
+This package provides Milvus-backed retrieval for NeMo Agent workflows used by
+Daedalus. It registers a `domain_retriever` function that maps named domains to
+curated collections and reuses the `MilvusRetriever` search implementation.
 
 ## What It Does
 
@@ -16,67 +15,54 @@ function that maps named domains to curated collections.
 
 ## Key Behavior
 
-The retriever requires a `query`. If `collection_name` is not bound in
-configuration, the caller must also provide `collection_name` at runtime.
+The domain retriever requires a `query` and a configured logical `domain`.
+It resolves the domain to its collection before calling `MilvusRetriever`.
 
 When `database_name` is set to something other than `default`, the retriever
 automatically checks both plain collection names and `database.collection`
 names.
+
+Synchronous PyMilvus construction and calls run in worker threads so retrieval
+does not block the async server. Collection resolution and schema metadata use
+a bounded 30-second cache that is cleared after any Milvus client error.
 
 ## Configuration
 
 Default example config lives in [`src/smart_milvus/configs/config.yml`](src/smart_milvus/configs/config.yml).
 
 ```yaml
-retrievers:
-  - _type: smart_milvus
-    uri: 'http://localhost:19530'
-    embedding_model: 'milvus_embedder'
-    database_name: 'default'
-    collection_name: null
-    content_field: null
-    top_k: 5
-    vector_field_name: 'vector'
-    use_reranker: false
+functions:
+  domain_retriever:
+    _type: domain_retriever
+    uri: http://localhost:19530
+    embedding_model: milvus_embedder
+    content_field: text
+    vector_field: vector
+    top_k: 10
+    domain_collections:
+      nvidia: nvidia
+      kubernetes: kubernetes
 ```
 
 Important fields:
 
-| Field               | Purpose                                                                                                             |
-| ------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| `uri`               | Milvus endpoint                                                                                                     |
-| `connection_args`   | Optional Milvus connection or auth arguments; defaults from `MILVUS_USERNAME` / `MILVUS_PASSWORD` or `MILVUS_TOKEN` |
-| `embedding_model`   | Query embedder used before search                                                                                   |
-| `database_name`     | Optional Milvus database prefix                                                                                     |
-| `collection_name`   | Bound default collection name, if any                                                                               |
-| `content_field`     | Field containing returned text content                                                                              |
-| `vector_field_name` | Vector column name in the collection                                                                                |
-| `top_k`             | Number of retrieved candidates                                                                                      |
-| `distance_cutoff`   | Optional distance threshold; hits above the cutoff are dropped before reranking                                     |
-| `output_fields`     | Optional list of fields to return                                                                                   |
-| `search_params`     | Vector search parameters (defaults to `{"metric_type": "L2"}`)                                                      |
-| `use_reranker`      | Enables external reranking                                                                                          |
-| `reranker_*`        | Endpoint, model, key, and result count for reranking                                                                |
-
-The companion `domain_retriever` function adds a `domain_collections` map
-that translates logical domain names into Milvus collections.
+| Field                | Purpose                                                                                                             |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `uri`                | Milvus endpoint                                                                                                     |
+| `connection_args`    | Optional Milvus connection or auth arguments; defaults from `MILVUS_USERNAME` / `MILVUS_PASSWORD` or `MILVUS_TOKEN` |
+| `embedding_model`    | Query embedder used before search                                                                                   |
+| `database_name`      | Optional Milvus database prefix                                                                                     |
+| `content_field`      | Field containing returned text content                                                                              |
+| `vector_field_name`  | Vector column name in the collection                                                                                |
+| `top_k`              | Number of retrieved candidates                                                                                      |
+| `distance_cutoff`    | Optional distance threshold; hits above the cutoff are dropped before reranking                                     |
+| `output_fields`      | Optional list of fields to return                                                                                   |
+| `search_params`      | Vector search parameters (defaults to `{"metric_type": "L2"}`)                                                      |
+| `domain_collections` | Logical domain-to-collection mapping                                                                                |
+| `use_reranker`       | Enables external reranking                                                                                          |
+| `reranker_*`         | Endpoint, model, key, and result count for reranking                                                                |
 
 ## Usage
-
-Bound collection:
-
-```python
-results = await retriever.search(query="What is machine learning?")
-```
-
-Dynamic collection:
-
-```python
-results = await retriever.search(
-    query="What changed in the architecture?",
-    collection_name="engineering_docs",
-)
-```
 
 Domain-routed tool call:
 
@@ -100,8 +86,8 @@ If reranking fails, the retriever falls back to the original Milvus order.
 
 ## Relationship To Daedalus
 
-This retriever is the general Milvus search component. User-uploaded document
-retrieval in Daedalus is paired with the ingestion flow from
+`MilvusRetriever` remains the shared search implementation. User-uploaded
+document retrieval in Daedalus is paired with the ingestion flow from
 [`../nat_nv_ingest/README.md`](../nat_nv_ingest/README.md), which writes
 processed content into Milvus collections and reuses this retriever for the
 `operation="search"` path.

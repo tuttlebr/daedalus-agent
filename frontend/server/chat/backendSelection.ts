@@ -8,20 +8,14 @@ import { fetchWithTimeout } from '@/utils/fetchWithTimeout';
 import { Logger } from '@/utils/logger';
 
 import {
-  JOB_EXPIRY_SECONDS,
   NAT_BACKEND_CACHE_TTL_MS,
   NAT_CONNECTIVITY_TIMEOUT_MS,
   NAT_RETRY_DELAY_MS,
   NAT_SUBMIT_MAX_RETRIES,
-  NAT_SUBMIT_TIMEOUT_MS,
   sleep,
 } from './constants';
 import { buildNatRequestHeaders } from './natMessages';
-import {
-  ApiRouteError,
-  type AsyncJobRequest,
-  type NatAsyncJobResponse,
-} from './types';
+import { ApiRouteError, type AsyncJobRequest } from './types';
 
 import { resolve4 } from 'node:dns/promises';
 
@@ -41,8 +35,7 @@ function shuffleItems<T>(items: T[]): T[] {
 }
 
 export function getNatBaseUrl(jobRequest: AsyncJobRequest): string {
-  // Legacy fallback for jobs created before backend pinning was deployed.
-  return jobRequest.natBaseUrl || buildBackendBaseUrlForMode();
+  return jobRequest.natBaseUrl;
 }
 
 export async function resolveAsyncBackendBaseUrls(): Promise<string[]> {
@@ -165,113 +158,4 @@ export async function selectStreamBackendBaseUrl(
     `Backend unavailable after ${NAT_SUBMIT_MAX_RETRIES} attempts: ${lastError}`,
     'backend_unavailable',
   );
-}
-
-export async function submitNatAsyncJob(
-  jobId: string,
-  natBaseUrl: string,
-  messagesForNat: any[],
-  verifiedUsername: string,
-  natSessionId: string,
-  timezone?: string,
-): Promise<void> {
-  const submitUrl = buildBackendUrlFromBase(natBaseUrl, '/v1/workflow/async');
-  const payload = {
-    input_message: messagesToInputMessage(messagesForNat),
-    job_id: jobId,
-    sync_timeout: 0,
-    expiry_seconds: JOB_EXPIRY_SECONDS,
-  };
-
-  const response = await fetchWithTimeout(
-    submitUrl,
-    {
-      method: 'POST',
-      headers: buildNatRequestHeaders(
-        verifiedUsername,
-        { 'Content-Type': 'application/json' },
-        natSessionId,
-        timezone,
-      ),
-      body: JSON.stringify(payload),
-    },
-    NAT_SUBMIT_TIMEOUT_MS,
-  );
-
-  if (!response.ok) {
-    const errorText = await response.text().catch(() => '');
-    throw new ApiRouteError(
-      response.status >= 500 ? 502 : response.status,
-      `Backend async job submission failed (${response.status})${
-        errorText ? `: ${errorText}` : ''
-      }`,
-      'backend_submit_failed',
-    );
-  }
-}
-
-function messagesToInputMessage(messages: any[]): string {
-  if (!Array.isArray(messages)) return '';
-  return messages
-    .map((message) => {
-      if (!message || typeof message !== 'object') return null;
-      const rawContent = message.content;
-      const content =
-        typeof rawContent === 'string'
-          ? rawContent.trim()
-          : JSON.stringify(rawContent ?? '').trim();
-      if (!content) return null;
-      const role =
-        String(message.role || 'user')
-          .trim()
-          .toUpperCase() || 'USER';
-      return `[${role}]\n${content}`;
-    })
-    .filter((part): part is string => Boolean(part))
-    .join('\n\n');
-}
-
-export async function fetchNatJobStatus(
-  jobId: string,
-  jobRequest: AsyncJobRequest,
-): Promise<NatAsyncJobResponse | null> {
-  const natStatusUrl = buildBackendUrlFromBase(
-    getNatBaseUrl(jobRequest),
-    `/v1/workflow/async/job/${encodeURIComponent(jobId)}`,
-  );
-  const natResponse = await fetchWithTimeout(
-    natStatusUrl,
-    {
-      headers: buildNatRequestHeaders(
-        jobRequest.userId,
-        {},
-        jobRequest.natSessionId,
-        jobRequest.timezone,
-      ),
-    },
-    30_000,
-  );
-
-  if (!natResponse.ok) {
-    if (natResponse.status === 404) {
-      if (!jobRequest.natBaseUrl) {
-        logger.warn(
-          `Job ${jobId}: Received 404 from legacy shared backend route; leaving job pending for retry`,
-        );
-        return null;
-      }
-      return {
-        job_id: jobId,
-        status: 'failure',
-        error: 'Job not found on backend (may have expired)',
-        output: null,
-        created_at: '',
-        updated_at: '',
-        expires_at: '',
-      };
-    }
-    throw new Error(`NAT returned ${natResponse.status}`);
-  }
-
-  return natResponse.json();
 }

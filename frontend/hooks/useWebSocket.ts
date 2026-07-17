@@ -14,8 +14,6 @@ import { Logger } from '@/utils/logger';
 
 import { Conversation } from '@/types/chat';
 
-import { invalidateServiceWorkerCache } from './useOnlineStatus';
-
 const logger = new Logger('useWebSocket');
 let activeConnectionUsers = 0;
 
@@ -34,29 +32,6 @@ export interface UseWebSocketCallbacks {
     conversationId: string,
     isStreaming: boolean,
   ) => void;
-  onChatToken?: (data: {
-    conversationId: string;
-    jobId: string;
-    turnId?: string;
-    assistantMessageId?: string;
-    content: string;
-    intermediateSteps?: any[];
-  }) => void;
-  onChatIntermediateStep?: (data: {
-    conversationId: string;
-    jobId: string;
-    turnId?: string;
-    assistantMessageId?: string;
-    step: any;
-  }) => void;
-  onChatComplete?: (data: {
-    conversationId: string;
-    jobId: string;
-    turnId?: string;
-    assistantMessageId?: string;
-    fullResponse: string;
-    intermediateSteps?: any[];
-  }) => void;
   onAutonomyStatus?: (data: any) => void;
   onAutonomyRunEvent?: (data: any) => void;
   onAutonomyFeedUpdated?: (data: any) => void;
@@ -192,10 +167,6 @@ export const useWebSocket = (
           conversationId: data?.conversationId,
         });
 
-        if (data?.conversationId) {
-          invalidateServiceWorkerCache(data.conversationId);
-        }
-
         if (data?.conversation) {
           callbacksRef.current.onConversationUpdated?.(data.conversation);
         }
@@ -268,25 +239,6 @@ export const useWebSocket = (
           data.conversationId,
           false,
         );
-      }),
-    );
-
-    // Chat token streaming
-    unsubs.push(
-      manager.on('chat_token', (data: any) => {
-        callbacksRef.current.onChatToken?.(data);
-      }),
-    );
-
-    unsubs.push(
-      manager.on('chat_intermediate_step', (data: any) => {
-        callbacksRef.current.onChatIntermediateStep?.(data);
-      }),
-    );
-
-    unsubs.push(
-      manager.on('chat_complete', (data: any) => {
-        callbacksRef.current.onChatComplete?.(data);
       }),
     );
 

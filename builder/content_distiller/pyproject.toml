@@ -6,10 +6,10 @@ requires = ["setuptools>=64.0.0", "wheel"]
 name = "content_distiller"
 dynamic = ["version"]
 dependencies = [
-  "nvidia-nat[redis,mcp,langchain,phoenix,async_endpoints]==1.7.0",
+  "nvidia-nat[redis,mcp,langchain,phoenix]==1.7.0",
 ]
 requires-python = ">=3.11,<3.14"
-description = "Secondary LLM content processing for NeMo Agent Toolkit. Summarizes, extracts structured data from, and synthesizes long-form content."
+description = "Secondary LLM content distillation for NeMo Agent Toolkit."
 classifiers = ["Programming Language :: Python"]
 
 [project.entry-points.'nat.components']

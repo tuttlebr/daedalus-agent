@@ -8,7 +8,6 @@ const ENV_KEYS = [
   'DEPLOYMENT_MODE',
   'KUBERNETES_SERVICE_HOST',
   'NAMESPACE',
-  'NEXT_PUBLIC_HTTP_CHAT_COMPLETION_URL',
   'POD_NAMESPACE',
 ];
 
@@ -40,7 +39,7 @@ describe('backendApi configuration', () => {
     });
 
     expect(backendApi.BACKEND_API_PATH).toBe('/v1/chat/completions');
-    expect(backendApi.getDefaultChatCompletionUrl()).toBe(
+    expect(backendApi.buildBackendUrlForMode()).toBe(
       'http://backend:8000/v1/chat/completions',
     );
   });
@@ -58,17 +57,6 @@ describe('backendApi configuration', () => {
     );
     expect(backendApi.buildBackendUrlForMode()).toBe(
       'http://daedalus-backend-default.prod.svc.cluster.local:8000/v1/chat/completions',
-    );
-  });
-
-  it('honors the explicit public chat completion URL override', async () => {
-    const backendApi = await importBackendApiWithEnv({
-      DEPLOYMENT_MODE: 'local',
-      NEXT_PUBLIC_HTTP_CHAT_COMPLETION_URL: 'https://api.example.test/chat',
-    });
-
-    expect(backendApi.getDefaultChatCompletionUrl()).toBe(
-      'https://api.example.test/chat',
     );
   });
 });

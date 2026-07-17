@@ -30,10 +30,10 @@ What separates Daedalus from a typical chat wrapper:
 
 Daedalus supports two practical ways to run the project.
 
-| Mode                 | What it starts                                                                                    | Best for                                                          |
-| -------------------- | ------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
-| Local Docker Compose | `frontend`, `backend`, `nginx`, `redis`, plus a `builder` utility container                       | Local development and validating one backend config at a time     |
-| Kubernetes via Helm  | Backend, frontend, nginx, redis, redisinsight, autonomous worker, ingress, PVCs, network policies | Persistent multi-user deployments and the full platform footprint |
+| Mode                 | What it starts                                                                                     | Best for                                                          |
+| -------------------- | -------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| Local Docker Compose | `frontend`, `backend`, `nginx`, `redis`, plus a `builder` utility container                        | Local development and validating one backend config at a time     |
+| Kubernetes via Helm  | Backend, frontend, nginx, Redis, optional RedisInsight, autonomous worker, ingress, PVCs, policies | Persistent multi-user deployments and the full platform footprint |
 
 > [!IMPORTANT]
 > The local Compose stack does not start Milvus, NV-Ingest, or Phoenix.
@@ -84,18 +84,15 @@ ADMIN_USERNAME=alice
 
 `DAEDALUS_INTERNAL_API_TOKEN` protects trusted frontend-to-backend calls that
 carry authenticated identity headers. Helm generates and preserves this token
-automatically; for local Compose or non-Helm deployments, leave it empty for
-development or set the same value for both frontend and backend.
+automatically. Non-Helm deployments must set the same value for frontend and
+backend. Local Compose alone opts into tokenless development explicitly with
+`ALLOW_INSECURE_INTERNAL=1`, and its backend host port is loopback-bound.
 
 Useful optional keys:
 
 ```bash
-SERPAPI_KEY=...
 GITHUB_PAT=...
 ```
-
-`SERPAPI_KEY` enables the configured internet search provider used by the
-research agents for web discovery, news, images, shopping, and URL lookup.
 
 ### 2. Optionally choose a backend config for local Compose
 
@@ -124,6 +121,7 @@ docker compose up --build
 
 - Compose is the easiest way to run the full local stack.
 - The standalone frontend dev server uses port `5000`, while the production container listens on `3000`.
+- Compose publishes the backend API on host loopback only; use nginx for access from other machines.
 - In local Compose, choose a backend config with `BACKEND_CONFIG_FILE`; it defaults to `./backend/tool-calling-config.yaml`.
 - The `builder` service is a convenience container for working inside the NeMo Agent builder environment; it does not serve traffic.
 
@@ -192,17 +190,17 @@ The Helm chart can deploy:
 
 - Backend deployment
 - Frontend and nginx
-- Redis Stack and RedisInsight
+- Redis Stack and optional RedisInsight
 - An autonomous-agent worker Deployment
 - Ingress, PVCs, PodDisruptionBudget, and network policies
 - A chart-managed internal API token shared by frontend and backend
 - Optional Cilium FQDN-based egress restrictions
 
-Start with [`helm/daedalus/values.yaml`](helm/daedalus/values.yaml) for defaults and [`custom-values.yaml`](custom-values.yaml) for an opinionated example.
+Start with [`helm/daedalus/values.yaml`](helm/daedalus/values.yaml) for defaults and [`custom-values.yaml`](custom-values.yaml) for an opinionated production example. The production example disables RedisInsight; enable it only for time-bounded maintenance through a private access path or `kubectl port-forward`.
 
 ### Kubernetes Request Flow
 
-The main browser chat path in Kubernetes goes through the frontend's async API route. The frontend authenticates the user, stores frontend-managed job metadata in Redis, opens a pinned backend stream, and returns a `jobId` immediately. Normal chat uses `/v1/chat/completions`; uploaded document ingestion uses `/v1/documents/ingest/stream` so progress can be pushed back through Redis and WebSocket. NAT `/v1/workflow/async` is kept only as a legacy document-ingest fallback.
+The main browser chat path in Kubernetes goes through the frontend's async API route. The frontend authenticates the user, stores frontend-managed job metadata in Redis, opens a pinned backend stream, and returns a `jobId` immediately. Normal chat uses `/v1/chat/completions`; uploaded document ingestion always uses `/v1/documents/ingest/stream` so progress can be pushed back through Redis and WebSocket.
 
 ```mermaid
 flowchart LR
@@ -215,7 +213,7 @@ flowchart LR
         Backend[Backend Service and Pods]
         Redis[(Redis Stack)]
         Integrations[Optional in-cluster integrations<br/>Milvus, NV-Ingest, Phoenix, K8s MCP]
-        External[External HTTPS integrations<br/>NVIDIA, OpenRouter, SerpAPI, GitHub, RSS]
+        External[External HTTPS integrations<br/>NVIDIA, OpenRouter, GitHub, RSS]
     end
 
     Client -->|HTTPS request| Ingress
@@ -335,18 +333,17 @@ telemetry, MCP, or serving work.
 | -------------------- | ------- | --------------------------------------------------------------------- |
 | `agent_skills`       | package | Discovers and runs repo-packaged skills                               |
 | `autonomous_agent`   | package | Long-running autonomous worker, Redis state store, and prompt runtime |
-| `content_distiller`  | package | Summarization and extraction helpers                                  |
+| `content_distiller`  | package | Long-content distillation helper                                      |
 | `visual_media`       | package | Unified text-to-image, image edit, and image/video analysis           |
-| `nat_helpers`        | package | Shared helpers such as geolocation and image utilities                |
+| `nat_helpers`        | package | Shared identity, memory, image, and URL utilities                     |
 | `nat_nv_ingest`      | package | Unified user-document ingestion, search, and listing                  |
 | `rss_feed`           | package | RSS fetching, reranking, and scraping                                 |
-| `serpapi_search`     | package | Search integration                                                    |
 | `smart_milvus`       | package | Milvus retrieval, domain routing, and reranking                       |
 | `source_verifier`    | package | Source planning, claim verification, and citation auditing            |
 | `user_interaction`   | package | Structured clarification, plan approval, and confirmation prompts     |
 | `vtt_interpreter`    | package | Transcript-to-notes processing                                        |
 | `webscrape`          | package | Web page extraction                                                   |
-| `entrypoint.py`      | module  | Custom NAT entrypoint with Starlette compatibility shims              |
+| `entrypoint.py`      | module  | Version-guarded NAT entrypoint with auth and application routes       |
 | `llm_diagnostics.py` | module  | OpenAI SDK logging and timeout enforcement for LLM client resilience  |
 | `mcp_patches.py`     | module  | Bounded MCP startup, OAuth bootstrap, approval, and logging patches   |
 
@@ -378,7 +375,7 @@ The design follows the useful parts of Hermes-style autonomy: a persistent agent
 - The worker runs `python -m autonomous_agent.worker` from the builder image.
 - Scheduled runs are controlled by `autonomousAgent.worker.intervalSeconds` and can be changed in the Autonomy dashboard.
 - Manual runs are queued from the Autonomy dashboard, which writes to the Redis queue the worker consumes.
-- The worker calls the backend workflow at `autonomousAgent.backendApiPath` (defaults to `/v1/workflow/async`) and writes structured feed items plus workspace updates.
+- The worker streams from the already-loaded backend workflow at `autonomousAgent.backendApiPath` (defaults to `/v1/chat/completions`) and writes structured feed items plus workspace updates.
 - Destructive, irreversible, credential-related, send/merge/delete/scale/uninstall, or memory-delete actions must request confirmation. The run pauses and the dashboard shows a pending approval.
 - A Redis lease with heartbeat prevents multiple worker replicas from running the same configured user concurrently.
 
@@ -467,8 +464,9 @@ webscrape tool.
 Frontend-to-backend identity headers are protected by
 `DAEDALUS_INTERNAL_API_TOKEN`. Helm creates `<release>-daedalus-internal-api`
 and injects the token into both pods. Non-Helm deployments should set the same
-token on frontend and backend; if it is unset, backend direct endpoints accept
-the legacy identity header behavior for local development.
+token on frontend and backend. The backend fails closed when it is unset unless
+`ALLOW_INSECURE_INTERNAL=1` is explicitly configured for a local environment;
+Docker Compose uses that opt-out together with a loopback-only backend mapping.
 
 ## Development
 

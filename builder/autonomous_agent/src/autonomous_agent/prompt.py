@@ -82,12 +82,12 @@ Start each run with a small, bounded plan and record the next useful follow-up.
 
 _JSON_FENCE_RE = re.compile(r"```(?:json)?\s*([\s\S]*?)\s*```", re.IGNORECASE)
 _THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL)
-_TOKEN_RE = re.compile(r"approval token[^`]*`([^`]+)`", re.IGNORECASE)
-# F-015: the frontend re-enqueues an approved request with the granted token
-# embedded as approval_token="..." in the prompt; used as the idempotency key.
-_REQUEST_TOKEN_RE = re.compile(r'approval_token\s*=\s*"([^"]+)"', re.IGNORECASE)
 _ACTION_TYPE_RE = re.compile(r"action_type=`([^`]+)`", re.IGNORECASE)
 _TARGET_RE = re.compile(r"target=`([^`]+)`", re.IGNORECASE)
+_SERVER_NAME_RE = re.compile(r"server_name=`([^`]+)`", re.IGNORECASE)
+_TOOL_NAME_RE = re.compile(r"tool_name=`([^`]+)`", re.IGNORECASE)
+_APPROVAL_REQUEST_ID_RE = re.compile(r"approval_request_id=`([^`]+)`", re.IGNORECASE)
+_ARGUMENTS_HASH_RE = re.compile(r"arguments_sha256=`([a-f0-9]{64})`", re.IGNORECASE)
 _ACTION_HEADING_RE = re.compile(
     r"\*\*(?:Action requiring confirmation|Deep research plan approval):\*\*\s*([^\n]+)?",
     re.IGNORECASE,
@@ -108,6 +108,49 @@ _SOURCE_POLICY_IDS = {
     "uploaded_documents",
     "workspace_data",
 }
+
+# Workspace notes are model-authored and persisted between runs, so a bad or
+# repetitive update can otherwise grow every subsequent prompt without bound.
+# Preserve both ends: headings and durable context tend to live at the start,
+# while the newest scratchpad state commonly lives at the end.
+_MAX_WORKSPACE_SECTION_CHARS = 2_500
+_MAX_RECENT_RUN_FIELD_CHARS = 128
+_MAX_RECENT_RUN_SUMMARY_CHARS = 600
+_RECENT_FEED_LIMIT = 20
+_RECENT_FEED_TITLE_CHARS = 96
+_RECENT_FEED_BLUF_CHARS = 140
+_RECENT_FEED_SOURCE_CHARS = 80
+_RECENT_FEED_THREAD_KEY_CHARS = 96
+_TRUNCATION_MARKER = "\n…[truncated]…\n"
+
+
+def _bounded_text(value: Any, max_chars: int) -> str:
+    """Return a stable head/tail digest no longer than ``max_chars``."""
+
+    text = str(value or "").strip()
+    if len(text) <= max_chars:
+        return text
+    if max_chars <= len(_TRUNCATION_MARKER):
+        return text[:max_chars]
+
+    remaining = max_chars - len(_TRUNCATION_MARKER)
+    head_chars = (remaining + 1) // 2
+    tail_chars = remaining - head_chars
+    tail = text[-tail_chars:] if tail_chars else ""
+    return f"{text[:head_chars]}{_TRUNCATION_MARKER}{tail}"
+
+
+def _recent_run_digest(run: dict[str, Any]) -> dict[str, Any]:
+    completed_at = run.get("completedAt")
+    if not isinstance(completed_at, (int, float)):
+        completed_at = _bounded_text(completed_at, _MAX_RECENT_RUN_FIELD_CHARS)
+    return {
+        "id": _bounded_text(run.get("id"), _MAX_RECENT_RUN_FIELD_CHARS),
+        "trigger": _bounded_text(run.get("trigger"), _MAX_RECENT_RUN_FIELD_CHARS),
+        "status": _bounded_text(run.get("status"), _MAX_RECENT_RUN_FIELD_CHARS),
+        "summary": _bounded_text(run.get("summary"), _MAX_RECENT_RUN_SUMMARY_CHARS),
+        "completedAt": completed_at,
+    }
 
 
 def read_seed(name: str, path: str) -> str:
@@ -158,32 +201,35 @@ def build_messages(
             None,
         )
     recent_summaries = [
-        {
-            "id": r.get("id"),
-            "trigger": r.get("trigger"),
-            "status": r.get("status"),
-            "summary": r.get("summary"),
-            "completedAt": r.get("completedAt"),
-        }
-        for r in recent_runs[:5]
+        _recent_run_digest(run) for run in recent_runs[:5] if isinstance(run, dict)
     ]
 
     already_surfaced = summarize_recent_feed(
         recent_feed or [],
         now=now_ms(),
         window_ms=window_ms_for_days(config.get("feedDedupeWindowDays")),
+        limit=_RECENT_FEED_LIMIT,
+        title_chars=_RECENT_FEED_TITLE_CHARS,
+        bluf_chars=_RECENT_FEED_BLUF_CHARS,
+        source_chars=_RECENT_FEED_SOURCE_CHARS,
+        thread_key_chars=_RECENT_FEED_THREAD_KEY_CHARS,
     )
+
+    bounded_workspace = {
+        name: _bounded_text(workspace.get(name), _MAX_WORKSPACE_SECTION_CHARS)
+        for name in WORKSPACE_FILES
+    }
 
     stable_sections = [
         "# Daedalus Autonomous Runtime",
-        workspace.get("identity", ""),
-        workspace.get("soul", ""),
-        workspace.get("schema", ""),
-        "## Curiosity Map\n" + workspace.get("interests", ""),
-        "## Collaborator Context\n" + workspace.get("user", ""),
-        "## Runtime Routines\n" + workspace.get("heartbeat", ""),
-        "## Memory Index Snapshot\n" + workspace.get("memory", ""),
-        "## Private Inner State\n" + workspace.get("inner_state", ""),
+        bounded_workspace["identity"],
+        bounded_workspace["soul"],
+        bounded_workspace["schema"],
+        "## Curiosity Map\n" + bounded_workspace["interests"],
+        "## Collaborator Context\n" + bounded_workspace["user"],
+        "## Runtime Routines\n" + bounded_workspace["heartbeat"],
+        "## Memory Index Snapshot\n" + bounded_workspace["memory"],
+        "## Private Inner State\n" + bounded_workspace["inner_state"],
     ]
 
     output_contract = {
@@ -242,10 +288,9 @@ active_goals only as context. The manual_prompt on a goal run is an operator
 note, not permission to replace the selected goal.
 
 # Identity and first step
-Memory tools derive user_id from the authenticated request; do not pass user_id
-to get_memory, add_memory, or delete_memory_guarded. Use user_id="{user_id}"
-for other user-scoped tool calls that still require it. Start by calling
-get_memory with
+All user-scoped tools derive identity only from the trusted authenticated
+request context. Never pass user_id, username, or another identity argument to
+a tool. Start by calling get_memory with
 query="recent interests, projects, priorities, active threads, and autonomous runs",
 top_k=10.
 
@@ -441,11 +486,6 @@ def feed_items_from_output(run_id: str, output: dict[str, Any]) -> list[dict[str
     return result
 
 
-def extract_approval_token(text: str) -> str:
-    match = _TOKEN_RE.search(text or "")
-    return match.group(1).strip() if match else ""
-
-
 def extract_approval_metadata(text: str) -> dict[str, str]:
     """Extract approval metadata from user_interaction tool output."""
     raw = text or ""
@@ -458,6 +498,10 @@ def extract_approval_metadata(text: str) -> dict[str, str]:
 
     action_type_match = _ACTION_TYPE_RE.search(raw)
     target_match = _TARGET_RE.search(raw)
+    server_name_match = _SERVER_NAME_RE.search(raw)
+    tool_name_match = _TOOL_NAME_RE.search(raw)
+    approval_request_id_match = _APPROVAL_REQUEST_ID_RE.search(raw)
+    arguments_hash_match = _ARGUMENTS_HASH_RE.search(raw)
     action_type = (
         action_type_match.group(1).strip() if action_type_match else "mcp_mutation"
     )
@@ -471,34 +515,40 @@ def extract_approval_metadata(text: str) -> dict[str, str]:
         "action_type": action_type,
         "target": target,
         "risk": risk,
-        "approval_token": extract_approval_token(raw),
+        "server_name": (
+            server_name_match.group(1).strip() if server_name_match else ""
+        ),
+        "tool_name": tool_name_match.group(1).strip() if tool_name_match else "",
+        "approval_request_id": (
+            approval_request_id_match.group(1).strip()
+            if approval_request_id_match
+            else ""
+        ),
+        "arguments_sha256": (
+            arguments_hash_match.group(1).lower() if arguments_hash_match else ""
+        ),
     }
 
 
 def request_approval_key(request: dict[str, Any] | None) -> str:
     """F-015: stable idempotency key for an approved, re-enqueued request.
 
-    The frontend embeds the granted single-use ``approval_token`` in the prompt
-    when it re-enqueues a request after the user approves. That token is the
-    safest "already applied" key. Returns "" when the request is not an approval
-    follow-up (so it is never treated as a re-run).
+    The authenticated approval route places the public approval id (never the
+    credential) on the private worker queue record. Returns "" for ordinary
+    requests so they are never treated as approval replays.
     """
     if not isinstance(request, dict):
         return ""
     if str(request.get("trigger") or "") != "approval":
         return ""
-    match = _REQUEST_TOKEN_RE.search(str(request.get("prompt") or ""))
-    return match.group(1).strip() if match else ""
+    return str(request.get("approvalId") or "").strip()
 
 
 def output_requests_approval(text: str) -> bool:
     # F-011: require the structured approval MARKER (the bold heading that
     # extract_approval_metadata parses), not any advisory phrase. This keeps the
     # worker-side pause aligned with the structured metadata it records.
-    #
-    # RESIDUAL (out of scope): this gate is advisory — it pauses the *worker*
-    # but does not stop the backend agent from having already executed a
-    # mutation before emitting the marker. A fully ENFORCED gate (the agent must
-    # obtain a valid approval token from the backend before any destructive tool
-    # call runs) requires backend changes and is tracked separately.
+    # The worker pause is paired with the backend MCPToolClient gate: mutation
+    # attempts have no credential on this first turn, while the authenticated
+    # approval route supplies one exact, single-use credential on resume.
     return bool(_APPROVAL_MARKER_RE.search(text or ""))

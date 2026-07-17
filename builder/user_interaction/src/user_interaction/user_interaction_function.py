@@ -33,8 +33,7 @@ from nat.cli.register_workflow import register_function
 from nat.data_models.function import FunctionBaseConfig
 from pydantic import Field
 from user_interaction.approval_tokens import (
-    ApprovalRequest,
-    issue_approval_token,
+    create_pending_mcp_approval,
     make_redis_client,
     validate_approval_token,
 )
@@ -54,16 +53,6 @@ class UserInteractionConfig(FunctionBaseConfig, name="user_interaction"):
     redis_url: str | None = Field(
         default=None,
         description="Redis URL used for approval-token storage.",
-    )
-    approval_ttl_seconds: int = Field(
-        default=300,
-        ge=30,
-        le=3600,
-        description="Seconds before an approval token expires.",
-    )
-    memory_key_patterns: list[str] = Field(
-        default_factory=lambda: ["nat:*{user_id}*"],
-        description="Redis key patterns deleted by delete_memory_guarded.",
     )
     enabled_operations: list[str] | None = Field(
         default=None,
@@ -143,7 +132,7 @@ async def user_interaction_function(config: UserInteractionConfig, builder: Buil
             option_list = [o.strip() for o in options.split("|") if o.strip()]
             if option_list:
                 options_formatted = "\n".join(
-                    f"  {i+1}. {opt}"
+                    f"  {i + 1}. {opt}"
                     for i, opt in enumerate(option_list[: config.max_options])
                 )
                 parts.append(f"\nSuggested options:\n{options_formatted}")
@@ -163,6 +152,9 @@ async def user_interaction_function(config: UserInteractionConfig, builder: Buil
         user_id: str = "",
         action_type: str = "unspecified",
         target: str = "",
+        server_name: str = "",
+        tool_name: str = "",
+        arguments_json: str = "",
     ) -> str:
         """Request user confirmation before taking a consequential action.
 
@@ -190,7 +182,13 @@ async def user_interaction_function(config: UserInteractionConfig, builder: Buil
             user_id: Legacy fallback user id. Authenticated HTTP requests
                 derive the user from trusted request headers.
             action_type: Consequential action category, e.g. "delete_memory".
-            target: Action target the approval applies to.
+            target: Exact action target the approval applies to. Wildcards are
+                not permitted for executable approvals.
+            server_name: Exact configured MCP function-group name for
+                action_type='mcp_mutation' (for example, k8s_mcp_server).
+            tool_name: Exact MCP tool name for action_type='mcp_mutation'.
+            arguments_json: Exact JSON object that will be sent to the MCP tool,
+                excluding approval_token. Required for MCP mutations.
 
         Returns:
             Formatted confirmation request to present to the user.
@@ -233,32 +231,74 @@ async def user_interaction_function(config: UserInteractionConfig, builder: Buil
                 parts.append(f"\n**Alternatives considered:** {alts_formatted}")
 
         resolved_user_id = _authenticated_user_or_fallback(user_id)
-        token: str | None = None
-        if resolved_user_id and action_type and action_type != "unspecified":
+        resolved_target = (target or "").strip()
+        pending_mcp_approval: dict[str, Any] | None = None
+        if normalized_action_type == "delete_memory":
+            if resolved_target and resolved_target != resolved_user_id:
+                return "Error: delete_memory target must match the authenticated user."
+            resolved_target = resolved_user_id
+        if normalized_action_type == "mcp_mutation":
+            from nat_helpers.identity import execution_scope_from_context_or_none
+
+            execution_scope = execution_scope_from_context_or_none()
+            if execution_scope is not None and execution_scope != "autonomy":
+                return (
+                    "Error: mutating MCP actions are available only through the "
+                    "Autonomy dashboard, which provides the authenticated "
+                    "approval and resume workflow. Interactive chat remains "
+                    "read-only for these tools."
+                )
+            if not resolved_target or resolved_target == "*":
+                return "Error: MCP approval requires an exact, non-wildcard target."
+            if not server_name.strip():
+                return "Error: MCP approval requires the exact server_name."
+            if not tool_name.strip():
+                return "Error: MCP approval requires the exact tool_name."
             try:
-                token = issue_approval_token(
+                pending_mcp_approval = create_pending_mcp_approval(
                     _get_redis(),
-                    ApprovalRequest(
-                        user_id=resolved_user_id,
-                        action_type=action_type,
-                        target=target or "*",
-                    ),
-                    config.approval_ttl_seconds,
+                    user_id=resolved_user_id,
+                    action=action,
+                    reason=reason,
+                    target=resolved_target,
+                    server_name=server_name,
+                    tool_name=tool_name,
+                    arguments_json=arguments_json,
                 )
             except Exception as exc:
-                logger.error("Failed to issue approval token: %s", exc)
-                parts.append(f"\n**Approval token error:** {exc}")
+                logger.warning(
+                    "Unable to persist pending MCP approval: error_class=%s",
+                    type(exc).__name__,
+                )
+                return "Error: unable to create a protected pending approval."
 
         parts.append("\nProceed? (yes/no)")
-        if token:
+        if resolved_user_id and normalized_action_type != "unspecified":
             parts.append(
-                "\nIf approved, use this single-use approval token with the "
-                f"destructive tool call: `{token}`"
+                "\nNo executable credential has been created. The authenticated "
+                "approval route will mint one only after the user approves."
             )
             parts.append(
-                f"\nToken scope: action_type=`{action_type}`, target=`{target or '*'}`, "
-                f"expires_in={config.approval_ttl_seconds}s."
+                f"\nApproval scope: action_type=`{normalized_action_type}`, "
+                f"target=`{resolved_target}`"
             )
+            if normalized_action_type == "mcp_mutation":
+                if pending_mcp_approval is None:
+                    raise RuntimeError("pending MCP approval was not created")
+                parts[-1] += (
+                    f", server_name=`{server_name.strip()}`, "
+                    f"tool_name=`{tool_name.strip()}`, "
+                    "approval_request_id="
+                    f"`{pending_mcp_approval['request_id']}`, "
+                    "arguments_sha256="
+                    f"`{pending_mcp_approval['arguments_sha256']}`."
+                )
+                parts.append(
+                    "\nArguments for review (sensitive values redacted):\n\n"
+                    f"```json\n{pending_mcp_approval['arguments_preview']}\n```"
+                )
+            else:
+                parts[-1] += "."
 
         return "\n".join(parts)
 
@@ -349,31 +389,19 @@ async def user_interaction_function(config: UserInteractionConfig, builder: Buil
             )
 
         resolved_user_id = _authenticated_user_or_fallback(user_id)
-        token: str | None = None
-        if resolved_user_id:
-            try:
-                token = issue_approval_token(
-                    _get_redis(),
-                    ApprovalRequest(
-                        user_id=resolved_user_id,
-                        action_type="deep_research_plan",
-                        target=target or resolved_title,
-                    ),
-                    config.approval_ttl_seconds,
-                )
-            except Exception as exc:
-                logger.error("Failed to issue research-plan approval token: %s", exc)
-                parts.append(f"\n**Approval token error:** {exc}")
 
         parts.append(
             "\nReply yes to approve this plan, or describe changes to revise scope, "
             "sections, sources, or depth."
         )
-        if token:
-            parts.append("\nApproval token recorded for this plan: " f"`{token}`")
+        if resolved_user_id:
             parts.append(
-                f"\nToken scope: action_type=`deep_research_plan`, target=`{target or resolved_title}`, "
-                f"expires_in={config.approval_ttl_seconds}s."
+                "\nNo approval credential has been created. "
+                "The authenticated approval route records the decision."
+            )
+            parts.append(
+                f"\nApproval scope: action_type=`deep_research_plan`, "
+                f"target=`{target or resolved_title}`."
             )
 
         return "\n".join(parts)
@@ -419,11 +447,11 @@ async def user_interaction_function(config: UserInteractionConfig, builder: Buil
             return f"Error: options_json must be a valid JSON array. Received: {options_json[:200]}"
 
         for i, opt in enumerate(options[: config.max_options]):
-            label = opt.get("label", f"Option {i+1}")
+            label = opt.get("label", f"Option {i + 1}")
             desc = opt.get("description", "")
             tradeoffs = opt.get("tradeoffs", "")
 
-            parts.append(f"**{i+1}. {label}**")
+            parts.append(f"**{i + 1}. {label}**")
             if desc:
                 parts.append(f"   {desc}")
             if tradeoffs:
@@ -443,7 +471,6 @@ async def user_interaction_function(config: UserInteractionConfig, builder: Buil
     async def delete_memory_guarded(
         approval_token: str,
         user_id: str = "",
-        target: str = "",
     ) -> str:
         """Delete Redis-backed memory keys for a user after token validation.
 
@@ -451,7 +478,6 @@ async def user_interaction_function(config: UserInteractionConfig, builder: Buil
             approval_token: Single-use token from confirm_action.
             user_id: Legacy fallback only. Authenticated HTTP requests derive
                 the user from trusted request headers.
-            target: Approval target. Defaults to user_id.
         """
         resolved_user = _authenticated_user_or_fallback(user_id)
         if not resolved_user:
@@ -463,23 +489,32 @@ async def user_interaction_function(config: UserInteractionConfig, builder: Buil
             user_id=resolved_user,
             token=approval_token,
             action_type="delete_memory",
-            target=target or resolved_user,
+            target=resolved_user,
             consume=True,
         )
         if not ok:
             return f"Error: delete_memory denied: {reason}."
 
-        patterns = [
-            p.format(user_id=resolved_user)
-            for p in config.memory_key_patterns
-            if "{user_id}" in p
-        ]
+        # NAT Redis memory keys contain only a random id. Ownership lives in
+        # the JSON value, so key-name substring matching can both miss the
+        # intended user's records and delete another user's colliding id.
         deleted = 0
-        for pattern in patterns:
-            keys = list(redis_client.scan_iter(pattern))
-            if not keys:
+        owned_keys = []
+        for memory_key in redis_client.scan_iter("nat:memory:*"):
+            try:
+                raw = redis_client.execute_command("JSON.GET", memory_key)
+            except Exception:
+                raw = redis_client.get(memory_key)
+            try:
+                record = json.loads(raw) if isinstance(raw, str) else raw
+            except (json.JSONDecodeError, TypeError):
                 continue
-            deleted += int(redis_client.delete(*keys) or 0)
+            if isinstance(record, list) and len(record) == 1:
+                record = record[0]
+            if isinstance(record, dict) and record.get("user_id") == resolved_user:
+                owned_keys.append(memory_key)
+        if owned_keys:
+            deleted = int(redis_client.delete(*owned_keys) or 0)
 
         return f"Deleted {deleted} memory key(s) for user_id='{resolved_user}'."
 
@@ -507,7 +542,9 @@ async def user_interaction_function(config: UserInteractionConfig, builder: Buil
                     "(Kubernetes, GitHub), memory deletes, irreversible actions, "
                     "or actions with significant costs. Do not use for add_memory "
                     "or memory_update. Presents the action, reason, risks, and "
-                    "alternatives."
+                    "alternatives. MCP mutations must include exact tool_name, "
+                    "target, and arguments_json; this tool never returns a live "
+                    "credential."
                 ),
             )
 
@@ -519,8 +556,8 @@ async def user_interaction_function(config: UserInteractionConfig, builder: Buil
                     "AIQ-style deep research plan. Args: title, sections_json, "
                     "optional source_strategy_json, estimated_tool_calls, risks, "
                     "and target. Presents sections, source strategy, "
-                    "cost/risk trade-offs, and records a scoped approval token "
-                    "using the authenticated request identity."
+                    "cost/risk trade-offs, and records a pending decision using "
+                    "the authenticated request identity."
                 ),
             )
 

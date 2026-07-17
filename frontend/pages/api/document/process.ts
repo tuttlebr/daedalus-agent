@@ -209,16 +209,20 @@ export default async function handler(
       documentsToProcess.length === 1
         ? `Process the document "${safeFilename}" using user_document_tool with operation="ingest", documentRef=${JSON.stringify(
             documentsToProcess[0],
-          )}, username="${username}", collection_name="${targetCollection}", collection_scope="${
+          )}, collection_name="${targetCollection}", collection_scope="${
             collectionTarget.collectionScope
-          }", and provenance=${JSON.stringify(collectionTarget.provenance)}.`
+          }", and provenance=${JSON.stringify(
+            collectionTarget.provenance,
+          )}. Identity comes only from the trusted request context; do not pass username.`
         : `Process ${
             documentsToProcess.length
           } documents using user_document_tool with operation="ingest", documentRefs=${JSON.stringify(
             documentsToProcess,
-          )}, username="${username}", collection_name="${targetCollection}", collection_scope="${
+          )}, collection_name="${targetCollection}", collection_scope="${
             collectionTarget.collectionScope
-          }", and provenance=${JSON.stringify(collectionTarget.provenance)}.`;
+          }", and provenance=${JSON.stringify(
+            collectionTarget.provenance,
+          )}. Identity comes only from the trusted request context; do not pass username.`;
 
     const chatMessage = {
       messages: [

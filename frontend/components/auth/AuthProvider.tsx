@@ -81,7 +81,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       clearUserSessionData();
       // Drop any prior user's offline-cached private data before loading this
       // user's data (shared-device protection).
-      void clearPrivateCaches();
+      await clearPrivateCaches();
       queryClient.setQueryData(queryKeys.auth.me, data.user as AuthMeUser);
       setStorageUser(data.user.username);
       migrateLegacyStorage(data.user.username);
@@ -102,7 +102,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       clearUserSessionData();
       // Drop offline-cached private data so it cannot be served to the next
       // user on a shared device.
-      void clearPrivateCaches();
+      await clearPrivateCaches();
       queryClient.setQueryData(queryKeys.auth.me, null);
       queryClient.clear();
       setStorageUser(null);

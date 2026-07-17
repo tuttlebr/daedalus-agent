@@ -29,7 +29,6 @@ The primary chat path is frontend job-based:
 - A background stream reader opens `/v1/chat/completions` for normal chat turns
 - Document ingestion opens `/v1/documents/ingest/stream` and forwards structured progress through job state
 - `POST /api/document/markdown` converts an uploaded document to a full Markdown file (proxying `/v1/documents/markdown`) for local download
-- NAT `/v1/workflow/async` remains only as a legacy document-ingest fallback
 - The legacy `/api/chat` route is retired and returns HTTP 410
 
 The Create image path is also job-based:
@@ -58,47 +57,53 @@ Default local dev port is `5000`.
 
 The frontend consumes most of its runtime configuration through environment variables or Kubernetes secrets.
 
-| Variable                                                          | Purpose                                                                 |
-| ----------------------------------------------------------------- | ----------------------------------------------------------------------- |
-| `REDIS_URL`                                                       | Redis session, conversation, attachment, and job-state storage          |
-| `BACKEND_HOST`                                                    | Host-only backend service name used for in-cluster routing              |
-| `BACKEND_NAMESPACE`                                               | Namespace used to build backend FQDNs                                   |
-| `BACKEND_API_PATH`                                                | Default backend path for generated URLs, usually `/v1/chat/completions` |
-| `NEXT_PUBLIC_HTTP_CHAT_COMPLETION_URL`                            | Optional explicit backend URL override                                  |
-| `NEXT_PUBLIC_UPLOAD_*`                                            | Build-time upload validation limits for browser-side file checks        |
-| `DAEDALUS_DIRECT_DOCUMENT_INGEST_STREAM`                          | Set to `0` only to force legacy NAT async document ingestion            |
-| `SESSION_SECRET`                                                  | Required in production for signed identity cookies                      |
-| `DAEDALUS_INTERNAL_API_TOKEN`                                     | Shared token attached to trusted frontend-to-backend requests           |
-| `RATE_LIMIT_IMAGE_JOB_MAX`, `RATE_LIMIT_IMAGE_JOB_WINDOW_SECONDS` | Per-user Create submission limit (defaults to 5 jobs per 60 seconds)    |
-| `AUTH_USERNAME`, `AUTH_PASSWORD`                                  | Single-user auth                                                        |
-| `AUTH_USER_*_*`                                                   | Multi-user auth entries                                                 |
-| `DAEDALUS_DEFAULT_USER`                                           | Default selected user for initial login experience                      |
-| `ADMIN_USERNAME`                                                  | Admin username allowed to inspect all usage stats                       |
-| `NEXT_PUBLIC_VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`               | Optional web-push support                                               |
+| Variable                                                          | Purpose                                                                                    |
+| ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `REDIS_URL`                                                       | Redis session, conversation, attachment, and job-state storage                             |
+| `BACKEND_HOST`                                                    | Host-only backend service name used for in-cluster routing                                 |
+| `BACKEND_NAMESPACE`                                               | Namespace used to build backend FQDNs                                                      |
+| `BACKEND_API_PATH`                                                | Default backend path for generated URLs, usually `/v1/chat/completions`                    |
+| `NEXT_PUBLIC_UPLOAD_*`                                            | Build-time upload validation limits for browser-side file checks                           |
+| `DOCUMENT_UPLOAD_MAX_MB`                                          | Raw document limit, capped at 200 MiB (the encoded API request has a 268 MiB hard ceiling) |
+| `DOCUMENT_UPLOAD_MAX_CONCURRENT_PER_USER`                         | Atomic per-user cap on in-progress document uploads (default `2`)                          |
+| `SESSION_SECRET`                                                  | Required in production for signed identity cookies                                         |
+| `DAEDALUS_INTERNAL_API_TOKEN`                                     | Shared token attached to trusted frontend-to-backend requests                              |
+| `RATE_LIMIT_IMAGE_JOB_MAX`, `RATE_LIMIT_IMAGE_JOB_WINDOW_SECONDS` | Per-user Create submission limit (defaults to 5 jobs per 60 seconds)                       |
+| `AUTH_USERNAME`, `AUTH_PASSWORD`                                  | Single-user auth                                                                           |
+| `AUTH_USER_*_*`                                                   | Multi-user auth entries                                                                    |
+| `DAEDALUS_DEFAULT_USER`                                           | Default selected user for initial login experience                                         |
+| `ADMIN_USERNAME`                                                  | Admin username allowed to inspect all usage stats                                          |
+| `NEXT_PUBLIC_VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`               | Optional web-push support                                                                  |
 
 See [`../.env.template`](../.env.template), [`env.example`](env.example), and the top-level [`../README.md`](../README.md) for deployment setup.
 
+Document uploads currently use base64 inside a JSON request, so Next.js parses
+the encoded body before the handler can authenticate, rate-limit, or reserve an
+upload slot. Keep ingress/proxy body limits enabled and treat the 200 MiB cap as
+an interim backstop. Production hardening still requires multipart streaming to
+object storage (persisting only an owned reference in Redis) so large bodies are
+bounded before Node.js allocation.
+
 ## Key Areas
 
-| Path                         | Responsibility                                                                   |
-| ---------------------------- | -------------------------------------------------------------------------------- |
-| `pages/api/chat.ts`          | Legacy direct streaming route that returns 410; async chat is the supported path |
-| `pages/api/chat/async.ts`    | Async job submission, status polling, stream capture, finalization               |
-| `pages/api/autonomy/`        | Autonomy dashboard API (config, goals, runs, feed items, approvals)              |
-| `pages/api/conversations/`   | Conversation CRUD and persistence                                                |
-| `pages/api/document/`        | Document upload, lookup, and ingestion progress                                  |
-| `pages/api/images/`          | Redis-backed Create image jobs and history lifecycle                             |
-| `pages/api/generated-image/` | Authorized generated-image display and direct downloads                          |
-| `pages/api/session/`         | Session and attachment API routes                                                |
-| `pages/api/sync/notify.ts`   | Best-effort cross-session sync notification publisher                            |
-| `server/autonomy/store.ts`   | Redis-backed autonomous agent state store                                        |
-| `server/session/`            | Redis, session, sanitization, and documentRef validation helpers                 |
-| `ws-server.ts`               | WebSocket sidecar backed by Redis Pub/Sub                                        |
-| `components/chat/`           | Main chat UI, async job integration, intermediate step rendering                 |
-| `components/autonomy/`       | Autonomy dashboard UI                                                            |
-| `hooks/useAsyncChat.ts`      | Job lifecycle, polling, WebSocket subscription, recovery                         |
-| `hooks/useWebSocket.ts`      | WebSocket sync and token delivery                                                |
-| `utils/app/`                 | Backend URL building, attachment helpers, conversation utilities                 |
+| Path                         | Responsibility                                                      |
+| ---------------------------- | ------------------------------------------------------------------- |
+| `pages/api/chat/async.ts`    | Async job submission, status polling, stream capture, finalization  |
+| `pages/api/autonomy/`        | Autonomy dashboard API (config, goals, runs, feed items, approvals) |
+| `pages/api/conversations/`   | Conversation CRUD and persistence                                   |
+| `pages/api/document/`        | Document upload, lookup, and ingestion progress                     |
+| `pages/api/images/`          | Redis-backed Create image jobs and history lifecycle                |
+| `pages/api/generated-image/` | Authorized generated-image display and direct downloads             |
+| `pages/api/session/`         | Session and attachment API routes                                   |
+| `pages/api/sync/notify.ts`   | Best-effort cross-session sync notification publisher               |
+| `server/autonomy/store.ts`   | Redis-backed autonomous agent state store                           |
+| `server/session/`            | Redis, session, sanitization, and documentRef validation helpers    |
+| `ws-server.ts`               | WebSocket sidecar backed by Redis Pub/Sub                           |
+| `components/chat/`           | Main chat UI, async job integration, intermediate step rendering    |
+| `components/autonomy/`       | Autonomy dashboard UI                                               |
+| `hooks/useAsyncChat.ts`      | Job lifecycle, polling, WebSocket subscription, recovery            |
+| `hooks/useWebSocket.ts`      | Conversation/autonomy sync and connection lifecycle                 |
+| `utils/app/`                 | Backend URL building, attachment helpers, conversation utilities    |
 
 ## Major Features
 

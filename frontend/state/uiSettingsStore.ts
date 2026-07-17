@@ -6,8 +6,6 @@
  *
  * @requires zustand - Run: npm install zustand
  */
-import { getDefaultChatCompletionUrl } from '@/utils/app/backendApi';
-
 import { FolderInterface } from '@/types/folder';
 import { IntermediateStepCategory } from '@/types/intermediateSteps';
 
@@ -41,24 +39,12 @@ export interface UISettingsState {
   intermediateStepsView: 'timeline' | 'category';
   intermediateStepsFilter: IntermediateStepCategory[];
 
-  // Background Processing
-  enableBackgroundProcessing: boolean;
-
-  // Performance
-  energySavingMode: boolean;
-
   // Folders
   folders: FolderInterface[];
   currentFolder: FolderInterface | undefined;
 
   // Search
   searchTerm: string;
-
-  // Chat Endpoint
-  chatCompletionURL: string;
-
-  // Additional config
-  additionalConfig: Record<string, unknown>;
 }
 
 export interface UISettingsActions {
@@ -84,12 +70,6 @@ export interface UISettingsActions {
   setIntermediateStepsFilter: (filter: IntermediateStepCategory[]) => void;
   toggleIntermediateStepCategory: (category: IntermediateStepCategory) => void;
 
-  // Background Processing
-  setEnableBackgroundProcessing: (enabled: boolean) => void;
-
-  // Performance
-  setEnergySavingMode: (enabled: boolean) => void;
-
   // Folders
   setFolders: (folders: FolderInterface[]) => void;
   addFolder: (folder: FolderInterface) => void;
@@ -100,13 +80,6 @@ export interface UISettingsActions {
   // Search
   setSearchTerm: (term: string) => void;
 
-  // Chat Endpoint
-  setChatCompletionURL: (url: string) => void;
-
-  // Additional config
-  setAdditionalConfig: (config: Record<string, any>) => void;
-  updateAdditionalConfig: (updates: Record<string, any>) => void;
-
   // Reset
   resetToDefaults: () => void;
 }
@@ -116,8 +89,6 @@ export type UISettingsStore = UISettingsState & UISettingsActions;
 // ============================================================================
 // Default Values
 // ============================================================================
-
-const DEFAULT_CHAT_URL = getDefaultChatCompletionUrl();
 
 const DEFAULT_CHAT_HISTORY =
   process?.env?.NEXT_PUBLIC_CHAT_HISTORY_DEFAULT_ON !== 'false';
@@ -134,13 +105,9 @@ const initialState: UISettingsState = {
   intermediateStepOverride: true,
   intermediateStepsView: 'timeline',
   intermediateStepsFilter: [],
-  enableBackgroundProcessing: true,
-  energySavingMode: false,
   folders: [],
   currentFolder: undefined,
   searchTerm: '',
-  chatCompletionURL: DEFAULT_CHAT_URL,
-  additionalConfig: {},
 };
 
 // ============================================================================
@@ -219,19 +186,6 @@ export const useUISettingsStore = create<UISettingsStore>()(
           }),
 
         // ======================================================================
-        // Background Processing
-        // ======================================================================
-
-        setEnableBackgroundProcessing: (enabled) =>
-          set({ enableBackgroundProcessing: enabled }),
-
-        // ======================================================================
-        // Performance
-        // ======================================================================
-
-        setEnergySavingMode: (enabled) => set({ energySavingMode: enabled }),
-
-        // ======================================================================
         // Folders
         // ======================================================================
 
@@ -263,23 +217,6 @@ export const useUISettingsStore = create<UISettingsStore>()(
         setSearchTerm: (term) => set({ searchTerm: term }),
 
         // ======================================================================
-        // Chat Endpoint
-        // ======================================================================
-
-        setChatCompletionURL: (url) => set({ chatCompletionURL: url }),
-
-        // ======================================================================
-        // Additional Config
-        // ======================================================================
-
-        setAdditionalConfig: (config) => set({ additionalConfig: config }),
-
-        updateAdditionalConfig: (updates) =>
-          set((state) => ({
-            additionalConfig: { ...state.additionalConfig, ...updates },
-          })),
-
-        // ======================================================================
         // Reset
         // ======================================================================
 
@@ -299,8 +236,6 @@ export const useUISettingsStore = create<UISettingsStore>()(
           enableIntermediateSteps: state.enableIntermediateSteps,
           expandIntermediateSteps: state.expandIntermediateSteps,
           intermediateStepsView: state.intermediateStepsView,
-          enableBackgroundProcessing: state.enableBackgroundProcessing,
-          energySavingMode: state.energySavingMode,
         }),
       },
     ),

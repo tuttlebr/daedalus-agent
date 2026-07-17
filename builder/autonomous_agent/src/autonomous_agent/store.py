@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import json
 import os
-import time
 import uuid
 from typing import Any
 
@@ -24,6 +24,15 @@ class RedisStore:
         self.redis = redis.from_url(
             redis_url or os.getenv("REDIS_URL", "redis://redis:6379"),
             decode_responses=True,
+        )
+        watch_error_type = getattr(
+            getattr(redis, "exceptions", None), "WatchError", None
+        )
+        self._watch_error_type: type[Exception] | None = (
+            watch_error_type
+            if isinstance(watch_error_type, type)
+            and issubclass(watch_error_type, Exception)
+            else None
         )
         self._json_supported: bool | None = None
         self._lease_tokens: dict[str, str] = {}
@@ -75,10 +84,12 @@ class RedisStore:
         concurrently. A plain ``json_get`` + ``json_set`` would then let one
         writer clobber the other's update. ``atomic_update`` guards the key with
         WATCH and retries on a concurrent change so updates compose instead of
-        racing. ``mutate`` receives the current decoded value (already defaulted
-        to ``[]``) and returns ``(new_value, result)``; ``result`` is returned to
-        the caller. Falls back to a plain read-modify-write when the Redis client
-        does not expose ``pipeline`` (keeps non-transactional fakes working).
+        racing. Both RedisJSON and plain-string JSON keys use commands matching
+        their storage type inside the transaction. ``mutate`` receives the
+        current decoded value (already defaulted to ``[]``) and returns
+        ``(new_value, result)``; ``result`` is returned to the caller. Falls back
+        to a plain read-modify-write only when the Redis client does not expose
+        ``pipeline`` (keeps non-transactional test fakes working).
         """
         pipeline_factory = getattr(self.redis, "pipeline", None)
         if not callable(pipeline_factory):
@@ -87,11 +98,17 @@ class RedisStore:
             self.json_set(redis_key, new_value)
             return result
 
-        for _ in range(max(1, retries)):
+        json_supported = self._supports_json()
+        attempts = max(1, retries)
+        last_watch_error: Exception | None = None
+        for _ in range(attempts):
             pipe = pipeline_factory()
             try:
                 pipe.watch(redis_key)
-                raw = pipe.get(redis_key)
+                if json_supported:
+                    raw = pipe.execute_command("JSON.GET", redis_key)
+                else:
+                    raw = pipe.get(redis_key)
                 current: Any = []
                 if raw:
                     try:
@@ -101,20 +118,29 @@ class RedisStore:
                     current = decoded if isinstance(decoded, list) else []
                 new_value, result = mutate(current)
                 pipe.multi()
-                pipe.set(redis_key, json.dumps(new_value))
+                serialized = json.dumps(new_value)
+                if json_supported:
+                    pipe.execute_command("JSON.SET", redis_key, ".", serialized)
+                else:
+                    pipe.set(redis_key, serialized)
                 pipe.execute()
                 return result
-            except Exception:  # nosec B112 - intentional: retry on WATCH conflict
+            except Exception as exc:
+                if self._watch_error_type is None or not isinstance(
+                    exc, self._watch_error_type
+                ):
+                    raise
+                last_watch_error = exc
                 continue
             finally:
                 with contextlib.suppress(Exception):
                     pipe.reset()
 
-        # Best-effort fallback after exhausting retries so the update is not lost.
-        current = self.json_get(redis_key, [])
-        new_value, result = mutate(current if isinstance(current, list) else [])
-        self.json_set(redis_key, new_value)
-        return result
+        # Never degrade to a non-atomic write: under sustained contention it is
+        # safer for the caller to retry than to silently clobber another worker.
+        if last_watch_error is None:  # pragma: no cover - loop always sets this
+            raise RuntimeError(f"Atomic update for {redis_key!r} did not complete")
+        raise last_watch_error
 
     def get_text(self, redis_key: str) -> str | None:
         value = self.redis.get(redis_key)
@@ -151,10 +177,6 @@ class RedisStore:
         runs = self.json_get(key(user_id, "runs"), [])
         return runs if isinstance(runs, list) else []
 
-    def save_runs(self, user_id: str, runs: list[dict[str, Any]]) -> None:
-        max_runs = int(self.get_config(user_id).get("maxRunsStored") or 100)
-        self.json_set(key(user_id, "runs"), runs[:max_runs])
-
     def upsert_run(self, user_id: str, run: dict[str, Any]) -> None:
         run["updatedAt"] = now_ms()
         max_runs = int(self.get_config(user_id).get("maxRunsStored") or 100)
@@ -168,11 +190,11 @@ class RedisStore:
         self.publish(user_id, "autonomy_status", {"run": run})
 
     def append_event(self, user_id: str, event: dict[str, Any]) -> None:
-        events = self.json_get(key(user_id, "events"), [])
-        if not isinstance(events, list):
-            events = []
-        events.insert(0, event)
-        self.json_set(key(user_id, "events"), events[:500])
+        def mutate(events: list[dict[str, Any]]):
+            events.insert(0, event)
+            return events[:500], None
+
+        self.atomic_update(key(user_id, "events"), mutate)
         self.publish(user_id, "autonomy_run_event", event)
 
     def log_event(
@@ -195,16 +217,6 @@ class RedisStore:
                 data=data,
             ),
         )
-
-    def list_events(
-        self, user_id: str, run_id: str | None = None
-    ) -> list[dict[str, Any]]:
-        events = self.json_get(key(user_id, "events"), [])
-        if not isinstance(events, list):
-            return []
-        if run_id:
-            return [event for event in events if event.get("runId") == run_id]
-        return events
 
     def list_feed(self, user_id: str, limit: int | None = None) -> list[dict[str, Any]]:
         feed = self.json_get(key(user_id, "feed"), [])
@@ -260,6 +272,115 @@ class RedisStore:
 
         self.atomic_update(key(user_id, "approvals"), mutate)
         self.publish(user_id, "autonomy_approval_requested", approval)
+
+    def get_pending_approval(
+        self, user_id: str, request_id: str
+    ) -> dict[str, Any] | None:
+        """Load a protected, non-executable approval intent created by NAT."""
+
+        if not request_id:
+            return None
+        safe_user = hashlib.sha256(user_id.strip().encode()).hexdigest()[:16]
+        raw = self.redis.get(f"approval-pending:{safe_user}:{request_id}")
+        if not raw:
+            return None
+        try:
+            pending = json.loads(raw)
+        except (json.JSONDecodeError, TypeError):
+            return None
+        if not isinstance(pending, dict) or pending.get("user_id") != user_id.strip():
+            return None
+        return pending
+
+    def get_approval_execution(
+        self, user_id: str, request_id: str
+    ) -> dict[str, Any] | None:
+        """Load the server-only credential/context for an approved queue item."""
+
+        if not request_id:
+            return None
+        execution_key = key(user_id, f"approval-execution:{request_id}")
+        getdel = getattr(self.redis, "getdel", None)
+        if callable(getdel):
+            raw = getdel(execution_key)
+        else:
+            raw = self.redis.eval(
+                "local v=redis.call('GET',KEYS[1]); "
+                "if v then redis.call('DEL',KEYS[1]) end; return v",
+                1,
+                execution_key,
+            )
+        if not raw:
+            return None
+        try:
+            execution = json.loads(raw)
+        except (json.JSONDecodeError, TypeError):
+            return None
+        if not isinstance(execution, dict):
+            return None
+        return execution
+
+    def issue_approval_token(
+        self,
+        user_id: str,
+        execution: dict[str, Any],
+        *,
+        ttl_seconds: int = 300,
+    ) -> str:
+        """Mint a short-lived one-use credential only when work is dequeued."""
+
+        from user_interaction.approval_tokens import (
+            ApprovalRequest,
+            issue_approval_token,
+        )
+
+        action_type = str(execution.get("actionType") or "").strip()
+        target = str(execution.get("target") or "").strip()
+        canonical_arguments = str(execution.get("canonicalArguments") or "").strip()
+        arguments_sha256 = str(execution.get("argumentsSha256") or "").strip()
+        return issue_approval_token(
+            self.redis,
+            ApprovalRequest(
+                user_id=user_id,
+                action_type=action_type,
+                target=target,
+                server_name=str(execution.get("serverName") or "").strip(),
+                tool_name=str(execution.get("toolName") or "").strip(),
+                arguments_sha256=arguments_sha256,
+                canonical_arguments=canonical_arguments,
+            ),
+            ttl_seconds=ttl_seconds,
+        )
+
+    def revoke_approval_token(self, user_id: str, token: str) -> None:
+        """Revoke an unspent credential after any completed worker attempt."""
+
+        if not token:
+            return
+        from user_interaction.approval_tokens import approval_token_key
+
+        self.redis.delete(approval_token_key(user_id, token))
+
+    def consume_mcp_execution_receipt(
+        self,
+        user_id: str,
+        token: str,
+        execution: dict[str, Any],
+    ) -> bool:
+        """Consume proof that the gate ran the exact approved MCP mutation."""
+
+        if str(execution.get("actionType") or "").strip() != "mcp_mutation":
+            return False
+        from user_interaction.approval_tokens import consume_mcp_execution_receipt
+
+        return consume_mcp_execution_receipt(
+            self.redis,
+            user_id=user_id,
+            token=token,
+            server_name=str(execution.get("serverName") or "").strip(),
+            tool_name=str(execution.get("toolName") or "").strip(),
+            arguments_sha256=str(execution.get("argumentsSha256") or "").strip(),
+        )
 
     def enqueue(self, user_id: str, request: dict[str, Any]) -> None:
         self.redis.lpush(key(user_id, "queue"), json.dumps(request))
@@ -374,9 +495,8 @@ class RedisStore:
         """F-015: report whether an approval has already been executed.
 
         Guards against an approved-then-re-enqueued request running a
-        non-idempotent action twice. ``approval_key`` is a stable identifier for
-        the approval (its single-use approval token, falling back to the
-        approval id) carried by the re-enqueued request.
+        non-idempotent action twice. ``approval_key`` is the stable public
+        approval id carried by the re-enqueued request; it is not a credential.
         """
         if not approval_key:
             return False
@@ -414,9 +534,3 @@ class RedisStore:
         config["lastScheduledRunAt"] = current
         self.save_config(user_id, config)
         return request
-
-    def sleep_with_lease(self, user_id: str, seconds: int) -> None:
-        deadline = time.monotonic() + seconds
-        while time.monotonic() < deadline:
-            self.refresh_lease(user_id)
-            time.sleep(min(10, max(0, deadline - time.monotonic())))

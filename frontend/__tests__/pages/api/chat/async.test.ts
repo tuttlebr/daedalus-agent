@@ -7,7 +7,6 @@ import handler, {
   buildNatSessionId,
   compactDocumentIngestionMessage,
   extractAsyncStreamContentDelta,
-  fetchNatJobStatus,
   getDocumentIngestJobRequest,
   isDocumentIngestionRequest,
   mergeSubmittedMessagesWithStoredHistory,
@@ -15,6 +14,11 @@ import handler, {
   resolveAsyncBackendBaseUrls,
 } from '@/pages/api/chat/async';
 
+import {
+  STREAM_ABORT_POLL_INTERVAL_MS,
+  STREAM_READ_IDLE_TIMEOUT_MS,
+} from '@/server/chat/constants';
+import { abortBackgroundStream } from '@/server/chat/streamReader';
 import {
   clearStreamingState,
   jsonDel,
@@ -120,7 +124,6 @@ describe('chat/async backend pinning helpers', () => {
     process.env.KUBERNETES_SERVICE_HOST = '10.0.0.1';
     delete process.env.DEPLOYMENT_MODE;
     delete process.env.DAEDALUS_INTERNAL_API_TOKEN;
-    delete process.env.DAEDALUS_DIRECT_DOCUMENT_INGEST_STREAM;
   });
 
   it('resolves pinned backend pod base URLs from the headless service', async () => {
@@ -137,37 +140,6 @@ describe('chat/async backend pinning helpers', () => {
         'http://10.0.2.61:8000',
         'http://10.0.3.154:8000',
       ]),
-    );
-  });
-
-  it('uses the stored natBaseUrl when polling job status', async () => {
-    const json = vi.fn().mockResolvedValue({
-      job_id: 'job-123',
-      status: 'running',
-      error: null,
-      output: null,
-      created_at: '',
-      updated_at: '',
-      expires_at: '',
-    });
-    mocks.fetchWithTimeout.mockResolvedValue({
-      ok: true,
-      status: 200,
-      json,
-    });
-
-    await fetchNatJobStatus('job-123', {
-      jobId: 'job-123',
-      natBaseUrl: 'http://10.0.2.61:8000',
-      messages: [],
-      additionalProps: {},
-      userId: 'testuser',
-    } as any);
-
-    expect(mocks.fetchWithTimeout).toHaveBeenCalledWith(
-      'http://10.0.2.61:8000/v1/workflow/async/job/job-123',
-      { headers: buildNatRequestHeaders('testuser') },
-      30000,
     );
   });
 
@@ -241,38 +213,6 @@ describe('chat/async backend pinning helpers', () => {
       { id: 'a1', role: 'assistant', content: 'updated answer' },
       { id: 'u2', role: 'user', content: 'follow up' },
     ]);
-  });
-
-  it('uses the stored NAT session id when polling job status', async () => {
-    const json = vi.fn().mockResolvedValue({
-      job_id: 'job-123',
-      status: 'running',
-      error: null,
-      output: null,
-      created_at: '',
-      updated_at: '',
-      expires_at: '',
-    });
-    mocks.fetchWithTimeout.mockResolvedValue({
-      ok: true,
-      status: 200,
-      json,
-    });
-
-    await fetchNatJobStatus('job-123', {
-      jobId: 'job-123',
-      natBaseUrl: 'http://10.0.2.61:8000',
-      natSessionId: 'job-session-123',
-      messages: [],
-      additionalProps: {},
-      userId: 'testuser',
-    } as any);
-
-    expect(mocks.fetchWithTimeout).toHaveBeenCalledWith(
-      'http://10.0.2.61:8000/v1/workflow/async/job/job-123',
-      { headers: buildNatRequestHeaders('testuser', {}, 'job-session-123') },
-      30000,
-    );
   });
 
   it('preserves prior assistant content so follow-ups have real context', () => {
@@ -360,7 +300,10 @@ describe('chat/async backend pinning helpers', () => {
     expect(out.content).toContain('documentRefs=');
     expect(out.content).toContain('"documentId":"doc-a"');
     expect(out.content).toContain('"filename":"a.md"');
-    expect(out.content).toContain('username="testuser"');
+    expect(out.content).not.toContain('username="testuser"');
+    expect(out.content).toContain(
+      'Identity comes only from the trusted request context',
+    );
     expect(out.content).toContain('collection_name="nvidia"');
     expect(out.content).toContain('collection_scope="shared"');
   });
@@ -638,11 +581,6 @@ describe('chat/async backend pinning helpers', () => {
       }),
       2000,
     );
-    expect(mocks.fetchWithTimeout).not.toHaveBeenCalledWith(
-      expect.stringContaining('/v1/workflow/async'),
-      expect.anything(),
-      expect.anything(),
-    );
     expect(fetchSpy).toHaveBeenCalledWith(
       'http://10.0.2.61:8000/v1/documents/ingest/stream',
       expect.objectContaining({
@@ -660,7 +598,6 @@ describe('chat/async backend pinning helpers', () => {
       ([key]: [string]) => key.includes('async-job-request'),
     )?.[1];
     expect(storedJobRequest.executionMode).toBe('document_ingest');
-    expect(storedJobRequest.natMessages).toEqual([]);
     expect(storedJobRequest.documentIngest).toEqual(
       expect.objectContaining({
         documentRefs: [
@@ -767,78 +704,7 @@ describe('chat/async backend pinning helpers', () => {
     expect(mocks.fetchWithTimeout).not.toHaveBeenCalled();
   });
 
-  it('can submit document ingestion through NAT async when the direct stream is disabled', async () => {
-    process.env.DAEDALUS_DIRECT_DOCUMENT_INGEST_STREAM = '0';
-    mocks.resolve4.mockResolvedValue(['10.0.2.61']);
-    mocks.fetchWithTimeout
-      .mockResolvedValueOnce({ ok: true, status: 200 })
-      .mockResolvedValueOnce({ ok: true, status: 200, json: vi.fn() });
-    const redisStore = new Map<string, any>();
-    (jsonSetWithExpiry as any).mockImplementation(
-      async (key: string, value: any) => {
-        redisStore.set(key, value);
-      },
-    );
-    (jsonGet as any).mockImplementation(async (key: string) =>
-      redisStore.has(key) ? redisStore.get(key) : null,
-    );
-
-    const req = {
-      method: 'POST',
-      headers: { cookie: 'sid=current-session' },
-      body: {
-        messages: [
-          {
-            role: 'user',
-            content: 'Ingest these docs',
-            metadata: { targetCollection: 'nvidia' },
-            attachments: [
-              {
-                type: 'document',
-                content: 'a.md',
-                documentRef: { documentId: 'doc-a', sessionId: 'sess-1' },
-              },
-            ],
-          },
-        ],
-      },
-    } as any;
-    const res = {
-      status: vi.fn().mockReturnThis(),
-      json: vi.fn().mockReturnThis(),
-      setHeader: vi.fn(),
-    } as any;
-
-    await handler(req, res);
-
-    expect(res.status).toHaveBeenCalledWith(200);
-    expect(mocks.fetchWithTimeout).toHaveBeenCalledWith(
-      'http://10.0.2.61:8000/v1/workflow/async',
-      expect.objectContaining({
-        method: 'POST',
-        headers: expect.objectContaining({
-          'Content-Type': 'application/json',
-          'x-user-id': 'testuser',
-          'x-timezone': 'America/New_York',
-        }),
-      }),
-      45000,
-    );
-    const submitBody = JSON.parse(mocks.fetchWithTimeout.mock.calls[1][1].body);
-    expect(submitBody.sync_timeout).toBe(0);
-    expect(submitBody.messages).toBeUndefined();
-    expect(submitBody.input_message).toContain('documentRef=');
-    expect(submitBody.input_message).toContain('collection_name="nvidia"');
-    expect(submitBody.input_message).toContain('collection_scope="shared"');
-
-    const storedJobRequest = (jsonSetWithExpiry as any).mock.calls.find(
-      ([key]: [string]) => key.includes('async-job-request'),
-    )?.[1];
-    expect(storedJobRequest.executionMode).toBe('nat_async');
-    expect(storedJobRequest.natMessages[1].content).toContain('documentRef=');
-  });
-
-  it('runs normal chat turns through the streaming backend without submitting a NAT async job', async () => {
+  it('runs normal chat turns through the streaming backend', async () => {
     mocks.resolve4.mockResolvedValue(['10.0.2.61']);
     mocks.fetchWithTimeout.mockResolvedValue({ ok: true, status: 200 });
     const fetchSpy = vi.fn(() => new Promise(() => {}) as any);
@@ -889,11 +755,6 @@ describe('chat/async backend pinning helpers', () => {
       expect.objectContaining({ method: 'HEAD' }),
       2000,
     );
-    expect(mocks.fetchWithTimeout).not.toHaveBeenCalledWith(
-      expect.stringContaining('/v1/workflow/async'),
-      expect.anything(),
-      expect.anything(),
-    );
     expect(fetchSpy).toHaveBeenCalledWith(
       'http://10.0.2.61:8000/v1/chat/completions',
       expect.objectContaining({
@@ -911,7 +772,10 @@ describe('chat/async backend pinning helpers', () => {
     )?.[1];
     expect(storedJobRequest.executionMode).toBe('stream');
     expect(storedJobRequest.timezone).toBe('Europe/London');
-    expect(storedJobRequest.natMessages[1].content).toBe('What is the status?');
+    const streamBody = JSON.parse(
+      String((fetchSpy.mock.calls as any[])[0]?.[1]?.body ?? '{}'),
+    );
+    expect(streamBody.messages[1].content).toBe('What is the status?');
   });
 
   it('loads stored conversation history before forwarding a chat turn', async () => {
@@ -993,7 +857,7 @@ describe('chat/async backend pinning helpers', () => {
     ]);
   });
 
-  it('injects a sanitized source policy after identity for NAT chat turns', async () => {
+  it('injects a sanitized source policy after identity for backend chat turns', async () => {
     mocks.resolve4.mockResolvedValue(['10.0.2.61']);
     mocks.fetchWithTimeout.mockResolvedValue({ ok: true, status: 200 });
     const fetchSpy = vi.fn(() => new Promise(() => {}) as any);
@@ -1046,22 +910,22 @@ describe('chat/async backend pinning helpers', () => {
     }
 
     expect(res.status).toHaveBeenCalledWith(200);
-    const storedJobRequest = (jsonSetWithExpiry as any).mock.calls.find(
-      ([key]: [string]) => key.includes('async-job-request'),
-    )?.[1];
-    expect(storedJobRequest.natMessages[0].content).toContain('[IDENTITY]');
-    expect(storedJobRequest.natMessages[1].content).toContain(
-      '[SOURCE_POLICY]',
+    const streamBody = JSON.parse(
+      String((fetchSpy.mock.calls as any[])[0]?.[1]?.body ?? '{}'),
     );
-    expect(storedJobRequest.natMessages[1].content).toContain(
+    expect(streamBody.messages[0].content).toContain('[IDENTITY]');
+    expect(streamBody.messages[0].content).toContain(
+      'derive identity only from the trusted authenticated request context',
+    );
+    expect(streamBody.messages[0].content).not.toContain('Use user_id=');
+    expect(streamBody.messages[1].content).toContain('[SOURCE_POLICY]');
+    expect(streamBody.messages[1].content).toContain(
       'enabled_source_ids=["curated_domains"]',
     );
-    expect(storedJobRequest.natMessages[1].content).toContain(
+    expect(streamBody.messages[1].content).toContain(
       'disabled_source_ids=["perplexity_search"]',
     );
-    expect(storedJobRequest.natMessages[2].content).toBe(
-      'Research inference tooling.',
-    );
+    expect(streamBody.messages[2].content).toBe('Research inference tooling.');
   });
 
   it('routes follow-up messages through stream mode even when prior turns contained document ingestion', async () => {
@@ -1197,17 +1061,6 @@ describe('chat/async backend pinning helpers', () => {
     )?.[1];
     expect(storedJobRequest.executionMode).toBe('stream');
 
-    const sentMessages = storedJobRequest.natMessages;
-    expect(sentMessages[0].content).toContain('[IDENTITY]');
-    expect(sentMessages.slice(1)).toEqual([
-      { role: 'user', content: 'Summarize the release notes.' },
-      { role: 'assistant', content: priorAssistant },
-      {
-        role: 'user',
-        content: 'Return your last response as a simple HTML file.',
-      },
-    ]);
-
     const fetchCalls = fetchSpy.mock.calls as unknown as [
       string,
       RequestInit,
@@ -1218,30 +1071,24 @@ describe('chat/async backend pinning helpers', () => {
     expect(streamCall).toBeDefined();
     if (!streamCall) throw new Error('Expected chat stream request');
     const streamPayload = JSON.parse(String(streamCall[1]?.body ?? '{}'));
-    expect(streamPayload.messages).toEqual(sentMessages);
+    expect(streamPayload.messages[0].content).toContain('[IDENTITY]');
+    expect(streamPayload.messages.slice(1)).toEqual([
+      { role: 'user', content: 'Summarize the release notes.' },
+      { role: 'assistant', content: priorAssistant },
+      {
+        role: 'user',
+        content: 'Return your last response as a simple HTML file.',
+      },
+    ]);
     expect(streamPayload.temperature).toBeUndefined();
     expect(streamPayload.top_p).toBeUndefined();
-  });
-
-  it('treats legacy shared-service 404s as retryable instead of terminal', async () => {
-    mocks.fetchWithTimeout.mockResolvedValue({
-      ok: false,
-      status: 404,
-    });
-
-    const result = await fetchNatJobStatus('job-legacy', {
-      jobId: 'job-legacy',
-      messages: [],
-      additionalProps: {},
-      userId: 'testuser',
-    } as any);
-
-    expect(result).toBeNull();
-    expect(mocks.fetchWithTimeout).toHaveBeenCalledWith(
-      'http://daedalus-backend-default.daedalus.svc.cluster.local:8000/v1/workflow/async/job/job-legacy',
-      { headers: buildNatRequestHeaders('testuser') },
-      30000,
-    );
+    expect(streamPayload.model).toBeUndefined();
+    expect(streamPayload.max_tokens).toBeUndefined();
+    expect(streamPayload.use_knowledge_base).toBeUndefined();
+    expect(streamPayload.top_k).toBeUndefined();
+    expect(streamPayload.collection_name).toBeUndefined();
+    expect(streamPayload.stop).toBeUndefined();
+    expect(streamPayload.user_id).toBeUndefined();
   });
 
   it('sanitizes a completed job fullResponse before returning cached status', async () => {
@@ -1372,6 +1219,7 @@ describe('chat/async backend pinning helpers', () => {
     (jsonGet as any)
       .mockResolvedValueOnce(jobStatus)
       .mockResolvedValueOnce(jobRequest)
+      .mockResolvedValueOnce(null)
       .mockResolvedValueOnce(jobStatus);
     (jsonSetWithExpiry as any).mockResolvedValue(undefined);
     const req = { method: 'GET', query: { jobId: 'job-123' } } as any;
@@ -1422,6 +1270,7 @@ describe('chat/async backend pinning helpers', () => {
     (jsonGet as any)
       .mockResolvedValueOnce(jobStatus)
       .mockResolvedValueOnce(jobRequest)
+      .mockResolvedValueOnce(null)
       .mockResolvedValueOnce(jobStatus);
     (jsonSetWithExpiry as any).mockResolvedValue(undefined);
     const req = { method: 'GET', query: { jobId: 'job-123' } } as any;
@@ -1816,6 +1665,37 @@ async function runStreamTurn(
   }
 }
 
+async function startBlockedStreamTurn() {
+  mocks.resolve4.mockResolvedValue(['10.0.2.61']);
+  mocks.fetchWithTimeout.mockResolvedValue({ ok: true, status: 200 });
+  const store = wireRedisStore();
+  const read = vi.fn(() => new Promise<never>(() => {}));
+  const cancel = vi.fn().mockResolvedValue(undefined);
+  const releaseLock = vi.fn();
+  stubFetch(async () => ({
+    ok: true,
+    status: 200,
+    text: async () => '',
+    body: {
+      getReader: () => ({ read, cancel, releaseLock }),
+    },
+  }));
+  const req = {
+    method: 'POST',
+    headers: { cookie: 'sid=current-session' },
+    body: { messages: [{ role: 'user', content: 'wait silently' }] },
+  } as any;
+  const res = makeRes();
+  await handler(req, res);
+  const jobId = res.json.mock.calls[0]?.[0]?.jobId as string;
+
+  for (let i = 0; i < 10 && read.mock.calls.length === 0; i += 1) {
+    await Promise.resolve();
+  }
+
+  return { jobId, store, read, cancel, releaseLock };
+}
+
 const TOKEN_CHANNEL = 'user:testuser:chat:conv-1:tokens';
 
 describe('chat/async streaming + finalize (characterization)', () => {
@@ -1833,7 +1713,6 @@ describe('chat/async streaming + finalize (characterization)', () => {
     process.env.KUBERNETES_SERVICE_HOST = '10.0.0.1';
     delete process.env.DEPLOYMENT_MODE;
     delete process.env.DAEDALUS_INTERNAL_API_TOKEN;
-    delete process.env.DAEDALUS_DIRECT_DOCUMENT_INGEST_STREAM;
     delete process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
     delete process.env.VAPID_PRIVATE_KEY;
   });
@@ -1874,7 +1753,7 @@ describe('chat/async streaming + finalize (characterization)', () => {
   });
 
   it('parses intermediate_data frames, persists steps, and publishes chat_intermediate_step', async () => {
-    const { statusKey, store } = await runStreamTurn([
+    const { jobId, statusKey, store } = await runStreamTurn([
       'intermediate_data: {"name":"Function Start: <search>","id":"s1","parent_id":"root","payload":"the query"}\n',
       'intermediate_data: {"name":"Function Complete: <search>","id":"s1","parent_id":"root","payload":"a result"}\n',
       'data: [DONE]\n',
@@ -1888,6 +1767,22 @@ describe('chat/async streaming + finalize (characterization)', () => {
     const status = store.get(statusKey);
     expect(status?.status).toBe('completed');
     expect(status?.intermediateSteps).toHaveLength(2);
+
+    const streamingStatusEvents = publishedEvents()
+      .filter((event) => event.channel === `job:${jobId}:status`)
+      .filter((event) => event.data.status === 'streaming');
+    expect(streamingStatusEvents).toHaveLength(0);
+
+    const streamingStatusWrites = (jsonSetWithExpiry as any).mock.calls
+      .filter(([key]: [string]) => key === statusKey)
+      .map(([, value]: [string, any]) => value)
+      .filter((value: any) => value.status === 'streaming');
+    expect(streamingStatusWrites.length).toBeGreaterThan(0);
+    expect(
+      streamingStatusWrites.every(
+        (value: any) => !Object.hasOwn(value, 'intermediateSteps'),
+      ),
+    ).toBe(true);
   });
 
   it('sanitizes completion-event step output against prior replay but leaves TOOL_END raw', async () => {
@@ -1959,25 +1854,34 @@ describe('chat/async streaming + finalize (characterization)', () => {
     expect(store.get(`daedalus:async-job-abort:${jobId}`)).toBeUndefined();
   });
 
-  it('clears oauth_required status once stream content arrives', async () => {
-    const { jobId } = await runStreamTurn([
+  it('clears oauth_required status without publishing duplicate streaming snapshots', async () => {
+    const { jobId, statusKey } = await runStreamTurn([
       'event: oauth_required\n',
       'data: {"auth_url":"https://accounts.google.com/auth","oauth_state":"xyz"}\n',
       'data: {"choices":[{"delta":{"content":"Other work finished."}}]}\n',
       'data: [DONE]\n',
     ]);
 
-    const streamingUpdateWithContent = publishedEvents()
+    const streamingStatusEvents = publishedEvents()
       .filter((e) => e.channel === `job:${jobId}:status`)
       .map((e) => e.data)
+      .filter((data) => data.status === 'streaming');
+    expect(streamingStatusEvents).toHaveLength(0);
+
+    const streamingUpdateWithContent = (jsonSetWithExpiry as any).mock.calls
+      .filter(([key]: [string]) => key === statusKey)
+      .map(([, value]: [string, any]) => value)
       .find(
-        (data) =>
+        (data: any) =>
           data.status === 'streaming' &&
           data.partialResponse === 'Other work finished.',
       );
     expect(streamingUpdateWithContent).toBeDefined();
     expect(streamingUpdateWithContent.authUrl).toBeUndefined();
     expect(streamingUpdateWithContent.oauthRequests).toBeUndefined();
+    expect(Object.hasOwn(streamingUpdateWithContent, 'intermediateSteps')).toBe(
+      false,
+    );
   });
 
   it('accumulates multiple OAuth prompts from one stream', async () => {
@@ -2044,6 +1948,78 @@ describe('chat/async streaming + finalize (characterization)', () => {
       expect(status?.status).toBe('pending');
       expect(status?.finalizedAt).toBeUndefined();
     } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('DELETE interrupts a silent pending read and cleans up its reader', async () => {
+    const { jobId, store, read, cancel, releaseLock } =
+      await startBlockedStreamTurn();
+    expect(read).toHaveBeenCalledTimes(1);
+
+    const req = { method: 'DELETE', query: { jobId } } as any;
+    const res = makeRes();
+    try {
+      await handler(req, res);
+      await drainUntil(() => cancel.mock.calls.length > 0);
+
+      expect(res.json).toHaveBeenCalledWith({
+        success: true,
+        canceled: true,
+      });
+      expect(read).toHaveBeenCalledTimes(1);
+      expect(cancel).toHaveBeenCalledTimes(1);
+      expect(releaseLock).toHaveBeenCalledTimes(1);
+      expect(abortBackgroundStream(jobId)).toBe(false);
+      expect(store.get(`daedalus:async-job-status:${jobId}`)?.status).toBe(
+        'error',
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('periodic Redis abort polling interrupts a silent pending read', async () => {
+    vi.useFakeTimers();
+    try {
+      const { jobId, store, read, cancel, releaseLock } =
+        await startBlockedStreamTurn();
+      expect(read).toHaveBeenCalledTimes(1);
+
+      store.set(`daedalus:async-job-abort:${jobId}`, true);
+      await vi.advanceTimersByTimeAsync(STREAM_ABORT_POLL_INTERVAL_MS);
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(read).toHaveBeenCalledTimes(1);
+      expect(cancel).toHaveBeenCalledTimes(1);
+      expect(releaseLock).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.clearAllTimers();
+      vi.useRealTimers();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('finalizes a silent pending read after the stream idle timeout', async () => {
+    vi.useFakeTimers();
+    try {
+      const { jobId, store, read, cancel, releaseLock } =
+        await startBlockedStreamTurn();
+      expect(read).toHaveBeenCalledTimes(1);
+
+      await vi.advanceTimersByTimeAsync(STREAM_READ_IDLE_TIMEOUT_MS);
+      await vi.advanceTimersByTimeAsync(0);
+
+      const status = store.get(`daedalus:async-job-status:${jobId}`);
+      expect(read).toHaveBeenCalledTimes(1);
+      expect(cancel).toHaveBeenCalledTimes(1);
+      expect(releaseLock).toHaveBeenCalledTimes(1);
+      expect(status?.status).toBe('error');
+      expect(status?.error).toContain('idle');
+      expect(typeof status?.finalizedAt).toBe('number');
+    } finally {
+      vi.clearAllTimers();
+      vi.useRealTimers();
       vi.unstubAllGlobals();
     }
   });
@@ -2328,95 +2304,6 @@ describe('chat/async streaming + finalize (characterization)', () => {
     }
   });
 
-  it('GET on a nat_async job finalizes completed when NAT reports success', async () => {
-    const jobId = 'nat-success-1';
-    const store = wireRedisStore({
-      [`daedalus:async-job-status:${jobId}`]: {
-        jobId,
-        status: 'streaming',
-        createdAt: 1,
-        updatedAt: 2,
-        conversationId: 'conv-1',
-      },
-      [`daedalus:async-job-request:${jobId}`]: {
-        jobId,
-        executionMode: 'nat_async',
-        natBaseUrl: 'http://10.0.2.61:8000',
-        messages: [{ role: 'user', content: 'hi' }],
-        additionalProps: {},
-        userId: 'testuser',
-        conversationId: 'conv-1',
-      },
-    });
-    mocks.fetchWithTimeout.mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({
-        job_id: jobId,
-        status: 'success',
-        error: null,
-        output: { value: 'NAT answer.' },
-        created_at: '',
-        updated_at: '',
-        expires_at: '',
-      }),
-    });
-    const req = { method: 'GET', query: { jobId } } as any;
-    const res = makeRes();
-    await handler(req, res);
-    await drainUntil(() =>
-      Boolean(store.get(`daedalus:async-job-status:${jobId}`)?.finalizedAt),
-    );
-    const status = store.get(`daedalus:async-job-status:${jobId}`);
-    expect(status?.status).toBe('completed');
-    expect(status?.fullResponse).toBe('NAT answer.');
-    expect(res.json).toHaveBeenCalledWith(
-      expect.objectContaining({ status: 'completed' }),
-    );
-  });
-
-  it('GET on a nat_async job finalizes error when NAT reports failure', async () => {
-    const jobId = 'nat-failure-1';
-    const store = wireRedisStore({
-      [`daedalus:async-job-status:${jobId}`]: {
-        jobId,
-        status: 'streaming',
-        createdAt: 1,
-        updatedAt: 2,
-      },
-      [`daedalus:async-job-request:${jobId}`]: {
-        jobId,
-        executionMode: 'nat_async',
-        natBaseUrl: 'http://10.0.2.61:8000',
-        messages: [],
-        additionalProps: {},
-        userId: 'testuser',
-      },
-    });
-    mocks.fetchWithTimeout.mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({
-        job_id: jobId,
-        status: 'failure',
-        error: 'backend boom',
-        output: null,
-        created_at: '',
-        updated_at: '',
-        expires_at: '',
-      }),
-    });
-    const req = { method: 'GET', query: { jobId } } as any;
-    const res = makeRes();
-    await handler(req, res);
-    await drainUntil(() =>
-      Boolean(store.get(`daedalus:async-job-status:${jobId}`)?.finalizedAt),
-    );
-    const status = store.get(`daedalus:async-job-status:${jobId}`);
-    expect(status?.status).toBe('error');
-    expect(status?.error).toContain('backend boom');
-  });
-
   it('GET returns 404 without finalizing when the caller does not own the job', async () => {
     const jobId = 'owned-by-other';
     wireRedisStore({
@@ -2440,124 +2327,47 @@ describe('chat/async streaming + finalize (characterization)', () => {
     expect(mocks.fetchWithTimeout).not.toHaveBeenCalled();
   });
 
-  it('GET on a running nat_async job merges live steps and reports progress 50', async () => {
-    vi.useFakeTimers();
-    try {
-      const jobId = 'nat-running-1';
-      const store = wireRedisStore({
-        [`daedalus:async-job-status:${jobId}`]: {
-          jobId,
-          status: 'pending',
-          createdAt: 1,
-          updatedAt: 2,
-        },
-        [`daedalus:async-job-request:${jobId}`]: {
-          jobId,
-          executionMode: 'nat_async',
-          natBaseUrl: 'http://10.0.2.61:8000',
-          messages: [],
-          additionalProps: {},
-          userId: 'testuser',
-        },
-        [`daedalus:async-job-steps:${jobId}`]: [
-          { payload: { event_type: 'TOOL_START' } },
-        ],
-      });
-      mocks.fetchWithTimeout.mockResolvedValue({
-        ok: true,
-        status: 200,
-        json: async () => ({
-          job_id: jobId,
-          status: 'running',
-          error: null,
-          output: null,
-          created_at: '',
-          updated_at: '',
-          expires_at: '',
-        }),
-      });
-      const req = { method: 'GET', query: { jobId } } as any;
-      const res = makeRes();
-      const p = handler(req, res);
-      await vi.advanceTimersByTimeAsync(0);
-      await p;
-      await vi.advanceTimersByTimeAsync(0);
-      const status = store.get(`daedalus:async-job-status:${jobId}`);
-      expect(status?.status).toBe('streaming');
-      expect(status?.progress).toBe(50);
-      expect(status?.intermediateSteps).toHaveLength(1);
-    } finally {
-      vi.clearAllTimers();
-      vi.useRealTimers();
-    }
-  });
+  it('GET on a direct stream merges separately persisted live steps', async () => {
+    const jobId = 'stream-running-1';
+    const now = Date.now();
+    const store = wireRedisStore({
+      [`daedalus:async-job-status:${jobId}`]: {
+        jobId,
+        status: 'streaming',
+        partialResponse: 'Working',
+        createdAt: now,
+        updatedAt: now,
+        conversationId: 'conv-1',
+      },
+      [`daedalus:async-job-request:${jobId}`]: {
+        jobId,
+        executionMode: 'stream',
+        messages: [{ role: 'user', content: 'hello' }],
+        additionalProps: {},
+        userId: 'testuser',
+        conversationId: 'conv-1',
+      },
+      [`daedalus:async-job-steps:${jobId}`]: [
+        { payload: { event_type: 'TOOL_START' } },
+      ],
+    });
+    const req = { method: 'GET', query: { jobId } } as any;
+    const res = makeRes();
 
-  it('GET preserves oauth_required prompts while NAT still reports running', async () => {
-    vi.useFakeTimers();
-    try {
-      const jobId = 'nat-oauth-running-1';
-      const oauthRequests = [
-        {
-          id: 'gmail-state:https://accounts.google.com/auth?scope=gmail.readonly',
-          authUrl: 'https://accounts.google.com/auth?scope=gmail.readonly',
-          oauthState: 'gmail-state',
-          service: 'Gmail',
-        },
-        {
-          id: 'calendar-state:https://accounts.google.com/auth?scope=calendar.calendarlist.readonly',
-          authUrl:
-            'https://accounts.google.com/auth?scope=calendar.calendarlist.readonly',
-          oauthState: 'calendar-state',
-          service: 'Calendar',
-        },
-      ];
-      const store = wireRedisStore({
-        [`daedalus:async-job-status:${jobId}`]: {
-          jobId,
-          status: 'oauth_required',
-          authUrl: oauthRequests[1].authUrl,
-          oauthState: oauthRequests[1].oauthState,
-          oauthRequests,
-          createdAt: 1,
-          updatedAt: 2,
-        },
-        [`daedalus:async-job-request:${jobId}`]: {
-          jobId,
-          executionMode: 'nat_async',
-          natBaseUrl: 'http://10.0.2.61:8000',
-          messages: [],
-          additionalProps: {},
-          userId: 'testuser',
-        },
-      });
-      mocks.fetchWithTimeout.mockResolvedValue({
-        ok: true,
-        status: 200,
-        json: async () => ({
-          job_id: jobId,
-          status: 'running',
-          error: null,
-          output: null,
-          created_at: '',
-          updated_at: '',
-          expires_at: '',
-        }),
-      });
-      const req = { method: 'GET', query: { jobId } } as any;
-      const res = makeRes();
-      const p = handler(req, res);
-      await vi.advanceTimersByTimeAsync(0);
-      await p;
-      await vi.advanceTimersByTimeAsync(0);
-      const status = store.get(`daedalus:async-job-status:${jobId}`);
-      expect(status?.status).toBe('oauth_required');
-      expect(status?.progress).toBe(0);
-      expect(status?.authUrl).toBe(oauthRequests[1].authUrl);
-      expect(status?.oauthRequests).toEqual(oauthRequests);
-    } finally {
-      vi.clearAllTimers();
-      vi.useRealTimers();
-    }
+    await handler(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(res.json).toHaveBeenCalledWith(
+      expect.objectContaining({
+        jobId,
+        partialResponse: 'Working',
+        intermediateSteps: [{ payload: { event_type: 'TOOL_START' } }],
+      }),
+    );
+    expect(
+      store.get(`daedalus:async-job-status:${jobId}`)?.intermediateSteps,
+    ).toBeUndefined();
+    expect(mocks.fetchWithTimeout).not.toHaveBeenCalled();
   });
 
   it('DELETE cancels an in-flight job, finalizes it, and cleans up', async () => {

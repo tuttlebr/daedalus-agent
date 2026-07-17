@@ -57,7 +57,7 @@ class RssFeedFunctionConfig(FunctionBaseConfig, name="rss_feed"):
     reranker_model: str | None = Field(
         default=None,
         description=(
-            "The reranker model to use " "(e.g., 'nvidia/nv-rerankqa-mistral-4b-v3')"
+            "The reranker model to use (e.g., 'nvidia/nv-rerankqa-mistral-4b-v3')"
         ),
     )
     reranker_api_key: str | None = Field(
@@ -122,9 +122,7 @@ class RssFeedFunctionConfig(FunctionBaseConfig, name="rss_feed"):
         description="Maximum number of tokens in scraped content",
     )
     scrape_truncation_message: str = Field(
-        default=(
-            "\n\n---\n\n" "_**Note:** Content truncated to fit within token limit._"
-        ),
+        default=("\n\n---\n\n_**Note:** Content truncated to fit within token limit._"),
         description="Message appended when content is truncated",
     )
 
@@ -288,11 +286,11 @@ def _feed_url_rejection_reason(url: str) -> str | None:
 
     F-002d: feed URLs can be influenced by tool input (feed_scope selection and
     any agent-supplied feed map), so validate them before fetching. Reject
-    non-http(s) schemes and literal internal IPs; the cluster network policy
-    covers the hostname-resolves-to-internal case (hence check_dns=False).
+    non-http(s) schemes, literal internal IPs, and hostnames resolving to
+    non-public addresses.
     """
     try:
-        validate_public_url(url, check_dns=False)
+        validate_public_url(url, check_dns=True)
     except UnsafeURLError as exc:
         return str(exc)
     return None
@@ -303,11 +301,11 @@ def _scrape_content(
 ) -> tuple[str, bool]:
     """Scrape content from URL using markitdown."""
     # F-001: feed-supplied links are attacker-influenceable. Reject non-http(s)
-    # schemes (blocks file:// local-file reads) and literal internal IPs before
-    # handing the URL to MarkItDown. The cluster network policy covers the
-    # hostname-resolves-to-internal case.
+    # schemes (blocks file:// local-file reads), literal internal IPs, and
+    # hostnames resolving to internal addresses before handing the URL to
+    # MarkItDown.
     try:
-        validate_public_url(url, check_dns=False)
+        validate_public_url(url, check_dns=True)
     except UnsafeURLError as exc:
         logger.warning("Blocked SSRF-unsafe feed link '%s': %s", url, exc)
         return f"Error: {exc}", False

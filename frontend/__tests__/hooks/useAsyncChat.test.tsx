@@ -49,12 +49,12 @@ vi.mock('@/utils/app/visibilityAwareTimer', () => ({
 }));
 
 vi.mock('@/utils/logger', () => ({
-  Logger: vi.fn().mockImplementation(() => ({
-    info: vi.fn(),
-    warn: vi.fn(),
-    error: vi.fn(),
-    debug: vi.fn(),
-  })),
+  Logger: class MockLogger {
+    info = vi.fn();
+    warn = vi.fn();
+    error = vi.fn();
+    debug = vi.fn();
+  },
 }));
 
 type UseAsyncChatApi = ReturnType<typeof useAsyncChat>;
@@ -161,7 +161,6 @@ describe('useAsyncChat streaming callbacks', () => {
     await act(async () => {
       await api.startAsyncJob(
         [{ role: 'user', content: 'hello' }],
-        '/api/chat/async',
         {},
         'user-1',
         'conv-1',

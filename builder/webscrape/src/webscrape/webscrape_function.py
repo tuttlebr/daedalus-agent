@@ -344,7 +344,7 @@ async def _get_following_safe_redirects(
                 validate_public_url(
                     next_url,
                     allowed_schemes=allowed_schemes or list(_ALLOWED_FETCH_SCHEMES),
-                    check_dns=False,
+                    check_dns=True,
                 )
                 current_url = next_url
             else:
@@ -715,12 +715,12 @@ async def webscrape_function(config: WebscrapeFunctionConfig, builder: Builder):
             logger.info("URL validation failed for '%s': %s", sanitized_input, exc)
             return _format_error(str(exc))
 
-        # F-001: block SSRF-unsafe targets (non-http(s) schemes, literal internal
-        # IPs / cloud-metadata) before any fetch strategy runs. The cluster
-        # network policy covers the hostname-resolves-to-internal case.
+        # F-001: block SSRF-unsafe targets, including hostnames that resolve to
+        # private, loopback, link-local, or metadata addresses, before any fetch
+        # strategy runs.
         try:
             validate_public_url(
-                url, allowed_schemes=config.allowed_schemes, check_dns=False
+                url, allowed_schemes=config.allowed_schemes, check_dns=True
             )
         except UnsafeURLError as exc:
             logger.warning("Blocked SSRF-unsafe URL '%s': %s", sanitized_input, exc)

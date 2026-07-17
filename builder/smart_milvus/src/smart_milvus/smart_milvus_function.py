@@ -1,7 +1,11 @@
 import asyncio
 import logging
 import os
+import time
+from collections import OrderedDict
+from collections.abc import Callable
 from functools import partial
+from typing import Any
 
 import requests
 from langchain_core.embeddings import Embeddings
@@ -11,6 +15,9 @@ from pymilvus import MilvusClient
 from pymilvus.client.abstract import Hit
 
 logger = logging.getLogger(__name__)
+
+_DEFAULT_METADATA_CACHE_TTL_SECONDS = 30.0
+_DEFAULT_METADATA_CACHE_MAX_ENTRIES = 128
 
 
 class CollectionNotFoundError(RetrieverError):
@@ -36,6 +43,8 @@ class MilvusRetriever(Retriever):
         vector_field_name: str = "vector",
         reranker_config: dict | None = None,
         search_timeout: float | None = None,
+        metadata_cache_ttl: float = _DEFAULT_METADATA_CACHE_TTL_SECONDS,
+        metadata_cache_max_entries: int = _DEFAULT_METADATA_CACHE_MAX_ENTRIES,
     ) -> None:
         """
         Initialize the Milvus Retriever using a preconfigured MilvusClient.
@@ -54,6 +63,10 @@ class MilvusRetriever(Retriever):
                 Defaults to "vector".
             reranker_config (dict | None): Configuration for the reranker service.
                 Should contain 'endpoint', 'model', 'top_n', and 'api_key'.
+            metadata_cache_ttl (float): Seconds to retain collection and schema
+                metadata. Zero disables caching.
+            metadata_cache_max_entries (int): Maximum cached collections and
+                schemas per retriever.
         """
         self._client = client
         self._embedder = embedder
@@ -64,6 +77,20 @@ class MilvusRetriever(Retriever):
         # Milvus cannot hang an agent turn indefinitely. None => unbounded.
         self._search_timeout = search_timeout
         self._session = None  # Lazy-loaded requests session
+        self._metadata_cache_ttl = max(0.0, metadata_cache_ttl)
+        self._metadata_cache_max_entries = max(1, metadata_cache_max_entries)
+        self._collection_cache: OrderedDict[str, tuple[float, tuple[bool, str]]] = (
+            OrderedDict()
+        )
+        self._schema_cache: OrderedDict[str, tuple[float, dict[str, Any]]] = (
+            OrderedDict()
+        )
+        self._collection_cache_lock = asyncio.Lock()
+        self._schema_cache_lock = asyncio.Lock()
+        # asyncio.to_thread uses Python's bounded default thread pool. This
+        # semaphore additionally caps concurrent synchronous Milvus calls per
+        # retriever so one hot tool cannot monopolize that shared pool.
+        self._client_call_slots = asyncio.Semaphore(8)
 
         # Note: For MilvusClient, database switching is handled by prefixing
         # collection names with database name (e.g., "db_name.collection_name")
@@ -115,7 +142,47 @@ class MilvusRetriever(Retriever):
             if param not in self._bound_params
         ]
 
-    def _resolve_collection(self, collection_name: str) -> tuple[bool, str]:
+    def _invalidate_metadata_cache(self) -> None:
+        """Discard collection/schema metadata after any client-side failure."""
+        self._collection_cache.clear()
+        self._schema_cache.clear()
+
+    async def _client_call(
+        self, method: Callable[..., Any], /, *args: Any, **kwargs: Any
+    ) -> Any:
+        """Run a synchronous Milvus call without blocking the event loop."""
+        try:
+            async with self._client_call_slots:
+                return await asyncio.to_thread(method, *args, **kwargs)
+        except Exception:
+            # A stale collection/schema is a common cause of a failed search.
+            # Clearing both caches makes the next request re-read server state.
+            self._invalidate_metadata_cache()
+            raise
+
+    def _get_cached_collection(self, collection_name: str) -> tuple[bool, str] | None:
+        cached = self._collection_cache.get(collection_name)
+        if cached is None:
+            return None
+        expires_at, value = cached
+        if expires_at <= time.monotonic():
+            del self._collection_cache[collection_name]
+            return None
+        self._collection_cache.move_to_end(collection_name)
+        return value
+
+    def _cache_collection(self, collection_name: str, value: tuple[bool, str]) -> None:
+        if self._metadata_cache_ttl <= 0:
+            return
+        self._collection_cache[collection_name] = (
+            time.monotonic() + self._metadata_cache_ttl,
+            value,
+        )
+        self._collection_cache.move_to_end(collection_name)
+        while len(self._collection_cache) > self._metadata_cache_max_entries:
+            self._collection_cache.popitem(last=False)
+
+    async def _resolve_collection(self, collection_name: str) -> tuple[bool, str]:
         """Validate and resolve a collection name in a single round-trip.
 
         Returns a ``(exists, resolved_name)`` tuple. ``resolved_name`` carries
@@ -124,16 +191,74 @@ class MilvusRetriever(Retriever):
         validate and resolve steps avoids two ``list_collections()`` calls per
         search (F-012).
         """
-        # If database is specified, check with database prefix
-        if self._database_name and self._database_name != "default":
-            full_name = f"{self._database_name}.{collection_name}"
-            collections = self._client.list_collections(timeout=self._search_timeout)
-            # Try both with and without database prefix
-            if full_name in collections:
-                return True, full_name
-            return collection_name in collections, collection_name
-        collections = self._client.list_collections(timeout=self._search_timeout)
-        return collection_name in collections, collection_name
+        cached = self._get_cached_collection(collection_name)
+        if cached is not None:
+            return cached
+
+        # Serialize cache misses so concurrent requests for the same domain do
+        # not stampede list_collections().
+        async with self._collection_cache_lock:
+            cached = self._get_cached_collection(collection_name)
+            if cached is not None:
+                return cached
+
+            collections = await self._client_call(
+                self._client.list_collections, timeout=self._search_timeout
+            )
+            if self._database_name and self._database_name != "default":
+                full_name = f"{self._database_name}.{collection_name}"
+                # Try both with and without database prefix.
+                value = (
+                    (True, full_name)
+                    if full_name in collections
+                    else (collection_name in collections, collection_name)
+                )
+            else:
+                value = (collection_name in collections, collection_name)
+
+            self._cache_collection(collection_name, value)
+            return value
+
+    def _get_cached_schema(self, collection_name: str) -> dict[str, Any] | None:
+        cached = self._schema_cache.get(collection_name)
+        if cached is None:
+            return None
+        expires_at, value = cached
+        if expires_at <= time.monotonic():
+            del self._schema_cache[collection_name]
+            return None
+        self._schema_cache.move_to_end(collection_name)
+        return value
+
+    def _cache_schema(self, collection_name: str, schema: dict[str, Any]) -> None:
+        if self._metadata_cache_ttl <= 0:
+            return
+        self._schema_cache[collection_name] = (
+            time.monotonic() + self._metadata_cache_ttl,
+            schema,
+        )
+        self._schema_cache.move_to_end(collection_name)
+        while len(self._schema_cache) > self._metadata_cache_max_entries:
+            self._schema_cache.popitem(last=False)
+
+    async def _describe_collection(
+        self, collection_name: str, *, timeout: float | None
+    ) -> dict[str, Any]:
+        cached = self._get_cached_schema(collection_name)
+        if cached is not None:
+            return cached
+
+        async with self._schema_cache_lock:
+            cached = self._get_cached_schema(collection_name)
+            if cached is not None:
+                return cached
+            schema = await self._client_call(
+                self._client.describe_collection,
+                collection_name,
+                timeout=timeout,
+            )
+            self._cache_schema(collection_name, schema)
+            return schema
 
     def _get_session(self) -> requests.Session:
         """Get or create a requests session for connection reuse."""
@@ -297,7 +422,7 @@ class MilvusRetriever(Retriever):
         if timeout is None:
             timeout = self._search_timeout
 
-        exists, actual_collection_name = self._resolve_collection(collection_name)
+        exists, actual_collection_name = await self._resolve_collection(collection_name)
         if not exists:
             raise CollectionNotFoundError(
                 f"Collection: {collection_name} does not exist"
@@ -305,7 +430,7 @@ class MilvusRetriever(Retriever):
 
         # If no output fields are specified, return all of them
         if not output_fields:
-            collection_schema = self._client.describe_collection(
+            collection_schema = await self._describe_collection(
                 actual_collection_name, timeout=timeout
             )
             output_fields = [
@@ -316,7 +441,7 @@ class MilvusRetriever(Retriever):
 
         search_vector = await asyncio.to_thread(self._embedder.embed_query, query)
 
-        search_iterator = await asyncio.to_thread(
+        search_iterator = await self._client_call(
             self._client.search_iterator,
             collection_name=actual_collection_name,
             data=[search_vector],
@@ -334,10 +459,10 @@ class MilvusRetriever(Retriever):
         results = []
         try:
             while True:
-                _res = await asyncio.to_thread(search_iterator.next)
+                _res = await self._client_call(search_iterator.next)
                 res = _res.get_res()
                 if len(_res) == 0:
-                    await asyncio.to_thread(search_iterator.close)
+                    await self._client_call(search_iterator.close)
                     break
 
                 if distance_cutoff:
@@ -347,7 +472,7 @@ class MilvusRetriever(Retriever):
                             results.append(hit)
                         else:
                             # Results are sorted by distance, so we can stop early
-                            await asyncio.to_thread(search_iterator.close)
+                            await self._client_call(search_iterator.close)
                             wrapped = _wrap_milvus_results(
                                 results, content_field=self.content_field
                             )
@@ -359,7 +484,7 @@ class MilvusRetriever(Retriever):
                 # Check if we've collected enough results
                 if len(results) >= top_k:
                     results = results[:top_k]
-                    await asyncio.to_thread(search_iterator.close)
+                    await self._client_call(search_iterator.close)
                     break
 
             wrapped = _wrap_milvus_results(results, content_field=self.content_field)
@@ -412,18 +537,16 @@ class MilvusRetriever(Retriever):
         if timeout is None:
             timeout = self._search_timeout
 
-        exists, actual_collection_name = self._resolve_collection(collection_name)
+        exists, actual_collection_name = await self._resolve_collection(collection_name)
         if not exists:
             raise CollectionNotFoundError(
                 f"Collection: {collection_name} does not exist"
             )
 
-        available_fields = [
-            v.get("name")
-            for v in self._client.describe_collection(
-                actual_collection_name, timeout=timeout
-            ).get("fields", {})
-        ]
+        collection_schema = await self._describe_collection(
+            actual_collection_name, timeout=timeout
+        )
+        available_fields = [v.get("name") for v in collection_schema.get("fields", {})]
 
         if self.content_field not in available_fields:
             raise ValueError(
@@ -447,7 +570,7 @@ class MilvusRetriever(Retriever):
             output_fields.append(self.content_field)
 
         search_vector = await asyncio.to_thread(self._embedder.embed_query, query)
-        res = await asyncio.to_thread(
+        res = await self._client_call(
             self._client.search,
             collection_name=actual_collection_name,
             data=[search_vector],

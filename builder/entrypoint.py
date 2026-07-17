@@ -1,97 +1,102 @@
 #!/usr/bin/env python3
 """
-NAT entrypoint with Starlette compatibility shim and LLM diagnostics.
+NAT 1.7 entrypoint with Daedalus routes, authentication, and diagnostics.
 Runs NAT in-process so that pre-import patches survive.
 
 Replaces: nat serve --config_file=/workspace/config.yaml --host 0.0.0.0 --port 8000
 """
 
+import asyncio
+import contextlib
 import logging
 import os
 import sys
+import tempfile
+from importlib.metadata import PackageNotFoundError, version
 
-# Optional string env vars to seed with "" when unset, so NAT ${...}
-# interpolation does not emit None for tools that reference them.
-# Currently empty: no tool needs a seeded default right now. Add var
-# names here as optional tool config fields are introduced; the
-# _configure_optional_tool_env mechanism below is intentionally kept
-# wired up for that future use.
-OPTIONAL_STRING_ENV_DEFAULTS: tuple[str, ...] = ()
+EXPECTED_NAT_VERSION = "1.7.0"
+DRAINING_MARKER_PATH = os.path.join(tempfile.gettempdir(), "daedalus-draining")
 
 
-def _configure_optional_tool_env(logger):
-    """Seed optional string env vars so NAT interpolation does not emit None."""
-    seeded = []
-    for name in OPTIONAL_STRING_ENV_DEFAULTS:
-        if name not in os.environ:
-            os.environ[name] = ""
-            seeded.append(name)
+def _patch_request_metadata_redaction() -> None:
+    """Keep transport credentials out of NAT tools and telemetry exports."""
 
-    if seeded:
-        logger.info(
-            "Configured empty defaults for optional tool env vars: %s",
-            ", ".join(seeded),
+    from nat.runtime.user_metadata import RequestAttributes
+
+    original_to_dict = RequestAttributes.to_dict
+    if getattr(original_to_dict, "_daedalus_secret_redaction", False):
+        return
+
+    def redacted_to_dict(self):
+        result = original_to_dict(self)
+        # NAT injects this serialized object into every tracing span. Header and
+        # cookie collections can contain internal, approval, OAuth, API-key,
+        # and session credentials; none are needed for Phoenix correlation.
+        result.pop("headers", None)
+        result.pop("cookies", None)
+        return result
+
+    redacted_to_dict._daedalus_secret_redaction = True
+    RequestAttributes.to_dict = redacted_to_dict
+
+
+async def _readiness_response():
+    """Report whether the security gate and durable state dependency are ready."""
+    import mcp_patches
+    from fastapi.responses import JSONResponse
+
+    if os.path.exists(DRAINING_MARKER_PATH):
+        return JSONResponse({"status": "draining"}, status_code=503)
+    if not getattr(mcp_patches, "_approval_gate_installed", False):
+        return JSONResponse({"status": "unready"}, status_code=503)
+
+    client = None
+    try:
+        from redis.asyncio import Redis
+
+        client = Redis.from_url(
+            os.environ.get("REDIS_URL", "redis://redis:6379"),
+            socket_connect_timeout=1,
+            socket_timeout=1,
         )
+        await asyncio.wait_for(client.ping(), timeout=1.5)
+    except Exception:
+        return JSONResponse({"status": "unready"}, status_code=503)
+    finally:
+        if client is not None:
+            with contextlib.suppress(Exception):
+                await client.aclose()
+
+    return JSONResponse({"status": "ready"})
 
 
-def _patch_starlette_compat(logger):
-    """Re-add methods removed in Starlette 1.0.0 that NAT v1.4.x still uses.
+def _assert_runtime_versions() -> None:
+    """Fail startup when private compatibility code meets an unknown ABI."""
 
-    Starlette 1.0.0 (March 2026) removed add_event_handler, add_route,
-    add_websocket_route, and several decorators.  NAT's
-    FastApiFrontEndPluginWorker relies on at least add_event_handler and
-    add_websocket_route.  We delegate to the router where possible;
-    for event handlers we store them as a no-op (container is killed on
-    shutdown anyway).
+    for distribution in ("nvidia-nat-core", "nvidia-nat-mcp"):
+        try:
+            installed = version(distribution)
+        except PackageNotFoundError as exc:
+            raise RuntimeError(
+                f"Required runtime package {distribution} is missing"
+            ) from exc
+        if installed != EXPECTED_NAT_VERSION:
+            raise RuntimeError(
+                f"Unsupported {distribution} version {installed}; "
+                f"Daedalus patches require {EXPECTED_NAT_VERSION}"
+            )
 
-    The Dockerfile also pins starlette<1.0.0, but this patch acts as a
-    safety net if the pin is ever loosened.
-    """
-    from fastapi import FastAPI
-
-    patched = []
-
-    if not hasattr(FastAPI, "add_event_handler"):
-
-        def _add_event_handler(self, event_type: str, func):
-            handlers = getattr(self, "_compat_event_handlers", None)
-            if handlers is None:
-                handlers = {}
-                self._compat_event_handlers = handlers
-            handlers.setdefault(event_type, []).append(func)
-
-        FastAPI.add_event_handler = _add_event_handler
-        patched.append("add_event_handler")
-
-    if not hasattr(FastAPI, "add_route"):
-
-        def _add_route(self, path, route, **kwargs):
-            self.router.add_route(path, route, **kwargs)
-
-        FastAPI.add_route = _add_route
-        patched.append("add_route")
-
-    if not hasattr(FastAPI, "add_websocket_route"):
-
-        def _add_websocket_route(self, path, route, **kwargs):
-            self.router.add_websocket_route(path, route, **kwargs)
-
-        FastAPI.add_websocket_route = _add_websocket_route
-        patched.append("add_websocket_route")
-
-    if patched:
-        logger.info(
-            "Patched FastAPI for Starlette 1.0 compatibility: %s",
-            ", ".join(patched),
+    starlette_version = version("starlette")
+    if int(starlette_version.split(".", 1)[0]) >= 1:
+        raise RuntimeError(
+            f"Unsupported starlette version {starlette_version}; require starlette<1"
         )
-    else:
-        logger.debug("Starlette compat patch not needed")
 
 
 def _patch_fastapi_daedalus_routes(logger):
     """Inject Daedalus HTTP routers into NAT's FastAPI app.
 
-    NAT v1.4.x does not expose a custom-routes extension point, so we
+    The pinned NAT front end does not attach these application routers, so we
     wrap FastAPI.__init__ to run after NAT has constructed its app and
     attach our router via include_router. The patch runs exactly once
     per FastAPI instance (guarded by a marker attribute) so it's safe
@@ -106,6 +111,7 @@ def _patch_fastapi_daedalus_routes(logger):
     from document_ingest_api import router as document_ingest_router
     from fastapi import FastAPI
     from image_api import router as image_router
+    from nat_helpers.internal_auth import DaedalusInternalAuthMiddleware
     from profile_import_api import router as profile_import_router
 
     original_init = FastAPI.__init__
@@ -114,6 +120,13 @@ def _patch_fastapi_daedalus_routes(logger):
         original_init(self, *args, **kwargs)
         if getattr(self, "_daedalus_routes_attached", False):
             return
+        self.add_middleware(DaedalusInternalAuthMiddleware)
+        self.add_api_route(
+            "/health/ready",
+            _readiness_response,
+            methods=["GET"],
+            include_in_schema=False,
+        )
         self.include_router(image_router)
         self.include_router(document_ingest_router)
         self.include_router(profile_import_router)
@@ -149,12 +162,9 @@ def main():
         datefmt="%Y-%m-%d %H:%M:%S",
     )
 
+    _assert_runtime_versions()
+    _patch_request_metadata_redaction()
     _configure_phoenix_auth_env(logging.getLogger("daedalus.phoenix"))
-    _configure_optional_tool_env(logging.getLogger("daedalus.optional_env"))
-
-    # Starlette 1.0.0 removed add_event_handler, add_route, add_websocket_route;
-    # NAT v1.4.x still calls them.  Patch before any NAT imports.
-    _patch_starlette_compat(logging.getLogger("daedalus.starlette_compat"))
 
     # Attach Daedalus HTTP routers to NAT's FastAPI app as it's built.
     _patch_fastapi_daedalus_routes(logging.getLogger("daedalus.http_api"))

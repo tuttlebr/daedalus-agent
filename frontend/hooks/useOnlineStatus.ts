@@ -62,18 +62,3 @@ export const useOnlineStatus = (): OnlineStatusInfo => {
     lastOfflineAt,
   };
 };
-
-// Utility function to send cache invalidation message to service worker
-export function invalidateServiceWorkerCache(conversationId: string): void {
-  if (
-    typeof navigator === 'undefined' ||
-    !navigator.serviceWorker?.controller
-  ) {
-    return;
-  }
-
-  navigator.serviceWorker.controller.postMessage({
-    type: 'INVALIDATE_CONVERSATION_CACHE',
-    conversationId,
-  });
-}

@@ -57,8 +57,8 @@ export const Input = memo(
               ? 'border-nvidia-red/50 focus:ring-nvidia-red/30 focus:border-nvidia-red'
               : 'border-white/10 focus:ring-nvidia-green/30 focus:border-nvidia-green/50',
             sizeClasses[size],
-            leftIcon && 'pl-10',
-            rightIcon && 'pr-10',
+            Boolean(leftIcon) && 'pl-10',
+            Boolean(rightIcon) && 'pr-10',
             disabled && 'opacity-50 cursor-not-allowed',
             className,
           )}

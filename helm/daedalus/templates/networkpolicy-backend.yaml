@@ -1,4 +1,4 @@
-{{- if .Values.backend.networkPolicy.enabled }}
+{{- if and .Values.backend.networkPolicy.enabled (not .Values.backend.networkPolicy.cilium.enabled) }}
 ---
 # Network Policy for Default Backend
 apiVersion: networking.k8s.io/v1
@@ -148,7 +148,8 @@ spec:
       {{- end }}
     {{- end }}
     {{- if not .Values.backend.networkPolicy.cilium.enabled }}
-    # Allow external HTTPS only (NVIDIA APIs, search APIs, GitHub, Google OAuth/MCP, OpenRouter, RSS feeds)
+    # Allow external HTTP/HTTPS (APIs plus arbitrary webscrape targets), while
+    # excluding private and reserved address ranges just like the Cilium policy.
     - to:
         - ipBlock:
             cidr: 0.0.0.0/0
@@ -156,7 +157,13 @@ spec:
               - 10.0.0.0/8
               - 172.16.0.0/12
               - 192.168.0.0/16
+              - 169.254.0.0/16
+              - 127.0.0.0/8
+              - 0.0.0.0/8
+              - 100.64.0.0/10
       ports:
+        - protocol: TCP
+          port: 80
         - protocol: TCP
           port: 443
     {{- end }}

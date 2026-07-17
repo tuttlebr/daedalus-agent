@@ -38,10 +38,13 @@ services:
     environment:
       - NAT_LOG_LEVEL=INFO
       - LOG_LEVEL=INFO
+      # Explicit local-development opt-out. Non-Compose deployments fail closed
+      # unless DAEDALUS_INTERNAL_API_TOKEN is configured.
+      - ALLOW_INSECURE_INTERNAL=1
       - REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
       - SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
     ports:
-      - '${BACKEND_PORT:-8000}:8000'
+      - '127.0.0.1:${BACKEND_PORT:-8000}:8000'
     networks:
       - ${NETWORK_NAME:-daedalus-network}
     volumes:
@@ -61,10 +64,6 @@ services:
     restart: unless-stopped
     networks:
       - ${NETWORK_NAME:-daedalus-network}
-    environment:
-      - BACKEND_HOST=${BACKEND_HOST:-backend}
-      - BACKEND_PORT=${BACKEND_PORT:-8000}
-      - DEPLOYMENT_MODE=${DEPLOYMENT_MODE:-local}
 
   frontend:
     build:
@@ -85,6 +84,9 @@ services:
     env_file:
       - .env
     environment:
+      # env_file may come from a Kubernetes deployment; Compose must always use
+      # Docker service discovery instead of constructing cluster-local names.
+      - DEPLOYMENT_MODE=local
       - BACKEND_HOST=${BACKEND_HOST:-backend}
       - BACKEND_PORT=${BACKEND_PORT:-8000}
       - BACKEND_API_PATH=${BACKEND_API_PATH:-/v1/chat/completions}
@@ -102,7 +104,9 @@ services:
         condition: service_started
 
   redis:
-    image: redis/redis-stack:7.2.0-v19
+    # Keep this aligned with the Helm chart: a lower Redis version cannot read
+    # an AOF/RDB written by the existing 7.4 persistent volume.
+    image: redis/redis-stack:7.4.0-v8
     command:
       [
         'redis-server',
@@ -118,8 +122,8 @@ services:
     volumes:
       - ${DOCKER_VOLUME_DIRECTORY:-.}/redis/data:/data
     ports:
-      - '6379:6379'
-      - '8001:8001' # RedisInsight web UI (optional, remove in production)
+      - '127.0.0.1:6379:6379'
+      - '127.0.0.1:8001:8001' # RedisInsight is host-local only.
     networks:
       - ${NETWORK_NAME:-daedalus-network}
 

@@ -7,7 +7,10 @@ import yaml
 
 CONFIG = Path(__file__).resolve().parents[2] / "backend" / "tool-calling-config.yaml"
 ENV_TEMPLATE = Path(__file__).resolve().parents[2] / ".env.template"
-AGENTS_GUIDE = Path(__file__).resolve().parents[2] / "AGENTS.md"
+DOCKER_COMPOSE = Path(__file__).resolve().parents[2] / "docker-compose.yaml"
+NAT_ENTRY_SKILL = (
+    Path(__file__).resolve().parents[2] / "skills" / "nat-user-rules" / "SKILL.md"
+)
 SKILLS_DIR = Path(__file__).resolve().parents[2] / "skills"
 DOCKERFILE = Path(__file__).resolve().parents[1] / "Dockerfile"
 NGINX_TEMPLATE = (
@@ -91,13 +94,11 @@ LEGACY_RERANKER_PREFIX = "REA" + "NKER_"
 LEGACY_CLUSTER_LOCAL_PORT = "cluster.local" + ".:"
 MULTI_OPERATION_TYPES = {
     "agent_skills": ["list_skills", "load_skill", "run_skill_script"],
-    "content_distiller": ["distill_content", "extract_structured", "synthesize"],
+    "content_distiller": ["distill_content"],
     "source_verifier": [
         "verify_claim",
-        "verify_memory",
-        "audit_memories",
-        "audit_citations",
         "plan_sources",
+        "audit_citations",
     ],
     "user_interaction": [
         "clarify",
@@ -181,8 +182,7 @@ def test_backend_dockerfile_chmods_runtime_files_after_copy():
         assert copy_lines
         assert max(copy_lines) < chmod_line
 
-    assert "mkdir -p /workspace/.tmp" in "\n".join(lines)
-    assert "chmod 1777 /workspace/.tmp" in "\n".join(lines)
+    assert "/workspace/.tmp" not in "\n".join(lines)
 
 
 def test_backend_config_env_placeholders_are_declared_in_template():
@@ -207,16 +207,23 @@ def test_frontend_deployment_uses_canonical_service_urls():
     assert LEGACY_CLUSTER_LOCAL_PORT not in template_text
 
 
+def test_compose_frontend_forces_local_service_discovery():
+    compose = yaml.safe_load(DOCKER_COMPOSE.read_text(encoding="utf-8"))
+    environment = compose["services"]["frontend"]["environment"]
+
+    assert "DEPLOYMENT_MODE=local" in environment
+
+
 def test_production_skill_scripts_are_disabled():
     functions = _config()["functions"]
     assert functions["agent_skills_tool"]["allow_script_execution"] is False
 
 
-def test_user_document_tool_contract_uses_username_collection_pair():
+def test_user_document_tool_contract_uses_trusted_identity_and_private_writes():
     desc = _config()["functions"]["user_document_tool"]["description"]
-    assert "username" in desc
-    assert "collection_name" in desc
-    assert "Args: query, user_id" not in desc
+    assert "never pass username" in desc
+    assert "rejects shared targets" in desc
+    assert "Search may read" in desc
 
 
 def test_user_document_and_workspace_tools_are_direct_workflow_tools():
@@ -328,7 +335,7 @@ def test_workflow_exposes_configured_nvidia_docs_servers():
     for path in DEPLOYED_CONFIGS:
         config = _config(path)
         tools = set(config["workflow"]["tool_names"])
-        source_registry = config["functions"]["source_policy_tool"]["source_registry"]
+        source_registry = config["functions"]["source_verifier_tool"]["source_registry"]
         nvidia_docs = next(
             source for source in source_registry if source["id"] == "nvidia_docs"
         )
@@ -344,9 +351,7 @@ def test_responses_api_workflow_exposes_required_leaf_tools():
         "user_interaction_tool",
         "visual_media_tool",
         "current_datetime_tool",
-        "source_policy_tool",
-        "research_plan_approval_tool",
-        "ops_confirmation_tool",
+        "source_verifier_tool",
         "domain_retriever_tool",
         "curated_feed_search_tool",
         "perplexity_search_tool",
@@ -458,7 +463,7 @@ def test_restricted_nginx_allows_oauth_redirect_callback():
     template = NGINX_TEMPLATE.read_text(encoding="utf-8")
     callback_location = "location = /auth/redirect"
     direct_api_block = (
-        "location ~ ^/(v1|generate|chat|evaluate|upload|tools|health|auth)/"
+        "location ~ ^/(v1|generate|chat|evaluate|upload|tools|health|auth)(/|$)"
     )
 
     assert callback_location in template
@@ -499,6 +504,29 @@ def test_backend_network_policy_uses_explicit_namespace_access():
     assert "extraIngressNamespaces" in template
     assert "extraEgressNamespaces" in template
     assert "{{- if not .Values.backend.networkPolicy.cilium.enabled }}" in template
+
+
+def test_standard_and_cilium_web_egress_have_matching_ports_and_exclusions():
+    standard = NETWORK_POLICY_BACKEND_TEMPLATE.read_text(encoding="utf-8")
+    cilium = CILIUM_BACKEND_TEMPLATE.read_text(encoding="utf-8")
+    exclusions = {
+        "10.0.0.0/8",
+        "172.16.0.0/12",
+        "192.168.0.0/16",
+        "169.254.0.0/16",
+        "127.0.0.0/8",
+        "0.0.0.0/8",
+        "100.64.0.0/10",
+    }
+
+    for cidr in exclusions:
+        assert f"- {cidr}" in standard
+        assert f"- {cidr}" in cilium
+
+    assert "          port: 80" in standard
+    assert "          port: 443" in standard
+    assert '            - port: "80"' in cilium
+    assert '            - port: "443"' in cilium
 
 
 def test_backend_pod_resolves_external_mcp_hosts_before_search_suffixes():
@@ -567,14 +595,15 @@ def test_multi_operation_tools_are_filtered_in_production():
     expected = {
         "agent_skills_tool": ["list_skills", "load_skill"],
         "content_distiller_tool": ["distill_content"],
-        "citation_auditor_tool": ["audit_citations"],
-        "ops_confirmation_tool": ["confirm_action"],
-        "research_plan_approval_tool": ["confirm_research_plan"],
-        "source_policy_tool": ["plan_sources"],
-        "source_verifier_tool": ["verify_claim"],
+        "source_verifier_tool": [
+            "verify_claim",
+            "plan_sources",
+            "audit_citations",
+        ],
         "user_interaction_tool": [
             "clarify",
             "confirm_action",
+            "confirm_research_plan",
             "delete_memory_guarded",
         ],
     }
@@ -582,13 +611,6 @@ def test_multi_operation_tools_are_filtered_in_production():
         config = _config(path)
         for tool_name, operations in expected.items():
             assert _effective_operations(config, tool_name) == operations, path
-
-
-def test_serpapi_search_tool_is_removed():
-    for path in DEPLOYED_CONFIGS:
-        config = _config(path)
-        assert "serpapi_search_tool" not in config["functions"], path
-        assert "serpapi_search_tool" not in config["workflow"]["tool_names"], path
 
 
 def test_perplexity_search_documented_filters_are_configured():
@@ -628,13 +650,12 @@ def test_workflow_uses_configured_internet_search_providers():
         assert workflow_tools.index("curated_feed_search_tool") < workflow_tools.index(
             "perplexity_search_tool"
         ), path
-        source_registry = functions["source_policy_tool"]["source_registry"]
+        source_registry = functions["source_verifier_tool"]["source_registry"]
         assert {source["id"] for source in source_registry}.isdisjoint(
             {"semantic_web", "google_search"}
         ), path
         assert all(
             "exa_internet_search_tool" not in source.get("tools", [])
-            and "serpapi_search_tool" not in source.get("tools", [])
             for source in source_registry
         ), path
         internet_sources = {
@@ -648,7 +669,9 @@ def test_workflow_uses_configured_internet_search_providers():
 
         prompt = config["workflow"]["system_prompt"]
         assert "exa_internet_search_tool" not in prompt, path
-        assert "live search for current events" in " ".join(prompt.split()), path
+        normalized_prompt = " ".join(prompt.split())
+        assert "live data" in normalized_prompt, path
+        assert "current, external" in normalized_prompt, path
 
 
 def test_source_verifier_fast_llm_has_no_unsupported_extra_args():
@@ -659,9 +682,27 @@ def test_source_verifier_fast_llm_has_no_unsupported_extra_args():
         assert "extra_args" not in fast_llm, path
 
 
-def test_async_frontend_uses_process_dask_workers():
+def test_frontend_has_no_legacy_async_job_settings():
     for path in DEPLOYED_CONFIGS:
-        assert _config(path)["general"]["front_end"]["dask_workers"] == "processes"
+        front_end = _config(path)["general"]["front_end"]
+        assert "workers" not in front_end
+        assert "max_running_async_jobs" not in front_end
+        assert not any(key.startswith("dask_") for key in front_end)
+
+
+def test_runtime_omits_legacy_async_job_dependencies():
+    dockerfile = DOCKERFILE.read_text(encoding="utf-8")
+    assert "aiosqlite" not in dockerfile
+    assert "sqlalchemy[asyncio]" not in dockerfile
+    assert '"starlette<1.0"' in dockerfile
+    assert "async_endpoints" not in dockerfile
+    assert "dask" not in dockerfile.lower()
+    assert "distributed" not in dockerfile.lower()
+
+    for manifest in DOCKERFILE.parent.glob("*/pyproject.toml"):
+        project = manifest.read_text(encoding="utf-8")
+        if "nvidia-nat[" in project:
+            assert "async_endpoints" not in project, manifest
 
 
 def test_top_level_workflow_exposes_source_verifier_when_add_memory_requires_it():
@@ -689,12 +730,12 @@ def test_direct_leaf_routing_is_configured():
     for path in DEPLOYED_CONFIGS:
         prompt = _config(path)["workflow"]["system_prompt"]
         normalized_prompt = " ".join(prompt.split())
-        assert "Routing after memory" in prompt, path
+        assert "smallest sufficient set of tools" in normalized_prompt, path
+        assert "Do not call multiple search or retrieval tools" in normalized_prompt
         assert (
-            "Route directly to the relevant leaf capability" in normalized_prompt
-        ), path
-        assert "broad multi-source synthesis or exploration" in normalized_prompt, path
-        assert "Do not invoke nested architecture routers" in normalized_prompt, path
+            "Do not use the full research workflow for simple lookups"
+            in normalized_prompt
+        )
 
 
 def test_daily_briefing_routes_to_structured_response_without_visual_media():
@@ -704,39 +745,15 @@ def test_daily_briefing_routes_to_structured_response_without_visual_media():
         normalized_prompt = " ".join(prompt.split())
         visual_media_desc = config["functions"]["visual_media_tool"]["description"]
 
-        assert "Daily briefing" in prompt, path
-        assert "broad enough memory result count" in prompt, path
         assert "daily briefing" in normalized_prompt, path
-        assert "weather locale location" in normalized_prompt, path
-        assert "Routing after memory" in prompt, path
-        assert prompt.index("Daily briefing") < prompt.index(
-            "Research and sources"
-        ), path
-        assert "Load the nv-html skill before final synthesis" in prompt, path
-        assert "Return only a standalone NVIDIA HTML" in normalized_prompt, path
-        assert "top-level HTML fragment" in prompt, path
-        assert "no Markdown fence" in prompt, path
-        assert "Weather/Local Logistics" in prompt, path
-        assert "read-only operations status" in normalized_prompt, path
-        assert "teams, leagues, events" in normalized_prompt, path
-        assert "NVIDIA HTML" in prompt, path
-        assert "HTML-only output" in prompt, path
-        assert "Markdown is allowed" not in prompt, path
-        assert "Do not require raw HTML" not in prompt, path
-        assert "Produce a concise structured Markdown briefing directly" not in prompt
+        assert "retrieve relevant memory once" in normalized_prompt, path
+        assert "get the current date and time" in normalized_prompt, path
+        assert "load the nv-html skill" in normalized_prompt, path
+        assert "follow its output contract" in normalized_prompt, path
         assert (
-            "Do not generate, edit, or analyze visual media" in normalized_prompt
+            "daily summary or daily briefing unless the user explicitly asks"
+            in " ".join(visual_media_desc.split())
         ), path
-        assert (
-            "daily briefings unless the user explicitly asks" in normalized_prompt
-        ), path
-        assert "daedalus-feed" not in prompt, path
-        assert "nv-html" in prompt, path
-        assert "Never use this tool for a" in visual_media_desc, path
-        assert "daily summary or daily briefing" in visual_media_desc, path
-        assert "Saline" not in prompt, path
-        assert "Yankees" not in prompt, path
-        assert "Steelers" not in prompt, path
 
 
 def test_daily_summary_contracts_structured_briefing():
@@ -755,26 +772,11 @@ def test_daily_summary_contracts_structured_briefing():
         assert "curated_feed_search_tool" in tools, path
         assert "perplexity_search_tool" in tools, path
 
-        assert "call current date/time" in prompt, path
-        assert "broad enough memory result count" in prompt, path
         assert "daily briefing" in prompt, path
-        assert "weather locale location" in prompt, path
-        assert "authenticated identity" in prompt, path
-        assert "calendar" in prompt, path
-        assert "read-only operations status" in prompt, path
-        assert "recent feeds or live search" in normalized_prompt, path
-        assert "Load the nv-html skill before final synthesis" in prompt, path
-        assert "Return only a standalone NVIDIA HTML" in normalized_prompt, path
-        assert "HTML-only output" in prompt, path
-        assert "Markdown is allowed" not in prompt, path
-        assert "Do not require raw HTML" not in prompt, path
-        assert "concise structured Markdown briefing" not in normalized_prompt, path
-        assert '<article class="daedalus-feed"' not in prompt, path
-        assert "Next Best Actions" in normalized_prompt, path
-        assert "Brandon" not in prompt, path
-        assert "Saline" not in prompt, path
-        assert "Yankees" not in prompt, path
-        assert "Steelers" not in prompt, path
+        assert "authenticated user" in prompt, path
+        assert "current date and time" in normalized_prompt, path
+        assert "load the nv-html skill" in normalized_prompt, path
+        assert "follow its output contract" in normalized_prompt, path
 
 
 def test_source_policy_metadata_is_handled_by_workflow():
@@ -783,27 +785,22 @@ def test_source_policy_metadata_is_handled_by_workflow():
         workflow_prompt = config["workflow"]["system_prompt"]
 
         assert "[SOURCE_POLICY]" in workflow_prompt, path
-        assert "enabled_source_ids" in workflow_prompt, path
-        assert "disabled_source_ids" in workflow_prompt, path
-        assert "max_research_tool_calls" in workflow_prompt, path
-        assert "require_deep_research_plan_approval" in workflow_prompt, path
+        assert "apply [SOURCE_POLICY] when present" in workflow_prompt, path
+        assert "source_verifier_tool" in config["workflow"]["tool_names"], path
 
 
-def test_workflow_runs_get_memory_first_unconditionally():
-    # get_memory must be the first action on every turn, with no exceptions
-    # (greetings and direct-specialist routing included). This replaces the
-    # prior "direct specialists skip get_memory" carve-out, which contradicted
-    # the session-start memory requirement and let get_memory be skipped.
+def test_workflow_retrieves_memory_only_when_it_can_help():
     for path in DEPLOYED_CONFIGS:
         prompt = _config(path)["workflow"]["system_prompt"]
         normalized_prompt = " ".join(prompt.split())
-        assert "memory retrieval before any answer" in normalized_prompt, path
-        assert "No exceptions" in normalized_prompt, path
         assert (
-            "before any answer, route, skill load, or other capability call"
+            "Retrieve memory only when prior preferences, commitments, projects"
             in normalized_prompt
         ), path
-        assert "without memory" not in prompt.lower(), path
+        assert "could materially improve the answer" in normalized_prompt, path
+        assert (
+            "Do not call memory merely to resolve identity" in normalized_prompt
+        ), path
 
 
 def test_workflow_prompt_omits_configured_tool_identifiers():
@@ -819,18 +816,14 @@ def test_workflow_prompt_omits_configured_tool_identifiers():
 
 def test_skill_routing_precedes_other_substantive_requests():
     for path in DEPLOYED_CONFIGS:
-        prompt = _config(path)["workflow"]["system_prompt"]
+        config = _config(path)
+        prompt = config["workflow"]["system_prompt"]
         normalized_prompt = " ".join(prompt.split())
-        assert prompt.index("Skill-routed substantive requests") < prompt.index(
-            "Other substantive requests"
-        ), path
         assert (
-            "discover available skills when the exact skill is unknown"
+            "Load a skill when the user names it or when a specialized procedure"
             in normalized_prompt
         ), path
-        assert "open PR summaries" in normalized_prompt, path
-        assert "merged PR listings/history" in normalized_prompt, path
-        assert "PR monitoring skill path" in normalized_prompt, path
+        assert "agent_skills_tool" in config["workflow"]["tool_names"], path
 
 
 def test_pr_monitor_skill_is_available_for_pr_routing():
@@ -854,22 +847,18 @@ def test_repo_skill_manifests_are_discoverable():
 
 
 def test_nat_coding_agent_skills_are_available_and_routed():
-    guide = AGENTS_GUIDE.read_text(encoding="utf-8")
-    assert "skills/nat-user-rules/SKILL.md" in guide
+    guide = NAT_ENTRY_SKILL.read_text(encoding="utf-8")
+    assert "name: nat-user-rules" in guide
+    assert "## Task Routing" in guide
 
     for skill_name in NAT_CODING_AGENT_SKILLS:
         assert (SKILLS_DIR / skill_name / "SKILL.md").is_file(), skill_name
 
-    # The orchestrator prompt routes toolkit work through the skill system
-    # without hard-coding individual skill identifiers. Availability of the
-    # focused nat-* skills is asserted on disk above.
+    # The entry skill, rather than the general workflow prompt, owns detailed
+    # toolkit task routing. This keeps the per-request prompt compact.
     for path in DEPLOYED_CONFIGS:
-        prompt = _config(path)["workflow"]["system_prompt"]
-        normalized_prompt = " ".join(prompt.split())
-        assert "NeMo Agent Toolkit work" in normalized_prompt, path
-        assert "load the toolkit entry skill first" in normalized_prompt, path
-        assert "workflow YAML, custom functions/tools" in normalized_prompt, path
-        assert "skill-governance guidance" in normalized_prompt, path
+        config = _config(path)
+        assert "agent_skills_tool" in config["workflow"]["tool_names"], path
 
 
 def test_memory_findings_require_supported_exact_claims():
@@ -888,8 +877,8 @@ def test_memory_findings_require_supported_exact_claims():
 def test_memory_verification_prompt_limits_failed_retries():
     for path in DEPLOYED_CONFIGS:
         prompt = _config(path)["workflow"]["system_prompt"]
-        assert "at most one targeted retry" in prompt, path
-        assert "placeholder URLs" in prompt, path
+        assert "make one targeted retry" in prompt, path
+        assert "Do not loop" in prompt, path
 
 
 def test_explicit_memory_writes_do_not_require_confirmation():
@@ -897,19 +886,12 @@ def test_explicit_memory_writes_do_not_require_confirmation():
         config = _config(path)
         prompt = config["workflow"]["system_prompt"]
         add_memory_desc = config["functions"]["add_memory"]["description"]
-        ops_desc = config["functions"]["ops_confirmation_tool"]["description"]
-        normalized_prompt = " ".join(prompt.split())
+        interaction_desc = config["functions"]["user_interaction_tool"]["description"]
 
-        assert "Explicit memory write" in prompt, path
-        assert "stored directly without confirmation" in prompt, path
-        assert "No approval is required" in prompt, path
-        assert (
-            "Do not use operational confirmation for memory creation"
-            in normalized_prompt
-        ), path
+        assert "Store explicit memory requests without confirmation" in prompt, path
+        assert "Require confirmation for deletion" in prompt, path
         assert "explicit user requests" in add_memory_desc, path
-        assert "Never use for" in ops_desc, path
-        assert "memory_update" in ops_desc, path
+        assert "pending approval request" in interaction_desc, path
 
 
 def test_backend_system_prompts_follow_prompt_guidance_shape():

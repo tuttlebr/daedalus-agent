@@ -9,7 +9,7 @@ Depending on values, the chart can deploy:
 - nginx and ingress for external traffic entry
 - the Next.js frontend
 - the backend deployment
-- Redis Stack and RedisInsight
+- Redis Stack and optional RedisInsight
 - the autonomous-agent worker Deployment
 - PVCs, PodDisruptionBudget, NetworkPolicy, and optional Cilium policies
 
@@ -66,7 +66,7 @@ helm upgrade --install <release> ./daedalus \
   --set-file backend.default.config.data=backend/tool-calling-config.yaml
 ```
 
-The repo-level [`../../custom-values.yaml`](../../custom-values.yaml) is the opinionated example for production-style deployments.
+The repo-level [`../../custom-values.yaml`](../../custom-values.yaml) is the opinionated example for production-style deployments. It disables RedisInsight by default; enable the UI only for time-bounded maintenance through a private access path or `kubectl port-forward`.
 
 ## Key Value Areas
 
@@ -79,7 +79,7 @@ The repo-level [`../../custom-values.yaml`](../../custom-values.yaml) is the opi
 | `backend.networkPolicy.*` | Kubernetes and optional Cilium restrictions                    |
 | `nginx.*`                 | nginx deployment, direct backend routing, TLS, restricted mode |
 | `redis.*`                 | Redis Stack deployment and persistence                         |
-| `redisinsight.*`          | RedisInsight deployment and service                            |
+| `redisinsight.*`          | Optional RedisInsight deployment and service                   |
 | `autonomousAgent.*`       | Background research worker schedule and config                 |
 | `ingress.*`               | External hostnames, ingress class, annotations, and TLS        |
 
@@ -104,7 +104,7 @@ Those routes are selected by path and `X-Backend-Type` header, which allows call
 ## Operational Notes
 
 - The frontend is job-oriented by default and expects Redis to be available.
-- The backends expose headless pod services in addition to normal services so the frontend can discover individual pods for async job submission.
+- The backends expose headless pod services in addition to normal services so the frontend can pin each live stream to an individual pod.
 - Network policies allow frontend-to-backend and backend-to-Redis traffic, and optionally restrict backend egress to approved destinations.
 - Use `backend.networkPolicy.extraIngressNamespaces` and
   `backend.networkPolicy.extraEgressNamespaces` to open specific namespaces
@@ -114,7 +114,7 @@ Those routes are selected by path and `X-Backend-Type` header, which allows call
 - `nginx.config.restrictedMode=true` disables direct backend access through nginx and forces traffic through the frontend.
 - On the production `nfs-client` StorageClass backed by UNAS Pro, PVC-writing pods must run as UID `977` and GID `988`. That matches the server export's `all_squash,anonuid=977,anongid=988` policy and avoids relying on `no_root_squash`.
 - Use `runAsUser: 977`, `runAsGroup: 988`, `fsGroup: 988`, and `fsGroupChangePolicy: OnRootMismatch` for Daedalus workloads that write to NFS PVCs. `fsGroup` alone is not enough when files are created with owner-only write modes.
-- The autonomous worker targets the configured backend through `autonomousAgent.backendApiPath`, usually `/v1/workflow/async`.
+- The autonomous worker streams from the already-loaded backend workflow through `autonomousAgent.backendApiPath`, normally `/v1/chat/completions`.
 - The autonomous worker seeds first-run workspace context from built-in defaults in the `autonomous_agent` package.
 - The run cadence defaults to `autonomousAgent.worker.intervalSeconds` and can be changed from the Autonomy dashboard.
 

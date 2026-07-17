@@ -1,6 +1,12 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 
 import { useWebSocket } from '@/hooks/useWebSocket';
 
@@ -40,6 +46,32 @@ const emptyState: DashboardState = {
 };
 
 const POLL_INTERVAL_MS = 15_000;
+const WS_REFRESH_DEBOUNCE_MS = 50;
+
+type DashboardResource =
+  | 'config'
+  | 'goals'
+  | 'runs'
+  | 'queue'
+  | 'feed'
+  | 'approvals'
+  | 'events';
+
+const ALL_RESOURCES: readonly DashboardResource[] = [
+  'config',
+  'goals',
+  'runs',
+  'queue',
+  'feed',
+  'approvals',
+  'events',
+];
+
+async function fetchJson<T>(url: string): Promise<T> {
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`Failed to refresh ${url}`);
+  return response.json() as Promise<T>;
+}
 
 export function AutonomyDashboard() {
   const [state, setState] = useState<DashboardState>(emptyState);
@@ -48,6 +80,11 @@ export function AutonomyDashboard() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const workspaceButtonRef = useRef<HTMLButtonElement>(null);
   const titleRestoreRef = useRef<string | null>(null);
+  const stateRef = useRef(state);
+  const pendingResourcesRef = useRef<Set<DashboardResource>>(new Set());
+  const scheduledRefreshRef = useRef<number | null>(null);
+  const latestEventRunIdRef = useRef<string | null>(null);
+  const hasConnectedRef = useRef(false);
 
   const activeRun = useMemo(
     () =>
@@ -70,46 +107,132 @@ export function AutonomyDashboard() {
     return r.completedAt || r.startedAt || r.createdAt || null;
   }, [state.runs]);
 
+  const refreshResources = useCallback(
+    async (
+      resources: readonly DashboardResource[],
+      eventRunId?: string | null,
+    ) => {
+      const requested = new Set(resources);
+      const [config, goals, runs, queue, feed, approvals] = await Promise.all([
+        requested.has('config')
+          ? fetchJson<AutonomyConfig>('/api/autonomy/config')
+          : undefined,
+        requested.has('goals')
+          ? fetchJson<AutonomyGoal[]>('/api/autonomy/goals')
+          : undefined,
+        requested.has('runs')
+          ? fetchJson<AutonomyRun[]>('/api/autonomy/runs')
+          : undefined,
+        requested.has('queue')
+          ? fetchJson<AutonomyQueuedRequest[]>('/api/autonomy/queue')
+          : undefined,
+        requested.has('feed')
+          ? fetchJson<AutonomyFeedItem[]>('/api/autonomy/feed')
+          : undefined,
+        requested.has('approvals')
+          ? fetchJson<AutonomyApproval[]>('/api/autonomy/approvals')
+          : undefined,
+      ]);
+
+      const patch: Partial<DashboardState> = {};
+      if (config !== undefined) patch.config = config;
+      if (goals !== undefined) patch.goals = goals;
+      if (runs !== undefined) patch.runs = runs;
+      if (queue !== undefined) patch.queue = queue;
+      if (feed !== undefined) patch.feed = feed;
+      if (approvals !== undefined) patch.approvals = approvals;
+
+      if (requested.has('events')) {
+        const currentRuns = runs ?? stateRef.current.runs;
+        const runId = currentRuns[0]?.id || eventRunId;
+        if (runId) {
+          const detail = await fetchJson<{ events?: AutonomyEvent[] }>(
+            `/api/autonomy/runs/${encodeURIComponent(runId)}`,
+          );
+          patch.events = detail.events || [];
+        } else {
+          patch.events = [];
+        }
+      }
+
+      setState((current) => {
+        const next = { ...current, ...patch };
+        stateRef.current = next;
+        return next;
+      });
+    },
+    [],
+  );
+
   const refresh = useCallback(async () => {
     try {
-      const [config, goals, runs, queue, feed, approvals] = await Promise.all([
-        fetch('/api/autonomy/config').then((r) => r.json()),
-        fetch('/api/autonomy/goals').then((r) => r.json()),
-        fetch('/api/autonomy/runs').then((r) => r.json()),
-        fetch('/api/autonomy/queue').then((r) => r.json()),
-        fetch('/api/autonomy/feed').then((r) => r.json()),
-        fetch('/api/autonomy/approvals').then((r) => r.json()),
-      ]);
-      let events: AutonomyEvent[] = [];
-      if (runs?.[0]?.id) {
-        const detail = await fetch(`/api/autonomy/runs/${runs[0].id}`).then(
-          (r) => (r.ok ? r.json() : null),
-        );
-        events = detail?.events || [];
-      }
-      setState({ config, goals, runs, queue, feed, approvals, events });
+      await refreshResources(ALL_RESOURCES);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [refreshResources]);
 
-  // TODO: WS callbacks all fan-out to a full refresh today. A future change can
-  // route each event to a targeted fetch (only `feed` on feed_updated, etc.).
+  const scheduleRefresh = useCallback(
+    (resources: readonly DashboardResource[], eventRunId?: string | null) => {
+      resources.forEach((resource) =>
+        pendingResourcesRef.current.add(resource),
+      );
+      if (eventRunId) latestEventRunIdRef.current = eventRunId;
+      if (scheduledRefreshRef.current !== null) return;
+
+      scheduledRefreshRef.current = window.setTimeout(() => {
+        scheduledRefreshRef.current = null;
+        const pending = Array.from(pendingResourcesRef.current);
+        pendingResourcesRef.current.clear();
+        const latestEventRunId = latestEventRunIdRef.current;
+        latestEventRunIdRef.current = null;
+        refreshResources(pending, latestEventRunId).catch(() => {});
+      }, WS_REFRESH_DEBOUNCE_MS);
+    },
+    [refreshResources],
+  );
+
+  const handleAutonomyStatus = useCallback(
+    (data: Record<string, unknown> | null | undefined) => {
+      const resources: DashboardResource[] = [];
+      if (data?.config) resources.push('config');
+      if (data?.goals) resources.push('goals');
+      if (data?.run || data?.runId || data?.status) resources.push('runs');
+      if (data?.queued || data?.queuedBatch) resources.push('queue');
+      if (data?.approval) resources.push('approvals');
+      scheduleRefresh(resources.length ? resources : ALL_RESOURCES);
+    },
+    [scheduleRefresh],
+  );
+
   const { isConnected: wsConnected } = useWebSocket({
     enabled: true,
-    onAutonomyStatus: refresh,
-    onAutonomyRunEvent: refresh,
-    onAutonomyFeedUpdated: refresh,
-    onAutonomyApprovalRequested: refresh,
+    onAutonomyStatus: handleAutonomyStatus,
+    onAutonomyRunEvent: (event) =>
+      scheduleRefresh(['runs', 'events'], event?.runId),
+    onAutonomyFeedUpdated: () => scheduleRefresh(['feed']),
+    onAutonomyApprovalRequested: () => scheduleRefresh(['approvals']),
+    onConnected: () => {
+      if (hasConnectedRef.current) scheduleRefresh(ALL_RESOURCES);
+      hasConnectedRef.current = true;
+    },
+    onDisconnected: () => {
+      hasConnectedRef.current = true;
+      scheduleRefresh(ALL_RESOURCES);
+    },
   });
 
   useEffect(() => {
     refresh().catch(() => setLoading(false));
+  }, [refresh]);
+
+  useEffect(() => {
     let timer: number | null = null;
     const start = () => {
       stop();
+      if (wsConnected || document.visibilityState !== 'visible') return;
       timer = window.setInterval(() => {
-        if (document.visibilityState === 'visible') {
+        if (!wsConnected && document.visibilityState === 'visible') {
           refresh().catch(() => {});
         }
       }, POLL_INTERVAL_MS);
@@ -121,8 +244,8 @@ export function AutonomyDashboard() {
       }
     };
     const handleVisibility = () => {
-      if (document.visibilityState === 'visible') {
-        refresh().catch(() => {});
+      if (document.visibilityState === 'visible' && !wsConnected) {
+        scheduleRefresh(ALL_RESOURCES);
         start();
       } else {
         stop();
@@ -134,7 +257,16 @@ export function AutonomyDashboard() {
       stop();
       document.removeEventListener('visibilitychange', handleVisibility);
     };
-  }, [refresh]);
+  }, [refresh, scheduleRefresh, wsConnected]);
+
+  useEffect(
+    () => () => {
+      if (scheduledRefreshRef.current !== null) {
+        window.clearTimeout(scheduledRefreshRef.current);
+      }
+    },
+    [],
+  );
 
   // Document title alert when approvals are pending and tab is unfocused
   useEffect(() => {

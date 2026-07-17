@@ -136,7 +136,6 @@ interface UseAsyncChatOptions {
 interface UseAsyncChatReturn {
   startAsyncJob: (
     messages: any[],
-    chatCompletionURL: string,
     additionalProps: any,
     userId: string,
     conversationId: string,
@@ -1002,7 +1001,6 @@ export const useAsyncChat = (
   const startAsyncJob = useCallback(
     async (
       messages: any[],
-      chatCompletionURL: string,
       additionalProps: any,
       jobUserId: string,
       conversationId: string,
@@ -1029,7 +1027,6 @@ export const useAsyncChat = (
               credentials: 'include',
               body: JSON.stringify({
                 messages,
-                chatCompletionURL,
                 additionalProps,
                 userId: jobUserId,
                 conversationId,
@@ -1240,73 +1237,6 @@ export const useAsyncChat = (
     }
   }, [resumePollingIfNeeded]);
 
-  // Verify job completion with retry logic
-  const verifyJobCompletion = useCallback(
-    async (
-      jobId: string,
-      conversationId: string,
-      retries = 3,
-    ): Promise<boolean> => {
-      for (let i = 0; i < retries; i++) {
-        try {
-          const response = await fetchWithTimeout(
-            `/api/chat/async?jobId=${jobId}`,
-            { credentials: 'include' },
-            STATUS_FETCH_TIMEOUT_MS,
-          );
-          if (response.ok) {
-            const status: AsyncJobStatus = await response.json();
-            if (status.status === 'completed' && status.finalizedAt) {
-              logger.info(
-                `Job ${jobId} verified as complete on attempt ${i + 1}`,
-              );
-              return true;
-            }
-          } else if (response.status === 404) {
-            // Job no longer exists, sync conversation directly
-            logger.warn(
-              `Job ${jobId} not found, syncing conversation directly`,
-            );
-            try {
-              const convResponse = await fetchWithTimeout(
-                `/api/conversations/${conversationId}`,
-                { credentials: 'include' },
-                STATUS_FETCH_TIMEOUT_MS,
-              );
-              if (convResponse.ok) {
-                const convData = await convResponse.json();
-                if (convData.messages?.length > 0) {
-                  logger.info(
-                    `Retrieved conversation ${conversationId} directly`,
-                  );
-                  return true;
-                }
-              }
-            } catch (e) {
-              logger.error('Failed to sync conversation directly', e);
-            }
-            return false;
-          }
-          // Wait before retry with exponential backoff
-          if (i < retries - 1) {
-            await new Promise((resolve) =>
-              setTimeout(resolve, 1000 * Math.pow(2, i)),
-            );
-          }
-        } catch (error) {
-          logger.error(`Verification attempt ${i + 1} failed`, error);
-          if (i < retries - 1) {
-            await new Promise((resolve) =>
-              setTimeout(resolve, 1000 * Math.pow(2, i)),
-            );
-          }
-        }
-      }
-      return false;
-    },
-    [],
-  );
-
   // Check for orphaned jobs (jobs older than 10 minutes that may have been missed)
   const checkOrphanedJobs = useCallback(async () => {
     const persistedJobs = getPersistedJobs(userId);
@@ -1422,24 +1352,6 @@ export const useAsyncChat = (
     return () =>
       document.removeEventListener('visibilitychange', handleVisibilityResume);
   }, [resumePollingIfNeeded, checkOrphanedJobs]);
-
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => {
-      Object.values(pollingTimersRef.current).forEach((timer) => {
-        if (timer) {
-          clearTimeout(timer);
-        }
-      });
-      pollingTimersRef.current = {};
-      Object.values(wsFallbackTimersRef.current).forEach((timer) => {
-        if (timer) {
-          clearInterval(timer);
-        }
-      });
-      wsFallbackTimersRef.current = {};
-    };
-  }, []);
 
   return {
     startAsyncJob,

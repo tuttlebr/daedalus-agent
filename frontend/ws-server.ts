@@ -119,6 +119,7 @@ const REDIS_CLIENT_OPTIONS: RedisOptions = {
   lazyConnect: true,
   maxRetriesPerRequest: REDIS_MAX_RETRIES_PER_REQUEST,
   enableOfflineQueue: true,
+  autoResubscribe: true,
   reconnectOnError: () => true,
   connectTimeout: 10_000,
   commandTimeout: REDIS_COMMAND_TIMEOUT_MS,
@@ -130,6 +131,160 @@ function createRedisClient(label: string): Redis {
   const client = new Redis(resolveRedisUrl(), REDIS_CLIENT_OPTIONS);
   client.on('error', (err) => logRedisErrorThrottled(label, err));
   return client;
+}
+
+interface RedisSubscriberClient {
+  connect(): Promise<void>;
+  on(
+    event: 'message',
+    listener: (channel: string, message: string) => void,
+  ): unknown;
+  quit(): Promise<unknown>;
+  subscribe(...channels: string[]): Promise<unknown>;
+  unsubscribe(...channels: string[]): Promise<unknown>;
+}
+
+type RedisMessageHandler = (message: string) => void;
+
+interface SharedChannelSubscription {
+  channel: string;
+  handler: RedisMessageHandler;
+  refCount: number;
+  subscribed: boolean;
+}
+
+/**
+ * Multiplexes every sidecar Pub/Sub channel over one Redis connection.
+ *
+ * Refcounts are updated synchronously, while Redis commands are serialized.
+ * Reconciliation re-checks the desired state after each awaited command so a
+ * retain racing an in-flight unsubscribe (or a release racing subscribe) can
+ * never leave the channel in the wrong state.
+ */
+export class SharedRedisSubscriber {
+  private readonly channels = new Map<string, SharedChannelSubscription>();
+  private connectPromise: Promise<void> | null = null;
+  private operationQueue: Promise<void> = Promise.resolve();
+  private shutdownPromise: Promise<void> | null = null;
+  private closed = false;
+
+  constructor(private readonly client: RedisSubscriberClient) {
+    client.on('message', (channel, message) => {
+      const entry = this.channels.get(channel);
+      if (!entry?.subscribed || entry.refCount <= 0) return;
+
+      try {
+        entry.handler(message);
+      } catch (error) {
+        console.error(
+          `[WS] Error handling Redis message for ${channel}:`,
+          error,
+        );
+      }
+    });
+  }
+
+  async retain(channel: string, handler: RedisMessageHandler): Promise<void> {
+    if (this.closed) {
+      throw new Error('Redis subscriber is shutting down');
+    }
+
+    let entry = this.channels.get(channel);
+    if (entry) {
+      entry.refCount += 1;
+    } else {
+      entry = {
+        channel,
+        handler,
+        refCount: 1,
+        subscribed: false,
+      };
+      this.channels.set(channel, entry);
+    }
+
+    await this.enqueueReconcile(entry);
+  }
+
+  async release(channel: string): Promise<void> {
+    const entry = this.channels.get(channel);
+    if (!entry) return;
+
+    entry.refCount = Math.max(0, entry.refCount - 1);
+    await this.enqueueReconcile(entry);
+  }
+
+  shutdown(): Promise<void> {
+    if (this.shutdownPromise) return this.shutdownPromise;
+
+    this.closed = true;
+    for (const entry of this.channels.values()) {
+      entry.refCount = 0;
+    }
+
+    this.shutdownPromise = this.enqueue(async () => {
+      const subscribedChannels = Array.from(this.channels.values())
+        .filter((entry) => entry.subscribed)
+        .map((entry) => entry.channel);
+
+      if (subscribedChannels.length > 0) {
+        await this.client.unsubscribe(...subscribedChannels);
+      }
+      this.channels.clear();
+      await this.client.quit();
+    });
+    return this.shutdownPromise;
+  }
+
+  private ensureConnected(): Promise<void> {
+    if (!this.connectPromise) {
+      this.connectPromise = this.client.connect().catch((error) => {
+        this.connectPromise = null;
+        throw error;
+      });
+    }
+    return this.connectPromise;
+  }
+
+  private enqueue(operation: () => Promise<void>): Promise<void> {
+    const pending = this.operationQueue.then(operation);
+    this.operationQueue = pending.catch(() => {});
+    return pending;
+  }
+
+  private enqueueReconcile(entry: SharedChannelSubscription): Promise<void> {
+    return this.enqueue(async () => {
+      while (this.channels.get(entry.channel) === entry) {
+        const shouldSubscribe = !this.closed && entry.refCount > 0;
+
+        if (shouldSubscribe === entry.subscribed) {
+          if (!shouldSubscribe) {
+            this.channels.delete(entry.channel);
+          }
+          return;
+        }
+
+        if (shouldSubscribe) {
+          await this.ensureConnected();
+          await this.client.subscribe(entry.channel);
+          entry.subscribed = true;
+        } else {
+          await this.client.unsubscribe(entry.channel);
+          entry.subscribed = false;
+        }
+      }
+    });
+  }
+}
+
+let sharedRedisSubscriber: SharedRedisSubscriber | null = null;
+
+function getRedisSubscriber(): SharedRedisSubscriber {
+  if (!sharedRedisSubscriber) {
+    sharedRedisSubscriber = new SharedRedisSubscriber(
+      createRedisClient('subscriber'),
+    );
+  }
+  return sharedRedisSubscriber;
 }
 
 function redisErrorMessage(error: unknown): string {
@@ -221,7 +376,7 @@ async function validateSession(
 
 // ---------- Streaming State ----------
 
-interface StreamingState {
+export interface StreamingState {
   conversationId: string;
   sessionId: string;
   startedAt: number;
@@ -290,17 +445,14 @@ interface ClientConnection {
   revalidateTimer: NodeJS.Timeout | null;
   subscribedJobs: Set<string>;
   subscribedChats: Set<string>; // conversationIds for token streaming
+  releaseChannel: (channel: string) => Promise<void>;
+  releaseUserChannel: (() => void) | null;
+  initialized: boolean;
   closed: boolean;
 }
 
 // userId → Set<ClientConnection>
 const connectionsByUser = new Map<string, Set<ClientConnection>>();
-
-// jobId → Redis subscriber
-const jobSubscribers = new Map<
-  string,
-  { subscriber: Redis; refCount: number }
->();
 
 function addConnection(conn: ClientConnection): void {
   let userConns = connectionsByUser.get(conn.userId);
@@ -329,18 +481,32 @@ function removeConnection(conn: ClientConnection): void {
 
   // Clean up job subscriptions
   for (const jobId of conn.subscribedJobs) {
-    unsubscribeFromJob(jobId);
+    void conn
+      .releaseChannel(`job:${jobId}:status`)
+      .catch((error) => logRedisErrorThrottled('subscriber-release', error));
   }
   conn.subscribedJobs.clear();
 
   // Clean up chat subscriptions
   for (const convId of conn.subscribedChats) {
-    unsubscribeFromChat(conn.userId, convId);
+    void conn
+      .releaseChannel(`user:${conn.userId}:chat:${convId}:tokens`)
+      .catch((error) => logRedisErrorThrottled('subscriber-release', error));
   }
   conn.subscribedChats.clear();
 
-  // Release this connection's hold on the user channel (exactly once)
-  unsubscribeFromUserChannel(conn.userId);
+  // Release this connection's hold on the user channel (exactly once). The
+  // callback is installed immediately before retain starts, so it also rolls
+  // back a retain that rejects or races an early socket close.
+  const releaseUserChannel = conn.releaseUserChannel;
+  conn.releaseUserChannel = null;
+  if (releaseUserChannel) {
+    try {
+      releaseUserChannel();
+    } catch (error) {
+      logRedisErrorThrottled('subscriber-release', error);
+    }
+  }
 
   // Clean up timers
   if (conn.heartbeatTimer) clearInterval(conn.heartbeatTimer);
@@ -426,6 +592,7 @@ async function canSubscribeToChat(
 async function subscribeToJob(
   jobId: string,
   conn: ClientConnection,
+  dependencies: ConnectionInitializationDependencies,
 ): Promise<void> {
   if (!isSafeChannelId(jobId)) {
     rejectSubscription(conn, 'Invalid job subscription');
@@ -441,10 +608,7 @@ async function subscribeToJob(
     return;
   }
 
-  const jobRequest = await getJsonOrPlain<AsyncJobRequestMeta>(
-    getRedis(),
-    sessionKey(['async-job-request', jobId]),
-  ).catch((err) => {
+  const jobRequest = await dependencies.getJobRequest(jobId).catch((err) => {
     console.error(`[WS] Error validating job subscription for ${jobId}:`, err);
     return null;
   });
@@ -457,64 +621,50 @@ async function subscribeToJob(
     return;
   }
 
-  conn.subscribedJobs.add(jobId);
-
-  const existing = jobSubscribers.get(jobId);
-  if (existing) {
-    existing.refCount++;
+  // Validation is asynchronous. Re-check every connection-local invariant
+  // before reserving the subscription: a socket may have closed, or a second
+  // identical request may have completed validation while this one waited.
+  if (conn.closed || conn.subscribedJobs.has(jobId)) return;
+  if (conn.subscribedJobs.size >= MAX_JOB_SUBSCRIPTIONS_PER_CONNECTION) {
+    rejectSubscription(conn, 'Too many job subscriptions');
     return;
   }
 
-  const sub = createRedisClient(`job-sub-${jobId}`);
-  await sub.connect();
-
+  conn.subscribedJobs.add(jobId);
   const channel = `job:${jobId}:status`;
-  sub.on('message', (receivedChannel: string, message: string) => {
-    if (receivedChannel !== channel) return;
-    try {
-      const status = JSON.parse(message);
-      // Fan out to all connections subscribed to this job
-      for (const [, userConns] of connectionsByUser) {
-        for (const c of userConns) {
-          if (c.subscribedJobs.has(jobId)) {
-            sendToConnection(c, { type: 'job_status', data: status });
+  try {
+    await dependencies.retainChannel(channel, (message) => {
+      try {
+        const status = JSON.parse(message);
+        // Fan out to all connections subscribed to this job
+        for (const [, userConns] of connectionsByUser) {
+          for (const c of userConns) {
+            if (c.subscribedJobs.has(jobId)) {
+              sendToConnection(c, { type: 'job_status', data: status });
+            }
           }
         }
+      } catch (err) {
+        console.error(`[WS] Error parsing job status for ${jobId}:`, err);
       }
-    } catch (err) {
-      console.error(`[WS] Error parsing job status for ${jobId}:`, err);
+    });
+  } catch (error) {
+    // Roll back this connection's retain unless it was already released by an
+    // unsubscribe or disconnect while the Redis command was in flight.
+    if (conn.subscribedJobs.delete(jobId)) {
+      await dependencies.releaseChannel(channel).catch(() => {});
     }
-  });
-
-  await sub.subscribe(channel);
-  jobSubscribers.set(jobId, { subscriber: sub, refCount: 1 });
-}
-
-function unsubscribeFromJob(jobId: string): void {
-  const entry = jobSubscribers.get(jobId);
-  if (!entry) return;
-
-  entry.refCount--;
-  if (entry.refCount <= 0) {
-    const channel = `job:${jobId}:status`;
-    entry.subscriber.unsubscribe(channel).catch(() => {});
-    entry.subscriber.quit().catch(() => {});
-    jobSubscribers.delete(jobId);
+    throw error;
   }
 }
 
 // ---------- Chat Token Subscription via Redis Pub/Sub ----------
 
-// channelKey → Redis subscriber (ref-counted)
-const chatSubscribers = new Map<
-  string,
-  { subscriber: Redis; refCount: number }
->();
-
 async function subscribeToChat(
   userId: string,
   conversationId: string,
   conn: ClientConnection,
+  dependencies: ConnectionInitializationDependencies,
 ): Promise<void> {
   if (!isSafeChannelId(conversationId)) {
     rejectSubscription(conn, 'Invalid chat subscription');
@@ -530,7 +680,7 @@ async function subscribeToChat(
     return;
   }
 
-  if (!(await canSubscribeToChat(userId, conversationId))) {
+  if (!(await dependencies.canSubscribeToChat(userId, conversationId))) {
     console.warn(
       `[WS] Rejected unauthorized chat subscription for ${userId}: ${conversationId}`,
     );
@@ -538,77 +688,48 @@ async function subscribeToChat(
     return;
   }
 
-  conn.subscribedChats.add(conversationId);
-
-  const channelKey = `user:${userId}:chat:${conversationId}:tokens`;
-  const existing = chatSubscribers.get(channelKey);
-  if (existing) {
-    existing.refCount++;
+  if (conn.closed || conn.subscribedChats.has(conversationId)) return;
+  if (conn.subscribedChats.size >= MAX_CHAT_SUBSCRIPTIONS_PER_CONNECTION) {
+    rejectSubscription(conn, 'Too many chat subscriptions');
     return;
   }
 
-  const sub = createRedisClient(`chat-sub-${conversationId.slice(0, 8)}`);
-  await sub.connect();
+  conn.subscribedChats.add(conversationId);
 
-  sub.on('message', (receivedChannel: string, message: string) => {
-    if (receivedChannel !== channelKey) return;
-    try {
-      const event = JSON.parse(message);
-      // Forward to all connections for this user subscribed to this conversation
-      const userConns = connectionsByUser.get(userId);
-      if (userConns) {
-        for (const c of userConns) {
-          if (c.subscribedChats.has(conversationId)) {
-            sendToConnection(c, event);
+  const channelKey = `user:${userId}:chat:${conversationId}:tokens`;
+  try {
+    await dependencies.retainChannel(channelKey, (message) => {
+      try {
+        const event = JSON.parse(message);
+        // Forward to all connections for this user subscribed to this conversation
+        const userConns = connectionsByUser.get(userId);
+        if (userConns) {
+          for (const c of userConns) {
+            if (c.subscribedChats.has(conversationId)) {
+              sendToConnection(c, event);
+            }
           }
         }
+      } catch (err) {
+        console.error(
+          `[WS] Error parsing chat token for ${conversationId}:`,
+          err,
+        );
       }
-    } catch (err) {
-      console.error(
-        `[WS] Error parsing chat token for ${conversationId}:`,
-        err,
-      );
+    });
+  } catch (error) {
+    if (conn.subscribedChats.delete(conversationId)) {
+      await dependencies.releaseChannel(channelKey).catch(() => {});
     }
-  });
-
-  await sub.subscribe(channelKey);
-  chatSubscribers.set(channelKey, { subscriber: sub, refCount: 1 });
-}
-
-function unsubscribeFromChat(userId: string, conversationId: string): void {
-  const channelKey = `user:${userId}:chat:${conversationId}:tokens`;
-  const entry = chatSubscribers.get(channelKey);
-  if (!entry) return;
-
-  entry.refCount--;
-  if (entry.refCount <= 0) {
-    entry.subscriber.unsubscribe(channelKey).catch(() => {});
-    entry.subscriber.quit().catch(() => {});
-    chatSubscribers.delete(channelKey);
+    throw error;
   }
 }
 
 // ---------- User Channel Subscription ----------
 
-// userId → dedicated Redis subscriber
-const userSubscribers = new Map<
-  string,
-  { subscriber: Redis; refCount: number }
->();
-
 async function subscribeToUserChannel(userId: string): Promise<void> {
-  const existing = userSubscribers.get(userId);
-  if (existing) {
-    existing.refCount++;
-    return;
-  }
-
-  const sub = createRedisClient(`user-sub-${userId}`);
-  await sub.connect();
-
   const channel = channels.userUpdates(userId);
-  sub.on('message', (receivedChannel: string, message: string) => {
-    if (receivedChannel !== channel) return;
+  await getRedisSubscriber().retain(channel, (message) => {
     try {
       const event = JSON.parse(message);
       // Forward event to all WebSocket connections for this user
@@ -617,21 +738,243 @@ async function subscribeToUserChannel(userId: string): Promise<void> {
       console.error(`[WS] Error parsing user event for ${userId}:`, err);
     }
   });
-
-  await sub.subscribe(channel);
-  userSubscribers.set(userId, { subscriber: sub, refCount: 1 });
 }
 
 function unsubscribeFromUserChannel(userId: string): void {
-  const entry = userSubscribers.get(userId);
-  if (!entry) return;
+  void getRedisSubscriber()
+    .release(channels.userUpdates(userId))
+    .catch((error) => logRedisErrorThrottled('subscriber-release', error));
+}
 
-  entry.refCount--;
-  if (entry.refCount <= 0) {
-    const channel = channels.userUpdates(userId);
-    entry.subscriber.unsubscribe(channel).catch(() => {});
-    entry.subscriber.quit().catch(() => {});
-    userSubscribers.delete(userId);
+export interface ConnectionInitializationDependencies {
+  subscribeToUserChannel: (userId: string) => Promise<void>;
+  unsubscribeFromUserChannel: (userId: string) => void;
+  getStreamingStates: (
+    userId: string,
+  ) => Promise<Record<string, StreamingState>>;
+  getJobRequest: (jobId: string) => Promise<AsyncJobRequestMeta | null>;
+  canSubscribeToChat: (
+    userId: string,
+    conversationId: string,
+  ) => Promise<boolean>;
+  retainChannel: (
+    channel: string,
+    handler: RedisMessageHandler,
+  ) => Promise<void>;
+  releaseChannel: (channel: string) => Promise<void>;
+}
+
+const defaultConnectionInitializationDependencies: ConnectionInitializationDependencies =
+  {
+    subscribeToUserChannel,
+    unsubscribeFromUserChannel,
+    getStreamingStates,
+    getJobRequest: (jobId) =>
+      getJsonOrPlain<AsyncJobRequestMeta>(
+        getRedis(),
+        sessionKey(['async-job-request', jobId]),
+      ),
+    canSubscribeToChat,
+    retainChannel: (channel, handler) =>
+      getRedisSubscriber().retain(channel, handler),
+    releaseChannel: (channel) => getRedisSubscriber().release(channel),
+  };
+
+function closeSocketSafely(ws: WebSocket, code: number, reason: string): void {
+  if (
+    ws.readyState !== WebSocket.CONNECTING &&
+    ws.readyState !== WebSocket.OPEN
+  ) {
+    return;
+  }
+
+  try {
+    ws.close(code, reason);
+  } catch (error) {
+    console.error('[WS] Failed to close WebSocket:', error);
+  }
+}
+
+/**
+ * Finish setting up an already-authenticated socket.
+ *
+ * The event handlers are installed before the first awaited Redis operation.
+ * This is exported only to keep the failure/race behavior directly testable.
+ */
+export async function initializeAuthenticatedConnection(
+  ws: WebSocket,
+  userId: string,
+  sid: string,
+  dependencies: ConnectionInitializationDependencies = defaultConnectionInitializationDependencies,
+): Promise<void> {
+  const conn: ClientConnection = {
+    ws,
+    userId,
+    sid,
+    lastPing: Date.now(),
+    heartbeatTimer: null,
+    timeoutTimer: null,
+    revalidateTimer: null,
+    subscribedJobs: new Set(),
+    subscribedChats: new Set(),
+    releaseChannel: dependencies.releaseChannel,
+    releaseUserChannel: null,
+    initialized: false,
+    closed: false,
+  };
+
+  const resetTimeout = () => {
+    if (conn.timeoutTimer) clearTimeout(conn.timeoutTimer);
+    conn.timeoutTimer = setTimeout(() => {
+      console.log(`[WS] Client timeout: ${userId}`);
+      closeSocketSafely(ws, 4002, 'Ping timeout');
+    }, CLIENT_TIMEOUT);
+  };
+
+  // Register lifecycle handlers before subscription or state loading. A client
+  // is free to disconnect as soon as the HTTP upgrade completes.
+  ws.on('close', () => {
+    console.log(`[WS] Client disconnected: ${userId}`);
+    removeConnection(conn);
+  });
+
+  ws.on('error', (err) => {
+    console.error(`[WS] WebSocket error for ${userId}:`, err);
+    removeConnection(conn);
+  });
+
+  ws.on('message', async (raw: Buffer) => {
+    // Ignore application traffic until the user channel and initial state are
+    // ready. This also prevents a pre-initialization message from retaining a
+    // job/chat channel after an early disconnect.
+    if (!conn.initialized || conn.closed) return;
+
+    try {
+      if (raw.length > MAX_WS_MESSAGE_BYTES) {
+        closeSocketSafely(ws, 1009, 'Message too large');
+        return;
+      }
+
+      const msg = JSON.parse(raw.toString());
+
+      switch (msg.type) {
+        case 'ping':
+          conn.lastPing = Date.now();
+          resetTimeout();
+          sendToConnection(conn, { type: 'pong', ts: Date.now() });
+          break;
+
+        case 'subscribe_job':
+          if (msg.jobId && typeof msg.jobId === 'string') {
+            await subscribeToJob(msg.jobId, conn, dependencies);
+          }
+          break;
+
+        case 'unsubscribe_job':
+          if (msg.jobId && typeof msg.jobId === 'string') {
+            if (conn.subscribedJobs.delete(msg.jobId)) {
+              await conn.releaseChannel(`job:${msg.jobId}:status`);
+            }
+          }
+          break;
+
+        case 'subscribe_chat':
+          if (msg.conversationId && typeof msg.conversationId === 'string') {
+            await subscribeToChat(
+              userId,
+              msg.conversationId,
+              conn,
+              dependencies,
+            );
+          }
+          break;
+
+        case 'unsubscribe_chat':
+          if (msg.conversationId && typeof msg.conversationId === 'string') {
+            if (conn.subscribedChats.delete(msg.conversationId)) {
+              await conn.releaseChannel(
+                `user:${userId}:chat:${msg.conversationId}:tokens`,
+              );
+            }
+          }
+          break;
+
+        default:
+          break;
+      }
+    } catch (err) {
+      console.error(`[WS] Error processing message from ${userId}:`, err);
+    }
+  });
+
+  addConnection(conn);
+
+  // Mark the hold before retain starts. removeConnection clears and invokes
+  // this callback exactly once, including when retain itself rejects.
+  conn.releaseUserChannel = () =>
+    dependencies.unsubscribeFromUserChannel(userId);
+
+  try {
+    await dependencies.subscribeToUserChannel(userId);
+    if (conn.closed || ws.readyState !== WebSocket.OPEN) {
+      removeConnection(conn);
+      return;
+    }
+
+    const streamingStates = await dependencies.getStreamingStates(userId);
+    if (conn.closed || ws.readyState !== WebSocket.OPEN) {
+      removeConnection(conn);
+      return;
+    }
+
+    conn.initialized = true;
+    sendToConnection(conn, {
+      type: 'connected',
+      userId,
+      streamingStates,
+    });
+    if (conn.closed || ws.readyState !== WebSocket.OPEN) {
+      removeConnection(conn);
+      return;
+    }
+
+    console.log(
+      `[WS] Client connected: ${userId} (${
+        connectionsByUser.get(userId)?.size || 0
+      } connections)`,
+    );
+
+    // Start heartbeat: server sends pong every 45s
+    conn.heartbeatTimer = setInterval(() => {
+      sendToConnection(conn, { type: 'pong', ts: Date.now() });
+    }, HEARTBEAT_INTERVAL);
+
+    // Client timeout: close if no ping received
+    resetTimeout();
+
+    // Revoke this socket if its session is deleted (logout), expires, or its
+    // sid is rotated (re-login).
+    conn.revalidateTimer = setInterval(async () => {
+      try {
+        const current = await getJsonOrPlain<SessionData>(
+          getRedis(),
+          sessionKey(['auth-session', sid]),
+        );
+        if (!current || current.username !== userId) {
+          console.log(`[WS] Session ended for ${userId}; closing socket`);
+          // 4003 (not 4001) lets a re-login reconnect with the current cookie;
+          // a genuine logout/expiry then gets 4001 at the next handshake.
+          closeSocketSafely(ws, 4003, 'Session ended');
+        }
+      } catch (err) {
+        // Transient Redis error — don't mass-disconnect on a blip.
+        console.error('[WS] Session revalidation error:', err);
+      }
+    }, SESSION_REVALIDATE_INTERVAL);
+  } catch (error) {
+    console.error(`[WS] Failed to initialize connection for ${userId}:`, error);
+    removeConnection(conn);
+    closeSocketSafely(ws, 1011, 'Initialization failed');
   }
 }
 
@@ -669,163 +1012,38 @@ wss.on('connection', async (ws: WebSocket, req: IncomingMessage) => {
 
   const userId = session.username;
   const sid = parseCookie(req.headers.cookie || '')['sid'] || '';
-  const conn: ClientConnection = {
-    ws,
-    userId,
-    sid,
-    lastPing: Date.now(),
-    heartbeatTimer: null,
-    timeoutTimer: null,
-    revalidateTimer: null,
-    subscribedJobs: new Set(),
-    subscribedChats: new Set(),
-    closed: false,
-  };
-
-  addConnection(conn);
-
-  // Subscribe to user's Redis channel
-  await subscribeToUserChannel(userId);
-
-  // Send connected event with current streaming states
-  const streamingStates = await getStreamingStates(userId);
-  sendToConnection(conn, {
-    type: 'connected',
-    userId,
-    streamingStates,
-  });
-
-  console.log(
-    `[WS] Client connected: ${userId} (${
-      connectionsByUser.get(userId)?.size || 0
-    } connections)`,
-  );
-
-  // Start heartbeat: server sends pong every 45s
-  conn.heartbeatTimer = setInterval(() => {
-    sendToConnection(conn, { type: 'pong', ts: Date.now() });
-  }, HEARTBEAT_INTERVAL);
-
-  // Client timeout: close if no ping received
-  const resetTimeout = () => {
-    if (conn.timeoutTimer) clearTimeout(conn.timeoutTimer);
-    conn.timeoutTimer = setTimeout(() => {
-      console.log(`[WS] Client timeout: ${userId}`);
-      ws.close(4002, 'Ping timeout');
-    }, CLIENT_TIMEOUT);
-  };
-  resetTimeout();
-
-  // Revoke this socket if its session is deleted (logout), expires, or its sid
-  // is rotated (re-login). Without this, a connection authenticated once keeps
-  // receiving the user's fanout indefinitely even after the session ends.
-  conn.revalidateTimer = setInterval(async () => {
-    try {
-      const current = await getJsonOrPlain<SessionData>(
-        getRedis(),
-        sessionKey(['auth-session', sid]),
-      );
-      if (!current || current.username !== userId) {
-        console.log(`[WS] Session ended for ${userId}; closing socket`);
-        // 4003 (not 4001) = mid-session revocation. The client treats 4001 as
-        // terminal (no reconnect) but reconnects on other codes, so 4003 lets a
-        // re-login restore the channel with the current cookie; a genuine
-        // logout/expiry then gets 4001 at the reconnect handshake and stops.
-        ws.close(4003, 'Session ended');
-      }
-    } catch (err) {
-      // Transient Redis error — don't mass-disconnect on a blip; re-check next tick.
-      console.error('[WS] Session revalidation error:', err);
-    }
-  }, SESSION_REVALIDATE_INTERVAL);
-
-  // Handle messages from client
-  ws.on('message', async (raw: Buffer) => {
-    try {
-      if (raw.length > MAX_WS_MESSAGE_BYTES) {
-        ws.close(1009, 'Message too large');
-        return;
-      }
-
-      const msg = JSON.parse(raw.toString());
-
-      switch (msg.type) {
-        case 'ping':
-          conn.lastPing = Date.now();
-          resetTimeout();
-          sendToConnection(conn, { type: 'pong', ts: Date.now() });
-          break;
-
-        case 'subscribe_job':
-          if (msg.jobId && typeof msg.jobId === 'string') {
-            await subscribeToJob(msg.jobId, conn);
-          }
-          break;
-
-        case 'unsubscribe_job':
-          if (msg.jobId && typeof msg.jobId === 'string') {
-            if (conn.subscribedJobs.delete(msg.jobId)) {
-              unsubscribeFromJob(msg.jobId);
-            }
-          }
-          break;
-
-        case 'subscribe_chat':
-          if (msg.conversationId && typeof msg.conversationId === 'string') {
-            await subscribeToChat(userId, msg.conversationId, conn);
-          }
-          break;
-
-        case 'unsubscribe_chat':
-          if (msg.conversationId && typeof msg.conversationId === 'string') {
-            if (conn.subscribedChats.delete(msg.conversationId)) {
-              unsubscribeFromChat(userId, msg.conversationId);
-            }
-          }
-          break;
-
-        default:
-          break;
-      }
-    } catch (err) {
-      console.error(`[WS] Error processing message from ${userId}:`, err);
-    }
-  });
-
-  ws.on('close', () => {
-    console.log(`[WS] Client disconnected: ${userId}`);
-    removeConnection(conn);
-  });
-
-  ws.on('error', (err) => {
-    console.error(`[WS] WebSocket error for ${userId}:`, err);
-    removeConnection(conn);
-  });
+  await initializeAuthenticatedConnection(ws, userId, sid);
 });
 
 // ---------- Start Server ----------
 
-server.listen(PORT, () => {
-  console.log(`[WS] WebSocket sidecar listening on port ${PORT}`);
-});
+const shouldStartServer = process.env.NODE_ENV !== 'test';
+
+if (shouldStartServer) {
+  server.listen(PORT, () => {
+    console.log(`[WS] WebSocket sidecar listening on port ${PORT}`);
+  });
+}
 
 // Graceful shutdown
-process.on('SIGTERM', () => {
+async function shutdown(): Promise<void> {
   console.log('[WS] Shutting down...');
   wss.close();
   server.close();
 
-  // Close all Redis connections
-  for (const [, entry] of userSubscribers) {
-    entry.subscriber.quit().catch(() => {});
+  for (const client of wss.clients) {
+    client.close(1001, 'Server shutting down');
   }
-  for (const [, entry] of jobSubscribers) {
-    entry.subscriber.quit().catch(() => {});
-  }
-  for (const [, entry] of chatSubscribers) {
-    entry.subscriber.quit().catch(() => {});
-  }
-  if (redisClient) redisClient.quit().catch(() => {});
 
+  await Promise.allSettled([
+    sharedRedisSubscriber?.shutdown(),
+    redisClient?.quit(),
+  ]);
   process.exit(0);
-});
+}
+
+if (shouldStartServer) {
+  process.once('SIGTERM', () => {
+    void shutdown();
+  });
+}

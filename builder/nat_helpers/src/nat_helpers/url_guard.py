@@ -9,9 +9,9 @@ range; this guard additionally rejects:
   * literal internal-IP targets (127.0.0.1, 169.254.169.254, RFC1918, ...).
 
 With ``check_dns=True`` it also resolves a hostname and rejects it if any
-returned address is non-public (DNS-rebinding defense). Call sites that run
-inside unit tests with example hostnames pass ``check_dns=False`` to avoid live
-DNS in the suite; the network policy covers the resolved-hostname case there.
+returned address is non-public (DNS-rebinding defense). Fetching call sites use
+this strict mode; ``check_dns=False`` is reserved for the guard's isolated unit
+tests, which exercise scheme and literal-IP handling without network access.
 """
 
 import ipaddress

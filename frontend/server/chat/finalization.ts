@@ -10,22 +10,9 @@ import {
 
 import { Message } from '@/types/chat';
 
-import { FINALIZER_LOCK_TTL_MS, JOB_EXPIRY_SECONDS } from './constants';
-import {
-  abortKey,
-  clearOAuthStatusFields,
-  extractNatOutput,
-  finalizerLockKey,
-  isTerminalJobStatus,
-  mapNatStatus,
-  updateJobStatus,
-  withRedisLock,
-} from './jobState';
-import type {
-  AsyncJobRequest,
-  AsyncJobStatus,
-  NatAsyncJobResponse,
-} from './types';
+import { JOB_EXPIRY_SECONDS } from './constants';
+import { abortKey, clearOAuthStatusFields, updateJobStatus } from './jobState';
+import type { AsyncJobRequest, AsyncJobStatus } from './types';
 
 import {
   clearStreamingState,
@@ -38,48 +25,6 @@ import {
 import { v4 as uuidv4 } from 'uuid';
 
 const logger = new Logger('AsyncJob');
-
-export async function finalizeFromNatStatus(
-  jobId: string,
-  jobRequest: AsyncJobRequest,
-  natStatus: NatAsyncJobResponse,
-): Promise<AsyncJobStatus | null> {
-  const statusKey = sessionKey(['async-job-status', jobId]);
-  const mapped = mapNatStatus(natStatus.status);
-
-  const finalized = await withRedisLock(
-    finalizerLockKey(jobId),
-    FINALIZER_LOCK_TTL_MS,
-    async () => {
-      const current = (await jsonGet(statusKey)) as AsyncJobStatus | null;
-      if (!current) return null;
-      if (current.finalizedAt || isTerminalJobStatus(current.status)) {
-        return current;
-      }
-
-      await jsonSetWithExpiry(abortKey(jobId), true, JOB_EXPIRY_SECONDS).catch(
-        () => {},
-      );
-
-      if (mapped === 'error') {
-        await finalizeError(
-          jobId,
-          jobRequest,
-          natStatus.error || 'Backend job failed',
-        );
-      } else if (mapped === 'completed') {
-        const rawOutput = extractNatOutput(natStatus.output);
-        await finalizeSuccess(jobId, jobRequest, rawOutput);
-      }
-
-      return (await jsonGet(statusKey)) as AsyncJobStatus | null;
-    },
-    { retries: 3, retryDelayMs: 50 },
-  );
-
-  if (finalized) return finalized;
-  return (await jsonGet(statusKey)) as AsyncJobStatus | null;
-}
 
 export async function finalizeSuccess(
   jobId: string,
@@ -100,7 +45,10 @@ export async function finalizeSuccess(
   let processedContent = finalOutput;
   try {
     const { processMarkdownImages } = await import('@/utils/app/imageHandler');
-    processedContent = await processMarkdownImages(finalOutput);
+    processedContent = await processMarkdownImages(finalOutput, {
+      userId,
+      sessionId: jobRequest.natSessionId || jobId,
+    });
     if (processedContent !== finalOutput) {
       logger.info(`Job ${jobId}: Replaced base64 images with Redis references`);
     }
@@ -308,7 +256,10 @@ export async function finalizeError(
           const { processMarkdownImages } = await import(
             '@/utils/app/imageHandler'
           );
-          processedContent = await processMarkdownImages(partialResponse);
+          processedContent = await processMarkdownImages(partialResponse, {
+            userId,
+            sessionId: jobRequest.natSessionId || jobId,
+          });
         } catch {
           // Image processing failure is non-critical for error path
         }

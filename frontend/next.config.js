@@ -1,11 +1,8 @@
-// Bundle analyzer for visualizing bundle size
-const withBundleAnalyzer = require('@next/bundle-analyzer')({
-  enabled: process.env.ANALYZE === 'true',
-  openAnalyzer: true,
-});
+const path = require('path');
 
 const nextConfig = {
   output: 'standalone',
+  outputFileTracingRoot: path.join(__dirname),
   typescript: {
     ignoreBuildErrors: false,
   },
@@ -42,66 +39,12 @@ const nextConfig = {
     keepAlive: true,
   },
   experimental: {
-    serverActions: {
-      bodySizeLimit: '300mb', // Support large file uploads (documents up to 200MB + base64 overhead)
-    },
     proxyTimeout: 900_000, // 15 minutes — matches nginx and API route timeouts
-    optimizeCss: true, // Enable CSS optimization
   },
-  // Optimize bundle splitting
   modularizeImports: {
     '@tabler/icons-react': {
       transform: '@tabler/icons-react/dist/esm/icons/{{member}}',
     },
-    'lucide-react': {
-      transform: 'lucide-react/dist/esm/icons/{{kebabCase member}}',
-    },
-  },
-  webpack(config, { isServer, dev }) {
-    config.experiments = {
-      asyncWebAssembly: true,
-      layers: true,
-    };
-
-    // Split chunks optimization
-    if (!isServer) {
-      config.optimization = {
-        ...config.optimization,
-        splitChunks: {
-          chunks: 'all',
-          cacheGroups: {
-            default: false,
-            vendors: false,
-            framework: {
-              name: 'framework',
-              chunks: 'all',
-              test: /[\\/]node_modules[\\/](react|react-dom|scheduler|next)[\\/]/,
-              priority: 50,
-              enforce: true,
-            },
-            lib: {
-              test: /[\\/]node_modules[\\/]/,
-              name(module) {
-                const packageName = module.context.match(
-                  /[\\/]node_modules[\\/](.*?)([[\\/]|$)/,
-                )[1];
-                return `npm.${packageName.replace('@', '')}`;
-              },
-              priority: 10,
-              minChunks: 2,
-              reuseExistingChunk: true,
-            },
-            commons: {
-              name: 'commons',
-              minChunks: 2,
-              priority: 5,
-            },
-          },
-        },
-      };
-    }
-
-    return config;
   },
   async redirects() {
     return [];
@@ -160,4 +103,4 @@ const nextConfig = {
   },
 };
 
-module.exports = withBundleAnalyzer(nextConfig);
+module.exports = nextConfig;

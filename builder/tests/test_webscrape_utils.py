@@ -6,6 +6,7 @@ token counting, and truncation.
 """
 
 import asyncio
+import socket
 from unittest.mock import AsyncMock, MagicMock
 from urllib.parse import urlparse
 
@@ -679,6 +680,23 @@ class TestGetFollowingSafeRedirects:
                 await _get_following_safe_redirects(
                     client, "https://attacker.com/start"
                 )
+
+        asyncio.run(_run())
+
+    def test_redirect_hostname_resolving_private_is_rejected(self, monkeypatch):
+        def _private_dns(_host, *_args, **_kwargs):
+            return [(socket.AF_INET, None, None, "", ("10.0.0.8", 0))]
+
+        monkeypatch.setattr(socket, "getaddrinfo", _private_dns)
+
+        async def _run():
+            redirect = _mk_response(302, location="https://rebind.example/internal")
+            client = _QueuedClient([redirect])
+            with pytest.raises(UnsafeURLError, match="non-public"):
+                await _get_following_safe_redirects(
+                    client, "https://public.example/start"
+                )
+            assert client.requested_urls == ["https://public.example/start"]
 
         asyncio.run(_run())
 

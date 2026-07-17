@@ -16,8 +16,9 @@ from nat.builder.framework_enum import LLMFrameworkEnum
 from nat.builder.function_info import FunctionInfo
 from nat.cli.register_workflow import register_function
 from nat.data_models.function import FunctionBaseConfig
+from nat_helpers.identity import resolve_authenticated_user_id
 from nv_ingest_client.client import Ingestor, NvIngestClient
-from pydantic import Field
+from pydantic import BaseModel, ConfigDict, Field
 from pymilvus import MilvusClient
 
 logger = logging.getLogger(__name__)
@@ -275,6 +276,21 @@ def validate_collection_scope(
     return actual_scope
 
 
+def validate_user_collection_write_scope(
+    collection_name: str,
+    requested_scope: str | None,
+) -> Literal["user"]:
+    """Reject shared-corpus writes from user-facing ingestion paths."""
+
+    actual_scope = validate_collection_scope(collection_name, requested_scope)
+    if actual_scope == "shared":
+        raise ValueError(
+            "Shared collection writes are not permitted through user-facing "
+            "document ingestion. Ingest into your private collection instead."
+        )
+    return "user"
+
+
 def _can_access_stored_document(
     document_record: dict[str, Any],
     username: str | None,
@@ -337,9 +353,9 @@ class NvIngestFunctionConfig(FunctionBaseConfig, name="nat_nv_ingest"):
         default="http://localhost:19530", description="Milvus connection URI"
     )
     milvus_username: str | None = Field(
-        default_factory=lambda: os.getenv("MILVUS_USERNAME")
-        or os.getenv("MILVUS_USER")
-        or None,
+        default_factory=lambda: (
+            os.getenv("MILVUS_USERNAME") or os.getenv("MILVUS_USER") or None
+        ),
         description="Milvus username when authentication is enabled",
     )
     milvus_password: str | None = Field(
@@ -502,6 +518,23 @@ class NvIngestFunctionConfig(FunctionBaseConfig, name="nat_nv_ingest"):
         default=None,
         description="Reranker API key for user document retrieval",
     )
+
+
+class UserDocumentInput(BaseModel):
+    """LLM-facing document-tool input; request identity is intentionally absent."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    operation: Literal["ingest", "extract", "search", "list_collections"] = "search"
+    query: str = ""
+    collection_name: str | None = None
+    provenance: dict[str, Any] | None = None
+    documentRef: dict[str, Any] | None = None
+    documentRefs: list[dict[str, Any]] | None = None
+    top_k: int | None = Field(default=None, gt=0)
+    filters: str | None = None
+    chunk_size: int | None = Field(default=None, gt=0)
+    chunk_overlap: int | None = Field(default=None, ge=0)
 
 
 # --- Module-level helpers (pure) ---------------------------------------------
@@ -1327,7 +1360,7 @@ async def _extract_document_to_markdown(
 
 
 class NvIngestDocumentProcessor:
-    """Structured document ingestion runner used by NAT tools and HTTP routes."""
+    """Authoritative ingestion runner shared by NAT tools and HTTP routes."""
 
     def __init__(self, config: NvIngestFunctionConfig):
         self.config = config
@@ -1400,7 +1433,7 @@ class NvIngestDocumentProcessor:
             config.default_collection_name,
         )
         try:
-            resolved_scope = validate_collection_scope(
+            resolved_scope = validate_user_collection_write_scope(
                 collection_name,
                 collection_scope,
             )
@@ -1619,10 +1652,7 @@ class NvIngestDocumentProcessor:
                         _emit_stage_from_thread(
                             "indexing",
                             filename,
-                            (
-                                "NV-Ingest extraction finished; writing chunks "
-                                "to Milvus"
-                            ),
+                            ("NV-Ingest extraction finished; writing chunks to Milvus"),
                         )
 
                 progress_log_handler = _BatchFinishedHandler()
@@ -1840,7 +1870,7 @@ class NvIngestDocumentProcessor:
             config.default_collection_name,
         )
         try:
-            resolved_scope = validate_collection_scope(
+            resolved_scope = validate_user_collection_write_scope(
                 collection_name,
                 collection_scope,
             )
@@ -2203,72 +2233,36 @@ async def nv_ingest_function(
     and returns extracted content as Markdown.
     """
 
-    # Lazy client cache — clients are built on first use to avoid eager
-    # network I/O at startup and to let tests patch factory output cleanly.
-    # Pattern mirrors builder/nat_nv_ingest/src/nat_nv_ingest/user_document_retriever.py.
-    _client_cache: dict[str, Any] = {}
-    _client_lock = asyncio.Lock()
-    _ingest_locks: dict[str, asyncio.Lock] = {}
-    _ingest_locks_guard = asyncio.Lock()
-
-    async def _get_redis() -> redis.Redis:
-        if "redis" not in _client_cache:
-            async with _client_lock:
-                if "redis" not in _client_cache:
-                    _client_cache["redis"] = redis.from_url(
-                        config.redis_url,
-                        decode_responses=False,  # Need binary data for documents
-                        socket_timeout=config.redis_socket_timeout,
-                        socket_connect_timeout=config.redis_connect_timeout,
-                        retry_on_timeout=True,
-                    )
-        return _client_cache["redis"]
-
-    async def _get_nv_client() -> NvIngestClient:
-        if "nv_ingest" not in _client_cache:
-            async with _client_lock:
-                if "nv_ingest" not in _client_cache:
-                    kwargs: dict[str, Any] = {
-                        "message_client_port": config.nv_ingest_port,
-                        "message_client_hostname": config.nv_ingest_host,
-                        "worker_pool_size": config.worker_pool_size,
-                    }
-                    if config.use_v2_api:
-                        kwargs["message_client_kwargs"] = {"api_version": "v2"}
-                    _client_cache["nv_ingest"] = NvIngestClient(**kwargs)
-        return _client_cache["nv_ingest"]
-
-    async def _get_collection_ingest_lock(collection_name: str) -> asyncio.Lock:
-        async with _ingest_locks_guard:
-            lock = _ingest_locks.get(collection_name)
-            if lock is None:
-                lock = asyncio.Lock()
-                _ingest_locks[collection_name] = lock
-            return lock
+    # All ingestion state (Redis/NV-Ingest clients and per-collection locks)
+    # belongs to the structured processor. The adapter retains a separate,
+    # search-only cache for Milvus and the retriever.
+    document_processor = NvIngestDocumentProcessor(config)
+    _retrieval_client_cache: dict[str, Any] = {}
+    _retrieval_client_lock = asyncio.Lock()
 
     async def _get_milvus() -> MilvusClient:
-        if "milvus" not in _client_cache:
-            async with _client_lock:
-                if "milvus" not in _client_cache:
-                    _client_cache["milvus"] = MilvusClient(
+        if "milvus" not in _retrieval_client_cache:
+            async with _retrieval_client_lock:
+                if "milvus" not in _retrieval_client_cache:
+                    _retrieval_client_cache["milvus"] = MilvusClient(
                         **_milvus_client_kwargs(config)
                     )
-        return _client_cache["milvus"]
+        return _retrieval_client_cache["milvus"]
 
     async def _get_retriever():
-        if "retriever" not in _client_cache:
-            async with _client_lock:
-                if "retriever" not in _client_cache:
+        if "retriever" not in _retrieval_client_cache:
+            async with _retrieval_client_lock:
+                if "retriever" not in _retrieval_client_cache:
                     from smart_milvus.smart_milvus_function import MilvusRetriever
 
                     embedder = await builder.get_embedder(
                         embedder_name=config.embedder_name,
                         wrapper_type=LLMFrameworkEnum.LANGCHAIN,
                     )
-                    milvus_client = _client_cache.get("milvus")
+                    milvus_client = _retrieval_client_cache.get("milvus")
                     if milvus_client is None:
                         milvus_client = MilvusClient(**_milvus_client_kwargs(config))
-                        _client_cache["milvus"] = milvus_client
+                        _retrieval_client_cache["milvus"] = milvus_client
                     reranker_config = None
                     if config.use_reranker and config.reranker_endpoint:
                         reranker_config = {
@@ -2277,7 +2271,7 @@ async def nv_ingest_function(
                             "top_n": config.reranker_top_n,
                             "api_key": config.reranker_api_key,
                         }
-                    _client_cache["retriever"] = MilvusRetriever(
+                    _retrieval_client_cache["retriever"] = MilvusRetriever(
                         client=milvus_client,
                         embedder=embedder,
                         content_field=config.content_field,
@@ -2289,536 +2283,34 @@ async def nv_ingest_function(
                         vector_field_name=config.vector_field,
                         reranker_config=reranker_config,
                     )
-        return _client_cache["retriever"]
+        return _retrieval_client_cache["retriever"]
 
-    async def list_collections() -> str:
-        """Lists all available Milvus collections."""
+    async def list_collections(username: str) -> str:
+        """List only collections the authenticated user is allowed to read."""
         try:
             milvus_client = await _get_milvus()
             collections = await asyncio.to_thread(milvus_client.list_collections)
-            logger.info("Found %d collections in Milvus", len(collections))
-            if not collections:
+            private_collection = resolve_user_collection_name(
+                None,
+                username,
+                config.default_collection_name,
+            )
+            allowed_collections = SHARED_COLLECTION_NAMES | {private_collection}
+            visible_collections = sorted(
+                collection
+                for collection in collections
+                if collection in allowed_collections
+            )
+            logger.info(
+                "Found %d user-visible collections in Milvus",
+                len(visible_collections),
+            )
+            if not visible_collections:
                 return "No collections found."
-            return "Available collections:\n" + "\n".join(collections)
+            return "Available collections:\n" + "\n".join(visible_collections)
         except Exception as e:
             logger.error("Error listing Milvus collections: %s", e)
             return "Error listing Milvus collections."
-
-    async def process_document(
-        documentRef: dict[str, Any],
-        username: str,
-        collection_name: str | None = None,
-        collection_scope: str | None = None,
-        provenance: dict[str, Any] | None = None,
-        chunk_size: int | None = None,
-        chunk_overlap: int | None = None,
-    ) -> IngestResult:
-        """Processes a document from Redis and ingests it into Milvus."""
-        logger.info(
-            "process_document called with: documentRef=%s, username=%s, collection_name=%s",
-            documentRef,
-            username,
-            collection_name,
-        )
-
-        chunk_size = chunk_size or config.chunk_size
-        chunk_overlap = chunk_overlap or config.chunk_overlap
-
-        collection_name = resolve_user_collection_name(
-            collection_name,
-            username,
-            config.default_collection_name,
-        )
-        try:
-            resolved_scope = validate_collection_scope(
-                collection_name,
-                collection_scope,
-            )
-        except ValueError as e:
-            resolved_scope = "user"
-            scope_error = str(e)
-        else:
-            scope_error = ""
-
-        initial_filename = (
-            documentRef.get("filename", "") if isinstance(documentRef, dict) else ""
-        )
-
-        def _failure(error: str, filename: str = "") -> IngestResult:
-            return IngestResult(
-                status="failure",
-                filename=filename or initial_filename,
-                chunks=0,
-                failures=0,
-                pages=0,
-                collection=collection_name or "",
-                markdown="",
-                error=error,
-            )
-
-        try:
-            if scope_error:
-                return _failure(f"Error: {scope_error}")
-
-            if not documentRef or not isinstance(documentRef, dict):
-                return _failure("Error: Invalid document reference provided.")
-
-            document_id = documentRef.get("documentId")
-            session_id = documentRef.get("sessionId")
-
-            if not document_id or not session_id:
-                return _failure(
-                    "Error: Document reference must contain documentId and sessionId."
-                )
-
-            if not username:
-                return _failure(
-                    "Error: Valid username required for document processing."
-                )
-
-            if not collection_name:
-                return _failure("Error: Collection name must be specified.")
-
-            logger.info(
-                "Processing document %s for user %s into %s collection %s",
-                document_id,
-                username,
-                resolved_scope,
-                collection_name,
-            )
-            if provenance:
-                logger.info(
-                    "Document ingestion provenance: %s",
-                    json.dumps(provenance, sort_keys=True)[:1000],
-                )
-
-            # Fetch document bytes from Redis
-            redis_key = f"document:{session_id}:{document_id}"
-            fetch_start = time.time()
-            try:
-                redis_client = await _get_redis()
-                document_data_json = await asyncio.to_thread(
-                    redis_client.execute_command, "JSON.GET", redis_key
-                )
-
-                if not document_data_json:
-                    logger.error(
-                        "Document %s not found in Redis (key: %s)",
-                        document_id,
-                        redis_key,
-                    )
-                    return _failure(
-                        "Error: Document not found in storage. "
-                        "The file may have expired or the session may be "
-                        "invalid. Please try uploading the document again."
-                    )
-
-                document_record = json.loads(document_data_json)
-                if not _can_access_stored_document(document_record, username):
-                    document_user_id = str(document_record.get("userId") or "").strip()
-                    logger.warning(
-                        "Document %s belongs to user %s but was requested by %s",
-                        document_id,
-                        document_user_id,
-                        username,
-                    )
-                    return _failure(
-                        "Error: You do not have access to this document. "
-                        "Please upload the document again from your account."
-                    )
-
-                document_base64 = document_record.get("data")
-                filename = document_record.get("filename", f"{document_id}.bin")
-
-                if not document_base64:
-                    logger.error("Document data is empty for document %s", document_id)
-                    return _failure(
-                        "Error: Retrieved document data is empty.",
-                        filename=filename,
-                    )
-
-                max_bytes = document_ingest_max_size_bytes()
-                size_error = _document_size_error(document_base64, max_bytes)
-                if size_error is not None:
-                    logger.warning(
-                        "Document %s (%s) exceeds max ingest size %d bytes",
-                        document_id,
-                        filename,
-                        max_bytes,
-                    )
-                    return _failure(size_error, filename=filename)
-
-                document_bytes = base64.b64decode(document_base64)
-            except redis.RedisError as e:
-                logger.error("Redis error retrieving document: %s", e)
-                return _failure(f"Error accessing document storage: {str(e)}")
-            except Exception as e:
-                logger.error("Error processing document data: %s", e)
-                return _failure(f"Error processing document data: {str(e)}")
-
-            logger.info(
-                "Fetched %s from Redis in %.2fs (size=%d bytes)",
-                filename,
-                time.time() - fetch_start,
-                len(document_bytes),
-            )
-
-            # Ingestion + post-processing run inside a worker thread so the
-            # CPU-bound dedup / markdown assembly never blocks the event loop.
-            nv_client = await _get_nv_client()
-
-            def run_ingest_with_postproc() -> tuple[str, int, int, int]:
-                ingestor = _build_ingestor(
-                    nv_client=nv_client,
-                    document_bytes=document_bytes,
-                    filename=filename,
-                    config=config,
-                    collection_name=collection_name,
-                    chunk_size=chunk_size,
-                    chunk_overlap=chunk_overlap,
-                )
-                with ingestor as ctx:
-                    logger.info("Starting document ingestion for %s...", filename)
-                    results, failures = ctx.ingest(
-                        show_progress=False, return_failures=True
-                    )
-                md, page_count = results_to_markdown(results)
-                success_count = len(results[0]) if results and results[0] else 0
-                failure_count = len(failures[0]) if failures and failures[0] else 0
-                return md, page_count, success_count, failure_count
-
-            ingest_start = time.time()
-            success_payload: tuple[str, int, int, int] | None = None
-            last_exc: Exception | None = None
-            ingest_timeout = max(1.0, config.ingest_timeout_seconds)
-            collection_ingest_lock = await _get_collection_ingest_lock(collection_name)
-            for attempt in range(config.ingest_max_retries + 1):
-                try:
-                    async with collection_ingest_lock:
-                        success_payload = await asyncio.wait_for(
-                            asyncio.to_thread(run_ingest_with_postproc),
-                            timeout=ingest_timeout,
-                        )
-                    break
-                except TimeoutError as e:
-                    last_exc = e
-                    logger.error(
-                        "NV-Ingest timed out after %.1fs for %s",
-                        ingest_timeout,
-                        filename,
-                    )
-                    return _failure(
-                        "Error processing document with NvIngest: "
-                        f"timed out after {ingest_timeout:.0f} seconds.",
-                        filename=filename,
-                    )
-                except Exception as e:
-                    last_exc = e
-                    if attempt < config.ingest_max_retries:
-                        logger.warning(
-                            "NV-Ingest attempt %d/%d failed for %s: %s — retrying in %.1fs",
-                            attempt + 1,
-                            config.ingest_max_retries + 1,
-                            filename,
-                            e,
-                            config.ingest_retry_delay,
-                        )
-                        await asyncio.sleep(config.ingest_retry_delay)
-
-            if success_payload is None:
-                logger.error(
-                    "NV-Ingest processing error after %d attempts: %s",
-                    config.ingest_max_retries + 1,
-                    last_exc,
-                    exc_info=True,
-                )
-                return _failure(
-                    f"Error processing document with NvIngest: {str(last_exc)}",
-                    filename=filename,
-                )
-
-            result_md, page_count, success_count, failure_count = success_payload
-
-            logger.info(
-                "Completed %s in %.2fs: %d chunks, %d failures, %d pages",
-                filename,
-                time.time() - ingest_start,
-                success_count,
-                failure_count,
-                page_count,
-            )
-
-            return IngestResult(
-                status="success" if failure_count == 0 else "partial",
-                filename=filename,
-                chunks=success_count,
-                failures=failure_count,
-                pages=page_count,
-                collection=collection_name,
-                markdown=result_md,
-                error="",
-            )
-
-        except Exception as e:
-            logger.error("Unexpected error in process_document: %s", e, exc_info=True)
-            return _failure(f"An unexpected error occurred: {str(e)}")
-
-    async def extract_document(
-        documentRef: dict[str, Any],
-        username: str,
-        char_limit: int | None = INLINE_MARKDOWN_CHAR_LIMIT,
-    ) -> ExtractResult:
-        """Fetch a document and return markdown without chunking/indexing.
-
-        Companion to `process_document` for chat "inline" mode. Delegates to the
-        shared `_extract_document_to_markdown` helper; output is capped at
-        `char_limit` so a large PDF can't blow out the chat context window
-        unannounced (`char_limit=None` returns the full document).
-        """
-        return await _extract_document_to_markdown(
-            documentRef=documentRef,
-            username=username,
-            config=config,
-            redis_getter=_get_redis,
-            nv_getter=_get_nv_client,
-            char_limit=char_limit,
-        )
-
-    async def process_multiple_documents(
-        documentRefs: list[dict[str, Any]],
-        username: str,
-        collection_name: str | None = None,
-        collection_scope: str | None = None,
-        provenance: dict[str, Any] | None = None,
-        chunk_size: int | None = None,
-        chunk_overlap: int | None = None,
-    ) -> str:
-        """Processes multiple documents from Redis and ingests them into Milvus."""
-        logger.info(
-            "process_multiple_documents called with: documentRefs=%s, username=%s, collection_name=%s",
-            str(documentRefs)[:500] if documentRefs else "None",
-            username,
-            collection_name,
-        )
-
-        if not documentRefs or not isinstance(documentRefs, list):
-            logger.error("Invalid document references: %s", type(documentRefs))
-            return (
-                "Error: Invalid document references provided. "
-                "Expected a list of document references."
-            )
-
-        if not username:
-            logger.error("No username provided")
-            return "Error: Valid username required for document processing."
-
-        # F-009: drop repeated documentIds within this batch so the same upload
-        # is not embedded (and billed) twice.
-        documentRefs = _dedup_document_refs(documentRefs)
-
-        max_batch = max(1, config.max_documents_per_batch)
-        if len(documentRefs) > max_batch:
-            logger.info(
-                "Processing %d documents in internal batches of %d",
-                len(documentRefs),
-                max_batch,
-            )
-
-        collection_name = resolve_user_collection_name(
-            collection_name,
-            username,
-            config.default_collection_name,
-        )
-        try:
-            resolved_scope = validate_collection_scope(
-                collection_name,
-                collection_scope,
-            )
-        except ValueError as e:
-            return f"Error: {e}"
-
-        total_documents = len(documentRefs)
-        successful_documents: list[dict[str, Any]] = []
-        failed_documents: list[dict[str, Any]] = []
-        total_chunks = 0
-        total_pages = 0
-
-        logger.info(
-            "Starting batch processing of %d documents for user %s into %s collection %s "
-            "(concurrency=%d, recreate=%s)",
-            total_documents,
-            username,
-            resolved_scope,
-            collection_name,
-            config.batch_concurrency,
-            config.recreate_collection,
-        )
-        if provenance:
-            logger.info(
-                "Batch document ingestion provenance: %s",
-                json.dumps(provenance, sort_keys=True)[:1000],
-            )
-        start_time = time.time()
-
-        # A concurrent recreate=True race on the Milvus schema would have
-        # multiple jobs trying to (re)create the collection in parallel. Run
-        # the first job synchronously in that case to prime the collection,
-        # then parallelize the rest.
-        sync_prefix = 1 if config.recreate_collection and total_documents > 1 else 0
-        concurrency = max(1, config.batch_concurrency)
-        sem = asyncio.Semaphore(concurrency)
-
-        async def _one(
-            idx: int, documentRef: dict[str, Any]
-        ) -> tuple[int, str, IngestResult | Exception]:
-            ref_filename = documentRef.get(
-                "filename", documentRef.get("documentId", f"Document_{idx}")
-            )
-            logger.info(
-                "Processing document %d of %d: %s",
-                idx,
-                total_documents,
-                ref_filename,
-            )
-            t0 = time.time()
-            try:
-                async with sem:
-                    result = await process_document(
-                        documentRef=documentRef,
-                        username=username,
-                        collection_name=collection_name,
-                        collection_scope=resolved_scope,
-                        provenance=provenance,
-                        chunk_size=chunk_size,
-                        chunk_overlap=chunk_overlap,
-                    )
-                logger.info(
-                    "Document %d completed in %.2fs: status=%s chunks=%d pages=%d",
-                    idx,
-                    time.time() - t0,
-                    result["status"],
-                    result["chunks"],
-                    result["pages"],
-                )
-                return idx, ref_filename, result
-            except Exception as e:
-                logger.error(
-                    "Error processing document %s: %s",
-                    documentRef.get("documentId", "unknown"),
-                    e,
-                    exc_info=True,
-                )
-                return idx, ref_filename, e
-
-        def _accumulate(ref_filename: str, outcome: IngestResult | Exception) -> None:
-            nonlocal total_chunks, total_pages
-            if isinstance(outcome, Exception):
-                failed_documents.append({"id": ref_filename, "error": str(outcome)})
-                return
-            filename = outcome["filename"] or ref_filename
-            if outcome["status"] in ("success", "partial"):
-                total_chunks += outcome["chunks"]
-                total_pages += outcome["pages"]
-                successful_documents.append(
-                    {
-                        "id": filename,
-                        "chunks": outcome["chunks"],
-                        "pages": outcome["pages"],
-                        "status": outcome["status"],
-                    }
-                )
-            else:
-                failed_documents.append({"id": filename, "error": outcome["error"]})
-                logger.warning("Document %s failed: %s", filename, outcome["error"])
-
-        def _is_timeout_failure(outcome: IngestResult | Exception) -> bool:
-            if isinstance(outcome, Exception):
-                return isinstance(outcome, TimeoutError)
-            return (
-                outcome["status"] == "failure"
-                and "timed out" in outcome["error"].lower()
-            )
-
-        def _mark_skipped_due_to_timeout(start_idx: int, stop_idx: int) -> None:
-            for skipped_idx in range(start_idx, stop_idx):
-                skipped_ref = documentRefs[skipped_idx]
-                skipped_name = skipped_ref.get(
-                    "filename",
-                    skipped_ref.get("documentId", f"Document_{skipped_idx + 1}"),
-                )
-                failed_documents.append(
-                    {
-                        "id": skipped_name,
-                        "error": (
-                            "Skipped because a prior document ingest timed out; "
-                            "NV-Ingest or Milvus may be unavailable."
-                        ),
-                    }
-                )
-
-        for idx in range(sync_prefix):
-            _idx, ref_filename, outcome = await _one(idx + 1, documentRefs[idx])
-            _accumulate(ref_filename, outcome)
-            if _is_timeout_failure(outcome):
-                _mark_skipped_due_to_timeout(idx + 1, total_documents)
-                break
-
-        if len(successful_documents) + len(failed_documents) < total_documents:
-            skipped_remaining = False
-        else:
-            skipped_remaining = True
-
-        for start in range(sync_prefix, total_documents, max_batch):
-            if skipped_remaining:
-                break
-            stop = min(start + max_batch, total_documents)
-            logger.info(
-                "Starting internal document batch %d-%d of %d",
-                start + 1,
-                stop,
-                total_documents,
-            )
-            if concurrency == 1:
-                for idx in range(start, stop):
-                    _idx, ref_filename, outcome = await _one(idx + 1, documentRefs[idx])
-                    _accumulate(ref_filename, outcome)
-                    if _is_timeout_failure(outcome):
-                        _mark_skipped_due_to_timeout(idx + 1, total_documents)
-                        skipped_remaining = True
-                        break
-                continue
-
-            batch = [_one(idx + 1, documentRefs[idx]) for idx in range(start, stop)]
-            for _idx, ref_filename, outcome in await asyncio.gather(*batch):
-                _accumulate(ref_filename, outcome)
-                if _is_timeout_failure(outcome) and not skipped_remaining:
-                    _mark_skipped_due_to_timeout(stop, total_documents)
-                    skipped_remaining = True
-
-        result_message = format_batch_response(
-            total_documents=total_documents,
-            successful_documents=successful_documents,
-            failed_documents=failed_documents,
-            total_chunks=total_chunks,
-            total_pages=total_pages,
-            collection_name=collection_name,
-            chunk_size=chunk_size or config.chunk_size,
-            chunk_overlap=chunk_overlap or config.chunk_overlap,
-        )
-
-        total_time = time.time() - start_time
-        logger.info(
-            "Batch processing completed in %.2fs. Success: %d, Failed: %d",
-            total_time,
-            len(successful_documents),
-            len(failed_documents),
-        )
-        logger.info(
-            "Returning result message (length=%d): %s",
-            len(result_message),
-            result_message[:500],
-        )
-        return result_message
 
     async def nv_ingest_router(input_message: dict[str, Any]) -> str:
         """Routes NV Ingest requests to the appropriate function."""
@@ -2826,7 +2318,7 @@ async def nv_ingest_function(
             "nv_ingest_router called with input_message: %s", str(input_message)[:500]
         )
 
-        if input_message and isinstance(input_message, dict):
+        if isinstance(input_message, dict):
             if "input_message" in input_message and isinstance(
                 input_message["input_message"], dict
             ):
@@ -2850,6 +2342,14 @@ async def nv_ingest_function(
                     return value
                 return metadata.get(key, default)
 
+            try:
+                username = resolve_authenticated_user_id(get_param("username", ""))
+            except ValueError as exc:
+                logger.warning(
+                    "Denied document request without trusted identity: %s", exc
+                )
+                return f"Error: user document request denied: {exc}."
+
             provenance = inner_request.get("provenance") or metadata.get("provenance")
             if not isinstance(provenance, dict):
                 provenance = None
@@ -2860,9 +2360,9 @@ async def nv_ingest_function(
                     "Processing multiple documents: %d files",
                     len(documentRefs) if isinstance(documentRefs, list) else 0,
                 )
-                return await process_multiple_documents(
+                return await document_processor.process_multiple_documents(
                     documentRefs=documentRefs,
-                    username=get_param("username", ""),
+                    username=username,
                     collection_name=get_param("collection_name"),
                     collection_scope=get_param("collection_scope"),
                     provenance=provenance,
@@ -2871,9 +2371,9 @@ async def nv_ingest_function(
                 )
 
             elif "documentRef" in inner_request:
-                ingest_result = await process_document(
+                ingest_result = await document_processor.process_document(
                     documentRef=inner_request.get("documentRef"),
-                    username=get_param("username", ""),
+                    username=username,
                     collection_name=get_param("collection_name"),
                     collection_scope=get_param("collection_scope"),
                     provenance=provenance,
@@ -2882,7 +2382,9 @@ async def nv_ingest_function(
                 )
                 return format_single_doc_response(ingest_result)
 
-        return await list_collections()
+            return await list_collections(username)
+
+        return "Error: input_message must be an object."
 
     async def search_documents(
         query: str,
@@ -2935,7 +2437,8 @@ async def nv_ingest_function(
         Args:
             operation: ingest, extract, search, or list_collections.
             query: Search query for operation='search'.
-            username: Authenticated username used for per-user collection routing.
+            username: Deprecated direct-call identity assertion. The LLM-facing
+                schema omits it; HTTP requests use the trusted NAT context.
             collection_name: Optional explicit Milvus collection.
             collection_scope: Optional expected scope, either shared or user.
             provenance: Optional audit metadata for ingestion requests.
@@ -2952,19 +2455,31 @@ async def nv_ingest_function(
             return await nv_ingest_router(input_message)
 
         op = (operation or "search").strip().lower()
+        if op not in {"ingest", "extract", "search", "list_collections"}:
+            return (
+                "Error: operation must be one of ingest, extract, search, "
+                "list_collections."
+            )
+
+        try:
+            effective_username = resolve_authenticated_user_id(username)
+        except ValueError as exc:
+            logger.warning("Denied document request without trusted identity: %s", exc)
+            return f"Error: user document request denied: {exc}."
+
         if op == "search":
             return await search_documents(
                 query=query,
-                username=username,
+                username=effective_username,
                 collection_name=collection_name,
                 top_k=top_k,
                 filters=filters,
             )
         if op == "ingest":
             if documentRefs:
-                return await process_multiple_documents(
+                return await document_processor.process_multiple_documents(
                     documentRefs=documentRefs,
-                    username=username,
+                    username=effective_username,
                     collection_name=collection_name,
                     collection_scope=collection_scope,
                     provenance=provenance,
@@ -2972,9 +2487,9 @@ async def nv_ingest_function(
                     chunk_overlap=chunk_overlap,
                 )
             if documentRef:
-                ingest_result = await process_document(
+                ingest_result = await document_processor.process_document(
                     documentRef=documentRef,
-                    username=username,
+                    username=effective_username,
                     collection_name=collection_name,
                     collection_scope=collection_scope,
                     provenance=provenance,
@@ -2991,23 +2506,23 @@ async def nv_ingest_function(
                 )
             if not documentRef:
                 return "Error: documentRef is required for extraction."
-            extract_result = await extract_document(
+            extract_result = await document_processor.extract_document(
                 documentRef=documentRef,
-                username=username,
+                username=effective_username,
             )
             return format_extract_response(extract_result)
         if op == "list_collections":
-            return await list_collections()
-        return (
-            "Error: operation must be one of ingest, extract, search, list_collections."
-        )
+            return await list_collections(effective_username)
+        raise AssertionError("validated operation was not handled")
 
     yield FunctionInfo.from_fn(
         user_document_tool,
         description=(
-            "Ingest or search user-uploaded documents. Args: operation='ingest' "
-            "with documentRef or documentRefs plus username; operation='search' "
-            "with query plus username; optional collection_name. Uses the same "
-            "per-user collection derivation for both operations."
+            "Ingest or search documents for the authenticated user. The backend "
+            "derives identity from the trusted request; never pass a username. "
+            "Ingestion always writes to a private per-user collection and rejects "
+            "shared targets. Search may read either the user's private collection "
+            "or an allow-listed shared collection."
         ),
+        input_schema=UserDocumentInput,
     )

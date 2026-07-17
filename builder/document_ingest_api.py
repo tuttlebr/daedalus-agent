@@ -194,6 +194,15 @@ def _resolve_request(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
 
+    if collection_scope == "shared":
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "Shared collection writes are not permitted through user-facing "
+                "document ingestion."
+            ),
+        )
+
     return username, document_refs, collection, collection_scope, req.provenance
 
 
@@ -380,8 +389,7 @@ async def ingest_stream(
                 "percent": 0,
                 "phase": "queued",
                 "message": (
-                    f"Queued {total} document"
-                    f"{'' if total == 1 else 's'} for ingestion"
+                    f"Queued {total} document{'' if total == 1 else 's'} for ingestion"
                 ),
             },
         )

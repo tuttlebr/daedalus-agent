@@ -431,6 +431,8 @@ def summarize_recent_feed(
     limit: int = 60,
     title_chars: int = 120,
     bluf_chars: int = 180,
+    source_chars: int = 80,
+    thread_key_chars: int = 96,
 ) -> list[dict[str, str]]:
     """Compact digest of recently surfaced items for the prompt.
 
@@ -454,13 +456,18 @@ def summarize_recent_feed(
         if len(bluf) > bluf_chars:
             bluf = f"{bluf[: bluf_chars - 1].rstrip()}…"
         source = url_domain(item.get("sourceUrl") or item.get("source_url"))
+        if len(source) > source_chars:
+            source = f"{source[: source_chars - 1].rstrip()}…"
+        thread_key = feed_thread_key(item)
+        if len(thread_key) > thread_key_chars:
+            thread_key = f"{thread_key[: thread_key_chars - 1].rstrip()}…"
         digest.append(
             {
                 "date": _format_day(item.get("createdAt")),
                 "title": title,
                 "bluf": bluf,
                 "source": source,
-                "threadKey": feed_thread_key(item),
+                "threadKey": thread_key,
             }
         )
         if len(digest) >= limit:

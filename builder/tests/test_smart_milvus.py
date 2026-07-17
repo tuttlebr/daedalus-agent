@@ -1,6 +1,7 @@
 """Unit tests for smart_milvus utility functions and data models."""
 
 import asyncio
+import threading
 from unittest.mock import MagicMock
 
 import pytest
@@ -345,21 +346,21 @@ class TestSingleListCollectionsRoundTrip:
 
     def test_resolve_collection_returns_exists_and_name(self):
         retriever, _ = self._make_retriever()
-        exists, name = retriever._resolve_collection("col")
+        exists, name = asyncio.run(retriever._resolve_collection("col"))
         assert exists is True
         assert name == "col"
 
     def test_resolve_collection_missing(self):
         retriever, client = self._make_retriever()
         client.list_collections.return_value = []
-        exists, name = retriever._resolve_collection("nope")
+        exists, name = asyncio.run(retriever._resolve_collection("nope"))
         assert exists is False
         assert name == "nope"
 
     def test_resolve_collection_prefixed_db(self):
         retriever, client = self._make_retriever(database_name="mydb")
         client.list_collections.return_value = ["mydb.col"]
-        exists, name = retriever._resolve_collection("col")
+        exists, name = asyncio.run(retriever._resolve_collection("col"))
         assert exists is True
         assert name == "mydb.col"
 
@@ -367,9 +368,133 @@ class TestSingleListCollectionsRoundTrip:
         retriever, client = self._make_retriever(database_name="mydb")
         # Only the unprefixed form exists.
         client.list_collections.return_value = ["col"]
-        exists, name = retriever._resolve_collection("col")
+        exists, name = asyncio.run(retriever._resolve_collection("col"))
         assert exists is True
         assert name == "col"
+
+
+# ---------------------------------------------------------------------------
+# F-022 — synchronous Milvus calls stay off the event loop and metadata caches
+# ---------------------------------------------------------------------------
+
+
+class TestAsyncMilvusCalls:
+    def test_domain_retriever_offloads_constructor_metadata_search_and_close(
+        self, monkeypatch
+    ):
+        import pymilvus
+        from smart_milvus.register import (
+            DomainRetrieverConfig,
+            domain_retriever_function,
+        )
+
+        event_loop_thread = threading.get_ident()
+        call_threads: dict[str, int] = {}
+
+        class RecordingClient:
+            def __init__(self, **_kwargs):
+                call_threads["construct"] = threading.get_ident()
+
+            def list_collections(self, **_kwargs):
+                call_threads["list"] = threading.get_ident()
+                return ["nvidia"]
+
+            def describe_collection(self, *_args, **_kwargs):
+                call_threads["describe"] = threading.get_ident()
+                return {"fields": [{"name": "text"}, {"name": "vector"}]}
+
+            def search(self, **_kwargs):
+                call_threads["search"] = threading.get_ident()
+                return [[]]
+
+            def close(self):
+                call_threads["close"] = threading.get_ident()
+
+        class RecordingEmbedder:
+            def embed_query(self, _query):
+                call_threads["embed"] = threading.get_ident()
+                return [0.1, 0.2]
+
+        class FakeBuilder:
+            async def get_embedder(self, **_kwargs):
+                return RecordingEmbedder()
+
+        monkeypatch.setattr(pymilvus, "MilvusClient", RecordingClient, raising=False)
+        config = DomainRetrieverConfig(
+            uri="http://milvus:19530",
+            embedding_model="embedder",
+            use_reranker=False,
+        )
+
+        async def run_search():
+            registration = domain_retriever_function(config, FakeBuilder())
+            function_info = await registration.__anext__()
+            try:
+                result = await function_info.fn("query", "nvidia")
+                assert result == "No nvidia results found."
+            finally:
+                await registration.aclose()
+
+        asyncio.run(run_search())
+
+        expected_calls = {"construct", "list", "describe", "search", "embed", "close"}
+        assert expected_calls <= call_threads.keys()
+        assert all(call_threads[name] != event_loop_thread for name in expected_calls)
+
+    def test_metadata_is_cached_with_a_bounded_size(self):
+        client = MagicMock()
+        client.list_collections.return_value = ["a", "b"]
+        client.describe_collection.return_value = {
+            "fields": [{"name": "text"}, {"name": "vector"}]
+        }
+        client.search.return_value = [[]]
+        embedder = MagicMock()
+        embedder.embed_query.return_value = [0.1, 0.2]
+        retriever = MilvusRetriever(
+            client=client,
+            embedder=embedder,
+            content_field="text",
+            metadata_cache_ttl=30.0,
+            metadata_cache_max_entries=1,
+        )
+
+        async def run_searches():
+            await retriever.search(query="q", collection_name="a", top_k=3)
+            await retriever.search(query="q", collection_name="b", top_k=3)
+
+        asyncio.run(run_searches())
+
+        assert len(retriever._collection_cache) == 1
+        assert len(retriever._schema_cache) == 1
+        assert list(retriever._collection_cache) == ["b"]
+        assert list(retriever._schema_cache) == ["b"]
+
+    def test_client_error_invalidates_collection_and_schema_cache(self):
+        client = MagicMock()
+        client.list_collections.return_value = ["col"]
+        client.describe_collection.return_value = {
+            "fields": [{"name": "text"}, {"name": "vector"}]
+        }
+        client.search.side_effect = [RuntimeError("connection reset"), [[]]]
+        embedder = MagicMock()
+        embedder.embed_query.return_value = [0.1, 0.2]
+        retriever = MilvusRetriever(
+            client=client,
+            embedder=embedder,
+            content_field="text",
+        )
+
+        async def run_searches():
+            with pytest.raises(RuntimeError, match="connection reset"):
+                await retriever.search(query="q", collection_name="col", top_k=3)
+            assert not retriever._collection_cache
+            assert not retriever._schema_cache
+            await retriever.search(query="q", collection_name="col", top_k=3)
+
+        asyncio.run(run_searches())
+
+        assert client.list_collections.call_count == 2
+        assert client.describe_collection.call_count == 2
 
 
 # ---------------------------------------------------------------------------

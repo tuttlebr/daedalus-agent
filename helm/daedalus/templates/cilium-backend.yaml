@@ -27,7 +27,6 @@ spec:
       app.kubernetes.io/name: {{ include "daedalus.name" $ }}
       app.kubernetes.io/component: {{ $component }}
       app.kubernetes.io/instance: {{ $.Release.Name }}
-  {{- if or $.Values.autonomousAgent.enabled $.Values.backend.networkPolicy.extraIngressNamespaces }}
   ingress:
     # Frontend-to-backend traffic
     - fromEndpoints:
@@ -76,7 +75,6 @@ spec:
         {{- end }}
     {{- end }}
     {{- end }}
-  {{- end }}
   egress:
     # ── DNS (required for FQDN resolution) ──────────────────────────
     # Service-based CoreDNS selection (works across common label schemes)
@@ -239,9 +237,8 @@ spec:
             - port: "443"
               protocol: TCP
 
-    # MCP servers (SerpAPI, GitHub Copilot, Google Workspace, NVIDIA docs)
+    # MCP servers (GitHub Copilot, Google Workspace, NVIDIA docs)
     - toFQDNs:
-        - matchName: "mcp.serpapi.com"
         - matchName: "api.githubcopilot.com"
         - matchName: "api.github.com"
         - matchPattern: "*.github.com"
@@ -259,7 +256,6 @@ spec:
 
     # Web search APIs
     - toFQDNs:
-        - matchName: "serpapi.com"
         - matchName: "api.perplexity.ai"
       toPorts:
         - ports:

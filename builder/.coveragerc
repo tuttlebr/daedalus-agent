@@ -1,5 +1,11 @@
 [run]
 source =
+    document_ingest_api
+    entrypoint
+    image_api
+    llm_diagnostics
+    mcp_patches
+    profile_import_api
     agent_skills/src
     autonomous_agent/src
     content_distiller/src
@@ -7,7 +13,6 @@ source =
     nat_nv_ingest/src
     perplexity_search/src
     rss_feed/src
-    serpapi_search/src
     smart_milvus/src
     source_verifier/src
     user_interaction/src

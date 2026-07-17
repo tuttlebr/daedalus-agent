@@ -143,7 +143,6 @@ export function migrateLegacyStorage(username: string): void {
     'folders',
     'prompts',
     'showChatbar',
-    'chatCompletionURL',
     'enableIntermediateSteps',
     'expandIntermediateSteps',
     'intermediateStepOverride',

@@ -119,6 +119,10 @@ export const UPLOAD_LIMITS = {
   // Document limits (PDF, DOCX, PPTX, HTML, Markdown, plain text, etc.)
   DOCUMENT_MAX_SIZE_BYTES,
   DOCUMENT_MAX_SIZE_MB: bytesToDisplayMb(DOCUMENT_MAX_SIZE_BYTES),
+  DOCUMENT_SERVER_LIMIT_BYTES: SERVER_DOCUMENT_LIMIT,
+  DOCUMENT_SERVER_MAX_BASE64_CHARS: maxBase64EncodedLength(
+    SERVER_DOCUMENT_LIMIT,
+  ),
 
   // Transcript limits (VTT, SRT - text files, smaller limit)
   TRANSCRIPT_MAX_SIZE_BYTES,
@@ -156,6 +160,22 @@ export const UPLOAD_LIMITS = {
     ),
   ),
 } as const;
+
+/** Maximum number of base64 characters needed to represent a byte limit. */
+export function maxBase64EncodedLength(rawByteLimit: number): number {
+  return Math.ceil(rawByteLimit / 3) * 4;
+}
+
+/**
+ * Return the encoded payload length without allocating a second full string.
+ * Data URLs produced by FileReader have a short metadata prefix before the
+ * comma; plain base64 values are also accepted by the upload API.
+ */
+export function base64PayloadLength(value: string): number {
+  if (!value.startsWith('data:')) return value.length;
+  const separator = value.indexOf(',');
+  return separator === -1 ? value.length : value.length - separator - 1;
+}
 
 /**
  * Human-readable file size formatting

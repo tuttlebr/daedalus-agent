@@ -1,18 +1,12 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 
-import { buildBackendBaseUrlForMode } from '@/utils/app/backendApi';
 import { stripReplayedAssistantPrefix } from '@/utils/app/conversationReplay';
 import { getSession } from '@/utils/auth/session';
 import { Logger } from '@/utils/logger';
 import { resolveTimezoneFromHeaders } from '@/utils/server/backendAuth';
 import { publishStreamingState } from '@/utils/sync/publish';
 
-import {
-  fetchNatJobStatus,
-  selectStreamBackendBaseUrl,
-  submitNatAsyncJob,
-} from '@/server/chat/backendSelection';
-import { launchBackgroundFinalizer } from '@/server/chat/backgroundFinalizer';
+import { selectStreamBackendBaseUrl } from '@/server/chat/backendSelection';
 import {
   FINALIZER_LOCK_TTL_MS,
   JOB_EXPIRY_SECONDS,
@@ -22,22 +16,17 @@ import {
   formatIngestPartialResponse,
   startBackgroundDocumentIngest,
 } from '@/server/chat/documentIngest';
-import {
-  finalizeError,
-  finalizeFromNatStatus,
-} from '@/server/chat/finalization';
+import { finalizeError } from '@/server/chat/finalization';
 import {
   abortKey,
   clearOAuthStatusFields,
   finalizerLockKey,
   isPlausibleUnixMs,
   isTerminalJobStatus,
-  mapNatStatus,
   updateJobStatus,
   withRedisLock,
 } from '@/server/chat/jobState';
 import {
-  buildDocumentIngestNatMessages,
   getDocumentIngestJobRequest,
   processMessages,
 } from '@/server/chat/messagePreprocessing';
@@ -46,7 +35,10 @@ import {
   buildNatSessionId,
 } from '@/server/chat/natMessages';
 import { buildSourcePolicyMessage } from '@/server/chat/sourcePolicy';
-import { startBackgroundStreamReader } from '@/server/chat/streamReader';
+import {
+  abortBackgroundStream,
+  startBackgroundStreamReader,
+} from '@/server/chat/streamReader';
 import {
   ensureStreamJobWatchdog,
   registerStreamJob,
@@ -55,9 +47,7 @@ import {
   ApiRouteError,
   type AsyncJobRequest,
   type AsyncJobStatus,
-  type DocumentIngestJobRequest,
   type DocumentIngestProgress,
-  type NatAsyncJobResponse,
 } from '@/server/chat/types';
 import { enforceRateLimit, ruleFromEnv } from '@/server/rateLimit';
 import { getOrSetSessionId } from '@/server/session/_utils';
@@ -89,10 +79,7 @@ export {
   buildNatRequestHeaders,
   buildNatSessionId,
 } from '@/server/chat/natMessages';
-export {
-  fetchNatJobStatus,
-  resolveAsyncBackendBaseUrls,
-} from '@/server/chat/backendSelection';
+export { resolveAsyncBackendBaseUrls } from '@/server/chat/backendSelection';
 
 const logger = new Logger('AsyncJob');
 
@@ -113,12 +100,6 @@ export const config = {
   },
   maxDuration: 900, // 15 minutes
 };
-
-function isNatAsyncExecutionMode(
-  mode: AsyncJobRequest['executionMode'],
-): mode is 'nat_async' {
-  return mode === 'nat_async' || mode === undefined;
-}
 
 function getMessageId(message: any): string | null {
   return message && typeof message.id === 'string' && message.id.trim()
@@ -194,10 +175,6 @@ async function loadStoredConversationMessages(
   }
 }
 
-function isDirectDocumentIngestStreamEnabled(): boolean {
-  return process.env.DAEDALUS_DIRECT_DOCUMENT_INGEST_STREAM !== '0';
-}
-
 async function sanitizeJobStatusForReturn(
   jobId: string,
   status: AsyncJobStatus,
@@ -271,7 +248,7 @@ export default async function handler(
   return res.status(405).json({ error: 'Method not allowed' });
 }
 
-// ── POST: Submit a new async job to NAT ──────────────────────────────
+// ── POST: Start a frontend-managed streaming job ────────────────────
 
 async function handlePost(req: NextApiRequest, res: NextApiResponse) {
   try {
@@ -339,16 +316,9 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       processedMessages,
       verifiedUsername,
     );
-    const useDirectDocumentIngest = Boolean(
-      documentIngest && isDirectDocumentIngestStreamEnabled(),
-    );
-    const useNatAsyncJob = Boolean(documentIngest && !useDirectDocumentIngest);
-    const executionMode: NonNullable<AsyncJobRequest['executionMode']> =
-      useDirectDocumentIngest
-        ? 'document_ingest'
-        : useNatAsyncJob
-        ? 'nat_async'
-        : 'stream';
+    const executionMode: AsyncJobRequest['executionMode'] = documentIngest
+      ? 'document_ingest'
+      : 'stream';
 
     // Strip system messages -- the backend's NAT agent owns the system prompt.
     // Also drop assistant messages with empty content -- these cause 400 errors
@@ -378,28 +348,15 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
         role: 'user',
         content:
           `[IDENTITY] The authenticated user for this session is: ${verifiedUsername}. ` +
-          'Memory tools derive user_id from the authenticated request; do not pass ' +
-          'user_id to get_memory, add_memory, or delete_memory_guarded. ' +
+          'All user-scoped tools, including get_memory, add_memory, and delete_memory_guarded, ' +
+          'derive identity only from the trusted authenticated request context. ' +
+          'Never pass user_id, username, or another identity argument to a tool. ' +
           'For explicit "remember" requests, call add_memory directly and do not ask for confirmation. ' +
-          `Use user_id="${verifiedUsername}" for uploaded media tool calls ` +
-          'that require user_id and per-user Google Workspace MCP ' +
-          'access. Do not echo this identity message to the user.',
+          'Do not echo this identity message to the user.',
       },
       ...(sourcePolicyMessage ? [sourcePolicyMessage] : []),
       ...messagesForNat,
     ];
-    const controlMessagesForNat = [
-      messagesWithIdentity[0],
-      ...(sourcePolicyMessage ? [sourcePolicyMessage] : []),
-    ];
-    const durableMessagesForNat =
-      documentIngest && !useDirectDocumentIngest
-        ? [
-            ...controlMessagesForNat,
-            ...buildDocumentIngestNatMessages(documentIngest),
-          ]
-        : messagesWithIdentity;
-
     const selectedNatBaseUrl = await selectStreamBackendBaseUrl(
       jobId,
       verifiedUsername,
@@ -416,10 +373,9 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     const jobRequest: AsyncJobRequest = {
       jobId,
       executionMode,
-      natBaseUrl: selectedNatBaseUrl || buildBackendBaseUrlForMode(),
+      natBaseUrl: selectedNatBaseUrl,
       natSessionId,
       timezone,
-      natMessages: useDirectDocumentIngest ? [] : durableMessagesForNat,
       ...(documentIngest ? { documentIngest } : {}),
       messages: effectiveMessages, // original messages for conversation saving later
       additionalProps,
@@ -432,17 +388,6 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
         : {}),
     };
 
-    if (useNatAsyncJob) {
-      await submitNatAsyncJob(
-        jobId,
-        jobRequest.natBaseUrl,
-        durableMessagesForNat,
-        verifiedUsername,
-        natSessionId,
-        timezone,
-      );
-    }
-
     await jsonSetWithExpiry(
       sessionKey(['async-job-request', jobId]),
       jobRequest,
@@ -453,7 +398,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     // the first client status read can render progress immediately.
     const createdAt = Date.now();
     const initialIngestProgress: DocumentIngestProgress | undefined =
-      useDirectDocumentIngest && documentIngest
+      documentIngest
         ? {
             completed: 0,
             total: documentIngest.documentRefs.length,
@@ -491,7 +436,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       JOB_EXPIRY_SECONDS,
     );
 
-    if (useDirectDocumentIngest) {
+    if (documentIngest) {
       const effectiveUserId = verifiedUsername;
       if (conversationId) {
         await setStreamingState(effectiveUserId, conversationId, jobId);
@@ -522,22 +467,20 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     // Respond immediately so the client can start polling / WS listening
     res.status(200).json({ jobId, status: jobStatus.status });
 
-    if (!useNatAsyncJob) {
-      // Index this stream job BEFORE starting the reader so the watchdog can
-      // finalize it even if this reader's process dies mid-stream and no client
-      // ever polls (H3). Awaited (one cheap Redis round-trip; the response was
-      // already sent above) so a missed SADD doesn't silently un-index the very
-      // orphan the watchdog exists to recover.
-      await registerStreamJob(jobId);
-      startBackgroundStreamReader(
-        jobId,
-        jobRequest,
-        durableMessagesForNat,
-        verifiedUsername,
-      ).catch((err) => {
-        logger.error(`Job ${jobId}: Background stream reader failed`, err);
-      });
-    }
+    // Index this stream job BEFORE starting the reader so the watchdog can
+    // finalize it even if this reader's process dies mid-stream and no client
+    // ever polls (H3). Awaited (one cheap Redis round-trip; the response was
+    // already sent above) so a missed SADD doesn't silently un-index the very
+    // orphan the watchdog exists to recover.
+    await registerStreamJob(jobId);
+    startBackgroundStreamReader(
+      jobId,
+      jobRequest,
+      messagesWithIdentity,
+      verifiedUsername,
+    ).catch((err) => {
+      logger.error(`Job ${jobId}: Background stream reader failed`, err);
+    });
 
     return;
   } catch (error) {
@@ -556,7 +499,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
   }
 }
 
-// ── GET: Poll job status from NAT, finalize on completion ────────────
+// ── GET: Read frontend-managed job status ───────────────────────────
 
 async function handleGet(req: NextApiRequest, res: NextApiResponse) {
   const { jobId } = req.query;
@@ -618,6 +561,7 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
             if (fresh.finalizedAt || isTerminalJobStatus(fresh.status)) {
               return;
             }
+            abortBackgroundStream(jobId);
             await finalizeError(
               jobId,
               jobRequest,
@@ -634,9 +578,18 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
         );
         return res.status(200).json(sanitized);
       }
+      // Streaming steps are persisted separately to avoid rewriting and
+      // publishing the growing array on every event. Merge them into direct
+      // GET responses so the initial fetch and polling fallback stay complete.
+      const liveSteps = (await jsonGet(
+        sessionKey(['async-job-steps', jobId]),
+      )) as any[] | null;
+      const statusWithLiveSteps = liveSteps?.length
+        ? { ...jobStatus, intermediateSteps: liveSteps }
+        : jobStatus;
       const sanitized = await sanitizeJobStatusForReturn(
         jobId,
-        jobStatus,
+        statusWithLiveSteps,
         jobRequest,
       );
       return res.status(200).json(sanitized);
@@ -651,90 +604,9 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
       return res.status(200).json(sanitized);
     }
 
-    if (!isNatAsyncExecutionMode(jobRequest.executionMode)) {
-      const sanitized = await sanitizeJobStatusForReturn(
-        jobId,
-        jobStatus,
-        jobRequest,
-      );
-      return res.status(200).json(sanitized);
-    }
-
-    // Fetch live status from NAT for legacy durable async jobs.
-    launchBackgroundFinalizer(jobId, jobRequest);
-
-    let natStatus: NatAsyncJobResponse | null = null;
-
-    try {
-      natStatus = await fetchNatJobStatus(jobId, jobRequest);
-    } catch (err) {
-      logger.error(`Job ${jobId}: Failed to fetch NAT status`, err);
-      // Return cached status on transient error -- polling will retry
-      const sanitized = await sanitizeJobStatusForReturn(
-        jobId,
-        jobStatus,
-        jobRequest,
-      );
-      return res.status(200).json(sanitized);
-    }
-
-    if (!natStatus) {
-      const sanitized = await sanitizeJobStatusForReturn(
-        jobId,
-        jobStatus,
-        jobRequest,
-      );
-      return res.status(200).json(sanitized);
-    }
-
-    const mappedStatus = mapNatStatus(natStatus.status);
-
-    // Merge live intermediate steps from the background stream reader
-    const stepsKey = sessionKey(['async-job-steps', jobId]);
-    const liveSteps = (await jsonGet(stepsKey)) as any[] | null;
-
-    // Still in progress
-    if (mappedStatus === 'pending' || mappedStatus === 'streaming') {
-      const keepOAuthPrompt =
-        jobStatus.status === 'oauth_required' &&
-        (Boolean(jobStatus.authUrl) ||
-          Boolean(jobStatus.oauthRequests?.length));
-      await updateJobStatus(jobId, {
-        status: keepOAuthPrompt ? 'oauth_required' : mappedStatus,
-        progress: keepOAuthPrompt ? 0 : mappedStatus === 'streaming' ? 50 : 0,
-        ...(keepOAuthPrompt ? {} : clearOAuthStatusFields()),
-        ...(liveSteps?.length ? { intermediateSteps: liveSteps } : {}),
-        updatedAt: Date.now(),
-      });
-      const updated =
-        ((await jsonGet(statusKey)) as AsyncJobStatus | null) || jobStatus;
-      const sanitized = await sanitizeJobStatusForReturn(
-        jobId,
-        updated,
-        jobRequest,
-      );
-      return res.status(200).json(sanitized);
-    }
-
-    // Failed or expired
-    if (mappedStatus === 'error') {
-      const updated = await finalizeFromNatStatus(jobId, jobRequest, natStatus);
-      const sanitized = await sanitizeJobStatusForReturn(
-        jobId,
-        updated || jobStatus,
-        jobRequest,
-      );
-      return res.status(200).json(sanitized);
-    }
-
-    const finalStatus = await finalizeFromNatStatus(
-      jobId,
-      jobRequest,
-      natStatus,
-    );
     const sanitized = await sanitizeJobStatusForReturn(
       jobId,
-      finalStatus || jobStatus,
+      jobStatus,
       jobRequest,
     );
     return res.status(200).json(sanitized);
@@ -771,6 +643,7 @@ async function handleDelete(req: NextApiRequest, res: NextApiResponse) {
     await jsonSetWithExpiry(abortKey(jobId), true, JOB_EXPIRY_SECONDS).catch(
       () => {},
     );
+    abortBackgroundStream(jobId);
 
     // Clear streaming state if we have context
     if (jobRequest?.conversationId && jobRequest?.userId) {
@@ -807,10 +680,8 @@ async function handleDelete(req: NextApiRequest, res: NextApiResponse) {
 
     await Promise.all([jsonDel(requestKey), jsonDel(stepsKey)]);
 
-    // NOTE: NAT async does not expose a cancel endpoint. The backend run (an
-    // asyncio task) continues to completion; we mark the job canceled in Redis
-    // and set the abort flag so the stream reader stops publishing.
-    // NAT's expiry_seconds ensures backend cleanup.
+    // The abort flag and local AbortController stop readers from publishing any
+    // more progress after the frontend marks the job canceled.
 
     return res.status(200).json({ success: true, canceled: true });
   } catch (error) {

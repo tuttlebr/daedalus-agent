@@ -12,12 +12,12 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 // ---- Mock Logger ----
 vi.mock('@/utils/logger', () => ({
-  Logger: vi.fn().mockImplementation(() => ({
-    info: vi.fn(),
-    warn: vi.fn(),
-    error: vi.fn(),
-    debug: vi.fn(),
-  })),
+  Logger: class MockLogger {
+    info = vi.fn();
+    warn = vi.fn();
+    error = vi.fn();
+    debug = vi.fn();
+  },
 }));
 
 vi.mock('@/utils/app/visibilityAwareTimer', () => ({

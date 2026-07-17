@@ -64,7 +64,7 @@ export interface ImageModelCapabilities {
 
 export const DEFAULT_IMAGE_MODEL: ImageModel = 'gpt-image-2';
 
-export const GPT_IMAGE_2_POPULAR_SIZES = [
+const GPT_IMAGE_2_POPULAR_SIZES = [
   '1024x1024',
   '1024x1536',
   '1536x1024',
@@ -81,28 +81,23 @@ export const GPT_IMAGE_2_POPULAR_SIZES = [
   '2160x3840',
 ] as const satisfies readonly ImageSize[];
 
-export const IMAGE_MODEL_CAPABILITIES: Record<
-  ImageModel,
-  ImageModelCapabilities
-> = {
-  'gpt-image-2': {
-    model: 'gpt-image-2',
-    label: 'GPT Image 2',
-    qualities: ['auto', 'low', 'medium', 'high'],
-    sizes: ['auto', ...GPT_IMAGE_2_POPULAR_SIZES],
-    outputFormats: ['png', 'jpeg', 'webp'],
-    backgrounds: ['auto', 'opaque'],
-    moderation: ['auto', 'low'],
-    outputCounts: [1, 2, 4, 8],
-    maxOutputs: 8,
-    supportsInputFidelity: false,
-    customSize: {
-      minPixels: 655_360,
-      maxPixels: 8_294_400,
-      maxEdge: 3840,
-      multiple: 16,
-      maxRatio: 3,
-    },
+const GPT_IMAGE_2_CAPABILITIES: ImageModelCapabilities = {
+  model: 'gpt-image-2',
+  label: 'GPT Image 2',
+  qualities: ['auto', 'low', 'medium', 'high'],
+  sizes: ['auto', ...GPT_IMAGE_2_POPULAR_SIZES],
+  outputFormats: ['png', 'jpeg', 'webp'],
+  backgrounds: ['auto', 'opaque'],
+  moderation: ['auto', 'low'],
+  outputCounts: [1, 2, 4, 8],
+  maxOutputs: 8,
+  supportsInputFidelity: false,
+  customSize: {
+    minPixels: 655_360,
+    maxPixels: 8_294_400,
+    maxEdge: 3840,
+    multiple: 16,
+    maxRatio: 3,
   },
 };
 
@@ -117,18 +112,15 @@ const PARAM_KEYS: (keyof ImageParams)[] = [
   'input_fidelity',
 ];
 
-export function isKnownImageModel(model: unknown): model is ImageModel {
-  return typeof model === 'string' && model in IMAGE_MODEL_CAPABILITIES;
-}
-
 export function resolveImageModel(model: unknown): ImageModel {
-  return isKnownImageModel(model) ? model : DEFAULT_IMAGE_MODEL;
+  return model === DEFAULT_IMAGE_MODEL ? model : DEFAULT_IMAGE_MODEL;
 }
 
 export function getImageModelCapabilities(
   model: unknown,
 ): ImageModelCapabilities {
-  return IMAGE_MODEL_CAPABILITIES[resolveImageModel(model)];
+  resolveImageModel(model);
+  return GPT_IMAGE_2_CAPABILITIES;
 }
 
 export function parseImageSize(

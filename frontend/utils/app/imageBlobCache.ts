@@ -29,24 +29,7 @@ export function getImageUrl(
 ): string {
   if (imageRef.sessionId === 'generated') {
     const thumbnailParam = useThumbnail ? '?thumbnail=true' : '';
-    if (typeof window === 'undefined') {
-      const port = process.env.PORT || '3000';
-      return `http://127.0.0.1:${port}/api/generated-image/${imageRef.imageId}${thumbnailParam}`;
-    }
     return `/api/generated-image/${imageRef.imageId}${thumbnailParam}`;
-  }
-
-  if (typeof window === 'undefined') {
-    const port = process.env.PORT || '3000';
-    const baseUrl = `http://127.0.0.1:${port}`;
-    let url = `${baseUrl}/api/session/imageStorage?imageId=${imageRef.imageId}`;
-    if (imageRef.sessionId) {
-      url += `&sessionId=${imageRef.sessionId}`;
-    }
-    if (useThumbnail) {
-      url += '&thumbnail=true';
-    }
-    return url;
   }
 
   let url = `/api/session/imageStorage?imageId=${imageRef.imageId}`;

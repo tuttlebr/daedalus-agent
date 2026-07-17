@@ -12,7 +12,7 @@ import {
 } from '@tabler/icons-react';
 import React, { memo, useCallback, useState } from 'react';
 
-import { useTranslation } from 'next-i18next';
+import { useTranslation } from 'next-i18next/pages';
 
 import { apiDelete } from '@/utils/app/api';
 import { saveConversation, saveConversations } from '@/utils/app/conversation';
