@@ -84,10 +84,11 @@ server {
     proxy_request_buffering off;
 
     {{- if .Values.nginx.config.restrictedMode }}
-    # OAuth callback required by NAT's interactive MCP OAuth flow.
-    # Keep this exact route open while blocking all other direct backend paths.
+    # OAuth callback required by NAT's interactive MCP OAuth flow. The frontend
+    # uses Redis to route it to the exact backend pod that owns the OAuth state.
     location = /auth/redirect {
-        proxy_pass {{ ._backendDefaultUpstream }};
+        rewrite ^ /api/auth/redirect break;
+        proxy_pass {{ ._frontendHTTPUpstream }};
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
@@ -388,9 +389,11 @@ server {
         proxy_read_timeout 600s;
     }
 
-    # Auth redirect endpoint
-    location /auth/redirect {
-        proxy_pass {{ ._backendDefaultUpstream }};
+    # Route OAuth callbacks through the frontend so backend replica stickiness
+    # is preserved even when unrestricted direct API routes are enabled.
+    location = /auth/redirect {
+        rewrite ^ /api/auth/redirect break;
+        proxy_pass {{ ._frontendHTTPUpstream }};
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;

@@ -161,7 +161,42 @@ Useful flags:
 `streamable-http` MCP server in `backend/tool-calling-config.yaml`, verifies
 that configured `include` tools are advertised by `tools/list`, and runs
 cluster-local URLs such as `*.svc.cluster.local` from a short-lived Kubernetes
-curl pod in the target namespace.
+curl pod in the target namespace. Authenticated cluster-local probes read API
+keys from the same backend Secret through `envFrom`; key values are never
+placed in command arguments or printed.
+
+### Adding or expanding an MCP server
+
+Treat an MCP `include` list as an exposed capability surface, not an
+authorization decision. Keep it minimal and classify every newly exposed tool:
+
+- A verified read-only tool must be added to both its function group's exact
+  `include` list and `_LOCAL_READ_ONLY_MCP_TOOLS` in
+  `builder/mcp_patches.py`; the approval-gate test enforces that those two
+  lists stay aligned.
+- A mutating, irreversible, or unreviewed tool must not enter that registry.
+  It remains fail-closed until `confirm_action` issues a credential bound to
+  the exact server, tool, and final arguments.
+- For static API-key MCP providers, backend startup logs only whether the
+  required environment variable is non-empty (`configured=True|False`), never
+  the value. This verifies deployment injection, not upstream acceptance; a
+  remote 401/403 or MCP error is the signal to investigate the credential or
+  server policy.
+
+Authentication scope is part of the server contract:
+
+- Kubernetes and UniFi are shared-credential services. Their API key comes
+  from the backend Secret and is never user-authorized. A 401/403 is an
+  operator incident; `confirm_action` cannot repair it and the agent must not
+  retry it in a loop.
+- Gmail and Google Calendar use per-user OAuth. NAT stores their tokens in
+  separate Redis-backed object-store buckets, keyed by the authenticated user,
+  so tokens survive restarts and work across backend replicas. The frontend
+  also records each short-lived OAuth state in Redis and sends the browser
+  callback to the exact backend pod that initiated the flow.
+- Give each new per-user OAuth provider its own token bucket. NAT's token key
+  is derived from user identity, so sharing a bucket between providers would
+  allow one provider's token record to replace another's.
 
 ### Manual Helm Path
 

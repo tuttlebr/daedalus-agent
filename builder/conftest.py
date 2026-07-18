@@ -34,7 +34,9 @@ for _pkg_dir in sorted(BUILDER_DIR.iterdir()):
 # ---------------------------------------------------------------------------
 try:
     from pydantic import BaseModel as _BaseModel
+    from pydantic import ConfigDict as _ConfigDict
     from pydantic import Field as _Field
+    from pydantic import SecretStr as _SecretStr
 
     class _FakeFunctionBaseConfig(_BaseModel):
         """Drop-in for nat.data_models.function.FunctionBaseConfig."""
@@ -105,6 +107,54 @@ _nat_register_mod = MagicMock()
 _nat_register_mod.register_function = _fake_register_function
 _nat_register_mod.register_retriever_client = _fake_register_passthrough
 _nat_register_mod.register_retriever_provider = _fake_register_passthrough
+_nat_register_mod.register_object_store = _fake_register_passthrough
+
+
+class _FakeObjectStoreBaseConfig(_FakeFunctionBaseConfig):
+    """Drop-in for NAT's typed object-store configuration base."""
+
+
+class _FakeKeyAlreadyExistsError(Exception):
+    def __init__(self, key: str, additional_message: str | None = None):
+        super().__init__(additional_message or f"Key already exists: {key}")
+
+
+class _FakeNoSuchKeyError(Exception):
+    def __init__(self, key: str, additional_message: str | None = None):
+        super().__init__(additional_message or f"No object found with key: {key}")
+
+
+class _FakeObjectStore:
+    """Drop-in abstract base for concrete object-store unit tests."""
+
+
+class _FakeObjectStoreItem(_BaseModel):
+    model_config = _ConfigDict(ser_json_bytes="base64", val_json_bytes="base64")
+
+    data: bytes
+    content_type: str | None = None
+    metadata: dict[str, str] | None = None
+
+
+_nat_data_models_common_mod = MagicMock()
+_nat_data_models_common_mod.SerializableSecretStr = _SecretStr
+_nat_data_models_common_mod.get_secret_value = (
+    lambda value: value.get_secret_value() if value is not None else None
+)
+
+_nat_data_models_object_store_mod = MagicMock()
+_nat_data_models_object_store_mod.ObjectStoreBaseConfig = _FakeObjectStoreBaseConfig
+_nat_data_models_object_store_mod.KeyAlreadyExistsError = _FakeKeyAlreadyExistsError
+_nat_data_models_object_store_mod.NoSuchKeyError = _FakeNoSuchKeyError
+
+_nat_object_store_interfaces_mod = MagicMock()
+_nat_object_store_interfaces_mod.ObjectStore = _FakeObjectStore
+
+_nat_object_store_models_mod = MagicMock()
+_nat_object_store_models_mod.ObjectStoreItem = _FakeObjectStoreItem
+
+_nat_type_utils_mod = MagicMock()
+_nat_type_utils_mod.override = lambda fn: fn
 
 
 class _FakeFastApiFrontEndPluginWorker:
@@ -182,17 +232,24 @@ _NAT_MOCKS: dict[str, object] = {
     "nat.cli": MagicMock(),
     "nat.cli.register_workflow": _nat_register_mod,
     "nat.data_models": MagicMock(),
+    "nat.data_models.common": _nat_data_models_common_mod,
     "nat.data_models.component_ref": _nat_data_models_component_ref_mod,
     "nat.data_models.function": _nat_data_models_function_mod,
+    "nat.data_models.object_store": _nat_data_models_object_store_mod,
     "nat.data_models.retriever": _nat_data_models_retriever_mod,
     "nat.front_ends": MagicMock(),
     "nat.front_ends.fastapi": MagicMock(),
     "nat.front_ends.fastapi.fastapi_front_end_plugin_worker": (_nat_fastapi_worker_mod),
     "nat.memory": MagicMock(),
     "nat.memory.models": _nat_memory_models_mod,
+    "nat.object_store": MagicMock(),
+    "nat.object_store.interfaces": _nat_object_store_interfaces_mod,
+    "nat.object_store.models": _nat_object_store_models_mod,
     "nat.retriever": MagicMock(),
     "nat.retriever.interface": _nat_retriever_interface_mod,
     "nat.retriever.models": _nat_retriever_models_mod,
+    "nat.utils": MagicMock(),
+    "nat.utils.type_utils": _nat_type_utils_mod,
 }
 
 for _mod_name, _mock in _NAT_MOCKS.items():

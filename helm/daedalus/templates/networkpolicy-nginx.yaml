@@ -1,6 +1,6 @@
 {{- if and .Values.backend.networkPolicy.enabled (not .Values.backend.networkPolicy.cilium.enabled) .Values.nginx.enabled }}
-# Standard Kubernetes egress policy for nginx. It proxies only to the frontend,
-# its WebSocket port, and the restricted backend callback path.
+# Standard Kubernetes egress policy for nginx. It proxies to the frontend and
+# WebSocket port, plus direct backend API paths when unrestricted mode is used.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:

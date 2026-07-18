@@ -1,11 +1,13 @@
 authentication:
   k8s_mcp_server:
     _type: api_key
+    auth_scheme: Custom
     custom_header_name: Authorization
     custom_header_prefix: Bearer
     raw_key: ${KUBERNETES_MCP_TOKEN}
   unifi_mcp_server:
     _type: api_key
+    auth_scheme: Custom
     custom_header_name: Authorization
     custom_header_prefix: Bearer
     raw_key: ${UNIFI_MCP_TOKEN}
@@ -25,6 +27,7 @@ authentication:
       - https://www.googleapis.com/auth/gmail.readonly
     use_pkce: true
     allow_default_user_id_for_tool_calls: false
+    token_storage_object_store: gmail_mcp_oauth_tokens
   calendar_mcp_server:
     _type: mcp_oauth2
     server_url: https://calendarmcp.googleapis.com/mcp/v1
@@ -39,6 +42,19 @@ authentication:
 
     use_pkce: true
     allow_default_user_id_for_tool_calls: false
+    token_storage_object_store: calendar_mcp_oauth_tokens
+object_stores:
+  # OAuth access and refresh tokens are user-isolated by NAT and durable across
+  # backend restarts and replicas. Separate buckets prevent provider collisions
+  # because NAT derives each token key only from the authenticated user id.
+  gmail_mcp_oauth_tokens:
+    _type: daedalus_redis_object_store
+    redis_url: ${REDIS_URL}
+    bucket_name: gmail-mcp-oauth
+  calendar_mcp_oauth_tokens:
+    _type: daedalus_redis_object_store
+    redis_url: ${REDIS_URL}
+    bucket_name: calendar-mcp-oauth
 embedders:
   milvus_embedder:
     _type: nim
@@ -687,6 +703,13 @@ workflow:
     - Stop retrieving when the evidence is sufficient to answer accurately.
     - If a tool fails, make one targeted retry or use one useful fallback unless
       the tool contract specifies otherwise. Do not loop.
+    - MCP authentication has two scopes. Kubernetes and UniFi use shared,
+      operator-managed API keys; a shared-auth failure is an operator incident,
+      cannot be fixed by user consent or confirm_action, and must not be retried
+      in the same turn. Gmail and Calendar use per-user OAuth; show the emitted
+      authorization prompt when connection is required, then wait for the user
+      instead of retrying the MCP call. Never use confirm_action to repair
+      authentication. It is only for an approved mutating action.
     - Do not expose credentials, tokens, unrelated private content, or large raw
       payloads when a concise summary is sufficient.
 

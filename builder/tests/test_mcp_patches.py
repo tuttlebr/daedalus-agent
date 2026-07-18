@@ -1283,6 +1283,71 @@ class TestMcpErrorNoReconnect:
         result = run(FakeMCPToolClient().acall({"thread_id": "123"}))
 
         assert result == (
-            '{"error":"mcp_tool_failed","tool":"get_thread",'
-            '"error_class":"RuntimeError"}'
+            '{"error":"mcp_tool_failed","message":"The MCP call failed; do not '
+            'retry it unchanged in this turn.","retryable":false,'
+            '"server":"gmail_mcp_server","tool":"get_thread"}'
         )
+
+    @pytest.mark.parametrize(
+        "server_name,expected_error,auth_scope",
+        [
+            ("gmail_mcp_server", "mcp_user_authentication_required", "user"),
+            ("calendar_mcp_server", "mcp_user_authentication_required", "user"),
+            ("k8s_mcp_server", "mcp_shared_authentication_failed", "shared"),
+            ("unifi_mcp_server", "mcp_shared_authentication_failed", "shared"),
+        ],
+    )
+    def test_tool_client_auth_errors_identify_credential_owner(
+        self,
+        monkeypatch,
+        server_name,
+        expected_error,
+        auth_scope,
+    ):
+        import json
+
+        import mcp_patches
+
+        class FakeMCPToolClient:
+            _tool_name = "read_status"
+
+            def __init__(self):
+                self._parent_client = types.SimpleNamespace(server_name=server_name)
+
+            async def acall(self, tool_args):
+                raise httpx.HTTPStatusError(
+                    "secret upstream response",
+                    request=None,
+                    response=types.SimpleNamespace(status_code=401),
+                )
+
+        fake_module = types.ModuleType("nat.plugins.mcp.client.client_base")
+        fake_module.MCPToolClient = FakeMCPToolClient
+        for module_name in (
+            "nat",
+            "nat.plugins",
+            "nat.plugins.mcp",
+            "nat.plugins.mcp.client",
+        ):
+            module = types.ModuleType(module_name)
+            module.__path__ = []
+            monkeypatch.setitem(sys.modules, module_name, module)
+        monkeypatch.setitem(
+            sys.modules,
+            "nat.plugins.mcp.client.client_base",
+            fake_module,
+        )
+        monkeypatch.setattr(mcp_patches, "_approval_gate_installed", False)
+        monkeypatch.setattr(
+            mcp_patches,
+            "_validate_mcp_approval",
+            lambda *_args, **_kwargs: (True, "read-only"),
+        )
+
+        mcp_patches._patch_tool_client()
+        payload = json.loads(run(FakeMCPToolClient().acall({})))
+
+        assert payload["error"] == expected_error
+        assert payload["auth_scope"] == auth_scope
+        assert payload["retryable"] is False
+        assert "secret upstream response" not in json.dumps(payload)

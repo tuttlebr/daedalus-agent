@@ -375,36 +375,84 @@ def check_with_kubectl(
     timeout: float,
     namespace: str,
     image: str,
+    secret_name: str | None,
 ) -> CheckResult:
+    provider = server.auth_provider or {}
+    auth_environment_name = ""
+    auth_header_name = ""
+    auth_header_prefix = ""
     if headers:
-        raise CheckError(
-            "authenticated cluster-local MCP checks are not supported from kubectl mode"
-        )
+        raw_key = str(provider.get("raw_key") or "")
+        env_match = ENV_REF_RE.fullmatch(raw_key)
+        if (
+            provider.get("_type") != "api_key"
+            or not env_match
+            or env_match.group(2) is not None
+        ):
+            raise CheckError(
+                "cluster-local auth must use an API key from one exact ${ENV_VAR}"
+            )
+        if not secret_name:
+            raise CheckError(
+                "authenticated cluster-local checks require --kubernetes-secret"
+            )
+        auth_environment_name = env_match.group(1)
+        auth_header_name = str(provider.get("custom_header_name") or "Authorization")
+        auth_header_prefix = str(provider.get("custom_header_prefix") or "").strip()
 
     pod_name = (
         f"mcp-preflight-{server.name.replace('_', '-')[:35]}-{uuid.uuid4().hex[:6]}"
     )
     timeout_text = str(int(timeout))
+    auth_value_assignment = (
+        f'auth_value="${{{auth_environment_name}:-}}"'
+        if auth_environment_name
+        else 'auth_value=""'
+    )
     script = f"""
 set -u
 url={shlex.quote(server.url)}
 init_payload={shlex.quote(json.dumps(initialize_payload(), separators=(",", ":")))}
 initialized_payload={shlex.quote(json.dumps(initialized_payload(), separators=(",", ":")))}
 tools_payload={shlex.quote(json.dumps(tools_list_payload(), separators=(",", ":")))}
+{auth_value_assignment}
+auth_header_name={shlex.quote(auth_header_name)}
+auth_header_prefix={shlex.quote(auth_header_prefix)}
+
+if [ -n "$auth_header_name" ] && [ -z "$auth_value" ]; then
+  echo "configured MCP API-key environment is empty" >&2
+  exit 22
+fi
 
 post_rpc() {{
   body_file="$1"
   headers_file="$2"
   payload="$3"
   shift 3
-  curl -sS -o "$body_file" -D "$headers_file" -w "%{{http_code}}" \
-    --max-time {timeout_text} \
-    -X POST "$url" \
-    -H "Accept: application/json, text/event-stream" \
-    -H "Content-Type: application/json" \
-    -H "Mcp-Protocol-Version: {PROTOCOL_VERSION}" \
-    "$@" \
-    --data "$payload"
+  if [ -n "$auth_header_name" ]; then
+    auth_header_value="$auth_value"
+    if [ -n "$auth_header_prefix" ]; then
+      auth_header_value="$auth_header_prefix $auth_value"
+    fi
+    curl -sS -o "$body_file" -D "$headers_file" -w "%{{http_code}}" \
+      --max-time {timeout_text} \
+      -X POST "$url" \
+      -H "Accept: application/json, text/event-stream" \
+      -H "Content-Type: application/json" \
+      -H "Mcp-Protocol-Version: {PROTOCOL_VERSION}" \
+      -H "$auth_header_name: $auth_header_value" \
+      "$@" \
+      --data "$payload"
+  else
+    curl -sS -o "$body_file" -D "$headers_file" -w "%{{http_code}}" \
+      --max-time {timeout_text} \
+      -X POST "$url" \
+      -H "Accept: application/json, text/event-stream" \
+      -H "Content-Type: application/json" \
+      -H "Mcp-Protocol-Version: {PROTOCOL_VERSION}" \
+      "$@" \
+      --data "$payload"
+  fi
 }}
 
 init_body="$(mktemp)"
@@ -450,12 +498,26 @@ printf '\\n__MCP_TOOLS_BODY_END__\\n'
         "--restart=Never",
         "--image",
         image,
-        "--command",
-        "--",
-        "sh",
-        "-ec",
-        script,
     ]
+    if auth_environment_name:
+        overrides = {
+            "spec": {
+                "containers": [
+                    {
+                        "name": pod_name,
+                        "envFrom": [{"secretRef": {"name": secret_name}}],
+                    }
+                ]
+            }
+        }
+        command.extend(
+            [
+                "--overrides",
+                json.dumps(overrides, separators=(",", ":")),
+                "--override-type=strategic",
+            ]
+        )
+    command.extend(["--command", "--", "sh", "-ec", script])
     try:
         completed = subprocess.run(  # nosec B603 - fixed kubectl argv; shell script values are locally generated and shlex-quoted
             command,
@@ -494,6 +556,7 @@ def check_server(
     timeout: float,
     namespace: str | None,
     kubectl_image: str,
+    kubernetes_secret: str | None = None,
 ) -> CheckResult:
     if looks_unset(server.url):
         return CheckResult(server.name, server.url, False, "server URL is unresolved")
@@ -505,7 +568,12 @@ def check_server(
     try:
         if namespace and is_cluster_local_url(server.url):
             return check_with_kubectl(
-                server, headers, timeout, namespace, kubectl_image
+                server,
+                headers,
+                timeout,
+                namespace,
+                kubectl_image,
+                kubernetes_secret,
             )
         return check_local(server, headers, timeout)
     except (CheckError, json.JSONDecodeError, ValueError) as exc:
@@ -554,6 +622,13 @@ def parse_args() -> argparse.Namespace:
         help="Image used for cluster-local kubectl checks.",
     )
     parser.add_argument(
+        "--kubernetes-secret",
+        help=(
+            "Secret exposed to authenticated cluster-local probes. The key is "
+            "read only inside the temporary pod and is never put in argv or logs."
+        ),
+    )
+    parser.add_argument(
         "--only",
         action="append",
         default=[],
@@ -588,6 +663,7 @@ def main() -> int:
             args.timeout,
             args.kubernetes_namespace,
             args.kubectl_image,
+            args.kubernetes_secret,
         )
         for server in servers
     ]

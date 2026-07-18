@@ -221,6 +221,8 @@ _STATIC_MCP_API_KEY_ENVIRONMENTS = {
     "unifi_mcp_server": "UNIFI_MCP_TOKEN",
 }
 
+_PER_USER_MCP_OAUTH_SERVERS = frozenset({"gmail_mcp_server", "calendar_mcp_server"})
+
 
 def _api_key_environment_is_configured(environment_name: str) -> bool:
     """Return whether an API-key environment value is present without exposing it."""
@@ -753,7 +755,78 @@ def _is_mcp_authentication_required_error(exc) -> bool:
         return _is_mcp_authentication_required_error(exc.__cause__)
     if exc.__context__ is not None and exc.__context__ is not exc:
         return _is_mcp_authentication_required_error(exc.__context__)
-    return False
+    message = str(exc).casefold()
+    return any(
+        marker in message
+        for marker in (
+            "authentication required",
+            "authentication failed",
+            "authorization required",
+            "authorization failed",
+            "not authorized",
+            "unauthorized",
+            "forbidden",
+            "oauth",
+        )
+    )
+
+
+def _mcp_tool_error_payload(exc, *, server_name: str, tool_name: str) -> str:
+    """Return a safe, actionable MCP failure without leaking server details."""
+
+    base = {
+        "tool": tool_name,
+        "server": server_name,
+        "retryable": False,
+    }
+    if _is_mcp_authentication_required_error(exc):
+        if server_name in _STATIC_MCP_API_KEY_ENVIRONMENTS:
+            payload = {
+                **base,
+                "error": "mcp_shared_authentication_failed",
+                "auth_scope": "shared",
+                "message": (
+                    "The operator-managed MCP credential was rejected. "
+                    "User authorization or confirm_action cannot fix it; do not "
+                    "retry this tool in the same turn."
+                ),
+            }
+        elif server_name in _PER_USER_MCP_OAUTH_SERVERS:
+            payload = {
+                **base,
+                "error": "mcp_user_authentication_required",
+                "auth_scope": "user",
+                "message": (
+                    "This user must connect or reconnect the service in the "
+                    "authorization prompt; do not retry this tool in the same turn."
+                ),
+            }
+        else:
+            payload = {
+                **base,
+                "error": "mcp_authentication_failed",
+                "auth_scope": "unknown",
+                "message": (
+                    "The MCP server rejected authentication; do not retry this "
+                    "tool in the same turn."
+                ),
+            }
+    elif isinstance(exc, BaseException) and _is_connection_error(exc):
+        payload = {
+            **base,
+            "error": "mcp_server_unavailable",
+            "message": (
+                "The MCP server is unavailable after bounded recovery; use one "
+                "useful fallback or report the omission without retrying this tool."
+            ),
+        }
+    else:
+        payload = {
+            **base,
+            "error": "mcp_tool_failed",
+            "message": "The MCP call failed; do not retry it unchanged in this turn.",
+        }
+    return json.dumps(payload, separators=(",", ":"), sort_keys=True)
 
 
 def _is_cancellation_error(exc) -> bool:
@@ -826,14 +899,18 @@ async def _initialize_function_group_for_startup(
     except _STARTUP_RESILIENCE_EXCEPTIONS as exc:
         if is_mcp_group and _is_mcp_authentication_required_error(exc):
             skipped_name = _record_skipped_function_group(name)
-            root = _extract_root_connection_error(exc)
+            auth_scope = (
+                "operator-managed shared credential"
+                if skipped_name in _STATIC_MCP_API_KEY_ENVIRONMENTS
+                else "per-user authorization"
+            )
             logger.warning(
-                "Startup resilience: function_group '%s' requires user "
-                "authentication during schema discovery and was skipped — "
-                "%s(%s). Application startup will continue.",
+                "Startup resilience: function_group '%s' rejected its %s "
+                "during schema discovery and was skipped. Application startup "
+                "will continue; status_code=%s.",
                 skipped_name,
-                type(root).__name__,
-                root,
+                auth_scope,
+                getattr(getattr(exc, "response", None), "status_code", "unknown"),
             )
             return None
         if _is_no_tools_after_degradation_error(exc):
@@ -1104,6 +1181,11 @@ def _patch_tool_client():
                         server_name,
                         tool_name,
                     )
+                    return _mcp_tool_error_payload(
+                        RuntimeError(str(result)),
+                        server_name=server_name,
+                        tool_name=tool_name,
+                    )
                 else:
                     if approval_reason == "approved":
                         _record_approved_mcp_receipt(
@@ -1123,9 +1205,10 @@ def _patch_tool_client():
                     tool_name,
                     type(exc).__name__,
                 )
-                return (
-                    f'{{"error":"mcp_tool_failed","tool":{json.dumps(tool_name)},'
-                    f'"error_class":{json.dumps(type(exc).__name__)}}}'
+                return _mcp_tool_error_payload(
+                    exc,
+                    server_name=server_name,
+                    tool_name=tool_name,
                 )
 
         wrapped._daedalus_approval_gate = True

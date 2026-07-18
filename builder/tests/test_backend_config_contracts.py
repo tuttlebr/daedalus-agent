@@ -659,6 +659,16 @@ def test_google_workspace_mcp_uses_per_user_oauth():
             assert provider["allow_default_user_id_for_tool_calls"] is False, path
             assert set(provider["scopes"]) == values["scopes"], path
 
+            token_store_name = provider["token_storage_object_store"]
+            expected_store_name = name.replace("_server", "_oauth_tokens")
+            assert token_store_name == expected_store_name, path
+            token_store = config["object_stores"][token_store_name]
+            assert token_store == {
+                "_type": "daedalus_redis_object_store",
+                "redis_url": "${REDIS_URL}",
+                "bucket_name": name.replace("_mcp_server", "-mcp-oauth"),
+            }, path
+
             group = function_groups[name]
             assert group["_type"] == "per_user_mcp_client", path
             assert group["include"] == values["include"], path
@@ -670,6 +680,31 @@ def test_google_workspace_mcp_uses_per_user_oauth():
         assert general["per_user_workflow_timeout"] <= 600, path
         assert general["per_user_workflow_cleanup_interval"] <= 60, path
         assert general["enable_per_user_monitoring"] is False, path
+
+        gmail_bucket = config["object_stores"]["gmail_mcp_oauth_tokens"]["bucket_name"]
+        calendar_bucket = config["object_stores"]["calendar_mcp_oauth_tokens"][
+            "bucket_name"
+        ]
+        assert gmail_bucket != calendar_bucket, path
+
+
+def test_shared_api_key_mcp_auth_is_operator_managed():
+    for path in DEPLOYED_CONFIGS:
+        config = _config(path)
+        for name, env_name in (
+            ("k8s_mcp_server", "KUBERNETES_MCP_TOKEN"),
+            ("unifi_mcp_server", "UNIFI_MCP_TOKEN"),
+        ):
+            provider = config["authentication"][name]
+            group = config["function_groups"][name]
+
+            assert provider["_type"] == "api_key", path
+            assert provider["auth_scheme"] == "Custom", path
+            assert provider["custom_header_name"] == "Authorization", path
+            assert provider["custom_header_prefix"] == "Bearer", path
+            assert provider["raw_key"] == f"${{{env_name}}}", path
+            assert group["_type"] == "mcp_client", path
+            assert group["server"]["auth_provider"] == name, path
 
 
 def test_interactive_extensions_are_enabled_for_mcp_oauth():
@@ -688,15 +723,19 @@ def test_restricted_nginx_allows_oauth_redirect_callback():
     assert callback_location in template
     assert direct_api_block in template
     assert template.index(callback_location) < template.index(direct_api_block)
-    assert "proxy_pass {{ ._backendDefaultUpstream }};" in template
+    callback_start = template.index(callback_location)
+    callback_end = template.index("\n    }", callback_start)
+    callback_block = template[callback_start:callback_end]
+    assert "rewrite ^ /api/auth/redirect break;" in callback_block
+    assert "proxy_pass {{ ._frontendHTTPUpstream }};" in callback_block
 
 
 def test_restricted_nginx_cilium_policy_allows_oauth_callback_upstream():
     template = CILIUM_NGINX_TEMPLATE.read_text(encoding="utf-8")
 
-    assert "Restricted mode still needs this for the exact" in template
-    assert "app.kubernetes.io/component: backend-default" in template
-    assert "{{- if not .Values.nginx.config.restrictedMode }}" not in template
+    assert "Frontend (HTTP + WebSocket sidecar)" in template
+    assert "app.kubernetes.io/component: frontend" in template
+    assert "exact\n    # /auth/redirect OAuth callback proxy" not in template
 
 
 def test_nginx_v1_streaming_timeout_covers_google_oauth_wait():

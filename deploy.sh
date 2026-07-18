@@ -559,6 +559,7 @@ if [[ "$SKIP_MCP_PREFLIGHT" == false ]]; then
       --config "$BACKEND_CONFIG" \
       --env-file "$ENV_FILE" \
       --kubernetes-namespace "$NAMESPACE" \
+      --kubernetes-secret "$RELEASE-backend-env" \
       --kubectl-image "$MCP_PREFLIGHT_KUBECTL_IMAGE" \
       --timeout "$MCP_PREFLIGHT_TIMEOUT"
   else

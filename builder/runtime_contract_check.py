@@ -122,6 +122,9 @@ def main() -> None:
     import nat_helpers.register  # noqa: F401
     from nat.cli.type_registry import GlobalTypeRegistry
     from nat_helpers.secure_redis_memory import DaedalusRedisMemoryClientConfig
+    from nat_helpers.secure_redis_object_store import (
+        DaedalusRedisObjectStoreClientConfig,
+    )
 
     redis_fields = set(DaedalusRedisMemoryClientConfig.model_fields)
     required_redis_fields = {"username", "password", "ssl", "ssl_ca_certs"}
@@ -134,6 +137,15 @@ def main() -> None:
     )
     if registered_redis.config_type is not DaedalusRedisMemoryClientConfig:
         raise RuntimeError("Daedalus Redis memory provider wasn't registered")
+
+    oauth_store_fields = set(DaedalusRedisObjectStoreClientConfig.model_fields)
+    if not {"redis_url", "bucket_name", "ttl"} <= oauth_store_fields:
+        raise RuntimeError("Daedalus OAuth token store lost required fields")
+    registered_oauth_store = GlobalTypeRegistry.get().get_object_store(
+        DaedalusRedisObjectStoreClientConfig
+    )
+    if registered_oauth_store.config_type is not DaedalusRedisObjectStoreClientConfig:
+        raise RuntimeError("Daedalus OAuth token store wasn't registered")
 
     # OAuth-backed MCP groups must discover and cache their schemas inside a
     # real authenticated user's workflow. Prove the per-user tool-calling
@@ -398,7 +410,7 @@ def main() -> None:
                     if receipt_key in fake_redis.values:
                         raise RuntimeError("Approved timeout emitted a success receipt")
                 elif suffix == "mcp-error":
-                    if "MCPToolClient tool call failed" not in result:
+                    if "mcp_tool_failed" not in result or "runtime-rejected" in result:
                         raise RuntimeError("Approved MCP error was not reported safely")
                     if receipt_key in fake_redis.values:
                         raise RuntimeError(

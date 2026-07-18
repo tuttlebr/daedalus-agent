@@ -32,6 +32,7 @@ import type {
   OAuthRequest,
 } from './types';
 
+import { saveOAuthCallbackTarget } from '@/server/mcpOAuth';
 import { getPublisher, jsonGet, sessionKey } from '@/server/session/redis';
 
 const logger = new Logger('AsyncJob');
@@ -473,6 +474,12 @@ export async function startBackgroundStreamReader(
             );
             if (oauthPayload) {
               await flushResponse(true);
+              if (oauthPayload.oauthState) {
+                await saveOAuthCallbackTarget(
+                  oauthPayload.oauthState,
+                  getNatBaseUrl(jobRequest),
+                );
+              }
               const currentStatus = (await jsonGet(
                 statusKey,
               )) as AsyncJobStatus | null;

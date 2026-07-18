@@ -72,6 +72,34 @@ The container runs `python entrypoint.py`, which replaces `nat serve` so that **
 3. `llm_diagnostics.patch()` — forces timeout/`max_retries` on every OpenAI client and enriches retry/connection-error logs with base_url + status (works around NAT passing `timeout=None`).
 4. `mcp_patches.patch()` bounds shared MCP startup, gives skipped requested groups one five-second shared recovery pass, rejects OAuth schema discovery outside authenticated per-user context, and installs the fail-closed **approval gate**.
 
+### Expanding an MCP tool surface
+
+`function_groups.<server>.include` controls what the agent may discover; it
+does not authorize a call as read-only. For each new MCP tool, first decide
+whether it is reviewed read-only or approval-gated:
+
+- A read-only tool needs an exact entry in both the YAML `include` list and
+  `mcp_patches._LOCAL_READ_ONLY_MCP_TOOLS` (normalized to casefolded spelling).
+  `test_local_read_only_registry_matches_configured_includes` prevents the two
+  lists from drifting.
+- Do not register mutating or unreviewed tools. They fail closed and require
+  the exact, single-use approval credential issued by `confirm_action`.
+- Static API-key MCP providers log only `configured=True|False` at startup for
+  their expected environment variable. That confirms injection without
+  exposing a secret; it does not prove the remote server accepted the key.
+- Shared API-key MCPs stay on `_type: mcp_client`; per-user OAuth MCPs use
+  `_type: per_user_mcp_client` with `allow_default_user_id_for_tool_calls:
+false`. Never use `confirm_action` as an authentication fallback.
+- Every per-user OAuth provider must reference a distinct durable object store.
+  Daedalus uses `daedalus_redis_object_store` with the secret `REDIS_URL` so
+  ACL credentials and verified TLS are honored. Distinct buckets are required
+  because NAT hashes only the user id when forming a token key.
+- OAuth state remains owned by the backend process that opened the flow. The
+  stream worker writes `state -> backendBaseUrl` to Redis, nginx sends
+  `/auth/redirect` through the frontend, and the frontend proxies the callback
+  to that exact pod. Preserve this path when changing backend discovery or
+  scaling.
+
 Then it sets `sys.argv` to `nat serve --config_file=$NAT_CONFIG_FILE …` and calls `run_cli()` in-process.
 
 NAT application composition uses its supported `general.front_end.runner_class` hook. `nat_helpers.front_end.DaedalusFastApiFrontEndPluginWorker` attaches the backend-wide auth middleware, readiness route, and Daedalus routers to NAT's application only.

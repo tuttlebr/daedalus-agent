@@ -1,7 +1,9 @@
 """Tests for MCP server pre-flight config and response handling."""
 
 import importlib.util
+import json
 import sys
+import types
 from pathlib import Path
 
 SCRIPT = Path(__file__).resolve().parents[2] / "scripts" / "check_mcp_servers.py"
@@ -114,6 +116,92 @@ def test_deploy_runs_mcp_preflight_before_helm():
 
     assert "scripts/check_mcp_servers.py" in deploy
     assert "--skip-mcp-preflight" in deploy
+    assert '--kubernetes-secret "$RELEASE-backend-env"' in deploy
     assert deploy.index("Checking MCP server reachability") < deploy.index(
         "Deploying Daedalus via Helm"
     )
+
+
+def test_authenticated_cluster_probe_uses_secret_without_putting_key_in_argv(
+    monkeypatch,
+):
+    server = check_mcp_servers.McpServer(
+        name="k8s_mcp_server",
+        url="http://kubernetes-mcp.kubernetes-mcp.svc.cluster.local:8080/mcp",
+        include=["getClusterSummary"],
+        auth_provider_name="k8s_mcp_server",
+        auth_provider={
+            "_type": "api_key",
+            "custom_header_name": "Authorization",
+            "custom_header_prefix": "Bearer",
+            "raw_key": "${KUBERNETES_MCP_TOKEN}",
+        },
+    )
+    init_body = json.dumps(
+        {"jsonrpc": "2.0", "id": 1, "result": {"protocolVersion": "test"}}
+    )
+    tools_body = json.dumps(
+        {
+            "jsonrpc": "2.0",
+            "id": 2,
+            "result": {"tools": [{"name": "getClusterSummary"}]},
+        }
+    )
+    output = (
+        "__MCP_INIT_STATUS_START__\n200\n__MCP_INIT_STATUS_END__\n"
+        f"__MCP_INIT_BODY_START__\n{init_body}\n__MCP_INIT_BODY_END__\n"
+        "__MCP_TOOLS_STATUS_START__\n200\n__MCP_TOOLS_STATUS_END__\n"
+        f"__MCP_TOOLS_BODY_START__\n{tools_body}\n__MCP_TOOLS_BODY_END__\n"
+    )
+    captured = {}
+
+    def fake_run(command, **_kwargs):
+        captured["command"] = command
+        return types.SimpleNamespace(returncode=0, stdout=output, stderr="")
+
+    monkeypatch.setattr(check_mcp_servers.subprocess, "run", fake_run)
+
+    result = check_mcp_servers.check_with_kubectl(
+        server,
+        {"Authorization": "Bearer actual-secret-value"},
+        20,
+        "daedalus",
+        "curlimages/curl:8.8.0",
+        "daedalus-backend-env",
+    )
+
+    command = captured["command"]
+    rendered = " ".join(command)
+    overrides = json.loads(command[command.index("--overrides") + 1])
+    script = command[-1]
+    assert result.ok is True
+    assert result.tool_count == 1
+    assert "actual-secret-value" not in rendered
+    assert "KUBERNETES_MCP_TOKEN" in script
+    assert overrides["spec"]["containers"][0]["envFrom"] == [
+        {"secretRef": {"name": "daedalus-backend-env"}}
+    ]
+
+
+def test_authenticated_cluster_probe_requires_kubernetes_secret():
+    server = check_mcp_servers.McpServer(
+        name="unifi_mcp_server",
+        url="http://unifi-mcp.unifi.svc.cluster.local:8080/mcp",
+        include=["listSites"],
+        auth_provider_name="unifi_mcp_server",
+        auth_provider={"_type": "api_key", "raw_key": "${UNIFI_MCP_TOKEN}"},
+    )
+
+    try:
+        check_mcp_servers.check_with_kubectl(
+            server,
+            {"Authorization": "Bearer secret"},
+            20,
+            "daedalus",
+            "curlimages/curl:8.8.0",
+            None,
+        )
+    except check_mcp_servers.CheckError as exc:
+        assert "--kubernetes-secret" in str(exc)
+    else:
+        raise AssertionError("authenticated probe should require a Secret")
