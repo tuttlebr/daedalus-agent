@@ -388,6 +388,7 @@ fi
 # Create least-privilege workload secrets from .env (idempotent)
 # -------------------------------------------------------------------
 HELM_SECRET_ARGS=()
+DOCUMENT_OBJECT_SECRET_PREPARED=false
 if [[ -f "$ENV_FILE" ]]; then
   log "Applying allowlisted workload secrets from $ENV_FILE"
   SECRET_ENV_DIR="$(mktemp -d)"
@@ -538,6 +539,7 @@ with open(destination, "w", encoding="utf-8") as handle:
 PY
   if [[ -s "$DOCUMENT_OBJECT_SECRET_FILE" ]]; then
     apply_env_secret "$RELEASE-document-objects" "$DOCUMENT_OBJECT_SECRET_FILE"
+    DOCUMENT_OBJECT_SECRET_PREPARED=true
     HELM_SECRET_ARGS+=(
       --set-string "documentObjectStorage.auth.existingSecret=$RELEASE-document-objects"
     )
@@ -548,6 +550,116 @@ PY
 else
   echo "WARNING: $ENV_FILE not found -- skipping workload secret creation" >&2
 fi
+
+validate_document_object_secret_refs() {
+  local render_cmd refs
+  render_cmd=(helm template "$RELEASE" "$SCRIPT_DIR/helm/daedalus" -n "$NAMESPACE")
+  if [[ -f "$VALUES_FILE" ]]; then
+    render_cmd+=( -f "$VALUES_FILE" )
+  fi
+  if [[ -n "${HELM_SECRET_ARGS[*]-}" ]]; then
+    render_cmd+=( "${HELM_SECRET_ARGS[@]}" )
+  fi
+
+  # Resolve the effective Secret references from the same rendered workloads
+  # Helm will deploy. This covers both .env-managed credentials and operators
+  # that intentionally provide an externally managed Secret in values.
+  if ! refs="$("${render_cmd[@]}" | python3 -c '
+import re
+import sys
+
+manifest = sys.stdin.read()
+required_env = {"DOCUMENT_OBJECT_ACCESS_KEY", "DOCUMENT_OBJECT_SECRET_KEY"}
+refs = set()
+
+for lines in (document.splitlines() for document in re.split(r"^---\s*$", manifest, flags=re.MULTILINE)):
+    document_lines = list(lines)
+    for index, line in enumerate(document_lines):
+        match = re.match(r"^(\s*)- name:\s*([A-Z0-9_]+)\s*$", line)
+        if not match or match.group(2) not in required_env:
+            continue
+        indent = len(match.group(1))
+        secret_name = None
+        secret_key = None
+        in_secret_ref = False
+        for nested in document_lines[index + 1:]:
+            if re.match(rf"^\s{{{indent}}}- name:", nested):
+                break
+            stripped = nested.strip()
+            if stripped == "secretKeyRef:":
+                in_secret_ref = True
+                continue
+            if not in_secret_ref:
+                continue
+            if stripped.startswith("name:") and secret_name is None:
+                secret_name = stripped.split(":", 1)[1].strip().strip("\"\x27")
+            elif stripped.startswith("key:") and secret_key is None:
+                secret_key = stripped.split(":", 1)[1].strip().strip("\"\x27")
+        if secret_name and secret_key:
+            refs.add((match.group(2), secret_name, secret_key))
+
+managed = set()
+for document in re.split(r"^---\s*$", manifest, flags=re.MULTILINE):
+    if not re.search(r"^kind:\s*Secret\s*$", document, flags=re.MULTILINE):
+        continue
+    name_match = re.search(
+        r"^metadata:\s*$.*?^\s{2}name:\s*([^\s]+)\s*$",
+        document,
+        flags=re.MULTILINE | re.DOTALL,
+    )
+    if not name_match:
+        continue
+    secret_name = name_match.group(1).strip("\"\x27")
+    for _env_name, ref_name, key in refs:
+        if ref_name != secret_name:
+            continue
+        key_match = re.search(
+            rf"^\s{{2}}{re.escape(key)}:\s*(.+?)\s*$",
+            document,
+            flags=re.MULTILINE,
+        )
+        if key_match and key_match.group(1).strip() not in {"", "\"\"", "\x27\x27"}:
+            managed.add((ref_name, key))
+
+for env_name, secret_name, secret_key in sorted(refs):
+    is_managed = "true" if (secret_name, secret_key) in managed else "false"
+    print(f"{env_name}\t{secret_name}\t{secret_key}\t{is_managed}")
+')"; then
+    echo "ERROR: Helm could not render the document-object startup configuration." >&2
+    exit 1
+  fi
+
+  [[ -z "$refs" ]] && return
+
+  local env_name secret_name secret_key chart_managed secret_json
+  while IFS=$'\t' read -r env_name secret_name secret_key chart_managed; do
+    [[ -z "$env_name" ]] && continue
+    if [[ "$chart_managed" == true ]]; then
+      continue
+    fi
+    if [[ "$DOCUMENT_OBJECT_SECRET_PREPARED" == true && "$secret_name" == "$RELEASE-document-objects" ]]; then
+      continue
+    fi
+    if ! secret_json="$(kubectl -n "$NAMESPACE" get secret "$secret_name" -o json 2>/dev/null)" || \
+      ! python3 -c '
+import json
+import sys
+
+key = sys.argv[1]
+payload = json.load(sys.stdin)
+raise SystemExit(0 if payload.get("data", {}).get(key) else 1)
+' "$secret_key" <<< "$secret_json"; then
+      echo "ERROR: documentObjectStorage is enabled, but Secret '$secret_name'" >&2
+      echo "       is missing a non-empty '$secret_key' key." >&2
+      echo "       Set DOCUMENT_OBJECT_ACCESS_KEY and DOCUMENT_OBJECT_SECRET_KEY" >&2
+      echo "       in $ENV_FILE, or provision the configured external Secret." >&2
+      exit 1
+    fi
+  done <<< "$refs"
+}
+
+log "Validating document-object startup credentials"
+validate_document_object_secret_refs
 
 # -------------------------------------------------------------------
 # Pre-flight MCP reachability checks

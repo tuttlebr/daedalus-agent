@@ -53,6 +53,17 @@ only to the configured document bucket and prefix. The frontend server and
 backend need that restricted credential to write and read document objects.
 The stream worker receives object references only and doesn't receive the
 object-store credential.
+
+For the normal `deploy.sh` path, define both `DOCUMENT_OBJECT_ACCESS_KEY` and
+`DOCUMENT_OBJECT_SECRET_KEY` in `.env` (plus the optional
+`DOCUMENT_OBJECT_SESSION_TOKEN`). The deploy creates or updates
+`<release>-document-objects`, points the rendered workloads at that Secret, and
+validates the required keys before invoking Helm. If the `.env` pair is absent,
+the deploy accepts an explicitly configured external Secret only after
+verifying that both referenced keys exist and are non-empty. It otherwise
+fails before changing the Helm release, instead of leaving pods in
+`CreateContainerConfigError`.
+
 When `documentObjectStorage.enabled=false`, the chart injects no document
 credential and renders no object-store egress rule.
 
