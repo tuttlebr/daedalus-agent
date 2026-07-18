@@ -203,7 +203,42 @@ _LOCAL_READ_ONLY_MCP_TOOLS: dict[str, frozenset[str]] = {
     ),
     "gmail_mcp_server": frozenset({"search_threads", "get_thread", "list_labels"}),
     "calendar_mcp_server": frozenset({"list_calendars"}),
+    # These server-specific operations are explicitly read-only.  Keep this
+    # registry in exact sync with the corresponding function-group `include:`
+    # lists: an MCP tool name is never authorized merely because it sounds
+    # read-like.
+    "k8s_mcp_server": frozenset({"getclustersummary", "listcontexts"}),
+    "unifi_mcp_server": frozenset({"listsites", "getinfo"}),
 }
+
+# API-key values must never appear in logs.  Still, operators need a clear
+# startup signal when a rendered deployment has omitted the environment
+# variable the configured MCP authentication provider requires.  This maps
+# only the repository-owned static API-key providers; OAuth providers report
+# their own per-user authorization state.
+_STATIC_MCP_API_KEY_ENVIRONMENTS = {
+    "k8s_mcp_server": "KUBERNETES_MCP_TOKEN",
+    "unifi_mcp_server": "UNIFI_MCP_TOKEN",
+}
+
+
+def _api_key_environment_is_configured(environment_name: str) -> bool:
+    """Return whether an API-key environment value is present without exposing it."""
+
+    value = os.getenv(environment_name)
+    return bool(value and value.strip() and "${" not in value)
+
+
+def _log_static_mcp_api_key_configuration() -> None:
+    """Log presence-only diagnostics for static MCP API-key providers."""
+
+    for server_name, environment_name in _STATIC_MCP_API_KEY_ENVIRONMENTS.items():
+        logger.info(
+            "MCP API-key configuration: server=%s environment=%s configured=%s",
+            server_name,
+            environment_name,
+            _api_key_environment_is_configured(environment_name),
+        )
 
 
 def _flatten_tool_payload(args, kwargs) -> dict:
@@ -917,6 +952,8 @@ def patch():
     global _patched
     if _patched:
         return
+
+    _log_static_mcp_api_key_configuration()
 
     try:
         from nat.plugins.mcp.client.client_base import MCPStreamableHTTPClient

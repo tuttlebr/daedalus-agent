@@ -448,6 +448,44 @@ def test_exact_local_read_only_tools_are_not_over_gated(
     assert reason == "read-only"
 
 
+@pytest.mark.parametrize(
+    "server_name,tool_name,payload",
+    [
+        ("k8s_mcp_server", "getClusterSummary", {}),
+        ("k8s_mcp_server", "listContexts", {}),
+        ("unifi_mcp_server", "listSites", {}),
+        ("unifi_mcp_server", "getInfo", {}),
+    ],
+)
+def test_configured_infrastructure_read_only_tools_do_not_need_token(
+    server_name, tool_name, payload
+):
+    ok, reason = mcp_patches._validate_mcp_approval(
+        tool_name, payload, server_name=server_name
+    )
+    assert ok is True
+    assert reason == "read-only"
+
+
+def test_api_key_environment_configuration_log_is_presence_only(monkeypatch, caplog):
+    secret = "do-not-log-this-api-key"
+    monkeypatch.setenv("KUBERNETES_MCP_TOKEN", secret)
+    monkeypatch.delenv("UNIFI_MCP_TOKEN", raising=False)
+
+    with caplog.at_level("INFO", logger="daedalus.mcp_patches"):
+        mcp_patches._log_static_mcp_api_key_configuration()
+
+    assert (
+        "server=k8s_mcp_server environment=KUBERNETES_MCP_TOKEN configured=True"
+        in caplog.text
+    )
+    assert (
+        "server=unifi_mcp_server environment=UNIFI_MCP_TOKEN configured=False"
+        in caplog.text
+    )
+    assert secret not in caplog.text
+
+
 class _Annotations:
     """Stand-in for an MCP Tool.annotations pydantic model."""
 

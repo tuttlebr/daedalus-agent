@@ -110,6 +110,12 @@ function_groups:
       url: https://calendarmcp.googleapis.com/mcp/v1
   k8s_mcp_server:
     _type: mcp_client
+    # Explicitly limited to the reviewed read-only operations in
+    # builder/mcp_patches.py. Other Kubernetes operations stay unavailable
+    # unless they are intentionally added to both places and reviewed.
+    include:
+      - getClusterSummary
+      - listContexts
     tool_call_timeout: 60
     auth_flow_timeout: 30
     reconnect_enabled: true
@@ -124,6 +130,12 @@ function_groups:
       auth_provider: k8s_mcp_server
   unifi_mcp_server:
     _type: mcp_client
+    # Explicitly limited to the reviewed read-only operations in
+    # builder/mcp_patches.py. Other UniFi operations stay unavailable unless
+    # they are intentionally added to both places and reviewed.
+    include:
+      - listSites
+      - getInfo
     tool_call_timeout: 60
     auth_flow_timeout: 30
     reconnect_enabled: true
