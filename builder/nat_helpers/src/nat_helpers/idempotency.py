@@ -9,7 +9,7 @@ import secrets
 from dataclasses import dataclass
 from typing import Any
 
-from nat_helpers.redis_url import redis_url_from_env
+from nat_helpers.redis_url import close_redis_client, redis_url_from_env
 
 
 def _digest(value: str) -> str:
@@ -122,7 +122,7 @@ async def reserve_operation(
                 )
         return Reservation(key, None, "in_progress")
     finally:
-        await redis.aclose()
+        await close_redis_client(redis)
 
 
 async def complete_operation(reservation: Reservation, result: str) -> bool:
@@ -158,4 +158,4 @@ return 1
             )
         )
     finally:
-        await redis.aclose()
+        await close_redis_client(redis)

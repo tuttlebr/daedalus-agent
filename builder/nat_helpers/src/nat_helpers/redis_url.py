@@ -7,10 +7,22 @@ construction previously duplicated across the image and document-ingest routers.
 
 from __future__ import annotations
 
+import inspect
 import os
 from urllib.parse import urlparse
 
 DEFAULT_REDIS_URL = "redis://daedalus-redis.daedalus.svc.cluster.local"
+
+
+async def close_redis_client(client) -> None:
+    """Close Redis clients across the pinned 4.x and newer async APIs."""
+
+    close = getattr(client, "aclose", None) or getattr(client, "close", None)
+    if close is None:
+        return
+    result = close()
+    if inspect.isawaitable(result):
+        await result
 
 
 def redis_url_from_env(default: str = DEFAULT_REDIS_URL) -> str:

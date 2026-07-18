@@ -21,6 +21,7 @@ from nat.data_models.object_store import (
 from nat.object_store.interfaces import ObjectStore
 from nat.object_store.models import ObjectStoreItem
 from nat.utils.type_utils import override
+from nat_helpers.redis_url import close_redis_client
 from pydantic import Field, field_validator
 
 _SAFE_BUCKET_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
@@ -125,4 +126,4 @@ async def daedalus_redis_object_store_client(
             ttl=config.ttl,
         )
     finally:
-        await client.aclose()
+        await close_redis_client(client)

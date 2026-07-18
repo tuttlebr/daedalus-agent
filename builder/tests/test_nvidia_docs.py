@@ -58,6 +58,15 @@ def test_product_schema_rejects_arbitrary_endpoint_selection():
         nvidia_docs.NvidiaDocsInput(product="https://example.test/mcp", query="x")
 
 
+def test_runner_keeps_concrete_annotations_for_nat_runtime_reflection():
+    runner = nvidia_docs._build_docs_runner(timeout=5)
+
+    assert runner.__annotations__ == {
+        "input_data": nvidia_docs.NvidiaDocsInput,
+        "return": str,
+    }
+
+
 def test_search_has_one_end_to_end_timeout(monkeypatch):
     monkeypatch.setattr(
         nvidia_docs,

@@ -10,13 +10,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from pydantic import Field
-
 from nat.builder.builder import Builder
 from nat.cli.register_workflow import register_memory
 from nat.data_models.common import OptionalSecretStr, get_secret_value
 from nat.data_models.component_ref import EmbedderRef
 from nat.data_models.memory import MemoryBaseConfig
+from nat_helpers.redis_url import close_redis_client
+from pydantic import Field
 
 
 class DaedalusRedisMemoryClientConfig(
@@ -47,7 +47,6 @@ async def daedalus_redis_memory_client(
     """Build the standard NAT Redis editor over an ACL and TLS connection."""
 
     import redis.asyncio as redis
-
     from nat.builder.framework_enum import LLMFrameworkEnum
     from nat.plugins.redis.redis_editor import RedisEditor
     from nat.plugins.redis.schema import ensure_index_exists
@@ -89,4 +88,4 @@ async def daedalus_redis_memory_client(
             embedder=embedder,
         )
     finally:
-        await redis_client.aclose()
+        await close_redis_client(redis_client)

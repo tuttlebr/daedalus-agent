@@ -13,6 +13,7 @@ from fastapi.responses import JSONResponse
 from nat.front_ends.fastapi.fastapi_front_end_plugin_worker import (
     FastApiFrontEndPluginWorker,
 )
+from nat_helpers.redis_url import close_redis_client
 
 logger = logging.getLogger("daedalus.http_api")
 
@@ -54,7 +55,7 @@ async def readiness_response() -> JSONResponse:
     finally:
         if client is not None:
             with contextlib.suppress(Exception):
-                await client.aclose()
+                await close_redis_client(client)
 
     status = "degraded" if capabilities["unavailable_optional"] else "ready"
     return JSONResponse({"status": status, "mcp": capabilities})

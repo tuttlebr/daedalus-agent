@@ -1,7 +1,5 @@
 """One bounded, product-routed capability for public NVIDIA documentation."""
 
-from __future__ import annotations
-
 import asyncio
 import json
 import logging
@@ -127,17 +125,24 @@ async def search_nvidia_docs(
     )
 
 
-@register_function(config_type=NvidiaDocsConfig)
-async def nvidia_docs(config: NvidiaDocsConfig, _builder: Builder):
+def _build_docs_runner(timeout: float):
+    # NAT 1.7 reflects this callable while generating its streaming adapter.
+    # Keep these as concrete runtime annotations; postponed annotations turn
+    # NvidiaDocsInput into an unresolved forward reference in that adapter.
     async def _arun(input_data: NvidiaDocsInput) -> str:
         return await search_nvidia_docs(
             input_data.product,
             input_data.query,
-            timeout=config.timeout,
+            timeout=timeout,
         )
 
+    return _arun
+
+
+@register_function(config_type=NvidiaDocsConfig)
+async def nvidia_docs(config: NvidiaDocsConfig, _builder: Builder):
     yield FunctionInfo.from_fn(
-        _arun,
+        _build_docs_runner(config.timeout),
         description=config.description,
         input_schema=NvidiaDocsInput,
     )
