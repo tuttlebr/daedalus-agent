@@ -346,7 +346,6 @@ def test_get_memory_expands_daily_summary_queries(monkeypatch):
     assert "Kubernetes cluster status" in call["query"]
     assert "k8s_mcp_server" in call["query"]
     assert "required live cards" in call["query"]
-    assert "nv-html" in call["query"]
     assert "NVIDIA HTML" in call["query"]
     assert "no Markdown" in call["query"]
     assert "agent_skills_tool" in call["query"]

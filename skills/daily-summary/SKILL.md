@@ -10,9 +10,7 @@ description: >-
   the user asks for a daily summary, daily briefing, morning brief, "my daily
   update", "what's my day look like", "run my briefing", or "catch me up on
   today", even when they do not name a template or say "HTML". This is the
-  personal daily-briefing builder. Use nv-html for general NVIDIA-branded
-  pages, dashboards, status pages, or one-off web deliverables, and
-  creative-ideation to brainstorm ideas rather than produce a finished page.
+  personal daily-briefing builder.
 ---
 
 # Daily Summary

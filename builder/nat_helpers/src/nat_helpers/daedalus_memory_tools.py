@@ -24,7 +24,7 @@ DAILY_BRIEFING_QUERY_TERMS = (
     "inference optimization robotics Kubernetes cluster status k8s_mcp_server "
     "read-only operations status sports teams leagues hobbies media reading "
     "sources preferences routines priorities recommendations required live "
-    "cards agent directive nv-html NVIDIA HTML HTML only HTML-only no Markdown "
+    "cards agent directive HTML HTML only HTML-only no Markdown "
     "no code fence standalone HTML skill load_skill agent_skills_tool"
 )
 DAILY_BRIEFING_TRIGGERS = (

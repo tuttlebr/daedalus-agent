@@ -11,8 +11,7 @@ description: >-
   make/build/write", "invent X", "make this weirder", "help me pick between
   options", or "give me a research question", across any domain (text, art,
   software, systems, product, research, or life decisions). This produces
-  ideas and directions, not deliverables; use nv-html when the ask is to
-  actually build an HTML page or dashboard.
+  ideas and directions, not deliverables.
 version: 2.1.0
 author: SHL0MS
 license: MIT
