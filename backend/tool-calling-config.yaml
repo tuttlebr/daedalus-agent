@@ -39,7 +39,8 @@ authentication:
     token_endpoint_auth_method: client_secret_post
     scopes:
       - https://www.googleapis.com/auth/calendar.calendarlist.readonly
-
+      - https://www.googleapis.com/auth/calendar.events.readonly
+      - https://www.googleapis.com/auth/calendar.events.freebusy
     use_pkce: true
     allow_default_user_id_for_tool_calls: false
     token_storage_object_store: calendar_mcp_oauth_tokens
@@ -131,8 +132,6 @@ function_groups:
       url: https://gmailmcp.googleapis.com/mcp/v1
   calendar_mcp_server:
     _type: per_user_mcp_client
-    include:
-      - list_calendars
     tool_call_timeout: 60
     auth_flow_timeout: 600
     reconnect_enabled: true
@@ -140,9 +139,6 @@ function_groups:
     reconnect_initial_backoff: 5.0
     reconnect_max_backoff: 60.0
     use_native_tool_calling: true
-    tool_overrides:
-      list_calendars:
-        approval_policy: read_only
     server:
       auth_provider: calendar_mcp_server
       transport: streamable-http
