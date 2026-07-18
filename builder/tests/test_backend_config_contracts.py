@@ -719,6 +719,28 @@ def test_interactive_extensions_are_enabled_for_mcp_oauth():
         assert config["general"]["front_end"]["enable_interactive_extensions"] is True
 
 
+def test_mcp_read_only_authorization_is_declared_beside_each_tool():
+    expected = {
+        "gmail_mcp_server": {"search_threads", "get_thread", "list_labels"},
+        "calendar_mcp_server": {"list_calendars"},
+        "k8s_mcp_server": {"getClusterSummary", "listContexts"},
+        "unifi_mcp_server": {"listSites", "getInfo"},
+    }
+
+    for path in DEPLOYED_CONFIGS:
+        groups = _config(path)["function_groups"]
+        for group_name, expected_tools in expected.items():
+            group = groups[group_name]
+            policies = {
+                tool_name: override.get("approval_policy")
+                for tool_name, override in group.get("tool_overrides", {}).items()
+            }
+            assert set(group["include"]) == expected_tools, path
+            assert {
+                tool for tool, policy in policies.items() if policy == "read_only"
+            } == expected_tools, path
+
+
 def test_restricted_nginx_allows_oauth_redirect_callback():
     template = NGINX_TEMPLATE.read_text(encoding="utf-8")
     callback_location = "location = /auth/redirect"

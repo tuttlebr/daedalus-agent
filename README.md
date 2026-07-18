@@ -170,13 +170,31 @@ placed in command arguments or printed.
 Treat an MCP `include` list as an exposed capability surface, not an
 authorization decision. Keep it minimal and classify every newly exposed tool:
 
-- A verified read-only tool must be added to both its function group's exact
-  `include` list and `_LOCAL_READ_ONLY_MCP_TOOLS` in
-  `builder/mcp_patches.py`; the approval-gate test enforces that those two
-  lists stay aligned.
-- A mutating, irreversible, or unreviewed tool must not enter that registry.
-  It remains fail-closed until `confirm_action` issues a credential bound to
-  the exact server, tool, and final arguments.
+- A verified read-only tool must be added to its function group's exact
+  `include` list and marked beside the tool under `tool_overrides`:
+
+  ```yaml
+  function_groups:
+    example_mcp_server:
+      _type: mcp_client
+      include: [get_status]
+      tool_overrides:
+        get_status:
+          approval_policy: read_only
+  ```
+
+  `backend/tool-calling-config.yaml` is the only repository configuration
+  surface for this decision. The pinned runtime adapter loads these exact
+  declarations before installing the approval gate. NAT ignores this
+  Daedalus-owned extension itself.
+
+- A mutating, irreversible, or unreviewed tool must never be marked
+  `read_only`. Omit `approval_policy`, or use
+  `approval_policy: approval_required` when an explicit marker improves
+  clarity. The call remains fail-closed until
+  `confirm_action` issues a credential bound to the exact server, tool, and
+  final arguments. Unknown policy values and policy entries outside `include`
+  fail backend startup.
 - For static API-key MCP providers, backend startup logs only whether the
   required environment variable is non-empty (`configured=True|False`), never
   the value. This verifies deployment injection, not upstream acceptance; a
@@ -193,10 +211,20 @@ Authentication scope is part of the server contract:
   separate Redis-backed object-store buckets, keyed by the authenticated user,
   so tokens survive restarts and work across backend replicas. The frontend
   also records each short-lived OAuth state in Redis and sends the browser
-  callback to the exact backend pod that initiated the flow.
+  callback to the exact backend pod that initiated the flow. Missing, expired,
+  or refresh-rejected tokens produce an `oauth_required` stream event; the chat
+  UI then presents **Connect/Reopen Gmail** or **Connect/Reopen Calendar**. The
+  approval policy must allow the read-only call to reach the provider challenge
+  or that reauthorization event cannot be created.
 - Give each new per-user OAuth provider its own token bucket. NAT's token key
   is derived from user identity, so sharing a bucket between providers would
   allow one provider's token record to replace another's.
+
+Provider-side quota, billing, rate-limit, and shared server-credential failures
+are not user OAuth problems. Tools must return them explicitly, and the agent
+must disclose the affected provider in its final response even if it can use a
+fallback. In particular, Perplexity `insufficient_quota` is an operator-managed
+usage limit; retrying or asking the user to authorize cannot repair it.
 
 ### Manual Helm Path
 

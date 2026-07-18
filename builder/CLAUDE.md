@@ -70,7 +70,7 @@ The container runs `python entrypoint.py`, which replaces `nat serve` so that **
 1. Assert the exact NAT 1.7.0 and Starlette `<1` runtime contracts.
 2. Redact request credentials from NAT telemetry and configure Phoenix headers.
 3. `llm_diagnostics.patch()` — forces timeout/`max_retries` on every OpenAI client and enriches retry/connection-error logs with base_url + status (works around NAT passing `timeout=None`).
-4. `mcp_patches.patch()` bounds shared MCP startup, gives skipped requested groups one five-second shared recovery pass, rejects OAuth schema discovery outside authenticated per-user context, and installs the fail-closed **approval gate**.
+4. `mcp_patches.patch(config_path=...)` loads exact MCP authorization policy and endpoint identities from the deployed workflow YAML, bounds shared MCP startup, gives skipped requested groups one five-second shared recovery pass, rejects OAuth schema discovery outside authenticated per-user context, and installs the fail-closed **approval gate**.
 
 ### Expanding an MCP tool surface
 
@@ -78,12 +78,13 @@ The container runs `python entrypoint.py`, which replaces `nat serve` so that **
 does not authorize a call as read-only. For each new MCP tool, first decide
 whether it is reviewed read-only or approval-gated:
 
-- A read-only tool needs an exact entry in both the YAML `include` list and
-  `mcp_patches._LOCAL_READ_ONLY_MCP_TOOLS` (normalized to casefolded spelling).
-  `test_local_read_only_registry_matches_configured_includes` prevents the two
-  lists from drifting.
-- Do not register mutating or unreviewed tools. They fail closed and require
-  the exact, single-use approval credential issued by `confirm_action`.
+- A read-only tool needs an exact entry in the YAML `include` list and an exact
+  `tool_overrides.<tool>.approval_policy: read_only` declaration. The runtime
+  builds its normalized authorization registry from that YAML; do not add a
+  second authorization list in Python.
+- Omitted policies and `approval_policy: approval_required` fail closed and
+  require the exact, single-use credential issued by `confirm_action`. Unknown
+  policy values or policies for tools outside `include` fail startup.
 - Static API-key MCP providers log only `configured=True|False` at startup for
   their expected environment variable. That confirms injection without
   exposing a secret; it does not prove the remote server accepted the key.
@@ -97,8 +98,10 @@ false`. Never use `confirm_action` as an authentication fallback.
 - OAuth state remains owned by the backend process that opened the flow. The
   stream worker writes `state -> backendBaseUrl` to Redis, nginx sends
   `/auth/redirect` through the frontend, and the frontend proxies the callback
-  to that exact pod. Preserve this path when changing backend discovery or
-  scaling.
+  to that exact pod. The chat UI renders the resulting `oauth_required` event
+  as a Connect/Reopen button. Preserve this path when changing backend
+  discovery or scaling; if the approval gate blocks the initial read-only call,
+  the provider challenge and frontend reauthorization option never occur.
 
 Then it sets `sys.argv` to `nat serve --config_file=$NAT_CONFIG_FILE …` and calls `run_cli()` in-process.
 

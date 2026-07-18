@@ -11,6 +11,9 @@ import mcp_patches
 import pytest
 import yaml
 
+CONFIG_PATH = Path(__file__).parents[2] / "backend" / "tool-calling-config.yaml"
+mcp_patches.configure_mcp_approval_policy(CONFIG_PATH)
+
 
 class _FakeRedis:
     def __init__(self):
@@ -562,15 +565,120 @@ def test_unknown_read_like_tool_fails_closed_in_non_sensitive_group():
 
 
 def test_local_read_only_registry_matches_configured_includes():
-    config_path = Path(__file__).parents[2] / "backend" / "tool-calling-config.yaml"
-    config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    config = yaml.safe_load(CONFIG_PATH.read_text(encoding="utf-8"))
     groups = config["function_groups"]
 
-    for group_name, registered_tools in mcp_patches._LOCAL_READ_ONLY_MCP_TOOLS.items():
-        configured_tools = {
-            str(tool).casefold() for tool in groups[group_name].get("include", [])
-        }
-        assert configured_tools == set(registered_tools)
+    configured_policy = {
+        group_name.casefold(): frozenset(
+            str(tool_name).casefold()
+            for tool_name, override in group.get("tool_overrides", {}).items()
+            if override.get("approval_policy") == "read_only"
+        )
+        for group_name, group in groups.items()
+        if group.get("_type") in {"mcp_client", "per_user_mcp_client"}
+        and any(
+            override.get("approval_policy") == "read_only"
+            for override in group.get("tool_overrides", {}).values()
+        )
+    }
+    assert mcp_patches._LOCAL_READ_ONLY_MCP_TOOLS == configured_policy
+
+
+def test_per_user_mcp_endpoint_identity_is_loaded_from_config():
+    assert (
+        mcp_patches._mcp_server_group_names[
+            "streamable-http:https://gmailmcp.googleapis.com/mcp/v1"
+        ]
+        == "gmail_mcp_server"
+    )
+    assert (
+        mcp_patches._mcp_server_group_names[
+            "streamable-http:https://calendarmcp.googleapis.com/mcp/v1"
+        ]
+        == "calendar_mcp_server"
+    )
+    assert mcp_patches._validate_mcp_approval(
+        "search_threads",
+        {"query": "is:unread"},
+        server_name="streamable-http:https://gmailmcp.googleapis.com/mcp/v1",
+    ) == (True, "read-only")
+    assert mcp_patches._validate_mcp_approval(
+        "list_calendars",
+        {},
+        server_name="streamable-http:https://calendarmcp.googleapis.com/mcp/v1",
+    ) == (True, "read-only")
+
+
+def test_approval_policy_rejects_tool_outside_include(tmp_path):
+    config_path = tmp_path / "bad-policy.yaml"
+    config_path.write_text(
+        """
+function_groups:
+  gmail_mcp_server:
+    _type: per_user_mcp_client
+    include: [search_threads]
+    tool_overrides:
+      create_draft:
+        approval_policy: read_only
+    server:
+      transport: streamable-http
+      url: https://gmail.example.test/mcp
+""",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(RuntimeError, match="outside include"):
+        mcp_patches.configure_mcp_approval_policy(config_path)
+
+    mcp_patches.configure_mcp_approval_policy(CONFIG_PATH)
+
+
+def test_approval_policy_rejects_unknown_value(tmp_path):
+    config_path = tmp_path / "bad-policy.yaml"
+    config_path.write_text(
+        """
+function_groups:
+  inventory_mcp_server:
+    _type: mcp_client
+    include: [get_inventory]
+    tool_overrides:
+      get_inventory:
+        approval_policy: probably_safe
+    server:
+      transport: streamable-http
+      url: https://inventory.example.test/mcp
+""",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(RuntimeError, match="Unsupported MCP approval policy"):
+        mcp_patches.configure_mcp_approval_policy(config_path)
+
+    mcp_patches.configure_mcp_approval_policy(CONFIG_PATH)
+
+
+def test_read_only_policy_rejects_locally_mutating_tool(tmp_path):
+    config_path = tmp_path / "bad-policy.yaml"
+    config_path.write_text(
+        """
+function_groups:
+  inventory_mcp_server:
+    _type: mcp_client
+    include: [update_inventory]
+    tool_overrides:
+      update_inventory:
+        approval_policy: read_only
+    server:
+      transport: streamable-http
+      url: https://inventory.example.test/mcp
+""",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(RuntimeError, match="conflicts with local mutation"):
+        mcp_patches.configure_mcp_approval_policy(config_path)
+
+    mcp_patches.configure_mcp_approval_policy(CONFIG_PATH)
 
 
 def test_sensitive_group_read_prefixed_tool_still_requires_approval():

@@ -72,6 +72,22 @@ function_groups:
       - searchEligiblePosts
       - searchCommunities
       - searchCommunityNotesWritten
+    # Daedalus consumes approval_policy from the raw workflow YAML before NAT
+    # builds the MCP client. Only exact read_only entries bypass confirm_action;
+    # omitted or approval_required tools remain fail-closed.
+    tool_overrides:
+      searchSpaces:
+        approval_policy: read_only
+      searchPostsRecent:
+        approval_policy: read_only
+      searchPostsAll:
+        approval_policy: read_only
+      searchEligiblePosts:
+        approval_policy: read_only
+      searchCommunities:
+        approval_policy: read_only
+      searchCommunityNotesWritten:
+        approval_policy: read_only
     tool_call_timeout: 60
     auth_flow_timeout: 30
     reconnect_enabled: true
@@ -98,13 +114,17 @@ function_groups:
     use_native_tool_calling: true
     tool_overrides:
       search_threads:
+        approval_policy: read_only
         description: >-
           Search the authenticated user's Gmail threads. Args: query
           (Gmail search syntax). Returns matching thread summaries.
       get_thread:
+        approval_policy: read_only
         description: >-
           Read one Gmail thread by id for the authenticated user. Use
           after search_threads when full message context is needed.
+      list_labels:
+        approval_policy: read_only
     server:
       auth_provider: gmail_mcp_server
       transport: streamable-http
@@ -120,18 +140,25 @@ function_groups:
     reconnect_initial_backoff: 5.0
     reconnect_max_backoff: 60.0
     use_native_tool_calling: true
+    tool_overrides:
+      list_calendars:
+        approval_policy: read_only
     server:
       auth_provider: calendar_mcp_server
       transport: streamable-http
       url: https://calendarmcp.googleapis.com/mcp/v1
   k8s_mcp_server:
     _type: mcp_client
-    # Explicitly limited to the reviewed read-only operations in
-    # builder/mcp_patches.py. Other Kubernetes operations stay unavailable
-    # unless they are intentionally added to both places and reviewed.
+    # Explicitly limited to reviewed operations. The approval decision lives
+    # beside each tool below so MCP expansion has one configuration surface.
     include:
       - getClusterSummary
       - listContexts
+    tool_overrides:
+      getClusterSummary:
+        approval_policy: read_only
+      listContexts:
+        approval_policy: read_only
     tool_call_timeout: 60
     auth_flow_timeout: 30
     reconnect_enabled: true
@@ -146,12 +173,16 @@ function_groups:
       auth_provider: k8s_mcp_server
   unifi_mcp_server:
     _type: mcp_client
-    # Explicitly limited to the reviewed read-only operations in
-    # builder/mcp_patches.py. Other UniFi operations stay unavailable unless
-    # they are intentionally added to both places and reviewed.
+    # Other UniFi operations remain unavailable unless intentionally exposed;
+    # exposed tools without read_only remain approval-gated.
     include:
       - listSites
       - getInfo
+    tool_overrides:
+      listSites:
+        approval_policy: read_only
+      getInfo:
+        approval_policy: read_only
     tool_call_timeout: 60
     auth_flow_timeout: 30
     reconnect_enabled: true
@@ -703,6 +734,10 @@ workflow:
     - Stop retrieving when the evidence is sufficient to answer accurately.
     - If a tool fails, make one targeted retry or use one useful fallback unless
       the tool contract specifies otherwise. Do not loop.
+    - If a tool reports an operator-managed provider quota, rate limit, billing,
+      or server credential failure, explicitly tell the user in the final answer
+      even when a fallback succeeds. Do not present it as a user authorization
+      problem and do not silently omit the affected source.
     - MCP authentication has two scopes. Kubernetes and UniFi use shared,
       operator-managed API keys; a shared-auth failure is an operator incident,
       cannot be fixed by user consent or confirm_action, and must not be retried

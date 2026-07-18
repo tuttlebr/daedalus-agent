@@ -25,8 +25,10 @@ import logging
 import os
 import re
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 import httpx
+import yaml
 
 logger = logging.getLogger("daedalus.mcp_patches")
 
@@ -59,6 +61,19 @@ _mcp_recovery_attempted: set[str] = set()
 # canonical logical identity without hard-coded endpoint aliases.
 _mcp_server_group_names: dict[str, str] = {}
 _ambiguous_mcp_servers: set[str] = set()
+
+# Repository-owned tool authorization is loaded from the deployed NAT workflow
+# YAML before the approval gate is installed.  NAT 1.7 accepts additional keys
+# inside ``tool_overrides`` but does not retain them in its runtime model, so
+# this pinned adapter consumes the Daedalus-only ``approval_policy`` field from
+# the same source file. Missing entries remain approval-gated and unknown
+# values fail startup.
+_approval_policy_configured = False
+_READ_ONLY_APPROVAL_POLICY = "read_only"
+_APPROVAL_REQUIRED_POLICY = "approval_required"
+_SUPPORTED_APPROVAL_POLICIES = frozenset(
+    {_READ_ONLY_APPROVAL_POLICY, _APPROVAL_REQUIRED_POLICY}
+)
 
 # Startup is different from runtime: every MCP group is built serially inside
 # ASGI lifespan. Give each group one bounded chance, then start without it. The
@@ -187,29 +202,11 @@ _MUTATING_TOOL_TOKENS = frozenset(
 
 _WORD_SPLIT_RE = re.compile(r"[^a-z0-9]+")
 
-# This is an authorization registry, not a discovery cache. Only operations
-# reviewed in this repository may bypass approval. Adding an MCP tool to a NAT
-# `include:` list does not make it read-only automatically.
-_LOCAL_READ_ONLY_MCP_TOOLS: dict[str, frozenset[str]] = {
-    "x_mcp_server": frozenset(
-        {
-            "searchspaces",
-            "searchpostsrecent",
-            "searchpostsall",
-            "searcheligibleposts",
-            "searchcommunities",
-            "searchcommunitynoteswritten",
-        }
-    ),
-    "gmail_mcp_server": frozenset({"search_threads", "get_thread", "list_labels"}),
-    "calendar_mcp_server": frozenset({"list_calendars"}),
-    # These server-specific operations are explicitly read-only.  Keep this
-    # registry in exact sync with the corresponding function-group `include:`
-    # lists: an MCP tool name is never authorized merely because it sounds
-    # read-like.
-    "k8s_mcp_server": frozenset({"getclustersummary", "listcontexts"}),
-    "unifi_mcp_server": frozenset({"listsites", "getinfo"}),
-}
+# This runtime registry is authorization evidence, not a discovery cache. It is
+# populated only from exact ``tool_overrides.<tool>.approval_policy: read_only``
+# declarations in the deployed workflow configuration. Adding a tool to an MCP
+# ``include`` list never authorizes it automatically.
+_LOCAL_READ_ONLY_MCP_TOOLS: dict[str, frozenset[str]] = {}
 
 # API-key values must never appear in logs.  Still, operators need a clear
 # startup signal when a rendered deployment has omitted the environment
@@ -222,6 +219,126 @@ _STATIC_MCP_API_KEY_ENVIRONMENTS = {
 }
 
 _PER_USER_MCP_OAUTH_SERVERS = frozenset({"gmail_mcp_server", "calendar_mcp_server"})
+
+
+def _bind_configured_mcp_endpoint(
+    physical_name: str,
+    logical_name: str,
+    endpoint_map: dict[str, str],
+    ambiguous_endpoints: set[str],
+) -> None:
+    """Bind one configured endpoint to its logical function-group name."""
+
+    if not physical_name or physical_name in ambiguous_endpoints:
+        return
+    previous = endpoint_map.get(physical_name)
+    if previous and previous != logical_name:
+        endpoint_map.pop(physical_name, None)
+        ambiguous_endpoints.add(physical_name)
+        return
+    endpoint_map[physical_name] = logical_name
+
+
+def configure_mcp_approval_policy(config_path: str | os.PathLike[str]) -> None:
+    """Load exact MCP authorization declarations from the deployed YAML.
+
+    ``approval_policy: read_only`` is the sole configuration value that can
+    bypass human approval. ``approval_required`` is an optional explicit marker
+    and has the same fail-closed behavior as an omitted policy. Policy entries
+    for tools outside the group's ``include`` list are rejected as stale.
+    """
+
+    global _LOCAL_READ_ONLY_MCP_TOOLS, _approval_policy_configured
+
+    path = Path(config_path)
+    try:
+        raw_config = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except (OSError, yaml.YAMLError) as exc:
+        raise RuntimeError(f"Unable to load MCP approval policy from {path}") from exc
+    if not isinstance(raw_config, dict):
+        raise RuntimeError(f"MCP approval policy config is not a mapping: {path}")
+
+    function_groups = raw_config.get("function_groups", {})
+    if not isinstance(function_groups, dict):
+        raise RuntimeError(f"function_groups is not a mapping in {path}")
+
+    read_only_registry: dict[str, frozenset[str]] = {}
+    configured_endpoints: dict[str, str] = {}
+    ambiguous_endpoints: set[str] = set()
+
+    for raw_group_name, raw_group in function_groups.items():
+        if not isinstance(raw_group_name, str) or not isinstance(raw_group, dict):
+            continue
+        if raw_group.get("_type") not in {"mcp_client", "per_user_mcp_client"}:
+            continue
+
+        group_name = raw_group_name.casefold()
+        raw_include = raw_group.get("include", []) or []
+        if not isinstance(raw_include, list):
+            raise RuntimeError(
+                f"function_groups.{raw_group_name}.include must be a list"
+            )
+        included = {
+            str(tool).strip().casefold() for tool in raw_include if str(tool).strip()
+        }
+        overrides = raw_group.get("tool_overrides", {}) or {}
+        if not isinstance(overrides, dict):
+            raise RuntimeError(
+                f"function_groups.{raw_group_name}.tool_overrides must be a mapping"
+            )
+
+        read_only_tools: set[str] = set()
+        for raw_tool_name, raw_override in overrides.items():
+            if not isinstance(raw_override, dict):
+                continue
+            raw_policy = raw_override.get("approval_policy")
+            if raw_policy is None:
+                continue
+            policy = str(raw_policy).strip().casefold()
+            if policy not in _SUPPORTED_APPROVAL_POLICIES:
+                raise RuntimeError(
+                    "Unsupported MCP approval policy "
+                    f"{raw_policy!r} for {raw_group_name}.{raw_tool_name}"
+                )
+            tool_name = str(raw_tool_name).strip().casefold()
+            if tool_name not in included:
+                raise RuntimeError(
+                    "MCP approval policy references a tool outside include: "
+                    f"{raw_group_name}.{raw_tool_name}"
+                )
+            if policy == _READ_ONLY_APPROVAL_POLICY:
+                if _is_mutating_mcp_call(str(raw_tool_name), {}):
+                    raise RuntimeError(
+                        "MCP read-only policy conflicts with local mutation "
+                        f"detection: {raw_group_name}.{raw_tool_name}"
+                    )
+                read_only_tools.add(tool_name)
+
+        if read_only_tools:
+            read_only_registry[group_name] = frozenset(read_only_tools)
+
+        server = raw_group.get("server", {})
+        if isinstance(server, dict):
+            transport = str(server.get("transport") or "streamable-http").strip()
+            endpoint = os.path.expandvars(str(server.get("url") or "").strip())
+            if endpoint and "${" not in endpoint:
+                _bind_configured_mcp_endpoint(
+                    f"{transport}:{endpoint}",
+                    raw_group_name,
+                    configured_endpoints,
+                    ambiguous_endpoints,
+                )
+
+    _LOCAL_READ_ONLY_MCP_TOOLS = read_only_registry
+    _mcp_server_group_names.update(configured_endpoints)
+    _ambiguous_mcp_servers.update(ambiguous_endpoints)
+    _approval_policy_configured = True
+    logger.info(
+        "Loaded MCP approval policy: config=%s groups=%d read_only_tools=%d",
+        path,
+        len(read_only_registry),
+        sum(len(tools) for tools in read_only_registry.values()),
+    )
 
 
 def _api_key_environment_is_configured(environment_name: str) -> bool:
@@ -1024,9 +1141,21 @@ async def _connect_with_graceful_teardown(upstream_context, url):
             raise
 
 
-def patch():
+def patch(config_path: str | os.PathLike[str] | None = None):
     """Apply pinned MCP policy and lifecycle adapters. Safe to call repeatedly."""
     global _patched
+
+    if config_path is not None:
+        configure_mcp_approval_policy(config_path)
+    elif not _approval_policy_configured:
+        configured_path = os.getenv("NAT_CONFIG_FILE", "").strip()
+        if configured_path:
+            configure_mcp_approval_policy(configured_path)
+        else:
+            logger.warning(
+                "No NAT_CONFIG_FILE supplied for MCP approval policy; all MCP "
+                "tools remain approval-gated"
+            )
     if _patched:
         return
 

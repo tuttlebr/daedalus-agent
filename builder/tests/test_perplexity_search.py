@@ -132,7 +132,7 @@ def test_missing_api_key_returns_readable_error(monkeypatch):
     assert "PERPLEXITY_SEARCH_API_KEY" in run(_run())
 
 
-def test_http_error_returns_status():
+def test_rate_limit_is_explicitly_user_visible():
     import perplexity_search.perplexity_search_function as mod
     from perplexity_search.perplexity_search_function import PerplexitySearchConfig
 
@@ -144,7 +144,37 @@ def test_http_error_returns_status():
             )
             return await search(query="nvidia")
 
-    assert run(_run()) == "Error: Perplexity Search returned status 429."
+    output = run(_run())
+    assert "server-side rate limit" in output
+    assert "Report this limitation to the user" in output
+    assert "do not retry" in output
+
+
+def test_server_side_quota_exhaustion_is_explicitly_user_visible():
+    import perplexity_search.perplexity_search_function as mod
+    from perplexity_search.perplexity_search_function import PerplexitySearchConfig
+
+    async def _run():
+        FakeAsyncClient.response = FakeResponse(
+            status_code=401,
+            data={
+                "error": {
+                    "message": "You exceeded your current quota",
+                    "type": "insufficient_quota",
+                    "code": 401,
+                }
+            },
+        )
+        with patch.object(mod.httpx, "AsyncClient", FakeAsyncClient):
+            search = await _registered_search_fn(
+                PerplexitySearchConfig(api_key="test-key"),
+            )
+            return await search(query="nvidia")
+
+    output = run(_run())
+    assert "server-side API quota is exhausted" in output
+    assert "operator billing or quota change" in output
+    assert "Report this limitation to the user" in output
 
 
 def test_build_payload_ignores_incomplete_results():

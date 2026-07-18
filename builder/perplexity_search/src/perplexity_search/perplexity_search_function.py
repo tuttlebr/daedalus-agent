@@ -208,6 +208,56 @@ def _build_markdown_summary(payload: dict) -> str:
     return "\n".join(lines)
 
 
+def _http_error_for_user(response) -> str:
+    """Translate provider failures into safe, user-actionable tool output."""
+
+    status_code = int(getattr(response, "status_code", 0) or 0)
+    error_code = ""
+    error_type = ""
+    error_message = ""
+    try:
+        body = response.json()
+    except (TypeError, ValueError):
+        body = {}
+    if isinstance(body, dict):
+        error = body.get("error", body)
+        if isinstance(error, dict):
+            error_code = str(error.get("code") or "").casefold()
+            error_type = str(error.get("type") or "").casefold()
+            error_message = str(error.get("message") or "").casefold()
+
+    quota_exhausted = (
+        "insufficient_quota" in {error_code, error_type}
+        or "exceeded your current quota" in error_message
+        or "quota" in error_message
+    )
+    if quota_exhausted:
+        return (
+            "Error: Perplexity Search is unavailable because the server-side "
+            "API quota is exhausted. Report this limitation to the user. It "
+            "requires an operator billing or quota change; do not retry this "
+            "tool in the same turn."
+        )
+    if status_code == 429:
+        return (
+            "Error: Perplexity Search is temporarily unavailable because the "
+            "server-side rate limit was reached. Report this limitation to the "
+            "user and do not retry this tool in the same turn."
+        )
+    if status_code in {401, 403}:
+        return (
+            "Error: Perplexity Search is unavailable because its operator-managed "
+            "server credential was rejected. Report this limitation to the user; "
+            "user authorization cannot fix it, and this tool must not be retried "
+            "in the same turn."
+        )
+    return (
+        f"Error: Perplexity Search failed with provider status {status_code}. "
+        "Report the provider failure to the user and do not retry this tool "
+        "unchanged in the same turn."
+    )
+
+
 @register_function(config_type=PerplexitySearchConfig)
 async def perplexity_search_function(config: PerplexitySearchConfig, builder: Builder):
     api_key = config.api_key or os.environ.get("PERPLEXITY_SEARCH_API_KEY", "")
@@ -293,9 +343,7 @@ async def perplexity_search_function(config: PerplexitySearchConfig, builder: Bu
                 exc.response.status_code,
                 exc.response.text[:500],
             )
-            return (
-                f"Error: Perplexity Search returned status {exc.response.status_code}."
-            )
+            return _http_error_for_user(exc.response)
         except httpx.RequestError as exc:
             logger.error("Perplexity Search request failed: %s", exc)
             return f"Error: Could not reach Perplexity Search: {exc}"
@@ -318,7 +366,8 @@ async def perplexity_search_function(config: PerplexitySearchConfig, builder: Bu
                 "information, source lookup, and citation candidate gathering. "
                 "Supports optional country, domain, language, recency, and date "
                 "filters. Returns compact markdown plus structured searchresults "
-                "data for rich UI rendering."
+                "data for rich UI rendering. Provider quota, rate-limit, and "
+                "credential failures are explicit and must be reported to the user."
             ),
         )
     except GeneratorExit:

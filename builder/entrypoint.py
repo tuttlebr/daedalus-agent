@@ -100,10 +100,10 @@ def main():
     # Apply MCP StreamableHTTP timeout + resilience patches before NAT imports
     import mcp_patches
 
-    mcp_patches.patch()
+    config = os.environ.get("NAT_CONFIG_FILE", "/workspace/config.yaml")
+    mcp_patches.patch(config_path=config)
 
     # Build sys.argv to simulate: nat serve --config_file=... --host=... --port=...
-    config = os.environ.get("NAT_CONFIG_FILE", "/workspace/config.yaml")
     host = os.environ.get("NAT_HOST", "0.0.0.0")  # nosec B104 — container requires all-interface bind
     port = os.environ.get("NAT_PORT", "8000")
 
