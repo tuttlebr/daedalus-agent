@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Daily Summary — {{summary.date_display}}</title>
+
+    <!--
+      Self-contained dark theme. No external CSS/CDN on purpose: the page must
+      render identically wherever it is opened, including sandboxes with no
+      network. NVIDIA Sans first with safe fallbacks; NVIDIA Green used sparingly
+      as the single accent.
+    -->
+    <style>
+      :root {
+        --nv-green: #76b900;
+        --nv-green-dim: #5c9400;
+        --bg: #0b0d10;
+        --panel: #14171c;
+        --panel-2: #1b1f26;
+        --panel-3: #232833;
+        --text: #f4f6f9;
+        --muted: #9aa4b2;
+        --line: #2a2f38;
+        --ok: #76b900;
+        --warn: #ffcc66;
+        --danger: #ff6b6b;
+        --info: #6fb2ff;
+        --radius: 18px;
+      }
+
+      * { box-sizing: border-box; }
+      html, body { margin: 0; padding: 0; }
+
+      body {
+        background: var(--bg);
+        color: var(--text);
+        font-family: "NVIDIA Sans", "Segoe UI", Arial, sans-serif;
+        line-height: 1.5;
+        -webkit-font-smoothing: antialiased;
+      }
+
+      a { color: var(--nv-green); text-decoration: none; }
+      a:hover { text-decoration: underline; }
+
+      .page { max-width: 1200px; margin: 0 auto; padding: 32px 20px 56px; }
+
+      /* Responsive 12-column grid without a framework. */
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(12, 1fr);
+        gap: 16px;
+        margin-top: 16px;
+      }
+      .span-12 { grid-column: span 12; }
+      .span-8 { grid-column: span 8; }
+      .span-6 { grid-column: span 6; }
+      .span-4 { grid-column: span 4; }
+      @media (max-width: 900px) {
+        .span-8, .span-6, .span-4 { grid-column: span 12; }
+      }
+
+      /* Hero */
+      .hero {
+        border: 1px solid var(--line);
+        border-radius: 24px;
+        padding: 30px 32px;
+        background:
+          radial-gradient(1200px 300px at 0% -20%, rgba(118, 185, 0, 0.16), transparent 60%),
+          linear-gradient(180deg, #161a20, #0f1216);
+        box-shadow: 0 20px 50px rgba(0, 0, 0, 0.35);
+      }
+      .eyebrow {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        color: var(--nv-green);
+        font-weight: 700;
+        font-size: 12px;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        margin-bottom: 14px;
+      }
+      .eyebrow::before {
+        content: "";
+        width: 32px;
+        height: 4px;
+        border-radius: 999px;
+        background: var(--nv-green);
+      }
+      .hero h1 {
+        margin: 0;
+        font-size: clamp(30px, 4.5vw, 50px);
+        font-weight: 800;
+        letter-spacing: -0.03em;
+        line-height: 1.05;
+      }
+      .stamp { color: var(--muted); font-size: 14px; margin-top: 14px; font-weight: 600; }
+      .stamp strong { color: var(--text); }
+      .lede { color: var(--muted); font-size: 17px; max-width: 820px; margin: 10px 0 0; }
+      .pills { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 18px; }
+      .pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        border: 1px solid var(--line);
+        background: var(--panel-2);
+        color: var(--text);
+        padding: 7px 12px;
+        border-radius: 999px;
+        font-size: 12.5px;
+        font-weight: 600;
+      }
+      .dot { width: 9px; height: 9px; border-radius: 999px; background: var(--ok); flex: 0 0 auto; }
+      .dot.warn { background: var(--warn); }
+      .dot.danger { background: var(--danger); }
+      .dot.info { background: var(--info); }
+
+      /* Cards */
+      .card {
+        border: 1px solid var(--line);
+        background: var(--panel);
+        border-radius: var(--radius);
+        padding: 20px 20px 22px;
+        height: 100%;
+      }
+      .card.alt { background: var(--panel-2); }
+      .card h2 {
+        margin: 0 0 14px;
+        font-size: 13px;
+        font-weight: 800;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        color: var(--muted);
+        display: flex;
+        align-items: center;
+        gap: 9px;
+      }
+      .card h2::before {
+        content: "";
+        width: 8px;
+        height: 8px;
+        border-radius: 2px;
+        background: var(--nv-green);
+      }
+      .lead { font-size: 18px; font-weight: 700; margin: 0 0 10px; letter-spacing: -0.01em; }
+      .muted { color: var(--muted); }
+
+      ul.list { list-style: none; margin: 8px 0 0; padding: 0; }
+      ul.list > li { padding: 9px 0; border-top: 1px solid rgba(154, 164, 178, 0.16); font-size: 14.5px; }
+      ul.list > li:first-child { border-top: 0; padding-top: 0; }
+      ul.list strong { color: var(--text); }
+
+      /* Stat tiles for cluster / network */
+      .stats { display: flex; flex-wrap: wrap; gap: 10px; margin: 2px 0 8px; }
+      .stat {
+        flex: 1 1 90px;
+        background: var(--panel-3);
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        padding: 10px 12px;
+      }
+      .stat .n { font-size: 22px; font-weight: 800; letter-spacing: -0.02em; }
+      .stat .l { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; margin-top: 2px; }
+      .stat.ok .n { color: var(--ok); }
+      .stat.warn .n { color: var(--warn); }
+      .stat.danger .n { color: var(--danger); }
+
+      /* Schedule rows */
+      .sched {
+        display: grid;
+        grid-template-columns: 84px 1fr;
+        gap: 12px;
+        align-items: start;
+        padding: 10px 0;
+        border-top: 1px solid rgba(154, 164, 178, 0.16);
+      }
+      .sched:first-of-type { border-top: 0; padding-top: 2px; }
+      .sched .t { font-weight: 800; color: var(--nv-green); font-size: 14px; }
+      .sched .ttl { font-weight: 700; }
+      .sched .sub { color: var(--muted); font-size: 13px; }
+
+      /* Numbered actions */
+      ol.actions { list-style: none; counter-reset: a; margin: 6px 0 0; padding: 0; }
+      ol.actions > li {
+        counter-increment: a;
+        display: grid;
+        grid-template-columns: 30px 1fr;
+        gap: 12px;
+        padding: 10px 0;
+        border-top: 1px solid rgba(154, 164, 178, 0.16);
+      }
+      ol.actions > li:first-child { border-top: 0; }
+      ol.actions > li::before {
+        content: counter(a);
+        width: 26px;
+        height: 26px;
+        border-radius: 8px;
+        background: var(--nv-green);
+        color: #0a1200;
+        font-weight: 900;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 14px;
+      }
+      ol.actions .r { color: var(--muted); font-size: 13px; }
+
+      code {
+        background: var(--panel-3);
+        padding: 0.1rem 0.35rem;
+        border-radius: 0.35rem;
+        font-size: 0.88em;
+        color: #dbe7c4;
+      }
+      .foot { margin-top: 24px; color: var(--muted); font-size: 12.5px; text-align: center; }
+    </style>
+  </head>
+
+  <body>
+    <main class="page">
+      <!-- HERO: the day, grounded in the real current date/time -->
+      <section class="hero">
+        <div class="eyebrow">Daily Summary</div>
+        <h1>{{hero.headline}}</h1>
+        <p class="stamp">
+          <strong>{{summary.weekday}}, {{summary.date_display}}</strong>
+          · Generated {{summary.generated_time}} {{summary.timezone}}
+        </p>
+        <p class="lede">{{hero.summary_paragraph}}</p>
+        <div class="pills">
+          {{#each hero.pills}}
+          <span class="pill"><span class="dot {{this.status_class}}"></span>{{this.label}}</span>
+          {{/each}}
+        </div>
+      </section>
+
+      <div class="grid">
+        <!-- WEATHER -->
+        {{#if weather}}
+        <section class="card span-4">
+          <h2>Weather · Saline, MI</h2>
+          <p class="lead">{{weather.headline}}</p>
+          <p class="muted">{{weather.current_conditions}}</p>
+          <ul class="list">
+            {{#each weather.bullets}}<li>{{this}}</li>{{/each}}
+          </ul>
+        </section>
+        {{/if}}
+
+        <!-- KUBERNETES: live/active status only, never event-log history -->
+        {{#if kubernetes}}
+        <section class="card span-4">
+          <h2>Kubernetes · Live Status</h2>
+          <p class="lead">{{kubernetes.headline}}</p>
+          <div class="stats">
+            {{#each kubernetes.stats}}
+            <div class="stat {{this.status_class}}">
+              <div class="n">{{this.value}}</div>
+              <div class="l">{{this.label}}</div>
+            </div>
+            {{/each}}
+          </div>
+          <ul class="list">
+            {{#each kubernetes.bullets}}<li>{{this}}</li>{{/each}}
+          </ul>
+        </section>
+        {{/if}}
+
+        <!-- NETWORK: current UniFi health -->
+        {{#if network}}
+        <section class="card span-4">
+          <h2>Network · UniFi</h2>
+          <p class="lead">{{network.headline}}</p>
+          <div class="stats">
+            {{#each network.stats}}
+            <div class="stat {{this.status_class}}">
+              <div class="n">{{this.value}}</div>
+              <div class="l">{{this.label}}</div>
+            </div>
+            {{/each}}
+          </div>
+          <ul class="list">
+            {{#each network.bullets}}<li>{{this}}</li>{{/each}}
+          </ul>
+        </section>
+        {{/if}}
+
+        <!-- CALENDAR -->
+        {{#if calendar.items}}
+        <section class="card span-6">
+          <h2>Calendar & Commitments</h2>
+          {{#each calendar.items}}
+          <div class="sched">
+            <div class="t">{{this.time}}</div>
+            <div>
+              <div class="ttl">{{this.title}}</div>
+              <div class="sub">{{this.detail}}</div>
+            </div>
+          </div>
+          {{/each}}
+        </section>
+        {{/if}}
+
+        <!-- EMAIL -->
+        {{#if email.items}}
+        <section class="card span-6 alt">
+          <h2>Inbox · Needs Attention</h2>
+          <ul class="list">
+            {{#each email.items}}
+            <li><strong>{{this.sender}}</strong> — {{this.subject}}<div class="sub muted">{{this.note}}</div></li>
+            {{/each}}
+          </ul>
+        </section>
+        {{/if}}
+
+        <!-- SPORTS -->
+        {{#if sports.items}}
+        <section class="card span-6">
+          <h2>Sports Watch</h2>
+          <ul class="list">
+            {{#each sports.items}}
+            <li><strong>{{this.team}}:</strong> {{this.summary}}</li>
+            {{/each}}
+          </ul>
+        </section>
+        {{/if}}
+
+        <!-- NEWS -->
+        {{#if news.items}}
+        <section class="card span-6 alt">
+          <h2>News & Interests</h2>
+          <ul class="list">
+            {{#each news.items}}
+            <li>
+              <strong>{{this.headline}}</strong>
+              <span class="muted">— {{this.summary}}</span>
+              {{#if this.url}}· <a href="{{this.url}}" target="_blank" rel="noopener noreferrer">{{this.source}}</a>{{/if}}
+            </li>
+            {{/each}}
+          </ul>
+        </section>
+        {{/if}}
+
+        <!-- MUST KNOW -->
+        {{#if must_know.items}}
+        <section class="card span-6">
+          <h2>Must Know</h2>
+          <ul class="list">
+            {{#each must_know.items}}<li>{{this}}</li>{{/each}}
+          </ul>
+        </section>
+        {{/if}}
+
+        <!-- NEXT BEST ACTIONS -->
+        {{#if actions.items}}
+        <section class="card span-6 alt">
+          <h2>Next Best Actions</h2>
+          <ol class="actions">
+            {{#each actions.items}}
+            <li>
+              <div>
+                <div class="ttl"><strong>{{this.title}}</strong></div>
+                <div class="r">{{this.reason}}</div>
+              </div>
+            </li>
+            {{/each}}
+          </ol>
+        </section>
+        {{/if}}
+
+        <!-- SOURCES -->
+        {{#if sources.items}}
+        <section class="card span-12">
+          <h2>Sources Checked</h2>
+          <ul class="list">
+            {{#each sources.items}}
+            <li>
+              {{this.label}}{{#if this.url}} · <a href="{{this.url}}" target="_blank" rel="noopener noreferrer">{{this.display_url}}</a>{{/if}}
+            </li>
+            {{/each}}
+          </ul>
+        </section>
+        {{/if}}
+      </div>
+
+      <p class="foot">
+        Generated {{summary.weekday}}, {{summary.date_display}} at {{summary.generated_time}} {{summary.timezone}} · Daedalus Daily Summary
+      </p>
+    </main>
+  </body>
+</html>
