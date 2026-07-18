@@ -5,12 +5,6 @@ authentication:
     custom_header_name: Authorization
     custom_header_prefix: Bearer
     raw_key: ${KUBERNETES_MCP_TOKEN}
-  xai_mcp_server:
-    _type: api_key
-    auth_scheme: Custom
-    custom_header_name: Authorization
-    custom_header_prefix: Bearer
-    raw_key: ${X_MCP_BEARER_TOKEN}
   unifi_mcp_server:
     _type: api_key
     auth_scheme: Custom
@@ -72,6 +66,29 @@ embedders:
 function_groups:
   x_mcp_server:
     _type: mcp_client
+    include:
+      - searchSpaces
+      - searchPostsRecent
+      - searchPostsAll
+      - searchEligiblePosts
+      - searchCommunities
+      - searchCommunityNotesWritten
+    # Daedalus consumes approval_policy from the raw workflow YAML before NAT
+    # builds the MCP client. Only exact read_only entries bypass confirm_action;
+    # omitted or approval_required tools remain fail-closed.
+    tool_overrides:
+      searchSpaces:
+        approval_policy: read_only
+      searchPostsRecent:
+        approval_policy: read_only
+      searchPostsAll:
+        approval_policy: read_only
+      searchEligiblePosts:
+        approval_policy: read_only
+      searchCommunities:
+        approval_policy: read_only
+      searchCommunityNotesWritten:
+        approval_policy: read_only
     tool_call_timeout: 60
     auth_flow_timeout: 30
     reconnect_enabled: true
@@ -82,10 +99,13 @@ function_groups:
     session_idle_timeout: 600
     server:
       transport: streamable-http
-      url: https://api.x.com/mcp
-      auth_provider: xai_mcp_server
+      url: http://xmcp.xmcp.svc.cluster.local:8000/mcp
   gmail_mcp_server:
     _type: per_user_mcp_client
+    include:
+      - search_threads
+      - get_thread
+      - list_labels
     tool_call_timeout: 60
     auth_flow_timeout: 600
     reconnect_enabled: true
