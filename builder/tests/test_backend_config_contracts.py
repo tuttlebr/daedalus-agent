@@ -701,6 +701,7 @@ def test_shared_api_key_mcp_auth_is_operator_managed():
     for path in DEPLOYED_CONFIGS:
         config = _config(path)
         for name, env_name in (
+            ("x_mcp_server", "X_MCP_BEARER_TOKEN"),
             ("k8s_mcp_server", "KUBERNETES_MCP_TOKEN"),
             ("unifi_mcp_server", "UNIFI_MCP_TOKEN"),
         ):
@@ -725,12 +726,23 @@ def test_interactive_extensions_are_enabled_for_mcp_oauth():
 def test_mcp_approval_policy_follows_explicit_include_lists():
     allowlisted = {
         "x_mcp_server": {
-            "searchSpaces",
-            "searchPostsRecent",
-            "searchPostsAll",
-            "searchEligiblePosts",
-            "searchCommunities",
-            "searchCommunityNotesWritten",
+            "search_news",
+            "get_news",
+            "get_trends_by_woeid",
+            "get_posts_by_ids",
+            "get_posts_counts_recent",
+            "search_posts_all",
+            "get_posts_by_id",
+            "get_posts_liking_users",
+            "get_posts_quoted_posts",
+            "get_posts_reposted_by",
+            "get_users_by_usernames",
+            "get_users_by_username",
+            "search_users",
+            "get_users_by_id",
+            "get_users_mentions",
+            "get_users_timeline",
+            "get_users_posts",
         },
         "gmail_mcp_server": {"search_threads", "get_thread", "list_labels"},
     }

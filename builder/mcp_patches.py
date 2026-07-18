@@ -227,6 +227,7 @@ _UNRESTRICTED_MUTATION_APPROVAL_REASON = "unrestricted-mutation"
 # only the repository-owned static API-key providers; OAuth providers report
 # their own per-user authorization state.
 _STATIC_MCP_API_KEY_ENVIRONMENTS = {
+    "x_mcp_server": "X_MCP_BEARER_TOKEN",
     "k8s_mcp_server": "KUBERNETES_MCP_TOKEN",
     "unifi_mcp_server": "UNIFI_MCP_TOKEN",
 }

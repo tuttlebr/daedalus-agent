@@ -494,7 +494,7 @@ def test_additional_destructive_verbs_require_token(tool_name):
         ("gmail_mcp_server", "get_thread", {}, "read-only"),
         ("calendar_mcp_server", "list_calendars", {}, "unrestricted"),
         ("calendar_mcp_server", "list_events", {}, "unrestricted"),
-        ("x_mcp_server", "searchSpaces", {"query": "foo"}, "read-only"),
+        ("x_mcp_server", "search_posts_all", {"query": "foo"}, "read-only"),
     ],
 )
 def test_exact_local_read_only_tools_are_not_over_gated(
@@ -541,6 +541,7 @@ def test_unrestricted_infrastructure_mutations_do_not_need_token(server_name):
 def test_api_key_environment_configuration_log_is_presence_only(monkeypatch, caplog):
     secret = "do-not-log-this-api-key"
     monkeypatch.setenv("KUBERNETES_MCP_TOKEN", secret)
+    monkeypatch.delenv("X_MCP_BEARER_TOKEN", raising=False)
     monkeypatch.delenv("UNIFI_MCP_TOKEN", raising=False)
 
     with caplog.at_level("INFO", logger="daedalus.mcp_patches"):
@@ -548,6 +549,10 @@ def test_api_key_environment_configuration_log_is_presence_only(monkeypatch, cap
 
     assert (
         "server=k8s_mcp_server environment=KUBERNETES_MCP_TOKEN configured=True"
+        in caplog.text
+    )
+    assert (
+        "server=x_mcp_server environment=X_MCP_BEARER_TOKEN configured=False"
         in caplog.text
     )
     assert (

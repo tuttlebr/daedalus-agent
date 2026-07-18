@@ -241,11 +241,6 @@ spec:
         - matchLabels:
             io.kubernetes.pod.namespace: daedalus-dynamo
 
-    # X MCP services
-    - toEndpoints:
-        - matchLabels:
-            io.kubernetes.pod.namespace: xmcp
-
     # ── External FQDN allowlist (HTTPS only) ────────────────────────
     # NVIDIA inference & model APIs
     - toFQDNs:
@@ -270,8 +265,9 @@ spec:
             - port: "443"
               protocol: TCP
 
-    # MCP servers (GitHub Copilot, Google Workspace, NVIDIA docs)
+    # MCP servers (X, GitHub Copilot, Google Workspace, NVIDIA docs)
     - toFQDNs:
+        - matchName: "api.x.com"
         - matchName: "api.githubcopilot.com"
         - matchName: "api.github.com"
         - matchPattern: "*.github.com"

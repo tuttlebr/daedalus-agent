@@ -1,4 +1,10 @@
 authentication:
+  x_mcp_server:
+    _type: api_key
+    auth_scheme: Custom
+    custom_header_name: Authorization
+    custom_header_prefix: Bearer
+    raw_key: ${X_MCP_BEARER_TOKEN}
   k8s_mcp_server:
     _type: api_key
     auth_scheme: Custom
@@ -67,28 +73,61 @@ function_groups:
   x_mcp_server:
     _type: mcp_client
     include:
-      - searchSpaces
-      - searchPostsRecent
-      - searchPostsAll
-      - searchEligiblePosts
-      - searchCommunities
-      - searchCommunityNotesWritten
+      - search_news
+      - get_news
+      - get_trends_by_woeid
+      - get_posts_by_ids
+      - get_posts_counts_recent
+      - search_posts_all
+      - get_posts_by_id
+      - get_posts_liking_users
+      - get_posts_quoted_posts
+      - get_posts_reposted_by
+      - get_users_by_usernames
+      - get_users_by_username
+      - search_users
+      - get_users_by_id
+      - get_users_mentions
+      - get_users_timeline
+      - get_users_posts
     # For this explicitly allowlisted group, Daedalus consumes approval_policy
     # from the raw workflow YAML before NAT builds the MCP client. Only exact
     # read_only entries bypass confirm_action; omitted or approval_required
     # tools remain fail-closed.
     tool_overrides:
-      searchSpaces:
+      search_news:
         approval_policy: read_only
-      searchPostsRecent:
+      get_news:
         approval_policy: read_only
-      searchPostsAll:
+      get_trends_by_woeid:
         approval_policy: read_only
-      searchEligiblePosts:
+      get_posts_by_ids:
         approval_policy: read_only
-      searchCommunities:
+      get_posts_counts_recent:
         approval_policy: read_only
-      searchCommunityNotesWritten:
+      search_posts_all:
+        approval_policy: read_only
+      get_posts_by_id:
+        approval_policy: read_only
+      get_posts_liking_users:
+        approval_policy: read_only
+      get_posts_quoted_posts:
+        approval_policy: read_only
+      get_posts_reposted_by:
+        approval_policy: read_only
+      get_users_by_usernames:
+        approval_policy: read_only
+      get_users_by_username:
+        approval_policy: read_only
+      search_users:
+        approval_policy: read_only
+      get_users_by_id:
+        approval_policy: read_only
+      get_users_mentions:
+        approval_policy: read_only
+      get_users_timeline:
+        approval_policy: read_only
+      get_users_posts:
         approval_policy: read_only
     tool_call_timeout: 60
     auth_flow_timeout: 30
@@ -100,7 +139,8 @@ function_groups:
     session_idle_timeout: 600
     server:
       transport: streamable-http
-      url: http://xmcp.xmcp.svc.cluster.local:8000/mcp
+      url: https://api.x.com/mcp
+      auth_provider: x_mcp_server
   gmail_mcp_server:
     _type: per_user_mcp_client
     include:
@@ -717,13 +757,13 @@ workflow:
       or server credential failure, explicitly tell the user in the final answer
       even when a fallback succeeds. Do not present it as a user authorization
       problem and do not silently omit the affected source.
-    - MCP authentication has two scopes. Kubernetes and UniFi use shared,
-      operator-managed API keys; a shared-auth failure is an operator incident,
-      cannot be fixed by user consent or confirm_action, and must not be retried
-      in the same turn. Gmail and Calendar use per-user OAuth; show the emitted
-      authorization prompt when connection is required, then wait for the user
-      instead of retrying the MCP call. Never use confirm_action to repair
-      authentication. It is only for an approved mutating action.
+    - MCP authentication has two scopes. X, Kubernetes, and UniFi use shared,
+      operator-managed Bearer tokens; a shared-auth failure is an operator
+      incident, cannot be fixed by user consent or confirm_action, and must not
+      be retried in the same turn. Gmail and Calendar use per-user OAuth; show
+      the emitted authorization prompt when connection is required, then wait
+      for the user instead of retrying the MCP call. Never use confirm_action
+      to repair authentication. It is only for an approved mutating action.
     - Do not expose credentials, tokens, unrelated private content, or large raw
       payloads when a concise summary is sufficient.
 
