@@ -25,6 +25,14 @@ The page is judged on one thing above all: it has to be **true and current**. A 
 
 A standalone HTML document, dark theme, NVIDIA Green accent used sparingly, built by filling `assets/daily-summary-template.html`. Return only the HTML, with no prose before or after it and no markdown fences.
 
+This is a strict UI rendering contract, not a style preference:
+
+- The first non-whitespace bytes of the final response must be `<!DOCTYPE html>`.
+- The last non-whitespace bytes must be `</html>`.
+- Never put progress narration such as "I'll gather..." or a tool/data summary in the final response. Tool calls and intermediate status belong in the runtime's intermediate-step stream, not in the HTML payload.
+- Put source limitations and omitted-section notes inside the rendered page's **Sources Checked** card when useful. Do not explain them outside the document.
+- Before returning, verify that no unresolved `{{...}}`, `{{#if ...}}`, or `{{#each ...}}` tokens remain and that the final payload satisfies the two byte-boundary checks above.
+
 ## Step 1: anchor the whole page to the real date and time
 
 Do this first, every time, before any other tool call.
@@ -109,6 +117,8 @@ The gathered sections are inputs; the top of the page is where you make them use
 
 Load `assets/daily-summary-template.html` (via the skill's bundled resources) and fill it. The template is a self-contained dark page with a 12-column responsive grid and no external dependencies, so it renders the same anywhere.
 
+Do not recreate the page from memory or substitute another HTML layout. The bundled template is the required artifact base for this personal briefing.
+
 Rules for filling it:
 
 - Replace every `{{placeholder}}` with verified data, and delete any `{{#if}}` section whose backing data is missing (Step 3).
@@ -167,14 +177,26 @@ Placeholders use double curly braces. Loops use `{{#each ...}}`; conditional sec
       { "value": "1", "label": "Sites", "status_class": "ok" },
       { "value": "0", "label": "Alarms", "status_class": "ok" }
     ],
-    "bullets": ["<strong>WAN:</strong> up.", "<strong>Devices:</strong> all reporting."]
+    "bullets": [
+      "<strong>WAN:</strong> up.",
+      "<strong>Devices:</strong> all reporting."
+    ]
   },
   "sports": {
     "items": [
-      { "team": "Yankees", "summary": "Host the Red Sox 7:05 PM EDT (YES). Won last night 5-3." },
+      {
+        "team": "Yankees",
+        "summary": "Host the Red Sox 7:05 PM EDT (YES). Won last night 5-3."
+      },
       { "team": "Steelers", "summary": "Offseason. Camp opens next week." },
-      { "team": "MSU Football", "summary": "Offseason. Opener Aug 30 vs Western Michigan." },
-      { "team": "MSU Basketball", "summary": "Offseason. 2026-27 schedule not yet released." }
+      {
+        "team": "MSU Football",
+        "summary": "Offseason. Opener Aug 30 vs Western Michigan."
+      },
+      {
+        "team": "MSU Basketball",
+        "summary": "Offseason. 2026-27 schedule not yet released."
+      }
     ]
   },
   "news": {
@@ -189,21 +211,39 @@ Placeholders use double curly braces. Loops use `{{#each ...}}`; conditional sec
   },
   "email": {
     "items": [
-      { "sender": "Jane Doe", "subject": "Q3 roadmap review", "note": "Wants your input before the 2 PM sync." }
+      {
+        "sender": "Jane Doe",
+        "subject": "Q3 roadmap review",
+        "note": "Wants your input before the 2 PM sync."
+      }
     ]
   },
   "must_know": {
-    "items": ["<strong>Only hard commitment:</strong> 2 PM roadmap sync.", "<strong>Weather:</strong> usable until ~8 PM."]
+    "items": [
+      "<strong>Only hard commitment:</strong> 2 PM roadmap sync.",
+      "<strong>Weather:</strong> usable until ~8 PM."
+    ]
   },
   "actions": {
     "items": [
-      { "title": "Reply to the roadmap thread before 2 PM.", "reason": "Jane is waiting on your input." }
+      {
+        "title": "Reply to the roadmap thread before 2 PM.",
+        "reason": "Jane is waiting on your input."
+      }
     ]
   },
   "sources": {
     "items": [
-      { "label": "Weather: NWS Saline point forecast.", "url": "https://forecast.weather.gov/", "display_url": "forecast.weather.gov" },
-      { "label": "Kubernetes: k8s_mcp_server getClusterSummary (live).", "url": null, "display_url": null }
+      {
+        "label": "Weather: NWS Saline point forecast.",
+        "url": "https://forecast.weather.gov/",
+        "display_url": "forecast.weather.gov"
+      },
+      {
+        "label": "Kubernetes: k8s_mcp_server getClusterSummary (live).",
+        "url": null,
+        "display_url": null
+      }
     ]
   }
 }

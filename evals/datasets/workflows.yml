@@ -178,13 +178,13 @@
   workflow: daily_summary
   audience: internal-only
   query: Run my daily briefing.
-  success_criteria: Daily summary route returns NVIDIA HTML via nv-html and does not use visual media.
+  success_criteria: Daily summary route returns template-based HTML via daily-summary and does not use visual media.
   expected:
     required_tools:
       - get_memory
       - current_datetime_tool
       - agent_skills_tool
-    skill: nv-html
+    skill: daily-summary
     forbidden_tools:
       - daily_summary_agent
       - visual_media_tool
@@ -192,8 +192,8 @@
       - Daily Summary
       - 'Next Best Actions'
     response_regex:
-      - "^\\s*(?:<!doctype\\s+html\\b|<html\\b|<article\\b|<main\\b|<section\\b)"
-      - "^(?!\\s*```)"
+      - "\\A\\s*<!doctype\\s+html\\b"
+      - "</html>\\s*\\Z"
     max_workflow_calls: 1
     max_latency_s: 240
     max_total_tokens: 50000

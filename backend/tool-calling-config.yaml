@@ -771,7 +771,8 @@ workflow:
 
     Special workflows:
     - For daily briefings, retrieve relevant memory once, get the current date and
-      time, load the nv-html skill, and follow its output contract.
+      time, load the daily-summary skill and its bundled template, and follow its
+      HTML-only output contract.
     - For broad multi-source research, apply [SOURCE_POLICY] when present, maintain
       a source ledger, and audit final citations. Do not use the full research
       workflow for simple lookups.

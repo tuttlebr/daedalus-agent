@@ -1124,8 +1124,8 @@ def test_daily_briefing_routes_to_structured_response_without_visual_media():
         assert "daily briefing" in normalized_prompt, path
         assert "retrieve relevant memory once" in normalized_prompt, path
         assert "get the current date and time" in normalized_prompt, path
-        assert "load the nv-html skill" in normalized_prompt, path
-        assert "follow its output contract" in normalized_prompt, path
+        assert "load the daily-summary skill" in normalized_prompt, path
+        assert "follow its HTML-only output contract" in normalized_prompt, path
         assert (
             "daily summary or daily briefing unless the user explicitly asks"
             in " ".join(visual_media_desc.split())
@@ -1151,8 +1151,8 @@ def test_daily_summary_contracts_structured_briefing():
         assert "daily briefing" in prompt, path
         assert "authenticated user" in prompt, path
         assert "current date and time" in normalized_prompt, path
-        assert "load the nv-html skill" in normalized_prompt, path
-        assert "follow its output contract" in normalized_prompt, path
+        assert "load the daily-summary skill" in normalized_prompt, path
+        assert "follow its HTML-only output contract" in normalized_prompt, path
 
 
 def test_source_policy_metadata_is_handled_by_workflow():

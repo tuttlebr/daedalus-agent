@@ -21,6 +21,22 @@ describe('html response detection', () => {
     ).toBe('<div>Rendered</div>');
   });
 
+  it('recovers a complete HTML document after leaked progress prose', () => {
+    const html =
+      '<!DOCTYPE html><html><body><h1>Daily Summary</h1></body></html>';
+    const response = `I'll gather the live data first.\n${html}`;
+
+    expect(extractStandaloneHtmlResponse(response)).toBe(html);
+  });
+
+  it('does not recover an incomplete embedded HTML document', () => {
+    expect(
+      extractStandaloneHtmlResponse(
+        'Here is a partial document: <!DOCTYPE html><html><body>Draft',
+      ),
+    ).toBeNull();
+  });
+
   it('detects common standalone HTML snippets', () => {
     expect(looksLikeStandaloneHtml('<section><p>Feed item</p></section>')).toBe(
       true,

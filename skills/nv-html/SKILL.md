@@ -6,14 +6,15 @@ description: >-
   alternating dark/light sections, the PACE writing framework, and the
   component vocabulary in DESIGN.md. Use whenever the user asks to create an
   HTML page, landing page, mini-site, dashboard, status page, HTML report,
-  event recap, internal portal, one-pager, or any standalone web deliverable,
-  and for daily briefing and daily summary pages (this is the intended skill
-  for daily briefings), even when "NVIDIA" is not named, since the default
-  brand context for this user is NVIDIA. Trigger on "build a page for...",
+  event recap, internal portal, one-pager, or a general standalone web
+  deliverable, even when "NVIDIA" is not named, since the default brand
+  context for this user is NVIDIA. Do not use for the user's personal daily
+  summary, daily briefing, morning brief, or daily update; those route to the
+  dedicated daily-summary skill and its bundled template. Trigger on "build a page for...",
   "spin up a landing for...", "make a dashboard showing...", "give me a
-  one-pager on...", "draft an HTML version of...", "run my daily briefing".
-  This is the general NVIDIA web builder; use daily-summary only for its fixed
-  Bootstrap calendar/weather/ops/sports/actions template, and
+  one-pager on...", or "draft an HTML version of...".
+  This is the general NVIDIA web builder; use daily-summary for its fixed
+  personal calendar/weather/ops/sports/actions template, and
   creative-ideation to brainstorm ideas rather than produce HTML.
 ---
 
