@@ -3,8 +3,8 @@
 The application owns four boundaries that NAT 1.7 doesn't expose as supported
 hooks:
 
-* enforce exact-call approval and server-side success receipts at
-  ``MCPToolClient.acall``;
+* enforce exact-call approval and server-side success receipts for explicitly
+  allowlisted groups at ``MCPToolClient.acall``;
 * preserve per-user OAuth during streamable HTTP connection setup and suppress
   only verified teardown cancellation after a successful session yield;
 * keep application-level MCP errors out of the transport reconnect path; and
@@ -36,8 +36,9 @@ _patched = False
 
 # F-006: fail-closed tracking for the MCP approval gate. The gate is enforced by
 # the wrapper installed in _patch_tool_client(); if NAT renames/moves its tool
-# execution method the wrapper would silently not install, leaving destructive
-# MCP calls ungated. This flag lets patch() detect that and refuse to start.
+# execution method the wrapper would silently not install, bypassing configured
+# allowlist approval policy. This flag lets patch() detect that and refuse to
+# start.
 _approval_gate_installed = False
 
 # Function groups that were skipped during startup due to connection errors.
@@ -63,11 +64,12 @@ _mcp_server_group_names: dict[str, str] = {}
 _ambiguous_mcp_servers: set[str] = set()
 
 # Repository-owned tool authorization is loaded from the deployed NAT workflow
-# YAML before the approval gate is installed.  NAT 1.7 accepts additional keys
+# YAML before the approval gate is installed. NAT 1.7 accepts additional keys
 # inside ``tool_overrides`` but does not retain them in its runtime model, so
 # this pinned adapter consumes the Daedalus-only ``approval_policy`` field from
-# the same source file. Missing entries remain approval-gated and unknown
-# values fail startup.
+# the same source file. A non-empty ``include`` list opts the group into this
+# per-tool approval policy. Groups without an ``include`` list intentionally
+# expose and authorize every tool advertised by their MCP server.
 _approval_policy_configured = False
 _READ_ONLY_APPROVAL_POLICY = "read_only"
 _APPROVAL_REQUIRED_POLICY = "approval_required"
@@ -204,9 +206,20 @@ _WORD_SPLIT_RE = re.compile(r"[^a-z0-9]+")
 
 # This runtime registry is authorization evidence, not a discovery cache. It is
 # populated only from exact ``tool_overrides.<tool>.approval_policy: read_only``
-# declarations in the deployed workflow configuration. Adding a tool to an MCP
-# ``include`` list never authorizes it automatically.
+# declarations in the deployed workflow configuration. Within an explicitly
+# allowlisted group, adding a tool to ``include`` never authorizes it
+# automatically.
 _LOCAL_READ_ONLY_MCP_TOOLS: dict[str, frozenset[str]] = {}
+
+# Function groups without a non-empty ``include`` allowlist use the MCP
+# server's complete advertised tool surface. Keep this separate from the
+# read-only registry: unrestricted groups may intentionally execute mutations,
+# while allowlisted groups continue to fail closed unless an exact operation is
+# declared read-only or carries a valid approval credential.
+_UNRESTRICTED_MCP_GROUPS: frozenset[str] = frozenset()
+
+_UNRESTRICTED_APPROVAL_REASON = "unrestricted"
+_UNRESTRICTED_MUTATION_APPROVAL_REASON = "unrestricted-mutation"
 
 # API-key values must never appear in logs.  Still, operators need a clear
 # startup signal when a rendered deployment has omitted the environment
@@ -242,13 +255,17 @@ def _bind_configured_mcp_endpoint(
 def configure_mcp_approval_policy(config_path: str | os.PathLike[str]) -> None:
     """Load exact MCP authorization declarations from the deployed YAML.
 
-    ``approval_policy: read_only`` is the sole configuration value that can
-    bypass human approval. ``approval_required`` is an optional explicit marker
-    and has the same fail-closed behavior as an omitted policy. Policy entries
-    for tools outside the group's ``include`` list are rejected as stale.
+    A group without a non-empty ``include`` list authorizes every tool exposed
+    by the MCP server. For an allowlisted group, ``approval_policy: read_only``
+    is the sole configuration value that can bypass human approval.
+    ``approval_required`` is an optional explicit marker and has the same
+    fail-closed behavior as an omitted policy. Policy entries for tools outside
+    the group's ``include`` list are rejected as stale.
     """
 
-    global _LOCAL_READ_ONLY_MCP_TOOLS, _approval_policy_configured
+    global _LOCAL_READ_ONLY_MCP_TOOLS
+    global _UNRESTRICTED_MCP_GROUPS
+    global _approval_policy_configured
 
     path = Path(config_path)
     try:
@@ -263,6 +280,8 @@ def configure_mcp_approval_policy(config_path: str | os.PathLike[str]) -> None:
         raise RuntimeError(f"function_groups is not a mapping in {path}")
 
     read_only_registry: dict[str, frozenset[str]] = {}
+    restricted_groups: set[str] = set()
+    unrestricted_groups: set[str] = set()
     configured_endpoints: dict[str, str] = {}
     ambiguous_endpoints: set[str] = set()
 
@@ -281,6 +300,10 @@ def configure_mcp_approval_policy(config_path: str | os.PathLike[str]) -> None:
         included = {
             str(tool).strip().casefold() for tool in raw_include if str(tool).strip()
         }
+        if not included:
+            unrestricted_groups.add(group_name)
+        else:
+            restricted_groups.add(group_name)
         overrides = raw_group.get("tool_overrides", {}) or {}
         if not isinstance(overrides, dict):
             raise RuntimeError(
@@ -330,13 +353,16 @@ def configure_mcp_approval_policy(config_path: str | os.PathLike[str]) -> None:
                 )
 
     _LOCAL_READ_ONLY_MCP_TOOLS = read_only_registry
+    _UNRESTRICTED_MCP_GROUPS = frozenset(unrestricted_groups)
     _mcp_server_group_names.update(configured_endpoints)
     _ambiguous_mcp_servers.update(ambiguous_endpoints)
     _approval_policy_configured = True
     logger.info(
-        "Loaded MCP approval policy: config=%s groups=%d read_only_tools=%d",
+        "Loaded MCP approval policy: config=%s restricted_groups=%d "
+        "unrestricted_groups=%d read_only_tools=%d",
         path,
-        len(read_only_registry),
+        len(restricted_groups),
+        len(unrestricted_groups),
         sum(len(tools) for tools in read_only_registry.values()),
     )
 
@@ -464,6 +490,13 @@ def _has_local_read_only_evidence(server_name: str, tool_name: str) -> bool:
     )
 
 
+def _is_unrestricted_mcp_group(server_name: str) -> bool:
+    """Return whether the configured group intentionally exposes all tools."""
+
+    logical_server = _mcp_server_group_names.get(server_name, server_name).casefold()
+    return logical_server in _UNRESTRICTED_MCP_GROUPS
+
+
 def _canonical_mcp_call(payload: dict, input_schema=None) -> tuple[str, str]:
     """Canonicalize the exact arguments used for approval and receipts."""
 
@@ -493,10 +526,17 @@ def _validate_mcp_approval(
     validated_binding: dict[str, str] | None = None,
 ) -> tuple[bool, str]:
     is_mutating = _is_mutating_mcp_call(tool_name, payload, annotations)
+    if _is_unrestricted_mcp_group(server_name):
+        reason = (
+            _UNRESTRICTED_MUTATION_APPROVAL_REASON
+            if is_mutating
+            else _UNRESTRICTED_APPROVAL_REASON
+        )
+        return True, reason
     if not _has_local_read_only_evidence(server_name, tool_name):
-        # Unknown operations require approval in every MCP group. In particular,
-        # read-like names, payload verbs, and remote readOnlyHint annotations are
-        # not local authorization evidence.
+        # Unknown operations require approval in every explicitly allowlisted
+        # group. In particular, read-like names, payload verbs, and remote
+        # readOnlyHint annotations are not local authorization evidence.
         is_mutating = True
     if not is_mutating:
         return True, "read-only"
@@ -1272,11 +1312,19 @@ def _patch_tool_client():
             )
             try:
                 # A mutation that timed out after the server committed is
-                # ambiguous and must never be replayed automatically under one
-                # human approval. NAT's parent call_tool normally reconnects
-                # and invokes the same coroutine again. Suppress that replay
-                # for the approved call, then restore the configured behavior.
-                if approval_reason == "approved" and parent_client is not None:
+                # ambiguous and must never be replayed automatically. NAT's
+                # parent call_tool normally reconnects and invokes the same
+                # coroutine again. Suppress that replay for both explicitly
+                # approved and unrestricted mutations, then restore the
+                # configured behavior.
+                if (
+                    approval_reason
+                    in {
+                        "approved",
+                        _UNRESTRICTED_MUTATION_APPROVAL_REASON,
+                    }
+                    and parent_client is not None
+                ):
                     mutation_lock = getattr(
                         parent_client, "_daedalus_mutation_lock", None
                     )

@@ -159,7 +159,7 @@ async def user_interaction_function(config: UserInteractionConfig, builder: Buil
         """Request user confirmation before taking a consequential action.
 
         Use this before any action that:
-        - Modifies external state (Kubernetes, GitHub)
+        - Modifies external state and is explicitly approval-gated
         - Is difficult or impossible to reverse
         - Has significant resource costs
         - Could have unintended side effects
@@ -210,8 +210,8 @@ async def user_interaction_function(config: UserInteractionConfig, builder: Buil
             return (
                 "No confirmation is required for an explicit user-requested "
                 "memory write. Call add_memory directly now, without a user_id "
-                "argument. Use confirm_action only for destructive external "
-                "mutations or memory deletes."
+                "argument. Use confirm_action only for explicitly approval-gated "
+                "external mutations or memory deletes."
             )
 
         parts = [f"**Action requiring confirmation:**\n\n{action}"]
@@ -538,13 +538,13 @@ async def user_interaction_function(config: UserInteractionConfig, builder: Buil
                 confirm_action,
                 description=(
                     "Request explicit user confirmation before taking a consequential "
-                    "action. Use before destructive external-state mutations "
-                    "(Kubernetes, GitHub), memory deletes, irreversible actions, "
-                    "or actions with significant costs. Do not use for add_memory "
-                    "or memory_update. Presents the action, reason, risks, and "
-                    "alternatives. MCP mutations must include exact tool_name, "
-                    "target, and arguments_json; this tool never returns a live "
-                    "credential."
+                    "action. Use for memory deletes, irreversible non-MCP actions, "
+                    "actions with significant costs, or an MCP call that explicitly "
+                    "reports approval is required. Call an MCP tool directly first; "
+                    "do not infer an approval requirement merely because it changes "
+                    "external state. Do not use for add_memory or memory_update. "
+                    "MCP approvals must include exact tool_name, target, and "
+                    "arguments_json; this tool never returns a live credential."
                 ),
             )
 

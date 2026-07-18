@@ -191,6 +191,61 @@ def test_gate_records_receipt_only_for_successful_approved_result(
         assert "mcp_tool_failed" in wrapped_result
 
 
+def test_unrestricted_mutation_disables_automatic_replay_without_receipt(
+    monkeypatch,
+):
+    reconnect_values = []
+
+    class FakeMCPToolClient:
+        _tool_name = "delete_resource"
+        input_schema = None
+
+        def __init__(self):
+            self._parent_client = types.SimpleNamespace(
+                server_name="k8s_mcp_server",
+                _reconnect_enabled=True,
+            )
+
+        async def acall(self, tool_args):
+            del tool_args
+            reconnect_values.append(self._parent_client._reconnect_enabled)
+            return "deleted"
+
+    fake_module = types.ModuleType("nat.plugins.mcp.client.client_base")
+    fake_module.MCPToolClient = FakeMCPToolClient
+    for module_name in (
+        "nat",
+        "nat.plugins",
+        "nat.plugins.mcp",
+        "nat.plugins.mcp.client",
+    ):
+        module = types.ModuleType(module_name)
+        module.__path__ = []
+        monkeypatch.setitem(sys.modules, module_name, module)
+    monkeypatch.setitem(
+        sys.modules,
+        "nat.plugins.mcp.client.client_base",
+        fake_module,
+    )
+    monkeypatch.setattr(
+        mcp_patches,
+        "_validate_mcp_approval",
+        lambda *_args, **_kwargs: (True, "unrestricted-mutation"),
+    )
+    monkeypatch.setattr(
+        mcp_patches,
+        "_record_approved_mcp_receipt",
+        lambda **_kwargs: pytest.fail("unrestricted calls must not record receipts"),
+    )
+    monkeypatch.setattr(mcp_patches, "_approval_gate_installed", False)
+    mcp_patches._patch_tool_client()
+
+    client = FakeMCPToolClient()
+    assert asyncio.run(client.acall({"name": "stale-resource"})) == "deleted"
+    assert reconnect_values == [False]
+    assert client._parent_client._reconnect_enabled is True
+
+
 def test_read_only_mcp_call_does_not_need_token():
     ok, reason = mcp_patches._validate_mcp_approval(
         "get_thread",
@@ -230,7 +285,7 @@ def test_mutating_approval_is_exact_and_single_use(monkeypatch):
             user_id="alice",
             action_type="mcp_mutation",
             target="production/api",
-            server_name="k8s_mcp_server",
+            server_name="restricted_mcp_server",
             tool_name="scale_deployment",
             arguments_sha256=arguments_hash,
             canonical_arguments=json.dumps(
@@ -248,7 +303,7 @@ def test_mutating_approval_is_exact_and_single_use(monkeypatch):
     ok, reason = mcp_patches._validate_mcp_approval(
         "scale_deployment",
         payload,
-        server_name="k8s_mcp_server",
+        server_name="restricted_mcp_server",
         approval_token=token,
     )
     assert (ok, reason) == (True, "approved")
@@ -256,7 +311,7 @@ def test_mutating_approval_is_exact_and_single_use(monkeypatch):
     replay_ok, replay_reason = mcp_patches._validate_mcp_approval(
         "scale_deployment",
         payload,
-        server_name="k8s_mcp_server",
+        server_name="restricted_mcp_server",
         approval_token=token,
     )
     assert replay_ok is False
@@ -295,7 +350,7 @@ def test_receipt_keeps_original_approved_hash_when_schema_adds_default(monkeypat
             user_id="alice",
             action_type="mcp_mutation",
             target="production/api",
-            server_name="k8s_mcp_server",
+            server_name="restricted_mcp_server",
             tool_name="delete_deployment",
             arguments_sha256=approved_hash,
             canonical_arguments=canonical_arguments,
@@ -312,7 +367,7 @@ def test_receipt_keeps_original_approved_hash_when_schema_adds_default(monkeypat
     ok, reason = mcp_patches._validate_mcp_approval(
         "delete_deployment",
         approved_payload,
-        server_name="k8s_mcp_server",
+        server_name="restricted_mcp_server",
         approval_token=token,
         input_schema=ToolInput,
         validated_binding=binding,
@@ -328,7 +383,7 @@ def test_receipt_keeps_original_approved_hash_when_schema_adds_default(monkeypat
         redis,
         user_id="alice",
         token=token,
-        server_name="k8s_mcp_server",
+        server_name="restricted_mcp_server",
         tool_name="delete_deployment",
         arguments_sha256=approved_hash,
     )
@@ -354,7 +409,7 @@ def test_mutating_approval_rejects_changed_arguments_and_burns_token(monkeypatch
             user_id="alice",
             action_type="mcp_mutation",
             target="production/api",
-            server_name="k8s_mcp_server",
+            server_name="restricted_mcp_server",
             tool_name="scale_deployment",
             arguments_sha256=arguments_hash,
             canonical_arguments=json.dumps(
@@ -372,7 +427,7 @@ def test_mutating_approval_rejects_changed_arguments_and_burns_token(monkeypatch
     ok, reason = mcp_patches._validate_mcp_approval(
         "scale_deployment",
         {**approved_payload, "replicas": 20},
-        server_name="k8s_mcp_server",
+        server_name="restricted_mcp_server",
         approval_token=token,
     )
     assert ok is False
@@ -381,7 +436,7 @@ def test_mutating_approval_rejects_changed_arguments_and_burns_token(monkeypatch
     replay_ok, replay_reason = mcp_patches._validate_mcp_approval(
         "scale_deployment",
         approved_payload,
-        server_name="k8s_mcp_server",
+        server_name="restricted_mcp_server",
         approval_token=token,
     )
     assert replay_ok is False
@@ -433,22 +488,23 @@ def test_additional_destructive_verbs_require_token(tool_name):
 
 
 @pytest.mark.parametrize(
-    "server_name,tool_name,payload",
+    "server_name,tool_name,payload,expected_reason",
     [
-        ("gmail_mcp_server", "list_labels", {}),
-        ("gmail_mcp_server", "get_thread", {}),
-        ("calendar_mcp_server", "list_calendars", {}),
-        ("x_mcp_server", "searchSpaces", {"query": "foo"}),
+        ("gmail_mcp_server", "list_labels", {}, "read-only"),
+        ("gmail_mcp_server", "get_thread", {}, "read-only"),
+        ("calendar_mcp_server", "list_calendars", {}, "unrestricted"),
+        ("calendar_mcp_server", "list_events", {}, "unrestricted"),
+        ("x_mcp_server", "searchSpaces", {"query": "foo"}, "read-only"),
     ],
 )
 def test_exact_local_read_only_tools_are_not_over_gated(
-    server_name, tool_name, payload
+    server_name, tool_name, payload, expected_reason
 ):
     ok, reason = mcp_patches._validate_mcp_approval(
         tool_name, payload, server_name=server_name
     )
     assert ok is True, f"{tool_name} should be read-only"
-    assert reason == "read-only"
+    assert reason == expected_reason
 
 
 @pytest.mark.parametrize(
@@ -460,14 +516,26 @@ def test_exact_local_read_only_tools_are_not_over_gated(
         ("unifi_mcp_server", "getInfo", {}),
     ],
 )
-def test_configured_infrastructure_read_only_tools_do_not_need_token(
+def test_unrestricted_infrastructure_tools_do_not_need_token(
     server_name, tool_name, payload
 ):
     ok, reason = mcp_patches._validate_mcp_approval(
         tool_name, payload, server_name=server_name
     )
     assert ok is True
-    assert reason == "read-only"
+    assert reason == "unrestricted"
+
+
+@pytest.mark.parametrize("server_name", ["k8s_mcp_server", "unifi_mcp_server"])
+def test_unrestricted_infrastructure_mutations_do_not_need_token(server_name):
+    ok, reason = mcp_patches._validate_mcp_approval(
+        "delete_resource",
+        {"name": "stale-resource"},
+        annotations=_Annotations(destructiveHint=True),
+        server_name=server_name,
+    )
+    assert ok is True
+    assert reason == "unrestricted-mutation"
 
 
 def test_api_key_environment_configuration_log_is_presence_only(monkeypatch, caplog):
@@ -542,15 +610,15 @@ def test_read_only_hint_cannot_override_local_mutating_verb():
     assert "execution credential" in reason
 
 
-def test_sensitive_group_unknown_tool_defaults_to_approval():
+def test_unrestricted_group_unknown_tool_is_allowed():
     ok, reason = mcp_patches._validate_mcp_approval(
         "reconcile",
         {},
         annotations=_Annotations(readOnlyHint=True),
         server_name="k8s_mcp_server",
     )
-    assert ok is False
-    assert "execution credential" in reason
+    assert ok is True
+    assert reason == "unrestricted"
 
 
 def test_unknown_read_like_tool_fails_closed_in_non_sensitive_group():
@@ -584,6 +652,18 @@ def test_local_read_only_registry_matches_configured_includes():
     assert mcp_patches._LOCAL_READ_ONLY_MCP_TOOLS == configured_policy
 
 
+def test_unrestricted_registry_matches_groups_without_nonempty_include():
+    config = yaml.safe_load(CONFIG_PATH.read_text(encoding="utf-8"))
+    expected = frozenset(
+        group_name.casefold()
+        for group_name, group in config["function_groups"].items()
+        if group.get("_type") in {"mcp_client", "per_user_mcp_client"}
+        and not group.get("include")
+    )
+
+    assert mcp_patches._UNRESTRICTED_MCP_GROUPS == expected
+
+
 def test_per_user_mcp_endpoint_identity_is_loaded_from_config():
     assert (
         mcp_patches._mcp_server_group_names[
@@ -606,7 +686,7 @@ def test_per_user_mcp_endpoint_identity_is_loaded_from_config():
         "list_calendars",
         {},
         server_name="streamable-http:https://calendarmcp.googleapis.com/mcp/v1",
-    ) == (True, "read-only")
+    ) == (True, "unrestricted")
 
 
 def test_approval_policy_rejects_tool_outside_include(tmp_path):
@@ -681,14 +761,14 @@ function_groups:
     mcp_patches.configure_mcp_approval_policy(CONFIG_PATH)
 
 
-def test_sensitive_group_read_prefixed_tool_still_requires_approval():
+def test_unrestricted_group_read_prefixed_tool_is_allowed():
     ok, reason = mcp_patches._validate_mcp_approval(
         "get_pod",
         {"namespace": "default", "name": "api"},
         server_name="k8s_mcp_server",
     )
-    assert ok is False
-    assert "execution credential" in reason
+    assert ok is True
+    assert reason == "unrestricted"
 
 
 def test_physical_server_is_bound_to_logical_function_group(monkeypatch):
@@ -717,8 +797,8 @@ def test_physical_server_is_bound_to_logical_function_group(monkeypatch):
         annotations=_Annotations(readOnlyHint=True),
         server_name=physical,
     )
-    assert ok is False
-    assert "execution credential" in reason
+    assert ok is True
+    assert reason == "unrestricted"
 
 
 def test_streamable_mcp_groups_with_distinct_urls_do_not_collide(monkeypatch):

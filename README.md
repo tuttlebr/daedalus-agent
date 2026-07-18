@@ -167,8 +167,16 @@ placed in command arguments or printed.
 
 ### Adding or expanding an MCP server
 
-Treat an MCP `include` list as an exposed capability surface, not an
-authorization decision. Keep it minimal and classify every newly exposed tool:
+MCP exposure and approval follow one configuration rule:
+
+- Omitting `include` (or leaving it empty) exposes every tool advertised by the
+  server and authorizes those tools without a human approval credential. Use
+  this only for operator-trusted MCP groups whose full capability surface is
+  intentional, such as the unrestricted Kubernetes and UniFi integrations.
+  The runtime still disables automatic reconnect/replay around operations that
+  look mutating, so an ambiguous timeout cannot duplicate a side effect.
+- A non-empty `include` is an explicit allowlist. Only those tools are exposed,
+  and each exposed tool must be classified:
 
 - A verified read-only tool must be added to its function group's exact
   `include` list and marked beside the tool under `tool_overrides`:
@@ -188,7 +196,8 @@ authorization decision. Keep it minimal and classify every newly exposed tool:
   declarations before installing the approval gate. NAT ignores this
   Daedalus-owned extension itself.
 
-- A mutating, irreversible, or unreviewed tool must never be marked
+- In an explicitly allowlisted group, a mutating, irreversible, or unreviewed
+  tool must never be marked
   `read_only`. Omit `approval_policy`, or use
   `approval_policy: approval_required` when an explicit marker improves
   clarity. The call remains fail-closed until

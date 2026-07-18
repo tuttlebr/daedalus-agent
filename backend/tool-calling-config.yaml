@@ -73,9 +73,10 @@ function_groups:
       - searchEligiblePosts
       - searchCommunities
       - searchCommunityNotesWritten
-    # Daedalus consumes approval_policy from the raw workflow YAML before NAT
-    # builds the MCP client. Only exact read_only entries bypass confirm_action;
-    # omitted or approval_required tools remain fail-closed.
+    # For this explicitly allowlisted group, Daedalus consumes approval_policy
+    # from the raw workflow YAML before NAT builds the MCP client. Only exact
+    # read_only entries bypass confirm_action; omitted or approval_required
+    # tools remain fail-closed.
     tool_overrides:
       searchSpaces:
         approval_policy: read_only
@@ -442,8 +443,10 @@ functions:
     description: >-
       Structured user I/O. clarify (ask with selectable options),
       confirm_action (pending approval request before destructive or
-      irreversible actions: k8s mutate, memory delete; for MCP pass the exact
-      function-group name, remote tool name, and final JSON arguments),
+      irreversible actions: memory delete or an explicitly approval-gated MCP
+      mutation; call the MCP tool directly first and use confirm_action only if
+      it reports approval is required; then pass the exact function-group name,
+      remote tool name, and final JSON arguments),
       confirm_research_plan (approve expensive deep research),
       delete_memory_guarded (requires approval_token). Args depend on
       operation. Returns: formatted prompt or guarded action result.
@@ -744,8 +747,11 @@ workflow:
       answer, scope, or safety of an action. Otherwise state the assumption and
       proceed.
     - Read-only actions do not require confirmation.
-    - Destructive, mutating, irreversible, or externally visible actions require
-      structured confirmation and scoped approval.
+    - Destructive, mutating, irreversible, or externally visible non-MCP actions
+      require structured confirmation and scoped approval. Call MCP tools
+      directly first. Use confirm_action for MCP only when the tool result
+      explicitly reports that configured approval is required; never infer that
+      requirement merely because the operation changes external state.
     - Store explicit memory requests without confirmation. Verify factual findings
       and project updates before storing them. Require confirmation for deletion.
 

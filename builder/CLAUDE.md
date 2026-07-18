@@ -70,19 +70,26 @@ The container runs `python entrypoint.py`, which replaces `nat serve` so that **
 1. Assert the exact NAT 1.7.0 and Starlette `<1` runtime contracts.
 2. Redact request credentials from NAT telemetry and configure Phoenix headers.
 3. `llm_diagnostics.patch()` — forces timeout/`max_retries` on every OpenAI client and enriches retry/connection-error logs with base_url + status (works around NAT passing `timeout=None`).
-4. `mcp_patches.patch(config_path=...)` loads exact MCP authorization policy and endpoint identities from the deployed workflow YAML, bounds shared MCP startup, gives skipped requested groups one five-second shared recovery pass, rejects OAuth schema discovery outside authenticated per-user context, and installs the fail-closed **approval gate**.
+4. `mcp_patches.patch(config_path=...)` loads MCP exposure/approval policy and endpoint identities from the deployed workflow YAML, bounds shared MCP startup, gives skipped requested groups one five-second shared recovery pass, rejects OAuth schema discovery outside authenticated per-user context, and installs the **approval gate** for explicitly allowlisted groups.
 
 ### Expanding an MCP tool surface
 
-`function_groups.<server>.include` controls what the agent may discover; it
-does not authorize a call as read-only. For each new MCP tool, first decide
-whether it is reviewed read-only or approval-gated:
+`function_groups.<server>.include` controls both the exposed surface and whether
+Daedalus applies per-tool approval policy:
+
+- With no non-empty `include`, every remotely advertised tool is exposed and
+  authorized. Reserve this mode for operator-trusted MCP groups whose entire
+  surface is intentional. Mutating-looking calls still run with automatic
+  reconnect disabled so an ambiguous timeout is not replayed.
+- With a non-empty `include`, only listed tools are exposed. For each listed
+  tool, decide whether it is reviewed read-only or approval-gated:
 
 - A read-only tool needs an exact entry in the YAML `include` list and an exact
   `tool_overrides.<tool>.approval_policy: read_only` declaration. The runtime
   builds its normalized authorization registry from that YAML; do not add a
   second authorization list in Python.
-- Omitted policies and `approval_policy: approval_required` fail closed and
+- In an explicitly allowlisted group, omitted policies and
+  `approval_policy: approval_required` fail closed and
   require the exact, single-use credential issued by `confirm_action`. Unknown
   policy values or policies for tools outside `include` fail startup.
 - Static API-key MCP providers log only `configured=True|False` at startup for

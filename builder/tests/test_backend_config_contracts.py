@@ -638,10 +638,10 @@ def test_google_workspace_mcp_uses_per_user_oauth():
             "auth_server_url": "https://calendarmcp.googleapis.com/mcp/v1",
             "scopes": {
                 "https://www.googleapis.com/auth/calendar.calendarlist.readonly",
+                "https://www.googleapis.com/auth/calendar.events.readonly",
+                "https://www.googleapis.com/auth/calendar.events.freebusy",
             },
-            "include": [
-                "list_calendars",
-            ],
+            "include": None,
         },
     }
 
@@ -677,7 +677,10 @@ def test_google_workspace_mcp_uses_per_user_oauth():
 
             group = function_groups[name]
             assert group["_type"] == "per_user_mcp_client", path
-            assert group["include"] == values["include"], path
+            if values["include"] is None:
+                assert "include" not in group, path
+            else:
+                assert group["include"] == values["include"], path
             assert group["server"]["auth_provider"] == name, path
             assert group["server"]["url"] == values["server_url"], path
             assert group["auth_flow_timeout"] >= 600, path
@@ -719,17 +722,27 @@ def test_interactive_extensions_are_enabled_for_mcp_oauth():
         assert config["general"]["front_end"]["enable_interactive_extensions"] is True
 
 
-def test_mcp_read_only_authorization_is_declared_beside_each_tool():
-    expected = {
+def test_mcp_approval_policy_follows_explicit_include_lists():
+    allowlisted = {
+        "x_mcp_server": {
+            "searchSpaces",
+            "searchPostsRecent",
+            "searchPostsAll",
+            "searchEligiblePosts",
+            "searchCommunities",
+            "searchCommunityNotesWritten",
+        },
         "gmail_mcp_server": {"search_threads", "get_thread", "list_labels"},
-        "calendar_mcp_server": {"list_calendars"},
-        "k8s_mcp_server": {"getClusterSummary", "listContexts"},
-        "unifi_mcp_server": {"listSites", "getInfo"},
+    }
+    unrestricted = {
+        "calendar_mcp_server",
+        "k8s_mcp_server",
+        "unifi_mcp_server",
     }
 
     for path in DEPLOYED_CONFIGS:
         groups = _config(path)["function_groups"]
-        for group_name, expected_tools in expected.items():
+        for group_name, expected_tools in allowlisted.items():
             group = groups[group_name]
             policies = {
                 tool_name: override.get("approval_policy")
@@ -739,6 +752,14 @@ def test_mcp_read_only_authorization_is_declared_beside_each_tool():
             assert {
                 tool for tool, policy in policies.items() if policy == "read_only"
             } == expected_tools, path
+
+        for group_name in unrestricted:
+            group = groups[group_name]
+            assert "include" not in group, path
+            assert not any(
+                "approval_policy" in override
+                for override in group.get("tool_overrides", {}).values()
+            ), path
 
 
 def test_restricted_nginx_allows_oauth_redirect_callback():
