@@ -151,5 +151,11 @@ WORKDIR /workspace
 COPY --from=build --chown=1000:1000 /workspace /workspace
 COPY --from=skills --chown=1000:1000 . /skills
 
+# Build-context modes depend on the checkout umask, while Kubernetes may run
+# the image under a storage-compatible UID/GID that differs from 1000:1000.
+# Make packaged code readable and directories/existing executables traversable
+# without granting write access or recursively making every file executable.
+RUN find /workspace /skills ! -type l -exec chmod a+rX {} +
+
 USER 1000:1000
 ENTRYPOINT ["python", "entrypoint.py"]

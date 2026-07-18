@@ -257,7 +257,13 @@ def test_backend_dockerfile_assigns_runtime_files_to_non_root_user():
 
     assert "COPY --from=build --chown=1000:1000 /workspace /workspace" in final_stage
     assert "COPY --from=skills --chown=1000:1000 . /skills" in final_stage
-    assert final_stage.index("--chown=1000:1000") < final_stage.index("USER 1000:1000")
+    permission_normalization = "find /workspace /skills ! -type l -exec chmod a+rX {} +"
+    assert permission_normalization in final_stage
+    assert (
+        final_stage.index("--chown=1000:1000")
+        < final_stage.index(permission_normalization)
+        < final_stage.index("USER 1000:1000")
+    )
     assert "chmod -R" not in final_stage
     assert "/workspace/.tmp" not in dockerfile
 
