@@ -156,7 +156,8 @@ chat conversation. Use distinct labels, icons, and active states.
 ### 8.3 Settings
 
 - CN-FR-020: Settings must include model, output count, quality, size, output
-  format, background, moderation, and compression when relevant.
+  format, background, and compression when relevant. Moderation is available
+  for Generate only.
 - CN-FR-021: The only model in v1 is `gpt-image-2`, labeled `GPT Image 2`.
 - CN-FR-022: Output count choices are 1, 2, 4, and 8.
 - CN-FR-023: Size must support `auto`, curated common sizes, and custom

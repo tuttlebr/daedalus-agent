@@ -247,7 +247,7 @@ function galleryFromJob(
     prompt: job.prompt,
     mode: job.mode,
     model,
-    params: cleanImageParamsForModel(job.params, model),
+    params: cleanImageParamsForModel(job.params, model, job.mode),
     createdAt,
     ...(partial && { partial: true }),
   }));
@@ -258,7 +258,7 @@ function historyEntryFromJob(job: ImageJobStatus): HistoryEntry {
     id: `hist_${job.completedAt ?? Date.now()}_${job.jobId.slice(0, 8)}`,
     mode: job.mode,
     prompt: job.prompt,
-    params: cleanImageParamsForModel(job.params, job.model),
+    params: cleanImageParamsForModel(job.params, job.model, job.mode),
     inputImages: job.inputImages,
     maskImage: job.maskImage,
     outputImageIds: job.outputImageIds,
@@ -498,7 +498,7 @@ export function ImagePanel({ onSendToChat }: ImagePanelProps) {
     setGenerationStatus('queued', Date.now());
     try {
       const finalPrompt = buildFinalPrompt(prompt, preserveList, mode);
-      const cleanedParams = cleanImageParamsForModel(params, model);
+      const cleanedParams = cleanImageParamsForModel(params, model, mode);
 
       const body: Record<string, unknown> = {
         mode,

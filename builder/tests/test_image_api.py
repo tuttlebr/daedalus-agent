@@ -138,6 +138,14 @@ class TestEditRequest:
         assert len(req.imageRefs) == 1
         assert req.imageRefs[0].imageId == "a"
 
+    def test_ignores_generate_only_moderation(self):
+        req = EditRequest(
+            prompt="edit",
+            imageRefs=[ImageRef(imageId="a", sessionId="s")],
+            moderation="low",
+        )
+        assert "moderation" not in req.model_dump()
+
     def test_multi_image(self):
         req = EditRequest(
             prompt="composite",

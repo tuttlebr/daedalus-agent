@@ -180,17 +180,19 @@ export const ImageSettingsPanel = memo(function ImageSettingsPanel({
               }
             />
           )}
-          <Select
-            label="Moderation"
-            value={params.moderation ?? ''}
-            options={moderationOptions}
-            onChange={(value) =>
-              setParam(
-                'moderation',
-                (value || undefined) as ImageParams['moderation'],
-              )
-            }
-          />
+          {mode === 'generate' && (
+            <Select
+              label="Moderation"
+              value={params.moderation ?? ''}
+              options={moderationOptions}
+              onChange={(value) =>
+                setParam(
+                  'moderation',
+                  (value || undefined) as ImageParams['moderation'],
+                )
+              }
+            />
+          )}
         </div>
       </div>
 

@@ -297,6 +297,7 @@ describe('/api/images/jobs', () => {
       mode: 'edit',
       prompt: 'change the label color',
       model: 'gpt-image-2',
+      moderation: 'low',
       imageRefs,
       maskRef,
     });
@@ -317,6 +318,7 @@ describe('/api/images/jobs', () => {
       stream: true,
       partial_images: 2,
     });
+    expect(JSON.parse(init.body)).not.toHaveProperty('moderation');
     expect(mocks.store.get(`image-job:${jobId}`).outputImageIds).toEqual([
       'edited-1',
     ]);

@@ -105,7 +105,7 @@ export default async function handler(
     }
     const payload = {
       ...removeImageParamKeys(safeBody),
-      ...cleanImageParamsForModel(safeBody, model),
+      ...cleanImageParamsForModel(safeBody, model, 'edit'),
       prompt: prompt.trim(),
       model,
       sessionId,

@@ -42,6 +42,19 @@ describe('image model capabilities', () => {
     ).toEqual({ output_format: 'png' });
   });
 
+  it('keeps moderation for generate and drops it for edit', () => {
+    expect(
+      cleanImageParamsForModel(
+        { moderation: 'low' },
+        'gpt-image-2',
+        'generate',
+      ),
+    ).toEqual({ moderation: 'low' });
+    expect(
+      cleanImageParamsForModel({ moderation: 'low' }, 'gpt-image-2', 'edit'),
+    ).toEqual({});
+  });
+
   it('maps generated output formats to the source MIME type used for edits', () => {
     expect(getImageOutputMimeType()).toBe('image/png');
     expect(getImageOutputMimeType({ output_format: 'jpeg' })).toBe(

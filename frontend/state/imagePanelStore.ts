@@ -165,11 +165,16 @@ export const useImagePanelStore = create<ImagePanelStore>()(
       (set, get) => ({
         ...INITIAL_STATE,
 
-        setMode: (mode) => set({ mode, error: null }),
+        setMode: (mode) =>
+          set((s) => ({
+            mode,
+            params: cleanImageParamsForModel(s.params, s.model, mode),
+            error: null,
+          })),
         setModel: (model) =>
           set((s) => ({
             model,
-            params: cleanImageParamsForModel(s.params, model),
+            params: cleanImageParamsForModel(s.params, model, s.mode),
           })),
         setPrompt: (prompt) => set({ prompt }),
         setParam: (key, value) =>
@@ -179,18 +184,23 @@ export const useImagePanelStore = create<ImagePanelStore>()(
                 ? omit(s.params, key)
                 : { ...s.params, [key]: value },
               s.model,
+              s.mode,
             ),
           })),
         resetParams: () =>
           set((s) => ({
-            params: cleanImageParamsForModel(DEFAULT_PARAMS, s.model),
+            params: cleanImageParamsForModel(DEFAULT_PARAMS, s.model, s.mode),
           })),
 
         addInputImages: (refs) =>
           set((s) => {
             const byId = new Map(s.inputImages.map((r) => [r.imageId, r]));
             for (const r of refs) byId.set(r.imageId, r);
-            return { inputImages: Array.from(byId.values()), mode: 'edit' };
+            return {
+              inputImages: Array.from(byId.values()),
+              mode: 'edit',
+              params: cleanImageParamsForModel(s.params, s.model, 'edit'),
+            };
           }),
         removeInputImage: (imageId) =>
           set((s) => {
@@ -212,7 +222,11 @@ export const useImagePanelStore = create<ImagePanelStore>()(
           set((s) => {
             const byId = new Map(s.inputImages.map((r) => [r.imageId, r]));
             byId.set(ref.imageId, ref);
-            return { inputImages: Array.from(byId.values()), mode: 'edit' };
+            return {
+              inputImages: Array.from(byId.values()),
+              mode: 'edit',
+              params: cleanImageParamsForModel(s.params, s.model, 'edit'),
+            };
           }),
 
         setGallery: (gallery) =>
@@ -266,7 +280,11 @@ export const useImagePanelStore = create<ImagePanelStore>()(
             mode: entry.mode,
             model: resolveEntryModel(entry.model),
             prompt: entry.prompt,
-            params: cleanImageParamsForModel(entry.params, entry.model),
+            params: cleanImageParamsForModel(
+              entry.params,
+              entry.model,
+              entry.mode,
+            ),
             inputImages: [...entry.inputImages],
             maskImage: entry.maskImage,
             gallery: galleryFromHistoryEntry(entry),
@@ -321,6 +339,7 @@ export const useImagePanelStore = create<ImagePanelStore>()(
             params: cleanImageParamsForModel(
               saved.params ?? current.params,
               model,
+              current.mode,
             ),
           };
         },
@@ -345,7 +364,7 @@ function galleryFromHistoryEntry(entry: HistoryEntry): GalleryImage[] {
     prompt: entry.prompt,
     mode: entry.mode,
     model: resolveEntryModel(entry.model),
-    params: cleanImageParamsForModel(entry.params, entry.model),
+    params: cleanImageParamsForModel(entry.params, entry.model, entry.mode),
     createdAt: entry.createdAt,
   }));
 }

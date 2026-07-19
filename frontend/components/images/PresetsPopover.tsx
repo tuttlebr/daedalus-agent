@@ -35,7 +35,7 @@ export const PresetsPopover = memo(function PresetsPopover({
       prompt: nextPrompt,
       preserveList: nextPreserve,
       params: nextParams,
-    } = applyPreset(preset, prompt, model);
+    } = applyPreset(preset, prompt, model, mode);
     setPrompt(nextPrompt);
     if (nextPreserve !== undefined) setPreserveList(nextPreserve);
     (Object.keys(nextParams) as (keyof ImageParams)[]).forEach((k) => {

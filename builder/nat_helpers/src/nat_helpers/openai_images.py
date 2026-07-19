@@ -44,8 +44,8 @@ class ImageStreamEvent:
 
 
 # Keys forwarded verbatim when set. Both endpoints share most of these;
-# input_fidelity is edits-only. None values are dropped centrally so the
-# SDK defaults kick in.
+# moderation is generation-only and input_fidelity is edits-only. None values
+# are dropped centrally so the SDK defaults kick in.
 _GENERATE_KEYS = (
     "quality",
     "size",
@@ -64,7 +64,6 @@ _EDIT_KEYS = (
     "output_format",
     "output_compression",
     "background",
-    "moderation",
     "input_fidelity",
     "user",
 )

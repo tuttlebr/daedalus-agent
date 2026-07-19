@@ -60,4 +60,15 @@ describe('image panel history and assets', () => {
     store.removeInputImage('source-png');
     expect(useImagePanelStore.getState().maskImage).toBeNull();
   });
+
+  it('drops generate-only moderation when switching to edit mode', () => {
+    const store = useImagePanelStore.getState();
+    store.setParam('moderation', 'low');
+    expect(useImagePanelStore.getState().params.moderation).toBe('low');
+
+    store.setMode('edit');
+    expect(useImagePanelStore.getState().params).not.toHaveProperty(
+      'moderation',
+    );
+  });
 });

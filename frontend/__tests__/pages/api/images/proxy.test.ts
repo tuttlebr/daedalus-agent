@@ -164,6 +164,7 @@ describe('/api/images generate/edit proxy routes', () => {
       prompt: 'Change the label color',
       model: 'gpt-image-2',
       quality: 'high',
+      moderation: 'low',
       imageRefs,
       maskRef,
     });

@@ -123,12 +123,13 @@ export function applyPreset(
   preset: ImagePreset,
   userSubject: string,
   model: ImageModel = DEFAULT_IMAGE_MODEL,
+  mode: ImageMode = 'generate',
 ): { prompt: string; preserveList?: string; params: ImageParams } {
   const subject = userSubject.trim() || '[describe your subject]';
   return {
     prompt: preset.promptTemplate.replace(/\{\{subject\}\}/g, subject),
     preserveList: preset.preserveList,
-    params: cleanImageParamsForModel(preset.params, model),
+    params: cleanImageParamsForModel(preset.params, model, mode),
   };
 }
 

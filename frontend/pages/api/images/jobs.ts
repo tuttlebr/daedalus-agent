@@ -522,7 +522,7 @@ function buildPayload(
 
   const basePayload = removeImageParamKeys(safeBody);
   delete (basePayload as Record<string, unknown>).mode;
-  const params = cleanImageParamsForModel(safeBody, model);
+  const params = cleanImageParamsForModel(safeBody, model, mode);
   const payload = {
     ...basePayload,
     ...params,

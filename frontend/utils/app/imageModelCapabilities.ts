@@ -207,6 +207,7 @@ export function isPopularImageSize(
 export function cleanImageParamsForModel(
   params: Record<string, unknown> | ImageParams | undefined,
   model: unknown = DEFAULT_IMAGE_MODEL,
+  mode: ImageMode = 'generate',
 ): ImageParams {
   const caps = getImageModelCapabilities(model);
   if (!params) return {};
@@ -260,6 +261,7 @@ export function cleanImageParamsForModel(
   }
 
   if (
+    mode === 'generate' &&
     source.moderation !== undefined &&
     caps.moderation.includes(source.moderation)
   ) {

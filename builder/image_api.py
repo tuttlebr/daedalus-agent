@@ -246,7 +246,6 @@ class EditRequest(BaseModel):
     output_format: Literal["png", "jpeg", "webp"] | None = None
     output_compression: int | None = Field(None, ge=0, le=100)
     background: Literal["transparent", "opaque", "auto"] | None = None
-    moderation: Literal["low", "auto"] | None = None
     stream: bool = False
     partial_images: int | None = Field(None, ge=0, le=3)
     user: str | None = None

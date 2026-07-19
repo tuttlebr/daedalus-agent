@@ -51,7 +51,7 @@ Important fields:
 | `size`                | e.g. `"1024x1024"`, `"1536x1024"`, `"3840x2160"`, or `"auto"`. Any gpt-image-2-compliant resolution (edges multiple of 16, aspect ≤ 3:1) is accepted. |
 | `input_fidelity`      | `"low"` or `"high"`. Use `"high"` for identity-preserving edits (try-on, sketch-to-render, targeted swaps).                                           |
 | `n`                   | 1–10 variations per call.                                                                                                                             |
-| `moderation`          | `"auto"` (default) or `"low"`.                                                                                                                        |
+| `moderation`          | `"auto"` (default) or `"low"`; generation only.                                                                                                       |
 | `output_format`       | `"png"` (default), `"jpeg"`, or `"webp"`.                                                                                                             |
 | `output_compression`  | 0–100 for jpeg or webp outputs.                                                                                                                       |
 | `background`          | `"auto"` or `"opaque"`. gpt-image-2 does not support `"transparent"`.                                                                                 |
