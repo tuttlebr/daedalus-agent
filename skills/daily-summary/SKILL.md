@@ -19,6 +19,8 @@ Produce one clean, self-contained, dark-theme HTML page that tells the user ever
 
 The page is judged on one thing above all: it has to be **true and current**. A briefing that is stale or invented is worse than no briefing, because the user acts on it. Every rule below serves that goal.
 
+For infrastructure status (Kubernetes, UniFi, etc.), report only currently active issues. Do not surface cumulative Kubernetes event counts, historical probe failures, or past warnings unless the pod or workload is currently in a non-Ready, CrashLoopBackOff, or otherwise degraded state right now. When a resource is healthy at query time, show it as healthy and omit stale event history.
+
 ## The output in one line
 
 A standalone HTML document, dark theme, NVIDIA Green accent used sparingly, built by filling `assets/daily-summary-template.html`. Return only the HTML, with no prose before or after it and no markdown fences.
