@@ -191,7 +191,7 @@ jobs:
 
       - name: Build runtime images
         run: >-
-          docker buildx bake --load --provenance=mode=max --sbom=true
+          docker buildx bake --load
           --metadata-file "${RUNNER_TEMP}/bake-metadata.json"
           -f docker-compose.yaml backend frontend evals redis
 
