@@ -150,8 +150,14 @@ Provide the backend workflow config explicitly:
 helm upgrade --install <release> ./daedalus \
   -n <namespace> \
   -f values.yaml \
-  --set-file backend.default.config.data=backend/tool-calling-config.yaml
+  --set-file backend.default.config.data=backend/tool-calling-config.yaml \
+  --set-file backend.default.config.baseData=backend/tool-calling-config.yaml
 ```
+
+To use the OpenAI-compatible Responses API, set
+`backend.default.config.data=backend/tool-calling-responses-config.yaml` and
+keep the canonical file in `backend.default.config.baseData`. The Responses
+file is a NAT `base:` overlay, so all non-API settings remain canonical.
 
 The repo-level [`../../custom-values.yaml`](../../custom-values.yaml) is the opinionated example for production-style deployments. RedisInsight isn't shipped. Use an authenticated, time-bounded local client through `kubectl port-forward` when interactive Redis inspection is required.
 

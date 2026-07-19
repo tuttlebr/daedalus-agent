@@ -1,0 +1,8 @@
+# Responses API variant. NAT deep-merges this overlay onto the canonical
+# Chat Completions configuration, so shared tools, prompts, MCP policy, memory,
+# telemetry, and all other settings remain defined in one place.
+base: tool-calling-config.yaml
+
+llms:
+  tool_calling_llm:
+    api_type: responses

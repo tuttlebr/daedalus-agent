@@ -15,6 +15,32 @@ sys.modules[SPEC.name] = check_mcp_servers
 SPEC.loader.exec_module(check_mcp_servers)
 
 
+def test_load_yaml_merges_inherited_config(tmp_path):
+    base = tmp_path / "base.yaml"
+    overlay = tmp_path / "responses.yaml"
+    base.write_text(
+        "function_groups:\n"
+        "  docs:\n"
+        "    _type: mcp_client\n"
+        "llms:\n"
+        "  primary:\n"
+        "    _type: openai\n",
+        encoding="utf-8",
+    )
+    overlay.write_text(
+        "base: base.yaml\n" "llms:\n" "  primary:\n" "    api_type: responses\n",
+        encoding="utf-8",
+    )
+
+    config = check_mcp_servers.load_yaml(overlay)
+
+    assert config["function_groups"]["docs"]["_type"] == "mcp_client"
+    assert config["llms"]["primary"] == {
+        "_type": "openai",
+        "api_type": "responses",
+    }
+
+
 def test_discovers_streamable_http_mcp_servers_and_resolves_env():
     config = {
         "authentication": {

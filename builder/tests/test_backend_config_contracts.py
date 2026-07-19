@@ -10,8 +10,14 @@ from urllib.parse import urlparse
 import yaml
 
 CONFIG = Path(__file__).resolve().parents[2] / "backend" / "tool-calling-config.yaml"
+RESPONSES_CONFIG = (
+    Path(__file__).resolve().parents[2]
+    / "backend"
+    / "tool-calling-responses-config.yaml"
+)
 ENV_TEMPLATE = Path(__file__).resolve().parents[2] / ".env.template"
 DOCKER_COMPOSE = Path(__file__).resolve().parents[2] / "docker-compose.yaml"
+DEPLOY_SCRIPT = Path(__file__).resolve().parents[2] / "deploy.sh"
 SKILLS_DIR = Path(__file__).resolve().parents[2] / "skills"
 DOCKERFILE = Path(__file__).resolve().parents[1] / "Dockerfile"
 DOCKERIGNORE = DOCKERFILE.parent / ".dockerignore"
@@ -41,6 +47,13 @@ NGINX_TEMPLATE = (
     / "daedalus"
     / "templates"
     / "config-nginx.yaml"
+)
+BACKEND_CONFIG_TEMPLATE = (
+    Path(__file__).resolve().parents[2]
+    / "helm"
+    / "daedalus"
+    / "templates"
+    / "config-backend-default.yaml"
 )
 CILIUM_NGINX_TEMPLATE = (
     Path(__file__).resolve().parents[2]
@@ -100,7 +113,7 @@ AUTONOMOUS_AGENT_DEPLOYMENT_TEMPLATE = (
 )
 HELM_VALUES = Path(__file__).resolve().parents[2] / "helm" / "daedalus" / "values.yaml"
 CUSTOM_VALUES = Path(__file__).resolve().parents[2] / "custom-values.yaml"
-DEPLOYED_CONFIGS = (CONFIG,)
+DEPLOYED_CONFIGS = (CONFIG, RESPONSES_CONFIG)
 PROMPT_GUIDANCE_RUNTIME_PROMPTS = {
     "workflow",
 }
@@ -134,7 +147,27 @@ MULTI_OPERATION_TYPES = {
 
 
 def _config(path=CONFIG):
-    return yaml.safe_load(path.read_text(encoding="utf-8"))
+    config = yaml.safe_load(path.read_text(encoding="utf-8"))
+    base = config.pop("base", None)
+    if not base:
+        return config
+
+    base_config = _config((path.parent / base).resolve())
+
+    def deep_merge(base_value, override_value):
+        result = base_value.copy()
+        for key, value in override_value.items():
+            if (
+                key in result
+                and isinstance(result[key], dict)
+                and isinstance(value, dict)
+            ):
+                result[key] = deep_merge(result[key], value)
+            else:
+                result[key] = value
+        return result
+
+    return deep_merge(base_config, config)
 
 
 def _walk_mapping_keys(value):
@@ -480,14 +513,15 @@ def test_workflow_uses_single_tool_calling_agent_schema():
         config = _config(path)
         workflow = config["workflow"]
         # tool_calling_agent seeds the agent graph with the full inbound message
-        # list. The retired responses_api_agent took a single input string, so
-        # NAT collapsed the request to messages[-1].content and dropped all prior
-        # turns -- chat history was never reaching the LLM. The Responses API is
-        # only supported via responses_api_agent, so the agent LLM must use Chat
-        # Completions (api_type omitted/chat_completions) to pair with this agent.
+        # list. Daedalus retains that history-aware graph for both provider APIs;
+        # its per-user adapter normalizes Responses content blocks for the
+        # existing streaming front end.
+        expected_api_type = (
+            "responses" if path == RESPONSES_CONFIG else "chat_completion"
+        )
         assert (
-            config["llms"]["tool_calling_llm"].get("api_type", "chat_completions")
-            != "responses"
+            config["llms"]["tool_calling_llm"].get("api_type", "chat_completion")
+            == expected_api_type
         ), path
         assert workflow["_type"] == "daedalus_per_user_tool_calling_agent", path
         assert "tool_names" in workflow, path
@@ -499,7 +533,7 @@ def test_workflow_uses_single_tool_calling_agent_schema():
         assert not set(removed_agent_names) & set(config["functions"]), path
 
 
-def test_openai_llms_use_tool_calling_compatible_parameters():
+def test_openai_llms_use_api_compatible_parameters():
     expected = {"tool_calling_llm", "default_llm"}
     for path in DEPLOYED_CONFIGS:
         config = _config(path)
@@ -507,7 +541,12 @@ def test_openai_llms_use_tool_calling_compatible_parameters():
         for llm_name in expected:
             llm = config["llms"][llm_name]
             assert llm["_type"] == "openai", (path, llm_name)
-            assert llm.get("api_type", "chat_completions") != "responses", (
+            expected_api_type = (
+                "responses"
+                if path == RESPONSES_CONFIG and llm_name == "tool_calling_llm"
+                else "chat_completion"
+            )
+            assert llm.get("api_type", "chat_completion") == expected_api_type, (
                 path,
                 llm_name,
             )
@@ -515,6 +554,35 @@ def test_openai_llms_use_tool_calling_compatible_parameters():
             assert "top_p" not in llm, (path, llm_name)
             assert "extra_args" not in llm, (path, llm_name)
             assert "extra_body" not in llm, (path, llm_name)
+
+
+def test_responses_config_is_a_minimal_inherited_api_override():
+    overlay = yaml.safe_load(RESPONSES_CONFIG.read_text(encoding="utf-8"))
+    assert overlay == {
+        "base": "tool-calling-config.yaml",
+        "llms": {"tool_calling_llm": {"api_type": "responses"}},
+    }
+
+    chat_config = _config(CONFIG)
+    responses_config = _config(RESPONSES_CONFIG)
+    responses_config["llms"]["tool_calling_llm"].pop("api_type")
+    assert responses_config == chat_config
+
+
+def test_backend_config_inheritance_files_are_deployed_together():
+    compose = DOCKER_COMPOSE.read_text(encoding="utf-8")
+    template = BACKEND_CONFIG_TEMPLATE.read_text(encoding="utf-8")
+    values = yaml.safe_load(HELM_VALUES.read_text(encoding="utf-8"))
+    deploy = DEPLOY_SCRIPT.read_text(encoding="utf-8")
+
+    assert (
+        "./backend/tool-calling-config.yaml:/workspace/tool-calling-config.yaml:ro"
+        in compose
+    )
+    assert "tool-calling-config.yaml: |-" in template
+    assert values["backend"]["default"]["config"]["baseData"] == ""
+    assert "--backend-config PATH" in deploy
+    assert "backend.default.config.baseData" in deploy
 
 
 def test_backend_config_omits_unsupported_sampling_parameters():

@@ -96,13 +96,20 @@ GITHUB_PAT=...
 
 ### 2. Optionally choose a backend config for local Compose
 
-The Compose stack mounts `backend/tool-calling-config.yaml` by default. To run a different backend config, set `BACKEND_CONFIG_FILE` to the file that should be mounted as `/workspace/config.yaml`.
+The Compose stack mounts `backend/tool-calling-config.yaml` by default. Select
+the small inherited overlay to make the primary agent call OpenAI-compatible
+`/responses` instead of `/chat/completions`:
 
 ```bash
-BACKEND_CONFIG_FILE=./backend/tool-calling-config.yaml docker compose up --build
+BACKEND_CONFIG_FILE=./backend/tool-calling-responses-config.yaml docker compose up --build
 ```
 
-If you edit the config later, recreate the backend container so NAT reloads the new file.
+The overlay contains only `api_type: responses` and inherits every other setting
+from `tool-calling-config.yaml` through NAT's `base:` support. The frontend still
+uses the backend's OpenAI-compatible `/v1/chat/completions` route; this switch
+changes the backend's outbound model-provider API. Select the canonical file to
+switch back. If you edit either config, recreate the backend container so NAT
+reloads it.
 
 ### 3. Start the local stack
 
@@ -154,6 +161,7 @@ Useful flags:
 ./deploy.sh --skip-mcp-preflight
 ./deploy.sh --mcp-preflight-timeout 30
 ./deploy.sh --mcp-preflight-kubectl-image curlimages/curl:8.8.0
+./deploy.sh --backend-config backend/tool-calling-responses-config.yaml
 ./deploy.sh -n daedalus -r daedalus
 ```
 
@@ -192,7 +200,8 @@ MCP exposure and approval follow one configuration rule:
   ```
 
   `backend/tool-calling-config.yaml` is the only repository configuration
-  surface for this decision. The pinned runtime adapter loads these exact
+  surface for this decision. The Responses overlay inherits these declarations
+  and never duplicates them. The pinned runtime adapter loads the effective
   declarations before installing the approval gate. NAT ignores this
   Daedalus-owned extension itself.
 
@@ -251,9 +260,13 @@ kubectl -n daedalus create secret generic daedalus-frontend-env \
 helm upgrade --install daedalus ./helm/daedalus \
   -n daedalus \
   -f custom-values.yaml \
-  --set-file backend.default.config.data=backend/tool-calling-config.yaml \
+  --set-file backend.default.config.data=backend/tool-calling-responses-config.yaml \
+  --set-file backend.default.config.baseData=backend/tool-calling-config.yaml \
   --timeout 10m
 ```
+
+Use `tool-calling-config.yaml` for `backend.default.config.data` to select Chat
+Completions. `baseData` may remain set in either mode.
 
 ### Full Helm Footprint
 
@@ -371,10 +384,11 @@ and [`builder/nat_nv_ingest/README.md`](builder/nat_nv_ingest/README.md).
 
 ## Backend Workflows
 
-The backend configuration lives at [`backend/tool-calling-config.yaml`](backend/tool-calling-config.yaml) and covers tool use, retrieval, memory, MCP integrations, image tooling, and reasoning. It includes the custom packages from `builder/` and relies heavily on environment-variable substitution for secrets and endpoints. Local Compose mounts this file directly, and Helm deployments should pass the same file with `--set-file backend.default.config.data=backend/tool-calling-config.yaml`.
+The canonical backend configuration lives at [`backend/tool-calling-config.yaml`](backend/tool-calling-config.yaml) and covers tool use, retrieval, memory, MCP integrations, image tooling, and reasoning. [`backend/tool-calling-responses-config.yaml`](backend/tool-calling-responses-config.yaml) inherits it and changes only the primary LLM's provider API. It includes the custom packages from `builder/` and relies heavily on environment-variable substitution for secrets and endpoints.
 
-The workflow uses one top-level Responses API agent with a direct leaf-tool
-surface. Concise factual questions use retrievers, curated feeds, search, and
+The workflow uses one top-level, per-user tool-calling agent with a direct
+leaf-tool surface. It preserves the same tool graph, system prompt, chat
+history, and OAuth isolation in Chat Completions and Responses modes. Concise factual questions use retrievers, curated feeds, search, and
 scraping directly; comprehensive reports, broad surveys, strategy work, and
 multi-section comparisons use the same direct tools with source planning, plan
 approval for expensive/open-ended research, source-ledger tracking, targeted
@@ -599,7 +613,11 @@ Run a single job locally with `make builder`, `make frontend`, `make helm`,
 
 ### Backend Config Override Is Missing
 
-The local backend container mounts `/workspace/config.yaml` from `BACKEND_CONFIG_FILE`, defaulting to `./backend/tool-calling-config.yaml`. If you override `BACKEND_CONFIG_FILE`, make sure that file exists before starting Compose.
+The local backend container mounts `/workspace/config.yaml` from
+`BACKEND_CONFIG_FILE`, defaulting to `./backend/tool-calling-config.yaml`. If you
+select the Responses overlay, Compose also mounts the canonical base beside it
+so NAT can resolve `base: tool-calling-config.yaml`. Recreate the backend
+container after changing the selection.
 
 ### Login Page Loads But No User Can Sign In
 
@@ -620,17 +638,18 @@ If NvIngest document ingestion fails with `StatusCode.UNAUTHENTICATED` and `auth
 
 ## Key Configuration Files
 
-| File                                                                   | Purpose                              |
-| ---------------------------------------------------------------------- | ------------------------------------ |
-| [`README.md`](README.md)                                               | Top-level setup and deployment guide |
-| [`.env.template`](.env.template)                                       | Main environment variable template   |
-| [`docker-compose.yaml`](docker-compose.yaml)                           | Local multi-service stack            |
-| [`backend/tool-calling-config.yaml`](backend/tool-calling-config.yaml) | Backend workflow configuration       |
-| [`frontend/env.example`](frontend/env.example)                         | Frontend API path example            |
-| [`helm/daedalus/values.yaml`](helm/daedalus/values.yaml)               | Default Helm values                  |
-| [`custom-values.yaml`](custom-values.yaml)                             | Example production overrides         |
-| [`deploy.sh`](deploy.sh)                                               | Build, push, and deploy helper       |
-| [`Makefile`](Makefile)                                                 | Local mirror of CI workflow jobs     |
+| File                                                                                       | Purpose                              |
+| ------------------------------------------------------------------------------------------ | ------------------------------------ |
+| [`README.md`](README.md)                                                                   | Top-level setup and deployment guide |
+| [`.env.template`](.env.template)                                                           | Main environment variable template   |
+| [`docker-compose.yaml`](docker-compose.yaml)                                               | Local multi-service stack            |
+| [`backend/tool-calling-config.yaml`](backend/tool-calling-config.yaml)                     | Backend workflow configuration       |
+| [`backend/tool-calling-responses-config.yaml`](backend/tool-calling-responses-config.yaml) | Responses API override               |
+| [`frontend/env.example`](frontend/env.example)                                             | Frontend API path example            |
+| [`helm/daedalus/values.yaml`](helm/daedalus/values.yaml)                                   | Default Helm values                  |
+| [`custom-values.yaml`](custom-values.yaml)                                                 | Example production overrides         |
+| [`deploy.sh`](deploy.sh)                                                                   | Build, push, and deploy helper       |
+| [`Makefile`](Makefile)                                                                     | Local mirror of CI workflow jobs     |
 
 ## Documentation Map
 

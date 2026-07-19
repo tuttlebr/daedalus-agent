@@ -153,7 +153,19 @@ def main() -> None:
     # schemas so the shared application can start without building it.
     from nat_helpers.per_user_tool_calling import (
         DaedalusPerUserToolCallAgentWorkflowConfig,
+        _content_text,
     )
+
+    if (
+        _content_text(
+            [
+                {"type": "output_text", "text": "Responses "},
+                {"type": "text", "text": "content"},
+            ]
+        )
+        != "Responses content"
+    ):
+        raise RuntimeError("Responses API content-block normalization is broken")
 
     per_user_agent = GlobalTypeRegistry.get().get_function(
         DaedalusPerUserToolCallAgentWorkflowConfig

@@ -8,4 +8,8 @@ metadata:
 data:
   config.yaml: |-
 {{ .Values.backend.default.config.data | indent 4 }}
+  {{- with .Values.backend.default.config.baseData }}
+  tool-calling-config.yaml: |-
+{{ . | indent 4 }}
+  {{- end }}
 {{- end }}

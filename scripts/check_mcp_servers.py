@@ -52,7 +52,17 @@ class CheckError(Exception):
     """Expected pre-flight failure."""
 
 
-def load_yaml(path: Path) -> dict[str, Any]:
+def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
+    result = base.copy()
+    for key, value in override.items():
+        if key in result and isinstance(result[key], dict) and isinstance(value, dict):
+            result[key] = _deep_merge(result[key], value)
+        else:
+            result[key] = value
+    return result
+
+
+def load_yaml(path: Path, _visited: set[Path] | None = None) -> dict[str, Any]:
     try:
         import yaml
     except ImportError as exc:  # pragma: no cover - depends on host env
@@ -61,11 +71,30 @@ def load_yaml(path: Path) -> dict[str, Any]:
             "`python3 -m pip install pyyaml` or run from the builder test env."
         ) from exc
 
-    with path.open("r", encoding="utf-8") as handle:
+    resolved_path = path.resolve()
+    visited = set() if _visited is None else _visited
+    if resolved_path in visited:
+        raise CheckError(f"circular config inheritance at {resolved_path}")
+    visited.add(resolved_path)
+
+    with resolved_path.open("r", encoding="utf-8") as handle:
         data = yaml.safe_load(handle)
     if not isinstance(data, dict):
-        raise CheckError(f"{path} did not parse as a YAML mapping")
-    return data
+        raise CheckError(f"{resolved_path} did not parse as a YAML mapping")
+
+    base = data.pop("base", None)
+    if base is None:
+        return data
+    if not isinstance(base, str):
+        raise CheckError(f"{resolved_path}: base must be a file path string")
+
+    base_path = Path(base)
+    if not base_path.is_absolute():
+        base_path = resolved_path.parent / base_path
+    if not base_path.exists():
+        raise CheckError(f"base config not found: {base_path.resolve()}")
+
+    return _deep_merge(load_yaml(base_path, visited), data)
 
 
 def load_env_file(path: Path | None) -> dict[str, str]:

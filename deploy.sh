@@ -39,6 +39,8 @@ Options:
   -r, --release NAME         Helm release name (default: $RELEASE)
   -e, --env-file PATH        .env file for secrets (default: .env)
   -f, --values PATH          Helm values file (default: custom-values.yaml)
+      --backend-config PATH  Backend config or inherited overlay
+                             (default: backend/tool-calling-config.yaml)
       --skip-build           Skip docker compose build/push
       --skip-tls             Skip TLS secret creation
       --skip-mcp-preflight   Skip MCP server reachability checks
@@ -63,6 +65,7 @@ while [[ $# -gt 0 ]]; do
     -r|--release)       RELEASE="$2"; shift 2 ;;
     -e|--env-file)      ENV_FILE="$2"; shift 2 ;;
     -f|--values)        VALUES_FILE="$2"; shift 2 ;;
+    --backend-config)   BACKEND_CONFIG="$2"; shift 2 ;;
     --skip-build)       SKIP_BUILD=true; shift ;;
     --skip-tls)         SKIP_TLS=true; shift ;;
     --skip-mcp-preflight) SKIP_MCP_PREFLIGHT=true; shift ;;
@@ -76,6 +79,10 @@ while [[ $# -gt 0 ]]; do
     *)                  echo "Unknown option: $1" >&2; usage >&2; exit 1 ;;
   esac
 done
+
+if [[ "$BACKEND_CONFIG" != /* ]]; then
+  BACKEND_CONFIG="$SCRIPT_DIR/$BACKEND_CONFIG"
+fi
 
 COMPOSE_CMD=(docker compose -f "$SCRIPT_DIR/docker-compose.yaml")
 if [[ -f "$ENV_FILE" ]]; then
@@ -726,7 +733,10 @@ if [[ -f "$VALUES_FILE" ]]; then
 fi
 
 if [[ -f "$BACKEND_CONFIG" ]]; then
-  HELM_CMD+=( --set-file backend.default.config.data="$BACKEND_CONFIG" )
+  HELM_CMD+=(
+    --set-file backend.default.config.data="$BACKEND_CONFIG"
+    --set-file backend.default.config.baseData="$SCRIPT_DIR/backend/tool-calling-config.yaml"
+  )
 fi
 
 # Force pod recreation by changing the deploy-timestamp annotation
