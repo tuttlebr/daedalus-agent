@@ -176,6 +176,10 @@ jobs:
   docker:
     name: Docker / Compose Smoke
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
@@ -188,7 +192,23 @@ jobs:
       - name: Build runtime images
         run: >-
           docker buildx bake --load --provenance=mode=max --sbom=true
+          --metadata-file "${RUNNER_TEMP}/bake-metadata.json"
           -f docker-compose.yaml backend frontend evals redis
+
+      - name: Export runtime image digests
+        id: image_digests
+        env:
+          BAKE_METADATA_FILE: ${{ runner.temp }}/bake-metadata.json
+        run: |
+          for target in backend frontend evals redis; do
+            digest="$(
+              jq -er --arg target "$target" \
+                '.[$target]["containerimage.digest"] |
+                 select(test("^sha256:[0-9a-f]{64}$"))' \
+                "$BAKE_METADATA_FILE"
+            )"
+            echo "${target}=${digest}" >>"$GITHUB_OUTPUT"
+          done
 
       - name: Scan backend image
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
@@ -221,6 +241,34 @@ jobs:
           format: table
           severity: CRITICAL,HIGH
           exit-code: '1'
+
+      - name: Attest backend image
+        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+        uses: actions/attest@f7c74d28b9d84cb8768d0b8ca14a4bac6ef463e6 # v4.2.0
+        with:
+          subject-name: docker.io/your-user/daedalus
+          subject-digest: ${{ steps.image_digests.outputs.backend }}
+
+      - name: Attest frontend image
+        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+        uses: actions/attest@f7c74d28b9d84cb8768d0b8ca14a4bac6ef463e6 # v4.2.0
+        with:
+          subject-name: docker.io/your-user/daedalus
+          subject-digest: ${{ steps.image_digests.outputs.frontend }}
+
+      - name: Attest eval image
+        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+        uses: actions/attest@f7c74d28b9d84cb8768d0b8ca14a4bac6ef463e6 # v4.2.0
+        with:
+          subject-name: docker.io/your-user/daedalus
+          subject-digest: ${{ steps.image_digests.outputs.evals }}
+
+      - name: Attest Redis image
+        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+        uses: actions/attest@f7c74d28b9d84cb8768d0b8ca14a4bac6ef463e6 # v4.2.0
+        with:
+          subject-name: docker.io/your-user/daedalus
+          subject-digest: ${{ steps.image_digests.outputs.redis }}
 
   security:
     name: Security Scans
