@@ -454,8 +454,11 @@ The design follows the useful parts of Hermes-style autonomy: a persistent agent
 
 - The worker runs `python -m autonomous_agent.worker` from the builder image.
 - Scheduled runs are controlled by `autonomousAgent.worker.intervalSeconds` and can be changed in the Autonomy dashboard.
+- Each scheduled run selects the never-run or most-overdue active goal instead of repeatedly choosing the first broad goal. Add a `cadence:<n>h` or `cadence:<n>d` goal tag to set its target refresh interval; untagged goals default to daily.
 - Manual runs are queued from the Autonomy dashboard, which writes to the Redis queue the worker consumes.
 - The worker streams from the already-loaded backend workflow at `autonomousAgent.backendApiPath` (defaults to `/v1/chat/completions`) and writes structured feed items plus workspace updates.
+- Autonomous research must stay non-interactive. Goal definitions should not use Gmail, Calendar, or other tools that can pause for per-user OAuth.
+- Feed items must represent a new fact or changed current state. A second publisher repeating the same underlying story is corroboration, not a new update.
 - Destructive, irreversible, credential-related, send/merge/delete/scale/uninstall, or memory-delete actions must request confirmation. The run pauses and the dashboard shows a pending approval.
 - A Redis lease with heartbeat prevents multiple worker replicas from running the same configured user concurrently.
 

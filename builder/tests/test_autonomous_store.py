@@ -226,6 +226,23 @@ def test_append_feed_items_dedupes_against_recent_feed():
     assert len(store.list_feed("u")) == 1
 
 
+def test_mark_goal_run_updates_only_the_selected_goal():
+    store = _store()
+    store.json_set(
+        key("u", "goals"),
+        [
+            {"id": "goal_a", "lastRunAt": None},
+            {"id": "goal_b", "lastRunAt": None},
+        ],
+    )
+
+    store.mark_goal_run("u", "goal_b", 1234)
+
+    goals = store.list_goals("u")
+    assert goals[0]["lastRunAt"] is None
+    assert goals[1]["lastRunAt"] == 1234
+
+
 def test_append_feed_items_returns_only_items_that_survive_max_cap():
     store = _store()
     store.save_config("u", {**store.get_config("u"), "maxFeedItems": 2})

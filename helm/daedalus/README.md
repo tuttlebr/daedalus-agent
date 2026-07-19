@@ -239,6 +239,7 @@ Those routes are selected by path and `X-Backend-Type` header, which allows call
 - The autonomous worker streams from the already-loaded backend workflow through `autonomousAgent.backendApiPath`, normally `/v1/chat/completions`.
 - The autonomous worker seeds first-run workspace context from built-in defaults in the `autonomous_agent` package.
 - The run cadence defaults to `autonomousAgent.worker.intervalSeconds` and can be changed from the Autonomy dashboard.
+- Scheduled runs rotate through active goals by their `cadence:<n>h` or `cadence:<n>d` tag (daily when omitted). Autonomous goals should use only non-interactive sources and must not depend on per-user OAuth.
 
 ## NFS Ownership Runbook
 

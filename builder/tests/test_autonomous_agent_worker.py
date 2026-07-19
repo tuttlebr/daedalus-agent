@@ -23,6 +23,7 @@ from autonomous_agent.worker import (
     make_backend,
     run_once,
     run_with_lease_heartbeat,
+    select_scheduled_goal,
 )
 
 
@@ -84,6 +85,11 @@ class FakeStore:
 
     def append_approval(self, user_id, approval):
         self.approvals.append(approval)
+
+    def mark_goal_run(self, user_id, goal_id, timestamp):
+        for goal in self.goals:
+            if goal.get("id") == goal_id:
+                goal["lastRunAt"] = timestamp
 
     def get_pending_approval(self, user_id, request_id):
         return self.pending_approvals.get(request_id)
@@ -159,6 +165,7 @@ def test_feed_items_from_output_limits_and_normalizes():
                 "body": "Worth tracking.",
                 "source_url": "https://example.com",
                 "thread_key": "example-thread",
+                "is_update": True,
                 "confidence": "High",
                 "confidence_reason": "Primary source.",
             }
@@ -171,6 +178,7 @@ def test_feed_items_from_output_limits_and_normalizes():
     assert items[0]["lane"] == "known"
     assert items[0]["sourceUrl"] == "https://example.com"
     assert items[0]["threadKey"] == "example-thread"
+    assert items[0]["isUpdate"] is True
 
 
 def test_apply_workspace_updates_only_allows_known_mutable_sections():
@@ -190,6 +198,19 @@ def test_apply_workspace_updates_only_allows_known_mutable_sections():
     assert changed == ["heartbeat", "inner_state"]
     assert store.text["autonomous:test-user:workspace:heartbeat"] == "new heartbeat"
     assert "autonomous:test-user:workspace:identity" not in store.text
+
+
+def test_apply_workspace_updates_skips_unchanged_content():
+    store = FakeStore()
+    store.text["autonomous:test-user:workspace:heartbeat"] = "same"
+
+    changed = apply_workspace_updates(
+        store,
+        "test-user",
+        {"workspace_updates": {"heartbeat": "same"}},
+    )
+
+    assert changed == []
 
 
 def test_load_workspace_uses_builtin_defaults_without_config_mount():
@@ -330,7 +351,7 @@ def test_build_messages_bounds_persisted_workspace_and_history_context():
     assert all(len(run["summary"]) <= 600 for run in runtime["recent_runs"])
     assert all(len(run["id"]) <= 128 for run in runtime["recent_runs"])
     assert all(len(run["completedAt"]) <= 128 for run in runtime["recent_runs"])
-    assert len(runtime["already_surfaced"]) == 20
+    assert len(runtime["already_surfaced"]) == 30
     assert all(
         len(item["title"]) <= 96
         and len(item["bluf"]) <= 140
@@ -368,6 +389,103 @@ def test_build_messages_scopes_goal_run_to_selected_goal():
     assert '"id": "goal_amd"' in prompt
     assert "treat selected_goal as the sole objective" in prompt
     assert "Do not switch to a different active_goals item" in prompt
+
+
+def test_build_messages_includes_all_active_goal_digests_and_freshness_rules():
+    goals = [
+        {
+            "id": f"goal_{index}",
+            "title": f"Goal {index}",
+            "description": "full description",
+            "status": "active",
+            "priority": index,
+        }
+        for index in range(9)
+    ]
+
+    messages = build_messages(
+        user_id="test-user",
+        config={"actionPolicy": "broad_autonomy"},
+        workspace={},
+        goals=goals,
+        recent_runs=[],
+        request={"trigger": "goal", "goalId": "goal_8"},
+    )
+
+    prompt = messages[-1]["content"]
+    runtime = json.loads(prompt.split("Runtime input:\n", 1)[1])
+    assert len(runtime["active_goals"]) == 9
+    assert runtime["selected_goal"]["id"] == "goal_8"
+    assert "The same fact from a different publisher is corroboration" in prompt
+    assert "current_datetime_tool" in prompt
+    assert "top_k=20" in prompt
+    assert "Do not call tools that can require interactive authentication" in prompt
+
+
+def test_scheduled_run_rotates_to_never_run_goal_then_marks_it():
+    store = FakeStore()
+    store.goals = [
+        {
+            "id": "goal_frequent",
+            "title": "Frequent",
+            "status": "active",
+            "priority": 1,
+            "tags": ["cadence:4h"],
+            "lastRunAt": 1_700_000_000_000,
+        },
+        {
+            "id": "goal_new",
+            "title": "Never run",
+            "status": "active",
+            "priority": 2,
+            "tags": ["cadence:1d"],
+            "lastRunAt": None,
+        },
+    ]
+    backend = FakeBackend(json.dumps({"summary": "No new findings.", "feed_items": []}))
+
+    run = run_once(
+        store=store,
+        backend=backend,
+        user_id="test-user",
+        request={"trigger": "scheduled"},
+    )
+
+    assert run["goalId"] == "goal_new"
+    assert store.goals[1]["lastRunAt"] == run["startedAt"]
+    assert '"selected_goal": {' in backend.messages[-1]["content"]
+    assert '"id": "goal_new"' in backend.messages[-1]["content"]
+
+
+def test_scheduled_goal_selection_uses_cadence_over_priority_after_initial_run():
+    timestamp = 1_800_000_000_000
+    selected = select_scheduled_goal(
+        [
+            {
+                "id": "goal_daily",
+                "status": "active",
+                "priority": 1,
+                "tags": ["cadence:1d"],
+                "lastRunAt": timestamp - 20 * 3_600_000,
+            },
+            {
+                "id": "goal_frequent",
+                "status": "active",
+                "priority": 2,
+                "tags": ["cadence:4h"],
+                "lastRunAt": timestamp - 6 * 3_600_000,
+            },
+            {
+                "id": "goal_paused",
+                "status": "paused",
+                "priority": 0,
+                "lastRunAt": 0,
+            },
+        ],
+        timestamp=timestamp,
+    )
+
+    assert selected["id"] == "goal_frequent"
 
 
 def test_run_once_goal_request_passes_selected_goal_to_backend():

@@ -97,6 +97,8 @@ export interface AutonomyFeedItem {
   fingerprint?: string;
   /** Stable source/topic key used to suppress repeats and link updates. */
   threadKey?: string;
+  /** Model assertion that this item materially changes an existing thread. */
+  isUpdate?: boolean;
   /** Prior feed item this entry materially updates, when applicable. */
   updateOfFeedItemId?: string;
   updateOfTitle?: string;

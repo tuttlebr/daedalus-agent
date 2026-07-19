@@ -212,6 +212,16 @@ def _same_thread(candidate: dict[str, Any], existing: dict[str, Any]) -> bool:
     return bool(candidate_thread and candidate_thread == existing_thread)
 
 
+def _same_explicit_thread(candidate: dict[str, Any], existing: dict[str, Any]) -> bool:
+    candidate_thread = normalize_thread_key(
+        candidate.get("threadKey") or candidate.get("thread_key")
+    )
+    existing_thread = normalize_thread_key(
+        existing.get("threadKey") or existing.get("thread_key")
+    )
+    return bool(candidate_thread and candidate_thread == existing_thread)
+
+
 def _same_source(candidate: dict[str, Any], existing: dict[str, Any]) -> bool:
     candidate_url = normalize_url(_source_url(candidate))
     existing_url = normalize_url(_source_url(existing))
@@ -245,6 +255,15 @@ def is_duplicate(candidate: dict[str, Any], existing: dict[str, Any]) -> bool:
 
     title_sim, content_sim = _similarities(candidate, existing)
 
+    if _same_explicit_thread(candidate, existing):
+        is_update = (
+            candidate.get("isUpdate") is True or candidate.get("is_update") is True
+        )
+        return (
+            not is_update
+            or title_sim >= TITLE_SIMILARITY
+            or content_sim >= CONTENT_SIMILARITY
+        )
     if _same_source(candidate, existing) or _same_thread(candidate, existing):
         return title_sim >= TITLE_SIMILARITY or content_sim >= CONTENT_SIMILARITY
     return title_sim >= TITLE_SIMILARITY and content_sim >= CONTENT_SIMILARITY

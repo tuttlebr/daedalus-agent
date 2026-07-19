@@ -196,6 +196,23 @@ class RedisStore:
         goals = self.json_get(key(user_id, "goals"), [])
         return goals if isinstance(goals, list) else []
 
+    def mark_goal_run(self, user_id: str, goal_id: str, timestamp: int) -> None:
+        """Record a goal attempt so scheduled runs can rotate across goals."""
+
+        def mutate(current: list[dict[str, Any]]):
+            goals = []
+            changed = False
+            for goal in current:
+                if isinstance(goal, dict) and goal.get("id") == goal_id:
+                    goal = {**goal, "lastRunAt": timestamp}
+                    changed = True
+                goals.append(goal)
+            return goals, changed
+
+        changed = self.atomic_update(key(user_id, "goals"), mutate)
+        if changed:
+            self.publish(user_id, "autonomy_status", {"goalsUpdated": True})
+
     def list_runs(self, user_id: str) -> list[dict[str, Any]]:
         runs = self.json_get(key(user_id, "runs"), [])
         return runs if isinstance(runs, list) else []

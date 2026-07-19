@@ -101,6 +101,7 @@ def new_feed_item(
     body: str,
     source_url: str = "",
     thread_key: str = "",
+    is_update: bool = False,
     confidence: str = "medium",
     confidence_reason: str = "",
 ) -> dict[str, Any]:
@@ -119,6 +120,8 @@ def new_feed_item(
     }
     if thread_key:
         item["threadKey"] = thread_key
+    if is_update:
+        item["isUpdate"] = True
     return item
 
 

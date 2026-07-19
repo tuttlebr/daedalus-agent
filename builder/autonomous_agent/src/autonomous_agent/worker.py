@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import os
+import re
 import signal
 import sys
 import threading
@@ -28,6 +29,7 @@ from .prompt import (
 from .store import RedisStore
 
 STOP = False
+_CADENCE_TAG_RE = re.compile(r"^cadence:(\d+)([hd])$", re.IGNORECASE)
 
 # A receipt can be created before the backend finishes the approved run. Keep
 # a fixed recovery window after the HTTP deadline so the worker can consume
@@ -174,9 +176,52 @@ def apply_workspace_updates(
             continue
         if not isinstance(content, str) or not content.strip():
             continue
-        store.set_text(workspace_key(user_id, name), content.strip())
+        content = content.strip()
+        key = workspace_key(user_id, name)
+        if store.get_text(key) == content:
+            continue
+        store.set_text(key, content)
         changed.append(name)
     return changed
+
+
+def _goal_cadence_ms(goal: dict[str, Any]) -> int:
+    for tag in goal.get("tags") or []:
+        match = _CADENCE_TAG_RE.match(str(tag).strip())
+        if not match:
+            continue
+        value = max(1, int(match.group(1)))
+        hours = value * (24 if match.group(2).lower() == "d" else 1)
+        return hours * 3_600_000
+    return 24 * 3_600_000
+
+
+def select_scheduled_goal(
+    goals: list[dict[str, Any]], *, timestamp: int
+) -> dict[str, Any] | None:
+    """Pick the never-run or most-overdue active goal, then use priority."""
+
+    active = [
+        (index, goal)
+        for index, goal in enumerate(goals)
+        if isinstance(goal, dict) and goal.get("status", "active") == "active"
+    ]
+    if not active:
+        return None
+
+    def rank(item: tuple[int, dict[str, Any]]) -> tuple[float, float, float, int]:
+        index, goal = item
+        last_run = goal.get("lastRunAt")
+        try:
+            priority = float(goal.get("priority"))
+        except (TypeError, ValueError):
+            priority = 3.0
+        if not isinstance(last_run, (int, float)) or last_run <= 0:
+            return (1.0, 0.0, -priority, -index)
+        overdue = (timestamp - float(last_run)) / _goal_cadence_ms(goal)
+        return (0.0, overdue, -priority, -index)
+
+    return max(active, key=rank)[1]
 
 
 def run_once(
@@ -187,6 +232,14 @@ def run_once(
     request: dict[str, Any],
     abort: threading.Event | None = None,
 ) -> dict[str, Any]:
+    request = dict(request)
+    goals_snapshot: list[dict[str, Any]] | None = None
+    if request.get("trigger", "scheduled") == "scheduled" and not request.get("goalId"):
+        goals_snapshot = store.list_goals(user_id)
+        selected_goal = select_scheduled_goal(goals_snapshot, timestamp=now_ms())
+        if selected_goal:
+            request["goalId"] = selected_goal.get("id")
+
     run = new_run(
         user_id=user_id,
         trigger=str(request.get("trigger") or "manual"),
@@ -274,17 +327,23 @@ def run_once(
     run["startedAt"] = now_ms()
     store.upsert_run(user_id, run)
     store.log_event(user_id, run["id"], "run_started", "Autonomous run started.")
+    goal_id = str(run.get("goalId") or "").strip()
+    mark_goal_run = getattr(store, "mark_goal_run", None)
+    if goal_id and callable(mark_goal_run):
+        mark_goal_run(user_id, goal_id, run["startedAt"])
 
     try:
         config = store.get_config(user_id)
         workspace = load_workspace(store, user_id)
-        goals = store.list_goals(user_id)
+        goals = (
+            goals_snapshot if goals_snapshot is not None else store.list_goals(user_id)
+        )
         recent_runs = [
             existing
             for existing in store.list_runs(user_id)
             if existing.get("id") != run["id"]
         ]
-        recent_feed = store.list_feed(user_id, limit=60)
+        recent_feed = store.list_feed(user_id, limit=120)
         if approval_execution is not None:
             issue_token = getattr(store, "issue_approval_token", None)
             if not callable(issue_token):
@@ -622,8 +681,7 @@ def main() -> int:
             reclaimed = store.reclaim_processing(user_id)
             if reclaimed:
                 log(
-                    f"reclaimed {reclaimed} in-flight request(s) "
-                    "from a previous worker"
+                    f"reclaimed {reclaimed} in-flight request(s) from a previous worker"
                 )
             scheduled = store.maybe_enqueue_scheduled(user_id)
             if scheduled:

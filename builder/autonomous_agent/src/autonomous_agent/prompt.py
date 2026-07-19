@@ -116,7 +116,7 @@ _SOURCE_POLICY_IDS = {
 _MAX_WORKSPACE_SECTION_CHARS = 2_500
 _MAX_RECENT_RUN_FIELD_CHARS = 128
 _MAX_RECENT_RUN_SUMMARY_CHARS = 600
-_RECENT_FEED_LIMIT = 20
+_RECENT_FEED_LIMIT = 60
 _RECENT_FEED_TITLE_CHARS = 96
 _RECENT_FEED_BLUF_CHARS = 140
 _RECENT_FEED_SOURCE_CHARS = 80
@@ -151,6 +151,30 @@ def _recent_run_digest(run: dict[str, Any]) -> dict[str, Any]:
         "summary": _bounded_text(run.get("summary"), _MAX_RECENT_RUN_SUMMARY_CHARS),
         "completedAt": completed_at,
     }
+
+
+def _goal_digest(goal: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": goal.get("id"),
+        "title": goal.get("title"),
+        "description": _bounded_text(goal.get("description"), 600),
+        "priority": goal.get("priority"),
+        "tags": goal.get("tags") or [],
+        "lastRunAt": goal.get("lastRunAt"),
+    }
+
+
+def _profile_memory_query(selected_goal: dict[str, Any] | None) -> str:
+    query = (
+        "daily summary personal profile priorities interests professional role "
+        "tracked projects local life sports hobbies preferences privacy boundaries "
+        "and recent autonomous findings"
+    )
+    if not selected_goal:
+        return query
+    title = str(selected_goal.get("title") or "").strip()
+    tags = " ".join(str(tag) for tag in selected_goal.get("tags") or [])
+    return f"{query}; current goal: {title} {tags}".strip()
 
 
 def read_seed(name: str, path: str) -> str:
@@ -192,7 +216,7 @@ def build_messages(
     """Build a stable-prefix autonomous prompt for the NAT workflow."""
 
     all_active_goals = [g for g in goals if g.get("status", "active") == "active"]
-    active_goals = all_active_goals[:8]
+    active_goals = [_goal_digest(goal) for goal in all_active_goals]
     goal_id = request.get("goalId")
     selected_goal = None
     if goal_id:
@@ -200,6 +224,7 @@ def build_messages(
             (goal for goal in goals if goal.get("id") == goal_id),
             None,
         )
+    memory_query = _profile_memory_query(selected_goal)
     recent_summaries = [
         _recent_run_digest(run) for run in recent_runs[:5] if isinstance(run, dict)
     ]
@@ -242,7 +267,8 @@ def build_messages(
                 "bluf": "one sentence takeaway",
                 "body": "why it matters, 2-4 short sentences",
                 "source_url": "primary source URL when available",
-                "thread_key": "optional stable source/topic key for updates",
+                "thread_key": "required canonical event/topic key, independent of publisher",
+                "is_update": "true only for a material change to an existing thread",
                 "confidence": "high | medium | low",
                 "confidence_reason": "specific reason",
             }
@@ -269,6 +295,7 @@ def build_messages(
         "manual_prompt": request.get("prompt", ""),
         "active_goals": active_goals,
         "selected_goal": selected_goal,
+        "profile_memory_query": memory_query,
         "recent_runs": recent_summaries,
         "already_surfaced": already_surfaced,
     }
@@ -287,12 +314,18 @@ for this run. Do not switch to a different active_goals item; use the rest of
 active_goals only as context. The manual_prompt on a goal run is an operator
 note, not permission to replace the selected goal.
 
-# Identity and first step
+# Identity, profile, and first steps
 All user-scoped tools derive identity only from the trusted authenticated
 request context. Never pass user_id, username, or another identity argument to
-a tool. Start by calling get_memory with
-query="recent interests, projects, priorities, active threads, and autonomous runs",
-top_k=10.
+a tool. First call current_datetime_tool and use its returned timestamp as the
+source of truth. Then call get_memory exactly once with
+query={json.dumps(memory_query)}, top_k=20. Use the retrieved profile to decide
+what matters and what to skip. Do not turn profile facts themselves into feed
+items or put private profile details into internet search queries.
+
+Do not call tools that can require interactive authentication or pause the run,
+including Gmail, Google Calendar, or other per-user OAuth sources. Use only
+sources that are already available non-interactively to the autonomous worker.
 
 # Action policy
 Action policy: {action_policy}. If broad_autonomy, reads, research, memory
@@ -307,13 +340,26 @@ add_memory directly without confirmation. For finding or project_update
 memories, verify the exact final claim before calling add_memory. Store no
 unsupported claims. Prefer primary sources.
 
+# Freshness and current-state rules
+Date-stamp every search for time-sensitive information. Establish what changed
+since selected_goal.lastRunAt and the recent runs. Prefer primary sources,
+official release notes, live read-only status tools, and dated queries. For live
+systems, schedules, weather, and sports, report the current state only; old
+warnings, completed events, and resolved conditions are not current updates.
+When a source has no usable publication date or a live claim cannot be verified,
+skip it. A shorter empty run is better than stale filler.
+
 # Avoid redundancy
 The "already_surfaced" list in the runtime input is what you reported in recent
 runs, including short BLUF, source, and thread key. Do NOT emit a feed item that
 repeats the same event, announcement, paper, release, or finding already on that
-list. Surface an item only when it is genuinely new, or a material update to a
-prior one — and if it is an update, state plainly in the bluf what changed since
-it was last reported and reuse the same thread_key when you know it. If a run
+list. The same fact from a different publisher is corroboration, not new
+content. Surface an item only when the underlying fact or current state is
+genuinely new, or materially changed since a prior item. Use a canonical
+thread_key based on the event or tracked topic, never the publisher or URL. For
+an update, state plainly in the bluf what changed and reuse the prior thread_key.
+Do not refresh wording, framing, recommendations, or source location merely to
+make an old item look new. If a run
 turns up nothing beyond what is already surfaced, return an empty feed_items
 list rather than restating known items.
 
@@ -477,6 +523,7 @@ def feed_items_from_output(run_id: str, output: dict[str, Any]) -> list[dict[str
                 thread_key=str(
                     item.get("thread_key") or item.get("threadKey") or ""
                 ).strip(),
+                is_update=item.get("is_update") is True or item.get("isUpdate") is True,
                 confidence=str(item.get("confidence") or "medium").strip().lower(),
                 confidence_reason=str(
                     item.get("confidence_reason") or item.get("confidenceReason") or ""

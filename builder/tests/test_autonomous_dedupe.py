@@ -106,6 +106,25 @@ def test_is_duplicate_matches_cross_source_repeat_of_same_story():
     assert is_duplicate(a, b)
 
 
+def test_is_duplicate_matches_same_event_thread_across_publishers():
+    primary = _item(
+        title="NVIDIA ships Dynamo 2.0",
+        bluf="The release adds a new routing policy.",
+        body="The official notes describe the new policy.",
+        sourceUrl="https://github.com/nvidia/dynamo/releases/2.0",
+        threadKey="dynamo-2-0-release",
+    )
+    repeat = _item(
+        title="A closer look at the latest Dynamo release",
+        bluf="Another outlet covers NVIDIA's newly released routing policy.",
+        body="The article summarizes what NVIDIA already announced.",
+        sourceUrl="https://example.com/dynamo-story",
+        threadKey="dynamo-2-0-release",
+    )
+
+    assert is_duplicate(repeat, primary)
+
+
 def test_is_duplicate_matches_paraphrase_without_url():
     a = _item(
         title="NVIDIA announces new Blackwell GPU",
@@ -316,6 +335,7 @@ def test_classify_feed_item_reports_linked_update_for_explicit_thread_key():
         bluf="CUDA 13 now has an RC with migration details.",
         body="The new item covers the RC and compatibility notes.",
         threadKey="cuda-roadmap",
+        isUpdate=True,
     )
 
     classification, matched, reason = classify_feed_item(
