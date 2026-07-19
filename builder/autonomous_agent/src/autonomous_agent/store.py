@@ -80,15 +80,20 @@ class RedisStore:
         if self._supports_json():
             try:
                 raw = self.redis.execute_command("JSON.GET", redis_key)
-                return json.loads(raw) if raw else fallback
-            except Exception:
-                return fallback
-        raw = self.redis.get(redis_key)
+            except Exception as exc:
+                if not self._is_wrong_type_error(exc):
+                    return fallback
+                # Older worker versions wrote these projections with SET even
+                # when RedisJSON was installed. Read that legacy JSON string
+                # instead of treating the valid value as absent.
+                raw = self.redis.get(redis_key)
+        else:
+            raw = self.redis.get(redis_key)
         if not raw:
             return fallback
         try:
             return json.loads(raw)
-        except json.JSONDecodeError:
+        except (json.JSONDecodeError, TypeError):
             return fallback
 
     def json_set(self, redis_key: str, value: Any) -> None:
@@ -98,6 +103,31 @@ class RedisStore:
                 self.redis.execute_command("JSON.SET", redis_key, ".", serialized)
                 return
         self.redis.set(redis_key, serialized)
+
+    @staticmethod
+    def _redis_type_name(value: Any) -> str:
+        """Normalize Redis ``TYPE`` responses across client configurations."""
+
+        if isinstance(value, bytes):
+            value = value.decode("utf-8", errors="replace")
+        return str(value or "none").lower()
+
+    @staticmethod
+    def _is_wrong_type_error(exc: Exception) -> bool:
+        """Match both core Redis and RedisJSON wrong-type error messages."""
+
+        message = str(exc).lower()
+        return (
+            "wrongtype" in message
+            or "wrong redis type" in message
+            or "wrong kind of value" in message
+        )
+
+    @staticmethod
+    def _is_redis_json_type(redis_type: str) -> bool:
+        """Recognize RedisJSON's module type names across supported versions."""
+
+        return redis_type == "json" or "rejson" in redis_type
 
     def atomic_update(self, redis_key: str, mutate: Any, *, retries: int = 5) -> Any:
         """Optimistically read-modify-write a JSON value under WATCH/MULTI.
@@ -128,10 +158,25 @@ class RedisStore:
             pipe = pipeline_factory()
             try:
                 pipe.watch(redis_key)
-                if json_supported:
+                redis_type = self._redis_type_name(pipe.type(redis_key))
+                is_string = redis_type == "string"
+                is_json = self._is_redis_json_type(redis_type)
+                is_missing = redis_type == "none"
+                if not (is_string or is_json or is_missing):
+                    raise RuntimeError(
+                        f"Atomic JSON update for {redis_key!r} cannot use "
+                        f"Redis type {redis_type!r}"
+                    )
+
+                # Existing keys retain their storage type. New keys use RedisJSON
+                # when the module is available, matching json_set and the frontend.
+                write_as_json = is_json or (is_missing and json_supported)
+                if is_json:
                     raw = pipe.execute_command("JSON.GET", redis_key)
-                else:
+                elif is_string:
                     raw = pipe.get(redis_key)
+                else:
+                    raw = None
                 current: Any = []
                 if raw:
                     try:
@@ -142,7 +187,7 @@ class RedisStore:
                 new_value, result = mutate(current)
                 pipe.multi()
                 serialized = json.dumps(new_value)
-                if json_supported:
+                if write_as_json:
                     pipe.execute_command("JSON.SET", redis_key, ".", serialized)
                 else:
                     pipe.set(redis_key, serialized)

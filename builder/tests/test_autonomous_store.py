@@ -355,6 +355,9 @@ class _TxnPipeline:
     def get(self, redis_key):
         return self.redis.kv.get(redis_key)
 
+    def type(self, redis_key):
+        return "string" if redis_key in self.redis.kv else "none"
+
     def multi(self):
         self.buffering = True
 
@@ -439,7 +442,7 @@ def test_atomic_update_never_falls_back_to_non_atomic_write_after_conflicts():
 
 
 class _JsonTxnRedis(_FakeRedis):
-    """RedisJSON-aware transaction fake that rejects string key commands."""
+    """RedisJSON-aware transaction fake with mixed JSON and string keys."""
 
     def __init__(self):
         super().__init__()
@@ -451,18 +454,27 @@ class _JsonTxnRedis(_FakeRedis):
         command = str(command).upper()
         self.json_commands.append(command)
         if command == "JSON.GET":
+            if args[0] in self.kv:
+                raise RuntimeError("Existing key has wrong Redis type")
             return self.json_kv.get(args[0])
         if command == "JSON.SET":
             redis_key, _path, value = args
+            if redis_key in self.kv:
+                raise RuntimeError("Existing key has wrong Redis type")
             self.json_kv[redis_key] = value
             return "OK"
         raise AssertionError(f"unexpected RedisJSON command: {command}")
 
-    def get(self, _redis_key):
-        raise AssertionError("plain GET cannot read a RedisJSON key")
+    def get(self, redis_key):
+        if redis_key in self.json_kv:
+            raise AssertionError("plain GET cannot read a RedisJSON key")
+        return self.kv.get(redis_key)
 
-    def set(self, _redis_key, _value, **_kwargs):
-        raise AssertionError("plain SET cannot write a RedisJSON key")
+    def set(self, redis_key, value, **_kwargs):
+        if redis_key in self.json_kv:
+            raise AssertionError("plain SET cannot write a RedisJSON key")
+        self.kv[redis_key] = value
+        return True
 
     def pipeline(self):
         return _JsonTxnPipeline(self)
@@ -473,20 +485,39 @@ class _JsonTxnPipeline:
         self.redis = redis
         self.watched_key = None
         self.watched_version = None
-        self.queued: list[tuple[str, str]] = []
+        self.json_queued: list[tuple[str, str]] = []
+        self.string_queued: list[tuple[str, str]] = []
         self.buffering = False
+
+    def _snapshot(self, redis_key):
+        if redis_key in self.redis.json_kv:
+            return ("json", self.redis.json_kv[redis_key])
+        if redis_key in self.redis.kv:
+            return ("string", self.redis.kv[redis_key])
+        return ("none", None)
 
     def watch(self, redis_key):
         self.watched_key = redis_key
-        self.watched_version = self.redis.json_kv.get(redis_key)
+        self.watched_version = self._snapshot(redis_key)
         if callable(self.redis.on_watch):
             self.redis.on_watch()
 
-    def get(self, _redis_key):
-        raise AssertionError("plain GET cannot read a RedisJSON key")
+    def type(self, redis_key):
+        storage_type, _value = self._snapshot(redis_key)
+        return "ReJSON-RL" if storage_type == "json" else storage_type
 
-    def set(self, _redis_key, _value):
-        raise AssertionError("plain SET cannot write a RedisJSON key")
+    def get(self, redis_key):
+        if redis_key in self.redis.json_kv:
+            raise AssertionError("plain GET cannot read a RedisJSON key")
+        return self.redis.kv.get(redis_key)
+
+    def set(self, redis_key, value):
+        if redis_key in self.redis.json_kv:
+            raise AssertionError("plain SET cannot write a RedisJSON key")
+        if self.buffering:
+            self.string_queued.append((redis_key, value))
+        else:
+            self.redis.kv[redis_key] = value
 
     def execute_command(self, command, *args):
         command = str(command).upper()
@@ -495,7 +526,7 @@ class _JsonTxnPipeline:
             return self.redis.json_kv.get(args[0])
         if command == "JSON.SET" and self.buffering:
             redis_key, _path, value = args
-            self.queued.append((redis_key, value))
+            self.json_queued.append((redis_key, value))
             return self
         raise AssertionError(f"unexpected transactional command: {command}")
 
@@ -503,15 +534,19 @@ class _JsonTxnPipeline:
         self.buffering = True
 
     def execute(self):
-        if self.redis.json_kv.get(self.watched_key) != self.watched_version:
-            raise _WatchError("watched RedisJSON key changed")
-        for redis_key, value in self.queued:
+        if self._snapshot(self.watched_key) != self.watched_version:
+            raise _WatchError("watched key changed")
+        for redis_key, value in self.json_queued:
             self.redis.json_kv[redis_key] = value
-        self.queued = []
+        for redis_key, value in self.string_queued:
+            self.redis.kv[redis_key] = value
+        self.json_queued = []
+        self.string_queued = []
         self.buffering = False
 
     def reset(self):
-        self.queued = []
+        self.json_queued = []
+        self.string_queued = []
         self.buffering = False
 
 
@@ -522,7 +557,7 @@ def _json_txn_store():
     return store
 
 
-def test_atomic_update_uses_redisjson_commands_inside_transaction():
+def test_atomic_update_uses_redisjson_for_a_missing_key():
     store = _json_txn_store()
     redis_key = key("u", "approvals")
 
@@ -533,8 +568,53 @@ def test_atomic_update_uses_redisjson_commands_inside_transaction():
 
     assert result == "stored"
     assert json.loads(store.redis.json_kv[redis_key]) == [{"id": "approval-1"}]
-    assert store.redis.json_commands.count("JSON.GET") >= 2  # probe + WATCH read
+    assert store.redis.json_commands.count("JSON.GET") == 1  # capability probe
     assert "JSON.SET" in store.redis.json_commands
+
+
+def test_atomic_update_uses_redisjson_commands_for_an_existing_json_key():
+    store = _json_txn_store()
+    runs_key = key("u", "runs")
+    store.redis.json_kv[runs_key] = json.dumps([{"id": "existing"}])
+
+    store.atomic_update(
+        runs_key,
+        lambda current: (current + [{"id": "new"}], None),
+    )
+
+    assert json.loads(store.redis.json_kv[runs_key]) == [
+        {"id": "existing"},
+        {"id": "new"},
+    ]
+    assert runs_key not in store.redis.kv
+    assert store.redis.json_commands.count("JSON.GET") >= 2
+    assert "JSON.SET" in store.redis.json_commands
+
+
+def test_atomic_update_preserves_string_key_when_redisjson_is_available():
+    store = _json_txn_store()
+    runs_key = key("u", "runs")
+    store.redis.kv[runs_key] = json.dumps([{"id": "legacy"}])
+
+    store.atomic_update(
+        runs_key,
+        lambda current: (current + [{"id": "new"}], None),
+    )
+
+    assert json.loads(store.redis.kv[runs_key]) == [
+        {"id": "legacy"},
+        {"id": "new"},
+    ]
+    assert runs_key not in store.redis.json_kv
+    assert store.redis.json_commands == ["JSON.GET"]  # capability probe only
+
+
+def test_json_get_reads_legacy_string_key_when_redisjson_is_available():
+    store = _json_txn_store()
+    runs_key = key("u", "runs")
+    store.redis.kv[runs_key] = json.dumps([{"id": "legacy"}])
+
+    assert store.list_runs("u") == [{"id": "legacy"}]
 
 
 def test_append_event_retries_redisjson_conflict_without_losing_event():
@@ -560,7 +640,7 @@ class _BrokenTxnRedis(_TxnRedis):
 
 
 class _BrokenTxnPipeline(_TxnPipeline):
-    def get(self, _redis_key):
+    def type(self, _redis_key):
         raise RuntimeError("redis connection failed")
 
 
