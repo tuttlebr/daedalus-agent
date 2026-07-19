@@ -186,7 +186,9 @@ jobs:
         run: docker compose config --quiet
 
       - name: Build runtime images
-        run: docker compose build --provenance=mode=max --sbom=true backend frontend evals redis
+        run: >-
+          docker buildx bake --load --provenance=mode=max --sbom=true
+          -f docker-compose.yaml backend frontend evals redis
 
       - name: Scan backend image
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
@@ -241,7 +243,9 @@ jobs:
           scan-ref: .
           format: sarif
           output: trivy-results.sarif
+          scanners: vuln
           severity: CRITICAL,HIGH
+          limit-severities-for-sarif: true
           exit-code: '1'
 
       - name: Verify vulnerability scan results

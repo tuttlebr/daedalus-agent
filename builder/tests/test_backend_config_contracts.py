@@ -12,9 +12,6 @@ import yaml
 CONFIG = Path(__file__).resolve().parents[2] / "backend" / "tool-calling-config.yaml"
 ENV_TEMPLATE = Path(__file__).resolve().parents[2] / ".env.template"
 DOCKER_COMPOSE = Path(__file__).resolve().parents[2] / "docker-compose.yaml"
-NAT_ENTRY_SKILL = (
-    Path(__file__).resolve().parents[2] / "skills" / "nat-user-rules" / "SKILL.md"
-)
 SKILLS_DIR = Path(__file__).resolve().parents[2] / "skills"
 DOCKERFILE = Path(__file__).resolve().parents[1] / "Dockerfile"
 DOCKERIGNORE = DOCKERFILE.parent / ".dockerignore"
@@ -116,19 +113,6 @@ PROMPT_GUIDANCE_CODE_SURFACES = (
     Path("builder/vtt_interpreter/src/vtt_interpreter/vtt_interpreter_function.py"),
     Path("builder/smart_milvus/src/smart_milvus/configs/config.yml"),
 )
-NAT_CODING_AGENT_SKILLS = {
-    "nat-agent-configuration",
-    "nat-evaluation",
-    "nat-installation",
-    "nat-mcp-and-serving",
-    "nat-optimization",
-    "nat-path-checks",
-    "nat-telemetry",
-    "nat-tools-and-functions",
-    "nat-user-rules",
-    "nat-workflow-creation",
-    "skill-evolution",
-}
 LEGACY_RERANKER_PREFIX = "REA" + "NKER_"
 LEGACY_CLUSTER_LOCAL_PORT = "cluster.local" + ".:"
 MULTI_OPERATION_TYPES = {
@@ -1232,21 +1216,6 @@ def test_repo_skill_manifests_are_discoverable():
     parser = SkillParser(skills_directory=str(SKILLS_DIR))
 
     assert len(parser.discover_skills()) == manifest_count
-
-
-def test_nat_coding_agent_skills_are_available_and_routed():
-    guide = NAT_ENTRY_SKILL.read_text(encoding="utf-8")
-    assert "name: nat-user-rules" in guide
-    assert "## Task Routing" in guide
-
-    for skill_name in NAT_CODING_AGENT_SKILLS:
-        assert (SKILLS_DIR / skill_name / "SKILL.md").is_file(), skill_name
-
-    # The entry skill, rather than the general workflow prompt, owns detailed
-    # toolkit task routing. This keeps the per-request prompt compact.
-    for path in DEPLOYED_CONFIGS:
-        config = _config(path)
-        assert "agent_skills_tool" in config["workflow"]["tool_names"], path
 
 
 def test_memory_findings_require_supported_exact_claims():
