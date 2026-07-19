@@ -51,15 +51,17 @@ async def fetch_image_from_redis(
     image_ref: dict,
     expected_user_id: str | None = None,
     prefer_vlm_data: bool = True,
+    prefer_edit_data: bool = False,
 ) -> tuple[str, str] | tuple[None, str]:
     """Fetch image data from Redis.
 
-    ``vlmData`` is a normalized JPEG derivative created for vision-model
+    ``editData`` is a full-resolution, single-frame PNG/JPEG derivative made
+    specifically for Image API multipart uploads. ``vlmData`` is a normalized
+    JPEG derivative created for vision-model
     ingestion.  It is useful for agent/VLM calls, but is deliberately not a
     substitute for the original asset: normalization can flatten alpha,
-    resize, and re-encode the image.  Callers that need a byte-faithful input
-    (notably the Image API edit endpoint and masks) must set
-    ``prefer_vlm_data=False``.
+    resize, and re-encode the image. Callers that need the byte-faithful
+    original (notably masks) must set both preference flags to ``False``.
 
     Returns ``(base64_data, mime_type)`` on success or
     ``(None, error_message)`` on failure.
@@ -134,6 +136,11 @@ async def fetch_image_from_redis(
                     None,
                     "Error: Generated image belongs to a different authenticated user.",
                 )
+
+        edit_base64 = image_record.get("editData")
+        if prefer_edit_data and edit_base64:
+            edit_mime_type = image_record.get("editMimeType") or "image/jpeg"
+            return (edit_base64, edit_mime_type)
 
         vlm_base64 = image_record.get("vlmData")
         if prefer_vlm_data and vlm_base64:

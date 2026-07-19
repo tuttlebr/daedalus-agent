@@ -23,6 +23,7 @@
     "bcryptjs": "^2.4.3",
     "classnames": "^2.5.1",
     "cookie": "^0.7.2",
+    "heic-decode": "^2.1.0",
     "html-to-image": "^1.11.11",
     "i18next": "^25.10.10",
     "immer": "^10.1.1",

@@ -13,6 +13,7 @@ import {
   jsonSetWithExpiry,
 } from '@/server/session/redis';
 import crypto from 'crypto';
+import decodeHeic from 'heic-decode';
 import sharp from 'sharp';
 
 export const config = {
@@ -30,11 +31,14 @@ const THUMBNAIL_MAX_SIZE = 400; // Max dimension for thumbnails
 const THUMBNAIL_QUALITY = 80; // JPEG quality for thumbnails
 const VLM_MAX_DIMENSION = 4096; // Cap oversized uploads before VLM ingestion
 const VLM_IMAGE_QUALITY = 92; // Preserve detail while normalizing decoder-sensitive JPEGs
+const EDIT_IMAGE_QUALITY = 95;
 
 export interface StoredImage {
   id: string;
   data: string;
   mimeType: string;
+  editData?: string; // Single-frame PNG/JPEG prepared for the OpenAI Image API
+  editMimeType?: string;
   vlmData?: string; // Normalized image payload for VLM ingestion
   vlmMimeType?: string;
   size: number;
@@ -82,10 +86,6 @@ function mimeTypeForFormat(
   return formatToMime[format] || fallback;
 }
 
-function isHeicOrHeif(format: string | undefined, mimeType: string): boolean {
-  return format === 'heif' || /^image\/hei[cf]$/i.test(mimeType);
-}
-
 const HEIC_HEIF_BRANDS = new Set([
   'heic',
   'heix',
@@ -93,8 +93,6 @@ const HEIC_HEIF_BRANDS = new Set([
   'hevx',
   'heim',
   'heis',
-  'mif1',
-  'msf1',
 ]);
 
 function hasHeicOrHeifBrand(buffer: Buffer): boolean {
@@ -102,7 +100,8 @@ function hasHeicOrHeifBrand(buffer: Buffer): boolean {
     return false;
   }
 
-  const brandBytesToInspect = Math.min(buffer.length, 32);
+  const ftypSize = buffer.readUInt32BE(0);
+  const brandBytesToInspect = Math.min(buffer.length, ftypSize, 128);
   for (let offset = 8; offset + 4 <= brandBytesToInspect; offset += 4) {
     if (HEIC_HEIF_BRANDS.has(buffer.toString('ascii', offset, offset + 4))) {
       return true;
@@ -111,13 +110,115 @@ function hasHeicOrHeifBrand(buffer: Buffer): boolean {
   return false;
 }
 
-// Process image preserving original format (no lossy compression) and generate thumbnail
+function rgbaHasTransparency(data: Uint8ClampedArray): boolean {
+  for (let offset = 3; offset < data.length; offset += 4) {
+    if (data[offset] !== 255) return true;
+  }
+  return false;
+}
+
+function assertNormalizedEditImage(buffer: Buffer, mimeType: string): void {
+  const isPng = buffer
+    .subarray(0, 8)
+    .equals(Buffer.from('89504e470d0a1a0a', 'hex'));
+  const isJpeg =
+    buffer.length >= 3 &&
+    buffer[0] === 0xff &&
+    buffer[1] === 0xd8 &&
+    buffer[2] === 0xff;
+
+  if (
+    (mimeType === 'image/png' && !isPng) ||
+    (mimeType === 'image/jpeg' && !isJpeg) ||
+    (mimeType !== 'image/png' && mimeType !== 'image/jpeg')
+  ) {
+    throw new UnsupportedImageError(
+      'Image normalization did not produce a valid PNG or JPEG file.',
+    );
+  }
+}
+
+async function normalizeDecodedHeic(buffer: Buffer): Promise<{
+  buffer: Buffer;
+  mimeType: 'image/png' | 'image/jpeg';
+  width: number;
+  height: number;
+}> {
+  const decoded = await decodeHeic({ buffer });
+  const { data, width, height } = decoded;
+  if (
+    !Number.isInteger(width) ||
+    !Number.isInteger(height) ||
+    width <= 0 ||
+    height <= 0 ||
+    data.length !== width * height * 4
+  ) {
+    throw new UnsupportedImageError(
+      'HEIC/HEIF decoder returned invalid pixel data.',
+    );
+  }
+
+  const rawPixels = Buffer.from(data.buffer, data.byteOffset, data.byteLength);
+  const hasTransparency = rgbaHasTransparency(data);
+  const pipeline = sharp(rawPixels, {
+    raw: { width, height, channels: 4 },
+  }).toColorspace('srgb');
+  const mimeType = hasTransparency ? 'image/png' : 'image/jpeg';
+  const normalizedBuffer = hasTransparency
+    ? await pipeline.png().toBuffer()
+    : await pipeline
+        .flatten({ background: '#ffffff' })
+        .jpeg({
+          quality: EDIT_IMAGE_QUALITY,
+          chromaSubsampling: '4:4:4',
+          progressive: false,
+          mozjpeg: false,
+        })
+        .toBuffer();
+
+  assertNormalizedEditImage(normalizedBuffer, mimeType);
+  return { buffer: normalizedBuffer, mimeType, width, height };
+}
+
+async function normalizeEditImage(
+  buffer: Buffer,
+  sourceFormat: string | undefined,
+  sourceHasAlpha: boolean | undefined,
+): Promise<{ buffer: Buffer; mimeType: 'image/png' | 'image/jpeg' }> {
+  const usePng = sourceFormat === 'png' || sourceHasAlpha === true;
+  let pipeline = sharp(buffer).rotate().toColorspace('srgb');
+  let normalizedBuffer: Buffer;
+  let mimeType: 'image/png' | 'image/jpeg';
+
+  if (usePng) {
+    normalizedBuffer = await pipeline.png().toBuffer();
+    mimeType = 'image/png';
+  } else {
+    pipeline = pipeline.flatten({ background: '#ffffff' });
+    normalizedBuffer = await pipeline
+      .jpeg({
+        quality: EDIT_IMAGE_QUALITY,
+        chromaSubsampling: '4:4:4',
+        progressive: false,
+        mozjpeg: false,
+      })
+      .toBuffer();
+    mimeType = 'image/jpeg';
+  }
+
+  assertNormalizedEditImage(normalizedBuffer, mimeType);
+  return { buffer: normalizedBuffer, mimeType };
+}
+
+// Preserve a display copy and prepare separate, decoder-safe derivatives.
 async function processImage(
   base64Data: string,
   mimeType: string,
 ): Promise<{
   data: string;
   mimeType: string;
+  editData: string;
+  editMimeType: string;
   vlmData?: string;
   vlmMimeType?: string;
   size: number;
@@ -133,78 +234,78 @@ async function processImage(
   );
   const buffer = Buffer.from(cleanBase64, 'base64');
 
-  let requiresHeicNormalization =
-    /^image\/hei[cf]$/i.test(mimeType) || hasHeicOrHeifBrand(buffer);
+  const claimsHeicMimeType = /^image\/hei[cf]$/i.test(mimeType);
+  const hasHeicBrand = hasHeicOrHeifBrand(buffer);
+  let sourceMetadata:
+    | Awaited<ReturnType<ReturnType<typeof sharp>['metadata']>>
+    | undefined;
+  try {
+    sourceMetadata = await sharp(buffer).metadata();
+  } catch (error) {
+    if (!claimsHeicMimeType && !hasHeicBrand) throw error;
+  }
+  const requiresHeicNormalization =
+    hasHeicBrand ||
+    sourceMetadata?.format === 'heif' ||
+    (claimsHeicMimeType && sourceMetadata === undefined);
 
   try {
-    // Use sharp to validate the image and get metadata
-    const sharpInstance = sharp(buffer);
-    const metadata = await sharpInstance.metadata();
-    requiresHeicNormalization = isHeicOrHeif(metadata.format, mimeType);
-
-    // Determine the correct MIME type based on actual image format
-    let actualMimeType = mimeTypeForFormat(metadata.format, mimeType);
-    let storedBuffer = buffer;
-    let storedBase64 = cleanBase64;
-
+    let storedBuffer: Buffer;
+    let actualMimeType: string;
+    let editBuffer: Buffer;
+    let editMimeType: 'image/png' | 'image/jpeg';
     if (requiresHeicNormalization) {
-      try {
-        storedBuffer = await sharp(buffer)
-          .rotate()
-          .toColorspace('srgb')
-          .png()
-          .toBuffer();
-        storedBase64 = storedBuffer.toString('base64');
-        actualMimeType = 'image/png';
-      } catch (conversionError) {
-        console.error(
-          'Failed to convert HEIC/HEIF image to PNG:',
-          conversionError,
-        );
-        throw new UnsupportedImageError(
-          'HEIC/HEIF images must be converted to PNG before editing.',
-        );
-      }
+      const normalized = await normalizeDecodedHeic(buffer);
+      storedBuffer = normalized.buffer;
+      actualMimeType = normalized.mimeType;
+      editBuffer = normalized.buffer;
+      editMimeType = normalized.mimeType;
+    } else {
+      const metadata = sourceMetadata ?? (await sharp(buffer).metadata());
+      const normalized = await normalizeEditImage(
+        buffer,
+        metadata.format,
+        metadata.hasAlpha,
+      );
+      storedBuffer = buffer;
+      actualMimeType = mimeTypeForFormat(metadata.format, mimeType);
+      editBuffer = normalized.buffer;
+      editMimeType = normalized.mimeType;
     }
 
     let vlmData: string | undefined;
     let vlmMimeType: string | undefined;
-    if (requiresHeicNormalization) {
-      vlmData = storedBase64;
-      vlmMimeType = 'image/png';
-    } else {
-      try {
-        const vlmBuffer = await sharp(storedBuffer)
-          .rotate()
-          .resize(VLM_MAX_DIMENSION, VLM_MAX_DIMENSION, {
-            fit: 'inside',
-            withoutEnlargement: true,
-          })
-          .flatten({ background: '#ffffff' })
-          .toColorspace('srgb')
-          .jpeg({
-            quality: VLM_IMAGE_QUALITY,
-            progressive: false,
-            mozjpeg: false,
-          })
-          .toBuffer();
+    try {
+      const vlmBuffer = await sharp(editBuffer)
+        .resize(VLM_MAX_DIMENSION, VLM_MAX_DIMENSION, {
+          fit: 'inside',
+          withoutEnlargement: true,
+        })
+        .flatten({ background: '#ffffff' })
+        .toColorspace('srgb')
+        .jpeg({
+          quality: VLM_IMAGE_QUALITY,
+          progressive: false,
+          mozjpeg: false,
+        })
+        .toBuffer();
 
-        vlmData = vlmBuffer.toString('base64');
-        vlmMimeType = 'image/jpeg';
-      } catch (vlmError) {
-        console.error('Failed to generate VLM-normalized image:', vlmError);
-      }
+      vlmData = vlmBuffer.toString('base64');
+      vlmMimeType = 'image/jpeg';
+    } catch (vlmError) {
+      console.error('Failed to generate VLM-normalized image:', vlmError);
     }
 
     // Generate thumbnail if image is larger than thumbnail size
     let thumbnail: string | undefined;
     let thumbnailMimeType: string | undefined;
-    const width = metadata.width || 0;
-    const height = metadata.height || 0;
+    const editMetadata = await sharp(editBuffer).metadata();
+    const width = editMetadata.width || 0;
+    const height = editMetadata.height || 0;
 
     if (width > THUMBNAIL_MAX_SIZE || height > THUMBNAIL_MAX_SIZE) {
       try {
-        const thumbnailBuffer = await sharp(storedBuffer)
+        const thumbnailBuffer = await sharp(editBuffer)
           .resize(THUMBNAIL_MAX_SIZE, THUMBNAIL_MAX_SIZE, {
             fit: 'inside',
             withoutEnlargement: true,
@@ -223,13 +324,11 @@ async function processImage(
       }
     }
 
-    // For PNG images, keep them as PNG (lossless)
-    // For other formats, preserve them as-is without re-encoding
-    // HEIC/HEIF is normalized to PNG because image edit providers reject HEIC.
-    // This preserves original quality without lossy compression
     return {
-      data: storedBase64,
+      data: storedBuffer.toString('base64'),
       mimeType: actualMimeType,
+      editData: editBuffer.toString('base64'),
+      editMimeType,
       vlmData,
       vlmMimeType,
       size: storedBuffer.length,
@@ -239,22 +338,13 @@ async function processImage(
       height,
     };
   } catch (error) {
-    if (error instanceof UnsupportedImageError) {
-      throw error;
-    }
-    if (requiresHeicNormalization) {
-      console.error('Failed to process HEIC/HEIF image:', error);
-      throw new UnsupportedImageError(
-        'HEIC/HEIF images must be converted to PNG before editing.',
-      );
-    }
-    console.error('Image processing failed, using original:', error);
-    // Return original if processing fails
-    return {
-      data: cleanBase64,
-      mimeType,
-      size: buffer.length,
-    };
+    console.error('Image normalization failed:', error);
+    if (error instanceof UnsupportedImageError) throw error;
+    throw new UnsupportedImageError(
+      requiresHeicNormalization
+        ? 'Unable to decode this HEIC/HEIF image.'
+        : 'Unable to decode and normalize this image.',
+    );
   }
 }
 
@@ -268,7 +358,7 @@ export async function storeImage(
   const redis = getRedis();
   const imageId = generateImageId();
 
-  // Process image while preserving original format (no lossy compression)
+  // Preserve the display image and build API/VLM-safe derivatives.
   const processed = await processImage(base64Data, mimeType);
 
   if (processed.size > MAX_IMAGE_SIZE) {
@@ -279,6 +369,8 @@ export async function storeImage(
     id: imageId,
     data: processed.data,
     mimeType: processed.mimeType,
+    editData: processed.editData,
+    editMimeType: processed.editMimeType,
     vlmData: processed.vlmData,
     vlmMimeType: processed.vlmMimeType,
     size: processed.size,

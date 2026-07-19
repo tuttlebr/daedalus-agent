@@ -1,6 +1,7 @@
 """Schema-level tests for the /v1/images/* FastAPI routes."""
 
 import sys
+from io import BytesIO
 from pathlib import Path
 
 # image_api.py lives at the workspace root inside the Docker image. Make it
@@ -16,9 +17,11 @@ from image_api import (  # noqa: E402
     GenerateRequest,
     ImageRef,
     _mask_validation_error,
+    _normalize_edit_source,
     _require_trusted_user,
     router,
 )
+from PIL import Image  # noqa: E402
 from pydantic import ValidationError  # noqa: E402
 
 
@@ -213,3 +216,39 @@ class TestEditMaskPreflight:
 
         assert error is not None
         assert "primary input image must be a PNG" in error
+
+
+class TestEditSourceNormalization:
+    def test_flattens_mpo_to_single_frame_jpeg(self):
+        first = Image.new("RGB", (8, 6), "red")
+        second = Image.new("RGB", (8, 6), "blue")
+        source = BytesIO()
+        first.save(source, format="MPO", save_all=True, append_images=[second])
+
+        normalized, mime_type, extension = _normalize_edit_source(source.getvalue())
+
+        assert mime_type == "image/jpeg"
+        assert extension == "jpg"
+        assert normalized.startswith(b"\xff\xd8\xff")
+        with Image.open(BytesIO(normalized)) as image:
+            assert image.format == "JPEG"
+            assert getattr(image, "n_frames", 1) == 1
+            assert image.size == (8, 6)
+            assert "mp" not in image.info
+
+    def test_preserves_png_alpha_and_dimensions(self):
+        source = BytesIO()
+        Image.new("RGBA", (5, 7), (10, 20, 30, 40)).save(source, format="PNG")
+
+        normalized, mime_type, extension = _normalize_edit_source(source.getvalue())
+
+        assert mime_type == "image/png"
+        assert extension == "png"
+        assert normalized.startswith(b"\x89PNG\r\n\x1a\n")
+        with Image.open(BytesIO(normalized)) as image:
+            assert image.mode == "RGBA"
+            assert image.size == (5, 7)
+
+    def test_rejects_undecodable_bytes(self):
+        with pytest.raises(ValueError, match="could not be decoded"):
+            _normalize_edit_source(b"not an image")

@@ -283,7 +283,6 @@ _EXTERNAL_MOCKS = [
     "nv_ingest_client.util",
     "nv_ingest_client.util.process_json_files",
     "bs4",
-    "PIL",
     "redis",
     "langchain_core",
     "langchain_core.embeddings",

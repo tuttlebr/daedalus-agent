@@ -210,6 +210,52 @@ class TestFetchImageFromRedis:
 
         assert result == ("b3JpZ2luYWw=", "image/png")
 
+    def test_prefers_image_api_edit_derivative_when_requested(self):
+        payload = json.dumps(
+            {
+                "data": "b3JpZ2luYWw=",
+                "mimeType": "image/jpeg",
+                "editData": "c2luZ2xlLWZyYW1l",
+                "editMimeType": "image/png",
+                "vlmData": "cmVzaXplZA==",
+                "vlmMimeType": "image/jpeg",
+            }
+        )
+        redis_client = _FakeRedis({"image:sess1:abc": payload})
+
+        result = _run(
+            fetch_image_from_redis(
+                redis_client,
+                {"imageId": "abc", "sessionId": "sess1"},
+                prefer_vlm_data=False,
+                prefer_edit_data=True,
+            )
+        )
+
+        assert result == ("c2luZ2xlLWZyYW1l", "image/png")
+
+    def test_edit_derivative_falls_back_to_original_for_legacy_records(self):
+        payload = json.dumps(
+            {
+                "data": "bGVnYWN5",
+                "mimeType": "image/jpeg",
+                "vlmData": "cmVzaXplZA==",
+                "vlmMimeType": "image/jpeg",
+            }
+        )
+        redis_client = _FakeRedis({"image:sess1:abc": payload})
+
+        result = _run(
+            fetch_image_from_redis(
+                redis_client,
+                {"imageId": "abc", "sessionId": "sess1"},
+                prefer_vlm_data=False,
+                prefer_edit_data=True,
+            )
+        )
+
+        assert result == ("bGVnYWN5", "image/jpeg")
+
     def test_missing_image_returns_error(self):
         redis_client = _FakeRedis({})
         result = _run(

@@ -17,8 +17,10 @@ Env var contract (same as the agent tools):
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import binascii
+import io
 import json
 import logging
 import os
@@ -40,6 +42,7 @@ from nat_helpers.openai_images import (
 )
 from nat_helpers.redis_url import redis_url_from_env
 from openai import AsyncOpenAI, OpenAIError
+from PIL import Image, ImageOps, UnidentifiedImageError
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
@@ -53,6 +56,9 @@ router = APIRouter(prefix="/v1/images", tags=["images"])
 # flattened JPEG, so Pillow/sharp-style reprocessing here would recreate the
 # very failure this validation is meant to prevent.
 _PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
+_JPEG_SIGNATURE = b"\xff\xd8\xff"
+_OPENAI_MAX_EDIT_IMAGE_BYTES = 50 * 1024 * 1024
+_OPENAI_MAX_MASK_BYTES = 4 * 1024 * 1024
 
 
 def _png_metadata(image_bytes: bytes) -> tuple[int, int, bool] | None:
@@ -142,6 +148,64 @@ def _mask_validation_error(source_bytes: bytes, mask_bytes: bytes) -> str | None
             "input image"
         )
     return None
+
+
+def _has_transparency(image: Image.Image) -> bool:
+    return image.mode in {"RGBA", "LA"} or (
+        image.mode == "P" and "transparency" in image.info
+    )
+
+
+def _normalize_edit_source(
+    image_bytes: bytes,
+) -> tuple[bytes, str, str]:
+    """Return a decoded, single-frame Image API upload.
+
+    Stored uploads may be decoder-sensitive JPEG variants such as MPO, animated
+    containers, or legacy records whose MIME metadata does not match their
+    bytes. Decode the first image, apply EXIF orientation, strip container
+    metadata, and re-encode to one of the formats accepted by GPT Image edits.
+    PNG sources stay PNG so source/mask format matching remains possible;
+    transparency also selects PNG. Other sources become a baseline JPEG.
+    """
+    if not image_bytes:
+        raise ValueError("image file is empty")
+
+    try:
+        with Image.open(io.BytesIO(image_bytes)) as opened:
+            source_format = str(opened.format or "").upper()
+            opened.seek(0)
+            normalized = ImageOps.exif_transpose(opened)
+            use_png = source_format == "PNG" or _has_transparency(normalized)
+            output = io.BytesIO()
+
+            if use_png:
+                mode = "RGBA" if _has_transparency(normalized) else "RGB"
+                normalized.convert(mode).save(output, format="PNG", optimize=False)
+                mime_type = "image/png"
+                extension = "png"
+            else:
+                normalized.convert("RGB").save(
+                    output,
+                    format="JPEG",
+                    quality=95,
+                    subsampling=0,
+                    progressive=False,
+                    optimize=False,
+                )
+                mime_type = "image/jpeg"
+                extension = "jpg"
+    except (UnidentifiedImageError, OSError, SyntaxError, ValueError) as exc:
+        raise ValueError(f"image file could not be decoded: {exc}") from exc
+
+    normalized_bytes = output.getvalue()
+    if len(normalized_bytes) >= _OPENAI_MAX_EDIT_IMAGE_BYTES:
+        raise ValueError("normalized image must be less than 50MB")
+    if mime_type == "image/png" and not normalized_bytes.startswith(_PNG_SIGNATURE):
+        raise ValueError("normalization did not produce a valid PNG file")
+    if mime_type == "image/jpeg" and not normalized_bytes.startswith(_JPEG_SIGNATURE):
+        raise ValueError("normalization did not produce a valid JPEG file")
+    return normalized_bytes, mime_type, extension
 
 
 # ---------------------------------------------------------------------------
@@ -436,9 +500,10 @@ async def edit(
     client = _get_client(api_key, base_url)
     redis_client = _get_redis()
 
-    # Fetch original image bytes for the multipart upload.  Do not use the
-    # VLM-normalized derivative here: it can be resized and flattened to JPEG,
-    # which breaks source fidelity and removes the alpha channel from masks.
+    # Prefer the upload-time edit derivative, then decode/re-encode again at
+    # this trust boundary. The second pass repairs legacy records and prevents
+    # MIME-labelled MPO/animated/decoder-sensitive containers from reaching
+    # OpenAI as opaque multipart bytes.
     source_files: list[tuple[str, bytes, str]] = []
     for idx, ref in enumerate(req.imageRefs):
         result = await fetch_image_from_redis(
@@ -446,18 +511,27 @@ async def edit(
             ref.model_dump(),
             expected_user_id=user_id,
             prefer_vlm_data=False,
+            prefer_edit_data=True,
         )
         if result[0] is None:
             raise HTTPException(status_code=400, detail=f"image {idx + 1}: {result[1]}")
-        image_b64, mime = result
+        image_b64, _mime = result
         try:
             image_bytes = base64.b64decode(image_b64, validate=True)
         except (ValueError, TypeError, binascii.Error) as e:
             raise HTTPException(
                 status_code=400, detail=f"image {idx + 1}: decode failed: {e}"
             ) from e
-        ext = "jpg" if "jpeg" in mime else mime.split("/")[-1]
-        source_files.append((f"image_{idx}.{ext}", image_bytes, mime))
+        try:
+            normalized_bytes, normalized_mime, ext = await asyncio.to_thread(
+                _normalize_edit_source, image_bytes
+            )
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=400,
+                detail=f"image {idx + 1}: {exc}",
+            ) from exc
+        source_files.append((f"image_{idx}.{ext}", normalized_bytes, normalized_mime))
 
     mask_file: tuple[str, bytes, str] | None = None
     if req.maskRef is not None:
@@ -476,6 +550,11 @@ async def edit(
             raise HTTPException(
                 status_code=400, detail=f"mask: decode failed: {e}"
             ) from e
+        if len(mask_bytes) >= _OPENAI_MAX_MASK_BYTES:
+            raise HTTPException(
+                status_code=400,
+                detail="mask: PNG mask must be less than 4MB",
+            )
         mask_error = _mask_validation_error(source_files[0][1], mask_bytes)
         if mask_error:
             raise HTTPException(status_code=400, detail=mask_error)
