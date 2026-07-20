@@ -15,8 +15,11 @@ BACKEND_CONFIG="$SCRIPT_DIR/backend/tool-calling-config.yaml"
 SKIP_BUILD=false
 SKIP_TLS=false
 SKIP_MCP_PREFLIGHT=false
+SKIP_DOCUMENT_STORAGE_PREFLIGHT=false
 MCP_PREFLIGHT_TIMEOUT="${MCP_PREFLIGHT_TIMEOUT:-20}"
 MCP_PREFLIGHT_KUBECTL_IMAGE="${MCP_PREFLIGHT_KUBECTL_IMAGE:-curlimages/curl:8.8.0@sha256:73e4d532ea62d7505c5865b517d3704966ffe916609bedc22af6833dc9969bcd}"
+DOCUMENT_STORAGE_PREFLIGHT_TIMEOUT="${DOCUMENT_STORAGE_PREFLIGHT_TIMEOUT:-20}"
+DOCUMENT_STORAGE_PREFLIGHT_KUBECTL_IMAGE="${DOCUMENT_STORAGE_PREFLIGHT_KUBECTL_IMAGE:-$MCP_PREFLIGHT_KUBECTL_IMAGE}"
 DRY_RUN=false
 ALLOW_UNSIGNED_IMAGES="${ALLOW_UNSIGNED_IMAGES:-false}"
 ALLOW_DIRTY_SOURCE="${ALLOW_DIRTY_SOURCE:-false}"
@@ -43,6 +46,13 @@ Options:
                              (default: backend/tool-calling-config.yaml)
       --skip-build           Skip docker compose build/push
       --skip-tls             Skip TLS secret creation
+      --skip-document-storage-preflight
+                             Skip live document object-storage access checks
+      --document-storage-preflight-timeout SECONDS
+                             Per-request object-storage timeout (default: $DOCUMENT_STORAGE_PREFLIGHT_TIMEOUT)
+      --document-storage-preflight-kubectl-image IMAGE
+                             Image used for the object-storage check
+                             (default: $DOCUMENT_STORAGE_PREFLIGHT_KUBECTL_IMAGE)
       --skip-mcp-preflight   Skip MCP server reachability checks
       --mcp-preflight-timeout SECONDS
                              Per-request MCP pre-flight timeout (default: $MCP_PREFLIGHT_TIMEOUT)
@@ -68,6 +78,9 @@ while [[ $# -gt 0 ]]; do
     --backend-config)   BACKEND_CONFIG="$2"; shift 2 ;;
     --skip-build)       SKIP_BUILD=true; shift ;;
     --skip-tls)         SKIP_TLS=true; shift ;;
+    --skip-document-storage-preflight) SKIP_DOCUMENT_STORAGE_PREFLIGHT=true; shift ;;
+    --document-storage-preflight-timeout) DOCUMENT_STORAGE_PREFLIGHT_TIMEOUT="$2"; shift 2 ;;
+    --document-storage-preflight-kubectl-image) DOCUMENT_STORAGE_PREFLIGHT_KUBECTL_IMAGE="$2"; shift 2 ;;
     --skip-mcp-preflight) SKIP_MCP_PREFLIGHT=true; shift ;;
     --mcp-preflight-timeout) MCP_PREFLIGHT_TIMEOUT="$2"; shift 2 ;;
     --mcp-preflight-kubectl-image) MCP_PREFLIGHT_KUBECTL_IMAGE="$2"; shift 2 ;;
@@ -559,8 +572,8 @@ else
   echo "WARNING: $ENV_FILE not found -- skipping workload secret creation" >&2
 fi
 
-validate_document_object_secret_refs() {
-  local render_cmd refs
+render_effective_helm_manifests() {
+  local render_cmd
   render_cmd=(helm template "$RELEASE" "$SCRIPT_DIR/helm/daedalus" -n "$NAMESPACE")
   if [[ -f "$VALUES_FILE" ]]; then
     render_cmd+=( -f "$VALUES_FILE" )
@@ -568,11 +581,16 @@ validate_document_object_secret_refs() {
   if [[ -n "${HELM_SECRET_ARGS[*]-}" ]]; then
     render_cmd+=( "${HELM_SECRET_ARGS[@]}" )
   fi
+  "${render_cmd[@]}"
+}
+
+validate_document_object_secret_refs() {
+  local refs
 
   # Resolve the effective Secret references from the same rendered workloads
   # Helm will deploy. This covers both .env-managed credentials and operators
   # that intentionally provide an externally managed Secret in values.
-  if ! refs="$("${render_cmd[@]}" | python3 -c '
+  if ! refs="$(render_effective_helm_manifests | python3 -c '
 import re
 import sys
 
@@ -668,6 +686,23 @@ raise SystemExit(0 if payload.get("data", {}).get(key) else 1)
 
 log "Validating document-object startup credentials"
 validate_document_object_secret_refs
+
+# Exercise the exact rendered endpoint, bucket, prefix, and Secret through a
+# short-lived pod before Helm can roll the workloads. This catches credentials
+# that are present but rejected, missing buckets, and incomplete permissions.
+if [[ "$SKIP_DOCUMENT_STORAGE_PREFLIGHT" == false ]]; then
+  log "Checking document object storage access"
+  if [[ "$DRY_RUN" == true ]]; then
+    echo "[dry-run] render Helm manifests and run scripts/check_document_object_storage.py"
+  else
+    render_effective_helm_manifests | \
+      python3 "$SCRIPT_DIR/scripts/check_document_object_storage.py" \
+        --manifest - \
+        --namespace "$NAMESPACE" \
+        --image "$DOCUMENT_STORAGE_PREFLIGHT_KUBECTL_IMAGE" \
+        --timeout "$DOCUMENT_STORAGE_PREFLIGHT_TIMEOUT"
+  fi
+fi
 
 # -------------------------------------------------------------------
 # Pre-flight MCP reachability checks

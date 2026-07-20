@@ -152,6 +152,59 @@ describe('documentObjectStore', () => {
     }
   });
 
+  it('preserves an early object-store rejection while the source is streaming', async () => {
+    let chunksRead = 0;
+    const server = http.createServer((_req, res) => {
+      res.statusCode = 403;
+      res.end(
+        '<Error><Code>InvalidAccessKeyId</Code><Message>rejected</Message></Error>',
+      );
+    });
+    server.listen(0, '127.0.0.1');
+    await once(server, 'listening');
+    const address = server.address();
+    if (!address || typeof address === 'string') {
+      throw new Error('Expected a TCP test server');
+    }
+    vi.stubEnv('DOCUMENT_OBJECT_ENDPOINT', `http://127.0.0.1:${address.port}`);
+    vi.stubEnv('DOCUMENT_OBJECT_ACCESS_KEY', 'invalid-access');
+    vi.stubEnv('DOCUMENT_OBJECT_SECRET_KEY', 'invalid-secret');
+    vi.stubEnv('DOCUMENT_OBJECT_BUCKET', 'documents');
+    const config = getDocumentObjectConfig();
+
+    try {
+      await expect(
+        putDocumentObject(
+          {
+            objectKey: 'daedalus-documents/owner/session/doc',
+            contentType: 'application/pdf',
+            contentLength: 1024 * 1024,
+            expiresAt: 123456789,
+            ownerId: 'alice',
+            sessionId: 'session-1',
+            documentId: 'doc-1',
+            source: (async function* () {
+              for (let index = 0; index < 1024; index += 1) {
+                chunksRead += 1;
+                yield Buffer.alloc(1024);
+                await new Promise((resolve) => setImmediate(resolve));
+              }
+            })(),
+          },
+          config,
+        ),
+      ).rejects.toMatchObject({
+        message: expect.stringContaining('InvalidAccessKeyId'),
+        statusCode: 403,
+        storageCode: 'InvalidAccessKeyId',
+      });
+      expect(chunksRead).toBeLessThan(1024);
+    } finally {
+      server.close();
+      await once(server, 'close');
+    }
+  });
+
   it('destroys a socket when an accepted request never receives a response', async () => {
     let acceptedSocket: Socket | undefined;
     let resolveSocketClosed!: () => void;

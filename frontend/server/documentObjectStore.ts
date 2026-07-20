@@ -37,6 +37,18 @@ export interface PutDocumentObjectResult {
   etag?: string;
 }
 
+export class DocumentObjectStoreError extends Error {
+  readonly statusCode: number;
+  readonly storageCode?: string;
+
+  constructor(statusCode: number, message: string, storageCode?: string) {
+    super(message);
+    this.name = 'DocumentObjectStoreError';
+    this.statusCode = statusCode;
+    this.storageCode = storageCode;
+  }
+}
+
 function requiredValue(name: string): string {
   const value = (process.env[name] || '').trim();
   if (!value) {
@@ -97,9 +109,7 @@ export function getDocumentObjectConfig(): DocumentObjectConfig {
   }
 
   return {
-    endpoint: normalizedEndpoint(
-      requiredValue('DOCUMENT_OBJECT_ENDPOINT'),
-    ),
+    endpoint: normalizedEndpoint(requiredValue('DOCUMENT_OBJECT_ENDPOINT')),
     accessKey: requiredValue('DOCUMENT_OBJECT_ACCESS_KEY'),
     secretKey: requiredValue('DOCUMENT_OBJECT_SECRET_KEY'),
     sessionToken: optionalValue('DOCUMENT_OBJECT_SESSION_TOKEN'),
@@ -273,10 +283,13 @@ async function responseError(response: IncomingMessage): Promise<Error> {
     }
   }
   const detail = Buffer.concat(chunks).toString('utf8').trim();
-  return new Error(
+  const storageCode = /<Code>([A-Za-z0-9._-]+)<\/Code>/.exec(detail)?.[1];
+  return new DocumentObjectStoreError(
+    response.statusCode || 500,
     `Document object storage returned ${response.statusCode || 500}${
       detail ? `: ${detail}` : ''
     }`,
+    storageCode,
   );
 }
 
@@ -308,9 +321,42 @@ export async function putDocumentObject(
   request.once('error', responseReject);
   void responsePromise.catch(() => undefined);
 
+  // S3 implementations can reject a signed request as soon as they have read
+  // its headers. Observe that response while the browser body is still being
+  // streamed so a useful 403/5xx response is not overwritten by the socket
+  // reset that follows continued writes to the rejected request.
+  const responseArrival = responsePromise.then((response) => ({
+    kind: 'response' as const,
+    response,
+  }));
+  void responseArrival.catch(() => undefined);
+  const source = input.source[Symbol.asyncIterator]();
+
   let written = 0;
   try {
-    for await (const chunk of input.source) {
+    while (true) {
+      const sourceArrival = source.next().then((result) => ({
+        kind: 'source' as const,
+        result,
+      }));
+      void sourceArrival.catch(() => undefined);
+      const arrival = await Promise.race([sourceArrival, responseArrival]);
+      if (arrival.kind === 'response') {
+        void source.return?.().catch(() => undefined);
+        if (
+          !arrival.response.statusCode ||
+          arrival.response.statusCode < 200 ||
+          arrival.response.statusCode >= 300
+        ) {
+          throw await responseError(arrival.response);
+        }
+        arrival.response.resume();
+        throw new Error(
+          'Document object storage responded before the upload completed',
+        );
+      }
+      if (arrival.result.done) break;
+      const chunk = arrival.result.value;
       written += chunk.length;
       if (written > input.contentLength) {
         throw new Error('Document stream exceeded its declared length');

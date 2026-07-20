@@ -7,25 +7,40 @@ import handler, {
 import { PassThrough, Readable } from 'node:stream';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const mocks = vi.hoisted(() => ({
-  deleteDocumentObject: vi.fn(),
-  enforceRateLimit: vi.fn(),
-  eval: vi.fn(),
-  expire: vi.fn(),
-  getDocumentObject: vi.fn(),
-  getOrSetSessionId: vi.fn(),
-  jsonDel: vi.fn(),
-  jsonGet: vi.fn(),
-  jsonSetWithExpiry: vi.fn(),
-  putDocumentObject: vi.fn(),
-  requireAuthenticatedUser: vi.fn(),
-  sadd: vi.fn(),
-  srem: vi.fn(),
-  smembers: vi.fn(),
-  del: vi.fn(),
-}));
+const mocks = vi.hoisted(() => {
+  class DocumentObjectStoreError extends Error {
+    statusCode: number;
+    storageCode?: string;
+
+    constructor(statusCode: number, message: string, storageCode?: string) {
+      super(message);
+      this.statusCode = statusCode;
+      this.storageCode = storageCode;
+    }
+  }
+
+  return {
+    DocumentObjectStoreError,
+    deleteDocumentObject: vi.fn(),
+    enforceRateLimit: vi.fn(),
+    eval: vi.fn(),
+    expire: vi.fn(),
+    getDocumentObject: vi.fn(),
+    getOrSetSessionId: vi.fn(),
+    jsonDel: vi.fn(),
+    jsonGet: vi.fn(),
+    jsonSetWithExpiry: vi.fn(),
+    putDocumentObject: vi.fn(),
+    requireAuthenticatedUser: vi.fn(),
+    sadd: vi.fn(),
+    srem: vi.fn(),
+    smembers: vi.fn(),
+    del: vi.fn(),
+  };
+});
 
 vi.mock('@/server/documentObjectStore', () => ({
+  DocumentObjectStoreError: mocks.DocumentObjectStoreError,
   buildDocumentObjectKey: vi.fn(
     (_owner: string, sessionId: string, documentId: string) =>
       `documents/owner/${sessionId}/${documentId}`,
@@ -249,6 +264,44 @@ describe('/api/session/documentStorage', () => {
 
     expect(res.status).toHaveBeenCalledWith(500);
     expect(mocks.deleteDocumentObject).toHaveBeenCalledOnce();
+  });
+
+  it('surfaces rejected object-store credentials as an actionable 503', async () => {
+    mocks.putDocumentObject.mockRejectedValueOnce(
+      new mocks.DocumentObjectStoreError(
+        403,
+        'Document object storage returned 403',
+        'InvalidAccessKeyId',
+      ),
+    );
+    const res = response();
+
+    await handler(multipartRequest(Buffer.from('%PDF-test')), res);
+
+    expect(res.status).toHaveBeenCalledWith(503);
+    expect(res.json).toHaveBeenCalledWith({
+      error:
+        'Document storage credentials were rejected. Please contact an administrator.',
+    });
+  });
+
+  it('surfaces a missing object-store bucket as an actionable 503', async () => {
+    mocks.putDocumentObject.mockRejectedValueOnce(
+      new mocks.DocumentObjectStoreError(
+        404,
+        'Document object storage returned 404',
+        'NoSuchBucket',
+      ),
+    );
+    const res = response();
+
+    await handler(multipartRequest(Buffer.from('%PDF-test')), res);
+
+    expect(res.status).toHaveBeenCalledWith(503);
+    expect(res.json).toHaveBeenCalledWith({
+      error:
+        'The document storage bucket was not found. Please contact an administrator.',
+    });
   });
 
   it('releases the per-user upload slot after a successful write', async () => {

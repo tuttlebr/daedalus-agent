@@ -53,4 +53,24 @@ describe('documentHandler multipart upload', () => {
     expect(uploaded.name).toBe(file.name);
     expect(uploaded.size).toBe(file.size);
   });
+
+  it('preserves an actionable JSON error returned by document storage', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      headers: { get: () => 'application/json' },
+      ok: false,
+      json: async () => ({
+        error:
+          'Document storage credentials were rejected. Please contact an administrator.',
+      }),
+      status: 503,
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const file = new File(['%PDF-test'], 'small.pdf', {
+      type: 'application/pdf',
+    });
+
+    await expect(uploadDocument(file)).rejects.toThrow(
+      'Document storage credentials were rejected. Please contact an administrator.',
+    );
+  });
 });

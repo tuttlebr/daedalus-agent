@@ -4,6 +4,7 @@ import { positiveIntegerFromEnv } from '@/server/config/env';
 import {
   buildDocumentObjectKey,
   deleteDocumentObject,
+  DocumentObjectStoreError,
   getDocumentObject,
   getDocumentObjectConfig,
   isExpectedDocumentObjectKey,
@@ -247,9 +248,54 @@ function assertRefId(value: unknown, label: string): string {
 
 function statusForUploadError(error: unknown): number {
   if (error instanceof MultipartDocumentError) return error.status;
+  if (error instanceof DocumentObjectStoreError) return 503;
   const message = error instanceof Error ? error.message : '';
   if (message.includes('not configured')) return 503;
+  const code =
+    typeof error === 'object' && error !== null && 'code' in error
+      ? String(error.code)
+      : '';
+  if (
+    [
+      'ECONNREFUSED',
+      'ECONNRESET',
+      'ENETUNREACH',
+      'ENOTFOUND',
+      'ETIMEDOUT',
+    ].includes(code)
+  ) {
+    return 503;
+  }
   return 500;
+}
+
+function messageForUploadError(error: unknown, status: number): string {
+  if (error instanceof MultipartDocumentError) return error.message;
+  if (error instanceof DocumentObjectStoreError) {
+    if (error.storageCode === 'NoSuchBucket') {
+      return 'The document storage bucket was not found. Please contact an administrator.';
+    }
+    if (
+      error.statusCode === 401 ||
+      error.statusCode === 403 ||
+      [
+        'AccessDenied',
+        'InvalidAccessKeyId',
+        'InvalidToken',
+        'SignatureDoesNotMatch',
+      ].includes(error.storageCode || '')
+    ) {
+      return 'Document storage credentials were rejected. Please contact an administrator.';
+    }
+    return 'Document storage is temporarily unavailable. Please try again.';
+  }
+  if (status === 503) {
+    const message = error instanceof Error ? error.message : '';
+    return message.includes('not configured')
+      ? 'Document object storage is unavailable'
+      : 'The document storage connection was interrupted. Please try again.';
+  }
+  return 'Failed to store document';
 }
 
 async function handlePost(
@@ -334,12 +380,7 @@ async function handlePost(
     console.error('Error storing document:', error);
     const status = statusForUploadError(error);
     return res.status(status).json({
-      error:
-        error instanceof MultipartDocumentError
-          ? error.message
-          : status === 503
-          ? 'Document object storage is unavailable'
-          : 'Failed to store document',
+      error: messageForUploadError(error, status),
     });
   } finally {
     if (slotAcquired) {

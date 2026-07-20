@@ -58,11 +58,19 @@ For the normal `deploy.sh` path, define both `DOCUMENT_OBJECT_ACCESS_KEY` and
 `DOCUMENT_OBJECT_SECRET_KEY` in `.env` (plus the optional
 `DOCUMENT_OBJECT_SESSION_TOKEN`). The deploy creates or updates
 `<release>-document-objects`, points the rendered workloads at that Secret, and
-validates the required keys before invoking Helm. If the `.env` pair is absent,
-the deploy accepts an explicitly configured external Secret only after
-verifying that both referenced keys exist and are non-empty. It otherwise
-fails before changing the Helm release, instead of leaving pods in
-`CreateContainerConfigError`.
+validates the required keys before invoking Helm. It then runs a short-lived,
+prefix-scoped PUT/GET/DELETE probe against the exact rendered endpoint and
+bucket. Invalid credentials, a missing bucket, and insufficient object
+permissions therefore fail before Helm changes the release. If the `.env` pair
+is absent, the deploy accepts an explicitly configured external Secret only
+after verifying that both referenced keys exist and are non-empty. Use
+`--skip-document-storage-preflight` only when an external change window makes
+the live probe intentionally unavailable.
+
+Create the configured bucket before deployment and apply lifecycle expiration
+to `documentObjectStorage.prefix` for the configured `expirySeconds`. The
+dedicated credential needs `GetObject`, `PutObject`, and `DeleteObject` only for
+that bucket prefix; bucket-administration permissions are not required.
 
 When `documentObjectStorage.enabled=false`, the chart injects no document
 credential and renders no object-store egress rule.
