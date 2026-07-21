@@ -459,7 +459,7 @@ functions:
     _type: content_distiller
     fast_llm_name: default_llm
     llm_name: reasoning_llm
-    max_input_chars: 100000
+    max_input_chars: 2000000
     max_output_tokens: 4096
     wrapper_type: LANGCHAIN
     enabled_operations:
@@ -468,7 +468,7 @@ functions:
       Condense verbose tool outputs. Trigger: tool output exceeds
       ~5000 tokens; for shorter outputs incorporate directly. Args:
       content, optional focus, max_words, and output_format. Returns:
-      distilled text. Fails when: input exceeds 100000 chars.
+      distilled text. Fails when: input exceeds 2000000 chars.
     verbose: false
   user_interaction_tool:
     _type: user_interaction
@@ -703,7 +703,7 @@ llms:
     api_key: ${TOOL_CALLING_LLM_MODEL_API_KEY}
     base_url: ${TOOL_CALLING_LLM_MODEL_BASE_URL}
     model_name: ${TOOL_CALLING_LLM_MODEL_MODEL}
-    reasoning_effort: max
+    reasoning_effort: xhigh
   default_llm:
     _type: openai
     api_key: ${DEFAULT_LLM_MODEL_API_KEY}
@@ -854,5 +854,5 @@ workflow:
     - user_interaction_tool
     - visual_media_tool
     - vtt_interpreter_tool
-  verbose: false
+  verbose: true
   workflow_alias: Daedalus
