@@ -229,6 +229,11 @@ expects `MINIO_ACCESS_KEY` and `MINIO_SECRET_KEY`; `MINIO_SESSION_TOKEN` is
 optional. Endpoint, database, bucket, namespace, port, and key names are all
 configurable under `retrieval.*`.
 
+When `retrieval.readiness.enabled=true`, the backend checks both authenticated
+`list_collections` and `has_collection`. The latter exercises the
+`DescribeCollection` permission needed by real retrieval, including when the
+database is still empty and the probe uses a deliberately missing sentinel.
+
 The repo-level `deploy.sh` copies the default authoritative Secrets from the
 `milvus` namespace into release-local Secrets without placing credential
 values in Helm release metadata. If Helm is run directly, provision those

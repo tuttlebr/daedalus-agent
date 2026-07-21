@@ -177,8 +177,11 @@ placed in command arguments or printed.
 
 For Kubernetes RAG deployments, `deploy.sh` also mirrors the authoritative
 Milvus and MinIO credentials into namespace-local workload Secrets, then runs
-an authenticated `list_collections` probe with the exact rendered backend
-configuration. The defaults match `daedalus-context`:
+authenticated `list_collections` and `has_collection` probes with the exact
+rendered backend configuration. The second call exercises Milvus's
+`DescribeCollection` authorization path rather than accepting a public-role
+collection listing as proof of RAG access. The defaults match
+`daedalus-context`:
 
 - `milvus/milvus-root-credentials`, key `password`, username `root`
 - `milvus/milvus-minio-credentials`, keys `accesskey` and `secretkey`
@@ -663,8 +666,9 @@ That is expected unless you provide those external services yourself. The local 
 If NvIngest document ingestion fails with `StatusCode.UNAUTHENTICATED` and
 `auth check failure`, verify the authoritative source Secret and rerun
 `deploy.sh`. The rollout preflight and `/health/ready` both call authenticated
-`list_collections`; readiness reports `reason=milvus_unavailable` without
-returning credentials. For an externally managed target, configure
+`list_collections` plus `has_collection` (the `DescribeCollection` path);
+readiness reports `reason=milvus_unavailable` without returning credentials.
+For an externally managed target, configure
 `retrieval.milvus.auth.existingSecret` with `MILVUS_USERNAME` and
 `MILVUS_PASSWORD`, or set `tokenKey` for token authentication.
 
