@@ -459,7 +459,7 @@ functions:
     _type: content_distiller
     fast_llm_name: default_llm
     llm_name: reasoning_llm
-    max_input_chars: 2000000
+    max_input_chars: 500000
     max_output_tokens: 4096
     wrapper_type: LANGCHAIN
     enabled_operations:
@@ -468,7 +468,7 @@ functions:
       Condense verbose tool outputs. Trigger: tool output exceeds
       ~5000 tokens; for shorter outputs incorporate directly. Args:
       content, optional focus, max_words, and output_format. Returns:
-      distilled text. Fails when: input exceeds 2000000 chars.
+      distilled text. Fails when: input exceeds 500000 chars.
     verbose: false
   user_interaction_tool:
     _type: user_interaction
