@@ -153,11 +153,9 @@ def test_is_duplicate_keeps_genuinely_different_items():
     assert not is_duplicate(a, b)
 
 
-def test_is_duplicate_keeps_same_title_different_body_fallbacks():
-    # Two distinct unstructured fallbacks share a generic title but differ in
-    # body — they must NOT collapse into one.
-    a = _item(title="Autonomy Run Completed", bluf="", body="First error context.")
-    b = _item(title="Autonomy Run Completed", bluf="", body="Totally separate issue.")
+def test_is_duplicate_keeps_same_title_items_with_different_bodies():
+    a = _item(title="Run status", bluf="", body="First error context.")
+    b = _item(title="Run status", bluf="", body="Totally separate issue.")
     assert not is_duplicate(a, b)
 
 

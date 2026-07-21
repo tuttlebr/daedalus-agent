@@ -148,11 +148,14 @@ def test_parse_structured_output_from_json_fence():
     assert output["feed_items"][0]["title"] == "T"
 
 
-def test_parse_structured_output_falls_back_to_feed_item():
-    output = parse_structured_output("plain response")
+def test_parse_structured_output_rejects_unstructured_text_without_echoing_it():
+    private_text = "private model planning that must not reach the UI"
 
-    assert output["summary"] == "plain response"
-    assert output["feed_items"][0]["confidence"] == "low"
+    with pytest.raises(ValueError) as exc_info:
+        parse_structured_output(private_text)
+
+    assert str(exc_info.value) == "Backend returned invalid structured output."
+    assert private_text not in str(exc_info.value)
 
 
 def test_feed_items_from_output_limits_and_normalizes():
@@ -256,6 +259,26 @@ def test_run_once_stores_structured_feed_and_completed_run():
     assert store.runs[0]["summary"] == "Found a durable signal."
     assert backend.messages[0]["content"].startswith("[IDENTITY]")
     assert backend.execution_id == "request-123"
+
+
+def test_run_once_does_not_publish_unstructured_model_text():
+    private_text = "I will expose my private research plan before using tools."
+    store = FakeStore()
+    backend = FakeBackend(private_text)
+
+    run = run_once(
+        store=store,
+        backend=backend,
+        user_id="test-user",
+        request={"id": "request-unsafe", "trigger": "manual", "prompt": "go"},
+    )
+
+    assert run["status"] == "failed"
+    assert run["summary"] == ""
+    assert run["error"] == "Backend returned invalid structured output."
+    assert private_text not in json.dumps(run)
+    assert private_text not in json.dumps(store.events)
+    assert store.feed == []
 
 
 def test_build_messages_includes_already_surfaced_digest():
@@ -652,6 +675,11 @@ def test_build_messages_includes_sanitized_source_policy_message():
     assert 'disabled_source_ids=["google_search"]' in messages[1]["content"]
     assert "max_research_tool_calls=20" in messages[1]["content"]
     assert "require_deep_research_plan_approval=true" in messages[1]["content"]
+    assert "call the configured confirm_research_plan tool" in messages[1]["content"]
+    assert "Return its formatted response unchanged and stop" in messages[1]["content"]
+    assert (
+        "Do not draft, paraphrase, or echo the plan yourself" in messages[1]["content"]
+    )
 
 
 def test_extract_approval_metadata_defaults_to_mcp_mutation():

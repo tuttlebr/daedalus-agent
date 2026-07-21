@@ -81,7 +81,7 @@ Start each run with a small, bounded plan and record the next useful follow-up.
 }
 
 _JSON_FENCE_RE = re.compile(r"```(?:json)?\s*([\s\S]*?)\s*```", re.IGNORECASE)
-_THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL)
+_THINK_RE = re.compile(r"<think(?:\s[^>]*)?>.*?</think\s*>", re.DOTALL | re.IGNORECASE)
 _ACTION_TYPE_RE = re.compile(r"action_type=`([^`]+)`", re.IGNORECASE)
 _TARGET_RE = re.compile(r"target=`([^`]+)`", re.IGNORECASE)
 _SERVER_NAME_RE = re.compile(r"server_name=`([^`]+)`", re.IGNORECASE)
@@ -122,6 +122,15 @@ _RECENT_FEED_BLUF_CHARS = 140
 _RECENT_FEED_SOURCE_CHARS = 80
 _RECENT_FEED_THREAD_KEY_CHARS = 96
 _TRUNCATION_MARKER = "\n…[truncated]…\n"
+
+
+class StructuredOutputError(ValueError):
+    """The backend did not return the autonomous worker's JSON contract.
+
+    Keep the exception message static. The worker persists exception messages,
+    so attaching the raw model response here could expose internal planning or
+    reasoning text through run history or diagnostics.
+    """
 
 
 def _bounded_text(value: Any, max_chars: int) -> str:
@@ -364,8 +373,14 @@ turns up nothing beyond what is already surfaced, return an empty feed_items
 list rather than restating known items.
 
 # Output and stop rule
-Do not produce raw HTML. Return JSON only, matching this shape:
+Do not produce raw HTML. Do not return analysis, reasoning, a research plan, or
+other prose outside the output contract. Return JSON only, matching this shape:
 {json.dumps(output_contract, indent=2)}
+
+The only exception to JSON output is a response from a configured approval
+tool. Return that tool response unchanged and stop so the worker can recognize
+its structured approval marker. Do not draft or paraphrase an approval request
+yourself.
 
 Stop after one useful autonomous cycle or when approval, credentials, or missing
 context blocks safe progress.
@@ -443,9 +458,19 @@ def render_source_policy_message(policy: dict[str, Any]) -> str:
             "require_deep_research_plan_approval="
             f"{str(policy['requirePlanApproval']).lower()}"
         )
+        if policy["requirePlanApproval"]:
+            lines.append(
+                "For broad research, call the configured confirm_research_plan "
+                "tool before any research calls. Return its formatted response "
+                "unchanged and stop. Do not draft, paraphrase, or echo the plan "
+                "yourself."
+            )
     if policy.get("notes"):
         lines.append(f"notes={json.dumps(policy['notes'])}")
-    lines.append("Do not echo this source policy message to the user.")
+    lines.append(
+        "Apply this policy silently. Do not echo this source policy message or "
+        "describe internal planning or reasoning to the user."
+    )
     return "\n".join(lines)
 
 
@@ -474,27 +499,10 @@ def parse_structured_output(text: str) -> dict[str, Any]:
         if isinstance(parsed, dict):
             return parsed
 
-    return {
-        "summary": cleaned[:2000]
-        if cleaned
-        else "The run completed without structured output.",
-        "executive_summary": "",
-        "feed_items": [
-            {
-                "lane": "known",
-                "title": "Autonomy Run Completed",
-                "bluf": "The run returned an unstructured response.",
-                "body": cleaned[:1200]
-                if cleaned
-                else "No usable response was returned.",
-                "source_url": "",
-                "confidence": "low",
-                "confidence_reason": "Structured output validation failed.",
-            }
-        ],
-        "workspace_updates": {},
-        "self_reflection": "Worker fell back to unstructured-output handling.",
-    }
+    # Fail closed. In particular, do not copy ``cleaned`` into the exception,
+    # run summary, feed, workspace, or diagnostics. It can contain model
+    # planning/reasoning that was never intended as user-visible output.
+    raise StructuredOutputError("Backend returned invalid structured output.")
 
 
 def feed_items_from_output(run_id: str, output: dict[str, Any]) -> list[dict[str, Any]]:
