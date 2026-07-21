@@ -417,6 +417,17 @@ def test_backend_uses_registered_redis_acl_tls_memory_provider():
     assert memory["ssl_ca_certs"] == "${REDIS_TLS_CA_FILE}"
 
 
+def test_backend_uses_role_aware_vllm_embedder_contract():
+    embedder = _config()["embedders"]["milvus_embedder"]
+
+    assert embedder["_type"] == "daedalus_vllm"
+    assert embedder["base_url"] == "${EMBEDDING_BASE_URL}"
+    assert embedder["model_name"] == "${EMBEDDING_MODEL}"
+    assert embedder["truncate_prompt_tokens"] == 10240
+    assert "truncate" not in embedder
+    assert "input_type" not in embedder
+
+
 def test_backend_config_uses_canonical_env_names():
     config_text = CONFIG.read_text(encoding="utf-8")
     template_text = ENV_TEMPLATE.read_text(encoding="utf-8")

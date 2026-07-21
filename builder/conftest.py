@@ -104,6 +104,8 @@ _nat_data_models_retriever_mod = MagicMock()
 _nat_data_models_retriever_mod.RetrieverBaseConfig = _FakeFunctionBaseConfig
 
 _nat_register_mod = MagicMock()
+_nat_register_mod.register_embedder_client = _fake_register_passthrough
+_nat_register_mod.register_embedder_provider = _fake_register_passthrough
 _nat_register_mod.register_function = _fake_register_function
 _nat_register_mod.register_retriever_client = _fake_register_passthrough
 _nat_register_mod.register_retriever_provider = _fake_register_passthrough
@@ -178,6 +180,19 @@ _nat_builder_retriever_mod = MagicMock()
 _nat_builder_retriever_mod.RetrieverProviderInfo = _FakeRetrieverProviderInfo
 
 
+class _FakeEmbedderProviderInfo:
+    def __init__(self, config=None, description: str = ""):
+        self.config = config
+        self.description = description
+
+
+_nat_builder_embedder_mod = MagicMock()
+_nat_builder_embedder_mod.EmbedderProviderInfo = _FakeEmbedderProviderInfo
+
+_nat_data_models_embedder_mod = MagicMock()
+_nat_data_models_embedder_mod.EmbedderBaseConfig = _FakeFunctionBaseConfig
+
+
 class _FakeRetriever:
     """Drop-in for nat.retriever.interface.Retriever."""
 
@@ -226,6 +241,7 @@ _NAT_MOCKS: dict[str, object] = {
     "nat": MagicMock(),
     "nat.builder": MagicMock(),
     "nat.builder.builder": MagicMock(),
+    "nat.builder.embedder": _nat_builder_embedder_mod,
     "nat.builder.retriever": _nat_builder_retriever_mod,
     "nat.builder.framework_enum": MagicMock(),
     "nat.builder.function_info": _nat_function_info_mod,
@@ -234,6 +250,7 @@ _NAT_MOCKS: dict[str, object] = {
     "nat.data_models": MagicMock(),
     "nat.data_models.common": _nat_data_models_common_mod,
     "nat.data_models.component_ref": _nat_data_models_component_ref_mod,
+    "nat.data_models.embedder": _nat_data_models_embedder_mod,
     "nat.data_models.function": _nat_data_models_function_mod,
     "nat.data_models.object_store": _nat_data_models_object_store_mod,
     "nat.data_models.retriever": _nat_data_models_retriever_mod,

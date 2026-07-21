@@ -26,7 +26,7 @@ workflow:
   _type: rss_feed
   feed_url: null
   feeds: {} # optional map of feed_scope name -> RSS URL
-  reranker_endpoint: null
+  reranker_endpoint: http://reranker:8000/rerank
   reranker_model: null
   reranker_api_key: null
   reranker_max_passage_tokens: 192
@@ -44,7 +44,7 @@ Required inputs:
 - `feed_url` or a non-empty `feeds` map
 - `reranker_endpoint`
 - `reranker_model`
-- reranker API key through `reranker_api_key` or `NVIDIA_API_KEY`
+- optional reranker API key through `reranker_api_key` or `NVIDIA_API_KEY`
 
 ## Function Signature
 
@@ -69,8 +69,8 @@ failure).
 
 1. Resolve `feed_scope` to one or more feed URLs from the configuration.
 2. Fetch and parse each feed, reusing the cache when warm.
-3. Build compact reranker passages sized to the configured token budget.
-4. Send candidate entries to the reranker.
+3. Build compact reranker documents sized to the configured token budget.
+4. Send the query string and document strings to the vLLM reranker.
 5. Select the top-ranked article.
 6. Fetch the article through the pinned transport and convert its local response file.
 7. Truncate the result if needed and return it.
@@ -80,7 +80,7 @@ failure).
 All failure modes surface as `"Error: <reason>"` strings:
 
 - RSS feed not configured or unreachable.
-- Reranker configuration or API key missing.
+- Reranker endpoint or model configuration missing.
 - No entries returned by the feed or reranker.
 - Scrape of the chosen URL fails.
 
@@ -93,5 +93,5 @@ feed updates into the Autonomy dashboard.
 
 ## Requirements
 
-- A reachable reranker endpoint and credentials
+- A reachable vLLM-compatible reranker endpoint; credentials are optional
 - Network access to the configured RSS feed URLs and target article hosts

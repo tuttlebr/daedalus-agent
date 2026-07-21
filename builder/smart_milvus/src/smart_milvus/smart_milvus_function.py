@@ -11,6 +11,10 @@ import requests
 from langchain_core.embeddings import Embeddings
 from nat.retriever.interface import Retriever
 from nat.retriever.models import Document, RetrieverError, RetrieverOutput
+from nat_helpers.vllm_reranker import (
+    build_vllm_rerank_payload,
+    parse_vllm_rerank_response,
+)
 from pymilvus import MilvusClient
 from pymilvus.client.abstract import Hit
 
@@ -291,29 +295,27 @@ class MilvusRetriever(Retriever):
             return documents
 
         try:
-            # Prepare API key
+            # vLLM can run with or without API-key authentication.
             api_key = self._reranker_config.get("api_key") or os.getenv(
                 "NVIDIA_API_KEY"
             )
-            if not api_key:
-                logger.warning("No API key provided for reranker. Skipping reranking.")
-                return documents
 
             # Prepare request
             headers = {
-                "Authorization": f"Bearer {api_key}",
                 "Accept": "application/json",
                 "Content-Type": "application/json",
             }
+            if api_key:
+                headers["Authorization"] = f"Bearer {api_key}"
 
-            # Extract text passages from documents
-            passages = [{"text": doc.page_content} for doc in documents]
-
-            payload = {
-                "model": self._reranker_config.get("model"),
-                "query": {"text": query},
-                "passages": passages,
-            }
+            document_texts = [doc.page_content for doc in documents]
+            top_n = self._reranker_config.get("top_n") or len(documents)
+            payload = build_vllm_rerank_payload(
+                model=self._reranker_config["model"],
+                query=query,
+                documents=document_texts,
+                top_n=top_n,
+            )
 
             # Make request (wrapped in to_thread since requests is synchronous)
             session = self._get_session()
@@ -327,24 +329,19 @@ class MilvusRetriever(Retriever):
             response.raise_for_status()
 
             # Process response
-            result = response.json()
-            rankings = result.get("rankings", [])
-
-            # Sort by logit score (higher is better)
-            rankings.sort(key=lambda x: x["logit"], reverse=True)
+            rankings = parse_vllm_rerank_response(
+                response.json(),
+                document_count=len(documents),
+            )
 
             # Reorder documents based on rankings
             reranked_docs = []
-            top_n = self._reranker_config.get("top_n") or len(documents)
 
             for i, ranking in enumerate(rankings[:top_n]):
-                idx = ranking["index"]
-                if 0 <= idx < len(documents):
-                    # Add reranking score to metadata
-                    doc = documents[idx]
-                    doc.metadata["rerank_score"] = ranking["logit"]
-                    doc.metadata["rerank_position"] = i + 1
-                    reranked_docs.append(doc)
+                doc = documents[ranking.index]
+                doc.metadata["rerank_score"] = ranking.relevance_score
+                doc.metadata["rerank_position"] = i + 1
+                reranked_docs.append(doc)
 
             logger.debug(
                 "Reranked %d documents, returning top %d",

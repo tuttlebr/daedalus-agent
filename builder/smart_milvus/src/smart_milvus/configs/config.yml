@@ -9,8 +9,11 @@ general:
 
 embedders:
   milvus_embedder:
-    _type: nim
-    model_name: nvidia/nv-embedqa-e5-v5
+    _type: daedalus_vllm
+    api_key: ${EMBEDDING_API_KEY}
+    base_url: ${EMBEDDING_BASE_URL}
+    model_name: ${EMBEDDING_MODEL}
+    truncate_prompt_tokens: 10240
 
 functions:
   domain_retriever:

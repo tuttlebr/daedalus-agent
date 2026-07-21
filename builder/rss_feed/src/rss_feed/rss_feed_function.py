@@ -24,6 +24,10 @@ from nat_helpers.safe_http import (
     get_public_response_async,
 )
 from nat_helpers.url_guard import UnsafeURLError, validate_public_url
+from nat_helpers.vllm_reranker import (
+    build_vllm_rerank_payload,
+    parse_vllm_rerank_response,
+)
 from pydantic import BaseModel, Field, HttpUrl
 
 try:
@@ -72,7 +76,7 @@ class RssFeedFunctionConfig(FunctionBaseConfig, name="rss_feed"):
     reranker_api_key: str | None = Field(
         default=None,
         description=(
-            "API key for the reranker service. Can also be set via "
+            "Optional API key for the reranker service. Can also be set via "
             "NVIDIA_API_KEY env var"
         ),
     )
@@ -469,21 +473,17 @@ async def rss_feed_function(
                 "Reranker configuration is required. Please set "
                 "reranker_endpoint and reranker_model in the configuration."
             )
-        # Get API key
+        # vLLM can run with or without API-key authentication.
         api_key = config.reranker_api_key or os.getenv("NVIDIA_API_KEY")
-        if not api_key:
-            raise ValueError(
-                "No API key provided for reranker. Set reranker_api_key "
-                "in config or NVIDIA_API_KEY environment variable."
-            )
 
         try:
             # Prepare reranker request
             headers = {
-                "Authorization": f"Bearer {api_key}",
                 "Accept": "application/json",
                 "Content-Type": "application/json",
             }
+            if api_key:
+                headers["Authorization"] = f"Bearer {api_key}"
 
             passages, entry_indexes = _build_reranker_passages(
                 query=query,
@@ -495,11 +495,12 @@ async def rss_feed_function(
                 logger.warning("No non-empty passages available for reranking")
                 return None
 
-            payload = {
-                "model": config.reranker_model,
-                "query": {"text": query},
-                "passages": passages,
-            }
+            payload = build_vllm_rerank_payload(
+                model=config.reranker_model,
+                query=query,
+                documents=[passage["text"] for passage in passages],
+                top_n=1,
+            )
 
             # Make reranker request
             async with httpx.AsyncClient(timeout=config.timeout) as client:
@@ -513,19 +514,18 @@ async def rss_feed_function(
                 response.raise_for_status()
 
             # Process response
-            result = response.json()
-            rankings = result.get("rankings", [])
+            rankings = parse_vllm_rerank_response(
+                response.json(),
+                document_count=len(passages),
+            )
 
             if not rankings:
                 logger.warning("No rankings returned from reranker")
                 return None
 
-            # Sort by logit score (higher is better)
-            rankings.sort(key=lambda x: x["logit"], reverse=True)
-
             # Get the top-ranked entry
             top_ranking = rankings[0]
-            passage_index = top_ranking["index"]
+            passage_index = top_ranking.index
 
             if 0 <= passage_index < len(entry_indexes):
                 return entries[entry_indexes[passage_index]]

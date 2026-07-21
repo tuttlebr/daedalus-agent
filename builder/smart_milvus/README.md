@@ -36,6 +36,12 @@ and the configured L2 search metric. Keep `EMBEDDING_MODEL`,
 retrieval rollouts; connectivity and readiness checks cannot detect a semantic
 model mismatch.
 
+The production `daedalus_vllm` embedder sends `/v1/embeddings` requests through
+the model's chat template. Queries use the `query` role and stored content uses
+the `document` role, which applies the model's required `query:` and `passage:`
+prefixes. Do not replace it with the NIM embedder client for a vLLM endpoint:
+vLLM ignores the NIM-only `input_type` and `truncate` fields.
+
 The production logical-to-physical mapping includes `veterinarian` to
 `vetpartner`; the other shared domains map directly to collections with the
 same name. Shared collections are read targets and are populated by the
@@ -99,6 +105,11 @@ If reranking is enabled, the retriever:
 2. sends the candidate passages to the reranker endpoint
 3. reorders the documents by rerank score
 4. stores rerank metadata on each returned document
+
+The reranker endpoint must implement vLLM's Cohere-compatible contract:
+`query` is a string, `documents` is a list of strings, and scores are returned
+as `results[].relevance_score`. Authentication is optional for trusted
+in-cluster endpoints.
 
 If reranking fails, the retriever falls back to the original Milvus order.
 

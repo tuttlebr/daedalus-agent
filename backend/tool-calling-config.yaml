@@ -64,11 +64,12 @@ object_stores:
     bucket_name: calendar-mcp-oauth
 embedders:
   milvus_embedder:
-    _type: nim
+    _type: daedalus_vllm
     api_key: ${EMBEDDING_API_KEY}
     base_url: ${EMBEDDING_BASE_URL}
     model_name: ${EMBEDDING_MODEL}
-    truncate: END
+    truncate_prompt_tokens: 10240
+    max_concurrency: 8
 function_groups:
   x_mcp_server:
     _type: mcp_client

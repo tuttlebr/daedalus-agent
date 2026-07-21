@@ -5,12 +5,52 @@ import threading
 from unittest.mock import MagicMock
 
 import pytest
+from nat.retriever.models import Document
 from smart_milvus.smart_milvus_function import (
     CollectionNotFoundError,
     MilvusRetriever,
     _wrap_milvus_results,
     _wrap_milvus_single_results,
 )
+
+
+def test_reranker_uses_vllm_documents_and_relevance_scores_without_api_key():
+    retriever = MilvusRetriever(
+        client=MagicMock(),
+        embedder=MagicMock(),
+        reranker_config={
+            "endpoint": "http://reranker:8000/rerank",
+            "model": "nvidia/reranker",
+            "top_n": 2,
+            "api_key": None,
+        },
+    )
+    response = MagicMock()
+    response.raise_for_status = MagicMock()
+    response.json.return_value = {
+        "results": [
+            {"index": 1, "relevance_score": 0.9},
+            {"index": 0, "relevance_score": 0.1},
+        ]
+    }
+    session = MagicMock()
+    session.post.return_value = response
+    retriever._get_session = MagicMock(return_value=session)
+    documents = [Document(page_content="first"), Document(page_content="second")]
+
+    reranked = asyncio.run(retriever._rerank("question", documents))
+
+    assert [document.page_content for document in reranked] == ["second", "first"]
+    assert reranked[0].metadata["rerank_score"] == 0.9
+    request = session.post.call_args
+    assert request.kwargs["json"] == {
+        "model": "nvidia/reranker",
+        "query": "question",
+        "documents": ["first", "second"],
+        "top_n": 2,
+    }
+    assert "Authorization" not in request.kwargs["headers"]
+
 
 # ---------------------------------------------------------------------------
 # _wrap_milvus_single_results

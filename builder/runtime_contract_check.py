@@ -147,6 +147,24 @@ def main() -> None:
     if registered_oauth_store.config_type is not DaedalusRedisObjectStoreClientConfig:
         raise RuntimeError("Daedalus OAuth token store wasn't registered")
 
+    # Retrieval models served by vLLM require query/document chat roles rather
+    # than the NIM-only input_type field. Keep both the provider and its
+    # LangChain client registration pinned to the installed NAT ABI.
+    from nat.builder.framework_enum import LLMFrameworkEnum
+    from nat_helpers.vllm_embeddings import DaedalusVLLMEmbedderConfig
+
+    registered_embedder = GlobalTypeRegistry.get().get_embedder_provider(
+        DaedalusVLLMEmbedderConfig
+    )
+    if registered_embedder.config_type is not DaedalusVLLMEmbedderConfig:
+        raise RuntimeError("Daedalus vLLM embedder provider wasn't registered")
+    registered_embedder_client = GlobalTypeRegistry.get().get_embedder_client(
+        DaedalusVLLMEmbedderConfig,
+        LLMFrameworkEnum.LANGCHAIN,
+    )
+    if registered_embedder_client.config_type is not DaedalusVLLMEmbedderConfig:
+        raise RuntimeError("Daedalus vLLM LangChain embedder wasn't registered")
+
     # OAuth-backed MCP groups must discover and cache their schemas inside a
     # real authenticated user's workflow. Prove the per-user tool-calling
     # registration exists in the pinned NAT registry and carries explicit API

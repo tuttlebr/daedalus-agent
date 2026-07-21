@@ -19,6 +19,7 @@ from typing import Annotated, Any, Literal, Protocol
 from fastapi import APIRouter, Header, HTTPException
 from nat_helpers.internal_auth import require_trusted_user as _require_trusted_user
 from nat_helpers.redis_url import redis_url_from_env
+from nat_helpers.vllm_embeddings import DaedalusVLLMEmbeddings
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 logger = logging.getLogger(__name__)
@@ -145,6 +146,17 @@ def _resolve_env_value(value: str | None, *, max_depth: int = 5) -> str:
             return next_value
         resolved = next_value
     return resolved
+
+
+def _positive_int_env(name: str, default: str) -> int:
+    raw_value = _resolve_env_value(os.getenv(name, default))
+    try:
+        value = int(raw_value)
+    except ValueError as exc:
+        raise RuntimeError(f"{name} must be a positive integer") from exc
+    if value < 1:
+        raise RuntimeError(f"{name} must be a positive integer")
+    return value
 
 
 def _merge_metadata(
@@ -337,79 +349,19 @@ def build_profile_memory_items(
     return items
 
 
-class OpenAICompatibleEmbeddings:
-    """Minimal LangChain-compatible embeddings adapter for RedisEditor."""
-
-    def __init__(
-        self,
-        *,
-        api_key: str,
-        base_url: str,
-        model: str,
-        truncate: str | None,
-    ) -> None:
-        from openai import AsyncOpenAI, OpenAI
-
-        self._model = model
-        self._truncate = truncate
-        self._sync_client = OpenAI(api_key=api_key, base_url=base_url)
-        self._async_client = AsyncOpenAI(api_key=api_key, base_url=base_url)
-
-    def _extra_body(self, input_type: Literal["passage", "query"]) -> dict[str, Any]:
-        body: dict[str, Any] = {"input_type": input_type}
-        if self._truncate:
-            body["truncate"] = self._truncate
-        return body
-
-    @staticmethod
-    def _extract_embeddings(response: Any) -> list[list[float]]:
-        data = getattr(response, "data", None)
-        if data is None and isinstance(response, dict):
-            data = response.get("data")
-        vectors: list[list[float]] = []
-        for item in data or []:
-            embedding = getattr(item, "embedding", None)
-            if embedding is None and isinstance(item, dict):
-                embedding = item.get("embedding")
-            vectors.append(list(embedding or []))
-        return vectors
-
-    def embed_documents(self, texts: list[str]) -> list[list[float]]:
-        kwargs: dict[str, Any] = {"model": self._model, "input": texts}
-        kwargs["extra_body"] = self._extra_body("passage")
-        response = self._sync_client.embeddings.create(**kwargs)
-        return self._extract_embeddings(response)
-
-    def embed_query(self, text: str) -> list[float]:
-        kwargs: dict[str, Any] = {"model": self._model, "input": [text]}
-        kwargs["extra_body"] = self._extra_body("query")
-        response = self._sync_client.embeddings.create(**kwargs)
-        return self._extract_embeddings(response)[0]
-
-    async def aembed_documents(self, texts: list[str]) -> list[list[float]]:
-        kwargs: dict[str, Any] = {"model": self._model, "input": texts}
-        kwargs["extra_body"] = self._extra_body("passage")
-        response = await self._async_client.embeddings.create(**kwargs)
-        return self._extract_embeddings(response)
-
-    async def aembed_query(self, text: str) -> list[float]:
-        kwargs: dict[str, Any] = {"model": self._model, "input": [text]}
-        kwargs["extra_body"] = self._extra_body("query")
-        response = await self._async_client.embeddings.create(**kwargs)
-        return self._extract_embeddings(response)[0]
-
-
 @lru_cache(maxsize=1)
-def _embedding_adapter() -> OpenAICompatibleEmbeddings:
+def _embedding_adapter() -> DaedalusVLLMEmbeddings:
     api_key = _resolve_env_value(os.getenv("EMBEDDING_API_KEY"))
     base_url = _resolve_env_value(os.getenv("EMBEDDING_BASE_URL"))
     model = _resolve_env_value(os.getenv("EMBEDDING_MODEL"))
-    truncate = _resolve_env_value(os.getenv("EMBEDDING_TRUNCATE", "END")) or None
+    truncate_prompt_tokens = _positive_int_env(
+        "EMBEDDING_TRUNCATE_PROMPT_TOKENS",
+        "10240",
+    )
 
     missing = [
         name
         for name, value in (
-            ("EMBEDDING_API_KEY", api_key),
             ("EMBEDDING_BASE_URL", base_url),
             ("EMBEDDING_MODEL", model),
         )
@@ -421,11 +373,11 @@ def _embedding_adapter() -> OpenAICompatibleEmbeddings:
             + ", ".join(missing)
         )
 
-    return OpenAICompatibleEmbeddings(
-        api_key=api_key,
+    return DaedalusVLLMEmbeddings(
+        api_key=api_key or None,
         base_url=base_url,
         model=model,
-        truncate=truncate,
+        truncate_prompt_tokens=truncate_prompt_tokens,
     )
 
 

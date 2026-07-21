@@ -729,7 +729,7 @@ class TestRssFeedInnerFunctions:
             # Public literal avoids live DNS while still exercising the strict
             # URL guard before the mocked HTTP client is used.
             "feed_url": "https://8.8.8.8/rss",
-            "reranker_endpoint": "http://reranker:8080/v1/ranking",
+            "reranker_endpoint": "http://reranker:8080/rerank",
             "reranker_model": "nvidia/test-reranker",
         }
         defaults.update(kwargs)
@@ -865,8 +865,8 @@ class TestRssFeedInnerFunctions:
         assert isinstance(result, str)
         assert result.startswith("Error: ")
 
-    def test_rss_search_reranker_missing_api_key(self):
-        """Returns an Error: string when no API key is configured for reranker."""
+    def test_rss_search_allows_unauthenticated_vllm_reranker(self):
+        """An in-cluster vLLM reranker does not require a bearer token."""
 
         async def _run():
             import os
@@ -890,6 +890,13 @@ class TestRssFeedInnerFunctions:
             mock_response.raise_for_status = MagicMock()
             mock_client = AsyncMock()
             mock_client.get = AsyncMock(return_value=mock_response)
+            mock_rerank_response = MagicMock()
+            mock_rerank_response.status_code = 200
+            mock_rerank_response.raise_for_status = MagicMock()
+            mock_rerank_response.json.return_value = {
+                "results": [{"index": 0, "relevance_score": 0.9}]
+            }
+            mock_client.post = AsyncMock(return_value=mock_rerank_response)
             mock_cm = AsyncMock()
             mock_cm.__aenter__ = AsyncMock(return_value=mock_client)
             mock_cm.__aexit__ = AsyncMock(return_value=None)
@@ -907,14 +914,20 @@ class TestRssFeedInnerFunctions:
                     "rss_feed.rss_feed_function.fastfeedparser.parse",
                     return_value=mock_parsed,
                 ):
-                    with patch.dict(os.environ, env_no_key, clear=True):
-                        search_fn = fn_infos[0].fn
-                        return await search_fn("AI news")
+                    with patch.object(
+                        rss_mod,
+                        "_scrape_content",
+                        return_value=("# Article", False),
+                    ):
+                        with patch.dict(os.environ, env_no_key, clear=True):
+                            search_fn = fn_infos[0].fn
+                            result = await search_fn("AI news")
+                            headers = mock_client.post.call_args.kwargs["headers"]
+                            return result, headers
 
-        result = run(_run())
-        assert isinstance(result, str)
-        assert result.startswith("Error: ")
-        assert "api key" in result.lower() or "key" in result.lower()
+        result, headers = run(_run())
+        assert result == "# Article"
+        assert "Authorization" not in headers
 
     def test_rss_search_sends_compact_reranker_passages(self):
         """Large RSS descriptions are compacted before reranking."""
@@ -945,7 +958,10 @@ class TestRssFeedInnerFunctions:
             mock_rerank_response.status_code = 200
             mock_rerank_response.raise_for_status = MagicMock()
             mock_rerank_response.json.return_value = {
-                "rankings": [{"index": 1, "logit": 10.0}, {"index": 0, "logit": 1.0}]
+                "results": [
+                    {"index": 1, "relevance_score": 0.9},
+                    {"index": 0, "relevance_score": 0.1},
+                ]
             }
 
             mock_client = AsyncMock()
@@ -992,6 +1008,9 @@ class TestRssFeedInnerFunctions:
         # search_rss returns the scraped markdown string on success
         assert isinstance(result, str)
         assert "Relevant" in result
-        assert len(payload["passages"]) == 2
-        assert "<p>" not in payload["passages"][0]["text"]
-        assert len(payload["passages"][0]["text"]) <= 32 * 4
+        assert payload["query"] == "AI news"
+        assert payload["top_n"] == 1
+        assert len(payload["documents"]) == 2
+        assert "<p>" not in payload["documents"][0]
+        assert len(payload["documents"][0]) <= 32 * 4
+        assert "passages" not in payload

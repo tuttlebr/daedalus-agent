@@ -229,10 +229,10 @@ def test_replace_mode_deletes_only_seeded_profile_memories():
 def test_embedding_config_fails_when_missing(monkeypatch):
     profile_import_api._embedding_adapter.cache_clear()
     monkeypatch.delenv("EMBEDDING_API_KEY", raising=False)
-    monkeypatch.setenv("EMBEDDING_BASE_URL", "https://example.invalid/v1")
+    monkeypatch.delenv("EMBEDDING_BASE_URL", raising=False)
     monkeypatch.setenv("EMBEDDING_MODEL", "example/model")
 
-    with pytest.raises(RuntimeError, match="EMBEDDING_API_KEY"):
+    with pytest.raises(RuntimeError, match="EMBEDDING_BASE_URL"):
         profile_import_api._embedding_adapter()
 
 
@@ -248,10 +248,8 @@ def test_embedding_config_resolves_env_indirection(monkeypatch):
     monkeypatch.setenv("EMBEDDING_API_KEY", "${NVIDIA_API_KEY}")
     monkeypatch.setenv("EMBEDDING_BASE_URL", "https://example.invalid/v1")
     monkeypatch.setenv("EMBEDDING_MODEL", "example/model")
-    monkeypatch.setenv("EMBEDDING_TRUNCATE", "END")
-    monkeypatch.setattr(
-        profile_import_api, "OpenAICompatibleEmbeddings", FakeEmbeddings
-    )
+    monkeypatch.setenv("EMBEDDING_TRUNCATE_PROMPT_TOKENS", "10240")
+    monkeypatch.setattr(profile_import_api, "DaedalusVLLMEmbeddings", FakeEmbeddings)
 
     profile_import_api._embedding_adapter()
 
@@ -259,21 +257,29 @@ def test_embedding_config_resolves_env_indirection(monkeypatch):
         "api_key": "nvapi-test",
         "base_url": "https://example.invalid/v1",
         "model": "example/model",
-        "truncate": "END",
+        "truncate_prompt_tokens": 10240,
     }
 
 
-def test_embedding_extra_body_sets_nvidia_input_type():
-    adapter = profile_import_api.OpenAICompatibleEmbeddings.__new__(
-        profile_import_api.OpenAICompatibleEmbeddings
-    )
-    adapter._truncate = "END"
+def test_embedding_config_allows_unauthenticated_vllm(monkeypatch):
+    captured = {}
 
-    assert adapter._extra_body("passage") == {
-        "input_type": "passage",
-        "truncate": "END",
-    }
-    assert adapter._extra_body("query") == {
-        "input_type": "query",
-        "truncate": "END",
+    class FakeEmbeddings:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+    profile_import_api._embedding_adapter.cache_clear()
+    monkeypatch.delenv("EMBEDDING_API_KEY", raising=False)
+    monkeypatch.setenv("EMBEDDING_BASE_URL", "http://embedder:8000/v1")
+    monkeypatch.setenv("EMBEDDING_MODEL", "example/model")
+    monkeypatch.delenv("EMBEDDING_TRUNCATE_PROMPT_TOKENS", raising=False)
+    monkeypatch.setattr(profile_import_api, "DaedalusVLLMEmbeddings", FakeEmbeddings)
+
+    profile_import_api._embedding_adapter()
+
+    assert captured == {
+        "api_key": None,
+        "base_url": "http://embedder:8000/v1",
+        "model": "example/model",
+        "truncate_prompt_tokens": 10240,
     }

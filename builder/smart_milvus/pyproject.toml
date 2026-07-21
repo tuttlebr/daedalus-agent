@@ -7,6 +7,7 @@ name = "smart_milvus"
 dynamic = ["version"]
 dependencies = [
   "nvidia-nat[redis,mcp,langchain,phoenix]==1.7.0",
+  "nat_helpers",
   "langchain-core",
   "pydantic>=2,<2.14",
   "pymilvus>=2.5.0",
