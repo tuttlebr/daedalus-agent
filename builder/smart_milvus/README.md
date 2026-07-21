@@ -26,6 +26,21 @@ Synchronous PyMilvus construction and calls run in worker threads so retrieval
 does not block the async server. Collection resolution and schema metadata use
 a bounded 30-second cache that is cleared after any Milvus client error.
 
+## Index Compatibility Contract
+
+The query embedder must match the embedding family and vector dimension used
+when URL-Ingest or the document tool populated the collection. Production uses
+the `text` content field, `vector` vector field, a 2048-dimensional embedding,
+and the configured L2 search metric. Keep `EMBEDDING_MODEL`,
+`EMBEDDING_DENSE_DIM`, field names, and metric aligned across population and
+retrieval rollouts; connectivity and readiness checks cannot detect a semantic
+model mismatch.
+
+The production logical-to-physical mapping includes `veterinarian` to
+`vetpartner`; the other shared domains map directly to collections with the
+same name. Shared collections are read targets and are populated by the
+separate `daedalus-context/url-ingest` jobs, not by this retriever.
+
 ## Configuration
 
 Default example config lives in [`src/smart_milvus/configs/config.yml`](src/smart_milvus/configs/config.yml).

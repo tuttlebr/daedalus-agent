@@ -234,6 +234,13 @@ When `retrieval.readiness.enabled=true`, the backend checks both authenticated
 `DescribeCollection` permission needed by real retrieval, including when the
 database is still empty and the probe uses a deliberately missing sentinel.
 
+For the repository's production values, the shared runtime contract is
+database `default`, object bucket `nv-ingest`, and the `milvus`, MinIO, and
+NV-Ingest Services in their respective `milvus` and `nv-ingest` namespaces.
+The rendered NetworkPolicies include those namespace/port paths. A direct Helm
+install must preserve the same endpoint, database, bucket, credential, and
+embedding/schema contract used by the collection-population jobs.
+
 The repo-level `deploy.sh` copies the default authoritative Secrets from the
 `milvus` namespace into release-local Secrets without placing credential
 values in Helm release metadata. If Helm is run directly, provision those
@@ -243,6 +250,18 @@ the target Secrets' Kubernetes `metadata.resourceVersion` values. These values
 are rendered as backend pod annotations (and as a frontend annotation for the
 document-object Secret), ensuring environment-based credentials rotate without
 putting credential values or hashes into the release.
+
+Verify a production rollout through the application readiness endpoint, not
+only pod readiness:
+
+```sh
+kubectl -n daedalus rollout status deployment/daedalus-backend-default
+kubectl -n daedalus port-forward service/daedalus-backend-default 18000:8000
+curl -fsS http://127.0.0.1:18000/health/ready
+```
+
+The last command is run in a second shell while the port-forward is active and
+must report the RAG dependency ready.
 
 nginx can also proxy backend paths directly:
 

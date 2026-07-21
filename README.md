@@ -202,6 +202,30 @@ annotations. A credential rotation therefore changes the backend pod template;
 the document-object version also changes the frontend pod template. Credential
 bytes and hashes are not stored in Helm release metadata.
 
+The production RAG contract uses Milvus database `default`, document bucket
+`nv-ingest`, and the in-cluster endpoints
+`milvus.milvus.svc.cluster.local:19530`,
+`milvus-minio.milvus.svc.cluster.local:9000`, and
+`nv-ingest.nv-ingest.svc.cluster.local:7670`. Keep the query embedding model,
+vector dimension, vector/content field names, and distance metric compatible
+with the URL-ingest writer; changing only the query side can leave a healthy
+deployment that cannot search an existing collection correctly.
+
+After rollout, verify both the workload and the authenticated RAG dependency:
+
+```bash
+kubectl -n daedalus rollout status deployment/daedalus-backend-default
+kubectl -n daedalus get secret \
+  daedalus-milvus-auth daedalus-minio-auth daedalus-document-objects
+kubectl -n daedalus port-forward service/daedalus-backend-default 18000:8000
+# In another shell:
+curl -fsS http://127.0.0.1:18000/health/ready
+```
+
+The readiness response must report RAG ready. A successful TCP connection or
+`list_collections` result alone is insufficient because the production path
+also needs `DescribeCollection`, exercised by `has_collection`.
+
 ### Adding or expanding an MCP server
 
 MCP exposure and approval follow one configuration rule:

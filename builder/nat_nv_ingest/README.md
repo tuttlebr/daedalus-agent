@@ -33,6 +33,13 @@ rolling out this backend image. Treat the service upgrade as a rollout gate,
 because running a different client and service schema can reject extraction
 jobs after the backend has started successfully.
 
+Drain Daedalus document submissions before rolling the external NV-Ingest
+service. The `daedalus-context/nv-ingest` deploy wrapper blocks while scheduled
+or manual URL-ingest Jobs and their run locks are active, but it cannot infer
+whether an end user has an in-flight upload through this API. A service pod
+replacement can invalidate the HTTP/Ray job being polled; the client retry is
+bounded and is not a substitute for a coordinated rollout.
+
 The package-level smoke-test config lives in
 [`src/nat_nv_ingest/configs/config.yml`](src/nat_nv_ingest/configs/config.yml).
 It contains no fallback credentials or client-side `0.0.0.0` endpoints and
