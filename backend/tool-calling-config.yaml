@@ -558,23 +558,10 @@ functions:
     verbose: false
   source_verifier_tool:
     _type: source_verifier
-    verification_driver: fireworks_classifier
-    fireworks_api_key: ${FIREWORKS_API_KEY}
-    fireworks_model: ${FIREWORKS_SOURCE_VERIFIER_MODEL}
-    fireworks_label_map:
-      S: supported
-      P: partially_supported
-      U: unsupported
-      I: insufficient_context
-    fireworks_fallback_to_llm: true
-    fireworks_base_url: https://api.fireworks.ai/inference/v1
-    fast_llm_name: default_llm
-    llm_name: reasoning_llm
+    llm_name: verifier_llm
     max_source_chars: 80000
-    max_output_tokens: 16000
     fetch_timeout: 20.0
     max_fetch_tokens: 20000
-    wrapper_type: LANGCHAIN
     enabled_operations:
       - verify_claim
       - plan_sources
@@ -693,6 +680,11 @@ general:
         endpoint: ${DAEDALUS_PHOENIX_ENDPOINT}
         project: ${PHOENIX_PROJECT_NAME}
 llms:
+  verifier_llm:
+    _type: openai
+    api_key: ${VERIFIER_API_KEY}
+    base_url: ${VERIFIER_BASE_URL}
+    model_name: ${VERIFIER_MODEL}
   tool_calling_llm:
     _type: openai
     api_key: ${TOOL_CALLING_LLM_MODEL_API_KEY}

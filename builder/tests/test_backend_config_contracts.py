@@ -122,7 +122,7 @@ PROMPT_GUIDANCE_CODE_SURFACES = (
     Path(
         "builder/content_distiller/src/content_distiller/content_distiller_function.py"
     ),
-    Path("builder/source_verifier/src/source_verifier/source_verifier_function.py"),
+    Path("builder/source_verifier/src/source_verifier/critic.py"),
     Path("builder/vtt_interpreter/src/vtt_interpreter/vtt_interpreter_function.py"),
     Path("builder/smart_milvus/src/smart_milvus/configs/config.yml"),
 )
@@ -545,7 +545,12 @@ def test_workflow_uses_single_tool_calling_agent_schema():
 
 
 def test_openai_llms_use_api_compatible_parameters():
-    expected = {"tool_calling_llm", "default_llm"}
+    expected = {
+        "tool_calling_llm",
+        "reasoning_llm",
+        "default_llm",
+        "verifier_llm",
+    }
     for path in DEPLOYED_CONFIGS:
         config = _config(path)
         assert set(config["llms"]) == expected, path
@@ -1093,12 +1098,16 @@ def test_workflow_uses_configured_internet_search_providers():
         assert "current, external" in normalized_prompt, path
 
 
-def test_source_verifier_fast_llm_has_no_unsupported_extra_args():
+def test_source_verifier_uses_a_dedicated_configured_llm():
     for path in DEPLOYED_CONFIGS:
         config = _config(path)
-        fast_llm_name = config["functions"]["source_verifier_tool"]["fast_llm_name"]
-        fast_llm = config["llms"][fast_llm_name]
-        assert "extra_args" not in fast_llm, path
+        verifier = config["functions"]["source_verifier_tool"]
+        verifier_llm = config["llms"][verifier["llm_name"]]
+        assert verifier["llm_name"] == "verifier_llm", path
+        assert verifier_llm["api_key"] == "${VERIFIER_API_KEY}", path
+        assert verifier_llm["base_url"] == "${VERIFIER_BASE_URL}", path
+        assert verifier_llm["model_name"] == "${VERIFIER_MODEL}", path
+        assert "extra_args" not in verifier_llm, path
 
 
 def test_frontend_has_no_legacy_async_job_settings():

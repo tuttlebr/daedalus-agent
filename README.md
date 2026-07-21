@@ -496,20 +496,20 @@ telemetry, MCP, or serving work.
 
 Several packages include their own README files under `builder/`.
 
-### Calibrated source verification
+### Source-verification critic
 
-`source_verifier_tool.verify_claim` can use a fine-tuned Fireworks classifier
-instead of a generative LLM for its verdict. Set `FIREWORKS_API_KEY` and
-`FIREWORKS_SOURCE_VERIFIER_MODEL`; otherwise it automatically falls back to
-the configured fast LLM. The classifier should be trained to return exactly
-one of the compact labels configured in
-[`backend/tool-calling-config.yaml`](backend/tool-calling-config.yaml): `S`
-(supported), `P` (partially supported), `U` (unsupported), or `I`
-(insufficient context). The tool reads the selected label's first-token
-log-probability as the calibrated confidence and includes classifier metadata
-in the normal verification JSON response. Confirm the labels are single tokens
-for the model tokenizer, as described in the
-[Fireworks classifier guide](https://fireworks.ai/blog/Finetuning-LLMs-as-Classifiers).
+`source_verifier_tool.verify_claim` fact-checks one precise claim against the
+content fetched from its cited URL. The critic is provider-neutral: its
+`llm_name` refers to a normal entry in the workflow's `llms` section, so any LLM
+provider supported by NeMo Agent Toolkit can be used without changing the
+verifier implementation.
+
+The default deployment defines an OpenAI-compatible `verifier_llm` using
+`VERIFIER_API_KEY`, `VERIFIER_BASE_URL`, and `VERIFIER_MODEL`. To use a native
+toolkit provider instead, change only that LLM entry's `_type` and provider
+fields. The critic returns a validated `supported`, `partially_supported`,
+`unsupported`, or `insufficient_context` verdict with source evidence and
+specific claim issues. Its reported confidence is explicitly uncalibrated.
 
 ## Autonomous Agent
 
