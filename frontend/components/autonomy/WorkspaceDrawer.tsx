@@ -30,7 +30,7 @@ import type {
 
 import { Button, IconButton, Input, Textarea } from '@/components/primitives';
 
-import { relativeTime } from './utils';
+import { isActiveRun, relativeTime } from './utils';
 
 import classNames from 'classnames';
 
@@ -139,9 +139,7 @@ export function WorkspaceDrawer({
   }, [open, handleKeyDown]);
 
   const enabled = !!config?.enabled;
-  const hasActiveRun =
-    !!activeRun &&
-    ['running', 'queued', 'waiting_approval'].includes(activeRun.status);
+  const hasActiveRun = isActiveRun(activeRun);
   const activeGoalCount = goals.filter(
     (goal) => goal.status === 'active',
   ).length;

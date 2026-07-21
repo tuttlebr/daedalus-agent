@@ -18,7 +18,6 @@ from autonomous_agent.prompt import (
 )
 from autonomous_agent.worker import (
     MAX_AUTONOMOUS_REQUEST_TIMEOUT_SECONDS,
-    _approval_reason,
     apply_workspace_updates,
     make_backend,
     run_once,
@@ -581,7 +580,7 @@ def test_run_once_dedupes_feed_items_already_surfaced():
     assert len(store.feed) == 1
 
 
-def test_run_once_pauses_when_backend_requests_approval():
+def test_run_once_rejects_backend_approval_request():
     arguments_hash = "a" * 64
     store = FakeStore()
     store.pending_approvals["pending-1"] = {
@@ -609,19 +608,14 @@ def test_run_once_pauses_when_backend_requests_approval():
         request={"trigger": "manual"},
     )
 
-    assert run["status"] == "waiting_approval"
-    assert store.approvals[0]["actionType"] == "mcp_mutation"
-    assert store.approvals[0]["target"] == "prod-item"
-    assert store.approvals[0]["serverName"] == "inventory"
-    assert store.approvals[0]["toolName"] == "delete_item"
-    assert store.approvals[0]["approvalRequestId"] == "pending-1"
-    assert store.approvals[0]["argumentsPreview"] == '{"id":"prod-item"}'
-    assert store.approvals[0]["argumentsSha256"] == arguments_hash
-    assert "approvalToken" not in store.approvals[0]
+    assert run["status"] == "failed"
+    assert run["error"] == "Autonomous runs cannot request user approval."
+    assert store.approvals == []
+    assert store.events[-1]["type"] == "approval_blocked"
     assert output_requests_approval(backend.response)
 
 
-def test_run_once_preserves_deep_research_plan_approval_metadata():
+def test_run_once_rejects_deep_research_plan_approval():
     store = FakeStore()
     backend = FakeBackend(
         "**Deep research plan approval:** AIQ follow-up report\n\n"
@@ -641,13 +635,9 @@ def test_run_once_preserves_deep_research_plan_approval_metadata():
         request={"trigger": "manual"},
     )
 
-    assert run["status"] == "waiting_approval"
-    approval = store.approvals[0]
-    assert "approvalToken" not in approval
-    assert approval["actionType"] == "deep_research_plan"
-    assert approval["target"] == "aiq-report"
-    assert approval["risk"] == "low"
-    assert "AIQ follow-up report" in approval["action"]
+    assert run["status"] == "failed"
+    assert run["error"] == "Autonomous runs cannot request user approval."
+    assert store.approvals == []
     assert output_requests_approval(backend.response)
 
 
@@ -674,12 +664,8 @@ def test_build_messages_includes_sanitized_source_policy_message():
     assert 'enabled_source_ids=["curated_domains"]' in messages[1]["content"]
     assert 'disabled_source_ids=["google_search"]' in messages[1]["content"]
     assert "max_research_tool_calls=20" in messages[1]["content"]
-    assert "require_deep_research_plan_approval=true" in messages[1]["content"]
-    assert "call the configured confirm_research_plan tool" in messages[1]["content"]
-    assert "Return its formatted response unchanged and stop" in messages[1]["content"]
-    assert (
-        "Do not draft, paraphrase, or echo the plan yourself" in messages[1]["content"]
-    )
+    assert "require_deep_research_plan_approval=false" in messages[1]["content"]
+    assert "confirm_research_plan" not in messages[1]["content"]
 
 
 def test_extract_approval_metadata_defaults_to_mcp_mutation():
@@ -693,7 +679,7 @@ def test_extract_approval_metadata_defaults_to_mcp_mutation():
     assert metadata["arguments_sha256"] == ""
 
 
-def test_run_once_pauses_when_backend_requires_oauth():
+def test_run_once_rejects_backend_oauth_request():
     class OAuthBackend:
         def call(self, messages, *, execution_id=""):
             raise OAuthRequiredError(
@@ -711,10 +697,12 @@ def test_run_once_pauses_when_backend_requires_oauth():
         request={"trigger": "manual"},
     )
 
-    assert run["status"] == "waiting_approval"
-    assert store.approvals[0]["actionType"] == "oauth_authorization"
-    assert store.approvals[0]["authUrl"].startswith("https://accounts.google.com")
-    assert store.approvals[0]["oauthState"] == "abc"
+    assert run["status"] == "failed"
+    assert run["error"] == (
+        "Autonomous runs cannot use tools that require interactive OAuth."
+    )
+    assert store.approvals == []
+    assert store.events[-1]["type"] == "oauth_blocked"
 
 
 def test_extract_oauth_required_payload_from_sse_event():
@@ -856,22 +844,7 @@ def test_run_once_does_not_pause_on_advisory_phrase_without_marker():
     assert store.approvals == []
 
 
-def test_approval_reason_is_structured_not_raw_llm_text():
-    # F-017a: the stored approval reason is built from parsed metadata only.
-    metadata = extract_approval_metadata(
-        "**Action requiring confirmation:**\n\nDelete prod table\n\n"
-        "Proceed? (yes/no)\n"
-        "Approval scope: action_type=`mcp_mutation`, target=`prod-db`."
-    )
-    reason = _approval_reason(metadata)
-
-    assert "action_type=mcp_mutation" in reason
-    assert "target=prod-db" in reason
-    assert "risk=medium" in reason
-
-
-def test_run_once_stores_structured_reason_not_raw_response():
-    # F-017a: the raw LLM body must not be persisted as the approval reason.
+def test_run_once_does_not_store_raw_approval_response():
     store = FakeStore()
     store.pending_approvals["pending-2"] = {
         "user_id": "test-user",
@@ -898,11 +871,10 @@ def test_run_once_stores_structured_reason_not_raw_response():
         request={"trigger": "manual"},
     )
 
-    assert run["status"] == "waiting_approval"
-    approval = store.approvals[0]
-    assert "SECRET INTERNAL CHAIN OF THOUGHT" not in approval["reason"]
-    assert "action_type=mcp_mutation" in approval["reason"]
-    assert "target=prod-index" in approval["reason"]
+    assert run["status"] == "failed"
+    assert store.approvals == []
+    assert "SECRET INTERNAL CHAIN OF THOUGHT" not in json.dumps(run)
+    assert "SECRET INTERNAL CHAIN OF THOUGHT" not in json.dumps(store.events)
 
 
 def test_request_approval_key_only_for_approval_follow_ups():

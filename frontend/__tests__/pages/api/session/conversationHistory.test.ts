@@ -80,4 +80,34 @@ describe('session/conversationHistory replay sanitization', () => {
       60 * 60 * 24 * 7,
     );
   });
+
+  it('deduplicates repeated conversation ids on GET and repairs storage', async () => {
+    const conversations = [
+      {
+        id: 'conv-1',
+        name: 'Older copy',
+        updatedAt: 1,
+        messages: [],
+      },
+      {
+        id: 'conv-1',
+        name: 'Newer copy',
+        updatedAt: 2,
+        messages: [{ role: 'user', content: 'Hello' }],
+      },
+    ];
+    mocks.jsonGet.mockResolvedValue(conversations);
+
+    const { req, res } = createMockReqRes('GET');
+    await handler(req, res);
+
+    const repaired = [conversations[1]];
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(res.json).toHaveBeenCalledWith(repaired);
+    expect(mocks.jsonSetWithExpiry).toHaveBeenCalledWith(
+      'daedalus:user:testuser:conversationHistory',
+      repaired,
+      60 * 60 * 24 * 7,
+    );
+  });
 });

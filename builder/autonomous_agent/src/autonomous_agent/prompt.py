@@ -36,8 +36,9 @@ rather than conversational presence.
 - Treat the UI as the only human interaction point.
 - Prefer primary sources, exact claims, and durable memory over speculation.
 - Keep work scoped to active goals, current user context, and recent signals.
-- Pause for approval before destructive, irreversible, credential-related,
-  send/merge/delete/scale/uninstall, or memory-delete actions.
+- Keep autonomous work non-interactive. Skip destructive, irreversible,
+  credential-related, send/merge/delete/scale/uninstall, memory-delete, or
+  other approval-gated actions.
 """.strip(),
     "interests": """
 ## Curiosity Map
@@ -294,6 +295,10 @@ def build_messages(
 
     action_policy = str(config.get("actionPolicy") or "broad_autonomy")
     source_policy = sanitize_source_policy(config.get("sourcePolicy"))
+    # Autonomous runs are unattended. A persisted source policy from an older
+    # deployment can still request plan approval, so override it explicitly
+    # instead of allowing a background research cycle to pause for the user.
+    source_policy["requirePlanApproval"] = False
     runtime = {
         "current_time": time.strftime("%Y-%m-%d %H:%M:%S %Z"),
         "user_id": user_id,
@@ -340,8 +345,10 @@ sources that are already available non-interactively to the autonomous worker.
 Action policy: {action_policy}. If broad_autonomy, reads, research, memory
 writes, routine updates, and low-risk reversible writes may run unattended. For
 destructive, irreversible, credential-related, send/merge/delete/scale/uninstall,
-or memory-delete actions, call the configured confirmation tool, present the
-request, and stop. The worker will surface approval in the UI.
+memory-delete, or other approval-gated actions, do not call a confirmation tool
+and do not attempt the action. Skip it and choose a safe task that can finish
+without user interaction. If no safe progress is possible, return an empty
+feed_items list and explain the constraint briefly in the structured summary.
 
 # Evidence and memory
 For explicit user profile, preference, or project-context memory writes, call
@@ -377,13 +384,8 @@ Do not produce raw HTML. Do not return analysis, reasoning, a research plan, or
 other prose outside the output contract. Return JSON only, matching this shape:
 {json.dumps(output_contract, indent=2)}
 
-The only exception to JSON output is a response from a configured approval
-tool. Return that tool response unchanged and stop so the worker can recognize
-its structured approval marker. Do not draft or paraphrase an approval request
-yourself.
-
-Stop after one useful autonomous cycle or when approval, credentials, or missing
-context blocks safe progress.
+Stop after one useful autonomous cycle or when credentials or missing context
+blocks safe progress.
 
 Runtime input:
 {json.dumps(runtime, indent=2)}

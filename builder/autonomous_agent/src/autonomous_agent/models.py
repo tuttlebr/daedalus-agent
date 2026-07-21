@@ -37,7 +37,7 @@ def default_config(user_id: str) -> dict[str, Any]:
             "disabledSources": [],
             "enabledSources": [],
             "maxResearchToolCalls": 6,
-            "requirePlanApproval": True,
+            "requirePlanApproval": False,
         },
         "lastScheduledRunAt": None,
         "createdAt": timestamp,

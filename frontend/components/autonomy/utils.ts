@@ -1,4 +1,8 @@
-import type { AutonomyFeedItem, AutonomyConfig } from '@/types/autonomy';
+import type {
+  AutonomyConfig,
+  AutonomyFeedItem,
+  AutonomyRun,
+} from '@/types/autonomy';
 
 export type Lane = 'known' | 'adjacent' | 'scout';
 export type LaneFilter = Lane | 'all';
@@ -37,6 +41,10 @@ export function laneOrder(): Lane[] {
 }
 
 const DAY_MS = 86_400_000;
+
+export function isActiveRun(run: AutonomyRun | undefined): boolean {
+  return !!run && (run.status === 'queued' || run.status === 'running');
+}
 
 function startOfDay(ts: number): number {
   const d = new Date(ts);

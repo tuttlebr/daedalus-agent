@@ -1,6 +1,8 @@
+// @vitest-environment node
 import {
   enqueueAllActiveGoals,
   enqueueRun,
+  getConfig,
   isAllActiveGoalsRunRequest,
   NoActiveGoalsError,
   normalizeImportedGoals,
@@ -52,7 +54,7 @@ describe('autonomy store config sanitization', () => {
         enabledSources: ['curated_domains'],
         disabledSources: ['perplexity_search'],
         maxResearchToolCalls: 20,
-        requirePlanApproval: true,
+        requirePlanApproval: false,
         notes: 'Stay on primary sources.',
       },
     });
@@ -66,6 +68,20 @@ describe('autonomy store config sanitization', () => {
         },
       }),
     ).toEqual({});
+  });
+
+  it('disables plan approval in previously persisted autonomy config', async () => {
+    mocks.jsonGet.mockResolvedValue({
+      enabled: true,
+      sourcePolicy: {
+        maxResearchToolCalls: 6,
+        requirePlanApproval: true,
+      },
+    });
+
+    const config = await getConfig('test-user');
+
+    expect(config.sourcePolicy?.requirePlanApproval).toBe(false);
   });
 });
 

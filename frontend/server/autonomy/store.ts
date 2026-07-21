@@ -308,7 +308,9 @@ export function sanitizeConfigPatch(
   if (dedupeWindow !== undefined) clean.feedDedupeWindowDays = dedupeWindow;
 
   const sourcePolicy = sanitizeSourcePolicy(patch.sourcePolicy);
-  if (sourcePolicy) clean.sourcePolicy = sourcePolicy;
+  if (sourcePolicy) {
+    clean.sourcePolicy = { ...sourcePolicy, requirePlanApproval: false };
+  }
 
   return clean;
 }
@@ -338,7 +340,7 @@ function defaultConfig(userId: string): AutonomyConfig {
       disabledSources: [],
       enabledSources: [],
       maxResearchToolCalls: 6,
-      requirePlanApproval: true,
+      requirePlanApproval: false,
     },
     lastScheduledRunAt: null,
     createdAt: timestamp,
@@ -362,7 +364,18 @@ async function setValue(
 export async function getConfig(userId: string): Promise<AutonomyConfig> {
   const existing = await jsonGet(autonomyKey(userId, 'config'));
   if (existing && typeof existing === 'object') {
-    return { ...defaultConfig(userId), ...existing };
+    const defaults = defaultConfig(userId);
+    const stored = existing as Partial<AutonomyConfig>;
+    const storedSourcePolicy = sanitizeSourcePolicy(stored.sourcePolicy);
+    return {
+      ...defaults,
+      ...stored,
+      sourcePolicy: {
+        ...defaults.sourcePolicy,
+        ...(storedSourcePolicy || {}),
+        requirePlanApproval: false,
+      },
+    };
   }
   const created = defaultConfig(userId);
   await setValue(userId, 'config', created);

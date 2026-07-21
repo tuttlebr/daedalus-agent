@@ -25,6 +25,7 @@ import { ApprovalBanner } from './ApprovalBanner';
 import { AutonomyFeed } from './AutonomyFeed';
 import { StatusStrip } from './StatusStrip';
 import { WorkspaceDrawer } from './WorkspaceDrawer';
+import { isActiveRun } from './utils';
 
 interface DashboardState {
   config: AutonomyConfig | null;
@@ -89,13 +90,7 @@ export function AutonomyDashboard() {
   const latestEventRunIdRef = useRef<string | null>(null);
   const hasConnectedRef = useRef(false);
 
-  const activeRun = useMemo(
-    () =>
-      state.runs.find((run) =>
-        ['running', 'queued', 'waiting_approval'].includes(run.status),
-      ),
-    [state.runs],
-  );
+  const activeRun = useMemo(() => state.runs.find(isActiveRun), [state.runs]);
   const pendingApprovals = useMemo(
     () => state.approvals.filter((approval) => approval.status === 'pending'),
     [state.approvals],

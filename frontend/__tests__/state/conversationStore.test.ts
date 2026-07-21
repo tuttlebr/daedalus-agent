@@ -25,4 +25,52 @@ describe('conversationStore history reconciliation', () => {
     );
     expect(useConversationStore.getState().conversations).toContainEqual(draft);
   });
+
+  it('upserts a conversation instead of adding the same id twice', () => {
+    const store = useConversationStore.getState();
+    store.addConversation({
+      id: 'conv-1',
+      name: 'Initial name',
+      messages: [],
+      folderId: null,
+      updatedAt: 1,
+    });
+    store.addConversation({
+      id: 'conv-1',
+      name: 'Updated name',
+      messages: [],
+      folderId: null,
+      updatedAt: 2,
+    });
+
+    expect(useConversationStore.getState().conversations).toHaveLength(1);
+    expect(useConversationStore.getState().conversations[0].name).toBe(
+      'Updated name',
+    );
+  });
+
+  it('deduplicates repeated ids during history reconciliation', () => {
+    const store = useConversationStore.getState();
+    store.setConversations([
+      {
+        id: 'conv-1',
+        name: 'Older copy',
+        messages: [],
+        folderId: null,
+        updatedAt: 1,
+      },
+      {
+        id: 'conv-1',
+        name: 'Newer copy',
+        messages: [{ role: 'user', content: 'Hello' }],
+        folderId: null,
+        updatedAt: 2,
+      },
+    ]);
+
+    expect(useConversationStore.getState().conversations).toHaveLength(1);
+    expect(useConversationStore.getState().conversations[0].name).toBe(
+      'Newer copy',
+    );
+  });
 });

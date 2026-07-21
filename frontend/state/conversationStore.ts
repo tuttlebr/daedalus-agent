@@ -16,6 +16,7 @@
  *
  * @requires zustand - Run: npm install zustand
  */
+import { dedupeConversationsById } from '@/utils/app/conversationList';
 import { Logger } from '@/utils/logger';
 
 import { Conversation, Message } from '@/types/chat';
@@ -132,6 +133,7 @@ export const useConversationStore = create<ConversationStore>()(
 
       setConversations: (conversations) => {
         set((state) => {
+          const dedupedConversations = dedupeConversationsById(conversations);
           // Preserve local state for active streams and for the selected local
           // draft. A history refresh can race initial selection and must not
           // silently remove the conversation that owns the visible input.
@@ -151,11 +153,11 @@ export const useConversationStore = create<ConversationStore>()(
             preservedLocal.set(selectedLocal.id, selectedLocal);
 
           const incomingIds = new Set(
-            conversations.map((c: Conversation) => c.id),
+            dedupedConversations.map((c: Conversation) => c.id),
           );
 
           // Replace with incoming data, but keep local copies for streaming conversations
-          state.conversations = conversations.map((c: Conversation) => {
+          state.conversations = dedupedConversations.map((c: Conversation) => {
             return preservedLocal.get(c.id) ?? c;
           });
 
@@ -176,13 +178,21 @@ export const useConversationStore = create<ConversationStore>()(
             state.selectedConversationId = null;
           }
         });
-        logger.debug('Set conversations', { count: conversations.length });
+        logger.debug('Set conversations', {
+          count: dedupeConversationsById(conversations).length,
+        });
       },
 
       addConversation: (conversation) => {
         set((state) => {
-          // Add to beginning (most recent first)
-          state.conversations.unshift(conversation);
+          const existingIndex = state.conversations.findIndex(
+            (item) => item.id === conversation.id,
+          );
+          if (existingIndex === -1) {
+            state.conversations.unshift(conversation);
+          } else {
+            state.conversations[existingIndex] = conversation;
+          }
         });
         logger.debug('Added conversation', {
           id: conversation.id,

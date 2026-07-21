@@ -15,10 +15,9 @@ from typing import Any
 from user_interaction.approval_tokens import DEFAULT_MCP_RECEIPT_TTL_SECONDS
 
 from .backend_client import BackendClient, OAuthRequiredError
-from .models import new_approval, new_run, now_ms
+from .models import new_run, now_ms
 from .prompt import (
     build_messages,
-    extract_approval_metadata,
     feed_items_from_output,
     load_workspace,
     output_requests_approval,
@@ -58,29 +57,6 @@ def _request_summary(request: dict[str, Any] | None) -> str:
         f"createdAt={request.get('createdAt') or 'unknown'} "
         f"prompt={prompt!r}"
     )
-
-
-def _approval_reason(metadata: dict[str, str]) -> str:
-    """F-017a: build a brief structured approval reason from parsed metadata.
-
-    Uses only fields extract_approval_metadata derived from the structured
-    marker, never the raw LLM response, so unreviewed model text is not
-    persisted or published as the approval reason.
-    """
-    action = (metadata.get("action") or "Backend requested confirmation.").strip()
-    parts = [action]
-    target = (metadata.get("target") or "").strip()
-    if target:
-        parts.append(f"target={target}")
-    server_name = (metadata.get("server_name") or "").strip()
-    if server_name:
-        parts.append(f"server_name={server_name}")
-    tool_name = (metadata.get("tool_name") or "").strip()
-    if tool_name:
-        parts.append(f"tool_name={tool_name}")
-    parts.append(f"action_type={metadata.get('action_type') or 'mcp_mutation'}")
-    parts.append(f"risk={metadata.get('risk') or 'medium'}")
-    return " | ".join(parts)
 
 
 def _approved_execution_prompt(
@@ -420,63 +396,19 @@ def run_once(
             return run
 
         if output_requests_approval(response):
-            approval_metadata = extract_approval_metadata(response)
-            if approval_metadata["action_type"] == "mcp_mutation":
-                pending_id = approval_metadata.get("approval_request_id") or ""
-                get_pending = getattr(store, "get_pending_approval", None)
-                pending = (
-                    get_pending(user_id, pending_id)
-                    if callable(get_pending) and pending_id
-                    else None
-                )
-                if not pending:
-                    raise ValueError(
-                        "MCP confirmation did not reference a valid protected "
-                        "pending approval"
-                    )
-                approval_metadata = {
-                    "action": str(pending.get("action") or "").strip(),
-                    "action_type": "mcp_mutation",
-                    "target": str(pending.get("target") or "").strip(),
-                    "risk": "medium",
-                    "server_name": str(pending.get("server_name") or "").strip(),
-                    "tool_name": str(pending.get("tool_name") or "").strip(),
-                    "approval_request_id": pending_id,
-                    "arguments_preview": str(
-                        pending.get("arguments_preview") or ""
-                    ).strip(),
-                    "arguments_sha256": str(
-                        pending.get("arguments_sha256") or ""
-                    ).strip(),
-                }
-            approval = new_approval(
-                run_id=run["id"],
-                action=approval_metadata["action"],
-                # F-017a: store a brief STRUCTURED summary as the reason, not the
-                # raw LLM text, so we do not publish unreviewed model output to
-                # Redis / the UI approval banner.
-                reason=_approval_reason(approval_metadata),
-                action_type=approval_metadata["action_type"],
-                target=approval_metadata["target"],
-                risk=approval_metadata["risk"],
-                server_name=approval_metadata["server_name"],
-                tool_name=approval_metadata["tool_name"],
-                approval_request_id=approval_metadata.get("approval_request_id", ""),
-                arguments_preview=approval_metadata.get("arguments_preview", ""),
-                arguments_sha256=approval_metadata["arguments_sha256"],
-            )
-            store.append_approval(user_id, approval)
-            run["status"] = "waiting_approval"
-            run["summary"] = "Waiting for UI approval before continuing."
+            # Autonomous work must be non-interactive. The backend safety gates
+            # can still refuse a protected operation, but the worker must not
+            # turn that refusal into a durable approval task for the user.
+            run["status"] = "failed"
+            run["error"] = "Autonomous runs cannot request user approval."
             run["completedAt"] = now_ms()
             store.upsert_run(user_id, run)
             store.log_event(
                 user_id,
                 run["id"],
-                "approval_requested",
-                "Run paused for UI approval.",
-                level="warn",
-                data={"approvalId": approval["id"]},
+                "approval_blocked",
+                run["error"],
+                level="error",
             )
             return run
 
@@ -515,32 +447,22 @@ def run_once(
             },
         )
         return run
-    except OAuthRequiredError as exc:
-        approval = new_approval(
-            run_id=run["id"],
-            action="OAuth authorization required.",
-            reason=(
-                "The backend needs browser authorization before this autonomous "
-                "run can use the requested authenticated tool."
-            ),
-            action_type="oauth_authorization",
-            target="google_workspace",
-            risk="low",
-            auth_url=exc.auth_url,
-            oauth_state=exc.oauth_state,
+    except OAuthRequiredError:
+        # OAuth always requires interactive browser state. Treat an attempted
+        # OAuth tool call as a bounded run failure rather than creating an
+        # approval loop that can never be autonomous.
+        run["status"] = "failed"
+        run["error"] = (
+            "Autonomous runs cannot use tools that require interactive OAuth."
         )
-        store.append_approval(user_id, approval)
-        run["status"] = "waiting_approval"
-        run["summary"] = "Waiting for OAuth authorization before continuing."
         run["completedAt"] = now_ms()
         store.upsert_run(user_id, run)
         store.log_event(
             user_id,
             run["id"],
-            "oauth_authorization_requested",
-            "Run paused for browser authorization.",
-            level="warn",
-            data={"approvalId": approval["id"], "hasAuthUrl": bool(exc.auth_url)},
+            "oauth_blocked",
+            run["error"],
+            level="error",
         )
         return run
     except Exception as exc:  # pragma: no cover - exercised through tests with fakes

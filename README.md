@@ -14,8 +14,8 @@ Kubernetes.
 What separates Daedalus from a typical chat wrapper:
 
 - **Autonomous agent worker** — a dedicated background worker that
-  researches, follows UI-managed goals, requests approvals, and writes
-  durable memory on a configurable schedule
+  researches, follows UI-managed goals, stays within non-interactive
+  permissions, and writes durable memory on a configurable schedule
 - **Direct tool routing** — one Responses API workflow calls the matching
   leaf tool directly for research, docs, ops, media, documents, and user data
 - **Tool-rich execution** — MCP server integrations (GitHub, Kubernetes),
@@ -515,7 +515,7 @@ for the model tokenizer, as described in the
 
 The Helm chart enables an autonomous background agent by default. It runs as a dedicated worker Deployment, using Redis as its control plane: the UI stores config, goals, queued runs, events, feed items, approvals, and cancellation flags, while the worker consumes the queue and publishes updates back through the existing WebSocket sync channel.
 
-The design follows the useful parts of Hermes-style autonomy: a persistent agent loop, stable identity and memory context, explicit goals, structured run output, and approval gates. Daedalus intentionally keeps the UI as the only human interaction point; there are no Slack, Discord, or other third-party messaging surfaces.
+The design follows the useful parts of Hermes-style autonomy: a persistent agent loop, stable identity and memory context, explicit goals, and structured run output. Daedalus intentionally keeps background work non-interactive and the UI as the control point; there are no Slack, Discord, or other third-party messaging surfaces.
 
 ### Runtime Behavior
 
@@ -526,7 +526,7 @@ The design follows the useful parts of Hermes-style autonomy: a persistent agent
 - The worker streams from the already-loaded backend workflow at `autonomousAgent.backendApiPath` (defaults to `/v1/chat/completions`) and writes structured feed items plus workspace updates.
 - Autonomous research must stay non-interactive. Goal definitions should not use Gmail, Calendar, or other tools that can pause for per-user OAuth.
 - Feed items must represent a new fact or changed current state. A second publisher repeating the same underlying story is corroboration, not a new update.
-- Destructive, irreversible, credential-related, send/merge/delete/scale/uninstall, or memory-delete actions must request confirmation. The run pauses and the dashboard shows a pending approval.
+- The worker skips destructive, irreversible, credential-related, send/merge/delete/scale/uninstall, memory-delete, OAuth, and other approval-gated actions. Use interactive Chat for work that requires user confirmation or authorization.
 - A Redis lease with heartbeat prevents multiple worker replicas from running the same configured user concurrently.
 
 ### UI Control Plane
@@ -539,7 +539,7 @@ Open the app and select the **Autonomy** tab. The dashboard provides:
 - Goal creation
 - Structured feed review
 - Recent run and event history
-- Pending action approvals
+- Failed-run diagnostics for work that required interaction
 
 Important settings:
 

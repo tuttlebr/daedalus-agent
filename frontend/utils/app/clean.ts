@@ -1,5 +1,6 @@
 import { Conversation } from '@/types/chat';
 
+import { dedupeConversationsById } from './conversationList';
 import { sanitizeConversationAssistantReplays } from './conversationReplay';
 import { cleanMessagesForStorage, restoreMessageImages } from './imageHandler';
 
@@ -21,11 +22,15 @@ export const cleanConversationHistory = (
     return [];
   }
 
-  return history
-    .map((conversation) => cleanSelectedConversation(conversation))
-    .map((conversation) => ({
-      ...conversation,
-      messages: restoreMessageImages(conversation.messages || []),
-    }))
-    .map((conversation) => sanitizeConversationAssistantReplays(conversation));
+  return dedupeConversationsById(
+    history
+      .map((conversation) => cleanSelectedConversation(conversation))
+      .map((conversation) => ({
+        ...conversation,
+        messages: restoreMessageImages(conversation.messages || []),
+      }))
+      .map((conversation) =>
+        sanitizeConversationAssistantReplays(conversation),
+      ),
+  );
 };

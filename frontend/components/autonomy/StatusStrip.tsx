@@ -5,7 +5,7 @@ import { forwardRef, type ReactNode } from 'react';
 
 import type { AutonomyConfig, AutonomyRun } from '@/types/autonomy';
 
-import { nextRunCountdown, relativeTime } from './utils';
+import { isActiveRun, nextRunCountdown, relativeTime } from './utils';
 
 import classNames from 'classnames';
 
@@ -38,9 +38,7 @@ export const StatusStrip = forwardRef<HTMLButtonElement, StatusStripProps>(
     workspaceButtonRef,
   ) {
     const enabled = !!config?.enabled;
-    const live =
-      !!activeRun &&
-      ['running', 'queued', 'waiting_approval'].includes(activeRun.status);
+    const live = isActiveRun(activeRun);
     const next = nextRunCountdown(config);
     const last = relativeTime(lastRunAt);
 
