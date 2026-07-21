@@ -457,7 +457,7 @@ functions:
   content_distiller_tool:
     _type: content_distiller
     fast_llm_name: default_llm
-    llm_name: default_llm
+    llm_name: reasoning_llm
     max_input_chars: 100000
     max_output_tokens: 4096
     wrapper_type: LANGCHAIN
@@ -567,7 +567,7 @@ functions:
     fireworks_fallback_to_llm: true
     fireworks_base_url: https://api.fireworks.ai/inference/v1
     fast_llm_name: default_llm
-    llm_name: default_llm
+    llm_name: reasoning_llm
     max_source_chars: 80000
     max_output_tokens: 16000
     fetch_timeout: 20.0
@@ -696,6 +696,14 @@ llms:
     api_key: ${TOOL_CALLING_LLM_MODEL_API_KEY}
     base_url: ${TOOL_CALLING_LLM_MODEL_BASE_URL}
     model_name: ${TOOL_CALLING_LLM_MODEL_MODEL}
+  reasoning_llm:
+    _type: openai
+    api_key: ${TOOL_CALLING_LLM_MODEL_API_KEY}
+    base_url: ${TOOL_CALLING_LLM_MODEL_BASE_URL}
+    model_name: ${TOOL_CALLING_LLM_MODEL_MODEL}
+    extra_body:
+      chat_template_kwargs:
+        reasoning_effort: xhigh
   default_llm:
     _type: openai
     api_key: ${DEFAULT_LLM_MODEL_API_KEY}
