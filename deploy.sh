@@ -16,10 +16,21 @@ SKIP_BUILD=false
 SKIP_TLS=false
 SKIP_MCP_PREFLIGHT=false
 SKIP_DOCUMENT_STORAGE_PREFLIGHT=false
+SKIP_RAG_SECRET_SYNC=false
+SKIP_RAG_PREFLIGHT=false
 MCP_PREFLIGHT_TIMEOUT="${MCP_PREFLIGHT_TIMEOUT:-20}"
 MCP_PREFLIGHT_KUBECTL_IMAGE="${MCP_PREFLIGHT_KUBECTL_IMAGE:-curlimages/curl:8.8.0@sha256:73e4d532ea62d7505c5865b517d3704966ffe916609bedc22af6833dc9969bcd}"
 DOCUMENT_STORAGE_PREFLIGHT_TIMEOUT="${DOCUMENT_STORAGE_PREFLIGHT_TIMEOUT:-20}"
 DOCUMENT_STORAGE_PREFLIGHT_KUBECTL_IMAGE="${DOCUMENT_STORAGE_PREFLIGHT_KUBECTL_IMAGE:-$MCP_PREFLIGHT_KUBECTL_IMAGE}"
+RAG_PREFLIGHT_TIMEOUT="${RAG_PREFLIGHT_TIMEOUT:-20}"
+MILVUS_AUTH_SOURCE_NAMESPACE="${MILVUS_AUTH_SOURCE_NAMESPACE:-milvus}"
+MILVUS_AUTH_SOURCE_SECRET="${MILVUS_AUTH_SOURCE_SECRET:-milvus-root-credentials}"
+MILVUS_AUTH_SOURCE_PASSWORD_KEY="${MILVUS_AUTH_SOURCE_PASSWORD_KEY:-password}"
+MILVUS_AUTH_USERNAME="${MILVUS_AUTH_USERNAME:-root}"
+MINIO_AUTH_SOURCE_NAMESPACE="${MINIO_AUTH_SOURCE_NAMESPACE:-milvus}"
+MINIO_AUTH_SOURCE_SECRET="${MINIO_AUTH_SOURCE_SECRET:-milvus-minio-credentials}"
+MINIO_AUTH_SOURCE_ACCESS_KEY="${MINIO_AUTH_SOURCE_ACCESS_KEY:-accesskey}"
+MINIO_AUTH_SOURCE_SECRET_KEY="${MINIO_AUTH_SOURCE_SECRET_KEY:-secretkey}"
 DRY_RUN=false
 ALLOW_UNSIGNED_IMAGES="${ALLOW_UNSIGNED_IMAGES:-false}"
 ALLOW_DIRTY_SOURCE="${ALLOW_DIRTY_SOURCE:-false}"
@@ -53,6 +64,10 @@ Options:
       --document-storage-preflight-kubectl-image IMAGE
                              Image used for the object-storage check
                              (default: $DOCUMENT_STORAGE_PREFLIGHT_KUBECTL_IMAGE)
+      --skip-rag-secret-sync Do not mirror authoritative Milvus/MinIO Secrets
+      --skip-rag-preflight   Skip authenticated Milvus list_collections check
+      --rag-preflight-timeout SECONDS
+                             Milvus preflight timeout (default: $RAG_PREFLIGHT_TIMEOUT)
       --skip-mcp-preflight   Skip MCP server reachability checks
       --mcp-preflight-timeout SECONDS
                              Per-request MCP pre-flight timeout (default: $MCP_PREFLIGHT_TIMEOUT)
@@ -81,6 +96,9 @@ while [[ $# -gt 0 ]]; do
     --skip-document-storage-preflight) SKIP_DOCUMENT_STORAGE_PREFLIGHT=true; shift ;;
     --document-storage-preflight-timeout) DOCUMENT_STORAGE_PREFLIGHT_TIMEOUT="$2"; shift 2 ;;
     --document-storage-preflight-kubectl-image) DOCUMENT_STORAGE_PREFLIGHT_KUBECTL_IMAGE="$2"; shift 2 ;;
+    --skip-rag-secret-sync) SKIP_RAG_SECRET_SYNC=true; shift ;;
+    --skip-rag-preflight) SKIP_RAG_PREFLIGHT=true; shift ;;
+    --rag-preflight-timeout) RAG_PREFLIGHT_TIMEOUT="$2"; shift 2 ;;
     --skip-mcp-preflight) SKIP_MCP_PREFLIGHT=true; shift ;;
     --mcp-preflight-timeout) MCP_PREFLIGHT_TIMEOUT="$2"; shift 2 ;;
     --mcp-preflight-kubectl-image) MCP_PREFLIGHT_KUBECTL_IMAGE="$2"; shift 2 ;;
@@ -404,11 +422,65 @@ else
   kubectl create namespace "$NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
 fi
 
+HELM_SECRET_ARGS=()
+DOCUMENT_OBJECT_SECRET_PREPARED=false
+RAG_MILVUS_TARGET_SECRET="$RELEASE-milvus-auth"
+RAG_MINIO_TARGET_SECRET="$RELEASE-minio-auth"
+DOCUMENT_OBJECT_TARGET_SECRET="$RELEASE-document-objects"
+
+secret_resource_version() {
+  local secret_name="$1"
+  local resource_version
+  if ! resource_version="$(kubectl -n "$NAMESPACE" get secret "$secret_name" -o jsonpath='{.metadata.resourceVersion}')" || \
+    [[ -z "$resource_version" ]]; then
+    echo "ERROR: could not read resourceVersion for Secret $NAMESPACE/$secret_name" >&2
+    exit 1
+  fi
+  printf '%s' "$resource_version"
+}
+
+# Kubernetes Secrets are namespace-scoped. Mirror only the encoded credential
+# data from the authoritative Milvus deployment; never pass it through Helm
+# values or command-line arguments where it would enter release metadata.
+if [[ "$SKIP_RAG_SECRET_SYNC" == false ]]; then
+  log "Mirroring authoritative Milvus and MinIO credentials into $NAMESPACE"
+  if [[ "$DRY_RUN" == true ]]; then
+    echo "[dry-run] sync $MILVUS_AUTH_SOURCE_NAMESPACE/$MILVUS_AUTH_SOURCE_SECRET and $MINIO_AUTH_SOURCE_NAMESPACE/$MINIO_AUTH_SOURCE_SECRET into namespace $NAMESPACE"
+    RAG_MILVUS_SECRET_RESOURCE_VERSION="dry-run"
+    RAG_MINIO_SECRET_RESOURCE_VERSION="dry-run"
+    DOCUMENT_OBJECT_SECRET_RESOURCE_VERSION="dry-run"
+  else
+    python3 "$SCRIPT_DIR/scripts/sync_rag_secrets.py" \
+      --source-milvus-namespace "$MILVUS_AUTH_SOURCE_NAMESPACE" \
+      --source-milvus-secret "$MILVUS_AUTH_SOURCE_SECRET" \
+      --source-milvus-password-key "$MILVUS_AUTH_SOURCE_PASSWORD_KEY" \
+      --milvus-username "$MILVUS_AUTH_USERNAME" \
+      --source-minio-namespace "$MINIO_AUTH_SOURCE_NAMESPACE" \
+      --source-minio-secret "$MINIO_AUTH_SOURCE_SECRET" \
+      --source-minio-access-key "$MINIO_AUTH_SOURCE_ACCESS_KEY" \
+      --source-minio-secret-key "$MINIO_AUTH_SOURCE_SECRET_KEY" \
+      --target-namespace "$NAMESPACE" \
+      --target-milvus-secret "$RAG_MILVUS_TARGET_SECRET" \
+      --target-minio-secret "$RAG_MINIO_TARGET_SECRET" \
+      --target-document-secret "$DOCUMENT_OBJECT_TARGET_SECRET"
+    RAG_MILVUS_SECRET_RESOURCE_VERSION="$(secret_resource_version "$RAG_MILVUS_TARGET_SECRET")"
+    RAG_MINIO_SECRET_RESOURCE_VERSION="$(secret_resource_version "$RAG_MINIO_TARGET_SECRET")"
+    DOCUMENT_OBJECT_SECRET_RESOURCE_VERSION="$(secret_resource_version "$DOCUMENT_OBJECT_TARGET_SECRET")"
+  fi
+  DOCUMENT_OBJECT_SECRET_PREPARED=true
+  HELM_SECRET_ARGS+=(
+    --set-string "retrieval.milvus.auth.existingSecret=$RAG_MILVUS_TARGET_SECRET"
+    --set-string "retrieval.minio.auth.existingSecret=$RAG_MINIO_TARGET_SECRET"
+    --set-string "documentObjectStorage.auth.existingSecret=$DOCUMENT_OBJECT_TARGET_SECRET"
+    --set-string "retrieval.secretResourceVersions.milvus=$RAG_MILVUS_SECRET_RESOURCE_VERSION"
+    --set-string "retrieval.secretResourceVersions.minio=$RAG_MINIO_SECRET_RESOURCE_VERSION"
+    --set-string "retrieval.secretResourceVersions.documentObject=$DOCUMENT_OBJECT_SECRET_RESOURCE_VERSION"
+  )
+fi
+
 # -------------------------------------------------------------------
 # Create least-privilege workload secrets from .env (idempotent)
 # -------------------------------------------------------------------
-HELM_SECRET_ARGS=()
-DOCUMENT_OBJECT_SECRET_PREPARED=false
 if [[ -f "$ENV_FILE" ]]; then
   log "Applying allowlisted workload secrets from $ENV_FILE"
   SECRET_ENV_DIR="$(mktemp -d)"
@@ -468,9 +540,8 @@ PY
     X_MCP_BEARER_TOKEN DAEDALUS_REQUIRED_MCP_GROUPS
     GOOGLE_MCP_CLIENT_ID GOOGLE_MCP_CLIENT_SECRET
     GOOGLE_MCP_REDIRECT_URI LLM_SANDBOX_BASE_URL LLM_SANDBOX_API_KEY
-    MILVUS_URI MILVUS_USERNAME MILVUS_USER MILVUS_PASSWORD MILVUS_TOKEN
-    MILVUS_DATABASE MILVUS_METADATA_TIMEOUT_SECONDS
-    MINIO_ENDPOINT MINIO_ACCESS_KEY MINIO_SECRET_KEY MINIO_SESSION_TOKEN MINIO_BUCKET
+    MILVUS_URI MILVUS_DATABASE MILVUS_METADATA_TIMEOUT_SECONDS MILVUS_SEARCH_TIMEOUT_SECONDS
+    MINIO_ENDPOINT MINIO_BUCKET
     NV_INGEST_HOST NV_INGEST_PORT TOKENIZER EMBEDDING_DENSE_DIM
     DOCUMENT_INGEST_* DOCUMENT_MARKDOWN_MAX_CHARS RATE_LIMIT_DOC_MARKDOWN_*
     RATE_LIMIT_IMAGE_JOB_* NVIDIA_API_KEY OPENAI_API_KEY FIREWORKS_API_KEY
@@ -559,11 +630,15 @@ with open(destination, "w", encoding="utf-8") as handle:
         handle.write(f"DOCUMENT_OBJECT_SESSION_TOKEN={session_token}\n")
 PY
   if [[ -s "$DOCUMENT_OBJECT_SECRET_FILE" ]]; then
-    apply_env_secret "$RELEASE-document-objects" "$DOCUMENT_OBJECT_SECRET_FILE"
-    DOCUMENT_OBJECT_SECRET_PREPARED=true
-    HELM_SECRET_ARGS+=(
-      --set-string "documentObjectStorage.auth.existingSecret=$RELEASE-document-objects"
-    )
+    if [[ "$SKIP_RAG_SECRET_SYNC" == false ]]; then
+      echo "WARNING: ignoring DOCUMENT_OBJECT_* values because authoritative MinIO Secret sync is enabled" >&2
+    else
+      apply_env_secret "$RELEASE-document-objects" "$DOCUMENT_OBJECT_SECRET_FILE"
+      DOCUMENT_OBJECT_SECRET_PREPARED=true
+      HELM_SECRET_ARGS+=(
+        --set-string "documentObjectStorage.auth.existingSecret=$RELEASE-document-objects"
+      )
+    fi
   fi
 
   cleanup_secret_env_dir
@@ -677,8 +752,8 @@ raise SystemExit(0 if payload.get("data", {}).get(key) else 1)
 ' "$secret_key" <<< "$secret_json"; then
       echo "ERROR: documentObjectStorage is enabled, but Secret '$secret_name'" >&2
       echo "       is missing a non-empty '$secret_key' key." >&2
-      echo "       Set DOCUMENT_OBJECT_ACCESS_KEY and DOCUMENT_OBJECT_SECRET_KEY" >&2
-      echo "       in $ENV_FILE, or provision the configured external Secret." >&2
+      echo "       Provision the configured external Secret, or enable the" >&2
+      echo "       authoritative RAG Secret sync." >&2
       exit 1
     fi
   done <<< "$refs"
@@ -701,6 +776,23 @@ if [[ "$SKIP_DOCUMENT_STORAGE_PREFLIGHT" == false ]]; then
         --namespace "$NAMESPACE" \
         --image "$DOCUMENT_STORAGE_PREFLIGHT_KUBECTL_IMAGE" \
         --timeout "$DOCUMENT_STORAGE_PREFLIGHT_TIMEOUT"
+  fi
+fi
+
+# Exercise the same rendered URI, database, and namespace-local Secret refs as
+# the backend. list_collections proves both connectivity and Milvus auth before
+# Helm starts an atomic rollout.
+if [[ "$SKIP_RAG_PREFLIGHT" == false ]]; then
+  log "Checking authenticated Milvus access"
+  if [[ "$DRY_RUN" == true ]]; then
+    echo "[dry-run] render Helm manifests and run scripts/check_rag_backend.py"
+  else
+    render_effective_helm_manifests | \
+      python3 "$SCRIPT_DIR/scripts/check_rag_backend.py" \
+        --manifest - \
+        --namespace "$NAMESPACE" \
+        --image "$BACKEND_IMMUTABLE_REF" \
+        --timeout "$RAG_PREFLIGHT_TIMEOUT"
   fi
 fi
 

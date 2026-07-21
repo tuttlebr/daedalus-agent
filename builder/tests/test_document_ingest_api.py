@@ -262,6 +262,8 @@ class TestConfig:
         monkeypatch.delenv("MILVUS_USER", raising=False)
         monkeypatch.delenv("MILVUS_PASSWORD", raising=False)
         monkeypatch.delenv("MILVUS_TOKEN", raising=False)
+        monkeypatch.delenv("MINIO_ACCESS_KEY", raising=False)
+        monkeypatch.delenv("MINIO_SECRET_KEY", raising=False)
 
         config = _default_config()
 
@@ -271,6 +273,8 @@ class TestConfig:
         assert config.milvus_username is None
         assert config.milvus_password is None
         assert config.milvus_token is None
+        assert config.minio_access_key == ""
+        assert config.minio_secret_key == ""
 
     def test_default_config_uses_milvus_auth_env(self, monkeypatch):
         monkeypatch.setenv("MILVUS_USERNAME", "root")

@@ -19,9 +19,7 @@ router = APIRouter(prefix="/v1/metadata", tags=["metadata"])
 
 def _milvus_kwargs() -> dict[str, Any]:
     kwargs: dict[str, Any] = {
-        "uri": os.getenv(
-            "MILVUS_URI", "http://milvus.milvus.svc.cluster.local:19530"
-        )
+        "uri": os.getenv("MILVUS_URI", "http://milvus.milvus.svc.cluster.local:19530")
     }
     token = (os.getenv("MILVUS_TOKEN") or "").strip()
     username = (os.getenv("MILVUS_USERNAME") or os.getenv("MILVUS_USER") or "").strip()
@@ -37,12 +35,22 @@ def _milvus_kwargs() -> dict[str, Any]:
     return kwargs
 
 
-def _list_collections_sync() -> list[str]:
+def _metadata_timeout_seconds() -> float:
+    return max(
+        0.5,
+        min(10.0, float(os.getenv("MILVUS_METADATA_TIMEOUT_SECONDS", "3"))),
+    )
+
+
+def _list_collections_sync(timeout: float) -> list[str]:
     from pymilvus import MilvusClient
 
     client = MilvusClient(**_milvus_kwargs())
     try:
-        return [str(name) for name in client.list_collections()]
+        # The outer asyncio deadline cannot cancel a blocked worker thread.
+        # Bound the PyMilvus RPC itself so repeated health probes cannot leak
+        # permanently stuck threads during a Milvus/network outage.
+        return [str(name) for name in client.list_collections(timeout=timeout)]
     finally:
         close = getattr(client, "close", None)
         if callable(close):
@@ -51,12 +59,9 @@ def _list_collections_sync() -> list[str]:
 
 
 async def _list_collections() -> list[str]:
-    timeout = max(
-        0.5,
-        min(10.0, float(os.getenv("MILVUS_METADATA_TIMEOUT_SECONDS", "3"))),
-    )
+    timeout = _metadata_timeout_seconds()
     return await asyncio.wait_for(
-        asyncio.to_thread(_list_collections_sync),
+        asyncio.to_thread(_list_collections_sync, timeout),
         timeout=timeout,
     )
 

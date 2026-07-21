@@ -1,3 +1,5 @@
+{{- $milvusAuthSecret := .Values.retrieval.milvus.auth.existingSecret | default (printf "%s-milvus-auth" .Release.Name) -}}
+{{- $minioAuthSecret := .Values.retrieval.minio.auth.existingSecret | default (printf "%s-minio-auth" .Release.Name) -}}
 {{- if .Values.backend.default.enabled }}
 apiVersion: apps/v1
 kind: Deployment
@@ -28,6 +30,9 @@ spec:
         app.kubernetes.io/instance: {{ .Release.Name }}
       annotations:
         deploy-timestamp: {{ .Values.forceRedeploy | default "" | quote }}
+        daedalus.ai/milvus-secret-resource-version: {{ .Values.retrieval.secretResourceVersions.milvus | default "" | quote }}
+        daedalus.ai/minio-secret-resource-version: {{ .Values.retrieval.secretResourceVersions.minio | default "" | quote }}
+        daedalus.ai/document-object-secret-resource-version: {{ .Values.retrieval.secretResourceVersions.documentObject | default "" | quote }}
         checksum/redis-auth-config: {{ include "daedalus.redisAuthConfigChecksum" . }}
         {{- if .Values.backend.default.config.enabled }}
         checksum/backend-config: {{ include (print $.Template.BasePath "/config-backend-default.yaml") . | sha256sum }}
@@ -72,7 +77,8 @@ spec:
                   - -c
                   - touch /tmp/daedalus-draining; sleep 15
           startupProbe:
-            tcpSocket:
+            httpGet:
+              path: /health
               port: http
             failureThreshold: 60
             periodSeconds: 10
@@ -124,6 +130,60 @@ spec:
               value: {{ ternary (printf "%s/%s" (.Values.redis.tls.mountPath | default "/etc/redis-tls") (.Values.redis.tls.caKey | default "ca.crt")) "" .Values.redis.tls.enabled | quote }}
             - name: REDIS_URL
               value: {{ (get (.Values.backend.default.env.overrides | default dict) "REDIS_URL") | default (ternary (printf "%s://$(REDIS_USERNAME):$(REDIS_PASSWORD)@%s-redis.%s.svc.cluster.local:%v%s" (ternary "rediss" "redis" .Values.redis.tls.enabled) (include "daedalus.fullname" .) .Release.Namespace (.Values.redis.service.port | default 6379) (ternary (printf "?ssl_ca_certs=%s/%s" (.Values.redis.tls.mountPath | default "/etc/redis-tls") (.Values.redis.tls.caKey | default "ca.crt")) "" .Values.redis.tls.enabled)) (printf "%s://%s-redis.%s.svc.cluster.local:%v%s" (ternary "rediss" "redis" .Values.redis.tls.enabled) (include "daedalus.fullname" .) .Release.Namespace (.Values.redis.service.port | default 6379) (ternary (printf "?ssl_ca_certs=%s/%s" (.Values.redis.tls.mountPath | default "/etc/redis-tls") (.Values.redis.tls.caKey | default "ca.crt")) "" .Values.redis.tls.enabled)) .Values.redis.auth.enabled) | quote }}
+            {{- if .Values.retrieval.enabled }}
+            - name: MILVUS_URI
+              value: {{ required "retrieval.milvus.endpoint is required when retrieval is enabled" .Values.retrieval.milvus.endpoint | quote }}
+            - name: MILVUS_DATABASE
+              value: {{ .Values.retrieval.milvus.database | default "default" | quote }}
+            - name: MILVUS_METADATA_TIMEOUT_SECONDS
+              value: {{ .Values.retrieval.milvus.metadataTimeoutSeconds | default 3 | quote }}
+            - name: MILVUS_SEARCH_TIMEOUT_SECONDS
+              value: {{ .Values.retrieval.milvus.searchTimeoutSeconds | default 30 | quote }}
+            - name: DAEDALUS_RAG_READINESS_ENABLED
+              value: {{ .Values.retrieval.readiness.enabled | quote }}
+            {{- with $milvusAuthSecret }}
+            {{- if $.Values.retrieval.milvus.auth.tokenKey }}
+            - name: MILVUS_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ . | quote }}
+                  key: {{ $.Values.retrieval.milvus.auth.tokenKey | quote }}
+            {{- else }}
+            - name: MILVUS_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ . | quote }}
+                  key: {{ required "retrieval.milvus.auth.usernameKey is required for password authentication" $.Values.retrieval.milvus.auth.usernameKey | quote }}
+            - name: MILVUS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ . | quote }}
+                  key: {{ required "retrieval.milvus.auth.passwordKey is required for password authentication" $.Values.retrieval.milvus.auth.passwordKey | quote }}
+            {{- end }}
+            {{- end }}
+            - name: MINIO_ENDPOINT
+              value: {{ required "retrieval.minio.endpoint is required when retrieval is enabled" .Values.retrieval.minio.endpoint | quote }}
+            - name: MINIO_BUCKET
+              value: {{ .Values.retrieval.minio.bucket | default "nv-ingest" | quote }}
+            {{- with $minioAuthSecret }}
+            - name: MINIO_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ . | quote }}
+                  key: {{ required "retrieval.minio.auth.accessKeyKey is required" $.Values.retrieval.minio.auth.accessKeyKey | quote }}
+            - name: MINIO_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ . | quote }}
+                  key: {{ required "retrieval.minio.auth.secretKeyKey is required" $.Values.retrieval.minio.auth.secretKeyKey | quote }}
+            - name: MINIO_SESSION_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ . | quote }}
+                  key: {{ $.Values.retrieval.minio.auth.sessionTokenKey | default "MINIO_SESSION_TOKEN" | quote }}
+                  optional: true
+            {{- end }}
+            {{- end }}
             {{- if .Values.documentObjectStorage.enabled }}
             - name: DOCUMENT_OBJECT_ENDPOINT
               value: {{ required "documentObjectStorage.endpoint is required when enabled" .Values.documentObjectStorage.endpoint | quote }}
@@ -160,7 +220,7 @@ spec:
             {{- end }}
             {{- with .Values.backend.default.env.overrides }}
             {{- range $k, $v := . }}
-            {{- if and (ne $k "DAEDALUS_INTERNAL_API_TOKEN") (ne $k "REDIS_HOST") (ne $k "REDIS_PORT") (ne $k "REDIS_USERNAME") (ne $k "REDIS_PASSWORD") (ne $k "REDIS_TLS_ENABLED") (ne $k "REDIS_TLS_CA_FILE") (ne $k "REDIS_URL") (or (not $.Values.backend.default.config.enabled) (ne $k "NAT_CONFIG_FILE")) }}
+            {{- if and (ne $k "DAEDALUS_INTERNAL_API_TOKEN") (ne $k "REDIS_HOST") (ne $k "REDIS_PORT") (ne $k "REDIS_USERNAME") (ne $k "REDIS_PASSWORD") (ne $k "REDIS_TLS_ENABLED") (ne $k "REDIS_TLS_CA_FILE") (ne $k "REDIS_URL") (or (not $.Values.retrieval.enabled) (not (has $k (list "MILVUS_URI" "MILVUS_DATABASE" "MILVUS_METADATA_TIMEOUT_SECONDS" "MILVUS_SEARCH_TIMEOUT_SECONDS" "MILVUS_USERNAME" "MILVUS_USER" "MILVUS_PASSWORD" "MILVUS_TOKEN" "MINIO_ENDPOINT" "MINIO_BUCKET" "MINIO_ACCESS_KEY" "MINIO_SECRET_KEY" "MINIO_SESSION_TOKEN" "DAEDALUS_RAG_READINESS_ENABLED")))) (or (not $.Values.backend.default.config.enabled) (ne $k "NAT_CONFIG_FILE")) }}
             - name: {{ $k }}
               value: {{ $v | quote }}
             {{- end }}

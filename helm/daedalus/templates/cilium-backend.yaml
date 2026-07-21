@@ -171,14 +171,24 @@ spec:
             - port: "8080"
               protocol: TCP
 
-    # Milvus vector database
+    {{- if $.Values.retrieval.enabled }}
+    # Configured Milvus vector database
     - toEndpoints:
         - matchLabels:
-            io.kubernetes.pod.namespace: milvus
+            io.kubernetes.pod.namespace: {{ $.Values.retrieval.milvus.networkPolicy.namespace | quote }}
       toPorts:
         - ports:
-            - port: "19530"
+            - port: {{ $.Values.retrieval.milvus.networkPolicy.port | quote }}
               protocol: TCP
+    # Configured MinIO service used by RAG ingestion
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: {{ $.Values.retrieval.minio.networkPolicy.namespace | quote }}
+      toPorts:
+        - ports:
+            - port: {{ $.Values.retrieval.minio.networkPolicy.port | quote }}
+              protocol: TCP
+    {{- end }}
 
     {{- if $documentObjectInCluster }}
     # Object storage used by backend document ingestion

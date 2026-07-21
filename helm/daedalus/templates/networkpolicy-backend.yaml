@@ -108,14 +108,24 @@ spec:
       ports:
         - protocol: TCP
           port: 6006
-    # Allow access to Milvus (milvus namespace)
+    {{- if .Values.retrieval.enabled }}
+    # Allow access to the configured Milvus service.
     - to:
         - namespaceSelector:
             matchLabels:
-              kubernetes.io/metadata.name: milvus
+              kubernetes.io/metadata.name: {{ .Values.retrieval.milvus.networkPolicy.namespace | quote }}
       ports:
         - protocol: TCP
-          port: 19530
+          port: {{ .Values.retrieval.milvus.networkPolicy.port }}
+    # Allow RAG ingestion to access the configured MinIO service.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.retrieval.minio.networkPolicy.namespace | quote }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.retrieval.minio.networkPolicy.port }}
+    {{- end }}
     {{- if $documentObjectInCluster }}
     # Allow backend ingestion to read from the configured object store.
     - to:

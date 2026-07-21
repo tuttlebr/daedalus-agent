@@ -34,11 +34,13 @@ Default example config lives in [`src/smart_milvus/configs/config.yml`](src/smar
 functions:
   domain_retriever:
     _type: domain_retriever
-    uri: http://localhost:19530
+    uri: ${MILVUS_URI}
     embedding_model: milvus_embedder
+    database_name: ${MILVUS_DATABASE}
     content_field: text
     vector_field: vector
     top_k: 10
+    search_timeout: ${MILVUS_SEARCH_TIMEOUT_SECONDS}
     domain_collections:
       nvidia: nvidia
       kubernetes: kubernetes
@@ -58,6 +60,7 @@ Important fields:
 | `distance_cutoff`    | Optional distance threshold; hits above the cutoff are dropped before reranking                                     |
 | `output_fields`      | Optional list of fields to return                                                                                   |
 | `search_params`      | Vector search parameters (defaults to `{"metric_type": "L2"}`)                                                      |
+| `search_timeout`     | Bound for Milvus metadata/search calls and the overall retrieval                                                    |
 | `domain_collections` | Logical domain-to-collection mapping                                                                                |
 | `use_reranker`       | Enables external reranking                                                                                          |
 | `reranker_*`         | Endpoint, model, key, and result count for reranking                                                                |

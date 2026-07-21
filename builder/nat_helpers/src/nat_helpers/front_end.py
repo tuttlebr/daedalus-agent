@@ -20,6 +20,10 @@ logger = logging.getLogger("daedalus.http_api")
 DRAINING_MARKER_PATH = os.path.join(tempfile.gettempdir(), "daedalus-draining")
 
 
+def _env_enabled(name: str) -> bool:
+    return (os.getenv(name) or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
 async def readiness_response() -> JSONResponse:
     """Report whether the security gate and durable dependencies are ready."""
     import mcp_patches
@@ -57,8 +61,31 @@ async def readiness_response() -> JSONResponse:
             with contextlib.suppress(Exception):
                 await close_redis_client(client)
 
+    rag = {"state": "disabled"}
+    if _env_enabled("DAEDALUS_RAG_READINESS_ENABLED"):
+        try:
+            # Reuse the same authenticated client path as the collection API
+            # and retrieval tools, including token precedence and the bounded
+            # MILVUS_METADATA_TIMEOUT_SECONDS deadline.
+            from collection_metadata_api import _list_collections
+
+            collections = await _list_collections()
+            rag = {"state": "ready", "collectionCount": len(collections)}
+        except Exception:
+            # Keep the response and logs diagnostic but credential-safe. Some
+            # client exception representations include connection arguments.
+            logger.warning("Milvus readiness check failed")
+            return JSONResponse(
+                {
+                    "status": "unready",
+                    "reason": "milvus_unavailable",
+                    "rag": {"state": "unready"},
+                },
+                status_code=503,
+            )
+
     status = "degraded" if capabilities["unavailable_optional"] else "ready"
-    return JSONResponse({"status": status, "mcp": capabilities})
+    return JSONResponse({"status": status, "mcp": capabilities, "rag": rag})
 
 
 def attach_daedalus_routes(app: FastAPI) -> FastAPI:

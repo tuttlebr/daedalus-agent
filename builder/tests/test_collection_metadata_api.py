@@ -2,6 +2,7 @@
 
 import asyncio
 import sys
+import types
 from pathlib import Path
 
 import pytest
@@ -11,6 +12,48 @@ if str(_BUILDER_ROOT) not in sys.path:
     sys.path.insert(0, str(_BUILDER_ROOT))
 
 import collection_metadata_api as api  # noqa: E402
+
+
+def test_list_collections_passes_bounded_timeout_to_pymilvus(monkeypatch):
+    calls = {}
+
+    class FakeMilvusClient:
+        def __init__(self, **kwargs):
+            calls["client_kwargs"] = kwargs
+
+        def list_collections(self, **kwargs):
+            calls["list_kwargs"] = kwargs
+            return ["nvidia"]
+
+        def close(self):
+            calls["closed"] = True
+
+    pymilvus = types.ModuleType("pymilvus")
+    pymilvus.MilvusClient = FakeMilvusClient
+    monkeypatch.setitem(sys.modules, "pymilvus", pymilvus)
+    monkeypatch.setenv("MILVUS_METADATA_TIMEOUT_SECONDS", "27")
+
+    timeout = api._metadata_timeout_seconds()
+    result = api._list_collections_sync(timeout)
+
+    assert timeout == 10.0
+    assert result == ["nvidia"]
+    assert calls["list_kwargs"] == {"timeout": 10.0}
+    assert calls["closed"] is True
+
+
+def test_async_list_collections_passes_same_timeout_to_worker(monkeypatch):
+    calls = {}
+
+    def list_collections(timeout):
+        calls["timeout"] = timeout
+        return []
+
+    monkeypatch.setenv("MILVUS_METADATA_TIMEOUT_SECONDS", "2.5")
+    monkeypatch.setattr(api, "_list_collections_sync", list_collections)
+
+    assert asyncio.run(api._list_collections()) == []
+    assert calls["timeout"] == 2.5
 
 
 def test_metadata_returns_hashed_private_target_and_read_only_shared(monkeypatch):

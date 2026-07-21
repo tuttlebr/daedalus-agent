@@ -315,10 +315,11 @@ functions:
       perplexity_search_tool for current events.
     uri: ${MILVUS_URI}
     embedding_model: milvus_embedder
-    database_name: default
+    database_name: ${MILVUS_DATABASE}
     content_field: text
     vector_field: vector
     top_k: 10
+    search_timeout: ${MILVUS_SEARCH_TIMEOUT_SECONDS}
     use_reranker: true
     reranker_api_key: ${RERANKER_API_KEY}
     reranker_endpoint: ${RERANKER_BASE_URL}
@@ -348,7 +349,7 @@ functions:
     minio_access_key: ${MINIO_ACCESS_KEY}
     minio_endpoint: ${MINIO_ENDPOINT}
     minio_secret_key: ${MINIO_SECRET_KEY}
-    minio_bucket: nv-ingest
+    minio_bucket: ${MINIO_BUCKET}
     nv_ingest_host: ${NV_INGEST_HOST}
     nv_ingest_port: ${NV_INGEST_PORT}
     redis_url: ${REDIS_URL}
@@ -696,6 +697,9 @@ llms:
     api_key: ${TOOL_CALLING_LLM_MODEL_API_KEY}
     base_url: ${TOOL_CALLING_LLM_MODEL_BASE_URL}
     model_name: ${TOOL_CALLING_LLM_MODEL_MODEL}
+    extra_body:
+      chat_template_kwargs:
+        reasoning_effort: high
   reasoning_llm:
     _type: openai
     api_key: ${TOOL_CALLING_LLM_MODEL_API_KEY}
@@ -703,7 +707,7 @@ llms:
     model_name: ${TOOL_CALLING_LLM_MODEL_MODEL}
     extra_body:
       chat_template_kwargs:
-        reasoning_effort: xhigh
+        reasoning_effort: ultra
   default_llm:
     _type: openai
     api_key: ${DEFAULT_LLM_MODEL_API_KEY}

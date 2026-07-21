@@ -73,6 +73,49 @@ documentObjectStorage:
     secretKeyKey: DOCUMENT_OBJECT_SECRET_KEY
     sessionTokenKey: DOCUMENT_OBJECT_SESSION_TOKEN
 
+# Shared RAG services. Credentials are always read from existing Secrets;
+# deploy.sh can copy the authoritative Milvus/MinIO Secrets into this release
+# namespace without putting their values in Helm release metadata.
+retrieval:
+  enabled: true
+  # deploy.sh fills these from Kubernetes Secret metadata after synchronization.
+  # They are rollout signals only and never contain credential material.
+  secretResourceVersions:
+    milvus: ''
+    minio: ''
+    documentObject: ''
+  milvus:
+    endpoint: http://milvus.milvus.svc.cluster.local:19530
+    database: default
+    metadataTimeoutSeconds: 3
+    searchTimeoutSeconds: 30
+    networkPolicy:
+      namespace: milvus
+      port: 19530
+    auth:
+      # Empty defaults to <release>-milvus-auth.
+      existingSecret: ''
+      usernameKey: MILVUS_USERNAME
+      passwordKey: MILVUS_PASSWORD
+      # Set this instead of usernameKey/passwordKey for token authentication.
+      tokenKey: ''
+  minio:
+    endpoint: http://milvus-minio.milvus.svc.cluster.local:9000
+    bucket: nv-ingest
+    networkPolicy:
+      namespace: milvus
+      port: 9000
+    auth:
+      # Empty defaults to <release>-minio-auth.
+      existingSecret: ''
+      accessKeyKey: MINIO_ACCESS_KEY
+      secretKeyKey: MINIO_SECRET_KEY
+      sessionTokenKey: MINIO_SESSION_TOKEN
+  readiness:
+    # Readiness performs an authenticated list_collections call. This catches
+    # DNS, policy, stale-secret, and Milvus authorization failures.
+    enabled: true
+
 backend:
   # Default backend configuration
   default:

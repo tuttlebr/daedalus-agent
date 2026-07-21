@@ -15,12 +15,13 @@ embedders:
 functions:
   domain_retriever:
     _type: domain_retriever
-    uri: http://localhost:19530
+    uri: ${MILVUS_URI}
     embedding_model: milvus_embedder
-    database_name: default
+    database_name: ${MILVUS_DATABASE}
     content_field: text
     vector_field: vector
     top_k: 10
+    search_timeout: ${MILVUS_SEARCH_TIMEOUT_SECONDS}
     use_reranker: false
     domain_collections:
       nvidia: nvidia

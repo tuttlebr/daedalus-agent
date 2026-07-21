@@ -159,6 +159,8 @@ Useful flags:
 ./deploy.sh --skip-build
 ./deploy.sh --skip-tls
 ./deploy.sh --skip-mcp-preflight
+./deploy.sh --skip-rag-preflight
+./deploy.sh --skip-rag-secret-sync
 ./deploy.sh --mcp-preflight-timeout 30
 ./deploy.sh --mcp-preflight-kubectl-image curlimages/curl:8.8.0
 ./deploy.sh --backend-config backend/tool-calling-responses-config.yaml
@@ -172,6 +174,30 @@ cluster-local URLs such as `*.svc.cluster.local` from a short-lived Kubernetes
 curl pod in the target namespace. Authenticated cluster-local probes read API
 keys from the same backend Secret through `envFrom`; key values are never
 placed in command arguments or printed.
+
+For Kubernetes RAG deployments, `deploy.sh` also mirrors the authoritative
+Milvus and MinIO credentials into namespace-local workload Secrets, then runs
+an authenticated `list_collections` probe with the exact rendered backend
+configuration. The defaults match `daedalus-context`:
+
+- `milvus/milvus-root-credentials`, key `password`, username `root`
+- `milvus/milvus-minio-credentials`, keys `accesskey` and `secretkey`
+
+Override the source contract by exporting `MILVUS_AUTH_SOURCE_NAMESPACE`,
+`MILVUS_AUTH_SOURCE_SECRET`, `MILVUS_AUTH_SOURCE_PASSWORD_KEY`,
+`MILVUS_AUTH_USERNAME`, `MINIO_AUTH_SOURCE_NAMESPACE`,
+`MINIO_AUTH_SOURCE_SECRET`, `MINIO_AUTH_SOURCE_ACCESS_KEY`, and
+`MINIO_AUTH_SOURCE_SECRET_KEY`. The copies are `<release>-milvus-auth`,
+`<release>-minio-auth`, and `<release>-document-objects` in the Daedalus
+namespace. Secret payloads are sent directly to the Kubernetes API and never
+passed as Helm values. Use `--skip-rag-secret-sync` only when another Secret
+controller provisions those target Secrets.
+
+After synchronization, the deploy reads only each target Secret's Kubernetes
+`metadata.resourceVersion` and places those opaque versions in pod-template
+annotations. A credential rotation therefore changes the backend pod template;
+the document-object version also changes the frontend pod template. Credential
+bytes and hashes are not stored in Helm release metadata.
 
 ### Adding or expanding an MCP server
 
@@ -634,7 +660,13 @@ That is expected unless you provide those external services yourself. The local 
 
 ### Milvus Authentication Failures During Ingestion
 
-If NvIngest document ingestion fails with `StatusCode.UNAUTHENTICATED` and `auth check failure`, set Milvus credentials in the backend environment secret: `MILVUS_USERNAME` and `MILVUS_PASSWORD`, or `MILVUS_TOKEN` when your token is formatted as `username:password`. The ingestion path passes those credentials to NvIngest's Milvus upload stage and to direct Milvus search and list clients.
+If NvIngest document ingestion fails with `StatusCode.UNAUTHENTICATED` and
+`auth check failure`, verify the authoritative source Secret and rerun
+`deploy.sh`. The rollout preflight and `/health/ready` both call authenticated
+`list_collections`; readiness reports `reason=milvus_unavailable` without
+returning credentials. For an externally managed target, configure
+`retrieval.milvus.auth.existingSecret` with `MILVUS_USERNAME` and
+`MILVUS_PASSWORD`, or set `tokenKey` for token authentication.
 
 ## Key Configuration Files
 

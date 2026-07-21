@@ -53,6 +53,41 @@ documentObjectStorage:
     accessKeyKey: DOCUMENT_OBJECT_ACCESS_KEY
     secretKeyKey: DOCUMENT_OBJECT_SECRET_KEY
 
+# deploy.sh mirrors the authoritative credentials from the milvus namespace
+# into these namespace-local Secrets. Secret payloads never enter Helm values.
+retrieval:
+  enabled: true
+  secretResourceVersions:
+    milvus: ''
+    minio: ''
+    documentObject: ''
+  milvus:
+    endpoint: http://milvus.milvus.svc.cluster.local:19530
+    database: default
+    metadataTimeoutSeconds: 3
+    searchTimeoutSeconds: 30
+    networkPolicy:
+      namespace: milvus
+      port: 19530
+    auth:
+      existingSecret: daedalus-milvus-auth
+      usernameKey: MILVUS_USERNAME
+      passwordKey: MILVUS_PASSWORD
+      tokenKey: ''
+  minio:
+    endpoint: http://milvus-minio.milvus.svc.cluster.local:9000
+    bucket: nv-ingest
+    networkPolicy:
+      namespace: milvus
+      port: 9000
+    auth:
+      existingSecret: daedalus-minio-auth
+      accessKeyKey: MINIO_ACCESS_KEY
+      secretKeyKey: MINIO_SECRET_KEY
+      sessionTokenKey: MINIO_SESSION_TOKEN
+  readiness:
+    enabled: true
+
 backend:
   # Default backend configuration
   default:

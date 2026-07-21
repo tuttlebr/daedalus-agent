@@ -164,6 +164,36 @@ class TestMilvusRetrieverBind:
 # ---------------------------------------------------------------------------
 
 
+def test_domain_config_reads_password_auth_from_environment(monkeypatch):
+    from smart_milvus.register import DomainRetrieverConfig
+
+    monkeypatch.delenv("MILVUS_TOKEN", raising=False)
+    monkeypatch.setenv("MILVUS_USERNAME", "root")
+    monkeypatch.setenv("MILVUS_PASSWORD", "secret")
+
+    config = DomainRetrieverConfig(
+        uri="http://milvus:19530",
+        embedding_model="embedder",
+    )
+
+    assert config.connection_args == {"user": "root", "password": "secret"}
+
+
+def test_domain_config_prefers_token_auth(monkeypatch):
+    from smart_milvus.register import DomainRetrieverConfig
+
+    monkeypatch.setenv("MILVUS_TOKEN", "root:secret")
+    monkeypatch.setenv("MILVUS_USERNAME", "ignored")
+    monkeypatch.setenv("MILVUS_PASSWORD", "ignored")
+
+    config = DomainRetrieverConfig(
+        uri="http://milvus:19530",
+        embedding_model="embedder",
+    )
+
+    assert config.connection_args == {"token": "root:secret"}
+
+
 class TestMilvusRetrieverSearch:
     def _make_retriever(self):
         mock_client = MagicMock()

@@ -23,6 +23,7 @@ spec:
         app.kubernetes.io/instance: {{ .Release.Name }}
       annotations:
         deploy-timestamp: {{ .Values.forceRedeploy | default "" | quote }}
+        daedalus.ai/document-object-secret-resource-version: {{ .Values.retrieval.secretResourceVersions.documentObject | default "" | quote }}
         checksum/redis-auth-config: {{ include "daedalus.redisAuthConfigChecksum" . }}
     spec:
       {{- include "daedalus.nodePlacement" . | nindent 6 }}

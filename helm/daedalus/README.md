@@ -54,18 +54,15 @@ backend need that restricted credential to write and read document objects.
 The stream worker receives object references only and doesn't receive the
 object-store credential.
 
-For the normal `deploy.sh` path, define both `DOCUMENT_OBJECT_ACCESS_KEY` and
-`DOCUMENT_OBJECT_SECRET_KEY` in `.env` (plus the optional
-`DOCUMENT_OBJECT_SESSION_TOKEN`). The deploy creates or updates
-`<release>-document-objects`, points the rendered workloads at that Secret, and
-validates the required keys before invoking Helm. It then runs a short-lived,
-prefix-scoped PUT/GET/DELETE probe against the exact rendered endpoint and
-bucket. Invalid credentials, a missing bucket, and insufficient object
-permissions therefore fail before Helm changes the release. If the `.env` pair
-is absent, the deploy accepts an explicitly configured external Secret only
-after verifying that both referenced keys exist and are non-empty. Use
-`--skip-document-storage-preflight` only when an external change window makes
-the live probe intentionally unavailable.
+For the normal `deploy.sh` path, the authoritative MinIO Secret is mirrored to
+`<release>-document-objects`. When authoritative sync is enabled, legacy
+`DOCUMENT_OBJECT_*` values in `.env` are ignored so stale local credentials
+cannot replace the source-of-truth Secret. The deploy validates the required
+keys before Helm, then runs a short-lived, prefix-scoped PUT/GET/DELETE probe
+against the exact rendered endpoint and bucket. Invalid credentials, a
+missing bucket, and insufficient object permissions therefore fail before
+Helm changes the release. Use `--skip-document-storage-preflight` only when an
+external change window makes the live probe intentionally unavailable.
 
 Create the configured bucket before deployment and apply lifecycle expiration
 to `documentObjectStorage.prefix` for the configured `expirySeconds`. The
@@ -201,6 +198,7 @@ or deployment.
 | ------------------------- | -------------------------------------------------------------- |
 | `forceRedeploy`           | Rollout nonce for externally managed Secret changes            |
 | `images.*`                | Container repositories, tags, and pull policy                  |
+| `retrieval.*`             | Milvus/MinIO endpoints, Secret refs, policy ports, readiness   |
 | `frontend.*`              | Frontend, stream-worker, services, and scoped env settings     |
 | `backend.default.*`       | Backend deployment and config                                  |
 | `backend.persistence.*`   | PVCs used by backend pods                                      |
@@ -219,6 +217,27 @@ The standard browser flow is:
 3. nginx proxies `/` and `/api/*` to the `frontend` service
 4. Frontend routes work to the `backend-default` service
 5. Backend pods use Redis plus optional integrations such as Milvus, NV-Ingest, Phoenix, and external model APIs
+
+### RAG Secret Contract
+
+`retrieval.milvus.auth.existingSecret` and
+`retrieval.minio.auth.existingSecret` must name Secrets in the Helm release
+namespace; Kubernetes cannot mount a Secret across namespaces. Password mode
+expects `MILVUS_USERNAME` and `MILVUS_PASSWORD`. Token mode is selected by
+setting `retrieval.milvus.auth.tokenKey` and expects that key instead. MinIO
+expects `MINIO_ACCESS_KEY` and `MINIO_SECRET_KEY`; `MINIO_SESSION_TOKEN` is
+optional. Endpoint, database, bucket, namespace, port, and key names are all
+configurable under `retrieval.*`.
+
+The repo-level `deploy.sh` copies the default authoritative Secrets from the
+`milvus` namespace into release-local Secrets without placing credential
+values in Helm release metadata. If Helm is run directly, provision those
+namespace-local Secrets through an external Secret controller before rollout.
+After a deploy-managed copy, `retrieval.secretResourceVersions.*` contains only
+the target Secrets' Kubernetes `metadata.resourceVersion` values. These values
+are rendered as backend pod annotations (and as a frontend annotation for the
+document-object Secret), ensuring environment-based credentials rotate without
+putting credential values or hashes into the release.
 
 nginx can also proxy backend paths directly:
 
