@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run an authenticated Milvus list_collections rollout preflight."""
+"""Run authenticated Milvus list/describe rollout preflights."""
 
 from __future__ import annotations
 
@@ -192,7 +192,9 @@ client = None
 try:
     client = MilvusClient(**kwargs)
     collections = client.list_collections(timeout=float(sys.argv[1]))
-    print(f"Milvus authenticated; collections={len(collections)}")
+    probe_name = collections[0] if collections else "__daedalus_rag_readiness__"
+    client.has_collection(probe_name, timeout=float(sys.argv[1]))
+    print(f"Milvus authenticated for list/describe; collections={len(collections)}")
 except Exception as exc:
     print(f"Milvus preflight failed: {type(exc).__name__}", file=sys.stderr)
     raise SystemExit(20)

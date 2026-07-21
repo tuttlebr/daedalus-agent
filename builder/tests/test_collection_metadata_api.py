@@ -25,6 +25,11 @@ def test_list_collections_passes_bounded_timeout_to_pymilvus(monkeypatch):
             calls["list_kwargs"] = kwargs
             return ["nvidia"]
 
+        def has_collection(self, name, **kwargs):
+            calls["describe_name"] = name
+            calls["describe_kwargs"] = kwargs
+            return True
+
         def close(self):
             calls["closed"] = True
 
@@ -39,7 +44,38 @@ def test_list_collections_passes_bounded_timeout_to_pymilvus(monkeypatch):
     assert timeout == 10.0
     assert result == ["nvidia"]
     assert calls["list_kwargs"] == {"timeout": 10.0}
+    assert calls["describe_name"] == "nvidia"
+    assert calls["describe_kwargs"] == {"timeout": 10.0}
     assert calls["closed"] is True
+
+
+def test_list_collections_probes_describe_even_when_database_is_empty(monkeypatch):
+    calls = {}
+
+    class FakeMilvusClient:
+        def __init__(self, **_kwargs):
+            pass
+
+        def list_collections(self, **_kwargs):
+            return []
+
+        def has_collection(self, name, **kwargs):
+            calls["name"] = name
+            calls["kwargs"] = kwargs
+            return False
+
+        def close(self):
+            pass
+
+    pymilvus = types.ModuleType("pymilvus")
+    pymilvus.MilvusClient = FakeMilvusClient
+    monkeypatch.setitem(sys.modules, "pymilvus", pymilvus)
+
+    assert api._list_collections_sync(3.0) == []
+    assert calls == {
+        "name": "__daedalus_rag_readiness__",
+        "kwargs": {"timeout": 3.0},
+    }
 
 
 def test_async_list_collections_passes_same_timeout_to_worker(monkeypatch):

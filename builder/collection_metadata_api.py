@@ -50,7 +50,14 @@ def _list_collections_sync(timeout: float) -> list[str]:
         # The outer asyncio deadline cannot cancel a blocked worker thread.
         # Bound the PyMilvus RPC itself so repeated health probes cannot leak
         # permanently stuck threads during a Milvus/network outage.
-        return [str(name) for name in client.list_collections(timeout=timeout)]
+        collections = [str(name) for name in client.list_collections(timeout=timeout)]
+        # list_collections can be permitted by Milvus's public role even when
+        # the identity cannot describe or search a collection. Probe the
+        # DescribeCollection path as well so readiness reflects real RAG
+        # access. A missing sentinel collection correctly returns False.
+        probe_name = collections[0] if collections else "__daedalus_rag_readiness__"
+        client.has_collection(probe_name, timeout=timeout)
+        return collections
     finally:
         close = getattr(client, "close", None)
         if callable(close):

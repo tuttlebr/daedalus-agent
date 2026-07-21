@@ -112,8 +112,9 @@ retrieval:
       secretKeyKey: MINIO_SECRET_KEY
       sessionTokenKey: MINIO_SESSION_TOKEN
   readiness:
-    # Readiness performs an authenticated list_collections call. This catches
-    # DNS, policy, stale-secret, and Milvus authorization failures.
+    # Readiness performs authenticated list_collections and has_collection
+    # calls. This catches DNS, policy, stale-secret, and real RAG authorization
+    # failures even when Milvus's public role permits collection listing.
     enabled: true
 
 backend:
