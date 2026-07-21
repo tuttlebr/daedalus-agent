@@ -139,6 +139,10 @@ backend:
         ports:
           - port: 8080
             protocol: TCP
+      - name: daedalus-retriever
+        ports:
+          - port: 8000
+            protocol: TCP
     cilium:
       enabled: true
       webscrape:
