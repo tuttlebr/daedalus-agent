@@ -701,6 +701,9 @@ llms:
     api_key: ${DEFAULT_LLM_MODEL_API_KEY}
     base_url: ${DEFAULT_LLM_MODEL_BASE_URL}
     model_name: ${DEFAULT_LLM_MODEL_MODEL}
+    extra_body:
+      chat_template_kwargs:
+        reasoning_effort: xhigh
 memory:
   redis_memory:
     _type: daedalus_redis_memory
