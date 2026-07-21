@@ -697,7 +697,7 @@ llms:
     api_key: ${TOOL_CALLING_LLM_MODEL_API_KEY}
     base_url: ${TOOL_CALLING_LLM_MODEL_BASE_URL}
     model_name: ${TOOL_CALLING_LLM_MODEL_MODEL}
-    reasoning_effort: adaptive
+    reasoning_effort: high
   reasoning_llm:
     _type: openai
     api_key: ${TOOL_CALLING_LLM_MODEL_API_KEY}
