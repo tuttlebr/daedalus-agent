@@ -89,6 +89,11 @@ class LlmSandboxConfig(FunctionBaseConfig, name="llm_sandbox"):
     api_key: SecretStr = Field(
         default_factory=lambda: SecretStr(os.environ.get("LLM_SANDBOX_API_KEY", "")),
         description="Bearer token loaded from the agent runtime Secret.",
+        # NAT's FastAPI launcher serializes its config for the worker process.
+        # SecretStr serializes as the literal redaction marker, which the worker
+        # would otherwise treat as the credential. Omit this field so the worker
+        # rebuilds it from its inherited environment instead.
+        exclude=True,
     )
     request_timeout: float = Field(
         default=70.0,

@@ -183,6 +183,10 @@ def main() -> None:
                 "http://llm-sandbox-llm-sandbox.llm-sandbox.svc.cluster.local:8080"
             ),
         )
+        if "api_key" in config.model_dump(mode="json", by_alias=True, round_trip=True):
+            raise RuntimeError(
+                "LLM sandbox API key leaked into NAT's serialized worker config"
+            )
         async with llm_sandbox_function(config, SimpleNamespace()) as function_info:
             if function_info.input_schema is not LlmSandboxInput:
                 raise RuntimeError("LLM sandbox lost its explicit tool input schema")

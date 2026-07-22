@@ -151,15 +151,21 @@ def sandbox_config(**overrides):
     return LlmSandboxConfig(**values)
 
 
-def test_config_reads_and_redacts_llm_sandbox_api_key(monkeypatch):
+def test_config_reads_and_excludes_llm_sandbox_api_key_from_worker_config(
+    monkeypatch,
+):
     from llm_sandbox.llm_sandbox_function import LlmSandboxConfig
 
     monkeypatch.setenv("LLM_SANDBOX_API_KEY", "env-key")
 
     config = LlmSandboxConfig()
+    worker_payload = config.model_dump(mode="json", by_alias=True, round_trip=True)
+    worker_config = LlmSandboxConfig.model_validate(worker_payload)
 
     assert config.api_key.get_secret_value() == "env-key"
     assert "env-key" not in repr(config)
+    assert "api_key" not in worker_payload
+    assert worker_config.api_key.get_secret_value() == "env-key"
 
 
 @pytest.mark.parametrize(
