@@ -1,34 +1,5 @@
 # Security Policy: Daedalus
 
-## Reporting a Vulnerability
-
-If you discover a potential security vulnerability in Daedalus, please **do not
-open a public issue, pull request, or discussion**.
-
-Report it privately through one of these channels:
-
-- **Preferred:** [NVIDIA Vulnerability Disclosure Program](https://www.nvidia.com/en-us/security/)
-- **Email:** [psirt@nvidia.com](mailto:psirt@nvidia.com). For encrypted
-  communication, use the
-  [NVIDIA public PGP key](https://www.nvidia.com/en-us/security/pgp-key).
-- **GitHub:** Use this repository's **Security** tab and select
-  **Report a vulnerability**.
-
-Include as much of the following information as possible:
-
-- Project name and affected version, branch, or commit
-- Vulnerability type and affected component
-- Reproduction steps
-- Proof-of-concept code or request, when available
-- Required deployment configuration
-- Potential confidentiality, integrity, availability, or authorization impact
-- Suggested remediation, if known
-
-Detailed reports help NVIDIA evaluate and address issues faster. NVIDIA's
-Product Security Incident Response Team (PSIRT) will acknowledge the report,
-validate the issue and its severity, coordinate a fix, and publish a security
-bulletin when appropriate.
-
 ## Security Architecture & Context
 
 Daedalus is a production-oriented AI agent platform built on the NVIDIA NeMo
