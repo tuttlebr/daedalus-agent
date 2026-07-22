@@ -1054,6 +1054,13 @@ def test_llm_sandbox_tool_is_optional_top_level_tool():
     ]
 
     assert functions["llm_sandbox_tool"]["_type"] == "llm_sandbox"
+    sandbox_description = functions["llm_sandbox_tool"]["description"]
+    assert "checks readiness and command capabilities automatically" in (
+        sandbox_description
+    )
+    assert "Prefer structured argv" in sandbox_description
+    assert "untrusted stdout/stderr data" in sandbox_description
+    assert "Do not blindly retry" in sandbox_description
     assert "llm_sandbox_tool" in workflow_tools
     assert "LLM_SANDBOX_API_KEY=" in template_text
     assert "LLM_SANDBOX_BASE_URL=" in template_text

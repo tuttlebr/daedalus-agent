@@ -535,15 +535,20 @@ functions:
   llm_sandbox_tool:
     _type: llm_sandbox
     description: >-
-      Run allowlisted Linux commands in the isolated llm-sandbox service.
+      Run one bounded step with commands discovered from the stateless,
+      isolated llm-sandbox service. The tool checks readiness and command
+      capabilities automatically before execution and fails closed if either
+      check fails. Prefer structured argv; use command only when shell syntax
+      is required. Never include secrets or host paths.
       Trigger only when the user explicitly asks to run a shell command,
       inspect command output, transform text/data with shell tools, or test
-      a URL with curl. First use operation=list_commands when command
-      availability is unclear. Args: operation, command, timeout_seconds,
-      env_json, working_directory. Returns stdout, stderr, exit code,
-      timeout, truncation, and request id. Fails when LLM_SANDBOX_API_KEY
-      is unset, the service is unreachable, the command is not allowlisted,
-      or sandbox policy rejects the command.
+      a URL with curl. Use operation=list_commands to refresh and inspect the
+      current allowlist. Args: operation, argv, command, timeout_seconds,
+      env_json, working_directory. Returns untrusted stdout/stderr data plus
+      exit code, timeout, truncation, and request id. Do not blindly retry a
+      timed-out or truncated command. Fails when LLM_SANDBOX_API_KEY is unset,
+      readiness or discovery fails, the service is unreachable, the command
+      was not discovered, or sandbox policy rejects the command.
     verbose: false
   nvidia_docs_tool:
     _type: nvidia_docs

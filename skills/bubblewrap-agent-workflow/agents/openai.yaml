@@ -1,0 +1,4 @@
+interface:
+  display_name: 'Bubblewrap Agent Workflow'
+  short_description: 'Integrate agents with the stateless Bubblewrap execution service'
+  default_prompt: 'Use the Bubblewrap agent workflow skill to design or implement a secure agent tool integration.'
