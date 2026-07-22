@@ -1,6 +1,7 @@
 """Tests for the policy-aware LLM sandbox tool."""
 
 import asyncio
+import json
 from unittest.mock import MagicMock, patch
 
 import httpx
@@ -113,6 +114,29 @@ async def _registered_sandbox_fn(config):
     async for item in llm_sandbox_function(config, MagicMock()):
         items.append(item)
     return items[0].fn
+
+
+def test_registration_uses_complete_explicit_input_schema():
+    import llm_sandbox.llm_sandbox_function as mod
+
+    async def _run():
+        with patch.object(
+            mod.FunctionInfo,
+            "from_fn",
+            wraps=mod.FunctionInfo.from_fn,
+        ) as from_fn:
+            async for _item in mod.llm_sandbox_function(sandbox_config(), MagicMock()):
+                pass
+        return from_fn.call_args.kwargs["input_schema"]
+
+    schema = run(_run())
+
+    assert schema is mod.LlmSandboxInput
+    assert schema.__pydantic_complete__ is True
+    assert schema.model_json_schema()["properties"]["operation"]["enum"] == [
+        "list_commands",
+        "execute",
+    ]
 
 
 def sandbox_config(**overrides):
@@ -381,6 +405,23 @@ def test_execute_rejects_invalid_env_json():
             )
 
     assert run(_run()) == "Error: env_json keys and values must all be strings."
+
+
+@pytest.mark.parametrize("name", ["BASH_ENV", "LD_PRELOAD", "AWKPATH", "TAR_OPTIONS"])
+def test_execute_rejects_environment_hooks_that_can_load_staged_code(name):
+    import llm_sandbox.llm_sandbox_function as mod
+
+    async def _run():
+        FakeAsyncClient.responses = [ready_response(), capability_response()]
+        with patch.object(mod.httpx, "AsyncClient", FakeAsyncClient):
+            sandbox = await _registered_sandbox_fn(sandbox_config())
+            return await sandbox(
+                argv=["printf", "hello"],
+                env_json=json.dumps({name: "payload"}),
+            )
+
+    assert "reserved or invalid" in run(_run())
+    assert all(path != "/v1/execute" for _, path, _ in FakeAsyncClient.calls)
 
 
 def test_execute_marks_output_untrusted_and_warns_against_blind_retry():

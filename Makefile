@@ -21,7 +21,9 @@
 # VIRTUAL_ENV before invoking make.
 
 SHELL := /bin/bash
+TRIVY ?= trivy
 TRIVY_RESULTS ?= /tmp/daedalus-trivy-results.sarif
+TRIVY_INVENTORY ?= /tmp/daedalus-trivy-inventory.json
 
 .DEFAULT_GOAL := help
 
@@ -81,9 +83,12 @@ docker: ## docker compose config + build runtime images  (CI job: docker)
 			trivy image --severity CRITICAL,HIGH --exit-code 1 "$$image"; \
 		done
 
-security: ## gitleaks + trivy filesystem scans  (CI job: security)
+security: ## secret, production dependency, and filesystem vulnerability scans  (CI job: security)
 	gitleaks detect --source . --verbose --redact
-	trivy fs --severity CRITICAL,HIGH --exit-code 1 --format sarif . >$(TRIVY_RESULTS)
+	cd frontend && npm audit --omit=dev --audit-level=moderate --package-lock-only
+	$(TRIVY) fs --scanners vuln --list-all-pkgs --format json frontend/package-lock.json >$(TRIVY_INVENTORY)
+	jq -e '[.Results[]? | select(.Target | endswith("package-lock.json"))] | length > 0' $(TRIVY_INVENTORY) >/dev/null || { echo "Trivy did not inventory frontend/package-lock.json" >&2; exit 1; }
+	$(TRIVY) fs --scanners vuln --severity CRITICAL,HIGH --exit-code 1 --format sarif . >$(TRIVY_RESULTS)
 	test -s $(TRIVY_RESULTS)
 
 evals: ## eval harness compile + dataset validation  (CI job: evals)
@@ -93,7 +98,7 @@ evals: ## eval harness compile + dataset validation  (CI job: evals)
 
 tools-check: ## verify required binaries are present
 	@missing=0; \
-	for t in uv helm kind kubectl openssl docker gitleaks trivy node npm python3.12; do \
+	for t in uv helm kind kubectl openssl docker gitleaks trivy jq node npm python3.12; do \
 		if ! command -v $$t >/dev/null 2>&1; then \
 			echo "  missing: $$t"; \
 			missing=$$((missing+1)); \
@@ -107,4 +112,4 @@ tools-check: ## verify required binaries are present
 	fi
 
 clean: ## remove generated test/scan artifacts
-	rm -f builder/coverage.xml builder/.coverage trivy-results.sarif $(TRIVY_RESULTS) /tmp/daedalus-rendered.yaml
+	rm -f builder/coverage.xml builder/.coverage trivy-results.sarif $(TRIVY_RESULTS) $(TRIVY_INVENTORY) /tmp/daedalus-rendered.yaml

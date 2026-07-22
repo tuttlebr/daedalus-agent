@@ -8,6 +8,7 @@ target and the ci.yml `builder` job and asserts their flag sets are identical, s
 drift fails fast in the unit suite itself.
 """
 
+import json
 from pathlib import Path
 
 import yaml
@@ -15,6 +16,9 @@ import yaml
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _MAKEFILE = _REPO_ROOT / "Makefile"
 _CI = _REPO_ROOT / ".github" / "workflows" / "ci.yml"
+_RELEASE = _REPO_ROOT / ".github" / "workflows" / "release.yml"
+_FRONTEND_PACKAGE = _REPO_ROOT / "frontend" / "package.json"
+_FRONTEND_LOCK = _REPO_ROOT / "frontend" / "package-lock.json"
 
 
 def _pytest_flags(command: str) -> set[str]:
@@ -83,4 +87,95 @@ def test_trivy_fails_ci_and_local_gate_on_high_or_critical_findings():
     assert trivy_step["with"]["severity"] == "CRITICAL,HIGH"
     assert str(trivy_step["with"]["exit-code"]) == "1"
     assert "always()" in upload_step["if"]
-    assert "trivy fs --severity CRITICAL,HIGH --exit-code 1 --format sarif" in makefile
+    assert (
+        "$(TRIVY) fs --scanners vuln --severity CRITICAL,HIGH --exit-code 1 "
+        "--format sarif" in makefile
+    )
+    assert (
+        "$(TRIVY) fs --scanners vuln --list-all-pkgs --format json "
+        "frontend/package-lock.json" in makefile
+    )
+    assert 'endswith("package-lock.json")' in makefile
+
+
+def test_production_javascript_audit_fails_ci_and_local_gate_on_moderate_findings():
+    ci = yaml.safe_load(_CI.read_text())
+    security_steps = ci["jobs"]["security"]["steps"]
+    setup_node = next(
+        step
+        for step in security_steps
+        if str(step.get("uses", "")).startswith("actions/setup-node@")
+    )
+    audit_command = next(
+        step["run"]
+        for step in security_steps
+        if step.get("name") == "Audit production JavaScript dependencies"
+    )
+    expected = "npm audit --omit=dev --audit-level=moderate --package-lock-only"
+
+    assert setup_node["with"]["node-version"] == "22"
+    assert setup_node["with"]["cache-dependency-path"] == "frontend/package-lock.json"
+    assert audit_command == expected
+    assert f"cd frontend && {expected}" in _MAKEFILE.read_text()
+
+
+def test_ci_oidc_permissions_are_limited_to_main_branch_attestations():
+    ci = yaml.safe_load(_CI.read_text())
+    assert ci["permissions"] == {"contents": "read"}
+
+    docker = ci["jobs"]["docker"]
+    assert docker["permissions"] == {"contents": "read"}
+    assert set(docker["outputs"]) == {
+        "backend-digest",
+        "frontend-digest",
+        "evals-digest",
+        "redis-digest",
+    }
+
+    attest = ci["jobs"]["docker-attest"]
+    assert attest["needs"] == "docker"
+    assert "github.event_name == 'push'" in attest["if"]
+    assert "github.ref == 'refs/heads/main'" in attest["if"]
+    assert attest["permissions"] == {
+        "contents": "read",
+        "id-token": "write",
+        "attestations": "write",
+    }
+    assert (
+        len(
+            [
+                step
+                for step in attest["steps"]
+                if str(step.get("uses", "")).startswith("actions/attest@")
+            ]
+        )
+        == 4
+    )
+
+
+def test_release_workflow_grants_elevated_permissions_only_to_release_job():
+    release = yaml.safe_load(_RELEASE.read_text())
+    assert release["permissions"] == {"contents": "read"}
+    assert release["jobs"]["verify-ci"]["permissions"] == {
+        "actions": "read",
+        "contents": "read",
+    }
+    assert release["jobs"]["release-images"]["permissions"] == {
+        "actions": "read",
+        "contents": "read",
+        "packages": "write",
+        "id-token": "write",
+        "attestations": "write",
+    }
+
+
+def test_frontend_forces_a_security_fixed_postcss_for_next_runtime():
+    package = json.loads(_FRONTEND_PACKAGE.read_text())
+    lock = json.loads(_FRONTEND_LOCK.read_text())
+
+    assert package["devDependencies"]["postcss"] == "^8.5.10"
+    assert package["overrides"]["postcss"] == "$postcss"
+    assert "node_modules/next/node_modules/postcss" not in lock["packages"]
+
+    version = lock["packages"]["node_modules/postcss"]["version"]
+    assert tuple(int(part) for part in version.split(".")[:3]) >= (8, 5, 10)

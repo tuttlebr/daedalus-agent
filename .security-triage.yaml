@@ -1,0 +1,20 @@
+version: '1.0'
+project: 'daedalus-agent'
+last_updated: '2026-07-22T16:46:59Z'
+
+repository_exposure_classification:
+  visibility: 'Public'
+  basis: 'origin is hosted on github.com and GitHub reports PUBLIC visibility'
+  confirmed_by: 'Brandon Tuttle'
+  date: '2026-07-22'
+
+service_exposure_classification:
+  tier: 'External / Regulated'
+  confidence: 'high'
+  basis: 'externally distributed application with ingress and API deployment, authentication, credential and user-data handling, external integrations, and deployment automation'
+  confirmed_by: 'Brandon Tuttle'
+  date: '2026-07-22'
+
+false_positives: []
+accepted_risks: []
+suppressed_cves: []

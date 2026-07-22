@@ -165,6 +165,36 @@ def main() -> None:
     if registered_embedder_client.config_type is not DaedalusVLLMEmbedderConfig:
         raise RuntimeError("Daedalus vLLM LangChain embedder wasn't registered")
 
+    # NAT 1.7 dynamically derives a Pydantic tool schema for multi-argument
+    # callables. Postponed annotations on a nested callable leave Literal as an
+    # unresolved forward reference, which only fails on the first tool call.
+    # Exercise the explicit schema with the real installed NAT runtime so the
+    # backend image cannot ship that latent invocation failure again.
+    from llm_sandbox.llm_sandbox_function import (
+        LlmSandboxConfig,
+        LlmSandboxInput,
+        llm_sandbox_function,
+    )
+
+    async def assert_llm_sandbox_schema_contract() -> None:
+        config = LlmSandboxConfig(
+            api_key="runtime-contract-key",
+            base_url=(
+                "http://llm-sandbox-llm-sandbox.llm-sandbox.svc.cluster.local:8080"
+            ),
+        )
+        async with llm_sandbox_function(config, SimpleNamespace()) as function_info:
+            if function_info.input_schema is not LlmSandboxInput:
+                raise RuntimeError("LLM sandbox lost its explicit tool input schema")
+            if not function_info.input_schema.__pydantic_complete__:
+                raise RuntimeError("LLM sandbox tool input schema is incomplete")
+            schema = function_info.input_schema.model_json_schema()
+            operation = schema.get("properties", {}).get("operation", {})
+            if operation.get("enum") != ["list_commands", "execute"]:
+                raise RuntimeError("LLM sandbox operation schema is incorrect")
+
+    asyncio.run(assert_llm_sandbox_schema_contract())
+
     # OAuth-backed MCP groups must discover and cache their schemas inside a
     # real authenticated user's workflow. Prove the per-user tool-calling
     # registration exists in the pinned NAT registry and carries explicit API

@@ -1,7 +1,5 @@
 """Policy-aware HTTP client for the Daedalus Bubblewrap sandbox service."""
 
-from __future__ import annotations
-
 import asyncio
 import json
 import logging
@@ -17,14 +15,38 @@ from nat.builder.builder import Builder
 from nat.builder.function_info import FunctionInfo
 from nat.cli.register_workflow import register_function
 from nat.data_models.function import FunctionBaseConfig
-from pydantic import Field, SecretStr, field_validator
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_BASE_URL = "http://llm-sandbox-llm-sandbox.llm-sandbox.svc.cluster.local:8080"
 RETRYABLE_STATUS_CODES = frozenset({502, 503, 504})
 ENV_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
-RESERVED_ENV_NAMES = frozenset({"HOME", "HOSTNAME", "PATH", "PWD", "SHELL", "TMPDIR"})
+RESERVED_ENV_NAMES = frozenset(
+    {
+        "AWKLIBPATH",
+        "AWKPATH",
+        "BASHOPTS",
+        "BASH_ENV",
+        "CDPATH",
+        "CURL_HOME",
+        "ENV",
+        "GCONV_PATH",
+        "HOME",
+        "HOSTNAME",
+        "LOCPATH",
+        "NLSPATH",
+        "PATH",
+        "PWD",
+        "SHELL",
+        "SHELLOPTS",
+        "TAR_OPTIONS",
+        "TMPDIR",
+        "WGETRC",
+        "XDG_CONFIG_HOME",
+    }
+)
+RESERVED_ENV_PREFIXES = ("DYLD_", "LD_")
 
 
 def _validate_base_url(value: str) -> str:
@@ -117,6 +139,38 @@ class LlmSandboxConfig(FunctionBaseConfig, name="llm_sandbox"):
         return _validate_base_url(value)
 
 
+class LlmSandboxInput(BaseModel):
+    """Explicit LLM-facing schema for the sandbox tool."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    operation: Literal["list_commands", "execute"] = Field(
+        default="execute",
+        description="Refresh command discovery or execute one bounded command.",
+    )
+    command: str = Field(
+        default="",
+        description="Shell command; use only when shell syntax is required.",
+    )
+    argv: list[str] | None = Field(
+        default=None,
+        description="Preferred structured argument vector for one discovered command.",
+    )
+    timeout_seconds: int = Field(
+        default=0,
+        ge=0,
+        description="Command timeout in seconds; zero uses the configured default.",
+    )
+    env_json: str = Field(
+        default="",
+        description="Optional JSON object of non-secret string environment variables.",
+    )
+    working_directory: str = Field(
+        default=".",
+        description="Relative path inside the fresh request workspace.",
+    )
+
+
 def _error(message: str) -> str:
     return f"Error: {message}"
 
@@ -137,7 +191,9 @@ def _parse_env_json(env_json: str) -> dict[str, str] | str:
     invalid_names = [
         key
         for key in parsed
-        if not ENV_NAME.fullmatch(key) or key in RESERVED_ENV_NAMES
+        if not ENV_NAME.fullmatch(key)
+        or key in RESERVED_ENV_NAMES
+        or key.startswith(RESERVED_ENV_PREFIXES)
     ]
     if invalid_names:
         return _error(
@@ -512,6 +568,7 @@ async def llm_sandbox_function(config: LlmSandboxConfig, builder: Builder):  # n
     try:
         yield FunctionInfo.from_fn(
             _sandbox,
+            input_schema=LlmSandboxInput,
             description=(
                 "Execute one bounded step through the stateless Bubblewrap sandbox. "
                 "The tool checks readiness and discovers capabilities before execution, "

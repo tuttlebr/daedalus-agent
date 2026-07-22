@@ -5,6 +5,9 @@ on:
     branches: [main]
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   builder:
     name: Builder Tests
@@ -178,8 +181,11 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      id-token: write
-      attestations: write
+    outputs:
+      backend-digest: ${{ steps.image_digests.outputs.backend }}
+      frontend-digest: ${{ steps.image_digests.outputs.frontend }}
+      evals-digest: ${{ steps.image_digests.outputs.evals }}
+      redis-digest: ${{ steps.image_digests.outputs.redis }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
@@ -242,33 +248,39 @@ jobs:
           severity: CRITICAL,HIGH
           exit-code: '1'
 
+  docker-attest:
+    name: Attest CI Images
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    needs: docker
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
       - name: Attest backend image
-        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
         uses: actions/attest@f7c74d28b9d84cb8768d0b8ca14a4bac6ef463e6 # v4.2.0
         with:
           subject-name: docker.io/your-user/daedalus
-          subject-digest: ${{ steps.image_digests.outputs.backend }}
+          subject-digest: ${{ needs.docker.outputs.backend-digest }}
 
       - name: Attest frontend image
-        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
         uses: actions/attest@f7c74d28b9d84cb8768d0b8ca14a4bac6ef463e6 # v4.2.0
         with:
           subject-name: docker.io/your-user/daedalus
-          subject-digest: ${{ steps.image_digests.outputs.frontend }}
+          subject-digest: ${{ needs.docker.outputs.frontend-digest }}
 
       - name: Attest eval image
-        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
         uses: actions/attest@f7c74d28b9d84cb8768d0b8ca14a4bac6ef463e6 # v4.2.0
         with:
           subject-name: docker.io/your-user/daedalus
-          subject-digest: ${{ steps.image_digests.outputs.evals }}
+          subject-digest: ${{ needs.docker.outputs.evals-digest }}
 
       - name: Attest Redis image
-        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
         uses: actions/attest@f7c74d28b9d84cb8768d0b8ca14a4bac6ef463e6 # v4.2.0
         with:
           subject-name: docker.io/your-user/daedalus
-          subject-digest: ${{ steps.image_digests.outputs.redis }}
+          subject-digest: ${{ needs.docker.outputs.redis-digest }}
 
   security:
     name: Security Scans
@@ -283,6 +295,17 @@ jobs:
 
       - name: Secret scan
         uses: gitleaks/gitleaks-action@dcedce43c6f43de0b836d1fe38946645c9c638dc # v2
+
+      - name: Set up Node for dependency audit
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Audit production JavaScript dependencies
+        working-directory: frontend
+        run: npm audit --omit=dev --audit-level=moderate --package-lock-only
 
       - name: Dependency vulnerability scan
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0

@@ -7,16 +7,15 @@ on:
       - 'v*'
 
 permissions:
-  actions: read
   contents: read
-  packages: write
-  id-token: write
-  attestations: write
 
 jobs:
   verify-ci:
     name: Require successful CI for source commit
     runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
     outputs:
       run-id: ${{ steps.ci.outputs.run-id }}
       run-url: ${{ steps.ci.outputs.run-url }}
@@ -45,6 +44,12 @@ jobs:
     name: Build, scan, sign, and attest
     needs: verify-ci
     runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
