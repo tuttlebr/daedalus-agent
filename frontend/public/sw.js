@@ -32,12 +32,12 @@ const STATIC_ASSETS = [
 const BUILD_PRECACHE = [
   '/_next/static/chunks/webpack-f35644e5a59ef27c.js',
   '/_next/static/chunks/framework-b9fd9bcc3ecde907.js',
-  '/_next/static/chunks/main-f93eb759fde2e0a1.js',
+  '/_next/static/chunks/main-980eb828d793b131.js',
   '/_next/static/css/f4e019980552f1c6.css',
   '/_next/static/chunks/pages/_app-11945ced9bd2280f.js',
   '/_next/static/chunks/2bd9703c-4f40d9d3fd70c12d.js',
   '/_next/static/chunks/8694-093f85aa4fb960b6.js',
-  '/_next/static/chunks/pages/index-9d2bafe0b47c3f3d.js',
+  '/_next/static/chunks/pages/index-8a7ca782a224311f.js',
   '/_next/static/chunks/pages/login-c2c0ffc0ffa29e70.js',
 ];
 const ALL_PRECACHE = STATIC_ASSETS.concat(BUILD_PRECACHE);
