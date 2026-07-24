@@ -18,6 +18,7 @@ from mcp_patches import (  # noqa: E402
     _MCP_STARTUP_GROUP_TIMEOUT,
     _STARTUP_RESILIENCE_EXCEPTIONS,
     _attempt_pending_mcp_recovery,
+    _call_with_current_mcp_oauth_callback,
     _connect_with_graceful_teardown,
     _extract_root_connection_error,
     _initialize_function_group_for_startup,
@@ -28,6 +29,7 @@ from mcp_patches import (  # noqa: E402
     _mcp_httpx_auth_for_connection,
     _mcp_recovery_attempted,
     _McpAppError,
+    _patch_mcp_auth_context_propagation,
     _pending_mcp_recovery,
     _record_possible_mcp_group,
     _record_skipped_function_group,
@@ -48,6 +50,96 @@ def _clear_recovery_state():
     _known_mcp_function_groups.clear()
     _pending_mcp_recovery.clear()
     _mcp_recovery_attempted.clear()
+
+
+def test_cached_mcp_transport_uses_current_oauth_callback(monkeypatch):
+    """The long-lived transport task must not retain an older request callback."""
+    current_callback = object()
+    stale_callback = object()
+    callback_state = {"value": stale_callback}
+
+    class FakeContext:
+        @staticmethod
+        def scope(**kwargs):
+            class Scope:
+                def __enter__(self):
+                    self.previous = callback_state["value"]
+                    callback_state["value"] = kwargs["user_auth_callback"]
+
+                def __exit__(self, *_args):
+                    callback_state["value"] = self.previous
+
+            return Scope()
+
+    class FakeAuthAdapter:
+        async def _get_auth_headers(self, request=None, response=None):
+            return {"callback": callback_state["value"]}
+
+    context_module = types.ModuleType("nat.builder.context")
+    context_module.Context = FakeContext
+    client_module = types.ModuleType("nat.plugins.mcp.client.client_base")
+    client_module.AuthAdapter = FakeAuthAdapter
+    for module_name in (
+        "nat",
+        "nat.builder",
+        "nat.plugins",
+        "nat.plugins.mcp",
+        "nat.plugins.mcp.client",
+    ):
+        module = types.ModuleType(module_name)
+        module.__path__ = []
+        monkeypatch.setitem(sys.modules, module_name, module)
+    monkeypatch.setitem(sys.modules, "nat.builder.context", context_module)
+    monkeypatch.setitem(
+        sys.modules,
+        "nat.plugins.mcp.client.client_base",
+        client_module,
+    )
+
+    _patch_mcp_auth_context_propagation()
+    adapter = FakeAuthAdapter()
+    adapter._daedalus_user_auth_callback = current_callback
+
+    assert run(adapter._get_auth_headers()) == {"callback": current_callback}
+    assert callback_state["value"] is stale_callback
+
+
+def test_oauth_callback_binding_serializes_cached_client_calls():
+    """Concurrent turns for one cached client cannot replace each other's callback."""
+    auth = types.SimpleNamespace()
+    parent = types.SimpleNamespace(_httpx_auth=auth)
+    callback_one = object()
+    callback_two = object()
+    active = 0
+    max_active = 0
+
+    async def _run():
+        async def invoke(callback):
+            nonlocal active, max_active
+            assert auth._daedalus_user_auth_callback is callback
+            active += 1
+            max_active = max(max_active, active)
+            await asyncio.sleep(0)
+            assert auth._daedalus_user_auth_callback is callback
+            active -= 1
+            return callback
+
+        return await asyncio.gather(
+            _call_with_current_mcp_oauth_callback(
+                parent,
+                callback_one,
+                lambda: invoke(callback_one),
+            ),
+            _call_with_current_mcp_oauth_callback(
+                parent,
+                callback_two,
+                lambda: invoke(callback_two),
+            ),
+        )
+
+    assert run(_run()) == [callback_one, callback_two]
+    assert max_active == 1
+    assert not hasattr(auth, "_daedalus_user_auth_callback")
 
 
 def test_capability_status_distinguishes_required_and_optional(monkeypatch):
@@ -1277,6 +1369,11 @@ class TestMcpErrorNoReconnect:
             fake_module,
         )
         monkeypatch.setattr(mcp_patches, "_approval_gate_installed", False)
+        monkeypatch.setattr(
+            mcp_patches,
+            "_validate_mcp_approval",
+            lambda *_args, **_kwargs: (True, "read-only"),
+        )
 
         mcp_patches._patch_tool_client()
 
@@ -1287,6 +1384,61 @@ class TestMcpErrorNoReconnect:
             'retry it unchanged in this turn.","retryable":false,'
             '"server":"gmail_mcp_server","tool":"get_thread"}'
         )
+
+    def test_google_tool_call_binds_current_oauth_callback(self, monkeypatch):
+        """The tool wrapper must bridge the current callback to cached transport."""
+        callback = object()
+        auth_adapter = types.SimpleNamespace()
+
+        class FakeContext:
+            @staticmethod
+            def get():
+                return types.SimpleNamespace(user_auth_callback=callback)
+
+        class FakeMCPToolClient:
+            _tool_name = "list_events"
+
+            def __init__(self):
+                self._parent_client = types.SimpleNamespace(
+                    server_name="calendar_mcp_server",
+                    _httpx_auth=auth_adapter,
+                )
+
+            async def acall(self, tool_args):
+                assert auth_adapter._daedalus_user_auth_callback is callback
+                return "ok"
+
+        context_module = types.ModuleType("nat.builder.context")
+        context_module.Context = FakeContext
+        client_module = types.ModuleType("nat.plugins.mcp.client.client_base")
+        client_module.MCPToolClient = FakeMCPToolClient
+        for module_name in (
+            "nat",
+            "nat.builder",
+            "nat.plugins",
+            "nat.plugins.mcp",
+            "nat.plugins.mcp.client",
+        ):
+            module = types.ModuleType(module_name)
+            module.__path__ = []
+            monkeypatch.setitem(sys.modules, module_name, module)
+        monkeypatch.setitem(sys.modules, "nat.builder.context", context_module)
+        monkeypatch.setitem(
+            sys.modules,
+            "nat.plugins.mcp.client.client_base",
+            client_module,
+        )
+        monkeypatch.setattr(mcp_patches, "_approval_gate_installed", False)
+        monkeypatch.setattr(
+            mcp_patches,
+            "_validate_mcp_approval",
+            lambda *_args, **_kwargs: (True, "read-only"),
+        )
+
+        mcp_patches._patch_tool_client()
+
+        assert run(FakeMCPToolClient().acall({})) == "ok"
+        assert not hasattr(auth_adapter, "_daedalus_user_auth_callback")
 
     @pytest.mark.parametrize(
         "server_name,expected_error,auth_scope",

@@ -233,6 +233,7 @@ _STATIC_MCP_API_KEY_ENVIRONMENTS = {
 }
 
 _PER_USER_MCP_OAUTH_SERVERS = frozenset({"gmail_mcp_server", "calendar_mcp_server"})
+_MISSING_MCP_AUTH_CALLBACK = object()
 
 
 def _bind_configured_mcp_endpoint(
@@ -889,6 +890,104 @@ def _mcp_httpx_auth_for_connection(client):
     return auth
 
 
+def _current_user_authentication_callback():
+    """Return the request-scoped NAT authentication callback when available."""
+    try:
+        from nat.builder.context import Context
+
+        return Context.get().user_auth_callback
+    except (ImportError, RuntimeError):
+        return None
+
+
+async def _call_with_current_mcp_oauth_callback(parent_client, callback, coro):
+    """Carry one request's OAuth callback into a cached MCP transport task.
+
+    NAT's per-user workflow keeps each MCP transport alive across HTTP requests.
+    The transport task therefore retains the contextvars from the request that
+    created it. Bind the current request callback to the per-client AuthAdapter
+    while its tool call is active, and serialize calls through that adapter so
+    another request for the same user cannot replace the binding mid-flow.
+    """
+    auth = getattr(parent_client, "_httpx_auth", None)
+    if auth is None or callback is None:
+        return await coro()
+
+    lock = getattr(parent_client, "_daedalus_oauth_call_lock", None)
+    if lock is None:
+        lock = asyncio.Lock()
+        setattr(parent_client, "_daedalus_oauth_call_lock", lock)
+
+    async with lock:
+        previous = getattr(
+            auth,
+            "_daedalus_user_auth_callback",
+            _MISSING_MCP_AUTH_CALLBACK,
+        )
+        auth._daedalus_user_auth_callback = callback
+        try:
+            return await coro()
+        finally:
+            if previous is _MISSING_MCP_AUTH_CALLBACK:
+                if hasattr(auth, "_daedalus_user_auth_callback"):
+                    delattr(auth, "_daedalus_user_auth_callback")
+            else:
+                auth._daedalus_user_auth_callback = previous
+
+
+def _patch_mcp_auth_context_propagation():
+    """Teach NAT's AuthAdapter to use the callback bound by the tool caller."""
+    try:
+        import functools
+
+        from nat.builder.context import Context
+        from nat.plugins.mcp.client.client_base import AuthAdapter
+
+        original_get_auth_headers = AuthAdapter._get_auth_headers
+        if getattr(
+            original_get_auth_headers,
+            "_daedalus_oauth_context_wrapper",
+            False,
+        ):
+            return
+
+        signature = inspect.signature(original_get_auth_headers)
+        if list(signature.parameters) != ["self", "request", "response"]:
+            raise RuntimeError(
+                "Unexpected AuthAdapter._get_auth_headers signature: " f"{signature}"
+            )
+
+        @functools.wraps(original_get_auth_headers)
+        async def wrapped(self, request=None, response=None):
+            callback = getattr(self, "_daedalus_user_auth_callback", None)
+            if callback is None:
+                return await original_get_auth_headers(
+                    self,
+                    request=request,
+                    response=response,
+                )
+
+            # The HTTP request is executed by the cached transport task, whose
+            # context otherwise points at the request that created the client.
+            with Context.scope(user_auth_callback=callback):
+                return await original_get_auth_headers(
+                    self,
+                    request=request,
+                    response=response,
+                )
+
+        wrapped._daedalus_oauth_context_wrapper = True
+        AuthAdapter._get_auth_headers = wrapped
+        logger.info("MCP AuthAdapter request-context propagation patch applied")
+    except ImportError as exc:
+        logger.warning("Could not patch MCP AuthAdapter context propagation: %s", exc)
+    except Exception as exc:
+        logger.warning(
+            "Unexpected error patching MCP AuthAdapter context propagation: %s",
+            exc,
+        )
+
+
 def _is_missing_function_reference_error(exc) -> bool:
     if not isinstance(exc, ValueError):
         return False
@@ -1234,6 +1333,10 @@ def patch(config_path: str | os.PathLike[str] | None = None):
     except Exception as exc:
         logger.warning("Unexpected error patching MCP client: %s", exc)
 
+    # Cached per-user MCP transports run in the context of the request that
+    # created them. Propagate each later request's OAuth callback explicitly.
+    _patch_mcp_auth_context_propagation()
+
     # Patch MCPToolClient to add the approval gate + diagnostic logging, then
     # fail closed if the security gate did not attach to an available MCP client.
     _patch_tool_client()
@@ -1312,43 +1415,60 @@ def _patch_tool_client():
                 tool_name,
             )
             try:
-                # A mutation that timed out after the server committed is
-                # ambiguous and must never be replayed automatically. NAT's
-                # parent call_tool normally reconnects and invokes the same
-                # coroutine again. Suppress that replay for both explicitly
-                # approved and unrestricted mutations, then restore the
-                # configured behavior.
+
+                async def invoke_original():
+                    # A mutation that timed out after the server committed is
+                    # ambiguous and must never be replayed automatically. NAT's
+                    # parent call_tool normally reconnects and invokes the same
+                    # coroutine again. Suppress that replay for both explicitly
+                    # approved and unrestricted mutations, then restore the
+                    # configured behavior.
+                    if (
+                        approval_reason
+                        in {
+                            "approved",
+                            _UNRESTRICTED_MUTATION_APPROVAL_REASON,
+                        }
+                        and parent_client is not None
+                    ):
+                        mutation_lock = getattr(
+                            parent_client, "_daedalus_mutation_lock", None
+                        )
+                        if mutation_lock is None:
+                            mutation_lock = asyncio.Lock()
+                            setattr(
+                                parent_client,
+                                "_daedalus_mutation_lock",
+                                mutation_lock,
+                            )
+                        async with mutation_lock:
+                            reconnect_enabled = getattr(
+                                parent_client, "_reconnect_enabled", None
+                            )
+                            if reconnect_enabled is not None:
+                                parent_client._reconnect_enabled = False
+                            try:
+                                return await original_fn(self, tool_args)
+                            finally:
+                                if reconnect_enabled is not None:
+                                    parent_client._reconnect_enabled = reconnect_enabled
+                    return await original_fn(self, tool_args)
+
+                # The cached Google transports have the same context-boundary
+                # problem even for read-only calls. Bind the current request's
+                # callback until the tool either completes or the OAuth redirect
+                # resumes it.
                 if (
-                    approval_reason
-                    in {
-                        "approved",
-                        _UNRESTRICTED_MUTATION_APPROVAL_REASON,
-                    }
+                    server_name in _PER_USER_MCP_OAUTH_SERVERS
                     and parent_client is not None
                 ):
-                    mutation_lock = getattr(
-                        parent_client, "_daedalus_mutation_lock", None
+                    result = await _call_with_current_mcp_oauth_callback(
+                        parent_client,
+                        _current_user_authentication_callback(),
+                        invoke_original,
                     )
-                    if mutation_lock is None:
-                        mutation_lock = asyncio.Lock()
-                        setattr(
-                            parent_client,
-                            "_daedalus_mutation_lock",
-                            mutation_lock,
-                        )
-                    async with mutation_lock:
-                        reconnect_enabled = getattr(
-                            parent_client, "_reconnect_enabled", None
-                        )
-                        if reconnect_enabled is not None:
-                            parent_client._reconnect_enabled = False
-                        try:
-                            result = await original_fn(self, tool_args)
-                        finally:
-                            if reconnect_enabled is not None:
-                                parent_client._reconnect_enabled = reconnect_enabled
                 else:
-                    result = await original_fn(self, tool_args)
+                    result = await invoke_original()
                 if _mcp_result_is_error(result):
                     # Pinned NAT converts CallToolResult(isError=True) into this
                     # normal-looking string return. It is not a successful call
