@@ -58,7 +58,7 @@ router = APIRouter(prefix="/v1/images", tags=["images"])
 _PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 _JPEG_SIGNATURE = b"\xff\xd8\xff"
 _OPENAI_MAX_EDIT_IMAGE_BYTES = 50 * 1024 * 1024
-_OPENAI_MAX_MASK_BYTES = 4 * 1024 * 1024
+_OPENAI_MAX_MASK_BYTES = 50 * 1024 * 1024
 
 
 def _png_metadata(image_bytes: bytes) -> tuple[int, int, bool] | None:
@@ -552,7 +552,7 @@ async def edit(
         if len(mask_bytes) >= _OPENAI_MAX_MASK_BYTES:
             raise HTTPException(
                 status_code=400,
-                detail="mask: PNG mask must be less than 4MB",
+                detail="mask: PNG mask must be less than 50MB",
             )
         mask_error = _mask_validation_error(source_files[0][1], mask_bytes)
         if mask_error:

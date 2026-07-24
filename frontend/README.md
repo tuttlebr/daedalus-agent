@@ -98,11 +98,13 @@ Secrets. Browser-visible `NEXT_PUBLIC_*` limits are compiled into the bundle.
 | `NEXT_PUBLIC_WEBSOCKET_URL`, `WS_*`                     | Browser WebSocket endpoint and sidecar bounds                               |
 | `NEXT_PUBLIC_VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`     | Optional browser push notifications                                         |
 
-Default browser file bounds are 7.5 MiB per image, 75 MiB per video, 200 MiB
-per document, and 10 MiB per transcript. Image and video bounds reserve room
-for their legacy base64 transport. Documents use raw multipart bytes. Server
-routes enforce their own decoded or raw limits, so changing a public limit also
-requires checking the corresponding API and proxy limit.
+Default browser file bounds are 30 MiB per image, 75 MiB per video, 200 MiB
+per document, and 10 MiB per transcript. Image limits use the actual raw file
+size, and edit derivatives preserve the source's full pixel dimensions; the
+image route reserves separate parser/proxy room for base64 JSON framing. Video
+keeps a client-side overhead reservation, while documents use raw multipart
+bytes. Server routes enforce their own decoded or raw limits, so changing a
+public limit also requires checking the corresponding API and proxy limit.
 
 Document objects are temporary. Configure the selected bucket with lifecycle
 expiration for `DOCUMENT_OBJECT_PREFIX` whose retention matches

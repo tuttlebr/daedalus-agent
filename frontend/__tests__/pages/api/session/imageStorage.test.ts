@@ -49,6 +49,25 @@ describe('/api/session/imageStorage', () => {
     });
   });
 
+  it('uses a 41 MiB parser ceiling for a 30 MiB base64 image request', async () => {
+    const { config } = await import('@/pages/api/session/imageStorage');
+
+    expect(config.api.bodyParser.sizeLimit).toBe('41mb');
+  });
+
+  it('accepts exactly 30 MiB and rejects the next raw byte', async () => {
+    const { MAX_IMAGE_UPLOAD_SIZE_BYTES, assertImageUploadSize } = await import(
+      '@/pages/api/session/imageStorage'
+    );
+
+    expect(() =>
+      assertImageUploadSize(MAX_IMAGE_UPLOAD_SIZE_BYTES),
+    ).not.toThrow();
+    expect(() =>
+      assertImageUploadSize(MAX_IMAGE_UPLOAD_SIZE_BYTES + 1),
+    ).toThrow('Image exceeds the 30 MB upload limit');
+  });
+
   it('decodes HEIC pixels into a real single-frame Image API JPEG', async () => {
     const { storeImage } = await import('@/pages/api/session/imageStorage');
     const original = heicHeader();
@@ -165,6 +184,7 @@ describe('/api/session/imageStorage', () => {
     const editBytes = Buffer.from(savedImage.editData, 'base64');
     const editMetadata = await sharp(editBytes).metadata();
     expect(savedImage.data).toBe(original.toString('base64'));
+    expect(savedImage.size).toBe(original.length);
     expect(savedImage.editMimeType).toBe('image/jpeg');
     expect(editBytes.subarray(0, 3)).toEqual(Buffer.from([0xff, 0xd8, 0xff]));
     expect(editMetadata.orientation).toBeUndefined();

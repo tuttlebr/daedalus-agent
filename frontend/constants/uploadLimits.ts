@@ -1,11 +1,12 @@
 /**
  * Centralized upload limits for file uploads.
  *
- * Image and video limits account for their legacy base64 transport overhead.
- * Documents stream as multipart bytes, so their client and server limits match.
+ * Image and document limits are expressed as the actual uploaded file size.
+ * The image route reserves base64/JSON overhead separately in its parser and
+ * proxy limits. Video retains its legacy client-side overhead reservation.
  *
- * Default raw limits before base64 overhead:
- * - Image: 10MB
+ * Default raw limits:
+ * - Image: 30MB
  * - Video: 100MB
  * - Document: 200MB
  * - Transcript: 10MB
@@ -71,21 +72,21 @@ function bytesToDisplayMb(bytes: number): number {
   return Math.floor(bytes / MB);
 }
 
-// Base64 encoding increases size by ~33% (4/3 ratio). To ensure encoded data
-// fits within server limits, the default client-side file size is 75% of the
-// configured raw server-side limit.
+// Base64 encoding increases size by ~33% (4/3 ratio). The legacy video route
+// still uses this client-side reservation. The image route has a dedicated
+// parser/proxy ceiling, so its public limit remains the actual raw file size.
 const BASE64_OVERHEAD_FACTOR = positiveNumberFromEnv(
   ['NEXT_PUBLIC_UPLOAD_BASE64_OVERHEAD_FACTOR'],
   0.75,
 );
 
 // Server-side limits (raw)
-// imageStorage has a fixed 10 MiB decoded-image ceiling. Never let a public
+// imageStorage has a fixed 30 MiB decoded-image ceiling. Never let a public
 // build-time override advertise more than that route can accept.
-const IMAGE_ROUTE_RAW_LIMIT = 10 * MB;
+const IMAGE_ROUTE_RAW_LIMIT = 30 * MB;
 const SERVER_IMAGE_LIMIT = Math.min(
   mbToBytes(
-    positiveNumberFromEnv(['NEXT_PUBLIC_UPLOAD_IMAGE_SERVER_LIMIT_MB'], 10),
+    positiveNumberFromEnv(['NEXT_PUBLIC_UPLOAD_IMAGE_SERVER_LIMIT_MB'], 30),
   ),
   IMAGE_ROUTE_RAW_LIMIT,
 );
@@ -97,9 +98,7 @@ const SERVER_DOCUMENT_LIMIT = mbToBytes(
 );
 const TRANSCRIPT_ROUTE_RAW_LIMIT = 10 * MB;
 
-const IMAGE_MAX_SIZE_BYTES = Math.floor(
-  SERVER_IMAGE_LIMIT * BASE64_OVERHEAD_FACTOR,
-);
+const IMAGE_MAX_SIZE_BYTES = SERVER_IMAGE_LIMIT;
 const VIDEO_MAX_SIZE_BYTES = Math.floor(
   SERVER_VIDEO_LIMIT * BASE64_OVERHEAD_FACTOR,
 );
@@ -113,7 +112,8 @@ const TRANSCRIPT_MAX_SIZE_BYTES = Math.min(
 
 /**
  * Client-side upload limits in bytes.
- * Image and video values are conservative to account for base64 overhead.
+ * Image values are raw file sizes; the image route accounts for JSON/base64
+ * framing independently. Video remains conservative for its legacy transport.
  */
 export const UPLOAD_LIMITS = {
   // Image limits

@@ -10,6 +10,7 @@ import { IconButton, Popover } from '@/components/primitives';
 
 import { DockIconTrigger } from './PresetsPopover';
 
+import { validateFileSize } from '@/constants/uploadLimits';
 import { useImagePanelStore, type ImageRef } from '@/state/imagePanelStore';
 import classNames from 'classnames';
 
@@ -234,10 +235,24 @@ function InputsSection({
         setError(`Maximum ${MAX_INPUTS} images`);
         return;
       }
+      const validated = accepted.map((file) => ({
+        file,
+        validation: validateFileSize(file, 'image'),
+      }));
+      const validFiles = validated
+        .filter(({ validation }) => validation.valid)
+        .map(({ file }) => file);
+      const firstSizeError = validated.find(
+        ({ validation }) => !validation.valid,
+      )?.validation.error;
+      if (validFiles.length === 0) {
+        setError(firstSizeError ?? 'Image exceeds the upload limit.');
+        return;
+      }
       setUploading(true);
       try {
         const results = await Promise.allSettled(
-          accepted.map(async (file) =>
+          validFiles.map(async (file) =>
             ingest(file, await safeReadImageFileMetadata(file)),
           ),
         );
@@ -253,6 +268,8 @@ function InputsSection({
           setError(
             `${failures} image${failures === 1 ? '' : 's'} failed to upload.`,
           );
+        } else if (firstSizeError) {
+          setError(firstSizeError);
         } else if (files.length > accepted.length) {
           setError(`Added ${accepted.length}; maximum ${MAX_INPUTS} images.`);
         }
@@ -332,7 +349,7 @@ function InputsSection({
       </button>
       <p className="text-[10px] text-neutral-500 mt-2 leading-relaxed">
         Reference uploaded images in your prompt as Image&nbsp;1, Image&nbsp;2,
-        …
+        … Up to 30 MB each; full resolution is preserved.
       </p>
 
       {error && <p className="text-xs text-red-400 mt-2">{error}</p>}
@@ -364,6 +381,12 @@ function MaskSection({
       setError(null);
       setUploading(true);
       try {
+        const validation = validateFileSize(file, 'image');
+        if (!validation.valid) {
+          throw new Error(
+            validation.error ?? 'Image exceeds the upload limit.',
+          );
+        }
         const metadata = await readImageFileMetadata(file);
         if (file.type !== 'image/png') {
           throw new Error('Use a PNG mask with transparent pixels.');

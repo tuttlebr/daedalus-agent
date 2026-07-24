@@ -19,14 +19,14 @@ import sharp from 'sharp';
 export const config = {
   api: {
     bodyParser: {
-      // A 10 MiB decoded image needs about 13.34 MiB as base64 JSON.
-      sizeLimit: '14mb',
+      // A 30 MiB image needs 40 MiB as base64 plus bounded JSON framing.
+      sizeLimit: '41mb',
     },
   },
 };
 
 const IMAGE_EXPIRY_SECONDS = 60 * 60 * 24 * 7; // 7 days
-const MAX_IMAGE_SIZE = 10 * 1024 * 1024; // 10MB limit
+export const MAX_IMAGE_UPLOAD_SIZE_BYTES = 30 * 1024 * 1024;
 const THUMBNAIL_MAX_SIZE = 400; // Max dimension for thumbnails
 const THUMBNAIL_QUALITY = 80; // JPEG quality for thumbnails
 const VLM_MAX_DIMENSION = 4096; // Cap oversized uploads before VLM ingestion
@@ -60,6 +60,19 @@ class UnsupportedImageError extends Error {
   constructor(message: string) {
     super(message);
     this.name = 'UnsupportedImageError';
+  }
+}
+
+class ImageUploadTooLargeError extends Error {
+  constructor() {
+    super('Image exceeds the 30 MB upload limit.');
+    this.name = 'ImageUploadTooLargeError';
+  }
+}
+
+export function assertImageUploadSize(size: number): void {
+  if (size > MAX_IMAGE_UPLOAD_SIZE_BYTES) {
+    throw new ImageUploadTooLargeError();
   }
 }
 
@@ -233,6 +246,7 @@ async function processImage(
     '',
   );
   const buffer = Buffer.from(cleanBase64, 'base64');
+  assertImageUploadSize(buffer.length);
 
   const claimsHeicMimeType = /^image\/hei[cf]$/i.test(mimeType);
   const hasHeicBrand = hasHeicOrHeifBrand(buffer);
@@ -360,10 +374,6 @@ export async function storeImage(
 
   // Preserve the display image and build API/VLM-safe derivatives.
   const processed = await processImage(base64Data, mimeType);
-
-  if (processed.size > MAX_IMAGE_SIZE) {
-    throw new Error('Image size exceeds maximum allowed size');
-  }
 
   const imageData: StoredImage = {
     id: imageId,
@@ -597,10 +607,7 @@ export default async function handler(
       if (error instanceof UnsupportedImageError) {
         return res.status(415).json({ error: error.message });
       }
-      if (
-        error instanceof Error &&
-        error.message.includes('Image size exceeds maximum allowed size')
-      ) {
+      if (error instanceof ImageUploadTooLargeError) {
         return res.status(413).json({ error: error.message });
       }
       return res.status(500).json({ error: 'Failed to store image' });

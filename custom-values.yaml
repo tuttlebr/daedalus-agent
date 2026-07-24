@@ -221,7 +221,7 @@ nginx:
     clientMaxBodySize: '32M'
     documentUploadMaxBodySize: '201M'
     videoUploadMaxBodySize: '150M'
-    imageUploadMaxBodySize: '14M'
+    imageUploadMaxBodySize: '41M'
     transcriptUploadMaxBodySize: '15M'
     # If useTemplate is false, rawConf is used
     rawConf: |

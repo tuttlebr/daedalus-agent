@@ -320,7 +320,7 @@ nginx:
     clientMaxBodySize: '32M' # Default hard ceiling for normal JSON requests
     documentUploadMaxBodySize: '201M' # 200 MiB raw file plus bounded multipart framing
     videoUploadMaxBodySize: '150M' # Legacy base64 route parser ceiling
-    imageUploadMaxBodySize: '14M' # Legacy base64 route parser ceiling
+    imageUploadMaxBodySize: '41M' # 30 MiB raw image plus base64/JSON framing
     transcriptUploadMaxBodySize: '15M' # Transcript route parser ceiling
     # If useTemplate is false, rawConf is used
     rawConf: |

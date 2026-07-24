@@ -13,6 +13,7 @@ if str(_BUILDER_ROOT) not in sys.path:
 import nat_helpers.internal_auth as internal_auth  # noqa: E402
 import pytest  # noqa: E402  (path tweak must precede these imports)
 from image_api import (  # noqa: E402
+    _OPENAI_MAX_MASK_BYTES,
     EditRequest,
     GenerateRequest,
     ImageRef,
@@ -195,6 +196,9 @@ def _png(width: int, height: int, color_type: int) -> bytes:
 
 
 class TestEditMaskPreflight:
+    def test_uses_current_openai_50_mb_mask_boundary(self):
+        assert _OPENAI_MAX_MASK_BYTES == 50 * 1024 * 1024
+
     def test_accepts_same_size_png_with_alpha_mask(self):
         source = _png(1024, 768, color_type=2)
         mask = _png(1024, 768, color_type=6)
