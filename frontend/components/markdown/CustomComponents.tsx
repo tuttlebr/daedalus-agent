@@ -1,5 +1,6 @@
 import { Children, memo, useMemo } from 'react';
 
+import { isSandboxArtifactDownloadUrl } from '@/utils/app/sandboxArtifactDownload';
 import { isEqual } from '@/utils/data/isEqual';
 import { Logger } from '@/utils/logger';
 
@@ -8,6 +9,7 @@ import { LazyChart } from '@/components/markdown/LazyChart';
 import { LazyCodeBlock } from '@/components/markdown/LazyCodeBlock';
 import { LazyMermaidChart } from '@/components/markdown/LazyMermaidChart';
 import { LazySearchResults } from '@/components/markdown/LazySearchResults';
+import { SandboxArtifactLink } from '@/components/markdown/SandboxArtifactLink';
 import { Video } from '@/components/markdown/Video';
 
 const logger = new Logger('CustomComponents');
@@ -206,23 +208,39 @@ export const getReactMarkDownCustomComponents = (
       ),
 
       a: memo(
-        ({ href, children, ...props }: MarkdownComponentProps) => (
-          // react-markdown sets target="_blank" (linkTarget) but never rel —
-          // force rel after {...props} to prevent reverse-tabnabbing on
-          // model/tool-generated links (F-022).
-          <a
-            href={href}
-            className="text-nvidia-green dark:text-nvidia-green-bright no-underline hover:underline font-medium transition-colors"
-            {...props}
-            rel="noopener noreferrer"
-          >
-            {children}
-          </a>
-        ),
+        ({ href, children, node: _node, ...props }: MarkdownComponentProps) => {
+          const className =
+            'text-nvidia-green dark:text-nvidia-green-bright no-underline hover:underline font-medium transition-colors';
+
+          if (href && isSandboxArtifactDownloadUrl(href)) {
+            return (
+              <SandboxArtifactLink href={href} className={className} {...props}>
+                {children}
+              </SandboxArtifactLink>
+            );
+          }
+
+          return (
+            // react-markdown sets target="_blank" (linkTarget) but never rel —
+            // force rel after {...props} to prevent reverse-tabnabbing on
+            // model/tool-generated links (F-022).
+            <a
+              href={href}
+              className={className}
+              {...props}
+              rel="noopener noreferrer"
+            >
+              {children}
+            </a>
+          );
+        },
         (
           prevProps: MarkdownComponentProps,
           nextProps: MarkdownComponentProps,
-        ) => isEqual(prevProps.children, nextProps.children),
+        ) =>
+          prevProps.href === nextProps.href &&
+          prevProps.target === nextProps.target &&
+          isEqual(prevProps.children, nextProps.children),
       ),
 
       li: memo(

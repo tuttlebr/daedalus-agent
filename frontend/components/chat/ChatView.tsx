@@ -23,6 +23,7 @@ import {
   oauthPromptsFromStatus,
   withoutOAuthPromptsForConversation,
 } from '@/utils/app/oauthPrompts';
+import { applyStreamingContentDelta } from '@/utils/app/streamingContent';
 
 import { Message } from '@/types/chat';
 import {
@@ -114,20 +115,6 @@ function getCompactActivityText(step: IntermediateStep): string {
   } catch {
     return 'Working';
   }
-}
-
-function appendStreamingContent(currentContent: string, delta: string): string {
-  if (!delta) return currentContent;
-  if (!currentContent) return delta;
-
-  const maxOverlap = Math.min(currentContent.length, delta.length);
-  for (let overlap = maxOverlap; overlap > 0; overlap -= 1) {
-    if (currentContent.endsWith(delta.slice(0, overlap))) {
-      return `${currentContent}${delta.slice(overlap)}`;
-    }
-  }
-
-  return `${currentContent}${delta}`;
 }
 
 function isSameOAuthServicePrompt(
@@ -484,6 +471,7 @@ export const ChatView = memo(() => {
         conversationId?: string;
         jobId?: string;
         content?: string;
+        responseStart?: number;
         assistantMessageId?: string;
         intermediateSteps?: IntermediateStep[];
       }) => {
@@ -508,7 +496,11 @@ export const ChatView = memo(() => {
         updateAssistantMessage(
           convId,
           {
-            content: appendStreamingContent(currentContent, event.content),
+            content: applyStreamingContentDelta(
+              currentContent,
+              event.content,
+              event.responseStart,
+            ),
             ...(event.intermediateSteps
               ? { intermediateSteps: event.intermediateSteps }
               : {}),

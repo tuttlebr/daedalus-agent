@@ -53,6 +53,7 @@ export type ServerMessage =
       turnId?: string;
       assistantMessageId?: string;
       content: string;
+      responseStart?: number;
       intermediateSteps?: any[];
     }
   | {

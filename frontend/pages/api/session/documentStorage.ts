@@ -399,6 +399,10 @@ async function handleGet(
   currentSessionId: string,
   userId: string,
 ) {
+  // A miss must never be cached: sandbox publication and a user's first click
+  // can be close together, and Safari otherwise revalidates the transient 404
+  // as a 304. Successful downloads replace this with their private cache rule.
+  res.setHeader('Cache-Control', 'private, no-store');
   const documentId = assertRefId(req.query.documentId, 'document ID');
   const targetSessionId =
     req.query.sessionId === undefined

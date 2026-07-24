@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 
 import { getWebSocketManager } from '@/services/websocket';
 
+import { applyStreamingContentDelta } from '@/utils/app/streamingContent';
 import { shouldRunExpensiveOperation } from '@/utils/app/visibilityAwareTimer';
 import { fetchWithTimeout, FetchTimeoutError } from '@/utils/fetchWithTimeout';
 import { Logger } from '@/utils/logger';
@@ -73,6 +74,7 @@ interface ChatTokenEvent {
   turnId?: string;
   assistantMessageId?: string;
   content: string;
+  responseStart?: number;
   intermediateSteps?: any[];
 }
 
@@ -226,20 +228,6 @@ const clearPersistedJobs = (userId: string, conversationId?: string) => {
     logger.error('Failed to clear persisted jobs', error);
   }
 };
-
-function appendStreamDelta(currentText: string, delta: string): string {
-  if (!delta) return currentText;
-  if (!currentText) return delta;
-
-  const maxOverlap = Math.min(currentText.length, delta.length);
-  for (let overlap = maxOverlap; overlap > 0; overlap -= 1) {
-    if (currentText.endsWith(delta.slice(0, overlap))) {
-      return `${currentText}${delta.slice(overlap)}`;
-    }
-  }
-
-  return `${currentText}${delta}`;
-}
 
 export const useAsyncChat = (
   options: UseAsyncChatOptions = {},
@@ -395,9 +383,10 @@ export const useAsyncChat = (
       lastWsEventByJobRef.current[event.jobId] = Date.now();
 
       const current = jobStatusByJobIdRef.current[event.jobId];
-      const partialResponse = appendStreamDelta(
+      const partialResponse = applyStreamingContentDelta(
         current?.partialResponse || '',
         event.content || '',
+        event.responseStart,
       );
       updateLiveStatus(
         event.jobId,

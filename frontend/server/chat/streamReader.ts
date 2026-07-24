@@ -506,6 +506,7 @@ export async function startBackgroundStreamReader(
               partialResponse,
             );
             if (content && typeof content === 'string') {
+              const responseStart = partialResponse.length;
               partialResponse += content;
               pendingResponseDelta += content;
               if (DEBUG_REPLAY_ENABLED) {
@@ -532,6 +533,7 @@ export async function startBackgroundStreamReader(
                       turnId: jobRequest.turnId,
                       assistantMessageId: jobRequest.assistantMessageId,
                       content,
+                      responseStart,
                     }),
                   )
                   .catch(() => {});

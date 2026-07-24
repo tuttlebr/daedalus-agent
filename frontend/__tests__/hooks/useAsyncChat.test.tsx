@@ -251,6 +251,7 @@ describe('useAsyncChat streaming callbacks', () => {
         turnId: 'turn-1',
         assistantMessageId: 'assistant-1',
         content: 'Hel',
+        responseStart: 0,
       });
     });
 
@@ -281,6 +282,7 @@ describe('useAsyncChat streaming callbacks', () => {
         turnId: 'turn-1',
         assistantMessageId: 'assistant-1',
         content: 'lo',
+        responseStart: 3,
       });
     });
 

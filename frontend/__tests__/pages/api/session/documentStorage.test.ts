@@ -344,7 +344,29 @@ describe('/api/session/documentStorage', () => {
       'Content-Length',
       String(payload.length),
     );
+    expect(res.setHeader).toHaveBeenCalledWith(
+      'Cache-Control',
+      'private, max-age=3600',
+    );
     expect(res.send).not.toHaveBeenCalled();
+  });
+
+  it('prevents browsers from caching a transient missing-document response', async () => {
+    mocks.jsonGet.mockResolvedValue(null);
+    const req = {
+      method: 'GET',
+      headers: {},
+      query: { documentId: 'doc-1', sessionId: 'sandbox-session-1' },
+    } as any;
+    const res = response();
+
+    await handler(req, res);
+
+    expect(res.setHeader).toHaveBeenCalledWith(
+      'Cache-Control',
+      'private, no-store',
+    );
+    expect(res.status).toHaveBeenCalledWith(404);
   });
 
   it('keeps explicit read compatibility for legacy base64 records', async () => {
