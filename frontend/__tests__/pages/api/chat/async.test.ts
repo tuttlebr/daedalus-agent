@@ -189,10 +189,13 @@ describe('chat/async backend pinning helpers', () => {
         'testuser',
         { 'Content-Type': 'application/json' },
         'job-session-123',
+        undefined,
+        'conversation-123',
       ),
     ).toEqual({
       'Content-Type': 'application/json',
       'x-user-id': 'testuser',
+      'x-conversation-id': 'conversation-123',
       'x-timezone': 'America/New_York',
       Cookie: 'nat-session=job-session-123',
     });
@@ -210,6 +213,18 @@ describe('chat/async backend pinning helpers', () => {
       'x-timezone': 'Europe/London',
       Cookie: 'nat-session=testuser',
     });
+  });
+
+  it('omits invalid conversation workspace scopes from backend headers', () => {
+    expect(
+      buildNatRequestHeaders(
+        'testuser',
+        {},
+        undefined,
+        undefined,
+        'not/a/safe/scope',
+      ),
+    ).not.toHaveProperty('x-conversation-id');
   });
 
   it('adds the internal API token to backend requests when configured', () => {

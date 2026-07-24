@@ -19,18 +19,42 @@ Execute with JSON:
 }
 ```
 
-The response includes `requestId`, `exitCode`, `stdout`, `stderr`, `durationMs`, `timedOut`, and `truncated`. HTTP 4xx means the request or command policy was rejected; HTTP 5xx is service/transport failure.
+For a multi-step file task, use a trusted, opaque conversation scope and
+structured file staging:
+
+```json
+{
+  "workspaceId": "sha256-of-trusted-user-and-conversation",
+  "argv": ["true"],
+  "files": [
+    {
+      "path": "guide.html",
+      "content": "<!doctype html>",
+      "append": false
+    }
+  ],
+  "collect": ["guide.html"]
+}
+```
+
+The response includes `requestId`, `exitCode`, `stdout`, `stderr`,
+`durationMs`, `timedOut`, `truncated`, `workspacePersisted`, `files`, and
+`missingFiles`. HTTP 4xx means the request or command policy was rejected; HTTP
+5xx is service/transport failure.
 
 ## Adapter pseudocode
 
 ```python
-async def sandbox_tool(command, timeout=20):
+async def sandbox_tool(command, timeout=20, trusted_workspace_id=None):
     if not discovered:
         await discover_commands()
+    payload = {"command": command, "timeoutSeconds": min(timeout, 60)}
+    if trusted_workspace_id:
+        payload["workspaceId"] = trusted_workspace_id
     result = await http.post(
         f"{url}/v1/execute",
         headers={"Authorization": f"Bearer {token}"},
-        json={"command": command, "timeoutSeconds": min(timeout, 60)},
+        json=payload,
         timeout=timeout + 5,
     )
     if result.status in (502, 503, 504):
@@ -46,4 +70,9 @@ async def sandbox_tool(command, timeout=20):
     )
 ```
 
-Do not expose the token through tool metadata. If a command needs multiple stages, issue separate requests and pass only the intended artifact or text between stages.
+Do not expose the token or raw identity through tool metadata. Requests without
+`workspaceId` are deleted immediately. For a multi-stage task, derive
+`workspaceId` from trusted user and conversation context, reuse it across
+calls, and use `files`/`collect` instead of shell here-documents. Treat the
+workspace as temporary: it expires after an idle TTL and disappears when its
+pod is replaced.

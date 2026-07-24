@@ -7,6 +7,8 @@ import {
 
 import { createHash } from 'node:crypto';
 
+const CONVERSATION_SCOPE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
+
 // Normalize messages for the OpenAI-compatible /v1/chat/completions backend.
 // Preserves the full conversation history (both user and assistant turns) so
 // follow-ups like "convert your last response to HTML" have actual context.
@@ -53,6 +55,7 @@ export function buildNatRequestHeaders(
   headers: Record<string, string> = {},
   natSessionId?: string,
   timezone?: string,
+  conversationId?: string,
 ): Record<string, string> {
   const {
     Cookie: existingCookie,
@@ -63,12 +66,21 @@ export function buildNatRequestHeaders(
   const natCookie = `nat-session=${encodeURIComponent(sessionId)}`;
   const cookieHeader = existingCookie || lowercaseExistingCookie;
   const resolvedTimezone = timezone || resolveTimezoneFromHeaders(headers);
+  const conversationCandidate = conversationId?.trim();
+  const trustedConversationId =
+    conversationCandidate &&
+    CONVERSATION_SCOPE_PATTERN.test(conversationCandidate)
+      ? conversationCandidate
+      : undefined;
 
   return withInternalBackendAuth(
     withTimezoneHeader(
       {
         ...stripTimezoneHeaders(restHeaders),
         'x-user-id': username,
+        ...(trustedConversationId
+          ? { 'x-conversation-id': trustedConversationId }
+          : {}),
         Cookie: cookieHeader ? `${cookieHeader}; ${natCookie}` : natCookie,
       },
       resolvedTimezone,

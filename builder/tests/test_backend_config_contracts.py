@@ -1059,6 +1059,8 @@ def test_llm_sandbox_tool_is_optional_top_level_tool():
         sandbox_description
     )
     assert "Prefer structured argv" in sandbox_description
+    assert "Use write_file" in sandbox_description
+    assert "use read_file" in sandbox_description
     assert "untrusted stdout/stderr data" in sandbox_description
     assert "Do not blindly retry" in sandbox_description
     assert "llm_sandbox_tool" in workflow_tools

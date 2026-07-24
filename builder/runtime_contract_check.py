@@ -194,7 +194,12 @@ def main() -> None:
                 raise RuntimeError("LLM sandbox tool input schema is incomplete")
             schema = function_info.input_schema.model_json_schema()
             operation = schema.get("properties", {}).get("operation", {})
-            if operation.get("enum") != ["list_commands", "execute"]:
+            if operation.get("enum") != [
+                "list_commands",
+                "execute",
+                "write_file",
+                "read_file",
+            ]:
                 raise RuntimeError("LLM sandbox operation schema is incorrect")
 
     asyncio.run(assert_llm_sandbox_schema_contract())

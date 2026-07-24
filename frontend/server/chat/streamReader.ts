@@ -273,6 +273,7 @@ export async function startBackgroundStreamReader(
         { 'Content-Type': 'application/json' },
         jobRequest.natSessionId,
         jobRequest.timezone,
+        jobRequest.conversationId,
       ),
       body: JSON.stringify(payload),
       signal: abortController.signal,

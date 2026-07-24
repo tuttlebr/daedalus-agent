@@ -1,6 +1,8 @@
 """Tests for the policy-aware LLM sandbox tool."""
 
 import asyncio
+import base64
+import hashlib
 import json
 from unittest.mock import MagicMock, patch
 
@@ -57,22 +59,36 @@ def ready_response(status_code=200):
 
 
 def capability_response(
-    *, commands=None, max_timeout=60, shell_enabled=True, status_code=200
+    *,
+    commands=None,
+    max_timeout=60,
+    shell_enabled=True,
+    status_code=200,
+    workspace_persistence=False,
 ):
+    data = {
+        "isolation": "bubblewrap",
+        "networkMode": "isolated",
+        "shellEnabled": shell_enabled,
+        "stateless": True,
+        "path": "/usr/local/bin:/usr/bin:/bin",
+        "commands": commands or ["cat", "jq", "printf"],
+        "limits": {
+            "defaultTimeoutSeconds": 30,
+            "maxTimeoutSeconds": max_timeout,
+            "inputBytes": 6_291_456,
+        },
+    }
+    if workspace_persistence:
+        data["workspacePersistence"] = {
+            "supported": True,
+            "mode": "opt-in",
+            "storage": "pod-local",
+            "ttlSeconds": 3600,
+        }
     return FakeResponse(
         status_code=status_code,
-        data={
-            "isolation": "bubblewrap",
-            "networkMode": "isolated",
-            "shellEnabled": shell_enabled,
-            "stateless": True,
-            "path": "/usr/local/bin:/usr/bin:/bin",
-            "commands": commands or ["cat", "jq", "printf"],
-            "limits": {
-                "defaultTimeoutSeconds": 30,
-                "maxTimeoutSeconds": max_timeout,
-            },
-        },
+        data=data,
     )
 
 
@@ -85,6 +101,9 @@ def execute_response(
     stderr="",
     timed_out=False,
     truncated=False,
+    workspace_persisted=False,
+    files=None,
+    missing_files=None,
 ):
     return FakeResponse(
         status_code=status_code,
@@ -96,6 +115,9 @@ def execute_response(
             "durationMs": 12,
             "timedOut": timed_out,
             "truncated": truncated,
+            "workspacePersisted": workspace_persisted,
+            "files": files or [],
+            "missingFiles": missing_files or [],
         },
     )
 
@@ -136,7 +158,29 @@ def test_registration_uses_complete_explicit_input_schema():
     assert schema.model_json_schema()["properties"]["operation"]["enum"] == [
         "list_commands",
         "execute",
+        "write_file",
+        "read_file",
     ]
+
+
+def test_workspace_id_is_scoped_to_user_and_conversation():
+    from llm_sandbox.llm_sandbox_function import _workspace_id_from_headers
+
+    expected = hashlib.sha256(b"user-a\0conversation-a").hexdigest()
+
+    assert (
+        _workspace_id_from_headers(
+            {"X-User-Id": "user-a", "X-Conversation-Id": "conversation-a"}
+        )
+        == expected
+    )
+    assert (
+        _workspace_id_from_headers(
+            {"x-user-id": "user-b", "x-conversation-id": "conversation-a"}
+        )
+        != expected
+    )
+    assert _workspace_id_from_headers({"x-user-id": "user-a"}) is None
 
 
 def sandbox_config(**overrides):
@@ -263,6 +307,149 @@ def test_execute_prefers_structured_argv_and_posts_service_contract():
     assert post[2]["timeout"] == 70.0
     assert 'Request ID: "req-1"' in output
     assert 'stdout (JSON string): "hello"' in output
+
+
+def test_execute_automatically_scopes_workspace_from_trusted_context():
+    import llm_sandbox.llm_sandbox_function as mod
+
+    async def _run():
+        FakeAsyncClient.responses = [
+            ready_response(),
+            capability_response(),
+            execute_response(workspace_persisted=True),
+        ]
+        with (
+            patch.object(mod.httpx, "AsyncClient", FakeAsyncClient),
+            patch.object(
+                mod,
+                "_workspace_id_from_context",
+                return_value="trusted-workspace-id",
+            ),
+        ):
+            sandbox = await _registered_sandbox_fn(sandbox_config())
+            return await sandbox(argv=["printf", "hello"])
+
+    output = run(_run())
+
+    assert FakeAsyncClient.calls[2][2]["json"]["workspaceId"] == (
+        "trusted-workspace-id"
+    )
+    assert "Conversation workspace persisted: True" in output
+
+
+def test_write_file_uses_staging_contract_without_shell_quoting():
+    import llm_sandbox.llm_sandbox_function as mod
+
+    async def _run():
+        FakeAsyncClient.responses = [
+            ready_response(),
+            capability_response(
+                commands=["printf", "true"],
+                workspace_persistence=True,
+            ),
+            execute_response(workspace_persisted=True),
+        ]
+        with (
+            patch.object(mod.httpx, "AsyncClient", FakeAsyncClient),
+            patch.object(
+                mod,
+                "_workspace_id_from_context",
+                return_value="trusted-workspace-id",
+            ),
+        ):
+            sandbox = await _registered_sandbox_fn(sandbox_config())
+            return await sandbox(
+                operation="write_file",
+                file_path="vera_cpu_guide.html",
+                file_content="<!doctype html><title>Vera</title>",
+                append=True,
+            )
+
+    output = run(_run())
+    payload = FakeAsyncClient.calls[2][2]["json"]
+
+    assert payload == {
+        "argv": ["true"],
+        "files": [
+            {
+                "path": "vera_cpu_guide.html",
+                "content": "<!doctype html><title>Vera</title>",
+                "append": True,
+            }
+        ],
+        "timeoutSeconds": 30,
+        "env": {},
+        "workingDirectory": ".",
+        "workspaceId": "trusted-workspace-id",
+    }
+    assert "Conversation workspace persisted: True" in output
+
+
+def test_read_file_returns_utf8_content_and_rejects_untrusted_context():
+    import llm_sandbox.llm_sandbox_function as mod
+
+    collected = {
+        "path": "vera_cpu_guide.html",
+        "size": 18,
+        "mode": "0644",
+        "contentBase64": base64.b64encode(b"<title>Vera</title>").decode(),
+        "truncated": False,
+    }
+
+    async def _trusted_run():
+        FakeAsyncClient.responses = [
+            ready_response(),
+            capability_response(
+                commands=["cat", "true"],
+                workspace_persistence=True,
+            ),
+            execute_response(
+                workspace_persisted=True,
+                files=[collected],
+            ),
+        ]
+        with (
+            patch.object(mod.httpx, "AsyncClient", FakeAsyncClient),
+            patch.object(
+                mod,
+                "_workspace_id_from_context",
+                return_value="trusted-workspace-id",
+            ),
+        ):
+            sandbox = await _registered_sandbox_fn(sandbox_config())
+            return await sandbox(
+                operation="read_file",
+                file_path="vera_cpu_guide.html",
+            )
+
+    trusted_output = run(_trusted_run())
+    assert FakeAsyncClient.calls[2][2]["json"]["collect"] == ["vera_cpu_guide.html"]
+    assert 'content (UTF-8 JSON string): "<title>Vera</title>"' in trusted_output
+
+    async def _untrusted_run():
+        FakeAsyncClient.responses = [
+            ready_response(),
+            capability_response(
+                commands=["cat", "true"],
+                workspace_persistence=True,
+            ),
+        ]
+        with (
+            patch.object(mod.httpx, "AsyncClient", FakeAsyncClient),
+            patch.object(mod, "_workspace_id_from_context", return_value=None),
+        ):
+            sandbox = await _registered_sandbox_fn(sandbox_config())
+            return await sandbox(
+                operation="read_file",
+                file_path="vera_cpu_guide.html",
+            )
+
+    FakeAsyncClient.calls = []
+    untrusted_output = run(_untrusted_run())
+    assert untrusted_output == (
+        "Error: read_file requires a trusted conversation context."
+    )
+    assert all(path != "/v1/execute" for _, path, _ in FakeAsyncClient.calls)
 
 
 def test_execute_discovers_before_shell_command_and_caches_capabilities():
