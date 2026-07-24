@@ -458,12 +458,20 @@ The frontend includes:
 - Autonomy dashboard for worker status, goals, runs, feed items, and approvals
 - Authentication backed by Redis
 - File attachments for images, documents, and videos
+- Durable, authenticated downloads for files created in the Bubblewrap sandbox
 - Direct document ingestion with streamed progress
 - Doc-to-Markdown: download an entire uploaded document as a Markdown file (`POST /v1/documents/markdown`)
 - Conversation folders, export and import, and search
 - Real-time sync and usage tracking APIs
 - PWA support and offline assets
 - A built-in Help dialog for end users
+
+The sandbox adapter keeps multi-step files in a trusted conversation workspace.
+After the agent verifies a completed file, `publish_file` copies its exact bytes
+to owner-scoped document object storage. The final assistant message receives an
+authenticated `/api/session/documentStorage` link instead of an unreachable
+sandbox-relative path. Published files use the configured document retention
+period and remain subject to the normal authenticated download checks.
 
 For frontend-specific details, see [`frontend/README.md`](frontend/README.md).
 

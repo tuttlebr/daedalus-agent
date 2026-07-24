@@ -34,6 +34,7 @@ export default defineConfig({
         'server/autonomy/store.ts',
         'server/chat/**/*.ts',
         'server/documentObjectStore.ts',
+        'server/sandboxArtifactStore.ts',
         'server/milvusMetadata.ts',
         'server/multipartDocument.ts',
         'server/rateLimit.ts',

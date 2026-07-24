@@ -1951,6 +1951,63 @@ describe('chat/async streaming + finalize (characterization)', () => {
     ).toBe(true);
   });
 
+  it('replaces a published sandbox-relative file link with its authenticated UI download', async () => {
+    const artifact = {
+      version: 1,
+      documentId: 'document-1',
+      sessionId: 'sandbox-session-1',
+      sourcePath: 'travel/alaska_cruise_2026.html',
+      filename: 'alaska_cruise_2026.html',
+      mimeType: 'text/html; charset=utf-8',
+      size: 1234,
+      downloadUrl:
+        '/api/session/documentStorage?documentId=document-1&sessionId=sandbox-session-1',
+    };
+    const marker = `DAEDALUS_SANDBOX_ARTIFACT_REF_V1:${Buffer.from(
+      JSON.stringify(artifact),
+    ).toString('base64url')}`;
+    const toolPayload = [
+      '## Sandbox Artifact Published',
+      `Download: [${artifact.filename}](${artifact.downloadUrl})`,
+      marker,
+    ].join('\n');
+
+    const { statusKey, store } = await runStreamTurn([
+      `intermediate_data: ${JSON.stringify({
+        name: 'Function Complete: <llm_sandbox_tool>',
+        id: 'sandbox-1',
+        parent_id: 'root',
+        payload: toolPayload,
+      })}\n`,
+      `data: ${JSON.stringify({
+        choices: [
+          {
+            delta: {
+              content:
+                'Your file is ready: [alaska_cruise_2026.html](alaska_cruise_2026.html)',
+            },
+          },
+        ],
+      })}\n`,
+      'data: [DONE]\n',
+    ]);
+
+    const status = store.get(statusKey);
+    expect(status.fullResponse).toContain(
+      `[alaska_cruise_2026.html](${artifact.downloadUrl})`,
+    );
+    expect(status.fullResponse).not.toContain('](alaska_cruise_2026.html)');
+    expect(status.fullResponse).not.toContain(
+      'DAEDALUS_SANDBOX_ARTIFACT_REF_V1',
+    );
+    expect(
+      status.intermediateSteps[0].payload.metadata.sandboxArtifacts,
+    ).toEqual([artifact]);
+    expect(status.intermediateSteps[0].payload.data.output).not.toContain(
+      'DAEDALUS_SANDBOX_ARTIFACT_REF_V1',
+    );
+  });
+
   it('persists a long live stream as bounded append-only deltas', async () => {
     const responseDeltas = Array.from(
       { length: 200 },

@@ -540,17 +540,20 @@ functions:
       before execution and fails closed if either check fails. Prefer structured
       argv; use command only when shell syntax is required. Use write_file for
       user-requested HTML, code, reports, or other text artifacts; append bounded
-      chunks when needed, then use read_file to verify the result. Never include
-      secrets or host paths.
+      chunks when needed, use read_file to verify the result, then use
+      publish_file whenever the user must receive the file. A successful
+      publish_file call returns the exact authenticated UI download link. Never
+      claim that a workspace file is downloadable before publication succeeds.
+      Never include secrets or host paths.
       Trigger only when the user explicitly asks to run a shell command,
       inspect command output, transform text/data with shell tools, create or
       inspect a text file, or test a URL with curl. Use
       operation=list_commands to refresh and inspect the current allowlist.
       Args: operation, argv, command, timeout_seconds, env_json,
       working_directory, file_path, file_content, append. Returns untrusted
-      stdout/stderr data or collected file data plus exit code, timeout,
-      truncation, and request id. Conversation workspaces expire automatically. Do not
-      blindly retry a timed-out or truncated command. Fails when
+      stdout/stderr data, collected file data, or a durable download link plus
+      exit code, timeout, truncation, and request id. Conversation workspaces
+      expire automatically. Do not blindly retry a timed-out or truncated command. Fails when
       LLM_SANDBOX_API_KEY is unset, trusted conversation context is unavailable
       for file operations, readiness or discovery fails, the service is
       unreachable, the command was not discovered, or sandbox policy rejects
@@ -837,6 +840,13 @@ workflow:
     3. Keep a running mental checklist: approved words only, correct part of speech, correct meaning, approved verb form, active voice, correct sentence length (20 for procedures, 25 for descriptive), one topic per paragraph, max six sentences per paragraph, no contractions, no complex tenses, no Latin abbreviations, consistent terminology.
     4. If you are uncertain whether a word is approved, use the simplest accurate alternative. Do not report the uncertainty or the substitution.
     5. Always prefer the simplest, clearest construction that accurately conveys the technical meaning.
+
+    ## Sandbox File Delivery
+
+    When you create a file that the user must receive, verify the file and call the sandbox tool with operation=publish_file.
+    Use the exact download link from publish_file in your response.
+    Do not use a relative sandbox path as a user link.
+    Do not state that a file is downloadable when publish_file fails.
   tool_names:
     - get_memory
     - add_memory

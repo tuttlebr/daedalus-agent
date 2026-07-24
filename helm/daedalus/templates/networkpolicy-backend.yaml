@@ -100,6 +100,19 @@ spec:
       ports:
         - protocol: TCP
           port: {{ .Values.redis.service.port }}
+    {{- if and .Values.frontend.enabled .Values.documentObjectStorage.enabled }}
+    # Allow the sandbox adapter to publish collected files through the trusted
+    # frontend endpoint. The backend does not expose object credentials to the model.
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: {{ include "daedalus.name" . }}
+              app.kubernetes.io/component: frontend
+              app.kubernetes.io/instance: {{ .Release.Name }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.frontend.service.port }}
+    {{- end }}
     # Allow access to Phoenix tracing (phoenix namespace)
     - to:
         - namespaceSelector:

@@ -20,6 +20,7 @@ import {
 import { finalizeError, finalizeSuccess } from './finalization';
 import { clearOAuthStatusFields, updateJobStatus } from './jobState';
 import { buildNatRequestHeaders } from './natMessages';
+import { sanitizeSandboxArtifactStep } from './sandboxArtifacts';
 import {
   appendStreamResponseDelta,
   appendStreamSteps,
@@ -399,6 +400,7 @@ export async function startBackgroundStreamReader(
             // here. TOOL_END sanitization runs only when lastToolOutput is
             // promoted to partialResponse below.
             const eventType = step?.payload?.event_type;
+            sanitizeSandboxArtifactStep(step);
             if (
               (eventType === 'LLM_END' ||
                 eventType === 'WORKFLOW_END' ||

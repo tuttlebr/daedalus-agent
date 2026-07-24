@@ -152,6 +152,19 @@ spec:
             - port: {{ $.Values.redis.service.port | quote }}
               protocol: TCP
 
+    {{- if and $.Values.frontend.enabled $.Values.documentObjectStorage.enabled }}
+    # Trusted callback that durably publishes collected sandbox artifacts.
+    - toEndpoints:
+        - matchLabels:
+            app.kubernetes.io/name: {{ include "daedalus.name" $ }}
+            app.kubernetes.io/component: frontend
+            app.kubernetes.io/instance: {{ $.Release.Name }}
+      toPorts:
+        - ports:
+            - port: {{ $.Values.frontend.service.port | quote }}
+              protocol: TCP
+    {{- end }}
+
     # ── Cross-namespace cluster services ────────────────────────────
     # Phoenix tracing
     - toEndpoints:

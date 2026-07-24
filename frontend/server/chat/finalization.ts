@@ -21,6 +21,10 @@ import {
   type NewJobFinalizationJournal,
 } from './jobState';
 import {
+  attachSandboxArtifacts,
+  sandboxArtifactsFromSteps,
+} from './sandboxArtifacts';
+import {
   clearStreamState,
   getStreamResponse,
   getStreamSteps,
@@ -319,14 +323,18 @@ export async function finalizeSuccess(
     rawOutput,
     jobRequest.messages || [],
   );
-  let processedContent = finalOutput;
+  const outputWithArtifacts = attachSandboxArtifacts(
+    finalOutput,
+    sandboxArtifactsFromSteps(accumulatedSteps),
+  );
+  let processedContent = outputWithArtifacts;
   try {
     const { processMarkdownImages } = await import('@/utils/app/imageHandler');
-    processedContent = await processMarkdownImages(finalOutput, {
+    processedContent = await processMarkdownImages(outputWithArtifacts, {
       userId: jobRequest.userId,
       sessionId: jobRequest.natSessionId || jobId,
     });
-    if (processedContent !== finalOutput) {
+    if (processedContent !== outputWithArtifacts) {
       logger.info(`Job ${jobId}: Replaced base64 images with Redis references`);
     }
   } catch (error) {
@@ -425,13 +433,17 @@ export async function finalizeError(
     currentStatus?.intermediateSteps || [],
   );
 
-  let processedContent = partialResponse;
-  if (partialResponse) {
+  const responseWithArtifacts = attachSandboxArtifacts(
+    partialResponse,
+    sandboxArtifactsFromSteps(intermediateSteps),
+  );
+  let processedContent = responseWithArtifacts;
+  if (responseWithArtifacts) {
     try {
       const { processMarkdownImages } = await import(
         '@/utils/app/imageHandler'
       );
-      processedContent = await processMarkdownImages(partialResponse, {
+      processedContent = await processMarkdownImages(responseWithArtifacts, {
         userId: jobRequest.userId,
         sessionId: jobRequest.natSessionId || jobId,
       });
@@ -478,7 +490,7 @@ export async function finalizeError(
       status: 'error',
       error: errorMessage,
       fullResponse: undefined,
-      partialResponse,
+      partialResponse: responseWithArtifacts,
       ...clearOAuthStatusFields(),
       intermediateSteps,
       turnId: jobRequest.turnId,

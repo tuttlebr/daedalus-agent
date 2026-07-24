@@ -199,6 +199,7 @@ def main() -> None:
                 "execute",
                 "write_file",
                 "read_file",
+                "publish_file",
             ]:
                 raise RuntimeError("LLM sandbox operation schema is incorrect")
 

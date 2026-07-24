@@ -1061,14 +1061,37 @@ def test_llm_sandbox_tool_is_optional_top_level_tool():
     assert "Prefer structured argv" in sandbox_description
     assert "Use write_file" in sandbox_description
     assert "use read_file" in sandbox_description
+    assert "publish_file" in sandbox_description
+    assert "exact authenticated UI download link" in sandbox_description
     assert "untrusted stdout/stderr data" in sandbox_description
     assert "Do not blindly retry" in sandbox_description
     assert "llm_sandbox_tool" in workflow_tools
     assert "LLM_SANDBOX_API_KEY=" in template_text
     assert "LLM_SANDBOX_BASE_URL=" in template_text
+    assert "DAEDALUS_ARTIFACT_PUBLISH_URL=" in template_text
     assert {"name": "llm-sandbox", "ports": [{"port": 8080, "protocol": "TCP"}]} in (
         egress_namespaces
     )
+
+
+def test_sandbox_artifact_publication_is_wired_to_the_frontend_service():
+    deployment = BACKEND_DEPLOYMENT_TEMPLATE.read_text(encoding="utf-8")
+    standard_policy = NETWORK_POLICY_BACKEND_TEMPLATE.read_text(encoding="utf-8")
+    cilium_policy = CILIUM_BACKEND_TEMPLATE.read_text(encoding="utf-8")
+    compose = DOCKER_COMPOSE.read_text(encoding="utf-8")
+
+    assert "DAEDALUS_ARTIFACT_PUBLISH_URL" in deployment
+    assert "/api/internal/sandboxArtifacts" in deployment
+    assert "frontend.service.port" in deployment
+    assert 'ne $k "DAEDALUS_ARTIFACT_PUBLISH_URL"' in deployment
+    assert (
+        "DAEDALUS_ARTIFACT_PUBLISH_URL=http://frontend:3000"
+        "/api/internal/sandboxArtifacts"
+    ) in compose
+    for policy in (standard_policy, cilium_policy):
+        assert "Trusted callback" in policy or "sandbox adapter" in policy
+        assert "frontend.service.port" in policy
+        assert "app.kubernetes.io/component: frontend" in policy
 
 
 def test_workflow_uses_configured_internet_search_providers():

@@ -12,7 +12,7 @@ import time
 from collections.abc import Mapping
 from pathlib import PurePosixPath
 from typing import Any, Literal
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 
 import httpx
 from nat.builder.builder import Builder
@@ -24,6 +24,9 @@ from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
 logger = logging.getLogger(__name__)
 
 DEFAULT_BASE_URL = "http://llm-sandbox-llm-sandbox.llm-sandbox.svc.cluster.local:8080"
+ARTIFACT_PUBLISH_PATH = "/api/internal/sandboxArtifacts"
+ARTIFACT_DOWNLOAD_PATH = "/api/session/documentStorage"
+ARTIFACT_REF_MARKER = "DAEDALUS_SANDBOX_ARTIFACT_REF_V1:"
 RETRYABLE_STATUS_CODES = frozenset({502, 503, 504})
 ENV_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 RESERVED_ENV_NAMES = frozenset(
@@ -77,6 +80,41 @@ def _validate_base_url(value: str) -> str:
         raise ValueError(
             "base_url must be HTTPS or an HTTP Kubernetes service URL ending in "
             ".svc or .svc.cluster.local"
+        )
+    return normalized
+
+
+def _validate_artifact_publish_url(value: str) -> str:
+    normalized = value.strip()
+    if not normalized:
+        return ""
+    parsed = urlsplit(normalized)
+    try:
+        _ = parsed.port
+    except ValueError as exc:
+        raise ValueError("artifact_publish_url has an invalid port") from exc
+    host = (parsed.hostname or "").lower().rstrip(".")
+    is_cluster_service = host.endswith((".svc", ".svc.cluster.local"))
+    is_local_compose_service = host == "frontend" and parsed.port == 3000
+    if (
+        not host
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.query
+        or parsed.fragment
+        or parsed.path != ARTIFACT_PUBLISH_PATH
+        or (
+            parsed.scheme != "https"
+            and not (
+                parsed.scheme == "http"
+                and (is_cluster_service or is_local_compose_service)
+            )
+        )
+    ):
+        raise ValueError(
+            "artifact_publish_url must be HTTPS, the local Compose frontend URL, "
+            "or an HTTP Kubernetes service URL ending in .svc or .svc.cluster.local "
+            f"with path {ARTIFACT_PUBLISH_PATH}"
         )
     return normalized
 
@@ -141,11 +179,36 @@ class LlmSandboxConfig(FunctionBaseConfig, name="llm_sandbox"):
         le=5.0,
         description="Backoff before one retry of a transport or gateway failure.",
     )
+    artifact_publish_url: str = Field(
+        default_factory=lambda: os.environ.get("DAEDALUS_ARTIFACT_PUBLISH_URL", ""),
+        description=(
+            "Trusted internal frontend endpoint that durably publishes collected "
+            "sandbox artifacts."
+        ),
+    )
+    artifact_publish_timeout_seconds: float = Field(
+        default=30.0,
+        ge=1.0,
+        le=120.0,
+        description="HTTP timeout for durable sandbox artifact publication.",
+    )
+    internal_api_token: SecretStr = Field(
+        default_factory=lambda: SecretStr(
+            os.environ.get("DAEDALUS_INTERNAL_API_TOKEN", "")
+        ),
+        description="Shared token for the trusted internal artifact endpoint.",
+        exclude=True,
+    )
 
     @field_validator("base_url")
     @classmethod
     def validate_base_url(cls, value: str) -> str:
         return _validate_base_url(value)
+
+    @field_validator("artifact_publish_url")
+    @classmethod
+    def validate_artifact_publish_url(cls, value: str) -> str:
+        return _validate_artifact_publish_url(value)
 
 
 class LlmSandboxInput(BaseModel):
@@ -153,11 +216,13 @@ class LlmSandboxInput(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    operation: Literal["list_commands", "execute", "write_file", "read_file"] = Field(
+    operation: Literal[
+        "list_commands", "execute", "write_file", "read_file", "publish_file"
+    ] = Field(
         default="execute",
         description=(
-            "Refresh command discovery, execute one bounded command, or write/read a "
-            "file in the trusted conversation workspace."
+            "Refresh command discovery, execute one bounded command, write/read a "
+            "workspace file, or publish a completed file as a durable UI download."
         ),
     )
     command: str = Field(
@@ -183,7 +248,9 @@ class LlmSandboxInput(BaseModel):
     )
     file_path: str = Field(
         default="",
-        description="Relative workspace path used by write_file or read_file.",
+        description=(
+            "Relative workspace path used by write_file, read_file, or publish_file."
+        ),
     )
     file_content: str = Field(
         default="",
@@ -269,15 +336,23 @@ def _header_value(headers: Any, name: str) -> str:
     return ""
 
 
-def _workspace_id_from_headers(headers: Any) -> str | None:
+def _trusted_scope_from_headers(headers: Any) -> tuple[str, str] | None:
     user_id = _header_value(headers, "x-user-id")
     conversation_id = _header_value(headers, "x-conversation-id")
     if not user_id or not conversation_id:
         return None
+    return user_id, conversation_id
+
+
+def _workspace_id_from_headers(headers: Any) -> str | None:
+    scope = _trusted_scope_from_headers(headers)
+    if scope is None:
+        return None
+    user_id, conversation_id = scope
     return hashlib.sha256(f"{user_id}\0{conversation_id}".encode()).hexdigest()
 
 
-def _workspace_id_from_context() -> str | None:
+def _trusted_scope_from_context() -> tuple[str, str] | None:
     try:
         from nat.builder.context import Context
 
@@ -285,7 +360,18 @@ def _workspace_id_from_context() -> str | None:
     except Exception:
         return None
     headers = getattr(getattr(nat_context, "metadata", None), "headers", None)
-    return _workspace_id_from_headers(headers)
+    return _trusted_scope_from_headers(headers)
+
+
+def _workspace_id_from_scope(scope: tuple[str, str] | None) -> str | None:
+    if scope is None:
+        return None
+    user_id, conversation_id = scope
+    return hashlib.sha256(f"{user_id}\0{conversation_id}".encode()).hexdigest()
+
+
+def _workspace_id_from_context() -> str | None:
+    return _workspace_id_from_scope(_trusted_scope_from_context())
 
 
 def _validate_capabilities(data: Any) -> dict[str, Any]:
@@ -382,12 +468,18 @@ def _validate_execute_result(data: Any) -> dict[str, Any]:
                 raise ValueError(
                     f"execution response collected file has an invalid {key} field"
                 )
+        if item["size"] < 0:
+            raise ValueError("execution response collected file has a negative size")
         try:
-            base64.b64decode(item["contentBase64"], validate=True)
+            content = base64.b64decode(item["contentBase64"], validate=True)
         except (binascii.Error, ValueError) as exc:
             raise ValueError(
                 "execution response collected file has invalid base64 content"
             ) from exc
+        if len(content) != item["size"]:
+            raise ValueError(
+                "execution response collected file size does not match its content"
+            )
     missing_files = data.get("missingFiles", [])
     if not isinstance(missing_files, list) or not all(
         isinstance(path, str) for path in missing_files
@@ -467,6 +559,99 @@ def _format_execute_result(data: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def _base64url(value: str) -> str:
+    return base64.urlsafe_b64encode(value.encode("utf-8")).decode("ascii").rstrip("=")
+
+
+def _validate_published_artifact(
+    data: Any, *, expected_path: str, expected_size: int
+) -> dict[str, Any]:
+    if not isinstance(data, dict) or not isinstance(data.get("artifact"), dict):
+        raise ValueError("artifact publisher response must contain an artifact object")
+    artifact = data["artifact"]
+    expected_types = {
+        "version": int,
+        "documentId": str,
+        "sessionId": str,
+        "filename": str,
+        "mimeType": str,
+        "size": int,
+        "downloadUrl": str,
+    }
+    for key, expected_type in expected_types.items():
+        value = artifact.get(key)
+        if not isinstance(value, expected_type) or (
+            expected_type is int and isinstance(value, bool)
+        ):
+            raise ValueError(f"artifact publisher response has an invalid {key} field")
+    if artifact["version"] != 1:
+        raise ValueError("artifact publisher response has an unsupported version")
+    if artifact["size"] != expected_size:
+        raise ValueError("artifact publisher response has an unexpected file size")
+    if artifact["filename"] != PurePosixPath(expected_path).name:
+        raise ValueError("artifact publisher response has an unexpected filename")
+    if (
+        not artifact["documentId"]
+        or not artifact["sessionId"]
+        or not artifact["mimeType"]
+    ):
+        raise ValueError("artifact publisher response has an empty required field")
+
+    parsed_url = urlsplit(artifact["downloadUrl"])
+    query = parse_qs(parsed_url.query, keep_blank_values=True)
+    if (
+        parsed_url.scheme
+        or parsed_url.netloc
+        or parsed_url.fragment
+        or parsed_url.path != ARTIFACT_DOWNLOAD_PATH
+        or query
+        != {
+            "documentId": [artifact["documentId"]],
+            "sessionId": [artifact["sessionId"]],
+        }
+    ):
+        raise ValueError("artifact publisher response has an invalid download URL")
+    return artifact
+
+
+def _format_publish_result(
+    artifact: dict[str, Any], *, request_id: str, source_path: str
+) -> str:
+    envelope = json.dumps(
+        {
+            "version": 1,
+            "documentId": artifact["documentId"],
+            "sessionId": artifact["sessionId"],
+            "sourcePath": source_path,
+            "filename": artifact["filename"],
+            "mimeType": artifact["mimeType"],
+            "size": artifact["size"],
+            "downloadUrl": artifact["downloadUrl"],
+        },
+        ensure_ascii=True,
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+    return "\n".join(
+        [
+            "## Sandbox Artifact Published",
+            f"Sandbox request ID: {json.dumps(request_id, ensure_ascii=True)}",
+            f"Source path: {json.dumps(source_path, ensure_ascii=True)}",
+            f"Size: {artifact['size']} bytes",
+            ("Download: " f"[{artifact['filename']}]({artifact['downloadUrl']})"),
+            (
+                "Use the exact download link above in the user response. Do not use "
+                "the sandbox-relative path as a link."
+            ),
+            (
+                "The next application marker is private transport metadata. "
+                "Do not reproduce it."
+            ),
+            ARTIFACT_REF_MARKER + _base64url(envelope),
+        ]
+    )
+
+
 def _http_error(response: httpx.Response) -> str:
     request_id = "unknown"
     detail = "request rejected"
@@ -495,7 +680,10 @@ async def _request_with_retry(
     backoff_seconds: float,
     headers: dict[str, str] | None = None,
     payload: dict[str, Any] | None = None,
+    content: bytes | None = None,
 ) -> httpx.Response:
+    if payload is not None and content is not None:
+        raise ValueError("request cannot contain both JSON and raw content")
     for attempt in range(2):
         try:
             request_kwargs: dict[str, Any] = {"timeout": timeout}
@@ -503,6 +691,8 @@ async def _request_with_retry(
                 request_kwargs["headers"] = headers
             if payload is not None:
                 request_kwargs["json"] = payload
+            if content is not None:
+                request_kwargs["content"] = content
             response = await client.request(
                 method,
                 path,
@@ -517,6 +707,71 @@ async def _request_with_retry(
         if backoff_seconds:
             await asyncio.sleep(backoff_seconds)
     raise RuntimeError("unreachable")
+
+
+async def _publish_artifact(
+    config: LlmSandboxConfig,
+    *,
+    scope: tuple[str, str],
+    source_path: str,
+    collected_file: dict[str, Any],
+    request_id: str,
+) -> str:
+    internal_token = config.internal_api_token.get_secret_value()
+    if not config.artifact_publish_url:
+        return _error("DAEDALUS_ARTIFACT_PUBLISH_URL is not configured.")
+    if not internal_token:
+        return _error("DAEDALUS_INTERNAL_API_TOKEN is not configured.")
+
+    content = base64.b64decode(collected_file["contentBase64"], validate=True)
+    user_id, conversation_id = scope
+    publish_headers = {
+        "Content-Type": "application/octet-stream",
+        "Content-Length": str(len(content)),
+        "x-daedalus-internal-token": internal_token,
+        "x-daedalus-owner-id-b64": _base64url(user_id),
+        "x-daedalus-conversation-id-b64": _base64url(conversation_id),
+        "x-daedalus-artifact-path-b64": _base64url(source_path),
+    }
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await _request_with_retry(
+                client,
+                "POST",
+                config.artifact_publish_url,
+                headers=publish_headers,
+                content=content,
+                timeout=config.artifact_publish_timeout_seconds,
+                backoff_seconds=config.retry_backoff_seconds,
+            )
+    except httpx.HTTPError:
+        logger.error("Sandbox artifact publisher transport failure")
+        return _error(
+            "Could not reach the sandbox artifact publisher after one transport retry."
+        )
+    if response.status_code >= 400:
+        logger.warning(
+            "Sandbox artifact publication rejected status=%d sandbox_request_id=%s",
+            response.status_code,
+            json.dumps(request_id, ensure_ascii=True),
+        )
+        return _error(
+            f"Sandbox artifact publisher returned HTTP {response.status_code}; "
+            "the file was not published."
+        )
+    try:
+        artifact = _validate_published_artifact(
+            response.json(), expected_path=source_path, expected_size=len(content)
+        )
+    except ValueError as exc:
+        logger.error("Sandbox artifact publisher returned an invalid response: %s", exc)
+        return _error(
+            "Sandbox artifact publisher returned an invalid response; "
+            "the file was not published."
+        )
+    return _format_publish_result(
+        artifact, request_id=request_id, source_path=source_path
+    )
 
 
 @register_function(config_type=LlmSandboxConfig)
@@ -564,7 +819,7 @@ async def llm_sandbox_function(config: LlmSandboxConfig, builder: Builder):  # n
 
     async def _sandbox(
         operation: Literal[
-            "list_commands", "execute", "write_file", "read_file"
+            "list_commands", "execute", "write_file", "read_file", "publish_file"
         ] = "execute",
         command: str = "",
         argv: list[str] | None = None,
@@ -578,7 +833,9 @@ async def llm_sandbox_function(config: LlmSandboxConfig, builder: Builder):  # n
         """Run a bounded command or manage a conversation-scoped workspace file.
 
         Args:
-            operation: Refresh commands, execute, write_file, or read_file.
+            operation: Refresh commands, execute, write_file, read_file, or
+                publish_file. Use publish_file after verification whenever the user
+                must receive a generated file.
             command: One shell command using only discovered tools and safe builtins.
                 Prefer argv when shell syntax is not required. Never include secrets or
                 host paths.
@@ -588,7 +845,8 @@ async def llm_sandbox_function(config: LlmSandboxConfig, builder: Builder):  # n
                 default subject to the discovered service maximum.
             env_json: Optional JSON object of non-secret string environment variables.
             working_directory: Relative path inside the conversation workspace.
-            file_path: Relative workspace path for write_file or read_file.
+            file_path: Relative workspace path for write_file, read_file, or
+                publish_file.
             file_content: UTF-8 content for write_file.
             append: Append instead of replacing file_path for write_file.
         """
@@ -601,9 +859,11 @@ async def llm_sandbox_function(config: LlmSandboxConfig, builder: Builder):  # n
             "execute",
             "write_file",
             "read_file",
+            "publish_file",
         }:
             return _error(
-                "operation must be list_commands, execute, write_file, or read_file."
+                "operation must be list_commands, execute, write_file, read_file, "
+                "or publish_file."
             )
 
         try:
@@ -617,12 +877,18 @@ async def llm_sandbox_function(config: LlmSandboxConfig, builder: Builder):  # n
                 normalized_command = command.strip()
                 has_command = bool(normalized_command)
                 has_argv = argv is not None
-                workspace_id = _workspace_id_from_context()
-                file_operation = operation in {"write_file", "read_file"}
+                trusted_scope = _trusted_scope_from_context()
+                workspace_id = _workspace_id_from_scope(trusted_scope)
+                file_operation = operation in {
+                    "write_file",
+                    "read_file",
+                    "publish_file",
+                }
                 if file_operation:
                     if has_command or has_argv:
                         return _error(
-                            "command and argv must be omitted for write_file and read_file."
+                            "command and argv must be omitted for write_file, read_file, "
+                            "and publish_file."
                         )
                     if not workspace_id:
                         return _error(
@@ -672,7 +938,7 @@ async def llm_sandbox_function(config: LlmSandboxConfig, builder: Builder):  # n
                 elif file_path or file_content or append:
                     return _error(
                         "file_path, file_content, and append are only valid for "
-                        "write_file or read_file."
+                        "write_file, read_file, or publish_file."
                     )
                 elif has_command == has_argv:
                     return _error("provide exactly one of command or argv for execute.")
@@ -782,6 +1048,37 @@ async def llm_sandbox_function(config: LlmSandboxConfig, builder: Builder):  # n
                     data["timedOut"],
                     data["truncated"],
                 )
+                if operation == "publish_file":
+                    if data["truncated"]:
+                        return _error(
+                            "Sandbox truncated the collected artifact; the file was "
+                            "not published."
+                        )
+                    if data["missingFiles"] or len(data["files"]) != 1:
+                        return _error(
+                            "Sandbox did not return exactly one requested artifact; "
+                            "the file was not published."
+                        )
+                    collected_file = data["files"][0]
+                    if (
+                        collected_file["path"] != normalized_file_path
+                        or collected_file["truncated"]
+                    ):
+                        return _error(
+                            "Sandbox returned an incomplete or unexpected artifact; "
+                            "the file was not published."
+                        )
+                    if trusted_scope is None:
+                        return _error(
+                            "publish_file requires a trusted conversation context."
+                        )
+                    return await _publish_artifact(
+                        config,
+                        scope=trusted_scope,
+                        source_path=normalized_file_path,
+                        collected_file=collected_file,
+                        request_id=data["requestId"],
+                    )
                 return _format_execute_result(data)
         except httpx.HTTPStatusError as exc:
             logger.warning(
@@ -806,8 +1103,10 @@ async def llm_sandbox_function(config: LlmSandboxConfig, builder: Builder):  # n
                 "The tool checks readiness and discovers capabilities before execution, "
                 "fails closed if discovery fails, and only exposes command names returned "
                 "by discovery. Use write_file for user-requested HTML, code, reports, or "
-                "other text artifacts; use append for bounded chunks and read_file to "
-                "verify the result. Prefer structured argv for execution and use command "
+                "other text artifacts; use append for bounded chunks, read_file to "
+                "verify the result, and publish_file to create a durable UI download. "
+                "Do not claim that a sandbox file is downloadable until publish_file "
+                "succeeds. Prefer structured argv for execution and use command "
                 "only for necessary shell syntax. Never include secrets or host paths. "
                 "Conversation workspaces expire automatically. Do not blindly retry "
                 "timed-out or truncated work."

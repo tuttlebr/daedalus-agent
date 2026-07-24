@@ -42,6 +42,13 @@ The response includes `requestId`, `exitCode`, `stdout`, `stderr`,
 `missingFiles`. HTTP 4xx means the request or command policy was rejected; HTTP
 5xx is service/transport failure.
 
+The Daedalus adapter adds a `publish_file` operation above this service
+contract. It collects one complete regular file, sends the exact bytes to the
+trusted internal frontend endpoint, stores them in owner-scoped object storage,
+and returns an authenticated `/api/session/documentStorage` link. Use
+`read_file` to inspect a file and `publish_file` to deliver it. Do not expose a
+sandbox-relative path as a user download.
+
 ## Adapter pseudocode
 
 ```python

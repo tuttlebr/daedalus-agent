@@ -160,6 +160,7 @@ def test_registration_uses_complete_explicit_input_schema():
         "execute",
         "write_file",
         "read_file",
+        "publish_file",
     ]
 
 
@@ -189,6 +190,11 @@ def sandbox_config(**overrides):
     values = {
         "api_key": "test-key",
         "base_url": "http://llm-sandbox.llm-sandbox.svc.cluster.local:8080",
+        "artifact_publish_url": (
+            "http://daedalus-frontend.daedalus.svc.cluster.local:3000"
+            "/api/internal/sandboxArtifacts"
+        ),
+        "internal_api_token": "internal-test-key",
         "retry_backoff_seconds": 0,
     }
     values.update(overrides)
@@ -209,6 +215,7 @@ def test_config_reads_and_excludes_llm_sandbox_api_key_from_worker_config(
     assert config.api_key.get_secret_value() == "env-key"
     assert "env-key" not in repr(config)
     assert "api_key" not in worker_payload
+    assert "internal_api_token" not in worker_payload
     assert worker_config.api_key.get_secret_value() == "env-key"
 
 
@@ -238,6 +245,28 @@ def test_config_rejects_unsafe_or_malformed_service_urls(base_url):
 )
 def test_config_accepts_https_and_in_cluster_service_urls(base_url):
     assert sandbox_config(base_url=base_url).base_url == base_url
+
+
+@pytest.mark.parametrize(
+    "artifact_publish_url",
+    [
+        "http://frontend:3001/api/internal/sandboxArtifacts",
+        "https://frontend.example.com/wrong",
+        "https://user:password@frontend.example.com/api/internal/sandboxArtifacts",
+    ],
+)
+def test_config_rejects_unsafe_artifact_publish_urls(artifact_publish_url):
+    with pytest.raises(ValidationError, match="artifact_publish_url"):
+        sandbox_config(artifact_publish_url=artifact_publish_url)
+
+
+def test_config_accepts_local_compose_artifact_publisher():
+    artifact_publish_url = "http://frontend:3000/api/internal/sandboxArtifacts"
+
+    assert (
+        sandbox_config(artifact_publish_url=artifact_publish_url).artifact_publish_url
+        == artifact_publish_url
+    )
 
 
 def test_missing_api_key_returns_readable_error(monkeypatch):
@@ -322,8 +351,8 @@ def test_execute_automatically_scopes_workspace_from_trusted_context():
             patch.object(mod.httpx, "AsyncClient", FakeAsyncClient),
             patch.object(
                 mod,
-                "_workspace_id_from_context",
-                return_value="trusted-workspace-id",
+                "_trusted_scope_from_context",
+                return_value=("user-a", "conversation-a"),
             ),
         ):
             sandbox = await _registered_sandbox_fn(sandbox_config())
@@ -331,9 +360,8 @@ def test_execute_automatically_scopes_workspace_from_trusted_context():
 
     output = run(_run())
 
-    assert FakeAsyncClient.calls[2][2]["json"]["workspaceId"] == (
-        "trusted-workspace-id"
-    )
+    expected_workspace = hashlib.sha256(b"user-a\0conversation-a").hexdigest()
+    assert FakeAsyncClient.calls[2][2]["json"]["workspaceId"] == expected_workspace
     assert "Conversation workspace persisted: True" in output
 
 
@@ -353,8 +381,8 @@ def test_write_file_uses_staging_contract_without_shell_quoting():
             patch.object(mod.httpx, "AsyncClient", FakeAsyncClient),
             patch.object(
                 mod,
-                "_workspace_id_from_context",
-                return_value="trusted-workspace-id",
+                "_trusted_scope_from_context",
+                return_value=("user-a", "conversation-a"),
             ),
         ):
             sandbox = await _registered_sandbox_fn(sandbox_config())
@@ -380,7 +408,7 @@ def test_write_file_uses_staging_contract_without_shell_quoting():
         "timeoutSeconds": 30,
         "env": {},
         "workingDirectory": ".",
-        "workspaceId": "trusted-workspace-id",
+        "workspaceId": hashlib.sha256(b"user-a\0conversation-a").hexdigest(),
     }
     assert "Conversation workspace persisted: True" in output
 
@@ -390,7 +418,7 @@ def test_read_file_returns_utf8_content_and_rejects_untrusted_context():
 
     collected = {
         "path": "vera_cpu_guide.html",
-        "size": 18,
+        "size": len(b"<title>Vera</title>"),
         "mode": "0644",
         "contentBase64": base64.b64encode(b"<title>Vera</title>").decode(),
         "truncated": False,
@@ -412,8 +440,8 @@ def test_read_file_returns_utf8_content_and_rejects_untrusted_context():
             patch.object(mod.httpx, "AsyncClient", FakeAsyncClient),
             patch.object(
                 mod,
-                "_workspace_id_from_context",
-                return_value="trusted-workspace-id",
+                "_trusted_scope_from_context",
+                return_value=("user-a", "conversation-a"),
             ),
         ):
             sandbox = await _registered_sandbox_fn(sandbox_config())
@@ -436,7 +464,7 @@ def test_read_file_returns_utf8_content_and_rejects_untrusted_context():
         ]
         with (
             patch.object(mod.httpx, "AsyncClient", FakeAsyncClient),
-            patch.object(mod, "_workspace_id_from_context", return_value=None),
+            patch.object(mod, "_trusted_scope_from_context", return_value=None),
         ):
             sandbox = await _registered_sandbox_fn(sandbox_config())
             return await sandbox(
@@ -450,6 +478,173 @@ def test_read_file_returns_utf8_content_and_rejects_untrusted_context():
         "Error: read_file requires a trusted conversation context."
     )
     assert all(path != "/v1/execute" for _, path, _ in FakeAsyncClient.calls)
+
+
+def test_publish_file_copies_exact_bytes_to_durable_frontend_endpoint():
+    import llm_sandbox.llm_sandbox_function as mod
+
+    content = b"<!doctype html><title>Alaska</title>"
+    collected = {
+        "path": "travel/alaska_cruise_2026.html",
+        "size": len(content),
+        "mode": "0644",
+        "contentBase64": base64.b64encode(content).decode(),
+        "truncated": False,
+    }
+    published = {
+        "artifact": {
+            "version": 1,
+            "documentId": "document-1",
+            "sessionId": "sandbox-session-1",
+            "filename": "alaska_cruise_2026.html",
+            "mimeType": "text/html; charset=utf-8",
+            "size": len(content),
+            "downloadUrl": (
+                "/api/session/documentStorage?"
+                "documentId=document-1&sessionId=sandbox-session-1"
+            ),
+        }
+    }
+
+    async def _run():
+        FakeAsyncClient.responses = [
+            ready_response(),
+            capability_response(commands=["true"], workspace_persistence=True),
+            execute_response(
+                request_id="sandbox-request-1",
+                workspace_persisted=True,
+                files=[collected],
+            ),
+            FakeResponse(status_code=201, data=published),
+        ]
+        with (
+            patch.object(mod.httpx, "AsyncClient", FakeAsyncClient),
+            patch.object(
+                mod,
+                "_trusted_scope_from_context",
+                return_value=("alice@example.com", "conversation-1"),
+            ),
+        ):
+            sandbox = await _registered_sandbox_fn(sandbox_config())
+            return await sandbox(
+                operation="publish_file",
+                file_path="travel/alaska_cruise_2026.html",
+            )
+
+    output = run(_run())
+    collect_request = FakeAsyncClient.calls[2]
+    publish_request = FakeAsyncClient.calls[3]
+
+    assert collect_request[2]["json"]["collect"] == ["travel/alaska_cruise_2026.html"]
+    assert publish_request[0:2] == (
+        "POST",
+        sandbox_config().artifact_publish_url,
+    )
+    assert publish_request[2]["content"] == content
+    assert publish_request[2]["headers"]["x-daedalus-internal-token"] == (
+        "internal-test-key"
+    )
+    assert "alaska_cruise_2026.html" in output
+    assert published["artifact"]["downloadUrl"] in output
+    assert mod.ARTIFACT_REF_MARKER in output
+    marker = output.split(mod.ARTIFACT_REF_MARKER, 1)[1]
+    envelope = json.loads(base64.urlsafe_b64decode(marker + "=" * (-len(marker) % 4)))
+    assert envelope["sourcePath"] == "travel/alaska_cruise_2026.html"
+
+
+@pytest.mark.parametrize(
+    ("files", "missing_files", "truncated", "message"),
+    [
+        ([], ["missing.html"], False, "exactly one requested artifact"),
+        (
+            [
+                {
+                    "path": "output.html",
+                    "size": 3,
+                    "mode": "0644",
+                    "contentBase64": "YWJj",
+                    "truncated": True,
+                }
+            ],
+            [],
+            True,
+            "truncated the collected artifact",
+        ),
+    ],
+)
+def test_publish_file_fails_closed_for_missing_or_truncated_bytes(
+    files, missing_files, truncated, message
+):
+    import llm_sandbox.llm_sandbox_function as mod
+
+    async def _run():
+        FakeAsyncClient.responses = [
+            ready_response(),
+            capability_response(commands=["true"], workspace_persistence=True),
+            execute_response(
+                files=files,
+                missing_files=missing_files,
+                truncated=truncated,
+                workspace_persisted=True,
+            ),
+        ]
+        with (
+            patch.object(mod.httpx, "AsyncClient", FakeAsyncClient),
+            patch.object(
+                mod,
+                "_trusted_scope_from_context",
+                return_value=("user-a", "conversation-a"),
+            ),
+        ):
+            sandbox = await _registered_sandbox_fn(sandbox_config())
+            return await sandbox(
+                operation="publish_file",
+                file_path="output.html",
+            )
+
+    output = run(_run())
+    assert message in output
+    assert len(FakeAsyncClient.calls) == 3
+
+
+def test_publish_file_does_not_claim_delivery_when_durable_storage_rejects_it():
+    import llm_sandbox.llm_sandbox_function as mod
+
+    content = b"ready"
+    collected = {
+        "path": "output.txt",
+        "size": len(content),
+        "mode": "0644",
+        "contentBase64": base64.b64encode(content).decode(),
+        "truncated": False,
+    }
+
+    async def _run():
+        FakeAsyncClient.responses = [
+            ready_response(),
+            capability_response(commands=["true"], workspace_persistence=True),
+            execute_response(files=[collected], workspace_persisted=True),
+            FakeResponse(status_code=503),
+            FakeResponse(status_code=503),
+        ]
+        with (
+            patch.object(mod.httpx, "AsyncClient", FakeAsyncClient),
+            patch.object(
+                mod,
+                "_trusted_scope_from_context",
+                return_value=("user-a", "conversation-a"),
+            ),
+        ):
+            sandbox = await _registered_sandbox_fn(sandbox_config())
+            return await sandbox(
+                operation="publish_file",
+                file_path="output.txt",
+            )
+
+    output = run(_run())
+    assert "publisher returned HTTP 503" in output
+    assert "file was not published" in output
+    assert mod.ARTIFACT_REF_MARKER not in output
 
 
 def test_execute_discovers_before_shell_command_and_caches_capabilities():
