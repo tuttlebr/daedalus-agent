@@ -2,13 +2,7 @@ import { ensureS3Bucket, waitForS3 } from './ensure-s3-bucket.mjs';
 
 import Redis from 'ioredis';
 import { spawn } from 'node:child_process';
-import {
-  cpSync,
-  copyFileSync,
-  existsSync,
-  mkdirSync,
-  unlinkSync,
-} from 'node:fs';
+import { cpSync, existsSync, mkdirSync, unlinkSync } from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -164,8 +158,7 @@ function prepareStandaloneRuntime() {
   }
 
   // Mirror the production image layout. Next.js intentionally excludes static
-  // and public assets from the standalone directory, and _document loads the
-  // runtime i18n config from the application root.
+  // and public assets from the standalone directory.
   mkdirSync(path.join(standaloneDir, '.next'), { recursive: true });
   cpSync(path.join(frontendDir, 'public'), path.join(standaloneDir, 'public'), {
     recursive: true,
@@ -176,13 +169,6 @@ function prepareStandaloneRuntime() {
     path.join(standaloneDir, '.next', 'static'),
     { recursive: true, force: true },
   );
-  for (const file of [
-    'next.config.js',
-    'next-i18next.config.js',
-    'package.json',
-  ]) {
-    copyFileSync(path.join(frontendDir, file), path.join(standaloneDir, file));
-  }
 }
 
 function controlResponse(res, status, value) {

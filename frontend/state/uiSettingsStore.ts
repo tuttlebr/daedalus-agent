@@ -125,7 +125,7 @@ const initialState: UISettingsState = {
 export const useUISettingsStore = create<UISettingsStore>()(
   subscribeWithSelector(
     persist(
-      (set, get) => ({
+      (set) => ({
         // Initial state
         ...initialState,
 
@@ -257,26 +257,8 @@ export const useUISettingsStore = create<UISettingsStore>()(
   ),
 );
 
-// ============================================================================
-// Selectors
-// ============================================================================
-
-export const selectLightMode = (state: UISettingsStore) => state.lightMode;
-export const selectShowChatbar = (state: UISettingsStore) => state.showChatbar;
-export const selectEnableIntermediateSteps = (state: UISettingsStore) =>
-  state.enableIntermediateSteps;
-
-// ============================================================================
-// Convenience Hooks
-// ============================================================================
-
 export const useLightMode = () =>
   useUISettingsStore((state) => state.lightMode);
-export const useShowChatbar = () =>
-  useUISettingsStore((state) => state.showChatbar);
-export const useFolders = () => useUISettingsStore((state) => state.folders);
-export const useSearchTerm = () =>
-  useUISettingsStore((state) => state.searchTerm);
 
 // ============================================================================
 // DevTools

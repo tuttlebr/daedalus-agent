@@ -10,8 +10,7 @@
 
 // Backend API path configuration
 // Supported values: '/chat', '/chat/stream', '/generate', '/generate/stream', '/v1/chat/completions'
-export const BACKEND_API_PATH =
-  process.env.BACKEND_API_PATH || '/v1/chat/completions';
+const BACKEND_API_PATH = process.env.BACKEND_API_PATH || '/v1/chat/completions';
 
 // Default backend port
 export const BACKEND_PORT = process.env.BACKEND_PORT || '8000';
@@ -19,24 +18,6 @@ export const BACKEND_PORT = process.env.BACKEND_PORT || '8000';
 function normalizeBaseUrl(baseUrl: string): string {
   return baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
 }
-
-/**
- * Check if using generate endpoint (requires different payload format)
- */
-export const isGenerateEndpoint = (): boolean =>
-  BACKEND_API_PATH.includes('generate');
-
-/**
- * Check if using OpenAI v1 compatible endpoint
- */
-export const isOpenAIv1Endpoint = (): boolean =>
-  BACKEND_API_PATH.includes('/v1/');
-
-/**
- * Check if using a streaming endpoint
- */
-export const isStreamingEndpoint = (): boolean =>
-  BACKEND_API_PATH.includes('/stream') || BACKEND_API_PATH.includes('/v1/');
 
 /**
  * Get the backend host based on environment.
@@ -144,15 +125,4 @@ export function buildBackendUrl(options: {
     buildBackendBaseUrl({ backendHost, port }),
     pathOverride,
   );
-}
-
-/**
- * Build the full backend URL for the default backend.
- *
- * @param pathOverride - Optional path override (defaults to BACKEND_API_PATH)
- * @returns The full backend URL
- */
-export function buildBackendUrlForMode(pathOverride?: string): string {
-  const backendHost = getBackendHost();
-  return buildBackendUrl({ backendHost, pathOverride });
 }

@@ -9,7 +9,7 @@ export default function Custom404() {
       <div className="relative z-10 animate-morph-in text-center">
         <div className="mb-8">
           <img
-            src="/main-logo.png"
+            src="/favicon.png"
             alt="Daedalus"
             className="h-16 w-auto mx-auto animate-galaxy-float"
           />

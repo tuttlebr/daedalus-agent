@@ -10,29 +10,7 @@ export interface VideoReference {
 // Supported video formats (from visual_media_function.py analyze path)
 // Codecs: H264, H265, VP8, VP9, FLV
 // Formats: MP4, FLV, 3GP
-export const SUPPORTED_VIDEO_FORMATS = [
-  'video/mp4',
-  'video/x-flv',
-  'video/3gpp',
-];
-export const SUPPORTED_VIDEO_EXTENSIONS = ['.mp4', '.flv', '.3gp'];
-export const MAX_VIDEO_SIZE = 100 * 1024 * 1024; // 100MB limit for videos
-
-/**
- * Check if a file is a supported video format
- */
-export function isVideoFile(file: File): boolean {
-  const mimeType = file.type.toLowerCase();
-  const fileName = file.name.toLowerCase();
-
-  // Check MIME type
-  if (SUPPORTED_VIDEO_FORMATS.includes(mimeType)) {
-    return true;
-  }
-
-  // Also check by extension as a fallback
-  return SUPPORTED_VIDEO_EXTENSIONS.some((ext) => fileName.endsWith(ext));
-}
+const SUPPORTED_VIDEO_FORMATS = ['video/mp4', 'video/x-flv', 'video/3gpp'];
 
 /**
  * Get the MIME type for a video file
@@ -84,28 +62,4 @@ export async function uploadVideo(
     console.error('Error uploading video:', error);
     throw error;
   }
-}
-
-/**
- * Get video URL from reference
- */
-export function getVideoUrl(videoRef: VideoReference): string {
-  // Server-side: need full URL for fetch
-  if (typeof window === 'undefined') {
-    const port = process.env.PORT || '3000';
-    const baseUrl = `http://127.0.0.1:${port}`;
-    let url = `${baseUrl}/api/session/videoStorage?videoId=${videoRef.videoId}`;
-    if (videoRef.sessionId) {
-      url += `&sessionId=${videoRef.sessionId}`;
-    }
-    return url;
-  }
-
-  // Client-side: use relative URL
-  let url = `/api/session/videoStorage?videoId=${videoRef.videoId}`;
-  if (videoRef.sessionId) {
-    url += `&sessionId=${videoRef.sessionId}`;
-  }
-
-  return url;
 }

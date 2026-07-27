@@ -670,7 +670,7 @@ export const ChatView = memo(() => {
       (
         fullResponse: string,
         intermediateSteps?: any[],
-        finalizedAt?: number,
+        _finalizedAt?: number,
         conversationId?: string,
         meta?: { assistantMessageId?: string; jobId?: string },
       ) => {
@@ -1165,7 +1165,7 @@ const EmptyState = memo(
     <div className="h-full flex flex-col items-center justify-center px-4">
       <div className="text-center animate-morph-in space-y-5 max-w-sm">
         <img
-          src="/main-logo.png"
+          src="/favicon.png"
           alt="Daedalus"
           className="h-20 w-auto mx-auto opacity-60"
         />

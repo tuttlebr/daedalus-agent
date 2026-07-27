@@ -7,22 +7,13 @@ import classNames from 'classnames';
 
 export interface DropZoneProps {
   onDrop: (files: File[]) => void;
-  accept?: string;
-  multiple?: boolean;
   disabled?: boolean;
   className?: string;
   children?: React.ReactNode;
 }
 
 export const DropZone = memo(
-  ({
-    onDrop,
-    accept,
-    multiple = true,
-    disabled = false,
-    className = '',
-    children,
-  }: DropZoneProps) => {
+  ({ onDrop, disabled = false, className = '', children }: DropZoneProps) => {
     const [isDragging, setIsDragging] = useState(false);
     const dragCounter = useRef(0);
 

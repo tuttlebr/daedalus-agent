@@ -52,9 +52,3 @@ export function getCachedIp(host: string): string | null {
   if (Date.now() - entry.resolvedAt > STALE_THRESHOLD_MS) return null;
   return entry.ip;
 }
-
-export function shutdownDnsCache(): void {
-  for (const timer of refreshTimers.values()) clearInterval(timer);
-  refreshTimers.clear();
-  cache.clear();
-}

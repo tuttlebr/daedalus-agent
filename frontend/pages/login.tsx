@@ -6,11 +6,7 @@ export default function Login() {
   return <LoginPage />;
 }
 
-export const getServerSideProps: GetServerSideProps = async ({
-  locale,
-  query,
-  res,
-}) => {
+export const getServerSideProps: GetServerSideProps = async ({ query }) => {
   // SECURITY: Reject credential query parameters at server-side
   if (query.username || query.password) {
     console.warn(
@@ -30,10 +26,5 @@ export const getServerSideProps: GetServerSideProps = async ({
     };
   }
 
-  return {
-    props: {
-      ...(await import(`../public/locales/${locale || 'en'}/common.json`))
-        .default,
-    },
-  };
+  return { props: {} };
 };

@@ -180,20 +180,6 @@ export async function deleteVideo(
   return result > 0;
 }
 
-// Get all videos for a session
-export async function getSessionVideos(sessionId: string): Promise<string[]> {
-  const redis = getRedis();
-  const sessionVideosKey = sessionKey(['session-videos', sessionId]);
-  return await redis.smembers(sessionVideosKey);
-}
-
-// Get all videos for a user
-export async function getUserVideos(userId: string): Promise<string[]> {
-  const redis = getRedis();
-  const userVideosKey = sessionKey(['user', userId, 'videos']);
-  return await redis.smembers(userVideosKey);
-}
-
 // Backstop on the (large, single-file) video upload path; caps abusive floods.
 const VIDEO_UPLOAD_RATE_LIMIT = ruleFromEnv(
   'video-upload',

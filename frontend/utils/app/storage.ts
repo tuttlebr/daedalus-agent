@@ -87,14 +87,6 @@ function evictSessionStorage(preserveKey: string): void {
 }
 
 /**
- * Remove item from sessionStorage with user-specific key
- */
-export function removeUserSessionItem(key: string): void {
-  const userKey = getUserStorageKey(key);
-  sessionStorage.removeItem(userKey);
-}
-
-/**
  * Clear all user-specific data from sessionStorage
  * This should be called on logout
  */

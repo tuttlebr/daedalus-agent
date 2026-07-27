@@ -23,7 +23,7 @@ const SERVER_HINTS = [
   'service unavailable',
 ];
 
-export function categorizeError(error: unknown): ErrorCategory {
+function categorizeError(error: unknown): ErrorCategory {
   if (error instanceof FetchTimeoutError) return 'timeout';
   if (error instanceof ApiError) {
     switch (error.kind) {
@@ -69,7 +69,7 @@ const RECOVERABLE: ErrorCategory[] = [
   'rate_limit',
 ];
 
-export function isRecoverable(category: ErrorCategory): boolean {
+function isRecoverable(category: ErrorCategory): boolean {
   return RECOVERABLE.includes(category);
 }
 
@@ -82,10 +82,7 @@ const FRIENDLY: Record<ErrorCategory, string> = {
   unknown: 'Something went wrong.',
 };
 
-export function friendlyMessage(
-  category: ErrorCategory,
-  fallback?: string,
-): string {
+function friendlyMessage(category: ErrorCategory, fallback?: string): string {
   if (category === 'unknown' && fallback) return fallback;
   return FRIENDLY[category];
 }

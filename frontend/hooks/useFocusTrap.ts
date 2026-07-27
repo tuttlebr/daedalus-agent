@@ -165,5 +165,3 @@ export function useFocusTrap({
     focusLast,
   };
 }
-
-export default useFocusTrap;

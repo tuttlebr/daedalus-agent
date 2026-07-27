@@ -132,7 +132,7 @@ function safeSegment(value: string, label: string): string {
   return value;
 }
 
-export function documentOwnerHash(ownerId: string): string {
+function documentOwnerHash(ownerId: string): string {
   if (!ownerId.trim()) throw new Error('Document owner is required');
   return crypto.createHash('sha256').update(ownerId).digest('hex').slice(0, 32);
 }

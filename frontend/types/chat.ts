@@ -1,5 +1,4 @@
 import { IntermediateStep } from './intermediateSteps';
-import type { SourcePolicy } from './sourcePolicy';
 
 export interface MessageError {
   message: string;
@@ -70,27 +69,7 @@ export interface Message {
   }>;
 }
 
-export type Role = 'assistant' | 'user' | 'agent' | 'system';
-
-export interface UserContext {
-  id: string | null;
-  username: string;
-  name: string | null;
-  conversationId?: string;
-  sessionTimestamp: number;
-  // Add any other user metadata fields as needed
-}
-
-export interface ChatBody {
-  messages?: Message[];
-  additionalProps?: {
-    enableIntermediateSteps?: boolean;
-    username?: string;
-    userContext?: UserContext;
-    sourcePolicy?: SourcePolicy;
-    [key: string]: any;
-  };
-}
+type Role = 'assistant' | 'user' | 'agent' | 'system';
 
 export interface Conversation {
   id: string;

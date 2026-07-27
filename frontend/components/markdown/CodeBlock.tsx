@@ -9,8 +9,6 @@ import { FC, memo, useEffect, useState } from 'react';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark } from 'react-syntax-highlighter/dist/cjs/styles/prism';
 
-import { useTranslation } from 'next-i18next/pages';
-
 import {
   generateRandomString,
   programmingLanguages,
@@ -29,7 +27,6 @@ interface Props {
 
 export const CodeBlock: FC<Props> = memo(
   ({ language, value, defaultPreview = true }) => {
-    const { t } = useTranslation('markdown');
     const [isCopied, setIsCopied] = useState<boolean>(false);
 
     const isHtml = HTML_PREVIEW_LANGUAGES.has(language.toLowerCase());
@@ -86,10 +83,6 @@ export const CodeBlock: FC<Props> = memo(
         3,
         true,
       )}${fileExtension}`;
-      // const fileName = window.prompt(
-      //   t('Enter file name') || '',
-      //   suggestedFileName,
-      // );
 
       if (!suggestedFileName) {
         return; // User pressed cancel on prompt
@@ -126,7 +119,7 @@ export const CodeBlock: FC<Props> = memo(
                 }}
               >
                 {showPreview ? <IconCode size={18} /> : <IconEye size={18} />}
-                {showPreview ? t('Code') : t('Preview')}
+                {showPreview ? 'Code' : 'Preview'}
               </button>
             )}
             <button
@@ -135,7 +128,7 @@ export const CodeBlock: FC<Props> = memo(
               onClick={(e) => copyToClipboard(e)}
             >
               {isCopied ? <IconCheck size={18} /> : <IconClipboard size={18} />}
-              {isCopied ? t('Copied!') : t('Copy code')}
+              {isCopied ? 'Copied!' : 'Copy code'}
             </button>
             <button
               aria-label="Download code"

@@ -217,78 +217,6 @@ export function createVisibilityAwareInterval(
 }
 
 /**
- * Creates a one-time delayed callback that won't fire if the page is hidden.
- * If the page becomes visible before the delay, it will fire after the remaining time.
- */
-export function createVisibilityAwareTimeout(
-  callback: TimerCallback,
-  delay: number,
-): { cancel: () => void } {
-  let timeoutId: ReturnType<typeof setTimeout> | null = null;
-  let remainingTime = delay;
-  let startTime = Date.now();
-  let cancelled = false;
-
-  const execute = () => {
-    if (cancelled) return;
-    try {
-      callback();
-    } catch (e) {
-      console.error('Timeout callback error:', e);
-    }
-  };
-
-  const start = () => {
-    if (cancelled) return;
-    startTime = Date.now();
-    timeoutId = setTimeout(execute, remainingTime);
-  };
-
-  const pause = () => {
-    if (timeoutId) {
-      clearTimeout(timeoutId);
-      timeoutId = null;
-      remainingTime -= Date.now() - startTime;
-      if (remainingTime < 0) remainingTime = 0;
-    }
-  };
-
-  // Start immediately if visible
-  if (
-    typeof document === 'undefined' ||
-    document.visibilityState === 'visible'
-  ) {
-    start();
-  }
-
-  const handleVisibility = () => {
-    if (cancelled) return;
-    if (document.visibilityState === 'visible') {
-      start();
-    } else {
-      pause();
-    }
-  };
-
-  if (typeof document !== 'undefined') {
-    document.addEventListener('visibilitychange', handleVisibility);
-  }
-
-  return {
-    cancel: () => {
-      cancelled = true;
-      if (timeoutId) {
-        clearTimeout(timeoutId);
-        timeoutId = null;
-      }
-      if (typeof document !== 'undefined') {
-        document.removeEventListener('visibilitychange', handleVisibility);
-      }
-    },
-  };
-}
-
-/**
  * Utility to check if we should run expensive operations
  * Returns false if on mobile with low battery
  */
@@ -323,23 +251,4 @@ export async function shouldRunExpensiveOperation(): Promise<boolean> {
   }
 
   return true;
-}
-
-/**
- * Get the count of active timers (for debugging)
- */
-export function getActiveTimerCount(): number {
-  return managedTimers.size;
-}
-
-/**
- * Stop all managed timers (cleanup on unmount)
- */
-export function stopAllTimers(): void {
-  managedTimers.forEach((timer, id) => {
-    if (timer.intervalId) {
-      clearInterval(timer.intervalId);
-    }
-    managedTimers.delete(id);
-  });
 }

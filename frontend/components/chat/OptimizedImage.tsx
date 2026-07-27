@@ -41,7 +41,6 @@ interface OptimizedImageProps {
   base64Data?: string;
   alt?: string;
   className?: string;
-  mimeType?: string;
   useThumbnail?: boolean; // Default true - use thumbnail for display
   /** Consumers with their own inspector should not render a second action bar. */
   showControls?: boolean;
@@ -55,7 +54,6 @@ export const OptimizedImage = memo(
     base64Data,
     alt = 'Image attachment',
     className = '',
-    mimeType = 'image/jpeg',
     useThumbnail = true, // Use thumbnail by default for better performance
     showControls = true,
     enableFullscreen = true,
@@ -459,8 +457,7 @@ export const OptimizedImage = memo(
       prevProps.showControls === nextProps.showControls &&
       prevProps.enableFullscreen === nextProps.enableFullscreen &&
       prevProps.className === nextProps.className &&
-      prevProps.alt === nextProps.alt &&
-      prevProps.mimeType === nextProps.mimeType
+      prevProps.alt === nextProps.alt
     );
   },
 );

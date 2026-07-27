@@ -1,7 +1,9 @@
 Dockerfile
 .gitignore
 .git
-tests/
+.DS_Store
+__tests__/
+e2e/
 *.md
 .idea
 node_modules/
@@ -11,7 +13,12 @@ out/
 k8s
 auth-passwords.json
 coverage
+playwright-report/
+test-results/
+*.tsbuildinfo
 build/
+worker-build/
+ws-build/
 .npm/
 npm-debug.log*
 yarn-debug.log*

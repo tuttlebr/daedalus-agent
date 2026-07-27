@@ -389,38 +389,6 @@ function findParent(
 }
 
 /**
- * Search consolidated steps by friendly name or context
- */
-export function searchConsolidatedSteps(
-  steps: ConsolidatedStep[],
-  searchTerm: string,
-): ConsolidatedStep[] {
-  if (!searchTerm || !searchTerm.trim()) return steps;
-  const term = searchTerm.toLowerCase();
-
-  return steps.filter((step) => {
-    if (step.friendlyName.toLowerCase().includes(term)) return true;
-    if (step.context?.toLowerCase().includes(term)) return true;
-    if (step.startStep.payload.name?.toLowerCase().includes(term)) return true;
-    if (
-      step.startStep.function_ancestry.function_name
-        .toLowerCase()
-        .includes(term)
-    )
-      return true;
-    // Recurse into children
-    if (step.children.length > 0) {
-      const matchingChildren = searchConsolidatedSteps(
-        step.children,
-        searchTerm,
-      );
-      if (matchingChildren.length > 0) return true;
-    }
-    return false;
-  });
-}
-
-/**
  * Convert old intermediate step format to new format (for migration)
  */
 export function migrateOldStepFormat(oldStep: any): IntermediateStep | null {

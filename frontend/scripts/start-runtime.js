@@ -27,8 +27,6 @@ function start(name, args) {
     );
     shutdown(exitCode);
   });
-
-  return child;
 }
 
 function shutdown(code = 0) {

@@ -27,8 +27,6 @@ const ALLOWED_DOCUMENT_MIME_TYPES = new Set([
   'text/x-markdown',
 ]);
 
-export const DOCUMENT_MULTIPART_OVERHEAD_BYTES = MAX_MULTIPART_OVERHEAD_BYTES;
-
 export class MultipartDocumentError extends Error {
   status: number;
 

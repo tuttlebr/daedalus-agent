@@ -1,5 +1,3 @@
-import { nextEndPoints } from './const';
-
 export type ApiErrorKind =
   | 'client'
   | 'server'
@@ -25,14 +23,6 @@ export class ApiError extends Error {
     this.status = status;
     this.kind = kind;
     this.body = body;
-  }
-
-  get isRetryable(): boolean {
-    return (
-      this.kind === 'server' ||
-      this.kind === 'network' ||
-      this.kind === 'timeout'
-    );
   }
 }
 
@@ -86,12 +76,6 @@ function networkError(method: string, path: string, err: unknown): never {
 export const apiBase = () => {
   if (typeof window !== 'undefined') return window.location.origin;
   return process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000';
-};
-
-export const getEndpoint = ({
-  service = 'chat' as keyof typeof nextEndPoints,
-}) => {
-  return nextEndPoints[service];
 };
 
 export async function apiGet<T>(path: string): Promise<T> {

@@ -39,9 +39,9 @@ import { v4 as uuidv4 } from 'uuid';
 
 const logger = new Logger('StreamWorker');
 
-export const STREAM_WORKER_HEALTH_FILE =
+const STREAM_WORKER_HEALTH_FILE =
   process.env.STREAM_WORKER_HEALTH_FILE || '/tmp/daedalus-stream-worker-health';
-export const STREAM_WORKER_READY_FILE =
+const STREAM_WORKER_READY_FILE =
   process.env.STREAM_WORKER_READY_FILE || '/tmp/daedalus-stream-worker-ready';
 
 export interface StreamWorkerOptions {
@@ -101,7 +101,7 @@ class StreamLeaseLostError extends Error {
   }
 }
 
-export class StreamWorkerDrainError extends Error {
+class StreamWorkerDrainError extends Error {
   constructor() {
     super('Stream worker is draining');
     this.name = 'StreamWorkerDrainError';

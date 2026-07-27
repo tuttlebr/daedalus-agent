@@ -6,7 +6,7 @@ export interface VTTReference {
 }
 
 // Upload VTT content to Redis and return reference
-export async function uploadVTT(
+async function uploadVTT(
   content: string,
   filename: string,
   mimeType: string = 'text/vtt',

@@ -11,9 +11,8 @@ dns.setDefaultResultOrder('ipv4first');
 let redis: Redis | null = null;
 let redisJsonSupported: boolean | null = null;
 
-// Dedicated pub/sub clients (cannot reuse connections for pub/sub)
+// Dedicated publisher client (cannot reuse the main connection for pub/sub)
 let publisher: Redis | null = null;
-let subscriber: Redis | null = null;
 
 const REDIS_MAX_RETRIES_PER_REQUEST = positiveIntegerFromEnv(
   'REDIS_MAX_RETRIES_PER_REQUEST',
@@ -433,29 +432,6 @@ export function getPublisher(): Redis {
   return publisher;
 }
 
-// Subscriber client for receiving messages
-export function getSubscriber(): Redis {
-  if (subscriber && !isRedisConnectionStale(subscriber)) {
-    return subscriber;
-  }
-  if (subscriber) {
-    subscriber.disconnect();
-    subscriber = null;
-  }
-
-  subscriber = new Redis(resolveRedisUrl(), REDIS_CLIENT_OPTIONS);
-
-  subscriber.on('error', (error) => {
-    logRedisErrorThrottled('subscriber', error);
-  });
-
-  subscriber.connect().catch((error) => {
-    logRedisErrorThrottled('subscriber-connect', error);
-  });
-
-  return subscriber;
-}
-
 // Streaming state storage for cross-session sync
 export interface StreamingState {
   conversationId: string;
@@ -541,7 +517,7 @@ export async function getStreamingStates(
 
     const values = await jsonMGet(keys);
 
-    keys.forEach((key, index) => {
+    keys.forEach((_, index) => {
       const state = values[index] as StreamingState | null;
       if (state && state.conversationId) {
         states[state.conversationId] = state;

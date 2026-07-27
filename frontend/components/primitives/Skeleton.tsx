@@ -28,19 +28,3 @@ export const Skeleton = memo(
 );
 
 Skeleton.displayName = 'Skeleton';
-
-/** Pre-composed skeleton for a chat message */
-export const MessageSkeleton = memo(
-  ({ className = '' }: { className?: string }) => (
-    <div className={classNames('flex gap-3 p-4', className)}>
-      <Skeleton variant="circular" width={36} height={36} />
-      <div className="flex-1 space-y-2">
-        <Skeleton width="40%" height={14} />
-        <Skeleton width="90%" height={14} />
-        <Skeleton width="65%" height={14} />
-      </div>
-    </div>
-  ),
-);
-
-MessageSkeleton.displayName = 'MessageSkeleton';

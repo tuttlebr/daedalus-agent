@@ -13,8 +13,6 @@ import {
 } from '@tabler/icons-react';
 import React, { memo, useCallback, useEffect, useRef, useState } from 'react';
 
-import { useTranslation } from 'next-i18next/pages';
-
 import { apiDelete } from '@/utils/app/api';
 import { saveConversation } from '@/utils/app/conversation';
 
@@ -32,7 +30,6 @@ const rowActionClasses =
   'flex h-9 w-9 items-center justify-center rounded-md text-dark-text-muted transition-all md:h-7 md:w-7 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nvidia-green/40';
 
 export const Sidebar = memo(() => {
-  const { t } = useTranslation('sidebar');
   const { logout } = useAuth();
 
   const conversations = useConversationStore((s) => s.conversations);
@@ -77,7 +74,7 @@ export const Sidebar = memo(() => {
   const handleNewConversation = useCallback(() => {
     const newConv: Conversation = {
       id: uuidv4(),
-      name: t('New Conversation'),
+      name: 'New Conversation',
       messages: [],
       folderId: null,
       updatedAt: Date.now(),
@@ -86,7 +83,7 @@ export const Sidebar = memo(() => {
     selectConversation(newConv.id);
     saveConversation(newConv);
     closeSidebarOnMobile();
-  }, [addConversation, selectConversation, t, closeSidebarOnMobile]);
+  }, [addConversation, selectConversation, closeSidebarOnMobile]);
 
   const handleSelect = useCallback(
     (id: string) => {

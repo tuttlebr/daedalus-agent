@@ -10,10 +10,7 @@ import {
   MESSAGES_IN_MEMORY,
   MAX_CONVERSATION_MESSAGES,
 } from './conversationPagination';
-import {
-  sanitizeConversationAssistantReplays,
-  sanitizeConversationsAssistantReplays,
-} from './conversationReplay';
+import { sanitizeConversationAssistantReplays } from './conversationReplay';
 import {
   restoreMessageImages,
   cleanMessagesForStorage,
@@ -21,9 +18,6 @@ import {
 } from './imageHandler';
 import { setUserSessionItem } from './storage';
 
-// Memory optimization constants
-const MAX_MESSAGES_IN_MEMORY = 50; // Keep only last 50 messages in memory
-const MAX_CONVERSATIONS_IN_MEMORY = 5; // Keep only 5 most recent conversations
 /**
  * Fire-and-forget notification to other devices/sessions via Redis pub/sub.
  * Failures are silently logged -- sync is best-effort.
@@ -39,38 +33,6 @@ function notifySync(
     },
   );
 }
-
-export const updateConversation = (
-  updatedConversation: Conversation,
-  allConversations: Conversation[],
-) => {
-  // Limit messages in the conversation
-  const limitedConversation = {
-    ...updatedConversation,
-    messages: updatedConversation.messages.slice(-MAX_MESSAGES_IN_MEMORY),
-  };
-
-  const updatedConversations = allConversations.map((c) => {
-    if (c.id === limitedConversation.id) {
-      return limitedConversation;
-    }
-    return c;
-  });
-
-  // Save operations - run concurrently but track for error handling
-  // Using Promise.all to ensure both saves complete, but not blocking the return
-  Promise.all([
-    saveConversation(limitedConversation),
-    saveConversations(updatedConversations),
-  ]).catch((error) => {
-    console.error('Failed to save conversation updates:', error);
-  });
-
-  return {
-    single: limitedConversation,
-    all: updatedConversations,
-  };
-};
 
 export const saveConversation = async (conversation: Conversation) => {
   try {
@@ -132,80 +94,6 @@ export const saveConversation = async (conversation: Conversation) => {
   }
 };
 
-export const saveConversations = async (conversations: Conversation[]) => {
-  try {
-    // Sort by most recent and limit number of conversations
-    const recentConversations = conversations
-      .sort((a, b) => {
-        const aTime = a.messages[a.messages.length - 1]?.id || a.id;
-        const bTime = b.messages[b.messages.length - 1]?.id || b.id;
-        return bTime.localeCompare(aTime);
-      })
-      .slice(0, MAX_CONVERSATIONS_IN_MEMORY);
-
-    // Clean all conversations to remove base64 content before storing
-    let cleanedConversations = recentConversations.map((conversation) => ({
-      ...conversation,
-      messages: cleanMessagesForStorage(
-        conversation.messages.slice(-MAX_MESSAGES_IN_MEMORY),
-      ),
-    }));
-
-    // Aggressively strip any remaining base64 content as a safety measure
-    cleanedConversations = sanitizeConversationsAssistantReplays(
-      stripBase64Content(cleanedConversations),
-    );
-
-    // Cache in sessionStorage (best-effort — data is persisted to Redis below).
-    // If the payload still exceeds the quota after eviction, progressively
-    // reduce what we cache locally until it fits or give up silently.
-    cacheConversationsToSession(cleanedConversations);
-
-    // Persist to Redis for cross-session persistence
-    await apiPut('/api/session/conversationHistory', cleanedConversations);
-
-    // Notify other devices that the conversation list has changed
-    notifySync('conversation_list_changed');
-  } catch (error) {
-    console.error('Failed to persist conversations to server', error);
-    throw error;
-  }
-};
-
-/**
- * Attempt to write conversation list to sessionStorage with progressive
- * size reduction.  Tries the full list first, then halves the message
- * count per conversation, then reduces conversation count, and finally
- * stores only metadata (no messages) so the sidebar still renders.
- */
-function cacheConversationsToSession(conversations: Conversation[]): void {
-  const write = (data: Conversation[]) =>
-    setUserSessionItem('conversationHistory', JSON.stringify(data));
-
-  // 1. Full payload
-  if (write(data(conversations, MAX_MESSAGES_IN_MEMORY))) return;
-
-  // 2. Half the messages per conversation
-  if (write(data(conversations, Math.ceil(MAX_MESSAGES_IN_MEMORY / 2)))) return;
-
-  // 3. Fewer conversations (top 2) with minimal messages
-  if (write(data(conversations.slice(0, 2), 10))) return;
-
-  // 4. Metadata only — sidebar labels still render
-  const metadataOnly = conversations.map((c) => ({
-    ...c,
-    messages: [],
-  }));
-  write(metadataOnly);
-}
-
-function data(conversations: Conversation[], msgLimit: number): Conversation[] {
-  return conversations.map((c) => ({
-    ...c,
-    messages: c.messages.slice(-msgLimit),
-  }));
-}
-
 export const loadConversation = async (
   loadAllMessages: boolean = false,
 ): Promise<Conversation | null> => {
@@ -255,43 +143,6 @@ export const loadConversation = async (
   } catch (e) {
     return null;
   }
-};
-
-export const loadConversations = async (): Promise<Conversation[]> => {
-  try {
-    let conversations = await apiGet<Conversation[]>(
-      '/api/session/conversationHistory',
-    );
-    // Strip any base64 content and restore image references in all loaded conversations
-    conversations = sanitizeConversationsAssistantReplays(
-      stripBase64Content(conversations),
-    );
-    return conversations.map((conv) => {
-      if (conv.messages) {
-        conv.messages = restoreMessageImages(conv.messages);
-      }
-      return conv;
-    });
-  } catch (e) {
-    return [];
-  }
-};
-
-// Cleanup function for old messages and conversations
-export const cleanupOldConversations = (
-  conversations: Conversation[],
-): Conversation[] => {
-  return conversations
-    .sort((a, b) => {
-      const aTime = a.messages[a.messages.length - 1]?.id || a.id;
-      const bTime = b.messages[b.messages.length - 1]?.id || b.id;
-      return bTime.localeCompare(aTime);
-    })
-    .slice(0, MAX_CONVERSATIONS_IN_MEMORY)
-    .map((conversation) => ({
-      ...conversation,
-      messages: conversation.messages.slice(-MAX_MESSAGES_IN_MEMORY),
-    }));
 };
 
 // Add periodic cleanup of old conversations

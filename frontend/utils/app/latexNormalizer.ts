@@ -21,26 +21,26 @@ export function normalizeLatexDelimiters(text: string): string {
 
   // Convert \[...\] to $$...$$ for display math
   // Use a more robust regex that handles newlines
-  normalized = normalized.replace(/\\\[([\s\S]*?)\\\]/g, (match, content) => {
+  normalized = normalized.replace(/\\\[([\s\S]*?)\\\]/g, (_, content) => {
     return `$$${content}$$`;
   });
 
   // Convert \(...\) to $...$ for inline math
-  normalized = normalized.replace(/\\\(([\s\S]*?)\\\)/g, (match, content) => {
+  normalized = normalized.replace(/\\\(([\s\S]*?)\\\)/g, (_, content) => {
     return `$${content}$`;
   });
 
   // Handle equation environments if present
   normalized = normalized.replace(
     /\\begin\{equation\}([\s\S]*?)\\end\{equation\}/g,
-    (match, content) => {
+    (_, content) => {
       return `$$${content}$$`;
     },
   );
 
   normalized = normalized.replace(
     /\\begin\{equation\*\}([\s\S]*?)\\end\{equation\*\}/g,
-    (match, content) => {
+    (_, content) => {
       return `$$${content}$$`;
     },
   );
@@ -48,14 +48,14 @@ export function normalizeLatexDelimiters(text: string): string {
   // Handle align environments
   normalized = normalized.replace(
     /\\begin\{align\}([\s\S]*?)\\end\{align\}/g,
-    (match, content) => {
+    (_, content) => {
       return `$$\\begin{aligned}${content}\\end{aligned}$$`;
     },
   );
 
   normalized = normalized.replace(
     /\\begin\{align\*\}([\s\S]*?)\\end\{align\*\}/g,
-    (match, content) => {
+    (_, content) => {
       return `$$\\begin{aligned}${content}\\end{aligned}$$`;
     },
   );
@@ -86,41 +86,4 @@ export function containsLatex(text: string): boolean {
   ];
 
   return patterns.some((pattern) => pattern.test(text));
-}
-
-/**
- * Safely escapes text that might be confused with LaTeX but isn't
- * @param text - The text to escape
- * @returns Escaped text
- */
-export function escapeNonLatex(text: string): string {
-  // This would be used if you need to display dollar signs that aren't math
-  // For example: "This costs $5" should not be treated as math
-  // Currently not used as our config has singleDollarTextMath: false
-  return text;
-}
-
-/**
- * Extracts LaTeX expressions from text
- * @param text - The text containing LaTeX
- * @returns Array of extracted LaTeX expressions
- */
-export function extractLatexExpressions(text: string): string[] {
-  const expressions: string[] = [];
-
-  // Extract display math
-  const displayMath = text.match(/\$\$([\s\S]*?)\$\$/g);
-  if (displayMath) expressions.push(...displayMath);
-
-  const displayMath2 = text.match(/\\\[([\s\S]*?)\\\]/g);
-  if (displayMath2) expressions.push(...displayMath2);
-
-  // Extract inline math (but not $$)
-  const inlineMath = text.match(/(?<!\$)\$(?!\$)[^\$\n]+\$(?!\$)/g);
-  if (inlineMath) expressions.push(...inlineMath);
-
-  const inlineMath2 = text.match(/\\\(([\s\S]*?)\\\)/g);
-  if (inlineMath2) expressions.push(...inlineMath2);
-
-  return expressions;
 }

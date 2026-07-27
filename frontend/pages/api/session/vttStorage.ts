@@ -102,29 +102,6 @@ export async function deleteVTT(
   return deleted > 0;
 }
 
-// Clean up all VTT files for a session
-export async function cleanupSessionVTTs(sessionId: string): Promise<number> {
-  const redis = getRedis();
-  const sessionVTTsKey = sessionKey(['session-vtts', sessionId]);
-
-  // Get all VTT IDs for this session
-  const vttIds = await redis.smembers(sessionVTTsKey);
-
-  let deletedCount = 0;
-  for (const vttId of vttIds) {
-    const key = sessionKey(['vtt', sessionId, vttId]);
-    const deleted = await jsonDel(key);
-    if (deleted > 0) {
-      deletedCount++;
-    }
-  }
-
-  // Clean up the set itself
-  await redis.del(sessionVTTsKey);
-
-  return deletedCount;
-}
-
 // List all VTT files for a session
 export async function listSessionVTTs(
   sessionId: string,

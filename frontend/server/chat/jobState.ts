@@ -27,7 +27,7 @@ export const finalizerLockKey = (jobId: string) =>
   sessionKey(['async-job-finalizer-lock', jobId]);
 export const finalizationJournalKey = (jobId: string) =>
   sessionKey(['async-job-finalization', jobId]);
-export const statusLockKey = (jobId: string) =>
+const statusLockKey = (jobId: string) =>
   sessionKey(['async-job-status-lock', jobId]);
 
 export interface JobFinalizationConversation {
@@ -94,7 +94,7 @@ export function clearOAuthStatusFields(): Pick<
   };
 }
 
-export async function withRedisLock<T>(
+async function withRedisLock<T>(
   key: string,
   ttlMs: number,
   fn: () => Promise<T>,
@@ -134,10 +134,6 @@ export async function withRedisLock<T>(
 
 export function isTerminalJobStatus(status: AsyncJobStatus['status']): boolean {
   return status === 'completed' || status === 'error';
-}
-
-export function isPlausibleUnixMs(value: unknown): value is number {
-  return typeof value === 'number' && value > 946684800000;
 }
 
 // Supports both RedisJSON documents and the plain-string fallback used when

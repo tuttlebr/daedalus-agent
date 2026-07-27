@@ -241,7 +241,7 @@ describe('/api/images/history', () => {
       };
       const removed = entry('hist-1', ['a0b-1', 'c0d-2', 'e0f-3']);
       mocks.jsonGet.mockResolvedValue([removed, retained]);
-      mocks.redisCall.mockImplementation((_command: string, key: string) =>
+      mocks.redisCall.mockImplementation((_command: string, _key: string) =>
         Promise.resolve(
           JSON.stringify([
             {

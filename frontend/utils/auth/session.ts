@@ -82,7 +82,7 @@ export async function getSession(
 }
 
 // Check if user is authenticated
-export async function isAuthenticated(
+async function isAuthenticated(
   req: NextApiRequest,
   res: NextApiResponse,
 ): Promise<boolean> {

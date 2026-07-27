@@ -1,4 +1,3 @@
-import { UPLOAD_LIMITS, getFileSizeLimit } from '@/constants/uploadLimits';
 import { describe, expect, it, vi } from 'vitest';
 
 function fileLike(name: string, type: string, size = 0): File {
@@ -42,29 +41,6 @@ async function importUploadLimitsWithEnv(env: Record<string, string>) {
     vi.resetModules();
   }
 }
-
-describe('getFileSizeLimit', () => {
-  it('classifies markdown files as documents', () => {
-    expect(getFileSizeLimit(fileLike('notes.md', ''))).toBe(
-      UPLOAD_LIMITS.DOCUMENT_MAX_SIZE_BYTES,
-    );
-    expect(getFileSizeLimit(fileLike('README.markdown', 'text/markdown'))).toBe(
-      UPLOAD_LIMITS.DOCUMENT_MAX_SIZE_BYTES,
-    );
-    expect(getFileSizeLimit(fileLike('notes', 'text/x-markdown'))).toBe(
-      UPLOAD_LIMITS.DOCUMENT_MAX_SIZE_BYTES,
-    );
-  });
-
-  it('classifies plain text files as documents', () => {
-    expect(getFileSizeLimit(fileLike('notes.txt', ''))).toBe(
-      UPLOAD_LIMITS.DOCUMENT_MAX_SIZE_BYTES,
-    );
-    expect(getFileSizeLimit(fileLike('notes', 'text/plain'))).toBe(
-      UPLOAD_LIMITS.DOCUMENT_MAX_SIZE_BYTES,
-    );
-  });
-});
 
 describe('UPLOAD_LIMITS env overrides', () => {
   it('accepts the actual 30 MiB image boundary without a base64 haircut', async () => {

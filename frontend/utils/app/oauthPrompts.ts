@@ -7,7 +7,7 @@ export type OAuthPrompt = {
   service?: string;
 };
 
-export function inferGoogleService(authUrl: string): string {
+function inferGoogleService(authUrl: string): string {
   let decoded = authUrl;
   try {
     decoded = decodeURIComponent(authUrl);
@@ -20,7 +20,7 @@ export function inferGoogleService(authUrl: string): string {
   return 'Google';
 }
 
-export function oauthPromptId(authUrl: string, oauthState?: string): string {
+function oauthPromptId(authUrl: string, oauthState?: string): string {
   return oauthState ? `${oauthState}:${authUrl}` : authUrl;
 }
 
@@ -95,13 +95,4 @@ export function withoutOAuthPromptsForConversation(
   conversationId: string,
 ): OAuthPrompt[] {
   return prompts.filter((prompt) => prompt.conversationId !== conversationId);
-}
-
-export function filterOpenedOAuthPrompts(
-  prompts: OAuthPrompt[],
-  openedPromptKeys: ReadonlySet<string>,
-): OAuthPrompt[] {
-  return prompts.filter(
-    (prompt) => !openedPromptKeys.has(oauthPromptKey(prompt)),
-  );
 }

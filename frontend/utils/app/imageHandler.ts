@@ -20,15 +20,6 @@ export {
 
 const logger = new Logger('ImageHandler');
 
-export interface ProcessedMessage extends Message {
-  attachments?: Array<{
-    content: string;
-    type: string;
-    imageRef?: ImageReference;
-    imageRefs?: ImageReference[];
-  }>;
-}
-
 // Upload image to Redis and return reference
 export async function uploadImage(
   base64Data: string,
@@ -88,48 +79,6 @@ export async function uploadImage(
     logger.error('Error uploading image', error);
     throw error;
   }
-}
-
-// Process message to replace base64 images with references
-export async function processMessageImages(
-  message: ProcessedMessage,
-): Promise<ProcessedMessage> {
-  if (!message.attachments || message.attachments.length === 0) {
-    return message;
-  }
-
-  const processedAttachments = await Promise.all(
-    message.attachments.map(async (attachment) => {
-      if (attachment.type === 'image' && attachment.content) {
-        try {
-          // Check if it's already a reference (single or multiple)
-          if (attachment.imageRef || attachment.imageRefs) {
-            return attachment;
-          }
-
-          // Upload image and get reference
-          const imageRef = await uploadImage(attachment.content);
-
-          // Return attachment with reference instead of base64
-          return {
-            ...attachment,
-            content: '', // Clear the base64 content
-            imageRef,
-          };
-        } catch (error) {
-          logger.error('Error processing image attachment', error);
-          // Return original attachment if processing fails
-          return attachment;
-        }
-      }
-      return attachment;
-    }),
-  );
-
-  return {
-    ...message,
-    attachments: processedAttachments,
-  };
 }
 
 // Clean messages for LLM (remove image data, keep only references)

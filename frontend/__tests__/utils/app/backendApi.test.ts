@@ -38,10 +38,11 @@ describe('backendApi configuration', () => {
       DEPLOYMENT_MODE: 'local',
     });
 
-    expect(backendApi.BACKEND_API_PATH).toBe('/v1/chat/completions');
-    expect(backendApi.buildBackendUrlForMode()).toBe(
-      'http://backend:8000/v1/chat/completions',
-    );
+    expect(
+      backendApi.buildBackendUrlFromBase(
+        backendApi.buildBackendBaseUrlForMode(),
+      ),
+    ).toBe('http://backend:8000/v1/chat/completions');
   });
 
   it('builds Kubernetes service URLs from a host-only backend name', async () => {
@@ -55,7 +56,11 @@ describe('backendApi configuration', () => {
     expect(backendApi.getBackendHost()).toBe(
       'daedalus-backend-default.prod.svc.cluster.local',
     );
-    expect(backendApi.buildBackendUrlForMode()).toBe(
+    expect(
+      backendApi.buildBackendUrlFromBase(
+        backendApi.buildBackendBaseUrlForMode(),
+      ),
+    ).toBe(
       'http://daedalus-backend-default.prod.svc.cluster.local:8000/v1/chat/completions',
     );
   });

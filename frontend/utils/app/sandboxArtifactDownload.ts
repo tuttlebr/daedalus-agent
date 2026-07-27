@@ -3,9 +3,7 @@ const RETRYABLE_DOWNLOAD_STATUSES = new Set([
   404, 409, 425, 429, 500, 502, 503, 504,
 ]);
 
-export const SANDBOX_ARTIFACT_RETRY_DELAYS_MS = [
-  400, 800, 1_500, 2_500, 4_000, 5_000,
-];
+const SANDBOX_ARTIFACT_RETRY_DELAYS_MS = [400, 800, 1_500, 2_500, 4_000, 5_000];
 
 export function isSandboxArtifactDownloadUrl(href: string): boolean {
   try {

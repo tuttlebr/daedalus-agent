@@ -1,8 +1,6 @@
 import {
   normalizeLatexDelimiters,
   containsLatex,
-  escapeNonLatex,
-  extractLatexExpressions,
 } from '@/utils/app/latexNormalizer';
 
 import { describe, expect, it } from 'vitest';
@@ -105,43 +103,5 @@ describe('containsLatex', () => {
 
   it('should return false for null input', () => {
     expect(containsLatex(null as any)).toBe(false);
-  });
-});
-
-describe('escapeNonLatex', () => {
-  it('should return text unchanged (identity function)', () => {
-    const input = 'This costs $5 and that costs $10';
-    expect(escapeNonLatex(input)).toBe(input);
-  });
-});
-
-describe('extractLatexExpressions', () => {
-  it('should extract $$...$$ display math', () => {
-    const result = extractLatexExpressions('text $$x^2$$ more');
-    expect(result).toContain('$$x^2$$');
-  });
-
-  it('should extract \\[...\\] display math', () => {
-    const result = extractLatexExpressions('text \\[x^2\\] more');
-    expect(result).toContain('\\[x^2\\]');
-  });
-
-  it('should extract $...$ inline math', () => {
-    const result = extractLatexExpressions('text $x^2$ more');
-    expect(result).toContain('$x^2$');
-  });
-
-  it('should extract \\(...\\) inline math', () => {
-    const result = extractLatexExpressions('text \\(x^2\\) more');
-    expect(result).toContain('\\(x^2\\)');
-  });
-
-  it('should extract multiple expressions', () => {
-    const result = extractLatexExpressions('$$a$$ and $b$ and \\[c\\]');
-    expect(result.length).toBeGreaterThanOrEqual(3);
-  });
-
-  it('should return empty array for no math', () => {
-    expect(extractLatexExpressions('no math here')).toEqual([]);
   });
 });

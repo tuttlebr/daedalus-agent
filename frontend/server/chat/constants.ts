@@ -14,9 +14,6 @@ export const DOCUMENT_INGEST_TIMEOUT_MS = Number(
 export const NAT_BACKEND_CACHE_TTL_MS = 30_000;
 export const STREAM_STATUS_FLUSH_INTERVAL_MS = 750;
 export const STREAM_STEPS_FLUSH_INTERVAL_MS = 750;
-export const STREAM_ABORT_POLL_INTERVAL_MS = Number(
-  process.env.STREAM_ABORT_POLL_INTERVAL_MS || 1_000,
-);
 export const STREAM_READ_IDLE_TIMEOUT_MS = Number(
   process.env.STREAM_READ_IDLE_TIMEOUT_MS || 5 * 60 * 1000,
 );

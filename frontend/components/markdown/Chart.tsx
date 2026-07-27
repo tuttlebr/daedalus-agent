@@ -147,7 +147,7 @@ const Chart = (props: any) => {
                 fill={colors.fill}
                 label
               >
-                {Data.map((entry: any, index: number) => (
+                {Data.map((_: any, index: number) => (
                   <Cell key={`cell-${index}`} fill={getRandomColor()} />
                 ))}
               </Pie>

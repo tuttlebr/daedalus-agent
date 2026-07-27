@@ -1,5 +1,5 @@
-export const DEFAULT_TIMEZONE = 'America/New_York';
-export const TIMEZONE_HEADER_NAME = 'x-timezone';
+const DEFAULT_TIMEZONE = 'America/New_York';
+const TIMEZONE_HEADER_NAME = 'x-timezone';
 
 type HeaderMap = Record<string, string | string[] | number | undefined>;
 
@@ -16,7 +16,7 @@ function firstHeaderValue(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
 }
 
-export function normalizeTimezone(timezone: unknown): string {
+function normalizeTimezone(timezone: unknown): string {
   const candidate = firstHeaderValue(timezone) || DEFAULT_TIMEZONE;
   try {
     new Intl.DateTimeFormat('en-US', { timeZone: candidate }).format(0);

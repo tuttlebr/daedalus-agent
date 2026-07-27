@@ -323,59 +323,6 @@ class ConversationPaginationDB {
       request.onerror = () => reject(request.error);
     });
   }
-
-  /**
-   * Delete a conversation completely from IndexedDB (messages and metadata)
-   */
-  async deleteConversation(conversationId: string): Promise<void> {
-    const db = await this.ensureDB();
-
-    // Clear messages
-    await this.clearConversationMessages(conversationId);
-
-    // Clear metadata
-    const metaTransaction = db.transaction([METADATA_STORE], 'readwrite');
-    const metaStore = metaTransaction.objectStore(METADATA_STORE);
-
-    await new Promise((resolve, reject) => {
-      const request = metaStore.delete(conversationId);
-      request.onsuccess = () => resolve(undefined);
-      request.onerror = () => reject(request.error);
-    });
-  }
-
-  /**
-   * Clear all conversations from IndexedDB
-   */
-  async clearAllConversations(): Promise<void> {
-    const db = await this.ensureDB();
-
-    // Clear all messages
-    const messagesTransaction = db.transaction([MESSAGES_STORE], 'readwrite');
-    const messagesStore = messagesTransaction.objectStore(MESSAGES_STORE);
-    await new Promise((resolve, reject) => {
-      const request = messagesStore.clear();
-      request.onsuccess = () => resolve(undefined);
-      request.onerror = () => reject(request.error);
-    });
-
-    // Clear all metadata
-    const metaTransaction = db.transaction([METADATA_STORE], 'readwrite');
-    const metaStore = metaTransaction.objectStore(METADATA_STORE);
-    await new Promise((resolve, reject) => {
-      const request = metaStore.clear();
-      request.onsuccess = () => resolve(undefined);
-      request.onerror = () => reject(request.error);
-    });
-  }
-
-  close(): void {
-    if (this.db) {
-      this.db.close();
-      this.db = null;
-    }
-    this.initPromise = null;
-  }
 }
 
 // Create singleton instance
@@ -406,18 +353,4 @@ export async function enforceConversationSizeLimit(
   return paginationDB.enforceConversationLimit(conversationId);
 }
 
-export async function deleteConversationFromDB(
-  conversationId: string,
-): Promise<void> {
-  return paginationDB.deleteConversation(conversationId);
-}
-
-export async function clearAllConversationsFromDB(): Promise<void> {
-  return paginationDB.clearAllConversations();
-}
-
-export {
-  MESSAGES_IN_MEMORY,
-  MAX_CONVERSATION_MESSAGES,
-  CONVERSATION_RETENTION_DAYS,
-};
+export { MESSAGES_IN_MEMORY, MAX_CONVERSATION_MESSAGES };

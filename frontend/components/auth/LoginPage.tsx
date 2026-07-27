@@ -12,12 +12,14 @@ import { Button } from '@/components/primitives';
 import { Input } from '@/components/primitives';
 import { GlassCard } from '@/components/surfaces';
 
+import { useAuth } from './AuthProvider';
 import { GalaxyBackground } from './GalaxyBackground';
 
 const logger = new Logger('LoginPage');
 
 export const LoginPage: React.FC = () => {
   const router = useRouter();
+  const { login } = useAuth();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -50,16 +52,7 @@ export const LoginPage: React.FC = () => {
     setIsLoading(true);
 
     try {
-      const response = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password }),
-      });
-
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || 'Login failed');
-
-      router.push('/');
+      await login(username, password);
     } catch (err: any) {
       setError(err.message || 'An error occurred during login');
       toast.error(err.message || 'Login failed');
@@ -77,11 +70,7 @@ export const LoginPage: React.FC = () => {
           {/* Logo */}
           <div className="text-center">
             <div className="flex justify-center mb-6">
-              <img
-                src="/main-logo.png"
-                alt="Daedalus"
-                className="h-16 w-auto"
-              />
+              <img src="/favicon.png" alt="Daedalus" className="h-16 w-auto" />
             </div>
             <h1 className="text-2xl font-bold text-dark-text-primary tracking-tight">
               Sign In

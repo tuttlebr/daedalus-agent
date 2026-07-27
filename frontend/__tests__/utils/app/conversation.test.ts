@@ -27,7 +27,6 @@ vi.mock('@/utils/app/api', () => {
 vi.mock('@/utils/app/storage', () => ({
   getUserSessionItem: vi.fn(),
   setUserSessionItem,
-  removeUserSessionItem: vi.fn(),
 }));
 
 vi.mock('@/utils/app/conversationPagination', () => ({

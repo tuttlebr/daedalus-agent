@@ -46,9 +46,6 @@ const nextConfig = {
       transform: '@tabler/icons-react/dist/esm/icons/{{member}}',
     },
   },
-  async redirects() {
-    return [];
-  },
   // PWA configuration
   async headers() {
     return [

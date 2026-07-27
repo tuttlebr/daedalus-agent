@@ -15,14 +15,6 @@ export interface ErrorContext {
   userAgent?: string;
 }
 
-type Reporter = (error: unknown, context: ErrorContext) => void;
-
-let externalReporter: Reporter | null = null;
-
-export function setErrorReporter(reporter: Reporter | null): void {
-  externalReporter = reporter;
-}
-
 export function reportError(
   error: unknown,
   context: Partial<ErrorContext> = {},
@@ -37,14 +29,6 @@ export function reportError(
 
   const message = error instanceof Error ? error.message : String(error);
   logger.error(`[${enriched.source}] ${message}`, error);
-
-  if (externalReporter) {
-    try {
-      externalReporter(error, enriched);
-    } catch (reporterError) {
-      logger.error('External reporter threw', reporterError);
-    }
-  }
 }
 
 const SAFE_PROD_MESSAGE =

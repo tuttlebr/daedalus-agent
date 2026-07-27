@@ -3,8 +3,6 @@
 import { useCallback, useEffect, useRef } from 'react';
 
 import { GetServerSideProps } from 'next';
-import { useTranslation } from 'next-i18next/pages';
-import { serverSideTranslations } from 'next-i18next/pages/serverSideTranslations';
 import Head from 'next/head';
 
 import {
@@ -39,7 +37,6 @@ import { useConversationStore, useUISettingsStore } from '@/state';
 import { v4 as uuidv4 } from 'uuid';
 
 const Home = () => {
-  const { t } = useTranslation('chat');
   const { user } = useAuth();
   const userId = user?.username || 'anon';
   useTheme();
@@ -54,7 +51,7 @@ const Home = () => {
       commonShortcuts.newItem(() => {
         const newConv: Conversation = {
           id: uuidv4(),
-          name: t('New Conversation'),
+          name: 'New Conversation',
           messages: [],
           folderId: null,
           updatedAt: Date.now(),
@@ -158,7 +155,7 @@ const Home = () => {
           } else {
             const newConv: Conversation = {
               id: uuidv4(),
-              name: t('New Conversation'),
+              name: 'New Conversation',
               messages: [],
               folderId: null,
               updatedAt: Date.now(),
@@ -168,7 +165,7 @@ const Home = () => {
           }
         }
       },
-      [deleteConversationFromStore, selectConversation, addConversation, t],
+      [deleteConversationFromStore, selectConversation, addConversation],
     ),
     onConversationListChanged: useCallback(() => {
       refreshConversationList();
@@ -258,7 +255,7 @@ const Home = () => {
           } else {
             const newConv: Conversation = {
               id: uuidv4(),
-              name: t('New Conversation'),
+              name: 'New Conversation',
               messages: [],
               folderId: null,
               updatedAt: Date.now(),
@@ -277,7 +274,7 @@ const Home = () => {
     };
 
     void fetchConversations().then(loadSelectedConversation);
-  }, [t]);
+  }, []);
 
   useEffect(() => {
     if (window.innerWidth < 768) {
@@ -339,18 +336,10 @@ function ActiveView() {
   return <ChatView />;
 }
 
-export const getServerSideProps: GetServerSideProps = async ({ locale }) => {
+export const getServerSideProps: GetServerSideProps = async () => {
   return {
     props: {
       defaultModelId: process.env.DEFAULT_MODEL || '',
-      ...(await serverSideTranslations(locale ?? 'en', [
-        'common',
-        'chat',
-        'sidebar',
-        'markdown',
-        'promptbar',
-        'settings',
-      ])),
     },
   };
 };

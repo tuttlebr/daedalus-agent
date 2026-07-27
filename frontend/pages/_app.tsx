@@ -3,7 +3,6 @@ import { useEffect, useState } from 'react';
 import { Toaster } from 'react-hot-toast';
 import toast from 'react-hot-toast';
 
-import { appWithTranslation } from 'next-i18next/pages';
 import type { AppProps } from 'next/app';
 import Head from 'next/head';
 import { useRouter } from 'next/router';
@@ -11,7 +10,6 @@ import { useRouter } from 'next/router';
 import {
   registerServiceWorker,
   setupOfflineDetection,
-  setupInstallPrompt,
   setOnUpdateAvailable,
 } from '@/utils/app/pwa';
 import { reportError } from '@/utils/errorReporter';
@@ -46,7 +44,6 @@ function App({ Component, pageProps }: AppProps<{}>) {
     document.documentElement.classList.add('dark');
 
     registerServiceWorker();
-    setupInstallPrompt();
     setOnUpdateAvailable(() => setShowUpdateToast(true));
     setupOfflineDetection(
       () => toast.error('You are offline. Some features may be limited.'),
@@ -109,11 +106,9 @@ function App({ Component, pageProps }: AppProps<{}>) {
           </ErrorBoundary>
         </AuthProvider>
       </QueryClientProvider>
-      {showUpdateToast && (
-        <UpdateToast onDismiss={() => setShowUpdateToast(false)} />
-      )}
+      {showUpdateToast && <UpdateToast />}
     </div>
   );
 }
 
-export default appWithTranslation(App);
+export default App;

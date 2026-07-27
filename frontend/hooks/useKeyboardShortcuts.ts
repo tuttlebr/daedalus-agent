@@ -203,5 +203,3 @@ export const commonShortcuts = {
     description: 'Toggle sidebar',
   }),
 };
-
-export default useKeyboardShortcuts;

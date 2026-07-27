@@ -274,7 +274,7 @@ class ImageBlobCache {
       });
 
       const entriesToRemove: string[] = [];
-      this.cache.forEach((entry, key) => {
+      this.cache.forEach((_, key) => {
         const refCount = this.referenceCount.get(key) || 0;
         if (refCount === 0) {
           entriesToRemove.push(key);

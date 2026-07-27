@@ -52,7 +52,6 @@ function optionalNumber(value: unknown): number | undefined {
 }
 
 async function streamDocumentIngestJob(
-  jobId: string,
   jobRequest: AsyncJobRequest,
   verifiedUsername: string,
   onProgress: (progress: DocumentIngestProgress) => Promise<void>,
@@ -257,7 +256,6 @@ export async function startBackgroundDocumentIngest(
 
   try {
     const output = await streamDocumentIngestJob(
-      jobId,
       jobRequest,
       verifiedUsername,
       async (progress) => {

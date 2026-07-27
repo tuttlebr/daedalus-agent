@@ -166,9 +166,7 @@ async function runInitializeUsers(): Promise<void> {
 }
 
 // Get user by username
-export async function getUserByUsername(
-  username: string,
-): Promise<User | null> {
+async function getUserByUsername(username: string): Promise<User | null> {
   const userKey = sessionKey(['user', username]);
   return (await jsonGet(userKey)) as User | null;
 }

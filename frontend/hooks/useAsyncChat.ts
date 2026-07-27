@@ -985,6 +985,7 @@ export const useAsyncChat = (
       userId,
       scheduleNextPoll,
       removeActiveJob,
+      jobStatusByConversationId,
     ],
   );
 
@@ -1166,6 +1167,9 @@ export const useAsyncChat = (
 
   // Clean up on unmount
   useEffect(() => {
+    const wsActiveJobs = wsActiveJobsRef.current;
+    const activeJobs = activeJobsRef.current;
+
     return () => {
       isComponentMountedRef.current = false;
       Object.values(pollingTimersRef.current).forEach((timer) => {
@@ -1183,14 +1187,14 @@ export const useAsyncChat = (
 
       // Clean up WebSocket job subscriptions
       const wsManager = getWebSocketManager();
-      for (const jobId of Array.from(wsActiveJobsRef.current)) {
+      for (const jobId of Array.from(wsActiveJobs)) {
         wsManager.unsubscribeFromJob(jobId);
-        const conversationId = activeJobsRef.current[jobId]?.conversationId;
+        const conversationId = activeJobs[jobId]?.conversationId;
         if (conversationId) {
           wsManager.unsubscribeFromChat(conversationId);
         }
       }
-      wsActiveJobsRef.current.clear();
+      wsActiveJobs.clear();
       Object.values(wsJobUnsubsRef.current).forEach((unsub) => unsub());
       wsJobUnsubsRef.current = {};
     };

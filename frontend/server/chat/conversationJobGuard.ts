@@ -39,7 +39,7 @@ function serializeConversationJobGuard(guard: ConversationJobGuard): string {
   return JSON.stringify(guard);
 }
 
-export function parseConversationJobGuard(
+function parseConversationJobGuard(
   serialized: string | null,
 ): ConversationJobGuard | null {
   if (!serialized) return null;

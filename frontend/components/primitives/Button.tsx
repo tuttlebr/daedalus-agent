@@ -146,39 +146,3 @@ export const Button = memo(
 );
 
 Button.displayName = 'Button';
-
-export interface ButtonGroupProps {
-  children: React.ReactNode;
-  orientation?: 'horizontal' | 'vertical';
-  spacing?: 'none' | 'sm' | 'md';
-  className?: string;
-}
-
-export const ButtonGroup = memo(
-  ({
-    children,
-    orientation = 'horizontal',
-    spacing = 'sm',
-    className = '',
-  }: ButtonGroupProps) => (
-    <div
-      className={classNames(
-        'inline-flex',
-        orientation === 'vertical' && 'flex-col',
-        spacing === 'none'
-          ? orientation === 'horizontal'
-            ? '-space-x-px'
-            : '-space-y-px'
-          : spacing === 'sm'
-          ? 'gap-1'
-          : 'gap-2',
-        className,
-      )}
-      role="group"
-    >
-      {children}
-    </div>
-  ),
-);
-
-ButtonGroup.displayName = 'ButtonGroup';

@@ -5,7 +5,6 @@ const DB_NAME = 'DaedalusIntermediateStepsDB';
 const DB_VERSION = 1;
 const STORE_NAME = 'intermediateSteps';
 const CHUNK_SIZE = 50; // Reduced chunk size for better memory management
-const MAX_AGE_HOURS = 12; // Reduced from 24 to 12 hours
 const MAX_SIZE_PER_CONVERSATION = 10 * 1024 * 1024; // 10MB max per conversation
 const COMPRESSION_THRESHOLD = 1024; // Compress steps larger than 1KB
 
@@ -295,56 +294,6 @@ class IntermediateStepsDB {
     });
   }
 
-  async cleanupOldSteps(): Promise<number> {
-    const db = await this.ensureDB();
-    const transaction = db.transaction([STORE_NAME], 'readwrite');
-    const store = transaction.objectStore(STORE_NAME);
-    const index = store.index('createdAt');
-
-    const cutoffTime = Date.now() - MAX_AGE_HOURS * 60 * 60 * 1000;
-    let deletedCount = 0;
-
-    return new Promise((resolve, reject) => {
-      const request = index.openCursor(IDBKeyRange.upperBound(cutoffTime));
-
-      request.onsuccess = (event) => {
-        const cursor = (event.target as IDBRequest).result;
-        if (cursor) {
-          store.delete(cursor.primaryKey);
-          deletedCount++;
-          cursor.continue();
-        } else {
-          resolve(deletedCount);
-        }
-      };
-
-      request.onerror = () => reject(request.error);
-    });
-  }
-
-  async clearConversationSteps(conversationId: string): Promise<void> {
-    const db = await this.ensureDB();
-    const transaction = db.transaction([STORE_NAME], 'readwrite');
-    const store = transaction.objectStore(STORE_NAME);
-    const index = store.index('conversationId');
-
-    return new Promise((resolve, reject) => {
-      const request = index.openCursor(IDBKeyRange.only(conversationId));
-
-      request.onsuccess = (event) => {
-        const cursor = (event.target as IDBRequest).result;
-        if (cursor) {
-          store.delete(cursor.primaryKey);
-          cursor.continue();
-        } else {
-          resolve();
-        }
-      };
-
-      request.onerror = () => reject(request.error);
-    });
-  }
-
   async getConversationSize(conversationId: string): Promise<number> {
     const db = await this.ensureDB();
     const transaction = db.transaction([STORE_NAME], 'readonly');
@@ -413,30 +362,10 @@ class IntermediateStepsDB {
       request.onerror = () => reject(request.error);
     });
   }
-
-  async clearAllSteps(): Promise<void> {
-    const db = await this.ensureDB();
-    const transaction = db.transaction([STORE_NAME], 'readwrite');
-    const store = transaction.objectStore(STORE_NAME);
-
-    return new Promise((resolve, reject) => {
-      const request = store.clear();
-      request.onsuccess = () => resolve();
-      request.onerror = () => reject(request.error);
-    });
-  }
-
-  close(): void {
-    if (this.db) {
-      this.db.close();
-      this.db = null;
-      this.initPromise = null;
-    }
-  }
 }
 
-// Export singleton instance
-export const intermediateStepsDB = new IntermediateStepsDB();
+// Singleton instance
+const intermediateStepsDB = new IntermediateStepsDB();
 
 // Helper functions for easy usage
 export async function saveIntermediateSteps(
@@ -458,18 +387,4 @@ export async function getIntermediateStepCount(
   conversationId: string,
 ): Promise<number> {
   return intermediateStepsDB.getStepCount(conversationId);
-}
-
-export async function cleanupOldIntermediateSteps(): Promise<number> {
-  return intermediateStepsDB.cleanupOldSteps();
-}
-
-export async function clearConversationIntermediateSteps(
-  conversationId: string,
-): Promise<void> {
-  return intermediateStepsDB.clearConversationSteps(conversationId);
-}
-
-export async function clearAllIntermediateSteps(): Promise<void> {
-  return intermediateStepsDB.clearAllSteps();
 }

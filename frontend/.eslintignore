@@ -1,0 +1,7 @@
+.next/
+coverage/
+node_modules/
+playwright-report/
+test-results/
+worker-build/
+ws-build/

@@ -315,7 +315,7 @@ export function sanitizeConfigPatch(
   return clean;
 }
 
-export function autonomyKey(userId: string, name: string): string {
+function autonomyKey(userId: string, name: string): string {
   return sessionKey(['autonomy', userId, name]);
 }
 
@@ -642,7 +642,7 @@ function priorityValue(goal: AutonomyGoal): number {
   return Number.isFinite(priority) ? priority : 3;
 }
 
-export function isAllActiveGoalsPrompt(prompt: unknown): boolean {
+function isAllActiveGoalsPrompt(prompt: unknown): boolean {
   if (typeof prompt !== 'string') return false;
   const normalized = prompt
     .trim()

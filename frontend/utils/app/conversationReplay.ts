@@ -4,7 +4,7 @@ import { Message } from '@/types/chat';
 
 const logger = new Logger('ReplaySanitizer');
 
-export const PRIOR_ASSISTANT_OMITTED_MESSAGE =
+const PRIOR_ASSISTANT_OMITTED_MESSAGE =
   '[Prior assistant response omitted from this backend prompt to prevent replay. ' +
   'Use the surrounding user messages as conversation context. Do not reproduce earlier assistant messages.]';
 
@@ -236,7 +236,7 @@ function stripInternalReplayMarkerBoundaries(rawOutput: string): string {
   return normalized;
 }
 
-export function normalizeAssistantResponseBoundaries(
+function normalizeAssistantResponseBoundaries(
   rawOutput: string,
   priorMessages: any[] = [],
 ): string {
