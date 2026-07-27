@@ -10,10 +10,10 @@
 #   make tools-check  verify required binaries are installed
 #   make clean        remove generated test/scan artifacts
 #
-# Python jobs (builder, evals) install into and run from a venv that uv
+# Python jobs (builder) install into and run from a venv that uv
 # discovers automatically: an explicit VIRTUAL_ENV if active, otherwise the
 # nearest `.venv/` walking up from the recipe's working directory (so
-# `builder/.venv` is used for the builder job, `.venv` at repo root for evals).
+# `builder/.venv` is used for the builder job.
 # On externally-managed system Python (PEP 668 / Debian-Ubuntu) you must have
 # one of those venvs in place — CI sidesteps the issue because its setup-python
 # Python is not PEP-668 marked, so `uv pip install --system` works directly in
@@ -27,12 +27,12 @@ TRIVY_INVENTORY ?= /tmp/daedalus-trivy-inventory.json
 
 .DEFAULT_GOAL := help
 
-.PHONY: help ci builder test-integration frontend frontend-e2e helm redis-upgrade docker security evals tools-check clean
+.PHONY: help ci builder test-integration frontend frontend-e2e helm redis-upgrade docker security tools-check clean
 
 help: ## show available targets
 	@awk 'BEGIN {FS = ":.*##"} /^[a-zA-Z0-9_-]+:.*##/ { printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
 
-ci: tools-check builder test-integration frontend frontend-e2e helm redis-upgrade docker security evals ## run every CI job sequentially
+ci: tools-check builder test-integration frontend frontend-e2e helm redis-upgrade docker security ## run every CI job sequentially
 
 builder: ## Python builder pytest with coverage  (CI job: builder)
 	cd builder && uv pip install -e ".[test]"
@@ -77,8 +77,8 @@ docker: ## docker compose config + build runtime images  (CI job: docker)
 		fi; \
 		trap 'if [ "$$created_env" = 1 ]; then rm -f .env; fi' EXIT; \
 		docker compose config --quiet; \
-		docker compose build --provenance=mode=max --sbom=true backend frontend evals redis; \
-		for service in backend frontend evals redis; do \
+		docker compose build --provenance=mode=max --sbom=true backend frontend redis; \
+		for service in backend frontend redis; do \
 			image=$$(docker compose config --format json | jq -r ".services.\"$$service\".image"); \
 			trivy image --severity CRITICAL,HIGH --exit-code 1 "$$image"; \
 		done
@@ -90,11 +90,6 @@ security: ## secret, production dependency, and filesystem vulnerability scans  
 	jq -e '[.Results[]? | select(.Target | endswith("package-lock.json"))] | length > 0' $(TRIVY_INVENTORY) >/dev/null || { echo "Trivy did not inventory frontend/package-lock.json" >&2; exit 1; }
 	$(TRIVY) fs --scanners vuln --severity CRITICAL,HIGH --exit-code 1 --format sarif . >$(TRIVY_RESULTS)
 	test -s $(TRIVY_RESULTS)
-
-evals: ## eval harness compile + dataset validation  (CI job: evals)
-	uv pip install -r evals/requirements.txt
-	uv run python -m py_compile evals/runner.py evals/evaluators/*.py
-	uv run python evals/runner.py --validate-only --dataset routing --dataset factuality --dataset workflows
 
 tools-check: ## verify required binaries are present
 	@missing=0; \

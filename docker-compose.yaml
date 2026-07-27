@@ -296,23 +296,6 @@ services:
         condition: service_healthy
     restart: 'no'
 
-  evals:
-    build:
-      context: evals
-      dockerfile: Dockerfile
-    image: ${DOCKER_REGISTRY:-docker.io/library}/daedalus:evals-${DAEDALUS_VERSION:-0.1.0}
-    profiles: [evals]
-    extra_hosts:
-      - 'host.docker.internal:host-gateway'
-    networks:
-      - ${NETWORK_NAME:-daedalus-network}
-    volumes:
-      - ${DOCKER_VOLUME_DIRECTORY:-.}/evals:/evals
-    environment:
-      - DAEDALUS_BACKEND_URL=${DAEDALUS_BACKEND_URL:-http://backend:8000}
-      - DAEDALUS_EVAL_USER=${DAEDALUS_EVAL_USER:-eval_user}
-      - DAEDALUS_EVAL_TIMEOUT=${DAEDALUS_EVAL_TIMEOUT:-900}
-
 networks:
   daedalus-network:
     driver: bridge
