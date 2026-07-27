@@ -1,5 +1,7 @@
 .coverage
 .coverage.*
+.DS_Store
+**/.DS_Store
 .pytest_cache/
 .ruff_cache/
 .venv/

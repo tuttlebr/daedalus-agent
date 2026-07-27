@@ -55,6 +55,20 @@ BACKEND_CONFIG_TEMPLATE = (
     / "templates"
     / "config-backend-default.yaml"
 )
+BACKEND_SECRET_TEMPLATE = (
+    Path(__file__).resolve().parents[2]
+    / "helm"
+    / "daedalus"
+    / "templates"
+    / "secret-backend.yaml"
+)
+FRONTEND_SECRET_TEMPLATE = (
+    Path(__file__).resolve().parents[2]
+    / "helm"
+    / "daedalus"
+    / "templates"
+    / "secret-frontend.yaml"
+)
 CILIUM_NGINX_TEMPLATE = (
     Path(__file__).resolve().parents[2]
     / "helm"
@@ -272,7 +286,10 @@ def test_backend_dockerfile_assigns_runtime_files_to_non_root_user():
     dockerfile = DOCKERFILE.read_text(encoding="utf-8")
     final_stage = dockerfile.split("FROM runtime_base AS backend", 1)[1]
 
-    assert "COPY --from=build --chown=1000:1000 /workspace /workspace" in final_stage
+    assert (
+        "COPY --from=runtime_payload --chown=1000:1000 /workspace /workspace"
+        in final_stage
+    )
     assert "COPY --from=skills --chown=1000:1000 . /skills" in final_stage
     permission_normalization = "find /workspace /skills ! -type l -exec chmod a+rX {} +"
     assert permission_normalization in final_stage
@@ -288,6 +305,7 @@ def test_backend_dockerfile_assigns_runtime_files_to_non_root_user():
 def test_backend_build_context_excludes_local_generated_metadata():
     dockerignore = DOCKERIGNORE.read_text(encoding="utf-8")
 
+    assert ".DS_Store" in dockerignore
     assert ".venv/" in dockerignore
     assert "**/*.egg-info/" in dockerignore
     assert "**/__pycache__/" in dockerignore
@@ -384,6 +402,8 @@ def test_backend_image_installs_only_from_frozen_runtime_locks():
     assert "git+https://github.com/NVIDIA/NeMo-Agent-Toolkit" not in dockerfile
     assert "nat workflow reinstall" not in dockerfile
     assert "FROM build AS base" in dockerfile
+    assert "FROM build AS runtime_payload" in dockerfile
+    assert "COPY --from=runtime_payload" in dockerfile
 
     assert "FROM runtime_base AS backend" in dockerfile
     assert "build-essential" not in final_stage
@@ -436,6 +456,9 @@ def test_backend_config_uses_canonical_env_names():
     assert LEGACY_RERANKER_PREFIX not in template_text
     assert "${REDIS_URL}:${REDIS_PORT}" not in config_text
     assert "KUBERNETES_MCP_TOKEN=" in template_text
+    assert "NEXT_PUBLIC_UPLOAD_IMAGE_SERVER_LIMIT_MB=30" in template_text
+    assert "PHOENIX_PROJECT_NAME=daedalus" in template_text
+    assert 'value[0] == value[-1] and value[0] in "\\"\'"' in DEPLOY_SCRIPT.read_text()
 
 
 def test_frontend_deployment_uses_canonical_service_urls():
@@ -845,9 +868,7 @@ def test_mcp_approval_policy_follows_explicit_include_lists():
 def test_restricted_nginx_allows_oauth_redirect_callback():
     template = NGINX_TEMPLATE.read_text(encoding="utf-8")
     callback_location = "location = /auth/redirect"
-    direct_api_block = (
-        "location ~ ^/(v1|generate|chat|evaluate|upload|tools|health|auth)(/|$)"
-    )
+    direct_api_block = "location ~ ^/(v1|generate|chat|upload|tools|health|auth)(/|$)"
 
     assert callback_location in template
     assert direct_api_block in template
@@ -857,6 +878,59 @@ def test_restricted_nginx_allows_oauth_redirect_callback():
     callback_block = template[callback_start:callback_end]
     assert "rewrite ^ /api/auth/redirect break;" in callback_block
     assert "proxy_pass {{ ._frontendHTTPUpstream }};" in callback_block
+
+
+def test_backend_secret_allowlist_tracks_active_model_credentials():
+    template = BACKEND_SECRET_TEMPLATE.read_text(encoding="utf-8")
+    allowlist_match = re.search(r'regexMatch "(\^.+\$)" \$k', template)
+
+    assert "(not .Values.backend.default.env.fromSecret)" in template
+    assert allowlist_match is not None
+    allowlist = re.compile(allowlist_match.group(1))
+    for active_name in (
+        "X_MCP_BEARER_TOKEN",
+        "VERIFIER_API_KEY",
+        "VERIFIER_BASE_URL",
+        "VERIFIER_MODEL",
+        "DEFAULT_LLM_MODEL_API_KEY",
+        "TOOL_CALLING_LLM_MODEL_API_KEY",
+    ):
+        assert allowlist.fullmatch(active_name), active_name
+
+    for stale_name in (
+        "FIREWORKS_API_KEY",
+        "REASONING_LLM_MODEL_API_KEY",
+        "REACT_LLM_MODEL_API_KEY",
+        "DISTILL_LLM_MODEL_API_KEY",
+    ):
+        assert allowlist.fullmatch(stale_name) is None, stale_name
+
+
+def test_rate_limit_env_is_scoped_to_the_frontend_workload():
+    def allowlist(path: Path) -> re.Pattern[str]:
+        template = path.read_text(encoding="utf-8")
+        match = re.search(r'regexMatch "(\^.+\$)" \$k', template)
+        assert match is not None, path
+        return re.compile(match.group(1))
+
+    backend = allowlist(BACKEND_SECRET_TEMPLATE)
+    frontend_secret = allowlist(FRONTEND_SECRET_TEMPLATE)
+    frontend_overrides = allowlist(FRONTEND_DEPLOYMENT_TEMPLATE)
+
+    for name in (
+        "RATE_LIMIT_DOC_MARKDOWN_MAX",
+        "RATE_LIMIT_DOC_MARKDOWN_WINDOW_SECONDS",
+        "RATE_LIMIT_IMAGE_JOB_MAX",
+        "RATE_LIMIT_IMAGE_JOB_WINDOW_SECONDS",
+    ):
+        assert backend.fullmatch(name) is None, name
+        assert frontend_secret.fullmatch(name), name
+        assert frontend_overrides.fullmatch(name), name
+
+    assert backend.fullmatch("DOCUMENT_INGEST_TIMEOUT_MS") is None
+    assert frontend_secret.fullmatch("DOCUMENT_INGEST_TIMEOUT_MS")
+    assert frontend_overrides.fullmatch("DOCUMENT_INGEST_TIMEOUT_MS")
+    assert backend.fullmatch("DOCUMENT_INGEST_TIMEOUT_SECONDS")
 
 
 def test_restricted_nginx_cilium_policy_allows_oauth_callback_upstream():
@@ -1402,10 +1476,7 @@ def test_hardcoded_builder_prompts_follow_prompt_guidance_shape():
 
 def test_identity_control_messages_match_backend_memory_contract():
     root = Path(__file__).resolve().parents[2]
-    surfaces = (
-        root / "frontend" / "pages" / "api" / "chat" / "async.ts",
-        root / "evals" / "runner.py",
-    )
+    surfaces = (root / "frontend" / "pages" / "api" / "chat" / "async.ts",)
     for surface in surfaces:
         text = surface.read_text(encoding="utf-8")
         assert "[IDENTITY]" in text, surface

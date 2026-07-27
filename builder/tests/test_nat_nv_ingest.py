@@ -837,7 +837,7 @@ class TestNormalizeForDedup:
 # ---------------------------------------------------------------------------
 
 
-def _text_entry(page: int, content: str, *, quality_high: bool = True) -> dict:
+def _text_entry(page: int, content: str) -> dict:
     """Build a minimal text-type entry for dedup tests."""
     return {
         "document_type": "text",
@@ -1549,7 +1549,6 @@ class TestDocumentObjectStorage:
                 document_id="doc-1",
                 session_id="session-1",
                 username="alice",
-                config=NvIngestFunctionConfig(),
             )
         )
         assert result == payload
@@ -1575,8 +1574,6 @@ class TestDocumentObjectStorage:
         response.read.side_effect = lambda _size: next(chunks)
         client = MagicMock()
         client.get_object.return_value = response
-        config = NvIngestFunctionConfig()
-
         with patch(
             "nat_nv_ingest.nat_nv_ingest._make_document_minio_client",
             return_value=client,
@@ -1594,7 +1591,6 @@ class TestDocumentObjectStorage:
                     document_id="doc-1",
                     session_id="session-1",
                     username="alice",
-                    config=config,
                 )
             )
 
@@ -1623,8 +1619,6 @@ class TestDocumentObjectStorage:
         response.read.side_effect = [payload, b""]
         client = MagicMock()
         client.get_object.return_value = response
-        config = NvIngestFunctionConfig()
-
         with patch(
             "nat_nv_ingest.nat_nv_ingest._make_document_minio_client",
             return_value=client,
@@ -1642,7 +1636,6 @@ class TestDocumentObjectStorage:
                     document_id="doc-1",
                     session_id="session-1",
                     username="alice",
-                    config=config,
                 )
             )
 
@@ -1676,6 +1669,5 @@ class TestDocumentObjectStorage:
                     document_id="doc-1",
                     session_id="session-1",
                     username="alice",
-                    config=NvIngestFunctionConfig(),
                 )
             )

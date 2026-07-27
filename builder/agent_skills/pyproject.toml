@@ -21,8 +21,5 @@ agent_skills = "agent_skills.register"
 packages = ["agent_skills"]
 package-dir = {"" = "src"}
 
-[tool.setuptools.package-data]
-agent_skills = ["configs/*.yml", "configs/*.yaml"]
-
 [tool.uv]
 config-settings = { editable_mode = "compat" }

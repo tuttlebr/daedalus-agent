@@ -344,7 +344,6 @@ class TestScrapeContent:
         return _scrape_content(
             url,
             token_limit,
-            "TRUNC",
             fetched_content=b"<html>article</html>",
             content_type="text/html",
         )
@@ -373,7 +372,7 @@ class TestScrapeContent:
 
         with patch.object(rss_mod, "MarkItDown", markitdown):
             content, was_truncated = _scrape_content(
-                "https://rebind.example/article", 64000, "TRUNC"
+                "https://rebind.example/article", 64000
             )
 
         assert content.startswith("Error: ")
@@ -399,7 +398,7 @@ class TestScrapeContent:
         with patch.object(rss_mod.httpx, "Client", return_value=_Client()):
             with patch.object(rss_mod, "MarkItDown", markitdown):
                 content, was_truncated = _scrape_content(
-                    "http://8.8.8.8/article", 64000, "TRUNC"
+                    "http://8.8.8.8/article", 64000
                 )
 
         assert content.startswith("Error: ")

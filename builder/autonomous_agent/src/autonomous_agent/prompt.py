@@ -83,17 +83,7 @@ Start each run with a small, bounded plan and record the next useful follow-up.
 
 _JSON_FENCE_RE = re.compile(r"```(?:json)?\s*([\s\S]*?)\s*```", re.IGNORECASE)
 _THINK_RE = re.compile(r"<think(?:\s[^>]*)?>.*?</think\s*>", re.DOTALL | re.IGNORECASE)
-_ACTION_TYPE_RE = re.compile(r"action_type=`([^`]+)`", re.IGNORECASE)
-_TARGET_RE = re.compile(r"target=`([^`]+)`", re.IGNORECASE)
-_SERVER_NAME_RE = re.compile(r"server_name=`([^`]+)`", re.IGNORECASE)
-_TOOL_NAME_RE = re.compile(r"tool_name=`([^`]+)`", re.IGNORECASE)
-_APPROVAL_REQUEST_ID_RE = re.compile(r"approval_request_id=`([^`]+)`", re.IGNORECASE)
-_ARGUMENTS_HASH_RE = re.compile(r"arguments_sha256=`([a-f0-9]{64})`", re.IGNORECASE)
-_ACTION_HEADING_RE = re.compile(
-    r"\*\*(?:Action requiring confirmation|Deep research plan approval):\*\*\s*([^\n]+)?",
-    re.IGNORECASE,
-)
-# F-011: the structured approval marker that extract_approval_metadata keys on.
+# F-011: require the structured marker emitted by the approval tool.
 # Detection requires this exact bold heading (not merely an advisory phrase like
 # "proceed? (yes/no)") so a model casually echoing the words cannot trip the gate.
 _APPROVAL_MARKER_RE = re.compile(
@@ -543,50 +533,6 @@ def feed_items_from_output(run_id: str, output: dict[str, Any]) -> list[dict[str
     return result
 
 
-def extract_approval_metadata(text: str) -> dict[str, str]:
-    """Extract approval metadata from user_interaction tool output."""
-    raw = text or ""
-    action_match = _ACTION_HEADING_RE.search(raw)
-    action = (action_match.group(1) or "").strip() if action_match else ""
-    if not action and "deep research plan approval" in raw.lower():
-        action = "Deep research plan approval requested."
-    if not action:
-        action = "Backend requested confirmation."
-
-    action_type_match = _ACTION_TYPE_RE.search(raw)
-    target_match = _TARGET_RE.search(raw)
-    server_name_match = _SERVER_NAME_RE.search(raw)
-    tool_name_match = _TOOL_NAME_RE.search(raw)
-    approval_request_id_match = _APPROVAL_REQUEST_ID_RE.search(raw)
-    arguments_hash_match = _ARGUMENTS_HASH_RE.search(raw)
-    action_type = (
-        action_type_match.group(1).strip() if action_type_match else "mcp_mutation"
-    )
-    target = target_match.group(1).strip() if target_match else ""
-    risk = "medium"
-    if action_type == "deep_research_plan":
-        risk = "low"
-
-    return {
-        "action": action,
-        "action_type": action_type,
-        "target": target,
-        "risk": risk,
-        "server_name": (
-            server_name_match.group(1).strip() if server_name_match else ""
-        ),
-        "tool_name": tool_name_match.group(1).strip() if tool_name_match else "",
-        "approval_request_id": (
-            approval_request_id_match.group(1).strip()
-            if approval_request_id_match
-            else ""
-        ),
-        "arguments_sha256": (
-            arguments_hash_match.group(1).lower() if arguments_hash_match else ""
-        ),
-    }
-
-
 def request_approval_key(request: dict[str, Any] | None) -> str:
     """F-015: stable idempotency key for an approved, re-enqueued request.
 
@@ -602,9 +548,8 @@ def request_approval_key(request: dict[str, Any] | None) -> str:
 
 
 def output_requests_approval(text: str) -> bool:
-    # F-011: require the structured approval MARKER (the bold heading that
-    # extract_approval_metadata parses), not any advisory phrase. This keeps the
-    # worker-side pause aligned with the structured metadata it records.
+    # F-011: require the structured approval marker, not any advisory phrase.
+    # This keeps the worker-side pause aligned with the backend approval gate.
     # The worker pause is paired with the backend MCPToolClient gate: mutation
     # attempts have no credential on this first turn, while the authenticated
     # approval route supplies one exact, single-use credential on resume.

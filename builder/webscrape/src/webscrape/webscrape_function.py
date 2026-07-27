@@ -528,24 +528,6 @@ async def _scrape_with_httpx_result(
     return markdown, "ok"
 
 
-async def _scrape_with_httpx(
-    url: str,
-    token_limit: int | None = None,
-    truncation_msg: str = "",
-    allowed_schemes: list[str] | None = None,
-    timeout=_HTTPX_TIMEOUT,
-) -> str | None:
-    """Strategy 1: httpx with browser-like headers (handles simple UA checks)."""
-    markdown, _ = await _scrape_with_httpx_result(
-        url,
-        token_limit=token_limit,
-        truncation_msg=truncation_msg,
-        allowed_schemes=allowed_schemes,
-        timeout=timeout,
-    )
-    return markdown
-
-
 # ---------------------------------------------------------------------------
 # URL validation & robots.txt
 # ---------------------------------------------------------------------------

@@ -32,7 +32,6 @@ workflow:
   reranker_max_passage_tokens: 192
   reranker_max_total_tokens: 7000
   cache_ttl_hours: 4.0
-  cache_backend: 'memory'
   timeout: 30.0
   user_agent: 'daedalus-rss-reader/1.0'
   max_entries: 20

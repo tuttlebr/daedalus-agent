@@ -15,15 +15,13 @@ ENV REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
 ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
 ENV PATH="/workspace/.venv/bin:$PATH"
 
-# Keep only binaries used by the application and its shipped skills here. Build
-# tools live in the build stage and cannot be copied into the runtime image.
+# Keep only binaries used by the application here. Build and development tools
+# live in the build stage and cannot be copied into the runtime image.
 RUN export DEBIAN_FRONTEND=noninteractive && \
     apt-get update && \
     apt-get install --no-install-recommends -y \
     ca-certificates \
-    curl \
     ffmpeg \
-    jq \
     python3.12 \
     tzdata && \
     ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && \
@@ -49,7 +47,9 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
     apt-get install --no-install-recommends -y \
     build-essential \
     clang \
-    git && \
+    curl \
+    git \
+    jq && \
     rm -rf /var/lib/apt/lists/*
 
 SHELL ["/bin/bash", "-c"]
@@ -145,10 +145,20 @@ RUN python /workspace/runtime_contract_check.py
 # toolchain out of the backend stage below.
 FROM build AS base
 
+# Strip build-only inputs from the snapshot copied into the runtime image. The
+# development target above keeps them for diagnostics and lock maintenance.
+FROM build AS runtime_payload
+RUN rm -f \
+    /workspace/requirements-runtime.in \
+    /workspace/verify_uv_pip_check.py \
+    /workspace/pylock.runtime-linux-amd64.toml \
+    /workspace/pylock.runtime-linux-arm64.toml \
+    /workspace/runtime_contract_check.py
+
 FROM runtime_base AS backend
 WORKDIR /workspace
 
-COPY --from=build --chown=1000:1000 /workspace /workspace
+COPY --from=runtime_payload --chown=1000:1000 /workspace /workspace
 COPY --from=skills --chown=1000:1000 . /skills
 
 # Build-context modes depend on the checkout umask, while Kubernetes may run

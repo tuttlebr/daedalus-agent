@@ -225,9 +225,8 @@ The standard browser flow is:
 namespace; Kubernetes cannot mount a Secret across namespaces. Password mode
 expects `MILVUS_USERNAME` and `MILVUS_PASSWORD`. Token mode is selected by
 setting `retrieval.milvus.auth.tokenKey` and expects that key instead. MinIO
-expects `MINIO_ACCESS_KEY` and `MINIO_SECRET_KEY`; `MINIO_SESSION_TOKEN` is
-optional. Endpoint, database, bucket, namespace, port, and key names are all
-configurable under `retrieval.*`.
+expects `MINIO_ACCESS_KEY` and `MINIO_SECRET_KEY`. Endpoint, database, bucket,
+namespace, port, and key names are all configurable under `retrieval.*`.
 
 When `retrieval.readiness.enabled=true`, the backend checks both authenticated
 `list_collections` and `has_collection`. The latter exercises the

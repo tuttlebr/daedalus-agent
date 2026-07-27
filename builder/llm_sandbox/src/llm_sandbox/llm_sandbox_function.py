@@ -344,14 +344,6 @@ def _trusted_scope_from_headers(headers: Any) -> tuple[str, str] | None:
     return user_id, conversation_id
 
 
-def _workspace_id_from_headers(headers: Any) -> str | None:
-    scope = _trusted_scope_from_headers(headers)
-    if scope is None:
-        return None
-    user_id, conversation_id = scope
-    return hashlib.sha256(f"{user_id}\0{conversation_id}".encode()).hexdigest()
-
-
 def _trusted_scope_from_context() -> tuple[str, str] | None:
     try:
         from nat.builder.context import Context
@@ -368,10 +360,6 @@ def _workspace_id_from_scope(scope: tuple[str, str] | None) -> str | None:
         return None
     user_id, conversation_id = scope
     return hashlib.sha256(f"{user_id}\0{conversation_id}".encode()).hexdigest()
-
-
-def _workspace_id_from_context() -> str | None:
-    return _workspace_id_from_scope(_trusted_scope_from_context())
 
 
 def _validate_capabilities(data: Any) -> dict[str, Any]:

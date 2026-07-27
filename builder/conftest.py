@@ -43,7 +43,7 @@ try:
 
         model_config = {"arbitrary_types_allowed": True}
 
-        def __init_subclass__(cls, name: str = "", **kwargs):  # noqa: ARG003
+        def __init_subclass__(cls, name: str = "", **kwargs):
             super().__init_subclass__(**kwargs)
 
 except ImportError:  # pragma: no cover
@@ -100,15 +100,10 @@ _nat_data_models_component_ref_mod = MagicMock()
 _nat_data_models_component_ref_mod.LLMRef = str
 _nat_data_models_component_ref_mod.MemoryRef = str
 
-_nat_data_models_retriever_mod = MagicMock()
-_nat_data_models_retriever_mod.RetrieverBaseConfig = _FakeFunctionBaseConfig
-
 _nat_register_mod = MagicMock()
 _nat_register_mod.register_embedder_client = _fake_register_passthrough
 _nat_register_mod.register_embedder_provider = _fake_register_passthrough
 _nat_register_mod.register_function = _fake_register_function
-_nat_register_mod.register_retriever_client = _fake_register_passthrough
-_nat_register_mod.register_retriever_provider = _fake_register_passthrough
 _nat_register_mod.register_object_store = _fake_register_passthrough
 
 
@@ -168,16 +163,6 @@ class _FakeFastApiFrontEndPluginWorker:
 
 _nat_fastapi_worker_mod = MagicMock()
 _nat_fastapi_worker_mod.FastApiFrontEndPluginWorker = _FakeFastApiFrontEndPluginWorker
-
-
-class _FakeRetrieverProviderInfo:
-    def __init__(self, config=None, description: str = ""):
-        self.config = config
-        self.description = description
-
-
-_nat_builder_retriever_mod = MagicMock()
-_nat_builder_retriever_mod.RetrieverProviderInfo = _FakeRetrieverProviderInfo
 
 
 class _FakeEmbedderProviderInfo:
@@ -242,7 +227,6 @@ _NAT_MOCKS: dict[str, object] = {
     "nat.builder": MagicMock(),
     "nat.builder.builder": MagicMock(),
     "nat.builder.embedder": _nat_builder_embedder_mod,
-    "nat.builder.retriever": _nat_builder_retriever_mod,
     "nat.builder.framework_enum": MagicMock(),
     "nat.builder.function_info": _nat_function_info_mod,
     "nat.cli": MagicMock(),
@@ -253,7 +237,6 @@ _NAT_MOCKS: dict[str, object] = {
     "nat.data_models.embedder": _nat_data_models_embedder_mod,
     "nat.data_models.function": _nat_data_models_function_mod,
     "nat.data_models.object_store": _nat_data_models_object_store_mod,
-    "nat.data_models.retriever": _nat_data_models_retriever_mod,
     "nat.front_ends": MagicMock(),
     "nat.front_ends.fastapi": MagicMock(),
     "nat.front_ends.fastapi.fastapi_front_end_plugin_worker": (_nat_fastapi_worker_mod),
@@ -297,27 +280,13 @@ _EXTERNAL_MOCKS = [
     "pymilvus.client",
     "nv_ingest_client",
     "nv_ingest_client.client",
-    "nv_ingest_client.util",
-    "nv_ingest_client.util.process_json_files",
-    "bs4",
     "redis",
     "langchain_core",
     "langchain_core.embeddings",
     "langchain_core.messages",
-    "optuna",
-    "optuna.samplers",
-    "optuna.pruners",
-    "optuna.storages",
-    "optuna.trial",
-    "deepdiff",
-    "kubernetes",
-    "kubernetes.client",
-    "kubernetes.config",
     # httpx handled separately below (needs real exception classes)
-    "jsonschema",
     "fastapi",
     "fastapi.responses",
-    "uvicorn",
 ]
 if _USE_REAL_REDIS and "redis" in _EXTERNAL_MOCKS:
     _EXTERNAL_MOCKS.remove("redis")
@@ -356,14 +325,6 @@ class _FakeReadError(_FakeNetworkError):
     pass
 
 
-class _FakeWriteError(_FakeNetworkError):
-    pass
-
-
-class _FakeCloseError(_FakeNetworkError):
-    pass
-
-
 class _FakeRemoteProtocolError(_FakeHTTPError):
     pass
 
@@ -389,8 +350,6 @@ except ImportError:  # pragma: no cover - minimal test environments only
     _httpx_mod.TimeoutException = _FakeTimeoutException
     _httpx_mod.NetworkError = _FakeNetworkError
     _httpx_mod.ReadError = _FakeReadError
-    _httpx_mod.WriteError = _FakeWriteError
-    _httpx_mod.CloseError = _FakeCloseError
     _httpx_mod.RemoteProtocolError = _FakeRemoteProtocolError
     _httpx_mod.ProxyError = _FakeProxyError
     _httpx_mod.HTTPError = _FakeHTTPError

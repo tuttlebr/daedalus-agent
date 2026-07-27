@@ -60,7 +60,6 @@ ENV/
 !.env.example
 !env.example
 .eslintcache
-evals/results/*.json
 *.exe
 frontend/auth-passwords.json
 .fseventsd

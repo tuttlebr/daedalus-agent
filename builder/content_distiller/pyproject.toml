@@ -21,8 +21,5 @@ content_distiller = "content_distiller.register"
 packages = ["content_distiller"]
 package-dir = {"" = "src"}
 
-[tool.setuptools.package-data]
-content_distiller = ["configs/*.yml", "configs/*.yaml"]
-
 [tool.uv]
 config-settings = { editable_mode = "compat" }

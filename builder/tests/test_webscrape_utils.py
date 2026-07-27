@@ -729,7 +729,7 @@ class TestGetFollowingSafeRedirects:
 
 
 # ---------------------------------------------------------------------------
-# _scrape_with_httpx SSRF redirect guard (F-002a)
+# _scrape_with_httpx_result SSRF redirect guard (F-002a)
 # ---------------------------------------------------------------------------
 
 
@@ -738,7 +738,7 @@ class TestScrapeWithHttpxRedirect:
         # The scrape path must reject a redirect to an internal/metadata target
         # rather than fetching it.
         async def _run():
-            from webscrape.webscrape_function import _scrape_with_httpx
+            from webscrape.webscrape_function import _scrape_with_httpx_result
 
             redirect = _mk_response(
                 302, location="http://169.254.169.254/latest/meta-data/"
@@ -760,7 +760,7 @@ class TestScrapeWithHttpxRedirect:
             monkeypatch.setattr(httpx, "AsyncClient", _FakeAsyncClient)
 
             with pytest.raises(UnsafeURLError):
-                await _scrape_with_httpx(
+                await _scrape_with_httpx_result(
                     "https://attacker.com/start", allowed_schemes=["https", "http"]
                 )
 

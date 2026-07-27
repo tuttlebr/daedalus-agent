@@ -24,8 +24,5 @@ source_verifier = "source_verifier.register"
 packages = ["source_verifier"]
 package-dir = {"" = "src"}
 
-[tool.setuptools.package-data]
-source_verifier = ["configs/*.yml", "configs/*.yaml"]
-
 [tool.uv]
 config-settings = { editable_mode = "compat" }

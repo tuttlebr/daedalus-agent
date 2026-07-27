@@ -321,7 +321,6 @@ def _read_document_object(
     document_id: str,
     session_id: str,
     username: str,
-    config: "NvIngestFunctionConfig",
     max_bytes: int,
 ) -> bytes:
     endpoint, access_key, secret_key, session_token, bucket, secure, region = (
@@ -402,7 +401,6 @@ async def _load_document_bytes(
     document_id: str,
     session_id: str,
     username: str,
-    config: "NvIngestFunctionConfig",
 ) -> tuple[bytes, str]:
     filename = str(document_record.get("filename") or f"{document_id}.bin")
     max_bytes = document_ingest_max_size_bytes()
@@ -427,7 +425,6 @@ async def _load_document_bytes(
         document_id=document_id,
         session_id=session_id,
         username=username,
-        config=config,
         max_bytes=max_bytes,
     )
     return document_bytes, filename
@@ -692,12 +689,6 @@ class NvIngestFunctionConfig(FunctionBaseConfig, name="nat_nv_ingest"):
     minio_secret_key: str = Field(
         default_factory=lambda: (os.getenv("MINIO_SECRET_KEY") or "").strip(),
         description="MinIO secret key",
-    )
-    minio_session_token: str | None = Field(
-        default_factory=lambda: (
-            (os.getenv("MINIO_SESSION_TOKEN") or "").strip() or None
-        ),
-        description="Optional temporary MinIO/S3 session token",
     )
     minio_bucket: str = Field(
         default_factory=lambda: (os.getenv("MINIO_BUCKET") or "nv-ingest").strip(),
@@ -1588,7 +1579,6 @@ async def _extract_document_to_markdown(
                     document_id=str(document_id),
                     session_id=str(session_id),
                     username=username,
-                    config=config,
                 )
             except DocumentStorageError as exc:
                 return _failure(
@@ -1901,7 +1891,6 @@ class NvIngestDocumentProcessor:
                         document_id=str(document_id),
                         session_id=str(session_id),
                         username=username,
-                        config=config,
                     )
                 except DocumentStorageError as exc:
                     return _failure(
@@ -2539,7 +2528,7 @@ class NvIngestDocumentProcessor:
 )
 async def nv_ingest_function(
     config: NvIngestFunctionConfig,
-    builder: Builder,  # noqa: ARG001
+    builder: Builder,
 ):
     """Registers a document processing function using NvIngest.
 

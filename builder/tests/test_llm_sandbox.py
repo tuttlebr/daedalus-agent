@@ -165,23 +165,33 @@ def test_registration_uses_complete_explicit_input_schema():
 
 
 def test_workspace_id_is_scoped_to_user_and_conversation():
-    from llm_sandbox.llm_sandbox_function import _workspace_id_from_headers
+    from llm_sandbox.llm_sandbox_function import (
+        _trusted_scope_from_headers,
+        _workspace_id_from_scope,
+    )
 
     expected = hashlib.sha256(b"user-a\0conversation-a").hexdigest()
 
     assert (
-        _workspace_id_from_headers(
-            {"X-User-Id": "user-a", "X-Conversation-Id": "conversation-a"}
+        _workspace_id_from_scope(
+            _trusted_scope_from_headers(
+                {"X-User-Id": "user-a", "X-Conversation-Id": "conversation-a"}
+            )
         )
         == expected
     )
     assert (
-        _workspace_id_from_headers(
-            {"x-user-id": "user-b", "x-conversation-id": "conversation-a"}
+        _workspace_id_from_scope(
+            _trusted_scope_from_headers(
+                {"x-user-id": "user-b", "x-conversation-id": "conversation-a"}
+            )
         )
         != expected
     )
-    assert _workspace_id_from_headers({"x-user-id": "user-a"}) is None
+    assert (
+        _workspace_id_from_scope(_trusted_scope_from_headers({"x-user-id": "user-a"}))
+        is None
+    )
 
 
 def sandbox_config(**overrides):

@@ -100,10 +100,6 @@ class RssFeedFunctionConfig(FunctionBaseConfig, name="rss_feed"):
     cache_ttl_hours: float = Field(
         default=4.0, description="Cache TTL in hours for RSS feed data"
     )
-    cache_backend: str = Field(
-        default="memory",
-        description="Cache backend type (currently only 'memory' is supported)",
-    )
 
     # Request configuration
     timeout: float = Field(default=30.0, description="Request timeout in seconds")
@@ -133,10 +129,6 @@ class RssFeedFunctionConfig(FunctionBaseConfig, name="rss_feed"):
         ge=100,
         le=128000,
         description="Maximum number of tokens in scraped content",
-    )
-    scrape_truncation_message: str = Field(
-        default=("\n\n---\n\n_**Note:** Content truncated to fit within token limit._"),
-        description="Message appended when content is truncated",
     )
 
 
@@ -312,7 +304,6 @@ def _feed_url_rejection_reason(url: str) -> str | None:
 def _scrape_content(
     url: str,
     token_limit: int,
-    truncation_msg: str,
     *,
     fetched_content: bytes | None = None,
     content_type: str = "",
@@ -629,7 +620,6 @@ async def rss_feed_function(
                     _scrape_content,
                     top_entry.link,
                     config.scrape_max_output_tokens,
-                    config.scrape_truncation_message,
                 )
                 if was_truncated:
                     logger.info("Content was truncated to fit token limit")

@@ -7,6 +7,8 @@ name = "nat_nv_ingest"
 dynamic = ["version"]
 dependencies = [
   "nvidia-nat[redis,mcp,langchain,phoenix]==1.7.0",
+  # NV-Ingest imports pymilvus.bulk_writer during pipeline construction, and
+  # that module eagerly imports Azure's BlobServiceClient.
   "azure-storage-blob",
   # Keep the client and API paired. The client imports nv_ingest_api at
   # runtime even though its wheel metadata doesn't declare that dependency.
@@ -14,7 +16,6 @@ dependencies = [
   # the production runtime use a security-fixed Pillow release.
   "nv-ingest-api==26.3.0",
   "nv-ingest-client==26.3.0",
-  "milvus-lite",
   "minio",
   "nat_helpers",
   "pydantic>=2,<2.14",

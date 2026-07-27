@@ -110,7 +110,6 @@ class MilvusRetriever(Retriever):
         self._search_func = (
             self._search if not use_iterator else self._search_with_iterator
         )
-        self._default_params = None
         self._bound_params = []
         self.content_field = content_field
         logger.info("Milvus Retriever using %s for search.", self._search_func.__name__)

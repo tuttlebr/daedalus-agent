@@ -23,7 +23,6 @@ workflow:
 
   # Cache configuration
   cache_ttl_hours: 4.0
-  cache_backend: 'memory' # Currently only memory is supported
 
   # Request configuration
   timeout: 30.0

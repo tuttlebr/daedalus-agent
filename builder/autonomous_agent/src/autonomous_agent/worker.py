@@ -367,7 +367,7 @@ def run_once(
 
         # F-016: the lease was lost while this run was in flight, so another
         # worker may now own this user. Abort before writing any shared state
-        # (feed / workspace / approvals) to avoid clobbering the new owner.
+        # (feed / workspace) to avoid clobbering the new owner.
         lease_lost = abort is not None and abort.is_set()
         owns_lease = getattr(store, "owns_lease", None)
         if abort is not None and callable(owns_lease):

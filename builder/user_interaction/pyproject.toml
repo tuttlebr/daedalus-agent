@@ -22,8 +22,5 @@ user_interaction = "user_interaction.register"
 packages = ["user_interaction"]
 package-dir = {"" = "src"}
 
-[tool.setuptools.package-data]
-user_interaction = ["configs/*.yml", "configs/*.yaml"]
-
 [tool.uv]
 config-settings = { editable_mode = "compat" }

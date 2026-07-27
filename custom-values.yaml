@@ -84,7 +84,6 @@ retrieval:
       existingSecret: daedalus-minio-auth
       accessKeyKey: MINIO_ACCESS_KEY
       secretKeyKey: MINIO_SECRET_KEY
-      sessionTokenKey: MINIO_SESSION_TOKEN
   readiness:
     enabled: true
 

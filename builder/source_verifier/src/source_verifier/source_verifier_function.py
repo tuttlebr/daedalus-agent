@@ -28,7 +28,7 @@ import logging
 import re
 from dataclasses import dataclass
 from typing import Any
-from urllib.parse import parse_qsl, urlencode, urljoin, urlparse, urlunparse
+from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 import httpx
 from nat.builder.builder import Builder
@@ -37,7 +37,6 @@ from nat.builder.function_info import FunctionInfo
 from nat.cli.register_workflow import register_function
 from nat.data_models.component_ref import LLMRef
 from nat.data_models.function import FunctionBaseConfig
-from nat_helpers.safe_http import PublicAsyncHTTPTransport
 from nat_helpers.url_guard import UnsafeURLError, validate_public_url
 from pydantic import Field
 from source_verifier.critic import CriticResponseError, LLMClaimCritic
@@ -51,8 +50,6 @@ from webscrape.webscrape_function import (
 
 logger = logging.getLogger(__name__)
 
-# Regex to extract markdown links: [text](url)
-_MARKDOWN_LINK_RE = re.compile(r"\[([^\]]*)\]\((https?://[^)]+)\)")
 _PLACEHOLDER_HOSTS = {"example.com", "example.org", "example.net"}
 _TRACKING_PARAMS = {
     "utm_source",
@@ -65,8 +62,6 @@ _TRACKING_PARAMS = {
 }
 _URL_RE = re.compile(r"https?://[^\s<>\"'\]]+")
 _URL_TRIM_CHARS = ".,;)]>"
-# Max redirects to follow (with per-hop SSRF revalidation) for link reachability.
-_MAX_LINK_REDIRECTS = 10
 _REFERENCE_SECTION_RE = re.compile(
     r"^(?:#{2,3}\s+(?:Sources|References)|\*\*References:?\*\*)",
     re.MULTILINE | re.IGNORECASE,
@@ -327,50 +322,6 @@ async def _fetch_source(url: str, config: SourceVerifierConfig) -> FetchResult:
         return FetchResult(status="unreachable", status_code=code, error=f"HTTP {code}")
     except Exception as exc:
         return FetchResult(status="unreachable", error=str(exc))
-
-
-def _extract_markdown_links(text: str) -> list[dict]:
-    """Extract all markdown links from text."""
-    return [
-        {"text": m.group(1), "url": m.group(2)}
-        for m in _MARKDOWN_LINK_RE.finditer(text)
-    ]
-
-
-async def _check_link_reachable(url: str, timeout: float = 10.0) -> bool:
-    """Check if a URL is reachable via HEAD request.
-
-    F-002b: the URL comes from memory text (LLM/attacker-influenceable) via regex,
-    so SSRF-validate it before fetching and treat an unsafe target as unreachable.
-    Redirects are followed manually so each hop is revalidated, closing the
-    ``https://attacker.com -> http://169.254.169.254/`` bypass.
-    """
-    try:
-        validate_public_url(url, check_dns=True)
-    except UnsafeURLError:
-        return False
-    try:
-        async with httpx.AsyncClient(
-            follow_redirects=False,
-            timeout=timeout,
-            transport=PublicAsyncHTTPTransport(),
-            trust_env=False,
-        ) as client:
-            current_url = url
-            for _ in range(_MAX_LINK_REDIRECTS + 1):
-                resp = await client.head(current_url)
-                if not resp.is_redirect:
-                    return resp.is_success
-                location = resp.headers.get("location")
-                if not location:
-                    return resp.is_success
-                next_url = urljoin(current_url, location)
-                validate_public_url(next_url, check_dns=True)
-                current_url = next_url
-            return False
-    except Exception as exc:
-        logger.debug("Link reachability check failed for %s: %s", url, exc)
-        return False
 
 
 def _normalize_audit_url(url: str) -> str:

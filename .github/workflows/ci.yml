@@ -184,7 +184,6 @@ jobs:
     outputs:
       backend-digest: ${{ steps.image_digests.outputs.backend }}
       frontend-digest: ${{ steps.image_digests.outputs.frontend }}
-      evals-digest: ${{ steps.image_digests.outputs.evals }}
       redis-digest: ${{ steps.image_digests.outputs.redis }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -199,14 +198,14 @@ jobs:
         run: >-
           docker buildx bake --load
           --metadata-file "${RUNNER_TEMP}/bake-metadata.json"
-          -f docker-compose.yaml backend frontend evals redis
+          -f docker-compose.yaml backend frontend redis
 
       - name: Export runtime image digests
         id: image_digests
         env:
           BAKE_METADATA_FILE: ${{ runner.temp }}/bake-metadata.json
         run: |
-          for target in backend frontend evals redis; do
+          for target in backend frontend redis; do
             digest="$(
               jq -er --arg target "$target" \
                 '.[$target]["containerimage.digest"] |
@@ -228,14 +227,6 @@ jobs:
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: docker.io/your-user/daedalus:frontend-0.1.0
-          format: table
-          severity: CRITICAL,HIGH
-          exit-code: '1'
-
-      - name: Scan eval image
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
-        with:
-          image-ref: docker.io/your-user/daedalus:evals-0.1.0
           format: table
           severity: CRITICAL,HIGH
           exit-code: '1'
@@ -269,12 +260,6 @@ jobs:
         with:
           subject-name: docker.io/your-user/daedalus
           subject-digest: ${{ needs.docker.outputs.frontend-digest }}
-
-      - name: Attest eval image
-        uses: actions/attest@f7c74d28b9d84cb8768d0b8ca14a4bac6ef463e6 # v4.2.0
-        with:
-          subject-name: docker.io/your-user/daedalus
-          subject-digest: ${{ needs.docker.outputs.evals-digest }}
 
       - name: Attest Redis image
         uses: actions/attest@f7c74d28b9d84cb8768d0b8ca14a4bac6ef463e6 # v4.2.0
@@ -327,23 +312,3 @@ jobs:
         if: ${{ always() && hashFiles('trivy-results.sarif') != '' }}
         with:
           sarif_file: trivy-results.sarif
-
-  evals:
-    name: Eval Harness Validation
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-
-      - name: Set up Python
-        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
-        with:
-          python-version: '3.12'
-
-      - name: Install dependencies
-        run: pip install -r evals/requirements.txt
-
-      - name: Compile eval harness
-        run: python -m py_compile evals/runner.py evals/evaluators/*.py
-
-      - name: Validate eval datasets
-        run: python evals/runner.py --validate-only --dataset routing --dataset factuality --dataset workflows

@@ -9,7 +9,6 @@ from autonomous_agent.dedupe import dedupe_feed_items
 from autonomous_agent.models import now_ms
 from autonomous_agent.prompt import (
     build_messages,
-    extract_approval_metadata,
     feed_items_from_output,
     load_workspace,
     output_requests_approval,
@@ -41,9 +40,7 @@ class FakeStore:
         self.runs = []
         self.events = []
         self.feed = []
-        self.approvals = []
         self.applied_approvals = set()
-        self.pending_approvals = {}
         self.approval_executions = {}
         self.revoked_approval_tokens = []
         self.mcp_receipt_valid = False
@@ -82,16 +79,10 @@ class FakeStore:
         self.feed = kept + self.feed
         return kept
 
-    def append_approval(self, user_id, approval):
-        self.approvals.append(approval)
-
     def mark_goal_run(self, user_id, goal_id, timestamp):
         for goal in self.goals:
             if goal.get("id") == goal_id:
                 goal["lastRunAt"] = timestamp
-
-    def get_pending_approval(self, user_id, request_id):
-        return self.pending_approvals.get(request_id)
 
     def get_approval_execution(self, user_id, request_id):
         return self.approval_executions.pop(request_id, None)
@@ -583,15 +574,6 @@ def test_run_once_dedupes_feed_items_already_surfaced():
 def test_run_once_rejects_backend_approval_request():
     arguments_hash = "a" * 64
     store = FakeStore()
-    store.pending_approvals["pending-1"] = {
-        "user_id": "test-user",
-        "action": "Delete thing",
-        "target": "prod-item",
-        "server_name": "inventory",
-        "tool_name": "delete_item",
-        "arguments_preview": '{"id":"prod-item"}',
-        "arguments_sha256": arguments_hash,
-    }
     backend = FakeBackend(
         "**Action requiring confirmation:**\n\nDelete thing\n\nProceed? (yes/no)\n"
         "No executable credential has been created.\n"
@@ -610,7 +592,6 @@ def test_run_once_rejects_backend_approval_request():
 
     assert run["status"] == "failed"
     assert run["error"] == "Autonomous runs cannot request user approval."
-    assert store.approvals == []
     assert store.events[-1]["type"] == "approval_blocked"
     assert output_requests_approval(backend.response)
 
@@ -637,7 +618,6 @@ def test_run_once_rejects_deep_research_plan_approval():
 
     assert run["status"] == "failed"
     assert run["error"] == "Autonomous runs cannot request user approval."
-    assert store.approvals == []
     assert output_requests_approval(backend.response)
 
 
@@ -668,17 +648,6 @@ def test_build_messages_includes_sanitized_source_policy_message():
     assert "confirm_research_plan" not in messages[1]["content"]
 
 
-def test_extract_approval_metadata_defaults_to_mcp_mutation():
-    metadata = extract_approval_metadata(
-        "**Action requiring confirmation:**\n\nDelete thing\n\nProceed? (yes/no)"
-    )
-
-    assert metadata["action_type"] == "mcp_mutation"
-    assert metadata["server_name"] == ""
-    assert metadata["tool_name"] == ""
-    assert metadata["arguments_sha256"] == ""
-
-
 def test_run_once_rejects_backend_oauth_request():
     class OAuthBackend:
         def call(self, messages, *, execution_id=""):
@@ -701,7 +670,6 @@ def test_run_once_rejects_backend_oauth_request():
     assert run["error"] == (
         "Autonomous runs cannot use tools that require interactive OAuth."
     )
-    assert store.approvals == []
     assert store.events[-1]["type"] == "oauth_blocked"
 
 
@@ -811,7 +779,7 @@ def test_make_backend_accepts_maximum_receipt_safe_timeout(monkeypatch):
 
 def test_output_requests_approval_requires_structured_marker():
     # F-011: a bare advisory phrase (no structured bold marker) must NOT trip
-    # the gate, while the structured markers extract_approval_metadata parses do.
+    # the gate, while the approval tool's structured markers do.
     assert not output_requests_approval("Proceed? (yes/no) before I continue.")
     assert not output_requests_approval(
         "I will reply yes to approve this plan once ready."
@@ -841,20 +809,10 @@ def test_run_once_does_not_pause_on_advisory_phrase_without_marker():
     )
 
     assert run["status"] == "completed"
-    assert store.approvals == []
 
 
 def test_run_once_does_not_store_raw_approval_response():
     store = FakeStore()
-    store.pending_approvals["pending-2"] = {
-        "user_id": "test-user",
-        "action": "Delete the production index",
-        "target": "prod-index",
-        "server_name": "inventory",
-        "tool_name": "delete_index",
-        "arguments_preview": '{"name":"prod-index"}',
-        "arguments_sha256": "b" * 64,
-    }
     raw = (
         "**Action requiring confirmation:** Delete the production index\n\n"
         "SECRET INTERNAL CHAIN OF THOUGHT THAT SHOULD NOT BE PUBLISHED\n\n"
@@ -872,7 +830,6 @@ def test_run_once_does_not_store_raw_approval_response():
     )
 
     assert run["status"] == "failed"
-    assert store.approvals == []
     assert "SECRET INTERNAL CHAIN OF THOUGHT" not in json.dumps(run)
     assert "SECRET INTERNAL CHAIN OF THOUGHT" not in json.dumps(store.events)
 

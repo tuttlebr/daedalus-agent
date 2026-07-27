@@ -39,10 +39,6 @@ class _QueuedClient:
     async def __aexit__(self, *exc):
         return False
 
-    async def head(self, url):
-        self.requested_urls.append(url)
-        return self._responses.pop(0)
-
     async def get(self, url):
         self.requested_urls.append(url)
         return self._responses.pop(0)
@@ -141,92 +137,6 @@ def test_nvidia_docs_hints_route_through_one_product_capability(question, produc
 
     assert _tool_hints("nvidia_docs", question) == [
         {"tool": "nvidia_docs_tool", "product": product}
-    ]
-
-
-# ---------------------------------------------------------------------------
-# F-002b: _check_link_reachable SSRF validation
-# ---------------------------------------------------------------------------
-def test_check_link_reachable_rejects_metadata_url_without_fetch():
-    import source_verifier.source_verifier_function as mod
-
-    captured = {}
-
-    def _client_factory(*args, **kwargs):
-        client = _QueuedClient([_FakeResponse(status_code=200)])
-        captured["client"] = client
-        return client
-
-    with pytest.MonkeyPatch.context() as mp:
-        mp.setattr(mod.httpx, "AsyncClient", _client_factory)
-        result = run(
-            mod._check_link_reachable("http://169.254.169.254/latest/meta-data/")
-        )
-
-    # Unsafe target rejected up front; no HEAD request was ever issued.
-    assert result is False
-    assert "client" not in captured
-
-
-def test_check_link_reachable_rejects_hostname_resolving_private(monkeypatch):
-    import source_verifier.source_verifier_function as mod
-
-    captured = {}
-
-    def _private_dns(_host, *_args, **_kwargs):
-        return [(socket.AF_INET, None, None, "", ("10.0.0.9", 0))]
-
-    def _client_factory(*_args, **_kwargs):
-        captured["constructed"] = True
-        raise AssertionError("unsafe hostname must be denied before HTTP")
-
-    monkeypatch.setattr(socket, "getaddrinfo", _private_dns)
-    monkeypatch.setattr(mod.httpx, "AsyncClient", _client_factory)
-
-    result = run(mod._check_link_reachable("https://rebind.example/private"))
-
-    assert result is False
-    assert captured == {}
-
-
-def test_check_link_reachable_rejects_redirect_to_internal():
-    import source_verifier.source_verifier_function as mod
-
-    # Public URL that HEAD-redirects to a metadata address.
-    responses = [
-        _FakeResponse(
-            is_redirect=True, location="http://169.254.169.254/latest/meta-data/"
-        ),
-        _FakeResponse(status_code=200),
-    ]
-    client = _QueuedClient(responses)
-
-    with pytest.MonkeyPatch.context() as mp:
-        mp.setattr(mod.httpx, "AsyncClient", lambda *a, **k: client)
-        result = run(mod._check_link_reachable("https://example.com/redirector"))
-
-    assert result is False
-    # Only the first hop was fetched; the metadata target was never requested.
-    assert client.requested_urls == ["https://example.com/redirector"]
-
-
-def test_check_link_reachable_follows_safe_redirect():
-    import source_verifier.source_verifier_function as mod
-
-    responses = [
-        _FakeResponse(is_redirect=True, location="https://example.org/final"),
-        _FakeResponse(status_code=200),
-    ]
-    client = _QueuedClient(responses)
-
-    with pytest.MonkeyPatch.context() as mp:
-        mp.setattr(mod.httpx, "AsyncClient", lambda *a, **k: client)
-        result = run(mod._check_link_reachable("https://example.com/redirector"))
-
-    assert result is True
-    assert client.requested_urls == [
-        "https://example.com/redirector",
-        "https://example.org/final",
     ]
 
 

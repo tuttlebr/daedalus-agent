@@ -79,6 +79,7 @@ jobs:
         with:
           context: builder
           file: builder/Dockerfile
+          target: backend
           build-contexts: |
             skills=./skills
           platforms: linux/amd64

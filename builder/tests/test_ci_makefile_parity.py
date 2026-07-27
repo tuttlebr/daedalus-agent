@@ -128,7 +128,6 @@ def test_ci_oidc_permissions_are_limited_to_main_branch_attestations():
     assert set(docker["outputs"]) == {
         "backend-digest",
         "frontend-digest",
-        "evals-digest",
         "redis-digest",
     }
 
@@ -149,7 +148,7 @@ def test_ci_oidc_permissions_are_limited_to_main_branch_attestations():
                 if str(step.get("uses", "")).startswith("actions/attest@")
             ]
         )
-        == 4
+        == 3
     )
 
 

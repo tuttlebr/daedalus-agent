@@ -668,7 +668,7 @@ npm run coverage
 
 The repo includes a [`Makefile`](Makefile) that mirrors the CI workflow jobs.
 Run a single job locally with `make builder`, `make frontend`, `make helm`,
-`make docker`, `make security`, or `make evals`. Run them all with `make ci`.
+`make docker`, or `make security`. Run them all with `make ci`.
 
 ## Troubleshooting
 
@@ -723,16 +723,15 @@ For an externally managed target, configure
 
 Use these docs when you want more component-level detail than this top-level guide provides.
 
-| Document                                                                     | Focus                                                          |
-| ---------------------------------------------------------------------------- | -------------------------------------------------------------- |
-| [`frontend/README.md`](frontend/README.md)                                   | Frontend architecture, async job flow, Redis state, and PWA    |
-| [`helm/daedalus/README.md`](helm/daedalus/README.md)                         | Helm chart footprint, values, and Kubernetes traffic model     |
-| [`evals/README.md`](evals/README.md)                                         | Local evaluation harness for routing, factuality, and workflow |
-| [`frontend/pages/api/milvus/README.md`](frontend/pages/api/milvus/README.md) | Frontend-side Milvus collection helper                         |
-| [`builder/visual_media/README.md`](builder/visual_media/README.md)           | Unified image generate / edit / analyze tool                   |
-| [`builder/nat_nv_ingest/README.md`](builder/nat_nv_ingest/README.md)         | User-document ingestion, search, and listing                   |
-| [`builder/rss_feed/README.md`](builder/rss_feed/README.md)                   | Feed-specific RSS retrieval and scraping                       |
-| [`builder/smart_milvus/README.md`](builder/smart_milvus/README.md)           | Milvus retrieval and reranking behavior                        |
+| Document                                                                     | Focus                                                       |
+| ---------------------------------------------------------------------------- | ----------------------------------------------------------- |
+| [`frontend/README.md`](frontend/README.md)                                   | Frontend architecture, async job flow, Redis state, and PWA |
+| [`helm/daedalus/README.md`](helm/daedalus/README.md)                         | Helm chart footprint, values, and Kubernetes traffic model  |
+| [`frontend/pages/api/milvus/README.md`](frontend/pages/api/milvus/README.md) | Frontend-side Milvus collection helper                      |
+| [`builder/visual_media/README.md`](builder/visual_media/README.md)           | Unified image generate / edit / analyze tool                |
+| [`builder/nat_nv_ingest/README.md`](builder/nat_nv_ingest/README.md)         | User-document ingestion, search, and listing                |
+| [`builder/rss_feed/README.md`](builder/rss_feed/README.md)                   | Feed-specific RSS retrieval and scraping                    |
+| [`builder/smart_milvus/README.md`](builder/smart_milvus/README.md)           | Milvus retrieval and reranking behavior                     |
 
 ## Repository Layout
 
@@ -740,7 +739,6 @@ Use these docs when you want more component-level detail than this top-level gui
 daedalus-agent/
   backend/          NeMo Agent workflow YAML files
   builder/          Custom Python packages and tests
-  evals/            Local evaluation harness
   frontend/         Next.js application
   helm/daedalus/    Helm chart and embedded agent assets
   nginx/            Reverse-proxy configuration

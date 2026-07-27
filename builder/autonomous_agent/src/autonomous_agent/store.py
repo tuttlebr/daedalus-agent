@@ -350,33 +350,6 @@ class RedisStore:
             self.publish(user_id, "autonomy_feed_updated", {"items": stored})
         return stored
 
-    def append_approval(self, user_id: str, approval: dict[str, Any]) -> None:
-        def mutate(approvals: list[dict[str, Any]]):
-            approvals.insert(0, approval)
-            return approvals[:100], None
-
-        self.atomic_update(key(user_id, "approvals"), mutate)
-        self.publish(user_id, "autonomy_approval_requested", approval)
-
-    def get_pending_approval(
-        self, user_id: str, request_id: str
-    ) -> dict[str, Any] | None:
-        """Load a protected, non-executable approval intent created by NAT."""
-
-        if not request_id:
-            return None
-        safe_user = hashlib.sha256(user_id.strip().encode()).hexdigest()[:16]
-        raw = self.redis.get(f"approval-pending:{safe_user}:{request_id}")
-        if not raw:
-            return None
-        try:
-            pending = json.loads(raw)
-        except (json.JSONDecodeError, TypeError):
-            return None
-        if not isinstance(pending, dict) or pending.get("user_id") != user_id.strip():
-            return None
-        return pending
-
     def get_approval_execution(
         self, user_id: str, request_id: str
     ) -> dict[str, Any] | None:
