@@ -699,18 +699,19 @@ llms:
     api_key: ${VERIFIER_API_KEY}
     base_url: ${VERIFIER_BASE_URL}
     model_name: ${VERIFIER_MODEL}
+    reasoning_effort: xhigh
   tool_calling_llm:
     _type: openai
     api_key: ${TOOL_CALLING_LLM_MODEL_API_KEY}
     base_url: ${TOOL_CALLING_LLM_MODEL_BASE_URL}
     model_name: ${TOOL_CALLING_LLM_MODEL_MODEL}
-    reasoning_effort: medium
+    reasoning_effort: xhigh
   reasoning_llm:
     _type: openai
     api_key: ${TOOL_CALLING_LLM_MODEL_API_KEY}
     base_url: ${TOOL_CALLING_LLM_MODEL_BASE_URL}
     model_name: ${TOOL_CALLING_LLM_MODEL_MODEL}
-    reasoning_effort: xhigh
+    reasoning_effort: max
   default_llm:
     _type: openai
     api_key: ${DEFAULT_LLM_MODEL_API_KEY}
