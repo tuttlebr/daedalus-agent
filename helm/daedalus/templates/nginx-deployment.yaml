@@ -23,6 +23,7 @@ spec:
         app.kubernetes.io/instance: {{ .Release.Name }}
       annotations:
         deploy-timestamp: {{ .Values.forceRedeploy | default "" | quote }}
+        checksum/nginx-config: {{ include (print $.Template.BasePath "/config-nginx.yaml") . | sha256sum }}
     spec:
       {{- include "daedalus.nodePlacement" . | nindent 6 }}
       automountServiceAccountToken: false

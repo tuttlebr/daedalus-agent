@@ -83,6 +83,71 @@ server {
     proxy_buffering off;
     proxy_request_buffering off;
 
+    {{- if .Values.nginx.config.voiceStudioProxy.enabled }}
+    # Voice Studio requires a trustworthy HTTPS origin for browser microphone
+    # access. Reuse this gateway's TLS and authenticated user session while the
+    # upstream application remains private inside the cluster.
+    location = /_voice_studio_auth {
+        internal;
+        proxy_pass {{ ._frontendHTTPUpstream }}/api/auth/me;
+        proxy_pass_request_body off;
+        proxy_set_header Content-Length "";
+        proxy_set_header Cookie $http_cookie;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location = {{ .Values.nginx.config.voiceStudioProxy.path }} {
+        absolute_redirect off;
+        return 308 {{ .Values.nginx.config.voiceStudioProxy.path }}/;
+    }
+
+    # Keep private Voice Studio API calls under the origin-wide /api/ prefix.
+    # Every released Daedalus service worker already bypasses this namespace.
+    location ^~ {{ .Values.nginx.config.voiceStudioProxy.apiPath }}/ {
+        auth_request /_voice_studio_auth;
+        error_page 401 = @voice_studio_login;
+        client_max_body_size {{ .Values.nginx.config.voiceStudioProxy.maxBodySize }};
+        rewrite ^{{ .Values.nginx.config.voiceStudioProxy.apiPath }}(/.*)$ /api$1 break;
+        proxy_pass http://{{ .Values.nginx.config.voiceStudioProxy.serviceName }}.{{ .Values.nginx.config.voiceStudioProxy.serviceNamespace }}.svc.cluster.local:{{ .Values.nginx.config.voiceStudioProxy.servicePort }};
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Prefix {{ .Values.nginx.config.voiceStudioProxy.path }};
+        proxy_buffering off;
+        proxy_request_buffering off;
+        proxy_connect_timeout 120s;
+        proxy_send_timeout 900s;
+        proxy_read_timeout 900s;
+    }
+
+    location ^~ {{ .Values.nginx.config.voiceStudioProxy.path }}/ {
+        auth_request /_voice_studio_auth;
+        error_page 401 = @voice_studio_login;
+        client_max_body_size {{ .Values.nginx.config.voiceStudioProxy.maxBodySize }};
+        rewrite ^{{ .Values.nginx.config.voiceStudioProxy.path }}(/.*)$ $1 break;
+        proxy_pass http://{{ .Values.nginx.config.voiceStudioProxy.serviceName }}.{{ .Values.nginx.config.voiceStudioProxy.serviceNamespace }}.svc.cluster.local:{{ .Values.nginx.config.voiceStudioProxy.servicePort }};
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Prefix {{ .Values.nginx.config.voiceStudioProxy.path }};
+        proxy_buffering off;
+        proxy_request_buffering off;
+        proxy_connect_timeout 120s;
+        proxy_send_timeout 900s;
+        proxy_read_timeout 900s;
+    }
+
+    location @voice_studio_login {
+        absolute_redirect off;
+        return 302 /login;
+    }
+    {{- end }}
+
     {{- if .Values.nginx.config.restrictedMode }}
     # OAuth callback required by NAT's interactive MCP OAuth flow. The frontend
     # uses Redis to route it to the exact backend pod that owns the OAuth state.
@@ -420,6 +485,19 @@ server {
         proxy_set_header X-Forwarded-Proto $scheme;
     }
     {{- end }}
+
+    # Service workers must always revalidate. The generic JavaScript cache rule
+    # below must never pin an obsolete worker that still controls private paths.
+    location = /sw.js {
+        proxy_pass {{ ._frontendHTTPUpstream }}/sw.js;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_hide_header Cache-Control;
+        add_header Cache-Control "no-cache, no-store, must-revalidate" always;
+    }
 
     # Static files caching
     location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$ {

@@ -83,4 +83,17 @@ spec:
             - port: {{ .Values.backend.default.port | quote }}
               protocol: TCP
     {{- end }}
+
+    {{- if .Values.nginx.config.voiceStudioProxy.enabled }}
+    # Authenticated HTTPS proxy target for the Voice Studio browser app.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: {{ .Values.nginx.config.voiceStudioProxy.serviceNamespace }}
+            app.kubernetes.io/name: voice-studio
+            app.kubernetes.io/component: app
+      toPorts:
+        - ports:
+            - port: {{ .Values.nginx.config.voiceStudioProxy.servicePort | quote }}
+              protocol: TCP
+    {{- end }}
 {{- end }}

@@ -734,7 +734,7 @@ memory:
 workflow:
   _type: daedalus_per_user_tool_calling_agent
   llm_name: tool_calling_llm
-  max_iterations: 32
+  max_iterations: 128
   max_history: 100
   handle_tool_errors: true
   system_prompt: |

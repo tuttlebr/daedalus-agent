@@ -321,6 +321,14 @@ nginx:
     videoUploadMaxBodySize: '150M' # Legacy base64 route parser ceiling
     imageUploadMaxBodySize: '41M' # 30 MiB raw image plus base64/JSON framing
     transcriptUploadMaxBodySize: '15M' # Transcript route parser ceiling
+    voiceStudioProxy:
+      enabled: false
+      path: /voice-studio
+      apiPath: /api/voice-studio
+      serviceName: voice-studio
+      serviceNamespace: voice-studio
+      servicePort: 8080
+      maxBodySize: 10G
     # If useTemplate is false, rawConf is used
     rawConf: |
       # Provide nginx conf if not using template

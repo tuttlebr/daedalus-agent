@@ -458,6 +458,16 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
+  // Voice Studio shares this HTTPS origin so browser microphone APIs are
+  // available, but its workspace and artifact responses are private. Let the
+  // authenticated gateway handle every GET without service-worker caching.
+  if (
+    url.pathname === '/voice-studio' ||
+    url.pathname.startsWith('/voice-studio/')
+  ) {
+    return;
+  }
+
   // Authenticated APIs are never handled or cached by the service worker.
   if (url.pathname.startsWith('/api/')) {
     return;
