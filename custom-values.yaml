@@ -85,7 +85,13 @@ retrieval:
       accessKeyKey: MINIO_ACCESS_KEY
       secretKeyKey: MINIO_SECRET_KEY
   readiness:
-    enabled: true
+    mode: degraded
+    requiredCollections:
+      - nvidia
+      - kubernetes
+      - vetpartner
+      - semianalysis
+      - mentalhealth
 
 backend:
   # Default backend configuration

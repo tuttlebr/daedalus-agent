@@ -24,6 +24,23 @@ def _env_enabled(name: str) -> bool:
     return (os.getenv(name) or "").strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _rag_readiness_mode() -> str:
+    """Return the explicit RAG dependency policy with legacy compatibility."""
+    configured = (os.getenv("DAEDALUS_RAG_READINESS_MODE") or "").strip().lower()
+    if configured:
+        if configured not in {"disabled", "degraded", "required"}:
+            raise ValueError(
+                "DAEDALUS_RAG_READINESS_MODE must be disabled, degraded, or required"
+            )
+        return configured
+    return "required" if _env_enabled("DAEDALUS_RAG_READINESS_ENABLED") else "disabled"
+
+
+def _required_collections() -> set[str]:
+    configured = os.getenv("DAEDALUS_REQUIRED_COLLECTIONS") or ""
+    return {item for item in configured.replace(",", " ").split() if item}
+
+
 async def readiness_response() -> JSONResponse:
     """Report whether the security gate and durable dependencies are ready."""
     import mcp_patches
@@ -62,7 +79,16 @@ async def readiness_response() -> JSONResponse:
                 await close_redis_client(client)
 
     rag = {"state": "disabled"}
-    if _env_enabled("DAEDALUS_RAG_READINESS_ENABLED"):
+    try:
+        rag_mode = _rag_readiness_mode()
+    except ValueError:
+        logger.error("Invalid RAG readiness configuration")
+        return JSONResponse(
+            {"status": "unready", "reason": "invalid_rag_readiness_mode"},
+            status_code=503,
+        )
+    rag_degraded = False
+    if rag_mode != "disabled":
         try:
             # Reuse the same authenticated client path as the collection API
             # and retrieval tools, including token precedence and the bounded
@@ -70,21 +96,44 @@ async def readiness_response() -> JSONResponse:
             from collection_metadata_api import _list_collections
 
             collections = await _list_collections()
-            rag = {"state": "ready", "collectionCount": len(collections)}
+            missing = sorted(_required_collections() - set(collections))
+            if missing:
+                rag = {
+                    "state": "unready",
+                    "collectionCount": len(collections),
+                    "missingRequiredCollections": missing,
+                }
+                if rag_mode == "required":
+                    return JSONResponse(
+                        {
+                            "status": "unready",
+                            "reason": "required_collections_unavailable",
+                            "rag": rag,
+                        },
+                        status_code=503,
+                    )
+                rag_degraded = True
+            else:
+                rag = {"state": "ready", "collectionCount": len(collections)}
         except Exception:
             # Keep the response and logs diagnostic but credential-safe. Some
             # client exception representations include connection arguments.
             logger.warning("Milvus readiness check failed")
-            return JSONResponse(
-                {
-                    "status": "unready",
-                    "reason": "milvus_unavailable",
-                    "rag": {"state": "unready"},
-                },
-                status_code=503,
-            )
+            rag = {"state": "unavailable", "reason": "milvus_unavailable"}
+            if rag_mode == "required":
+                return JSONResponse(
+                    {
+                        "status": "unready",
+                        "reason": "milvus_unavailable",
+                        "rag": rag,
+                    },
+                    status_code=503,
+                )
+            rag_degraded = True
 
-    status = "degraded" if capabilities["unavailable_optional"] else "ready"
+    status = (
+        "degraded" if capabilities["unavailable_optional"] or rag_degraded else "ready"
+    )
     return JSONResponse({"status": status, "mcp": capabilities, "rag": rag})
 
 

@@ -111,10 +111,10 @@ retrieval:
       accessKeyKey: MINIO_ACCESS_KEY
       secretKeyKey: MINIO_SECRET_KEY
   readiness:
-    # Readiness performs authenticated list_collections and has_collection
-    # calls. This catches DNS, policy, stale-secret, and real RAG authorization
-    # failures even when Milvus's public role permits collection listing.
-    enabled: true
+    # degraded keeps core chat ready and reports RAG state in the response;
+    # required returns HTTP 503; disabled skips the dependency probe.
+    mode: degraded
+    requiredCollections: []
 
 backend:
   # Default backend configuration

@@ -188,8 +188,148 @@ def test_readiness_reports_authenticated_milvus_failure(monkeypatch):
     assert json.loads(response.body) == {
         "status": "unready",
         "reason": "milvus_unavailable",
-        "rag": {"state": "unready"},
+        "rag": {"state": "unavailable", "reason": "milvus_unavailable"},
     }
+
+
+def test_readiness_degrades_instead_of_restarting_when_milvus_is_optional(monkeypatch):
+    import mcp_patches
+
+    class _ReadyRedis:
+        async def ping(self):
+            return True
+
+        async def aclose(self):
+            return None
+
+    async def unavailable():
+        raise RuntimeError("upstream unavailable")
+
+    redis_asyncio = types.ModuleType("redis.asyncio")
+    redis_asyncio.Redis = types.SimpleNamespace(
+        from_url=lambda *_args, **_kwargs: _ReadyRedis()
+    )
+    metadata = types.ModuleType("collection_metadata_api")
+    metadata._list_collections = unavailable
+    monkeypatch.setitem(sys.modules, "redis.asyncio", redis_asyncio)
+    monkeypatch.setitem(sys.modules, "collection_metadata_api", metadata)
+    monkeypatch.setenv("DAEDALUS_RAG_READINESS_MODE", "degraded")
+    monkeypatch.setattr(front_end, "JSONResponse", _Response)
+    monkeypatch.setattr(front_end.os.path, "exists", lambda _path: False)
+    monkeypatch.setattr(mcp_patches, "_approval_gate_installed", True)
+    monkeypatch.setattr(
+        mcp_patches,
+        "mcp_capability_status",
+        lambda: {
+            "state": "ready",
+            "available": [],
+            "required": [],
+            "missing_required": [],
+            "unavailable_optional": [],
+        },
+    )
+
+    response = asyncio.run(front_end.readiness_response())
+    payload = json.loads(response.body)
+
+    assert response.status_code == 200
+    assert payload["status"] == "degraded"
+    assert payload["rag"] == {
+        "state": "unavailable",
+        "reason": "milvus_unavailable",
+    }
+
+
+def test_readiness_degrades_when_required_collection_is_missing(monkeypatch):
+    import mcp_patches
+
+    class _ReadyRedis:
+        async def ping(self):
+            return True
+
+        async def aclose(self):
+            return None
+
+    async def available():
+        return ["nvidia"]
+
+    redis_asyncio = types.ModuleType("redis.asyncio")
+    redis_asyncio.Redis = types.SimpleNamespace(
+        from_url=lambda *_args, **_kwargs: _ReadyRedis()
+    )
+    metadata = types.ModuleType("collection_metadata_api")
+    metadata._list_collections = available
+    monkeypatch.setitem(sys.modules, "redis.asyncio", redis_asyncio)
+    monkeypatch.setitem(sys.modules, "collection_metadata_api", metadata)
+    monkeypatch.setenv("DAEDALUS_RAG_READINESS_MODE", "degraded")
+    monkeypatch.setenv("DAEDALUS_REQUIRED_COLLECTIONS", "nvidia kubernetes")
+    monkeypatch.setattr(front_end, "JSONResponse", _Response)
+    monkeypatch.setattr(front_end.os.path, "exists", lambda _path: False)
+    monkeypatch.setattr(mcp_patches, "_approval_gate_installed", True)
+    monkeypatch.setattr(
+        mcp_patches,
+        "mcp_capability_status",
+        lambda: {
+            "state": "ready",
+            "available": [],
+            "required": [],
+            "missing_required": [],
+            "unavailable_optional": [],
+        },
+    )
+
+    response = asyncio.run(front_end.readiness_response())
+    payload = json.loads(response.body)
+
+    assert response.status_code == 200
+    assert payload["status"] == "degraded"
+    assert payload["rag"]["missingRequiredCollections"] == ["kubernetes"]
+
+
+def test_readiness_fails_when_required_collection_is_missing(monkeypatch):
+    import mcp_patches
+
+    class _ReadyRedis:
+        async def ping(self):
+            return True
+
+        async def aclose(self):
+            return None
+
+    async def available():
+        return ["nvidia"]
+
+    redis_asyncio = types.ModuleType("redis.asyncio")
+    redis_asyncio.Redis = types.SimpleNamespace(
+        from_url=lambda *_args, **_kwargs: _ReadyRedis()
+    )
+    metadata = types.ModuleType("collection_metadata_api")
+    metadata._list_collections = available
+    monkeypatch.setitem(sys.modules, "redis.asyncio", redis_asyncio)
+    monkeypatch.setitem(sys.modules, "collection_metadata_api", metadata)
+    monkeypatch.setenv("DAEDALUS_RAG_READINESS_MODE", "required")
+    monkeypatch.setenv("DAEDALUS_REQUIRED_COLLECTIONS", "nvidia,kubernetes")
+    monkeypatch.setattr(front_end, "JSONResponse", _Response)
+    monkeypatch.setattr(front_end.os.path, "exists", lambda _path: False)
+    monkeypatch.setattr(mcp_patches, "_approval_gate_installed", True)
+    monkeypatch.setattr(
+        mcp_patches,
+        "mcp_capability_status",
+        lambda: {
+            "state": "ready",
+            "available": [],
+            "required": [],
+            "missing_required": [],
+            "unavailable_optional": [],
+        },
+    )
+
+    response = asyncio.run(front_end.readiness_response())
+    payload = json.loads(response.body)
+
+    assert response.status_code == 503
+    assert payload["reason"] == "required_collections_unavailable"
+    assert payload["rag"]["missingRequiredCollections"] == ["kubernetes"]
 
 
 def test_readiness_reports_milvus_collection_count(monkeypatch):

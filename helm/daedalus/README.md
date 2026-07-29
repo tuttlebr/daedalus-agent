@@ -228,10 +228,12 @@ setting `retrieval.milvus.auth.tokenKey` and expects that key instead. MinIO
 expects `MINIO_ACCESS_KEY` and `MINIO_SECRET_KEY`. Endpoint, database, bucket,
 namespace, port, and key names are all configurable under `retrieval.*`.
 
-When `retrieval.readiness.enabled=true`, the backend checks both authenticated
-`list_collections` and `has_collection`. The latter exercises the
-`DescribeCollection` permission needed by real retrieval, including when the
-database is still empty and the probe uses a deliberately missing sentinel.
+`retrieval.readiness.mode` controls the authenticated Milvus dependency check:
+`degraded` keeps the backend ready while reporting RAG unavailable, `required`
+returns HTTP 503, and `disabled` skips the probe. `requiredCollections` lists
+the collection aliases that must be visible before RAG reports ready. The
+default is `degraded`, so an ingestion or Milvus incident does not remove core
+chat from service.
 
 For the repository's production values, the shared runtime contract is
 database `default`, object bucket `nv-ingest`, and the `milvus`, MinIO, and
