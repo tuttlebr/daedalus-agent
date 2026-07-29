@@ -31,6 +31,9 @@ spec:
     spec:
       containers:
         - name: backend
+          envFrom:
+            - secretRef:
+                name: daedalus-backend-env
           env:
             - name: MILVUS_URI
               value: "http://milvus.milvus.svc.cluster.local:19530"
@@ -60,6 +63,7 @@ def test_extracts_endpoint_and_secret_references():
     assert config.password == check_rag.SecretReference(
         "daedalus-milvus-auth", "MILVUS_PASSWORD"
     )
+    assert config.env_from_secret == "daedalus-backend-env"
 
 
 def test_probe_uses_secret_refs_and_backend_policy_labels():
@@ -68,6 +72,9 @@ def test_probe_uses_secret_refs_and_backend_policy_labels():
     command = check_rag.probe_command(config, "daedalus", "backend@sha256:test", 10)
     overrides = json.loads(command[command.index("--overrides") + 1])
     env = overrides["spec"]["containers"][0]["env"]
+    assert overrides["spec"]["containers"][0]["envFrom"] == [
+        {"secretRef": {"name": "daedalus-backend-env"}}
+    ]
 
     assert env[2]["valueFrom"]["secretKeyRef"] == {
         "name": "daedalus-milvus-auth",
@@ -78,14 +85,16 @@ def test_probe_uses_secret_refs_and_backend_policy_labels():
         == "backend-default"
     )
     assert overrides["spec"]["automountServiceAccountToken"] is False
+    code = command[command.index("-c") + 1]
+    assert '("EMBEDDING_BASE_URL", "RERANKER_BASE_URL")' in code
 
 
 def test_deploy_runs_rag_preflight_before_helm():
     deploy = DEPLOY.read_text(encoding="utf-8")
     assert "scripts/check_rag_backend.py" in deploy
-    assert deploy.index("Checking authenticated Milvus access") < deploy.index(
-        "Deploying Daedalus via Helm"
-    )
+    assert deploy.index(
+        "Checking authenticated Milvus and retrieval endpoint access"
+    ) < deploy.index("Deploying Daedalus via Helm")
 
 
 def test_chart_contract_matches_daedalus_context_services_and_secret_keys():
@@ -116,6 +125,14 @@ def test_chart_contract_matches_daedalus_context_services_and_secret_keys():
     assert values["minio"]["networkPolicy"] == {"namespace": "milvus", "port": 9000}
     assert custom["milvus"]["auth"]["existingSecret"] == "daedalus-milvus-auth"
     assert custom["minio"]["auth"]["existingSecret"] == "daedalus-minio-auth"
+    retriever_egress = next(
+        entry
+        for entry in yaml.safe_load(
+            (ROOT / "custom-values.yaml").read_text(encoding="utf-8")
+        )["backend"]["networkPolicy"]["extraEgressNamespaces"]
+        if entry["name"] == "daedalus-retriever"
+    )
+    assert retriever_egress["ports"] == [{"port": 8080, "protocol": "TCP"}]
     assert "MILVUS_SEARCH_TIMEOUT_SECONDS" in deployment
     assert backend_config["functions"]["domain_retriever_tool"]["search_timeout"] == (
         "${MILVUS_SEARCH_TIMEOUT_SECONDS}"

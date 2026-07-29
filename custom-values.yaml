@@ -140,7 +140,9 @@ backend:
             protocol: TCP
       - name: daedalus-retriever
         ports:
-          - port: 8000
+          # Cilium enforces the post-Service destination port. The retriever
+          # Services expose 8000, but forward to the adapter containers on 8080.
+          - port: 8080
             protocol: TCP
     cilium:
       enabled: true

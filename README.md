@@ -180,8 +180,12 @@ Milvus and MinIO credentials into namespace-local workload Secrets, then runs
 authenticated `list_collections` and `has_collection` probes with the exact
 rendered backend configuration. The second call exercises Milvus's
 `DescribeCollection` authorization path rather than accepting a public-role
-collection listing as proof of RAG access. The defaults match
-`daedalus-context`:
+collection listing as proof of RAG access. The same preflight verifies TCP
+reachability for the configured embedding and reranker URLs from a pod carrying
+the backend policy labels. For Cilium namespace egress, configure the target
+container port after Service translation (for example, the retriever Services
+expose `8000` but their adapter pods receive traffic on `8080`). The defaults
+match `daedalus-context`:
 
 - `milvus/milvus-root-credentials`, key `password`, username `root`
 - `milvus/milvus-minio-credentials`, keys `accesskey` and `secretkey`

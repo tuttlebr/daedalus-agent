@@ -65,9 +65,9 @@ Options:
                              Image used for the object-storage check
                              (default: $DOCUMENT_STORAGE_PREFLIGHT_KUBECTL_IMAGE)
       --skip-rag-secret-sync Do not mirror authoritative Milvus/MinIO Secrets
-      --skip-rag-preflight   Skip authenticated Milvus list_collections check
+      --skip-rag-preflight   Skip Milvus and retrieval endpoint access checks
       --rag-preflight-timeout SECONDS
-                             Milvus preflight timeout (default: $RAG_PREFLIGHT_TIMEOUT)
+                             Per-dependency timeout (default: $RAG_PREFLIGHT_TIMEOUT)
       --skip-mcp-preflight   Skip MCP server reachability checks
       --mcp-preflight-timeout SECONDS
                              Per-request MCP pre-flight timeout (default: $MCP_PREFLIGHT_TIMEOUT)
@@ -791,11 +791,11 @@ if [[ "$SKIP_DOCUMENT_STORAGE_PREFLIGHT" == false ]]; then
   fi
 fi
 
-# Exercise the same rendered URI, database, and namespace-local Secret refs as
-# the backend. list_collections proves both connectivity and Milvus auth before
-# Helm starts an atomic rollout.
+# Exercise the same rendered URI, database, namespace-local Secret refs, and
+# backend environment as the workload. The probe proves Milvus auth plus
+# embedding/reranker reachability before Helm starts an atomic rollout.
 if [[ "$SKIP_RAG_PREFLIGHT" == false ]]; then
-  log "Checking authenticated Milvus access"
+  log "Checking authenticated Milvus and retrieval endpoint access"
   if [[ "$DRY_RUN" == true ]]; then
     echo "[dry-run] render Helm manifests and run scripts/check_rag_backend.py"
   else

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run authenticated Milvus list/describe rollout preflights."""
+"""Run authenticated Milvus and retrieval-endpoint rollout preflights."""
 
 from __future__ import annotations
 
@@ -31,6 +31,7 @@ class RagConfig:
     username: SecretReference | None
     password: SecretReference | None
     token: SecretReference | None
+    env_from_secret: str | None
     labels: dict[str, str]
 
 
@@ -76,6 +77,15 @@ def _env_blocks(document: str) -> dict[str, list[str]]:
             block.append(nested)
         blocks[match.group(2)] = block
     return blocks
+
+
+def _env_from_secret(document: str) -> str | None:
+    match = re.search(
+        r"^\s+envFrom:\s*$\n" r"\s+- secretRef:\s*$\n" r"\s+name:\s*(.+?)\s*$",
+        document,
+        re.MULTILINE,
+    )
+    return _scalar(match.group(1)) if match else None
 
 
 def _value(block: list[str], name: str) -> str:
@@ -149,6 +159,7 @@ def config_from_manifest(manifest: str) -> RagConfig | None:
         username=username,
         password=password,
         token=token,
+        env_from_secret=_env_from_secret(document),
         labels=labels,
     )
 
@@ -176,8 +187,28 @@ def probe_command(
         if ref is not None:
             environment.append(_secret_env(name, ref))
     code = """
-import contextlib, os, sys
+import contextlib, os, socket, sys
 from pymilvus import MilvusClient
+from urllib.parse import urlsplit
+
+def probe_tcp_url(name):
+    raw = os.getenv(name, "").strip()
+    if not raw:
+        print(f"{name} is missing from the backend environment", file=sys.stderr)
+        raise SystemExit(21)
+    parsed = urlsplit(raw)
+    if not parsed.hostname:
+        print(f"{name} is not a valid URL", file=sys.stderr)
+        raise SystemExit(21)
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    try:
+        with socket.create_connection((parsed.hostname, port), timeout=float(sys.argv[1])):
+            pass
+    except Exception as exc:
+        print(f"{name} endpoint preflight failed: {type(exc).__name__}", file=sys.stderr)
+        raise SystemExit(21)
+    print(f"{name} endpoint reachable at {parsed.hostname}:{port}")
+
 kwargs = {"uri": os.environ["MILVUS_URI"]}
 token = os.getenv("MILVUS_TOKEN", "").strip()
 if token:
@@ -202,24 +233,28 @@ finally:
     if client is not None:
         with contextlib.suppress(Exception):
             client.close()
+
+for dependency in ("EMBEDDING_BASE_URL", "RERANKER_BASE_URL"):
+    probe_tcp_url(dependency)
 """
+    container = {
+        "name": pod_name,
+        "env": environment,
+        "securityContext": {
+            "allowPrivilegeEscalation": False,
+            "capabilities": {"drop": ["ALL"]},
+            "runAsNonRoot": True,
+            "runAsUser": 1000,
+            "seccompProfile": {"type": "RuntimeDefault"},
+        },
+    }
+    if config.env_from_secret:
+        container["envFrom"] = [{"secretRef": {"name": config.env_from_secret}}]
     overrides = {
         "metadata": {"labels": config.labels},
         "spec": {
             "automountServiceAccountToken": False,
-            "containers": [
-                {
-                    "name": pod_name,
-                    "env": environment,
-                    "securityContext": {
-                        "allowPrivilegeEscalation": False,
-                        "capabilities": {"drop": ["ALL"]},
-                        "runAsNonRoot": True,
-                        "runAsUser": 1000,
-                        "seccompProfile": {"type": "RuntimeDefault"},
-                    },
-                }
-            ],
+            "containers": [container],
             "restartPolicy": "Never",
         },
     }
@@ -258,9 +293,7 @@ def check(config: RagConfig, namespace: str, image: str, timeout: int) -> None:
     )
     if completed.returncode != 0:
         detail = (completed.stderr or completed.stdout).strip()[:800]
-        raise CheckError(
-            f"authenticated Milvus probe failed: {detail or 'unknown error'}"
-        )
+        raise CheckError(f"RAG dependency probe failed: {detail or 'unknown error'}")
 
 
 def main() -> int:
