@@ -708,7 +708,7 @@ llms:
     reasoning_effort: xhigh
     extra_body:
       context_length_exceeded_behavior: truncate
-      reasoning_history: disabled
+      reasoning_history: preserved
   reasoning_llm:
     _type: openai
     api_key: ${TOOL_CALLING_LLM_MODEL_API_KEY}
