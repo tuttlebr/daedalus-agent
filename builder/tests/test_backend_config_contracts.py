@@ -1,6 +1,7 @@
 """Contract checks between backend YAML and custom tool signatures."""
 
 import ast
+import json
 import re
 import sys
 import tomllib
@@ -574,7 +575,7 @@ def test_workflow_uses_single_tool_calling_agent_schema():
         assert not set(removed_agent_names) & set(config["functions"]), path
 
 
-def test_openai_llms_use_api_compatible_parameters():
+def test_openai_llms_use_api_compatible_parameters_and_safe_extensions():
     expected = {
         "tool_calling_llm",
         "reasoning_llm",
@@ -599,7 +600,28 @@ def test_openai_llms_use_api_compatible_parameters():
             assert "temperature" not in llm, (path, llm_name)
             assert "top_p" not in llm, (path, llm_name)
             assert "extra_args" not in llm, (path, llm_name)
-            assert "extra_body" not in llm, (path, llm_name)
+
+            # ``extra_body`` is the supported escape hatch for parameters
+            # exposed by an OpenAI-compatible provider but not modeled by NAT.
+            # Keep the contract structural so Fireworks and future providers
+            # can evolve without weakening validation or editing this test for
+            # every new extension key.
+            extra_body = llm.get("extra_body")
+            if extra_body is not None:
+                assert isinstance(extra_body, dict), (path, llm_name)
+                assert extra_body, (path, llm_name)
+                assert all(
+                    isinstance(key, str) and key and key == key.strip()
+                    for key in extra_body
+                ), (path, llm_name)
+                assert "temperature" not in extra_body, (path, llm_name)
+                assert "top_p" not in extra_body, (path, llm_name)
+                try:
+                    json.dumps(extra_body, allow_nan=False)
+                except (TypeError, ValueError) as exc:
+                    raise AssertionError(
+                        (path, llm_name, "extra_body must be JSON serializable")
+                    ) from exc
 
 
 def test_responses_config_is_a_minimal_inherited_api_override():
