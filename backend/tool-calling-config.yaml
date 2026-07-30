@@ -706,7 +706,7 @@ llms:
     api_key: ${TOOL_CALLING_LLM_MODEL_API_KEY}
     base_url: ${TOOL_CALLING_LLM_MODEL_BASE_URL}
     model_name: ${TOOL_CALLING_LLM_MODEL_MODEL}
-    reasoning_effort: xhigh
+    reasoning_effort: high
     # extra_body:
     #   context_length_exceeded_behavior: truncate
     #   reasoning_history: interleaved
@@ -715,7 +715,7 @@ llms:
     api_key: ${TOOL_CALLING_LLM_MODEL_API_KEY}
     base_url: ${TOOL_CALLING_LLM_MODEL_BASE_URL}
     model_name: ${TOOL_CALLING_LLM_MODEL_MODEL}
-    reasoning_effort: high
+    reasoning_effort: xhigh
     # extra_body:
     #   context_length_exceeded_behavior: truncate
     #   reasoning_history: disabled
