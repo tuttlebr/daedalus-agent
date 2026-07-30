@@ -513,8 +513,9 @@ async def visual_media_function(config: VisualMediaFunctionConfig, builder: Buil
                 "imageRef with prompt; operation='analyze' to answer a question "
                 "about imageRef, image_url, videoRef, or video_url. The backend "
                 "derives media ownership from the authenticated request; never "
-                "pass user_id. Image outputs return markdown refs that must be "
-                "forwarded verbatim."
+                "pass user_id. Image outputs return markdown refs. Forward them "
+                "verbatim in Markdown responses; for a standalone HTML artifact, "
+                "preserve only the returned URL exactly as an img src."
             ),
             input_schema=VisualMediaInput,
         )

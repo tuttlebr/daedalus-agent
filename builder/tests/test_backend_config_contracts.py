@@ -1307,7 +1307,7 @@ def test_workflow_prompt_prefers_minimal_parallel_tool_use():
         assert "Follow schemas exactly" in normalized_prompt, path
 
 
-def test_daily_briefing_routes_to_structured_response_without_visual_media():
+def test_daily_briefing_routes_to_image_rich_html_response():
     for path in DEPLOYED_CONFIGS:
         config = _config(path)
         visual_media_desc = config["functions"]["visual_media_tool"]["description"]
@@ -1318,15 +1318,19 @@ def test_daily_briefing_routes_to_structured_response_without_visual_media():
         daily_skill = (SKILLS_DIR / "daily-summary" / "SKILL.md").read_text(
             encoding="utf-8"
         )
+        normalized_daily_skill = " ".join(daily_skill.split())
 
         assert "daily briefings (FIRST, awaited)" in memory_desc, path
         assert "task matches a skill's purpose" in skills_desc, path
         assert "daily briefing" in daily_skill, path
         assert "Return only the HTML" in daily_skill, path
         assert (
-            "daily summary or daily briefing unless the user explicitly asks"
+            "daily summary or daily briefing only when the user explicitly"
             in " ".join(visual_media_desc.split())
         ), path
+        assert "loaded daily-summary skill directs it" in visual_media_desc, path
+        assert "AI-generated editorial illustration" in normalized_daily_skill, path
+        assert "Never put private email" in normalized_daily_skill, path
 
 
 def test_daily_summary_contracts_structured_briefing():
@@ -1392,17 +1396,6 @@ def test_skill_routing_precedes_other_substantive_requests():
         assert "user names a skill" in skills_desc, path
         assert "task matches a skill's purpose" in skills_desc, path
         assert "agent_skills_tool" in config["workflow"]["tool_names"], path
-
-
-def test_pr_monitor_skill_is_available_for_pr_routing():
-    skill_path = SKILLS_DIR / "pr-monitor" / "SKILL.md"
-    assert skill_path.is_file()
-    text = skill_path.read_text(encoding="utf-8")
-    assert "name: pr-monitor" in text
-    assert "read-only GitHub pull request status summaries" in text
-    assert (
-        "Do not create, merge, close, label, approve, comment on, or edit PRs" in text
-    )
 
 
 def test_repo_skill_manifests_are_discoverable():

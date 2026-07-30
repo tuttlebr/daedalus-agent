@@ -1,7 +1,7 @@
 ---
 name: daily-summary
 description: >-
-  Build the user's single, self-contained dark-theme HTML daily briefing,
+  Build the user's single-file, image-rich editorial HTML daily briefing,
   grounded in the real current date and time, with a fixed personal section
   set: a date/time hero, weather for Saline MI, sports for the New York
   Yankees, Pittsburgh Steelers, and Michigan State football and basketball,
@@ -9,27 +9,48 @@ description: >-
   to the user's interests, and recent email and calendar. Use this whenever
   the user asks for a daily summary, daily briefing, morning brief, "my daily
   update", "what's my day look like", "run my briefing", or "catch me up on
-  today", even when they do not name a template or say "HTML". This is the
-  personal daily-briefing builder.
+  today", even when they do not name a template, request images, or say
+  "HTML". This is the personal daily-briefing builder.
 ---
 
 # Daily Summary
 
-**Triggered by "Fetch my daily summary" or similar user request.**
+Produce one polished, image-rich HTML edition titled **Daedalus Daybook** that
+tells the user what matters today: the date and time, Saline weather, their
+sports teams, the live health of their Kubernetes cluster and UniFi network,
+news tuned to their interests, and what is waiting in email and on the
+calendar.
 
-Produce one clean, self-contained, dark-theme HTML publication that tells the user everything that matters about their day: the date and time, weather in Saline MI, their sports teams, the health of their Kubernetes cluster and home Unifi network, news tuned to their interests, and what is waiting in email and on the calendar.
+Treat each edition as a refined independent news magazine crossed with a
+high-end technology journal. Use elegant typography, dark developer colors,
+warm neutrals, generous whitespace, cinematic imagery, strong captions, and
+varied editorial layouts. Choose one visual concept from the actual shape of
+the day, then carry it through the cover, palette, typography, dividers, and
+image treatment. Do not merely recolor the same card grid every day.
 
-The publication should feel like a refined independent news magazine combined with a high-end tech journal. Use elegant typography, dark developer theme colors, generous whitespace, cinematic photography where relevant, and varied editorial layouts. Photos may be pulled from source material or generated with AI where relevant.
-
-Include a cover, an introduction, features, a comparative overview, and a brief references page. Keep the writing concise, atmospheric, and factually accurate.
-
-Use web search to verify all current details. Make sure every image accurately matches the news/information and location being discussed, and do not reuse the same or near-duplicate images.
-
-Create a polished html file for download.
+Include a cover, a short editor's note, section features, an at-a-glance
+comparison, next actions, and references with image credits. Keep the writing
+concise, atmospheric, useful, and factually accurate.
 
 The page is judged on one thing above all: it has to be **true and current**. A briefing that is stale or invented is worse than no briefing, because the user acts on it. Every rule below serves that goal.
 
 For infrastructure status (Kubernetes, UniFi, etc.), report only currently active issues. Do not surface cumulative Kubernetes event counts, historical probe failures, or past warnings unless the pod or workload is currently in a non-Ready, CrashLoopBackOff, or otherwise degraded state right now. When a resource is healthy at query time, show it as healthy and omit stale event history.
+
+## Output contract
+
+Return a standalone HTML document with all CSS inline in the document and no
+external JavaScript, fonts, or stylesheets. Source and generated images may use
+verified HTTPS or authenticated application URLs. The frontend previews this
+document and provides its download action.
+
+This is a strict rendering contract:
+
+- The first non-whitespace bytes must be `<!DOCTYPE html>`.
+- The last non-whitespace bytes must be `</html>`.
+- Return only the HTML, with no prose before or after it and no Markdown fence.
+- Put limitations, unavailable sources, and image credits inside the page.
+- Do not leave template tokens, Markdown image syntax, TODOs, or placeholder
+  copy in the final document.
 
 ## Step 1: anchor the whole page to the real date and time
 
@@ -101,3 +122,113 @@ Use `calendar_mcp_server`. The backend currently exposes only `list_calendars`, 
 - **Per-user OAuth failures (Gmail, Calendar):** surface the emitted authorization prompt and wait for the user. Do not retry or fabricate. Never use a confirmation flow to repair authentication.
 - **Large tool payloads:** if a tool returns more than roughly 5000 tokens (a verbose cluster summary, a big UniFi payload), run it through `content_distiller_tool` before you use it, so the page stays focused.
 - When completeness and accuracy conflict, choose accuracy. A shorter true page beats a fuller uncertain one.
+
+## Step 4: find the editorial story
+
+Do not turn the gathered facts into a dashboard dump. Identify the day's
+strongest truthful motif, such as a storm front, a quiet operations morning, a
+game-night countdown, or a dense meeting runway. Let that motif determine the
+cover image, display type, accent color, pacing, and one original issue
+subtitle. Keep the recurring masthead **Daedalus Daybook**.
+
+Build a clear reading rhythm from the verified material:
+
+1. **Cover:** current date and time, issue subtitle, one dominant image, and
+   three to five sharp status lines.
+2. **Editor's note:** a concise interpretation of the day's posture, clearly
+   separated from reported facts.
+3. **The day ahead:** weather, real calendar commitments, and only important
+   inbox items.
+4. **Systems desk:** live Kubernetes and UniFi state, using compact metrics and
+   current issues only.
+5. **Scoreboard:** all four tracked teams, with season-aware context.
+6. **Signals:** a small set of high-value news features matched to the user's
+   interests.
+7. **At a glance and next moves:** cross-section timing, conflicts, and at most
+   three concrete actions.
+8. **Sources and image credits:** every factual source and every source image,
+   plus clear labels for AI-generated illustrations.
+
+Vary composition by section: full-bleed cover, split feature, narrow dispatch,
+metric strip, pull quote, timeline, or asymmetric grid. Use structure only
+when the corresponding data exists. Aim for six to nine substantial editorial
+sections and a six-to-eight-minute read, not artificial page count or filler.
+
+## Step 5: source or create the visuals
+
+Plan three to five distinct visual moments after the facts are known. Unless
+image acquisition fails, include at least two raster images. Do not reuse the
+same image, crop, or near-duplicate.
+
+### Source images
+
+- Prefer an image published with the exact official or primary-source story.
+  Use it only when `webscrape_tool` or a source result exposes a direct image
+  URL and the subject, event, team, and location match the caption.
+- Never put an article page URL in an `<img>` tag or use generic stock imagery
+  as if it depicts a reported event.
+- When identity or context is uncertain, call `visual_media_tool` with
+  `operation="analyze"` on the candidate URL. If the match remains uncertain,
+  omit it or generate a clearly labeled illustration.
+- Link the figure caption to the source page and credit the publisher or named
+  creator. Repeat the image URL or source page in **Sources and image
+  credits**.
+
+### Generated images
+
+- Use `visual_media_tool` with `operation="generate"` for the cover and
+  occasional section art when authentic source imagery is unavailable or a
+  conceptual treatment is stronger. Generate each image for a different role
+  and composition.
+- Ground the prompt in public, verified facts and the issue's art direction,
+  but treat the result as an editorial illustration, never as evidence of
+  today's weather, a news event, a game, or infrastructure state.
+- Never put private email, calendar, memory, cluster, device, topology,
+  hostname, namespace, or alarm details into an image-generation prompt.
+- Avoid logos, fake UI screenshots, public-figure likenesses, and text inside
+  generated images. Caption every generated image **AI-generated editorial
+  illustration**.
+- The tool returns Markdown image references. For this HTML artifact, extract
+  only the returned URL and preserve it exactly as the `<img src>`. Do not
+  invent, alter, or guess an image identifier.
+
+For every image, write descriptive alt text and a visible caption. Use
+`loading="lazy"`, `decoding="async"`, `referrerpolicy="no-referrer"`, and
+`object-fit` outside the cover; load the cover eagerly. If a visual cannot be
+verified or generated, omit it and preserve the composition with typography,
+an inline SVG data visualization, or CSS art. Do not ship a broken image.
+
+## Step 6: design and validate the edition
+
+Create the issue from the day's content rather than a rigid reusable template.
+Keep a cohesive dark base, warm readable text, and one issue-specific accent.
+Reserve NVIDIA green for healthy system state, key actions, and small
+navigational details so it retains meaning. Use CSS custom properties and
+fluid type with `clamp()`.
+
+The document must:
+
+- use semantic HTML landmarks, logical heading order, strong color contrast,
+  keyboard-visible links, and meaningful alt text;
+- adapt cleanly from a 360 px phone to a wide desktop without horizontal
+  scrolling;
+- use subtle motion only as progressive enhancement and honor
+  `prefers-reduced-motion`;
+- include `@media print` rules that remove decorative motion, avoid awkward
+  section breaks, preserve image captions, and print legibly;
+- open external links with `target="_blank" rel="noopener noreferrer"`;
+- escape all externally sourced text before inserting it into HTML;
+- use inline scripts only when optional and never require JavaScript for the
+  reading experience.
+
+Before returning, verify:
+
+1. The timestamp and every time-relative claim use `current_datetime_tool`.
+2. Every score, forecast, event, health state, and volatile claim has a real
+   source or is omitted.
+3. Every image loads from the exact selected URL, matches its caption, has a
+   credit, and is not duplicated.
+4. Generated visuals are labeled as illustrations and reveal no private data.
+5. Missing sections collapse cleanly with no empty cards or placeholder text.
+6. The final response satisfies the `<!DOCTYPE html>` and `</html>` boundary
+   checks and contains only the HTML.
