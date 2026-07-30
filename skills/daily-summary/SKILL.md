@@ -15,6 +15,8 @@ description: >-
 
 # Daily Summary
 
+**Triggered by "Fetch my daily summary" or similar user request.**
+
 Produce one clean, self-contained, dark-theme HTML publication that tells the user everything that matters about their day: the date and time, weather in Saline MI, their sports teams, the health of their Kubernetes cluster and home Unifi network, news tuned to their interests, and what is waiting in email and on the calendar.
 
 The publication should feel like a refined independent news magazine combined with a high-end tech journal. Use elegant typography, dark developer theme colors, generous whitespace, cinematic photography where relevant, and varied editorial layouts. Photos may be pulled from source material or generated with AI where relevant.
