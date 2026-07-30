@@ -150,6 +150,12 @@ backend:
           # Services expose 8000, but forward to the adapter containers on 8080.
           - port: 8080
             protocol: TCP
+      - name: milvus
+        ports:
+          # The pdf-server Service exposes 80, but its EndpointSlice forwards
+          # backend traffic to the nginx container on 8080.
+          - port: 8080
+            protocol: TCP
     cilium:
       enabled: true
       webscrape:
@@ -231,7 +237,9 @@ nginx:
     imageUploadMaxBodySize: '41M'
     transcriptUploadMaxBodySize: '15M'
     voiceStudioProxy:
-      enabled: true
+      # Keep the optional route disabled until the voice-studio namespace,
+      # Service, and retained application data have been restored.
+      enabled: false
       path: /voice-studio
       apiPath: /api/voice-studio
       serviceName: voice-studio

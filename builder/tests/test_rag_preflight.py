@@ -133,6 +133,14 @@ def test_chart_contract_matches_daedalus_context_services_and_secret_keys():
         if entry["name"] == "daedalus-retriever"
     )
     assert retriever_egress["ports"] == [{"port": 8080, "protocol": "TCP"}]
+    pdf_server_egress = next(
+        entry
+        for entry in yaml.safe_load(
+            (ROOT / "custom-values.yaml").read_text(encoding="utf-8")
+        )["backend"]["networkPolicy"]["extraEgressNamespaces"]
+        if entry["name"] == "milvus"
+    )
+    assert pdf_server_egress["ports"] == [{"port": 8080, "protocol": "TCP"}]
     assert "MILVUS_SEARCH_TIMEOUT_SECONDS" in deployment
     assert backend_config["functions"]["domain_retriever_tool"]["search_timeout"] == (
         "${MILVUS_SEARCH_TIMEOUT_SECONDS}"
