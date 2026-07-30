@@ -699,7 +699,6 @@ llms:
     api_key: ${VERIFIER_API_KEY}
     base_url: ${VERIFIER_BASE_URL}
     model_name: ${VERIFIER_MODEL}
-    reasoning_effort: xhigh
   tool_calling_llm:
     _type: openai
     api_key: ${TOOL_CALLING_LLM_MODEL_API_KEY}
@@ -708,16 +707,16 @@ llms:
     reasoning_effort: xhigh
     # extra_body:
     #   context_length_exceeded_behavior: truncate
-    #   reasoning_history: preserved
+    #   reasoning_history: interleaved
   reasoning_llm:
     _type: openai
     api_key: ${TOOL_CALLING_LLM_MODEL_API_KEY}
     base_url: ${TOOL_CALLING_LLM_MODEL_BASE_URL}
     model_name: ${TOOL_CALLING_LLM_MODEL_MODEL}
-    reasoning_effort: xhigh
-    # extra_body:
-    #   context_length_exceeded_behavior: truncate
-    #   reasoning_history: interleaved
+    reasoning_effort: high
+    extra_body:
+      context_length_exceeded_behavior: truncate
+      reasoning_history: disabled
   default_llm:
     _type: openai
     api_key: ${DEFAULT_LLM_MODEL_API_KEY}
