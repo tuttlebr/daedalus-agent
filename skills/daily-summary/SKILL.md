@@ -15,7 +15,15 @@ description: >-
 
 # Daily Summary
 
-Produce one clean, self-contained, dark-theme HTML page that tells the user everything that matters about their day: the date and time, weather in Saline MI, their teams, the health of their Kubernetes cluster and home network, news tuned to their interests, and what is waiting in email and on the calendar.
+Produce one clean, self-contained, dark-theme HTML publication that tells the user everything that matters about their day: the date and time, weather in Saline MI, their sports teams, the health of their Kubernetes cluster and home Unifi network, news tuned to their interests, and what is waiting in email and on the calendar.
+
+The publication should feel like a refined independent news magazine combined with a high-end tech journal. Use elegant typography, dark developer theme colors, generous whitespace, cinematic photography where relevant, and varied editorial layouts. Photos may be pulled from source material or generated with AI where relevant.
+
+Include a cover, an introduction, features, a comparative overview, and a brief references page. Keep the writing concise, atmospheric, and factually accurate.
+
+Use web search to verify all current details. Make sure every image accurately matches the news/information and location being discussed, and do not reuse the same or near-duplicate images.
+
+Create a polished html file for download.
 
 The page is judged on one thing above all: it has to be **true and current**. A briefing that is stale or invented is worse than no briefing, because the user acts on it. Every rule below serves that goal.
 
