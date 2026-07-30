@@ -49,6 +49,7 @@ def request_json(
         headers["Content-Type"] = "application/json"
     req = urllib.request.Request(url, data=data, headers=headers, method=method)
     try:
+        # The parsed scheme is restricted to HTTP(S) immediately above.
         with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310  # nosec B310
             raw = resp.read().decode("utf-8", errors="replace")
             if not raw:

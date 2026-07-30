@@ -9,7 +9,9 @@ from __future__ import annotations
 import argparse
 import json
 import re
-import subprocess  # nosec B404 - this helper shells out to read-only kubectl commands.
+
+# This helper intentionally invokes read-only kubectl commands.
+import subprocess  # nosec B404
 import sys
 import tempfile
 from pathlib import Path
@@ -45,7 +47,8 @@ def redact(text: str) -> str:
 
 def run(cmd: list[str], timeout: int) -> dict[str, Any]:
     try:
-        proc = subprocess.run(  # nosec B603 - cmd is assembled from fixed kubectl arguments.
+        # Callers assemble argv from fixed kubectl commands; no shell is used.
+        proc = subprocess.run(  # nosec B603
             cmd, text=True, capture_output=True, timeout=timeout, check=False
         )
         return {

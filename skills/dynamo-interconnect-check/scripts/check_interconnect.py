@@ -22,7 +22,9 @@ from __future__ import annotations
 import argparse
 import json
 import re
-import subprocess  # nosec B404 - read-only local/kubectl probes are the point of this helper.
+
+# This helper intentionally invokes read-only local and kubectl probes.
+import subprocess  # nosec B404
 import sys
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -118,7 +120,8 @@ class Check:
 def run(cmd: list[str], timeout: int = DEFAULT_PROBE_TIMEOUT_SEC) -> dict[str, Any]:
     """Run a command read-only, never raising on failure or a missing binary."""
     try:
-        proc = subprocess.run(  # nosec B603 - cmd is assembled from fixed kubectl/probe arguments.
+        # Callers assemble argv from fixed kubectl and probe commands; no shell.
+        proc = subprocess.run(  # nosec B603
             cmd, text=True, capture_output=True, timeout=timeout, check=False
         )
         return {"rc": proc.returncode, "out": proc.stdout, "err": proc.stderr}
