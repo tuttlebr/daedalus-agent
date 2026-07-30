@@ -126,7 +126,6 @@ Rules for filling it:
 - Use `<strong>` for inline labels inside bullets, and `<code>` only for technical identifiers like namespace or pod names.
 - Stat tiles (`kubernetes.stats`, `network.stats`) take a `status_class` of `ok`, `warn`, or `danger` and hold one number plus a short label. Omit a tile whose metric you do not have.
 - All links open in a new tab: `target="_blank" rel="noopener noreferrer"`.
-- Do not add JavaScript, images, canvas, or SVG unless the user explicitly asks. Do not use `visual_media_tool` for a daily summary.
 - Return only the final HTML document.
 
 ## Placeholder convention and example shape
