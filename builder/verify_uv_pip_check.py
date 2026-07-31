@@ -1,6 +1,6 @@
 """Fail the image build on unexpected Python dependency conflicts.
 
-NAT 1.7 caps cryptography below 47, and NV-Ingest 26.3 pins urllib3 2.6.3.
+NAT 1.8 caps cryptography below 47, and NV-Ingest 26.3 pins urllib3 2.6.3.
 Both constraints exclude the first upstream releases containing required
 security fixes. The runtime uses narrow uv overrides until the publishers
 widen those constraints. This check permits only those documented boundaries.

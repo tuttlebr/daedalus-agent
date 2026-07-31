@@ -700,12 +700,16 @@ llms:
     _type: openai
     api_key: ${VERIFIER_API_KEY}
     base_url: ${VERIFIER_BASE_URL}
+    max_retries: ${DAEDALUS_LLM_MAX_RETRIES:-3}
     model_name: ${VERIFIER_MODEL}
+    request_timeout: ${DAEDALUS_LLM_TIMEOUT:-60.0}
   tool_calling_llm:
     _type: openai
     api_key: ${TOOL_CALLING_LLM_MODEL_API_KEY}
     base_url: ${TOOL_CALLING_LLM_MODEL_BASE_URL}
+    max_retries: ${DAEDALUS_LLM_MAX_RETRIES:-3}
     model_name: ${TOOL_CALLING_LLM_MODEL_MODEL}
+    request_timeout: ${DAEDALUS_LLM_TIMEOUT:-60.0}
     reasoning_effort: high
     extra_body:
       context_length_exceeded_behavior: truncate
@@ -714,7 +718,9 @@ llms:
     _type: openai
     api_key: ${TOOL_CALLING_LLM_MODEL_API_KEY}
     base_url: ${TOOL_CALLING_LLM_MODEL_BASE_URL}
+    max_retries: ${DAEDALUS_LLM_MAX_RETRIES:-3}
     model_name: ${TOOL_CALLING_LLM_MODEL_MODEL}
+    request_timeout: ${DAEDALUS_LLM_TIMEOUT:-60.0}
     reasoning_effort: xhigh
     extra_body:
       context_length_exceeded_behavior: truncate
@@ -723,7 +729,9 @@ llms:
     _type: openai
     api_key: ${DEFAULT_LLM_MODEL_API_KEY}
     base_url: ${DEFAULT_LLM_MODEL_BASE_URL}
+    max_retries: ${DAEDALUS_LLM_MAX_RETRIES:-3}
     model_name: ${DEFAULT_LLM_MODEL_MODEL}
+    request_timeout: ${DAEDALUS_LLM_TIMEOUT:-60.0}
     reasoning_effort: xhigh
 memory:
   redis_memory:

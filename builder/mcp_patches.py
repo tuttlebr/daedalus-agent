@@ -1,6 +1,6 @@
-"""Version-asserted policy and lifecycle adapters for pinned NAT 1.7 MCP.
+"""Version-asserted policy and lifecycle adapters for pinned NAT 1.8 MCP.
 
-The application owns four boundaries that NAT 1.7 doesn't expose as supported
+The application owns four boundaries that NAT 1.8 doesn't expose as supported
 hooks:
 
 * enforce exact-call approval and server-side success receipts for explicitly
@@ -50,7 +50,7 @@ _skipped_function_groups: set[str] = set()
 _known_mcp_function_groups: set[str] = set()
 
 # A failed MCP group gets one optional recovery attempt immediately before the
-# workflow resolves its tools. Recovery is construction-time only: NAT 1.7 has
+# workflow resolves its tools. Recovery is construction-time only: NAT 1.8 has
 # no supported way to mutate a running agent's tool set after it is built.
 _pending_mcp_recovery: dict[str, tuple[tuple, dict]] = {}
 _mcp_recovery_attempted: set[str] = set()
@@ -64,7 +64,7 @@ _mcp_server_group_names: dict[str, str] = {}
 _ambiguous_mcp_servers: set[str] = set()
 
 # Repository-owned tool authorization is loaded from the deployed NAT workflow
-# YAML before the approval gate is installed. NAT 1.7 accepts additional keys
+# YAML before the approval gate is installed. NAT 1.8 accepts additional keys
 # inside ``tool_overrides`` but does not retain them in its runtime model, so
 # this pinned adapter consumes the Daedalus-only ``approval_policy`` field from
 # the same source file. A non-empty ``include`` list opts the group into this
@@ -720,7 +720,7 @@ def _record_possible_mcp_group(name, args, kwargs) -> None:
 def _mcp_client_physical_identity(client) -> str:
     """Return the stable endpoint identity shared by base and per-user clients.
 
-    NAT 1.7's ``server_name`` property is only the transport name (for example,
+    NAT 1.8's ``server_name`` property is only the transport name (for example,
     ``streamable-http``), so it cannot distinguish two MCP servers using the
     same transport.  The concrete clients retain their endpoint in ``_url``;
     combining that with the transport gives the same identity for the shared
@@ -1352,7 +1352,7 @@ def patch(config_path: str | os.PathLike[str] | None = None):
 
 
 def _patch_tool_client():
-    """Wrap NAT 1.7's exact ``MCPToolClient.acall(tool_args)`` contract."""
+    """Wrap NAT 1.8's exact ``MCPToolClient.acall(tool_args)`` contract."""
     global _approval_gate_installed
     try:
         from nat.plugins.mcp.client.client_base import MCPToolClient

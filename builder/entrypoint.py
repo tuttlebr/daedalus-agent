@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-NAT 1.7 entrypoint with Daedalus routes, authentication, and diagnostics.
-Runs NAT in-process so that pre-import patches survive.
+NAT 1.8 entrypoint with Daedalus routes, authentication, and MCP policy.
+Runs NAT in-process so that the scoped MCP adapters survive.
 
 Replaces: nat serve --config_file=/workspace/config.yaml --host 0.0.0.0 --port 8000
 """
@@ -13,7 +13,7 @@ from importlib.metadata import PackageNotFoundError, version
 
 from packaging.version import Version
 
-EXPECTED_NAT_VERSION = "1.7.0"
+EXPECTED_NAT_VERSION = "1.8.0"
 
 
 def _patch_request_metadata_redaction() -> None:
@@ -92,12 +92,7 @@ def main():
     _patch_request_metadata_redaction()
     _configure_phoenix_auth_env(logging.getLogger("daedalus.phoenix"))
 
-    # Apply LLM diagnostic patches before NAT imports create clients
-    import llm_diagnostics
-
-    llm_diagnostics.patch()
-
-    # Apply MCP StreamableHTTP timeout + resilience patches before NAT imports
+    # Apply MCP policy and resilience adapters before NAT imports build clients.
     import mcp_patches
 
     config = os.environ.get("NAT_CONFIG_FILE", "/workspace/config.yaml")

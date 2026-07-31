@@ -1,6 +1,6 @@
 """Per-user form of NAT's pinned tool-calling agent.
 
-NAT 1.7 ships a per-user MCP function group, but only registers a per-user
+NAT 1.8 ships a per-user MCP function group, but only registers a per-user
 ReAct workflow. Daedalus uses the tool-calling workflow for chat-completions
 streaming, so this adapter registers the same upstream implementation at the
 supported per-user workflow boundary. NAT then builds OAuth-backed MCP groups

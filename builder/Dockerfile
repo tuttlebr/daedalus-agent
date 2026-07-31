@@ -96,7 +96,7 @@ RUN --mount=type=cache,id=uv_cache,target=/root/.cache/uv,sharing=locked \
     uv pip install --python /workspace/.venv/bin/python \
       --require-hashes -r "${runtime_lock}"
 
-# NAT 1.7 caps cryptography below its fixed upstream wheel, and NV-Ingest 26.3
+# NAT 1.8 caps cryptography below its fixed upstream wheel, and NV-Ingest 26.3
 # pins urllib3 below its fixed release. Permit only those two exact, tested
 # metadata boundaries and fail the build for every other dependency conflict.
 RUN set +e; \
@@ -128,7 +128,6 @@ RUN find /workspace -mindepth 3 -maxdepth 3 -type d -name '*.egg-info' \
     -exec rm -rf -- {} +
 
 COPY entrypoint.py /workspace/entrypoint.py
-COPY llm_diagnostics.py /workspace/llm_diagnostics.py
 COPY mcp_patches.py /workspace/mcp_patches.py
 COPY runtime_contract_check.py /workspace/runtime_contract_check.py
 COPY milvus_collection_migration.py /workspace/milvus_collection_migration.py

@@ -1,4 +1,4 @@
-# NAT 1.7 caps cryptography below 47 even though its runtime code doesn't use
+# NAT 1.8 caps cryptography below 47 even though its runtime code doesn't use
 # the binary elliptic-curve APIs removed in cryptography 47. The 46.x PyPI
 # wheels embed an OpenSSL version affected by GHSA-537c-gmf6-5ccf. Keep this
 # override explicit and narrow so lock regeneration can't silently restore the

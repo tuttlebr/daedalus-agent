@@ -48,7 +48,7 @@ RUNTIME_LOCKS = {
         DOCKERFILE.parent / "pylock.runtime-linux-arm64.toml"
     ),
 }
-NAT_COMMIT = "9d320c3645fe654cd68e59d0843ed7a294673a17"
+NAT_COMMIT = "3c44584ef5de2531e2ff548408f0e4658b755a69"
 NGINX_TEMPLATE = (
     Path(__file__).resolve().parents[2]
     / "helm"
@@ -424,6 +424,9 @@ def test_backend_config_env_placeholders_are_declared_in_template():
     config_text = CONFIG.read_text(encoding="utf-8")
 
     assert _env_placeholders(config_text) - _template_env_names() == set()
+    # NAT 1.8 intentionally stops expanding the ambiguous bare ``$VAR`` form.
+    # Keep every workflow reference on the supported ``${VAR}`` syntax.
+    assert re.search(r"\$(?!\{)[A-Z][A-Z0-9_]*", config_text) is None
 
 
 def test_backend_uses_owned_nat_front_end_runner():
@@ -600,6 +603,14 @@ def test_openai_llms_use_api_compatible_parameters_and_safe_extensions():
             assert "temperature" not in llm, (path, llm_name)
             assert "top_p" not in llm, (path, llm_name)
             assert "extra_args" not in llm, (path, llm_name)
+            assert llm["max_retries"] == "${DAEDALUS_LLM_MAX_RETRIES:-3}", (
+                path,
+                llm_name,
+            )
+            assert llm["request_timeout"] == "${DAEDALUS_LLM_TIMEOUT:-60.0}", (
+                path,
+                llm_name,
+            )
 
             # ``extra_body`` is the supported escape hatch for parameters
             # exposed by an OpenAI-compatible provider but not modeled by NAT.

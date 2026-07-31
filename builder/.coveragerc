@@ -3,7 +3,6 @@ source =
     document_ingest_api
     entrypoint
     image_api
-    llm_diagnostics
     mcp_patches
     milvus_collection_migration
     profile_import_api

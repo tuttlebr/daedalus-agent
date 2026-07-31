@@ -1,6 +1,6 @@
 """Redis memory provider with ACL username and verified TLS support.
 
-NAT 1.7.0's built-in Redis memory provider accepts a password but doesn't
+NAT 1.8.0's built-in Redis memory provider accepts a password but doesn't
 expose an ACL username or TLS settings. This narrow provider keeps the upstream
 memory implementation and adds only those connection options. Remove it when
 the pinned NAT provider exposes the same fields.

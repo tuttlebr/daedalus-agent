@@ -17,7 +17,7 @@ from entrypoint import _patch_request_metadata_redaction
 from packaging.version import Version
 from pydantic import BaseModel
 
-EXPECTED_NAT_VERSION = "1.7.0"
+EXPECTED_NAT_VERSION = "1.8.0"
 EXPECTED_NV_INGEST_VERSION = "26.3.0"
 
 SECURITY_DEPENDENCY_RANGES = {
@@ -36,6 +36,22 @@ def main() -> None:
             raise RuntimeError(
                 f"{distribution} {installed} does not match {EXPECTED_NAT_VERSION}"
             )
+
+    # NAT owns the OpenAI timeout and retry contract. Keep this build-time
+    # assertion beside the version pin so a future upgrade cannot silently
+    # make the removed global constructor/httpx monkey patch necessary again.
+    from nat.llm.openai_llm import OpenAIModelConfig
+
+    native_openai_config = OpenAIModelConfig(
+        model_name="runtime-contract",
+        max_retries=3,
+        request_timeout=60.0,
+    )
+    if (
+        native_openai_config.max_retries != 3
+        or native_openai_config.request_timeout != 60.0
+    ):
+        raise RuntimeError("NAT OpenAI timeout/retry fields are not available")
 
     for distribution, (minimum, maximum) in SECURITY_DEPENDENCY_RANGES.items():
         installed = Version(version(distribution))
@@ -105,7 +121,7 @@ def main() -> None:
     if "runtime-" in serialized_attributes or "headers" in serialized_attributes:
         raise RuntimeError("Sensitive request headers remain in NAT trace metadata")
 
-    # NAT 1.7 exposes runner_class as its supported application-composition
+    # NAT 1.8 exposes runner_class as its supported application-composition
     # hook. Prove the configured Daedalus worker remains a valid subclass so
     # route ownership never falls back to a process-wide FastAPI patch.
     from nat.front_ends.fastapi.fastapi_front_end_plugin_worker import (
@@ -165,7 +181,7 @@ def main() -> None:
     if registered_embedder_client.config_type is not DaedalusVLLMEmbedderConfig:
         raise RuntimeError("Daedalus vLLM LangChain embedder wasn't registered")
 
-    # NAT 1.7 dynamically derives a Pydantic tool schema for multi-argument
+    # NAT dynamically derives a Pydantic tool schema for multi-argument
     # callables. Postponed annotations on a nested callable leave Literal as an
     # unresolved forward reference, which only fails on the first tool call.
     # Exercise the explicit schema with the real installed NAT runtime so the

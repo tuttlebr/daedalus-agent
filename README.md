@@ -482,29 +482,24 @@ For frontend-specific details, see [`frontend/README.md`](frontend/README.md).
 ## Custom Builder Packages
 
 The `builder/` directory contains reusable NeMo Agent functions, helpers, and standalone modules that patch NAT at startup.
-The `skills/` directory includes Daedalus runtime skills plus the upstream
-NeMo Agent Toolkit v1.7 coding-agent skills (`nat-*` and `skill-evolution`).
-NeMo Agent Toolkit implementation requests route through `nat-user-rules` first,
-then the focused skill for workflow YAML, custom functions/tools, evals,
-telemetry, MCP, or serving work.
+The `skills/` directory contains the runtime skills exposed to Daedalus.
 
-| Name                 | Type    | Purpose                                                               |
-| -------------------- | ------- | --------------------------------------------------------------------- |
-| `agent_skills`       | package | Discovers and runs repo-packaged skills                               |
-| `autonomous_agent`   | package | Long-running autonomous worker, Redis state store, and prompt runtime |
-| `content_distiller`  | package | Long-content distillation helper                                      |
-| `visual_media`       | package | Unified text-to-image, image edit, and image/video analysis           |
-| `nat_helpers`        | package | Shared identity, memory, NVIDIA docs, image, and URL utilities        |
-| `nat_nv_ingest`      | package | Unified user-document ingestion, search, and listing                  |
-| `rss_feed`           | package | RSS fetching, reranking, and scraping                                 |
-| `smart_milvus`       | package | Milvus retrieval, domain routing, and reranking                       |
-| `source_verifier`    | package | Source planning, claim verification, and citation auditing            |
-| `user_interaction`   | package | Structured clarification, plan approval, and confirmation prompts     |
-| `vtt_interpreter`    | package | Transcript-to-notes processing                                        |
-| `webscrape`          | package | Web page extraction                                                   |
-| `entrypoint.py`      | module  | Version-guarded NAT entrypoint with auth and application routes       |
-| `llm_diagnostics.py` | module  | OpenAI SDK logging and timeout enforcement for LLM client resilience  |
-| `mcp_patches.py`     | module  | Bounded MCP startup, OAuth bootstrap, and approval policy adapters    |
+| Name                | Type    | Purpose                                                               |
+| ------------------- | ------- | --------------------------------------------------------------------- |
+| `agent_skills`      | package | Discovers and runs repo-packaged skills                               |
+| `autonomous_agent`  | package | Long-running autonomous worker, Redis state store, and prompt runtime |
+| `content_distiller` | package | Long-content distillation helper                                      |
+| `visual_media`      | package | Unified text-to-image, image edit, and image/video analysis           |
+| `nat_helpers`       | package | Shared identity, memory, NVIDIA docs, image, and URL utilities        |
+| `nat_nv_ingest`     | package | Unified user-document ingestion, search, and listing                  |
+| `rss_feed`          | package | RSS fetching, reranking, and scraping                                 |
+| `smart_milvus`      | package | Milvus retrieval, domain routing, and reranking                       |
+| `source_verifier`   | package | Source planning, claim verification, and citation auditing            |
+| `user_interaction`  | package | Structured clarification, plan approval, and confirmation prompts     |
+| `vtt_interpreter`   | package | Transcript-to-notes processing                                        |
+| `webscrape`         | package | Web page extraction                                                   |
+| `entrypoint.py`     | module  | Version-guarded NAT entrypoint with auth and application routes       |
+| `mcp_patches.py`    | module  | Bounded MCP startup, OAuth bootstrap, and approval policy adapters    |
 
 Several packages include their own README files under `builder/`.
 

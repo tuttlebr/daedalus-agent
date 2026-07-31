@@ -126,7 +126,7 @@ async def search_nvidia_docs(
 
 
 def _build_docs_runner(timeout: float):
-    # NAT 1.7 reflects this callable while generating its streaming adapter.
+    # NAT reflects this callable while generating its streaming adapter.
     # Keep these as concrete runtime annotations; postponed annotations turn
     # NvidiaDocsInput into an unresolved forward reference in that adapter.
     async def _arun(input_data: NvidiaDocsInput) -> str:
