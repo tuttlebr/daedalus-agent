@@ -711,9 +711,6 @@ llms:
     model_name: ${TOOL_CALLING_LLM_MODEL_MODEL}
     request_timeout: ${DAEDALUS_LLM_TIMEOUT:-60.0}
     reasoning_effort: high
-    extra_body:
-      context_length_exceeded_behavior: truncate
-      reasoning_history: interleaved
   reasoning_llm:
     _type: openai
     api_key: ${TOOL_CALLING_LLM_MODEL_API_KEY}
@@ -722,9 +719,6 @@ llms:
     model_name: ${TOOL_CALLING_LLM_MODEL_MODEL}
     request_timeout: ${DAEDALUS_LLM_TIMEOUT:-60.0}
     reasoning_effort: xhigh
-    extra_body:
-      context_length_exceeded_behavior: truncate
-      reasoning_history: disabled
   default_llm:
     _type: openai
     api_key: ${DEFAULT_LLM_MODEL_API_KEY}
