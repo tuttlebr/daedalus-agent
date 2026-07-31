@@ -7,9 +7,9 @@ USER root
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends --only-upgrade \
-        gpgv=2.2.27-3ubuntu2.5 \
-        libssl-dev=3.0.2-0ubuntu1.25 \
-        libssl3=3.0.2-0ubuntu1.25 \
+        gpgv \
+        libssl-dev \
+        libssl3 \
     && rm -rf /var/lib/apt/lists/*
 
 # Kubernetes selects the non-root runtime UID to match its persistent volume.
