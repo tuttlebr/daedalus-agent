@@ -443,12 +443,32 @@ def test_mutating_approval_rejects_changed_arguments_and_burns_token(monkeypatch
     assert "already used" in replay_reason
 
 
-def test_unregistered_gmail_create_draft_fails_closed():
-    for tool_name in ("create_draft", "gmail_mcp_server.create_draft"):
+@pytest.mark.parametrize(
+    "server_name,tool_name,payload",
+    [
+        (
+            "gmail_mcp_server",
+            "create_draft",
+            {"to": "user@example.com", "subject": "Hello", "body": "Draft"},
+        ),
+        ("drive_mcp_server", "create_file", {"name": "notes.txt"}),
+        ("docs_mcp_server", "update_doc", {"document_id": "doc-1"}),
+        ("sheets_mcp_server", "append_values", {"spreadsheet_id": "sheet-1"}),
+        (
+            "slides_mcp_server",
+            "update_presentation",
+            {"presentation_id": "slides-1"},
+        ),
+    ],
+)
+def test_google_workspace_writes_require_exact_approval(
+    server_name, tool_name, payload
+):
+    for qualified_tool_name in (tool_name, f"{server_name}.{tool_name}"):
         ok, reason = mcp_patches._validate_mcp_approval(
-            tool_name,
-            {"to": "user@example.com", "subject": "Hello", "body": "Draft body"},
-            server_name="gmail_mcp_server",
+            qualified_tool_name,
+            payload,
+            server_name=server_name,
         )
         assert ok is False
         assert "execution credential" in reason
@@ -492,8 +512,12 @@ def test_additional_destructive_verbs_require_token(tool_name):
     [
         ("gmail_mcp_server", "list_labels", {}, "read-only"),
         ("gmail_mcp_server", "get_thread", {}, "read-only"),
-        ("calendar_mcp_server", "list_calendars", {}, "unrestricted"),
-        ("calendar_mcp_server", "list_events", {}, "unrestricted"),
+        ("calendar_mcp_server", "list_calendars", {}, "read-only"),
+        ("calendar_mcp_server", "list_events", {}, "read-only"),
+        ("drive_mcp_server", "search_files", {}, "read-only"),
+        ("docs_mcp_server", "read_doc", {}, "read-only"),
+        ("sheets_mcp_server", "get_values", {}, "read-only"),
+        ("slides_mcp_server", "read_presentation", {}, "read-only"),
         ("x_mcp_server", "search_posts_all", {"query": "foo"}, "read-only"),
     ],
 )
@@ -691,7 +715,20 @@ def test_per_user_mcp_endpoint_identity_is_loaded_from_config():
         "list_calendars",
         {},
         server_name="streamable-http:https://calendarmcp.googleapis.com/mcp/v1",
-    ) == (True, "unrestricted")
+    ) == (True, "read-only")
+
+
+def test_per_user_oauth_registry_is_derived_from_config():
+    assert mcp_patches._PER_USER_MCP_OAUTH_SERVERS == frozenset(
+        {
+            "gmail_mcp_server",
+            "calendar_mcp_server",
+            "drive_mcp_server",
+            "docs_mcp_server",
+            "sheets_mcp_server",
+            "slides_mcp_server",
+        }
+    )
 
 
 def test_approval_policy_rejects_tool_outside_include(tmp_path):

@@ -31,12 +31,15 @@ authentication:
     token_endpoint_auth_method: client_secret_post
     scopes:
       - https://www.googleapis.com/auth/gmail.readonly
+      - https://www.googleapis.com/auth/gmail.compose
     use_pkce: true
     allow_default_user_id_for_tool_calls: false
     token_storage_object_store: gmail_mcp_oauth_tokens
   calendar_mcp_server:
     _type: mcp_oauth2
-    server_url: https://calendarmcp.googleapis.com/mcp/v1
+    # Calendar advertises /mcp as its OAuth resource even though calls use
+    # the /mcp/v1 transport endpoint.
+    server_url: https://calendarmcp.googleapis.com/mcp
     client_id: ${GOOGLE_MCP_CLIENT_ID}
     client_secret: ${GOOGLE_MCP_CLIENT_SECRET}
     enable_dynamic_registration: false
@@ -50,6 +53,68 @@ authentication:
     use_pkce: true
     allow_default_user_id_for_tool_calls: false
     token_storage_object_store: calendar_mcp_oauth_tokens
+  drive_mcp_server:
+    _type: mcp_oauth2
+    server_url: https://drivemcp.googleapis.com/mcp
+    client_id: ${GOOGLE_MCP_CLIENT_ID}
+    client_secret: ${GOOGLE_MCP_CLIENT_SECRET}
+    enable_dynamic_registration: false
+    client_name: Daedalus Drive MCP
+    redirect_uri: ${GOOGLE_MCP_REDIRECT_URI}
+    token_endpoint_auth_method: client_secret_post
+    scopes:
+      - https://www.googleapis.com/auth/drive.readonly
+      - https://www.googleapis.com/auth/drive.file
+    use_pkce: true
+    allow_default_user_id_for_tool_calls: false
+    token_storage_object_store: drive_mcp_oauth_tokens
+  docs_mcp_server:
+    _type: mcp_oauth2
+    server_url: https://docsmcp.googleapis.com/mcp/v1
+    client_id: ${GOOGLE_MCP_CLIENT_ID}
+    client_secret: ${GOOGLE_MCP_CLIENT_SECRET}
+    enable_dynamic_registration: false
+    client_name: Daedalus Docs MCP
+    redirect_uri: ${GOOGLE_MCP_REDIRECT_URI}
+    token_endpoint_auth_method: client_secret_post
+    # documents includes read access. drive.readonly is retained so the user
+    # can locate documents across Drive without granting full Drive writes.
+    scopes:
+      - https://www.googleapis.com/auth/drive.readonly
+      - https://www.googleapis.com/auth/documents
+    use_pkce: true
+    allow_default_user_id_for_tool_calls: false
+    token_storage_object_store: docs_mcp_oauth_tokens
+  sheets_mcp_server:
+    _type: mcp_oauth2
+    server_url: https://sheetsmcp.googleapis.com/mcp/v1
+    client_id: ${GOOGLE_MCP_CLIENT_ID}
+    client_secret: ${GOOGLE_MCP_CLIENT_SECRET}
+    enable_dynamic_registration: false
+    client_name: Daedalus Sheets MCP
+    redirect_uri: ${GOOGLE_MCP_REDIRECT_URI}
+    token_endpoint_auth_method: client_secret_post
+    scopes:
+      - https://www.googleapis.com/auth/drive.readonly
+      - https://www.googleapis.com/auth/spreadsheets
+    use_pkce: true
+    allow_default_user_id_for_tool_calls: false
+    token_storage_object_store: sheets_mcp_oauth_tokens
+  slides_mcp_server:
+    _type: mcp_oauth2
+    server_url: https://slidesmcp.googleapis.com/mcp/v1
+    client_id: ${GOOGLE_MCP_CLIENT_ID}
+    client_secret: ${GOOGLE_MCP_CLIENT_SECRET}
+    enable_dynamic_registration: false
+    client_name: Daedalus Slides MCP
+    redirect_uri: ${GOOGLE_MCP_REDIRECT_URI}
+    token_endpoint_auth_method: client_secret_post
+    scopes:
+      - https://www.googleapis.com/auth/drive.readonly
+      - https://www.googleapis.com/auth/presentations
+    use_pkce: true
+    allow_default_user_id_for_tool_calls: false
+    token_storage_object_store: slides_mcp_oauth_tokens
 object_stores:
   # OAuth access and refresh tokens are user-isolated by NAT and durable across
   # backend restarts and replicas. Separate buckets prevent provider collisions
@@ -62,6 +127,22 @@ object_stores:
     _type: daedalus_redis_object_store
     redis_url: ${REDIS_URL}
     bucket_name: calendar-mcp-oauth
+  drive_mcp_oauth_tokens:
+    _type: daedalus_redis_object_store
+    redis_url: ${REDIS_URL}
+    bucket_name: drive-mcp-oauth
+  docs_mcp_oauth_tokens:
+    _type: daedalus_redis_object_store
+    redis_url: ${REDIS_URL}
+    bucket_name: docs-mcp-oauth
+  sheets_mcp_oauth_tokens:
+    _type: daedalus_redis_object_store
+    redis_url: ${REDIS_URL}
+    bucket_name: sheets-mcp-oauth
+  slides_mcp_oauth_tokens:
+    _type: daedalus_redis_object_store
+    redis_url: ${REDIS_URL}
+    bucket_name: slides-mcp-oauth
 embedders:
   milvus_embedder:
     _type: daedalus_vllm
@@ -147,7 +228,10 @@ function_groups:
     include:
       - search_threads
       - get_thread
+      - get_message
       - list_labels
+      - list_drafts
+      - create_draft
     tool_call_timeout: 60
     auth_flow_timeout: 600
     reconnect_enabled: true
@@ -166,14 +250,29 @@ function_groups:
         description: >-
           Read one Gmail thread by id for the authenticated user. Use
           after search_threads when full message context is needed.
+      get_message:
+        approval_policy: read_only
       list_labels:
         approval_policy: read_only
+      list_drafts:
+        approval_policy: read_only
+      create_draft:
+        approval_policy: approval_required
+        description: >-
+          Create, but do not send, a Gmail draft after the user approves the
+          exact recipients, subject, body, and reply target.
     server:
       auth_provider: gmail_mcp_server
       transport: streamable-http
       url: https://gmailmcp.googleapis.com/mcp/v1
   calendar_mcp_server:
     _type: per_user_mcp_client
+    include:
+      - list_events
+      - get_event
+      - list_calendars
+      - suggest_time
+      - search_events
     tool_call_timeout: 60
     auth_flow_timeout: 600
     reconnect_enabled: true
@@ -181,10 +280,144 @@ function_groups:
     reconnect_initial_backoff: 5.0
     reconnect_max_backoff: 60.0
     use_native_tool_calling: true
+    tool_overrides:
+      list_events:
+        approval_policy: read_only
+      get_event:
+        approval_policy: read_only
+      list_calendars:
+        approval_policy: read_only
+      suggest_time:
+        approval_policy: read_only
+      search_events:
+        approval_policy: read_only
     server:
       auth_provider: calendar_mcp_server
       transport: streamable-http
       url: https://calendarmcp.googleapis.com/mcp/v1
+  drive_mcp_server:
+    _type: per_user_mcp_client
+    include:
+      - copy_file
+      - create_file
+      - download_file_content
+      - get_file_metadata
+      - get_file_permissions
+      - list_recent_files
+      - read_file_content
+      - search_files
+    tool_call_timeout: 60
+    auth_flow_timeout: 600
+    reconnect_enabled: true
+    reconnect_max_attempts: 3
+    reconnect_initial_backoff: 5.0
+    reconnect_max_backoff: 60.0
+    use_native_tool_calling: true
+    tool_overrides:
+      copy_file:
+        approval_policy: approval_required
+      create_file:
+        approval_policy: approval_required
+      download_file_content:
+        approval_policy: read_only
+      get_file_metadata:
+        approval_policy: read_only
+      get_file_permissions:
+        approval_policy: read_only
+      list_recent_files:
+        approval_policy: read_only
+      read_file_content:
+        approval_policy: read_only
+      search_files:
+        approval_policy: read_only
+    server:
+      auth_provider: drive_mcp_server
+      transport: streamable-http
+      url: https://drivemcp.googleapis.com/mcp/v1
+  docs_mcp_server:
+    _type: per_user_mcp_client
+    include:
+      - read_doc
+      - update_doc
+    tool_call_timeout: 60
+    auth_flow_timeout: 600
+    reconnect_enabled: true
+    reconnect_max_attempts: 3
+    reconnect_initial_backoff: 5.0
+    reconnect_max_backoff: 60.0
+    use_native_tool_calling: true
+    tool_overrides:
+      read_doc:
+        approval_policy: read_only
+      update_doc:
+        approval_policy: approval_required
+    server:
+      auth_provider: docs_mcp_server
+      transport: streamable-http
+      url: https://docsmcp.googleapis.com/mcp/v1
+  sheets_mcp_server:
+    _type: per_user_mcp_client
+    include:
+      - get_values
+      - get_spreadsheet
+      - update_spreadsheet
+      - update_values
+      - update_formulas
+      - insert_dimension
+      - copy_sheet_to_another_spreadsheet
+      - batch_clear_values
+      - append_values
+    tool_call_timeout: 60
+    auth_flow_timeout: 600
+    reconnect_enabled: true
+    reconnect_max_attempts: 3
+    reconnect_initial_backoff: 5.0
+    reconnect_max_backoff: 60.0
+    use_native_tool_calling: true
+    tool_overrides:
+      get_values:
+        approval_policy: read_only
+      get_spreadsheet:
+        approval_policy: read_only
+      update_spreadsheet:
+        approval_policy: approval_required
+      update_values:
+        approval_policy: approval_required
+      update_formulas:
+        approval_policy: approval_required
+      insert_dimension:
+        approval_policy: approval_required
+      copy_sheet_to_another_spreadsheet:
+        approval_policy: approval_required
+      batch_clear_values:
+        approval_policy: approval_required
+      append_values:
+        approval_policy: approval_required
+    server:
+      auth_provider: sheets_mcp_server
+      transport: streamable-http
+      url: https://sheetsmcp.googleapis.com/mcp/v1
+  slides_mcp_server:
+    _type: per_user_mcp_client
+    include:
+      - read_presentation
+      - update_presentation
+    tool_call_timeout: 60
+    auth_flow_timeout: 600
+    reconnect_enabled: true
+    reconnect_max_attempts: 3
+    reconnect_initial_backoff: 5.0
+    reconnect_max_backoff: 60.0
+    use_native_tool_calling: true
+    tool_overrides:
+      read_presentation:
+        approval_policy: read_only
+      update_presentation:
+        approval_policy: approval_required
+    server:
+      auth_provider: slides_mcp_server
+      transport: streamable-http
+      url: https://slidesmcp.googleapis.com/mcp/v1
   k8s_mcp_server:
     _type: mcp_client
     tool_call_timeout: 60
@@ -629,10 +862,15 @@ functions:
         requires_auth: true
       - id: workspace_data
         name: Workspace Data
-        description: Authenticated Gmail and Calendar data.
+        description: >-
+          Authenticated Gmail, Calendar, Drive, Docs, Sheets, and Slides data.
         tools:
           - gmail_mcp_server
           - calendar_mcp_server
+          - drive_mcp_server
+          - docs_mcp_server
+          - sheets_mcp_server
+          - slides_mcp_server
         default_enabled: false
         requires_auth: true
       - id: x_mcp
@@ -781,6 +1019,10 @@ workflow:
     - user_document_tool
     - gmail_mcp_server
     - calendar_mcp_server
+    - drive_mcp_server
+    - docs_mcp_server
+    - sheets_mcp_server
+    - slides_mcp_server
     - agent_skills_tool
     - user_interaction_tool
     - visual_media_tool

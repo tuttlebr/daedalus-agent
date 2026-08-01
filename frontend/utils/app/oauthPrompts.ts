@@ -1,3 +1,5 @@
+import { inferGoogleWorkspaceService } from './googleWorkspace';
+
 export type OAuthPrompt = {
   id: string;
   conversationId: string;
@@ -6,19 +8,6 @@ export type OAuthPrompt = {
   oauthState?: string;
   service?: string;
 };
-
-function inferGoogleService(authUrl: string): string {
-  let decoded = authUrl;
-  try {
-    decoded = decodeURIComponent(authUrl);
-  } catch {
-    decoded = authUrl;
-  }
-  decoded = decoded.toLowerCase();
-  if (decoded.includes('gmail')) return 'Gmail';
-  if (decoded.includes('calendar')) return 'Calendar';
-  return 'Google';
-}
 
 function oauthPromptId(authUrl: string, oauthState?: string): string {
   return oauthState ? `${oauthState}:${authUrl}` : authUrl;
@@ -60,7 +49,7 @@ export function oauthPromptsFromStatus(
             ),
             authUrl: status.authUrl,
             oauthState: status.oauthState,
-            service: inferGoogleService(status.authUrl),
+            service: inferGoogleWorkspaceService(status.authUrl),
           },
         ]
       : [];
@@ -85,7 +74,7 @@ export function oauthPromptsFromStatus(
         service:
           typeof request.service === 'string'
             ? request.service
-            : inferGoogleService(authUrl),
+            : inferGoogleWorkspaceService(authUrl),
       };
     });
 }

@@ -1445,6 +1445,10 @@ class TestMcpErrorNoReconnect:
         [
             ("gmail_mcp_server", "mcp_user_authentication_required", "user"),
             ("calendar_mcp_server", "mcp_user_authentication_required", "user"),
+            ("drive_mcp_server", "mcp_user_authentication_required", "user"),
+            ("docs_mcp_server", "mcp_user_authentication_required", "user"),
+            ("sheets_mcp_server", "mcp_user_authentication_required", "user"),
+            ("slides_mcp_server", "mcp_user_authentication_required", "user"),
             ("k8s_mcp_server", "mcp_shared_authentication_failed", "shared"),
             ("unifi_mcp_server", "mcp_shared_authentication_failed", "shared"),
         ],

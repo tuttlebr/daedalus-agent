@@ -10,6 +10,7 @@ import {
   IconRobot,
   IconDownload,
   IconPencil,
+  IconPlugConnected,
 } from '@tabler/icons-react';
 import React, { memo, useCallback, useEffect, useRef, useState } from 'react';
 
@@ -49,6 +50,7 @@ export const Sidebar = memo(() => {
   const searchTerm = useUISettingsStore((s) => s.searchTerm);
   const setSearchTerm = useUISettingsStore((s) => s.setSearchTerm);
   const setShowChatbar = useUISettingsStore((s) => s.setShowChatbar);
+  const setActiveView = useUISettingsStore((s) => s.setActiveView);
 
   const [isConfirmingClear, setIsConfirmingClear] = useState(false);
   const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(
@@ -400,6 +402,17 @@ export const Sidebar = memo(() => {
 
       {/* Footer */}
       <div className="flex-shrink-0 p-3 border-t border-white/[0.06] space-y-1">
+        <button
+          onClick={() => {
+            setActiveView('connections');
+            closeSidebarOnMobile();
+          }}
+          className="flex min-h-touch-min w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-dark-text-muted transition-colors hover:bg-white/[0.04] hover:text-dark-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nvidia-green/40"
+        >
+          <IconPlugConnected size={16} />
+          <span>Connections</span>
+        </button>
+
         {/* Clear all conversations */}
         {conversations.length > 0 && (
           <div>

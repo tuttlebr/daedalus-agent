@@ -232,7 +232,10 @@ _STATIC_MCP_API_KEY_ENVIRONMENTS = {
     "unifi_mcp_server": "UNIFI_MCP_TOKEN",
 }
 
-_PER_USER_MCP_OAUTH_SERVERS = frozenset({"gmail_mcp_server", "calendar_mcp_server"})
+# Populated from per_user_mcp_client groups backed by mcp_oauth2 providers in
+# the deployed workflow. Keeping this derived from configuration means OAuth
+# callback binding and user-facing auth errors automatically cover new MCPs.
+_PER_USER_MCP_OAUTH_SERVERS: frozenset[str] = frozenset()
 _MISSING_MCP_AUTH_CALLBACK = object()
 
 
@@ -266,6 +269,7 @@ def configure_mcp_approval_policy(config_path: str | os.PathLike[str]) -> None:
     """
 
     global _LOCAL_READ_ONLY_MCP_TOOLS
+    global _PER_USER_MCP_OAUTH_SERVERS
     global _UNRESTRICTED_MCP_GROUPS
     global _approval_policy_configured
 
@@ -280,12 +284,16 @@ def configure_mcp_approval_policy(config_path: str | os.PathLike[str]) -> None:
     function_groups = raw_config.get("function_groups", {})
     if not isinstance(function_groups, dict):
         raise RuntimeError(f"function_groups is not a mapping in {path}")
+    authentication = raw_config.get("authentication", {})
+    if not isinstance(authentication, dict):
+        raise RuntimeError(f"authentication is not a mapping in {path}")
 
     read_only_registry: dict[str, frozenset[str]] = {}
     restricted_groups: set[str] = set()
     unrestricted_groups: set[str] = set()
     configured_endpoints: dict[str, str] = {}
     ambiguous_endpoints: set[str] = set()
+    per_user_oauth_servers: set[str] = set()
 
     for raw_group_name, raw_group in function_groups.items():
         if not isinstance(raw_group_name, str) or not isinstance(raw_group, dict):
@@ -344,6 +352,15 @@ def configure_mcp_approval_policy(config_path: str | os.PathLike[str]) -> None:
 
         server = raw_group.get("server", {})
         if isinstance(server, dict):
+            auth_provider_name = server.get("auth_provider")
+            auth_provider = authentication.get(auth_provider_name, {})
+            if (
+                raw_group.get("_type") == "per_user_mcp_client"
+                and isinstance(auth_provider_name, str)
+                and isinstance(auth_provider, dict)
+                and auth_provider.get("_type") == "mcp_oauth2"
+            ):
+                per_user_oauth_servers.add(group_name)
             transport = str(server.get("transport") or "streamable-http").strip()
             endpoint = os.path.expandvars(str(server.get("url") or "").strip())
             if endpoint and "${" not in endpoint:
@@ -355,17 +372,19 @@ def configure_mcp_approval_policy(config_path: str | os.PathLike[str]) -> None:
                 )
 
     _LOCAL_READ_ONLY_MCP_TOOLS = read_only_registry
+    _PER_USER_MCP_OAUTH_SERVERS = frozenset(per_user_oauth_servers)
     _UNRESTRICTED_MCP_GROUPS = frozenset(unrestricted_groups)
     _mcp_server_group_names.update(configured_endpoints)
     _ambiguous_mcp_servers.update(ambiguous_endpoints)
     _approval_policy_configured = True
     logger.info(
         "Loaded MCP approval policy: config=%s restricted_groups=%d "
-        "unrestricted_groups=%d read_only_tools=%d",
+        "unrestricted_groups=%d read_only_tools=%d per_user_oauth_groups=%d",
         path,
         len(restricted_groups),
         len(unrestricted_groups),
         sum(len(tools) for tools in read_only_registry.values()),
+        len(per_user_oauth_servers),
     )
 
 

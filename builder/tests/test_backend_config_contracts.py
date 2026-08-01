@@ -500,8 +500,15 @@ def test_user_document_tool_contract_uses_trusted_identity_and_private_writes():
 def test_user_document_and_workspace_tools_are_direct_workflow_tools():
     workflow_tools = _config()["workflow"]["tool_names"]
     assert "user_document_tool" in workflow_tools
-    assert "gmail_mcp_server" in workflow_tools
-    assert "calendar_mcp_server" in workflow_tools
+    for tool_name in (
+        "gmail_mcp_server",
+        "calendar_mcp_server",
+        "drive_mcp_server",
+        "docs_mcp_server",
+        "sheets_mcp_server",
+        "slides_mcp_server",
+    ):
+        assert tool_name in workflow_tools
 
 
 def test_top_level_workflow_does_not_expose_unguarded_delete_memory():
@@ -541,7 +548,10 @@ def test_deployed_tool_surface_is_optimized():
         removed_router_tool = "mas" + "_optimizer_tool"
         assert removed_router_tool not in functions, path
         assert removed_router_tool not in workflow_tools, path
-        assert _effective_operation_count(config, workflow_tools) <= 48, path
+        # The six first-party Workspace resources add a deliberately bounded
+        # 25-operation surface. Each remains server-allowlisted and locally
+        # classified as read-only or approval-required.
+        assert _effective_operation_count(config, workflow_tools) <= 73, path
 
 
 def test_workflow_uses_single_tool_calling_agent_schema():
@@ -710,6 +720,10 @@ def test_responses_api_workflow_exposes_required_leaf_tools():
         "user_document_tool",
         "gmail_mcp_server",
         "calendar_mcp_server",
+        "drive_mcp_server",
+        "docs_mcp_server",
+        "sheets_mcp_server",
+        "slides_mcp_server",
     ]
     for path in DEPLOYED_CONFIGS:
         config = _config(path)
@@ -739,15 +753,16 @@ def test_vtt_interpreter_tool_is_top_level():
         assert "media_agent" not in workflow_tools, path
 
 
-def test_workflow_does_not_advertise_unconfigured_gmail_writes():
+def test_workflow_exposes_only_the_configured_gmail_write():
     for path in DEPLOYED_CONFIGS:
         config = _config(path)
         exposed_ops = set(_effective_operations(config, "gmail_mcp_server"))
         text = config["workflow"]["system_prompt"].lower()
 
-        assert "create_draft" not in exposed_ops, path
+        assert "create_draft" in exposed_ops, path
+        assert "send_message" not in exposed_ops, path
+        assert "send_draft" not in exposed_ops, path
         assert "create draft" not in text, path
-        assert "create_draft" not in text, path
 
 
 def test_google_workspace_mcp_uses_per_user_oauth():
@@ -757,22 +772,87 @@ def test_google_workspace_mcp_uses_per_user_oauth():
             "auth_server_url": "https://gmailmcp.googleapis.com/mcp",
             "scopes": {
                 "https://www.googleapis.com/auth/gmail.readonly",
+                "https://www.googleapis.com/auth/gmail.compose",
             },
             "include": [
                 "search_threads",
                 "get_thread",
+                "get_message",
                 "list_labels",
+                "list_drafts",
+                "create_draft",
             ],
         },
         "calendar_mcp_server": {
             "server_url": "https://calendarmcp.googleapis.com/mcp/v1",
-            "auth_server_url": "https://calendarmcp.googleapis.com/mcp/v1",
+            "auth_server_url": "https://calendarmcp.googleapis.com/mcp",
             "scopes": {
                 "https://www.googleapis.com/auth/calendar.calendarlist.readonly",
                 "https://www.googleapis.com/auth/calendar.events.readonly",
                 "https://www.googleapis.com/auth/calendar.events.freebusy",
             },
-            "include": None,
+            "include": [
+                "list_events",
+                "get_event",
+                "list_calendars",
+                "suggest_time",
+                "search_events",
+            ],
+        },
+        "drive_mcp_server": {
+            "server_url": "https://drivemcp.googleapis.com/mcp/v1",
+            "auth_server_url": "https://drivemcp.googleapis.com/mcp",
+            "scopes": {
+                "https://www.googleapis.com/auth/drive.readonly",
+                "https://www.googleapis.com/auth/drive.file",
+            },
+            "include": [
+                "copy_file",
+                "create_file",
+                "download_file_content",
+                "get_file_metadata",
+                "get_file_permissions",
+                "list_recent_files",
+                "read_file_content",
+                "search_files",
+            ],
+        },
+        "docs_mcp_server": {
+            "server_url": "https://docsmcp.googleapis.com/mcp/v1",
+            "auth_server_url": "https://docsmcp.googleapis.com/mcp/v1",
+            "scopes": {
+                "https://www.googleapis.com/auth/drive.readonly",
+                "https://www.googleapis.com/auth/documents",
+            },
+            "include": ["read_doc", "update_doc"],
+        },
+        "sheets_mcp_server": {
+            "server_url": "https://sheetsmcp.googleapis.com/mcp/v1",
+            "auth_server_url": "https://sheetsmcp.googleapis.com/mcp/v1",
+            "scopes": {
+                "https://www.googleapis.com/auth/drive.readonly",
+                "https://www.googleapis.com/auth/spreadsheets",
+            },
+            "include": [
+                "get_values",
+                "get_spreadsheet",
+                "update_spreadsheet",
+                "update_values",
+                "update_formulas",
+                "insert_dimension",
+                "copy_sheet_to_another_spreadsheet",
+                "batch_clear_values",
+                "append_values",
+            ],
+        },
+        "slides_mcp_server": {
+            "server_url": "https://slidesmcp.googleapis.com/mcp/v1",
+            "auth_server_url": "https://slidesmcp.googleapis.com/mcp/v1",
+            "scopes": {
+                "https://www.googleapis.com/auth/drive.readonly",
+                "https://www.googleapis.com/auth/presentations",
+            },
+            "include": ["read_presentation", "update_presentation"],
         },
     }
 
@@ -782,8 +862,7 @@ def test_google_workspace_mcp_uses_per_user_oauth():
         function_groups = config["function_groups"]
         workflow_tools = config["workflow"]["tool_names"]
 
-        assert "gmail_mcp_server" in workflow_tools, path
-        assert "calendar_mcp_server" in workflow_tools, path
+        assert set(expected) <= set(workflow_tools), path
 
         for name, values in expected.items():
             provider = auth[name]
@@ -821,11 +900,11 @@ def test_google_workspace_mcp_uses_per_user_oauth():
         assert general["per_user_workflow_cleanup_interval"] <= 60, path
         assert general["enable_per_user_monitoring"] is False, path
 
-        gmail_bucket = config["object_stores"]["gmail_mcp_oauth_tokens"]["bucket_name"]
-        calendar_bucket = config["object_stores"]["calendar_mcp_oauth_tokens"][
-            "bucket_name"
-        ]
-        assert gmail_bucket != calendar_bucket, path
+        buckets = {
+            config["object_stores"][values["token_storage_object_store"]]["bucket_name"]
+            for values in (auth[name] for name in expected)
+        }
+        assert len(buckets) == len(expected), path
 
 
 def test_shared_api_key_mcp_auth_is_operator_managed():
@@ -875,13 +954,61 @@ def test_mcp_approval_policy_follows_explicit_include_lists():
             "get_users_timeline",
             "get_users_posts",
         },
-        "gmail_mcp_server": {"search_threads", "get_thread", "list_labels"},
+        "gmail_mcp_server": {
+            "search_threads",
+            "get_thread",
+            "get_message",
+            "list_labels",
+            "list_drafts",
+            "create_draft",
+        },
+        "calendar_mcp_server": {
+            "list_events",
+            "get_event",
+            "list_calendars",
+            "suggest_time",
+            "search_events",
+        },
+        "drive_mcp_server": {
+            "copy_file",
+            "create_file",
+            "download_file_content",
+            "get_file_metadata",
+            "get_file_permissions",
+            "list_recent_files",
+            "read_file_content",
+            "search_files",
+        },
+        "docs_mcp_server": {"read_doc", "update_doc"},
+        "sheets_mcp_server": {
+            "get_values",
+            "get_spreadsheet",
+            "update_spreadsheet",
+            "update_values",
+            "update_formulas",
+            "insert_dimension",
+            "copy_sheet_to_another_spreadsheet",
+            "batch_clear_values",
+            "append_values",
+        },
+        "slides_mcp_server": {"read_presentation", "update_presentation"},
     }
-    unrestricted = {
-        "calendar_mcp_server",
-        "k8s_mcp_server",
-        "unifi_mcp_server",
+    approval_required = {
+        "gmail_mcp_server": {"create_draft"},
+        "drive_mcp_server": {"copy_file", "create_file"},
+        "docs_mcp_server": {"update_doc"},
+        "sheets_mcp_server": {
+            "update_spreadsheet",
+            "update_values",
+            "update_formulas",
+            "insert_dimension",
+            "copy_sheet_to_another_spreadsheet",
+            "batch_clear_values",
+            "append_values",
+        },
+        "slides_mcp_server": {"update_presentation"},
     }
+    unrestricted = {"k8s_mcp_server", "unifi_mcp_server"}
 
     for path in DEPLOYED_CONFIGS:
         groups = _config(path)["function_groups"]
@@ -892,9 +1019,17 @@ def test_mcp_approval_policy_follows_explicit_include_lists():
                 for tool_name, override in group.get("tool_overrides", {}).items()
             }
             assert set(group["include"]) == expected_tools, path
-            assert {
+            read_only = {
                 tool for tool, policy in policies.items() if policy == "read_only"
-            } == expected_tools, path
+            }
+            assert read_only == expected_tools - approval_required.get(
+                group_name, set()
+            ), path
+            assert {
+                tool
+                for tool, policy in policies.items()
+                if policy == "approval_required"
+            } == approval_required.get(group_name, set()), path
 
         for group_name in unrestricted:
             group = groups[group_name]

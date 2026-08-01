@@ -28,6 +28,7 @@ import { useAuth } from '@/components/auth';
 import { ProtectedRoute } from '@/components/auth';
 import { AutonomyDashboard } from '@/components/autonomy';
 import { ChatView } from '@/components/chat/ChatView';
+import { ConnectionsView } from '@/components/connections';
 import { ImagePanel } from '@/components/images';
 import { AppShell, ViewTabs } from '@/components/layout';
 import { BottomNav } from '@/components/mobile/BottomNav';
@@ -332,6 +333,9 @@ function ActiveView() {
   }
   if (activeView === 'autonomy') {
     return <AutonomyDashboard />;
+  }
+  if (activeView === 'connections') {
+    return <ConnectionsView />;
   }
   return <ChatView />;
 }

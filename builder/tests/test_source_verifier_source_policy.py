@@ -140,6 +140,23 @@ def test_nvidia_docs_hints_route_through_one_product_capability(question, produc
     ]
 
 
+@pytest.mark.parametrize(
+    "question,tool",
+    [
+        ("Find the contract in my Google Drive", "drive_mcp_server"),
+        ("Read my Google Doc", "docs_mcp_server"),
+        ("Check this spreadsheet", "sheets_mcp_server"),
+        ("Review my presentation deck", "slides_mcp_server"),
+        ("Search my Gmail inbox", "gmail_mcp_server"),
+        ("What is on my calendar?", "calendar_mcp_server"),
+    ],
+)
+def test_workspace_hints_route_to_the_relevant_google_service(question, tool):
+    from source_verifier.source_verifier_function import _tool_hints
+
+    assert _tool_hints("workspace_data", question) == [{"tool": tool}]
+
+
 # ---------------------------------------------------------------------------
 # F-002a: _fetch_source rejects redirects to internal/metadata addresses
 # ---------------------------------------------------------------------------

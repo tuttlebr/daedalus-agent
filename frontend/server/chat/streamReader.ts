@@ -4,6 +4,7 @@ import {
 } from '@/utils/app/asyncStepParser';
 import { buildBackendUrlFromBase } from '@/utils/app/backendApi';
 import { stripReplayedAssistantPrefix } from '@/utils/app/conversationReplay';
+import { inferGoogleWorkspaceService } from '@/utils/app/googleWorkspace';
 import { Logger } from '@/utils/logger';
 
 import { getNatBaseUrl } from './backendSelection';
@@ -119,25 +120,12 @@ function extractOAuthRequiredPayload(
     id: oauthRequestId(authUrl, normalizedOauthState),
     authUrl,
     ...(normalizedOauthState ? { oauthState: normalizedOauthState } : {}),
-    service: inferOAuthService(authUrl),
+    service: inferGoogleWorkspaceService(authUrl),
   };
 }
 
 function oauthRequestId(authUrl: string, oauthState?: string): string {
   return oauthState ? `${oauthState}:${authUrl}` : authUrl;
-}
-
-function inferOAuthService(authUrl: string): string {
-  let decoded = authUrl;
-  try {
-    decoded = decodeURIComponent(authUrl);
-  } catch {
-    decoded = authUrl;
-  }
-  decoded = decoded.toLowerCase();
-  if (decoded.includes('gmail')) return 'Gmail';
-  if (decoded.includes('calendar')) return 'Calendar';
-  return 'Google';
 }
 
 function mergeOAuthRequests(
@@ -152,7 +140,7 @@ function mergeOAuthRequests(
           id: oauthRequestId(status.authUrl, status.oauthState),
           authUrl: status.authUrl,
           ...(status.oauthState ? { oauthState: status.oauthState } : {}),
-          service: inferOAuthService(status.authUrl),
+          service: inferGoogleWorkspaceService(status.authUrl),
         },
       ]
     : [];

@@ -25,7 +25,7 @@ describe('oauthPrompts', () => {
         authUrl:
           'https://accounts.google.com/auth?scope=calendar.calendarlist.readonly',
         oauthState: 'calendar-state',
-        service: 'Calendar',
+        service: 'Google Calendar',
       },
     ]);
   });
@@ -42,5 +42,23 @@ describe('oauthPrompts', () => {
     expect(
       withoutOAuthPromptsForConversation([prompt, otherPrompt], 'conv-1'),
     ).toEqual([otherPrompt]);
+  });
+
+  it.each([
+    ['gmail.readonly', 'Gmail'],
+    ['calendar.events.readonly', 'Google Calendar'],
+    ['documents', 'Google Docs'],
+    ['spreadsheets', 'Google Sheets'],
+    ['presentations', 'Google Slides'],
+    ['drive.readonly', 'Google Drive'],
+  ])('identifies the %s authorization as %s', (scope, service) => {
+    const [prompt] = oauthPromptsFromStatus(
+      {
+        authUrl: `https://accounts.google.com/auth?scope=https%3A%2F%2Fwww.googleapis.com%2Fauth%2F${scope}`,
+      },
+      'conv-1',
+    );
+
+    expect(prompt.service).toBe(service);
   });
 });

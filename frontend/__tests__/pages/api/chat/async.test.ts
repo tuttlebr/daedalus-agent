@@ -2119,7 +2119,7 @@ describe('chat/async streaming + finalize (characterization)', () => {
         id: 'xyz:https://accounts.google.com/auth',
         authUrl: 'https://accounts.google.com/auth',
         oauthState: 'xyz',
-        service: 'Google',
+        service: 'Google Workspace',
       },
     ]);
     expect(oauthUpdate.progress).toBe(0);
@@ -2182,7 +2182,7 @@ describe('chat/async streaming + finalize (characterization)', () => {
         authUrl:
           'https://accounts.google.com/auth?scope=calendar.calendarlist.readonly',
         oauthState: 'calendar-state',
-        service: 'Calendar',
+        service: 'Google Calendar',
       },
     ]);
   });
