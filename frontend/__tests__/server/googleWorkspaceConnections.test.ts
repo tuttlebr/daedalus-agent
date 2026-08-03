@@ -22,11 +22,11 @@ describe('Google Workspace connection state', () => {
   it('uses the same stable NAT user hash and an isolated service bucket', () => {
     expect(googleWorkspaceTokenKey('gmail', 'alice')).toBe(
       'nat/object_store/gmail-mcp-oauth/tokens/' +
-        '4811d14abce5ba76c031dbca898a701ef72508a6ad87c755c8ff896d665847ad',
+        '23269a2db51e19e93d493d3ebd2353e5c05953fca9e08e1d1f781585c7db1d60',
     );
     expect(googleWorkspaceTokenKey('sheets', 'alice')).toBe(
       'nat/object_store/sheets-mcp-oauth/tokens/' +
-        '4811d14abce5ba76c031dbca898a701ef72508a6ad87c755c8ff896d665847ad',
+        '23269a2db51e19e93d493d3ebd2353e5c05953fca9e08e1d1f781585c7db1d60',
     );
     expect(googleWorkspaceTokenKey('gmail', 'bob')).not.toBe(
       googleWorkspaceTokenKey('gmail', 'alice'),
@@ -50,7 +50,7 @@ describe('Google Workspace connection state', () => {
         [
           'exists',
           'nat/object_store/docs-mcp-oauth/tokens/' +
-            '4811d14abce5ba76c031dbca898a701ef72508a6ad87c755c8ff896d665847ad',
+            '23269a2db51e19e93d493d3ebd2353e5c05953fca9e08e1d1f781585c7db1d60',
         ],
       ]),
     );
