@@ -349,9 +349,11 @@ def test_runtime_locks_cover_local_sources_nat_commit_and_registry_hashes():
         assert (
             "--overrides requirements-runtime-overrides.in" in lock_text.splitlines()[1]
         )
-        assert by_name["cryptography"]["version"] == "48.0.1"
+        assert by_name["aiohttp"]["version"] == "3.14.3"
+        assert by_name["cryptography"]["version"] == "50.0.0"
         assert by_name["fastfeedparser"]["version"] == "0.5.10"
         assert by_name["pillow"]["version"] == "12.3.0"
+        assert by_name["pyopenssl"]["version"] == "26.4.0"
         assert by_name["starlette"]["version"] == "1.3.1"
         assert by_name["urllib3"]["version"] == "2.7.0"
         assert by_name["nv-ingest-api"]["version"] == "26.3.0"
@@ -1407,9 +1409,11 @@ def test_runtime_omits_legacy_async_job_dependencies():
     # when async job endpoints are disabled, so its missing transitive runtime
     # requirement must remain explicit.
     assert "greenlet>=3,<4" in runtime_requirements
-    assert "cryptography>=48.0.1,<49" in runtime_requirements
+    assert "aiohttp>=3.14.3,<4" in runtime_requirements
+    assert "cryptography>=50.0.0,<51" in runtime_requirements
     assert "fastfeedparser>=0.5.10,<0.6" in runtime_requirements
     assert "pillow>=12.2,<13" in runtime_requirements
+    assert "pyopenssl>=26.4,<27" in runtime_requirements
     assert "starlette>=1.3.1,<2" in runtime_requirements
     assert "urllib3>=2.7,<3" in runtime_requirements
     assert "async_endpoints" not in dockerfile
@@ -1421,7 +1425,7 @@ def test_runtime_omits_legacy_async_job_dependencies():
         for line in RUNTIME_OVERRIDES.read_text(encoding="utf-8").splitlines()
         if line.strip() and not line.lstrip().startswith("#")
     }
-    assert overrides == {"cryptography>=48.0.1,<49", "urllib3>=2.7,<3"}
+    assert overrides == {"cryptography>=50.0.0,<51", "urllib3>=2.7,<3"}
 
     for manifest in DOCKERFILE.parent.glob("*/pyproject.toml"):
         project = manifest.read_text(encoding="utf-8")

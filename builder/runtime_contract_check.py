@@ -21,9 +21,11 @@ EXPECTED_NAT_VERSION = "1.8.0"
 EXPECTED_NV_INGEST_VERSION = "26.3.0"
 
 SECURITY_DEPENDENCY_RANGES = {
-    "cryptography": (Version("48.0.1"), Version("49")),
+    "aiohttp": (Version("3.14.3"), Version("4")),
+    "cryptography": (Version("50.0.0"), Version("51")),
     "fastfeedparser": (Version("0.5.10"), Version("0.6")),
     "pillow": (Version("12.2"), Version("13")),
+    "pyopenssl": (Version("26.4"), Version("27")),
     "starlette": (Version("1.3.1"), Version("2")),
     "urllib3": (Version("2.7"), Version("3")),
 }
@@ -60,6 +62,44 @@ def main() -> None:
                 f"{distribution} {installed} is outside the security-tested "
                 f"range >={minimum},<{maximum}"
             )
+
+    # Three upstream packages still cap cryptography below 50 even though the
+    # fixed release preserves the RSA and TLS APIs this runtime uses. Exercise
+    # each affected path before accepting those exact metadata conflicts.
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+    from langchain_litellm import ChatLiteLLM
+    from oci import Signer
+    from oci._vendor.requests import Request
+    from OpenSSL import SSL
+
+    SSL.Context(SSL.TLS_CLIENT_METHOD)
+
+    litellm_client = ChatLiteLLM(
+        model="openai/runtime-contract",
+        api_key="runtime-contract-key",
+    )
+    if litellm_client.model != "openai/runtime-contract":
+        raise RuntimeError("LangChain LiteLLM client failed its cryptography 50 probe")
+
+    private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    private_key_pem = private_key.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=serialization.NoEncryption(),
+    )
+    oci_signer = Signer(
+        tenancy="ocid1.tenancy.oc1..runtime",
+        user="ocid1.user.oc1..runtime",
+        fingerprint="00:00:00:00",
+        private_key_file_location=None,
+        private_key_content=private_key_pem,
+    )
+    signed_request = oci_signer(
+        Request("GET", "https://iaas.us-phoenix-1.oraclecloud.com/20160918").prepare()
+    )
+    if "rsa-sha256" not in signed_request.headers.get("authorization", ""):
+        raise RuntimeError("OCI request signing failed with cryptography 50")
 
     for distribution in ("nv-ingest-api", "nv-ingest-client"):
         installed = version(distribution)
