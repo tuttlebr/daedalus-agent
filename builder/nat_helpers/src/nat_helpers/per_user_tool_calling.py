@@ -96,11 +96,17 @@ def _bind_responses_llm(
     parallel_tool_calls: bool,
     instructions: str | None,
 ):
-    """Bind Responses tools and instructions using the pinned LangChain API."""
+    """Bind Responses tools and instructions using the pinned LangChain API.
+
+    Daedalus exposes tools with optional fields and free-form object values.
+    LangChain's strict conversion makes every field required and closes those
+    objects, which changes the tools' contracts and is rejected by OpenAI for
+    schemas such as ``add_memory``. Responses function tools support the native
+    non-strict JSON schemas, so preserve them here.
+    """
     bound_llm = llm.bind_tools(
         tools=tools,
         parallel_tool_calls=parallel_tool_calls,
-        strict=True,
     )
     if instructions:
         bound_llm = bound_llm.bind(instructions=instructions)
@@ -143,9 +149,10 @@ async def _responses_api_agent_workflow(
         detailed_logs=config.verbose,
         handle_tool_errors=config.handle_tool_errors,
     )
-    # NAT's Responses agent binds function tools in strict mode. Binding the
-    # instructions after the tools retains both sets of invocation kwargs and
-    # makes LangChain serialize them as the top-level Responses field.
+    # Binding the instructions after the tools retains both sets of invocation
+    # kwargs and makes LangChain serialize them as the top-level Responses
+    # field. The helper preserves native optional tool arguments rather than
+    # forcing NAT's strict-schema conversion across heterogeneous tools.
     bound_llm = _bind_responses_llm(
         llm,
         tools=bound_tools,

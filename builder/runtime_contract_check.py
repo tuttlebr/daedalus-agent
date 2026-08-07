@@ -11,6 +11,7 @@ import os
 import secrets
 from importlib.metadata import version
 from types import SimpleNamespace
+from typing import Any
 
 import mcp_patches
 from entrypoint import _patch_request_metadata_redaction
@@ -301,14 +302,18 @@ def main() -> None:
         raise RuntimeError("Daedalus Responses API workflow retained Chat fields")
 
     # Prove the pinned LangChain bridge emits the raw Responses request shape:
-    # top-level instructions, item input, flat strict functions, nested
-    # reasoning, and the Responses truncation field.
+    # top-level instructions, item input, flat functions with native optional
+    # arguments, nested reasoning, and the Responses truncation field.
     from langchain_core.messages import HumanMessage
     from langchain_core.tools import StructuredTool
     from langchain_openai import ChatOpenAI
 
-    def contract_lookup(query: str) -> str:
+    def contract_lookup(
+        query: str,
+        metadata: dict[str, Any] | None = None,
+    ) -> str:
         """Look up a contract test value."""
+        del metadata
         return query
 
     contract_tool = StructuredTool.from_function(contract_lookup)
@@ -338,9 +343,23 @@ def main() -> None:
         not request_tools
         or request_tools[0].get("type") != "function"
         or "function" in request_tools[0]
-        or request_tools[0].get("strict") is not True
+        or request_tools[0].get("strict") is True
     ):
-        raise RuntimeError("Responses function schema is not flat and strict")
+        raise RuntimeError("Responses function schema is not flat and non-strict")
+    parameters = request_tools[0].get("parameters", {})
+    if parameters.get("required") != ["query"]:
+        raise RuntimeError("Responses optional tool arguments became required")
+    metadata_schema = parameters.get("properties", {}).get("metadata", {})
+    metadata_object = next(
+        (
+            item
+            for item in metadata_schema.get("anyOf", [])
+            if item.get("type") == "object"
+        ),
+        {},
+    )
+    if metadata_object.get("additionalProperties") is not True:
+        raise RuntimeError("Responses free-form tool objects became closed")
     if request_payload.get("parallel_tool_calls") is not True:
         raise RuntimeError("Responses parallel tool calls are disabled")
     if request_payload.get("reasoning") != {"effort": "high"}:
