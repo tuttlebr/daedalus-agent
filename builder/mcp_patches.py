@@ -18,6 +18,7 @@ release provides the corresponding supported hook.
 """
 
 import asyncio
+import contextvars
 import hashlib
 import inspect
 import json
@@ -929,8 +930,27 @@ async def _call_with_current_mcp_oauth_callback(parent_client, callback, coro):
     another request for the same user cannot replace the binding mid-flow.
     """
     auth = getattr(parent_client, "_httpx_auth", None)
-    if auth is None or callback is None:
+    if auth is None:
         return await coro()
+
+    calling_context = contextvars.copy_context()
+
+    async def callback_in_calling_context(config, method):
+        if callback is None:
+            raise RuntimeError(
+                "Interactive MCP authentication is unavailable for the current request"
+            )
+
+        # HTTPX runs its auth flow in the cached transport's lifetime task.
+        # Merely copying NAT's callback into that task is insufficient because
+        # the HTTP frontend's OAuth execution state lives in additional
+        # ContextVars. Create the callback task in the active request's full
+        # context so oauth_required reaches the current SSE stream/store.
+        task = calling_context.run(
+            asyncio.create_task,
+            callback(config, method),
+        )
+        return await task
 
     lock = getattr(parent_client, "_daedalus_oauth_call_lock", None)
     if lock is None:
@@ -943,7 +963,7 @@ async def _call_with_current_mcp_oauth_callback(parent_client, callback, coro):
             "_daedalus_user_auth_callback",
             _MISSING_MCP_AUTH_CALLBACK,
         )
-        auth._daedalus_user_auth_callback = callback
+        auth._daedalus_user_auth_callback = callback_in_calling_context
         try:
             return await coro()
         finally:
@@ -989,11 +1009,20 @@ def _patch_mcp_auth_context_propagation():
             # The HTTP request is executed by the cached transport task, whose
             # context otherwise points at the request that created the client.
             with Context.scope(user_auth_callback=callback):
-                return await original_get_auth_headers(
+                headers = await original_get_auth_headers(
                     self,
                     request=request,
                     response=response,
                 )
+            if not headers:
+                # NAT 1.8 converts both absent OAuth bootstrap state and callback
+                # failures into an empty header mapping. Make the 401 retry fail
+                # explicitly instead of issuing another anonymous request that
+                # can remain open until auth_flow_timeout.
+                raise RuntimeError(
+                    "MCP authentication did not produce credentials for the current request"
+                )
+            return headers
 
         wrapped._daedalus_oauth_context_wrapper = True
         AuthAdapter._get_auth_headers = wrapped

@@ -1,6 +1,7 @@
 """Tests for mcp_patches -- connect_to_server teardown and startup resilience."""
 
 import asyncio
+import contextvars
 import sys
 import types
 from contextlib import asynccontextmanager
@@ -104,41 +105,136 @@ def test_cached_mcp_transport_uses_current_oauth_callback(monkeypatch):
     assert callback_state["value"] is stale_callback
 
 
+def test_bound_oauth_token_miss_is_not_silently_converted_to_empty_headers(
+    monkeypatch,
+):
+    """A bound interactive request must not continue anonymously after auth fails."""
+
+    class FakeContext:
+        @staticmethod
+        def scope(**_kwargs):
+            class Scope:
+                def __enter__(self):
+                    return None
+
+                def __exit__(self, *_args):
+                    return None
+
+            return Scope()
+
+    class FakeAuthAdapter:
+        async def _get_auth_headers(self, request=None, response=None):
+            return {}
+
+    context_module = types.ModuleType("nat.builder.context")
+    context_module.Context = FakeContext
+    client_module = types.ModuleType("nat.plugins.mcp.client.client_base")
+    client_module.AuthAdapter = FakeAuthAdapter
+    for module_name in (
+        "nat",
+        "nat.builder",
+        "nat.plugins",
+        "nat.plugins.mcp",
+        "nat.plugins.mcp.client",
+    ):
+        module = types.ModuleType(module_name)
+        module.__path__ = []
+        monkeypatch.setitem(sys.modules, module_name, module)
+    monkeypatch.setitem(sys.modules, "nat.builder.context", context_module)
+    monkeypatch.setitem(
+        sys.modules,
+        "nat.plugins.mcp.client.client_base",
+        client_module,
+    )
+
+    _patch_mcp_auth_context_propagation()
+    adapter = FakeAuthAdapter()
+    adapter._daedalus_user_auth_callback = object()
+
+    with pytest.raises(RuntimeError, match="did not produce credentials"):
+        run(adapter._get_auth_headers())
+
+
 def test_oauth_callback_binding_serializes_cached_client_calls():
     """Concurrent turns for one cached client cannot replace each other's callback."""
     auth = types.SimpleNamespace()
     parent = types.SimpleNamespace(_httpx_auth=auth)
-    callback_one = object()
-    callback_two = object()
+    marker_one = object()
+    marker_two = object()
     active = 0
     max_active = 0
 
     async def _run():
-        async def invoke(callback):
+        async def callback_one(_config, _method):
+            return marker_one
+
+        async def callback_two(_config, _method):
+            return marker_two
+
+        async def invoke(marker):
             nonlocal active, max_active
-            assert auth._daedalus_user_auth_callback is callback
             active += 1
             max_active = max(max_active, active)
             await asyncio.sleep(0)
-            assert auth._daedalus_user_auth_callback is callback
+            assert await auth._daedalus_user_auth_callback(None, None) is marker
             active -= 1
-            return callback
+            return marker
 
         return await asyncio.gather(
             _call_with_current_mcp_oauth_callback(
                 parent,
                 callback_one,
-                lambda: invoke(callback_one),
+                lambda: invoke(marker_one),
             ),
             _call_with_current_mcp_oauth_callback(
                 parent,
                 callback_two,
-                lambda: invoke(callback_two),
+                lambda: invoke(marker_two),
             ),
         )
 
-    assert run(_run()) == [callback_one, callback_two]
+    assert run(_run()) == [marker_one, marker_two]
     assert max_active == 1
+    assert not hasattr(auth, "_daedalus_user_auth_callback")
+
+
+def test_oauth_callback_runs_in_active_request_context():
+    """Frontend OAuth ContextVars must survive the cached transport boundary."""
+    execution_id = contextvars.ContextVar("execution_id", default="stale-execution")
+    auth = types.SimpleNamespace()
+    parent = types.SimpleNamespace(_httpx_auth=auth)
+
+    async def _run():
+        execution_id.set("current-execution")
+
+        async def callback(_config, _method):
+            return execution_id.get()
+
+        async def invoke_from_transport():
+            execution_id.set("cached-transport-execution")
+            return await auth._daedalus_user_auth_callback(None, None)
+
+        return await _call_with_current_mcp_oauth_callback(
+            parent,
+            callback,
+            invoke_from_transport,
+        )
+
+    assert run(_run()) == "current-execution"
+    assert not hasattr(auth, "_daedalus_user_auth_callback")
+
+
+def test_missing_oauth_callback_fails_when_interaction_is_needed():
+    """A token miss without an interactive frontend must fail instead of wait."""
+    auth = types.SimpleNamespace()
+    parent = types.SimpleNamespace(_httpx_auth=auth)
+
+    async def invoke():
+        await auth._daedalus_user_auth_callback(None, None)
+
+    with pytest.raises(RuntimeError, match="unavailable for the current request"):
+        run(_call_with_current_mcp_oauth_callback(parent, None, invoke))
+
     assert not hasattr(auth, "_daedalus_user_auth_callback")
 
 
@@ -1387,8 +1483,10 @@ class TestMcpErrorNoReconnect:
 
     def test_google_tool_call_binds_current_oauth_callback(self, monkeypatch):
         """The tool wrapper must bridge the current callback to cached transport."""
-        callback = object()
         auth_adapter = types.SimpleNamespace()
+
+        async def callback(_config, _method):
+            return "current-request"
 
         class FakeContext:
             @staticmethod
@@ -1405,7 +1503,10 @@ class TestMcpErrorNoReconnect:
                 )
 
             async def acall(self, tool_args):
-                assert auth_adapter._daedalus_user_auth_callback is callback
+                assert (
+                    await auth_adapter._daedalus_user_auth_callback(None, None)
+                    == "current-request"
+                )
                 return "ok"
 
         context_module = types.ModuleType("nat.builder.context")
@@ -1429,6 +1530,11 @@ class TestMcpErrorNoReconnect:
             client_module,
         )
         monkeypatch.setattr(mcp_patches, "_approval_gate_installed", False)
+        monkeypatch.setattr(
+            mcp_patches,
+            "_PER_USER_MCP_OAUTH_SERVERS",
+            frozenset({"calendar_mcp_server"}),
+        )
         monkeypatch.setattr(
             mcp_patches,
             "_validate_mcp_approval",
@@ -1494,6 +1600,20 @@ class TestMcpErrorNoReconnect:
             fake_module,
         )
         monkeypatch.setattr(mcp_patches, "_approval_gate_installed", False)
+        monkeypatch.setattr(
+            mcp_patches,
+            "_PER_USER_MCP_OAUTH_SERVERS",
+            frozenset(
+                {
+                    "gmail_mcp_server",
+                    "calendar_mcp_server",
+                    "drive_mcp_server",
+                    "docs_mcp_server",
+                    "sheets_mcp_server",
+                    "slides_mcp_server",
+                }
+            ),
+        )
         monkeypatch.setattr(
             mcp_patches,
             "_validate_mcp_approval",
