@@ -266,7 +266,8 @@ def main() -> None:
     # registration exists in the pinned NAT registry and carries explicit API
     # schemas so the shared application can start without building it.
     from nat_helpers.per_user_tool_calling import (
-        DaedalusPerUserToolCallAgentWorkflowConfig,
+        DaedalusPerUserResponsesAPIAgentWorkflowConfig,
+        _bind_responses_llm,
         _content_text,
     )
 
@@ -282,16 +283,70 @@ def main() -> None:
         raise RuntimeError("Responses API content-block normalization is broken")
 
     per_user_agent = GlobalTypeRegistry.get().get_function(
-        DaedalusPerUserToolCallAgentWorkflowConfig
+        DaedalusPerUserResponsesAPIAgentWorkflowConfig
     )
     if not per_user_agent.is_per_user:
-        raise RuntimeError("Daedalus tool-calling workflow isn't per-user")
+        raise RuntimeError("Daedalus Responses API workflow isn't per-user")
     if (
         per_user_agent.per_user_function_input_schema is None
         or per_user_agent.per_user_function_single_output_schema is None
         or per_user_agent.per_user_function_streaming_output_schema is None
     ):
-        raise RuntimeError("Per-user tool-calling API schemas aren't registered")
+        raise RuntimeError("Per-user Responses API schemas aren't registered")
+
+    response_fields = set(DaedalusPerUserResponsesAPIAgentWorkflowConfig.model_fields)
+    if not {"instructions", "nat_tools", "parallel_tool_calls"} <= response_fields:
+        raise RuntimeError("Daedalus Responses API workflow schema is incomplete")
+    if {"system_prompt", "tool_names"} & response_fields:
+        raise RuntimeError("Daedalus Responses API workflow retained Chat fields")
+
+    # Prove the pinned LangChain bridge emits the raw Responses request shape:
+    # top-level instructions, item input, flat strict functions, nested
+    # reasoning, and the Responses truncation field.
+    from langchain_core.messages import HumanMessage
+    from langchain_core.tools import StructuredTool
+    from langchain_openai import ChatOpenAI
+
+    def contract_lookup(query: str) -> str:
+        """Look up a contract test value."""
+        return query
+
+    contract_tool = StructuredTool.from_function(contract_lookup)
+    contract_llm = ChatOpenAI(
+        model="gpt-5",
+        api_key="runtime-contract-key",
+        use_responses_api=True,
+        reasoning={"effort": "high"},
+        truncation="auto",
+    )
+    bound_contract_llm = _bind_responses_llm(
+        contract_llm,
+        tools=[contract_tool],
+        parallel_tool_calls=True,
+        instructions="Use the lookup tool.",
+    )
+    request_payload = bound_contract_llm.bound._get_request_payload(
+        [HumanMessage(content="Find a value")],
+        **bound_contract_llm.kwargs,
+    )
+    if request_payload.get("instructions") != "Use the lookup tool.":
+        raise RuntimeError("Responses instructions were not serialized top-level")
+    if request_payload.get("input", [{}])[0].get("type") != "message":
+        raise RuntimeError("Responses input was not serialized as an item")
+    request_tools = request_payload.get("tools", [])
+    if (
+        not request_tools
+        or request_tools[0].get("type") != "function"
+        or "function" in request_tools[0]
+        or request_tools[0].get("strict") is not True
+    ):
+        raise RuntimeError("Responses function schema is not flat and strict")
+    if request_payload.get("parallel_tool_calls") is not True:
+        raise RuntimeError("Responses parallel tool calls are disabled")
+    if request_payload.get("reasoning") != {"effort": "high"}:
+        raise RuntimeError("Responses reasoning schema was not preserved")
+    if request_payload.get("truncation") != "auto":
+        raise RuntimeError("Responses truncation schema was not preserved")
 
     from nat.plugins.mcp.client.client_base import (
         MCPStreamableHTTPClient,

@@ -63,9 +63,8 @@ services:
     networks:
       - ${NETWORK_NAME:-daedalus-network}
     volumes:
-      # Responses config inherits this canonical config through NAT's `base:`
-      # support. Keep it mounted even when BACKEND_CONFIG_FILE selects an
-      # overlay as /workspace/config.yaml.
+      # Keep the canonical config available to compatibility overlays that
+      # inherit it through NAT's `base:` support.
       - ./backend/tool-calling-config.yaml:/workspace/tool-calling-config.yaml:ro
       - ${BACKEND_CONFIG_FILE:-./backend/tool-calling-config.yaml}:/workspace/config.yaml:ro
       - ${DOCKER_VOLUME_DIRECTORY:-.}/skills:/skills:ro

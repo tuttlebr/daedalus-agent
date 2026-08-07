@@ -1,4 +1,4 @@
-"""Per-user form of NAT's pinned tool-calling agent.
+"""Per-user forms of NAT's pinned OpenAI agent workflows.
 
 NAT 1.8 ships a per-user MCP function group, but only registers a per-user
 ReAct workflow. Daedalus uses the tool-calling workflow for chat-completions
@@ -7,12 +7,10 @@ supported per-user workflow boundary. NAT then builds OAuth-backed MCP groups
 with the authenticated request context and caches the complete user workflow
 for the configured idle window.
 
-The same workflow configuration also supports NAT's OpenAI Responses API
-provider mode. The upstream tool-calling graph works with both provider APIs,
-but its HTTP adapter only serializes string content chunks. Responses emits
-structured content blocks, so the Responses path below preserves the upstream
-graph semantics while normalizing those blocks for the existing Chat
-Completions-compatible Daedalus front end.
+Responses uses NAT's Responses agent configuration contract rather than the
+Chat Completions tool-agent contract. The Daedalus Responses adapter preserves
+that contract while adding per-user construction, full inbound history, and
+stream serialization for the existing Chat Completions-compatible front end.
 """
 
 import datetime
@@ -34,11 +32,15 @@ from nat.data_models.api_server import (
     ChoiceDeltaToolCall,
     ChoiceDeltaToolCallFunction,
 )
+from nat.plugins.langchain.agent.responses_api_agent.register import (
+    ResponsesAPIAgentWorkflowConfig,
+)
 from nat.plugins.langchain.agent.tool_calling_agent.register import (
     ToolCallAgentWorkflowConfig,
     tool_calling_agent_workflow,
 )
 from nat.utils.type_converter import GlobalTypeConverter
+from pydantic import Field
 
 
 class DaedalusPerUserToolCallAgentWorkflowConfig(
@@ -46,6 +48,23 @@ class DaedalusPerUserToolCallAgentWorkflowConfig(
     name="daedalus_per_user_tool_calling_agent",
 ):
     """Tool-calling agent built and cached independently for each user."""
+
+
+class DaedalusPerUserResponsesAPIAgentWorkflowConfig(
+    ResponsesAPIAgentWorkflowConfig,
+    name="daedalus_per_user_responses_api_agent",
+):
+    """Responses API agent built and cached independently for each user."""
+
+    instructions: str | None = Field(
+        default=None,
+        description="Top-level Responses API instructions for the agent.",
+    )
+    max_history: int = Field(
+        default=15,
+        ge=1,
+        description="Maximum number of inbound conversation messages to retain.",
+    )
 
 
 def _content_text(content: object) -> str:
@@ -70,52 +89,78 @@ def _content_text(content: object) -> str:
     return "".join(parts)
 
 
+def _bind_responses_llm(
+    llm,
+    *,
+    tools: list[object],
+    parallel_tool_calls: bool,
+    instructions: str | None,
+):
+    """Bind Responses tools and instructions using the pinned LangChain API."""
+    bound_llm = llm.bind_tools(
+        tools=tools,
+        parallel_tool_calls=parallel_tool_calls,
+        strict=True,
+    )
+    if instructions:
+        bound_llm = bound_llm.bind(instructions=instructions)
+    return bound_llm
+
+
 @asynccontextmanager
-async def _responses_tool_calling_agent_workflow(
-    config: ToolCallAgentWorkflowConfig,
+async def _responses_api_agent_workflow(
+    config: DaedalusPerUserResponsesAPIAgentWorkflowConfig,
     builder: Builder,
     llm,
 ):
-    """Run NAT's tool-calling graph with Responses-compatible output handling."""
+    """Run NAT's Responses agent contract with Daedalus stream handling."""
     from langchain_core.messages import AIMessageChunk, trim_messages
     from langchain_core.messages.base import BaseMessage
+    from langchain_core.runnables import RunnableLambda
     from langgraph.errors import GraphRecursionError
     from nat.plugins.langchain.agent.tool_calling_agent.agent import (
         ToolCallAgentGraph,
         ToolCallAgentGraphState,
-        create_tool_calling_agent_prompt,
     )
 
-    prompt = create_tool_calling_agent_prompt(config)
-    tools = await builder.get_tools(
-        tool_names=config.tool_names,
+    nat_tools = await builder.get_tools(
+        tool_names=config.nat_tools,
         wrapper_type=LLMFrameworkEnum.LANGCHAIN,
     )
-    if not tools:
+    bound_tools = [
+        *nat_tools,
+        *(tool.model_dump() for tool in config.mcp_tools),
+        *config.builtin_tools,
+    ]
+    if not bound_tools:
         raise ValueError(
-            f"No tools specified for Tool Calling Agent '{config.llm_name}'"
+            f"No tools specified for Responses API Agent '{config.llm_name}'"
         )
 
-    return_direct_tools = (
-        await builder.get_tools(
-            tool_names=config.return_direct,
-            wrapper_type=LLMFrameworkEnum.LANGCHAIN,
-        )
-        if config.return_direct
-        else None
-    )
-    graph = await ToolCallAgentGraph(
+    agent = ToolCallAgentGraph(
         llm=llm,
-        tools=tools,
-        prompt=prompt,
+        tools=nat_tools,
         detailed_logs=config.verbose,
-        log_response_max_chars=config.log_response_max_chars,
         handle_tool_errors=config.handle_tool_errors,
-        return_direct=return_direct_tools,
-        max_truncation_retries=config.truncation_retry.max_retries,
-        truncation_scaling_fn=config.truncation_retry.build_scaling_fn(),
-        max_empty_response_retries=config.max_empty_response_retries,
-    ).build_graph()
+    )
+    # NAT's Responses agent binds function tools in strict mode. Binding the
+    # instructions after the tools retains both sets of invocation kwargs and
+    # makes LangChain serialize them as the top-level Responses field.
+    bound_llm = _bind_responses_llm(
+        llm,
+        tools=bound_tools,
+        parallel_tool_calls=config.parallel_tool_calls,
+        instructions=config.instructions,
+    )
+    agent.bound_llm = bound_llm
+    agent.agent = (
+        RunnableLambda(
+            lambda state: state.get("messages", []),
+            name="ResponsesInput",
+        )
+        | bound_llm
+    )
+    graph = await agent.build_graph()
 
     def _initial_state(
         chat_request_or_message: ChatRequestOrMessage,
@@ -234,20 +279,36 @@ async def daedalus_per_user_tool_calling_agent(
     config: DaedalusPerUserToolCallAgentWorkflowConfig,
     builder: Builder,
 ):
-    """Use pinned NAT semantics with transport-specific response serialization."""
+    """Build the legacy Chat Completions tool agent for one user."""
     upstream_config = ToolCallAgentWorkflowConfig.model_validate(config.model_dump())
+    async with tool_calling_agent_workflow(upstream_config, builder) as function_info:
+        yield function_info
+
+
+@register_per_user_function(
+    config_type=DaedalusPerUserResponsesAPIAgentWorkflowConfig,
+    input_type=ChatRequest,
+    single_output_type=str,
+    streaming_output_type=ChatResponseChunk,
+    framework_wrappers=[LLMFrameworkEnum.LANGCHAIN],
+)
+async def daedalus_per_user_responses_api_agent(
+    config: DaedalusPerUserResponsesAPIAgentWorkflowConfig,
+    builder: Builder,
+):
+    """Build the Responses API agent and its user-specific tools."""
     llm = await builder.get_llm(
-        upstream_config.llm_name,
+        config.llm_name,
         wrapper_type=LLMFrameworkEnum.LANGCHAIN,
     )
-    if getattr(llm, "use_responses_api", False):
-        async with _responses_tool_calling_agent_workflow(
-            upstream_config,
-            builder,
-            llm,
-        ) as function_info:
-            yield function_info
-        return
+    if not getattr(llm, "use_responses_api", False):
+        raise ValueError(
+            "Daedalus Responses API Agent requires an LLM with api_type: responses"
+        )
 
-    async with tool_calling_agent_workflow(upstream_config, builder) as function_info:
+    async with _responses_api_agent_workflow(
+        config,
+        builder,
+        llm,
+    ) as function_info:
         yield function_info

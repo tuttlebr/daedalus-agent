@@ -151,8 +151,7 @@ backend:
       # Contents of backend/tool-calling-config.yaml; set with --set-file.
       # If empty, the ConfigMap renders an empty config.yaml.
       data: ''
-      # Canonical config made available to small inherited overlays such as
-      # backend/tool-calling-responses-config.yaml.
+      # Canonical config made available to inherited compatibility overlays.
       baseData: ''
     resources:
       requests:

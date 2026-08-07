@@ -936,41 +936,46 @@ general:
 llms:
   verifier_llm:
     _type: openai
+    api_type: responses
     api_key: ${VERIFIER_API_KEY}
     base_url: ${VERIFIER_BASE_URL}
     max_retries: ${DAEDALUS_LLM_MAX_RETRIES:-3}
     model_name: ${VERIFIER_MODEL}
     request_timeout: ${DAEDALUS_LLM_TIMEOUT:-60.0}
+    truncation: auto
   tool_calling_llm:
     _type: openai
+    api_type: responses
     api_key: ${TOOL_CALLING_LLM_MODEL_API_KEY}
     base_url: ${TOOL_CALLING_LLM_MODEL_BASE_URL}
     max_retries: ${DAEDALUS_LLM_MAX_RETRIES:-3}
     model_name: ${TOOL_CALLING_LLM_MODEL_MODEL}
     request_timeout: ${DAEDALUS_LLM_TIMEOUT:-60.0}
-    reasoning_effort: high
-    extra_body:
-      context_length_exceeded_behavior: truncate
-      reasoning_history: interleaved
+    reasoning:
+      effort: high
+    truncation: auto
   reasoning_llm:
     _type: openai
+    api_type: responses
     api_key: ${TOOL_CALLING_LLM_MODEL_API_KEY}
     base_url: ${TOOL_CALLING_LLM_MODEL_BASE_URL}
     max_retries: ${DAEDALUS_LLM_MAX_RETRIES:-3}
     model_name: ${TOOL_CALLING_LLM_MODEL_MODEL}
     request_timeout: ${DAEDALUS_LLM_TIMEOUT:-60.0}
-    reasoning_effort: xhigh
-    extra_body:
-      context_length_exceeded_behavior: truncate
-      reasoning_history: disabled
+    reasoning:
+      effort: xhigh
+    truncation: auto
   default_llm:
     _type: openai
+    api_type: responses
     api_key: ${DEFAULT_LLM_MODEL_API_KEY}
     base_url: ${DEFAULT_LLM_MODEL_BASE_URL}
     max_retries: ${DAEDALUS_LLM_MAX_RETRIES:-3}
     model_name: ${DEFAULT_LLM_MODEL_MODEL}
     request_timeout: ${DAEDALUS_LLM_TIMEOUT:-60.0}
-    reasoning_effort: xhigh
+    reasoning:
+      effort: xhigh
+    truncation: auto
 memory:
   redis_memory:
     _type: daedalus_redis_memory
@@ -985,12 +990,13 @@ memory:
     username: ${REDIS_USERNAME}
     verbose: false
 workflow:
-  _type: daedalus_per_user_tool_calling_agent
+  _type: daedalus_per_user_responses_api_agent
   llm_name: tool_calling_llm
   max_iterations: 128
   max_history: 100
   handle_tool_errors: true
-  system_prompt: |
+  parallel_tool_calls: true
+  instructions: |
     Role: You are Daedalus, Brandon Tuttle's capable personal assistant: curious, skeptical, candid, creative, and never sycophantic.
 
     Goal: Complete requests accurately and efficiently, using tools to act rather than merely advise.
@@ -1003,7 +1009,7 @@ workflow:
 
     Files: Verify and publish deliverable files, then return the exact sandbox link. Never offer relative paths or claim failed publication succeeded.
 
-  tool_names:
+  nat_tools:
     - get_memory
     - add_memory
     - current_datetime_tool
