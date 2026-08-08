@@ -1379,9 +1379,9 @@ def _build_ingestor(
     else:
         extract_kwargs: dict[str, Any] = {
             "extract_text": True,
-            "extract_tables": True,
-            "extract_charts": True,
-            "extract_images": True,
+            "extract_tables": False,
+            "extract_charts": False,
+            "extract_images": False,
             "table_output_format": "markdown",
             "text_depth": "page",
             "extract_method": ("render_as_pdf" if is_office else config.extract_method),
