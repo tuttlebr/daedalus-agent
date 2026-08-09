@@ -9,6 +9,7 @@ import { Logger } from '@/utils/logger';
 
 import { getNatBaseUrl } from './backendSelection';
 import {
+  MCP_OAUTH_STREAM_IDLE_TIMEOUT_MS,
   STREAM_READ_IDLE_TIMEOUT_MS,
   STREAM_STATUS_FLUSH_INTERVAL_MS,
   STREAM_STEPS_FLUSH_INTERVAL_MS,
@@ -40,10 +41,10 @@ import { getPublisher, jsonGet, sessionKey } from '@/server/session/redis';
 const logger = new Logger('AsyncJob');
 
 class StreamIdleTimeoutError extends Error {
-  constructor() {
+  constructor(timeoutMs: number) {
     super(
       `Backend response stream was idle for ${Math.round(
-        STREAM_READ_IDLE_TIMEOUT_MS / 1000,
+        timeoutMs / 1000,
       )} seconds`,
     );
     this.name = 'StreamIdleTimeoutError';
@@ -60,6 +61,7 @@ function abortReason(signal: AbortSignal): Error {
 async function readStreamChunk(
   reader: ReadableStreamDefaultReader<Uint8Array>,
   abortController: AbortController,
+  idleTimeoutMs = STREAM_READ_IDLE_TIMEOUT_MS,
 ): Promise<ReadableStreamReadResult<Uint8Array>> {
   let idleTimer: ReturnType<typeof setTimeout> | null = null;
   let handleAbort: (() => void) | null = null;
@@ -77,12 +79,12 @@ async function readStreamChunk(
 
   const idlePromise = new Promise<never>((_, reject) => {
     idleTimer = setTimeout(() => {
-      const error = new StreamIdleTimeoutError();
+      const error = new StreamIdleTimeoutError(idleTimeoutMs);
       reject(error);
       if (!abortController.signal.aborted) {
         abortController.abort(error);
       }
-    }, STREAM_READ_IDLE_TIMEOUT_MS);
+    }, idleTimeoutMs);
     if (typeof (idleTimer as NodeJS.Timeout).unref === 'function') {
       (idleTimer as NodeJS.Timeout).unref();
     }
@@ -149,6 +151,20 @@ function mergeOAuthRequests(
   return Array.from(byId.values());
 }
 
+function hasPersistedOAuthRequest(
+  status: AsyncJobStatus | null,
+  request: OAuthRequest,
+): boolean {
+  if (status?.status !== 'oauth_required') return false;
+  if (status.oauthRequests?.some((candidate) => candidate.id === request.id)) {
+    return true;
+  }
+  return (
+    status.authUrl === request.authUrl &&
+    status.oauthState === request.oauthState
+  );
+}
+
 /**
  * Open a streaming connection to the backend's interactive OpenAI-compatible
  * endpoint to capture intermediate steps, OAuth prompts, and content tokens.
@@ -187,6 +203,7 @@ export async function startBackgroundStreamReader(
   let pendingResponseDelta = '';
   let lastToolOutput = '';
   let streamDone = false;
+  let waitingForOAuth = false;
   let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
   const abortController = new AbortController();
   const handleExternalAbort = () => {
@@ -357,7 +374,13 @@ export async function startBackgroundStreamReader(
     };
 
     while (true) {
-      const { done, value } = await readStreamChunk(reader, abortController);
+      const { done, value } = await readStreamChunk(
+        reader,
+        abortController,
+        waitingForOAuth
+          ? MCP_OAUTH_STREAM_IDLE_TIMEOUT_MS
+          : STREAM_READ_IDLE_TIMEOUT_MS,
+      );
       if (done) break;
 
       buffer += decoder.decode(value, { stream: true });
@@ -381,6 +404,7 @@ export async function startBackgroundStreamReader(
             line.slice('intermediate_data: '.length),
           );
           if (step) {
+            waitingForOAuth = false;
             // Defense-in-depth: sanitize completion-event outputs against any
             // prior assistant content. TOOL_END is intentionally excluded —
             // tool outputs (search snippets, retrieved chunks) may legitimately
@@ -457,13 +481,20 @@ export async function startBackgroundStreamReader(
             streamDone = true;
             break;
           }
+          let parsed: any;
           try {
-            const parsed = JSON.parse(data);
-            const oauthPayload = extractOAuthRequiredPayload(
-              currentSseEvent,
-              parsed,
-            );
-            if (oauthPayload) {
+            parsed = JSON.parse(data);
+          } catch {
+            // Non-JSON data line — skip. Processing and persistence failures
+            // must escape this block so the job fails instead of hanging.
+            continue;
+          }
+          const oauthPayload = extractOAuthRequiredPayload(
+            currentSseEvent,
+            parsed,
+          );
+          if (oauthPayload) {
+            try {
               await flushResponse(true);
               if (oauthPayload.oauthState) {
                 await saveOAuthCallbackTarget(
@@ -486,50 +517,65 @@ export async function startBackgroundStreamReader(
                 progress: 0,
                 updatedAt: Date.now(),
               });
-              continue;
+              const persistedStatus = (await jsonGet(
+                statusKey,
+              )) as AsyncJobStatus | null;
+              if (!hasPersistedOAuthRequest(persistedStatus, oauthPayload)) {
+                throw new Error('OAuth prompt status was not persisted');
+              }
+            } catch (error) {
+              logger.error(
+                `Job ${jobId}: Failed to persist OAuth authorization prompt`,
+                error,
+              );
+              throw new Error('Authentication prompt could not be delivered');
             }
-            if (parsed.error) continue;
-            const content = extractAsyncStreamContentDelta(
-              parsed,
-              partialResponse,
-            );
-            if (content && typeof content === 'string') {
-              const responseStart = partialResponse.length;
-              partialResponse += content;
-              pendingResponseDelta += content;
-              if (DEBUG_REPLAY_ENABLED) {
-                debugDeltaCounter += 1;
-                if (debugDeltaCounter % 10 === 0 || content.length > 100) {
-                  debugReplayLog('inbound-delta', {
+            waitingForOAuth = true;
+            logger.info(`Job ${jobId}: OAuth authorization prompt persisted`, {
+              service: oauthPayload.service,
+            });
+            continue;
+          }
+          waitingForOAuth = false;
+          if (parsed.error) continue;
+          const content = extractAsyncStreamContentDelta(
+            parsed,
+            partialResponse,
+          );
+          if (content && typeof content === 'string') {
+            const responseStart = partialResponse.length;
+            partialResponse += content;
+            pendingResponseDelta += content;
+            if (DEBUG_REPLAY_ENABLED) {
+              debugDeltaCounter += 1;
+              if (debugDeltaCounter % 10 === 0 || content.length > 100) {
+                debugReplayLog('inbound-delta', {
+                  jobId,
+                  deltaIndex: debugDeltaCounter,
+                  deltaLength: content.length,
+                  deltaPreview: content.slice(0, 120),
+                  partialResponseLength: partialResponse.length,
+                });
+              }
+            }
+            // Publish content token for real-time streaming in PWA
+            if (tokenChannel) {
+              publisher
+                .publish(
+                  tokenChannel,
+                  JSON.stringify({
+                    type: 'chat_token',
+                    conversationId,
                     jobId,
-                    deltaIndex: debugDeltaCounter,
-                    deltaLength: content.length,
-                    deltaPreview: content.slice(0, 120),
-                    partialResponseLength: partialResponse.length,
-                  });
-                }
-              }
-              // Publish content token for real-time streaming in PWA
-              if (tokenChannel) {
-                publisher
-                  .publish(
-                    tokenChannel,
-                    JSON.stringify({
-                      type: 'chat_token',
-                      conversationId,
-                      jobId,
-                      turnId: jobRequest.turnId,
-                      assistantMessageId: jobRequest.assistantMessageId,
-                      content,
-                      responseStart,
-                    }),
-                  )
-                  .catch(() => {});
-              }
-              await flushStreamingStatus();
+                    turnId: jobRequest.turnId,
+                    assistantMessageId: jobRequest.assistantMessageId,
+                    content,
+                    responseStart,
+                  }),
+                )
+                .catch(() => {});
             }
-          } catch {
-            // Non-JSON data line — skip
+            await flushStreamingStatus();
           }
         }
       }

@@ -14,7 +14,10 @@ import handler, {
   resolveAsyncBackendBaseUrls,
 } from '@/pages/api/chat/async';
 
-import { STREAM_READ_IDLE_TIMEOUT_MS } from '@/server/chat/constants';
+import {
+  MCP_OAUTH_STREAM_IDLE_TIMEOUT_MS,
+  STREAM_READ_IDLE_TIMEOUT_MS,
+} from '@/server/chat/constants';
 import { startBackgroundDocumentIngest } from '@/server/chat/documentIngest';
 import { finalizeSuccess } from '@/server/chat/finalization';
 import { startBackgroundStreamReader } from '@/server/chat/streamReader';
@@ -1780,11 +1783,13 @@ async function runStreamTurn(
     fetchImpl?: (...a: any[]) => any;
     expectNoFinalize?: boolean;
     drainPredicate?: () => boolean;
+    configureStore?: (store: Map<string, any>) => void;
   } = {},
 ) {
   mocks.resolve4.mockResolvedValue(['10.0.2.61']);
   mocks.fetchWithTimeout.mockResolvedValue({ ok: true, status: 200 });
   const store = wireRedisStore(opts.seedStore);
+  opts.configureStore?.(store);
   const conversationId =
     opts.conversationId === undefined ? 'conv-1' : opts.conversationId;
   const fetchSpy = stubFetch(
@@ -2130,6 +2135,65 @@ describe('chat/async streaming + finalize (characterization)', () => {
     expect(store.get(`daedalus:async-job-abort:${jobId}`)).toBeUndefined();
   });
 
+  it('fails immediately when an OAuth prompt cannot be persisted', async () => {
+    const { statusKey, store } = await runStreamTurn(
+      [
+        'event: oauth_required\n',
+        'data: {"auth_url":"https://accounts.google.com/auth","oauth_state":"xyz"}\n',
+      ],
+      {
+        configureStore: (configuredStore) => {
+          (jsonSetWithExpiry as any).mockImplementation(
+            async (key: string, value: any) => {
+              if (key.includes('mcp-oauth-callback')) {
+                throw new Error('Redis callback mapping unavailable');
+              }
+              configuredStore.set(key, value);
+            },
+          );
+        },
+      },
+    );
+
+    const status = store.get(statusKey);
+    expect(status?.status).toBe('error');
+    expect(status?.error).toContain(
+      'Authentication prompt could not be delivered',
+    );
+    expect(typeof status?.finalizedAt).toBe('number');
+  });
+
+  it('verifies the OAuth status write before waiting for the callback', async () => {
+    const { statusKey, store } = await runStreamTurn(
+      [
+        'event: oauth_required\n',
+        'data: {"auth_url":"https://accounts.google.com/auth","oauth_state":"xyz"}\n',
+      ],
+      {
+        configureStore: (configuredStore) => {
+          (jsonSetWithExpiry as any).mockImplementation(
+            async (key: string, value: any) => {
+              if (
+                key.includes('async-job-status') &&
+                value?.status === 'oauth_required'
+              ) {
+                return;
+              }
+              configuredStore.set(key, value);
+            },
+          );
+        },
+      },
+    );
+
+    const status = store.get(statusKey);
+    expect(status?.status).toBe('error');
+    expect(status?.error).toContain(
+      'Authentication prompt could not be delivered',
+    );
+    expect(typeof status?.finalizedAt).toBe('number');
+  });
+
   it('clears oauth_required status without publishing duplicate streaming snapshots', async () => {
     const { jobId, statusKey } = await runStreamTurn([
       'event: oauth_required\n',
@@ -2277,6 +2341,82 @@ describe('chat/async streaming + finalize (characterization)', () => {
       expect(status?.status).toBe('error');
       expect(status?.error).toContain('idle');
       expect(typeof status?.finalizedAt).toBe('number');
+    } finally {
+      vi.clearAllTimers();
+      vi.useRealTimers();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('keeps a persisted OAuth prompt alive for the backend OAuth deadline', async () => {
+    vi.useFakeTimers();
+    const encoder = new TextEncoder();
+    let readCount = 0;
+    const read = vi.fn(() => {
+      readCount += 1;
+      if (readCount === 1) {
+        return Promise.resolve({
+          done: false,
+          value: encoder.encode(
+            'event: oauth_required\n' +
+              'data: {"auth_url":"https://accounts.google.com/auth","oauth_state":"xyz"}\n',
+          ),
+        });
+      }
+      return new Promise<never>(() => {});
+    });
+    const cancel = vi.fn().mockResolvedValue(undefined);
+    const releaseLock = vi.fn();
+
+    try {
+      mocks.resolve4.mockResolvedValue(['10.0.2.61']);
+      mocks.fetchWithTimeout.mockResolvedValue({ ok: true, status: 200 });
+      const store = wireRedisStore();
+      stubFetch(async () => ({
+        ok: true,
+        status: 200,
+        text: async () => '',
+        body: {
+          getReader: () => ({ read, cancel, releaseLock }),
+        },
+      }));
+      const res = makeRes();
+      await handler(
+        {
+          method: 'POST',
+          headers: { cookie: 'sid=current-session' },
+          body: { messages: [{ role: 'user', content: 'read my mail' }] },
+        } as any,
+        res,
+      );
+      const jobId = res.json.mock.calls[0]?.[0]?.jobId as string;
+      const statusKey = `daedalus:async-job-status:${jobId}`;
+      const executionPromise = executeQueuedJob(store, jobId);
+
+      for (
+        let index = 0;
+        index < 20 && read.mock.calls.length < 2;
+        index += 1
+      ) {
+        await Promise.resolve();
+      }
+      expect(read).toHaveBeenCalledTimes(2);
+      expect(store.get(statusKey)?.status).toBe('oauth_required');
+
+      await vi.advanceTimersByTimeAsync(STREAM_READ_IDLE_TIMEOUT_MS);
+      expect(store.get(statusKey)?.finalizedAt).toBeUndefined();
+
+      await vi.advanceTimersByTimeAsync(
+        MCP_OAUTH_STREAM_IDLE_TIMEOUT_MS - STREAM_READ_IDLE_TIMEOUT_MS,
+      );
+      await vi.advanceTimersByTimeAsync(0);
+      await executionPromise;
+
+      const status = store.get(statusKey);
+      expect(status?.status).toBe('error');
+      expect(status?.error).toContain('660 seconds');
+      expect(cancel).toHaveBeenCalledTimes(1);
+      expect(releaseLock).toHaveBeenCalledTimes(1);
     } finally {
       vi.clearAllTimers();
       vi.useRealTimers();

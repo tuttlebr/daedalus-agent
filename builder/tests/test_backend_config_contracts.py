@@ -126,6 +126,20 @@ FRONTEND_DEPLOYMENT_TEMPLATE = (
     / "templates"
     / "frontend-deployment.yaml"
 )
+FRONTEND_STREAM_WORKER_TEMPLATE = (
+    Path(__file__).resolve().parents[2]
+    / "helm"
+    / "daedalus"
+    / "templates"
+    / "frontend-stream-worker.yaml"
+)
+FRONTEND_STREAM_WORKER_SECRET_TEMPLATE = (
+    Path(__file__).resolve().parents[2]
+    / "helm"
+    / "daedalus"
+    / "templates"
+    / "secret-frontend-stream-worker.yaml"
+)
 AUTONOMOUS_AGENT_DEPLOYMENT_TEMPLATE = (
     Path(__file__).resolve().parents[2]
     / "helm"
@@ -1047,6 +1061,7 @@ def test_backend_secret_allowlist_tracks_active_model_credentials():
     assert allowlist_match is not None
     allowlist = re.compile(allowlist_match.group(1))
     for active_name in (
+        "DAEDALUS_MCP_OAUTH_TIMEOUT_SECONDS",
         "X_MCP_BEARER_TOKEN",
         "VERIFIER_API_KEY",
         "VERIFIER_BASE_URL",
@@ -1063,6 +1078,45 @@ def test_backend_secret_allowlist_tracks_active_model_credentials():
         "DISTILL_LLM_MODEL_API_KEY",
     ):
         assert allowlist.fullmatch(stale_name) is None, stale_name
+
+
+def test_google_mcp_oauth_deadlines_are_ordered_across_workloads():
+    values = yaml.safe_load(HELM_VALUES.read_text(encoding="utf-8"))
+    backend_seconds = int(
+        values["backend"]["default"]["env"]["overrides"][
+            "DAEDALUS_MCP_OAUTH_TIMEOUT_SECONDS"
+        ]
+    )
+    worker_milliseconds = int(
+        values["frontend"]["streamWorker"]["env"]["overrides"][
+            "MCP_OAUTH_STREAM_IDLE_TIMEOUT_MS"
+        ]
+    )
+
+    assert backend_seconds == 600
+    assert worker_milliseconds == 660_000
+    assert worker_milliseconds > backend_seconds * 1000
+
+    for path in (
+        FRONTEND_STREAM_WORKER_TEMPLATE,
+        FRONTEND_STREAM_WORKER_SECRET_TEMPLATE,
+    ):
+        template = path.read_text(encoding="utf-8")
+        allowlist_match = re.search(r'regexMatch "(\^.+\$)" \$k', template)
+        assert allowlist_match is not None, path
+        assert re.compile(allowlist_match.group(1)).fullmatch(
+            "MCP_OAUTH_STREAM_IDLE_TIMEOUT_MS"
+        )
+
+    deploy_script = DEPLOY_SCRIPT.read_text(encoding="utf-8")
+    assert "DAEDALUS_MCP_OAUTH_TIMEOUT_SECONDS" in deploy_script
+    assert "MCP_OAUTH_STREAM_IDLE_TIMEOUT_MS" in deploy_script
+
+    compose = yaml.safe_load(DOCKER_COMPOSE.read_text(encoding="utf-8"))
+    worker_env = compose["services"]["stream-worker"]["environment"]
+    assert any(
+        str(item).startswith("MCP_OAUTH_STREAM_IDLE_TIMEOUT_MS=") for item in worker_env
+    )
 
 
 def test_rate_limit_env_is_scoped_to_the_frontend_workload():

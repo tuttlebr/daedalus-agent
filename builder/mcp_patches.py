@@ -1,12 +1,15 @@
 """Version-asserted policy and lifecycle adapters for pinned NAT 1.8 MCP.
 
-The application owns four boundaries that NAT 1.8 doesn't expose as supported
+The application owns six boundaries that NAT 1.8 doesn't expose as supported
 hooks:
 
 * enforce exact-call approval and server-side success receipts for explicitly
   allowlisted groups at ``MCPToolClient.acall``;
 * preserve per-user OAuth during streamable HTTP connection setup and suppress
   only verified teardown cancellation after a successful session yield;
+* discard a cached OAuth token after a protected-resource 401 and give the HTTP
+  authorization handoff the same timeout as the configured MCP auth flow;
+* promote terminal OAuth refresh failures to error-level operational logs;
 * keep application-level MCP errors out of the transport reconnect path; and
 * bound optional MCP group startup, retry requested skipped groups once before
   tool resolution, and expose required versus optional capability readiness.
@@ -23,6 +26,7 @@ import hashlib
 import inspect
 import json
 import logging
+import math
 import os
 import re
 from contextlib import asynccontextmanager
@@ -84,6 +88,7 @@ _SUPPORTED_APPROVAL_POLICIES = frozenset(
 # runtime/tool-call path, never on the application startup path.
 _MCP_STARTUP_GROUP_TIMEOUT = 15.0
 _MCP_RECOVERY_TOTAL_TIMEOUT = 5.0
+_DEFAULT_MCP_OAUTH_TIMEOUT_SECONDS = 600.0
 
 _STARTUP_RESILIENCE_EXCEPTIONS = (
     Exception,
@@ -920,6 +925,123 @@ def _current_user_authentication_callback():
         return None
 
 
+def _configured_mcp_oauth_timeout_seconds() -> float:
+    """Return the backend HTTP OAuth wait budget owned by the deployment."""
+    raw_value = os.getenv(
+        "DAEDALUS_MCP_OAUTH_TIMEOUT_SECONDS",
+        str(_DEFAULT_MCP_OAUTH_TIMEOUT_SECONDS),
+    )
+    try:
+        timeout_seconds = float(raw_value)
+    except ValueError as exc:
+        raise RuntimeError(
+            "DAEDALUS_MCP_OAUTH_TIMEOUT_SECONDS must be a positive number"
+        ) from exc
+    if not math.isfinite(timeout_seconds) or timeout_seconds <= 0:
+        raise RuntimeError(
+            "DAEDALUS_MCP_OAUTH_TIMEOUT_SECONDS must be a positive number"
+        )
+    return timeout_seconds
+
+
+def _patch_mcp_http_auth_timeout():
+    """Replace NAT's hidden five-minute HTTP OAuth default with our budget."""
+    try:
+        import functools
+
+        from nat.front_ends.fastapi.auth_flow_handlers.http_flow_handler import (
+            HTTPAuthenticationFlowHandler,
+        )
+    except ImportError as exc:
+        logger.warning("Could not patch MCP HTTP OAuth timeout: %s", exc)
+        return
+
+    original_init = HTTPAuthenticationFlowHandler.__init__
+    if getattr(original_init, "_daedalus_mcp_oauth_timeout_wrapper", False):
+        return
+
+    signature = inspect.signature(original_init)
+    if list(signature.parameters) != [
+        "self",
+        "add_flow_cb",
+        "remove_flow_cb",
+        "auth_timeout_seconds",
+    ]:
+        raise RuntimeError(
+            f"Unexpected HTTPAuthenticationFlowHandler.__init__ signature: {signature}"
+        )
+
+    configured_timeout = _configured_mcp_oauth_timeout_seconds()
+
+    @functools.wraps(original_init)
+    def wrapped(
+        self,
+        add_flow_cb=None,
+        remove_flow_cb=None,
+        auth_timeout_seconds=300.0,
+    ):
+        # Preserve an explicit upstream/application value. Only replace the
+        # pinned NAT 1.8 default that is otherwise invisible in workflow YAML.
+        if auth_timeout_seconds == 300.0:
+            auth_timeout_seconds = configured_timeout
+        original_init(
+            self,
+            add_flow_cb=add_flow_cb,
+            remove_flow_cb=remove_flow_cb,
+            auth_timeout_seconds=auth_timeout_seconds,
+        )
+
+    wrapped._daedalus_mcp_oauth_timeout_wrapper = True
+    HTTPAuthenticationFlowHandler.__init__ = wrapped
+    logger.info(
+        "MCP HTTP OAuth timeout configured to %.0f seconds",
+        configured_timeout,
+    )
+
+
+class _McpAuthFailureLevelFilter(logging.Filter):
+    """Promote NAT's terminal 401 refresh failure from INFO to ERROR."""
+
+    _REFRESH_FAILURE_PREFIX = "Failed to refresh auth after 401:"
+
+    def filter(self, record):
+        if record.levelno == logging.INFO and record.getMessage().startswith(
+            self._REFRESH_FAILURE_PREFIX
+        ):
+            record.levelno = logging.ERROR
+            record.levelname = "ERROR"
+        return True
+
+
+def _patch_mcp_auth_log_levels():
+    """Make a terminal MCP authorization failure visible as an error."""
+    target_logger = logging.getLogger("nat.plugins.mcp.client.client_base")
+    if getattr(target_logger, "_daedalus_mcp_auth_failure_levels", False):
+        return
+    target_logger.addFilter(_McpAuthFailureLevelFilter())
+    target_logger._daedalus_mcp_auth_failure_levels = True
+    logger.info("MCP terminal authorization failures promoted to ERROR")
+
+
+async def _invalidate_rejected_mcp_oauth_token(auth_adapter) -> bool:
+    """Delete the current user's cached token after the resource rejects it."""
+    user_id = getattr(auth_adapter, "user_id", None)
+    provider = getattr(auth_adapter, "auth_provider", None)
+    if provider is None:
+        provider = getattr(auth_adapter, "_auth_provider", None)
+    storage = getattr(provider, "_token_storage", None)
+    if storage is None:
+        auth_code_provider = getattr(provider, "_auth_code_provider", None)
+        storage = getattr(auth_code_provider, "_token_storage", None)
+    delete = getattr(storage, "delete", None)
+    if not user_id or delete is None:
+        return False
+
+    await delete(user_id)
+    logger.info("Invalidated MCP OAuth token rejected by protected resource")
+    return True
+
+
 async def _call_with_current_mcp_oauth_callback(parent_client, callback, coro):
     """Carry one request's OAuth callback into a cached MCP transport task.
 
@@ -993,7 +1115,7 @@ def _patch_mcp_auth_context_propagation():
         signature = inspect.signature(original_get_auth_headers)
         if list(signature.parameters) != ["self", "request", "response"]:
             raise RuntimeError(
-                "Unexpected AuthAdapter._get_auth_headers signature: " f"{signature}"
+                f"Unexpected AuthAdapter._get_auth_headers signature: {signature}"
             )
 
         @functools.wraps(original_get_auth_headers)
@@ -1005,6 +1127,13 @@ def _patch_mcp_auth_context_propagation():
                     request=request,
                     response=response,
                 )
+
+            if getattr(response, "status_code", None) == 401:
+                # NAT's auth-code provider returns any unexpired token from its
+                # object store. A protected resource can reject that token
+                # before its local expiry, so remove it before NAT retries or
+                # the same rejected credential will be returned indefinitely.
+                await _invalidate_rejected_mcp_oauth_token(self)
 
             # The HTTP request is executed by the cached transport task, whose
             # context otherwise points at the request that created the client.
@@ -1348,6 +1477,8 @@ def patch(config_path: str | os.PathLike[str] | None = None):
         return
 
     _log_static_mcp_api_key_configuration()
+    _patch_mcp_auth_log_levels()
+    _patch_mcp_http_auth_timeout()
 
     try:
         from nat.plugins.mcp.client.client_base import MCPStreamableHTTPClient

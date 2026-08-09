@@ -143,6 +143,8 @@ backend:
       # Explicit env overrides applied in the pod, useful to fix bad values from secrets
       overrides:
         SSL_CERT_FILE: /etc/ssl/certs/ca-certificates.crt
+        # Match Google MCP auth_flow_timeout in the deployed NAT workflow.
+        DAEDALUS_MCP_OAUTH_TIMEOUT_SECONDS: '600'
         # Trust nginx proxy headers so OAuth callbacks reconstruct the public
         # https://... redirect URI during token exchange.
         FORWARDED_ALLOW_IPS: '*'
@@ -263,7 +265,9 @@ frontend:
       fromSecret: ''
       createSecret: true
       data: {}
-      overrides: {}
+      overrides:
+        # Outlive the backend's 10-minute interactive OAuth deadline.
+        MCP_OAUTH_STREAM_IDLE_TIMEOUT_MS: '660000'
     concurrency: 4
     leaseTtlSeconds: 30
     heartbeatSeconds: 10

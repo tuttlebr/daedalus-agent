@@ -45,7 +45,7 @@ export function ConnectionsView() {
     void refresh();
   }, [refresh]);
 
-  const connectedCount = connections.filter(
+  const savedCount = connections.filter(
     (connection) => connection.authorizationSaved,
   ).length;
 
@@ -62,7 +62,8 @@ export function ConnectionsView() {
                 Google Workspace
               </h1>
               <p className="text-sm text-dark-text-muted">
-                One place to review authorizations shared across all your chats.
+                Review saved Google authorization records shared across your
+                chats.
               </p>
             </div>
           </div>
@@ -81,8 +82,8 @@ export function ConnectionsView() {
             <p>
               Google exposes these as separate MCP resources, so the first use
               of each service can still open its own consent flow. Saved tokens
-              remain in the server-side object store and are never returned by
-              this page.
+              remain in the server-side object store and are checked only when
+              the service is used. This page never retrieves their contents.
             </p>
           </div>
         </GlassCard>
@@ -93,7 +94,7 @@ export function ConnectionsView() {
               ? 'Checking saved authorizations…'
               : error
               ? 'Connection status unavailable'
-              : `${connectedCount} of ${connections.length} services authorized`}
+              : `${savedCount} of ${connections.length} services have saved authorization`}
           </p>
           <Button
             variant="secondary"
@@ -133,8 +134,8 @@ export function ConnectionsView() {
                   }
                 >
                   {connection.authorizationSaved
-                    ? 'Authorization saved'
-                    : 'Not connected'}
+                    ? 'Saved, unverified'
+                    : 'No saved authorization'}
                 </Badge>
               </div>
               <p className="text-sm text-dark-text-muted">
@@ -147,9 +148,9 @@ export function ConnectionsView() {
         <GlassCard variant="subtle" className="space-y-3">
           <p className="text-sm text-dark-text-secondary">
             To connect a service, ask Daedalus to use it in Chat and follow the
-            Google authorization prompt. A saved authorization is revalidated
-            when the service is used, so revoked Google access may prompt you to
-            reconnect.
+            Google authorization prompt. A saved record does not mean Google
+            will still accept it. When a service rejects saved authorization,
+            Daedalus starts a new prompt automatically.
           </p>
           <Button variant="accent" onClick={() => setActiveView('chat')}>
             Go to Chat

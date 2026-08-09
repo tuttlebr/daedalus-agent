@@ -2,6 +2,7 @@
 
 import asyncio
 import contextvars
+import logging
 import sys
 import types
 from contextlib import asynccontextmanager
@@ -30,7 +31,9 @@ from mcp_patches import (  # noqa: E402
     _mcp_httpx_auth_for_connection,
     _mcp_recovery_attempted,
     _McpAppError,
+    _McpAuthFailureLevelFilter,
     _patch_mcp_auth_context_propagation,
+    _patch_mcp_http_auth_timeout,
     _pending_mcp_recovery,
     _record_possible_mcp_group,
     _record_skipped_function_group,
@@ -153,6 +156,186 @@ def test_bound_oauth_token_miss_is_not_silently_converted_to_empty_headers(
 
     with pytest.raises(RuntimeError, match="did not produce credentials"):
         run(adapter._get_auth_headers())
+
+
+def test_protected_resource_401_invalidates_cached_token_before_reauthentication(
+    monkeypatch,
+):
+    """A locally unexpired token rejected by Google must not be reused."""
+    events = []
+
+    class FakeContext:
+        @staticmethod
+        def scope(**_kwargs):
+            class Scope:
+                def __enter__(self):
+                    return None
+
+                def __exit__(self, *_args):
+                    return None
+
+            return Scope()
+
+    class FakeStorage:
+        async def delete(self, user_id):
+            events.append(("delete", user_id))
+
+    class FakeAuthAdapter:
+        def __init__(self):
+            self.user_id = "opaque-user-id"
+            self.auth_provider = types.SimpleNamespace(_token_storage=FakeStorage())
+
+        async def _get_auth_headers(self, request=None, response=None):
+            events.append(("authenticate", getattr(response, "status_code", None)))
+            return {"Authorization": "Bearer replacement"}
+
+    context_module = types.ModuleType("nat.builder.context")
+    context_module.Context = FakeContext
+    client_module = types.ModuleType("nat.plugins.mcp.client.client_base")
+    client_module.AuthAdapter = FakeAuthAdapter
+    for module_name in (
+        "nat",
+        "nat.builder",
+        "nat.plugins",
+        "nat.plugins.mcp",
+        "nat.plugins.mcp.client",
+    ):
+        module = types.ModuleType(module_name)
+        module.__path__ = []
+        monkeypatch.setitem(sys.modules, module_name, module)
+    monkeypatch.setitem(sys.modules, "nat.builder.context", context_module)
+    monkeypatch.setitem(
+        sys.modules,
+        "nat.plugins.mcp.client.client_base",
+        client_module,
+    )
+
+    _patch_mcp_auth_context_propagation()
+    adapter = FakeAuthAdapter()
+    adapter._daedalus_user_auth_callback = object()
+
+    response = types.SimpleNamespace(status_code=401)
+    assert run(adapter._get_auth_headers(response=response)) == {
+        "Authorization": "Bearer replacement"
+    }
+    assert events == [("delete", "opaque-user-id"), ("authenticate", 401)]
+
+
+def test_non_401_authentication_does_not_invalidate_cached_token(monkeypatch):
+    """Token deletion is restricted to a protected-resource rejection."""
+    deleted = []
+
+    class FakeContext:
+        @staticmethod
+        def scope(**_kwargs):
+            class Scope:
+                def __enter__(self):
+                    return None
+
+                def __exit__(self, *_args):
+                    return None
+
+            return Scope()
+
+    class FakeStorage:
+        async def delete(self, user_id):
+            deleted.append(user_id)
+
+    class FakeAuthAdapter:
+        user_id = "opaque-user-id"
+        auth_provider = types.SimpleNamespace(_token_storage=FakeStorage())
+
+        async def _get_auth_headers(self, request=None, response=None):
+            return {"Authorization": "Bearer existing"}
+
+    context_module = types.ModuleType("nat.builder.context")
+    context_module.Context = FakeContext
+    client_module = types.ModuleType("nat.plugins.mcp.client.client_base")
+    client_module.AuthAdapter = FakeAuthAdapter
+    for module_name in (
+        "nat",
+        "nat.builder",
+        "nat.plugins",
+        "nat.plugins.mcp",
+        "nat.plugins.mcp.client",
+    ):
+        module = types.ModuleType(module_name)
+        module.__path__ = []
+        monkeypatch.setitem(sys.modules, module_name, module)
+    monkeypatch.setitem(sys.modules, "nat.builder.context", context_module)
+    monkeypatch.setitem(
+        sys.modules,
+        "nat.plugins.mcp.client.client_base",
+        client_module,
+    )
+
+    _patch_mcp_auth_context_propagation()
+    adapter = FakeAuthAdapter()
+    adapter._daedalus_user_auth_callback = object()
+    response = types.SimpleNamespace(status_code=403)
+
+    assert run(adapter._get_auth_headers(response=response)) == {
+        "Authorization": "Bearer existing"
+    }
+    assert deleted == []
+
+
+def test_http_auth_handler_uses_deployment_oauth_timeout(monkeypatch):
+    """The hidden NAT five-minute default is replaced by the deployment budget."""
+
+    class FakeHTTPAuthenticationFlowHandler:
+        def __init__(
+            self,
+            add_flow_cb=None,
+            remove_flow_cb=None,
+            auth_timeout_seconds=300.0,
+        ):
+            self.auth_timeout_seconds = auth_timeout_seconds
+
+    handler_module = types.ModuleType(
+        "nat.front_ends.fastapi.auth_flow_handlers.http_flow_handler"
+    )
+    handler_module.HTTPAuthenticationFlowHandler = FakeHTTPAuthenticationFlowHandler
+    for module_name in (
+        "nat",
+        "nat.front_ends",
+        "nat.front_ends.fastapi",
+        "nat.front_ends.fastapi.auth_flow_handlers",
+    ):
+        module = types.ModuleType(module_name)
+        module.__path__ = []
+        monkeypatch.setitem(sys.modules, module_name, module)
+    monkeypatch.setitem(
+        sys.modules,
+        "nat.front_ends.fastapi.auth_flow_handlers.http_flow_handler",
+        handler_module,
+    )
+    monkeypatch.setenv("DAEDALUS_MCP_OAUTH_TIMEOUT_SECONDS", "600")
+
+    _patch_mcp_http_auth_timeout()
+
+    assert FakeHTTPAuthenticationFlowHandler().auth_timeout_seconds == 600
+    assert (
+        FakeHTTPAuthenticationFlowHandler(auth_timeout_seconds=123).auth_timeout_seconds
+        == 123
+    )
+
+
+def test_terminal_mcp_refresh_failure_is_promoted_to_error():
+    """The exact terminal NAT refresh message must not remain an INFO record."""
+    record = logging.LogRecord(
+        "nat.plugins.mcp.client.client_base",
+        logging.INFO,
+        __file__,
+        1,
+        "Failed to refresh auth after 401: %s",
+        ("credentials missing",),
+        None,
+    )
+
+    assert _McpAuthFailureLevelFilter().filter(record) is True
+    assert record.levelno == logging.ERROR
+    assert record.levelname == "ERROR"
 
 
 def test_oauth_callback_binding_serializes_cached_client_calls():

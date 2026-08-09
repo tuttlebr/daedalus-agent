@@ -7,6 +7,7 @@ import asyncio
 import hashlib
 import inspect
 import json
+import logging
 import os
 import secrets
 import warnings
@@ -459,7 +460,11 @@ def main() -> None:
     if request_payload.get("truncation") != "auto":
         raise RuntimeError("Responses truncation schema was not preserved")
 
+    from nat.front_ends.fastapi.auth_flow_handlers.http_flow_handler import (
+        HTTPAuthenticationFlowHandler,
+    )
     from nat.plugins.mcp.client.client_base import (
+        AuthAdapter,
         MCPStreamableHTTPClient,
         MCPToolClient,
     )
@@ -477,6 +482,29 @@ def main() -> None:
         False,
     ):
         raise RuntimeError("MCP transport policy wrapper did not attach")
+    if not getattr(
+        AuthAdapter._get_auth_headers,
+        "_daedalus_oauth_context_wrapper",
+        False,
+    ):
+        raise RuntimeError("MCP OAuth retry wrapper did not attach")
+    if not getattr(
+        HTTPAuthenticationFlowHandler.__init__,
+        "_daedalus_mcp_oauth_timeout_wrapper",
+        False,
+    ):
+        raise RuntimeError("MCP HTTP OAuth timeout wrapper did not attach")
+    if not getattr(
+        logging.getLogger("nat.plugins.mcp.client.client_base"),
+        "_daedalus_mcp_auth_failure_levels",
+        False,
+    ):
+        raise RuntimeError("MCP terminal auth failure log promotion did not attach")
+    expected_oauth_timeout = float(
+        os.getenv("DAEDALUS_MCP_OAUTH_TIMEOUT_SECONDS", "600")
+    )
+    if HTTPAuthenticationFlowHandler()._auth_timeout_seconds != expected_oauth_timeout:
+        raise RuntimeError("MCP HTTP OAuth timeout did not use the configured value")
 
     # NAT's public server_name is transport-only. Verify the adapter binds two
     # real pinned StreamableHTTP clients by transport + URL without collision.

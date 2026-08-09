@@ -17,6 +17,11 @@ export const STREAM_STEPS_FLUSH_INTERVAL_MS = 750;
 export const STREAM_READ_IDLE_TIMEOUT_MS = Number(
   process.env.STREAM_READ_IDLE_TIMEOUT_MS || 5 * 60 * 1000,
 );
+// Interactive MCP OAuth waits up to 10 minutes in the backend. Keep the stream
+// worker alive for one additional minute so the backend owns that deadline.
+export const MCP_OAUTH_STREAM_IDLE_TIMEOUT_MS = Number(
+  process.env.MCP_OAUTH_STREAM_IDLE_TIMEOUT_MS || 11 * 60 * 1000,
+);
 export const FINALIZER_LOCK_TTL_MS = 30_000;
 export const STATUS_UPDATE_LOCK_TTL_MS = 3_000;
 
