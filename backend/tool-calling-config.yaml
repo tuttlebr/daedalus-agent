@@ -941,8 +941,8 @@ llms:
     max_retries: ${DAEDALUS_LLM_MAX_RETRIES:-3}
     model_name: ${VERIFIER_MODEL}
     request_timeout: ${DAEDALUS_LLM_TIMEOUT:-60.0}
-    prompt_cache_isolation: true
-    session_affinity_scope: user
+    prompt_cache_isolation: false
+    session_affinity_scope: conversation
     truncation: auto
   tool_calling_llm:
     _type: daedalus_fireworks
@@ -952,8 +952,8 @@ llms:
     max_retries: ${DAEDALUS_LLM_MAX_RETRIES:-3}
     model_name: ${TOOL_CALLING_LLM_MODEL_MODEL}
     request_timeout: ${DAEDALUS_LLM_TIMEOUT:-60.0}
-    prompt_cache_isolation: true
-    session_affinity_scope: user
+    prompt_cache_isolation: false
+    session_affinity_scope: conversation
     reasoning:
       effort: high
     truncation: auto
@@ -965,8 +965,8 @@ llms:
     max_retries: ${DAEDALUS_LLM_MAX_RETRIES:-3}
     model_name: ${TOOL_CALLING_LLM_MODEL_MODEL}
     request_timeout: ${DAEDALUS_LLM_TIMEOUT:-60.0}
-    prompt_cache_isolation: true
-    session_affinity_scope: user
+    prompt_cache_isolation: false
+    session_affinity_scope: conversation
     reasoning:
       effort: xhigh
     truncation: auto
@@ -978,8 +978,8 @@ llms:
     max_retries: ${DAEDALUS_LLM_MAX_RETRIES:-3}
     model_name: ${DEFAULT_LLM_MODEL_MODEL}
     request_timeout: ${DAEDALUS_LLM_TIMEOUT:-60.0}
-    prompt_cache_isolation: true
-    session_affinity_scope: user
+    prompt_cache_isolation: false
+    session_affinity_scope: conversation
     reasoning:
       effort: xhigh
     truncation: auto
