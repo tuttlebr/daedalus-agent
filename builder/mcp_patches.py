@@ -7,9 +7,10 @@ hooks:
   allowlisted groups at ``MCPToolClient.acall``;
 * preserve per-user OAuth during streamable HTTP connection setup and suppress
   only verified teardown cancellation after a successful session yield;
-* discard a cached OAuth token after a protected-resource 401 and give the HTTP
-  authorization handoff the same timeout as the configured MCP auth flow;
+* discard a cached OAuth token after a protected-resource 401 and separate the
+  browser-auth timeout from the ordinary tool response timeout;
 * promote terminal OAuth refresh failures to error-level operational logs;
+* replace inactive per-user builders whose MCP transport lifecycle has stopped;
 * keep application-level MCP errors out of the transport reconnect path; and
 * bound optional MCP group startup, retry requested skipped groups once before
   tool resolution, and expose required versus optional capability readiness.
@@ -243,6 +244,7 @@ _STATIC_MCP_API_KEY_ENVIRONMENTS = {
 # callback binding and user-facing auth errors automatically cover new MCPs.
 _PER_USER_MCP_OAUTH_SERVERS: frozenset[str] = frozenset()
 _MISSING_MCP_AUTH_CALLBACK = object()
+_MISSING_MCP_AUTH_EVENT = object()
 
 
 def _bind_configured_mcp_endpoint(
@@ -1058,6 +1060,11 @@ async def _call_with_current_mcp_oauth_callback(parent_client, callback, coro):
     calling_context = contextvars.copy_context()
 
     async def callback_in_calling_context(config, method):
+        # A cached credential may already have marked headers ready before the
+        # protected resource rejected it. Reset that state for this interactive
+        # flow, then signal the caller to pause its ordinary response deadline.
+        credentials_ready_event.clear()
+        auth_started_event.set()
         if callback is None:
             raise RuntimeError(
                 "Interactive MCP authentication is unavailable for the current request"
@@ -1085,15 +1092,98 @@ async def _call_with_current_mcp_oauth_callback(parent_client, callback, coro):
             "_daedalus_user_auth_callback",
             _MISSING_MCP_AUTH_CALLBACK,
         )
+        previous_auth_started_event = getattr(
+            auth,
+            "_daedalus_auth_started_event",
+            _MISSING_MCP_AUTH_EVENT,
+        )
+        previous_credentials_event = getattr(
+            auth,
+            "_daedalus_credentials_ready_event",
+            _MISSING_MCP_AUTH_EVENT,
+        )
+        auth_started_event = asyncio.Event()
+        credentials_ready_event = asyncio.Event()
         auth._daedalus_user_auth_callback = callback_in_calling_context
+        auth._daedalus_auth_started_event = auth_started_event
+        auth._daedalus_credentials_ready_event = credentials_ready_event
+        call_task = asyncio.create_task(coro())
+        auth_started_task = asyncio.create_task(auth_started_event.wait())
+        credentials_task = None
         try:
-            return await coro()
+            done, _ = await asyncio.wait(
+                {call_task, auth_started_task},
+                timeout=float(parent_client._tool_call_timeout.total_seconds()),
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            if call_task in done:
+                return await call_task
+            if not auth_started_event.is_set():
+                timeout_seconds = float(
+                    parent_client._tool_call_timeout.total_seconds()
+                )
+                raise TimeoutError(
+                    f"MCP tool did not respond within {timeout_seconds:g} seconds"
+                )
+
+            # Pause the ordinary response deadline only while the browser flow
+            # is active. This also handles a cached token rejected with 401:
+            # the request keeps its transport-level auth allowance while the
+            # user completes the replacement flow.
+            credentials_task = asyncio.create_task(credentials_ready_event.wait())
+            auth_timeout_seconds = float(
+                parent_client._auth_flow_timeout.total_seconds()
+            )
+            done, _ = await asyncio.wait(
+                {call_task, credentials_task},
+                timeout=auth_timeout_seconds,
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            if call_task in done:
+                return await call_task
+            if not credentials_ready_event.is_set():
+                raise TimeoutError(
+                    "MCP authentication did not complete within "
+                    f"{auth_timeout_seconds:g} seconds"
+                )
+
+            # Credentials now exist. Restore the ordinary response bound rather
+            # than allowing a non-responsive protected resource to consume the
+            # remainder of the browser-auth allowance.
+            tool_timeout_seconds = float(
+                parent_client._tool_call_timeout.total_seconds()
+            )
+            try:
+                return await asyncio.wait_for(
+                    call_task,
+                    timeout=tool_timeout_seconds,
+                )
+            except TimeoutError as exc:
+                raise TimeoutError(
+                    "MCP tool did not respond within "
+                    f"{tool_timeout_seconds:g} seconds after credentials became available"
+                ) from exc
         finally:
+            auth_started_task.cancel()
+            if credentials_task is not None:
+                credentials_task.cancel()
+            if not call_task.done():
+                call_task.cancel()
             if previous is _MISSING_MCP_AUTH_CALLBACK:
                 if hasattr(auth, "_daedalus_user_auth_callback"):
                     delattr(auth, "_daedalus_user_auth_callback")
             else:
                 auth._daedalus_user_auth_callback = previous
+            if previous_auth_started_event is _MISSING_MCP_AUTH_EVENT:
+                if hasattr(auth, "_daedalus_auth_started_event"):
+                    delattr(auth, "_daedalus_auth_started_event")
+            else:
+                auth._daedalus_auth_started_event = previous_auth_started_event
+            if previous_credentials_event is _MISSING_MCP_AUTH_EVENT:
+                if hasattr(auth, "_daedalus_credentials_ready_event"):
+                    delattr(auth, "_daedalus_credentials_ready_event")
+            else:
+                auth._daedalus_credentials_ready_event = previous_credentials_event
 
 
 def _patch_mcp_auth_context_propagation():
@@ -1151,6 +1241,13 @@ def _patch_mcp_auth_context_propagation():
                 raise RuntimeError(
                     "MCP authentication did not produce credentials for the current request"
                 )
+            credentials_ready_event = getattr(
+                self,
+                "_daedalus_credentials_ready_event",
+                None,
+            )
+            if credentials_ready_event is not None:
+                credentials_ready_event.set()
             return headers
 
         wrapped._daedalus_oauth_context_wrapper = True
@@ -1162,6 +1259,151 @@ def _patch_mcp_auth_context_propagation():
         logger.warning(
             "Unexpected error patching MCP AuthAdapter context propagation: %s",
             exc,
+        )
+
+
+def _patch_mcp_auth_transport_timeout():
+    """Keep enough transport time for a cached credential's 401 replacement."""
+    try:
+        import functools
+
+        from nat.plugins.mcp.client.client_base import MCPBaseClient
+
+        original_get_tool_call_timeout = MCPBaseClient._get_tool_call_timeout
+        if getattr(
+            original_get_tool_call_timeout,
+            "_daedalus_interactive_auth_transport_timeout",
+            False,
+        ):
+            return
+
+        signature = inspect.signature(original_get_tool_call_timeout)
+        if list(signature.parameters) != ["self"]:
+            raise RuntimeError(
+                f"Unexpected MCPBaseClient._get_tool_call_timeout signature: {signature}"
+            )
+
+        @functools.wraps(original_get_tool_call_timeout)
+        async def wrapped(self):
+            server_name = _canonical_mcp_server_name(self)
+            if (
+                getattr(self, "_auth_provider", None) is not None
+                and server_name in _PER_USER_MCP_OAUTH_SERVERS
+            ):
+                return self._auth_flow_timeout
+            return await original_get_tool_call_timeout(self)
+
+        wrapped._daedalus_interactive_auth_transport_timeout = True
+        MCPBaseClient._get_tool_call_timeout = wrapped
+        logger.info("MCP interactive-auth transport timeout patch applied")
+    except ImportError as exc:
+        logger.warning(
+            "Could not patch MCP interactive-auth transport timeout: %s", exc
+        )
+    except Exception as exc:
+        logger.warning(
+            "Unexpected error patching MCP interactive-auth transport timeout: %s",
+            exc,
+        )
+
+
+def _disconnected_per_user_mcp_group_names(builder) -> list[str]:
+    """Return cached per-user MCP groups whose client lifecycle has stopped."""
+    groups = getattr(builder, "_per_user_function_groups", None)
+    if not isinstance(groups, dict):
+        return []
+
+    disconnected = []
+    for name, configured_group in groups.items():
+        instance = getattr(configured_group, "instance", None)
+        client = getattr(instance, "mcp_client", None)
+        lifecycle_task = getattr(client, "_lifecycle_task", None)
+        lifecycle_stopped = lifecycle_task is not None and lifecycle_task.done()
+        if client is not None and (
+            getattr(client, "is_connected", None) is False or lifecycle_stopped
+        ):
+            disconnected.append(str(name))
+    return sorted(disconnected)
+
+
+def _patch_per_user_mcp_builder_recovery():
+    """Rebuild an inactive cached workflow after an MCP lifecycle stops."""
+    try:
+        import functools
+
+        from nat.runtime.session import SessionManager
+
+        original_get_or_create = SessionManager._get_or_create_per_user_builder
+        if getattr(
+            original_get_or_create,
+            "_daedalus_mcp_builder_recovery",
+            False,
+        ):
+            return
+
+        signature = inspect.signature(original_get_or_create)
+        if list(signature.parameters) != ["self", "user_id"]:
+            raise RuntimeError(
+                "Unexpected SessionManager._get_or_create_per_user_builder "
+                f"signature: {signature}"
+            )
+
+        @functools.wraps(original_get_or_create)
+        async def wrapped(self, user_id):
+            recovery_lock = getattr(
+                self,
+                "_daedalus_per_user_mcp_recovery_lock",
+                None,
+            )
+            if recovery_lock is None:
+                recovery_lock = asyncio.Lock()
+                self._daedalus_per_user_mcp_recovery_lock = recovery_lock
+
+            async with recovery_lock:
+                stale_info = None
+                disconnected_groups: list[str] = []
+                async with self._per_user_builders_lock:
+                    builder_info = self._per_user_builders.get(user_id)
+                    if builder_info is not None:
+                        disconnected_groups = _disconnected_per_user_mcp_group_names(
+                            builder_info.builder
+                        )
+                        if disconnected_groups and builder_info.ref_count == 0:
+                            stale_info = self._per_user_builders.pop(user_id)
+
+                if disconnected_groups and stale_info is None:
+                    logger.warning(
+                        "Deferred disconnected per-user MCP builder recovery; "
+                        "workflow is active (groups=%s)",
+                        disconnected_groups,
+                    )
+
+                if stale_info is not None:
+                    logger.warning(
+                        "Rebuilding disconnected per-user MCP transports (groups=%s)",
+                        disconnected_groups,
+                    )
+                    try:
+                        await asyncio.wait_for(
+                            stale_info.builder.__aexit__(None, None, None),
+                            timeout=_MCP_RECOVERY_TOTAL_TIMEOUT,
+                        )
+                    except Exception as exc:
+                        logger.warning(
+                            "Disconnected per-user MCP builder cleanup failed: %s",
+                            type(exc).__name__,
+                        )
+
+                return await original_get_or_create(self, user_id)
+
+        wrapped._daedalus_mcp_builder_recovery = True
+        SessionManager._get_or_create_per_user_builder = wrapped
+        logger.info("Per-user MCP disconnected-builder recovery patch applied")
+    except ImportError as exc:
+        logger.warning("Could not patch per-user MCP builder recovery: %s", exc)
+    except Exception as exc:
+        logger.warning(
+            "Unexpected error patching per-user MCP builder recovery: %s", exc
         )
 
 
@@ -1515,6 +1757,8 @@ def patch(config_path: str | os.PathLike[str] | None = None):
     # Cached per-user MCP transports run in the context of the request that
     # created them. Propagate each later request's OAuth callback explicitly.
     _patch_mcp_auth_context_propagation()
+    _patch_mcp_auth_transport_timeout()
+    _patch_per_user_mcp_builder_recovery()
 
     # Patch MCPToolClient to add the approval gate + diagnostic logging, then
     # fail closed if the security gate did not attach to an available MCP client.

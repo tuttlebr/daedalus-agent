@@ -6,6 +6,7 @@ import logging
 import sys
 import types
 from contextlib import asynccontextmanager
+from datetime import timedelta
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -25,6 +26,7 @@ from mcp_patches import (  # noqa: E402
     _extract_root_connection_error,
     _initialize_function_group_for_startup,
     _is_connection_error,
+    _is_mcp_authentication_required_error,
     _is_no_tools_after_degradation_error,
     _known_mcp_function_groups,
     _looks_like_mcp_config,
@@ -33,7 +35,9 @@ from mcp_patches import (  # noqa: E402
     _McpAppError,
     _McpAuthFailureLevelFilter,
     _patch_mcp_auth_context_propagation,
+    _patch_mcp_auth_transport_timeout,
     _patch_mcp_http_auth_timeout,
+    _patch_per_user_mcp_builder_recovery,
     _pending_mcp_recovery,
     _record_possible_mcp_group,
     _record_skipped_function_group,
@@ -213,12 +217,15 @@ def test_protected_resource_401_invalidates_cached_token_before_reauthentication
     _patch_mcp_auth_context_propagation()
     adapter = FakeAuthAdapter()
     adapter._daedalus_user_auth_callback = object()
+    credentials_ready = asyncio.Event()
+    adapter._daedalus_credentials_ready_event = credentials_ready
 
     response = types.SimpleNamespace(status_code=401)
     assert run(adapter._get_auth_headers(response=response)) == {
         "Authorization": "Bearer replacement"
     }
     assert events == [("delete", "opaque-user-id"), ("authenticate", 401)]
+    assert credentials_ready.is_set()
 
 
 def test_non_401_authentication_does_not_invalidate_cached_token(monkeypatch):
@@ -341,7 +348,11 @@ def test_terminal_mcp_refresh_failure_is_promoted_to_error():
 def test_oauth_callback_binding_serializes_cached_client_calls():
     """Concurrent turns for one cached client cannot replace each other's callback."""
     auth = types.SimpleNamespace()
-    parent = types.SimpleNamespace(_httpx_auth=auth)
+    parent = types.SimpleNamespace(
+        _httpx_auth=auth,
+        _tool_call_timeout=timedelta(seconds=1),
+        _auth_flow_timeout=timedelta(seconds=1),
+    )
     marker_one = object()
     marker_two = object()
     active = 0
@@ -385,7 +396,11 @@ def test_oauth_callback_runs_in_active_request_context():
     """Frontend OAuth ContextVars must survive the cached transport boundary."""
     execution_id = contextvars.ContextVar("execution_id", default="stale-execution")
     auth = types.SimpleNamespace()
-    parent = types.SimpleNamespace(_httpx_auth=auth)
+    parent = types.SimpleNamespace(
+        _httpx_auth=auth,
+        _tool_call_timeout=timedelta(seconds=1),
+        _auth_flow_timeout=timedelta(seconds=1),
+    )
 
     async def _run():
         execution_id.set("current-execution")
@@ -410,7 +425,11 @@ def test_oauth_callback_runs_in_active_request_context():
 def test_missing_oauth_callback_fails_when_interaction_is_needed():
     """A token miss without an interactive frontend must fail instead of wait."""
     auth = types.SimpleNamespace()
-    parent = types.SimpleNamespace(_httpx_auth=auth)
+    parent = types.SimpleNamespace(
+        _httpx_auth=auth,
+        _tool_call_timeout=timedelta(seconds=1),
+        _auth_flow_timeout=timedelta(seconds=1),
+    )
 
     async def invoke():
         await auth._daedalus_user_auth_callback(None, None)
@@ -419,6 +438,182 @@ def test_missing_oauth_callback_fails_when_interaction_is_needed():
         run(_call_with_current_mcp_oauth_callback(parent, None, invoke))
 
     assert not hasattr(auth, "_daedalus_user_auth_callback")
+
+
+def test_authenticated_mcp_response_uses_ordinary_tool_timeout():
+    """Browser auth completion must not leave the MCP read on its long timeout."""
+    auth = types.SimpleNamespace()
+    parent = types.SimpleNamespace(
+        _httpx_auth=auth,
+        _tool_call_timeout=timedelta(seconds=0.01),
+        _auth_flow_timeout=timedelta(seconds=1),
+    )
+
+    async def callback(_config, _method):
+        return object()
+
+    async def invoke():
+        await auth._daedalus_user_auth_callback(None, None)
+        auth._daedalus_credentials_ready_event.set()
+        await asyncio.Event().wait()
+
+    with pytest.raises(
+        TimeoutError,
+        match="0.01 seconds after credentials became available",
+    ) as exc_info:
+        run(_call_with_current_mcp_oauth_callback(parent, callback, invoke))
+
+    assert not _is_mcp_authentication_required_error(exc_info.value)
+    assert not hasattr(auth, "_daedalus_user_auth_callback")
+    assert not hasattr(auth, "_daedalus_auth_started_event")
+    assert not hasattr(auth, "_daedalus_credentials_ready_event")
+
+
+def test_interactive_auth_pauses_the_ordinary_tool_timeout():
+    """A browser flow gets its auth budget even when the tool timeout is short."""
+    auth = types.SimpleNamespace()
+    parent = types.SimpleNamespace(
+        _httpx_auth=auth,
+        _tool_call_timeout=timedelta(seconds=0.01),
+        _auth_flow_timeout=timedelta(seconds=0.2),
+    )
+
+    async def callback(_config, _method):
+        await asyncio.sleep(0.03)
+        return "authorized"
+
+    async def invoke():
+        result = await auth._daedalus_user_auth_callback(None, None)
+        auth._daedalus_credentials_ready_event.set()
+        return result
+
+    assert (
+        run(_call_with_current_mcp_oauth_callback(parent, callback, invoke))
+        == "authorized"
+    )
+
+
+def test_mcp_auth_transport_keeps_time_for_cached_token_rejection(monkeypatch):
+    """A mid-call 401 retains enough transport time for browser reauthentication."""
+
+    class FakeMCPBaseClient:
+        async def _get_tool_call_timeout(self):
+            return self._tool_call_timeout
+
+    client_module = types.ModuleType("nat.plugins.mcp.client.client_base")
+    client_module.MCPBaseClient = FakeMCPBaseClient
+    for module_name in (
+        "nat",
+        "nat.plugins",
+        "nat.plugins.mcp",
+        "nat.plugins.mcp.client",
+    ):
+        module = types.ModuleType(module_name)
+        module.__path__ = []
+        monkeypatch.setitem(sys.modules, module_name, module)
+    monkeypatch.setitem(
+        sys.modules,
+        "nat.plugins.mcp.client.client_base",
+        client_module,
+    )
+
+    _patch_mcp_auth_transport_timeout()
+    client = FakeMCPBaseClient()
+    client.server_name = "google-drive-transport"
+    client._tool_call_timeout = timedelta(seconds=60)
+    client._auth_flow_timeout = timedelta(seconds=600)
+    client._auth_provider = object()
+
+    monkeypatch.setattr(
+        mcp_patches,
+        "_PER_USER_MCP_OAUTH_SERVERS",
+        frozenset({"drive_mcp_server"}),
+    )
+    monkeypatch.setitem(
+        mcp_patches._mcp_server_group_names,
+        "google-drive-transport",
+        "drive_mcp_server",
+    )
+    assert run(client._get_tool_call_timeout()) == timedelta(seconds=600)
+
+    # Shared API-key clients retain the ordinary upstream timeout.
+    client.server_name = "x_mcp_server"
+    assert run(client._get_tool_call_timeout()) == timedelta(seconds=60)
+    client._auth_provider = None
+    assert run(client._get_tool_call_timeout()) == timedelta(seconds=60)
+
+
+def test_disconnected_per_user_mcp_builder_is_rebuilt(monkeypatch):
+    """A stopped cached MCP lifecycle is replaced before the next request."""
+    original_calls = []
+    cleanup_calls = []
+
+    class FakeBuilder:
+        def __init__(self, connected):
+            client = types.SimpleNamespace(is_connected=connected)
+            group = types.SimpleNamespace(mcp_client=client)
+            self._per_user_function_groups = {
+                "google_drive_mcp": types.SimpleNamespace(instance=group)
+            }
+
+        async def __aexit__(self, *_args):
+            cleanup_calls.append(self)
+
+    class FakeSessionManager:
+        async def _get_or_create_per_user_builder(self, user_id):
+            original_calls.append(user_id)
+            builder_info = self._per_user_builders.get(user_id)
+            if builder_info is None:
+                builder = FakeBuilder(connected=True)
+                builder_info = types.SimpleNamespace(
+                    builder=builder,
+                    workflow=object(),
+                    ref_count=0,
+                )
+                self._per_user_builders[user_id] = builder_info
+            return builder_info.builder, builder_info.workflow
+
+    session_module = types.ModuleType("nat.runtime.session")
+    session_module.SessionManager = FakeSessionManager
+    for module_name in ("nat", "nat.runtime"):
+        module = types.ModuleType(module_name)
+        module.__path__ = []
+        monkeypatch.setitem(sys.modules, module_name, module)
+    monkeypatch.setitem(sys.modules, "nat.runtime.session", session_module)
+
+    _patch_per_user_mcp_builder_recovery()
+    manager = FakeSessionManager()
+    old_builder = FakeBuilder(connected=False)
+    manager._per_user_builders = {
+        "opaque-user-id": types.SimpleNamespace(
+            builder=old_builder,
+            workflow=object(),
+            ref_count=0,
+        )
+    }
+    manager._per_user_builders_lock = asyncio.Lock()
+
+    builder, _workflow = run(manager._get_or_create_per_user_builder("opaque-user-id"))
+
+    assert builder is not old_builder
+    assert cleanup_calls == [old_builder]
+    assert original_calls == ["opaque-user-id"]
+    assert builder._per_user_function_groups[
+        "google_drive_mcp"
+    ].instance.mcp_client.is_connected
+
+    # Recovery must not tear down a workflow that still has an active request.
+    active_info = manager._per_user_builders["opaque-user-id"]
+    active_info.ref_count = 1
+    active_info.builder._per_user_function_groups[
+        "google_drive_mcp"
+    ].instance.mcp_client.is_connected = False
+    active_builder, _workflow = run(
+        manager._get_or_create_per_user_builder("opaque-user-id")
+    )
+    assert active_builder is builder
+    assert cleanup_calls == [old_builder]
+    assert original_calls == ["opaque-user-id", "opaque-user-id"]
 
 
 def test_capability_status_distinguishes_required_and_optional(monkeypatch):
@@ -1683,6 +1878,8 @@ class TestMcpErrorNoReconnect:
                 self._parent_client = types.SimpleNamespace(
                     server_name="calendar_mcp_server",
                     _httpx_auth=auth_adapter,
+                    _tool_call_timeout=timedelta(seconds=1),
+                    _auth_flow_timeout=timedelta(seconds=1),
                 )
 
             async def acall(self, tool_args):

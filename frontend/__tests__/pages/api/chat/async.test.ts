@@ -2348,7 +2348,7 @@ describe('chat/async streaming + finalize (characterization)', () => {
     }
   });
 
-  it('keeps a persisted OAuth prompt alive for the backend OAuth deadline', async () => {
+  it('keeps the OAuth deadline after a sibling tool emits an intermediate step', async () => {
     vi.useFakeTimers();
     const encoder = new TextEncoder();
     let readCount = 0;
@@ -2360,6 +2360,14 @@ describe('chat/async streaming + finalize (characterization)', () => {
           value: encoder.encode(
             'event: oauth_required\n' +
               'data: {"auth_url":"https://accounts.google.com/auth","oauth_state":"xyz"}\n',
+          ),
+        });
+      }
+      if (readCount === 2) {
+        return Promise.resolve({
+          done: false,
+          value: encoder.encode(
+            'intermediate_data: {"name":"Function Complete: <calendar>","id":"calendar-1","parent_id":"root","payload":"calendar connected"}\n',
           ),
         });
       }
@@ -2395,12 +2403,12 @@ describe('chat/async streaming + finalize (characterization)', () => {
 
       for (
         let index = 0;
-        index < 20 && read.mock.calls.length < 2;
+        index < 100 && read.mock.calls.length < 3;
         index += 1
       ) {
         await Promise.resolve();
       }
-      expect(read).toHaveBeenCalledTimes(2);
+      expect(read).toHaveBeenCalledTimes(3);
       expect(store.get(statusKey)?.status).toBe('oauth_required');
 
       await vi.advanceTimersByTimeAsync(STREAM_READ_IDLE_TIMEOUT_MS);

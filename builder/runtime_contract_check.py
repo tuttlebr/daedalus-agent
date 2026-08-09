@@ -465,9 +465,11 @@ def main() -> None:
     )
     from nat.plugins.mcp.client.client_base import (
         AuthAdapter,
+        MCPBaseClient,
         MCPStreamableHTTPClient,
         MCPToolClient,
     )
+    from nat.runtime.session import SessionManager
 
     signature = inspect.signature(MCPToolClient.acall)
     if list(signature.parameters) != ["self", "tool_args"]:
@@ -488,6 +490,18 @@ def main() -> None:
         False,
     ):
         raise RuntimeError("MCP OAuth retry wrapper did not attach")
+    if not getattr(
+        MCPBaseClient._get_tool_call_timeout,
+        "_daedalus_interactive_auth_transport_timeout",
+        False,
+    ):
+        raise RuntimeError("MCP interactive-auth transport timeout did not attach")
+    if not getattr(
+        SessionManager._get_or_create_per_user_builder,
+        "_daedalus_mcp_builder_recovery",
+        False,
+    ):
+        raise RuntimeError("Per-user MCP disconnected-builder recovery did not attach")
     if not getattr(
         HTTPAuthenticationFlowHandler.__init__,
         "_daedalus_mcp_oauth_timeout_wrapper",

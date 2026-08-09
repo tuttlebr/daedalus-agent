@@ -203,7 +203,12 @@ export async function startBackgroundStreamReader(
   let pendingResponseDelta = '';
   let lastToolOutput = '';
   let streamDone = false;
-  let waitingForOAuth = false;
+  // Once this backend stream has requested interactive authorization, keep its
+  // longer idle budget for the rest of the turn. Parallel Google tool calls
+  // continue to emit intermediate steps and content while another service is
+  // still waiting for its browser callback; those sibling events must not
+  // silently restore the ordinary five-minute deadline.
+  let oauthPromptSeen = false;
   let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
   const abortController = new AbortController();
   const handleExternalAbort = () => {
@@ -377,7 +382,7 @@ export async function startBackgroundStreamReader(
       const { done, value } = await readStreamChunk(
         reader,
         abortController,
-        waitingForOAuth
+        oauthPromptSeen
           ? MCP_OAUTH_STREAM_IDLE_TIMEOUT_MS
           : STREAM_READ_IDLE_TIMEOUT_MS,
       );
@@ -404,7 +409,6 @@ export async function startBackgroundStreamReader(
             line.slice('intermediate_data: '.length),
           );
           if (step) {
-            waitingForOAuth = false;
             // Defense-in-depth: sanitize completion-event outputs against any
             // prior assistant content. TOOL_END is intentionally excluded —
             // tool outputs (search snippets, retrieved chunks) may legitimately
@@ -530,13 +534,12 @@ export async function startBackgroundStreamReader(
               );
               throw new Error('Authentication prompt could not be delivered');
             }
-            waitingForOAuth = true;
+            oauthPromptSeen = true;
             logger.info(`Job ${jobId}: OAuth authorization prompt persisted`, {
               service: oauthPayload.service,
             });
             continue;
           }
-          waitingForOAuth = false;
           if (parsed.error) continue;
           const content = extractAsyncStreamContentDelta(
             parsed,
