@@ -941,6 +941,7 @@ llms:
     max_retries: ${DAEDALUS_LLM_MAX_RETRIES:-3}
     model_name: ${VERIFIER_MODEL}
     request_timeout: ${DAEDALUS_LLM_TIMEOUT:-60.0}
+    user: ${PROMPT_CACHE_ID:-daedalus}
     truncation: auto
   tool_calling_llm:
     _type: openai
@@ -950,6 +951,7 @@ llms:
     max_retries: ${DAEDALUS_LLM_MAX_RETRIES:-3}
     model_name: ${TOOL_CALLING_LLM_MODEL_MODEL}
     request_timeout: ${DAEDALUS_LLM_TIMEOUT:-60.0}
+    user: ${PROMPT_CACHE_ID:-daedalus}
     reasoning:
       effort: high
     truncation: auto
@@ -961,6 +963,7 @@ llms:
     max_retries: ${DAEDALUS_LLM_MAX_RETRIES:-3}
     model_name: ${TOOL_CALLING_LLM_MODEL_MODEL}
     request_timeout: ${DAEDALUS_LLM_TIMEOUT:-60.0}
+    user: ${PROMPT_CACHE_ID:-daedalus}
     reasoning:
       effort: xhigh
     truncation: auto
@@ -972,6 +975,7 @@ llms:
     max_retries: ${DAEDALUS_LLM_MAX_RETRIES:-3}
     model_name: ${DEFAULT_LLM_MODEL_MODEL}
     request_timeout: ${DAEDALUS_LLM_TIMEOUT:-60.0}
+    user: ${PROMPT_CACHE_ID:-daedalus}
     reasoning:
       effort: xhigh
     truncation: auto
