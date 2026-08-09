@@ -585,7 +585,7 @@ def test_workflow_uses_responses_api_agent_schema():
         assert not set(removed_agent_names) & set(config["functions"]), path
 
 
-def test_openai_llms_use_api_compatible_parameters_and_safe_extensions():
+def test_fireworks_llms_use_request_scoped_prompt_cache_headers():
     expected = {
         "tool_calling_llm",
         "reasoning_llm",
@@ -602,13 +602,21 @@ def test_openai_llms_use_api_compatible_parameters_and_safe_extensions():
         assert set(config["llms"]) == expected, path
         for llm_name in expected:
             llm = config["llms"][llm_name]
-            assert llm["_type"] == "openai", (path, llm_name)
+            assert llm["_type"] == "daedalus_fireworks", (path, llm_name)
             assert llm["api_type"] == "responses", (path, llm_name)
+            assert llm["session_affinity_scope"] == "conversation", (
+                path,
+                llm_name,
+            )
+            assert llm["prompt_cache_isolation"] is True, (path, llm_name)
             assert "temperature" not in llm, (path, llm_name)
             assert "top_p" not in llm, (path, llm_name)
             assert "extra_args" not in llm, (path, llm_name)
             assert "reasoning_effort" not in llm, (path, llm_name)
             assert "extra_body" not in llm, (path, llm_name)
+            assert "extra_headers" not in llm, (path, llm_name)
+            assert "default_headers" not in llm, (path, llm_name)
+            assert "user" not in llm, (path, llm_name)
             assert llm["truncation"] == "auto", (path, llm_name)
             if llm_name in expected_reasoning:
                 assert llm["reasoning"] == expected_reasoning[llm_name], (
