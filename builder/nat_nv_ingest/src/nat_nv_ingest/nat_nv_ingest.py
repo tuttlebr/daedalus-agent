@@ -118,13 +118,6 @@ class ExtractResult(TypedDict):
 
 INLINE_MARKDOWN_CHAR_LIMIT = 50_000
 
-# Hard cap (characters) on full-document markdown downloads. Unlike the inline
-# cap above (which protects the chat context window), this only bounds the
-# server's memory for the doc-to-markdown download path — it is large enough to
-# return any plausible whole-document rendering. Overridable via the
-# DOCUMENT_MARKDOWN_MAX_CHARS env var.
-DEFAULT_DOCUMENT_MARKDOWN_MAX_CHARS = 20_000_000
-
 # Cap the length of per-document error text echoed back to the client (both the
 # batch summary and the streamed progress message). The full error is logged
 # server-side; only this prefix is surfaced to the user/LLM.
@@ -161,22 +154,6 @@ def document_ingest_max_size_bytes() -> int:
     except ValueError:
         return DEFAULT_DOCUMENT_INGEST_MAX_SIZE_BYTES
     return value if value > 0 else DEFAULT_DOCUMENT_INGEST_MAX_SIZE_BYTES
-
-
-def document_markdown_max_chars() -> int:
-    """Resolve the full-document markdown download cap (chars) from the env.
-
-    Falls back to ``DEFAULT_DOCUMENT_MARKDOWN_MAX_CHARS`` when
-    ``DOCUMENT_MARKDOWN_MAX_CHARS`` is unset, empty, non-numeric, or non-positive.
-    """
-    raw = (os.getenv("DOCUMENT_MARKDOWN_MAX_CHARS") or "").strip()
-    if not raw:
-        return DEFAULT_DOCUMENT_MARKDOWN_MAX_CHARS
-    try:
-        value = int(raw)
-    except ValueError:
-        return DEFAULT_DOCUMENT_MARKDOWN_MAX_CHARS
-    return value if value > 0 else DEFAULT_DOCUMENT_MARKDOWN_MAX_CHARS
 
 
 def _apply_char_limit(raw_md: str, char_limit: int | None) -> tuple[str, bool]:

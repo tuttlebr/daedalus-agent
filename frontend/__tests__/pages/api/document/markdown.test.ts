@@ -129,7 +129,6 @@ describe('/api/document/markdown', () => {
       statusCode: 200,
       headers: {
         'content-disposition': 'attachment; filename="report.md"',
-        'x-document-truncated': 'false',
       },
       body,
     });
@@ -156,6 +155,48 @@ describe('/api/document/markdown', () => {
     );
     expect(res.status).toHaveBeenCalledWith(200);
     expect(res.send).toHaveBeenCalledWith(body);
+    expect(mocks.postToBackend).toHaveBeenCalledWith(
+      'http://backend/v1/documents/markdown',
+      JSON.stringify({ documentRef: validatedRef, username: 'alice' }),
+      expect.any(Object),
+      900_000,
+    );
+    expect(res.setHeader).not.toHaveBeenCalledWith(
+      'X-Document-Truncated',
+      expect.anything(),
+    );
+  });
+
+  it('rejects a successful upstream response marked as truncated', async () => {
+    mocks.validateDocumentRefsForUser.mockResolvedValueOnce([
+      { documentId: 'doc-a', sessionId: 'current-session' },
+    ]);
+    mocks.postToBackend.mockResolvedValueOnce({
+      statusCode: 200,
+      headers: {
+        'content-disposition': 'attachment; filename="report.md"',
+        'x-document-truncated': 'true',
+      },
+      body: Buffer.from('# Partial\n'),
+    });
+
+    const req = {
+      method: 'POST',
+      headers: { cookie: 'sid=current-session' },
+      body: {
+        documentRef: { documentId: 'doc-a', sessionId: 'current-session' },
+      },
+    } as any;
+    const res = makeRes();
+
+    await handler(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(502);
+    expect(res.json).toHaveBeenCalledWith({
+      error: 'Document conversion returned incomplete Markdown',
+      details: 'Please try again after the document service is updated.',
+    });
+    expect(res.send).not.toHaveBeenCalled();
   });
 
   it('forwards an upstream error status and detail', async () => {

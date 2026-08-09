@@ -23,7 +23,6 @@ from nat_nv_ingest.nat_nv_ingest import (
     INLINE_MARKDOWN_CHAR_LIMIT,
     NvIngestDocumentProcessor,
     NvIngestFunctionConfig,
-    document_markdown_max_chars,
     validate_collection_scope,
 )
 from pydantic import BaseModel, Field
@@ -80,8 +79,8 @@ class ExtractResponse(BaseModel):
 class MarkdownRequest(BaseModel):
     documentRef: DocumentRef
     username: str | None = None
-    # No char_limit: the doc-to-markdown download returns the whole document,
-    # bounded server-side by document_markdown_max_chars().
+    # No char_limit: callers cannot turn the user-download route into another
+    # truncated inline extraction path.
 
 
 def _env_bool(name: str, default: bool) -> bool:
@@ -467,23 +466,11 @@ async def extract(
     )
 
 
-@router.post("/markdown")
-async def markdown(
+async def _create_markdown_download_response(
     req: MarkdownRequest,
-    x_user_id: Annotated[str | None, Header(alias="x-user-id")] = None,
-    x_daedalus_internal_token: Annotated[
-        str | None, Header(alias="x-daedalus-internal-token")
-    ] = None,
+    user_id: str,
 ) -> Response:
-    """Extract a full uploaded document to a downloadable Markdown file.
-
-    Unlike `/extract` (truncated, JSON, for LLM consumption), this returns the
-    *whole* document as a `text/markdown` attachment for the user to download
-    locally. Bounded server-side by `document_markdown_max_chars()`. Bypasses
-    the agent loop and reuses the same ownership check + failure→status mapping
-    as `/extract`.
-    """
-    user_id = _require_trusted_user(x_user_id, x_daedalus_internal_token)
+    """Build a complete Markdown attachment for an authenticated user."""
     username = (req.username or user_id).strip()
     if username != user_id:
         raise HTTPException(status_code=403, detail="username must match x-user-id")
@@ -494,7 +481,7 @@ async def markdown(
         result = await _processor().extract_document(
             documentRef=document_ref,
             username=username,
-            char_limit=document_markdown_max_chars(),
+            char_limit=None,
         )
     except Exception as e:
         logger.exception("documents.markdown failed")
@@ -502,6 +489,14 @@ async def markdown(
 
     if result["status"] == "failure":
         _raise_for_extract_failure(result["error"])
+
+    if result["truncated"] or len(result["markdown"]) != result["original_chars"]:
+        # Never return a partial file from the endpoint advertised as the full
+        # Markdown download. This also catches a future extractor regression.
+        raise HTTPException(
+            status_code=500,
+            detail="The document parser returned incomplete Markdown.",
+        )
 
     if not result["markdown"]:
         # e.g. an image-only/scanned document with no extractable text.
@@ -517,8 +512,26 @@ async def markdown(
         headers={
             "Content-Disposition": f'attachment; filename="{filename}"',
             "X-Document-Pages": str(result["pages"]),
-            "X-Document-Truncated": "true" if result["truncated"] else "false",
             "X-Original-Chars": str(result["original_chars"]),
             "Cache-Control": "private, no-store",
         },
     )
+
+
+@router.post("/markdown")
+async def markdown(
+    req: MarkdownRequest,
+    x_user_id: Annotated[str | None, Header(alias="x-user-id")] = None,
+    x_daedalus_internal_token: Annotated[
+        str | None, Header(alias="x-daedalus-internal-token")
+    ] = None,
+) -> Response:
+    """Extract a full uploaded document to a downloadable Markdown file.
+
+    Unlike `/extract` (truncated, JSON, for LLM consumption), this returns the
+    *whole* document as a `text/markdown` attachment for the user to download
+    locally. Bypasses the agent loop and reuses the same ownership check plus
+    failure-to-status mapping as `/extract`.
+    """
+    user_id = _require_trusted_user(x_user_id, x_daedalus_internal_token)
+    return await _create_markdown_download_response(req, user_id)

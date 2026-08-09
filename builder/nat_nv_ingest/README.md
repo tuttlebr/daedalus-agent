@@ -141,8 +141,8 @@ corrupts exact-args like `username`/`documentRef`):
   to `char_limit` (default 50K) for inline LLM consumption.
 - `POST /v1/documents/markdown`: **doc-to-markdown download.** Returns the
   _entire_ document as a `text/markdown` attachment (`Content-Disposition:
-attachment; filename="<name>.md"`). Untruncated, bounded only by
-  `DOCUMENT_MARKDOWN_MAX_CHARS` (default 20,000,000). The download filename is
+attachment; filename="<name>.md"`) without applying the inline character cap.
+  The download filename is
   derived from the stored filename, sanitized (path components and unsafe
   characters stripped) and given a `.md` extension. Ownership is enforced via
   the stored document's `userId`; failures map to 403/404/413/422/504.

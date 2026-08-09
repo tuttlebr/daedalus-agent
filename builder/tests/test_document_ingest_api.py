@@ -1,5 +1,6 @@
 """Schema-level tests for the /v1/documents/* FastAPI routes."""
 
+import asyncio
 import json
 import sys
 from pathlib import Path
@@ -17,6 +18,7 @@ from document_ingest_api import (  # noqa: E402
     DocumentRef,
     IngestRequest,
     MarkdownRequest,
+    _create_markdown_download_response,
     _default_config,
     _markdown_filename,
     _redis_url,
@@ -216,6 +218,92 @@ class TestMarkdownFilename:
         result = _markdown_filename("a" * 500 + ".pdf")
         assert result.endswith(".md")
         assert len(result) <= 131  # 128 stem + ".md"
+
+
+class TestMarkdownDownload:
+    def test_requests_the_complete_document_without_a_char_limit(self, monkeypatch):
+        markdown_body = "# Full document\n\nLast paragraph.\n"
+        calls = []
+
+        class FakeProcessor:
+            async def extract_document(self, **kwargs):
+                calls.append(kwargs)
+                return {
+                    "status": "success",
+                    "filename": "report.pdf",
+                    "pages": 3,
+                    "markdown": markdown_body,
+                    "truncated": False,
+                    "original_chars": len(markdown_body),
+                    "error": "",
+                }
+
+        monkeypatch.setattr(document_ingest_api, "_processor", FakeProcessor)
+        monkeypatch.setattr(
+            document_ingest_api,
+            "Response",
+            lambda **kwargs: kwargs,
+        )
+
+        response = asyncio.run(
+            _create_markdown_download_response(
+                MarkdownRequest(
+                    documentRef=DocumentRef(
+                        documentId="doc-a",
+                        sessionId="session-a",
+                    ),
+                    username="alice",
+                ),
+                "alice",
+            )
+        )
+
+        assert calls == [
+            {
+                "documentRef": {
+                    "documentId": "doc-a",
+                    "sessionId": "session-a",
+                },
+                "username": "alice",
+                "char_limit": None,
+            }
+        ]
+        assert response["content"] == markdown_body.encode("utf-8")
+        assert response["media_type"] == "text/markdown; charset=utf-8"
+        assert "X-Document-Truncated" not in response["headers"]
+
+    def test_rejects_an_incomplete_markdown_result(self, monkeypatch):
+        class FakeProcessor:
+            async def extract_document(self, **_kwargs):
+                return {
+                    "status": "success",
+                    "filename": "report.pdf",
+                    "pages": 3,
+                    "markdown": "partial",
+                    "truncated": True,
+                    "original_chars": 100,
+                    "error": "",
+                }
+
+        monkeypatch.setattr(document_ingest_api, "_processor", FakeProcessor)
+        monkeypatch.setattr(document_ingest_api, "HTTPException", _FakeHTTPException)
+
+        with pytest.raises(_FakeHTTPException) as exc_info:
+            asyncio.run(
+                _create_markdown_download_response(
+                    MarkdownRequest(
+                        documentRef=DocumentRef(
+                            documentId="doc-a",
+                            sessionId="session-a",
+                        ),
+                        username="alice",
+                    ),
+                    "alice",
+                )
+            )
+
+        assert exc_info.value.status_code == 500
+        assert "incomplete Markdown" in exc_info.value.detail
 
 
 class TestExtractFailureMapping:

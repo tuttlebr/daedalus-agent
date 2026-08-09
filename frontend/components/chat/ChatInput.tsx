@@ -20,6 +20,7 @@ import { useIsMobile } from '@/hooks/useMediaQuery';
 import { uploadDocument } from '@/utils/app/documentHandler';
 import { uploadImage } from '@/utils/app/imageHandler';
 import { useMilvusCollections } from '@/utils/app/queries';
+import { saveArtifactBlob } from '@/utils/app/sandboxArtifactDownload';
 import { admitUploadBatch } from '@/utils/app/uploadBatch';
 import { uploadVideo, getVideoMimeType } from '@/utils/app/videoHandler';
 import { uploadVTTFile, isVTTFile } from '@/utils/app/vttHandler';
@@ -123,13 +124,19 @@ export const ChatInput = memo(
     const [uploading, setUploading] = useState<UploadingFile[]>([]);
     const [selectedCollection, setSelectedCollection] = useState<string>('');
     const [showCollections, setShowCollections] = useState(false);
+    const [downloadingDocumentId, setDownloadingDocumentId] = useState<
+      string | null
+    >(null);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const isMobile = useIsMobile();
 
-    const hasDocumentAttachment = attachments.some(
-      (a) => a.type === 'document',
+    const documentAttachments = attachments.filter(
+      (attachment) => attachment.type === 'document' && attachment.documentRef,
     );
+    const hasDocumentAttachment = documentAttachments.length > 0;
+    const inlineDownloadAttachment =
+      documentAttachments.length === 1 ? documentAttachments[0] : null;
     const { data: collections = [] } = useMilvusCollections(
       hasDocumentAttachment,
     );
@@ -491,8 +498,8 @@ export const ChatInput = memo(
     }, []);
 
     // Convert an uploaded document to a full Markdown file and download it
-    // locally. Goes directly to the typed REST route (no LLM) and uses the same
-    // blob-download pattern as generated images (Web Share API, then anchor).
+    // locally. This request is separate from send/history and goes directly to
+    // the typed REST route without entering the LLM path.
     const downloadDocumentAsMarkdown = useCallback(
       async (
         documentRef: NonNullable<Attachment['documentRef']>,
@@ -502,6 +509,7 @@ export const ChatInput = memo(
         const loadingToast = toast.loading(
           `Converting ${label} to Markdown...`,
         );
+        setDownloadingDocumentId(documentRef.documentId);
         try {
           const response = await fetch('/api/document/markdown', {
             method: 'POST',
@@ -516,7 +524,6 @@ export const ChatInput = memo(
             } catch {
               // Non-JSON error body; keep the default message.
             }
-            toast.dismiss(loadingToast);
             toast.error(message);
             return;
           }
@@ -526,44 +533,14 @@ export const ChatInput = memo(
               response.headers.get('Content-Disposition'),
             ) || `${label.replace(/\.[^./\\]+$/, '')}.md`;
 
-          // Try the Web Share API first (mobile), then fall back to a download.
-          if (
-            typeof navigator !== 'undefined' &&
-            navigator.canShare &&
-            navigator.share
-          ) {
-            try {
-              const file = new File([blob], downloadName, {
-                type: 'text/markdown',
-              });
-              if (navigator.canShare({ files: [file] })) {
-                await navigator.share({ files: [file], title: downloadName });
-                toast.dismiss(loadingToast);
-                return;
-              }
-            } catch {
-              // Share cancelled/unsupported — fall through to download.
-            }
-          }
-
-          const url = window.URL.createObjectURL(blob);
-          const link = document.createElement('a');
-          link.href = url;
-          link.download = downloadName;
-          document.body.appendChild(link);
-          link.click();
-          document.body.removeChild(link);
-          window.URL.revokeObjectURL(url);
-          toast.dismiss(loadingToast);
-          if (response.headers.get('X-Document-Truncated') === 'true') {
-            toast('Document was very large and was truncated.', {
-              duration: 6000,
-            });
-          }
+          saveArtifactBlob(blob, downloadName);
+          toast.success(`Downloaded ${downloadName}`);
         } catch (err) {
-          toast.dismiss(loadingToast);
           console.error('Markdown download failed:', err);
           toast.error('Failed to convert document — check backend logs.');
+        } finally {
+          toast.dismiss(loadingToast);
+          setDownloadingDocumentId(null);
         }
       },
       [],
@@ -833,21 +810,6 @@ export const ChatInput = memo(
                     <span className="truncate max-w-[120px]">
                       {att.content}
                     </span>
-                    {att.type === 'document' && att.documentRef && (
-                      <button
-                        onClick={() =>
-                          downloadDocumentAsMarkdown(
-                            att.documentRef!,
-                            att.content,
-                          )
-                        }
-                        className="p-0.5 rounded hover:bg-white/10 transition-colors"
-                        aria-label="Download as Markdown"
-                        title="Download as Markdown"
-                      >
-                        <IconFileDownload size={12} />
-                      </button>
-                    )}
                     <button
                       onClick={() => removeAttachment(i)}
                       className="p-0.5 rounded hover:bg-white/10 transition-colors"
@@ -862,34 +824,66 @@ export const ChatInput = memo(
 
             {/* Collection selector for documents */}
             {showCollections && (
-              <div className="flex items-center gap-2 mb-2 px-1">
-                <IconDatabase
-                  size={14}
-                  className="text-nvidia-blue flex-shrink-0"
-                />
-                <span className="text-xs text-dark-text-muted flex-shrink-0">
-                  Ingest to:
-                </span>
-                <select
-                  value={selectedCollection}
-                  onChange={(e) => setSelectedCollection(e.target.value)}
-                  className="flex-1 bg-dark-bg-tertiary text-dark-text-primary text-xs border border-white/10 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-nvidia-green/30"
-                >
-                  <option value="">Select a knowledge base...</option>
-                  <option value={INLINE_MODE}>
-                    Read inline (skip ingest, single doc)
-                  </option>
-                  {collections.length > 0 && (
-                    <option value="" disabled>
-                      ── knowledge bases ──
+              <div className="mb-2 px-1">
+                <div className="flex items-center gap-2">
+                  <IconDatabase
+                    size={14}
+                    className="text-nvidia-blue flex-shrink-0"
+                  />
+                  <span className="text-xs text-dark-text-muted flex-shrink-0">
+                    Ingest to:
+                  </span>
+                  <select
+                    value={selectedCollection}
+                    onChange={(e) => setSelectedCollection(e.target.value)}
+                    className="flex-1 bg-dark-bg-tertiary text-dark-text-primary text-xs border border-white/10 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-nvidia-green/30"
+                  >
+                    <option value="">Select a knowledge base...</option>
+                    <option value={INLINE_MODE}>
+                      Read inline (skip ingest, single doc)
                     </option>
-                  )}
-                  {collections.map((collection) => (
-                    <option key={collection.name} value={collection.name}>
-                      {collection.displayName}
-                    </option>
-                  ))}
-                </select>
+                    {collections.length > 0 && (
+                      <option value="" disabled>
+                        ── knowledge bases ──
+                      </option>
+                    )}
+                    {collections.map((collection) => (
+                      <option key={collection.name} value={collection.name}>
+                        {collection.displayName}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                {selectedCollection === INLINE_MODE && (
+                  <div className="mt-2 flex flex-col gap-2 rounded-lg border border-nvidia-blue/20 bg-nvidia-blue/5 px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
+                    <span className="text-xs text-dark-text-muted">
+                      Chat reads up to 50K characters. The full Markdown
+                      download stays outside chat and history.
+                    </span>
+                    {inlineDownloadAttachment?.documentRef ? (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          downloadDocumentAsMarkdown(
+                            inlineDownloadAttachment.documentRef!,
+                            inlineDownloadAttachment.content,
+                          )
+                        }
+                        disabled={downloadingDocumentId !== null}
+                        className="inline-flex flex-shrink-0 items-center justify-center gap-1.5 rounded-md border border-nvidia-blue/30 px-2.5 py-1.5 text-xs font-medium text-nvidia-blue transition-colors hover:bg-nvidia-blue/10 disabled:cursor-wait disabled:opacity-60"
+                      >
+                        <IconFileDownload size={14} aria-hidden />
+                        {downloadingDocumentId
+                          ? 'Preparing Markdown...'
+                          : 'Download full Markdown'}
+                      </button>
+                    ) : (
+                      <span className="text-xs text-nvidia-yellow">
+                        Keep one document attached to use inline mode.
+                      </span>
+                    )}
+                  </div>
+                )}
               </div>
             )}
 

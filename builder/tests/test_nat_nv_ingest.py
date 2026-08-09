@@ -7,7 +7,6 @@ from unittest.mock import MagicMock
 import pytest
 from nat_nv_ingest.nat_nv_ingest import (
     DEFAULT_DOCUMENT_INGEST_MAX_SIZE_BYTES,
-    DEFAULT_DOCUMENT_MARKDOWN_MAX_CHARS,
     DEFAULT_DOCUMENT_OBJECT_PREFIX,
     DEFAULT_DOCUMENT_OBJECT_REQUEST_TIMEOUT_MS,
     ERROR_MESSAGE_CHAR_LIMIT,
@@ -37,7 +36,6 @@ from nat_nv_ingest.nat_nv_ingest import (
     clean_markdown,
     clean_table_markdown,
     document_ingest_max_size_bytes,
-    document_markdown_max_chars,
     format_batch_response,
     format_single_doc_response,
     legacy_user_upload_collection_name,
@@ -1381,23 +1379,7 @@ class TestApplyCharLimit:
         assert _apply_char_limit("", 5) == ("", False)
 
 
-class TestDocumentMarkdownMaxChars:
-    def test_default_when_unset(self, monkeypatch):
-        monkeypatch.delenv("DOCUMENT_MARKDOWN_MAX_CHARS", raising=False)
-        assert document_markdown_max_chars() == DEFAULT_DOCUMENT_MARKDOWN_MAX_CHARS
-
-    def test_env_override_is_respected(self, monkeypatch):
-        monkeypatch.setenv("DOCUMENT_MARKDOWN_MAX_CHARS", "500000")
-        assert document_markdown_max_chars() == 500000
-
-    def test_invalid_env_falls_back_to_default(self, monkeypatch):
-        monkeypatch.setenv("DOCUMENT_MARKDOWN_MAX_CHARS", "not-a-number")
-        assert document_markdown_max_chars() == DEFAULT_DOCUMENT_MARKDOWN_MAX_CHARS
-
-    def test_non_positive_env_falls_back_to_default(self, monkeypatch):
-        monkeypatch.setenv("DOCUMENT_MARKDOWN_MAX_CHARS", "0")
-        assert document_markdown_max_chars() == DEFAULT_DOCUMENT_MARKDOWN_MAX_CHARS
-
+class TestDocumentSizeEnforcement:
     def test_size_error_none_when_within_limit(self):
         import base64
 

@@ -112,14 +112,19 @@ export default async function handler(
       typeof backendResponse.headers['content-disposition'] === 'string'
         ? (backendResponse.headers['content-disposition'] as string)
         : 'attachment; filename="document.md"';
-    const truncated = backendResponse.headers['x-document-truncated'];
+    if (backendResponse.headers['x-document-truncated'] === 'true') {
+      // Fail closed against an older or regressed backend. This endpoint is
+      // specifically the full-document download and must not serve a partial
+      // file under a complete-looking filename.
+      return res.status(502).json({
+        error: 'Document conversion returned incomplete Markdown',
+        details: 'Please try again after the document service is updated.',
+      });
+    }
 
     res.setHeader('Content-Type', 'text/markdown; charset=utf-8');
     res.setHeader('Content-Disposition', contentDisposition);
     res.setHeader('Cache-Control', 'private, no-store');
-    if (typeof truncated === 'string') {
-      res.setHeader('X-Document-Truncated', truncated);
-    }
     return res.status(200).send(backendResponse.body);
   } catch (error) {
     if (error instanceof DocumentRefAccessError) {
