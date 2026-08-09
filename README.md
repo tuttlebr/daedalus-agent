@@ -452,6 +452,77 @@ frontend can pass per-message `sourcePolicy` metadata that becomes a hidden
 `[SOURCE_POLICY]` control message for source inclusion/exclusion, retrieval
 budget, and plan-approval requirements.
 
+### LLM Prompt-cache Management
+
+Provider-side prompt caching can reduce latency and input-token cost when
+requests begin with the same instructions and tool definitions. It is separate
+from Daedalus's Redis-backed chat history, job state, memory, and OAuth tokens.
+It is also separate from Responses API continuation through
+`previous_response_id`. Daedalus does not use provider prompt caches as durable
+application storage or as a source of conversation history.
+
+Daedalus models that support request-scoped cache routing expose two settings:
+
+```yaml
+llms:
+  default_llm:
+    # Other provider and model settings are omitted.
+    prompt_cache_isolation: true
+    session_affinity_scope: conversation
+```
+
+- `prompt_cache_isolation: true` gives each authenticated user a stable,
+  opaque cache namespace. Users cannot share provider cache entries, while one
+  user can reuse eligible prefixes across conversations. This is the preferred
+  setting when users do not share one trust boundary.
+- `prompt_cache_isolation: false` leaves cache separation to the provider's
+  account or deployment boundary. Use it only for a single-user installation
+  or a trusted tenant where cross-user reuse of identical static prefixes is
+  intentional. It can improve cache utilization, but it is not a security
+  boundary.
+- `session_affinity_scope: conversation` keeps requests from one conversation
+  on the same provider route when supported. `user` uses one route key for all
+  of a user's conversations. Affinity can improve cache locality, but it does
+  not replace cache isolation.
+
+These are Daedalus adapter fields, not model request-body properties. Do not
+put cache headers in `extra_headers`, `default_headers`, or `model_kwargs`.
+The backend derives them immediately before each outbound request from trusted
+authentication and conversation context. It sends opaque identifiers rather
+than raw usernames or conversation IDs, and it overwrites conflicting values
+supplied by a caller. A provider integration that does not support these fields
+needs an equivalent adapter or must rely on that provider's default cache
+behavior.
+
+Use these operational practices:
+
+- Keep static instructions, tool definitions, and their ordering stable and at
+  the beginning of the prompt. Put request-specific data, timestamps, user
+  preferences, retrieved documents, and conversation turns after the reusable
+  prefix. Small early changes can prevent reuse of everything that follows.
+- Set the same `DAEDALUS_INTERNAL_API_TOKEN` on every backend replica and the
+  autonomous worker. Production uses it to derive consistent opaque cache and
+  affinity identifiers. Helm manages this shared token; tokenless behavior is
+  for local development only.
+- Treat rotation of `DAEDALUS_INTERNAL_API_TOKEN`, a model or deployment
+  change, and edits to system instructions or tool schemas as cache-cold
+  events. Daedalus does not provide a provider-cache purge operation; changed
+  prefixes naturally stop matching, and expiration or eviction remains
+  provider-managed.
+- Apply the same cache settings to every LLM role that handles user requests,
+  including the default, tool-calling, reasoning, and verifier models. Review
+  exceptions explicitly instead of allowing roles to inherit different tenant
+  boundaries by accident.
+- Validate with provider-reported cached-input-token metrics, latency, and
+  billing for repeated representative requests. Latency alone is not proof of
+  a cache hit. Logs and traces should record whether cache routing is enabled,
+  but must not record raw identities, derived keys, authorization headers, or
+  full sensitive prompts.
+
+Changing cache isolation affects only future provider requests. It does not
+delete Redis data, conversation history, user memory, or already-created
+provider cache entries.
+
 ## Frontend Capabilities
 
 The frontend includes:
