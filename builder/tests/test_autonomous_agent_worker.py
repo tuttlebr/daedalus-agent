@@ -8,6 +8,7 @@ from autonomous_agent.backend_client import (
 from autonomous_agent.dedupe import dedupe_feed_items
 from autonomous_agent.models import now_ms
 from autonomous_agent.prompt import (
+    COMMUNICATION_STYLE_GUIDANCE,
     build_messages,
     feed_items_from_output,
     load_workspace,
@@ -295,6 +296,22 @@ def test_build_messages_includes_already_surfaced_digest():
     assert "Shipped today." in prompt
     assert "threadKey" in prompt
     assert "Avoid redundancy" in prompt
+
+
+def test_build_messages_keeps_communication_style_in_immutable_overlay():
+    persisted_text = "Persisted workspace text can change between runs."
+    messages = build_messages(
+        user_id="test-user",
+        config={"actionPolicy": "broad_autonomy"},
+        workspace={"identity": persisted_text},
+        goals=[],
+        recent_runs=[],
+        request={"trigger": "scheduled"},
+    )
+
+    prompt = messages[-1]["content"]
+    assert COMMUNICATION_STYLE_GUIDANCE in prompt
+    assert prompt.index(COMMUNICATION_STYLE_GUIDANCE) > prompt.index(persisted_text)
 
 
 def test_build_messages_never_delegates_identity_to_tool_arguments():

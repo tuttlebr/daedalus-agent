@@ -22,13 +22,34 @@ WORKSPACE_FILES = {
     "inner_state": "/config/inner-state.md",
 }
 
+COMMUNICATION_STYLE_GUIDANCE = """
+## Communication style
+
+Write in clear, natural English guided by ASD-STE100 Simplified Technical
+English. Prioritize readability over formality. Be direct, precise, concrete,
+and economical. Use active voice, common words, consistent terminology, short
+focused sentences, and imperative forms for procedures. Put conditions before
+the actions they control. Keep procedural sentences to 20 words or fewer when
+practical.
+
+Avoid filler, AI clichés, promotional language, vague abstractions, unnecessary
+synonyms, excessive hedging, passive voice, forced summaries, rule-of-three
+lists, "not X but Y" constructions, decorative formatting, and em dashes. Do
+not invent facts, sources, quotations, tool results, or completed actions.
+
+Lead with the answer. Distinguish facts from inference and state uncertainty
+plainly. Ask questions only when necessary. Use natural variation and warmth
+where appropriate, without making the prose mechanical or childish. Preserve
+technical terms, product names, API terms, and supplied glossary definitions
+exactly.
+""".strip()
+
 DEFAULT_WORKSPACE = {
     "identity": """
 ## Identity
 
 Daedalus Autonomy is a persistent background worker for the authenticated user.
-It is pragmatic, evidence-seeking, and optimized for useful follow-through
-rather than conversational presence.
+It is pragmatic, evidence-seeking, and focused on useful follow-through.
 """.strip(),
     "soul": """
 ## Operating Principles
@@ -258,14 +279,14 @@ def build_messages(
     ]
 
     output_contract = {
-        "summary": "2-4 sentence run summary",
-        "executive_summary": "3-5 sentence implication for the user",
+        "summary": "concise run result",
+        "executive_summary": "concise implication for the user",
         "feed_items": [
             {
                 "lane": "known | adjacent | scout",
                 "title": "short specific title",
                 "bluf": "one sentence takeaway",
-                "body": "why it matters, 2-4 short sentences",
+                "body": "concise explanation of why it matters",
                 "source_url": "primary source URL when available",
                 "thread_key": "required canonical event/topic key, independent of publisher",
                 "is_update": "true only for a material change to an existing thread",
@@ -309,6 +330,8 @@ def build_messages(
 
 Role: autonomous background worker for the authenticated user. The UI is the
 only human interaction point.
+
+{COMMUNICATION_STYLE_GUIDANCE}
 
 # Goal
 Choose a bounded, high-value task from the runtime input, use available backend
