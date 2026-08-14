@@ -838,9 +838,6 @@ def test_google_workspace_mcp_uses_per_user_oauth():
                 "update_values",
                 "update_formulas",
                 "insert_dimension",
-                "copy_sheet_to_another_spreadsheet",
-                "batch_clear_values",
-                "append_values",
             ],
         },
         "slides_mcp_server": {
@@ -985,9 +982,6 @@ def test_mcp_approval_policy_follows_explicit_include_lists():
             "update_values",
             "update_formulas",
             "insert_dimension",
-            "copy_sheet_to_another_spreadsheet",
-            "batch_clear_values",
-            "append_values",
         },
         "slides_mcp_server": {"read_presentation", "update_presentation"},
     }
@@ -1000,9 +994,6 @@ def test_mcp_approval_policy_follows_explicit_include_lists():
             "update_values",
             "update_formulas",
             "insert_dimension",
-            "copy_sheet_to_another_spreadsheet",
-            "batch_clear_values",
-            "append_values",
         },
         "slides_mcp_server": {"update_presentation"},
     }

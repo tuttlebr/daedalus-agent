@@ -364,9 +364,6 @@ function_groups:
       - update_values
       - update_formulas
       - insert_dimension
-      - copy_sheet_to_another_spreadsheet
-      - batch_clear_values
-      - append_values
     tool_call_timeout: 60
     auth_flow_timeout: 600
     reconnect_enabled: true
@@ -386,12 +383,6 @@ function_groups:
       update_formulas:
         approval_policy: approval_required
       insert_dimension:
-        approval_policy: approval_required
-      copy_sheet_to_another_spreadsheet:
-        approval_policy: approval_required
-      batch_clear_values:
-        approval_policy: approval_required
-      append_values:
         approval_policy: approval_required
     server:
       auth_provider: sheets_mcp_server

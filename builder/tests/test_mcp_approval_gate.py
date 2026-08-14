@@ -453,7 +453,7 @@ def test_mutating_approval_rejects_changed_arguments_and_burns_token(monkeypatch
         ),
         ("drive_mcp_server", "create_file", {"name": "notes.txt"}),
         ("docs_mcp_server", "update_doc", {"document_id": "doc-1"}),
-        ("sheets_mcp_server", "append_values", {"spreadsheet_id": "sheet-1"}),
+        ("sheets_mcp_server", "update_values", {"spreadsheet_id": "sheet-1"}),
         (
             "slides_mcp_server",
             "update_presentation",
