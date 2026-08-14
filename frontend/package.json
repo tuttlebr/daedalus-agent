@@ -49,7 +49,7 @@
   "overrides": {
     "esbuild": "0.25.12",
     "js-yaml": "^4.1.0",
-    "nanoid": "3.3.17",
+    "nanoid": "https://registry.npmjs.org/nanoid/-/nanoid-3.3.18.tgz",
     "postcss": "$postcss",
     "sharp": "$sharp"
   },
