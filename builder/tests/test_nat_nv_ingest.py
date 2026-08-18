@@ -398,10 +398,12 @@ def test_user_document_tool_lists_only_callers_collection_and_shared_allowlist(
 
         event_loop_thread = threading.get_ident()
         client_threads = {}
+        client_kwargs = {}
 
         class FakeMilvusClient:
-            def __init__(self, **_kwargs):
+            def __init__(self, **kwargs):
                 client_threads["construct"] = threading.get_ident()
+                client_kwargs.update(kwargs)
 
             def list_collections(self):
                 client_threads["list"] = threading.get_ident()
@@ -425,6 +427,7 @@ def test_user_document_tool_lists_only_callers_collection_and_shared_allowlist(
             result = await function_info.fn(operation="list_collections")
             assert client_threads["construct"] != event_loop_thread
             assert client_threads["list"] != event_loop_thread
+            assert client_kwargs["alias"].startswith("daedalus-user-documents-")
             return result
         finally:
             await generator.aclose()

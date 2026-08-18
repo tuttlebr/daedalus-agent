@@ -5,10 +5,12 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import os
+import time
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Header, HTTPException
 from nat_helpers.internal_auth import require_trusted_user
+from nat_helpers.milvus import owned_milvus_connection_args
 from nat_nv_ingest.nat_nv_ingest import (
     SHARED_COLLECTION_NAMES,
     user_upload_collection_name,
@@ -45,18 +47,31 @@ def _metadata_timeout_seconds() -> float:
 def _list_collections_sync(timeout: float) -> list[str]:
     from pymilvus import MilvusClient
 
-    client = MilvusClient(**_milvus_kwargs())
+    deadline = time.monotonic() + timeout
+
+    def remaining_timeout() -> float:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError("Milvus metadata deadline exceeded")
+        return remaining
+
+    client = MilvusClient(
+        **owned_milvus_connection_args("metadata", _milvus_kwargs()),
+        timeout=remaining_timeout(),
+    )
     try:
         # The outer asyncio deadline cannot cancel a blocked worker thread.
         # Bound the PyMilvus RPC itself so repeated health probes cannot leak
         # permanently stuck threads during a Milvus/network outage.
-        collections = [str(name) for name in client.list_collections(timeout=timeout)]
+        collections = [
+            str(name) for name in client.list_collections(timeout=remaining_timeout())
+        ]
         # list_collections can be permitted by Milvus's public role even when
         # the identity cannot describe or search a collection. Probe the
         # DescribeCollection path as well so readiness reflects real RAG
         # access. A missing sentinel collection correctly returns False.
         probe_name = collections[0] if collections else "__daedalus_rag_readiness__"
-        client.has_collection(probe_name, timeout=timeout)
+        client.has_collection(probe_name, timeout=remaining_timeout())
         return collections
     finally:
         close = getattr(client, "close", None)
@@ -69,7 +84,10 @@ async def _list_collections() -> list[str]:
     timeout = _metadata_timeout_seconds()
     return await asyncio.wait_for(
         asyncio.to_thread(_list_collections_sync, timeout),
-        timeout=timeout,
+        # Give the bounded worker a small cleanup window after its own total
+        # deadline. Its unique alias prevents late cleanup from closing any
+        # request or tool client's channel.
+        timeout=timeout + 0.25,
     )
 
 

@@ -6,6 +6,7 @@ from nat.builder.builder import Builder, LLMFrameworkEnum
 from nat.builder.function_info import FunctionInfo
 from nat.cli.register_workflow import register_function
 from nat.data_models.function import FunctionBaseConfig
+from nat_helpers.milvus import owned_milvus_connection_args
 from pydantic import Field, HttpUrl
 
 logger = logging.getLogger(__name__)
@@ -146,7 +147,11 @@ async def domain_retriever_function(config: DomainRetrieverConfig, builder: Buil
             # pymilvus constructs channels and may perform connection setup in
             # its synchronous constructor. Keep that work off the event loop.
             milvus_client = await asyncio.to_thread(
-                MilvusClient, uri=str(config.uri), **config.connection_args
+                MilvusClient,
+                uri=str(config.uri),
+                **owned_milvus_connection_args(
+                    "domain-retriever", config.connection_args
+                ),
             )
             _client_cache["instance"] = milvus_client
             reranker_config = None

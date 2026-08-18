@@ -462,8 +462,9 @@ class TestAsyncMilvusCalls:
         call_threads: dict[str, int] = {}
 
         class RecordingClient:
-            def __init__(self, **_kwargs):
+            def __init__(self, **kwargs):
                 call_threads["construct"] = threading.get_ident()
+                call_threads["alias"] = kwargs["alias"]
 
             def list_collections(self, **_kwargs):
                 call_threads["list"] = threading.get_ident()
@@ -510,6 +511,7 @@ class TestAsyncMilvusCalls:
         expected_calls = {"construct", "list", "describe", "search", "embed", "close"}
         assert expected_calls <= call_threads.keys()
         assert all(call_threads[name] != event_loop_thread for name in expected_calls)
+        assert str(call_threads["alias"]).startswith("daedalus-domain-retriever-")
 
     def test_metadata_is_cached_with_a_bounded_size(self):
         client = MagicMock()

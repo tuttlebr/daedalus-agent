@@ -43,10 +43,39 @@ def test_list_collections_passes_bounded_timeout_to_pymilvus(monkeypatch):
 
     assert timeout == 10.0
     assert result == ["nvidia"]
-    assert calls["list_kwargs"] == {"timeout": 10.0}
+    assert calls["client_kwargs"]["alias"].startswith("daedalus-metadata-")
+    assert 0 < calls["client_kwargs"]["timeout"] <= 10.0
+    assert 0 < calls["list_kwargs"]["timeout"] <= 10.0
     assert calls["describe_name"] == "nvidia"
-    assert calls["describe_kwargs"] == {"timeout": 10.0}
+    assert 0 < calls["describe_kwargs"]["timeout"] <= 10.0
     assert calls["closed"] is True
+
+
+def test_list_collections_gives_each_owned_client_a_unique_alias(monkeypatch):
+    aliases = []
+
+    class FakeMilvusClient:
+        def __init__(self, **kwargs):
+            aliases.append(kwargs["alias"])
+
+        def list_collections(self, **_kwargs):
+            return []
+
+        def has_collection(self, *_args, **_kwargs):
+            return False
+
+        def close(self):
+            pass
+
+    pymilvus = types.ModuleType("pymilvus")
+    pymilvus.MilvusClient = FakeMilvusClient
+    monkeypatch.setitem(sys.modules, "pymilvus", pymilvus)
+
+    api._list_collections_sync(3.0)
+    api._list_collections_sync(3.0)
+
+    assert len(set(aliases)) == 2
+    assert all(alias.startswith("daedalus-metadata-") for alias in aliases)
 
 
 def test_list_collections_probes_describe_even_when_database_is_empty(monkeypatch):
@@ -72,10 +101,8 @@ def test_list_collections_probes_describe_even_when_database_is_empty(monkeypatc
     monkeypatch.setitem(sys.modules, "pymilvus", pymilvus)
 
     assert api._list_collections_sync(3.0) == []
-    assert calls == {
-        "name": "__daedalus_rag_readiness__",
-        "kwargs": {"timeout": 3.0},
-    }
+    assert calls["name"] == "__daedalus_rag_readiness__"
+    assert 0 < calls["kwargs"]["timeout"] <= 3.0
 
 
 def test_async_list_collections_passes_same_timeout_to_worker(monkeypatch):

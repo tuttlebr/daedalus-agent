@@ -22,6 +22,7 @@ from nat_helpers.identity import (
     execution_id_from_context_or_none,
     resolve_authenticated_user_id,
 )
+from nat_helpers.milvus import close_milvus_client, owned_milvus_connection_args
 from nv_ingest_client.client import Ingestor, NvIngestClient
 from pydantic import BaseModel, ConfigDict, Field
 from pymilvus import MilvusClient
@@ -1268,11 +1269,17 @@ def _validate_embedding_dimension(
     yet exist (vdb_upload creates it at the right dim) or when the dimension
     cannot be read (we log and let vdb_upload surface any real error).
     """
+    owned_client = None
     try:
         if client is None:
             from pymilvus import MilvusClient
 
-            client = MilvusClient(**_milvus_client_kwargs(config))
+            owned_client = MilvusClient(
+                **owned_milvus_connection_args(
+                    "embedding-dimension", _milvus_client_kwargs(config)
+                )
+            )
+            client = owned_client
         if collection_name not in client.list_collections():
             return
         desc = client.describe_collection(collection_name)
@@ -1283,6 +1290,9 @@ def _validate_embedding_dimension(
             exc,
         )
         return
+    finally:
+        if owned_client is not None:
+            close_milvus_client(owned_client)
 
     actual = _extract_dense_dim(desc, getattr(config, "vector_field", "vector"))
     expected = getattr(config, "embedder_dim", None)
@@ -2525,7 +2535,10 @@ async def nv_ingest_function(
             async with _retrieval_client_lock:
                 if "milvus" not in _retrieval_client_cache:
                     _retrieval_client_cache["milvus"] = await asyncio.to_thread(
-                        MilvusClient, **_milvus_client_kwargs(config)
+                        MilvusClient,
+                        **owned_milvus_connection_args(
+                            "user-documents", _milvus_client_kwargs(config)
+                        ),
                     )
         return _retrieval_client_cache["milvus"]
 
@@ -2542,7 +2555,10 @@ async def nv_ingest_function(
                     milvus_client = _retrieval_client_cache.get("milvus")
                     if milvus_client is None:
                         milvus_client = await asyncio.to_thread(
-                            MilvusClient, **_milvus_client_kwargs(config)
+                            MilvusClient,
+                            **owned_milvus_connection_args(
+                                "user-documents", _milvus_client_kwargs(config)
+                            ),
                         )
                         _retrieval_client_cache["milvus"] = milvus_client
                     reranker_config = None
@@ -2989,14 +3005,24 @@ async def nv_ingest_function(
             return await list_collections(effective_username)
         raise AssertionError("validated operation was not handled")
 
-    yield FunctionInfo.from_fn(
-        user_document_tool,
-        description=(
-            "Ingest or search documents for the authenticated user. The backend "
-            "derives identity from the trusted request; never pass a username. "
-            "Ingestion always writes to a private per-user collection and rejects "
-            "shared targets. Search may read either the user's private collection "
-            "or an allow-listed shared collection."
-        ),
-        input_schema=UserDocumentInput,
-    )
+    try:
+        yield FunctionInfo.from_fn(
+            user_document_tool,
+            description=(
+                "Ingest or search documents for the authenticated user. The backend "
+                "derives identity from the trusted request; never pass a username. "
+                "Ingestion always writes to a private per-user collection and rejects "
+                "shared targets. Search may read either the user's private collection "
+                "or an allow-listed shared collection."
+            ),
+            input_schema=UserDocumentInput,
+        )
+    finally:
+        retriever = _retrieval_client_cache.get("retriever")
+        try:
+            if retriever is not None:
+                await asyncio.to_thread(retriever.close)
+        finally:
+            milvus_client = _retrieval_client_cache.get("milvus")
+            if milvus_client is not None:
+                await asyncio.to_thread(close_milvus_client, milvus_client)
