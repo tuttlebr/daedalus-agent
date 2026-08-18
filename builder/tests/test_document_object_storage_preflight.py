@@ -117,6 +117,7 @@ def test_probe_uses_secret_refs_without_putting_credentials_in_argv(monkeypatch)
     }
     assert overrides["metadata"]["labels"] == config.pod_labels
     assert overrides["spec"]["automountServiceAccountToken"] is False
+    assert overrides["spec"]["affinity"] == check_storage.PREFLIGHT_AFFINITY
     security_context = overrides["spec"]["containers"][0]["securityContext"]
     assert security_context["runAsNonRoot"] is True
     assert security_context["runAsUser"] == 100

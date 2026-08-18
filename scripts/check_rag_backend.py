@@ -13,6 +13,24 @@ import sys
 import uuid
 from dataclasses import dataclass
 
+PREFLIGHT_AFFINITY = {
+    "nodeAffinity": {
+        "requiredDuringSchedulingIgnoredDuringExecution": {
+            "nodeSelectorTerms": [
+                {
+                    "matchExpressions": [
+                        {
+                            "key": "kubernetes.io/hostname",
+                            "operator": "NotIn",
+                            "values": ["daedalus-06"],
+                        }
+                    ]
+                }
+            ]
+        }
+    }
+}
+
 
 class CheckError(RuntimeError):
     """A safe-to-display preflight failure."""
@@ -253,6 +271,7 @@ for dependency in ("EMBEDDING_BASE_URL", "RERANKER_BASE_URL"):
     overrides = {
         "metadata": {"labels": config.labels},
         "spec": {
+            "affinity": PREFLIGHT_AFFINITY,
             "automountServiceAccountToken": False,
             "containers": [container],
             "restartPolicy": "Never",

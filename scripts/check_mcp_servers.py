@@ -528,24 +528,40 @@ printf '\\n__MCP_TOOLS_BODY_END__\\n'
         "--image",
         image,
     ]
-    if auth_environment_name:
-        overrides = {
-            "spec": {
-                "containers": [
-                    {
-                        "name": pod_name,
-                        "envFrom": [{"secretRef": {"name": secret_name}}],
-                    }
-                ]
+    pod_spec = {
+        "affinity": {
+            "nodeAffinity": {
+                "requiredDuringSchedulingIgnoredDuringExecution": {
+                    "nodeSelectorTerms": [
+                        {
+                            "matchExpressions": [
+                                {
+                                    "key": "kubernetes.io/hostname",
+                                    "operator": "NotIn",
+                                    "values": ["daedalus-06"],
+                                }
+                            ]
+                        }
+                    ]
+                }
             }
         }
-        command.extend(
-            [
-                "--overrides",
-                json.dumps(overrides, separators=(",", ":")),
-                "--override-type=strategic",
-            ]
-        )
+    }
+    if auth_environment_name:
+        pod_spec["containers"] = [
+            {
+                "name": pod_name,
+                "envFrom": [{"secretRef": {"name": secret_name}}],
+            }
+        ]
+    overrides = {"spec": pod_spec}
+    command.extend(
+        [
+            "--overrides",
+            json.dumps(overrides, separators=(",", ":")),
+            "--override-type=strategic",
+        ]
+    )
     command.extend(["--command", "--", "sh", "-ec", script])
     try:
         completed = subprocess.run(  # nosec B603 - fixed kubectl argv; shell script values are locally generated and shlex-quoted
