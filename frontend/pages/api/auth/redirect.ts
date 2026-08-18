@@ -9,6 +9,14 @@ import {
 } from '@/server/mcpOAuth';
 
 const OAUTH_CALLBACK_TIMEOUT_MS = 60_000;
+const OAUTH_CALLBACK_CONTENT_TYPE = 'text/html; charset=utf-8';
+
+function sendHtml(res: NextApiResponse, status: number, body: string) {
+  res.setHeader('Content-Type', OAUTH_CALLBACK_CONTENT_TYPE);
+  res.setHeader('Content-Disposition', 'inline');
+  res.setHeader('Cache-Control', 'no-cache, no-store');
+  return res.status(status).send(body);
+}
 
 function firstHeader(value: string | string[] | undefined): string | undefined {
   return Array.isArray(value) ? value[0] : value;
@@ -32,25 +40,27 @@ export default async function handler(
 ) {
   if (req.method !== 'GET') {
     res.setHeader('Allow', ['GET']);
-    return res.status(405).send('Method Not Allowed');
+    return sendHtml(res, 405, 'Method Not Allowed');
   }
 
   const state = Array.isArray(req.query.state)
     ? req.query.state[0]
     : req.query.state;
   if (!state) {
-    return res
-      .status(400)
-      .send('Invalid state. Please restart the authentication process.');
+    return sendHtml(
+      res,
+      400,
+      'Invalid state. Please restart the authentication process.',
+    );
   }
 
   const target = await loadOAuthCallbackTarget(state);
   if (!target) {
-    return res
-      .status(400)
-      .send(
-        'Authentication expired. Please restart the authentication process.',
-      );
+    return sendHtml(
+      res,
+      400,
+      'Authentication expired. Please restart the authentication process.',
+    );
   }
 
   const query = callbackQuery(req);
@@ -82,16 +92,17 @@ export default async function handler(
     await deleteOAuthCallbackTarget(state);
 
     const contentType = response.headers.get('content-type');
-    if (contentType) res.setHeader('Content-Type', contentType);
+    res.setHeader('Content-Type', contentType || OAUTH_CALLBACK_CONTENT_TYPE);
+    res.setHeader('Content-Disposition', 'inline');
     res.setHeader('Cache-Control', 'no-cache, no-store');
     return res.status(response.status).send(body);
   } catch {
     // Keep the short-lived mapping so a browser refresh can recover from a
     // transient frontend-to-backend network failure.
-    return res
-      .status(502)
-      .send(
-        'Authentication callback is temporarily unavailable. Please retry.',
-      );
+    return sendHtml(
+      res,
+      502,
+      'Authentication callback is temporarily unavailable. Please retry.',
+    );
   }
 }

@@ -79,8 +79,37 @@ describe('MCP OAuth redirect API', () => {
       60000,
     );
     expect(deleteOAuthCallbackTarget).toHaveBeenCalledWith('oauth-state');
+    expect(res.setHeader).toHaveBeenCalledWith(
+      'Content-Type',
+      'text/html; charset=utf-8',
+    );
+    expect(res.setHeader).toHaveBeenCalledWith('Content-Disposition', 'inline');
     expect(res.status).toHaveBeenCalledWith(200);
     expect(res.send).toHaveBeenCalledWith('<html>connected</html>');
+  });
+
+  it('renders the callback inline when the backend omits a content type', async () => {
+    vi.mocked(loadOAuthCallbackTarget).mockResolvedValue({
+      backendBaseUrl: 'http://10.1.2.3:8000',
+      createdAt: Date.now(),
+    });
+    vi.mocked(fetchWithTimeout).mockResolvedValue({
+      status: 200,
+      headers: new Headers(),
+      text: async () => '<html>connected</html>',
+    } as Response);
+    const { req, res } = createMockReqRes('GET', {
+      code: 'google-code',
+      state: 'oauth-state',
+    });
+
+    await handler(req, res);
+
+    expect(res.setHeader).toHaveBeenCalledWith(
+      'Content-Type',
+      'text/html; charset=utf-8',
+    );
+    expect(res.setHeader).toHaveBeenCalledWith('Content-Disposition', 'inline');
   });
 
   it('rejects missing or expired state without contacting a backend', async () => {
@@ -93,6 +122,16 @@ describe('MCP OAuth redirect API', () => {
 
     expect(missing.res.status).toHaveBeenCalledWith(400);
     expect(expired.res.status).toHaveBeenCalledWith(400);
+    for (const response of [missing.res, expired.res]) {
+      expect(response.setHeader).toHaveBeenCalledWith(
+        'Content-Type',
+        'text/html; charset=utf-8',
+      );
+      expect(response.setHeader).toHaveBeenCalledWith(
+        'Content-Disposition',
+        'inline',
+      );
+    }
     expect(fetchWithTimeout).not.toHaveBeenCalled();
   });
 
@@ -109,6 +148,11 @@ describe('MCP OAuth redirect API', () => {
     await handler(req, res);
 
     expect(res.status).toHaveBeenCalledWith(502);
+    expect(res.setHeader).toHaveBeenCalledWith(
+      'Content-Type',
+      'text/html; charset=utf-8',
+    );
+    expect(res.setHeader).toHaveBeenCalledWith('Content-Disposition', 'inline');
     expect(deleteOAuthCallbackTarget).not.toHaveBeenCalled();
   });
 });

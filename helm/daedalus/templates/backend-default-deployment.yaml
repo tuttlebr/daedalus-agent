@@ -83,8 +83,10 @@ spec:
             failureThreshold: 60
             periodSeconds: 10
           livenessProbe:
-            httpGet:
-              path: /health
+            # OAuth state belongs to this process. A long synchronous workflow
+            # can delay HTTP handling without making the process unrecoverable;
+            # restarting it would destroy the active browser-auth handoff.
+            tcpSocket:
               port: http
             initialDelaySeconds: 30
             periodSeconds: 20

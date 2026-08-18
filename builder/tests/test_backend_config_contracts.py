@@ -1162,6 +1162,19 @@ def test_backend_trusts_nginx_forwarded_proto_for_oauth_callback():
         assert overrides["FORWARDED_ALLOW_IPS"] == "*", path
 
 
+def test_backend_liveness_does_not_kill_in_memory_oauth_flows():
+    template = BACKEND_DEPLOYMENT_TEMPLATE.read_text(encoding="utf-8")
+    liveness_start = template.index("          livenessProbe:")
+    readiness_start = template.index("          readinessProbe:", liveness_start)
+    liveness = template[liveness_start:readiness_start]
+    readiness = template[readiness_start:]
+
+    assert "tcpSocket:" in liveness
+    assert "httpGet:" not in liveness
+    assert "httpGet:" in readiness
+    assert "path: /health/ready" in readiness
+
+
 def test_backend_network_policy_uses_explicit_namespace_access():
     template = NETWORK_POLICY_BACKEND_TEMPLATE.read_text(encoding="utf-8")
 
