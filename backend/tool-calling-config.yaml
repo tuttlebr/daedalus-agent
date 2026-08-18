@@ -945,8 +945,6 @@ llms:
     request_timeout: ${DAEDALUS_LLM_TIMEOUT:-60.0}
     prompt_cache_isolation: false
     session_affinity_scope: conversation
-    reasoning:
-      effort: high
     truncation: auto
   reasoning_llm:
     _type: daedalus_fireworks
@@ -958,8 +956,6 @@ llms:
     request_timeout: ${DAEDALUS_LLM_TIMEOUT:-60.0}
     prompt_cache_isolation: false
     session_affinity_scope: conversation
-    reasoning:
-      effort: xhigh
     truncation: auto
   default_llm:
     _type: daedalus_fireworks
@@ -971,8 +967,6 @@ llms:
     request_timeout: ${DAEDALUS_LLM_TIMEOUT:-60.0}
     prompt_cache_isolation: false
     session_affinity_scope: conversation
-    reasoning:
-      effort: xhigh
     truncation: auto
 memory:
   redis_memory:
