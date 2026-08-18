@@ -21,6 +21,7 @@ build/
 Cargo.lock
 .classpath
 .claude/
+clear-mem.sh
 .com.apple.timemachine.donotpresent
 config.sh
 !config-template.yaml
@@ -75,7 +76,6 @@ ignore.sh
 *.ipynb_checkpoints
 .ipynb_checkpoints/
 *.key
-skill.oms.sig
 *.lcov
 lerna-debug.log*
 *.log
@@ -126,8 +126,10 @@ __pypackages__/
 *.rar
 redis/data/
 .ruff_cache/
+!scripts/test_redis_helm_upgrade.sh
 secrets/
 .settings/
+skill.oms.sig
 skills-workspace/
 *.so
 *.so
@@ -149,7 +151,6 @@ temp/
 Temporary Items
 test-security.sh
 test*.sh
-!scripts/test_redis_helm_upgrade.sh
 Thumbs.db
 *.tmp
 tmp/
@@ -168,4 +169,3 @@ yarn-debug.log*
 yarn-error.log*
 .yarn-integrity
 *.zip
-clear-mem.sh
