@@ -156,6 +156,10 @@ backend:
           # backend traffic to the nginx container on 8080.
           - port: 8080
             protocol: TCP
+      - name: daedalus
+        ports:
+          - port: 4000
+            protocol: TCP
     cilium:
       enabled: true
       webscrape:
