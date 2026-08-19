@@ -662,29 +662,10 @@ functions:
     reranker_max_passage_tokens: 192
     reranker_max_total_tokens: 7000
     verbose: false
-  vtt_interpreter_tool:
-    _type: vtt_interpreter
-    api_endpoint: ${DEFAULT_LLM_MODEL_BASE_URL}
-    model: ${DEFAULT_LLM_MODEL_MODEL}
-    api_key: ${DEFAULT_LLM_MODEL_API_KEY}
-    redis_url: ${REDIS_URL}
-    description: >-
-      Process VTT or SRT meeting transcripts. Summarize, extract
-      action items, answer questions, or produce structured notes.
-      Trigger: user uploads or references a meeting transcript
-      ("summarize meeting", "action items", "meeting notes"). Args:
-      for an uploaded transcript, pass vtt_id and session_id. The tool
-      fetches it from Redis. Do not paste the transcript. For a pasted
-      transcript, pass transcript_text. You can also pass optional
-      user_instructions. The backend derives transcript ownership from the
-      authenticated request. Never pass user_id. Returns: processed markdown.
-      Fails when: content is not valid VTT/SRT or the LLM endpoint errors.
-    timeout: 120
-    verbose: false
   content_distiller_tool:
     _type: content_distiller
-    fast_llm_name: default_llm
-    llm_name: reasoning_llm
+    fast_llm_name: tool_calling_llm
+    llm_name: tool_calling_llm
     max_input_chars: 500000
     max_output_tokens: 4096
     wrapper_type: LANGCHAIN
@@ -797,7 +778,7 @@ functions:
     verbose: false
   source_verifier_tool:
     _type: source_verifier
-    llm_name: verifier_llm
+    llm_name: tool_calling_llm
     max_source_chars: 80000
     fetch_timeout: 20.0
     max_fetch_tokens: 20000
@@ -924,17 +905,6 @@ general:
         endpoint: ${DAEDALUS_PHOENIX_ENDPOINT}
         project: ${PHOENIX_PROJECT_NAME}
 llms:
-  verifier_llm:
-    _type: daedalus_fireworks
-    api_type: responses
-    api_key: ${VERIFIER_API_KEY}
-    base_url: ${VERIFIER_BASE_URL}
-    max_retries: ${DAEDALUS_LLM_MAX_RETRIES:-3}
-    model_name: ${VERIFIER_MODEL}
-    request_timeout: ${DAEDALUS_LLM_TIMEOUT:-60.0}
-    prompt_cache_isolation: false
-    session_affinity_scope: conversation
-    truncation: auto
   tool_calling_llm:
     _type: daedalus_fireworks
     api_type: responses
@@ -942,28 +912,6 @@ llms:
     base_url: ${TOOL_CALLING_LLM_MODEL_BASE_URL}
     max_retries: ${DAEDALUS_LLM_MAX_RETRIES:-3}
     model_name: ${TOOL_CALLING_LLM_MODEL_MODEL}
-    request_timeout: ${DAEDALUS_LLM_TIMEOUT:-60.0}
-    prompt_cache_isolation: false
-    session_affinity_scope: conversation
-    truncation: auto
-  reasoning_llm:
-    _type: daedalus_fireworks
-    api_type: responses
-    api_key: ${TOOL_CALLING_LLM_MODEL_API_KEY}
-    base_url: ${TOOL_CALLING_LLM_MODEL_BASE_URL}
-    max_retries: ${DAEDALUS_LLM_MAX_RETRIES:-3}
-    model_name: ${TOOL_CALLING_LLM_MODEL_MODEL}
-    request_timeout: ${DAEDALUS_LLM_TIMEOUT:-60.0}
-    prompt_cache_isolation: false
-    session_affinity_scope: conversation
-    truncation: auto
-  default_llm:
-    _type: daedalus_fireworks
-    api_type: responses
-    api_key: ${DEFAULT_LLM_MODEL_API_KEY}
-    base_url: ${DEFAULT_LLM_MODEL_BASE_URL}
-    max_retries: ${DAEDALUS_LLM_MAX_RETRIES:-3}
-    model_name: ${DEFAULT_LLM_MODEL_MODEL}
     request_timeout: ${DAEDALUS_LLM_TIMEOUT:-60.0}
     prompt_cache_isolation: false
     session_affinity_scope: conversation
@@ -1008,30 +956,29 @@ workflow:
     Files: Verify and publish deliverable files, then return the exact sandbox link. Never offer relative paths or claim failed publication succeeded.
 
   nat_tools:
-    - get_memory
     - add_memory
-    - current_datetime_tool
-    - source_verifier_tool
-    - domain_retriever_tool
-    - curated_feed_search_tool
-    - perplexity_search_tool
-    - x_mcp_server
-    - webscrape_tool
-    - llm_sandbox_tool
-    - content_distiller_tool
-    - nvidia_docs_tool
-    - k8s_mcp_server
-    - unifi_mcp_server
-    - user_document_tool
-    - gmail_mcp_server
+    - agent_skills_tool
     - calendar_mcp_server
-    - drive_mcp_server
+    - content_distiller_tool
+    - curated_feed_search_tool
+    - current_datetime_tool
     - docs_mcp_server
+    - domain_retriever_tool
+    - drive_mcp_server
+    - get_memory
+    - gmail_mcp_server
+    - k8s_mcp_server
+    - llm_sandbox_tool
+    - nvidia_docs_tool
+    - perplexity_search_tool
     - sheets_mcp_server
     - slides_mcp_server
-    - agent_skills_tool
+    - source_verifier_tool
+    - unifi_mcp_server
+    - user_document_tool
     - user_interaction_tool
     - visual_media_tool
-    - vtt_interpreter_tool
+    - webscrape_tool
+    - x_mcp_server
   verbose: true
   workflow_alias: Daedalus

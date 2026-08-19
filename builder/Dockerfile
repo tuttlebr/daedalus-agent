@@ -55,7 +55,7 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
 SHELL ["/bin/bash", "-c"]
 WORKDIR /workspace
 
-ARG BUILDER_PACKAGES="nat_helpers visual_media nat_nv_ingest smart_milvus webscrape rss_feed vtt_interpreter agent_skills perplexity_search content_distiller source_verifier user_interaction autonomous_agent llm_sandbox"
+ARG BUILDER_PACKAGES="nat_helpers visual_media nat_nv_ingest smart_milvus webscrape rss_feed agent_skills perplexity_search content_distiller source_verifier user_interaction autonomous_agent llm_sandbox"
 
 COPY requirements-runtime.in /workspace/requirements-runtime.in
 COPY verify_uv_pip_check.py /workspace/verify_uv_pip_check.py
@@ -70,7 +70,6 @@ COPY nat_nv_ingest/pyproject.toml /workspace/nat_nv_ingest/
 COPY smart_milvus/pyproject.toml /workspace/smart_milvus/
 COPY webscrape/pyproject.toml /workspace/webscrape/
 COPY rss_feed/pyproject.toml /workspace/rss_feed/
-COPY vtt_interpreter/pyproject.toml /workspace/vtt_interpreter/
 COPY agent_skills/pyproject.toml /workspace/agent_skills/
 COPY perplexity_search/pyproject.toml /workspace/perplexity_search/
 COPY content_distiller/pyproject.toml /workspace/content_distiller/
@@ -113,7 +112,6 @@ COPY nat_nv_ingest /workspace/nat_nv_ingest
 COPY smart_milvus /workspace/smart_milvus
 COPY webscrape /workspace/webscrape
 COPY rss_feed /workspace/rss_feed
-COPY vtt_interpreter /workspace/vtt_interpreter
 COPY agent_skills /workspace/agent_skills
 COPY perplexity_search /workspace/perplexity_search
 COPY content_distiller /workspace/content_distiller
