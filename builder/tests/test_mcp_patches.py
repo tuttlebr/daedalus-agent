@@ -31,12 +31,14 @@ from mcp_patches import (  # noqa: E402
     _known_mcp_function_groups,
     _looks_like_mcp_config,
     _mcp_httpx_auth_for_connection,
+    _mcp_oauth_request_bindings,
     _mcp_recovery_attempted,
     _McpAppError,
     _McpAuthFailureLevelFilter,
     _patch_mcp_auth_context_propagation,
     _patch_mcp_auth_transport_timeout,
     _patch_mcp_http_auth_timeout,
+    _patch_mcp_request_auth_binding,
     _patch_per_user_mcp_builder_recovery,
     _pending_mcp_recovery,
     _record_possible_mcp_group,
@@ -420,6 +422,154 @@ def test_oauth_callback_runs_in_active_request_context():
 
     assert run(_run()) == "current-execution"
     assert not hasattr(auth, "_daedalus_user_auth_callback")
+
+
+def test_http_request_binding_replaces_cached_workflow_callback(monkeypatch):
+    """A later HTTP turn must not emit OAuth to the cached creation request."""
+    _mcp_oauth_request_bindings.clear()
+
+    class FakeSession:
+        user_id = "opaque-user-id"
+
+    class FakeSessionManager:
+        @asynccontextmanager
+        async def session(
+            self,
+            user_id=None,
+            http_connection=None,
+            user_message_id=None,
+            conversation_id=None,
+            user_input_callback=None,
+            user_authentication_callback=None,
+        ):
+            yield FakeSession()
+
+    session_module = types.ModuleType("nat.runtime.session")
+    session_module.SessionManager = FakeSessionManager
+    for module_name in ("nat", "nat.runtime"):
+        module = types.ModuleType(module_name)
+        module.__path__ = []
+        monkeypatch.setitem(sys.modules, module_name, module)
+    monkeypatch.setitem(sys.modules, "nat.runtime.session", session_module)
+
+    _patch_mcp_request_auth_binding()
+    manager = FakeSessionManager()
+    parent = types.SimpleNamespace(
+        _httpx_auth=types.SimpleNamespace(user_id="opaque-user-id")
+    )
+    stale_context = None
+
+    async def first_callback(_config, _method):
+        return "first-request"
+
+    async def second_callback(_config, _method):
+        return "second-request"
+
+    async def _run():
+        nonlocal stale_context
+        async with manager.session(user_authentication_callback=first_callback):
+            stale_context = contextvars.copy_context()
+        assert _mcp_oauth_request_bindings == {}
+
+        async with manager.session(user_authentication_callback=second_callback):
+            assert stale_context is not None
+
+            async def resolve_from_cached_context():
+                callback, request_context = (
+                    mcp_patches._current_mcp_oauth_request_binding(parent)
+                )
+                assert callback is not None
+                task = request_context.run(
+                    asyncio.create_task,
+                    callback(None, None),
+                )
+                return await task
+
+            task = stale_context.run(
+                asyncio.create_task,
+                resolve_from_cached_context(),
+            )
+            assert await task == "second-request"
+
+        assert _mcp_oauth_request_bindings == {}
+
+    run(_run())
+
+
+def test_http_request_binding_fails_closed_when_concurrent_context_is_unknown(
+    monkeypatch,
+):
+    """An unowned cached task cannot choose between concurrent user requests."""
+    _mcp_oauth_request_bindings.clear()
+
+    class FakeSession:
+        user_id = "opaque-user-id"
+
+    class FakeSessionManager:
+        @asynccontextmanager
+        async def session(
+            self,
+            user_id=None,
+            http_connection=None,
+            user_message_id=None,
+            conversation_id=None,
+            user_input_callback=None,
+            user_authentication_callback=None,
+        ):
+            yield FakeSession()
+
+    session_module = types.ModuleType("nat.runtime.session")
+    session_module.SessionManager = FakeSessionManager
+    for module_name in ("nat", "nat.runtime"):
+        module = types.ModuleType(module_name)
+        module.__path__ = []
+        monkeypatch.setitem(sys.modules, module_name, module)
+    monkeypatch.setitem(sys.modules, "nat.runtime.session", session_module)
+
+    _patch_mcp_request_auth_binding()
+    manager = FakeSessionManager()
+    parent = types.SimpleNamespace(
+        _httpx_auth=types.SimpleNamespace(user_id="opaque-user-id")
+    )
+
+    async def first_callback(_config, _method):
+        return "first-request"
+
+    async def second_callback(_config, _method):
+        return "second-request"
+
+    async def _run():
+        async with manager.session(user_authentication_callback=first_callback):
+            first_context = contextvars.copy_context()
+            async with manager.session(user_authentication_callback=second_callback):
+                current_callback, _ = mcp_patches._current_mcp_oauth_request_binding(
+                    parent
+                )
+                assert current_callback is second_callback
+
+                async def resolve_first_context():
+                    callback, _ = mcp_patches._current_mcp_oauth_request_binding(parent)
+                    return callback
+
+                first_task = first_context.run(
+                    asyncio.create_task,
+                    resolve_first_context(),
+                )
+                assert await first_task is first_callback
+
+                async def resolve_without_owner():
+                    callback, _ = mcp_patches._current_mcp_oauth_request_binding(parent)
+                    return callback
+
+                unknown_task = contextvars.Context().run(
+                    asyncio.create_task,
+                    resolve_without_owner(),
+                )
+                assert await unknown_task is None
+
+        assert _mcp_oauth_request_bindings == {}
+
+    run(_run())
 
 
 def test_missing_oauth_callback_fails_when_interaction_is_needed():

@@ -523,6 +523,12 @@ def main() -> None:
     ):
         raise RuntimeError("Per-user MCP disconnected-builder recovery did not attach")
     if not getattr(
+        SessionManager.session,
+        "_daedalus_mcp_request_auth_binding",
+        False,
+    ):
+        raise RuntimeError("MCP HTTP request OAuth callback binding did not attach")
+    if not getattr(
         HTTPAuthenticationFlowHandler.__init__,
         "_daedalus_mcp_oauth_timeout_wrapper",
         False,

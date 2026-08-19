@@ -10,6 +10,8 @@ hooks:
 * discard a cached OAuth token after a protected-resource 401 and separate the
   browser-auth timeout from the ordinary tool response timeout;
 * promote terminal OAuth refresh failures to error-level operational logs;
+* bind each HTTP request's OAuth callback before entering a cached per-user
+  workflow, so tool tasks cannot recover a callback from an older request;
 * replace inactive per-user builders whose MCP transport lifecycle has stopped;
 * keep application-level MCP errors out of the transport reconnect path; and
 * bound optional MCP group startup, retry requested skipped groups once before
@@ -30,6 +32,7 @@ import logging
 import math
 import os
 import re
+import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -245,6 +248,24 @@ _STATIC_MCP_API_KEY_ENVIRONMENTS = {
 _PER_USER_MCP_OAUTH_SERVERS: frozenset[str] = frozenset()
 _MISSING_MCP_AUTH_CALLBACK = object()
 _MISSING_MCP_AUTH_EVENT = object()
+
+# NAT caches the complete per-user workflow, including LangGraph tasks and MCP
+# transports created during the first HTTP request. Reading Context.get() from
+# a later tool task can therefore return the first request's OAuth callback even
+# though SessionManager installed a new callback for the current request. Keep
+# the authoritative callback and full context at the HTTP session boundary,
+# keyed by NAT's opaque per-user identity. The ContextVar preserves exact
+# routing when cached workflow tasks inherit the current context. If an older
+# cached context lost that identifier, a single active binding is still safe to
+# recover; multiple active requests fail closed instead of receiving each
+# other's authorization URL.
+_mcp_oauth_request_binding_id: contextvars.ContextVar[str | None] = (
+    contextvars.ContextVar("daedalus_mcp_oauth_request_binding_id", default=None)
+)
+_mcp_oauth_request_bindings: dict[
+    str,
+    dict[str, tuple[object, contextvars.Context]],
+] = {}
 
 
 def _bind_configured_mcp_endpoint(
@@ -927,6 +948,138 @@ def _current_user_authentication_callback():
         return None
 
 
+def _mcp_oauth_client_user_id(parent_client) -> str | None:
+    """Return the opaque user identity owned by a per-user MCP transport."""
+    auth = getattr(parent_client, "_httpx_auth", None)
+    user_id = getattr(auth, "user_id", None)
+    if user_id is None:
+        return None
+    normalized = str(user_id).strip()
+    return normalized or None
+
+
+def _current_mcp_oauth_request_binding(
+    parent_client,
+) -> tuple[object | None, contextvars.Context]:
+    """Resolve the current HTTP request's OAuth callback and full context.
+
+    The registry is authoritative for HTTP requests because it is populated by
+    ``SessionManager.session`` before the cached workflow starts. Context.get()
+    remains a fallback for CLI/tests and for runtimes without an HTTP session.
+    """
+    user_id = _mcp_oauth_client_user_id(parent_client)
+    if user_id is not None:
+        bindings = _mcp_oauth_request_bindings.get(user_id, {})
+        binding_id = _mcp_oauth_request_binding_id.get()
+        if binding_id is not None and binding_id in bindings:
+            return bindings[binding_id]
+        if len(bindings) == 1:
+            logger.info(
+                "Recovered MCP OAuth callback from the active HTTP request "
+                "across a cached workflow context"
+            )
+            return next(iter(bindings.values()))
+        if len(bindings) > 1:
+            logger.error(
+                "Refusing ambiguous MCP OAuth callback routing for concurrent "
+                "requests (active_bindings=%d)",
+                len(bindings),
+            )
+            return None, contextvars.copy_context()
+
+    return _current_user_authentication_callback(), contextvars.copy_context()
+
+
+def _patch_mcp_request_auth_binding():
+    """Capture OAuth callback ownership at NAT's HTTP session boundary."""
+    try:
+        import functools
+
+        from nat.runtime.session import SessionManager
+
+        original_session = SessionManager.session
+        if getattr(original_session, "_daedalus_mcp_request_auth_binding", False):
+            return
+
+        signature = inspect.signature(original_session)
+        if list(signature.parameters) != [
+            "self",
+            "user_id",
+            "http_connection",
+            "user_message_id",
+            "conversation_id",
+            "user_input_callback",
+            "user_authentication_callback",
+        ]:
+            raise RuntimeError(
+                f"Unexpected SessionManager.session signature: {signature}"
+            )
+
+        @functools.wraps(original_session)
+        @asynccontextmanager
+        async def wrapped(
+            self,
+            user_id=None,
+            http_connection=None,
+            user_message_id=None,
+            conversation_id=None,
+            user_input_callback=None,
+            user_authentication_callback=None,
+        ):
+            async with original_session(
+                self,
+                user_id=user_id,
+                http_connection=http_connection,
+                user_message_id=user_message_id,
+                conversation_id=conversation_id,
+                user_input_callback=user_input_callback,
+                user_authentication_callback=user_authentication_callback,
+            ) as session:
+                effective_user_id = getattr(session, "user_id", None)
+                if user_authentication_callback is None or effective_user_id is None:
+                    yield session
+                    return
+
+                normalized_user_id = str(effective_user_id).strip()
+                if not normalized_user_id:
+                    yield session
+                    return
+
+                binding_id = uuid.uuid4().hex
+                binding_token = _mcp_oauth_request_binding_id.set(binding_id)
+                request_context = contextvars.copy_context()
+                user_bindings = _mcp_oauth_request_bindings.setdefault(
+                    normalized_user_id,
+                    {},
+                )
+                user_bindings[binding_id] = (
+                    user_authentication_callback,
+                    request_context,
+                )
+                try:
+                    yield session
+                finally:
+                    current_bindings = _mcp_oauth_request_bindings.get(
+                        normalized_user_id
+                    )
+                    if current_bindings is not None:
+                        current_bindings.pop(binding_id, None)
+                        if not current_bindings:
+                            _mcp_oauth_request_bindings.pop(normalized_user_id, None)
+                    _mcp_oauth_request_binding_id.reset(binding_token)
+
+        wrapped._daedalus_mcp_request_auth_binding = True
+        SessionManager.session = wrapped
+        logger.info("MCP HTTP request OAuth callback binding patch applied")
+    except ImportError as exc:
+        logger.warning("Could not patch MCP HTTP request OAuth binding: %s", exc)
+    except Exception as exc:  # noqa: BLE001 - patch installation must not abort startup
+        logger.warning(
+            "Unexpected error patching MCP HTTP request OAuth binding: %s",
+            exc,
+        )
+
+
 def _configured_mcp_oauth_timeout_seconds() -> float:
     """Return the backend HTTP OAuth wait budget owned by the deployment."""
     raw_value = os.getenv(
@@ -1044,7 +1197,13 @@ async def _invalidate_rejected_mcp_oauth_token(auth_adapter) -> bool:
     return True
 
 
-async def _call_with_current_mcp_oauth_callback(parent_client, callback, coro):
+async def _call_with_current_mcp_oauth_callback(
+    parent_client,
+    callback,
+    coro,
+    *,
+    calling_context: contextvars.Context | None = None,
+):
     """Carry one request's OAuth callback into a cached MCP transport task.
 
     NAT's per-user workflow keeps each MCP transport alive across HTTP requests.
@@ -1057,7 +1216,8 @@ async def _call_with_current_mcp_oauth_callback(parent_client, callback, coro):
     if auth is None:
         return await coro()
 
-    calling_context = contextvars.copy_context()
+    if calling_context is None:
+        calling_context = contextvars.copy_context()
 
     async def callback_in_calling_context(config, method):
         # A cached credential may already have marked headers ready before the
@@ -1721,6 +1881,7 @@ def patch(config_path: str | os.PathLike[str] | None = None):
     _log_static_mcp_api_key_configuration()
     _patch_mcp_auth_log_levels()
     _patch_mcp_http_auth_timeout()
+    _patch_mcp_request_auth_binding()
 
     try:
         from nat.plugins.mcp.client.client_base import MCPStreamableHTTPClient
@@ -1885,10 +2046,14 @@ def _patch_tool_client():
                     server_name in _PER_USER_MCP_OAUTH_SERVERS
                     and parent_client is not None
                 ):
+                    callback, request_context = _current_mcp_oauth_request_binding(
+                        parent_client
+                    )
                     result = await _call_with_current_mcp_oauth_callback(
                         parent_client,
-                        _current_user_authentication_callback(),
+                        callback,
                         invoke_original,
+                        calling_context=request_context,
                     )
                 else:
                     result = await invoke_original()
