@@ -395,7 +395,6 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       effectiveMessages,
       currentSessionId,
       verifiedUsername,
-      jobId,
       collectionMetadata?.userCollection.name,
       collectionMetadata?.databaseName,
     );

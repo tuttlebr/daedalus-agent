@@ -27,7 +27,6 @@ urllib3>=2.7,<3
 -e ./smart_milvus
 -e ./webscrape
 -e ./rss_feed
--e ./vtt_interpreter
 -e ./agent_skills
 -e ./perplexity_search
 -e ./content_distiller

@@ -10,7 +10,6 @@ const limits: UploadKindCounts = {
   image: 2,
   document: 3,
   video: 1,
-  transcript: 3,
 };
 
 describe('admitUploadBatch', () => {
@@ -23,13 +22,12 @@ describe('admitUploadBatch', () => {
       'document',
       'video',
       'video',
-      'transcript',
     ];
 
     const result = admitUploadBatch(
       candidates,
       (candidate) => candidate,
-      { image: 0, document: 2, video: 0, transcript: 3 },
+      { image: 0, document: 2, video: 0 },
       limits,
     );
 
@@ -38,7 +36,6 @@ describe('admitUploadBatch', () => {
       image: 1,
       document: 1,
       video: 1,
-      transcript: 1,
     });
   });
 
@@ -47,7 +44,6 @@ describe('admitUploadBatch', () => {
       image: 1,
       document: 0,
       video: 0,
-      transcript: 0,
     };
 
     admitUploadBatch(
@@ -61,7 +57,6 @@ describe('admitUploadBatch', () => {
       image: 1,
       document: 0,
       video: 0,
-      transcript: 0,
     });
   });
 });

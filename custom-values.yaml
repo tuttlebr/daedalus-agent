@@ -239,7 +239,6 @@ nginx:
     documentUploadMaxBodySize: '201M'
     videoUploadMaxBodySize: '150M'
     imageUploadMaxBodySize: '41M'
-    transcriptUploadMaxBodySize: '15M'
     voiceStudioProxy:
       # Keep the optional route disabled until the voice-studio namespace,
       # Service, and retained application data have been restored.

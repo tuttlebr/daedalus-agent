@@ -9,7 +9,6 @@ import {
   IconFileText,
   IconFileDownload,
   IconDatabase,
-  IconNotes,
   IconRefresh,
 } from '@tabler/icons-react';
 import React, { memo, useState, useRef, useCallback, useEffect } from 'react';
@@ -23,7 +22,6 @@ import { useMilvusCollections } from '@/utils/app/queries';
 import { saveArtifactBlob } from '@/utils/app/sandboxArtifactDownload';
 import { admitUploadBatch } from '@/utils/app/uploadBatch';
 import { uploadVideo, getVideoMimeType } from '@/utils/app/videoHandler';
-import { uploadVTTFile, isVTTFile } from '@/utils/app/vttHandler';
 
 import { Message } from '@/types/chat';
 
@@ -41,7 +39,7 @@ type Attachment = NonNullable<Message['attachments']>[number];
 interface UploadingFile {
   id: string;
   file: File;
-  type: 'image' | 'document' | 'video' | 'transcript';
+  type: 'image' | 'document' | 'video';
   progress: number;
   error?: string;
 }
@@ -99,12 +97,9 @@ interface ChatInputProps {
   isStreaming?: boolean;
 }
 
-function classifyFile(
-  file: File,
-): 'image' | 'document' | 'video' | 'transcript' {
+function classifyFile(file: File): 'image' | 'document' | 'video' {
   if (file.type.startsWith('image/')) return 'image';
   if (file.type.startsWith('video/')) return 'video';
-  if (isVTTFile(file)) return 'transcript';
   return 'document';
 }
 
@@ -193,36 +188,6 @@ export const ChatInput = memo(
         };
 
         try {
-          if (type === 'transcript') {
-            setUploading((prev) =>
-              prev.map((u) => (u.id === uploadId ? { ...u, progress: 30 } : u)),
-            );
-            const vttRef = await uploadVTTFile(file, controller.signal);
-            setUploading((prev) =>
-              prev.map((u) =>
-                u.id === uploadId ? { ...u, progress: 100 } : u,
-              ),
-            );
-
-            const attachment: Attachment = {
-              content: file.name,
-              type: 'transcript',
-              vttRef: {
-                vttId: vttRef.vttId,
-                sessionId: vttRef.sessionId,
-                filename: file.name,
-                mimeType: file.type || 'text/vtt',
-              },
-            };
-            setAttachments((prev) => [...prev, attachment]);
-
-            setTimeout(() => {
-              setUploading((prev) => prev.filter((u) => u.id !== uploadId));
-            }, 1000);
-            releaseController();
-            return;
-          }
-
           setUploading((prev) =>
             prev.map((u) => (u.id === uploadId ? { ...u, progress: 50 } : u)),
           );
@@ -449,17 +414,11 @@ export const ChatInput = memo(
             attachments.filter((attachment) => attachment.type === 'video')
               .length +
             activeOrQueued.filter((upload) => upload.type === 'video').length,
-          transcript:
-            attachments.filter((attachment) => attachment.type === 'transcript')
-              .length +
-            activeOrQueued.filter((upload) => upload.type === 'transcript')
-              .length,
         };
         const limits = {
           image: UPLOAD_LIMITS.MAX_IMAGES_PER_BATCH,
           document: UPLOAD_LIMITS.MAX_DOCUMENTS_PER_BATCH,
           video: UPLOAD_LIMITS.MAX_VIDEOS_PER_BATCH,
-          transcript: UPLOAD_LIMITS.MAX_DOCUMENTS_PER_BATCH,
         };
         const { accepted: allowed, rejected: droppedCounts } = admitUploadBatch(
           files,
@@ -635,12 +594,6 @@ export const ChatInput = memo(
           `Ingest the uploaded document(s) into the "${selectedCollection}" knowledge base.`;
       }
 
-      // Add routing hint for transcripts without text
-      if (!messageContent && attachments.some((a) => a.type === 'transcript')) {
-        messageContent =
-          'Summarize this meeting transcript and create structured notes.';
-      }
-
       // Add routing hint for images without text
       if (!messageContent && attachments.some((a) => a.type === 'image')) {
         messageContent = 'Analyze this image and describe what you see.';
@@ -725,8 +678,6 @@ export const ChatInput = memo(
                       <IconPhoto size={14} className="text-nvidia-green" />
                     ) : u.type === 'document' ? (
                       <IconFileText size={14} className="text-nvidia-blue" />
-                    ) : u.type === 'transcript' ? (
-                      <IconNotes size={14} className="text-nvidia-yellow" />
                     ) : (
                       <IconPhoto size={14} className="text-nvidia-purple" />
                     )}
@@ -793,8 +744,6 @@ export const ChatInput = memo(
                         ? 'bg-nvidia-green/5 border-nvidia-green/20 text-nvidia-green'
                         : att.type === 'document'
                         ? 'bg-nvidia-blue/5 border-nvidia-blue/20 text-nvidia-blue'
-                        : att.type === 'transcript'
-                        ? 'bg-nvidia-yellow/5 border-nvidia-yellow/20 text-nvidia-yellow'
                         : 'bg-nvidia-purple/5 border-nvidia-purple/20 text-nvidia-purple',
                     )}
                   >
@@ -802,8 +751,6 @@ export const ChatInput = memo(
                       <IconPhoto size={12} />
                     ) : att.type === 'document' ? (
                       <IconFileText size={12} />
-                    ) : att.type === 'transcript' ? (
-                      <IconNotes size={12} />
                     ) : (
                       <IconPhoto size={12} />
                     )}
@@ -908,8 +855,6 @@ export const ChatInput = memo(
                   placeholder={
                     hasDocumentAttachment
                       ? 'Add instructions or send to ingest...'
-                      : attachments.some((a) => a.type === 'transcript')
-                      ? 'Ask about this transcript (e.g. "summarize this meeting")...'
                       : attachments.some((a) => a.type === 'image')
                       ? 'Ask about this image...'
                       : 'Send a message...'
@@ -948,7 +893,7 @@ export const ChatInput = memo(
             ref={fileInputRef}
             type="file"
             multiple
-            accept="image/png,image/jpeg,image/gif,image/webp,image/avif,video/mp4,video/x-flv,video/3gpp,.pdf,.docx,.pptx,.html,.htm,.txt,text/plain,.md,.markdown,text/markdown,text/x-markdown,text/vtt,.vtt,application/x-subrip,.srt"
+            accept="image/png,image/jpeg,image/gif,image/webp,image/avif,video/mp4,video/x-flv,video/3gpp,.pdf,.docx,.pptx,.html,.htm,.txt,text/plain,.md,.markdown,text/markdown,text/x-markdown"
             className="hidden"
             onChange={(e) => {
               if (e.target.files) {

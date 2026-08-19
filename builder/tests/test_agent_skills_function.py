@@ -70,7 +70,7 @@ def test_sanitized_env_is_allowlist(monkeypatch):
 
     secrets = (
         "DAEDALUS_INTERNAL_API_TOKEN",
-        "DEFAULT_LLM_MODEL_API_KEY",
+        "TOOL_CALLING_LLM_MODEL_API_KEY",
         "MINIO_SECRET_KEY",
         "MINIO_ACCESS_KEY",
         "REDIS_URL",

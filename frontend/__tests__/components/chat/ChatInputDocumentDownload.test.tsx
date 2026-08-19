@@ -42,11 +42,6 @@ vi.mock('@/utils/app/videoHandler', () => ({
   uploadVideo: vi.fn(),
 }));
 
-vi.mock('@/utils/app/vttHandler', () => ({
-  isVTTFile: () => false,
-  uploadVTTFile: vi.fn(),
-}));
-
 vi.mock('@/utils/app/sandboxArtifactDownload', () => ({
   saveArtifactBlob: vi.fn(),
 }));

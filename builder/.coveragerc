@@ -17,7 +17,6 @@ source =
     source_verifier/src
     user_interaction/src
     visual_media/src
-    vtt_interpreter/src
     webscrape/src
 
 omit =

@@ -3,7 +3,6 @@
 import {
   IconCopy,
   IconCheck,
-  IconNotes,
   IconFileText,
   IconChevronDown,
   IconChevronUp,
@@ -183,15 +182,6 @@ const AttachmentDisplay = memo(({ attachment }: { attachment: Attachment }) => {
     return (
       <div className="px-3 py-2 rounded-lg bg-dark-bg-tertiary border border-white/5 text-xs text-dark-text-muted">
         Video: {attachment.content || 'Attached'}
-      </div>
-    );
-  }
-
-  if (attachment.type === 'transcript' && attachment.vttRef) {
-    return (
-      <div className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-dark-bg-tertiary border border-nvidia-yellow/20 text-xs text-nvidia-yellow">
-        <IconNotes size={14} />
-        <span>{attachment.content || 'Transcript'}</span>
       </div>
     );
   }

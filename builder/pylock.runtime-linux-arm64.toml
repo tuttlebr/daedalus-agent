@@ -4134,10 +4134,6 @@ name = "visual-media"
 directory = { path = "visual_media", editable = true }
 
 [[packages]]
-name = "vtt-interpreter"
-directory = { path = "vtt_interpreter", editable = true }
-
-[[packages]]
 name = "watchfiles"
 version = "1.2.0"
 sdist = { url = "https://files.pythonhosted.org/packages/cd/41/5e1a4bb12aac5f1493fa1bdc11154eca3b258ca4eba65d39c473fe19d8e9/watchfiles-1.2.0.tar.gz", upload-time = 2026-05-18T04:32:04Z, size = 108252, hashes = { sha256 = "c995fba777f1ea992f090f9236e9284cf7a5d1a0130dd5a3d82c598cacd76838" } }

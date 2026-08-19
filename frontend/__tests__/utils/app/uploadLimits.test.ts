@@ -9,7 +9,6 @@ const UPLOAD_ENV_KEYS = [
   'NEXT_PUBLIC_UPLOAD_IMAGE_SERVER_LIMIT_MB',
   'NEXT_PUBLIC_UPLOAD_VIDEO_SERVER_LIMIT_MB',
   'NEXT_PUBLIC_UPLOAD_DOCUMENT_SERVER_LIMIT_MB',
-  'NEXT_PUBLIC_UPLOAD_TRANSCRIPT_MAX_MB',
   'NEXT_PUBLIC_UPLOAD_MAX_IMAGES_PER_BATCH',
   'NEXT_PUBLIC_UPLOAD_MAX_DOCUMENTS_PER_BATCH',
   'NEXT_PUBLIC_UPLOAD_MAX_VIDEOS_PER_BATCH',
@@ -61,7 +60,6 @@ describe('UPLOAD_LIMITS env overrides', () => {
       NEXT_PUBLIC_UPLOAD_IMAGE_SERVER_LIMIT_MB: '40',
       NEXT_PUBLIC_UPLOAD_VIDEO_SERVER_LIMIT_MB: '120',
       NEXT_PUBLIC_UPLOAD_DOCUMENT_SERVER_LIMIT_MB: '300',
-      NEXT_PUBLIC_UPLOAD_TRANSCRIPT_MAX_MB: '12',
       NEXT_PUBLIC_UPLOAD_MAX_IMAGES_PER_BATCH: '4',
       NEXT_PUBLIC_UPLOAD_MAX_DOCUMENTS_PER_BATCH: '250',
       NEXT_PUBLIC_UPLOAD_MAX_VIDEOS_PER_BATCH: '2',
@@ -73,7 +71,6 @@ describe('UPLOAD_LIMITS env overrides', () => {
     expect(envLimits.IMAGE_MAX_SIZE_BYTES).toBe(30 * 1024 * 1024);
     expect(envLimits.VIDEO_MAX_SIZE_BYTES).toBe(90 * 1024 * 1024);
     expect(envLimits.DOCUMENT_MAX_SIZE_BYTES).toBe(300 * 1024 * 1024);
-    expect(envLimits.TRANSCRIPT_MAX_SIZE_BYTES).toBe(10 * 1024 * 1024);
     expect(envLimits.MAX_IMAGES_PER_BATCH).toBe(4);
     expect(envLimits.MAX_DOCUMENTS_PER_BATCH).toBe(250);
     expect(envLimits.MAX_VIDEOS_PER_BATCH).toBe(2);
@@ -109,14 +106,5 @@ describe('UPLOAD_LIMITS env overrides', () => {
 
     expect(envLimits.IMAGE_MAX_SIZE_BYTES).toBe(30 * 1024 * 1024);
     expect(envLimits.IMAGE_MAX_SIZE_MB).toBe(30);
-  });
-
-  it('caps the public transcript setting at the fixed VTT route limit', async () => {
-    const { UPLOAD_LIMITS: envLimits } = await importUploadLimitsWithEnv({
-      NEXT_PUBLIC_UPLOAD_TRANSCRIPT_MAX_MB: '50',
-    });
-
-    expect(envLimits.TRANSCRIPT_MAX_SIZE_BYTES).toBe(10 * 1024 * 1024);
-    expect(envLimits.TRANSCRIPT_MAX_SIZE_MB).toBe(10);
   });
 });

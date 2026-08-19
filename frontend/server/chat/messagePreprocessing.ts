@@ -2,10 +2,6 @@ import {
   MilvusCollectionOwnershipError,
   resolveMilvusCollectionTarget,
 } from '@/utils/app/milvusCollections';
-import { sanitizeForPromptInterpolation } from '@/utils/app/promptSafety';
-import { Logger } from '@/utils/logger';
-
-import { canAccessStoredVTT, getVTT } from '@/pages/api/session/vttStorage';
 
 import { ApiRouteError, type DocumentIngestJobRequest } from './types';
 
@@ -13,8 +9,6 @@ import {
   DocumentRefAccessError,
   validateDocumentRefsForUser,
 } from '@/server/session/documentRefs';
-
-const logger = new Logger('AsyncJob');
 
 function resolveDocumentCollectionTarget(
   options: Parameters<typeof resolveMilvusCollectionTarget>[0],
@@ -283,15 +277,13 @@ export function getDocumentIngestJobRequest(
 
 /**
  * Normalize the inbound messages for the agent: validate document attachments
- * against the caller, inject image/video reference hints, inline VTT/transcript
- * content from Redis, and compact ingestion messages. Pure transform over the
- * message array (no job/Redis state beyond the per-attachment VTT fetch).
+ * against the caller, inject image/video reference hints, and compact
+ * ingestion messages.
  */
 export async function processMessages(
   messages: any[],
   currentSessionId: string,
   verifiedUsername: string,
-  jobId: string,
   privateCollectionName?: string,
   databaseName?: string,
 ): Promise<any[]> {
@@ -378,95 +370,6 @@ export async function processMessages(
               }
               cleanedMessage.content =
                 (cleanedMessage.content || '') + videoRefContext;
-            }
-          }
-        }
-
-        // VTT/transcript content — validate the stored attachment and inject a
-        // *reference* (vtt_id + session_id). vtt_interpreter_tool fetches the
-        // transcript from Redis itself, so the full transcript is never copied
-        // through the model as a tool-call argument (which broke on large files).
-        const vttAttachments = cleanedMessage.attachments.filter(
-          (att: any) => att.type === 'transcript',
-        );
-        if (vttAttachments.length > 0) {
-          const alreadyHasVttRef = cleanedMessage.content?.includes(
-            'vtt_interpreter_tool with vtt_id=',
-          );
-          if (!alreadyHasVttRef) {
-            for (const att of vttAttachments) {
-              if (att.vttRef?.vttId && att.vttRef?.sessionId) {
-                try {
-                  const storedVtt = await getVTT(
-                    att.vttRef.sessionId,
-                    att.vttRef.vttId,
-                  );
-                  if (!storedVtt) {
-                    throw new ApiRouteError(
-                      404,
-                      'Transcript attachment not found. Please upload it again.',
-                      'attachment_not_found',
-                    );
-                  }
-                  if (
-                    !canAccessStoredVTT(
-                      storedVtt,
-                      currentSessionId,
-                      verifiedUsername,
-                    )
-                  ) {
-                    throw new ApiRouteError(
-                      403,
-                      'You do not have access to one of the transcript attachments.',
-                      'attachment_forbidden',
-                    );
-                  }
-                  if (storedVtt?.data) {
-                    // Untrusted filename embedded in an agent instruction — defang
-                    // it (F-008). vttId/sessionId are passed verbatim: getVTT +
-                    // canAccessStoredVTT above already proved they resolve to a
-                    // record this user owns, so they are validated ids, not prose.
-                    const filename =
-                      sanitizeForPromptInterpolation(
-                        att.vttRef.filename || storedVtt.filename,
-                      ) || 'transcript';
-                    let vttContext = `\n\n[User attached a meeting transcript "${filename}" (VTT/SRT). `;
-                    vttContext += `To process it, call vtt_interpreter_tool with vtt_id="${att.vttRef.vttId}" and session_id="${att.vttRef.sessionId}". `;
-                    vttContext += `The tool fetches the transcript itself — do not ask for or paste the transcript text. `;
-                    vttContext += `If the user's message contains specific instructions (e.g. "list action items", "what did X say about Y"), pass those as the user_instructions parameter.]`;
-                    cleanedMessage.content =
-                      (cleanedMessage.content || '') + vttContext;
-                    logger.info(
-                      `Job ${jobId}: Added transcript reference to message`,
-                      {
-                        filename,
-                        vttId: att.vttRef.vttId,
-                        transcriptSize: storedVtt.size ?? storedVtt.data.length,
-                      },
-                    );
-                  } else {
-                    throw new ApiRouteError(
-                      400,
-                      'Transcript attachment is empty. Please upload it again.',
-                      'attachment_empty',
-                    );
-                  }
-                } catch (error) {
-                  if (error instanceof ApiRouteError) throw error;
-                  logger.error(
-                    `Job ${jobId}: Error retrieving VTT from Redis`,
-                    {
-                      vttRef: att.vttRef,
-                      error,
-                    },
-                  );
-                  throw new ApiRouteError(
-                    500,
-                    'Failed to read transcript attachment. Please try again.',
-                    'attachment_read_failed',
-                  );
-                }
-              }
             }
           }
         }

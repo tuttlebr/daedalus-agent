@@ -1356,55 +1356,6 @@ describe('chat/async backend pinning helpers', () => {
     expect(jsonSetWithExpiry).not.toHaveBeenCalled();
   });
 
-  it('rejects transcript attachments owned by another user before creating a job', async () => {
-    (jsonGet as any).mockResolvedValueOnce({
-      id: 'vtt-1',
-      data: 'WEBVTT\n\n00:00:00.000 --> 00:00:01.000\nhello',
-      mimeType: 'text/vtt',
-      filename: 'meeting.vtt',
-      size: 48,
-      createdAt: Date.now(),
-      sessionId: 'other-session',
-      userId: 'other-user',
-    });
-    const req = {
-      method: 'POST',
-      headers: { cookie: 'sid=current-session' },
-      body: {
-        messages: [
-          {
-            role: 'user',
-            content: 'summarize this transcript',
-            attachments: [
-              {
-                type: 'transcript',
-                vttRef: {
-                  sessionId: 'other-session',
-                  vttId: 'vtt-1',
-                  filename: 'meeting.vtt',
-                },
-              },
-            ],
-          },
-        ],
-      },
-    } as any;
-    const res = {
-      status: vi.fn().mockReturnThis(),
-      json: vi.fn().mockReturnThis(),
-      setHeader: vi.fn(),
-    } as any;
-
-    await handler(req, res);
-
-    expect(res.status).toHaveBeenCalledWith(403);
-    expect(res.json).toHaveBeenCalledWith({
-      error: 'You do not have access to one of the transcript attachments.',
-      reason: 'attachment_forbidden',
-    });
-    expect(jsonSetWithExpiry).not.toHaveBeenCalled();
-  });
-
   it('leaves stale pending jobs for the durable worker reclaim path', async () => {
     const now = 2_000_000_000_000;
     const staleAt = now - 16 * 60 * 1000;

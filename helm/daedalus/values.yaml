@@ -323,7 +323,6 @@ nginx:
     documentUploadMaxBodySize: '201M' # 200 MiB raw file plus bounded multipart framing
     videoUploadMaxBodySize: '150M' # Legacy base64 route parser ceiling
     imageUploadMaxBodySize: '41M' # 30 MiB raw image plus base64/JSON framing
-    transcriptUploadMaxBodySize: '15M' # Transcript route parser ceiling
     voiceStudioProxy:
       enabled: false
       path: /voice-studio

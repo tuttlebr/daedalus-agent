@@ -81,7 +81,6 @@ const FRIENDLY_NAMES: Record<string, string> = {
   visual_media: 'Working with image',
   rss_feed: 'Reading RSS feeds',
   nat_nv_ingest: 'Processing document',
-  vtt_interpreter: 'Processing transcript',
   agent_skills: 'Using agent skills',
   llm_diagnostics: 'Running diagnostics',
 };

@@ -565,7 +565,6 @@ The `skills/` directory contains the runtime skills exposed to Daedalus.
 | `smart_milvus`      | package | Milvus retrieval, domain routing, and reranking                       |
 | `source_verifier`   | package | Source planning, claim verification, and citation auditing            |
 | `user_interaction`  | package | Structured clarification, plan approval, and confirmation prompts     |
-| `vtt_interpreter`   | package | Transcript-to-notes processing                                        |
 | `webscrape`         | package | Web page extraction                                                   |
 | `entrypoint.py`     | module  | Version-guarded NAT entrypoint with auth and application routes       |
 | `mcp_patches.py`    | module  | Bounded MCP startup, OAuth bootstrap, and approval policy adapters    |

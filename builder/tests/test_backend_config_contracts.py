@@ -159,7 +159,6 @@ PROMPT_GUIDANCE_CODE_SURFACES = (
         "builder/content_distiller/src/content_distiller/content_distiller_function.py"
     ),
     Path("builder/source_verifier/src/source_verifier/critic.py"),
-    Path("builder/vtt_interpreter/src/vtt_interpreter/vtt_interpreter_function.py"),
     Path("builder/smart_milvus/src/smart_milvus/configs/config.yml"),
 )
 LEGACY_RERANKER_PREFIX = "REA" + "NKER_"
@@ -738,19 +737,6 @@ def test_visual_media_tool_is_top_level():
         assert "visual_media_tool" in workflow_tools, path
 
 
-def test_vtt_interpreter_tool_is_top_level():
-    """Transcripts are handled by a top-level leaf tool (no media_agent hop), and
-    its output can be acted on by the workflow in the same turn."""
-    for path in DEPLOYED_CONFIGS:
-        config = _config(path)
-        workflow_tools = set(config["workflow"]["nat_tools"])
-
-        assert "vtt_interpreter_tool" in workflow_tools, path
-        # The retired media_agent sub-agent must be gone entirely.
-        assert "media_agent" not in config["functions"], path
-        assert "media_agent" not in workflow_tools, path
-
-
 def test_workflow_exposes_only_the_configured_gmail_write():
     for path in DEPLOYED_CONFIGS:
         config = _config(path)
@@ -1057,7 +1043,6 @@ def test_backend_secret_allowlist_tracks_active_model_credentials():
         "VERIFIER_API_KEY",
         "VERIFIER_BASE_URL",
         "VERIFIER_MODEL",
-        "DEFAULT_LLM_MODEL_API_KEY",
         "TOOL_CALLING_LLM_MODEL_API_KEY",
     ):
         assert allowlist.fullmatch(active_name), active_name

@@ -9,7 +9,6 @@
  * - Image: 30MB
  * - Video: 100MB
  * - Document: 200MB
- * - Transcript: 10MB
  */
 
 const MB = 1024 * 1024;
@@ -24,8 +23,6 @@ const ENV = {
     process.env.NEXT_PUBLIC_UPLOAD_VIDEO_SERVER_LIMIT_MB,
   NEXT_PUBLIC_UPLOAD_DOCUMENT_SERVER_LIMIT_MB:
     process.env.NEXT_PUBLIC_UPLOAD_DOCUMENT_SERVER_LIMIT_MB,
-  NEXT_PUBLIC_UPLOAD_TRANSCRIPT_MAX_MB:
-    process.env.NEXT_PUBLIC_UPLOAD_TRANSCRIPT_MAX_MB,
   NEXT_PUBLIC_UPLOAD_MAX_IMAGES_PER_BATCH:
     process.env.NEXT_PUBLIC_UPLOAD_MAX_IMAGES_PER_BATCH,
   NEXT_PUBLIC_UPLOAD_MAX_DOCUMENTS_PER_BATCH:
@@ -96,19 +93,11 @@ const SERVER_VIDEO_LIMIT = mbToBytes(
 const SERVER_DOCUMENT_LIMIT = mbToBytes(
   positiveNumberFromEnv(['NEXT_PUBLIC_UPLOAD_DOCUMENT_SERVER_LIMIT_MB'], 200),
 );
-const TRANSCRIPT_ROUTE_RAW_LIMIT = 10 * MB;
-
 const IMAGE_MAX_SIZE_BYTES = SERVER_IMAGE_LIMIT;
 const VIDEO_MAX_SIZE_BYTES = Math.floor(
   SERVER_VIDEO_LIMIT * BASE64_OVERHEAD_FACTOR,
 );
 const DOCUMENT_MAX_SIZE_BYTES = SERVER_DOCUMENT_LIMIT;
-const TRANSCRIPT_MAX_SIZE_BYTES = Math.min(
-  mbToBytes(
-    positiveNumberFromEnv(['NEXT_PUBLIC_UPLOAD_TRANSCRIPT_MAX_MB'], 10),
-  ),
-  TRANSCRIPT_ROUTE_RAW_LIMIT,
-);
 
 /**
  * Client-side upload limits in bytes.
@@ -128,10 +117,6 @@ export const UPLOAD_LIMITS = {
   DOCUMENT_MAX_SIZE_BYTES,
   DOCUMENT_MAX_SIZE_MB: bytesToDisplayMb(DOCUMENT_MAX_SIZE_BYTES),
   DOCUMENT_SERVER_LIMIT_BYTES: SERVER_DOCUMENT_LIMIT,
-
-  // Transcript limits (VTT, SRT - text files, smaller limit)
-  TRANSCRIPT_MAX_SIZE_BYTES,
-  TRANSCRIPT_MAX_SIZE_MB: bytesToDisplayMb(TRANSCRIPT_MAX_SIZE_BYTES),
 
   // Batch limits
   MAX_IMAGES_PER_BATCH: positiveIntegerFromEnv(
@@ -180,13 +165,12 @@ export function formatFileSize(bytes: number): string {
  */
 export function validateFileSize(
   file: File,
-  type: 'image' | 'video' | 'document' | 'transcript',
+  type: 'image' | 'video' | 'document',
 ): { valid: boolean; error?: string } {
   const limits = {
     image: UPLOAD_LIMITS.IMAGE_MAX_SIZE_BYTES,
     video: UPLOAD_LIMITS.VIDEO_MAX_SIZE_BYTES,
     document: UPLOAD_LIMITS.DOCUMENT_MAX_SIZE_BYTES,
-    transcript: UPLOAD_LIMITS.TRANSCRIPT_MAX_SIZE_BYTES,
   };
 
   const maxSize = limits[type];

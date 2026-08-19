@@ -1,4 +1,4 @@
-export type UploadKind = 'image' | 'document' | 'video' | 'transcript';
+export type UploadKind = 'image' | 'document' | 'video';
 
 export type UploadKindCounts = Record<UploadKind, number>;
 
@@ -19,13 +19,11 @@ export function admitUploadBatch<T>(
     image: 0,
     document: 0,
     video: 0,
-    transcript: 0,
   };
   const rejected: UploadKindCounts = {
     image: 0,
     document: 0,
     video: 0,
-    transcript: 0,
   };
 
   for (const candidate of candidates) {
