@@ -230,12 +230,22 @@ def main() -> None:
             prompt_cache_isolation=True,
             session_affinity_scope="conversation",
         )
+        if config.use_previous_response_id:
+            raise RuntimeError(
+                "Daedalus Fireworks Responses client no longer defaults to full-history replay"
+            )
         with warnings.catch_warnings(record=True) as captured:
             warnings.simplefilter("always")
             async with registered_fireworks_client.build_fn(
                 config,
                 SimpleNamespace(),
             ) as llm:
+                if not llm.use_responses_api:
+                    raise RuntimeError("Fireworks client lost Responses API mode")
+                if llm.use_previous_response_id:
+                    raise RuntimeError(
+                        "Fireworks client still enables unsupported response-ID continuation"
+                    )
                 if "extra_headers" in llm.model_kwargs:
                     raise RuntimeError(
                         "Fireworks headers leaked into LangChain model_kwargs"
@@ -289,6 +299,16 @@ def main() -> None:
                         os.environ["DAEDALUS_INTERNAL_API_TOKEN"] = (
                             previous_internal_token
                         )
+
+            opt_in_config = config.model_copy(update={"use_previous_response_id": True})
+            async with registered_fireworks_client.build_fn(
+                opt_in_config,
+                SimpleNamespace(),
+            ) as opt_in_llm:
+                if not opt_in_llm.use_previous_response_id:
+                    raise RuntimeError(
+                        "Fireworks client lost explicit response-ID continuation opt-in"
+                    )
 
         if any(
             "extra_headers is not default parameter" in str(item.message)

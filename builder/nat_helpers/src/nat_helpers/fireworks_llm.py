@@ -31,6 +31,14 @@ class DaedalusFireworksModelConfig(
         default=True,
         description="Isolate prompt-cache entries between authenticated users.",
     )
+    use_previous_response_id: bool = Field(
+        default=False,
+        description=(
+            "Use server-side Responses continuation IDs instead of replaying full "
+            "history. Enable only when the upstream provider supports "
+            "previous_response_id."
+        ),
+    )
 
 
 @register_llm_provider(config_type=DaedalusFireworksModelConfig)
@@ -77,6 +85,7 @@ async def daedalus_fireworks_langchain_client(
                 "verify_ssl",
                 "session_affinity_scope",
                 "prompt_cache_isolation",
+                "use_previous_response_id",
             },
             by_alias=True,
             exclude_none=True,
@@ -95,7 +104,7 @@ async def daedalus_fireworks_langchain_client(
         if config.api_type == APITypeEnum.RESPONSES:
             client_kwargs.update(
                 use_responses_api=True,
-                use_previous_response_id=True,
+                use_previous_response_id=config.use_previous_response_id,
             )
 
         client = ChatOpenAI(**client_kwargs)

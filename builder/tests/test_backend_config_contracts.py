@@ -598,6 +598,15 @@ def test_workflow_uses_responses_api_agent_schema():
         assert not set(removed_agent_names) & set(config["functions"]), path
 
 
+def test_routed_responses_llms_replay_full_history():
+    for path in DEPLOYED_CONFIGS:
+        config = _config(path)
+        for llm_name, llm in config["llms"].items():
+            if llm["api_type"] != "responses":
+                continue
+            assert llm["use_previous_response_id"] is False, (path, llm_name)
+
+
 def test_fireworks_llms_use_request_scoped_prompt_cache_headers():
     expected = {
         "tool_calling_llm",

@@ -908,6 +908,7 @@ llms:
   tool_calling_llm:
     _type: daedalus_fireworks
     api_type: responses
+    use_previous_response_id: false
     api_key: ${TOOL_CALLING_LLM_MODEL_API_KEY}
     base_url: ${TOOL_CALLING_LLM_MODEL_BASE_URL}
     max_retries: ${DAEDALUS_LLM_MAX_RETRIES:-3}
