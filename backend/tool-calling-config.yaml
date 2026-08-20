@@ -5,6 +5,12 @@ authentication:
     custom_header_name: Authorization
     custom_header_prefix: Bearer
     raw_key: ${X_MCP_BEARER_TOKEN}
+  github_mcp_server:
+    _type: api_key
+    auth_scheme: Custom
+    custom_header_name: Authorization
+    custom_header_prefix: Bearer
+    raw_key: ${GITHUB_PAT}
   k8s_mcp_server:
     _type: api_key
     auth_scheme: Custom
@@ -223,6 +229,52 @@ function_groups:
       transport: streamable-http
       url: https://api.x.com/mcp
       auth_provider: x_mcp_server
+  github_mcp_server:
+    _type: mcp_client
+    include:
+      - get_file_contents
+      - get_latest_release
+      - issue_read
+      - list_branches
+      - list_commits
+      - list_issues
+      - search_code
+      - search_issues
+      - search_pull_requests
+      - search_repositories
+    tool_overrides:
+      get_file_contents:
+        approval_policy: read_only
+      get_latest_release:
+        approval_policy: read_only
+      issue_read:
+        approval_policy: read_only
+      list_branches:
+        approval_policy: read_only
+      list_commits:
+        approval_policy: read_only
+      list_issues:
+        approval_policy: read_only
+      search_code:
+        approval_policy: read_only
+      search_issues:
+        approval_policy: read_only
+      search_pull_requests:
+        approval_policy: read_only
+      search_repositories:
+        approval_policy: read_only
+    tool_call_timeout: 60
+    auth_flow_timeout: 30
+    reconnect_enabled: true
+    reconnect_max_attempts: 3
+    reconnect_initial_backoff: 5.0
+    reconnect_max_backoff: 60.0
+    max_sessions: 8
+    session_idle_timeout: 600
+    server:
+      transport: streamable-http
+      url: https://api.githubcopilot.com/mcp/
+      auth_provider: github_mcp_server
   gmail_mcp_server:
     _type: per_user_mcp_client
     include:
@@ -967,6 +1019,7 @@ workflow:
     - domain_retriever_tool
     - drive_mcp_server
     - get_memory
+    - github_mcp_server
     - gmail_mcp_server
     - k8s_mcp_server
     - llm_sandbox_tool

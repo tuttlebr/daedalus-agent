@@ -566,6 +566,7 @@ def test_api_key_environment_configuration_log_is_presence_only(monkeypatch, cap
     secret = "do-not-log-this-api-key"
     monkeypatch.setenv("KUBERNETES_MCP_TOKEN", secret)
     monkeypatch.delenv("X_MCP_BEARER_TOKEN", raising=False)
+    monkeypatch.delenv("GITHUB_PAT", raising=False)
     monkeypatch.delenv("UNIFI_MCP_TOKEN", raising=False)
 
     with caplog.at_level("INFO", logger="daedalus.mcp_patches"):
@@ -577,6 +578,10 @@ def test_api_key_environment_configuration_log_is_presence_only(monkeypatch, cap
     )
     assert (
         "server=x_mcp_server environment=X_MCP_BEARER_TOKEN configured=False"
+        in caplog.text
+    )
+    assert (
+        "server=github_mcp_server environment=GITHUB_PAT configured=False"
         in caplog.text
     )
     assert (

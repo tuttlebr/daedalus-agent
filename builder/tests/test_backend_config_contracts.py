@@ -563,10 +563,11 @@ def test_deployed_tool_surface_is_optimized():
         removed_router_tool = "mas" + "_optimizer_tool"
         assert removed_router_tool not in functions, path
         assert removed_router_tool not in workflow_tools, path
-        # The six first-party Workspace resources add a deliberately bounded
-        # 25-operation surface. Each remains server-allowlisted and locally
-        # classified as read-only or approval-required.
-        assert _effective_operation_count(config, workflow_tools) <= 73, path
+        # The six first-party Workspace resources and official GitHub MCP
+        # resource add a deliberately bounded 35-operation surface. Each
+        # remains server-allowlisted and locally classified as read-only or
+        # approval-required.
+        assert _effective_operation_count(config, workflow_tools) <= 83, path
 
 
 def test_workflow_uses_responses_api_agent_schema():
@@ -902,6 +903,7 @@ def test_shared_api_key_mcp_auth_is_operator_managed():
         config = _config(path)
         for name, env_name in (
             ("x_mcp_server", "X_MCP_BEARER_TOKEN"),
+            ("github_mcp_server", "GITHUB_PAT"),
             ("k8s_mcp_server", "KUBERNETES_MCP_TOKEN"),
             ("unifi_mcp_server", "UNIFI_MCP_TOKEN"),
         ):
@@ -943,6 +945,18 @@ def test_mcp_approval_policy_follows_explicit_include_lists():
             "get_users_mentions",
             "get_users_timeline",
             "get_users_posts",
+        },
+        "github_mcp_server": {
+            "get_file_contents",
+            "get_latest_release",
+            "issue_read",
+            "list_branches",
+            "list_commits",
+            "list_issues",
+            "search_code",
+            "search_issues",
+            "search_pull_requests",
+            "search_repositories",
         },
         "gmail_mcp_server": {
             "search_threads",
@@ -1049,6 +1063,7 @@ def test_backend_secret_allowlist_tracks_active_model_credentials():
     for active_name in (
         "DAEDALUS_MCP_OAUTH_TIMEOUT_SECONDS",
         "X_MCP_BEARER_TOKEN",
+        "GITHUB_PAT",
         "VERIFIER_API_KEY",
         "VERIFIER_BASE_URL",
         "VERIFIER_MODEL",
