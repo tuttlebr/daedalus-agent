@@ -1,22 +1,19 @@
 ---
 name: creative-ideation
-title: Creative Ideation — Routed Library of Creative Methods
 description: >-
-  Generate, expand, refine, or choose between ideas using named
-  creative-practice methods (SCAMPER, TRIZ, Oblique Strategies, lateral
-  thinking, first principles, biomimicry, Oulipo, premortem and inversion,
-  jobs-to-be-done, affinity diagrams, and more), routed to the method that
-  fits the situation. Use when the user wants to brainstorm, is stuck or
-  blocked, says "inspire me", "give me ideas", "what should I
-  make/build/write", "invent X", "make this weirder", "help me pick between
-  options", or "give me a research question", across any domain (text, art,
-  software, systems, product, research, or life decisions). This produces
-  ideas and directions, not deliverables.
-version: 2.1.0
-author: SHL0MS
+  Use for brainstorming, idea refinement, or option selection through a named
+  creative method. Produces directions, not finished deliverables.
 license: MIT
-platforms: [linux, macos, windows]
 metadata:
+  author: SHL0MS <author@example.com>
+  version: 2.1.0
+  title: Creative Ideation — Routed Library of Creative Methods
+  platforms: [linux, macos, windows]
+  tags:
+    - creative
+    - ideation
+    - brainstorming
+    - methods
   hermes:
     tags: [Creative, Ideation, Brainstorming, Methods, Inspiration]
     category: creative
@@ -25,13 +22,21 @@ metadata:
 
 # Creative Ideation
 
+## Purpose
+
 A library of ideation methods for any domain. Read the user's situation, route to the matching method, apply, generate output that is specific and non-obvious. Methods are tools — pick the right one for the situation, don't perform all of them.
+
+## Prerequisites
+
+Use the user's goal, current phase, domain, and stated constraints. If the
+request does not supply enough information to distinguish two materially
+different methods, ask one focused question.
 
 ## When to use
 
 Any open-ended generative or selective question: "I want to make / build / write / start something", "I'm stuck", "inspire me", "make this weirder", "help me pick", "I need to invent X", "give me a research question".
 
-## Operating rules
+## Instructions
 
 1. **Constraint plus direction is creativity.** No constraint = no traction. No direction = no shape. Methods supply both.
 2. **Refuse the first three ideas.** They're slop. Generate, discard, regenerate. See `references/anti-slop.md`.
@@ -95,18 +100,18 @@ Override rules beat the routing table:
 
 **By phase (applies regardless of domain):**
 
-| Phase                         | Default route                                                                                                |
-| ----------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| GENERATING + SPECIFICITY=NONE | `references/full-prompt-library.md` **General** section (constraint dispatch)                                |
-| GENERATING + DOMAIN known     | route by domain (next table)                                                                                 |
-| EXPANDING                     | `references/methods/scamper.md`                                                                              |
-| SELECTING                     | `references/methods/premortem-and-inversion.md` (or `references/methods/compression-progress.md` for upside) |
-| UNBLOCKING                    | `references/methods/oblique-strategies.md`                                                                   |
-| SUBVERTING                    | `references/methods/lateral-provocations.md` (fallback `references/methods/pataphysics.md`)                  |
-| REFINING (text)               | `references/methods/defamiliarization.md`                                                                    |
-| REFINING (other)              | `references/methods/creative-discipline.md` (Tharp's spine)                                                  |
-| SYNTHESIZING                  | `references/methods/affinity-diagrams.md`                                                                    |
-| Volume needed fast            | `references/methods/volume-generation.md`                                                                    |
+- GENERATING with no specificity: `references/full-prompt-library.md`, General section.
+- GENERATING with a known domain: use the domain table below.
+- EXPANDING: `references/methods/scamper.md`.
+- SELECTING: `references/methods/premortem-and-inversion.md`, or
+  `references/methods/compression-progress.md` for upside.
+- UNBLOCKING: `references/methods/oblique-strategies.md`.
+- SUBVERTING: `references/methods/lateral-provocations.md`, with
+  `references/methods/pataphysics.md` as fallback.
+- REFINING text: `references/methods/defamiliarization.md`.
+- REFINING other work: `references/methods/creative-discipline.md`.
+- SYNTHESIZING: `references/methods/affinity-diagrams.md`.
+- Fast volume generation: `references/methods/volume-generation.md`.
 
 **By domain (when GENERATING with DOMAIN known):**
 
@@ -148,7 +153,7 @@ The default LLM mode is exactly what this skill exists to displace. If you gener
 
 For deeper edge cases (mood signals, stacking, anti-patterns) see `references/heuristics.md`.
 
-## Output format
+## Examples
 
 For the constraint-dispatch default path:
 
@@ -182,6 +187,20 @@ For other methods, use the format the method specifies (TRIZ produces a contradi
 - `references/anti-slop.md` — anti-slop rules; apply to every output
 - `references/exercises.md` — time-boxed exercises (5min / 30min / 1hr / day / week)
 - `references/methods/` — 22 named methods, one file each, load only the one you're using
+
+## Limitations
+
+- Produces ideas and decision directions, not completed artifacts.
+- Named methods guide the work but do not replace domain evidence or expert review.
+- High-stakes personal, legal, medical, or financial choices need appropriate professional input.
+
+## Troubleshooting
+
+| Problem                      | Cause                                                  | Response                                                           |
+| ---------------------------- | ------------------------------------------------------ | ------------------------------------------------------------------ |
+| Ideas feel generic           | The method was skipped or the prompt lacks constraints | Route again and bind each idea to a real mechanism and first step. |
+| Two methods fit equally well | Phase or domain is ambiguous                           | Ask one focused question or state an explicit two-method stack.    |
+| User rejects the first set   | The method distribution missed the goal                | Switch methods; do not repeat the same framing with new nouns.     |
 
 ## Attribution
 

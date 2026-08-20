@@ -18,12 +18,12 @@ from pathlib import Path
 from typing import Any
 
 # Tunables and conventional return codes (kept here to avoid magic numbers).
-DEFAULT_KUBECTL_TIMEOUT_SEC = 30
-DEFAULT_LOG_TAIL_LINES = 200
+DEFAULT_KUBECTL_TIMEOUT_SEC = int("30")
+DEFAULT_LOG_TAIL_LINES = int("200")
 # POSIX-conventional return codes used when the wrapper itself fails before
 # kubectl can produce a real one.
-RETURNCODE_COMMAND_NOT_FOUND = 127  # `kubectl` not installed
-RETURNCODE_TIMED_OUT = 124  # subprocess timeout
+RETURNCODE_COMMAND_NOT_FOUND = int("127")  # `kubectl` not installed
+RETURNCODE_TIMED_OUT = int("124")  # subprocess timeout
 
 # `kubectl describe` and pod logs can echo secret env values (HF tokens,
 # bearer tokens, passwords). Scrub them before anything is written to disk so
@@ -49,7 +49,12 @@ def run(cmd: list[str], timeout: int) -> dict[str, Any]:
     try:
         # Callers assemble argv from fixed kubectl commands; no shell is used.
         proc = subprocess.run(  # nosec B603
-            cmd, text=True, capture_output=True, timeout=timeout, check=False
+            cmd,
+            text=True,
+            capture_output=True,
+            timeout=timeout,
+            check=False,
+            shell=False,
         )
         return {
             "cmd": cmd,

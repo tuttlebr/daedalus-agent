@@ -1,9 +1,11 @@
 ---
 name: dynamo-troubleshoot
-description: Diagnose failed or unhealthy Dynamo deployments. Use when pods, model-cache jobs, PVCs, workers, frontend/router health, endpoints, or benchmark jobs fail; use recipe-runner/router-starter before this for normal bring-up.
+description: Diagnose unhealthy Dynamo Kubernetes deployments across pods, jobs, PVCs, workers, routers, and endpoints. Not for normal recipe bring-up.
+allowed-tools: Read, Write, Bash
 license: Apache-2.0
 metadata:
   author: Dan Gil <dagil@nvidia.com>
+  version: 1.0.0
   tags:
     - dynamo
     - kubernetes

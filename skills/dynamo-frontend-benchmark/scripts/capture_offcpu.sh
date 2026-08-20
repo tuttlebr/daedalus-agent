@@ -5,12 +5,12 @@
 # Off-CPU profile of a target process (frontend or mocker) under load.
 # Shows what blocked threads are WAITING on (futex/lock, epoll/network, park).
 #
-# MUST run as root: sched tracepoints + BPF are root-only even with
-# perf_event_paranoid=-1 (tracefs event files are root-readable only).
+# Requires a pre-authorized privileged shell because sched tracepoints and BPF
+# are not available to an ordinary user even with perf_event_paranoid=-1.
 #
-#   sudo DYN_REPO=/path/to/dynamo bash capture_offcpu.sh --pid <PID> [--conc 2048]
+#   DYN_REPO=/path/to/dynamo bash capture_offcpu.sh --pid <PID> [--conc 2048]
 #   # or target the frontend automatically:
-#   sudo DYN_REPO=/path/to/dynamo bash capture_offcpu.sh --frontend
+#   DYN_REPO=/path/to/dynamo bash capture_offcpu.sh --frontend
 #
 # Pre-req: topology already up (start.sh). This only drives load + captures.
 set -uo pipefail
@@ -26,23 +26,21 @@ while [[ $# -gt 0 ]]; do case $1 in
   *) echo "unknown arg $1"; exit 1;;
 esac; done
 
-[[ $EUID -eq 0 ]] || { echo "ERROR: run with sudo (sched tracepoints + BPF need root)."; exit 1; }
+[[ $EUID -eq 0 ]] || { echo "ERROR: pre-authorized perf/BPF privileges are required."; exit 1; }
 [[ -n "$PID" ]] && kill -0 "$PID" 2>/dev/null || { echo "ERROR: target PID '$PID' not running."; exit 1; }
-command -v setsid >/dev/null 2>&1 || { echo "ERROR: setsid is required to isolate the aiperf load process group."; exit 1; }
 STAMP="$(date +%Y%m%d-%H%M%S)"
 OUT="$RESULTS_DIR/../profiling/offcpu-$TAG-$STAMP"; mkdir -p "$OUT"
 echo "[offcpu] target=$TAG PID=$PID conc=$CONC out=$OUT"
 
 cleanup_load() {
-  if [[ -n "${LOAD_PGID:-}" ]]; then
-    kill -- "-$LOAD_PGID" 2>/dev/null || true
-  elif [[ -n "${LOAD_PID:-}" ]]; then
+  if [[ -n "${LOAD_PID:-}" ]]; then
+    pkill -P "$LOAD_PID" 2>/dev/null || true
     kill "$LOAD_PID" 2>/dev/null || true
   fi
 }
 
 # Drive load (time-based; small dataset = fast client-side gen).
-setsid taskset -c "$OTHER_CORES" "$AIPERF" profile --model "$MODEL" --tokenizer "$MODEL" \
+taskset -c "$OTHER_CORES" "$AIPERF" profile --model "$MODEL" --tokenizer "$MODEL" \
   --url "http://localhost:${HTTP_PORT}" --endpoint-type chat --streaming \
   --shared-system-prompt-length 48000 --user-context-prompt-length 12000 \
   --num-dataset-entries 1024 --output-tokens-mean 500 --conversation-turn-mean 4 \
@@ -50,8 +48,6 @@ setsid taskset -c "$OTHER_CORES" "$AIPERF" profile --model "$MODEL" --tokenizer 
   --extra-inputs "ignore_eos:true" --artifact-dir "$OUT/load_artifacts" \
   > "$OUT/load_aiperf.log" 2>&1 &
 LOAD_PID=$!
-LOAD_PGID="$(ps -o pgid= -p "$LOAD_PID" 2>/dev/null | tr -d '[:space:]')"
-LOAD_PGID="${LOAD_PGID:-$LOAD_PID}"
 trap cleanup_load EXIT
 echo "[load] settling ${SETTLE}s ..."; sleep "$SETTLE"
 
@@ -73,7 +69,7 @@ if [[ -s "$OUT/offcpu_bcc.folded" && -x "$FLAMEGRAPH_DIR/flamegraph.pl" ]]; then
 fi
 
 cleanup_load; trap - EXIT
-# Hand artifacts back to the invoking (non-root) user so analysis can read them.
+# Hand artifacts back to the results-directory owner so analysis can read them.
 chown -R "$(stat -c %U "$RESULTS_DIR")":"$(stat -c %G "$RESULTS_DIR")" "$OUT" 2>/dev/null || true
 echo "[done] $OUT  (offcpu_bcc.folded / .svg ; sched.data for perf-DWARF)"
-echo "REMINDER: aiperf ran as ROOT; if orphans linger, 'sudo pkill -9 -f aiperf'."
+echo "REMINDER: if workers remain, stop only this task's process tree from the same approved shell."

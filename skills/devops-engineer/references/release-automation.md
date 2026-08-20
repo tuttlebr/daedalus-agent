@@ -54,14 +54,13 @@ jobs:
     steps:
       - name: Re-tag for environment
         run: |
-          docker pull $REGISTRY/$IMAGE:${{ inputs.image_tag }}
-          docker tag $REGISTRY/$IMAGE:${{ inputs.image_tag }} \
-            $REGISTRY/$IMAGE:${{ inputs.target_env }}-latest
-          docker push $REGISTRY/$IMAGE:${{ inputs.target_env }}-latest
+          docker pull ghcr.io/org/myapp:1.2.3
+          docker tag ghcr.io/org/myapp:1.2.3 ghcr.io/org/myapp:staging-1.2.3
+          docker push ghcr.io/org/myapp:staging-1.2.3
 
       - name: Sign artifact
         uses: sigstore/cosign-installer@v3
-      - run: cosign sign $REGISTRY/$IMAGE:${{ inputs.target_env }}-latest
+      - run: cosign sign ghcr.io/org/myapp:staging-1.2.3
 
       - name: Update GitOps
         run: |

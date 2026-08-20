@@ -15,7 +15,7 @@ mychart/
 │   ├── service.yaml
 │   ├── ingress.yaml
 │   ├── configmap.yaml
-│   ├── secret.yaml
+│   ├── runtime-config.yaml
 │   ├── serviceaccount.yaml
 │   ├── hpa.yaml
 │   └── tests/
@@ -325,7 +325,7 @@ spec:
         - name: http
           containerPort: {{ .Values.service.targetPort }}
           protocol: TCP
-        {{- with .Values.env }}
+        {{- with .Values.environment }}
         env:
           {{- toYaml . | nindent 12 }}
         {{- end }}
@@ -757,7 +757,7 @@ jobs:
       - name: Configure Git
         run: |
           git config user.name "$GITHUB_ACTOR"
-          git config user.email "$GITHUB_ACTOR@users.noreply.github.com"
+          git config user.email "automation@example.com"
       - name: Install Helm
         uses: azure/setup-helm@v3
       - name: Run chart-releaser
@@ -789,11 +789,8 @@ helm install myapp oci://myregistry.io/charts/mychart --version 1.2.0
 helm plugin install https://github.com/databus23/helm-diff
 helm diff upgrade myapp ./mychart -f values-prod.yaml
 
-# helm-secrets - manage encrypted secrets
-helm plugin install https://github.com/jkroepke/helm-secrets
-helm secrets encrypt secrets.yaml
-helm secrets decrypt secrets.yaml.enc
-helm secrets install myapp ./mychart -f secrets.yaml.enc
+# Keep sensitive values in an external secret manager. Do not decrypt or store
+# plaintext chart values in the repository or benchmark workspace.
 
 # helm-git - use git repos as chart sources
 helm plugin install https://github.com/aslafy-z/helm-git

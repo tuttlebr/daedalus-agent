@@ -178,12 +178,12 @@ spec:
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
-  name: node-exporter
+  name: node-health-agent
   namespace: monitoring
 spec:
   selector:
     matchLabels:
-      app: node-exporter
+      app: node-health-agent
   updateStrategy:
     type: RollingUpdate
     rollingUpdate:
@@ -191,24 +191,18 @@ spec:
   template:
     metadata:
       labels:
-        app: node-exporter
+        app: node-health-agent
     spec:
-      hostNetwork: true
-      hostPID: true
-      serviceAccountName: node-exporter-sa
+      serviceAccountName: node-health-agent-sa
       tolerations:
         - effect: NoSchedule
           operator: Exists
       containers:
-        - name: node-exporter
-          image: prom/node-exporter:latest
-          args:
-            - --path.procfs=/host/proc
-            - --path.sysfs=/host/sys
-            - --collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)
+        - name: node-health-agent
+          image: example.com/observability/node-health-agent:1.0.0
           ports:
             - name: metrics
-              containerPort: 9100
+              containerPort: 8080
               protocol: TCP
           resources:
             requests:
@@ -217,20 +211,11 @@ spec:
             limits:
               cpu: 200m
               memory: 128Mi
-          volumeMounts:
-            - name: proc
-              mountPath: /host/proc
-              readOnly: true
-            - name: sys
-              mountPath: /host/sys
-              readOnly: true
-      volumes:
-        - name: proc
-          hostPath:
-            path: /proc
-        - name: sys
-          hostPath:
-            path: /sys
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ['ALL']
 ```
 
 ## Job Pattern

@@ -1,19 +1,26 @@
 ---
 name: network-health-check
 description: >-
-  Run a UniFi network health check covering whether everything is online, what
-  is down or offline, device and gateway status, firmware updates needed,
-  active alarms, controller uptime, and per-subsystem WAN, LAN, WLAN, and VPN
-  health. Use when asked to check network health, find offline or problematic
-  devices, review alarms, diagnose connectivity, WAN, or internet-down issues,
-  or get a network status summary. Use firewall-auditor for a scored firewall
-  security audit and firewall-manager or unifi-network to change
-  configuration, rather than diagnosing device and connectivity health.
+  Run a read-only UniFi health check for devices, alarms, firmware, controller,
+  WAN, LAN, WLAN, and VPN. Use UniFi Network for changes.
+metadata:
+  author: NVIDIA Corporation and Affiliates <noreply@nvidia.com>
+  version: 1.0.0
+  tags:
+    - unifi
+    - network-health
+    - diagnostics
+    - read-only
 ---
 
 # Network Health Check
 
-## Setup Check
+## Purpose
+
+Report the UniFi controller's current health, active alarms, device state,
+firmware posture, and WAN-to-VPN subsystem status without changing the network.
+
+## Prerequisites
 
 Before running a health check, verify the MCP server is configured:
 
@@ -21,9 +28,10 @@ Before running a health check, verify the MCP server is configured:
 - If it is not set or the connection fails, stop and direct the user to the `unifi-network-setup` skill to configure the UniFi Network MCP server.
 - Use `unifi_tool_index` to confirm available tools. If no UniFi tools are listed, the server is not connected.
 
-## Health Check Procedure
+## Instructions
 
-Use `unifi_batch` to gather all required data in a single parallel operation:
+1. Call `unifi_batch` once to gather system, health, device, and alarm data in
+   parallel:
 
 ```
 unifi_batch([
@@ -34,9 +42,10 @@ unifi_batch([
 ])
 ```
 
-This single batch call replaces sequential tool calls and returns all data needed for the report. Do not call these tools one at a time.
+2. Validate each batch result and report any unavailable operation instead of
+   guessing its data. Do not call these tools one at a time.
 
-If device or alarm issues are found and more detail is needed, a follow-up batch can add:
+3. Run this follow-up batch only when a device or alarm issue needs more detail:
 
 ```
 unifi_batch([
@@ -44,6 +53,9 @@ unifi_batch([
   { "tool": "unifi_get_top_clients" }
 ])
 ```
+
+4. Use the reference mappings to classify the results, then return the report
+   structure below.
 
 ## Analyzing Results
 
@@ -62,7 +74,7 @@ From the device list, identify:
 
 For each active alarm, classify severity using `references/alarm-types.md` and provide a plain-language explanation with remediation steps from that reference.
 
-## Report Format
+## Examples
 
 Present findings using this structure:
 
@@ -92,3 +104,17 @@ A healthy network gets a brief "all clear" summary. Do not manufacture concerns 
 - If `unifi_get_network_health` shows WAN health issues, that likely explains many downstream problems — lead with that finding and follow the WAN → LAN → WLAN → VPN diagnostic priority from `references/health-subsystems.md`.
 - Don't overwhelm the user with raw data. Focus on what is broken or needs attention.
 - Consult the reference docs before classifying device state codes or alarm meanings — misclassification leads to bad recommendations.
+
+## Limitations
+
+- Read-only health reporting; use `unifi-network` for approved configuration changes.
+- Results reflect the controller's current data and may omit unsupported device metrics.
+- The skill does not score firewall policy; use `firewall-auditor` for that task.
+
+## Troubleshooting
+
+| Problem                     | Cause                                        | Response                                                              |
+| --------------------------- | -------------------------------------------- | --------------------------------------------------------------------- |
+| No UniFi tools appear       | MCP server is disconnected or not configured | Stop and use `unifi-network-setup`.                                   |
+| Batch call times out        | Controller or MCP transport is unavailable   | Verify the connection, retry the read once, then report the boundary. |
+| One tool in the batch fails | Controller capability differs by version     | Report available sections and identify the missing operation.         |

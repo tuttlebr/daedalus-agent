@@ -98,10 +98,11 @@ if [[ "${ISOLATE:-0}" == "1" ]]; then
     # Reserved-core mode (see bench/isolate.sh): cores ${FRONTEND_CORES} are kept
     # clear of all other userspace via slice confinement. Launch the frontend in a
     # top-level `bench.slice` pinned to those cores (a child of the confined
-    # user.slice could NOT claim them — cgroup cpuset is hierarchical). Needs root
-    # for systemd-run; `env ...` carries the vars through sudo's env scrub.
-    echo "[frontend] ISOLATE=1: launching in bench.slice on cores ${FRONTEND_CORES} (systemd-run, needs root) ..."
-    sudo systemd-run --scope --slice=bench -p AllowedCPUs="${FRONTEND_CORES}" \
+    # user.slice could not claim them because cgroup cpusets are hierarchical).
+    [[ $EUID -eq 0 ]] || { echo "ERROR: ISOLATE=1 requires the approved privileged shell."; exit 1; }
+    BENCH_RUN_USER="${BENCH_RUN_USER:-$(stat -c %U "$DYN_REPO")}"
+    echo "[frontend] ISOLATE=1: launching in bench.slice on cores ${FRONTEND_CORES} as ${BENCH_RUN_USER} ..."
+    systemd-run --scope --uid="${BENCH_RUN_USER}" --slice=bench -p AllowedCPUs="${FRONTEND_CORES}" \
         env LD_PRELOAD="${FRONTEND_LD_PRELOAD:-}" \
             MALLOC_CONF="${FRONTEND_MALLOC_CONF:-}" \
             FASTOKENS_SEQUENTIAL="${FASTOKENS_SEQUENTIAL:-}" \
@@ -113,7 +114,7 @@ if [[ "${ISOLATE:-0}" == "1" ]]; then
                 --kv-cache-block-size "$BLOCK_SIZE" \
                 --http-port "$HTTP_PORT" \
         > "$LOG_DIR/frontend.log" 2>&1 &
-    # PID is a descendant of systemd-run/sudo; resolve the python process.
+    # PID is a descendant of systemd-run; resolve the Python process.
     FRONTEND_PID=""
     for _ in $(seq 1 20); do
         FRONTEND_PID="$(pgrep -f 'dynamo.frontend --router-mode kv' | head -1)"

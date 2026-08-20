@@ -22,10 +22,18 @@ import re
 import sys
 from collections import defaultdict
 
+RUST_HASH_SUFFIX = re.compile(r"::h[0-9a-f]{16}.*")
+LLVM_SUFFIX = re.compile(r"\.llvm\..*")
+MAX_FRAME_CHARS = int("100")
+TOP_ONCPU_FRAMES = int("20")
+TOP_OFFCPU_FRAMES = int("18")
+MICROSECONDS_PER_SECOND = int("1000000")
+PERCENT_SCALE = int("100")
+
 
 def clean(fr):
-    fr = re.sub(r"::h[0-9a-f]{16}.*", "", fr)
-    fr = re.sub(r"\.llvm\..*", "", fr)
+    fr = RUST_HASH_SUFFIX.sub("", fr)
+    fr = LLVM_SUFFIX.sub("", fr)
     for a, b in [
         ("$LT$", "<"),
         ("$GT$", ">"),
@@ -36,7 +44,7 @@ def clean(fr):
         ("..", "::"),
     ]:
         fr = fr.replace(a, b)
-    return fr[:100]
+    return fr[:MAX_FRAME_CHARS]
 
 
 def load(path):
@@ -60,8 +68,8 @@ def oncpu(stacks):
     for frames, v in stacks:
         agg[clean(frames[-1])] += v
     print(f"total samples={tot}; top self-time (exclusive) leaves:")
-    for fr, v in sorted(agg.items(), key=lambda x: -x[1])[:20]:
-        print(f"{100*v/tot:5.1f}%  {fr}")
+    for fr, v in sorted(agg.items(), key=lambda x: -x[1])[:TOP_ONCPU_FRAMES]:
+        print(f"{PERCENT_SCALE*v/tot:5.1f}%  {fr}")
 
 
 def offcpu(stacks):
@@ -87,12 +95,17 @@ def offcpu(stacks):
         else:
             cat = "other"
         by_cat[cat] += v
-    print(f"total off-CPU={tot/1e6:.0f} core-s; innermost USER frame before blocking:")
-    for fr, v in sorted(by_frame.items(), key=lambda x: -x[1])[:18]:
-        print(f"{100*v/tot:5.1f}%  {v/1e6:7.1f}s  {fr}")
+    print(
+        f"total off-CPU={tot/MICROSECONDS_PER_SECOND:.0f} core-s; "
+        "innermost USER frame before blocking:"
+    )
+    for fr, v in sorted(by_frame.items(), key=lambda x: -x[1])[:TOP_OFFCPU_FRAMES]:
+        print(
+            f"{PERCENT_SCALE*v/tot:5.1f}%  " f"{v/MICROSECONDS_PER_SECOND:7.1f}s  {fr}"
+        )
     print("\nby primitive category:")
     for c, v in sorted(by_cat.items(), key=lambda x: -x[1]):
-        print(f"{100*v/tot:5.1f}%  {c}")
+        print(f"{PERCENT_SCALE*v/tot:5.1f}%  {c}")
 
 
 if __name__ == "__main__":

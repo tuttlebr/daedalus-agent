@@ -1,9 +1,11 @@
 ---
 name: dynamo-frontend-benchmark
-description: Benchmark and profile the Dynamo frontend (dynamo.frontend HTTP + tokenizer + KV router) against mock workers (dynamo.mocker). Use when measuring frontend throughput/latency, A/B-testing a frontend change, or on-CPU/off-CPU profiling the frontend or mock workers to find bottlenecks. Covers topology setup, CPU isolation, aiperf load generation, perf/BPF profiling, throughput analysis, and the sharp edges of this setup.
+description: Benchmark and profile the Dynamo frontend against mock workers for throughput, A/B comparisons, CPU behavior, and bottlenecks.
+allowed-tools: Read, Bash, WebFetch
 license: Apache-2.0
 metadata:
-  author: NVIDIA
+  author: NVIDIA Corporation and Affiliates <noreply@nvidia.com>
+  version: 1.0.0
   tags:
     - dynamo
     - performance
@@ -15,27 +17,36 @@ metadata:
 
 # Dynamo frontend benchmarking
 
+## Purpose
+
 End-to-end harness for measuring and profiling the Dynamo **frontend** under load
 from a configurable client, served by **mock workers** so the backend isn't the
 variable under test. Bundled scripts are in `scripts/`; they all
 `source env.sh`, which requires `DYN_REPO` to point at your Dynamo checkout.
 
-## TL;DR workflow
+## Instructions
+
+1. Start from a clean topology for every measured arm.
+2. Keep load generation off the frontend cores.
+3. Use ordinary on-CPU profiling by default.
+4. Run cgroup or tracepoint operations only after approval of the narrow
+   privileged scope.
+
+## Examples
 
 ```bash
 export DYN_REPO=/path/to/dynamo          # checkout with built .venv
 # 0. one-time: request plane up, venv built, FlameGraph cloned (see Setup)
-sudo bash scripts/isolate.sh             # optional but recommended: CPU isolation
-BLOCK_SIZE=512 FRONTEND_LD_PRELOAD=$DYN_REPO/bench/jemalloc/libjemalloc.so \
-  bash scripts/start.sh                  # frontend (pinned) + N mockers
+bash scripts/isolate.sh                  # optional; approved privileged shell
+BLOCK_SIZE=512 bash scripts/start.sh     # frontend (pinned) + N mockers
 WARMUP_REQUESTS=512 bash scripts/run_aiperf.sh   # one measured run
 python3 scripts/extract_throughput.py $DYN_REPO/bench/results/aiperf-*  # robust numbers
 bash scripts/stop.sh                     # teardown + etcd drain
 ```
 
 For an A/B: **teardown + restart between every run**, interleave arms, take the
-median of 3+. For profiling: `profile_oncpu.sh` (non-root) and
-`capture_offcpu.sh` (sudo).
+median of 3+. Use `profile_oncpu.sh` for ordinary user access. Run
+`capture_offcpu.sh` only after the user approves its perf/BPF privilege scope.
 
 ## What this measures (and what it doesn't)
 
@@ -49,12 +60,13 @@ median of 3+. For profiling: `profile_oncpu.sh` (non-root) and
   **throughput ≈ concurrency / request_latency** (Little's law). This is the
   single most important fact for interpreting results (see Pitfalls).
 
-## Setup (one-time)
+## Prerequisites
 
 1. **Request plane** — Dynamo needs etcd (`:2379`) + NATS with JetStream (`:4222`):
    - etcd is often a systemd service (survives reboot). Check: `etcdctl endpoint health`.
-   - **NATS is usually a user binary that does NOT auto-start on reboot.** Start:
-     `nohup nats-server -js > /tmp/nats.log 2>&1 &` then confirm `ss -ltn | grep 4222`.
+   - **NATS is usually a user binary that does NOT auto-start on reboot.** Run
+     `nats-server -js` in a dedicated terminal for the benchmark session, then
+     confirm `ss -ltn | grep 4222`.
 2. **Build the bindings** into a venv: `uv venv && source .venv/bin/activate &&
 (cd lib/bindings/python && maturin develop --uv --release)`. Rust changes
    require rebuilding this; **never run a build concurrently with a benchmark** —
@@ -64,9 +76,10 @@ median of 3+. For profiling: `profile_oncpu.sh` (non-root) and
    `FLAMEGRAPH_DIR`.
 5. **jemalloc** (optional, for the frontend): get a `libjemalloc.so` and pass it
    via `FRONTEND_LD_PRELOAD` to `start.sh`. Big alloc-churn reductions vs glibc.
-6. **perf access** for on-CPU profiling: `sudo sysctl kernel.perf_event_paranoid=-1
-kernel.kptr_restrict=0`. Off-CPU (sched tracepoints / BPF) **still needs root**
-   even with paranoid=-1 (tracefs event files are root-only).
+6. **perf access** for on-CPU profiling: ask the host owner to approve the
+   narrow `kernel.perf_event_paranoid=-1` and `kernel.kptr_restrict=0` settings.
+   Off-CPU sched tracepoints and BPF require a pre-authorized privileged shell;
+   the scripts do not elevate themselves.
 
 ## Topology & config (`env.sh`)
 
@@ -117,10 +130,10 @@ python3 scripts/analyze_folded.py <out>/oncpu.folded
 - Also samples the target's cores (`mpstat`) and process CPU (`pidstat`) so you
   can see if it saturates. `analyze_folded.py` prints top **self-time** leaves.
 
-### Off-CPU (what blocked threads wait on) — REQUIRES sudo
+### Off-CPU (what blocked threads wait on) — privileged trace access
 
 ```bash
-sudo DYN_REPO=$DYN_REPO bash scripts/capture_offcpu.sh --frontend --conc 2048
+DYN_REPO=$DYN_REPO bash scripts/capture_offcpu.sh --frontend --conc 2048
 python3 scripts/analyze_folded.py <out>/offcpu_bcc.folded --offcpu
 ```
 
@@ -146,7 +159,7 @@ python3 scripts/analyze_folded.py <out>/offcpu_bcc.folded --offcpu
 - **Latency decomposition**: `request_latency ≈ TTFT + (output_tokens × ITL)`.
   If TTFT dominates and explodes under load → queueing upstream of generation.
 
-## Pitfalls & gotchas (read this)
+## Troubleshooting
 
 **Benchmark methodology**
 
@@ -175,9 +188,9 @@ python3 scripts/analyze_folded.py <out>/offcpu_bcc.folded --offcpu
   finalizer and use `extract_throughput.py`. Don't wait for
   `profile_export_aiperf.json`.
 - **Orphan processes.** aiperf's controller spawns many workers; killing the
-  parent can orphan them. Worse: if you ran a capture **with sudo**, aiperf ran
-  **as root** and a non-root `pkill` can't reap it — use `sudo pkill -9 -f aiperf`.
-  Stray aiperf workers hold ZMQ/mmap resources and make the _next_ run stall.
+  parent can orphan them. A privileged capture can also create workers owned by
+  the capture identity. Stop only the task-created process tree from the same
+  approved shell. Stray workers hold ZMQ/mmap resources and stall the next run.
 - `--benchmark-duration N` (time-based) avoids the giant fixed `--request-count`
   - finalizer problem for profiling loads.
 
@@ -208,8 +221,9 @@ python3 scripts/analyze_folded.py <out>/offcpu_bcc.folded --offcpu
   KV bookkeeping can dominate (~48% of its CPU); at bs=512 (~117 blocks) it drops
   to ~3%. Pick the block size deliberately for what you're stressing.
 - **CPU isolation doesn't survive reboot** (`isolate.sh` sets runtime cgroup
-  cpusets on system.slice). Re-run `sudo bash scripts/isolate.sh` after every
-  reboot. `unisolate.sh` reverts. Check: `cat /sys/fs/cgroup/system.slice/cpuset.cpus.effective`.
+  cpusets on system.slice). Re-run `bash scripts/isolate.sh` from an approved
+  privileged shell after every reboot. `unisolate.sh` reverts. Check:
+  `cat /sys/fs/cgroup/system.slice/cpuset.cpus.effective`.
 - **NATS doesn't auto-start after reboot** (user binary); etcd usually does
   (systemd). After a reboot, restart NATS before `start.sh`.
 - **jemalloc is frontend-only** here (via `FRONTEND_LD_PRELOAD`); the mocker runs
@@ -227,16 +241,30 @@ e2e throughput on this setup; their value is CPU-efficiency/headroom. To make
 the frontend the bottleneck, use small block size + high concurrency, or
 real backends, or move the client off-box.
 
-## Script reference (`scripts/`)
+## Limitations
 
-- `env.sh` — config; **set `DYN_REPO`**; everything else overridable.
-- `start.sh` — launch frontend (pinned, optional `FRONTEND_LD_PRELOAD`/`FASTOKENS_*`)
-  - `NUM_WORKERS` mockers; port preflight, etcd worker-count verify.
-- `stop.sh` — teardown both + drain etcd to 0.
-- `run_aiperf.sh` — one measured run (`CONCURRENCY`/`REQUEST_COUNT`/`WARMUP_REQUESTS`).
-- `isolate.sh` / `unisolate.sh` — CPU isolation (sudo; Lite by default, `--full` for max).
-- `smoke.sh` — single-request sanity check (use after any topology/block-size change).
-- `profile_oncpu.sh` — on-CPU perf + flamegraph (non-root): `--frontend`/`--mocker`/`--pid`.
-- `capture_offcpu.sh` — off-CPU bcc + perf (sudo): `--frontend`/`--mocker`/`--pid`.
-- `analyze_folded.py` — top self-time (on-CPU) or innermost-frame + category (off-CPU).
-- `extract_throughput.py` — robust throughput/latency from raw aiperf JSONL.
+- Measures the frontend and mock-worker request plane, not real GPU backend performance.
+- CPU isolation and off-CPU capture require explicit host-owner approval and elevated capabilities.
+- Closed-loop aiperf results cannot be presented as open-loop capacity.
+
+## Available Scripts
+
+| Script                       | Purpose                        | Arguments                          |
+| ---------------------------- | ------------------------------ | ---------------------------------- |
+| `env.sh`                     | Load benchmark configuration   | Environment overrides              |
+| `start.sh`                   | Start frontend and mockers     | Environment overrides              |
+| `stop.sh`                    | Stop the task-created topology | None                               |
+| `run_aiperf.sh`              | Run one measured campaign      | Environment overrides              |
+| `isolate.sh`, `unisolate.sh` | Apply or revert CPU isolation  | Optional `--full`                  |
+| `smoke.sh`                   | Send one loopback request      | None                               |
+| `profile_oncpu.sh`           | Capture on-CPU perf data       | Target selector                    |
+| `capture_offcpu.sh`          | Capture off-CPU perf/BPF data  | Target selector, `--conc`, `--cap` |
+| `analyze_folded.py`          | Summarize folded stacks        | Stack file, optional `--offcpu`    |
+| `extract_throughput.py`      | Parse raw aiperf JSONL         | Artifact path, optional `--conc`   |
+
+Invoke scripts through the agentskills.io protocol when available:
+
+```python
+run_script("scripts/start.sh", args=[])
+run_script("scripts/extract_throughput.py", args=["/path/to/aiperf-artifacts"])
+```

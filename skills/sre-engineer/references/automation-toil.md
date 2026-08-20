@@ -223,13 +223,16 @@ from dataclasses import dataclass
 import subprocess
 import json
 
+COMMAND_TIMEOUT_SECONDS = 300
+
 @dataclass
 class RunbookStep:
     """A single step in a runbook."""
     description: str
-    command: str
+    command: list[str]
     critical: bool = True  # Stop on failure?
-    verify: str | None = None  # Optional verification command
+    verify: list[str] | None = None  # Optional verification command
+    expected_stdout: str | None = None
 
 class AutomatedRunbook:
     """Execute runbook steps automatically."""
@@ -264,10 +267,11 @@ class AutomatedRunbook:
             try:
                 result = subprocess.run(
                     step.command,
-                    shell=True,
+                    shell=False,
                     capture_output=True,
                     text=True,
-                    timeout=300,
+                    timeout=COMMAND_TIMEOUT_SECONDS,
+                    check=False,
                 )
 
                 if result.returncode != 0:
@@ -281,11 +285,16 @@ class AutomatedRunbook:
                 if step.verify:
                     verify_result = subprocess.run(
                         step.verify,
-                        shell=True,
+                        shell=False,
                         capture_output=True,
                         text=True,
+                        timeout=COMMAND_TIMEOUT_SECONDS,
+                        check=False,
                     )
-                    if verify_result.returncode != 0:
+                    verification_failed = verify_result.returncode != 0
+                    if step.expected_stdout is not None:
+                        verification_failed |= verify_result.stdout.strip() != step.expected_stdout
+                    if verification_failed:
                         outputs.append(f"VERIFICATION FAILED: {verify_result.stderr}")
                         if step.critical:
                             return False, outputs
@@ -302,26 +311,36 @@ failover_runbook = AutomatedRunbook("Database Failover")
 
 failover_runbook.add_step(RunbookStep(
     description="Stop writes to primary database",
-    command="kubectl exec -it postgres-primary-0 -- psql -c 'ALTER SYSTEM SET default_transaction_read_only = on;'",
+    command=[
+        "kubectl", "exec", "postgres-primary-0", "--", "psql", "-c",
+        "ALTER SYSTEM SET default_transaction_read_only = on;",
+    ],
     critical=True,
 ))
 
 failover_runbook.add_step(RunbookStep(
     description="Wait for replication lag to clear",
-    command="sleep 10",
+    command=["sleep", "10"],
     critical=False,
 ))
 
 failover_runbook.add_step(RunbookStep(
     description="Promote replica to primary",
-    command="kubectl exec -it postgres-replica-0 -- pg_ctl promote",
+    command=["kubectl", "exec", "postgres-replica-0", "--", "pg_ctl", "promote"],
     critical=True,
-    verify="kubectl exec -it postgres-replica-0 -- psql -c 'SELECT pg_is_in_recovery();' | grep -q 'f'",
+    verify=[
+        "kubectl", "exec", "postgres-replica-0", "--", "psql", "-tAc",
+        "SELECT pg_is_in_recovery();",
+    ],
+    expected_stdout="f",
 ))
 
 failover_runbook.add_step(RunbookStep(
     description="Update service to point to new primary",
-    command="kubectl patch service postgres -p '{\"spec\":{\"selector\":{\"role\":\"replica\"}}}'",
+    command=[
+        "kubectl", "patch", "service", "postgres", "--type=merge", "-p",
+        '{"spec":{"selector":{"role":"replica"}}}',
+    ],
     critical=True,
 ))
 

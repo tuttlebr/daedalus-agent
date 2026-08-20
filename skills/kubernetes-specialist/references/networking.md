@@ -93,7 +93,7 @@ spec:
       port: 443
       targetPort: 8443
   loadBalancerSourceRanges:
-    - 203.0.113.0/24 # Restrict source IPs
+    - 10.20.0.0/24 # Replace with the approved private source range.
 ```
 
 ## Ingress Resources
@@ -332,8 +332,7 @@ spec:
   dnsPolicy: None
   dnsConfig:
     nameservers:
-      - 8.8.8.8
-      - 8.8.4.4
+      - 10.96.0.10 # Replace with the cluster DNS service IP.
     searches:
       - production.svc.cluster.local
       - svc.cluster.local

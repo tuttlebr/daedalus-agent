@@ -1,19 +1,21 @@
 ---
 name: daily-summary
 description: >-
-  Build the user's single-file, image-rich editorial HTML daily briefing,
-  grounded in the real current date and time, with a fixed personal section
-  set: a date/time hero, weather for Saline MI, sports for the New York
-  Yankees, Pittsburgh Steelers, and Michigan State football and basketball,
-  live read-only Kubernetes cluster status, UniFi network status, news matched
-  to the user's interests, and recent email and calendar. Use this whenever
-  the user asks for a daily summary, daily briefing, morning brief, "my daily
-  update", "what's my day look like", "run my briefing", or "catch me up on
-  today", even when they do not name a template, request images, or say
-  "HTML". This is the personal daily-briefing builder.
+  Use for a current Daedalus Daybook HTML briefing from live personal, news,
+  sports, weather, cluster, and network sources.
+metadata:
+  author: NVIDIA Corporation and Affiliates <noreply@nvidia.com>
+  version: 1.0.0
+  tags:
+    - daily-briefing
+    - html
+    - news
+    - personal-data
 ---
 
 # Daily Summary
+
+## Purpose
 
 Produce one polished, image-rich HTML edition titled **Daedalus Daybook** that
 tells the user what matters today: the date and time, Saline weather, their
@@ -36,6 +38,13 @@ The page is judged on one thing above all: it has to be **true and current**. A 
 
 For infrastructure status (Kubernetes, UniFi, etc.), report only currently active issues. Do not surface cumulative Kubernetes event counts, historical probe failures, or past warnings unless the pod or workload is currently in a non-Ready, CrashLoopBackOff, or otherwise degraded state right now. When a resource is healthy at query time, show it as healthy and omit stale event history.
 
+## Prerequisites
+
+- Current date/time and web access for time-sensitive public information.
+- Read-only Kubernetes and UniFi connections for infrastructure sections.
+- Connected Gmail and Calendar accounts for personal sections; omit them when unavailable.
+- Image sourcing or generation capability for visual treatment.
+
 ## Output contract
 
 Return a standalone HTML document with all CSS inline in the document and no
@@ -51,6 +60,25 @@ This is a strict rendering contract:
 - Put limitations, unavailable sources, and image credits inside the page.
 - Do not leave template tokens, Markdown image syntax, TODOs, or placeholder
   copy in the final document.
+
+## Examples
+
+Requests such as the following invoke the same complete briefing workflow:
+
+```text
+Run my morning briefing.
+Catch me up on today.
+```
+
+The response is the standalone Daedalus Daybook HTML document described above.
+
+## Instructions
+
+1. Use the real current time to anchor every dated claim.
+2. Call each named read-only source and validate its current result.
+3. Omit missing or unverified material.
+4. Design the edition around the strongest truthful editorial motif.
+5. Validate the HTML, sources, images, and output boundaries before returning.
 
 ## Step 1: anchor the whole page to the real date and time
 
@@ -69,7 +97,10 @@ If a fact cannot be tied to the current day, it does not go in the page as "curr
 
 ## Step 2: gather each section from its real source
 
-The deployed Daedalus backend exposes a specific, read-only set of tools. Use these. Do not assume a tool exists that is not listed here. All of these are read-only, so no confirmation is needed to call them.
+The deployed Daedalus backend exposes a specific, read-only set of tools. Use
+these and do not assume an unlisted tool exists. This skill authorizes only the
+named read calls. Any call that sends, modifies, or deletes data requires the
+user's explicit approval and is outside this skill.
 
 ### Weather (Saline, MI)
 
@@ -232,3 +263,23 @@ Before returning, verify:
 5. Missing sections collapse cleanly with no empty cards or placeholder text.
 6. The final response satisfies the `<!DOCTYPE html>` and `</html>` boundary
    checks and contains only the HTML.
+
+## Limitations
+
+- Calendar coverage depends on an event-listing capability, not only calendar inventory.
+- Missing or disconnected sources are omitted instead of inferred.
+- Generated images are editorial illustrations and never evidence for current events or system state.
+
+## Troubleshooting
+
+For an MCP connection error or timeout, verify that the relevant MCP server is
+running and connected. Retry one read once only after that verification; never
+retry a write or infer missing data.
+
+| Failure                                                               | Response                                                                         |
+| --------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| Current-time lookup fails                                             | Stop; do not guess the date.                                                     |
+| Shared Kubernetes or UniFi connection fails                           | Record the unavailable source, omit its card, and do not retry in the same turn. |
+| Gmail or Calendar requests authorization                              | Show the authorization prompt and wait; do not retry before connection.          |
+| A connector returns a transient error after it was verified connected | Retry one read once, then omit the section and disclose the failure.             |
+| An image cannot be verified or loaded                                 | Omit it or replace it with labeled generated art, inline SVG, or CSS art.        |

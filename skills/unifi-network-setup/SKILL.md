@@ -1,22 +1,26 @@
 ---
 name: unifi-network-setup
 description: >-
-  Set up and configure the UniFi Network MCP server connection for Claude
-  Code, Codex, or OpenClaw, including controller host or IP, local admin
-  username and password, optional experimental API key, plus site, port, SSL,
-  and write-permission policy gates. Use for first-time setup, connecting or
-  onboarding a UniFi controller, updating credentials or the API key, enabling
-  write permissions, or when UNIFI_NETWORK_HOST is not configured and another
-  UniFi skill reports the server is unavailable. Use unifi-network for
-  day-to-day network management once the connection works.
+  Configure the UniFi Network MCP connection, credentials, site, SSL, and
+  write-policy gates. Use UniFi Network after the connection works.
 allowed-tools: Read, Bash, AskUserQuestion
+metadata:
+  author: NVIDIA Corporation and Affiliates <noreply@nvidia.com>
+  version: 1.0.0
+  tags:
+    - unifi
+    - mcp
+    - setup
+    - credentials
 ---
 
 # Set Up UniFi Network MCP Server
 
+## Purpose
+
 Walk the user through configuring their UniFi Network controller connection. Ask one question at a time and wait for the answer before continuing.
 
-## Interaction Rules
+## Instructions
 
 Use the client target that matches the current agent runtime:
 
@@ -35,7 +39,7 @@ When the host exposes a plugin-root variable such as `CLAUDE_PLUGIN_ROOT`, using
 
 On Windows with Claude Code, use `../../scripts/set-env.ps1` for the final Claude settings write. On Windows with Codex, prefer the native PowerShell prereq script and call `codex mcp add` directly with the same env variables if Bash is unavailable. On Windows with OpenClaw, call `openclaw mcp set` directly with a JSON object containing `command`, `args`, and `env` if Bash is unavailable. Do not run the Bash prereq script on Windows unless the user explicitly asks to use a Bash environment.
 
-## Step 0: Check Prerequisites
+## Prerequisites
 
 Before asking for credentials, run the prereq checker for the current OS.
 
@@ -52,6 +56,18 @@ powershell -ExecutionPolicy Bypass -File <path-to-plugin>/scripts/check-prereqs.
 ```
 
 If the script exits non-zero, stop and report the error. Do not proceed to credentials.
+
+## Examples
+
+For a Codex setup on Linux, the final write has this shape after the user has
+provided and approved the values:
+
+```bash
+bash <path-to-plugin>/scripts/set-env.sh --target codex \
+  UNIFI_NETWORK_HOST=<host> \
+  UNIFI_NETWORK_USERNAME=<username> \
+  UNIFI_NETWORK_PASSWORD=<password>
+```
 
 ## Step 1: Controller Host
 
@@ -131,3 +147,17 @@ For Codex, tell the user:
 For OpenClaw, tell the user:
 
 "OpenClaw MCP server `unifi-network` configured. Restart the OpenClaw Gateway so the updated MCP server is loaded."
+
+## Limitations
+
+- Requires a local UniFi admin account; Ubiquiti SSO credentials are unsupported.
+- API-key authentication is experimental and read-only for only part of the tool set.
+- Configuration is not active until the selected client or gateway reloads.
+
+## Troubleshooting
+
+| Error                                      | Cause                                              | Solution                                                               |
+| ------------------------------------------ | -------------------------------------------------- | ---------------------------------------------------------------------- |
+| Prerequisite script fails                  | Required client, runtime, or package is missing    | Stop and report the exact check; do not collect credentials.           |
+| MCP server remains unavailable after write | Client has not reloaded or host settings are wrong | Reload once, then verify host, port, site, and SSL settings.           |
+| Authentication fails                       | Wrong account type or credential                   | Confirm a local admin account without echoing the password or API key. |

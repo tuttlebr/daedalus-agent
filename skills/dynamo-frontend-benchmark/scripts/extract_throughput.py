@@ -20,6 +20,10 @@ import os
 import statistics as st
 import sys
 
+NANOSECONDS_PER_SECOND = int("1000000000")
+MILLISECONDS_PER_SECOND = int("1000")
+P99_QUANTILE = float("0.99")
+
 
 def find_jsonl(p):
     if p.endswith(".jsonl"):
@@ -62,7 +66,7 @@ def main():
             ttft.append(time_to_first_token["value"])
     if not S:
         sys.exit("no completed profiling-phase records")
-    wall = (max(E) - min(S)) / 1e9
+    wall = (max(E) - min(S)) / NANOSECONDS_PER_SECOND
     tput = len(S) / wall
     print(f"file: {path}")
     print(f"completed reqs : {len(S)}")
@@ -71,16 +75,18 @@ def main():
     if lat:
         print(
             f"request_latency: mean {st.mean(lat):.0f}ms  p50 {st.median(lat):.0f}ms  "
-            f"p99 {sorted(lat)[int(0.99*len(lat))]:.0f}ms"
+            f"p99 {sorted(lat)[int(P99_QUANTILE*len(lat))]:.0f}ms"
         )
     if ttft:
         print(
-            f"TTFT           : p50 {st.median(ttft):.0f}ms  p99 {sorted(ttft)[int(0.99*len(ttft))]:.0f}ms"
+            f"TTFT           : p50 {st.median(ttft):.0f}ms  "
+            f"p99 {sorted(ttft)[int(P99_QUANTILE*len(ttft))]:.0f}ms"
         )
     if conc and lat:
         # Little's law sanity check (closed loop): tput ~= concurrency / latency
         print(
-            f"Little's law   : {conc}/{st.mean(lat)/1000:.2f}s = {conc/(st.mean(lat)/1000):.0f} req/s "
+            f"Little's law   : {conc}/{st.mean(lat)/MILLISECONDS_PER_SECOND:.2f}s = "
+            f"{conc/(st.mean(lat)/MILLISECONDS_PER_SECOND):.0f} req/s "
             f"(vs measured {tput:.0f})"
         )
 

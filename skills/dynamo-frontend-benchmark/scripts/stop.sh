@@ -9,13 +9,15 @@ set -uo pipefail
 cd "$(dirname "$0")"
 source ./env.sh
 
-# If the frontend was started isolated (ISOLATE=1 → root-owned in bench.slice),
-# a plain kill can't reap it. Try a non-interactive stop of the slice; if that
-# needs a password it's skipped (stop it yourself: sudo systemctl stop bench.slice).
+# If the frontend was started in bench.slice, stop that task-created slice only
+# from the same approved privileged shell.
 if systemctl is-active --quiet bench.slice 2>/dev/null; then
-    sudo -n systemctl stop bench.slice 2>/dev/null \
-        && echo "[stop] stopped isolated frontend (bench.slice)" \
-        || echo "[stop] NOTE: isolated frontend in bench.slice — run: sudo systemctl stop bench.slice"
+    if [[ $EUID -eq 0 ]]; then
+        systemctl stop bench.slice \
+            && echo "[stop] stopped isolated frontend (bench.slice)"
+    else
+        echo "[stop] NOTE: stop bench.slice from the approved privileged shell"
+    fi
 fi
 
 for name in frontend workers; do

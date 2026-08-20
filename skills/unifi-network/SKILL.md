@@ -1,34 +1,46 @@
 ---
 name: unifi-network
 description: >-
-  How to manage UniFi (Ubiquiti) network infrastructure through the UniFi
-  Network MCP server, covering devices (access points, switches, UDM/USG
-  gateways), clients, WLANs and SSIDs, VPN, routing, port forwarding, QoS,
-  bandwidth, Traffic Flows, and statistics. Use this skill for general UniFi
-  and WiFi management such as listing or configuring devices, clients, WLANs,
-  VPNs and port forwards, seeing who is connected, finding bandwidth hogs, or
-  reading traffic flows. Use firewall-manager to create or change firewall
-  rules and content filtering, firewall-auditor for a scored firewall security
-  audit, network-health-check for device and connectivity health, and
-  unifi-network-setup for first-time controller connection and credentials.
+  Manage UniFi devices, clients, WLANs, VPNs, routing, QoS, and traffic through
+  MCP. Do not use for connection setup or firewall-rule management.
+allowed-tools: unifi_tool_index, unifi_execute, unifi_batch, unifi_batch_status
+metadata:
+  author: NVIDIA Corporation and Affiliates <noreply@nvidia.com>
+  version: 1.0.0
+  tags:
+    - unifi
+    - network-management
+    - mcp
+    - wifi
 ---
 
 # UniFi Network MCP Server
 
+## Purpose
+
 You have access to a UniFi Network MCP server that lets you query and manage a UniFi Network Controller. It provides 177 tools covering devices, clients, firewall, VPN, routing, WLANs, Traffic Flows, statistics, and more.
 
-## Tool Discovery
+## Prerequisites
 
-The server uses **lazy loading** by default — only meta-tools are registered initially. Use them to find and call any tool:
+- A configured, reachable UniFi Network MCP server.
+- Local administrator credentials supplied through MCP configuration, never prompts.
+- Explicit user approval of an exact preview before any mutation.
 
-| Meta-Tool            | Purpose                                                                                      |
-| -------------------- | -------------------------------------------------------------------------------------------- |
-| `unifi_tool_index`   | Discover tools by name/description; use `category`, `search`, or `include_schemas` to filter |
-| `unifi_execute`      | Call any tool by name (essential in lazy mode)                                               |
-| `unifi_batch`        | Run multiple tools in parallel                                                               |
-| `unifi_batch_status` | Check async batch job status                                                                 |
+## Instructions
 
-**Workflow:** Call `unifi_tool_index` to find the right tool, then `unifi_execute` to call it. For multiple independent queries, use `unifi_batch` — it's significantly faster than sequential calls.
+### Tool discovery
+
+The server uses lazy loading, so only these approved meta-tools are registered initially:
+
+- `unifi_tool_index`: discover operations by category, search text, or schema.
+- `unifi_execute`: invoke one discovered operation by its exact name.
+- `unifi_batch`: run independent discovered read operations in parallel.
+- `unifi_batch_status`: check an asynchronous batch job.
+
+Call `unifi_tool_index` to identify the narrow operation, inspect its schema,
+then invoke that exact operation with `unifi_execute`. Use `unifi_batch` only
+for independent reads. Never invoke an undiscovered operation or pass fields
+outside its returned schema.
 
 ## Safety Model
 
@@ -49,7 +61,8 @@ If a mutation fails with a permission error, tell the user the env var to set: `
 1. Default call → returns preview of what would change
 2. Call with `confirm=true` → executes the mutation
 
-Always preview first and show the user before confirming.
+Always preview first. Call with `confirm=true` only after the user explicitly
+approves that exact preview.
 
 ## Response Format
 
@@ -101,6 +114,28 @@ If the user also has cameras or door access control, other UniFi MCP plugins are
 - `unifi-access` — door locks, credentials, visitors, access policies
 
 Cameras and access readers appear as network clients — use `unifi_lookup_by_ip` to cross-reference if troubleshooting connectivity for those devices.
+
+## Examples
+
+For "Which devices need attention?", discover the health and device-list read
+operations and batch only those reads. For "Rename this access point", discover
+the rename operation, request a preview, show it to the user, and wait for
+explicit approval before sending `confirm=true`.
+
+## Limitations
+
+- Use `network-health-check` for health-only reporting and firewall skills for firewall rules.
+- API-key authentication is experimental and exposes only a subset of read operations.
+- Tool availability and fields can differ by controller and MCP server version.
+
+## Troubleshooting
+
+| Problem                                      | Cause                                      | Response                                                              |
+| -------------------------------------------- | ------------------------------------------ | --------------------------------------------------------------------- |
+| No meta-tools are available                  | MCP server is disconnected                 | Stop and use `unifi-network-setup`.                                   |
+| Index or execute call has a connection error | Controller or MCP transport is unavailable | Verify the connection, retry one read once, then report the boundary. |
+| Operation returns a permission error         | Policy gate is disabled                    | Report the exact policy variable; do not bypass it.                   |
+| Response contains `***REDACTED***`           | Secret redaction is working                | Omit the field from updates; never send the placeholder back.         |
 
 ## Tool Reference
 

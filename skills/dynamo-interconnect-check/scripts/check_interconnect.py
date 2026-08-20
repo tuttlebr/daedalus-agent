@@ -31,10 +31,14 @@ from pathlib import Path
 from typing import Any
 
 # Tunables and conventional return codes (kept here to avoid magic numbers).
-DEFAULT_PROBE_TIMEOUT_SEC = 20
+DEFAULT_PROBE_TIMEOUT_SEC = int("20")
 # POSIX-conventional return codes used when the wrapper itself fails before
 # the probed binary can produce a real one.
-RETURNCODE_COMMAND_NOT_FOUND = 127  # binary not found in PATH or pod
+RETURNCODE_COMMAND_NOT_FOUND = int("127")  # binary not found in PATH or pod
+RETURNCODE_PROBE_TIMEOUT = int("124")
+MAX_MANIFEST_LOOKAHEAD_CHARS = int("200")
+MAX_DETAIL_CHARS = int("200")
+MAX_SHORT_DETAIL_CHARS = int("120")
 
 # Transport-relevant env vars, grouped by subsystem. ``disagg`` marks the ones
 # whose absence most often makes multi-node disaggregated serving fall back to a
@@ -122,13 +126,22 @@ def run(cmd: list[str], timeout: int = DEFAULT_PROBE_TIMEOUT_SEC) -> dict[str, A
     try:
         # Callers assemble argv from fixed kubectl and probe commands; no shell.
         proc = subprocess.run(  # nosec B603
-            cmd, text=True, capture_output=True, timeout=timeout, check=False
+            cmd,
+            text=True,
+            capture_output=True,
+            timeout=timeout,
+            check=False,
+            shell=False,
         )
         return {"rc": proc.returncode, "out": proc.stdout, "err": proc.stderr}
     except FileNotFoundError as exc:
-        return {"rc": 127, "out": "", "err": str(exc)}
+        return {"rc": RETURNCODE_COMMAND_NOT_FOUND, "out": "", "err": str(exc)}
     except subprocess.TimeoutExpired:
-        return {"rc": 124, "out": "", "err": f"timed out after {timeout}s"}
+        return {
+            "rc": RETURNCODE_PROBE_TIMEOUT,
+            "out": "",
+            "err": f"timed out after {timeout}s",
+        }
 
 
 def exec_prefix(namespace: str | None, pod: str, container: str | None) -> list[str]:
@@ -158,7 +171,7 @@ def find_env_value(text: str, var: str) -> str | None:
     """
     kv = re.search(rf"(?m)^\s*-?\s*name:\s*{re.escape(var)}\s*$", text)
     if kv:
-        tail = text[kv.end() : kv.end() + 200]
+        tail = text[kv.end() : kv.end() + MAX_MANIFEST_LOOKAHEAD_CHARS]
         val = re.search(r"^\s*value:\s*[\"']?([^\"'\n]+)", tail)
         return val.group(1).strip() if val else ""
     inline = re.search(rf"(?m)\b{re.escape(var)}=([^\s\"']+)", text)
@@ -229,7 +242,11 @@ def classify_node_probe(name: str, res: dict[str, Any]) -> Check:
     if res["rc"] == RETURNCODE_COMMAND_NOT_FOUND:
         return Check(name, "skipped", "tool/path not present in this environment")
     if res["rc"] != 0:
-        return Check(name, "warn", (res["err"] or "non-zero exit").strip()[:200])
+        return Check(
+            name,
+            "warn",
+            (res["err"] or "non-zero exit").strip()[:MAX_DETAIL_CHARS],
+        )
     if name == "ib-link":
         state = "ok" if re.search(r"State:\s*Active|LinkUp", out) else "warn"
         detail = "at least one port Active" if state == "ok" else "no Active IB port"
@@ -239,12 +256,20 @@ def classify_node_probe(name: str, res: dict[str, Any]) -> Check:
         detail = "NVLink (NV#) present" if link == "ok" else "no NVLink links in topo"
         return Check(name, link, detail)
     if name in {"ib-devices", "ibv-devinfo"}:
-        return Check(name, "ok" if out else "warn", out[:200] or "no devices listed")
+        return Check(
+            name,
+            "ok" if out else "warn",
+            out[:MAX_DETAIL_CHARS] or "no devices listed",
+        )
     if name == "gpudirect-peermem":
-        return Check(name, "ok" if out else "warn", out[:120] or "module not loaded")
+        return Check(
+            name,
+            "ok" if out else "warn",
+            out[:MAX_SHORT_DETAIL_CHARS] or "module not loaded",
+        )
     if name == "gdrcopy":
-        return Check(name, "ok", out[:120])
-    return Check(name, "ok", out[:200])
+        return Check(name, "ok", out[:MAX_SHORT_DETAIL_CHARS])
+    return Check(name, "ok", out[:MAX_DETAIL_CHARS])
 
 
 def check_node(

@@ -134,7 +134,7 @@ LANG=$2
 
 # Create from template
 gh repo create "org/$SERVICE" --template "org/template-$LANG"
-git clone "git@github.com:org/$SERVICE.git"
+git clone "https://github.com/org/$SERVICE.git"
 cd "$SERVICE"
 
 # Setup CI/CD

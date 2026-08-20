@@ -1,18 +1,16 @@
 ---
 name: dynamo-recipe-runner
-description: Select, validate, patch, and deploy existing NVIDIA Dynamo Kubernetes recipes. Use for model/backend/GPU/deployment-mode recipe bring-up; use router-starter for router-only mode work and troubleshoot for broken deployments.
+description: Deploy and validate existing NVIDIA Dynamo Kubernetes recipes for a selected model, backend, GPU, and mode. Not for authoring new recipes.
+allowed-tools: Read, Bash, WebFetch
 license: Apache-2.0
 metadata:
   author: Dan Gil <dagil@nvidia.com>
+  version: 1.0.0
   tags:
     - dynamo
     - kubernetes
     - recipes
     - bring-up
-  permissions:
-    - file_read
-    - network
-    - kubectl_exec
 ---
 
 # Dynamo Recipe Runner
@@ -195,13 +193,16 @@ Return:
 
 ## Troubleshooting
 
-| Symptom                                  | Likely cause                             | Next step                                                                                |
-| ---------------------------------------- | ---------------------------------------- | ---------------------------------------------------------------------------------------- |
-| `kubectl` cluster unreachable            | Context not set or VPN down              | Return exact commands instead of running them; resume when cluster is reachable          |
-| `validate` reports missing storage class | Cluster has no default `StorageClass`    | Patch `storageClassName` on the model-cache manifest before applying                     |
-| Model-cache job stuck `Pending`          | PVC unbound or HF secret missing         | Inspect PVC events; create or rename the HF secret to match the recipe                   |
-| Worker pods `ImagePullBackOff`           | Stale image tag or missing pull secret   | Patch the image tag; verify image pull secret in the namespace                           |
-| `/v1/models` 4xx/5xx after deploy        | Frontend not ready or wrong service port | Wait for pods Ready; re-run port-forward; switch to `dynamo-troubleshoot` if it persists |
+- **Cluster unreachable:** verify the context or VPN. Return exact commands
+  instead of claiming they ran.
+- **Missing storage class:** patch `storageClassName` on the model-cache
+  manifest before applying it.
+- **Model-cache job Pending:** inspect PVC events and verify the named Hugging
+  Face Secret exists.
+- **Worker ImagePullBackOff:** patch the image tag and verify the namespace's
+  image-pull Secret.
+- **`/v1/models` returns 4xx/5xx:** wait for Ready pods, restart the
+  port-forward, then use `dynamo-troubleshoot` if the failure persists.
 
 ## Benchmark
 

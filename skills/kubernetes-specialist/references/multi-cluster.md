@@ -146,20 +146,13 @@ spec:
 
 ### Submariner Installation
 
-```bash
-# Install subctl
-curl -Ls https://get.submariner.io | bash
+Install a pinned `subctl` release through the approved package path. Follow the
+matching upstream release instructions to deploy the broker and join each
+cluster through explicit, prevalidated operator contexts. Do not pipe a network
+installer into a shell or accept cluster credential paths from prompt text.
 
-# Join clusters to broker
-subctl deploy-broker --kubeconfig kubeconfig-cluster1
-
-# Join workload clusters
-subctl join --kubeconfig kubeconfig-cluster1 broker-info.subm --clusterid cluster1
-subctl join --kubeconfig kubeconfig-cluster2 broker-info.subm --clusterid cluster2
-
-# Verify connectivity
-subctl show all
-```
+After joining, run `subctl show all` from each approved context and verify
+cross-cluster service discovery and connectivity.
 
 ### ServiceExport/ServiceImport
 
@@ -438,45 +431,22 @@ helm install rancher rancher-stable/rancher \
   --namespace cattle-system \
   --create-namespace \
   --set hostname=rancher.example.com \
-  --set bootstrapPassword=admin
+  --set-string bootstrapPassword="${RANCHER_BOOTSTRAP_PASSWORD:?set this value}"
 ```
 
-### Kubeconfig Management
+### Cluster context management
 
-```yaml
-# Merge multiple kubeconfigs
-# ~/.kube/config
-apiVersion: v1
-kind: Config
-clusters:
-  - name: cluster-us-west
-    cluster:
-      server: https://cluster-us-west.example.com
-      certificate-authority-data: ...
-  - name: cluster-us-east
-    cluster:
-      server: https://cluster-us-east.example.com
-      certificate-authority-data: ...
-contexts:
-  - name: us-west
-    context:
-      cluster: cluster-us-west
-      user: admin-us-west
-      namespace: default
-  - name: us-east
-    context:
-      cluster: cluster-us-east
-      user: admin-us-east
-      namespace: default
-users:
-  - name: admin-us-west
-    user:
-      token: ...
-  - name: admin-us-east
-    user:
-      token: ...
-current-context: us-west
+Keep cluster credentials in the operator's approved credential store. Select
+only named contexts that the user placed in scope:
+
+```bash
+kubectl config get-contexts
+kubectl config use-context <approved-context-name>
+kubectl cluster-info
 ```
+
+Never print, merge, or rewrite credential material as part of a general
+multi-cluster workflow.
 
 ```bash
 # Switch between clusters

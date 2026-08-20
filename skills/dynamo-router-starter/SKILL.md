@@ -1,9 +1,11 @@
 ---
 name: dynamo-router-starter
-description: Start or patch Dynamo router modes and run router endpoint smoke checks. Use for round-robin, KV-aware, least-loaded, or device-aware routing setup; use recipe-runner for recipe deployment and troubleshoot for failure diagnosis.
+description: Configure Dynamo router modes and smoke-test its OpenAI-compatible frontend. Use for router setup, not deployment or failure diagnosis.
+allowed-tools: Read, Bash, WebFetch
 license: Apache-2.0
 metadata:
   author: Dan Gil <dagil@nvidia.com>
+  version: 1.0.0
   tags:
     - dynamo
     - router

@@ -1,21 +1,19 @@
 ---
 name: kubernetes-specialist
 description: >-
-  Use when deploying, configuring, or debugging Kubernetes (K8s) workloads
-  with kubectl and Helm. Invoke to write Deployment/StatefulSet/DaemonSet/Job
-  manifests, configure Services/Ingress/NetworkPolicies, set up RBAC and
-  ServiceAccounts, apply Pod Security Standards, manage ConfigMaps/Secrets and
-  PV/PVC storage, and diagnose pod failures (CrashLoopBackOff, OOMKilled,
-  image-pull errors, failing probes). Also for Helm charts, service mesh
-  (Istio, Linkerd), CRDs/operators, GitOps (ArgoCD, Flux), multi-cluster, and
-  cost/right-sizing (HPA, VPA, spot instances). Use devops-engineer for CI/CD
-  pipelines, Docker image builds, and multi-cloud Terraform IaC; use
-  sre-engineer for SLO/SLI, error budgets, and reliability engineering; for
-  NVIDIA Dynamo, use dynamo-recipe-runner or dynamo-troubleshoot instead.
+  Author and debug Kubernetes workloads, Helm, policy, networking, and storage.
+  Use Dynamo skills for Dynamo; skip CI/CD and SLO work.
 license: MIT
 metadata:
-  author: https://github.com/Jeffallan
+  author: Jeff Allan <author@example.com>
   version: '1.1.1'
+  tags:
+    - kubernetes
+    - helm
+    - networking
+    - storage
+    - workload-debugging
+  source: https://github.com/Jeffallan
   domain: infrastructure
   triggers: Kubernetes, K8s, kubectl, Helm, container orchestration, pod deployment, RBAC, NetworkPolicy, Ingress, StatefulSet, Operator, CRD, CustomResourceDefinition, ArgoCD, Flux, GitOps, Istio, Linkerd, service mesh, multi-cluster, cost optimization, VPA, spot instances
   role: specialist
@@ -25,6 +23,11 @@ metadata:
 ---
 
 # Kubernetes Specialist
+
+## Purpose
+
+Author, review, and diagnose Kubernetes resources while preserving cluster
+safety, workload intent, and least privilege.
 
 ## When to Use This Skill
 
@@ -36,7 +39,13 @@ metadata:
 - Troubleshooting cluster and workload issues
 - Implementing security best practices
 
-## Core Workflow
+## Prerequisites
+
+- The intended cluster context, namespace, workload, and deployment owner.
+- Read access to current manifests and live state when diagnosis is requested.
+- Explicit user authorization before applying, deleting, or changing cluster resources.
+
+## Instructions
 
 1. **Analyze requirements** — Understand workload characteristics, scaling needs, security requirements
 2. **Design architecture** — Choose workload types, networking patterns, storage solutions
@@ -87,7 +96,7 @@ Load detailed guidance based on context:
 - Use latest tag for production images
 - Expose unnecessary ports or services
 
-## Common YAML Patterns
+## Examples
 
 ### Deployment with resource limits, probes, and security context
 
@@ -253,5 +262,19 @@ When implementing Kubernetes resources, provide:
 2. RBAC configuration if needed (ServiceAccount, Role, RoleBinding)
 3. NetworkPolicy for network isolation
 4. Brief explanation of design decisions and security considerations
+
+## Limitations
+
+- Use Dynamo-specific skills for Dynamo operators and recipes.
+- Adapt examples to the target cluster APIs, admission policy, networking, and storage.
+- Read-only diagnosis does not authorize workload or cluster mutations.
+
+## Troubleshooting
+
+| Symptom                | First check                                                 | Next step                                                           |
+| ---------------------- | ----------------------------------------------------------- | ------------------------------------------------------------------- |
+| Pod is Pending         | Events, requests, affinities, taints, and PVC binding       | Fix the terminal scheduling constraint, not only the first warning. |
+| Service has no traffic | Service ports, EndpointSlices, readiness, and NetworkPolicy | Exercise the endpoint from the real caller path.                    |
+| Rollout stalls         | New ReplicaSet pods, probes, image pull, and admission      | Preserve the old revision until the failure is understood.          |
 
 [Documentation](https://jeffallan.github.io/claude-skills/skills/infrastructure/kubernetes-specialist/)

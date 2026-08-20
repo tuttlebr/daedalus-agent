@@ -1,9 +1,11 @@
 ---
 name: dynamo-interconnect-check
-description: Validate that a Dynamo deployment's NIXL/UCX/NCCL interconnect is ready for disaggregated serving over RDMA/NVLink. Use after recipe-runner brings a deployment up (especially disagg/multi-node) to confirm the KV transport is correct; use troubleshoot for diagnosing already-failed pods.
+description: Validate NIXL, UCX, NCCL, RDMA, GPUDirect, and NVLink for Dynamo disaggregated serving. Use after deploy, not for failed pods.
+allowed-tools: Read, Bash
 license: Apache-2.0
 metadata:
   author: Dan Gil <dagil@nvidia.com>
+  version: 1.0.0
   tags:
     - dynamo
     - nixl
@@ -131,7 +133,7 @@ plus a rolled-up verdict on disagg transport readiness. Report:
 - transport env vars present vs. disagg-critical ones missing
 - RDMA / GPUDirect / NVLink capability status
 - whether NIXL reachability was validated, and the next command if not
-- a clear statement of whether disagg can be trusted, or what to fix first
+- an explicit verdict on whether disagg can be trusted, or what to fix first
 
 ## Limitations
 
@@ -142,12 +144,14 @@ plus a rolled-up verdict on disagg transport readiness. Report:
 
 ## Troubleshooting
 
-| Symptom                                 | Likely cause                                   | Next step                                                                                  |
-| --------------------------------------- | ---------------------------------------------- | ------------------------------------------------------------------------------------------ |
-| `env` reports all critical vars missing | Vars baked into image or injected by operator  | Run the `node` check inside the worker pod to verify actual env                            |
-| `node` reports no Active IB link        | Fabric down or HCA not provisioned to the node | Contact cluster admin; verify `kubectl describe node` shows `nvidia.com/gpu` and IB labels |
-| `nvidia_peermem` missing                | GPUDirect RDMA module not loaded               | Ask cluster admin to load `nvidia-peermem`; without it, NIXL falls back to staged copies   |
-| `nixl` finds no test tools              | Worker image lacks NIXL test harness           | Use a NIXL-enabled image or run the standalone transfer test from a debug pod              |
+- All critical env vars missing: they may be baked into the image or injected
+  by the operator. Run the `node` check inside the worker pod.
+- No Active IB link: verify node GPU and IB labels, then have the cluster owner
+  repair the fabric or HCA provisioning.
+- `nvidia_peermem` missing: have the cluster owner load the GPUDirect RDMA
+  module; otherwise NIXL falls back to staged copies.
+- No NIXL test tools: use a NIXL-enabled image or a standalone transfer test
+  from an approved debug pod.
 
 ## Benchmark
 

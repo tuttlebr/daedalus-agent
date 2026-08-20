@@ -4,10 +4,10 @@
 #
 # Revert bench/isolate.sh: give all cores back to every slice, restore IRQ
 # balancing, and tear down the frontend's bench.slice.
-#   sudo bash bench/unisolate.sh
+# Run `bash bench/unisolate.sh` from the approved privileged shell.
 # (A reboot also clears everything, since isolate.sh used --runtime.)
 set -uo pipefail
-[[ $EUID -eq 0 ]] || { echo "ERROR: run as root (sudo bash bench/unisolate.sh)"; exit 1; }
+[[ $EUID -eq 0 ]] || { echo "ERROR: a pre-authorized privileged shell is required."; exit 1; }
 
 echo "[unisolate] stopping any isolated frontend (bench.slice) ..."
 systemctl stop bench.slice 2>/dev/null || true

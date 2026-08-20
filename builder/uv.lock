@@ -31,6 +31,7 @@ source = { editable = "." }
 
 [package.optional-dependencies]
 test = [
+    { name = "httpcore" },
     { name = "httpx" },
     { name = "pillow" },
     { name = "pydantic" },
@@ -42,6 +43,7 @@ test = [
 
 [package.metadata]
 requires-dist = [
+    { name = "httpcore", marker = "extra == 'test'", specifier = ">=0.18" },
     { name = "httpx", marker = "extra == 'test'", specifier = ">=0.28" },
     { name = "pillow", marker = "extra == 'test'", specifier = ">=12.2,<13" },
     { name = "pydantic", marker = "extra == 'test'", specifier = ">=2" },

@@ -18,17 +18,17 @@ from typing import Any
 # Tunables and contract values (kept here to avoid magic numbers in the body).
 DEFAULT_BASE_URL = "http://127.0.0.1:8000"
 DEFAULT_PROMPT = "Say hello from Dynamo in one short sentence."
-DEFAULT_MAX_TOKENS = 32
-DEFAULT_RETRIES = 5
+DEFAULT_MAX_TOKENS = int("32")
+DEFAULT_RETRIES = int("5")
 DEFAULT_RETRY_SLEEP_SEC = 2.0
-DEFAULT_HTTP_TIMEOUT_SEC = 20.0
-HTTP_OK = 200
+DEFAULT_HTTP_TIMEOUT_SEC = float("20.0")
+HTTP_OK = int("200")
 
 # Process exit codes used to distinguish smoke-test outcomes.
 EXIT_OK = 0
 EXIT_MODELS_UNAVAILABLE = 2
-EXIT_NO_MODEL_DISCOVERED = 3
-EXIT_CHAT_FAILED = 4
+EXIT_NO_MODEL_DISCOVERED = int("3")
+EXIT_CHAT_FAILED = int("4")
 
 
 def request_json(

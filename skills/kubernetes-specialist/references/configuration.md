@@ -70,10 +70,10 @@ metadata:
   namespace: production
 type: Opaque
 stringData:
-  # Plain text (will be base64 encoded)
-  db-password: 'MySecurePassword123!'
-  api-key: 'sk-1234567890abcdef'
-  jwt-secret: 'super-secret-jwt-key'
+  # Inject these values through the approved deployment secret provider.
+  db-password: '${DB_PASSWORD}'
+  api-key: '${SERVICE_API_KEY}'
+  jwt-secret: '${JWT_SECRET}'
 data:
   # Already base64 encoded
   tls.crt: LS0tLS1CRUdJTi...
@@ -112,10 +112,10 @@ stringData:
     {
       "auths": {
         "myregistry.io": {
-          "username": "myuser",
-          "password": "mypassword",
+          "username": "${REGISTRY_USERNAME}",
+          "password": "${REGISTRY_PASSWORD}",
           "email": "user@example.com",
-          "auth": "bXl1c2VyOm15cGFzc3dvcmQ="
+          "auth": "${REGISTRY_AUTH_B64}"
         }
       }
     }
@@ -131,8 +131,8 @@ metadata:
   namespace: production
 type: kubernetes.io/basic-auth
 stringData:
-  username: admin
-  password: super-secret-password
+  username: '${BASIC_AUTH_USERNAME}'
+  password: '${BASIC_AUTH_PASSWORD}'
 ```
 
 ### SSH Auth Secret
@@ -264,7 +264,7 @@ metadata:
 type: Opaque
 immutable: true
 stringData:
-  password: 'MyPassword123'
+  password: '${IMMUTABLE_SECRET_PASSWORD}'
 ```
 
 ## External Secrets Operator
@@ -424,16 +424,16 @@ spec:
               include (print $.Template.BasePath "/configmap.yaml") . | sha256sum,
             },
           }
-        checksum/secret:
+        checksum/runtime-config:
           {
             {
-              include (print $.Template.BasePath "/secret.yaml") . | sha256sum,
+              include (print $.Template.BasePath "/runtime-config.yaml") . | sha256sum,
             },
           }
     spec:
       containers:
         - name: app
-          image: myapp:latest
+          image: myapp:1.2.3
           volumeMounts:
             - name: config
               mountPath: /etc/config

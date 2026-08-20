@@ -1,20 +1,19 @@
 ---
 name: sre-engineer
 description: >-
-  Site Reliability Engineering (SRE). Defines SLIs/SLOs, creates error-budget
-  policies and burn-rate alerts, designs golden-signal monitoring (Prometheus,
-  Grafana), builds capacity models, reduces toil with automation scripts, and
-  runs chaos/resilience experiments. Use for defining service level
-  objectives, managing error budgets, reliability engineering at scale,
-  incident management, blameless postmortems, MTTR and toil reduction,
-  capacity planning, or on-call alerting and Grafana dashboard design. Use
-  devops-engineer for building CI/CD pipelines, IaC, and hands-on
-  deploy/rollback; use kubernetes-specialist for authoring and debugging
-  Kubernetes manifests, RBAC, and pod failures.
+  Define SLOs, error budgets, alerts, capacity, incident practices, and safe
+  toil automation. Use focused DevOps or Kubernetes skills for delivery work.
 license: MIT
 metadata:
-  author: https://github.com/Jeffallan
+  author: Jeff Allan <author@example.com>
   version: '1.1.0'
+  tags:
+    - sre
+    - reliability
+    - observability
+    - incidents
+    - automation
+  source: https://github.com/Jeffallan
   domain: devops
   triggers: SRE, site reliability, SLO, SLI, error budget, incident management, chaos engineering, toil reduction, on-call, MTTR
   role: specialist
@@ -25,7 +24,18 @@ metadata:
 
 # SRE Engineer
 
-## Core Workflow
+## Purpose
+
+Turn service goals and observed failure modes into measurable reliability
+contracts, actionable alerts, capacity evidence, and bounded automation.
+
+## Prerequisites
+
+- A defined service boundary, users, and important request paths.
+- Current telemetry and incident history appropriate to the analysis.
+- Explicit authorization before chaos experiments or state-changing automation.
+
+## Instructions
 
 1. **Assess reliability** - Review architecture, SLOs, incidents, toil levels
 2. **Define SLOs** - Identify meaningful SLIs and set appropriate targets
@@ -80,7 +90,7 @@ When implementing SRE practices, provide:
 4. Runbooks with clear remediation steps
 5. Brief explanation of reliability impact
 
-## Concrete Examples
+## Examples
 
 ### SLO Definition & Error Budget Calculation
 
@@ -194,3 +204,17 @@ if __name__ == "__main__":
 ```
 
 [Documentation](https://jeffallan.github.io/claude-skills/skills/devops/sre-engineer/)
+
+## Limitations
+
+- Reliability guidance depends on representative telemetry and cannot infer missing production behavior.
+- This skill does not authorize deploys, restarts, failovers, or chaos experiments.
+- Use focused DevOps and Kubernetes skills for delivery configuration and manifests.
+
+## Troubleshooting
+
+| Problem                          | Likely cause                                     | Response                                                        |
+| -------------------------------- | ------------------------------------------------ | --------------------------------------------------------------- |
+| Alert fires without user impact  | Indicator or threshold is not tied to the SLO    | Rebuild the alert from the user-visible SLI and burn rate.      |
+| Error-budget data disagrees      | Window, denominator, or excluded traffic differs | Make the query contract explicit and recompute from one source. |
+| Automation cannot verify success | The runbook lacks a read-only postcondition      | Stop and add a concrete verification step before execution.     |

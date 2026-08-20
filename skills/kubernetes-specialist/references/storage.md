@@ -17,7 +17,7 @@ parameters:
   iops: '3000'
   throughput: '125'
   encrypted: 'true'
-  kmsKeyId: 'arn:aws:kms:us-east-1:123456789012:key/...'
+  kmsKeyId: '${KMS_KEY_ARN}'
 volumeBindingMode: WaitForFirstConsumer
 allowVolumeExpansion: true
 reclaimPolicy: Delete
@@ -88,7 +88,7 @@ spec:
     - ReadWriteOnce
   persistentVolumeReclaimPolicy: Retain
   storageClassName: manual
-  hostPath:
+  local:
     path: /mnt/data/legacy-db
   nodeAffinity:
     required:
@@ -498,28 +498,12 @@ spec:
           secretProviderClass: aws-secrets
 ```
 
-## HostPath Volumes (Use with Caution)
+## Host filesystem access
 
-```yaml
-apiVersion: v1
-kind: Pod
-metadata:
-  name: privileged-pod
-spec:
-  containers:
-    - name: app
-      image: myapp:latest
-      volumeMounts:
-        - name: host-data
-          mountPath: /host-data
-      securityContext:
-        privileged: true
-  volumes:
-    - name: host-data
-      hostPath:
-        path: /data
-        type: DirectoryOrCreate
-```
+Do not mount the host filesystem or deploy privileged pods for application
+storage. Use a CSI-backed PersistentVolumeClaim with least-privilege pod
+security. If a platform component truly requires node access, isolate it in a
+separately reviewed chart and document the exact node-level risk.
 
 ## Best Practices
 

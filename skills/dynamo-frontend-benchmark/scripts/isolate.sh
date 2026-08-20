@@ -5,25 +5,26 @@
 # Reserve cores 0-3 for the frontend by moving other userspace to cores 4-23
 # (systemd cgroup cpuset). Reversible (--runtime), no reboot.
 #
-#   sudo bash bench/isolate.sh           # LITE (default): confine daemons only
-#   sudo bash bench/isolate.sh --full    # also confine user.slice (max isolation)
-#   sudo bash bench/unisolate.sh         # revert (or reboot)
+# Run from a pre-authorized privileged shell:
+#   bash bench/isolate.sh           # LITE (default): confine daemons only
+#   bash bench/isolate.sh --full    # also confine user.slice (max isolation)
+#   bash bench/unisolate.sh         # revert (or reboot)
 #
 # LITE (recommended): confine `system.slice` + `init.scope` (the security
 # daemons / system services that were the dominant noise) to 4-23, and LEAVE
 # `user.slice` on all cores. The frontend then runs with plain `taskset -c 0-3`
-# — so after this one-time sudo, `start.sh`/`stop.sh`/benchmarks need NO sudo.
+# After this one-time privileged operation, ordinary benchmark scripts stay unprivileged.
 # Residual: your own user.slice procs (IDE/node/other sessions) may still touch
 # 0-3, but they're small and steady vs. the scanners.
 #
 # FULL (--full): also confine `user.slice` to 4-23, fully clearing 0-3 of
 # userspace. The frontend then can't use taskset (its slice forbids 0-3), so it
-# must launch via `ISOLATE=1 ./start.sh` (sudo systemd-run into bench.slice) —
-# i.e. a sudo on every frontend restart. Use only when you need maximum cleanliness.
+# must launch via `ISOLATE=1 ./start.sh` from the same approved privileged
+# shell. Use this only when maximum isolation is necessary.
 set -uo pipefail
 HOST_CORES="${HOST_CORES:-4-23}"
 FULL=0; [[ "${1:-}" == "--full" ]] && FULL=1
-[[ $EUID -eq 0 ]] || { echo "ERROR: run as root (sudo bash bench/isolate.sh)"; exit 1; }
+[[ $EUID -eq 0 ]] || { echo "ERROR: a pre-authorized privileged shell is required."; exit 1; }
 
 UNITS=(system.slice init.scope)
 [[ $FULL -eq 1 ]] && UNITS+=(user.slice)
@@ -49,8 +50,8 @@ for unit in "${UNITS[@]}"; do
 done
 
 if [[ $FULL -eq 1 ]]; then
-    echo "[isolate] FULL: launch with  ISOLATE=1 ./start.sh  (frontend -> bench.slice on 0-3, needs sudo each restart)."
-    echo "          stop the isolated frontend with: sudo systemctl stop bench.slice"
+    echo "[isolate] FULL: launch with ISOLATE=1 ./start.sh from the approved privileged shell."
+    echo "          stop the isolated frontend with: systemctl stop bench.slice"
 else
-    echo "[isolate] LITE: just run  ./start.sh  as usual (taskset puts the frontend on 0-3) — NO further sudo."
+    echo "[isolate] LITE: run ./start.sh as usual; taskset puts the frontend on 0-3."
 fi

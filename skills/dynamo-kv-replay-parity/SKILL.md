@@ -1,9 +1,10 @@
 ---
 name: dynamo-kv-replay-parity
-description: Runs deterministic byte-parity and paired performance campaigns for Dynamo offline KV-aware replay across native vLLM and SGLang configurations plus supported vLLM KVBM offload paths, including forced preemption and offload lifecycles. It is used when validating replay refactors, routing changes, scheduler-event changes, or performance-sensitive offline simulation changes against a baseline revision.
+description: Run byte-parity and paired performance campaigns for Dynamo offline KV-aware replay across vLLM, SGLang, and KVBM paths.
 license: Apache-2.0
 metadata:
-  author: NVIDIA
+  author: NVIDIA Corporation and Affiliates <noreply@nvidia.com>
+  version: 1.0.0
   tags:
     - dynamo
     - offline-replay
@@ -15,6 +16,8 @@ metadata:
 
 # Dynamo KV replay parity
 
+## Purpose
+
 Compare two revisions of Dynamo offline KV-aware replay using deterministic virtual-time
 reports and statistically paired real-time measurements. Use the existing replay and
 benchmark harnesses; extend them only when a required signal is unavailable.
@@ -23,7 +26,7 @@ This campaign intentionally excludes round-robin routing. It also does not requi
 same-timestamp event-only progress scenario. Validate those concerns with focused tests
 outside this skill when a change specifically affects them.
 
-## Required inputs
+## Prerequisites
 
 Resolve and record before running anything:
 
@@ -40,6 +43,22 @@ installation. Do not compare against moving branches or reuse a binary after cha
 checkout. Do not describe the configuration as "all features"; record explicit feature
 names. Typical plumbing includes replay determinism plus KVBM offload, but feature names
 can differ between `dynamo-mocker` and `dynamo-bench`.
+
+## Instructions
+
+1. Establish internally deterministic reports for both revisions.
+2. Qualify required lifecycle coverage on one frozen configuration per row.
+3. Compare canonical bytes and classify every semantic difference.
+4. Run the predeclared paired timing gate only for semantically accepted rows.
+
+## Examples
+
+An authoritative result row records the frozen engine, topology, memory path,
+artifact digests, lifecycle evidence, and separate semantic and performance outcomes:
+
+```text
+vLLM | disaggregated | KVBM G1-G2-G1 | semantic PASS | performance INCONCLUSIVE
+```
 
 ## Stage 1: Pin revisions and artifacts
 
@@ -65,36 +84,11 @@ Never build while collecting performance samples.
 
 ## Campaign concurrency
 
-Treat one engine/topology/frozen-configuration comparison row as the unit of node
-placement. When scheduler capacity permits, allocate multiple nodes and assign independent
-rows to them. The nodes do not need to be homogeneous because no individual comparison
-crosses nodes. Keep the baseline, candidate, all determinism repetitions, and lifecycle
-evidence for one row on the same node. Use the same prebuilt revision artifacts and inputs
-throughout the campaign, and record the node characteristics and CPU placement for every
-row.
-
-Native replay is normally single-core: pin each native process to one physical core after
-confirming that assumption during preflight. KVBM replay also owns a one-worker Tokio
-runtime for background pipeline and session tasks. Pin each KVBM process to a fixed,
-disjoint CPU set containing at least two physical cores for the main replay thread and the
-background worker. Expand that set if thread inspection shows additional runnable workers.
-Keep the CPU-set size, NUMA placement, and affinity identical between baseline and candidate
-for a row.
-
-For correctness, run the baseline and candidate repetitions for a row concurrently when
-its node has sufficient resources. Pin concurrent processes to disjoint CPU sets, give each
-process separate output paths, and ensure they do not share mutable state. Keep every
-repetition in a separate process even when several repetitions run at the same time.
-
-For performance, keep the entire row's warmups and 60-pair measurement series on
-its assigned node. Execute only one performance invocation at a time on that node with a
-fixed CPU placement, and keep each randomized baseline/candidate pair adjacent. Different
-performance rows may run concurrently on different nodes, but do not pool one row's pairs
-across heterogeneous nodes. Do not run another replay, build, profiler, or unrelated
-workload concurrently on a node collecting performance samples.
-
-Multi-node and within-node correctness parallelism are campaign throughput optimizations;
-they must not change workload concurrency or weaken performance isolation.
+Before scheduling more than one row, read
+[campaign concurrency](references/campaign-concurrency.md). Keep each row's
+baseline, candidate, correctness evidence, and paired performance series on one
+node with fixed, recorded CPU placement. Never collect two performance samples
+concurrently on the same node.
 
 ## Stage 2: Establish deterministic reports
 
@@ -343,3 +337,18 @@ Delete temporary full reports, traces, binaries, profiler captures, patches, and
 after recording the required evidence. Retain full outputs only for unresolved mismatches
 or performance investigations. Remove task-created Cargo targets when disk pressure matters,
 but never delete unrelated caches or worktrees.
+
+## Limitations
+
+- Excludes round-robin routing and treats SGLang plus KVBM as unsupported unless the harness contract changes.
+- Performance conclusions require the predeclared exchangeability checks and cannot be inferred from a few samples.
+- Golden points are starting configurations, not substitutes for qualification on the pinned revisions.
+
+## Troubleshooting
+
+| Problem                                     | Response                                                                             |
+| ------------------------------------------- | ------------------------------------------------------------------------------------ |
+| A revision is internally nondeterministic   | Stop parity work and identify the entropy source; do not average repetitions.        |
+| Lifecycle counters remain zero              | Adjust the shared frozen configuration minimally and requalify both revisions.       |
+| A sample hits an environmental invalidation | Invalidate the complete pair with evidence and rerun the same arm order.             |
+| Canonical bytes differ                      | Preserve full reports, produce a focused diff, and classify the semantic difference. |

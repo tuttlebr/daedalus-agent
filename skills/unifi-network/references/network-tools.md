@@ -41,8 +41,6 @@ Always available, regardless of registration mode.
 
 ## Clients
 
-<!-- AUTO:tools:clients -->
-
 12 tools.
 
 | Tool                           | Type   | Description                                                                                                                                  |
@@ -60,19 +58,15 @@ Always available, regardless of registration mode.
 | `unifi_unauthorize_guest`      | Mutate | Revoke authorization for a guest client by MAC address                                                                                       |
 | `unifi_unblock_client`         | Mutate | Unblock a previously blocked client/device by MAC address                                                                                    |
 
-<!-- /AUTO:tools:clients -->
-
 **Tips:**
 
 - `unifi_lookup_by_ip` is the fastest way to find a specific client when you know its IP
 - `unifi_list_clients` returns all currently connected clients — for historical, use events
-- MAC addresses are the primary identifier for client operations (format: `AA:BB:CC:DD:EE:FF`)
+- Use the canonical client MAC string returned by the controller as the primary identifier for client operations.
 
 ---
 
 ## Devices
-
-<!-- AUTO:tools:devices -->
 
 21 tools.
 
@@ -100,8 +94,6 @@ Always available, regardless of registration mode.
 | `unifi_update_device_radio`     | Mutate | Update radio settings for a specific band on an access point.                                                                                |
 | `unifi_upgrade_device`          | Mutate | Initiate a firmware upgrade for a device by MAC address (uses cached firmware by default)                                                    |
 
-<!-- /AUTO:tools:devices -->
-
 **Tips:**
 
 - Pass `status='pending'` to `unifi_list_devices` to find devices waiting for adoption
@@ -111,8 +103,6 @@ Always available, regardless of registration mode.
 ---
 
 ## Firewall
-
-<!-- AUTO:tools:firewall -->
 
 14 tools.
 
@@ -133,8 +123,6 @@ Always available, regardless of registration mode.
 | `unifi_update_firewall_group`        | Mutate | Update an existing firewall group.                                                            |
 | `unifi_update_firewall_policy`       | Mutate | Update specific fields of an existing V2 zone-based firewall policy by ID.                    |
 
-<!-- /AUTO:tools:firewall -->
-
 **Tips:**
 
 - Use `create_firewall_policy` for all V2 zone-based firewall creates. Discover zone IDs with `unifi_list_firewall_zones` and network IDs with `unifi_list_networks` first; never hardcode them. See the `firewall-manager` skill for worked examples.
@@ -144,8 +132,6 @@ Always available, regardless of registration mode.
 ---
 
 ## Networks & WLANs
-
-<!-- AUTO:tools:network -->
 
 15 tools.
 
@@ -167,8 +153,6 @@ Always available, regardless of registration mode.
 | `unifi_update_network`       | Mutate | Update specific fields of an existing network (LAN/VLAN).                                                                   |
 | `unifi_update_wlan`          | Mutate | Update specific fields of an existing WLAN (SSID).                                                                          |
 
-<!-- /AUTO:tools:network -->
-
 **Tips:**
 
 - Network creation is disabled by default — requires `UNIFI_POLICY_NETWORK_NETWORKS_CREATE=true`
@@ -181,8 +165,6 @@ Always available, regardless of registration mode.
 
 Manage static DNS A/AAAA/CNAME/MX/TXT/NS/SRV records on the controller's local DNS resolver.
 
-<!-- AUTO:tools:dns -->
-
 5 tools.
 
 | Tool                           | Type   | Description                                               |
@@ -193,13 +175,9 @@ Manage static DNS A/AAAA/CNAME/MX/TXT/NS/SRV records on the controller's local D
 | `unifi_delete_dns_record`      | Mutate | Delete a static DNS record.                               |
 | `unifi_update_dns_record`      | Mutate | Update an existing DNS record.                            |
 
-<!-- /AUTO:tools:dns -->
-
 ---
 
 ## Port Forwarding
-
-<!-- AUTO:tools:port_forwards -->
 
 6 tools.
 
@@ -212,13 +190,9 @@ Manage static DNS A/AAAA/CNAME/MX/TXT/NS/SRV records on the controller's local D
 | `unifi_toggle_port_forward`        | Mutate | Toggle a port forwarding rule on or off on your Unifi Network controller.                   |
 | `unifi_update_port_forward`        | Mutate | Update specific fields of an existing port forwarding rule using schema validation.         |
 
-<!-- /AUTO:tools:port_forwards -->
-
 ---
 
 ## QoS / Traffic Shaping
-
-<!-- AUTO:tools:qos -->
 
 6 tools.
 
@@ -231,13 +205,9 @@ Manage static DNS A/AAAA/CNAME/MX/TXT/NS/SRV records on the controller's local D
 | `unifi_toggle_qos_rule_enabled` | Mutate | Enable or disable a specific QoS rule by ID.                             |
 | `unifi_update_qos_rule`         | Mutate | Update specific fields of an existing QoS rule.                          |
 
-<!-- /AUTO:tools:qos -->
-
 ---
 
 ## Traffic Flows
-
-<!-- AUTO:tools:traffic_flows -->
 
 2 tools.
 
@@ -246,13 +216,9 @@ Manage static DNS A/AAAA/CNAME/MX/TXT/NS/SRV records on the controller's local D
 | `unifi_get_traffic_flow_statistics` | Read | Aggregated UniFi Traffic Flows summary (Insights > Flows 'Flow Summary'). |
 | `unifi_get_traffic_flows`           | Read | Query historical UniFi Traffic Flows (Insights > Flows).                  |
 
-<!-- /AUTO:tools:traffic_flows -->
-
 ---
 
 ## Traffic Routes
-
-<!-- AUTO:tools:traffic_routes -->
 
 4 tools.
 
@@ -263,13 +229,9 @@ Manage static DNS A/AAAA/CNAME/MX/TXT/NS/SRV records on the controller's local D
 | `unifi_toggle_traffic_route`      | Mutate | Toggle a traffic route on/off by ID.                                       |
 | `unifi_update_traffic_route`      | Mutate | Update a traffic route's settings.                                         |
 
-<!-- /AUTO:tools:traffic_routes -->
-
 ---
 
 ## VPN
-
-<!-- AUTO:tools:vpn -->
 
 6 tools.
 
@@ -282,8 +244,6 @@ Manage static DNS A/AAAA/CNAME/MX/TXT/NS/SRV records on the controller's local D
 | `unifi_update_vpn_client_state` | Read | Enable or disable a specific VPN client by ID.                   |
 | `unifi_update_vpn_server_state` | Read | Enable or disable a specific VPN server by ID.                   |
 
-<!-- /AUTO:tools:vpn -->
-
 **Tips:**
 
 - VPN client mutations are enabled by default; VPN server mutations are disabled
@@ -292,8 +252,6 @@ Manage static DNS A/AAAA/CNAME/MX/TXT/NS/SRV records on the controller's local D
 ---
 
 ## Routing
-
-<!-- AUTO:tools:routing -->
 
 5 tools.
 
@@ -305,13 +263,9 @@ Manage static DNS A/AAAA/CNAME/MX/TXT/NS/SRV records on the controller's local D
 | `unifi_create_route`       | Mutate | Create a new static route for advanced routing configuration.    |
 | `unifi_update_route`       | Mutate | Update an existing static route's properties.                    |
 
-<!-- /AUTO:tools:routing -->
-
 ---
 
 ## MAC ACL Rules
-
-<!-- AUTO:tools:acl -->
 
 5 tools.
 
@@ -323,8 +277,6 @@ Manage static DNS A/AAAA/CNAME/MX/TXT/NS/SRV records on the controller's local D
 | `unifi_delete_acl_rule`      | Mutate | Delete a MAC ACL rule.                                              |
 | `unifi_update_acl_rule`      | Mutate | Update an existing MAC ACL rule.                                    |
 
-<!-- /AUTO:tools:acl -->
-
 **Tips:**
 
 - This is the only category with a delete tool — requires `UNIFI_POLICY_NETWORK_ACL_RULES_DELETE=true`
@@ -332,8 +284,6 @@ Manage static DNS A/AAAA/CNAME/MX/TXT/NS/SRV records on the controller's local D
 ---
 
 ## Content Filtering
-
-<!-- AUTO:tools:content_filtering -->
 
 4 tools.
 
@@ -344,8 +294,6 @@ Manage static DNS A/AAAA/CNAME/MX/TXT/NS/SRV records on the controller's local D
 | `unifi_delete_content_filter`      | Mutate | Delete a content filtering profile.                                        |
 | `unifi_update_content_filter`      | Mutate | Update an existing content filtering profile.                              |
 
-<!-- /AUTO:tools:content_filtering -->
-
 **Tips:**
 
 - Profiles apply DNS-based category blocking (FAMILY, MALWARE, PHISHING, etc.) and safe search
@@ -355,8 +303,6 @@ Manage static DNS A/AAAA/CNAME/MX/TXT/NS/SRV records on the controller's local D
 ---
 
 ## Switch Management
-
-<!-- AUTO:tools:switch -->
 
 15 tools.
 
@@ -378,8 +324,6 @@ Manage static DNS A/AAAA/CNAME/MX/TXT/NS/SRV records on the controller's local D
 | `unifi_update_port_profile`        | Mutate | Update an existing port profile.                                                                                                             |
 | `unifi_update_switch_stp`          | Mutate | Update STP (Spanning Tree Protocol) configuration for a switch.                                                                              |
 
-<!-- /AUTO:tools:switch -->
-
 **Tips:**
 
 - Use `unifi_list_devices` to find switch MAC addresses (required for most switch tools)
@@ -392,8 +336,6 @@ Manage static DNS A/AAAA/CNAME/MX/TXT/NS/SRV records on the controller's local D
 
 ## Client Groups
 
-<!-- AUTO:tools:client_groups -->
-
 5 tools.
 
 | Tool                             | Type   | Description                                                   |
@@ -404,8 +346,6 @@ Manage static DNS A/AAAA/CNAME/MX/TXT/NS/SRV records on the controller's local D
 | `unifi_delete_client_group`      | Mutate | Delete a client group.                                        |
 | `unifi_update_client_group`      | Mutate | Update an existing client group.                              |
 
-<!-- /AUTO:tools:client_groups -->
-
 **Tips:**
 
 - Client groups organize devices by MAC address for use in OON policies and firewall rules
@@ -414,8 +354,6 @@ Manage static DNS A/AAAA/CNAME/MX/TXT/NS/SRV records on the controller's local D
 ---
 
 ## OON Policies
-
-<!-- AUTO:tools:oon -->
 
 6 tools.
 
@@ -428,8 +366,6 @@ Manage static DNS A/AAAA/CNAME/MX/TXT/NS/SRV records on the controller's local D
 | `unifi_toggle_oon_policy`      | Mutate | Toggle an OON policy on or off.                                                                                                     |
 | `unifi_update_oon_policy`      | Mutate | Update an existing OON policy.                                                                                                      |
 
-<!-- /AUTO:tools:oon -->
-
 **Tips:**
 
 - OON policies control internet scheduling (bedtime blackouts), app blocking, QoS, and VPN routing
@@ -441,16 +377,12 @@ Manage static DNS A/AAAA/CNAME/MX/TXT/NS/SRV records on the controller's local D
 
 ## DPI Application Lookup
 
-<!-- AUTO:tools:dpi -->
-
 2 tools.
 
 | Tool                          | Type | Description                                                                                                        |
 | ----------------------------- | ---- | ------------------------------------------------------------------------------------------------------------------ |
 | `unifi_list_dpi_applications` | Read | List DPI applications available for use in firewall rules and OON policies.                                        |
 | `unifi_list_dpi_categories`   | Read | List DPI application categories (e.g., 'Instant messengers', 'Peer-to-peer networks', 'Media streaming services'). |
-
-<!-- /AUTO:tools:dpi -->
 
 **Tips:**
 
@@ -462,8 +394,6 @@ Manage static DNS A/AAAA/CNAME/MX/TXT/NS/SRV records on the controller's local D
 ---
 
 ## Events & Alarms
-
-<!-- AUTO:tools:events -->
 
 7 tools.
 
@@ -477,8 +407,6 @@ Manage static DNS A/AAAA/CNAME/MX/TXT/NS/SRV records on the controller's local D
 | `unifi_archive_alarm`      | Mutate | Archive (resolve/dismiss) a specific alarm by its ID                                                                                         |
 | `unifi_archive_all_alarms` | Mutate | Archive (resolve/dismiss) all active alarms                                                                                                  |
 
-<!-- /AUTO:tools:events -->
-
 **Tips:**
 
 - Use `unifi_get_event_types` first to understand what event types are available for filtering
@@ -487,8 +415,6 @@ Manage static DNS A/AAAA/CNAME/MX/TXT/NS/SRV records on the controller's local D
 ---
 
 ## Statistics
-
-<!-- AUTO:tools:stats -->
 
 15 tools.
 
@@ -510,8 +436,6 @@ Manage static DNS A/AAAA/CNAME/MX/TXT/NS/SRV records on the controller's local D
 | `unifi_get_speedtest_results`   | Read | Get historical speedtest results including download, upload (Mbps), and latency (ms).                                                        |
 | `unifi_get_top_clients`         | Read | Get a list of top clients by usage (sorted by total bytes)                                                                                   |
 
-<!-- /AUTO:tools:stats -->
-
 **Tips:**
 
 - `unifi_get_top_clients` is the fastest way to find bandwidth hogs
@@ -522,8 +446,6 @@ Manage static DNS A/AAAA/CNAME/MX/TXT/NS/SRV records on the controller's local D
 
 ## Hotspot / Vouchers
 
-<!-- AUTO:tools:hotspot -->
-
 4 tools.
 
 | Tool                        | Type   | Description                                                       |
@@ -532,8 +454,6 @@ Manage static DNS A/AAAA/CNAME/MX/TXT/NS/SRV records on the controller's local D
 | `unifi_list_vouchers`       | Read   | List all hotspot vouchers for the current site.                   |
 | `unifi_create_voucher`      | Mutate | Create hotspot voucher(s) for guest network access.               |
 | `unifi_revoke_voucher`      | Mutate | Revoke/delete a hotspot voucher by its ID, preventing further use |
-
-<!-- /AUTO:tools:hotspot -->
 
 **Tips:**
 
@@ -544,8 +464,6 @@ Manage static DNS A/AAAA/CNAME/MX/TXT/NS/SRV records on the controller's local D
 
 ## User Groups
 
-<!-- AUTO:tools:usergroups -->
-
 4 tools.
 
 | Tool                          | Type   | Description                                                             |
@@ -555,13 +473,9 @@ Manage static DNS A/AAAA/CNAME/MX/TXT/NS/SRV records on the controller's local D
 | `unifi_create_usergroup`      | Mutate | Create a new user group (bandwidth profile) with optional speed limits. |
 | `unifi_update_usergroup`      | Mutate | Update an existing user group's name or bandwidth limits.               |
 
-<!-- /AUTO:tools:usergroups -->
-
 ---
 
 ## System
-
-<!-- AUTO:tools:system,config -->
 
 10 tools.
 
@@ -577,8 +491,6 @@ Manage static DNS A/AAAA/CNAME/MX/TXT/NS/SRV records on the controller's local D
 | `unifi_delete_backup`              | Mutate | Delete a backup file from the controller.                                                                                                    |
 | `unifi_update_autobackup_settings` | Mutate | Update auto-backup settings.                                                                                                                 |
 | `unifi_update_snmp_settings`       | Mutate | Update SNMP settings for the site (enable/disable, set community string).                                                                    |
-
-<!-- /AUTO:tools:system,config -->
 
 **Tips:**
 

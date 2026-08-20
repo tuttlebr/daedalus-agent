@@ -332,7 +332,7 @@ spec:
         branch: main
     commit:
       author:
-        email: fluxcdbot@users.noreply.github.com
+        email: automation@example.com
         name: fluxcdbot
       messageTemplate: 'Update image to {{.NewTag}}'
     push:
@@ -397,15 +397,9 @@ kubectl apply -f https://github.com/bitnami-labs/sealed-secrets/releases/downloa
 # Install kubeseal CLI
 brew install kubeseal
 
-# Create sealed secret
-kubectl create secret generic db-credentials \
-  --from-literal=username=admin \
-  --from-literal=password=secret123 \
-  --dry-run=client -o yaml | \
-  kubeseal --format yaml > sealed-db-credentials.yaml
-
-# Apply sealed secret
-kubectl apply -f sealed-db-credentials.yaml
+# Generate the input from an approved secret manager through stdin.
+# Never put plaintext values in command arguments or temporary files.
+# Follow the pinned kubeseal release documentation for the exact workflow.
 ```
 
 ```yaml
