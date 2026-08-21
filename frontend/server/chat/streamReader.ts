@@ -541,7 +541,19 @@ export async function startBackgroundStreamReader(
             });
             continue;
           }
-          if (parsed.error) continue;
+          if (parsed.error) {
+            const backendMessage =
+              typeof parsed.error === 'string'
+                ? parsed.error.trim()
+                : typeof parsed.error?.message === 'string'
+                ? parsed.error.message.trim()
+                : '';
+            throw new Error(
+              backendMessage
+                ? `Backend stream failed: ${backendMessage}`
+                : 'Backend stream reported an error',
+            );
+          }
           const content = extractAsyncStreamContentDelta(
             parsed,
             partialResponse,
@@ -587,9 +599,9 @@ export async function startBackgroundStreamReader(
       if (streamDone) break;
     }
 
-    // If stream produced content but NAT async hasn't finished yet, use
-    // lastToolOutput as recovery. Sanitize at the moment of promotion so the
-    // user-facing answer is protected even if the raw tool output happens to
+    // A cleanly completed tool-only workflow may intentionally return its final
+    // tool output without content tokens. Sanitize at the moment of promotion so
+    // the user-facing answer is protected even if the raw tool output happens to
     // contain prior assistant text. Raw entries in the normalized step list are
     // left untouched so the steps panel still shows the true tool data.
     if (!partialResponse.trim() && lastToolOutput) {
@@ -655,13 +667,9 @@ export async function startBackgroundStreamReader(
       }
     } else {
       logger.error(`Job ${jobId}: Stream reader error: ${err.message}`);
-      if (!partialResponse.trim() && lastToolOutput) {
-        partialResponse = stripReplayedAssistantPrefix(
-          lastToolOutput,
-          jobRequest.messages || [],
-        );
-        pendingResponseDelta += partialResponse;
-      }
+      // A tool result is intermediate data, not an assistant answer. Preserve
+      // any actual content tokens, but never promote lastToolOutput when the
+      // backend reports an error.
       await persistPendingState().catch(() => {});
       await finalizeError(
         jobId,

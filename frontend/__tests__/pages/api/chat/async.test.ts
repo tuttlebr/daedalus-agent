@@ -1902,6 +1902,16 @@ describe('chat/async streaming + finalize (characterization)', () => {
     expect(complete[0].fullResponse).toBe('Done');
   });
 
+  it('accepts NAT clean EOF after final assistant content', async () => {
+    const { statusKey, store } = await runStreamTurn([
+      'data: {"choices":[{"delta":{"content":"HANDOFF_OK"}}]}\n',
+    ]);
+
+    const status = store.get(statusKey);
+    expect(status?.status).toBe('completed');
+    expect(status?.fullResponse).toBe('HANDOFF_OK');
+  });
+
   it('parses intermediate_data frames, persists steps, and publishes chat_intermediate_step', async () => {
     const { jobId, statusKey, store } = await runStreamTurn([
       'intermediate_data: {"name":"Function Start: <search>","id":"s1","parent_id":"root","payload":"the query"}\n',
@@ -2079,6 +2089,32 @@ describe('chat/async streaming + finalize (characterization)', () => {
     const status = store.get(statusKey);
     expect(status?.status).toBe('completed');
     expect(status?.fullResponse).toBe('The answer is 42.');
+  });
+
+  it('fails an explicit backend error without promoting the last tool output', async () => {
+    const { statusKey, store } = await runStreamTurn([
+      'intermediate_data: {"name":"Function Complete: <agent_skills_tool>","id":"t1","parent_id":"root","payload":"Preamble\\n**Function Output:**\\n```\\n{\\"skills\\":[{\\"name\\":\\"daily-summary\\"}]}\\n```"}\n',
+      'data: {"error":{"message":"Extra inputs are not permitted, field: reasoning"}}\n',
+      'data: [DONE]\n',
+    ]);
+
+    const status = store.get(statusKey);
+    expect(status?.status).toBe('error');
+    expect(status?.error).toBe(
+      'Backend stream failed: Extra inputs are not permitted, field: reasoning',
+    );
+    expect(status?.partialResponse).toBe('');
+    expect(status?.fullResponse).toBeUndefined();
+    expect(status?.intermediateSteps).toHaveLength(1);
+    const complete = eventsOfType('chat_complete');
+    expect(complete).toHaveLength(1);
+    expect(complete[0].error).toBe(status?.error);
+    expect(complete[0].fullResponse).not.toContain('daily-summary');
+
+    const conversation = store.get('daedalus:conversation:conv-1');
+    expect(conversation.messages.at(-1).content).toBe(
+      '[Error occurred before response was generated]',
+    );
   });
 
   it('keeps oauth_required prompts when the stream closes without content', async () => {
