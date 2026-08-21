@@ -290,7 +290,7 @@ jobs:
 
       - name: Audit production JavaScript dependencies
         working-directory: frontend
-        run: npm audit --omit=dev --audit-level=moderate --package-lock-only
+        run: npm run audit:production
 
       - name: Dependency vulnerability scan
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0

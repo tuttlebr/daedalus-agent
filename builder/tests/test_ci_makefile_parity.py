@@ -98,7 +98,7 @@ def test_trivy_fails_ci_and_local_gate_on_high_or_critical_findings():
     assert 'endswith("package-lock.json")' in makefile
 
 
-def test_production_javascript_audit_fails_ci_and_local_gate_on_moderate_findings():
+def test_production_javascript_audit_uses_same_fail_closed_policy_in_ci_and_local_gate():
     ci = yaml.safe_load(_CI.read_text())
     security_steps = ci["jobs"]["security"]["steps"]
     setup_node = next(
@@ -111,12 +111,24 @@ def test_production_javascript_audit_fails_ci_and_local_gate_on_moderate_finding
         for step in security_steps
         if step.get("name") == "Audit production JavaScript dependencies"
     )
-    expected = "npm audit --omit=dev --audit-level=moderate --package-lock-only"
+    expected = "npm run audit:production"
 
     assert setup_node["with"]["node-version"] == "22"
     assert setup_node["with"]["cache-dependency-path"] == "frontend/package-lock.json"
     assert audit_command == expected
     assert f"cd frontend && {expected}" in _MAKEFILE.read_text()
+
+    package = json.loads(_FRONTEND_PACKAGE.read_text())
+    assert package["scripts"]["audit:production"] == (
+        "node scripts/check-production-audit.mjs"
+    )
+    audit_policy = (
+        _REPO_ROOT / "frontend/scripts/check-production-audit.mjs"
+    ).read_text()
+    assert "--omit=dev" in audit_policy
+    assert "--audit-level=moderate" in audit_policy
+    assert "--package-lock-only" in audit_policy
+    assert "fixAvailable !== false" in audit_policy
 
 
 def test_ci_oidc_permissions_are_limited_to_main_branch_attestations():

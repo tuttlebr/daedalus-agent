@@ -12,7 +12,8 @@
     "format": "prettier --write .",
     "test": "vitest",
     "coverage": "vitest run --coverage",
-    "e2e": "node e2e/run-e2e.mjs"
+    "e2e": "node e2e/run-e2e.mjs",
+    "audit:production": "node scripts/check-production-audit.mjs"
   },
   "dependencies": {
     "@fontsource/ibm-plex-serif": "^5.2.7",

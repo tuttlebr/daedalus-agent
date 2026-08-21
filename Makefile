@@ -85,7 +85,7 @@ docker: ## docker compose config + build runtime images  (CI job: docker)
 
 security: ## secret, production dependency, and filesystem vulnerability scans  (CI job: security)
 	gitleaks detect --source . --verbose --redact
-	cd frontend && npm audit --omit=dev --audit-level=moderate --package-lock-only
+	cd frontend && npm run audit:production
 	$(TRIVY) fs --scanners vuln --list-all-pkgs --format json frontend/package-lock.json >$(TRIVY_INVENTORY)
 	jq -e '[.Results[]? | select(.Target | endswith("package-lock.json"))] | length > 0' $(TRIVY_INVENTORY) >/dev/null || { echo "Trivy did not inventory frontend/package-lock.json" >&2; exit 1; }
 	$(TRIVY) fs --scanners vuln --severity CRITICAL,HIGH --exit-code 1 --format sarif . >$(TRIVY_RESULTS)
