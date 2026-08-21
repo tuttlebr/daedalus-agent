@@ -88,6 +88,11 @@ automatically. Non-Helm deployments must set the same value for frontend and
 backend. Local Compose alone opts into tokenless development explicitly with
 `ALLOW_INSECURE_INTERNAL=1`, and its backend host port is loopback-bound.
 
+Production durable memory uses the separately deployed Hindsight service. See
+the [Hindsight memory integration and rollout runbook](docs/hindsight-memory-integration.md)
+for identity isolation, authority modes, migration, validation, promotion, and
+rollback.
+
 Useful optional keys:
 
 ```bash
@@ -783,6 +788,7 @@ For an externally managed target, configure
 | [`frontend/env.example`](frontend/env.example)                                             | Frontend API path example            |
 | [`helm/daedalus/values.yaml`](helm/daedalus/values.yaml)                                   | Default Helm values                  |
 | [`custom-values.yaml`](custom-values.yaml)                                                 | Example production overrides         |
+| [`docs/hindsight-memory-integration.md`](docs/hindsight-memory-integration.md)             | Hindsight integration and rollout    |
 | [`deploy.sh`](deploy.sh)                                                                   | Build, push, and deploy helper       |
 | [`Makefile`](Makefile)                                                                     | Local mirror of CI workflow jobs     |
 

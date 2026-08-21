@@ -1067,6 +1067,8 @@ def test_backend_secret_allowlist_tracks_active_model_credentials():
         "VERIFIER_API_KEY",
         "VERIFIER_BASE_URL",
         "VERIFIER_MODEL",
+        "HINDSIGHT_API_KEY",
+        "HINDSIGHT_API_TIMEOUT_SECONDS",
         "TOOL_CALLING_LLM_MODEL_API_KEY",
     ):
         assert allowlist.fullmatch(active_name), active_name
@@ -1078,6 +1080,28 @@ def test_backend_secret_allowlist_tracks_active_model_credentials():
         "DISTILL_LLM_MODEL_API_KEY",
     ):
         assert allowlist.fullmatch(stale_name) is None, stale_name
+
+
+def test_hindsight_memory_is_identity_bound_and_shadowed_by_default():
+    config = _config()
+    custom = yaml.safe_load(CUSTOM_VALUES.read_text(encoding="utf-8"))
+    env_template = ENV_TEMPLATE.read_text(encoding="utf-8")
+    deploy_script = DEPLOY_SCRIPT.read_text(encoding="utf-8")
+    dockerfile = DOCKERFILE.read_text(encoding="utf-8")
+
+    assert "hindsight_mcp_server" not in config.get("function_groups", {})
+    assert "hindsight_mcp_server" not in config.get("functions", {})
+    assert "hindsight_mcp_server" not in config["workflow"].get("nat_tools", [])
+    overrides = custom["backend"]["default"]["env"]["overrides"]
+    assert overrides["DAEDALUS_MEMORY_MODE"] == "shadow"
+    assert overrides["HINDSIGHT_API_URL"].endswith(
+        ".daedalus-hindsight.svc.cluster.local:8888"
+    )
+    assert "HINDSIGHT_API_KEY=" in env_template
+    assert "DAEDALUS_MEMORY_MODE=shadow" in env_template
+    assert "backend.default.env.overrides.DAEDALUS_MEMORY_MODE" in deploy_script
+    assert "HINDSIGHT_API_KEY_LENGTH < 32" in deploy_script
+    assert "COPY migrate_redis_memory_to_hindsight.py" in dockerfile
 
 
 def test_google_mcp_oauth_deadlines_are_ordered_across_workloads():

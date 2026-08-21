@@ -78,6 +78,30 @@ async def readiness_response() -> JSONResponse:
             with contextlib.suppress(Exception):
                 await close_redis_client(client)
 
+    memory = {"state": "redis"}
+    memory_degraded = False
+    try:
+        from nat_helpers.hindsight_client import client_from_env, memory_mode
+
+        configured_memory_mode = memory_mode()
+        memory = {"state": configured_memory_mode}
+        if configured_memory_mode in {"shadow", "hindsight"}:
+            await asyncio.wait_for(client_from_env().health(), timeout=3.5)
+            memory["hindsight"] = "ready"
+    except Exception:
+        logger.warning("Hindsight readiness check failed")
+        memory["hindsight"] = "unavailable"
+        if memory.get("state") == "hindsight":
+            return JSONResponse(
+                {
+                    "status": "unready",
+                    "reason": "hindsight_unavailable",
+                    "memory": memory,
+                },
+                status_code=503,
+            )
+        memory_degraded = True
+
     rag = {"state": "disabled"}
     try:
         rag_mode = _rag_readiness_mode()
@@ -132,9 +156,13 @@ async def readiness_response() -> JSONResponse:
             rag_degraded = True
 
     status = (
-        "degraded" if capabilities["unavailable_optional"] or rag_degraded else "ready"
+        "degraded"
+        if capabilities["unavailable_optional"] or rag_degraded or memory_degraded
+        else "ready"
     )
-    return JSONResponse({"status": status, "mcp": capabilities, "rag": rag})
+    return JSONResponse(
+        {"status": status, "mcp": capabilities, "rag": rag, "memory": memory}
+    )
 
 
 def attach_daedalus_routes(app: FastAPI) -> FastAPI:
@@ -147,6 +175,7 @@ def attach_daedalus_routes(app: FastAPI) -> FastAPI:
     from collection_metadata_api import router as collection_metadata_router
     from document_ingest_api import router as document_ingest_router
     from image_api import router as image_router
+    from memory_api import router as memory_router
     from nat_helpers.internal_auth import DaedalusInternalAuthMiddleware
     from profile_import_api import router as profile_import_router
 
@@ -161,6 +190,7 @@ def attach_daedalus_routes(app: FastAPI) -> FastAPI:
     app.include_router(collection_metadata_router)
     app.include_router(document_ingest_router)
     app.include_router(profile_import_router)
+    app.include_router(memory_router)
     app._daedalus_routes_attached = True
     logger.info("Attached Daedalus HTTP routers to NAT FastAPI app")
     return app

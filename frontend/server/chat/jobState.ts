@@ -53,6 +53,7 @@ export interface JobFinalizationJournal {
   terminalStatus?: AsyncJobStatus;
   conversation?: JobFinalizationConversation;
   conversationAppliedAt?: number;
+  memoryRetentionAttemptedAt?: number;
   streamingStateClearedAt?: number;
   eventsPublishedAt?: number;
   streamStateClearedAt?: number;
@@ -64,6 +65,7 @@ export type NewJobFinalizationJournal = Omit<
   JobFinalizationJournal,
   | 'terminalStatus'
   | 'conversationAppliedAt'
+  | 'memoryRetentionAttemptedAt'
   | 'streamingStateClearedAt'
   | 'eventsPublishedAt'
   | 'streamStateClearedAt'
@@ -73,6 +75,7 @@ export type NewJobFinalizationJournal = Omit<
 
 export type FinalizationJournalPhase =
   | 'conversationAppliedAt'
+  | 'memoryRetentionAttemptedAt'
   | 'streamingStateClearedAt'
   | 'streamStateClearedAt'
   | 'conversationGuardReleasedAt'

@@ -230,6 +230,34 @@ describe('chat/async backend pinning helpers', () => {
     ).not.toHaveProperty('x-conversation-id');
   });
 
+  it('forwards only a validated server-generated request id', () => {
+    expect(
+      buildNatRequestHeaders(
+        'testuser',
+        {},
+        undefined,
+        undefined,
+        'conversation-123',
+        'job-123',
+      ),
+    ).toEqual(
+      expect.objectContaining({
+        'x-conversation-id': 'conversation-123',
+        'x-daedalus-request-id': 'job-123',
+      }),
+    );
+    expect(
+      buildNatRequestHeaders(
+        'testuser',
+        {},
+        undefined,
+        undefined,
+        'conversation-123',
+        'invalid/request',
+      ),
+    ).not.toHaveProperty('x-daedalus-request-id');
+  });
+
   it('adds the internal API token to backend requests when configured', () => {
     process.env.DAEDALUS_INTERNAL_API_TOKEN = 'internal-secret';
 

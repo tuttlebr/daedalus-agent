@@ -349,3 +349,42 @@ def test_get_memory_expands_daily_summary_queries(monkeypatch):
     assert "standalone HTML" in call["query"]
     assert "no Markdown" in call["query"]
     assert "agent_skills_tool" in call["query"]
+
+
+def test_disabled_mode_neither_reads_nor_writes_redis(monkeypatch):
+    async def _run():
+        from nat_helpers import daedalus_memory_tools as tools
+
+        monkeypatch.setenv("DAEDALUS_MEMORY_MODE", "disabled")
+        monkeypatch.setattr(
+            tools,
+            "authenticated_user_id_from_context",
+            lambda: "tuttlebr",
+        )
+        editor = FakeMemoryEditor()
+        builder = FakeBuilder(editor)
+        add_functions = []
+        async for item in tools.daedalus_add_memory(
+            tools.DaedalusAddMemoryConfig(memory="redis_memory"),
+            builder,
+        ):
+            add_functions.append(item)
+        get_functions = []
+        async for item in tools.daedalus_get_memory(
+            tools.DaedalusGetMemoryConfig(memory="redis_memory"),
+            builder,
+        ):
+            get_functions.append(item)
+
+        add_result = await add_functions[0].fn(
+            tools.AddMemoryInput(memory="Do not store this")
+        )
+        get_result = await get_functions[0].fn(tools.GetMemoryInput(query="Anything"))
+        return add_result, get_result, editor
+
+    add_result, get_result, editor = run(_run())
+
+    assert add_result == "Durable memory is disabled by the operator."
+    assert get_result == "Memories as a JSON: \n[]"
+    assert editor.added == []
+    assert editor.search_calls == []

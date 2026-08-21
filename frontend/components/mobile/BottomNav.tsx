@@ -1,6 +1,7 @@
 'use client';
 
 import {
+  IconBrain,
   IconMessageCircle,
   IconPlugConnected,
   IconRobot,
@@ -49,6 +50,15 @@ export const BottomNav = memo(
         onClick: () => {
           setShowChatbar(false);
           setActiveView('autonomy');
+        },
+      },
+      {
+        icon: IconBrain,
+        label: 'Memory',
+        active: activeView === 'memory',
+        onClick: () => {
+          setShowChatbar(false);
+          setActiveView('memory');
         },
       },
       {

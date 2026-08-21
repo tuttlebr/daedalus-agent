@@ -1,6 +1,7 @@
 'use client';
 
 import {
+  IconBrain,
   IconMessageCircle,
   IconRobot,
   IconSparkles,
@@ -15,6 +16,7 @@ const TABS: { id: AppView; label: string; icon: React.ReactNode }[] = [
   { id: 'chat', label: 'Chat', icon: <IconMessageCircle size={16} /> },
   { id: 'create', label: 'Create', icon: <IconSparkles size={16} /> },
   { id: 'autonomy', label: 'Autonomy', icon: <IconRobot size={16} /> },
+  { id: 'memory', label: 'Memory', icon: <IconBrain size={16} /> },
   {
     id: 'connections',
     label: 'Connections',

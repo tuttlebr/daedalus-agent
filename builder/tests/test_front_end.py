@@ -40,7 +40,7 @@ def test_daedalus_routes_attach_to_only_the_selected_app():
     unrelated_app = _FakeApp()
 
     assert attach_daedalus_routes(app) is app
-    assert len(app.included_routers) == 4
+    assert len(app.included_routers) == 5
     assert len(app.middleware) == 1
     assert [path for path, _endpoint, _kwargs in app.routes] == ["/health/ready"]
     assert app._daedalus_routes_attached is True
@@ -55,7 +55,7 @@ def test_daedalus_routes_attach_only_once():
     attach_daedalus_routes(app)
     attach_daedalus_routes(app)
 
-    assert len(app.included_routers) == 4
+    assert len(app.included_routers) == 5
     assert len(app.middleware) == 1
     assert len(app.routes) == 1
 

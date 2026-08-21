@@ -26,7 +26,13 @@ describe('BottomNav', () => {
     const labels = Array.from(container.querySelectorAll('button')).map(
       (button) => button.getAttribute('aria-label'),
     );
-    expect(labels).toEqual(['Chat', 'Create', 'Autonomy', 'Connections']);
+    expect(labels).toEqual([
+      'Chat',
+      'Create',
+      'Autonomy',
+      'Memory',
+      'Connections',
+    ]);
     expect(container.textContent).not.toContain('New');
     expect(container.textContent).not.toContain('Menu');
 

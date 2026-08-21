@@ -13,6 +13,10 @@ class FakeRedis:
         self.store[key] = value
         return True
 
+    def set(self, key, value):
+        self.store[key] = value
+        return True
+
     def get(self, key):
         return self.store.get(key)
 

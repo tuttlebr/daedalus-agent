@@ -167,6 +167,7 @@ def main() -> None:
     # NAT 1.8 exposes runner_class as its supported application-composition
     # hook. Prove the configured Daedalus worker remains a valid subclass so
     # route ownership never falls back to a process-wide FastAPI patch.
+    from memory_api import router as memory_router
     from nat.front_ends.fastapi.fastapi_front_end_plugin_worker import (
         FastApiFrontEndPluginWorker,
     )
@@ -174,6 +175,23 @@ def main() -> None:
 
     if not issubclass(DaedalusFastApiFrontEndPluginWorker, FastApiFrontEndPluginWorker):
         raise RuntimeError("Daedalus NAT runner no longer satisfies the pinned ABI")
+
+    memory_paths = {route.path for route in memory_router.routes}
+    required_memory_paths = {
+        "/v1/memory/retain-turn",
+        "/v1/memories",
+        "/v1/memories/{memory_id}",
+        "/v1/memories/{memory_id}/invalidate",
+        "/v1/memory-sources",
+        "/v1/memory-sources/{document_id}",
+        "/v1/memories/clear",
+    }
+    if not required_memory_paths <= memory_paths:
+        raise RuntimeError("Daedalus Hindsight memory routes are incomplete")
+
+    # The runtime image must contain the operator migration and all imports it
+    # needs before it can be used through kubectl exec.
+    import migrate_redis_memory_to_hindsight  # noqa: F401
 
     # Import the package registration module exactly as NAT's component loader
     # does, then prove the narrow Redis ACL/TLS provider is registered against

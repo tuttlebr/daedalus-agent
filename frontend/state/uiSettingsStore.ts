@@ -17,7 +17,7 @@ import { subscribeWithSelector } from 'zustand/middleware';
 // Types
 // ============================================================================
 
-export type AppView = 'chat' | 'autonomy' | 'create' | 'connections';
+export type AppView = 'chat' | 'autonomy' | 'create' | 'memory' | 'connections';
 
 export interface UISettingsState {
   // Theme

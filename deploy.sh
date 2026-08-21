@@ -523,6 +523,54 @@ with open(destination, "w", encoding="utf-8") as handle:
 PY
   }
 
+  # The authority mode is deployment configuration rather than a secret. Pass
+  # it as an explicit pod override so switching shadow -> hindsight cannot be
+  # masked by the chart's safe shadow default. Validate only the credential
+  # length; never print or pass the API key through Helm values.
+  MEMORY_SETTINGS="$(python3 - "$ENV_FILE" <<'PY'
+import re
+import sys
+
+entries = {}
+with open(sys.argv[1], encoding="utf-8") as handle:
+    for raw_line in handle:
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line[7:].lstrip()
+        key, separator, value = line.partition("=")
+        key = key.strip()
+        if not separator or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", key):
+            continue
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+            value = value[1:-1]
+        entries[key] = value
+
+mode = entries.get("DAEDALUS_MEMORY_MODE", "shadow").strip().lower()
+print(mode)
+print(len(entries.get("HINDSIGHT_API_KEY", "").strip()))
+PY
+)"
+  MEMORY_MODE="$(printf '%s\n' "$MEMORY_SETTINGS" | sed -n '1p')"
+  HINDSIGHT_API_KEY_LENGTH="$(printf '%s\n' "$MEMORY_SETTINGS" | sed -n '2p')"
+  case "$MEMORY_MODE" in
+    disabled|redis|shadow|hindsight) ;;
+    *)
+      echo "ERROR: DAEDALUS_MEMORY_MODE must be disabled, redis, shadow, or hindsight." >&2
+      exit 1
+      ;;
+  esac
+  if [[ "$MEMORY_MODE" == "shadow" || "$MEMORY_MODE" == "hindsight" ]]; then
+    if (( HINDSIGHT_API_KEY_LENGTH < 32 )); then
+      echo "ERROR: HINDSIGHT_API_KEY must contain at least 32 characters for $MEMORY_MODE mode." >&2
+      exit 1
+    fi
+  fi
+  HELM_SECRET_ARGS+=(
+    --set-string "backend.default.env.overrides.DAEDALUS_MEMORY_MODE=$MEMORY_MODE"
+  )
+
   apply_env_secret() {
     local secret_name="$1"
     local env_file="$2"
@@ -559,6 +607,7 @@ PY
     VERIFIER_API_KEY VERIFIER_BASE_URL VERIFIER_MODEL
     PERPLEXITY_SEARCH_API_KEY GITHUB_PAT
     IMAGE_AUGMENTATION_* IMAGE_COMPREHENSION_* IMAGE_GENERATION_*
+    HINDSIGHT_API_KEY HINDSIGHT_API_TIMEOUT_SECONDS
     EMBEDDING_* RERANKER_* TOOL_CALLING_LLM_MODEL_*
     DAEDALUS_LLM_* NAT_CONFIG_FILE NAT_HOST NAT_PORT NAT_LOG_LEVEL LOG_LEVEL
     APPROVAL_REDIS_URL AUTONOMY_IDEMPOTENCY_TTL_SECONDS

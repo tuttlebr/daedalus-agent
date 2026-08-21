@@ -32,6 +32,7 @@ import { ChatView } from '@/components/chat/ChatView';
 import { ConnectionsView } from '@/components/connections';
 import { ImagePanel } from '@/components/images';
 import { AppShell, ViewTabs } from '@/components/layout';
+import { MemoryCenter } from '@/components/memory';
 import { BottomNav } from '@/components/mobile/BottomNav';
 import { Sidebar } from '@/components/sidebar/Sidebar';
 
@@ -356,6 +357,9 @@ function ActiveView() {
   }
   if (activeView === 'connections') {
     return <ConnectionsView />;
+  }
+  if (activeView === 'memory') {
+    return <MemoryCenter />;
   }
   return <ChatView />;
 }

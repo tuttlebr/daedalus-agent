@@ -1,0 +1,1 @@
+export { MemoryCenter } from './MemoryCenter';

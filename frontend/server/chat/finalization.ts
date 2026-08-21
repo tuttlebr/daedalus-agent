@@ -1,7 +1,12 @@
 import {
+  buildBackendBaseUrlForMode,
+  buildBackendUrlFromBase,
+} from '@/utils/app/backendApi';
+import {
   sanitizeConversationAssistantReplays,
   stripReplayedAssistantPrefix,
 } from '@/utils/app/conversationReplay';
+import { fetchWithTimeout } from '@/utils/fetchWithTimeout';
 import { Logger } from '@/utils/logger';
 
 import type { Conversation, Message } from '@/types/chat';
@@ -20,6 +25,7 @@ import {
   type JobFinalizationJournal,
   type NewJobFinalizationJournal,
 } from './jobState';
+import { buildNatRequestHeaders } from './natMessages';
 import {
   attachSandboxArtifacts,
   sandboxArtifactsFromSteps,
@@ -42,6 +48,8 @@ import { v4 as uuidv4 } from 'uuid';
 
 const logger = new Logger('AsyncJob');
 const CONVERSATION_EXPIRY_SECONDS = 60 * 60 * 24 * 7;
+const MEMORY_RETAIN_TIMEOUT_MS = 20_000;
+const MEMORY_RETAIN_MAX_CHARS = 12_000;
 
 export type FinalizationResumeResult = 'none' | 'pending' | 'completed';
 
@@ -184,6 +192,7 @@ async function requirePhase(
   journal: JobFinalizationJournal,
   phase:
     | 'conversationAppliedAt'
+    | 'memoryRetentionAttemptedAt'
     | 'streamingStateClearedAt'
     | 'streamStateClearedAt'
     | 'conversationGuardReleasedAt'
@@ -201,6 +210,62 @@ async function requirePhase(
     );
   }
   return updated;
+}
+
+function latestUserText(journal: JobFinalizationJournal): string {
+  const messages = journal.conversation?.messages;
+  if (!Array.isArray(messages)) return '';
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (message?.role !== 'user' || typeof message?.content !== 'string') {
+      continue;
+    }
+    return message.content.trim();
+  }
+  return '';
+}
+
+async function retainSuccessfulUserTurn(
+  journal: JobFinalizationJournal,
+): Promise<void> {
+  if (journal.outcome !== 'completed' || !journal.conversation) return;
+  const content = latestUserText(journal);
+  if (!content || content.length > MEMORY_RETAIN_MAX_CHARS) {
+    if (content.length > MEMORY_RETAIN_MAX_CHARS) {
+      logger.warn(
+        `Job ${journal.jobId}: User turn exceeds automatic memory retention bound`,
+      );
+    }
+    return;
+  }
+
+  const url = buildBackendUrlFromBase(
+    buildBackendBaseUrlForMode(),
+    '/v1/memory/retain-turn',
+  );
+  const response = await fetchWithTimeout(
+    url,
+    {
+      method: 'POST',
+      headers: buildNatRequestHeaders(
+        journal.userId,
+        { 'Content-Type': 'application/json' },
+        undefined,
+        undefined,
+        journal.conversation.id,
+        journal.jobId,
+      ),
+      body: JSON.stringify({
+        request_id: journal.jobId,
+        conversation_id: journal.conversation.id,
+        content,
+      }),
+    },
+    MEMORY_RETAIN_TIMEOUT_MS,
+  );
+  if (!response.ok) {
+    throw new Error(`memory retention returned HTTP ${response.status}`);
+  }
 }
 
 /**
@@ -228,6 +293,18 @@ export async function resumePendingFinalization(
     if (!journal.conversationAppliedAt) {
       await applyConversationState(journal, conversation);
       journal = await requirePhase(journal, 'conversationAppliedAt');
+    }
+
+    if (!journal.memoryRetentionAttemptedAt) {
+      try {
+        await retainSuccessfulUserTurn(journal);
+      } catch (error) {
+        // Chat completion remains available when the optional memory service
+        // is unhealthy. The failed attempt is observable and is not retried in
+        // a tight finalization loop.
+        logger.warn(`Job ${jobId}: Automatic memory retention failed`, error);
+      }
+      journal = await requirePhase(journal, 'memoryRetentionAttemptedAt');
     }
 
     if (!journal.streamingStateClearedAt) {

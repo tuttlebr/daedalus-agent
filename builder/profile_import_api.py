@@ -7,6 +7,8 @@ property for bulk profile uploads while bypassing the agent loop entirely.
 
 from __future__ import annotations
 
+import asyncio
+import hashlib
 import inspect
 import json
 import logging
@@ -401,14 +403,78 @@ async def import_profile_memories(
     redis_client: Any | None = None,
 ) -> ProfileImportResult:
     from nat.memory.models import MemoryItem
+    from nat_helpers.hindsight_client import (
+        client_from_env,
+        deterministic_document_id,
+        memory_mode,
+    )
 
     memory_editor = editor or _redis_editor()
-    replaced = 0
-    if req.mode == "replace":
-        replaced = await replace_profile_memories(user_id, redis_client)
-
     items = build_profile_memory_items(req, user_id, MemoryItem)
-    await memory_editor.add_items(items)
+    mode = memory_mode()
+
+    async def import_redis() -> int:
+        replaced_count = 0
+        if req.mode == "replace":
+            replaced_count = await replace_profile_memories(user_id, redis_client)
+        await memory_editor.add_items(items)
+        return replaced_count
+
+    async def import_hindsight() -> int:
+        client = client_from_env()
+        replaced_count = 0
+        if req.mode == "replace":
+            replaced_count = await client.delete_documents_with_tag(
+                user_id=user_id,
+                tag="source:profile-import",
+            )
+
+        semaphore = asyncio.Semaphore(4)
+
+        async def retain_entry(entry: ProfileEntry) -> None:
+            label_hash = hashlib.sha256(entry.label.encode("utf-8")).hexdigest()
+            document_id = deterministic_document_id(
+                user_id=user_id,
+                source="profile",
+                request_id=label_hash,
+                content=label_hash,
+            )
+            async with semaphore:
+                await client.retain(
+                    user_id=user_id,
+                    content=entry.memory,
+                    document_id=document_id,
+                    context="Daedalus authenticated profile import",
+                    tags=["source:profile-import", *_memory_tags(entry)],
+                    metadata=_merge_metadata(
+                        entry,
+                        req.profile_version,
+                        _now_iso(),
+                    ),
+                    timestamp="unset",
+                    asynchronous=False,
+                )
+
+        await asyncio.gather(*(retain_entry(entry) for entry in req.entries))
+        return replaced_count
+
+    if mode == "disabled":
+        raise RuntimeError("Durable memory is disabled by the operator")
+    if mode == "redis":
+        replaced = await import_redis()
+    elif mode == "shadow":
+        replaced = await import_redis()
+        try:
+            await import_hindsight()
+        except Exception:
+            logger.warning("Hindsight profile-import shadow failed", exc_info=True)
+    else:
+        replaced = await import_hindsight()
+        try:
+            await import_redis()
+        except Exception:
+            logger.warning("Redis profile-import rollback copy failed", exc_info=True)
+
     return ProfileImportResult(imported=len(items), replaced=replaced)
 
 

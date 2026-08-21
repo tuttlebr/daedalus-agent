@@ -2,6 +2,7 @@
 
 import json
 import logging
+import uuid
 from typing import Any
 
 from nat.builder.builder import Builder
@@ -12,6 +13,7 @@ from nat.data_models.function import FunctionBaseConfig
 from nat_helpers.identity import (
     authenticated_user_id_from_context,
     execution_id_from_context_or_none,
+    request_id_from_context_or_none,
 )
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -197,11 +199,59 @@ async def daedalus_add_memory(config: DaedalusAddMemoryConfig, builder: Builder)
                     "operation has an existing or ambiguous execution record."
                 )
 
+        from nat_helpers.hindsight_client import client_from_env, memory_mode
+
         try:
-            await memory_editor.add_items([item])
-        except Exception as exc:
-            logger.exception("Error adding memory")
+            mode = memory_mode()
+        except ValueError as exc:
+            logger.error("Invalid memory authority configuration")
             return f"Error adding memory: {exc}"
+
+        request_id = (
+            request_id_from_context_or_none() or execution_id or str(uuid.uuid4())
+        )
+        if mode == "disabled":
+            return "Durable memory is disabled by the operator."
+        if mode == "redis":
+            try:
+                await memory_editor.add_items([item])
+            except Exception:
+                logger.exception("Error adding Redis memory")
+                return "Error adding memory: durable memory is unavailable."
+        elif mode == "shadow":
+            try:
+                await memory_editor.add_items([item])
+            except Exception:
+                logger.exception("Error adding authoritative Redis memory")
+                return "Error adding memory: durable memory is unavailable."
+            try:
+                await client_from_env().retain_explicit(
+                    user_id=user_id,
+                    content=memory_text,
+                    tags=input_data.tags,
+                    metadata=item.metadata,
+                    request_id=request_id,
+                )
+            except Exception:
+                logger.warning("Hindsight shadow memory write failed", exc_info=True)
+        else:
+            try:
+                await client_from_env().retain_explicit(
+                    user_id=user_id,
+                    content=memory_text,
+                    tags=input_data.tags,
+                    metadata=item.metadata,
+                    request_id=request_id,
+                )
+            except Exception:
+                logger.exception("Authoritative Hindsight memory write failed")
+                return "Error adding memory: durable memory is unavailable."
+            # Keep Redis warm during the cutover window, but never fail an
+            # authoritative Hindsight write because the rollback copy failed.
+            try:
+                await memory_editor.add_items([item])
+            except Exception:
+                logger.warning("Redis rollback-copy memory write failed", exc_info=True)
 
         result = (
             "Memory added successfully. You can continue. Please respond to the user."
@@ -244,15 +294,54 @@ async def daedalus_get_memory(config: DaedalusGetMemoryConfig, builder: Builder)
             input_data.top_k or config.top_k,
         )
 
+        from nat_helpers.hindsight_client import client_from_env, memory_mode
+
         try:
-            memories = await memory_editor.search(
-                query=search_query,
-                top_k=top_k,
-                user_id=user_id,
-            )
-        except Exception as exc:
-            logger.exception("Error retrieving memory")
+            mode = memory_mode()
+        except ValueError as exc:
+            logger.error("Invalid memory authority configuration")
             return f"Error retrieving memory: {exc}"
+
+        if mode == "disabled":
+            return "Memories as a JSON: \n[]"
+        if mode in {"redis", "shadow"}:
+            try:
+                memories = await memory_editor.search(
+                    query=search_query,
+                    top_k=top_k,
+                    user_id=user_id,
+                )
+            except Exception:
+                logger.exception("Error retrieving authoritative Redis memory")
+                return "Error retrieving memory: durable memory is unavailable."
+            if mode == "shadow":
+                try:
+                    shadow_results = await client_from_env().recall(
+                        user_id=user_id,
+                        query=search_query,
+                        budget="mid" if top_k > 10 else "low",
+                        max_tokens=min(4096, max(512, top_k * 160)),
+                    )
+                    logger.info(
+                        "Memory shadow recall completed redis_count=%d hindsight_count=%d",
+                        len(memories),
+                        len(shadow_results),
+                    )
+                except Exception:
+                    logger.warning("Hindsight shadow recall failed", exc_info=True)
+        else:
+            try:
+                memories = (
+                    await client_from_env().recall(
+                        user_id=user_id,
+                        query=search_query,
+                        budget="mid" if top_k > 10 else "low",
+                        max_tokens=min(4096, max(512, top_k * 160)),
+                    )
+                )[:top_k]
+            except Exception:
+                logger.exception("Authoritative Hindsight recall failed")
+                return "Error retrieving memory: durable memory is unavailable."
 
         memory_payload = [_memory_to_jsonable(memory) for memory in memories]
         return f"Memories as a JSON: \n{json.dumps(memory_payload)}"

@@ -285,6 +285,7 @@ export async function startBackgroundStreamReader(
         jobRequest.natSessionId,
         jobRequest.timezone,
         jobRequest.conversationId,
+        jobId,
       ),
       body: JSON.stringify(payload),
       signal: abortController.signal,

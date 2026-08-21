@@ -86,6 +86,35 @@ def authenticated_user_id_from_context() -> str:
     return authenticated_user_id_from_headers(headers)
 
 
+def trusted_request_header_from_context(name: str) -> str:
+    """Read a request header after validating the internal identity boundary."""
+
+    from nat.builder.context import Context
+
+    nat_context = Context.get()
+    headers = getattr(getattr(nat_context, "metadata", None), "headers", None)
+    # Validate the same internal token and user header before trusting any
+    # request-scoped metadata carried beside them.
+    authenticated_user_id_from_headers(headers)
+    return _header_value(headers, name)
+
+
+def request_id_from_context_or_none() -> str | None:
+    try:
+        request_id = trusted_request_header_from_context("x-daedalus-request-id")
+    except Exception:
+        return None
+    return request_id or None
+
+
+def conversation_id_from_context_or_none() -> str | None:
+    try:
+        conversation_id = trusted_request_header_from_context("x-conversation-id")
+    except Exception:
+        return None
+    return conversation_id or None
+
+
 def approval_token_from_context() -> str:
     """Read the worker-supplied approval credential from trusted HTTP metadata.
 

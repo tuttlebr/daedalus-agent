@@ -1,6 +1,7 @@
 'use client';
 
 import {
+  IconBrain,
   IconPlus,
   IconSearch,
   IconLogout,
@@ -402,6 +403,16 @@ export const Sidebar = memo(() => {
 
       {/* Footer */}
       <div className="flex-shrink-0 p-3 border-t border-white/[0.06] space-y-1">
+        <button
+          onClick={() => {
+            setActiveView('memory');
+            closeSidebarOnMobile();
+          }}
+          className="flex min-h-touch-min w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-dark-text-muted transition-colors hover:bg-white/[0.04] hover:text-dark-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nvidia-green/40"
+        >
+          <IconBrain size={16} />
+          <span>Memory Center</span>
+        </button>
         <button
           onClick={() => {
             setActiveView('connections');

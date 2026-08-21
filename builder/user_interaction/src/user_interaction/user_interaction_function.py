@@ -472,7 +472,7 @@ async def user_interaction_function(config: UserInteractionConfig, builder: Buil
         approval_token: str,
         user_id: str = "",
     ) -> str:
-        """Delete Redis-backed memory keys for a user after token validation.
+        """Delete Hindsight and Redis memory for a user after token validation.
 
         Args:
             approval_token: Single-use token from confirm_action.
@@ -495,6 +495,16 @@ async def user_interaction_function(config: UserInteractionConfig, builder: Buil
         if not ok:
             return f"Error: delete_memory denied: {reason}."
 
+        from nat_helpers.hindsight_client import client_from_env, memory_mode
+
+        mode = memory_mode()
+        if mode in {"shadow", "hindsight"}:
+            try:
+                await client_from_env().clear_memories(user_id=resolved_user)
+            except Exception:
+                logger.exception("Hindsight memory clear failed")
+                return "Error: Hindsight memory could not be cleared; Redis was not changed."
+
         # NAT Redis memory keys contain only a random id. Ownership lives in
         # the JSON value, so key-name substring matching can both miss the
         # intended user's records and delete another user's colliding id.
@@ -516,7 +526,20 @@ async def user_interaction_function(config: UserInteractionConfig, builder: Buil
         if owned_keys:
             deleted = int(redis_client.delete(*owned_keys) or 0)
 
-        return f"Deleted {deleted} memory key(s) for user_id='{resolved_user}'."
+        from nat_helpers.memory_ledger import record_clear_epoch_sync
+
+        try:
+            record_clear_epoch_sync(redis_client, resolved_user)
+        except Exception:
+            logger.exception("Memory clear ledger update failed")
+            return (
+                "Memory was cleared, but the forget ledger could not be updated. "
+                "Operator repair is required before migration."
+            )
+
+        return (
+            f"Deleted {deleted} Redis rollback memory key(s); durable memory cleared."
+        )
 
     # ------------------------------------------------------------------
     # Register all tools with NAT
