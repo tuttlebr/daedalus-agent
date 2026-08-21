@@ -222,6 +222,9 @@ jobs:
           format: table
           severity: CRITICAL,HIGH
           exit-code: '1'
+          # OCI SDK docstrings contain example SAS query strings. Limit the
+          # exception to those two installed vendor files.
+          skip-files: /workspace/.venv/lib/python3.12/site-packages/oci/golden_gate/models/create_azure_data_lake_storage_connection_details.py,/workspace/.venv/lib/python3.12/site-packages/oci/golden_gate/models/update_azure_data_lake_storage_connection_details.py
 
       - name: Scan frontend image
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0

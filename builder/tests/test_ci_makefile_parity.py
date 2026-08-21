@@ -98,6 +98,34 @@ def test_trivy_fails_ci_and_local_gate_on_high_or_critical_findings():
     assert 'endswith("package-lock.json")' in makefile
 
 
+def test_trivy_image_secret_exception_is_limited_to_oci_sdk_example_files():
+    ci = yaml.safe_load(_CI.read_text())
+    docker_steps = ci["jobs"]["docker"]["steps"]
+    trivy_steps = {
+        step["name"]: step
+        for step in docker_steps
+        if str(step.get("uses", "")).startswith("aquasecurity/trivy-action@")
+    }
+    expected = {
+        "/workspace/.venv/lib/python3.12/site-packages/oci/golden_gate/models/"
+        "create_azure_data_lake_storage_connection_details.py",
+        "/workspace/.venv/lib/python3.12/site-packages/oci/golden_gate/models/"
+        "update_azure_data_lake_storage_connection_details.py",
+    }
+
+    backend_skip_files = set(
+        trivy_steps["Scan backend image"]["with"]["skip-files"].split(",")
+    )
+    assert backend_skip_files == expected
+    assert "skip-files" not in trivy_steps["Scan frontend image"]["with"]
+    assert "skip-files" not in trivy_steps["Scan Redis image"]["with"]
+
+    makefile = _MAKEFILE.read_text()
+    for path in expected:
+        assert path in makefile
+    assert '--skip-files "$(TRIVY_OCI_SAS_EXAMPLE_SKIP_FILES)"' in makefile
+
+
 def test_production_javascript_audit_uses_same_fail_closed_policy_in_ci_and_local_gate():
     ci = yaml.safe_load(_CI.read_text())
     security_steps = ci["jobs"]["security"]["steps"]

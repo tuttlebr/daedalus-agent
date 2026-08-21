@@ -24,6 +24,7 @@ SHELL := /bin/bash
 TRIVY ?= trivy
 TRIVY_RESULTS ?= /tmp/daedalus-trivy-results.sarif
 TRIVY_INVENTORY ?= /tmp/daedalus-trivy-inventory.json
+TRIVY_OCI_SAS_EXAMPLE_SKIP_FILES := /workspace/.venv/lib/python3.12/site-packages/oci/golden_gate/models/create_azure_data_lake_storage_connection_details.py,/workspace/.venv/lib/python3.12/site-packages/oci/golden_gate/models/update_azure_data_lake_storage_connection_details.py
 
 .DEFAULT_GOAL := help
 
@@ -80,7 +81,8 @@ docker: ## docker compose config + build runtime images  (CI job: docker)
 		docker compose build --provenance=mode=max --sbom=true backend frontend redis; \
 		for service in backend frontend redis; do \
 			image=$$(docker compose config --format json | jq -r ".services.\"$$service\".image"); \
-			trivy image --severity CRITICAL,HIGH --exit-code 1 "$$image"; \
+			$(TRIVY) image --severity CRITICAL,HIGH --exit-code 1 \
+				--skip-files "$(TRIVY_OCI_SAS_EXAMPLE_SKIP_FILES)" "$$image"; \
 		done
 
 security: ## secret, production dependency, and filesystem vulnerability scans  (CI job: security)
