@@ -1001,7 +1001,7 @@ workflow:
   _type: daedalus_per_user_responses_api_agent
   llm_name: tool_calling_llm
   max_iterations: 128
-  max_history: 100
+  max_history: 50
   handle_tool_errors: true
   parallel_tool_calls: true
   instructions: |
