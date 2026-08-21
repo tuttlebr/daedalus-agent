@@ -1595,6 +1595,7 @@ def test_daily_summary_contracts_structured_briefing():
         daily_skill = (SKILLS_DIR / "daily-summary" / "SKILL.md").read_text(
             encoding="utf-8"
         )
+        normalized_daily_skill = " ".join(daily_skill.split())
 
         assert "visual_media_tool" in tools, path
         assert "current_datetime_tool" in tools, path
@@ -1608,6 +1609,16 @@ def test_daily_summary_contracts_structured_briefing():
         assert "per-user OAuth" in daily_skill, path
         assert "current date and time" in daily_skill, path
         assert "standalone HTML document" in daily_skill, path
+        assert "contemporary broadsheet front page" in normalized_daily_skill, path
+        assert "asymmetric three-column" in normalized_daily_skill, path
+        assert (
+            "Every raster image must belong to a specific ranked story"
+            in normalized_daily_skill
+        ), path
+        assert "not as a dark technology dashboard" in normalized_daily_skill, path
+        assert "corporate-brand accent" in normalized_daily_skill, path
+        assert "NVIDIA green" not in daily_skill, path
+        assert "dark developer colors" not in daily_skill, path
 
 
 def test_source_policy_metadata_is_self_describing():

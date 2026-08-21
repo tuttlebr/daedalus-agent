@@ -1,8 +1,8 @@
 ---
 name: daily-summary
 description: >-
-  Use for a current Daedalus Daybook HTML briefing from live personal, news,
-  sports, weather, cluster, and network sources.
+  Use for a current Daedalus Daybook HTML daily briefing from live personal,
+  news, sports, weather, cluster, and network sources.
 metadata:
   author: NVIDIA Corporation and Affiliates <noreply@nvidia.com>
   version: 1.0.0
@@ -18,19 +18,27 @@ metadata:
 ## Purpose
 
 Produce one polished, image-rich HTML edition titled **Daedalus Daybook** that
-tells the user what matters today: the date and time, Saline weather, their
+tells the user what matters today: the current date and time, Saline weather, their
 sports teams, the live health of their Kubernetes cluster and UniFi network,
 news tuned to their interests, and what is waiting in email and on the
 calendar.
 
-Treat each edition as a refined independent news magazine crossed with a
-high-end technology journal. Use elegant typography, dark developer colors,
-warm neutrals, generous whitespace, cinematic imagery, strong captions, and
-varied editorial layouts. Choose one visual concept from the actual shape of
-the day, then carry it through the cover, palette, typography, dividers, and
-image treatment. Do not merely recolor the same card grid every day.
+Treat each edition as a contemporary broadsheet front page inspired by classic
+newspaper information design, not as a dark technology dashboard. Use a white
+or warm newsprint canvas, near-black ink, serif display headlines, compact
+sans-serif utility text, thin gray rules, square image crops, generous
+whitespace, and one restrained semantic accent. Seek the reference's hierarchy
+and scanning rhythm without copying any publication's nameplate, logo,
+proprietary typeface, or exact page.
 
-Include a cover, a short editor's note, section features, an at-a-glance
+Choose the composition from the actual importance and visual strength of the
+day's material. The strongest story should own the largest headline and most
+prominent relevant image; supporting stories should step down clearly in size
+and space. Prefer editorial columns, section rails, and ruled story groups over
+rounded cards, dashboard tiles, gradients, glow effects, or heavy shadows. Do
+not merely reshuffle or recolor the same grid every day.
+
+Include a front page, a short editor's note, section features, an at-a-glance
 comparison, next actions, and references with image credits. Keep the writing
 concise, atmospheric, useful, and factually accurate.
 
@@ -120,7 +128,7 @@ Report the cluster's **current steady state, not its event history.** `getCluste
 
 - Base the health verdict on **live conditions**: node Ready status, control-plane reachability, and current pod phase counts (Running vs Pending / CrashLoopBackOff / ImagePullBackOff / etc.).
 - Surface an event as a current problem **only if the live state still shows it.** Report `ImagePullBackOff` only when a pod is in that state right now, not because an image-pull warning appears somewhere in the event log.
-- Prefer counts and conditions ("4/4 nodes Ready, 37 pods Running, 1 Pending") over pasting event lines. Use the stat tiles for the headline numbers.
+- Prefer counts and conditions ("4/4 nodes Ready, 37 pods Running, 1 Pending") over pasting event lines. Present headline numbers as compact, ruled briefs rather than dashboard tiles.
 - If the only negative signal is stale event noise and the live state is clean, say the cluster is healthy.
 - Suggest an inspection step when something is genuinely wrong; never suggest a destructive action.
 
@@ -154,42 +162,66 @@ Use `calendar_mcp_server`. The backend currently exposes only `list_calendars`, 
 - **Large tool payloads:** if a tool returns more than roughly 5000 tokens (a verbose cluster summary, a big UniFi payload), run it through `content_distiller_tool` before you use it, so the page stays focused.
 - When completeness and accuracy conflict, choose accuracy. A shorter true page beats a fuller uncertain one.
 
-## Step 4: find the editorial story
+## Step 4: rank the front page and find its editorial story
 
 Do not turn the gathered facts into a dashboard dump. Identify the day's
 strongest truthful motif, such as a storm front, a quiet operations morning, a
 game-night countdown, or a dense meeting runway. Let that motif determine the
-cover image, display type, accent color, pacing, and one original issue
+lead image, display type, accent color, pacing, and one original issue
 subtitle. Keep the recurring masthead **Daedalus Daybook**.
 
-Build a clear reading rhythm from the verified material:
+First rank all verified material by consequence, immediacy, usefulness, and
+visual strength. Choose exactly one lead story. It can come from news, the day
+ahead, sports, or systems when that subject genuinely dominates the day; do
+not force a healthy cluster, routine weather, or a decorative image into the
+lead slot. Pair the lead only with an image that directly supports it.
 
-1. **Cover:** current date and time, issue subtitle, one dominant image, and
-   three to five sharp status lines.
-2. **Editor's note:** a concise interpretation of the day's posture, clearly
-   separated from reported facts.
-3. **The day ahead:** weather, real calendar commitments, and only important
-   inbox items.
-4. **Systems desk:** live Kubernetes and UniFi state, using compact metrics and
-   current issues only.
-5. **Scoreboard:** all four tracked teams, with season-aware context.
-6. **Signals:** a small set of high-value news features matched to the user's
-   interests.
-7. **At a glance and next moves:** cross-section timing, conflicts, and at most
-   three concrete actions.
-8. **Sources and image credits:** every factual source and every source image,
-   plus clear labels for AI-generated illustrations.
+Build a clear broadsheet reading rhythm from the ranked material:
 
-Vary composition by section: full-bleed cover, split feature, narrow dispatch,
-metric strip, pull quote, timeline, or asymmetric grid. Use structure only
-when the corresponding data exists. Aim for six to nine substantial editorial
-sections and a six-to-eight-minute read, not artificial page count or filler.
+1. **Nameplate and dateline:** center **Daedalus Daybook** as a large text
+   masthead. Put the full current date and generated time nearby in smaller
+   utility type, followed by a compact department rail and a thin double rule.
+2. **Opening story grid:** on wide screens use an asymmetric three-column
+   composition. A narrow rail carries the lead headline, dek, and urgent
+   updates; the broad center carries the lead image and caption; the remaining
+   rail carries a strong secondary visual feature. A useful starting ratio is
+   25/45/30, adjusted to fit the real stories and images.
+3. **Supporting briefs:** place two or three related briefs directly under the
+   opening grid, separated by hairline rules and vertical dividers. Use short
+   read-time or status labels only when they are honest and useful.
+4. **Department sections:** organize the day ahead, systems desk, scoreboard,
+   signals, and personal items as labeled editorial sections. Give each a
+   concise section rail, then mix a feature image with narrow text columns
+   according to story rank instead of repeating identical cards.
+5. **Editor's note, at a glance, and next moves:** use one concise analysis
+   block, a cross-section timing view, and at most three concrete actions. Make
+   interpretation visually distinct from reported facts.
+6. **Sources and image credits:** list every factual source and every source
+   image, plus clear labels for AI-generated illustrations.
+
+On phones, collapse this composition into a single ranked reading order:
+nameplate, lead headline, lead image and caption, secondary feature, supporting
+briefs, then departments. Never preserve desktop columns by shrinking them
+until the text becomes cramped.
+
+Vary composition by section: split feature, narrow dispatch, ruled metric
+brief, pull quote, timeline, or asymmetric grid. Use structure only when the
+corresponding data exists. Aim for six to nine substantial editorial sections
+and a six-to-eight-minute read, not artificial page count or filler.
 
 ## Step 5: source or create the visuals
 
 Plan three to five distinct visual moments after the facts are known. Unless
 image acquisition fails, include at least two raster images. Do not reuse the
 same image, crop, or near-duplicate.
+
+Every raster image must belong to a specific ranked story and sit adjacent to
+that story's headline or text. Give the lead story first choice of the strongest
+relevant landscape image, then assign secondary images in descending story
+order. Do not add generic decorative photography merely to fill an allotted
+image slot, and do not let a visually dramatic but less important story take
+over the page. When fewer trustworthy images exist, use stronger typography
+and whitespace instead of unrelated imagery.
 
 ### Source images
 
@@ -225,17 +257,28 @@ same image, crop, or near-duplicate.
 
 For every image, write descriptive alt text and a visible caption. Use
 `loading="lazy"`, `decoding="async"`, `referrerpolicy="no-referrer"`, and
-`object-fit` outside the cover; load the cover eagerly. If a visual cannot be
-verified or generated, omit it and preserve the composition with typography,
-an inline SVG data visualization, or CSS art. Do not ship a broken image.
+`object-fit` outside the lead image; load the lead image eagerly. If a visual
+cannot be verified or generated, omit it and preserve the composition with
+typography, whitespace, or a factual HTML table. Do not ship a broken image or
+fake a missing editorial asset with decorative CSS or SVG art.
 
 ## Step 6: design and validate the edition
 
 Create the issue from the day's content rather than a rigid reusable template.
-Keep a cohesive dark base, warm readable text, and one issue-specific accent.
-Reserve NVIDIA green for healthy system state, key actions, and small
-navigational details so it retains meaning. Use CSS custom properties and
-fluid type with `clamp()`.
+Default to a light newsprint surface (`#fff` or a subtle warm off-white),
+near-black text, muted gray secondary copy, and thin neutral rules. Use a
+restrained red for true live/urgent labels and a muted blue or green only when
+it carries a clear semantic meaning. Do not use a corporate-brand accent as
+the governing visual language, dark hero treatments, glossy technology-site
+styling, rounded card grids, gradients, or ornamental shadows. Use CSS custom
+properties and fluid type with `clamp()`.
+
+Use a high-contrast editorial serif stack such as Georgia, `Times New Roman`,
+or Times for the masthead, headlines, and narrative copy, with an Arial or
+Helvetica sans-serif stack for metadata, navigation, status labels, and
+captions. Keep the nameplate original and text-only. Use compact headline line
+heights, readable body measure, square corners, and borders generally no
+heavier than 1px except the double rule under the department rail.
 
 The document must:
 
@@ -282,4 +325,4 @@ retry a write or infer missing data.
 | Shared Kubernetes or UniFi connection fails                           | Record the unavailable source, omit its card, and do not retry in the same turn. |
 | Gmail or Calendar requests authorization                              | Show the authorization prompt and wait; do not retry before connection.          |
 | A connector returns a transient error after it was verified connected | Retry one read once, then omit the section and disclose the failure.             |
-| An image cannot be verified or loaded                                 | Omit it or replace it with labeled generated art, inline SVG, or CSS art.        |
+| An image cannot be verified or loaded                                 | Omit it or replace it with labeled generated art; rebalance with type and space. |
