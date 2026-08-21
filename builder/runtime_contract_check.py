@@ -12,6 +12,8 @@ import os
 import secrets
 import warnings
 from importlib.metadata import version
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 from typing import Any
 
@@ -375,6 +377,88 @@ def main() -> None:
                 raise RuntimeError("LLM sandbox operation schema is incorrect")
 
     asyncio.run(assert_llm_sandbox_schema_contract())
+
+    # Agent skills use one dispatch function so NAT's async-context-manager
+    # registration consumes exactly one yield. Exercise both discovery and loading
+    # through the real installed FunctionInfo adapter; unit tests replace NAT's
+    # decorator and cannot detect a multi-yield registration bug.
+    from agent_skills.agent_skills_function import (
+        AgentSkillsConfig,
+        AgentSkillsInput,
+        agent_skills_function,
+    )
+
+    async def assert_agent_skills_dispatch_contract() -> None:
+        with TemporaryDirectory(prefix="agent-skills-contract-") as temp_dir:
+            skill_dir = Path(temp_dir) / "runtime-skill"
+            skill_dir.mkdir()
+            (skill_dir / "SKILL.md").write_text(
+                "---\n"
+                "name: runtime-skill\n"
+                "description: Runtime contract skill\n"
+                "---\n\n"
+                "Follow the runtime contract instructions.\n",
+                encoding="utf-8",
+            )
+
+            config = AgentSkillsConfig(
+                skills_directory=temp_dir,
+                allow_script_execution=False,
+                enabled_operations=["list_skills", "load_skill"],
+            )
+            async with agent_skills_function(
+                config, SimpleNamespace()
+            ) as function_info:
+                if function_info.input_schema is not AgentSkillsInput:
+                    raise RuntimeError(
+                        "Agent skills lost its explicit dispatch input schema"
+                    )
+                schema = function_info.input_schema.model_json_schema()
+                operation = schema.get("properties", {}).get("operation", {})
+                if operation.get("enum") != [
+                    "list_skills",
+                    "load_skill",
+                    "run_skill_script",
+                ]:
+                    raise RuntimeError("Agent skills operation schema is incorrect")
+                if function_info.single_fn is None:
+                    raise RuntimeError("Agent skills dispatch function is unavailable")
+
+                listed = json.loads(
+                    await function_info.single_fn(
+                        AgentSkillsInput(operation="list_skills", query="runtime")
+                    )
+                )
+                if listed.get("skills") != [
+                    {
+                        "name": "runtime-skill",
+                        "description": "Runtime contract skill",
+                    }
+                ]:
+                    raise RuntimeError("Agent skills discovery dispatch failed")
+
+                loaded = await function_info.single_fn(
+                    AgentSkillsInput(
+                        operation="load_skill",
+                        skill_name="runtime-skill",
+                    )
+                )
+                if loaded != "Follow the runtime contract instructions.":
+                    raise RuntimeError("Agent skills loading dispatch failed")
+
+                denied = await function_info.single_fn(
+                    AgentSkillsInput(
+                        operation="run_skill_script",
+                        skill_name="runtime-skill",
+                        script="script.py",
+                    )
+                )
+                if "disabled" not in denied:
+                    raise RuntimeError(
+                        "Agent skills script operation did not fail closed"
+                    )
+
+    asyncio.run(assert_agent_skills_dispatch_contract())
 
     # OAuth-backed MCP groups must discover and cache their schemas inside a
     # real authenticated user's workflow. Prove the per-user tool-calling

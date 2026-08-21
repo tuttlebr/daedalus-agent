@@ -15,7 +15,7 @@ async def _names(async_gen):
     return items
 
 
-def test_agent_skills_enabled_operations_filters_registration(tmp_path):
+def test_agent_skills_enabled_operations_filter_dispatch(tmp_path):
     async def _run():
         from agent_skills.agent_skills_function import (
             AgentSkillsConfig,
@@ -29,18 +29,31 @@ def test_agent_skills_enabled_operations_filters_registration(tmp_path):
             encoding="utf-8",
         )
 
-        return await _names(
-            agent_skills_function(
-                AgentSkillsConfig(
-                    skills_directory=str(tmp_path),
-                    allow_script_execution=True,
-                    enabled_operations=["load_skill"],
-                ),
-                MagicMock(),
-            )
-        )
+        items = []
+        async for item in agent_skills_function(
+            AgentSkillsConfig(
+                skills_directory=str(tmp_path),
+                allow_script_execution=True,
+                enabled_operations=["load_skill"],
+            ),
+            MagicMock(),
+        ):
+            items.append(item)
 
-    assert run(_run()) == ["load_skill"]
+        loaded = await items[0].fn(
+            operation="load_skill",
+            skill_name="sample",
+        )
+        denied = await items[0].fn(operation="list_skills")
+        return [item.fn.__name__ for item in items], loaded, denied
+
+    names, loaded, denied = run(_run())
+
+    assert names == ["agent_skills"]
+    assert loaded == "Use it."
+    assert denied == (
+        "Error: operation 'list_skills' is disabled. Enabled operations: load_skill."
+    )
 
 
 def test_content_distiller_enabled_operations_filters_registration():

@@ -54,18 +54,21 @@ except ImportError:  # pragma: no cover
 class _FakeFunctionInfo:
     """Drop-in for nat.builder.function_info.FunctionInfo."""
 
-    def __init__(self, fn=None, description: str = ""):
+    def __init__(self, fn=None, description: str = "", input_schema=None):
         self.fn = fn
+        self.single_fn = fn
         self.description = description
+        self.input_schema = input_schema
 
     @classmethod
     def from_fn(
         cls,
         fn,
         description: str = "",
+        input_schema=None,
         **_kwargs,
     ) -> "_FakeFunctionInfo":
-        return cls(fn=fn, description=description)
+        return cls(fn=fn, description=description, input_schema=input_schema)
 
     @classmethod
     def create(cls, single_fn=None, description: str = "") -> "_FakeFunctionInfo":

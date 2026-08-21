@@ -1567,6 +1567,9 @@ def test_daily_briefing_routes_to_image_rich_html_response():
 
         assert "daily briefings (FIRST, awaited)" in memory_desc, path
         assert "task matches a skill's purpose" in skills_desc, path
+        assert "operation=list_skills" in skills_desc, path
+        assert "operation=load_skill" in skills_desc, path
+        assert "no separate skill execution tool" in skills_desc, path
         assert "daily briefing" in daily_skill, path
         assert "Return only the HTML" in daily_skill, path
         assert (

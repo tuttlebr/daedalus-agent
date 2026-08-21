@@ -1,4 +1,4 @@
-"""Tests for agent_skills function registration safety."""
+"""Tests for the agent_skills dispatcher and script-execution safety."""
 
 import asyncio
 from unittest.mock import MagicMock
@@ -18,7 +18,39 @@ def _write_skill(root):
     (skill / "script.py").write_text("print('unsafe')\n", encoding="utf-8")
 
 
-def test_script_tool_not_registered_when_disabled(tmp_path):
+def test_skill_operations_use_one_explicit_dispatch_schema(tmp_path):
+    async def _run():
+        from agent_skills.agent_skills_function import (
+            AgentSkillsConfig,
+            AgentSkillsInput,
+            agent_skills_function,
+        )
+
+        _write_skill(tmp_path)
+        items = []
+        async for item in agent_skills_function(
+            AgentSkillsConfig(
+                skills_directory=str(tmp_path),
+                allow_script_execution=False,
+            ),
+            MagicMock(),
+        ):
+            items.append(item)
+        return items, AgentSkillsInput
+
+    items, input_schema = run(_run())
+
+    assert [item.fn.__name__ for item in items] == ["agent_skills"]
+    assert items[0].input_schema is input_schema
+    operation_schema = input_schema.model_json_schema()["properties"]["operation"]
+    assert operation_schema["enum"] == [
+        "list_skills",
+        "load_skill",
+        "run_skill_script",
+    ]
+
+
+def test_dispatch_denies_script_execution_when_disabled(tmp_path):
     async def _run():
         from agent_skills.agent_skills_function import (
             AgentSkillsConfig,
@@ -35,12 +67,20 @@ def test_script_tool_not_registered_when_disabled(tmp_path):
             MagicMock(),
         ):
             items.append(item)
-        return [item.fn.__name__ for item in items]
+        result = await items[0].fn(
+            operation="run_skill_script",
+            skill_name="safe-skill",
+            script="script.py",
+        )
+        return items, result
 
-    assert run(_run()) == ["list_skills", "load_skill"]
+    items, result = run(_run())
+
+    assert [item.fn.__name__ for item in items] == ["agent_skills"]
+    assert result == "Error: skill script execution is disabled."
 
 
-def test_script_tool_registered_only_when_enabled(tmp_path):
+def test_dispatch_runs_script_only_when_enabled(tmp_path):
     async def _run():
         from agent_skills.agent_skills_function import (
             AgentSkillsConfig,
@@ -57,9 +97,43 @@ def test_script_tool_registered_only_when_enabled(tmp_path):
             MagicMock(),
         ):
             items.append(item)
-        return [item.fn.__name__ for item in items]
+        return await items[0].fn(
+            operation="run_skill_script",
+            skill_name="safe-skill",
+            script="script.py",
+        )
 
-    assert "run_skill_script" in run(_run())
+    assert run(_run()) == "unsafe\n"
+
+
+def test_dispatch_lists_then_loads_skill_instructions(tmp_path):
+    async def _run():
+        from agent_skills.agent_skills_function import (
+            AgentSkillsConfig,
+            agent_skills_function,
+        )
+
+        _write_skill(tmp_path)
+        items = []
+        async for item in agent_skills_function(
+            AgentSkillsConfig(
+                skills_directory=str(tmp_path),
+                allow_script_execution=False,
+            ),
+            MagicMock(),
+        ):
+            items.append(item)
+        listed = await items[0].fn(operation="list_skills", query="safe")
+        loaded = await items[0].fn(
+            operation="load_skill",
+            skill_name="safe-skill",
+        )
+        return listed, loaded
+
+    listed, loaded = run(_run())
+
+    assert '"name": "safe-skill"' in listed
+    assert loaded.startswith("Use safely.")
 
 
 def test_sanitized_env_is_allowlist(monkeypatch):

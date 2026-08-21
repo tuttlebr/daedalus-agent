@@ -502,14 +502,16 @@ functions:
       - .sh
     script_timeout: 120
     description: >-
-      List or load agent skills in /skills. list_skills returns available
-      skill names/descriptions; load_skill returns skill instructions or
-      bundled resources. Script execution is disabled in production.
+      Unified skill dispatcher for /skills. operation=list_skills returns
+      available skill names/descriptions; operation=load_skill with skill_name
+      returns instructions or bundled resources. Follow loaded instructions
+      with the ordinary session tools; no separate skill execution tool is
+      required. Script execution is disabled in production.
       Trigger: user names a skill, task matches a skill's purpose, or you
-      need a procedure you do not yet know. Args: optional query for listing;
-      skill_name and optional resource for loading. Returns: skill metadata,
-      instructions, or resource content. Fails when: skill not found or
-      requested resource path escapes skill dir.
+      need a procedure you do not yet know. Args: operation, optional query for
+      listing, and skill_name plus optional resource for loading. Returns: skill
+      metadata, instructions, or resource content. Fails when: operation is
+      disabled, skill not found, or requested resource path escapes skill dir.
     verbose: false
   add_memory:
     _type: daedalus_add_memory

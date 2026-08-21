@@ -129,12 +129,49 @@ describe('conversations/[id]/traces API handler', () => {
     });
   });
 
+  it('preserves start and end events that share a NAT step UUID', async () => {
+    const toolStart = {
+      payload: { UUID: 'paired-step', event_type: 'TOOL_START' },
+    };
+    const toolEnd = {
+      payload: { UUID: 'paired-step', event_type: 'TOOL_END' },
+    };
+    (jsonGet as any).mockResolvedValueOnce({
+      id: 'conv-1',
+      name: 'Completed tool conversation',
+      messages: [
+        {
+          id: 'assistant-1',
+          role: 'assistant',
+          metadata: { turnId: 'turn-1', jobId: 'job-1' },
+          intermediateSteps: [toolStart, toolEnd],
+        },
+      ],
+    });
+    const { req, res } = createMockReqRes('GET', { id: 'conv-1' });
+
+    await handler(req, res);
+
+    const body = res.send.mock.calls[0][0] as string;
+    const lines = body
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line));
+
+    expect(lines).toHaveLength(2);
+    expect(lines.map((line) => line.payload.event_type)).toEqual([
+      'TOOL_START',
+      'TOOL_END',
+    ]);
+    expect(lines.map((line) => line.trace_index)).toEqual([0, 1]);
+  });
+
   it('includes live streaming steps without duplicating saved steps', async () => {
     const savedStep = {
       payload: { UUID: 'saved-step', event_type: 'TOOL_START' },
     };
     const liveStep = {
-      payload: { UUID: 'live-step', event_type: 'TOOL_END' },
+      payload: { UUID: 'saved-step', event_type: 'TOOL_END' },
     };
     (jsonGet as any)
       .mockResolvedValueOnce({
@@ -175,7 +212,7 @@ describe('conversations/[id]/traces API handler', () => {
       live: false,
     });
     expect(lines[1]).toMatchObject({
-      payload: { UUID: 'live-step' },
+      payload: { UUID: 'saved-step', event_type: 'TOOL_END' },
       live: true,
       job_id: 'job-1',
       turn_id: 'turn-live',

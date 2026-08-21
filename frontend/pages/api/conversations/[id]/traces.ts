@@ -28,11 +28,14 @@ function stepIdentity(step: unknown): string | null {
   if (!step || typeof step !== 'object') return null;
 
   const record = step as Record<string, any>;
+  const eventType = record.payload?.event_type;
+  const phase =
+    typeof eventType === 'string' && eventType ? eventType : 'unknown';
   const uuid = record.payload?.UUID;
-  if (typeof uuid === 'string' && uuid) return `uuid:${uuid}`;
+  if (typeof uuid === 'string' && uuid) return `uuid:${uuid}:${phase}`;
 
   const nodeId = record.function_ancestry?.node_id;
-  if (typeof nodeId === 'string' && nodeId) return `node:${nodeId}`;
+  if (typeof nodeId === 'string' && nodeId) return `node:${nodeId}:${phase}`;
 
   return null;
 }
