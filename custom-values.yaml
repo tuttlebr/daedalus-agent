@@ -147,6 +147,10 @@ backend:
   networkPolicy:
     enabled: true # Set to true to restrict backend access to only frontend and nginx pods
     extraEgressNamespaces:
+      - name: daedalus-hindsight
+        ports:
+          - port: 8888
+            protocol: TCP
       - name: llm-sandbox
         ports:
           - port: 8080
