@@ -87,7 +87,7 @@ const GPT_IMAGE_2_CAPABILITIES: ImageModelCapabilities = {
   qualities: ['auto', 'low', 'medium', 'high'],
   sizes: ['auto', ...GPT_IMAGE_2_POPULAR_SIZES],
   outputFormats: ['png', 'jpeg', 'webp'],
-  backgrounds: ['auto', 'opaque'],
+  backgrounds: ['auto', 'transparent', 'opaque'],
   moderation: ['auto', 'low'],
   outputCounts: [1, 2, 4, 8],
   maxOutputs: 8,
@@ -258,6 +258,17 @@ export function cleanImageParamsForModel(
     caps.backgrounds.includes(source.background)
   ) {
     cleaned.background = source.background;
+  }
+
+  // GPT Image 2 transparency is available only with alpha-capable output
+  // formats. Keep the user's transparency choice authoritative and resolve an
+  // incompatible JPEG selection to the API's default PNG format.
+  if (
+    cleaned.background === 'transparent' &&
+    cleaned.output_format === 'jpeg'
+  ) {
+    cleaned.output_format = 'png';
+    delete cleaned.output_compression;
   }
 
   if (

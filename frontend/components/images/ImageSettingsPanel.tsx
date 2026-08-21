@@ -58,18 +58,25 @@ export const ImageSettingsPanel = memo(function ImageSettingsPanel({
 
   const formatOptions = useMemo(
     () =>
-      caps.outputFormats.map((value) => ({
-        value,
-        label: value.toUpperCase(),
-      })),
-    [caps.outputFormats],
+      caps.outputFormats
+        .filter(
+          (value) => params.background !== 'transparent' || value !== 'jpeg',
+        )
+        .map((value) => ({
+          value,
+          label: value.toUpperCase(),
+        })),
+    [caps.outputFormats, params.background],
   );
 
   const backgroundOptions = useMemo(
     () =>
       caps.backgrounds.map((value) => ({
         value: value === 'auto' ? '' : value,
-        label: labelForValue(value),
+        label:
+          value === 'transparent'
+            ? 'Transparent (preview)'
+            : labelForValue(value),
       })),
     [caps.backgrounds],
   );
@@ -165,6 +172,12 @@ export const ImageSettingsPanel = memo(function ImageSettingsPanel({
               )
             }
           />
+          {params.background === 'transparent' && (
+            <p className="col-span-2 text-[11px] leading-relaxed text-neutral-400">
+              Transparent output uses PNG or WebP. For best results, describe an
+              isolated subject and avoid asking for a backdrop or scene.
+            </p>
+          )}
           {(params.output_format === 'jpeg' ||
             params.output_format === 'webp') && (
             <NumberInput

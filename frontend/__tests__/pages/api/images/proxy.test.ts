@@ -112,6 +112,7 @@ describe('/api/images generate/edit proxy routes', () => {
       quality: 'high',
       size: '2048x1152',
       output_format: 'png',
+      background: 'transparent',
       moderation: 'low',
       sessionId: 'session-1',
       user: 'alice',

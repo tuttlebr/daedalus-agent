@@ -575,9 +575,11 @@ functions:
       with prompt; operation=analyze answers questions about imageRef,
       image_url, videoRef, or video_url. The backend derives ownership
       from the authenticated request; never pass user_id. Image outputs
-      are markdown refs. Forward them verbatim in Markdown responses; for
-      a standalone HTML artifact, preserve only the returned URL exactly
-      as an img src. Use this tool for a daily summary or daily briefing
+      are markdown refs. Set background=transparent when the user requests
+      a transparent generated or edited asset. Forward image refs verbatim
+      in Markdown responses; for a standalone HTML artifact, preserve only
+      the returned URL exactly as an img src. Use this tool for a daily
+      summary or daily briefing
       only when the user explicitly requests visual output or the loaded
       daily-summary skill directs it.
     redis_url: ${REDIS_URL}

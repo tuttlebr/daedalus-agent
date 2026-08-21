@@ -120,6 +120,9 @@ describe('/api/images/jobs', () => {
       prompt: '  a product photo  ',
       model: 'gpt-image-2',
       quality: 'medium',
+      output_format: 'jpeg',
+      output_compression: 50,
+      background: 'transparent',
     });
 
     await handler(req, res);
@@ -143,6 +146,8 @@ describe('/api/images/jobs', () => {
       prompt: 'a product photo',
       model: 'gpt-image-2',
       quality: 'medium',
+      output_format: 'png',
+      background: 'transparent',
       sessionId: 'session-1',
       user: 'alice',
       stream: true,
@@ -154,6 +159,7 @@ describe('/api/images/jobs', () => {
       'x-user-id': 'alice',
       'x-timezone': 'America/Detroit',
     });
+    expect(JSON.parse(init.body)).not.toHaveProperty('output_compression');
 
     const status = mocks.store.get(`image-job:${jobId}`);
     expect(status.outputImageIds).toEqual(['final-1']);
@@ -163,6 +169,11 @@ describe('/api/images/jobs', () => {
     );
     expect(mocks.store.get('user:alice:imagePanelHistory')[0]).toMatchObject({
       prompt: 'a product photo',
+      params: {
+        quality: 'medium',
+        output_format: 'png',
+        background: 'transparent',
+      },
       outputImageIds: ['final-1'],
     });
   });

@@ -67,6 +67,22 @@ async def _collect_edit(client):
             image=("source.png", b"image", "image/png"),
             prompt="change the color",
             moderation="low",
+            background="transparent",
+            output_format="jpeg",
+            output_compression=70,
+            partial_images=2,
+        )
+    ]
+
+
+async def _collect_transparent_generate(client):
+    return [
+        event
+        async for event in stream_generate_images(
+            client,
+            model="gpt-image-2",
+            prompt="draw an isolated river icon",
+            background="transparent",
             partial_images=2,
         )
     ]
@@ -113,7 +129,23 @@ def test_stream_generate_images_uses_explicit_completed_event():
     ]
 
 
-def test_stream_edit_images_drops_generate_only_moderation():
+def test_stream_generate_images_uses_png_for_transparent_output_by_default():
+    client = _Client([_Event("image_generation.completed", "final")])
+
+    events = _run(_collect_transparent_generate(client))
+
+    assert client.images.kwargs == {
+        "model": "gpt-image-2",
+        "prompt": "draw an isolated river icon",
+        "stream": True,
+        "background": "transparent",
+        "output_format": "png",
+        "partial_images": 2,
+    }
+    assert events[0].image.mime_type == "image/png"
+
+
+def test_stream_edit_images_drops_moderation_and_normalizes_transparent_jpeg():
     client = _Client([_Event("image_edit.completed", "final")])
 
     events = _run(_collect_edit(client))
@@ -123,6 +155,8 @@ def test_stream_edit_images_drops_generate_only_moderation():
         "image": ("source.png", b"image", "image/png"),
         "prompt": "change the color",
         "stream": True,
+        "background": "transparent",
+        "output_format": "png",
         "partial_images": 2,
     }
     assert [(event.image.b64_json, event.partial) for event in events] == [

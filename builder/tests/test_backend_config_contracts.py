@@ -1554,6 +1554,16 @@ def test_daily_briefing_routes_to_image_rich_html_response():
         assert "Never put private email" in normalized_daily_skill, path
 
 
+def test_visual_media_documents_transparent_background_option():
+    for path in DEPLOYED_CONFIGS:
+        config = _config(path)
+        visual_media_desc = " ".join(
+            config["functions"]["visual_media_tool"]["description"].split()
+        )
+
+        assert "background=transparent" in visual_media_desc, path
+
+
 def test_daily_summary_contracts_structured_briefing():
     for path in DEPLOYED_CONFIGS:
         config = _config(path)

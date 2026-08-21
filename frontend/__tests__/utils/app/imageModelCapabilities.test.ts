@@ -28,9 +28,20 @@ describe('image model capabilities', () => {
       size: '2048x2048',
       output_format: 'webp',
       output_compression: 82,
+      background: 'transparent',
       moderation: 'low',
       n: 8,
     });
+  });
+
+  it('uses PNG when transparent output is combined with JPEG', () => {
+    expect(
+      cleanImageParamsForModel({
+        output_format: 'jpeg',
+        output_compression: 60,
+        background: 'transparent',
+      }),
+    ).toEqual({ output_format: 'png', background: 'transparent' });
   });
 
   it('drops compression when the output format does not support it', () => {

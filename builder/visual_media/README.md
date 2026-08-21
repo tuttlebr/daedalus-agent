@@ -29,7 +29,7 @@ workflow:
   generation_model: gpt-image-2
   edit_api_endpoint: null
   edit_api_key: null
-  edit_model: gpt-image-1.5
+  edit_model: gpt-image-2
   comprehension_api_endpoint: http://localhost:8000
   comprehension_api_key: null
   comprehension_model: nvidia/NVIDIA-Nemotron-Nano-12B-v2
@@ -45,7 +45,7 @@ Important fields:
 | `edit_api_*`          | Endpoint + key for image editing. Falls back to `image_api_*` then `OPENAI_API_KEY`.                                                                  |
 | `comprehension_api_*` | Endpoint + key for the VLM. Falls back to `NVIDIA_API_KEY`.                                                                                           |
 | `generation_model`    | Model used for `operation="generate"` (default `gpt-image-2`).                                                                                        |
-| `edit_model`          | Model used for `operation="edit"` (default `gpt-image-1.5`).                                                                                          |
+| `edit_model`          | Model used for `operation="edit"` (default `gpt-image-2`).                                                                                            |
 | `comprehension_model` | VLM model used for `operation="analyze"`.                                                                                                             |
 | `quality`             | `"low"`, `"medium"`, `"high"`, or `"auto"`.                                                                                                           |
 | `size`                | e.g. `"1024x1024"`, `"1536x1024"`, `"3840x2160"`, or `"auto"`. Any gpt-image-2-compliant resolution (edges multiple of 16, aspect ≤ 3:1) is accepted. |
@@ -54,7 +54,7 @@ Important fields:
 | `moderation`          | `"auto"` (default) or `"low"`; generation only.                                                                                                       |
 | `output_format`       | `"png"` (default), `"jpeg"`, or `"webp"`.                                                                                                             |
 | `output_compression`  | 0–100 for jpeg or webp outputs.                                                                                                                       |
-| `background`          | `"auto"` or `"opaque"`. gpt-image-2 does not support `"transparent"`.                                                                                 |
+| `background`          | `"auto"`, `"transparent"`, or `"opaque"`. Transparent GPT Image 2 output uses PNG (default) or WebP; JPEG is normalized to PNG.                       |
 | `user`                | Optional end-user identifier forwarded for abuse monitoring.                                                                                          |
 
 ## Function Signature
@@ -70,6 +70,7 @@ visual_media(
     videoRef: str | dict | None = None,
     video_url: str | None = None,
     question: str = "",
+    background: str | None = None,  # "auto", "transparent", or "opaque"
 ) -> str
 ```
 
@@ -82,6 +83,10 @@ Examples:
 ```python
 # Generate
 await visual_media(operation="generate", prompt="A cinematic lighthouse in a storm")
+
+# Generate a reusable asset with a real alpha channel
+await visual_media(operation="generate", prompt="An isolated product bottle, no backdrop",
+                  background="transparent")
 
 # Edit
 await visual_media(operation="edit", prompt="Change the sky to golden hour. Keep the subject identical.",

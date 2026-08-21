@@ -1,6 +1,8 @@
 """Tests for consolidated production tool configs."""
 
 import asyncio
+import base64
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
@@ -65,16 +67,119 @@ def test_visual_media_config_groups_image_and_vlm_settings():
     config = VisualMediaFunctionConfig(
         image_api_endpoint="https://images.example.com/v1",
         generation_model="gpt-image-2",
-        edit_model="gpt-image-1.5",
+        edit_model="gpt-image-2",
         comprehension_api_endpoint="https://vlm.example.com/v1",
         comprehension_model="nvidia/custom-vlm",
     )
 
     assert config.image_api_endpoint == "https://images.example.com/v1"
     assert config.generation_model == "gpt-image-2"
-    assert config.edit_model == "gpt-image-1.5"
+    assert config.edit_model == "gpt-image-2"
     assert config.comprehension_api_endpoint == "https://vlm.example.com/v1"
     assert config.comprehension_model == "nvidia/custom-vlm"
+
+
+def test_visual_media_schema_accepts_transparent_background():
+    request = VisualMediaInput.model_validate(
+        {
+            "operation": "generate",
+            "prompt": "an isolated product bottle",
+            "background": "transparent",
+        }
+    )
+
+    assert request.background == "transparent"
+    with pytest.raises(ValidationError):
+        VisualMediaInput.model_validate(
+            {
+                "operation": "generate",
+                "prompt": "an isolated product bottle",
+                "background": "checkerboard",
+            }
+        )
+
+
+def test_visual_media_chat_forwards_transparent_background_for_generation(
+    monkeypatch,
+):
+    async def _run():
+        import visual_media.visual_media_function as mod
+
+        captured = {}
+
+        async def _generate_images(client, **kwargs):
+            captured.update(kwargs)
+            return [SimpleNamespace(b64_json="aW1hZ2U=", mime_type="image/png")]
+
+        async def _store_image(*args, **kwargs):
+            return "transparent-output"
+
+        monkeypatch.setattr(mod, "generate_images", _generate_images)
+        monkeypatch.setattr(mod, "store_image_in_redis", _store_image)
+        monkeypatch.setattr(mod, "resolve_authenticated_user_id", lambda _="": "alice")
+
+        generator = visual_media_function(
+            VisualMediaFunctionConfig(generation_api_key="test-key"), MagicMock()
+        )
+        function_info = await generator.__anext__()
+        try:
+            result = await function_info.fn(
+                operation="generate",
+                prompt="an isolated product bottle",
+                background="transparent",
+            )
+        finally:
+            await generator.aclose()
+        return captured, result
+
+    captured, result = asyncio.run(_run())
+
+    assert captured["model"] == "gpt-image-2"
+    assert captured["background"] == "transparent"
+    assert "transparent-output" in result
+
+
+def test_visual_media_chat_forwards_transparent_background_for_edits(monkeypatch):
+    async def _run():
+        import visual_media.visual_media_function as mod
+
+        captured = {}
+
+        async def _fetch_image(*args, **kwargs):
+            return base64.b64encode(b"image-bytes").decode(), "image/png"
+
+        async def _edit_images(client, **kwargs):
+            captured.update(kwargs)
+            return [SimpleNamespace(b64_json="aW1hZ2U=", mime_type="image/png")]
+
+        async def _store_image(*args, **kwargs):
+            return "transparent-edit"
+
+        monkeypatch.setattr(mod, "fetch_image_from_redis", _fetch_image)
+        monkeypatch.setattr(mod, "edit_images", _edit_images)
+        monkeypatch.setattr(mod, "store_image_in_redis", _store_image)
+        monkeypatch.setattr(mod, "resolve_authenticated_user_id", lambda _="": "alice")
+
+        generator = visual_media_function(
+            VisualMediaFunctionConfig(edit_api_key="test-key"), MagicMock()
+        )
+        function_info = await generator.__anext__()
+        try:
+            result = await function_info.fn(
+                operation="edit",
+                prompt="remove the backdrop",
+                imageRef={"imageId": "source", "sessionId": "session"},
+                background="transparent",
+            )
+        finally:
+            await generator.aclose()
+        return captured, result
+
+    captured, result = asyncio.run(_run())
+
+    assert captured["model"] == "gpt-image-2"
+    assert captured["background"] == "transparent"
+    assert "transparent-edit" in result
 
 
 def test_visual_media_chat_completions_url_accepts_v1_base():

@@ -30,7 +30,7 @@ workflow:
   # moderation: low # "auto" (default) or "low"
   # output_format: jpeg # "png" (default), "jpeg", or "webp"
   # output_compression: 80 # 0-100 for jpeg / webp
-  # background: opaque # "auto" or "opaque"
+  # background: transparent # "auto", "transparent" (PNG/WebP), or "opaque"
   # input_fidelity: high # "low" or "high" — preserves source identity during edits
   # user: null # End-user identifier forwarded for abuse monitoring
   image_timeout: 300.0

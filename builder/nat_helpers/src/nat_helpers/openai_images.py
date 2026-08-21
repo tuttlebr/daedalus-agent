@@ -8,9 +8,8 @@ Targets the gpt-image-2 schema — all optional kwargs listed in that
 schema are forwarded verbatim when the caller sets them, and dropped
 when they're None (so SDK defaults kick in). The helper is also
 parameter-compatible with earlier gpt-image-1.x models for the shared
-kwargs; model-specific constraints (e.g. gpt-image-2 not supporting
-`background: transparent`, or `input_fidelity` being a no-op for
-gpt-image-2 edits) are enforced by the API, not here.
+kwargs. GPT Image 2 transparent backgrounds are normalized to an alpha-capable
+PNG or WebP output before the request is sent.
 """
 
 from __future__ import annotations
@@ -83,7 +82,15 @@ def _mime_for_output_format(output_format: str | None) -> str:
 
 
 def _prune(mapping: dict[str, Any], allowed: tuple[str, ...]) -> dict[str, Any]:
-    return {k: v for k, v in mapping.items() if k in allowed and v is not None}
+    pruned = {k: v for k, v in mapping.items() if k in allowed and v is not None}
+    if pruned.get("background") == "transparent":
+        # JPEG cannot carry an alpha channel. PNG is the API default and the
+        # cookbook-recommended format; preserve WebP when explicitly selected.
+        if pruned.get("output_format") not in {"png", "webp"}:
+            pruned["output_format"] = "png"
+        if pruned["output_format"] == "png":
+            pruned.pop("output_compression", None)
+    return pruned
 
 
 def _event_value(event: Any, key: str) -> Any:

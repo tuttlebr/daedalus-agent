@@ -60,9 +60,7 @@ class VisualMediaFunctionConfig(FunctionBaseConfig, name="visual_media"):
     generation_model: str = Field(
         "gpt-image-2", description="Model used for text-to-image generation."
     )
-    edit_model: str = Field(
-        "gpt-image-1.5", description="Model used for image editing."
-    )
+    edit_model: str = Field("gpt-image-2", description="Model used for image editing.")
     quality: Literal["low", "medium", "high", "auto"] | None = Field(
         default=None,
         description=(
@@ -107,9 +105,12 @@ class VisualMediaFunctionConfig(FunctionBaseConfig, name="visual_media"):
         le=100,
         description="Optional compression level 0-100 for jpeg/webp outputs (ignored for png).",
     )
-    background: Literal["auto", "opaque"] | None = Field(
+    background: Literal["auto", "transparent", "opaque"] | None = Field(
         default=None,
-        description="Optional background. gpt-image-2 does NOT support 'transparent'.",
+        description=(
+            "Default output background. GPT Image 2 supports transparent "
+            "backgrounds with PNG or WebP output."
+        ),
     )
     user: str | None = Field(
         default=None, description="Optional end-user identifier for image API calls."
@@ -143,6 +144,13 @@ class VisualMediaInput(BaseModel):
     videoRef: str | dict | None = None
     video_url: str | None = None
     question: str = ""
+    background: Literal["auto", "transparent", "opaque"] | None = Field(
+        default=None,
+        description=(
+            "Optional generate/edit output background. Use 'transparent' "
+            "when the user asks for an asset with a transparent background."
+        ),
+    )
 
 
 def _configured_key(value: str | None, env_name: str) -> str:
@@ -244,7 +252,11 @@ async def visual_media_function(config: VisualMediaFunctionConfig, builder: Buil
             )
         return vlm_client
 
-    async def _generate(prompt: str, user_id: str | None) -> str:
+    async def _generate(
+        prompt: str,
+        user_id: str | None,
+        background: Literal["auto", "transparent", "opaque"] | None,
+    ) -> str:
         if not prompt or not prompt.strip():
             return "Error: prompt is required for operation='generate'."
         owner_user_id = (user_id or "").strip()
@@ -261,7 +273,7 @@ async def visual_media_function(config: VisualMediaFunctionConfig, builder: Buil
             moderation=config.moderation,
             output_format=config.output_format,
             output_compression=config.output_compression,
-            background=config.background,
+            background=background or config.background,
             user=config.user,
         )
         refs = []
@@ -281,6 +293,7 @@ async def visual_media_function(config: VisualMediaFunctionConfig, builder: Buil
         prompt: str,
         imageRef: str | dict | list[dict] | None,
         user_id: str | None,
+        background: Literal["auto", "transparent", "opaque"] | None,
     ) -> str:
         if not prompt or not prompt.strip():
             return "Error: prompt is required for operation='edit'."
@@ -327,6 +340,10 @@ async def visual_media_function(config: VisualMediaFunctionConfig, builder: Buil
             input_fidelity=config.input_fidelity,
             size=config.size,
             n=config.n,
+            output_format=config.output_format,
+            output_compression=config.output_compression,
+            background=background or config.background,
+            user=config.user,
         )
         refs = []
         for result in results:
@@ -435,6 +452,7 @@ async def visual_media_function(config: VisualMediaFunctionConfig, builder: Buil
         videoRef: str | dict | None = None,
         video_url: str | None = None,
         question: str = "",
+        background: Literal["auto", "transparent", "opaque"] | None = None,
         user_id: str = "",
     ) -> str:
         """Generate, edit, or analyze visual media.
@@ -448,6 +466,8 @@ async def visual_media_function(config: VisualMediaFunctionConfig, builder: Buil
             videoRef: Uploaded video reference for analyze.
             video_url: Public video URL for analyze.
             question: Analysis question. Falls back to prompt.
+            background: Optional generate/edit output background. Use
+                "transparent" for an alpha-channel PNG asset.
             user_id: Deprecated direct-call identity assertion. The LLM-facing
                 schema omits it; HTTP requests use the trusted NAT context.
         """
@@ -470,9 +490,9 @@ async def visual_media_function(config: VisualMediaFunctionConfig, builder: Buil
                     return f"Error: visual media request denied: {exc}."
 
             if op == "generate":
-                return await _generate(prompt, effective_user_id)
+                return await _generate(prompt, effective_user_id, background)
             if op == "edit":
-                return await _edit(prompt, imageRef, effective_user_id)
+                return await _edit(prompt, imageRef, effective_user_id, background)
             if op == "analyze":
                 if isinstance(imageRef, list):
                     return (
@@ -513,7 +533,9 @@ async def visual_media_function(config: VisualMediaFunctionConfig, builder: Buil
                 "imageRef with prompt; operation='analyze' to answer a question "
                 "about imageRef, image_url, videoRef, or video_url. The backend "
                 "derives media ownership from the authenticated request; never "
-                "pass user_id. Image outputs return markdown refs. Forward them "
+                "pass user_id. Set background='transparent' when the user asks "
+                "for a transparent generated or edited asset. Image outputs "
+                "return markdown refs. Forward them "
                 "verbatim in Markdown responses; for a standalone HTML artifact, "
                 "preserve only the returned URL exactly as an img src."
             ),
