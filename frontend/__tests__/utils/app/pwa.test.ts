@@ -1,6 +1,69 @@
-import { clearPrivateCaches } from '@/utils/app/pwa';
+import {
+  clearPrivateCaches,
+  registerServiceWorker,
+  setOnUpdateAvailable,
+} from '@/utils/app/pwa';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
+
+vi.mock('@/utils/app/visibilityAwareTimer', () => ({
+  createVisibilityAwareInterval: vi.fn(),
+}));
+
+function serviceWorkerRegistration(controller: object | null) {
+  let state = 'installing';
+  const worker = new EventTarget();
+  Object.defineProperty(worker, 'state', { get: () => state });
+
+  const registration = new EventTarget();
+  Object.defineProperty(registration, 'installing', { get: () => worker });
+  const register = vi.fn().mockResolvedValue(registration);
+  vi.stubGlobal('navigator', {
+    serviceWorker: { controller, register },
+  });
+
+  return {
+    activate() {
+      registration.dispatchEvent(new Event('updatefound'));
+      state = 'activated';
+      worker.dispatchEvent(new Event('statechange'));
+    },
+    register,
+  };
+}
+
+describe('registerServiceWorker', () => {
+  afterEach(() => {
+    setOnUpdateAvailable(vi.fn());
+    vi.unstubAllGlobals();
+    vi.clearAllMocks();
+  });
+
+  it('does not report the first worker activation as an update', async () => {
+    const onUpdate = vi.fn();
+    const registration = serviceWorkerRegistration(null);
+    setOnUpdateAvailable(onUpdate);
+
+    await registerServiceWorker();
+    registration.activate();
+
+    expect(registration.register).toHaveBeenCalledWith('/sw.js', {
+      scope: '/',
+    });
+    expect(onUpdate).not.toHaveBeenCalled();
+  });
+
+  it('reports activation when an older worker already controls the page', async () => {
+    const onUpdate = vi.fn();
+    const registration = serviceWorkerRegistration({});
+    setOnUpdateAvailable(onUpdate);
+
+    await registerServiceWorker();
+    registration.activate();
+
+    expect(onUpdate).toHaveBeenCalledOnce();
+  });
+});
 
 describe('clearPrivateCaches', () => {
   afterEach(() => {

@@ -606,54 +606,35 @@ def test_routed_responses_llms_replay_full_history():
             assert llm["use_previous_response_id"] is False, (path, llm_name)
 
 
-def test_fireworks_llms_use_request_scoped_prompt_cache_headers():
-    expected = {
-        "tool_calling_llm",
-        "reasoning_llm",
-        "default_llm",
-        "verifier_llm",
-    }
-    expected_reasoning = {
-        "tool_calling_llm": {"effort": "high"},
-        "reasoning_llm": {"effort": "xhigh"},
-        "default_llm": {"effort": "xhigh"},
-    }
+def test_routed_llm_uses_one_provider_neutral_transport():
     for path in DEPLOYED_CONFIGS:
         config = _config(path)
-        assert set(config["llms"]) == expected, path
-        for llm_name in expected:
-            llm = config["llms"][llm_name]
-            assert llm["_type"] == "daedalus_fireworks", (path, llm_name)
-            assert llm["api_type"] == "responses", (path, llm_name)
-            assert llm["session_affinity_scope"] == "conversation", (
-                path,
-                llm_name,
-            )
-            assert llm["prompt_cache_isolation"] is True, (path, llm_name)
-            assert "temperature" not in llm, (path, llm_name)
-            assert "top_p" not in llm, (path, llm_name)
-            assert "extra_args" not in llm, (path, llm_name)
-            assert "reasoning_effort" not in llm, (path, llm_name)
-            assert "extra_body" not in llm, (path, llm_name)
-            assert "extra_headers" not in llm, (path, llm_name)
-            assert "default_headers" not in llm, (path, llm_name)
-            assert "user" not in llm, (path, llm_name)
-            assert llm["truncation"] == "auto", (path, llm_name)
-            if llm_name in expected_reasoning:
-                assert llm["reasoning"] == expected_reasoning[llm_name], (
-                    path,
-                    llm_name,
-                )
-            else:
-                assert "reasoning" not in llm, (path, llm_name)
-            assert llm["max_retries"] == "${DAEDALUS_LLM_MAX_RETRIES:-3}", (
-                path,
-                llm_name,
-            )
-            assert llm["request_timeout"] == "${DAEDALUS_LLM_TIMEOUT:-60.0}", (
-                path,
-                llm_name,
-            )
+        assert set(config["llms"]) == {"tool_calling_llm"}, path
+        llm = config["llms"]["tool_calling_llm"]
+        assert llm["_type"] == "daedalus_fireworks", path
+        assert llm["api_type"] == "responses", path
+        assert llm["api_key"] == "${TOOL_CALLING_LLM_MODEL_API_KEY}", path
+        assert llm["base_url"] == "${TOOL_CALLING_LLM_MODEL_BASE_URL}", path
+        assert llm["model_name"] == "${TOOL_CALLING_LLM_MODEL_MODEL}", path
+        assert llm["session_affinity_scope"] == "conversation", path
+        assert llm["prompt_cache_isolation"] is False, path
+        # Switchyard owns target-specific reasoning policy. The agent transport
+        # must not inject reasoning fields that a routed provider may reject.
+        for provider_specific_key in (
+            "reasoning",
+            "reasoning_effort",
+            "temperature",
+            "top_p",
+            "extra_args",
+            "extra_body",
+            "extra_headers",
+            "default_headers",
+            "user",
+        ):
+            assert provider_specific_key not in llm, (path, provider_specific_key)
+        assert llm["truncation"] == "auto", path
+        assert llm["max_retries"] == "${DAEDALUS_LLM_MAX_RETRIES:-3}", path
+        assert llm["request_timeout"] == "${DAEDALUS_LLM_TIMEOUT:-60.0}", path
 
 
 def test_responses_config_is_a_backward_compatible_alias():
@@ -1453,15 +1434,16 @@ def test_workflow_uses_configured_internet_search_providers():
         assert "current, external, private, or precise facts" in normalized_prompt, path
 
 
-def test_source_verifier_uses_a_dedicated_configured_llm():
+def test_source_verifier_uses_the_unified_routed_llm():
     for path in DEPLOYED_CONFIGS:
         config = _config(path)
         verifier = config["functions"]["source_verifier_tool"]
         verifier_llm = config["llms"][verifier["llm_name"]]
-        assert verifier["llm_name"] == "verifier_llm", path
-        assert verifier_llm["api_key"] == "${VERIFIER_API_KEY}", path
-        assert verifier_llm["base_url"] == "${VERIFIER_BASE_URL}", path
-        assert verifier_llm["model_name"] == "${VERIFIER_MODEL}", path
+        assert verifier["llm_name"] == config["workflow"]["llm_name"], path
+        assert verifier["llm_name"] == "tool_calling_llm", path
+        assert verifier_llm["api_key"] == "${TOOL_CALLING_LLM_MODEL_API_KEY}", path
+        assert verifier_llm["base_url"] == "${TOOL_CALLING_LLM_MODEL_BASE_URL}", path
+        assert verifier_llm["model_name"] == "${TOOL_CALLING_LLM_MODEL_MODEL}", path
         assert "extra_args" not in verifier_llm, path
 
 
