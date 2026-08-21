@@ -253,6 +253,59 @@ def main() -> None:
                     raise RuntimeError(
                         "Fireworks headers leaked into LangChain model_kwargs"
                     )
+                from langchain_core.messages import AIMessage, ToolMessage
+
+                replay_payload = llm._get_request_payload(
+                    [
+                        AIMessage(
+                            content=[
+                                {
+                                    "type": "reasoning",
+                                    "id": "rs_contract",
+                                    "summary": [],
+                                    "status": "completed",
+                                },
+                                {
+                                    "type": "function_call",
+                                    "id": "fc_contract",
+                                    "call_id": "call_contract",
+                                    "name": "contract_lookup",
+                                    "arguments": "{}",
+                                    "status": "completed",
+                                },
+                            ]
+                        ),
+                        ToolMessage(
+                            content="contract result",
+                            tool_call_id="call_contract",
+                        ),
+                    ]
+                )
+                replay_items = replay_payload.get("input", [])
+                if not replay_items or any(
+                    "status" in item for item in replay_items if isinstance(item, dict)
+                ):
+                    raise RuntimeError(
+                        "Responses replay retained provider output status metadata"
+                    )
+                if not any(
+                    item.get("type") == "function_call"
+                    and item.get("call_id") == "call_contract"
+                    for item in replay_items
+                    if isinstance(item, dict)
+                ):
+                    raise RuntimeError(
+                        "Responses replay normalization dropped the tool call"
+                    )
+                if not any(
+                    item.get("type") == "function_call_output"
+                    and item.get("call_id") == "call_contract"
+                    for item in replay_items
+                    if isinstance(item, dict)
+                ):
+                    raise RuntimeError(
+                        "Responses replay normalization dropped the tool output"
+                    )
                 header_hooks = llm.http_async_client.event_hooks.get("request", [])
                 hook = next(
                     (

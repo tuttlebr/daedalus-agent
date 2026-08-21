@@ -17,6 +17,25 @@ from nat_helpers.fireworks_prompt_cache import FireworksPromptCacheHeaderHook
 from pydantic import Field
 
 
+def _strip_responses_output_status(payload: dict) -> dict:
+    """Remove output-only status metadata from replayed Responses items.
+
+    LangChain preserves provider response items when full history is replayed.
+    Those output objects can carry ``status``, but routed providers do not
+    consistently accept that field on ``input`` items. The field is lifecycle
+    metadata, not conversation content, so dropping it keeps tool calls and
+    reasoning intact while producing a provider-neutral request.
+    """
+    input_items = payload.get("input")
+    if not isinstance(input_items, list):
+        return payload
+
+    for item in input_items:
+        if isinstance(item, dict):
+            item.pop("status", None)
+    return payload
+
+
 class DaedalusFireworksModelConfig(
     OpenAIModelConfig,
     name="daedalus_fireworks",
@@ -67,6 +86,13 @@ async def daedalus_fireworks_langchain_client(
     from langchain_openai import ChatOpenAI
     from nat.plugins.langchain.llm import _patch_llm_based_on_config
 
+    class ProviderNeutralChatOpenAI(ChatOpenAI):
+        """Normalize replayed Responses items for heterogeneous routes."""
+
+        def _get_request_payload(self, input_, *, stop=None, **kwargs):
+            payload = super()._get_request_payload(input_, stop=stop, **kwargs)
+            return _strip_responses_output_status(payload)
+
     async with _create_metadata_injection_client(config) as http_async_client:
         http_async_client.event_hooks.setdefault("request", []).append(
             FireworksPromptCacheHeaderHook(
@@ -107,7 +133,7 @@ async def daedalus_fireworks_langchain_client(
                 use_previous_response_id=config.use_previous_response_id,
             )
 
-        client = ChatOpenAI(**client_kwargs)
+        client = ProviderNeutralChatOpenAI(**client_kwargs)
         if "http_async_client" in client.model_kwargs:
             del client.model_kwargs["http_async_client"]
 
