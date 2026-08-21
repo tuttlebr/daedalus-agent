@@ -660,7 +660,7 @@ export const ChatInput = memo(
     );
 
     return (
-      <GlassToolbar className="flex-shrink-0 py-3">
+      <GlassToolbar data-chat-input className="flex-shrink-0 py-3">
         <div className="chat-content-rail space-y-2">
           <DropZone onDrop={handleFileSelect}>
             {/* Upload progress bars */}

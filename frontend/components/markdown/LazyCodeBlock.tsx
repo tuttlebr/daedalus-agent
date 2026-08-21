@@ -8,6 +8,7 @@ interface Props {
   language: string;
   value: string;
   defaultPreview?: boolean;
+  fullscreen?: boolean;
 }
 
 // Lazy load the CodeBlock component

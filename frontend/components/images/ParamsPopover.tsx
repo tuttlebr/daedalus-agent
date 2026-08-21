@@ -22,6 +22,7 @@ export const ParamsPopover = memo(function ParamsPopover({
       position="top"
       align="start"
       sheetOnMobile
+      title="Settings"
       trigger={
         <DockIconTrigger
           disabled={disabled}

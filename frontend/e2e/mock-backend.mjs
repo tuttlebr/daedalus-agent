@@ -92,6 +92,29 @@ async function streamChat(req, res) {
     return;
   }
 
+  if (prompt.includes('E2E_HTML')) {
+    sendToken(
+      res,
+      '<!doctype html><html><head><style>body{font-family:system-ui;padding:24px}h1{color:rgb(255,0,0)}</style></head><body><h1>Formatted HTML</h1><p>Preview parity</p></body></html>',
+    );
+    res.end('data: [DONE]\n\n');
+    return;
+  }
+
+  if (prompt.includes('E2E_LONG_MARKDOWN')) {
+    const paragraphs = Array.from(
+      { length: 24 },
+      (_, index) =>
+        `Paragraph ${index + 1} keeps the document tall and readable.`,
+    ).join('\n\n');
+    sendToken(
+      res,
+      `# Formatted Markdown\n\n| Column A | Column B |\n| --- | --- |\n| One | Two |\n\n${paragraphs}`,
+    );
+    res.end('data: [DONE]\n\n');
+    return;
+  }
+
   const tokens = ['E2E ', 'streamed ', 'reply'];
   for (const token of tokens) {
     await wait(300);

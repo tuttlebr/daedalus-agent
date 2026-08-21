@@ -130,6 +130,7 @@ export const AttachmentsPopover = memo(function AttachmentsPopover({
       position="top"
       align="start"
       sheetOnMobile
+      title="Edit assets"
       trigger={
         <DockIconTrigger
           disabled={disabled}
@@ -285,14 +286,14 @@ function InputsSection({
   return (
     <div>
       <div className="flex items-center justify-between mb-2">
-        <div className="text-[10px] uppercase tracking-wider text-neutral-500">
+        <div className="text-xs uppercase tracking-wider text-neutral-500 md:text-[10px]">
           Input images {images.length > 0 && `(${images.length})`}
         </div>
         {images.length > 0 && (
           <button
             type="button"
             onClick={onClear}
-            className="text-[10px] uppercase tracking-wider text-neutral-500 hover:text-neutral-100 transition-colors"
+            className="min-h-11 rounded-lg px-2 text-xs uppercase tracking-wider text-neutral-500 transition-colors hover:bg-white/5 hover:text-neutral-100 md:min-h-8 md:text-[10px]"
           >
             Clear
           </button>
@@ -333,7 +334,7 @@ function InputsSection({
         onClick={() => fileInputRef.current?.click()}
         disabled={disabled || uploading || images.length >= MAX_INPUTS}
         className={classNames(
-          'w-full py-2 rounded-md text-xs',
+          'min-h-11 w-full rounded-md py-2 text-xs md:min-h-9',
           'border border-dashed border-white/10',
           'text-neutral-400 hover:text-neutral-100 hover:border-white/20 hover:bg-white/5',
           'transition-colors',
@@ -347,7 +348,7 @@ function InputsSection({
           ? `Maximum ${MAX_INPUTS} images`
           : '+ Add images'}
       </button>
-      <p className="text-[10px] text-neutral-500 mt-2 leading-relaxed">
+      <p className="mt-2 text-xs leading-relaxed text-neutral-500 md:text-[10px]">
         Reference uploaded images in your prompt as Image&nbsp;1, Image&nbsp;2,
         … Up to 30 MB each; full resolution is preserved.
       </p>
@@ -419,7 +420,7 @@ function MaskSection({
 
   return (
     <div>
-      <div className="text-[10px] uppercase tracking-wider text-neutral-500 mb-2">
+      <div className="mb-2 text-xs uppercase tracking-wider text-neutral-500 md:text-[10px]">
         Mask for Image 1 (optional)
       </div>
       {mask ? (
@@ -462,7 +463,7 @@ function MaskSection({
             onClick={() => fileInputRef.current?.click()}
             disabled={disabled || uploading || !canAttachMask}
             className={classNames(
-              'w-full py-2 rounded-md text-xs',
+              'min-h-11 w-full rounded-md py-2 text-xs md:min-h-9',
               'border border-dashed border-white/10',
               'text-neutral-400 hover:text-neutral-100 hover:border-white/20 hover:bg-white/5',
               'transition-colors',
@@ -478,7 +479,7 @@ function MaskSection({
               ? 'Uploading…'
               : '+ Add mask'}
           </button>
-          <p className="text-[10px] text-neutral-500 mt-2 leading-relaxed">
+          <p className="mt-2 text-xs leading-relaxed text-neutral-500 md:text-[10px]">
             {!firstImage
               ? 'Add a PNG source image first. Masks use transparent PNGs.'
               : !primaryImageIsPng
@@ -523,7 +524,7 @@ function MaskOverlayPreview({
           className="absolute inset-0 h-full w-full object-cover opacity-50 mix-blend-screen"
         />
       </div>
-      <p className="mt-1 text-[10px] leading-snug text-neutral-500">
+      <p className="mt-1 text-xs leading-snug text-neutral-500 md:text-[10px]">
         Mask applies to Image 1.
       </p>
     </div>

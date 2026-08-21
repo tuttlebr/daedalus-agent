@@ -1,6 +1,5 @@
-import React from 'react';
+import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
-import { act } from 'react-dom/test-utils';
 
 import { OutputActionSheet } from '@/components/images/OutputActionSheet';
 
@@ -38,7 +37,7 @@ function renderSheet(
     root.render(<OutputActionSheet {...props} />);
   });
 
-  return { container, root, props };
+  return { container: document.body, root, props };
 }
 
 describe('OutputActionSheet', () => {

@@ -13,16 +13,18 @@ import {
 } from '@tabler/icons-react';
 import { memo, useState, useRef, useEffect, lazy, Suspense } from 'react';
 
-import {
-  extractStandaloneHtmlResponse,
-  isAutonomousFeedHtmlMessage,
-} from '@/utils/app/htmlResponse';
+import { isAutonomousFeedHtmlMessage } from '@/utils/app/htmlResponse';
 
 import { Message } from '@/types/chat';
 
-import { LazyCodeBlock } from '@/components/markdown/LazyCodeBlock';
-import { MarkdownRenderer } from '@/components/markdown/MarkdownRenderer';
 import { Avatar, IconButton, Badge } from '@/components/primitives';
+import { ModalSurface } from '@/components/surfaces';
+
+import {
+  classifyResponseContent,
+  ResponseDocument,
+  RESPONSE_PROSE_CLASSES,
+} from './ResponseDocument';
 
 import { useUISettingsStore } from '@/state';
 import classNames from 'classnames';
@@ -33,9 +35,8 @@ const IntermediateSteps = lazy(() =>
   })),
 );
 
-// Threshold: messages longer than this get the collapsible treatment
-const LONG_CONTENT_CHARS = 1500;
 const COLLAPSED_MAX_HEIGHT = 300; // px
+const COLLAPSE_RENDERED_HEIGHT = COLLAPSED_MAX_HEIGHT + 50;
 
 interface AssistantMessageProps {
   message: Message;
@@ -65,29 +66,35 @@ export const AssistantMessage = memo(
       message.intermediateSteps && message.intermediateSteps.length > 0;
     const isAgent = message.role === 'agent';
     const isAutonomousFeedHtml = isAutonomousFeedHtmlMessage(message);
-    const isLongContent =
-      !isAutonomousFeedHtml && content.length > LONG_CONTENT_CHARS;
     const errorMessages = message.errorMessages;
     const hasError = Boolean(errorMessages?.message);
     const isRecoverable = errorMessages?.recoverable === true;
-    const htmlPreviewContent =
-      !isStreaming && !isAutonomousFeedHtml
-        ? extractStandaloneHtmlResponse(content)
-        : null;
+    const responseDocument = classifyResponseContent(
+      content,
+      !isStreaming && !isAutonomousFeedHtml,
+    );
 
     // After render, check if the actual rendered height exceeds the threshold
     useEffect(() => {
-      if (isStreaming || !contentRef.current || !isLongContent) {
+      if (isStreaming || !contentRef.current || isAutonomousFeedHtml) {
         setNeedsCollapse(false);
         return;
       }
 
-      if (contentRef.current) {
+      const element = contentRef.current;
+      const measure = () => {
         setNeedsCollapse(
-          contentRef.current.scrollHeight > COLLAPSED_MAX_HEIGHT + 50,
+          responseDocument.kind === 'markdown' &&
+            element.scrollHeight > COLLAPSE_RENDERED_HEIGHT,
         );
-      }
-    }, [content, isStreaming, isLongContent, isAutonomousFeedHtml]);
+      };
+      measure();
+
+      if (typeof ResizeObserver === 'undefined') return;
+      const observer = new ResizeObserver(measure);
+      observer.observe(element);
+      return () => observer.disconnect();
+    }, [content, isStreaming, isAutonomousFeedHtml, responseDocument.kind]);
 
     const handleCopy = () => {
       navigator.clipboard.writeText(content);
@@ -95,9 +102,9 @@ export const AssistantMessage = memo(
       setTimeout(() => setCopied(false), 2000);
     };
 
-    const proseClasses =
-      'prose dark:prose-invert prose-sm max-w-none break-words prose-p:my-1.5 prose-pre:my-2 prose-ul:my-1.5 prose-ol:my-1.5 prose-headings:text-dark-text-primary prose-a:text-nvidia-green prose-code:text-nvidia-green-light prose-strong:text-dark-text-primary';
     const feedClasses = 'autonomous-feed-render max-w-none';
+    const showDocumentHeader =
+      !isStreaming && (needsCollapse || responseDocument.kind === 'html');
 
     return (
       <div className="group flex w-full gap-3 animate-morph-in">
@@ -166,10 +173,7 @@ export const AssistantMessage = memo(
           {/* Message content */}
           {(content || isStreaming) && (
             <div className="relative w-full min-w-0">
-              {/* Announce streamed tokens to screen readers as they arrive */}
               <div
-                aria-live="polite"
-                aria-atomic="false"
                 aria-busy={isStreaming}
                 className={classNames(
                   'min-w-0 text-dark-text-primary text-sm',
@@ -183,19 +187,23 @@ export const AssistantMessage = memo(
                 )}
               >
                 {/* Long content header with document icon */}
-                {needsCollapse && !isStreaming && (
+                {showDocumentHeader && (
                   <div className="flex items-center justify-between mb-2 pb-2 border-b border-white/[0.06]">
                     <div className="flex min-w-0 items-center gap-2 text-xs text-dark-text-muted">
                       <IconFileText size={14} className="text-nvidia-green" />
                       <span className="truncate">
-                        Long response ({Math.ceil(content.length / 1000)}k
-                        chars)
+                        {responseDocument.kind === 'html'
+                          ? 'HTML preview'
+                          : `Long response (${Math.ceil(
+                              content.length / 1000,
+                            )}k chars)`}
                       </span>
                     </div>
                     <div className="flex items-center gap-1">
                       <button
+                        type="button"
                         onClick={() => setIsFullscreen(true)}
-                        className="p-1 rounded text-dark-text-muted hover:text-dark-text-primary hover:bg-white/[0.04] transition-colors"
+                        className="grid h-11 w-11 place-items-center rounded-lg text-dark-text-muted transition-colors hover:bg-white/[0.04] hover:text-dark-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nvidia-green/40 md:h-9 md:w-9"
                         aria-label="View fullscreen"
                       >
                         <IconMaximize size={14} />
@@ -220,23 +228,17 @@ export const AssistantMessage = memo(
                       : undefined
                   }
                 >
-                  {htmlPreviewContent ? (
-                    <LazyCodeBlock
-                      language="html"
-                      value={htmlPreviewContent}
-                      defaultPreview
+                  {content && (
+                    <ResponseDocument
+                      document={responseDocument}
+                      messageIndex={messageIndex}
+                      messageId={message.id}
+                      className={
+                        isAutonomousFeedHtml
+                          ? feedClasses
+                          : RESPONSE_PROSE_CLASSES
+                      }
                     />
-                  ) : (
-                    content && (
-                      <MarkdownRenderer
-                        content={content}
-                        messageIndex={messageIndex}
-                        messageId={message.id}
-                        className={
-                          isAutonomousFeedHtml ? feedClasses : proseClasses
-                        }
-                      />
-                    )
                   )}
 
                   {isStreaming && (
@@ -252,6 +254,7 @@ export const AssistantMessage = memo(
                 {/* Expand/collapse toggle */}
                 {needsCollapse && !isStreaming && (
                   <button
+                    type="button"
                     onClick={() => setIsExpanded(!isExpanded)}
                     className="flex items-center gap-1.5 w-full mt-2 pt-2 border-t border-white/[0.04] text-xs font-medium text-nvidia-green hover:text-nvidia-green-light transition-colors"
                   >
@@ -296,45 +299,67 @@ export const AssistantMessage = memo(
         </div>
 
         {/* Fullscreen document viewer */}
-        {isFullscreen && (
-          <div className="fixed inset-0 z-[200] bg-dark-bg-primary/95 backdrop-blur-xl flex flex-col">
-            {/* Toolbar */}
-            <div className="safe-top flex-shrink-0 flex items-center justify-between px-6 py-3 border-b border-white/[0.06]">
-              <div className="flex items-center gap-2 text-sm text-dark-text-muted">
-                <IconFileText size={16} className="text-nvidia-green" />
-                <span>Document View</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <IconButton
-                  icon={copied ? <IconCheck /> : <IconCopy />}
-                  aria-label="Copy content"
-                  variant="ghost"
-                  size="sm"
-                  onClick={handleCopy}
-                />
-                <IconButton
-                  icon={<IconMinimize />}
-                  aria-label="Close fullscreen"
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setIsFullscreen(false)}
-                />
-              </div>
+        <ModalSurface
+          open={isFullscreen}
+          onClose={() => setIsFullscreen(false)}
+          position="fullscreen"
+          aria-label="Response document"
+          className="flex h-full w-full flex-col bg-dark-bg-primary/95 backdrop-blur-xl"
+          backdropClassName="bg-dark-bg-primary/95"
+        >
+          {/* Toolbar */}
+          <div className="safe-top flex min-h-14 flex-shrink-0 items-center justify-between border-b border-white/[0.06] px-3 py-2 md:px-6">
+            <div className="flex items-center gap-2 text-sm text-dark-text-muted">
+              <IconFileText size={16} className="text-nvidia-green" />
+              <span>
+                {responseDocument.kind === 'html'
+                  ? 'HTML document'
+                  : 'Document view'}
+              </span>
             </div>
-
-            {/* Scrollable content */}
-            <div className="safe-bottom flex-1 overflow-y-auto px-6 py-6 md:px-12 lg:px-24">
-              <div className="max-w-4xl mx-auto">
-                <MarkdownRenderer
-                  content={content}
-                  messageIndex={messageIndex}
-                  messageId={message.id}
-                  className={classNames(proseClasses, 'prose-base')}
-                />
-              </div>
+            <div className="flex items-center gap-2">
+              <IconButton
+                icon={copied ? <IconCheck /> : <IconCopy />}
+                aria-label="Copy content"
+                variant="ghost"
+                size="sm"
+                onClick={handleCopy}
+              />
+              <IconButton
+                icon={<IconMinimize />}
+                aria-label="Close fullscreen"
+                variant="ghost"
+                size="sm"
+                onClick={() => setIsFullscreen(false)}
+              />
             </div>
           </div>
-        )}
+
+          <div
+            className={classNames(
+              'safe-bottom min-h-0 flex-1',
+              responseDocument.kind === 'html'
+                ? 'p-2 md:p-4'
+                : 'overflow-y-auto px-4 py-5 md:px-12 md:py-6 lg:px-24',
+            )}
+          >
+            <div
+              className={classNames(
+                responseDocument.kind === 'html'
+                  ? 'h-full min-h-0 w-full'
+                  : 'mx-auto max-w-4xl',
+              )}
+            >
+              <ResponseDocument
+                document={responseDocument}
+                messageIndex={messageIndex}
+                messageId={message.id}
+                className={RESPONSE_PROSE_CLASSES}
+                fullscreen
+              />
+            </div>
+          </div>
+        </ModalSurface>
       </div>
     );
   },

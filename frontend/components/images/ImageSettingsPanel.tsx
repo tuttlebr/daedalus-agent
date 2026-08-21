@@ -105,7 +105,7 @@ export const ImageSettingsPanel = memo(function ImageSettingsPanel({
           <div>
             <div className="text-sm font-medium text-neutral-100">Settings</div>
           </div>
-          <span className="rounded-full bg-white/5 px-2 py-1 text-[10px] text-neutral-400">
+          <span className="rounded-full bg-white/5 px-2 py-1 text-xs text-neutral-400 md:text-[10px]">
             {mode}
           </span>
         </div>
@@ -211,7 +211,7 @@ export const ImageSettingsPanel = memo(function ImageSettingsPanel({
 
       {mode === 'edit' && (
         <div className="border-t border-white/5 pt-4">
-          <label className="mb-2 block text-[10px] uppercase tracking-wider text-neutral-500">
+          <label className="mb-2 block text-xs uppercase tracking-wider text-neutral-500 md:text-[10px]">
             Preserve list
           </label>
           <Textarea
@@ -348,7 +348,7 @@ function SizeControl({
 
 function FieldLabel({ children }: { children: React.ReactNode }) {
   return (
-    <div className="mb-1 text-[10px] uppercase tracking-wider text-neutral-500">
+    <div className="mb-1 text-xs uppercase tracking-wider text-neutral-500 md:text-[10px]">
       {children}
     </div>
   );

@@ -30,7 +30,6 @@ export interface UISettingsState {
   showChatbar: boolean;
   chatbarWidth: number;
   chatHistory: boolean;
-  autoScroll: boolean;
 
   // Intermediate Steps
   enableIntermediateSteps: boolean;
@@ -64,7 +63,6 @@ export interface UISettingsActions {
   toggleChatbar: () => void;
   setChatbarWidth: (width: number) => void;
   setChatHistory: (enabled: boolean) => void;
-  setAutoScroll: (enabled: boolean) => void;
 
   // Intermediate Steps
   setEnableIntermediateSteps: (enabled: boolean) => void;
@@ -106,7 +104,6 @@ const initialState: UISettingsState = {
   showChatbar: false,
   chatbarWidth: 280,
   chatHistory: DEFAULT_CHAT_HISTORY,
-  autoScroll: true,
   enableIntermediateSteps: true,
   expandIntermediateSteps: false,
   intermediateStepOverride: true,
@@ -158,8 +155,6 @@ export const useUISettingsStore = create<UISettingsStore>()(
         setChatbarWidth: (width) => set({ chatbarWidth: width }),
 
         setChatHistory: (enabled) => set({ chatHistory: enabled }),
-
-        setAutoScroll: (enabled) => set({ autoScroll: enabled }),
 
         // ======================================================================
         // Intermediate Steps
@@ -246,7 +241,6 @@ export const useUISettingsStore = create<UISettingsStore>()(
           showChatbar: state.showChatbar,
           chatbarWidth: state.chatbarWidth,
           chatHistory: state.chatHistory,
-          autoScroll: state.autoScroll,
           enableIntermediateSteps: state.enableIntermediateSteps,
           expandIntermediateSteps: state.expandIntermediateSteps,
           intermediateStepsView: state.intermediateStepsView,

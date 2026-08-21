@@ -8,12 +8,13 @@ import {
   IconTrash,
   IconX,
 } from '@tabler/icons-react';
-import React, { useEffect } from 'react';
+import React from 'react';
 
 import { getImageUrl } from '@/utils/app/imageHandler';
 import { getImageOutputMimeType } from '@/utils/app/imageModelCapabilities';
 
 import { OptimizedImage } from '@/components/chat/OptimizedImage';
+import { ModalSurface } from '@/components/surfaces';
 
 import type { GalleryImage, ImageRef } from '@/state/imagePanelStore';
 import classNames from 'classnames';
@@ -52,20 +53,6 @@ export function OutputActionSheet({
   onSendToChat,
   onDelete,
 }: OutputActionSheetProps) {
-  useEffect(() => {
-    if (!open) return;
-    const previousOverflow = document.body.style.overflow;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose();
-    };
-    document.addEventListener('keydown', onKeyDown);
-    document.body.style.overflow = 'hidden';
-    return () => {
-      document.removeEventListener('keydown', onKeyDown);
-      document.body.style.overflow = previousOverflow;
-    };
-  }, [onClose, open]);
-
   if (!open || !image) return null;
 
   const ref = generatedRef(image);
@@ -86,17 +73,16 @@ export function OutputActionSheet({
   };
 
   return (
-    <div className="lg:hidden">
-      <div
-        className="fixed inset-0 z-[70] bg-black/65 backdrop-blur-sm"
-        onClick={onClose}
-        aria-hidden
-      />
+    <ModalSurface
+      open={open}
+      onClose={onClose}
+      position="bottom"
+      aria-label="Selected image actions"
+      className="w-full lg:hidden"
+    >
       <section
-        role="dialog"
-        aria-modal="true"
         aria-labelledby="selected-output-title"
-        className="fixed inset-x-0 bottom-0 z-[71] max-h-[88dvh] overflow-y-auto rounded-t-3xl border-t border-white/10 bg-neutral-950/98 pb-safe-bottom shadow-2xl"
+        className="max-h-[88dvh] overflow-y-auto rounded-t-3xl border-t border-white/10 bg-neutral-950/98 pb-safe-bottom shadow-2xl"
       >
         <div className="mx-auto mt-2 h-1 w-10 rounded-full bg-white/15" />
         <header className="flex items-center justify-between px-4 pb-3 pt-2">
@@ -171,7 +157,7 @@ export function OutputActionSheet({
           </div>
         </div>
       </section>
-    </div>
+    </ModalSurface>
   );
 }
 

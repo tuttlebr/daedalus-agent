@@ -5,6 +5,7 @@ import {
   IconCheck,
   IconExternalLink,
   IconMenu2,
+  IconPlus,
   IconRobot,
 } from '@tabler/icons-react';
 import React, { memo, useCallback, useRef, useEffect, useState } from 'react';
@@ -23,7 +24,10 @@ import {
   oauthPromptsFromStatus,
   withoutOAuthPromptsForConversation,
 } from '@/utils/app/oauthPrompts';
-import { applyStreamingContentDelta } from '@/utils/app/streamingContent';
+import {
+  reduceStreamingUpdates,
+  type BufferedStreamingUpdate,
+} from '@/utils/app/streamingBuffer';
 
 import { Message } from '@/types/chat';
 import {
@@ -47,14 +51,20 @@ const MAX_HEARTBEAT_CATEGORIES = 24;
 const INITIAL_VISIBLE_MESSAGES = 80;
 const LOAD_OLDER_MESSAGES_STEP = 40;
 const OAUTH_SUCCESS_VISIBLE_MS = 3000;
-// Within this distance of the bottom the view still counts as "at bottom"
-// and streaming auto-scroll stays engaged.
-const AT_BOTTOM_THRESHOLD_PX = 120;
+const AT_BOTTOM_THRESHOLD_PX = 32;
+const STREAM_RENDER_INTERVAL_MS = 50;
 
 type OAuthPromptState = OAuthPrompt & {
   opened?: boolean;
   succeeded?: boolean;
 };
+
+interface PendingStreamingBatch {
+  conversationId: string;
+  assistantMessageId?: string;
+  updates: BufferedStreamingUpdate[];
+  intermediateSteps?: IntermediateStep[];
+}
 
 function findAssistantMessage(
   messages: Message[],
@@ -155,12 +165,14 @@ export const ChatView = memo(() => {
   const setStreaming = useConversationStore((s) => s.setStreaming);
 
   const toggleChatbar = useUISettingsStore((s) => s.toggleChatbar);
+  const setShowChatbar = useUISettingsStore((s) => s.setShowChatbar);
   const enableIntermediateSteps = useUISettingsStore(
     (s) => s.enableIntermediateSteps,
   );
 
   // Streaming state
   const [activityText, setActivityText] = useState('');
+  const [streamAnnouncement, setStreamAnnouncement] = useState('');
   const [stepCategories, setStepCategories] = useState<
     IntermediateStepCategory[]
   >([]);
@@ -177,47 +189,106 @@ export const ChatView = memo(() => {
   const isStreaming = selectedConversationId
     ? streamingIds.has(selectedConversationId)
     : false;
+  const isStreamingRef = useRef(isStreaming);
+  isStreamingRef.current = isStreaming;
 
   // Refs for async callbacks
   const selectedIdRef = useRef(selectedConversationId);
   selectedIdRef.current = selectedConversationId;
 
-  // Scroll management. Auto-scroll only sticks while the user is at (or
-  // near) the bottom; scrolling up to re-read pauses it and shows a
-  // "jump to latest" affordance instead of yanking the view back down.
+  // Streaming follows by default, but the first explicit upward gesture pauses
+  // it immediately. Content growth never gets to reinterpret reading intent.
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const scrollFrameRef = useRef<number | null>(null);
-  const isAtBottomRef = useRef(true);
+  const isFollowingRef = useRef(true);
+  const lastScrollTopRef = useRef(0);
+  const touchStartYRef = useRef<number | null>(null);
+  const pendingStreamingUpdatesRef = useRef<Map<string, PendingStreamingBatch>>(
+    new Map(),
+  );
+  const streamFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
+
+  const pauseFollowing = useCallback(() => {
+    if (!isStreamingRef.current || !isFollowingRef.current) return;
+    isFollowingRef.current = false;
+    setShowScrollToBottom(true);
+  }, []);
 
   const handleScroll = useCallback(() => {
     const container = scrollContainerRef.current;
     if (!container) return;
+    const movedUp = container.scrollTop < lastScrollTopRef.current - 1;
+    if (movedUp) pauseFollowing();
+    lastScrollTopRef.current = container.scrollTop;
     const atBottom =
-      container.scrollHeight - container.scrollTop - container.clientHeight <
+      container.scrollHeight - container.scrollTop - container.clientHeight <=
       AT_BOTTOM_THRESHOLD_PX;
-    isAtBottomRef.current = atBottom;
-    setShowScrollToBottom(!atBottom);
+    setShowScrollToBottom(
+      isStreamingRef.current ? !isFollowingRef.current : !atBottom,
+    );
+  }, [pauseFollowing]);
+
+  const scrollToBottom = useCallback((behavior: ScrollBehavior = 'auto') => {
+    isFollowingRef.current = true;
+    setShowScrollToBottom(false);
+    messagesEndRef.current?.scrollIntoView({ behavior });
   }, []);
 
-  const scrollToBottom = useCallback(() => {
-    isAtBottomRef.current = true;
-    setShowScrollToBottom(false);
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, []);
+  const jumpToLatest = useCallback(() => {
+    const reducedMotion = window.matchMedia?.(
+      '(prefers-reduced-motion: reduce)',
+    ).matches;
+    scrollToBottom(reducedMotion ? 'auto' : 'smooth');
+  }, [scrollToBottom]);
 
   const scrollToBottomSoon = useCallback(() => {
-    if (!isAtBottomRef.current) return;
+    if (!isFollowingRef.current) return;
     if (scrollFrameRef.current !== null) return;
     scrollFrameRef.current = requestAnimationFrame(() => {
       scrollFrameRef.current = null;
       const container = scrollContainerRef.current;
-      if (container && isAtBottomRef.current) {
+      if (container && isFollowingRef.current) {
         container.scrollTop = container.scrollHeight;
+        lastScrollTopRef.current = container.scrollTop;
       }
     });
   }, []);
+
+  const handleWheel = useCallback(
+    (event: React.WheelEvent<HTMLDivElement>) => {
+      if (event.deltaY < 0) pauseFollowing();
+    },
+    [pauseFollowing],
+  );
+
+  const handleTouchStart = useCallback(
+    (event: React.TouchEvent<HTMLDivElement>) => {
+      touchStartYRef.current = event.touches[0]?.clientY ?? null;
+    },
+    [],
+  );
+
+  const handleTouchMove = useCallback(
+    (event: React.TouchEvent<HTMLDivElement>) => {
+      const startY = touchStartYRef.current;
+      const currentY = event.touches[0]?.clientY;
+      if (startY !== null && currentY !== undefined && currentY > startY + 4) {
+        pauseFollowing();
+      }
+    },
+    [pauseFollowing],
+  );
+
+  const handleScrollKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLDivElement>) => {
+      if (['ArrowUp', 'PageUp', 'Home'].includes(event.key)) pauseFollowing();
+    },
+    [pauseFollowing],
+  );
 
   const clearOAuthPromptTimer = useCallback((key: string) => {
     const timer = oauthSuccessTimersRef.current[key];
@@ -424,11 +495,90 @@ export const ChatView = memo(() => {
     [updateAssistantMessage],
   );
 
+  const flushPendingStreamingUpdates = useCallback(
+    function flushPending(conversationId?: string) {
+      if (streamFlushTimerRef.current) {
+        clearTimeout(streamFlushTimerRef.current);
+        streamFlushTimerRef.current = null;
+      }
+
+      for (const [key, batch] of Array.from(
+        pendingStreamingUpdatesRef.current.entries(),
+      )) {
+        if (conversationId && batch.conversationId !== conversationId) {
+          continue;
+        }
+        pendingStreamingUpdatesRef.current.delete(key);
+
+        const conversation = useConversationStore
+          .getState()
+          .conversations.find((item) => item.id === batch.conversationId);
+        if (!conversation) continue;
+        const assistantMessage = findAssistantMessage(
+          conversation.messages,
+          batch.assistantMessageId,
+        );
+        const currentContent =
+          typeof assistantMessage?.content === 'string'
+            ? assistantMessage.content
+            : '';
+
+        updateAssistantMessage(
+          batch.conversationId,
+          {
+            content: reduceStreamingUpdates(currentContent, batch.updates),
+            ...(batch.intermediateSteps
+              ? { intermediateSteps: batch.intermediateSteps }
+              : {}),
+          },
+          batch.assistantMessageId,
+        );
+      }
+
+      if (!conversationId || conversationId === selectedIdRef.current) {
+        scrollToBottomSoon();
+      }
+
+      if (pendingStreamingUpdatesRef.current.size > 0) {
+        streamFlushTimerRef.current = setTimeout(
+          () => flushPending(),
+          STREAM_RENDER_INTERVAL_MS,
+        );
+      }
+    },
+    [scrollToBottomSoon, updateAssistantMessage],
+  );
+
+  const queueStreamingUpdate = useCallback(
+    (
+      conversationId: string,
+      assistantMessageId: string | undefined,
+      update: BufferedStreamingUpdate,
+      intermediateSteps?: IntermediateStep[],
+    ) => {
+      const key = `${conversationId}\n${assistantMessageId || ''}`;
+      const batch = pendingStreamingUpdatesRef.current.get(key) ?? {
+        conversationId,
+        assistantMessageId,
+        updates: [],
+      };
+      batch.updates.push(update);
+      if (intermediateSteps) batch.intermediateSteps = intermediateSteps;
+      pendingStreamingUpdatesRef.current.set(key, batch);
+
+      if (!streamFlushTimerRef.current) {
+        streamFlushTimerRef.current = setTimeout(
+          () => flushPendingStreamingUpdates(),
+          STREAM_RENDER_INTERVAL_MS,
+        );
+      }
+    },
+    [flushPendingStreamingUpdates],
+  );
+
   useEffect(() => {
-    if (isAtBottomRef.current) {
-      scrollToBottom();
-    }
-  }, [selectedConversation?.messages?.length, scrollToBottom]);
+    if (isFollowingRef.current) scrollToBottomSoon();
+  }, [selectedConversation?.messages?.length, scrollToBottomSoon]);
 
   useEffect(() => {
     setVisibleMessageCount(INITIAL_VISIBLE_MESSAGES);
@@ -437,19 +587,26 @@ export const ChatView = memo(() => {
   // Jump straight to the latest messages when switching conversations
   // (no long smooth-scroll animation through the history).
   useEffect(() => {
-    isAtBottomRef.current = true;
+    isFollowingRef.current = true;
     setShowScrollToBottom(false);
     const container = scrollContainerRef.current;
     if (container) {
       container.scrollTop = container.scrollHeight;
+      lastScrollTopRef.current = container.scrollTop;
     }
   }, [selectedConversationId]);
 
   useEffect(() => {
+    const pendingStreamingUpdates = pendingStreamingUpdatesRef.current;
+
     return () => {
       if (scrollFrameRef.current !== null) {
         cancelAnimationFrame(scrollFrameRef.current);
       }
+      if (streamFlushTimerRef.current) {
+        clearTimeout(streamFlushTimerRef.current);
+      }
+      pendingStreamingUpdates.clear();
       Object.values(oauthSuccessTimersRef.current).forEach(clearTimeout);
       oauthSuccessTimersRef.current = {};
     };
@@ -481,37 +638,19 @@ export const ChatView = memo(() => {
         const store = useConversationStore.getState();
         if (!store.streamingConversationIds.has(convId)) return;
 
-        const conv = store.conversations.find((c) => c.id === convId);
-        if (!conv) return;
-
-        const assistantMessage = findAssistantMessage(
-          conv.messages,
-          event.assistantMessageId,
-        );
-        const currentContent =
-          typeof assistantMessage?.content === 'string'
-            ? assistantMessage.content
-            : '';
-
-        updateAssistantMessage(
+        queueStreamingUpdate(
           convId,
-          {
-            content: applyStreamingContentDelta(
-              currentContent,
-              event.content,
-              event.responseStart,
-            ),
-            ...(event.intermediateSteps
-              ? { intermediateSteps: event.intermediateSteps }
-              : {}),
-          },
           event.assistantMessageId,
+          {
+            content: event.content,
+            responseStart: event.responseStart,
+          },
+          event.intermediateSteps,
         );
         setActivityText('Generating response');
         finishOAuthPromptsForJob(convId, event.jobId, true, true);
-        scrollToBottomSoon();
       },
-      [finishOAuthPromptsForJob, scrollToBottomSoon, updateAssistantMessage],
+      [finishOAuthPromptsForJob, queueStreamingUpdate],
     ),
 
     onIntermediateStep: useCallback(
@@ -593,6 +732,7 @@ export const ChatView = memo(() => {
         // Detect completion in onProgress as a safety net
         // (onComplete may not fire if fullResponse is empty)
         if (status.status === 'completed' || status.status === 'error') {
+          flushPendingStreamingUpdates(convId);
           const store = useConversationStore.getState();
           finishOAuthPromptsForJob(
             convId,
@@ -617,6 +757,11 @@ export const ChatView = memo(() => {
             setStreaming(convId, false);
             setActivityText('');
             setStepCategories([]);
+            setStreamAnnouncement(
+              status.status === 'completed'
+                ? 'Response complete'
+                : 'Response interrupted',
+            );
             // Persist
             const updatedConv = useConversationStore
               .getState()
@@ -624,7 +769,6 @@ export const ChatView = memo(() => {
             if (updatedConv) {
               saveConversation({ ...updatedConv, updatedAt: Date.now() });
             }
-            scrollToBottom();
           }
           return;
         }
@@ -645,15 +789,11 @@ export const ChatView = memo(() => {
         }
 
         if (status.partialResponse) {
-          updateAssistantMessage(
-            convId,
-            {
-              content: status.partialResponse,
-            },
-            status.assistantMessageId,
-          );
+          queueStreamingUpdate(convId, status.assistantMessageId, {
+            content: status.partialResponse,
+            replace: true,
+          });
           setActivityText('Generating response');
-          scrollToBottomSoon();
         }
       },
       [
@@ -661,8 +801,9 @@ export const ChatView = memo(() => {
         updateAssistantMessage,
         updateStreamingSteps,
         scrollToBottomSoon,
-        scrollToBottom,
         finishOAuthPromptsForJob,
+        flushPendingStreamingUpdates,
+        queueStreamingUpdate,
       ],
     ),
 
@@ -676,6 +817,7 @@ export const ChatView = memo(() => {
       ) => {
         const convId = conversationId || selectedIdRef.current;
         if (!convId) return;
+        flushPendingStreamingUpdates(convId);
 
         // Update final message
         const conv = useConversationStore
@@ -696,6 +838,7 @@ export const ChatView = memo(() => {
         setStreaming(convId, false);
         setActivityText('');
         setStepCategories([]);
+        setStreamAnnouncement('Response complete');
         finishOAuthPromptsForJob(convId, meta?.jobId, true);
 
         // Save to Redis
@@ -705,14 +848,12 @@ export const ChatView = memo(() => {
         if (updatedConv) {
           saveConversation({ ...updatedConv, updatedAt: Date.now() });
         }
-
-        scrollToBottom();
       },
       [
         setStreaming,
         updateAssistantMessage,
-        scrollToBottom,
         finishOAuthPromptsForJob,
+        flushPendingStreamingUpdates,
       ],
     ),
 
@@ -729,6 +870,7 @@ export const ChatView = memo(() => {
       ) => {
         const convId = context?.conversationId || selectedIdRef.current;
         if (!convId) return;
+        flushPendingStreamingUpdates(convId);
 
         console.error('Chat error:', error);
 
@@ -775,6 +917,7 @@ export const ChatView = memo(() => {
         setStreaming(convId, false);
         setActivityText('');
         setStepCategories([]);
+        setStreamAnnouncement('Response interrupted');
         clearOpenedOAuthPromptsForConversation(convId);
         setOauthPrompts((current) =>
           withoutOAuthPromptsForConversation(current, convId),
@@ -785,6 +928,7 @@ export const ChatView = memo(() => {
         updateAssistantMessage,
         addMessage,
         clearOpenedOAuthPromptsForConversation,
+        flushPendingStreamingUpdates,
       ],
     ),
   });
@@ -794,6 +938,8 @@ export const ChatView = memo(() => {
     async (message: Message) => {
       if (!selectedConversation) return;
       const convId = selectedConversation.id;
+      isFollowingRef.current = true;
+      setShowScrollToBottom(false);
 
       const turnId = uuidv4();
       const assistantMessageId = uuidv4();
@@ -825,6 +971,7 @@ export const ChatView = memo(() => {
       setStreaming(convId, true);
       setActivityText('Starting...');
       setStepCategories([]);
+      setStreamAnnouncement('Response started');
       clearOpenedOAuthPromptsForConversation(convId);
       setOauthPrompts((current) =>
         withoutOAuthPromptsForConversation(current, convId),
@@ -879,7 +1026,7 @@ export const ChatView = memo(() => {
         );
       }
 
-      scrollToBottom();
+      scrollToBottom('auto');
     },
     [
       selectedConversation,
@@ -910,12 +1057,29 @@ export const ChatView = memo(() => {
     handleSend(messageToResend as Message);
   }, [selectedConversation, handleSend]);
 
+  const handleNewConversation = useCallback(() => {
+    const conversation = {
+      id: uuidv4(),
+      name: 'New Conversation',
+      messages: [],
+      folderId: null,
+      updatedAt: Date.now(),
+    };
+    const store = useConversationStore.getState();
+    store.addConversation(conversation);
+    store.selectConversation(conversation.id);
+    setShowChatbar(false);
+    saveConversation(conversation);
+  }, [setShowChatbar]);
+
   const handleStop = useCallback(async () => {
     if (selectedConversationId) {
+      flushPendingStreamingUpdates(selectedConversationId);
       await cancelJob(selectedConversationId);
       setStreaming(selectedConversationId, false);
       setActivityText('');
       setStepCategories([]);
+      setStreamAnnouncement('Response stopped');
       clearOpenedOAuthPromptsForConversation(selectedConversationId);
       setOauthPrompts((current) =>
         withoutOAuthPromptsForConversation(current, selectedConversationId),
@@ -925,6 +1089,7 @@ export const ChatView = memo(() => {
     selectedConversationId,
     cancelJob,
     setStreaming,
+    flushPendingStreamingUpdates,
     clearOpenedOAuthPromptsForConversation,
   ]);
 
@@ -950,16 +1115,14 @@ export const ChatView = memo(() => {
 
   return (
     <div className="flex flex-col h-full w-full bg-dark-bg-primary">
-      {/* Header — safe-top is handled by ViewTabs above on mobile */}
-      <header className="flex-shrink-0 flex items-center justify-between px-4 h-14 border-b border-white/[0.04]">
+      <header className="safe-top flex min-h-14 flex-shrink-0 items-center justify-between gap-2 border-b border-white/[0.04] px-3 md:px-4">
         <div className="flex items-center gap-3 min-w-0">
           <IconButton
             icon={<IconMenu2 />}
-            aria-label="Toggle sidebar"
+            aria-label="Open conversation history"
             variant="ghost"
-            size="sm"
+            size="md"
             onClick={toggleChatbar}
-            className="hidden md:flex"
           />
           {isAutonomousConversation && (
             <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-nvidia-purple/15 border border-nvidia-purple/30 text-nvidia-purple text-[10px] font-medium">
@@ -977,14 +1140,34 @@ export const ChatView = memo(() => {
             </span>
           )}
         </div>
+        <IconButton
+          icon={<IconPlus />}
+          aria-label="New chat"
+          variant="ghost"
+          size="md"
+          onClick={handleNewConversation}
+          className="flex-shrink-0"
+        />
       </header>
+      <div className="sr-only" role="status" aria-live="polite">
+        {streamAnnouncement}
+      </div>
 
       {/* Messages */}
       <div className="relative min-h-0 flex-1">
         <div
           ref={scrollContainerRef}
           onScroll={handleScroll}
-          className="h-full overflow-y-auto overscroll-contain scrollbar-hide [-webkit-overflow-scrolling:touch]"
+          onWheel={handleWheel}
+          onTouchStart={handleTouchStart}
+          onTouchMove={handleTouchMove}
+          onTouchEnd={() => {
+            touchStartYRef.current = null;
+          }}
+          onKeyDown={handleScrollKeyDown}
+          tabIndex={0}
+          aria-label="Conversation messages"
+          className="chat-scroll-container h-full overflow-y-auto overscroll-contain focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-nvidia-green/30 [-webkit-overflow-scrolling:touch]"
         >
           {!hasMessages ? (
             <EmptyState
@@ -1080,7 +1263,7 @@ export const ChatView = memo(() => {
         {showScrollToBottom && hasMessages && (
           <button
             type="button"
-            onClick={scrollToBottom}
+            onClick={jumpToLatest}
             aria-label="Jump to latest messages"
             className="absolute bottom-4 right-4 z-10 flex h-11 w-11 items-center justify-center rounded-full border border-white/[0.1] bg-dark-bg-elevated/90 text-dark-text-secondary shadow-lg backdrop-blur-md transition-colors hover:text-dark-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nvidia-green/40 md:h-10 md:w-10"
           >

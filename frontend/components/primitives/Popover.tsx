@@ -1,9 +1,10 @@
 'use client';
 
 import React, { memo, useState, useRef, useEffect, useCallback } from 'react';
-import { createPortal } from 'react-dom';
 
 import { useIsMobile } from '@/hooks/useMediaQuery';
+
+import { ModalSurface } from '@/components/surfaces/ModalSurface';
 
 import classNames from 'classnames';
 
@@ -18,6 +19,8 @@ export interface PopoverProps {
    * instead of a floating panel. Desktop behavior is unchanged.
    */
   sheetOnMobile?: boolean;
+  /** Visible and accessible name for the mobile sheet or desktop panel. */
+  title?: string;
 }
 
 export const Popover = memo(
@@ -28,6 +31,7 @@ export const Popover = memo(
     align = 'center',
     className = '',
     sheetOnMobile = false,
+    title,
   }: PopoverProps) => {
     const [open, setOpen] = useState(false);
     const [mounted, setMounted] = useState(false);
@@ -35,6 +39,11 @@ export const Popover = memo(
     const panelRef = useRef<HTMLDivElement>(null);
     const isMobile = useIsMobile();
     const useSheet = sheetOnMobile && isMobile;
+    const accessibleLabel =
+      title ||
+      (typeof trigger.props['aria-label'] === 'string'
+        ? trigger.props['aria-label']
+        : 'Options');
 
     const toggle = useCallback(() => setOpen((prev) => !prev), []);
     const close = useCallback(() => setOpen(false), []);
@@ -100,7 +109,10 @@ export const Popover = memo(
     };
 
     const triggerEl = React.cloneElement(trigger, {
-      onClick: toggle,
+      onClick: (event: React.MouseEvent) => {
+        trigger.props.onClick?.(event);
+        if (!event.defaultPrevented) toggle();
+      },
       'aria-expanded': open,
       'aria-haspopup': 'dialog',
     });
@@ -111,33 +123,37 @@ export const Popover = memo(
           <div ref={containerRef} className="relative inline-flex">
             {triggerEl}
           </div>
-          {open &&
-            createPortal(
-              <>
-                <div
-                  className="fixed inset-0 z-[60] bg-black/60 backdrop-blur-sm animate-fade-in"
-                  onPointerDown={close}
-                  aria-hidden
-                />
-                <div
-                  role="dialog"
-                  aria-modal="true"
-                  className={classNames(
-                    'fixed inset-x-0 bottom-0 z-[61]',
-                    'rounded-t-2xl bg-neutral-900/95 backdrop-blur-xl',
-                    'border-t border-white/10',
-                    'max-h-[85vh] overflow-y-auto',
-                    'pb-safe-bottom',
-                    'animate-slide-up',
-                    className,
-                  )}
-                >
-                  <div className="mx-auto mt-2 mb-1 h-1 w-10 rounded-full bg-white/15" />
-                  {children}
-                </div>
-              </>,
-              document.body,
+          <ModalSurface
+            open={open}
+            onClose={close}
+            position="bottom"
+            aria-label={accessibleLabel}
+            className={classNames(
+              'flex max-h-[85vh] w-full flex-col overflow-hidden',
+              'rounded-t-2xl bg-neutral-900/95 backdrop-blur-xl',
+              'border-t border-white/10',
+              className,
             )}
+          >
+            <div className="flex-none border-b border-white/[0.06] px-4 pb-2 pt-2">
+              <div className="mx-auto mb-2 h-1 w-10 rounded-full bg-white/15" />
+              <div className="flex min-h-11 items-center justify-between gap-3">
+                <h2 className="text-sm font-medium text-neutral-100">
+                  {accessibleLabel}
+                </h2>
+                <button
+                  type="button"
+                  onClick={close}
+                  className="min-h-11 rounded-lg px-3 text-sm font-medium text-nvidia-green transition-colors hover:bg-white/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nvidia-green/40"
+                >
+                  Done
+                </button>
+              </div>
+            </div>
+            <div className="min-h-0 flex-1 overflow-y-auto pb-safe-bottom">
+              {children}
+            </div>
+          </ModalSurface>
         </>
       );
     }
@@ -149,6 +165,7 @@ export const Popover = memo(
           <div
             ref={panelRef}
             role="dialog"
+            aria-label={accessibleLabel}
             className={classNames(
               'absolute z-50',
               'bg-dark-bg-secondary/95 backdrop-blur-xl',

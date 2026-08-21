@@ -215,12 +215,6 @@
     min-height: 100vh;
     overflow-x: hidden;
   }
-
-  /* Lock input container during keyboard */
-  .fixed[data-keyboard-visible='true'] {
-    position: absolute !important;
-    bottom: 0 !important;
-  }
 }
 
 /* Dark-mode-aware scrollbar styling */
@@ -2293,6 +2287,13 @@ details div {
   overflow-anchor: auto;
   /* Use instant scroll behavior to prevent animation conflicts during streaming */
   scroll-behavior: auto;
+  scrollbar-gutter: stable;
+}
+
+@media (max-width: 767px) {
+  .chat-scroll-container {
+    scrollbar-gutter: auto;
+  }
 }
 
 /* Shared responsive rail for chat messages, status panels, and the composer */
@@ -2352,20 +2353,20 @@ details div {
     transform: translateZ(0);
   }
 
-  /* Ensure proper viewport behavior when keyboard is open */
-  html.keyboard-open {
-    position: fixed;
-    width: 100%;
-    height: 100%;
-    overflow: hidden;
-  }
-
   /* Chat input specific fixes */
   [data-chat-input] {
     position: relative;
     -webkit-transform: translateZ(0);
     transform: translateZ(0);
   }
+}
+
+/* Keep the focused composer close to the software keyboard. The app shell is
+   already sized to the visual viewport, so no fixed-position correction is
+   necessary and safe-area padding must not be stacked here. */
+[data-keyboard-open='true'] [data-chat-input] {
+  padding-top: 8px;
+  padding-bottom: 8px;
 }
 
 /* =================================================================

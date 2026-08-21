@@ -1,6 +1,6 @@
 'use client';
 
-import React, { memo, useCallback, useRef, useState } from 'react';
+import React, { memo, useCallback, useEffect, useRef, useState } from 'react';
 
 import { setUserSessionItem } from '@/utils/app/storage';
 
@@ -31,8 +31,17 @@ export const SplitPane = memo(
     const setChatbarWidth = useUISettingsStore((s) => s.setChatbarWidth);
 
     const [isResizing, setIsResizing] = useState(false);
+    const sidebarRef = useRef<HTMLDivElement>(null);
     const widthRef = useRef(chatbarWidth);
     widthRef.current = chatbarWidth;
+
+    useEffect(() => {
+      if (!sidebarRef.current) return;
+      sidebarRef.current.inert = !showChatbar;
+      if (!showChatbar && sidebarRef.current.contains(document.activeElement)) {
+        (document.activeElement as HTMLElement | null)?.blur();
+      }
+    }, [showChatbar]);
 
     const applyWidth = useCallback(
       (width: number) => {
@@ -113,7 +122,12 @@ export const SplitPane = memo(
       <div className={classNames('flex h-full overflow-hidden', className)}>
         {/* Sidebar */}
         <div
-          className="flex-shrink-0 overflow-hidden"
+          ref={sidebarRef}
+          aria-hidden={!showChatbar}
+          className={classNames(
+            'flex-shrink-0 overflow-hidden',
+            !showChatbar && 'pointer-events-none',
+          )}
           style={{
             width: showChatbar ? `${chatbarWidth}px` : '0px',
             transition: isResizing ? 'none' : 'width 0.3s ease-out',

@@ -50,35 +50,54 @@ export const PresetsPopover = memo(function PresetsPopover({
       position="top"
       align="start"
       sheetOnMobile
+      title="Presets"
       trigger={
         <DockIconTrigger disabled={disabled} aria-label="Presets">
           <IconGift size={16} />
         </DockIconTrigger>
       }
     >
-      <div className="p-3 w-full md:w-72">
-        <div className="text-[10px] uppercase tracking-wider text-neutral-500 mb-2">
-          Presets · {mode}
-        </div>
-        <div className="flex flex-col gap-1">
-          {presets.map((preset) => (
-            <button
-              key={preset.id}
-              type="button"
-              onClick={() => handleApply(preset)}
-              className="text-left px-3 py-2 rounded-lg hover:bg-white/5 transition-colors"
-            >
-              <div className="text-sm text-neutral-100">{preset.label}</div>
-              <div className="text-[11px] text-neutral-500 mt-0.5 line-clamp-2">
-                {preset.description}
-              </div>
-            </button>
-          ))}
-        </div>
-      </div>
+      <PresetsPanel mode={mode} presets={presets} onApply={handleApply} />
     </Popover>
   );
 });
+
+export function PresetsPanel({
+  mode,
+  presets,
+  onApply,
+  showHeading = true,
+}: {
+  mode: 'generate' | 'edit';
+  presets: ImagePreset[];
+  onApply: (preset: ImagePreset) => void;
+  showHeading?: boolean;
+}) {
+  return (
+    <div className="w-full p-3 md:w-72">
+      {showHeading && (
+        <div className="mb-2 text-[11px] font-medium uppercase tracking-wider text-neutral-500">
+          Presets · {mode}
+        </div>
+      )}
+      <div className="flex flex-col gap-1">
+        {presets.map((preset) => (
+          <button
+            key={preset.id}
+            type="button"
+            onClick={() => onApply(preset)}
+            className="min-h-11 rounded-lg px-3 py-2 text-left transition-colors hover:bg-white/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nvidia-green/40"
+          >
+            <div className="text-sm text-neutral-100">{preset.label}</div>
+            <div className="mt-0.5 line-clamp-2 text-xs text-neutral-500">
+              {preset.description}
+            </div>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 export const DockIconTrigger = React.forwardRef<
   HTMLButtonElement,

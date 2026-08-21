@@ -8,6 +8,7 @@ import { useInvalidateImageHistory } from '@/utils/app/queries';
 
 import { OptimizedImage } from '@/components/chat/OptimizedImage';
 import { IconButton } from '@/components/primitives';
+import { ModalSurface } from '@/components/surfaces';
 
 import { loadImageHistory } from './ImagePanel';
 
@@ -41,7 +42,7 @@ export function HistoryToggleButton() {
       type="button"
       onClick={toggleHistory}
       className={classNames(
-        'inline-flex items-center gap-2 px-3 py-1.5 rounded-lg',
+        'inline-flex min-h-11 items-center gap-2 rounded-lg px-3 py-2 md:min-h-0 md:py-1.5',
         'text-sm text-neutral-400 hover:text-neutral-100',
         'hover:bg-white/5 transition-colors',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nvidia-green/40',
@@ -50,7 +51,7 @@ export function HistoryToggleButton() {
       <IconHistory size={16} />
       <span>History</span>
       {historyCount > 0 && (
-        <span className="text-[10px] text-neutral-500 tabular-nums">
+        <span className="text-xs text-neutral-500 tabular-nums md:text-[10px]">
           {historyCount}
         </span>
       )}
@@ -84,15 +85,6 @@ export function HistoryDrawer() {
     () => new Set(),
   );
   const invalidateImageHistory = useInvalidateImageHistory();
-
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setHistoryOpen(false);
-    };
-    document.addEventListener('keydown', handler);
-    return () => document.removeEventListener('keydown', handler);
-  }, [open, setHistoryOpen]);
 
   // Reset confirm state when the drawer closes so it doesn't reopen "armed".
   useEffect(() => {
@@ -182,42 +174,24 @@ export function HistoryDrawer() {
   ]);
 
   return (
-    <>
-      {/* backdrop */}
-      <div
-        className={classNames(
-          'absolute inset-0 bg-black/50 transition-opacity duration-200',
-          'z-40',
-          open
-            ? 'opacity-100 pointer-events-auto'
-            : 'opacity-0 pointer-events-none',
-        )}
-        onClick={() => setHistoryOpen(false)}
-        aria-hidden
-      />
-
-      {/* drawer */}
+    <ModalSurface
+      open={open}
+      onClose={() => setHistoryOpen(false)}
+      position="right"
+      aria-label="Session history"
+      className="h-full w-full md:w-[360px]"
+    >
       <aside
         className={classNames(
-          'absolute top-0 right-0 bottom-0 w-full md:w-[360px]',
+          'h-full w-full',
           'bg-neutral-950/95 backdrop-blur-xl border-l border-white/10',
-          'z-50',
-          // visibility rides the same transition so the closed drawer is
-          // removed from the tab order and accessibility tree only after
-          // the slide-out finishes.
-          'transition-[transform,visibility] duration-200 ease-out',
-          open ? 'visible translate-x-0' : 'invisible translate-x-full',
           'flex flex-col',
         )}
-        role="dialog"
-        aria-modal="true"
-        aria-label="Session history"
-        aria-hidden={!open}
       >
         <div className="safe-top flex items-center justify-between px-4 py-3 border-b border-white/5">
           <div>
             <div className="text-sm font-medium text-neutral-100">History</div>
-            <div className="text-[10px] uppercase tracking-wider text-neutral-500 mt-0.5">
+            <div className="mt-0.5 text-xs uppercase tracking-wider text-neutral-500 md:text-[10px]">
               {history.length} saved creation{history.length === 1 ? '' : 's'}
             </div>
           </div>
@@ -277,10 +251,10 @@ export function HistoryDrawer() {
                       </div>
                       <div className="flex-1 min-w-0 pr-5">
                         <div className="flex items-center gap-2 mb-1">
-                          <span className="text-[9px] uppercase tracking-wider text-neutral-500">
+                          <span className="text-xs uppercase tracking-wider text-neutral-500 md:text-[9px]">
                             {entry.mode}
                           </span>
-                          <span className="text-[9px] text-neutral-600">
+                          <span className="text-xs text-neutral-600 md:text-[9px]">
                             · {entry.outputImageIds.length} image
                             {entry.outputImageIds.length !== 1 ? 's' : ''}
                           </span>
@@ -404,6 +378,7 @@ export function HistoryDrawer() {
                 onClick={() => setIsConfirmingClear(true)}
                 className={classNames(
                   'flex items-center gap-2 w-full px-2 py-2 text-xs',
+                  'min-h-11',
                   'text-neutral-500 hover:text-nvidia-red rounded-md',
                   'hover:bg-nvidia-red/5 transition-colors',
                   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nvidia-red/40',
@@ -416,6 +391,6 @@ export function HistoryDrawer() {
           </div>
         )}
       </aside>
-    </>
+    </ModalSurface>
   );
 }

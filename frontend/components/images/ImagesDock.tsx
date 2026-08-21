@@ -3,6 +3,9 @@
 import { IconArrowUp, IconSquare } from '@tabler/icons-react';
 import React, { memo, useEffect, useRef } from 'react';
 
+import { OptimizedImage } from '@/components/chat/OptimizedImage';
+
+import { AdjustPopover } from './AdjustPopover';
 import { AttachmentsPopover } from './AttachmentsPopover';
 import { ParamsPopover } from './ParamsPopover';
 import { PresetsPopover } from './PresetsPopover';
@@ -51,7 +54,10 @@ export const ImagesDock = memo(function ImagesDock({
   };
 
   return (
-    <div className="flex-none px-2 md:px-4 pt-2 pb-2 md:pb-safe-bottom">
+    <div
+      data-chat-input
+      className="flex-none px-2 pb-2 pt-2 md:px-4 md:pb-safe-bottom"
+    >
       <div
         className={classNames(
           'w-full md:max-w-3xl md:mx-auto',
@@ -60,6 +66,8 @@ export const ImagesDock = memo(function ImagesDock({
           'shadow-[0_20px_50px_-20px_rgba(0,0,0,0.6)]',
         )}
       >
+        {mode === 'edit' && <MobileEditAssetsRow disabled={loading} />}
+
         <textarea
           ref={textareaRef}
           value={prompt}
@@ -79,7 +87,7 @@ export const ImagesDock = memo(function ImagesDock({
           disabled={loading}
           className={classNames(
             'w-full resize-none bg-transparent px-4 pt-3 pb-1',
-            'text-sm text-neutral-100 placeholder:text-neutral-500',
+            'text-base text-neutral-100 placeholder:text-neutral-500 md:text-sm',
             'focus:outline-none',
             'max-h-[30vh] overflow-y-auto',
           )}
@@ -113,17 +121,18 @@ const DockActionsRow = memo(function DockActionsRow({
   submitDisabled,
 }: DockActionsRowProps) {
   return (
-    <div className="flex items-center justify-between gap-2 px-2 pb-2">
+    <div
+      data-create-actions
+      className="flex items-center justify-between gap-2 px-2 pb-2"
+    >
       <div className="flex min-w-0 items-center gap-0.5">
-        <PresetsPopover disabled={loading} />
-        <ParamsPopover disabled={loading} triggerClassName="lg:hidden" />
-        {mode === 'edit' && (
-          <AttachmentsPopover
-            disabled={loading}
-            triggerClassName="lg:hidden"
-            showLabel
-          />
-        )}
+        <div className="md:hidden">
+          <AdjustPopover disabled={loading} />
+        </div>
+        <div className="hidden items-center gap-0.5 md:flex">
+          <PresetsPopover disabled={loading} />
+          <ParamsPopover disabled={loading} triggerClassName="lg:hidden" />
+        </div>
       </div>
 
       <div className="flex items-center gap-2 pr-1">
@@ -143,6 +152,54 @@ const DockActionsRow = memo(function DockActionsRow({
   );
 });
 
+function MobileEditAssetsRow({ disabled }: { disabled: boolean }) {
+  const inputImages = useImagePanelStore((state) => state.inputImages);
+  const visibleImages = inputImages.slice(0, 3);
+  const remaining = Math.max(0, inputImages.length - visibleImages.length);
+
+  return (
+    <div
+      data-mobile-edit-assets
+      className="flex min-h-14 items-center gap-2 border-b border-white/[0.06] px-2 py-1.5 md:hidden"
+    >
+      <AttachmentsPopover disabled={disabled} showLabel />
+      {visibleImages.length > 0 ? (
+        <div
+          className="flex min-w-0 items-center gap-1.5"
+          aria-label={`${inputImages.length} edit image${
+            inputImages.length === 1 ? '' : 's'
+          } attached`}
+        >
+          {visibleImages.map((image, index) => (
+            <div
+              key={image.imageId}
+              className="h-9 w-9 flex-none overflow-hidden rounded-lg bg-neutral-900 ring-1 ring-white/10"
+            >
+              <OptimizedImage
+                imageRef={image}
+                alt={`Edit image ${index + 1}`}
+                useThumbnail
+                showControls={false}
+                enableFullscreen={false}
+                className="h-full w-full object-cover"
+              />
+            </div>
+          ))}
+          {remaining > 0 && (
+            <span className="grid h-9 min-w-9 place-items-center rounded-lg bg-white/5 px-1 text-xs font-medium text-neutral-400">
+              +{remaining}
+            </span>
+          )}
+        </div>
+      ) : (
+        <span className="min-w-0 truncate text-xs text-neutral-500">
+          Required before applying an edit
+        </span>
+      )}
+    </div>
+  );
+}
+
 function SettingsSummary() {
   const model = useImagePanelStore((s) => s.model);
   const params = useImagePanelStore((s) => s.params);
@@ -159,7 +216,7 @@ function SettingsSummary() {
   return (
     <>
       {/* Condensed summary on phones so users can confirm settings at a glance */}
-      <span className="inline-flex rounded-full bg-white/5 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-neutral-500 sm:hidden">
+      <span className="inline-flex rounded-full bg-white/5 px-2 py-0.5 text-xs font-medium uppercase tracking-wider text-neutral-500 sm:hidden">
         {compactParts.join(' · ')}
       </span>
       <span className="hidden rounded-full bg-white/5 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-neutral-500 sm:inline-flex">

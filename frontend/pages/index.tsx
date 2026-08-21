@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, type CSSProperties } from 'react';
 
 import { GetServerSideProps } from 'next';
 import Head from 'next/head';
@@ -10,6 +10,7 @@ import {
   commonShortcuts,
 } from '@/hooks/useKeyboardShortcuts';
 import { useTheme } from '@/hooks/useTheme';
+import { useVisualViewportKeyboard } from '@/hooks/useVisualViewportKeyboard';
 import { useWebSocket } from '@/hooks/useWebSocket';
 
 import { apiGet } from '@/utils/app/api';
@@ -43,6 +44,7 @@ const Home = () => {
   useTheme();
 
   const workflow = getWorkflowName() || 'Daedalus';
+  const visualViewport = useVisualViewportKeyboard();
 
   // Keyboard shortcuts
   const toggleChatbar = useUISettingsStore((s) => s.toggleChatbar);
@@ -307,10 +309,23 @@ const Home = () => {
       </Head>
 
       <main
-        className="flex h-screen min-h-screen w-screen flex-col text-sm text-dark-text-primary bg-dark-bg-primary supports-[height:100dvh]:h-[100dvh] supports-[height:100dvh]:min-h-[100dvh]"
+        className="flex h-[var(--app-viewport-height,100dvh)] min-h-0 w-screen flex-col overflow-hidden bg-dark-bg-primary text-sm text-dark-text-primary"
         id="main-content"
+        data-keyboard-open={visualViewport.keyboardOpen ? 'true' : 'false'}
+        style={
+          {
+            '--app-viewport-height': visualViewport.height
+              ? `${visualViewport.height}px`
+              : '100dvh',
+            '--app-viewport-offset-top': `${visualViewport.offsetTop}px`,
+            '--keyboard-occluded-height': `${visualViewport.occludedHeight}px`,
+          } as CSSProperties
+        }
       >
-        <AppShell sidebar={<Sidebar />} bottomNav={<BottomNav />}>
+        <AppShell
+          sidebar={<Sidebar />}
+          bottomNav={<BottomNav keyboardOpen={visualViewport.keyboardOpen} />}
+        >
           <div className="flex h-full w-full min-w-0 flex-col">
             <ViewTabs />
             <div className="flex-1 min-h-0 w-full overflow-hidden">

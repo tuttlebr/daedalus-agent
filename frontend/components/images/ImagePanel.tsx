@@ -656,27 +656,12 @@ function CreateEmptyState({
       : editingWithInput
       ? 'Describe the change in the prompt below, then tap Apply edit.'
       : 'Use Add image in the prompt bar, then describe the change you want.';
-  const steps =
-    mode === 'generate'
-      ? ['Describe', 'Optional settings', 'Create']
-      : ['Add image', 'Describe edit', 'Apply edit'];
-
   return (
-    <div className="w-full max-w-sm rounded-2xl border border-white/10 bg-neutral-950/75 p-4 text-center shadow-xl backdrop-blur-sm">
+    <div className="w-full max-w-sm rounded-2xl border border-white/10 bg-neutral-950/75 p-4 text-center shadow-xl backdrop-blur-sm max-[700px]:max-w-xs max-[700px]:p-3">
       <h2 className="text-sm font-medium text-neutral-100">{title}</h2>
       <p className="mx-auto mt-1.5 max-w-xs text-xs leading-relaxed text-neutral-400">
         {description}
       </p>
-      <ol className="mt-4 grid grid-cols-3 gap-1 text-[10px] text-neutral-500">
-        {steps.map((step, index) => (
-          <li key={step} className="min-w-0">
-            <span className="mx-auto mb-1 grid h-5 w-5 place-items-center rounded-full bg-white/5 text-[9px] text-neutral-300">
-              {index + 1}
-            </span>
-            <span className="block truncate">{step}</span>
-          </li>
-        ))}
-      </ol>
     </div>
   );
 }

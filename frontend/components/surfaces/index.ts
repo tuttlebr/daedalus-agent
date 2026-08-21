@@ -7,5 +7,8 @@ export type { GlassPanelProps } from './GlassPanel';
 export { GlassOverlay } from './GlassOverlay';
 export type { GlassOverlayProps } from './GlassOverlay';
 
+export { ModalSurface } from './ModalSurface';
+export type { ModalSurfaceProps, ModalSurfacePosition } from './ModalSurface';
+
 export { GlassToolbar } from './GlassToolbar';
 export type { GlassToolbarProps } from './GlassToolbar';

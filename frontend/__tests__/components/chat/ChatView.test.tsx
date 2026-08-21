@@ -182,4 +182,74 @@ describe('ChatView OAuth banner', () => {
       root.unmount();
     });
   });
+
+  it('coalesces token updates into a 50ms render batch', async () => {
+    const { root } = renderChatView();
+
+    await act(async () => {
+      mocks.asyncOptions.onToken({
+        conversationId: 'conv-1',
+        assistantMessageId: 'assistant-1',
+        content: 'Hello',
+        responseStart: 0,
+      });
+      mocks.asyncOptions.onToken({
+        conversationId: 'conv-1',
+        assistantMessageId: 'assistant-1',
+        content: ' world',
+        responseStart: 5,
+      });
+    });
+
+    expect(document.body.textContent).not.toContain('Hello world');
+
+    await act(async () => {
+      vi.advanceTimersByTime(49);
+    });
+    expect(document.body.textContent).not.toContain('Hello world');
+
+    await act(async () => {
+      vi.advanceTimersByTime(1);
+    });
+    expect(document.body.textContent).toContain('Hello world');
+
+    act(() => root.unmount());
+  });
+
+  it('keeps a paused reading position when streaming completes', async () => {
+    const { root } = renderChatView();
+    const scrollIntoView = vi.mocked(Element.prototype.scrollIntoView);
+    const scroller = document.querySelector(
+      '[aria-label="Conversation messages"]',
+    ) as HTMLDivElement;
+
+    await act(async () => {
+      scroller.dispatchEvent(
+        new WheelEvent('wheel', { bubbles: true, deltaY: -40 }),
+      );
+    });
+    scrollIntoView.mockClear();
+
+    await act(async () => {
+      mocks.asyncOptions.onToken({
+        conversationId: 'conv-1',
+        assistantMessageId: 'assistant-1',
+        content: 'Reading stays put.',
+        responseStart: 0,
+      });
+      vi.advanceTimersByTime(50);
+      mocks.asyncOptions.onComplete(
+        'Reading stays put.',
+        [],
+        Date.now(),
+        'conv-1',
+        { assistantMessageId: 'assistant-1' },
+      );
+    });
+
+    expect(scrollIntoView).not.toHaveBeenCalled();
+    expect(document.body.textContent).toContain('Response complete');
+
+    act(() => root.unmount());
+  });
 });
