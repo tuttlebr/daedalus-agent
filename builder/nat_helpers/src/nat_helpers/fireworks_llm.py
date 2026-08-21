@@ -14,26 +14,8 @@ from nat.data_models.llm import APITypeEnum
 from nat.llm.openai_llm import OpenAIModelConfig
 from nat.llm.utils.hooks import _create_metadata_injection_client
 from nat_helpers.fireworks_prompt_cache import FireworksPromptCacheHeaderHook
+from nat_helpers.responses_replay import _normalize_responses_replay_items
 from pydantic import Field
-
-
-def _strip_responses_output_status(payload: dict) -> dict:
-    """Remove output-only status metadata from replayed Responses items.
-
-    LangChain preserves provider response items when full history is replayed.
-    Those output objects can carry ``status``, but routed providers do not
-    consistently accept that field on ``input`` items. The field is lifecycle
-    metadata, not conversation content, so dropping it keeps tool calls and
-    reasoning intact while producing a provider-neutral request.
-    """
-    input_items = payload.get("input")
-    if not isinstance(input_items, list):
-        return payload
-
-    for item in input_items:
-        if isinstance(item, dict):
-            item.pop("status", None)
-    return payload
 
 
 class DaedalusFireworksModelConfig(
@@ -91,7 +73,7 @@ async def daedalus_fireworks_langchain_client(
 
         def _get_request_payload(self, input_, *, stop=None, **kwargs):
             payload = super()._get_request_payload(input_, stop=stop, **kwargs)
-            return _strip_responses_output_status(payload)
+            return _normalize_responses_replay_items(payload)
 
     async with _create_metadata_injection_client(config) as http_async_client:
         http_async_client.event_hooks.setdefault("request", []).append(

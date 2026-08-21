@@ -283,10 +283,12 @@ def main() -> None:
                 )
                 replay_items = replay_payload.get("input", [])
                 if not replay_items or any(
-                    "status" in item for item in replay_items if isinstance(item, dict)
+                    "id" in item or "status" in item
+                    for item in replay_items
+                    if isinstance(item, dict)
                 ):
                     raise RuntimeError(
-                        "Responses replay retained provider output status metadata"
+                        "Responses replay retained server-owned output metadata"
                     )
                 if not any(
                     item.get("type") == "function_call"

@@ -5,6 +5,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 CHART="$REPO_ROOT/helm/daedalus"
 CLUSTER_NAME="${KIND_CLUSTER_NAME:-daedalus-redis-upgrade}"
+KIND_POD_SUBNET="${KIND_POD_SUBNET:-10.252.0.0/16}"
+KIND_SERVICE_SUBNET="${KIND_SERVICE_SUBNET:-10.253.0.0/16}"
 NAMESPACE="${REDIS_UPGRADE_NAMESPACE:-redis-upgrade-test}"
 RELEASE="${REDIS_UPGRADE_RELEASE:-redis-upgrade}"
 FULLNAME="redis-fixture"
@@ -70,6 +72,7 @@ TLS_WORK_DIR="$(mktemp -d "${TMPDIR:-/tmp}/daedalus-redis-upgrade.XXXXXX")"
 TLS_V1_DIR="$TLS_WORK_DIR/v1"
 TLS_V2_DIR="$TLS_WORK_DIR/v2"
 TLS_CA_BUNDLE="$TLS_WORK_DIR/ca-overlap.crt"
+KIND_CONFIG="$TLS_WORK_DIR/kind-config.yaml"
 
 generate_tls_material() {
   local output_dir="$1" ca_common_name="$2"
@@ -119,8 +122,22 @@ apply_tls_secret() {
 }
 
 docker build --provenance=false -t "$NEW_REPOSITORY:$NEW_TAG" "$REPO_ROOT/redis"
-kind create cluster --name "$CLUSTER_NAME" --wait 120s
+# The development host also runs Kubernetes. Isolate Kind from host-level
+# Cilium service interception by avoiding the default Kubernetes Service CIDR.
+cat >"$KIND_CONFIG" <<YAML
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+networking:
+  podSubnet: "$KIND_POD_SUBNET"
+  serviceSubnet: "$KIND_SERVICE_SUBNET"
+YAML
+kind create cluster --name "$CLUSTER_NAME" --config "$KIND_CONFIG" --wait 120s
 CLUSTER_CREATED=1
+# Kind's readiness wait covers the control plane, but CoreDNS can still be
+# starting. This fixture connects through the production Service FQDN, so make
+# DNS availability an explicit prerequisite instead of racing the first Redis
+# request against cluster add-on startup.
+kubectl -n kube-system rollout status deployment/coredns --timeout=2m
 kind load docker-image "$NEW_REPOSITORY:$NEW_TAG" --name "$CLUSTER_NAME"
 kubectl create namespace "$NAMESPACE"
 
