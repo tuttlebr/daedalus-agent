@@ -769,9 +769,11 @@ functions:
       week, month, year), optional search_domain_filter
       (comma-separated domains), optional search_language_filter
       (comma-separated two-letter language codes), and optional date
-      filters in MM/DD/YYYY format. Returns: ranked URLs with snippets
-      and freshness metadata. Fails when PERPLEXITY_SEARCH_API_KEY is
-      missing or rate-limited.
+      filters in MM/DD/YYYY or YYYY-MM-DD format. Exact date filters
+      take precedence and must not be combined with
+      search_recency_filter. Returns: ranked URLs with snippets and
+      freshness metadata. Fails when PERPLEXITY_SEARCH_API_KEY is
+      missing, rate-limited, or the arguments are invalid.
     verbose: false
   webscrape_tool:
     _type: webscrape

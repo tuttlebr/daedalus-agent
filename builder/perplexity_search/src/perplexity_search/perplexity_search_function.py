@@ -3,7 +3,8 @@
 import json
 import logging
 import os
-from typing import Literal
+from datetime import datetime
+from typing import Annotated, Literal
 from urllib.parse import urlparse
 
 import httpx
@@ -19,6 +20,28 @@ MAX_RESULTS = 20
 MAX_FILTER_VALUES = 20
 _CONTEXT_SIZES = {"low", "medium", "high"}
 _RECENCY_FILTERS = {"hour", "day", "week", "month", "year"}
+_PROVIDER_DATE_FORMAT = "%m/%d/%Y"
+_ISO_DATE_FORMAT = "%Y-%m-%d"
+
+SearchRecencyFilter = Annotated[
+    Literal["", "hour", "day", "week", "month", "year"],
+    Field(
+        description=(
+            "Optional publication recency: hour, day, week, month, or year. "
+            "Do not combine it with exact publication or last-updated dates; "
+            "exact dates take precedence."
+        ),
+    ),
+]
+DateFilter = Annotated[
+    str,
+    Field(
+        description=(
+            "Optional exact date in MM/DD/YYYY or YYYY-MM-DD format. "
+            "ISO dates are normalized before calling Perplexity."
+        ),
+    ),
+]
 
 
 class PerplexitySearchConfig(FunctionBaseConfig, name="perplexity_search"):
@@ -81,6 +104,28 @@ def _display_link(url: str) -> str:
     return host.removeprefix("www.") if host else url
 
 
+def _normalize_date_filter(value: str, field_name: str) -> str:
+    """Validate an exact date and normalize ISO input for Perplexity."""
+    normalized = value.strip()
+    if not normalized:
+        return ""
+
+    try:
+        datetime.strptime(normalized, _PROVIDER_DATE_FORMAT)
+        return normalized
+    except ValueError:
+        pass
+
+    try:
+        parsed = datetime.strptime(normalized, _ISO_DATE_FORMAT)
+    except ValueError as exc:
+        message = (
+            f"{field_name} must be a valid date in " "MM/DD/YYYY or YYYY-MM-DD format."
+        )
+        raise ValueError(message) from exc
+    return parsed.strftime(_PROVIDER_DATE_FORMAT)
+
+
 def _build_request_payload(
     *,
     query: str,
@@ -110,10 +155,6 @@ def _build_request_payload(
     if normalized_context_size in _CONTEXT_SIZES:
         payload["search_context_size"] = normalized_context_size
 
-    normalized_recency = search_recency_filter.strip().lower()
-    if normalized_recency in _RECENCY_FILTERS:
-        payload["search_recency_filter"] = normalized_recency
-
     domains = _split_filter_values(search_domain_filter)
     if domains:
         payload["search_domain_filter"] = domains
@@ -122,15 +163,21 @@ def _build_request_payload(
     if languages:
         payload["search_language_filter"] = languages
 
+    exact_date_filters = {}
     for key, value in (
         ("search_after_date_filter", search_after_date_filter),
         ("search_before_date_filter", search_before_date_filter),
         ("last_updated_after_filter", last_updated_after_filter),
         ("last_updated_before_filter", last_updated_before_filter),
     ):
-        normalized = value.strip()
+        normalized = _normalize_date_filter(value, key)
         if normalized:
-            payload[key] = normalized
+            exact_date_filters[key] = normalized
+    payload.update(exact_date_filters)
+
+    normalized_recency = search_recency_filter.strip().lower()
+    if normalized_recency in _RECENCY_FILTERS and not exact_date_filters:
+        payload["search_recency_filter"] = normalized_recency
 
     return payload
 
@@ -224,12 +271,14 @@ def _http_error_for_user(response) -> str:
         if isinstance(error, dict):
             error_code = str(error.get("code") or "").casefold()
             error_type = str(error.get("type") or "").casefold()
-            error_message = str(error.get("message") or "").casefold()
+            error_message = " ".join(str(error.get("message") or "").split())
+
+    normalized_error_message = error_message.casefold()
 
     quota_exhausted = (
         "insufficient_quota" in {error_code, error_type}
-        or "exceeded your current quota" in error_message
-        or "quota" in error_message
+        or "exceeded your current quota" in normalized_error_message
+        or "quota" in normalized_error_message
     )
     if quota_exhausted:
         return (
@@ -251,6 +300,17 @@ def _http_error_for_user(response) -> str:
             "user authorization cannot fix it, and this tool must not be retried "
             "in the same turn."
         )
+    if status_code == 400:
+        detail = error_message[:400]
+        if detail:
+            return (
+                "Error: Perplexity Search rejected the request arguments: "
+                f"{detail} Correct the arguments before retrying."
+            )
+        return (
+            "Error: Perplexity Search rejected the request arguments. Correct "
+            "the arguments before retrying."
+        )
     return (
         f"Error: Perplexity Search failed with provider status {status_code}. "
         "Report the provider failure to the user and do not retry this tool "
@@ -267,13 +327,13 @@ async def perplexity_search_function(config: PerplexitySearchConfig, builder: Bu
         country: str = "",
         max_results: int = 0,
         search_context_size: Literal["", "low", "medium", "high"] = "",
-        search_recency_filter: Literal["", "hour", "day", "week", "month", "year"] = "",
+        search_recency_filter: SearchRecencyFilter = "",
         search_domain_filter: str = "",
         search_language_filter: str = "",
-        search_after_date_filter: str = "",
-        search_before_date_filter: str = "",
-        last_updated_after_filter: str = "",
-        last_updated_before_filter: str = "",
+        search_after_date_filter: DateFilter = "",
+        search_before_date_filter: DateFilter = "",
+        last_updated_after_filter: DateFilter = "",
+        last_updated_before_filter: DateFilter = "",
     ) -> str:
         """Search the web with the Perplexity Search API.
 
@@ -285,13 +345,18 @@ async def perplexity_search_function(config: PerplexitySearchConfig, builder: Bu
             search_context_size: Extracted page context size: low, medium, or high.
                 Leave blank to use the configured default.
             search_recency_filter: Publication recency filter: hour, day, week,
-                month, or year.
+                month, or year. Do not combine with exact date filters; exact
+                dates take precedence.
             search_domain_filter: Optional comma-separated domains to include.
             search_language_filter: Optional comma-separated ISO 639-1 language codes.
-            search_after_date_filter: Return results published after MM/DD/YYYY.
-            search_before_date_filter: Return results published before MM/DD/YYYY.
-            last_updated_after_filter: Return results updated after MM/DD/YYYY.
-            last_updated_before_filter: Return results updated before MM/DD/YYYY.
+            search_after_date_filter: Return results published after an
+                MM/DD/YYYY or YYYY-MM-DD date.
+            search_before_date_filter: Return results published before an
+                MM/DD/YYYY or YYYY-MM-DD date.
+            last_updated_after_filter: Return results updated after an
+                MM/DD/YYYY or YYYY-MM-DD date.
+            last_updated_before_filter: Return results updated before an
+                MM/DD/YYYY or YYYY-MM-DD date.
         """
         if not api_key:
             return (
@@ -307,22 +372,25 @@ async def perplexity_search_function(config: PerplexitySearchConfig, builder: Bu
         if normalized_country and len(normalized_country) != 2:
             return "Error: country must be a two-letter ISO 3166-1 alpha-2 code."
 
-        payload = _build_request_payload(
-            query=normalized_query,
-            country=normalized_country,
-            max_results=max_results,
-            default_max_results=config.default_max_results,
-            search_context_size=(
-                search_context_size or config.default_search_context_size
-            ),
-            search_recency_filter=search_recency_filter,
-            search_domain_filter=search_domain_filter,
-            search_language_filter=search_language_filter,
-            search_after_date_filter=search_after_date_filter,
-            search_before_date_filter=search_before_date_filter,
-            last_updated_after_filter=last_updated_after_filter,
-            last_updated_before_filter=last_updated_before_filter,
-        )
+        try:
+            payload = _build_request_payload(
+                query=normalized_query,
+                country=normalized_country,
+                max_results=max_results,
+                default_max_results=config.default_max_results,
+                search_context_size=(
+                    search_context_size or config.default_search_context_size
+                ),
+                search_recency_filter=search_recency_filter,
+                search_domain_filter=search_domain_filter,
+                search_language_filter=search_language_filter,
+                search_after_date_filter=search_after_date_filter,
+                search_before_date_filter=search_before_date_filter,
+                last_updated_after_filter=last_updated_after_filter,
+                last_updated_before_filter=last_updated_before_filter,
+            )
+        except ValueError as exc:
+            return f"Error: {exc}"
         headers = {
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
@@ -365,9 +433,11 @@ async def perplexity_search_function(config: PerplexitySearchConfig, builder: Bu
                 "last-updated metadata. Use for broad web discovery, current "
                 "information, source lookup, and citation candidate gathering. "
                 "Supports optional country, domain, language, recency, and date "
-                "filters. Returns compact markdown plus structured searchresults "
-                "data for rich UI rendering. Provider quota, rate-limit, and "
-                "credential failures are explicit and must be reported to the user."
+                "filters. Exact dates accept MM/DD/YYYY or YYYY-MM-DD and take "
+                "precedence over recency. Returns compact markdown plus structured "
+                "searchresults data for rich UI rendering. Provider quota, "
+                "rate-limit, and credential failures are explicit and must be "
+                "reported to the user."
             ),
         )
     except GeneratorExit:

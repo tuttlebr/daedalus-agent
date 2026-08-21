@@ -1346,6 +1346,8 @@ def test_perplexity_search_documented_filters_are_configured():
     desc = _config()["functions"]["perplexity_search_tool"]["description"]
     assert "PERPLEXITY_SEARCH_API_KEY" in desc
     assert "search_recency_filter (hour, day, week, month, year)" in desc
+    assert "MM/DD/YYYY or YYYY-MM-DD" in desc
+    assert "must not be combined with search_recency_filter" in desc
 
 
 def test_llm_sandbox_tool_is_optional_top_level_tool():
