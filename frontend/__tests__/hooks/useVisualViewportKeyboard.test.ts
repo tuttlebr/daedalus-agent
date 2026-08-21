@@ -32,6 +32,23 @@ describe('visual viewport keyboard state', () => {
     ).toBe(false);
   });
 
+  it('keeps the keyboard open when iOS pans by the full height loss', () => {
+    expect(
+      calculateVisualViewportState({
+        baselineHeight: 852,
+        viewportHeight: 500,
+        offsetTop: 352,
+        editableFocused: true,
+        touchCapable: true,
+      }),
+    ).toEqual({
+      height: 500,
+      offsetTop: 352,
+      occludedHeight: 352,
+      keyboardOpen: true,
+    });
+  });
+
   it('ignores small viewport shifts beneath the keyboard threshold', () => {
     expect(
       calculateVisualViewportState({

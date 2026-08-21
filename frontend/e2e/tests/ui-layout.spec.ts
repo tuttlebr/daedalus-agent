@@ -65,27 +65,34 @@ test('mobile Create controls stay separated and the keyboard collapses navigatio
   expect(composerGap).toBeGreaterThanOrEqual(8);
   expect(composerGap).toBeLessThanOrEqual(16);
 
-  // iOS may pan the visual viewport while the software keyboard is open.
-  // Keep the entire application aligned to that visible top edge instead of
-  // leaving the composer anchored above it at layout-viewport top: 0.
-  const emulatedOffsetTop = 120;
+  // iOS may pan the rendered body by almost the full viewport height loss.
+  // That pan must not cancel keyboard detection or move the composer away.
+  const emulatedOffsetTop = 352;
   await page.evaluate((offsetTop) => {
     const viewport = window.visualViewport;
     if (!viewport) throw new Error('visualViewport is unavailable');
+    document.body.style.transform = `translateY(-${offsetTop}px)`;
     Object.defineProperty(viewport, 'offsetTop', {
+      configurable: true,
+      get: () => offsetTop,
+    });
+    Object.defineProperty(viewport, 'pageTop', {
       configurable: true,
       get: () => offsetTop,
     });
     viewport.dispatchEvent(new Event('scroll'));
   }, emulatedOffsetTop);
 
+  await expect(
+    page.getByRole('navigation', { name: 'Primary navigation' }),
+  ).toBeHidden();
   await expect
     .poll(() =>
       page
         .locator('#main-content')
         .evaluate((element) => element.getBoundingClientRect().top),
     )
-    .toBe(emulatedOffsetTop);
+    .toBe(0);
 
   const shiftedGeometry = await page.evaluate(() => {
     const main = document.getElementById('main-content');

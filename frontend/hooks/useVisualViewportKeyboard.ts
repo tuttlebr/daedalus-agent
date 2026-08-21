@@ -31,10 +31,11 @@ export function calculateVisualViewportState({
   editableFocused: boolean;
   touchCapable: boolean;
 }): VisualViewportState {
-  const candidateOcclusion = Math.max(
-    0,
-    baselineHeight - (viewportHeight + offsetTop),
-  );
+  // Treat the viewport pan and the keyboard's height reduction as independent
+  // signals. On iOS the pan can be almost identical to the height loss; adding
+  // offsetTop here would cancel the keyboard signal and make the app expand
+  // while the keyboard is still visible.
+  const candidateOcclusion = Math.max(0, baselineHeight - viewportHeight);
   const keyboardOpen =
     touchCapable &&
     editableFocused &&
@@ -86,11 +87,18 @@ export function useVisualViewportKeyboard(): VisualViewportState {
       navigator.maxTouchPoints > 0 ||
       window.matchMedia?.('(pointer: coarse)').matches === true;
     let frameId: number | null = null;
+    let settleTimer: number | null = null;
 
     const measure = () => {
       frameId = null;
       const nextHeight = viewport?.height ?? window.innerHeight;
-      const offsetTop = viewport?.offsetTop ?? 0;
+      // pageTop settles more reliably than offsetTop in standalone WebKit.
+      // Subtract the layout viewport's real scroll to obtain the visual pan.
+      const pageOffsetTop = Math.max(
+        0,
+        (viewport?.pageTop ?? window.scrollY) - window.scrollY,
+      );
+      const offsetTop = Math.max(viewport?.offsetTop ?? 0, pageOffsetTop);
       const focused = isEditableElement(document.activeElement);
       const next = calculateVisualViewportState({
         baselineHeight,
@@ -99,13 +107,10 @@ export function useVisualViewportKeyboard(): VisualViewportState {
         editableFocused: focused,
         touchCapable,
       });
-      const candidateOcclusion = Math.max(
-        0,
-        baselineHeight - (nextHeight + offsetTop),
-      );
+      const candidateOcclusion = Math.max(0, baselineHeight - nextHeight);
 
       if (!focused && candidateOcclusion < KEYBOARD_OCCLUSION_THRESHOLD_PX) {
-        baselineHeight = Math.max(baselineHeight, nextHeight + offsetTop);
+        baselineHeight = Math.max(baselineHeight, nextHeight);
       }
 
       setState((current) => {
@@ -120,7 +125,14 @@ export function useVisualViewportKeyboard(): VisualViewportState {
 
     const scheduleMeasure = () => {
       if (frameId !== null) cancelAnimationFrame(frameId);
+      if (settleTimer !== null) window.clearTimeout(settleTimer);
       frameId = requestAnimationFrame(measure);
+      // WebKit can initially report offsetTop as zero in standalone mode and
+      // correct it shortly afterward without a dependable second event.
+      settleTimer = window.setTimeout(() => {
+        settleTimer = null;
+        measure();
+      }, 80);
     };
 
     const resetBaseline = () => {
@@ -141,6 +153,7 @@ export function useVisualViewportKeyboard(): VisualViewportState {
 
     return () => {
       if (frameId !== null) cancelAnimationFrame(frameId);
+      if (settleTimer !== null) window.clearTimeout(settleTimer);
       viewport?.removeEventListener('resize', scheduleMeasure);
       viewport?.removeEventListener('scroll', scheduleMeasure);
       window.removeEventListener('resize', scheduleMeasure);
