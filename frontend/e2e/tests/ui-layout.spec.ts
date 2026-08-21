@@ -64,6 +64,44 @@ test('mobile Create controls stay separated and the keyboard collapses navigatio
   const composerGap = 500 - (inputBox!.y + inputBox!.height);
   expect(composerGap).toBeGreaterThanOrEqual(8);
   expect(composerGap).toBeLessThanOrEqual(16);
+
+  // iOS may pan the visual viewport while the software keyboard is open.
+  // Keep the entire application aligned to that visible top edge instead of
+  // leaving the composer anchored above it at layout-viewport top: 0.
+  const emulatedOffsetTop = 120;
+  await page.evaluate((offsetTop) => {
+    const viewport = window.visualViewport;
+    if (!viewport) throw new Error('visualViewport is unavailable');
+    Object.defineProperty(viewport, 'offsetTop', {
+      configurable: true,
+      get: () => offsetTop,
+    });
+    viewport.dispatchEvent(new Event('scroll'));
+  }, emulatedOffsetTop);
+
+  await expect
+    .poll(() =>
+      page
+        .locator('#main-content')
+        .evaluate((element) => element.getBoundingClientRect().top),
+    )
+    .toBe(emulatedOffsetTop);
+
+  const shiftedGeometry = await page.evaluate(() => {
+    const main = document.getElementById('main-content');
+    const composer = document.querySelector<HTMLTextAreaElement>(
+      'textarea[placeholder="Send a message..."]',
+    );
+    if (!main || !composer) throw new Error('Application shell is unavailable');
+    return {
+      main: main.getBoundingClientRect().toJSON(),
+      composer: composer.getBoundingClientRect().toJSON(),
+    };
+  });
+  const shiftedComposerGap =
+    shiftedGeometry.main.bottom - shiftedGeometry.composer.bottom;
+  expect(shiftedComposerGap).toBeGreaterThanOrEqual(8);
+  expect(shiftedComposerGap).toBeLessThanOrEqual(16);
 });
 
 test('fullscreen preserves HTML preview and Markdown formatting', async ({

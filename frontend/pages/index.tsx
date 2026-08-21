@@ -309,7 +309,7 @@ const Home = () => {
       </Head>
 
       <main
-        className="flex h-[var(--app-viewport-height,100dvh)] min-h-0 w-screen flex-col overflow-hidden bg-dark-bg-primary text-sm text-dark-text-primary"
+        className="fixed left-0 top-[var(--app-viewport-offset-top,0px)] flex h-[var(--app-viewport-height,100dvh)] min-h-0 w-screen flex-col overflow-hidden bg-dark-bg-primary text-sm text-dark-text-primary"
         id="main-content"
         data-keyboard-open={visualViewport.keyboardOpen ? 'true' : 'false'}
         style={
@@ -317,7 +317,9 @@ const Home = () => {
             '--app-viewport-height': visualViewport.height
               ? `${visualViewport.height}px`
               : '100dvh',
-            '--app-viewport-offset-top': `${visualViewport.offsetTop}px`,
+            '--app-viewport-offset-top': visualViewport.keyboardOpen
+              ? `${visualViewport.offsetTop}px`
+              : '0px',
             '--keyboard-occluded-height': `${visualViewport.occludedHeight}px`,
           } as CSSProperties
         }
