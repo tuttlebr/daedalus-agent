@@ -15,11 +15,6 @@ from nat_helpers.hindsight_client import (
     memory_mode,
 )
 from nat_helpers.identity import authenticated_user_id_from_headers
-from nat_helpers.memory_ledger import (
-    delete_owned_redis_memories,
-    record_clear_epoch,
-    record_tombstone,
-)
 from pydantic import BaseModel, ConfigDict, Field
 
 logger = logging.getLogger("daedalus.memory_api")
@@ -92,7 +87,7 @@ def _require_hindsight() -> None:
         mode = memory_mode()
     except ValueError as exc:
         raise HTTPException(status_code=503, detail="memory is misconfigured") from exc
-    if mode not in {"shadow", "hindsight"}:
+    if mode != "hindsight":
         raise HTTPException(status_code=503, detail="Hindsight memory is not enabled")
 
 
@@ -105,23 +100,6 @@ async def _call(operation) -> Any:
         logger.warning("Hindsight memory operation failed: %s", exc)
         raise HTTPException(
             status_code=502, detail="memory service unavailable"
-        ) from exc
-
-
-async def _record_forget(operation) -> None:
-    try:
-        await operation
-    except Exception as exc:
-        # The Hindsight mutation already completed. Report the partial result
-        # honestly because a missing ledger entry could let migration restore
-        # the Redis source later.
-        logger.exception("Memory forget ledger update failed")
-        raise HTTPException(
-            status_code=500,
-            detail=(
-                "Memory was changed, but the forget ledger requires operator "
-                "repair before another migration"
-            ),
         ) from exc
 
 
@@ -236,26 +214,13 @@ async def _update_memory_for_user(
     body: UpdateMemoryRequest,
     user_id: str,
 ) -> dict[str, Any]:
-    result = await _call(
+    return await _call(
         client_from_env().update_memory(
             user_id=user_id,
             memory_id=_validate_resource_id(memory_id, "memory ID"),
             text=body.text,
         )
     )
-    # A later Redis migration must not replace a user-curated correction with
-    # the original legacy source. Hindsight returns the owning document ID.
-    document_id = str(result.get("document_id") or "").strip()
-    if document_id:
-        await _record_forget(
-            record_tombstone(
-                user_id=user_id,
-                kind="source",
-                resource_id=document_id,
-                reason="source contains a user-curated memory",
-            )
-        )
-    return result
 
 
 @router.post("/v1/memories/{memory_id}/invalidate")
@@ -267,32 +232,13 @@ async def invalidate_memory(
 ) -> dict[str, Any]:
     _require_hindsight()
     user_id = _authenticated_user(x_user_id, x_daedalus_internal_token)
-    result = await _call(
+    return await _call(
         client_from_env().invalidate_memory(
             user_id=user_id,
             memory_id=_validate_resource_id(memory_id, "memory ID"),
             reason=body.reason,
         )
     )
-    await _record_forget(
-        record_tombstone(
-            user_id=user_id,
-            kind="memory",
-            resource_id=memory_id,
-            reason=body.reason,
-        )
-    )
-    document_id = str(result.get("document_id") or "").strip()
-    if document_id:
-        await _record_forget(
-            record_tombstone(
-                user_id=user_id,
-                kind="source",
-                resource_id=document_id,
-                reason="source contains a user-invalidated memory",
-            )
-        )
-    return result
 
 
 @router.get("/v1/memory-sources")
@@ -339,21 +285,12 @@ async def delete_memory_source(
 ) -> dict[str, Any]:
     _require_hindsight()
     user_id = _authenticated_user(x_user_id, x_daedalus_internal_token)
-    result = await _call(
+    return await _call(
         client_from_env().delete_document(
             user_id=user_id,
             document_id=_validate_resource_id(document_id, "document ID"),
         )
     )
-    await _record_forget(
-        record_tombstone(
-            user_id=user_id,
-            kind="source",
-            resource_id=document_id,
-            reason="user deleted source",
-        )
-    )
-    return result
 
 
 @router.post("/v1/memories/clear")
@@ -380,15 +317,4 @@ async def _clear_memories_for_user(
             status_code=400, detail="confirmation phrase does not match"
         )
     result = await _call(client_from_env().clear_memories(user_id=user_id))
-    await _record_forget(record_clear_epoch(user_id))
-    try:
-        redis_deleted = await delete_owned_redis_memories(user_id)
-    except Exception as exc:
-        logger.exception(
-            "Hindsight cleared but Redis rollback copy could not be cleared"
-        )
-        raise HTTPException(
-            status_code=500,
-            detail="Hindsight cleared, but the Redis rollback copy requires operator repair",
-        ) from exc
-    return {"status": "cleared", "redis_deleted": redis_deleted, "result": result}
+    return {"status": "cleared", "result": result}

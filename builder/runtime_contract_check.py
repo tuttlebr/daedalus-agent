@@ -189,34 +189,17 @@ def main() -> None:
     if not required_memory_paths <= memory_paths:
         raise RuntimeError("Daedalus Hindsight memory routes are incomplete")
 
-    # The runtime image must contain the operator migration and all imports it
-    # needs before it can be used through kubectl exec.
-    import migrate_redis_memory_to_hindsight  # noqa: F401
-
     # Import the package registration module exactly as NAT's component loader
-    # does, then prove the narrow Redis ACL/TLS provider is registered against
-    # the installed runtime and still exposes every connection-security field.
+    # does. Redis remains an application-state and OAuth object store, but it is
+    # no longer registered as or initialized through NAT's memory interface.
     import nat_helpers.register  # noqa: F401
     from nat.builder.framework_enum import LLMFrameworkEnum
     from nat.cli.type_registry import GlobalTypeRegistry
     from nat_helpers.fireworks_llm import DaedalusFireworksModelConfig
     from nat_helpers.fireworks_prompt_cache import FireworksPromptCacheHeaderHook
-    from nat_helpers.secure_redis_memory import DaedalusRedisMemoryClientConfig
     from nat_helpers.secure_redis_object_store import (
         DaedalusRedisObjectStoreClientConfig,
     )
-
-    redis_fields = set(DaedalusRedisMemoryClientConfig.model_fields)
-    required_redis_fields = {"username", "password", "ssl", "ssl_ca_certs"}
-    if not required_redis_fields <= redis_fields:
-        raise RuntimeError(
-            "Daedalus Redis memory provider lost required ACL/TLS fields"
-        )
-    registered_redis = GlobalTypeRegistry.get().get_memory(
-        DaedalusRedisMemoryClientConfig
-    )
-    if registered_redis.config_type is not DaedalusRedisMemoryClientConfig:
-        raise RuntimeError("Daedalus Redis memory provider wasn't registered")
 
     oauth_store_fields = set(DaedalusRedisObjectStoreClientConfig.model_fields)
     if not {"redis_url", "bucket_name", "ttl"} <= oauth_store_fields:

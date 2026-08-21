@@ -195,7 +195,7 @@ async def _responses_api_agent_workflow(
             )
 
             mode = memory_mode()
-            if mode in {"shadow", "hindsight"} and (
+            if mode == "hindsight" and (
                 execution_scope_from_context_or_none() != "autonomy"
             ):
                 latest_user_text = ""
@@ -213,12 +213,7 @@ async def _responses_api_agent_workflow(
                         budget="low",
                         max_tokens=800,
                     )
-                    if mode == "shadow":
-                        logger.info(
-                            "Automatic memory shadow recall completed result_count=%d",
-                            len(recalled),
-                        )
-                    elif recalled:
+                    if recalled:
                         memory_facts = [
                             {
                                 "text": str(item.get("text", ""))[:1200],

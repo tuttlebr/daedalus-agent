@@ -453,14 +453,12 @@ def test_backend_uses_owned_nat_front_end_runner():
     )
 
 
-def test_backend_uses_registered_redis_acl_tls_memory_provider():
-    memory = _config()["memory"]["redis_memory"]
+def test_backend_does_not_register_redis_as_memory_provider():
+    config = _config()
 
-    assert memory["_type"] == "daedalus_redis_memory"
-    assert memory["username"] == "${REDIS_USERNAME}"
-    assert memory["password"] == "${REDIS_PASSWORD}"
-    assert memory["ssl"] == "${REDIS_TLS_ENABLED}"
-    assert memory["ssl_ca_certs"] == "${REDIS_TLS_CA_FILE}"
+    assert "memory" not in config
+    assert "memory" not in config["functions"]["add_memory"]
+    assert "memory" not in config["functions"]["get_memory"]
 
 
 def test_backend_uses_role_aware_vllm_embedder_contract():
@@ -1082,7 +1080,7 @@ def test_backend_secret_allowlist_tracks_active_model_credentials():
         assert allowlist.fullmatch(stale_name) is None, stale_name
 
 
-def test_hindsight_memory_is_identity_bound_and_shadowed_by_default():
+def test_hindsight_is_the_only_durable_memory_backend():
     config = _config()
     custom = yaml.safe_load(CUSTOM_VALUES.read_text(encoding="utf-8"))
     env_template = ENV_TEMPLATE.read_text(encoding="utf-8")
@@ -1093,15 +1091,17 @@ def test_hindsight_memory_is_identity_bound_and_shadowed_by_default():
     assert "hindsight_mcp_server" not in config.get("functions", {})
     assert "hindsight_mcp_server" not in config["workflow"].get("nat_tools", [])
     overrides = custom["backend"]["default"]["env"]["overrides"]
-    assert overrides["DAEDALUS_MEMORY_MODE"] == "shadow"
+    assert overrides["DAEDALUS_MEMORY_MODE"] == "hindsight"
     assert overrides["HINDSIGHT_API_URL"].endswith(
         ".daedalus-hindsight.svc.cluster.local:8888"
     )
     assert "HINDSIGHT_API_KEY=" in env_template
-    assert "DAEDALUS_MEMORY_MODE=shadow" in env_template
+    assert "DAEDALUS_MEMORY_MODE=hindsight" in env_template
     assert "backend.default.env.overrides.DAEDALUS_MEMORY_MODE" in deploy_script
     assert "HINDSIGHT_API_KEY_LENGTH < 32" in deploy_script
-    assert "COPY migrate_redis_memory_to_hindsight.py" in dockerfile
+    assert "disabled|hindsight" in deploy_script
+    assert "migrate_redis_memory_to_hindsight" not in dockerfile
+    assert "daedalus_redis_memory" not in CONFIG.read_text(encoding="utf-8")
 
 
 def test_google_mcp_oauth_deadlines_are_ordered_across_workloads():

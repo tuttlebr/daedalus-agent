@@ -122,6 +122,7 @@ def test_readiness_reports_optional_mcp_degradation(monkeypatch):
         from_url=lambda *_args, **_kwargs: client
     )
     monkeypatch.setitem(sys.modules, "redis.asyncio", redis_asyncio)
+    monkeypatch.setenv("DAEDALUS_MEMORY_MODE", "disabled")
     monkeypatch.setattr(front_end, "JSONResponse", _Response)
     monkeypatch.setattr(front_end.os.path, "exists", lambda _path: False)
     monkeypatch.setattr(mcp_patches, "_approval_gate_installed", True)
@@ -145,6 +146,57 @@ def test_readiness_reports_optional_mcp_degradation(monkeypatch):
     assert client.closed is True
 
 
+def test_readiness_requires_hindsight_in_hindsight_mode(monkeypatch):
+    import mcp_patches
+    from nat_helpers import hindsight_client
+
+    class _ReadyRedis:
+        async def ping(self):
+            return True
+
+        async def aclose(self):
+            return None
+
+    class _UnavailableHindsight:
+        async def health(self):
+            raise RuntimeError("unavailable")
+
+    redis_asyncio = types.ModuleType("redis.asyncio")
+    redis_asyncio.Redis = types.SimpleNamespace(
+        from_url=lambda *_args, **_kwargs: _ReadyRedis()
+    )
+    monkeypatch.setitem(sys.modules, "redis.asyncio", redis_asyncio)
+    monkeypatch.setenv("DAEDALUS_MEMORY_MODE", "hindsight")
+    monkeypatch.setattr(
+        hindsight_client,
+        "client_from_env",
+        lambda: _UnavailableHindsight(),
+    )
+    monkeypatch.setattr(front_end, "JSONResponse", _Response)
+    monkeypatch.setattr(front_end.os.path, "exists", lambda _path: False)
+    monkeypatch.setattr(mcp_patches, "_approval_gate_installed", True)
+    monkeypatch.setattr(
+        mcp_patches,
+        "mcp_capability_status",
+        lambda: {
+            "state": "ready",
+            "available": [],
+            "required": [],
+            "missing_required": [],
+            "unavailable_optional": [],
+        },
+    )
+
+    response = asyncio.run(front_end.readiness_response())
+
+    assert response.status_code == 503
+    assert json.loads(response.body) == {
+        "status": "unready",
+        "reason": "hindsight_unavailable",
+        "memory": {"state": "hindsight", "hindsight": "unavailable"},
+    }
+
+
 def test_readiness_reports_authenticated_milvus_failure(monkeypatch):
     import mcp_patches
 
@@ -166,6 +218,7 @@ def test_readiness_reports_authenticated_milvus_failure(monkeypatch):
     metadata._list_collections = unavailable
     monkeypatch.setitem(sys.modules, "redis.asyncio", redis_asyncio)
     monkeypatch.setitem(sys.modules, "collection_metadata_api", metadata)
+    monkeypatch.setenv("DAEDALUS_MEMORY_MODE", "disabled")
     monkeypatch.setenv("DAEDALUS_RAG_READINESS_ENABLED", "true")
     monkeypatch.setattr(front_end, "JSONResponse", _Response)
     monkeypatch.setattr(front_end.os.path, "exists", lambda _path: False)
@@ -213,6 +266,7 @@ def test_readiness_degrades_instead_of_restarting_when_milvus_is_optional(monkey
     metadata._list_collections = unavailable
     monkeypatch.setitem(sys.modules, "redis.asyncio", redis_asyncio)
     monkeypatch.setitem(sys.modules, "collection_metadata_api", metadata)
+    monkeypatch.setenv("DAEDALUS_MEMORY_MODE", "disabled")
     monkeypatch.setenv("DAEDALUS_RAG_READINESS_MODE", "degraded")
     monkeypatch.setattr(front_end, "JSONResponse", _Response)
     monkeypatch.setattr(front_end.os.path, "exists", lambda _path: False)
@@ -261,6 +315,7 @@ def test_readiness_degrades_when_required_collection_is_missing(monkeypatch):
     metadata._list_collections = available
     monkeypatch.setitem(sys.modules, "redis.asyncio", redis_asyncio)
     monkeypatch.setitem(sys.modules, "collection_metadata_api", metadata)
+    monkeypatch.setenv("DAEDALUS_MEMORY_MODE", "disabled")
     monkeypatch.setenv("DAEDALUS_RAG_READINESS_MODE", "degraded")
     monkeypatch.setenv("DAEDALUS_REQUIRED_COLLECTIONS", "nvidia kubernetes")
     monkeypatch.setattr(front_end, "JSONResponse", _Response)
@@ -307,6 +362,7 @@ def test_readiness_fails_when_required_collection_is_missing(monkeypatch):
     metadata._list_collections = available
     monkeypatch.setitem(sys.modules, "redis.asyncio", redis_asyncio)
     monkeypatch.setitem(sys.modules, "collection_metadata_api", metadata)
+    monkeypatch.setenv("DAEDALUS_MEMORY_MODE", "disabled")
     monkeypatch.setenv("DAEDALUS_RAG_READINESS_MODE", "required")
     monkeypatch.setenv("DAEDALUS_REQUIRED_COLLECTIONS", "nvidia,kubernetes")
     monkeypatch.setattr(front_end, "JSONResponse", _Response)
@@ -353,6 +409,7 @@ def test_readiness_reports_milvus_collection_count(monkeypatch):
     metadata._list_collections = available
     monkeypatch.setitem(sys.modules, "redis.asyncio", redis_asyncio)
     monkeypatch.setitem(sys.modules, "collection_metadata_api", metadata)
+    monkeypatch.setenv("DAEDALUS_MEMORY_MODE", "disabled")
     monkeypatch.setenv("DAEDALUS_RAG_READINESS_ENABLED", "true")
     monkeypatch.setattr(front_end, "JSONResponse", _Response)
     monkeypatch.setattr(front_end.os.path, "exists", lambda _path: False)

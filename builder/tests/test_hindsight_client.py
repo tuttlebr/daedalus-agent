@@ -54,8 +54,14 @@ def test_document_id_is_idempotent_and_scoped_to_user():
 
 def test_memory_mode_fails_closed_on_invalid_value(monkeypatch):
     monkeypatch.setenv("DAEDALUS_MEMORY_MODE", "maybe")
-    with pytest.raises(ValueError, match="disabled, redis, shadow, or hindsight"):
+    with pytest.raises(ValueError, match="disabled or hindsight"):
         memory_mode()
+
+
+def test_memory_mode_defaults_to_hindsight(monkeypatch):
+    monkeypatch.delenv("DAEDALUS_MEMORY_MODE", raising=False)
+
+    assert memory_mode() == "hindsight"
 
 
 def test_retain_uses_derived_bank_bearer_auth_and_idempotent_operation():
@@ -98,6 +104,91 @@ def test_retain_uses_derived_bank_bearer_auth_and_idempotent_operation():
     assert body["items"][0]["metadata"]["nested"] == '{"value":1}'
     assert body["items"][0]["observation_scopes"] == "shared"
     assert body["operation_id"]
+
+
+def test_retain_batch_submits_one_durable_async_operation():
+    requests: list[httpx.Request] = []
+    operation_id = "64ef6194-3f43-4e77-9bb4-d5c5584801cb"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(
+            200,
+            json={
+                "success": True,
+                "bank_id": "leak",
+                "items_count": 2,
+                "async": True,
+                "operation_id": operation_id,
+            },
+        )
+
+    client = HindsightClient(
+        base_url="http://hindsight.test",
+        api_key="secret-api-key",
+        transport=httpx.MockTransport(handler),
+    )
+    result = run(
+        client.retain_batch(
+            user_id="alice",
+            operation_id=operation_id,
+            items=[
+                {
+                    "content": "The user prefers Python.",
+                    "document_id": "profile-1",
+                    "context": "profile import",
+                    "metadata": {"rank": 1},
+                    "tags": ["profile", "profile"],
+                    "timestamp": "unset",
+                },
+                {
+                    "content": "The user prefers concise answers.",
+                    "document_id": "profile-2",
+                    "context": "profile import",
+                },
+            ],
+        )
+    )
+
+    assert result == {
+        "success": True,
+        "items_count": 2,
+        "async": True,
+        "operation_id": operation_id,
+    }
+    assert len(requests) == 1
+    body = json.loads(requests[0].content)
+    assert body["async"] is True
+    assert body["operation_id"] == operation_id
+    assert [item["document_id"] for item in body["items"]] == [
+        "profile-1",
+        "profile-2",
+    ]
+    assert body["items"][0]["metadata"] == {"rank": "1"}
+    assert body["items"][0]["tags"] == ["profile"]
+    assert body["items"][0]["timestamp"] == "unset"
+
+
+def test_retain_batch_rejects_duplicate_document_ids_before_request():
+    client = HindsightClient(
+        base_url="http://hindsight.test",
+        api_key="secret-api-key",
+        transport=httpx.MockTransport(
+            lambda _request: pytest.fail("request should not be sent")
+        ),
+    )
+
+    with pytest.raises(ValueError, match="document IDs must be unique"):
+        run(
+            client.retain_batch(
+                user_id="alice",
+                operation_id="64ef6194-3f43-4e77-9bb4-d5c5584801cb",
+                items=[
+                    {"content": "one", "document_id": "profile-1"},
+                    {"content": "two", "document_id": "profile-1"},
+                ],
+            )
+        )
 
 
 def test_client_errors_do_not_echo_upstream_body():

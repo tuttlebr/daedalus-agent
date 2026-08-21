@@ -90,8 +90,7 @@ backend. Local Compose alone opts into tokenless development explicitly with
 
 Production durable memory uses the separately deployed Hindsight service. See
 the [Hindsight memory integration and rollout runbook](docs/hindsight-memory-integration.md)
-for identity isolation, authority modes, migration, validation, promotion, and
-rollback.
+for identity isolation, validation, operations, and recovery.
 
 Useful optional keys:
 
@@ -461,10 +460,11 @@ budget, and plan-approval requirements.
 
 Provider-side prompt caching can reduce latency and input-token cost when
 requests begin with the same instructions and tool definitions. It is separate
-from Daedalus's Redis-backed chat history, job state, memory, and OAuth tokens.
-It is also separate from Responses API continuation through
-`previous_response_id`. Daedalus does not use provider prompt caches as durable
-application storage or as a source of conversation history.
+from Daedalus's Redis-backed chat history, job state, and OAuth tokens, and from
+Hindsight-backed durable memory. It is also separate from Responses API
+continuation through `previous_response_id`. Daedalus does not use provider
+prompt caches as durable application storage or as a source of conversation
+history.
 
 Daedalus models that support request-scoped cache routing expose two settings:
 
@@ -525,8 +525,8 @@ Use these operational practices:
   full sensitive prompts.
 
 Changing cache isolation affects only future provider requests. It does not
-delete Redis data, conversation history, user memory, or already-created
-provider cache entries.
+delete Redis application data, conversation history, Hindsight memory, or
+already-created provider cache entries.
 
 ## Frontend Capabilities
 

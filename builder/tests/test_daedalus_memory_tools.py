@@ -11,32 +11,32 @@ def run(coro):
     return asyncio.run(coro)
 
 
-class FakeMemoryEditor:
+class FakeHindsight:
     def __init__(self):
-        self.added = []
-        self.search_calls = []
+        self.retain_calls = []
+        self.recall_calls = []
 
-    async def add_items(self, items):
-        self.added.extend(items)
+    async def retain_explicit(self, **kwargs):
+        self.retain_calls.append(kwargs)
+        return {"status": "complete"}
 
-    async def search(self, **kwargs):
-        self.search_calls.append(kwargs)
+    async def recall(self, **kwargs):
+        self.recall_calls.append(kwargs)
         return [
             {
-                "memory": "The user's name is Brandon Tuttle.",
-                "user_id": kwargs["user_id"],
+                "text": "The user's name is Brandon Tuttle.",
+                "type": "world",
             }
         ]
 
 
-class FakeBuilder:
-    def __init__(self, editor):
-        self.editor = editor
-        self.requested_memory = None
+def configure_hindsight(monkeypatch):
+    import nat_helpers.hindsight_client as hindsight_client
 
-    async def get_memory_client(self, memory):
-        self.requested_memory = memory
-        return self.editor
+    fake = FakeHindsight()
+    monkeypatch.setenv("DAEDALUS_MEMORY_MODE", "hindsight")
+    monkeypatch.setattr(hindsight_client, "client_from_env", lambda: fake)
+    return fake
 
 
 def test_authenticated_user_id_from_headers_fails_closed_without_local_token(
@@ -178,11 +178,11 @@ def test_add_memory_uses_authenticated_user_not_llm_supplied_user_id(monkeypatch
             "authenticated_user_id_from_context",
             lambda: "tuttlebr",
         )
-        editor = FakeMemoryEditor()
+        hindsight = configure_hindsight(monkeypatch)
         emitted = []
         async for item in tools.daedalus_add_memory(
-            tools.DaedalusAddMemoryConfig(memory="redis_memory"),
-            FakeBuilder(editor),
+            tools.DaedalusAddMemoryConfig(),
+            object(),
         ):
             emitted.append(item)
 
@@ -195,16 +195,17 @@ def test_add_memory_uses_authenticated_user_not_llm_supplied_user_id(monkeypatch
             }
         )
         result = await emitted[0].fn(add_input)
-        return result, editor.added
+        return result, hindsight.retain_calls
 
-    result, added = run(_run())
+    result, retain_calls = run(_run())
 
     assert result.startswith("Memory added successfully")
-    assert len(added) == 1
-    assert added[0].user_id == "tuttlebr"
-    assert added[0].memory == "The user's name is Brandon Tuttle."
-    assert added[0].tags == ["user_profile"]
-    assert added[0].metadata == {"type": "preference"}
+    assert len(retain_calls) == 1
+    assert retain_calls[0]["user_id"] == "tuttlebr"
+    assert retain_calls[0]["content"] == "The user's name is Brandon Tuttle."
+    assert retain_calls[0]["tags"] == ["user_profile"]
+    assert retain_calls[0]["metadata"] == {"type": "preference"}
+    assert retain_calls[0]["request_id"]
 
 
 def test_add_memory_replays_completed_autonomous_write_without_second_effect(
@@ -252,23 +253,23 @@ def test_add_memory_replays_completed_autonomous_write_without_second_effect(
         monkeypatch.setattr(idempotency, "reserve_operation", reserve_operation)
         monkeypatch.setattr(idempotency, "complete_operation", complete_operation)
 
-        editor = FakeMemoryEditor()
+        hindsight = configure_hindsight(monkeypatch)
         emitted = []
         async for item in tools.daedalus_add_memory(
-            tools.DaedalusAddMemoryConfig(memory="redis_memory"),
-            FakeBuilder(editor),
+            tools.DaedalusAddMemoryConfig(),
+            object(),
         ):
             emitted.append(item)
         add_input = tools.AddMemoryInput(memory="Remember this")
         first = await emitted[0].fn(add_input)
         replay = await emitted[0].fn(add_input)
-        return first, replay, editor.added, completions
+        return first, replay, hindsight.retain_calls, completions
 
-    first, replay, added, completions = run(_run())
+    first, replay, retain_calls, completions = run(_run())
 
     assert first.startswith("Memory added successfully")
     assert replay == "Memory added successfully. replayed"
-    assert len(added) == 1
+    assert len(retain_calls) == 1
     assert len(completions) == 1
 
 
@@ -281,11 +282,11 @@ def test_get_memory_uses_authenticated_user_not_llm_supplied_user_id(monkeypatch
             "authenticated_user_id_from_context",
             lambda: "tuttlebr",
         )
-        editor = FakeMemoryEditor()
+        hindsight = configure_hindsight(monkeypatch)
         emitted = []
         async for item in tools.daedalus_get_memory(
-            tools.DaedalusGetMemoryConfig(memory="redis_memory"),
-            FakeBuilder(editor),
+            tools.DaedalusGetMemoryConfig(),
+            object(),
         ):
             emitted.append(item)
 
@@ -297,14 +298,19 @@ def test_get_memory_uses_authenticated_user_not_llm_supplied_user_id(monkeypatch
             }
         )
         result = await emitted[0].fn(get_input)
-        return result, editor.search_calls
+        return result, hindsight.recall_calls
 
-    result, search_calls = run(_run())
+    result, recall_calls = run(_run())
 
-    assert search_calls == [
-        {"query": "What is my name?", "top_k": 3, "user_id": "tuttlebr"}
+    assert recall_calls == [
+        {
+            "user_id": "tuttlebr",
+            "query": "What is my name?",
+            "budget": "low",
+            "max_tokens": 512,
+        }
     ]
-    assert '"user_id": "tuttlebr"' in result
+    assert "Brandon Tuttle" in result
 
 
 def test_get_memory_expands_daily_summary_queries(monkeypatch):
@@ -316,11 +322,11 @@ def test_get_memory_expands_daily_summary_queries(monkeypatch):
             "authenticated_user_id_from_context",
             lambda: "tuttlebr",
         )
-        editor = FakeMemoryEditor()
+        hindsight = configure_hindsight(monkeypatch)
         emitted = []
         async for item in tools.daedalus_get_memory(
-            tools.DaedalusGetMemoryConfig(memory="redis_memory"),
-            FakeBuilder(editor),
+            tools.DaedalusGetMemoryConfig(),
+            object(),
         ):
             emitted.append(item)
 
@@ -334,14 +340,14 @@ def test_get_memory_expands_daily_summary_queries(monkeypatch):
             }
         )
         await emitted[0].fn(get_input)
-        return editor.search_calls
+        return hindsight.recall_calls
 
-    search_calls = run(_run())
+    recall_calls = run(_run())
 
-    assert len(search_calls) == 1
-    call = search_calls[0]
-    assert call["top_k"] == 12
+    assert len(recall_calls) == 1
+    call = recall_calls[0]
     assert call["user_id"] == "tuttlebr"
+    assert call["max_tokens"] == 1920
     assert "daily summary briefing preferences" in call["query"]
     assert "Kubernetes cluster status" in call["query"]
     assert "k8s_mcp_server" in call["query"]
@@ -351,7 +357,7 @@ def test_get_memory_expands_daily_summary_queries(monkeypatch):
     assert "agent_skills_tool" in call["query"]
 
 
-def test_disabled_mode_neither_reads_nor_writes_redis(monkeypatch):
+def test_disabled_mode_neither_reads_nor_writes_hindsight(monkeypatch):
     async def _run():
         from nat_helpers import daedalus_memory_tools as tools
 
@@ -361,18 +367,17 @@ def test_disabled_mode_neither_reads_nor_writes_redis(monkeypatch):
             "authenticated_user_id_from_context",
             lambda: "tuttlebr",
         )
-        editor = FakeMemoryEditor()
-        builder = FakeBuilder(editor)
+        hindsight = FakeHindsight()
         add_functions = []
         async for item in tools.daedalus_add_memory(
-            tools.DaedalusAddMemoryConfig(memory="redis_memory"),
-            builder,
+            tools.DaedalusAddMemoryConfig(),
+            object(),
         ):
             add_functions.append(item)
         get_functions = []
         async for item in tools.daedalus_get_memory(
-            tools.DaedalusGetMemoryConfig(memory="redis_memory"),
-            builder,
+            tools.DaedalusGetMemoryConfig(),
+            object(),
         ):
             get_functions.append(item)
 
@@ -380,11 +385,11 @@ def test_disabled_mode_neither_reads_nor_writes_redis(monkeypatch):
             tools.AddMemoryInput(memory="Do not store this")
         )
         get_result = await get_functions[0].fn(tools.GetMemoryInput(query="Anything"))
-        return add_result, get_result, editor
+        return add_result, get_result, hindsight
 
-    add_result, get_result, editor = run(_run())
+    add_result, get_result, hindsight = run(_run())
 
     assert add_result == "Durable memory is disabled by the operator."
     assert get_result == "Memories as a JSON: \n[]"
-    assert editor.added == []
-    assert editor.search_calls == []
+    assert hindsight.retain_calls == []
+    assert hindsight.recall_calls == []

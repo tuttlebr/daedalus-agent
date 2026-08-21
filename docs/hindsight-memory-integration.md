@@ -41,28 +41,32 @@ The required runtime values are:
 HINDSIGHT_API_URL=http://hindsight-api.daedalus-hindsight.svc.cluster.local:8888
 HINDSIGHT_API_KEY=<same value as HINDSIGHT_API_TENANT_API_KEY>
 HINDSIGHT_API_TIMEOUT_SECONDS=20
-DAEDALUS_MEMORY_MODE=shadow
+DAEDALUS_MEMORY_MODE=hindsight
 ```
 
-`deploy.sh` requires a Hindsight key of at least 32 characters for `shadow` or
-`hindsight`. It applies `DAEDALUS_MEMORY_MODE` as an explicit pod override, so
-the `.env` rollout setting is not hidden by the chart's safe `shadow` default.
-The tenant key stays in the backend Secret and is never passed through Helm
-values.
+`DAEDALUS_MEMORY_MODE` supports `hindsight` and the emergency `disabled` mode.
+`deploy.sh` requires a Hindsight key of at least 32 characters for `hindsight`
+and applies the mode as an explicit pod override. The tenant key stays in the
+backend Secret and is never passed through Helm values.
 
 ## Authority modes
 
-| Mode        | Reads and explicit writes                                                          | Automatic lifecycle                                                        | Readiness                                   |
-| ----------- | ---------------------------------------------------------------------------------- | -------------------------------------------------------------------------- | ------------------------------------------- |
-| `disabled`  | No durable-memory reads or writes                                                  | Off                                                                        | Hindsight not checked                       |
-| `redis`     | Legacy Redis is authoritative                                                      | Hindsight recall and retention are off                                     | Hindsight not checked                       |
-| `shadow`    | Redis is authoritative; explicit and profile writes also go to Hindsight           | User turns retain to Hindsight; recalls are measured but not injected      | Hindsight failure is degraded, not unready  |
-| `hindsight` | Hindsight is authoritative; explicit and profile writes keep a Redis rollback copy | Bounded recall is injected and successful user turns retain asynchronously | Hindsight failure makes the backend unready |
+| Mode        | Durable-memory behavior                                                     | Readiness                                   |
+| ----------- | --------------------------------------------------------------------------- | ------------------------------------------- |
+| `disabled`  | No durable-memory reads or writes                                           | Hindsight not checked                       |
+| `hindsight` | Recall, explicit writes, profile imports, user-turn retention, and curation | Hindsight failure makes the backend unready |
 
 Automatic recall and automatic retention fail open for chat availability.
-Explicit writes fail if the authoritative store fails. In `hindsight` mode,
-Redis copy failures are logged but do not turn a completed Hindsight write into
-a false failure.
+Explicit writes fail if Hindsight fails. Redis is not registered as a NAT memory
+provider and no `nat:memory:*` records are read or written. Redis remains an
+application-state store for sessions, history, attachments, OAuth, autonomy,
+approvals, rate limits, and idempotency.
+
+Bulk profile imports submit one durable asynchronous Hindsight batch and return
+HTTP 202 after Hindsight accepts it. Profile document IDs are deterministic per
+authenticated user and entry label, so retrying an import converges on the same
+sources even though each submitted batch has a fresh operation ID. Memory Center
+sources and extracted facts appear as Hindsight processes the accepted batch.
 
 ## Runtime flow
 
@@ -81,62 +85,29 @@ job ID becomes the Hindsight operation ID, so a crash or retry cannot enqueue a
 second extraction for the same completed turn. Retention accepts at most 12,000
 characters and rejects Daedalus internal control prefixes.
 
-## Migration
-
-The backend image includes `/workspace/migrate_redis_memory_to_hindsight.py`.
-It scans only owned `nat:memory:*` records, derives deterministic source IDs,
-uses synchronous Hindsight retain, and never prints memory text or raw user IDs.
-Dry-run is the default.
-
-```bash
-kubectl -n daedalus exec deployment/daedalus-backend-default -- \
-  python /workspace/migrate_redis_memory_to_hindsight.py
-
-kubectl -n daedalus exec deployment/daedalus-backend-default -- \
-  python /workspace/migrate_redis_memory_to_hindsight.py --execute
-```
-
-Use `--user-id <exact-authenticated-id>` only for diagnosis. The release is not
-canaried by user; promotion applies to all authenticated users.
-
-Clear-all epochs and source tombstones live in Redis. The migration skips older
-or undated records after a clear and skips deleted sources, preventing a later
-migration from resurrecting forgotten data. Re-running the migration is safe:
-the same Redis record maps to the same Hindsight document and replaces it
-idempotently.
-
 ## Rollout
 
 1. In `daedalus-hindsight`, configure the database password, LLM credential,
    tenant API key, and control-plane access key. Run `make validate`, then the
    separately approved `make deploy`.
-2. Put the same tenant key in the Daedalus `.env`, set
-   `DAEDALUS_MEMORY_MODE=shadow`, and deploy the Agent.
-3. Verify `GET /health/ready` reports `memory.state=shadow` and
+2. Put the same tenant key in the Daedalus `.env`, keep
+   `DAEDALUS_MEMORY_MODE=hindsight`, and deploy the Agent.
+3. Verify `GET /health/ready` reports `memory.state=hindsight` and
    `memory.hindsight=ready`.
 4. Complete turns for at least two authenticated test users. Confirm each
-   user's Memory Center contains only that user's sources and facts. Confirm
-   shadow recall counts are logged without `[MEMORY_CONTEXT]` injection.
-5. Run the migration dry run. Review counts, execute it, and repeat the dry run
-   to confirm the eligible set is stable.
-6. Exercise edit, single-fact forget, source deletion, and clear-all with test
-   data. Confirm deleted data does not return after another migration run.
-7. Set `DAEDALUS_MEMORY_MODE=hindsight` and deploy once for all authenticated
-   users. Do not delete Redis or Hindsight data during promotion.
-8. Verify live recall improves a follow-up response, user isolation still holds,
+   user's Memory Center contains only that user's sources and facts.
+5. Exercise edit, single-fact forget, source deletion, and clear-all with test
+   data.
+6. Verify live recall improves a follow-up response, user isolation still holds,
    and a retain/recall survives a Hindsight API pod restart.
 
 ## Rollback
 
-Set `DAEDALUS_MEMORY_MODE=redis` and redeploy Daedalus. Do not clear Hindsight,
-delete its PVC, or reverse the migration. Redis keeps pre-cutover memory plus
-the explicit/profile rollback copies written during Hindsight authority.
-Automatic facts learned only by Hindsight after promotion are not reconstructed
-in Redis.
-
-After rollback, verify backend readiness, one legacy Redis recall, one explicit
-memory write, and normal chat finalization. Diagnose and repair Hindsight while
-the retained Hindsight data remains intact.
+Redis memory rollback is intentionally retired. For an availability incident,
+set `DAEDALUS_MEMORY_MODE=disabled` to stop durable-memory operations while chat
+continues without memory enrichment. Repair or restore Hindsight PostgreSQL,
+then return to `hindsight`. Never delete Hindsight or Redis PVCs as part of an
+incident rollback.
 
 ## Validation commands
 

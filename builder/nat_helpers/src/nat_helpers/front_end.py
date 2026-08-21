@@ -78,20 +78,25 @@ async def readiness_response() -> JSONResponse:
             with contextlib.suppress(Exception):
                 await close_redis_client(client)
 
-    memory = {"state": "redis"}
-    memory_degraded = False
     try:
         from nat_helpers.hindsight_client import client_from_env, memory_mode
 
         configured_memory_mode = memory_mode()
-        memory = {"state": configured_memory_mode}
-        if configured_memory_mode in {"shadow", "hindsight"}:
+    except ValueError:
+        logger.error("Invalid memory configuration")
+        return JSONResponse(
+            {"status": "unready", "reason": "invalid_memory_mode"},
+            status_code=503,
+        )
+
+    memory = {"state": configured_memory_mode}
+    if configured_memory_mode == "hindsight":
+        try:
             await asyncio.wait_for(client_from_env().health(), timeout=3.5)
             memory["hindsight"] = "ready"
-    except Exception:
-        logger.warning("Hindsight readiness check failed")
-        memory["hindsight"] = "unavailable"
-        if memory.get("state") == "hindsight":
+        except Exception:
+            logger.warning("Hindsight readiness check failed")
+            memory["hindsight"] = "unavailable"
             return JSONResponse(
                 {
                     "status": "unready",
@@ -100,7 +105,6 @@ async def readiness_response() -> JSONResponse:
                 },
                 status_code=503,
             )
-        memory_degraded = True
 
     rag = {"state": "disabled"}
     try:
@@ -156,9 +160,7 @@ async def readiness_response() -> JSONResponse:
             rag_degraded = True
 
     status = (
-        "degraded"
-        if capabilities["unavailable_optional"] or rag_degraded or memory_degraded
-        else "ready"
+        "degraded" if capabilities["unavailable_optional"] or rag_degraded else "ready"
     )
     return JSONResponse(
         {"status": status, "mcp": capabilities, "rag": rag, "memory": memory}

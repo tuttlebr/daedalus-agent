@@ -130,9 +130,9 @@ backend:
       overrides:
         SSL_CERT_FILE: /etc/ssl/certs/ca-certificates.crt
         HINDSIGHT_API_URL: http://hindsight-api.daedalus-hindsight.svc.cluster.local:8888
-        # Redis remains authoritative until migration and shadow-quality gates
-        # pass. Promotion to hindsight is an explicit operator rollout.
-        DAEDALUS_MEMORY_MODE: shadow
+        # Hindsight is the sole durable-memory backend. Redis remains available
+        # for application state such as sessions, history, and coordination.
+        DAEDALUS_MEMORY_MODE: hindsight
         # Trust nginx proxy headers so OAuth callbacks reconstruct the public
         # https://... redirect URI during token exchange.
         FORWARDED_ALLOW_IPS: '*'

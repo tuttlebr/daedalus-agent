@@ -532,7 +532,6 @@ functions:
       both positions, never overwrite or silently supersede. Fails
       when: memory empty, authenticated identity is missing or invalid,
       or a finding lacks a prior verify_claim pass.
-    memory: redis_memory
     verbose: false
   current_datetime_tool:
     _type: current_datetime
@@ -555,7 +554,6 @@ functions:
       The backend derives user identity from the authenticated request; do
       not pass user_id. Returns: ranked entries with metadata. Fails:
       missing or invalid authenticated identity returns an error.
-    memory: redis_memory
     top_k: 8
     verbose: false
   visual_media_tool:
@@ -971,19 +969,6 @@ llms:
     prompt_cache_isolation: false
     session_affinity_scope: conversation
     truncation: auto
-memory:
-  redis_memory:
-    _type: daedalus_redis_memory
-    db: 0
-    embedder: milvus_embedder
-    host: ${REDIS_HOST}
-    key_prefix: nat
-    password: ${REDIS_PASSWORD}
-    port: ${REDIS_PORT}
-    ssl: ${REDIS_TLS_ENABLED}
-    ssl_ca_certs: ${REDIS_TLS_CA_FILE}
-    username: ${REDIS_USERNAME}
-    verbose: false
 workflow:
   _type: daedalus_per_user_responses_api_agent
   llm_name: tool_calling_llm

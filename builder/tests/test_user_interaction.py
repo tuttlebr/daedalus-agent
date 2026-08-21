@@ -565,12 +565,20 @@ class TestDeleteMemoryGuarded:
 
         run(_run())
 
-    def test_deletes_matching_memory_keys_once(self):
+    def test_clears_hindsight_once_without_touching_legacy_redis_keys(self):
         async def _run():
+            import nat_helpers.hindsight_client as hindsight_client
             from user_interaction.approval_tokens import (
                 ApprovalRequest,
                 issue_approval_token,
             )
+
+            calls = []
+
+            class FakeHindsight:
+                async def clear_memories(self, **kwargs):
+                    calls.append(kwargs)
+                    return {"deleted": 1}
 
             fake_redis = FakeRedis()
             token = issue_approval_token(
@@ -590,7 +598,14 @@ class TestDeleteMemoryGuarded:
 
             import user_interaction.user_interaction_function as mod
 
-            with patch.object(mod, "make_redis_client", return_value=fake_redis):
+            with (
+                patch.object(mod, "make_redis_client", return_value=fake_redis),
+                patch.object(
+                    hindsight_client,
+                    "client_from_env",
+                    return_value=FakeHindsight(),
+                ),
+            ):
                 items = await _get_tools()
                 delete_fn = next(
                     i.fn for i in items if i.fn.__name__ == "delete_memory_guarded"
@@ -598,8 +613,9 @@ class TestDeleteMemoryGuarded:
                 result = await delete_fn(user_id="brandon", approval_token=token)
                 second = await delete_fn(user_id="brandon", approval_token=token)
 
-            assert "Deleted 1" in result
-            assert "nat:memory:deadbeef" not in fake_redis.store
+            assert result == "Durable memory cleared."
+            assert calls == [{"user_id": "brandon"}]
+            assert "nat:memory:deadbeef" in fake_redis.store
             assert "nat:memory:brandon12" in fake_redis.store
             assert "denied" in second
 
@@ -607,10 +623,18 @@ class TestDeleteMemoryGuarded:
 
     def test_uses_authenticated_user_over_llm_supplied_user_id(self):
         async def _run():
+            import nat_helpers.hindsight_client as hindsight_client
             from user_interaction.approval_tokens import (
                 ApprovalRequest,
                 issue_approval_token,
             )
+
+            calls = []
+
+            class FakeHindsight:
+                async def clear_memories(self, **kwargs):
+                    calls.append(kwargs)
+                    return {"deleted": 1}
 
             fake_redis = FakeRedis()
             token = issue_approval_token(
@@ -637,6 +661,11 @@ class TestDeleteMemoryGuarded:
                     "_authenticated_user_or_fallback",
                     return_value="tuttlebr",
                 ),
+                patch.object(
+                    hindsight_client,
+                    "client_from_env",
+                    return_value=FakeHindsight(),
+                ),
             ):
                 items = await _get_tools()
                 delete_fn = next(
@@ -647,8 +676,9 @@ class TestDeleteMemoryGuarded:
                     approval_token=token,
                 )
 
-            assert "Deleted 1" in result
-            assert "nat:memory:1234abcd" not in fake_redis.store
+            assert result == "Durable memory cleared."
+            assert calls == [{"user_id": "tuttlebr"}]
+            assert "nat:memory:1234abcd" in fake_redis.store
             assert "nat:memory:tuttlebr" in fake_redis.store
 
         run(_run())

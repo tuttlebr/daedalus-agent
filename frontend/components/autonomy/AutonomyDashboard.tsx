@@ -414,13 +414,25 @@ export function AutonomyDashboard() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload || {}),
       });
+      const responseBody = await response.json().catch(() => ({}));
       if (!response.ok) {
-        const errorBody = await response.json().catch(() => ({}));
         throw new Error(
-          errorBody?.detail ||
-            errorBody?.error ||
+          responseBody?.detail ||
+            responseBody?.error ||
             `Failed to import profile (${response.status})`,
         );
+      }
+      if (responseBody?.status === 'accepted') {
+        const queued = Number(
+          responseBody?.queued || responseBody?.imported || 0,
+        );
+        toast.success(
+          `Profile import accepted. Hindsight is processing ${queued} ${
+            queued === 1 ? 'memory' : 'memories'
+          }.`,
+        );
+      } else {
+        toast.success('Profile import completed.');
       }
     } finally {
       setBusy(null);

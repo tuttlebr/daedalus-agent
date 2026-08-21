@@ -16,10 +16,10 @@ from urllib.parse import quote
 
 import httpx
 
-MemoryMode = Literal["disabled", "redis", "shadow", "hindsight"]
+MemoryMode = Literal["disabled", "hindsight"]
 
 _BANK_NAMESPACE = uuid.UUID("21b4c9b7-39a3-4c5e-8e31-66e2223e5040")
-_VALID_MODES: set[str] = {"disabled", "redis", "shadow", "hindsight"}
+_VALID_MODES: set[str] = {"disabled", "hindsight"}
 _MAX_RETAIN_CHARS = 12_000
 
 
@@ -28,18 +28,16 @@ class HindsightError(RuntimeError):
 
 
 def memory_mode() -> MemoryMode:
-    """Return the staged memory authority mode."""
+    """Return the configured Hindsight availability mode."""
 
-    mode = (os.getenv("DAEDALUS_MEMORY_MODE") or "redis").strip().lower()
+    mode = (os.getenv("DAEDALUS_MEMORY_MODE") or "hindsight").strip().lower()
     if mode not in _VALID_MODES:
-        raise ValueError(
-            "DAEDALUS_MEMORY_MODE must be disabled, redis, shadow, or hindsight"
-        )
+        raise ValueError("DAEDALUS_MEMORY_MODE must be disabled or hindsight")
     return mode  # type: ignore[return-value]
 
 
 def hindsight_enabled() -> bool:
-    return memory_mode() in {"shadow", "hindsight"}
+    return memory_mode() == "hindsight"
 
 
 def derive_bank_id(user_id: str) -> str:
@@ -216,6 +214,71 @@ class HindsightClient:
         body: dict[str, Any] = {"items": [item], "async": asynchronous}
         if asynchronous:
             body["operation_id"] = deterministic_operation_id(document_id)
+        return await self._submit_retain(
+            user_id=user_id,
+            body=body,
+            asynchronous=asynchronous,
+        )
+
+    async def retain_batch(
+        self,
+        *,
+        user_id: str,
+        items: list[dict[str, Any]],
+        operation_id: str,
+    ) -> dict[str, Any]:
+        """Durably enqueue one idempotent batch for background extraction."""
+
+        if not items:
+            raise ValueError("at least one memory item is required")
+        normalized_items: list[dict[str, Any]] = []
+        document_ids: set[str] = set()
+        for raw_item in items:
+            content = str(raw_item.get("content") or "").strip()
+            if not content:
+                raise ValueError("memory content is required")
+            if len(content) > _MAX_RETAIN_CHARS:
+                raise ValueError(
+                    f"memory content exceeds {_MAX_RETAIN_CHARS} characters"
+                )
+            document_id = str(raw_item.get("document_id") or "").strip()
+            if not document_id:
+                raise ValueError("document ID is required")
+            if document_id in document_ids:
+                raise ValueError("batch memory document IDs must be unique")
+            document_ids.add(document_id)
+
+            item: dict[str, Any] = {
+                "content": content,
+                "document_id": document_id,
+                "context": str(raw_item.get("context") or ""),
+                "metadata": _metadata_strings(raw_item.get("metadata")),
+                "tags": list(dict.fromkeys(raw_item.get("tags") or [])),
+                "observation_scopes": "shared",
+                "update_mode": "replace",
+            }
+            timestamp = raw_item.get("timestamp")
+            if timestamp:
+                item["timestamp"] = str(timestamp)
+            normalized_items.append(item)
+
+        return await self._submit_retain(
+            user_id=user_id,
+            body={
+                "items": normalized_items,
+                "async": True,
+                "operation_id": operation_id,
+            },
+            asynchronous=True,
+        )
+
+    async def _submit_retain(
+        self,
+        *,
+        user_id: str,
+        body: dict[str, Any],
+        asynchronous: bool,
+    ) -> dict[str, Any]:
         return await self._request(
             "POST",
             self._bank_path(user_id, "memories"),

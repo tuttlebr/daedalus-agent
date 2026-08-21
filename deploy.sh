@@ -523,10 +523,9 @@ with open(destination, "w", encoding="utf-8") as handle:
 PY
   }
 
-  # The authority mode is deployment configuration rather than a secret. Pass
-  # it as an explicit pod override so switching shadow -> hindsight cannot be
-  # masked by the chart's safe shadow default. Validate only the credential
-  # length; never print or pass the API key through Helm values.
+  # The memory mode is deployment configuration rather than a secret. Pass it
+  # as an explicit pod override and validate only the credential length; never
+  # print or pass the API key through Helm values.
   MEMORY_SETTINGS="$(python3 - "$ENV_FILE" <<'PY'
 import re
 import sys
@@ -547,7 +546,7 @@ with open(sys.argv[1], encoding="utf-8") as handle:
             value = value[1:-1]
         entries[key] = value
 
-mode = entries.get("DAEDALUS_MEMORY_MODE", "shadow").strip().lower()
+mode = entries.get("DAEDALUS_MEMORY_MODE", "hindsight").strip().lower()
 print(mode)
 print(len(entries.get("HINDSIGHT_API_KEY", "").strip()))
 PY
@@ -555,13 +554,13 @@ PY
   MEMORY_MODE="$(printf '%s\n' "$MEMORY_SETTINGS" | sed -n '1p')"
   HINDSIGHT_API_KEY_LENGTH="$(printf '%s\n' "$MEMORY_SETTINGS" | sed -n '2p')"
   case "$MEMORY_MODE" in
-    disabled|redis|shadow|hindsight) ;;
+    disabled|hindsight) ;;
     *)
-      echo "ERROR: DAEDALUS_MEMORY_MODE must be disabled, redis, shadow, or hindsight." >&2
+      echo "ERROR: DAEDALUS_MEMORY_MODE must be disabled or hindsight." >&2
       exit 1
       ;;
   esac
-  if [[ "$MEMORY_MODE" == "shadow" || "$MEMORY_MODE" == "hindsight" ]]; then
+  if [[ "$MEMORY_MODE" == "hindsight" ]]; then
     if (( HINDSIGHT_API_KEY_LENGTH < 32 )); then
       echo "ERROR: HINDSIGHT_API_KEY must contain at least 32 characters for $MEMORY_MODE mode." >&2
       exit 1

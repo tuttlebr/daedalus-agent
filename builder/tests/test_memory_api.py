@@ -44,16 +44,6 @@ def configured(monkeypatch):
     monkeypatch.setenv("ALLOW_INSECURE_INTERNAL", "true")
     monkeypatch.setenv("DAEDALUS_MEMORY_MODE", "hindsight")
     monkeypatch.setattr(memory_api, "client_from_env", lambda: fake)
-
-    async def ignore_forget(*_args, **_kwargs):
-        return None
-
-    async def delete_owned(_user_id):
-        return 2
-
-    monkeypatch.setattr(memory_api, "record_clear_epoch", ignore_forget)
-    monkeypatch.setattr(memory_api, "record_tombstone", ignore_forget)
-    monkeypatch.setattr(memory_api, "delete_owned_redis_memories", delete_owned)
     monkeypatch.setattr(memory_api, "HTTPException", _TestHTTPException)
     return fake
 
@@ -123,16 +113,7 @@ def test_clear_requires_exact_confirmation(configured):
     assert configured.calls[-1] == ("clear_memories", {"user_id": "alice"})
 
 
-def test_edit_tombstones_the_legacy_source_before_future_migration(
-    configured,
-    monkeypatch,
-):
-    tombstones = []
-
-    async def record_tombstone(**kwargs):
-        tombstones.append(kwargs)
-
-    monkeypatch.setattr(memory_api, "record_tombstone", record_tombstone)
+def test_edit_updates_hindsight_without_redis_ledger(configured):
     result = run(
         memory_api._update_memory_for_user(
             "memory-1",
@@ -142,11 +123,7 @@ def test_edit_tombstones_the_legacy_source_before_future_migration(
     )
 
     assert result["document_id"] == "source-1"
-    assert tombstones == [
-        {
-            "user_id": "alice",
-            "kind": "source",
-            "resource_id": "source-1",
-            "reason": "source contains a user-curated memory",
-        }
-    ]
+    assert configured.calls[-1] == (
+        "update_memory",
+        {"user_id": "alice", "memory_id": "memory-1", "text": "Corrected fact"},
+    )

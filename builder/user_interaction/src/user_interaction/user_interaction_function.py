@@ -472,7 +472,7 @@ async def user_interaction_function(config: UserInteractionConfig, builder: Buil
         approval_token: str,
         user_id: str = "",
     ) -> str:
-        """Delete Hindsight and Redis memory for a user after token validation.
+        """Delete Hindsight memory for a user after token validation.
 
         Args:
             approval_token: Single-use token from confirm_action.
@@ -498,48 +498,15 @@ async def user_interaction_function(config: UserInteractionConfig, builder: Buil
         from nat_helpers.hindsight_client import client_from_env, memory_mode
 
         mode = memory_mode()
-        if mode in {"shadow", "hindsight"}:
-            try:
-                await client_from_env().clear_memories(user_id=resolved_user)
-            except Exception:
-                logger.exception("Hindsight memory clear failed")
-                return "Error: Hindsight memory could not be cleared; Redis was not changed."
-
-        # NAT Redis memory keys contain only a random id. Ownership lives in
-        # the JSON value, so key-name substring matching can both miss the
-        # intended user's records and delete another user's colliding id.
-        deleted = 0
-        owned_keys = []
-        for memory_key in redis_client.scan_iter("nat:memory:*"):
-            try:
-                raw = redis_client.execute_command("JSON.GET", memory_key)
-            except Exception:
-                raw = redis_client.get(memory_key)
-            try:
-                record = json.loads(raw) if isinstance(raw, str) else raw
-            except (json.JSONDecodeError, TypeError):
-                continue
-            if isinstance(record, list) and len(record) == 1:
-                record = record[0]
-            if isinstance(record, dict) and record.get("user_id") == resolved_user:
-                owned_keys.append(memory_key)
-        if owned_keys:
-            deleted = int(redis_client.delete(*owned_keys) or 0)
-
-        from nat_helpers.memory_ledger import record_clear_epoch_sync
-
+        if mode == "disabled":
+            return "Durable memory is disabled by the operator."
         try:
-            record_clear_epoch_sync(redis_client, resolved_user)
+            await client_from_env().clear_memories(user_id=resolved_user)
         except Exception:
-            logger.exception("Memory clear ledger update failed")
-            return (
-                "Memory was cleared, but the forget ledger could not be updated. "
-                "Operator repair is required before migration."
-            )
+            logger.exception("Hindsight memory clear failed")
+            return "Error: Hindsight memory could not be cleared."
 
-        return (
-            f"Deleted {deleted} Redis rollback memory key(s); durable memory cleared."
-        )
+        return "Durable memory cleared."
 
     # ------------------------------------------------------------------
     # Register all tools with NAT
@@ -600,7 +567,7 @@ async def user_interaction_function(config: UserInteractionConfig, builder: Buil
             yield FunctionInfo.from_fn(
                 delete_memory_guarded,
                 description=(
-                    "Delete all Redis-backed memories for a user only after validating "
+                    "Delete all Hindsight memories for a user only after validating "
                     "a single-use approval_token from confirm_action. Required arg: "
                     "approval_token. The backend derives user identity from the "
                     "authenticated request. The token must have action_type "

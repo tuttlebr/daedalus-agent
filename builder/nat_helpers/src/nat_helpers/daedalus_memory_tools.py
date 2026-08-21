@@ -8,7 +8,6 @@ from typing import Any
 from nat.builder.builder import Builder
 from nat.builder.function_info import FunctionInfo
 from nat.cli.register_workflow import register_function
-from nat.data_models.component_ref import MemoryRef
 from nat.data_models.function import FunctionBaseConfig
 from nat_helpers.identity import (
     authenticated_user_id_from_context,
@@ -46,10 +45,6 @@ class DaedalusAddMemoryConfig(FunctionBaseConfig, name="daedalus_add_memory"):
         default="Store a memory for the authenticated user.",
         description="The description of this function's use for tool calling agents.",
     )
-    memory: MemoryRef = Field(
-        default=MemoryRef("saas_memory"),
-        description="Configured memory client instance.",
-    )
 
 
 class DaedalusGetMemoryConfig(FunctionBaseConfig, name="daedalus_get_memory"):
@@ -58,10 +53,6 @@ class DaedalusGetMemoryConfig(FunctionBaseConfig, name="daedalus_get_memory"):
     description: str = Field(
         default="Retrieve memories for the authenticated user.",
         description="The description of this function's use for tool calling agents.",
-    )
-    memory: MemoryRef = Field(
-        default=MemoryRef("saas_memory"),
-        description="Configured memory client instance.",
     )
     top_k: int = Field(
         default=5,
@@ -149,10 +140,6 @@ def _expand_memory_search(query: str, top_k: int) -> tuple[str, int]:
 async def daedalus_add_memory(config: DaedalusAddMemoryConfig, builder: Builder):
     """Register a memory-add tool that ignores model-supplied user identity."""
 
-    from nat.memory.models import MemoryItem
-
-    memory_editor = await builder.get_memory_client(config.memory)
-
     async def _arun(input_data: AddMemoryInput) -> str:
         memory_text = (input_data.memory or "").strip()
         if not memory_text:
@@ -164,12 +151,9 @@ async def daedalus_add_memory(config: DaedalusAddMemoryConfig, builder: Builder)
             logger.warning("Denied add_memory without trusted identity: %s", exc)
             return f"Error: add_memory denied: {exc}."
 
-        item = MemoryItem(
-            conversation=[{"role": "user", "content": memory_text}],
-            user_id=user_id,
-            memory=memory_text,
-            tags=input_data.tags,
-            metadata=_merge_metadata(input_data.metadata, input_data.key_value_pairs),
+        metadata = _merge_metadata(
+            input_data.metadata,
+            input_data.key_value_pairs,
         )
 
         reservation = None
@@ -185,7 +169,7 @@ async def daedalus_add_memory(config: DaedalusAddMemoryConfig, builder: Builder)
                     arguments={
                         "memory": memory_text,
                         "tags": input_data.tags,
-                        "metadata": item.metadata,
+                        "metadata": metadata,
                     },
                 )
             except Exception as exc:
@@ -212,46 +196,17 @@ async def daedalus_add_memory(config: DaedalusAddMemoryConfig, builder: Builder)
         )
         if mode == "disabled":
             return "Durable memory is disabled by the operator."
-        if mode == "redis":
-            try:
-                await memory_editor.add_items([item])
-            except Exception:
-                logger.exception("Error adding Redis memory")
-                return "Error adding memory: durable memory is unavailable."
-        elif mode == "shadow":
-            try:
-                await memory_editor.add_items([item])
-            except Exception:
-                logger.exception("Error adding authoritative Redis memory")
-                return "Error adding memory: durable memory is unavailable."
-            try:
-                await client_from_env().retain_explicit(
-                    user_id=user_id,
-                    content=memory_text,
-                    tags=input_data.tags,
-                    metadata=item.metadata,
-                    request_id=request_id,
-                )
-            except Exception:
-                logger.warning("Hindsight shadow memory write failed", exc_info=True)
-        else:
-            try:
-                await client_from_env().retain_explicit(
-                    user_id=user_id,
-                    content=memory_text,
-                    tags=input_data.tags,
-                    metadata=item.metadata,
-                    request_id=request_id,
-                )
-            except Exception:
-                logger.exception("Authoritative Hindsight memory write failed")
-                return "Error adding memory: durable memory is unavailable."
-            # Keep Redis warm during the cutover window, but never fail an
-            # authoritative Hindsight write because the rollback copy failed.
-            try:
-                await memory_editor.add_items([item])
-            except Exception:
-                logger.warning("Redis rollback-copy memory write failed", exc_info=True)
+        try:
+            await client_from_env().retain_explicit(
+                user_id=user_id,
+                content=memory_text,
+                tags=input_data.tags,
+                metadata=metadata,
+                request_id=request_id,
+            )
+        except Exception:
+            logger.exception("Authoritative Hindsight memory write failed")
+            return "Error adding memory: durable memory is unavailable."
 
         result = (
             "Memory added successfully. You can continue. Please respond to the user."
@@ -275,8 +230,6 @@ async def daedalus_add_memory(config: DaedalusAddMemoryConfig, builder: Builder)
 @register_function(config_type=DaedalusGetMemoryConfig)
 async def daedalus_get_memory(config: DaedalusGetMemoryConfig, builder: Builder):
     """Register a memory-search tool that ignores model-supplied user identity."""
-
-    memory_editor = await builder.get_memory_client(config.memory)
 
     async def _arun(input_data: GetMemoryInput) -> str:
         query = (input_data.query or "").strip()
@@ -304,44 +257,18 @@ async def daedalus_get_memory(config: DaedalusGetMemoryConfig, builder: Builder)
 
         if mode == "disabled":
             return "Memories as a JSON: \n[]"
-        if mode in {"redis", "shadow"}:
-            try:
-                memories = await memory_editor.search(
-                    query=search_query,
-                    top_k=top_k,
+        try:
+            memories = (
+                await client_from_env().recall(
                     user_id=user_id,
+                    query=search_query,
+                    budget="mid" if top_k > 10 else "low",
+                    max_tokens=min(4096, max(512, top_k * 160)),
                 )
-            except Exception:
-                logger.exception("Error retrieving authoritative Redis memory")
-                return "Error retrieving memory: durable memory is unavailable."
-            if mode == "shadow":
-                try:
-                    shadow_results = await client_from_env().recall(
-                        user_id=user_id,
-                        query=search_query,
-                        budget="mid" if top_k > 10 else "low",
-                        max_tokens=min(4096, max(512, top_k * 160)),
-                    )
-                    logger.info(
-                        "Memory shadow recall completed redis_count=%d hindsight_count=%d",
-                        len(memories),
-                        len(shadow_results),
-                    )
-                except Exception:
-                    logger.warning("Hindsight shadow recall failed", exc_info=True)
-        else:
-            try:
-                memories = (
-                    await client_from_env().recall(
-                        user_id=user_id,
-                        query=search_query,
-                        budget="mid" if top_k > 10 else "low",
-                        max_tokens=min(4096, max(512, top_k * 160)),
-                    )
-                )[:top_k]
-            except Exception:
-                logger.exception("Authoritative Hindsight recall failed")
-                return "Error retrieving memory: durable memory is unavailable."
+            )[:top_k]
+        except Exception:
+            logger.exception("Authoritative Hindsight recall failed")
+            return "Error retrieving memory: durable memory is unavailable."
 
         memory_payload = [_memory_to_jsonable(memory) for memory in memories]
         return f"Memories as a JSON: \n{json.dumps(memory_payload)}"

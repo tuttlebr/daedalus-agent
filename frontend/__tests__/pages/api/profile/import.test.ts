@@ -49,12 +49,14 @@ describe('profile import API handler', () => {
 
   it('forwards profile JSON to the trusted backend import route', async () => {
     vi.mocked(fetchWithTimeout).mockResolvedValue({
-      status: 200,
+      status: 202,
       text: vi.fn().mockResolvedValue(
         JSON.stringify({
-          status: 'success',
+          status: 'accepted',
           user_id: 'tuttlebr',
           imported: 1,
+          queued: 1,
+          operation_id: 'operation-1',
         }),
       ),
     } as any);
@@ -89,11 +91,13 @@ describe('profile import API handler', () => {
       },
       60000,
     );
-    expect(res.status).toHaveBeenCalledWith(200);
+    expect(res.status).toHaveBeenCalledWith(202);
     expect(res.json).toHaveBeenCalledWith({
-      status: 'success',
+      status: 'accepted',
       user_id: 'tuttlebr',
       imported: 1,
+      queued: 1,
+      operation_id: 'operation-1',
     });
   });
 

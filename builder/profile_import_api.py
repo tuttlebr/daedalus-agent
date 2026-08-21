@@ -7,21 +7,16 @@ property for bulk profile uploads while bypassing the agent loop entirely.
 
 from __future__ import annotations
 
-import asyncio
 import hashlib
-import inspect
-import json
 import logging
 import os
+import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from functools import lru_cache
-from typing import Annotated, Any, Literal, Protocol
+from typing import Annotated, Any, Literal
 
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Header, HTTPException, Response
 from nat_helpers.internal_auth import require_trusted_user as _require_trusted_user
-from nat_helpers.redis_url import redis_url_from_env
-from nat_helpers.vllm_embeddings import DaedalusVLLMEmbeddings
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 logger = logging.getLogger(__name__)
@@ -29,21 +24,6 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/v1/profile", tags=["profile"])
 
 MAX_PROFILE_IMPORT_ENTRIES = int(os.getenv("PROFILE_IMPORT_MAX_ENTRIES", "250"))
-DEFAULT_MEMORY_KEY_PREFIX = os.getenv("MEMORY_KEY_PREFIX", "nat")
-PROFILE_IMPORT_REPLACE_SOURCES = frozenset(
-    {
-        "profile_import",
-        "seed_profile",
-        "daily_summary_directive",
-        "daily_summary_router_patch",
-    }
-)
-PROFILE_IMPORT_REPLACE_TAGS = frozenset(
-    {
-        "profile_seed",
-        "profile_import",
-    }
-)
 
 
 class ProfileEntry(BaseModel):
@@ -100,65 +80,32 @@ class ProfileImportRequest(BaseModel):
             raise ValueError(
                 f"Too many profile entries: {len(value)} > {MAX_PROFILE_IMPORT_ENTRIES}"
             )
+        labels = [entry.label for entry in value]
+        if len(labels) != len(set(labels)):
+            raise ValueError("Profile entry labels must be unique")
         return value
 
 
 class ProfileImportResponse(BaseModel):
-    status: Literal["success"]
+    status: Literal["success", "accepted"]
     user_id: str
     imported: int
     replaced: int = 0
+    queued: int = 0
+    operation_id: str | None = None
     profile_version: str | None = None
-
-
-class _MemoryEditor(Protocol):
-    async def add_items(self, items: list[Any]) -> None: ...
 
 
 @dataclass(frozen=True)
 class ProfileImportResult:
     imported: int
     replaced: int = 0
+    queued: int = 0
+    operation_id: str | None = None
 
 
 def _now_iso() -> str:
     return datetime.now(UTC).isoformat(timespec="seconds")
-
-
-def _is_configured_value(value: str | None) -> bool:
-    if not value:
-        return False
-    stripped = value.strip()
-    if not stripped:
-        return False
-    return not (stripped.startswith("${") and stripped.endswith("}"))
-
-
-def _resolve_env_value(value: str | None, *, max_depth: int = 5) -> str:
-    """Resolve simple ${OTHER_ENV_VAR} indirection used by Helm env secrets."""
-    resolved = (value or "").strip()
-    for _ in range(max_depth):
-        if not (resolved.startswith("${") and resolved.endswith("}")):
-            return resolved
-        env_name = resolved[2:-1].strip()
-        if not env_name:
-            return ""
-        next_value = (os.getenv(env_name) or "").strip()
-        if not next_value or next_value == resolved:
-            return next_value
-        resolved = next_value
-    return resolved
-
-
-def _positive_int_env(name: str, default: str) -> int:
-    raw_value = _resolve_env_value(os.getenv(name, default))
-    try:
-        value = int(raw_value)
-    except ValueError as exc:
-        raise RuntimeError(f"{name} must be a positive integer") from exc
-    if value < 1:
-        raise RuntimeError(f"{name} must be a positive integer")
-    return value
 
 
 def _merge_metadata(
@@ -195,292 +142,108 @@ def _memory_tags(entry: ProfileEntry) -> list[str]:
     return tags
 
 
-def _profile_replace_key_pattern(user_id: str) -> str:
-    return f"{DEFAULT_MEMORY_KEY_PREFIX}:*{user_id}*"
-
-
-async def _maybe_await(value: Any) -> Any:
-    if inspect.isawaitable(value):
-        return await value
-    return value
-
-
-async def _scan_redis_keys(redis_client: Any, pattern: str) -> list[Any]:
-    try:
-        iterator = redis_client.scan_iter(match=pattern)
-    except TypeError:
-        iterator = redis_client.scan_iter(pattern)
-
-    keys: list[Any] = []
-    if hasattr(iterator, "__aiter__"):
-        async for key in iterator:
-            keys.append(key)
-    else:
-        keys.extend(iterator)
-    return keys
-
-
-def _decode_redis_value(value: Any) -> Any:
-    if isinstance(value, bytes):
-        return value.decode("utf-8", errors="replace")
-    if isinstance(value, dict):
-        return {
-            str(_decode_redis_value(key)): _decode_redis_value(val)
-            for key, val in value.items()
-        }
-    if isinstance(value, list):
-        return [_decode_redis_value(item) for item in value]
-    return value
-
-
-def _maybe_json(value: Any) -> Any:
-    value = _decode_redis_value(value)
-    if not isinstance(value, str):
-        return value
-
-    stripped = value.strip()
-    if not stripped or stripped[0] not in "[{":
-        return value
-    try:
-        return json.loads(stripped)
-    except json.JSONDecodeError:
-        return value
-
-
-def _profile_payload_from_redis_value(value: Any) -> dict[str, Any] | None:
-    decoded = _maybe_json(value)
-    if not isinstance(decoded, dict):
-        return None
-
-    payload: dict[str, Any] = dict(decoded)
-    for key in ("metadata", "tags"):
-        if key in payload:
-            payload[key] = _maybe_json(payload[key])
-    return payload
-
-
-async def _redis_memory_payload(redis_client: Any, key: Any) -> dict[str, Any] | None:
-    raw = None
-    if hasattr(redis_client, "get"):
-        raw = await _maybe_await(redis_client.get(key))
-    if raw is None and hasattr(redis_client, "hgetall"):
-        raw = await _maybe_await(redis_client.hgetall(key))
-    return _profile_payload_from_redis_value(raw)
-
-
-def _profile_payload_tags(payload: dict[str, Any]) -> set[str]:
-    raw_tags = payload.get("tags")
-    if not isinstance(raw_tags, list):
-        raw_tags = []
-    return {str(tag) for tag in raw_tags}
-
-
-def _profile_payload_metadata(payload: dict[str, Any]) -> dict[str, Any]:
-    metadata = payload.get("metadata")
-    if isinstance(metadata, dict):
-        return metadata
-    return {}
-
-
-def _is_replaceable_profile_payload(payload: dict[str, Any], user_id: str) -> bool:
-    payload_user_id = payload.get("user_id")
-    if payload_user_id is not None and str(payload_user_id) != user_id:
-        return False
-
-    metadata = _profile_payload_metadata(payload)
-    source = str(metadata.get("source") or payload.get("source") or "")
-    tags = _profile_payload_tags(payload)
-
-    return source in PROFILE_IMPORT_REPLACE_SOURCES or bool(
-        tags & PROFILE_IMPORT_REPLACE_TAGS
-    )
-
-
-@lru_cache(maxsize=1)
-def _redis_client() -> Any:
-    from redis import asyncio as redis_async
-
-    return redis_async.from_url(redis_url_from_env(), decode_responses=True)
-
-
-async def replace_profile_memories(
-    user_id: str,
-    redis_client: Any | None = None,
-) -> int:
-    """Delete only profile-seed memories for the authenticated user."""
-
-    client = redis_client or _redis_client()
-    pattern = _profile_replace_key_pattern(user_id)
-    keys_to_delete: list[Any] = []
-    seen: set[Any] = set()
-
-    for key in await _scan_redis_keys(client, pattern):
-        if key in seen:
-            continue
-        seen.add(key)
-        payload = await _redis_memory_payload(client, key)
-        if payload and _is_replaceable_profile_payload(payload, user_id):
-            keys_to_delete.append(key)
-
-    if not keys_to_delete:
-        return 0
-
-    return int(await _maybe_await(client.delete(*keys_to_delete)) or 0)
-
-
-def build_profile_memory_items(
-    req: ProfileImportRequest,
-    user_id: str,
-    memory_item_cls: type[Any],
-    *,
-    imported_at: str | None = None,
-) -> list[Any]:
-    imported_at = imported_at or _now_iso()
-    items: list[Any] = []
-    for entry in req.entries:
-        memory_text = entry.memory.strip()
-        items.append(
-            memory_item_cls(
-                conversation=[{"role": "user", "content": memory_text}],
-                user_id=user_id,
-                memory=memory_text,
-                tags=_memory_tags(entry),
-                metadata=_merge_metadata(entry, req.profile_version, imported_at),
-            )
-        )
-    return items
-
-
-@lru_cache(maxsize=1)
-def _embedding_adapter() -> DaedalusVLLMEmbeddings:
-    api_key = _resolve_env_value(os.getenv("EMBEDDING_API_KEY"))
-    base_url = _resolve_env_value(os.getenv("EMBEDDING_BASE_URL"))
-    model = _resolve_env_value(os.getenv("EMBEDDING_MODEL"))
-    truncate_prompt_tokens = _positive_int_env(
-        "EMBEDDING_TRUNCATE_PROMPT_TOKENS",
-        "10240",
-    )
-
-    missing = [
-        name
-        for name, value in (
-            ("EMBEDDING_BASE_URL", base_url),
-            ("EMBEDDING_MODEL", model),
-        )
-        if not _is_configured_value(value)
-    ]
-    if missing:
-        raise RuntimeError(
-            "Profile memory import requires embedding configuration: "
-            + ", ".join(missing)
-        )
-
-    return DaedalusVLLMEmbeddings(
-        api_key=api_key or None,
-        base_url=base_url,
-        model=model,
-        truncate_prompt_tokens=truncate_prompt_tokens,
-    )
-
-
-@lru_cache(maxsize=1)
-def _redis_editor() -> _MemoryEditor:
-    from nat.plugins.redis.redis_editor import RedisEditor
-    from redis import asyncio as redis_async
-
-    redis_client = redis_async.from_url(redis_url_from_env(), decode_responses=True)
-    return RedisEditor(
-        redis_client=redis_client,
-        key_prefix=DEFAULT_MEMORY_KEY_PREFIX,
-        embedder=_embedding_adapter(),
-    )
-
-
 async def import_profile_memories(
     req: ProfileImportRequest,
     user_id: str,
-    editor: _MemoryEditor | None = None,
-    redis_client: Any | None = None,
 ) -> ProfileImportResult:
-    from nat.memory.models import MemoryItem
     from nat_helpers.hindsight_client import (
         client_from_env,
         deterministic_document_id,
         memory_mode,
     )
 
-    memory_editor = editor or _redis_editor()
-    items = build_profile_memory_items(req, user_id, MemoryItem)
     mode = memory_mode()
-
-    async def import_redis() -> int:
-        replaced_count = 0
-        if req.mode == "replace":
-            replaced_count = await replace_profile_memories(user_id, redis_client)
-        await memory_editor.add_items(items)
-        return replaced_count
-
-    async def import_hindsight() -> int:
-        client = client_from_env()
-        replaced_count = 0
-        if req.mode == "replace":
-            replaced_count = await client.delete_documents_with_tag(
-                user_id=user_id,
-                tag="source:profile-import",
-            )
-
-        semaphore = asyncio.Semaphore(4)
-
-        async def retain_entry(entry: ProfileEntry) -> None:
-            label_hash = hashlib.sha256(entry.label.encode("utf-8")).hexdigest()
-            document_id = deterministic_document_id(
-                user_id=user_id,
-                source="profile",
-                request_id=label_hash,
-                content=label_hash,
-            )
-            async with semaphore:
-                await client.retain(
-                    user_id=user_id,
-                    content=entry.memory,
-                    document_id=document_id,
-                    context="Daedalus authenticated profile import",
-                    tags=["source:profile-import", *_memory_tags(entry)],
-                    metadata=_merge_metadata(
-                        entry,
-                        req.profile_version,
-                        _now_iso(),
-                    ),
-                    timestamp="unset",
-                    asynchronous=False,
-                )
-
-        await asyncio.gather(*(retain_entry(entry) for entry in req.entries))
-        return replaced_count
-
     if mode == "disabled":
         raise RuntimeError("Durable memory is disabled by the operator")
-    if mode == "redis":
-        replaced = await import_redis()
-    elif mode == "shadow":
-        replaced = await import_redis()
-        try:
-            await import_hindsight()
-        except Exception:
-            logger.warning("Hindsight profile-import shadow failed", exc_info=True)
-    else:
-        replaced = await import_hindsight()
-        try:
-            await import_redis()
-        except Exception:
-            logger.warning("Redis profile-import rollback copy failed", exc_info=True)
 
-    return ProfileImportResult(imported=len(items), replaced=replaced)
+    client = client_from_env()
+    replaced = 0
+    if req.mode == "replace":
+        replaced = await client.delete_documents_with_tag(
+            user_id=user_id,
+            tag="source:profile-import",
+        )
+
+    imported_at = _now_iso()
+    hindsight_items: list[dict[str, Any]] = []
+    for entry in req.entries:
+        label_hash = hashlib.sha256(entry.label.encode("utf-8")).hexdigest()
+        document_id = deterministic_document_id(
+            user_id=user_id,
+            source="profile",
+            request_id=label_hash,
+            content=label_hash,
+        )
+        hindsight_items.append(
+            {
+                "content": entry.memory,
+                "document_id": document_id,
+                "context": "Daedalus authenticated profile import",
+                "tags": ["source:profile-import", *_memory_tags(entry)],
+                "metadata": _merge_metadata(
+                    entry,
+                    req.profile_version,
+                    imported_at,
+                ),
+                "timestamp": "unset",
+            }
+        )
+
+    # Each request gets a fresh durable operation. This is required for replace
+    # mode: replaying a completed operation after deleting its old documents
+    # would acknowledge the replay without restoring them.
+    requested_operation_id = str(uuid.uuid4())
+    accepted = await client.retain_batch(
+        user_id=user_id,
+        items=hindsight_items,
+        operation_id=requested_operation_id,
+    )
+    operation_id = str(accepted.get("operation_id") or "").strip()
+    if not operation_id:
+        raise RuntimeError("Hindsight did not accept the profile import operation")
+
+    return ProfileImportResult(
+        imported=len(req.entries),
+        replaced=replaced,
+        queued=len(req.entries),
+        operation_id=operation_id,
+    )
 
 
-@router.post("/import", response_model=ProfileImportResponse)
+def build_profile_import_response(
+    *,
+    req: ProfileImportRequest,
+    user_id: str,
+    result: ProfileImportResult,
+    response: Response,
+) -> ProfileImportResponse:
+    status: Literal["success", "accepted"] = (
+        "accepted" if result.operation_id else "success"
+    )
+    response.status_code = 202 if status == "accepted" else 200
+    logger.info(
+        "Profile import %s for authenticated user %s; submitted %s, queued %s, replaced %s",
+        status,
+        user_id,
+        result.imported,
+        result.queued,
+        result.replaced,
+    )
+    return ProfileImportResponse(
+        status=status,
+        user_id=user_id,
+        imported=result.imported,
+        replaced=result.replaced,
+        queued=result.queued,
+        operation_id=result.operation_id,
+        profile_version=req.profile_version,
+    )
+
+
+@router.post("/import", response_model=ProfileImportResponse, status_code=202)
 async def import_profile(
     req: ProfileImportRequest,
+    response: Response,
     x_user_id: Annotated[str | None, Header(alias="x-user-id")] = None,
     x_daedalus_internal_token: Annotated[
         str | None, Header(alias="x-daedalus-internal-token")
@@ -494,16 +257,9 @@ async def import_profile(
         logger.exception("profile.import failed")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
-    logger.info(
-        "Imported %s profile memories for authenticated user %s; replaced %s",
-        result.imported,
-        user_id,
-        result.replaced,
-    )
-    return ProfileImportResponse(
-        status="success",
+    return build_profile_import_response(
+        req=req,
         user_id=user_id,
-        imported=result.imported,
-        replaced=result.replaced,
-        profile_version=req.profile_version,
+        result=result,
+        response=response,
     )
