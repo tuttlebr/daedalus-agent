@@ -98,7 +98,18 @@ export function useVisualViewportKeyboard(): VisualViewportState {
         0,
         (viewport?.pageTop ?? window.scrollY) - window.scrollY,
       );
-      const offsetTop = Math.max(viewport?.offsetTop ?? 0, pageOffsetTop);
+      // Recent installed WebKit builds can visually pan the rendered body
+      // without updating either scrollY or the Visual Viewport offsets. The
+      // body's rect is the final source of truth for that unreported shift.
+      const renderedBodyOffsetTop = Math.max(
+        0,
+        -document.body.getBoundingClientRect().top - window.scrollY,
+      );
+      const offsetTop = Math.max(
+        viewport?.offsetTop ?? 0,
+        pageOffsetTop,
+        renderedBodyOffsetTop,
+      );
       const focused = isEditableElement(document.activeElement);
       const next = calculateVisualViewportState({
         baselineHeight,

@@ -65,23 +65,23 @@ test('mobile Create controls stay separated and the keyboard collapses navigatio
   expect(composerGap).toBeGreaterThanOrEqual(8);
   expect(composerGap).toBeLessThanOrEqual(16);
 
-  // iOS may pan the rendered body by almost the full viewport height loss.
-  // That pan must not cancel keyboard detection or move the composer away.
-  const emulatedOffsetTop = 352;
-  await page.evaluate((offsetTop) => {
+  // Installed WebKit may pan the rendered body while both Visual Viewport
+  // offsets still report zero. Measure the rendered displacement directly.
+  const emulatedBodyPan = 72;
+  await page.evaluate((bodyPan) => {
     const viewport = window.visualViewport;
     if (!viewport) throw new Error('visualViewport is unavailable');
-    document.body.style.transform = `translateY(-${offsetTop}px)`;
+    document.body.style.transform = `translateY(-${bodyPan}px)`;
     Object.defineProperty(viewport, 'offsetTop', {
       configurable: true,
-      get: () => offsetTop,
+      get: () => 0,
     });
     Object.defineProperty(viewport, 'pageTop', {
       configurable: true,
-      get: () => offsetTop,
+      get: () => window.scrollY,
     });
     viewport.dispatchEvent(new Event('scroll'));
-  }, emulatedOffsetTop);
+  }, emulatedBodyPan);
 
   await expect(
     page.getByRole('navigation', { name: 'Primary navigation' }),
@@ -105,8 +105,7 @@ test('mobile Create controls stay separated and the keyboard collapses navigatio
       composer: composer.getBoundingClientRect().toJSON(),
     };
   });
-  const shiftedComposerGap =
-    shiftedGeometry.main.bottom - shiftedGeometry.composer.bottom;
+  const shiftedComposerGap = 500 - shiftedGeometry.composer.bottom;
   expect(shiftedComposerGap).toBeGreaterThanOrEqual(8);
   expect(shiftedComposerGap).toBeLessThanOrEqual(16);
 });
