@@ -170,7 +170,7 @@ function_groups:
     session_idle_timeout: 600
     server:
       transport: streamable-http
-      url: ${HINDSIGHT_MCP_SERVER}
+      url: http://hindsight-api.daedalus-hindsight.svc.cluster.local:8888/mcp/daedalus/
   x_mcp_server:
     _type: mcp_client
     include:
