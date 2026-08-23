@@ -339,6 +339,149 @@ class HindsightClient:
         results = response.get("results", [])
         return [item for item in results if isinstance(item, dict)]
 
+    async def reflect(
+        self,
+        *,
+        user_id: str,
+        query: str,
+        max_tokens: int = 800,
+    ) -> str:
+        """Synthesize a bounded answer from one authenticated user's memory."""
+
+        clean_query = (query or "").strip()
+        if not clean_query:
+            return ""
+        response = await self._request(
+            "POST",
+            self._bank_path(user_id, "reflect"),
+            json_body={
+                "query": clean_query,
+                "budget": "low",
+                "max_tokens": max(128, min(max_tokens, 1200)),
+                "include": {"facts": None, "tool_calls": None},
+                "fact_types": ["world", "experience", "observation"],
+            },
+            timeout_seconds=30.0,
+        )
+        return str(response.get("text") or "").strip()
+
+    async def get_bank_config(self, *, user_id: str) -> dict[str, Any]:
+        return await self._request(
+            "GET",
+            self._bank_path(user_id, "config"),
+        )
+
+    async def update_bank_config(
+        self,
+        *,
+        user_id: str,
+        updates: dict[str, Any],
+    ) -> dict[str, Any]:
+        if not updates:
+            return await self.get_bank_config(user_id=user_id)
+        return await self._request(
+            "PATCH",
+            self._bank_path(user_id, "config"),
+            json_body={"updates": updates},
+        )
+
+    async def knowledge_tree(self, *, user_id: str) -> list[dict[str, Any]]:
+        response = await self._request(
+            "GET",
+            self._bank_path(user_id, "knowledge-base/tree"),
+        )
+        roots = response.get("roots", [])
+        return [item for item in roots if isinstance(item, dict)]
+
+    async def create_knowledge_page(
+        self,
+        *,
+        user_id: str,
+        name: str,
+        source_query: str,
+    ) -> dict[str, Any]:
+        return await self._request(
+            "POST",
+            self._bank_path(user_id, "knowledge-base/pages"),
+            json_body={"name": name, "source_query": source_query},
+            timeout_seconds=30.0,
+        )
+
+    async def search_knowledge_pages(
+        self,
+        *,
+        user_id: str,
+        query: str,
+        limit: int = 2,
+    ) -> list[dict[str, Any]]:
+        clean_query = (query or "").strip()
+        if not clean_query:
+            return []
+        response = await self._request(
+            "GET",
+            self._bank_path(user_id, "knowledge-base/search"),
+            params={"q": clean_query, "limit": max(1, min(limit, 10))},
+        )
+        results = response.get("results", [])
+        return [item for item in results if isinstance(item, dict)]
+
+    async def get_knowledge_page(
+        self,
+        *,
+        user_id: str,
+        page_id: str,
+    ) -> dict[str, Any]:
+        return await self._request(
+            "GET",
+            self._bank_path(
+                user_id,
+                f"knowledge-base/pages/{quote(page_id, safe='')}",
+            ),
+        )
+
+    async def delete_knowledge_node(
+        self,
+        *,
+        user_id: str,
+        node_id: str,
+    ) -> dict[str, Any]:
+        return await self._request(
+            "DELETE",
+            self._bank_path(
+                user_id,
+                f"knowledge-base/nodes/{quote(node_id, safe='')}",
+            ),
+        )
+
+    async def get_operation(
+        self,
+        *,
+        user_id: str,
+        operation_id: str,
+    ) -> dict[str, Any]:
+        return await self._request(
+            "GET",
+            self._bank_path(
+                user_id,
+                f"operations/{quote(operation_id, safe='')}",
+            ),
+        )
+
+    async def retry_operation(
+        self,
+        *,
+        user_id: str,
+        operation_id: str,
+    ) -> dict[str, Any]:
+        return await self._request(
+            "POST",
+            self._bank_path(
+                user_id,
+                f"operations/{quote(operation_id, safe='')}/retry",
+            ),
+            json_body={},
+        )
+
     async def list_memories(
         self,
         *,

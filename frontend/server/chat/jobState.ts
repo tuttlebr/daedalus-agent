@@ -53,6 +53,10 @@ export interface JobFinalizationJournal {
   terminalStatus?: AsyncJobStatus;
   conversation?: JobFinalizationConversation;
   conversationAppliedAt?: number;
+  memoryRetention?: {
+    operationId: string;
+    acceptedAt: number;
+  };
   memoryRetentionAttemptedAt?: number;
   streamingStateClearedAt?: number;
   eventsPublishedAt?: number;
@@ -214,6 +218,24 @@ if phase == 'completedAt' then
 end
 local encoded = cjson.encode(journal)
 redis.call('SET', KEYS[1], encoded, 'EX', ARGV[4])
+return encoded
+`;
+
+const SET_MEMORY_RETENTION_RECEIPT_LUA = `
+-- SET_MEMORY_RETENTION_RECEIPT
+local raw = redis.call('GET', KEYS[1])
+if not raw then
+  return nil
+end
+local journal = cjson.decode(raw)
+if journal['finalizationId'] ~= ARGV[1] then
+  return nil
+end
+if journal['memoryRetention'] == nil then
+  journal['memoryRetention'] = cjson.decode(ARGV[2])
+end
+local encoded = cjson.encode(journal)
+redis.call('SET', KEYS[1], encoded, 'EX', ARGV[3])
 return encoded
 `;
 
@@ -420,6 +442,24 @@ export async function markFinalizationPhase(
     finalizationId,
     phase,
     at,
+    JOB_EXPIRY_SECONDS,
+  );
+  return typeof result === 'string'
+    ? (JSON.parse(result) as JobFinalizationJournal)
+    : null;
+}
+
+export async function setMemoryRetentionReceipt(
+  jobId: string,
+  finalizationId: string,
+  receipt: { operationId: string; acceptedAt: number },
+): Promise<JobFinalizationJournal | null> {
+  const result = await getRedis().eval(
+    SET_MEMORY_RETENTION_RECEIPT_LUA,
+    1,
+    finalizationJournalKey(jobId),
+    finalizationId,
+    JSON.stringify(receipt),
     JOB_EXPIRY_SECONDS,
   );
   return typeof result === 'string'

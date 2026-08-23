@@ -43,6 +43,29 @@ type MemorySourceDetail = MemorySource & {
   document_metadata?: Record<string, unknown> | null;
 };
 
+type KnowledgePage = {
+  id: string;
+  name: string;
+  description?: string;
+  timestamp?: string;
+  is_stale?: boolean;
+  body?: string | null;
+  markdown?: string;
+};
+
+type RetentionStatus = {
+  total: number;
+  counts: {
+    accepted?: number;
+    pending?: number;
+    processing?: number;
+    completed?: number;
+    zero_fact?: number;
+    failed?: number;
+    timed_out?: number;
+  };
+};
+
 type Page<T> = { items: T[]; total: number; limit: number; offset: number };
 
 const PAGE_SIZE = 25;
@@ -72,7 +95,7 @@ function when(value?: string) {
 }
 
 export function MemoryCenter() {
-  const [tab, setTab] = useState<'memories' | 'sources'>('memories');
+  const [tab, setTab] = useState<'pages' | 'memories' | 'sources'>('pages');
   const [query, setQuery] = useState('');
   const [submittedQuery, setSubmittedQuery] = useState('');
   const [memoryType, setMemoryType] = useState('');
@@ -89,6 +112,15 @@ export function MemoryCenter() {
     limit: PAGE_SIZE,
     offset: 0,
   });
+  const [pages, setPages] = useState<Page<KnowledgePage>>({
+    items: [],
+    total: 0,
+    limit: PAGE_SIZE,
+    offset: 0,
+  });
+  const [retentionStatus, setRetentionStatus] =
+    useState<RetentionStatus | null>(null);
+  const [selectedPage, setSelectedPage] = useState<KnowledgePage | null>(null);
   const [selectedSource, setSelectedSource] =
     useState<MemorySourceDetail | null>(null);
   const [editing, setEditing] = useState<MemoryFact | null>(null);
@@ -112,7 +144,29 @@ export function MemoryCenter() {
       if (tab === 'memories' && memoryType) {
         params.set('memory_type', memoryType);
       }
-      if (tab === 'memories') {
+      const statusRequest = requestJson<RetentionStatus>('/api/memory/status')
+        .then(setRetentionStatus)
+        .catch(() => setRetentionStatus(null));
+      if (tab === 'pages') {
+        const response = await requestJson<{
+          items: KnowledgePage[];
+          total: number;
+        }>('/api/memory/pages');
+        const normalizedQuery = submittedQuery.toLocaleLowerCase();
+        const matching = normalizedQuery
+          ? response.items.filter((page) =>
+              `${page.name} ${page.description || ''}`
+                .toLocaleLowerCase()
+                .includes(normalizedQuery),
+            )
+          : response.items;
+        setPages({
+          items: matching.slice(offset, offset + PAGE_SIZE),
+          total: matching.length,
+          limit: PAGE_SIZE,
+          offset,
+        });
+      } else if (tab === 'memories') {
         setMemories(
           await requestJson<Page<MemoryFact>>(
             `/api/memory/memories?${params.toString()}`,
@@ -125,6 +179,7 @@ export function MemoryCenter() {
           ),
         );
       }
+      await statusRequest;
     } catch (requestError) {
       setError(
         requestError instanceof Error
@@ -225,6 +280,26 @@ export function MemoryCenter() {
     }
   };
 
+  const openPage = async (page: KnowledgePage) => {
+    setWorkingId(page.id);
+    setError(null);
+    try {
+      setSelectedPage(
+        await requestJson<KnowledgePage>(
+          `/api/memory/pages/${encodeURIComponent(page.id)}`,
+        ),
+      );
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : 'Knowledge Page failed to load.',
+      );
+    } finally {
+      setWorkingId(null);
+    }
+  };
+
   const deleteSource = async (sourceId: string) => {
     if (
       !window.confirm('Delete this source and every memory extracted from it?')
@@ -260,6 +335,7 @@ export function MemoryCenter() {
       });
       setShowClear(false);
       setClearText('');
+      setSelectedPage(null);
       setSelectedSource(null);
       setNotice('All Hindsight memories were cleared.');
       await refresh();
@@ -272,7 +348,8 @@ export function MemoryCenter() {
     }
   };
 
-  const page = tab === 'memories' ? memories : sources;
+  const page =
+    tab === 'pages' ? pages : tab === 'memories' ? memories : sources;
   const canPrevious = offset > 0;
   const canNext = offset + PAGE_SIZE < page.total;
 
@@ -315,18 +392,54 @@ export function MemoryCenter() {
             size={19}
           />
           <p>
-            Daedalus automatically recalls relevant memories before an
-            interactive turn and selectively extracts durable facts after a
-            successful response. It stores the raw user source text for review.
-            Assistant output and tool traces are not retained automatically.
+            Daedalus starts a conversation with a bounded memory brief, searches
+            auto-refreshing Knowledge Pages during the conversation, and retains
+            a sanitized, role-labelled user request and final answer afterward.
+            Raw tool traces are never retained automatically.
           </p>
         </GlassCard>
+
+        {retentionStatus && (
+          <GlassCard variant="subtle" className="space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-sm font-medium text-dark-text-primary">
+                Automatic retention health
+              </p>
+              <span className="text-xs text-dark-text-muted">
+                Last {retentionStatus.total} operations
+              </span>
+            </div>
+            <div className="flex flex-wrap gap-2 text-xs">
+              <Badge variant="secondary">
+                Completed {retentionStatus.counts.completed || 0}
+              </Badge>
+              <Badge variant="secondary">
+                No durable facts {retentionStatus.counts.zero_fact || 0}
+              </Badge>
+              <Badge variant="secondary">
+                Pending{' '}
+                {(retentionStatus.counts.accepted || 0) +
+                  (retentionStatus.counts.pending || 0) +
+                  (retentionStatus.counts.processing || 0)}
+              </Badge>
+              {(retentionStatus.counts.failed || 0) +
+                (retentionStatus.counts.timed_out || 0) >
+                0 && (
+                <Badge variant="warning">
+                  Needs attention{' '}
+                  {(retentionStatus.counts.failed || 0) +
+                    (retentionStatus.counts.timed_out || 0)}
+                </Badge>
+              )}
+            </div>
+          </GlassCard>
+        )}
 
         <div
           className="flex items-center gap-2 border-b border-white/[0.08]"
           role="tablist"
         >
-          {(['memories', 'sources'] as const).map((item) => (
+          {(['pages', 'memories', 'sources'] as const).map((item) => (
             <button
               key={item}
               type="button"
@@ -335,6 +448,7 @@ export function MemoryCenter() {
               onClick={() => {
                 setTab(item);
                 setOffset(0);
+                setSelectedPage(null);
                 setSelectedSource(null);
               }}
               className={`border-b-2 px-4 py-3 text-sm font-medium capitalize transition-colors ${
@@ -343,7 +457,11 @@ export function MemoryCenter() {
                   : 'border-transparent text-dark-text-muted hover:text-dark-text-primary'
               }`}
             >
-              {item}
+              {item === 'pages'
+                ? 'Knowledge Pages'
+                : item === 'memories'
+                ? 'Advanced facts'
+                : 'Sources'}
             </button>
           ))}
         </div>
@@ -362,7 +480,9 @@ export function MemoryCenter() {
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               placeholder={
-                tab === 'memories'
+                tab === 'pages'
+                  ? 'Search Knowledge Pages'
+                  : tab === 'memories'
                   ? 'Search remembered facts'
                   : 'Search source IDs'
               }
@@ -413,7 +533,70 @@ export function MemoryCenter() {
           </GlassCard>
         )}
 
-        {tab === 'memories' ? (
+        {tab === 'pages' ? (
+          selectedPage ? (
+            <GlassCard className="space-y-4">
+              <div className="flex items-start justify-between gap-3">
+                <div className="space-y-1">
+                  <h2 className="font-medium text-dark-text-primary">
+                    {selectedPage.name}
+                  </h2>
+                  <p className="text-xs text-dark-text-muted">
+                    Updated {when(selectedPage.timestamp)}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  aria-label="Close Knowledge Page"
+                  onClick={() => setSelectedPage(null)}
+                  className="rounded-lg p-2 text-dark-text-muted hover:bg-white/[0.05]"
+                >
+                  <IconX size={18} />
+                </button>
+              </div>
+              {selectedPage.description && (
+                <p className="text-xs text-dark-text-muted">
+                  {selectedPage.description}
+                </p>
+              )}
+              <article className="max-h-[60vh] overflow-auto whitespace-pre-wrap break-words rounded-lg border border-white/[0.08] bg-black/20 p-4 text-sm text-dark-text-secondary">
+                {selectedPage.body || 'This page is still generating.'}
+              </article>
+            </GlassCard>
+          ) : (
+            <div className="space-y-3">
+              {pages.items.map((knowledgePage) => (
+                <GlassCard key={knowledgePage.id} className="space-y-2">
+                  <button
+                    type="button"
+                    onClick={() => void openPage(knowledgePage)}
+                    className="flex w-full items-start justify-between gap-3 text-left"
+                  >
+                    <span className="flex min-w-0 items-start gap-3">
+                      <IconFileText
+                        className="mt-0.5 flex-shrink-0 text-nvidia-green"
+                        size={19}
+                      />
+                      <span className="min-w-0">
+                        <span className="block font-medium text-dark-text-primary">
+                          {knowledgePage.name}
+                        </span>
+                        <span className="mt-1 block text-xs text-dark-text-muted">
+                          {knowledgePage.description}
+                        </span>
+                      </span>
+                    </span>
+                    <Badge
+                      variant={knowledgePage.is_stale ? 'warning' : 'secondary'}
+                    >
+                      {knowledgePage.is_stale ? 'Refreshing' : 'Current'}
+                    </Badge>
+                  </button>
+                </GlassCard>
+              ))}
+            </div>
+          )
+        ) : tab === 'memories' ? (
           <div className="space-y-3">
             {memories.items.map((memory) => (
               <GlassCard key={memory.id} className="space-y-3">

@@ -9,6 +9,7 @@ import {
   resumePendingFinalization,
 } from '@/server/chat/finalization';
 import { abortKey, isTerminalJobStatus } from '@/server/chat/jobState';
+import { processDueMemoryRetentions } from '@/server/chat/memoryRetention';
 import {
   acknowledgeDuplicateStreamEntry,
   acknowledgeStreamQueueEntry,
@@ -384,6 +385,8 @@ export class StreamWorkerRuntime {
   private readClient: Redis | null = null;
   private healthTimer: NodeJS.Timeout | null = null;
   private lastReclaimAt = 0;
+  private lastMemoryRetentionPollAt = 0;
+  private memoryRetentionPollInFlight = false;
 
   constructor(options: StreamWorkerOptions = streamWorkerOptionsFromEnv()) {
     this.options = options;
@@ -485,6 +488,21 @@ export class StreamWorkerRuntime {
 
     try {
       while (!this.draining) {
+        const loopStartedAt = Date.now();
+        if (
+          !this.memoryRetentionPollInFlight &&
+          loopStartedAt - this.lastMemoryRetentionPollAt >= 1000
+        ) {
+          this.lastMemoryRetentionPollAt = loopStartedAt;
+          this.memoryRetentionPollInFlight = true;
+          void processDueMemoryRetentions()
+            .catch((error) => {
+              logger.warn('Memory retention polling failed', error);
+            })
+            .finally(() => {
+              this.memoryRetentionPollInFlight = false;
+            });
+        }
         const capacity = this.options.concurrency - this.active.size;
         if (capacity <= 0) {
           await Promise.race(

@@ -16,12 +16,21 @@ describe('Memory Center API route allowlist', () => {
       methods: ['GET', 'DELETE'],
       backendPath: '/v1/memory-sources/source-1',
     });
+    expect(resolveMemoryRoute(['pages'])).toEqual({
+      methods: ['GET'],
+      backendPath: '/v1/memory-pages',
+    });
+    expect(resolveMemoryRoute(['pages', 'kp-1'])).toEqual({
+      methods: ['GET'],
+      backendPath: '/v1/memory-pages/kp-1',
+    });
   });
 
   it('rejects bank paths and unsafe resource identifiers', () => {
     expect(resolveMemoryRoute(['banks', 'someone-else'])).toBeNull();
     expect(resolveMemoryRoute(['sources', '../someone-else'])).toBeNull();
     expect(resolveMemoryRoute(['memories', 'fact/1'])).toBeNull();
+    expect(resolveMemoryRoute(['pages', '../someone-else'])).toBeNull();
     expect(resolveMemoryRoute(['retain-turn'])).toBeNull();
   });
 });

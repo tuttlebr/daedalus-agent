@@ -181,6 +181,10 @@ def main() -> None:
     memory_paths = {route.path for route in memory_router.routes}
     required_memory_paths = {
         "/v1/memory/retain-turn",
+        "/v1/memory/operations/{operation_id}",
+        "/v1/memory/operations/{operation_id}/retry",
+        "/v1/memory-pages",
+        "/v1/memory-pages/{page_id}",
         "/v1/memories",
         "/v1/memories/{memory_id}",
         "/v1/memories/{memory_id}/invalidate",

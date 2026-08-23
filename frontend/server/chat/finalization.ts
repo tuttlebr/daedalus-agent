@@ -20,11 +20,13 @@ import {
   getFinalizationJournal,
   markFinalizationPhase,
   publishFinalizationEvents,
+  setMemoryRetentionReceipt,
   withFinalizationLock,
   type FinalizationEvent,
   type JobFinalizationJournal,
   type NewJobFinalizationJournal,
 } from './jobState';
+import { enqueueMemoryRetention } from './memoryRetention';
 import { buildNatRequestHeaders } from './natMessages';
 import {
   attachSandboxArtifacts,
@@ -49,7 +51,7 @@ import { v4 as uuidv4 } from 'uuid';
 const logger = new Logger('AsyncJob');
 const CONVERSATION_EXPIRY_SECONDS = 60 * 60 * 24 * 7;
 const MEMORY_RETAIN_TIMEOUT_MS = 20_000;
-const MEMORY_RETAIN_MAX_CHARS = 12_000;
+const MEMORY_RETAIN_MAX_PART_CHARS = 5_500;
 
 export type FinalizationResumeResult = 'none' | 'pending' | 'completed';
 
@@ -225,19 +227,25 @@ function latestUserText(journal: JobFinalizationJournal): string {
   return '';
 }
 
+function sanitizeRetentionText(value: string): string {
+  return value
+    .replace(
+      /\[(?:IDENTITY|MEMORY_CONTEXT|SOURCE_POLICY)\][\s\S]*?(?=\n\[[A-Z_]+\]|$)/gi,
+      '',
+    )
+    .replace(/data:[^\s)\]]+/gi, '[embedded data omitted]')
+    .replace(/redis(?:s)?:\/\/[^\s)\]]+/gi, '[internal reference omitted]')
+    .trim()
+    .slice(0, MEMORY_RETAIN_MAX_PART_CHARS);
+}
+
 async function retainSuccessfulUserTurn(
   journal: JobFinalizationJournal,
-): Promise<void> {
-  if (journal.outcome !== 'completed' || !journal.conversation) return;
-  const content = latestUserText(journal);
-  if (!content || content.length > MEMORY_RETAIN_MAX_CHARS) {
-    if (content.length > MEMORY_RETAIN_MAX_CHARS) {
-      logger.warn(
-        `Job ${journal.jobId}: User turn exceeds automatic memory retention bound`,
-      );
-    }
-    return;
-  }
+): Promise<{ operationId: string; acceptedAt: number } | null> {
+  if (journal.outcome !== 'completed' || !journal.conversation) return null;
+  const userContent = sanitizeRetentionText(latestUserText(journal));
+  const assistantContent = sanitizeRetentionText(journal.conversation.content);
+  if (!userContent) return null;
 
   const url = buildBackendUrlFromBase(
     buildBackendBaseUrlForMode(),
@@ -258,7 +266,9 @@ async function retainSuccessfulUserTurn(
       body: JSON.stringify({
         request_id: journal.jobId,
         conversation_id: journal.conversation.id,
-        content,
+        assistant_message_id: journal.conversation.assistantMessageId,
+        user_content: userContent,
+        assistant_content: assistantContent,
       }),
     },
     MEMORY_RETAIN_TIMEOUT_MS,
@@ -266,6 +276,11 @@ async function retainSuccessfulUserTurn(
   if (!response.ok) {
     throw new Error(`memory retention returned HTTP ${response.status}`);
   }
+  const body = (await response.json()) as { operation_id?: string };
+  if (!body.operation_id) {
+    throw new Error('memory retention returned no operation ID');
+  }
+  return { operationId: body.operation_id, acceptedAt: Date.now() };
 }
 
 /**
@@ -297,7 +312,34 @@ export async function resumePendingFinalization(
 
     if (!journal.memoryRetentionAttemptedAt) {
       try {
-        await retainSuccessfulUserTurn(journal);
+        let receipt:
+          | { operationId: string; acceptedAt: number }
+          | null
+          | undefined = journal.memoryRetention;
+        if (!receipt) {
+          receipt = await retainSuccessfulUserTurn(journal);
+          if (receipt) {
+            const updated = await setMemoryRetentionReceipt(
+              journal.jobId,
+              journal.finalizationId,
+              receipt,
+            );
+            if (!updated) {
+              throw new Error(
+                `Job ${jobId}: finalization journal changed while storing memory receipt`,
+              );
+            }
+            journal = updated;
+          }
+        }
+        if (receipt) {
+          await enqueueMemoryRetention({
+            jobId: journal.jobId,
+            userId: journal.userId,
+            operationId: receipt.operationId,
+            acceptedAt: receipt.acceptedAt,
+          });
+        }
       } catch (error) {
         // Chat completion remains available when the optional memory service
         // is unhealthy. The failed attempt is observable and is not retried in

@@ -9,14 +9,17 @@ backend and frontend.
 
 For every authenticated user, Daedalus:
 
-1. recalls a bounded set of relevant facts before an interactive turn;
-2. labels recalled facts as untrusted context, never as instructions;
-3. lets the current user message override conflicting memory;
-4. selectively extracts durable facts from the latest user text after a
-   successful response;
-5. does not automatically retain assistant output, tool traces, autonomy runs,
-   or internal control messages; and
-6. provides a Memory Center to search, edit, forget, inspect source text, delete
+1. initializes missing bank defaults and three auto-refreshing Knowledge Pages;
+2. reflects once per conversation, searches relevant pages, and uses bounded raw
+   recall only for precise history lookups;
+3. labels recalled memory as untrusted context, never as instructions;
+4. lets the current user message override conflicting memory;
+5. selectively extracts durable facts and experience from a sanitized,
+   role-labelled user request and final answer after a successful response;
+6. does not automatically retain tool traces, autonomy runs, or internal control
+   messages; and
+7. provides a Memory Center to inspect Knowledge Pages, retention health, search
+   advanced facts, edit, forget, inspect source text, delete
    a source, or clear the authenticated user's memory.
 
 Automatic memory is enabled for all authenticated users after promotion. There
@@ -56,7 +59,7 @@ backend Secret and is never passed through Helm values.
 | `disabled`  | No durable-memory reads or writes                                           | Hindsight not checked                       |
 | `hindsight` | Recall, explicit writes, profile imports, user-turn retention, and curation | Hindsight failure makes the backend unready |
 
-Automatic recall and automatic retention fail open for chat availability.
+Automatic reflection, page lookup, recall, and retention fail open for chat availability.
 Explicit writes fail if Hindsight fails. Redis is not registered as a NAT memory
 provider and no `nat:memory:*` records are read or written. Redis remains an
 application-state store for sessions, history, attachments, OAuth, autonomy,
@@ -74,16 +77,20 @@ sources and extracted facts appear as Hindsight processes the accepted batch.
 authenticated browser
   -> Next.js internal-auth proxy
   -> Daedalus backend derives opaque user bank
-     -> before interactive turn: Hindsight recall (8 facts, 800-token request)
+     -> first use: reconcile missing bank defaults and seed three Knowledge Pages
+     -> conversation start: bounded Hindsight reflection cached for seven days
+     -> each turn: page search, with 600-token recall for precise past lookups
      -> Responses agent receives [MEMORY_CONTEXT] immediately before user text
-     -> successful finalization retains latest user text once
-     -> Hindsight selectively extracts facts and keeps the raw source document
+     -> successful finalization retains sanitized user/final-answer roles once
+     -> Redis-backed polling records completed, zero-fact, or failed extraction
 ```
 
-The finalization journal records `memoryRetentionAttemptedAt`. The deterministic
-job ID becomes the Hindsight operation ID, so a crash or retry cannot enqueue a
-second extraction for the same completed turn. Retention accepts at most 12,000
-characters and rejects Daedalus internal control prefixes.
+The finalization journal records the accepted operation receipt and
+`memoryRetentionAttemptedAt`. The deterministic job ID becomes the Hindsight
+operation ID, so a crash or retry cannot enqueue a second extraction. A failed
+operation is retried once; a completed zero-fact turn is never retried. Retention
+accepts at most 12,000 characters and removes internal control blocks, embedded
+data, internal references, and raw tool traces.
 
 ## Rollout
 

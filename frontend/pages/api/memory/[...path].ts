@@ -52,6 +52,15 @@ export function resolveMemoryRoute(path: string[]): MemoryRoute | null {
       backendPath: `/v1/memory-sources/${encodeURIComponent(path[1])}`,
     };
   }
+  if (path.length === 1 && path[0] === 'pages') {
+    return { methods: ['GET'], backendPath: '/v1/memory-pages' };
+  }
+  if (path.length === 2 && path[0] === 'pages' && RESOURCE_ID.test(path[1])) {
+    return {
+      methods: ['GET'],
+      backendPath: `/v1/memory-pages/${encodeURIComponent(path[1])}`,
+    };
+  }
   return null;
 }
 

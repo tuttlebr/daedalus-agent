@@ -205,3 +205,74 @@ def test_client_errors_do_not_echo_upstream_body():
         run(client.list_documents(user_id="alice"))
     assert "secret user content" not in str(raised.value)
     assert "500" in str(raised.value)
+
+
+def test_bootstrap_pages_reflect_and_operation_routes_remain_bank_bound():
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        path = request.url.path
+        if path.endswith("/config") and request.method == "GET":
+            return httpx.Response(200, json={"bank_id": "leak", "overrides": {}})
+        if path.endswith("/config") and request.method == "PATCH":
+            return httpx.Response(200, json={"bank_id": "leak", "overrides": {}})
+        if path.endswith("/knowledge-base/tree"):
+            return httpx.Response(200, json={"roots": []})
+        if path.endswith("/knowledge-base/pages"):
+            return httpx.Response(
+                201, json={"page_id": "kp-1", "operation_id": "op-page"}
+            )
+        if path.endswith("/knowledge-base/search"):
+            return httpx.Response(200, json={"results": [{"id": "kp-1"}], "total": 1})
+        if path.endswith("/knowledge-base/pages/kp-1"):
+            return httpx.Response(200, json={"id": "kp-1", "body": "Profile"})
+        if path.endswith("/knowledge-base/nodes/kp-1") and request.method == "DELETE":
+            return httpx.Response(200, json={"deleted": True})
+        if path.endswith("/reflect"):
+            return httpx.Response(
+                200, json={"text": "A bounded brief", "bank_id": "leak"}
+            )
+        if path.endswith("/operations/op-1/retry"):
+            return httpx.Response(200, json={"success": True})
+        if path.endswith("/operations/op-1"):
+            return httpx.Response(
+                200,
+                json={
+                    "operation_id": "op-1",
+                    "status": "completed",
+                    "result_metadata": {"unit_ids_count": 1},
+                    "bank_id": "leak",
+                },
+            )
+        raise AssertionError(f"unexpected request {request.method} {path}")
+
+    client = HindsightClient(
+        base_url="http://hindsight.test",
+        api_key="secret-api-key",
+        transport=httpx.MockTransport(handler),
+    )
+
+    async def exercise():
+        await client.get_bank_config(user_id="alice")
+        await client.update_bank_config(
+            user_id="alice", updates={"enable_observations": True}
+        )
+        await client.knowledge_tree(user_id="alice")
+        await client.create_knowledge_page(
+            user_id="alice", name="Profile", source_query="Summarize"
+        )
+        await client.search_knowledge_pages(user_id="alice", query="profile")
+        await client.get_knowledge_page(user_id="alice", page_id="kp-1")
+        await client.delete_knowledge_node(user_id="alice", node_id="kp-1")
+        brief = await client.reflect(user_id="alice", query="Summarize memory")
+        operation = await client.get_operation(user_id="alice", operation_id="op-1")
+        await client.retry_operation(user_id="alice", operation_id="op-1")
+        return brief, operation
+
+    brief, operation = run(exercise())
+    assert brief == "A bounded brief"
+    assert operation["result_metadata"]["unit_ids_count"] == 1
+    assert "bank_id" not in operation
+    assert all(derive_bank_id("alice") in request.url.path for request in requests)
+    assert all("alice" not in request.url.path for request in requests)
