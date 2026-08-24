@@ -175,13 +175,13 @@ spec:
             - port: "6006"
               protocol: TCP
 
-    # Unifi Network MCP Server
+    # UniFi Network MCP Server
     - toEndpoints:
         - matchLabels:
-            io.kubernetes.pod.namespace: unifi-network-mcp-server
+            io.kubernetes.pod.namespace: {{ $.Values.contextServices.unifiMcp.namespace | quote }}
       toPorts:
         - ports:
-            - port: "8080"
+            - port: {{ $.Values.contextServices.unifiMcp.port | quote }}
               protocol: TCP
 
     {{- if $.Values.retrieval.enabled }}
@@ -227,19 +227,19 @@ spec:
     # NV-Ingest document processing
     - toEndpoints:
         - matchLabels:
-            io.kubernetes.pod.namespace: nv-ingest
+            io.kubernetes.pod.namespace: {{ $.Values.contextServices.nvIngest.namespace | quote }}
       toPorts:
         - ports:
-            - port: "7670"
+            - port: {{ $.Values.contextServices.nvIngest.port | quote }}
               protocol: TCP
 
     # K8s MCP server
     - toEndpoints:
         - matchLabels:
-            io.kubernetes.pod.namespace: k8s-mcp-server
+            io.kubernetes.pod.namespace: {{ $.Values.contextServices.kubernetesMcp.namespace | quote }}
       toPorts:
         - ports:
-            - port: "8080"
+            - port: {{ $.Values.contextServices.kubernetesMcp.port | quote }}
               protocol: TCP
 
     {{- with $.Values.backend.networkPolicy.extraEgressNamespaces }}

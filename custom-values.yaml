@@ -45,13 +45,13 @@ images:
 # object-store credential into the general frontend Secret.
 documentObjectStorage:
   enabled: true
-  endpoint: http://milvus-minio.milvus.svc.cluster.local:9000
+  endpoint: http://milvus-minio.daedalus.svc.cluster.local:9000
   bucket: nv-ingest
   region: us-east-1
   prefix: daedalus-documents
   expirySeconds: 604800
   networkPolicy:
-    namespace: milvus
+    namespace: daedalus
     port: 9000
   auth:
     existingSecret: daedalus-document-objects
@@ -60,7 +60,7 @@ documentObjectStorage:
     accessKeyKey: DOCUMENT_OBJECT_ACCESS_KEY
     secretKeyKey: DOCUMENT_OBJECT_SECRET_KEY
 
-# deploy.sh mirrors the authoritative credentials from the milvus namespace
+# deploy.sh normalizes the authoritative credentials from the daedalus namespace
 # into these namespace-local Secrets. Secret payloads never enter Helm values.
 retrieval:
   enabled: true
@@ -69,12 +69,12 @@ retrieval:
     minio: ''
     documentObject: ''
   milvus:
-    endpoint: http://milvus.milvus.svc.cluster.local:19530
+    endpoint: http://milvus.daedalus.svc.cluster.local:19530
     database: default
     metadataTimeoutSeconds: 3
     searchTimeoutSeconds: 30
     networkPolicy:
-      namespace: milvus
+      namespace: daedalus
       port: 19530
     auth:
       existingSecret: daedalus-milvus-auth
@@ -82,10 +82,10 @@ retrieval:
       passwordKey: MILVUS_PASSWORD
       tokenKey: ''
   minio:
-    endpoint: http://milvus-minio.milvus.svc.cluster.local:9000
+    endpoint: http://milvus-minio.daedalus.svc.cluster.local:9000
     bucket: nv-ingest
     networkPolicy:
-      namespace: milvus
+      namespace: daedalus
       port: 9000
     auth:
       existingSecret: daedalus-minio-auth
@@ -159,20 +159,11 @@ backend:
         ports:
           - port: 8080
             protocol: TCP
-      - name: daedalus-retriever
-        ports:
-          # Cilium enforces the post-Service destination port. The retriever
-          # Services expose 8000, but forward to the adapter containers on 8080.
-          - port: 8080
-            protocol: TCP
-      - name: milvus
-        ports:
-          # The pdf-server Service exposes 80, but its EndpointSlice forwards
-          # backend traffic to the nginx container on 8080.
-          - port: 8080
-            protocol: TCP
       - name: daedalus
         ports:
+          # Retriever and PDF Services forward to adapter/nginx port 8080.
+          - port: 8080
+            protocol: TCP
           - port: 4000
             protocol: TCP
     cilium:

@@ -356,8 +356,8 @@ class TestConfig:
         config = _default_config()
 
         assert config.redis_url == "redis://daedalus-redis.daedalus.svc.cluster.local"
-        assert config.nv_ingest_host == "nv-ingest.nv-ingest.svc.cluster.local"
-        assert config.milvus_uri == "http://milvus.milvus.svc.cluster.local:19530"
+        assert config.nv_ingest_host == "nv-ingest.daedalus.svc.cluster.local"
+        assert config.milvus_uri == "http://milvus.daedalus.svc.cluster.local:19530"
         assert config.milvus_username is None
         assert config.milvus_password is None
         assert config.milvus_token is None

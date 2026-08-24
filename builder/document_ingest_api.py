@@ -112,17 +112,17 @@ def _default_config() -> NvIngestFunctionConfig:
     return NvIngestFunctionConfig(
         redis_url=_redis_url(),
         nv_ingest_host=os.getenv(
-            "NV_INGEST_HOST", "nv-ingest.nv-ingest.svc.cluster.local"
+            "NV_INGEST_HOST", "nv-ingest.daedalus.svc.cluster.local"
         ),
         nv_ingest_port=_env_int("NV_INGEST_PORT", 7670),
         milvus_uri=os.getenv(
-            "MILVUS_URI", "http://milvus.milvus.svc.cluster.local:19530"
+            "MILVUS_URI", "http://milvus.daedalus.svc.cluster.local:19530"
         ),
         milvus_username=os.getenv("MILVUS_USERNAME") or os.getenv("MILVUS_USER"),
         milvus_password=os.getenv("MILVUS_PASSWORD"),
         milvus_token=os.getenv("MILVUS_TOKEN"),
         minio_endpoint=os.getenv(
-            "MINIO_ENDPOINT", "milvus-minio.milvus.svc.cluster.local:9000"
+            "MINIO_ENDPOINT", "milvus-minio.daedalus.svc.cluster.local:9000"
         ),
         minio_access_key=os.getenv("MINIO_ACCESS_KEY", ""),
         minio_secret_key=os.getenv("MINIO_SECRET_KEY", ""),

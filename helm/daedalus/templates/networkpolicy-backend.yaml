@@ -163,30 +163,30 @@ spec:
         - protocol: TCP
           port: {{ $documentObjectExternal.port | default 443 }}
     {{- end }}
-    # Allow access to NV-Ingest (nv-ingest namespace)
+    # Allow access to NV-Ingest.
     - to:
         - namespaceSelector:
             matchLabels:
-              kubernetes.io/metadata.name: nv-ingest
+              kubernetes.io/metadata.name: {{ .Values.contextServices.nvIngest.namespace | quote }}
       ports:
         - protocol: TCP
-          port: 7670
-    # Allow access to K8s MCP server (k8s-mcp-server namespace)
+          port: {{ .Values.contextServices.nvIngest.port }}
+    # Allow access to K8s MCP server.
     - to:
         - namespaceSelector:
             matchLabels:
-              kubernetes.io/metadata.name: k8s-mcp-server
+              kubernetes.io/metadata.name: {{ .Values.contextServices.kubernetesMcp.namespace | quote }}
       ports:
         - protocol: TCP
-          port: 8080
-    # Allow access to Unifi Network MCP Server (unifi-network-mcp-server namespace)
+          port: {{ .Values.contextServices.kubernetesMcp.port }}
+    # Allow access to UniFi Network MCP Server.
     - to:
         - namespaceSelector:
             matchLabels:
-              kubernetes.io/metadata.name: unifi-network-mcp-server
+              kubernetes.io/metadata.name: {{ .Values.contextServices.unifiMcp.namespace | quote }}
       ports:
         - protocol: TCP
-          port: 8080
+          port: {{ .Values.contextServices.unifiMcp.port }}
 
     {{- range .Values.backend.networkPolicy.extraEgressNamespaces }}
     # Additional namespace egress: {{ .name }}

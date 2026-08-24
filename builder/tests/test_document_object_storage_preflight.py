@@ -22,7 +22,7 @@ def rendered_frontend(document_storage: bool = True) -> str:
     if document_storage:
         document_env = """
         - name: DOCUMENT_OBJECT_ENDPOINT
-          value: "http://milvus-minio.milvus.svc.cluster.local:9000"
+          value: "http://milvus-minio.daedalus.svc.cluster.local:9000"
         - name: DOCUMENT_OBJECT_BUCKET
           value: "nv-ingest"
         - name: DOCUMENT_OBJECT_REGION
@@ -69,7 +69,7 @@ def test_extracts_values_secret_refs_and_network_policy_labels():
     config = check_storage.config_from_manifest(rendered_frontend())
 
     assert config is not None
-    assert config.endpoint == "http://milvus-minio.milvus.svc.cluster.local:9000"
+    assert config.endpoint == "http://milvus-minio.daedalus.svc.cluster.local:9000"
     assert config.bucket == "nv-ingest"
     assert config.region == "us-east-1"
     assert config.prefix == "daedalus-documents"

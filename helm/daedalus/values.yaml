@@ -58,7 +58,7 @@ documentObjectStorage:
     # rules strictly scope frontend egress. Backend rules are additive when its
     # general public webscrape egress is enabled; see the chart README.
     mode: inCluster
-    namespace: milvus
+    namespace: daedalus
     port: 9000
     external:
       port: 443
@@ -85,12 +85,12 @@ retrieval:
     minio: ''
     documentObject: ''
   milvus:
-    endpoint: http://milvus.milvus.svc.cluster.local:19530
+    endpoint: http://milvus.daedalus.svc.cluster.local:19530
     database: default
     metadataTimeoutSeconds: 3
     searchTimeoutSeconds: 30
     networkPolicy:
-      namespace: milvus
+      namespace: daedalus
       port: 19530
     auth:
       # Empty defaults to <release>-milvus-auth.
@@ -100,10 +100,10 @@ retrieval:
       # Set this instead of usernameKey/passwordKey for token authentication.
       tokenKey: ''
   minio:
-    endpoint: http://milvus-minio.milvus.svc.cluster.local:9000
+    endpoint: http://milvus-minio.daedalus.svc.cluster.local:9000
     bucket: nv-ingest
     networkPolicy:
-      namespace: milvus
+      namespace: daedalus
       port: 9000
     auth:
       # Empty defaults to <release>-minio-auth.
@@ -115,6 +115,13 @@ retrieval:
     # required returns HTTP 503; disabled skips the dependency probe.
     mode: degraded
     requiredCollections: []
+
+# Same-namespace contextual aids consumed through backend configuration.
+# These values scope network policy only; URLs remain in the backend Secret.
+contextServices:
+  nvIngest: { namespace: daedalus, port: 7670 }
+  kubernetesMcp: { namespace: daedalus, port: 8080 }
+  unifiMcp: { namespace: daedalus, port: 8080 }
 
 backend:
   # Default backend configuration

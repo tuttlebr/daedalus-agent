@@ -241,13 +241,13 @@ chat from service.
 
 For the repository's production values, the shared runtime contract is
 database `default`, object bucket `nv-ingest`, and the `milvus`, MinIO, and
-NV-Ingest Services in their respective `milvus` and `nv-ingest` namespaces.
-The rendered NetworkPolicies include those namespace/port paths. A direct Helm
+NV-Ingest Services in the shared `daedalus` namespace. The rendered
+NetworkPolicies include those namespace/port paths. A direct Helm
 install must preserve the same endpoint, database, bucket, credential, and
 embedding/schema contract used by the collection-population jobs.
 
-The repo-level `deploy.sh` copies the default authoritative Secrets from the
-`milvus` namespace into release-local Secrets without placing credential
+The repo-level `deploy.sh` normalizes the default authoritative Secrets from the
+`daedalus` namespace into release-local Secrets without placing credential
 values in Helm release metadata. If Helm is run directly, provision those
 namespace-local Secrets through an external Secret controller before rollout.
 After a deploy-managed copy, `retrieval.secretResourceVersions.*` contains only

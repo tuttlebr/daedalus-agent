@@ -21,7 +21,7 @@ router = APIRouter(prefix="/v1/metadata", tags=["metadata"])
 
 def _milvus_kwargs() -> dict[str, Any]:
     kwargs: dict[str, Any] = {
-        "uri": os.getenv("MILVUS_URI", "http://milvus.milvus.svc.cluster.local:19530")
+        "uri": os.getenv("MILVUS_URI", "http://milvus.daedalus.svc.cluster.local:19530")
     }
     token = (os.getenv("MILVUS_TOKEN") or "").strip()
     username = (os.getenv("MILVUS_USERNAME") or os.getenv("MILVUS_USER") or "").strip()

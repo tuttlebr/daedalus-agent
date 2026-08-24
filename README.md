@@ -189,8 +189,8 @@ container port after Service translation (for example, the retriever Services
 expose `8000` but their adapter pods receive traffic on `8080`). The defaults
 match `daedalus-context`:
 
-- `milvus/milvus-root-credentials`, key `password`, username `root`
-- `milvus/milvus-minio-credentials`, keys `accesskey` and `secretkey`
+- `daedalus/milvus-root-credentials`, key `password`, username `root`
+- `daedalus/milvus-minio-credentials`, keys `accesskey` and `secretkey`
 
 Override the source contract by exporting `MILVUS_AUTH_SOURCE_NAMESPACE`,
 `MILVUS_AUTH_SOURCE_SECRET`, `MILVUS_AUTH_SOURCE_PASSWORD_KEY`,
@@ -210,9 +210,9 @@ bytes and hashes are not stored in Helm release metadata.
 
 The production RAG contract uses Milvus database `default`, document bucket
 `nv-ingest`, and the in-cluster endpoints
-`milvus.milvus.svc.cluster.local:19530`,
-`milvus-minio.milvus.svc.cluster.local:9000`, and
-`nv-ingest.nv-ingest.svc.cluster.local:7670`. Keep the query embedding model,
+`milvus.daedalus.svc.cluster.local:19530`,
+`milvus-minio.daedalus.svc.cluster.local:9000`, and
+`nv-ingest.daedalus.svc.cluster.local:7670`. Keep the query embedding model,
 vector dimension, vector/content field names, and distance metric compatible
 with the URL-ingest writer; changing only the query side can leave a healthy
 deployment that cannot search an existing collection correctly.
