@@ -37,7 +37,7 @@ _MEMORY_DEFENSE = {
     "rules": [
         {
             "on": "prompt_injection",
-            "action": "quarantine",
+            "action": "block",
             "min_severity": "high",
         },
         {

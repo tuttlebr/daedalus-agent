@@ -59,6 +59,18 @@ def test_bootstrap_applies_only_missing_overrides_and_missing_pages(monkeypatch)
     assert all("tags" not in item for item in client.created_pages)
 
 
+def test_memory_defense_uses_only_hindsight_supported_actions():
+    actions = {rule["action"] for rule in context._MEMORY_DEFENSE["rules"]}
+
+    assert actions <= {"allow", "block", "redact"}
+    prompt_injection = next(
+        rule
+        for rule in context._MEMORY_DEFENSE["rules"]
+        if rule["on"] == "prompt_injection"
+    )
+    assert prompt_injection["action"] == "block"
+
+
 class FakeContextClient:
     def __init__(self):
         self.recall_queries = []
