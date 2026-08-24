@@ -116,7 +116,7 @@ class HindsightClient:
             (
                 base_url
                 or os.getenv("HINDSIGHT_API_URL")
-                or "http://hindsight-api.daedalus-hindsight.svc.cluster.local:8888"
+                or "http://hindsight-api.daedalus.svc.cluster.local:8888"
             )
             .strip()
             .rstrip("/")

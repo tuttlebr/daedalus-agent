@@ -1,9 +1,9 @@
 # Hindsight memory integration and rollout
 
 This runbook is the engineering contract for Daedalus durable memory. Hindsight
-is deployed separately in namespace `daedalus-hindsight`; Daedalus keeps user
-identity, recall injection, retention timing, and user controls in the Agent
-backend and frontend.
+is deployed as release `hindsight` in the shared `daedalus` namespace; Daedalus
+keeps user identity, recall injection, retention timing, and user controls in
+the Agent backend and frontend.
 
 ## User-visible behavior
 
@@ -41,7 +41,7 @@ fields from Hindsight responses.
 The required runtime values are:
 
 ```dotenv
-HINDSIGHT_API_URL=http://hindsight-api.daedalus-hindsight.svc.cluster.local:8888
+HINDSIGHT_API_URL=http://hindsight-api.daedalus.svc.cluster.local:8888
 HINDSIGHT_API_KEY=<same value as HINDSIGHT_API_TENANT_API_KEY>
 HINDSIGHT_API_TIMEOUT_SECONDS=20
 DAEDALUS_MEMORY_MODE=hindsight
@@ -94,9 +94,10 @@ data, internal references, and raw tool traces.
 
 ## Rollout
 
-1. In `daedalus-hindsight`, configure the database password, LLM credential,
-   tenant API key, and control-plane access key. Run `make validate`, then the
-   separately approved `make deploy`.
+1. In the adjacent `daedalus-hindsight` repository, configure the database
+   password, LLM credential, tenant API key, and control-plane access key. Run
+   `make validate`, then deploy its `hindsight` release into namespace
+   `daedalus` with the separately approved `make deploy`.
 2. Put the same tenant key in the Daedalus `.env`, keep
    `DAEDALUS_MEMORY_MODE=hindsight`, and deploy the Agent.
 3. Verify `GET /health/ready` reports `memory.state=hindsight` and

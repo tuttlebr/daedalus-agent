@@ -1073,9 +1073,7 @@ def test_hindsight_is_the_only_durable_memory_backend():
     assert "hindsight_mcp_server" not in config["workflow"].get("nat_tools", [])
     overrides = custom["backend"]["default"]["env"]["overrides"]
     assert overrides["DAEDALUS_MEMORY_MODE"] == "hindsight"
-    assert overrides["HINDSIGHT_API_URL"].endswith(
-        ".daedalus-hindsight.svc.cluster.local:8888"
-    )
+    assert overrides["HINDSIGHT_API_URL"].endswith(".daedalus.svc.cluster.local:8888")
     assert "HINDSIGHT_API_KEY=" in env_template
     assert "DAEDALUS_MEMORY_MODE=hindsight" in env_template
     assert "backend.default.env.overrides.DAEDALUS_MEMORY_MODE" in deploy_script

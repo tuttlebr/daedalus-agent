@@ -129,7 +129,7 @@ backend:
       # Explicit env overrides applied in the pod, useful to fix bad values from secrets
       overrides:
         SSL_CERT_FILE: /etc/ssl/certs/ca-certificates.crt
-        HINDSIGHT_API_URL: http://hindsight-api.daedalus-hindsight.svc.cluster.local:8888
+        HINDSIGHT_API_URL: http://hindsight-api.daedalus.svc.cluster.local:8888
         # Hindsight is the sole durable-memory backend. Redis remains available
         # for application state such as sessions, history, and coordination.
         DAEDALUS_MEMORY_MODE: hindsight
@@ -151,10 +151,6 @@ backend:
   networkPolicy:
     enabled: true # Set to true to restrict backend access to only frontend and nginx pods
     extraEgressNamespaces:
-      - name: daedalus-hindsight
-        ports:
-          - port: 8888
-            protocol: TCP
       - name: llm-sandbox
         ports:
           - port: 8080
@@ -165,6 +161,8 @@ backend:
           - port: 8080
             protocol: TCP
           - port: 4000
+            protocol: TCP
+          - port: 8888
             protocol: TCP
     cilium:
       enabled: true

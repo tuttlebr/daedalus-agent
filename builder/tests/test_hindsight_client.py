@@ -64,6 +64,14 @@ def test_memory_mode_defaults_to_hindsight(monkeypatch):
     assert memory_mode() == "hindsight"
 
 
+def test_client_defaults_to_shared_daedalus_service(monkeypatch):
+    monkeypatch.delenv("HINDSIGHT_API_URL", raising=False)
+
+    client = HindsightClient(api_key="secret-api-key")
+
+    assert client._base_url == "http://hindsight-api.daedalus.svc.cluster.local:8888"
+
+
 def test_retain_uses_derived_bank_bearer_auth_and_idempotent_operation():
     requests: list[httpx.Request] = []
 
