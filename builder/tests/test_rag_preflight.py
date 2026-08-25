@@ -126,16 +126,17 @@ def test_chart_contract_matches_daedalus_context_services_and_secret_keys():
     assert values["minio"]["networkPolicy"] == {"namespace": "daedalus", "port": 9000}
     assert custom["milvus"]["auth"]["existingSecret"] == "daedalus-milvus-auth"
     assert custom["minio"]["auth"]["existingSecret"] == "daedalus-minio-auth"
-    retriever_egress = next(
+    daedalus_egress = next(
         entry
         for entry in yaml.safe_load(
             (ROOT / "custom-values.yaml").read_text(encoding="utf-8")
         )["backend"]["networkPolicy"]["extraEgressNamespaces"]
         if entry["name"] == "daedalus"
     )
-    assert retriever_egress["ports"] == [
+    assert daedalus_egress["ports"] == [
         {"port": 8080, "protocol": "TCP"},
         {"port": 4000, "protocol": "TCP"},
+        {"port": 8888, "protocol": "TCP"},
     ]
     assert "MILVUS_SEARCH_TIMEOUT_SECONDS" in deployment
     assert backend_config["functions"]["domain_retriever_tool"]["search_timeout"] == (
