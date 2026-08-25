@@ -1196,6 +1196,16 @@ def test_backend_network_policy_uses_explicit_namespace_access():
     assert "{{- if not .Values.backend.networkPolicy.cilium.enabled }}" in template
 
 
+def test_cilium_frontend_policies_allow_backend_service_and_endpoint_paths():
+    template = CILIUM_FRONTEND_TEMPLATE.read_text(encoding="utf-8")
+
+    # Both the request-serving frontend and durable stream worker use the
+    # backend ClusterIP for auxiliary APIs, while interactive streams may pin a
+    # pod endpoint. Cilium needs both identities explicitly.
+    assert template.count('serviceName: {{ printf "%s-backend-default"') == 2
+    assert template.count("app.kubernetes.io/component: backend-default") == 2
+
+
 def test_document_object_policies_share_in_cluster_and_external_settings():
     standard = (
         NETWORK_POLICY_BACKEND_TEMPLATE.read_text(encoding="utf-8"),

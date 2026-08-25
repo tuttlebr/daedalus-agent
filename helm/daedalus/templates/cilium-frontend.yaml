@@ -67,6 +67,14 @@ spec:
 
     # Backend default
     {{- if .Values.backend.default.enabled }}
+    - toServices:
+        - k8sService:
+            serviceName: {{ printf "%s-backend-default" (include "daedalus.fullname" .) | quote }}
+            namespace: {{ .Release.Namespace | quote }}
+      toPorts:
+        - ports:
+            - port: {{ .Values.backend.default.port | quote }}
+              protocol: TCP
     - toEndpoints:
         - matchLabels:
             app.kubernetes.io/name: {{ include "daedalus.name" . }}
@@ -165,6 +173,14 @@ spec:
             dns:
               - matchPattern: "*"
     {{- if .Values.backend.default.enabled }}
+    - toServices:
+        - k8sService:
+            serviceName: {{ printf "%s-backend-default" (include "daedalus.fullname" .) | quote }}
+            namespace: {{ .Release.Namespace | quote }}
+      toPorts:
+        - ports:
+            - port: {{ .Values.backend.default.port | quote }}
+              protocol: TCP
     - toEndpoints:
         - matchLabels:
             app.kubernetes.io/name: {{ include "daedalus.name" . }}

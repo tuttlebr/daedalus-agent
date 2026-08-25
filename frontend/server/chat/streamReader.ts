@@ -593,6 +593,22 @@ export async function startBackgroundStreamReader(
             }
             await flushStreamingStatus();
           }
+
+          // The Responses adapter emits a Daedalus-only terminal marker when
+          // the provider completes the final-answer item, before NAT tracing
+          // and exporter teardown. Other backends use the standard OpenAI
+          // finish_reason terminal. Neither path needs to wait for [DONE] or
+          // transport EOF while teardown keeps the connection open.
+          const finishReason = parsed?.choices?.[0]?.finish_reason;
+          const daedalusTerminal =
+            parsed?.choices?.[0]?.daedalus_terminal === true;
+          if (
+            daedalusTerminal ||
+            (typeof finishReason === 'string' && finishReason.length > 0)
+          ) {
+            streamDone = true;
+            break;
+          }
         }
       }
 

@@ -1912,6 +1912,62 @@ describe('chat/async streaming + finalize (characterization)', () => {
     expect(status?.fullResponse).toBe('HANDOFF_OK');
   });
 
+  it.each([
+    {
+      terminalKind: 'Daedalus terminal marker',
+      terminalFrame:
+        'data: {"choices":[{"delta":{},"finish_reason":null,"daedalus_terminal":true}]}\n\n',
+    },
+    {
+      terminalKind: 'standard finish_reason',
+      terminalFrame:
+        'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n\n',
+    },
+  ])(
+    'finalizes on the $terminalKind without waiting for [DONE] or transport EOF',
+    async ({ terminalFrame }) => {
+      const encoder = new TextEncoder();
+      const read = vi
+        .fn()
+        .mockResolvedValueOnce({
+          done: false,
+          value: encoder.encode(
+            'data: {"choices":[{"delta":{"content":"Ready."}}]}\n\n',
+          ),
+        })
+        .mockResolvedValueOnce({
+          done: false,
+          value: encoder.encode(terminalFrame),
+        })
+        .mockImplementation(() => new Promise<never>(() => {}));
+      const cancel = vi.fn().mockResolvedValue(undefined);
+
+      const { statusKey, store } = await runStreamTurn([], {
+        fetchImpl: async () => ({
+          ok: true,
+          status: 200,
+          text: async () => '',
+          body: {
+            getReader: () => ({
+              read,
+              cancel,
+              releaseLock: vi.fn(),
+            }),
+          },
+        }),
+      });
+
+      expect(read).toHaveBeenCalledTimes(2);
+      expect(cancel).toHaveBeenCalledTimes(1);
+      expect(store.get(statusKey)).toEqual(
+        expect.objectContaining({
+          status: 'completed',
+          fullResponse: 'Ready.',
+        }),
+      );
+    },
+  );
+
   it('parses intermediate_data frames, persists steps, and publishes chat_intermediate_step', async () => {
     const { jobId, statusKey, store } = await runStreamTurn([
       'intermediate_data: {"name":"Function Start: <search>","id":"s1","parent_id":"root","payload":"the query"}\n',
@@ -2524,6 +2580,66 @@ describe('chat/async streaming + finalize (characterization)', () => {
 
     expect(clearStreamingState).toHaveBeenCalledWith('testuser', 'conv-1');
     expect(store.get(statusKey)?.status).toBe('completed');
+  });
+
+  it('publishes UI completion before optional memory retention resolves', async () => {
+    const jobId = 'slow-memory-retention';
+    const statusKey = `daedalus:async-job-status:${jobId}`;
+    const store = wireRedisStore({
+      [statusKey]: {
+        jobId,
+        status: 'streaming',
+        createdAt: 1,
+        updatedAt: 2,
+        conversationId: 'conv-slow-memory',
+      },
+    });
+    let resolveRetention!: (response: any) => void;
+    mocks.fetchWithTimeout.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveRetention = resolve;
+        }),
+    );
+
+    const finalization = finalizeSuccess(
+      jobId,
+      {
+        jobId,
+        executionMode: 'stream',
+        natBaseUrl: 'http://10.0.2.61:8000',
+        messages: [{ role: 'user', content: 'remember this turn' }],
+        additionalProps: {},
+        userId: 'testuser',
+        conversationId: 'conv-slow-memory',
+        assistantMessageId: 'assistant-slow-memory',
+      },
+      'The response is ready.',
+    );
+
+    await drainUntil(() => mocks.fetchWithTimeout.mock.calls.length === 1);
+
+    expect(eventsOfType('chat_complete')).toHaveLength(1);
+    expect(clearStreamingState).toHaveBeenCalledWith(
+      'testuser',
+      'conv-slow-memory',
+    );
+    const pendingJournal = JSON.parse(
+      store.get(`daedalus:async-job-finalization:${jobId}`),
+    );
+    expect(pendingJournal.eventsPublishedAt).toEqual(expect.any(Number));
+    expect(pendingJournal.memoryRetentionAttemptedAt).toBeUndefined();
+
+    resolveRetention({ ok: false, status: 503 });
+    await finalization;
+
+    const completedJournal = JSON.parse(
+      store.get(`daedalus:async-job-finalization:${jobId}`),
+    );
+    expect(completedJournal.memoryRetentionAttemptedAt).toEqual(
+      expect.any(Number),
+    );
+    expect(completedJournal.state).toBe('completed');
   });
 
   it('deduplicates repeated success finalizers before conversation and event side effects', async () => {

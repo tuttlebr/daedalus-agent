@@ -92,6 +92,37 @@ def _content_text(content: object) -> str:
     return "".join(parts)
 
 
+def _terminal_stream_chunk(chunk_id: str, model_name: str) -> ChatResponseChunk:
+    """Signal Daedalus completion before tracing/exporter teardown begins.
+
+    NAT owns the eventual OpenAI ``finish_reason`` chunk. Keep that standard
+    terminal unique for direct API clients while giving Daedalus' stream worker
+    an explicit early-completion extension it can act on.
+    """
+    return ChatResponseChunk(
+        id=chunk_id,
+        choices=[
+            ChatResponseChunkChoice(
+                index=0,
+                delta=ChoiceDelta(),
+                finish_reason=None,
+                daedalus_terminal=True,
+            )
+        ],
+        created=datetime.datetime.now(datetime.UTC),
+        model=model_name,
+        object="chat.completion.chunk",
+    )
+
+
+def _has_final_answer_phase(content: object) -> bool:
+    """Identify the Responses message item that owns the user-facing answer."""
+    return isinstance(content, list) and any(
+        isinstance(block, dict) and block.get("phase") == "final_answer"
+        for block in content
+    )
+
+
 def _bind_responses_llm(
     llm,
     *,
@@ -251,6 +282,7 @@ async def _responses_api_agent_workflow(
         chat_request_or_message: ChatRequestOrMessage,
     ) -> AsyncGenerator[ChatResponseChunk]:
         chunk_id = str(uuid.uuid4())
+        final_answer_started = False
         try:
             async for msg, metadata in graph.astream(
                 await _initial_state(chat_request_or_message),
@@ -261,6 +293,9 @@ async def _responses_api_agent_workflow(
                     continue
                 if metadata.get("langgraph_node") != "agent":
                     continue
+
+                if _has_final_answer_phase(msg.content):
+                    final_answer_started = True
 
                 text = _content_text(msg.content)
                 if text:
@@ -304,10 +339,27 @@ async def _responses_api_agent_workflow(
                         model=getattr(llm, "model_name", "unknown-model"),
                         object="chat.completion.chunk",
                     )
+
+                # LangChain emits chunk_position="last" for Responses
+                # response.completed. Only treat it as user-terminal after the
+                # final_answer message item has started; tool-call iterations
+                # also have a last chunk and must continue through the graph.
+                if getattr(msg, "chunk_position", None) == "last":
+                    if final_answer_started:
+                        yield _terminal_stream_chunk(
+                            chunk_id,
+                            getattr(llm, "model_name", "unknown-model"),
+                        )
+                        return
+                    final_answer_started = False
         except GraphRecursionError:
             yield ChatResponseChunk.create_streaming_chunk(
                 _iteration_limit_message(),
                 id_=chunk_id,
+            )
+            yield _terminal_stream_chunk(
+                chunk_id,
+                getattr(llm, "model_name", "unknown-model"),
             )
 
     yield FunctionInfo.create(
