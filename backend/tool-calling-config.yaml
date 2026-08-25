@@ -160,7 +160,7 @@ function_groups:
         approval_policy: read_only
       get_users_posts:
         approval_policy: read_only
-    tool_call_timeout: 60
+    tool_call_timeout: 120
     auth_flow_timeout: 30
     reconnect_enabled: true
     reconnect_max_attempts: 3
@@ -206,7 +206,7 @@ function_groups:
         approval_policy: read_only
       search_repositories:
         approval_policy: read_only
-    tool_call_timeout: 60
+    tool_call_timeout: 120
     auth_flow_timeout: 30
     reconnect_enabled: true
     reconnect_max_attempts: 3
@@ -227,7 +227,7 @@ function_groups:
       - list_labels
       - list_drafts
       - create_draft
-    tool_call_timeout: 60
+    tool_call_timeout: 120
     auth_flow_timeout: 600
     reconnect_enabled: true
     reconnect_max_attempts: 3
@@ -268,7 +268,7 @@ function_groups:
       - list_calendars
       - suggest_time
       - search_events
-    tool_call_timeout: 60
+    tool_call_timeout: 120
     auth_flow_timeout: 600
     reconnect_enabled: true
     reconnect_max_attempts: 3
@@ -295,7 +295,7 @@ function_groups:
     include:
       - read_doc
       - update_doc
-    tool_call_timeout: 60
+    tool_call_timeout: 120
     auth_flow_timeout: 600
     reconnect_enabled: true
     reconnect_max_attempts: 3
@@ -313,7 +313,7 @@ function_groups:
       url: https://docsmcp.googleapis.com/mcp/v1
   k8s_mcp_server:
     _type: mcp_client
-    tool_call_timeout: 60
+    tool_call_timeout: 120
     auth_flow_timeout: 30
     reconnect_enabled: true
     reconnect_max_attempts: 3
@@ -327,7 +327,7 @@ function_groups:
       auth_provider: k8s_mcp_server
   unifi_mcp_server:
     _type: mcp_client
-    tool_call_timeout: 60
+    tool_call_timeout: 120
     auth_flow_timeout: 30
     reconnect_enabled: true
     reconnect_max_attempts: 3
