@@ -18,6 +18,7 @@ FONT_STYLESHEET = (
 )
 INTEREST_KEY = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 COVERAGE_STATUSES = frozenset({"covered", "quiet", "unavailable"})
+LEAD_LAYOUTS = frozenset({"feature", "two-column", "three-column"})
 PLACEHOLDER_PATTERN = re.compile(
     r"(?:\bTODO\b|\bTBD\b|lorem ipsum|\[placeholder\]|\{\{[^}]+\}\})",
     re.IGNORECASE,
@@ -80,6 +81,7 @@ class DaybookParser(HTMLParser):
         self.department_rail_count = 0
         self.lead_grid_count = 0
         self.lead_story_count = 0
+        self.lead_layouts: list[str] = []
         self.department_count = 0
         self.ids: set[str] = set()
         self.text_chunks: list[str] = []
@@ -99,6 +101,7 @@ class DaybookParser(HTMLParser):
             self.department_rail_count += 1
         if "data-lead-grid" in values:
             self.lead_grid_count += 1
+            self.lead_layouts.append(values.get("data-lead-layout", ""))
         if tag == "section":
             self._section_stack.append(element_id or "")
             if "data-department" in values:
@@ -269,6 +272,9 @@ def validate_daybook(html_path: Path, manifest_path: Path) -> dict[str, Any]:
         errors.append("document must contain exactly one department rail")
     if parser.lead_grid_count != 1 or parser.lead_story_count != 1:
         errors.append("document must identify exactly one lead grid and lead story")
+    if parser.lead_layouts and parser.lead_layouts[0] not in LEAD_LAYOUTS:
+        allowed = ", ".join(sorted(LEAD_LAYOUTS))
+        errors.append(f"lead grid data-lead-layout must be one of: {allowed}")
     if parser.department_count < 1:
         errors.append("document must contain at least one department section")
     for previous, current in zip(parser.heading_levels, parser.heading_levels[1:]):
@@ -349,8 +355,6 @@ def validate_daybook(html_path: Path, manifest_path: Path) -> dict[str, Any]:
         errors.append(
             "CSS must constrain source images to max-width 100% and auto height"
         )
-    if not re.search(r"25fr\b.*45fr\b.*30fr\b", compact_css, re.DOTALL):
-        errors.append("CSS is missing the 25/45/30 desktop lead ratio")
     if "gradient(" in compact_css:
         errors.append("CSS gradients are not permitted")
     if re.search(r"box-shadow\s*:\s*(?!none\b)[^;}]+", compact_css):

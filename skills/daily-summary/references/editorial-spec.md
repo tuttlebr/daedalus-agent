@@ -36,8 +36,40 @@ Use Cheltenham as follows:
   `height: auto`; a large source image must never widen the page.
 - Avoid rounded cards, gradients, glow, ornamental shadows, large empty ad
   spaces, dark dashboard panels, and corporate-brand visual treatments.
+- Do not use fixed heights, decorative spacer elements, or `min-height` to make
+  columns look equal. Let the amount and rank of verified material determine
+  the page length.
 - Use fluid type with `clamp()`, compact headline line-height, readable body
   measure, and square image crops only when the source composition tolerates it.
+
+## Layout utilization
+
+Inventory the actual opening modules before writing its CSS. Put one of these
+values on the same element as `data-lead-grid`:
+
+- `data-lead-layout="feature"` for a lead package with no substantive secondary
+  rail. Use the available width for the lead headline, dek, media, and opening
+  copy rather than manufacturing side columns.
+- `data-lead-layout="two-column"` when there is one substantive secondary rail.
+  A roughly two-thirds/one-third split is a useful starting point.
+- `data-lead-layout="three-column"` only when both flanking rails contain
+  substantive modules. The 25/45/30 ratio is a starting point, not a quota.
+
+A substantive rail contains at least one complete context module such as a
+secondary story, a compact table or timeline with explanation, or two useful
+briefs. A section label, eyebrow, live badge, dateline, rule, pull quote without
+context, or one-line status does not justify a column.
+
+Treat the opening grid as a bounded front-page package, not a column scaffold
+for the entire lead article. When a rail ends, close the grid or let the next
+lead figure, body block, or supporting group span the freed columns. In
+particular, never leave a label-only or mostly empty vertical corridor beside a
+multi-screen headline, image, or article body.
+
+Use whitespace to separate ranked modules, not to preserve an empty track.
+Prefer compact fluid gaps and padding. At a desktop preview around 1200 pixels
+wide, useful content should appear across every active opening column; if one
+column ends after its heading or badge, choose a simpler layout.
 
 ## Required hierarchy
 
@@ -46,10 +78,9 @@ Use Cheltenham as follows:
 2. A centered text masthead reading **Daedalus Daybook**.
 3. A short department rail derived from the actual edition, followed by a
    double black rule. Mark it with `data-department-rail` and an `aria-label`.
-4. One opening grid with lead copy, a lead source image, and a secondary rail.
-   At desktop width, start from
-   `grid-template-columns: minmax(0, 25fr) minmax(0, 45fr) minmax(0, 30fr)`.
-   Mark the grid with `data-lead-grid` and its lead article with
+4. One content-aware opening grid. Choose its feature, two-column, or
+   three-column mode from the layout-utilization rules above. Mark it with
+   `data-lead-grid` and `data-lead-layout`, and mark its lead article with
    `data-lead-story`.
 5. Supporting story groups separated by hairline horizontal and vertical rules.
 6. Department sections chosen from real coverage, such as the day ahead,
@@ -75,6 +106,7 @@ Use these stable attributes. They are part of the daily-summary interface.
     <article
       data-story
       data-lead-grid
+      data-lead-layout="two-column"
       data-lead-story
       data-interest-key="ai-infrastructure"
       data-source-url="https://primary.example/story"
@@ -138,6 +170,8 @@ for other images. All images use `decoding="async"` and
 - At or below 740px, collapse to one ranked column: utility strap, masthead,
   lead headline, lead image, secondary story, briefs, departments, ledger, and
   sources. Prevent horizontal scrolling; do not merely shrink desktop columns.
+- Remove desktop-only rail borders and gaps when columns collapse. Do not leave
+  empty wrappers ahead of the lead headline or between ranked mobile modules.
 - Include `@media print` rules that remove nonessential controls, keep ink black,
   preserve captions, and avoid breaking a story or figure across pages.
 - Use no JavaScript. Motion is unnecessary for a newspaper edition.

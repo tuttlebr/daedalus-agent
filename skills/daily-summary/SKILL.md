@@ -6,7 +6,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: NVIDIA Corporation and Affiliates <noreply@nvidia.com>
-  version: 2.0.0
+  version: 2.0.1
   tags:
     - daily-briefing
     - html
@@ -128,6 +128,11 @@ image exists, use typography and whitespace.
 Read the editorial specification and build the issue from the day's actual
 ranking. Use the required validation attributes for stories, figures, and the
 coverage ledger. Keep interpretation visually distinct from reported facts.
+
+Choose the opening layout from the substantive modules actually available. Do
+not reserve a desktop column for a section label, eyebrow, status line, or other
+fragment. Collapse an unused rail, and let lead media or continuing copy span
+beneath a shorter rail instead of leaving a tall empty corridor beside it.
 
 Write concise headlines, useful deks, and short briefs. Target a focused
 five-to-eight-minute read, but prefer a shorter accurate edition over padding.

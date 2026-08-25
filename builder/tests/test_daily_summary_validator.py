@@ -34,7 +34,7 @@ def _valid_html() -> str:
     .edition-strap {{ display: flex; justify-content: space-between; gap: 16px; margin: 0; padding: 8px 0; border-bottom: 1px solid #d3d3d3; font-family: nyt-cheltenham-small, Georgia, 'Times New Roman', Times, serif; font-size: 0.78rem; }}
     .masthead {{ margin: 18px 0 14px; font-size: clamp(3rem, 7vw, 5.8rem); line-height: 0.9; text-align: center; }}
     .departments {{ padding: 8px 0; border-top: 1px solid #121212; border-bottom: 4px double #121212; text-align: center; font-family: nyt-cheltenham-small, Georgia, 'Times New Roman', Times, serif; }}
-    .lead {{ display: grid; grid-template-columns: minmax(0, 25fr) minmax(0, 45fr) minmax(0, 30fr); gap: 24px; padding: 22px 0 28px; border-bottom: 1px solid #121212; }}
+    .lead {{ display: grid; grid-template-columns: minmax(0, 1fr); gap: 24px; padding: 22px 0 28px; border-bottom: 1px solid #121212; }}
     .lead > * {{ min-width: 0; }}
     .lead h2 {{ margin: 0; font-size: clamp(1.65rem, 3vw, 2.7rem); line-height: 1.02; }}
     .lead p {{ margin: 0; font-size: 1.12rem; line-height: 1.45; }}
@@ -60,7 +60,7 @@ def _valid_html() -> str:
       <h1 class="masthead">Daedalus Daybook</h1>
       <nav class="departments" data-department-rail aria-label="Edition departments">Technology · Culture · The Day Ahead</nav>
     </header>
-    <article class="lead" data-story data-lead-grid data-lead-story data-interest-key="ai-infrastructure" data-source-url="https://primary.example/story">
+    <article class="lead" data-story data-lead-grid data-lead-layout="feature" data-lead-story data-interest-key="ai-infrastructure" data-source-url="https://primary.example/story">
       <h2>Inference systems move into a new operating phase</h2>
       <p>The verified primary source describes a material development for today's edition.</p>
       <figure data-image-source-url="https://images.example/photo.jpg" data-source-page="https://primary.example/story" data-image-credit="A. Photographer / Publisher">
@@ -205,7 +205,7 @@ def test_validator_rejects_weak_hierarchy_and_non_chelt_primary_type(tmp_path):
     html = (
         _valid_html()
         .replace(" data-edition-strap", "")
-        .replace(" data-lead-grid data-lead-story", "")
+        .replace(' data-lead-grid data-lead-layout="feature" data-lead-story', "")
         .replace("font-family: nyt-cheltenham,", "font-family: Arial,", 1)
     )
 
@@ -219,6 +219,15 @@ def test_validator_rejects_weak_hierarchy_and_non_chelt_primary_type(tmp_path):
     assert any(
         "Cheltenham as its primary family" in error for error in report["errors"]
     )
+
+
+def test_validator_rejects_an_undeclared_lead_layout(tmp_path):
+    html = _valid_html().replace(' data-lead-layout="feature"', "")
+
+    result, report = _run_validator(tmp_path, html)
+
+    assert result.returncode == 1
+    assert any("data-lead-layout must be one of" in error for error in report["errors"])
 
 
 def test_validator_requires_story_and_image_provenance_in_sources(tmp_path):

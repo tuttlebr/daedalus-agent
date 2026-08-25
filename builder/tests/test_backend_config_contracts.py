@@ -1571,7 +1571,7 @@ def test_daily_summary_contracts_structured_briefing():
         assert "current date and time" in daily_skill, path
         assert "standalone HTML document" in daily_skill, path
         assert "New York Times-inspired newspaper page" in daily_skill, path
-        assert "minmax(0, 25fr) minmax(0, 45fr) minmax(0, 30fr)" in editorial, path
+        assert "data-lead-layout" in editorial, path
         assert "https://g1.nyt.com/fonts/css/web-fonts." in editorial, path
         assert "Every `<img>` belongs inside a `<figure>`" in editorial, path
         assert "data-coverage-status" in editorial, path
