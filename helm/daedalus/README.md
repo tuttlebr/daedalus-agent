@@ -88,7 +88,7 @@ For Google Workspace MCP, the backend secret must include
 `GOOGLE_MCP_REDIRECT_URI`. The redirect URI must be registered on the
 Google OAuth client and should point at the public nginx backend redirect
 path, for example `https://daedalus.ddns.me/auth/redirect`. One OAuth client is
-shared by Gmail, Calendar, Drive, Docs, Sheets, and Slides. Add the scope union
+shared by Gmail, Calendar, and Docs. Add the scope union
 listed in `.env.template` to the consent configuration. Google exposes each MCP
 as a separate protected resource, so each service can require one initial
 authorization; the resulting per-user tokens are stored in separate Redis

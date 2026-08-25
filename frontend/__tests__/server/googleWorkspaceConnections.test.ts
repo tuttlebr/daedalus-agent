@@ -24,8 +24,8 @@ describe('Google Workspace connection state', () => {
       'nat/object_store/gmail-mcp-oauth/tokens/' +
         '23269a2db51e19e93d493d3ebd2353e5c05953fca9e08e1d1f781585c7db1d60',
     );
-    expect(googleWorkspaceTokenKey('sheets', 'alice')).toBe(
-      'nat/object_store/sheets-mcp-oauth/tokens/' +
+    expect(googleWorkspaceTokenKey('docs', 'alice')).toBe(
+      'nat/object_store/docs-mcp-oauth/tokens/' +
         '23269a2db51e19e93d493d3ebd2353e5c05953fca9e08e1d1f781585c7db1d60',
     );
     expect(googleWorkspaceTokenKey('gmail', 'bob')).not.toBe(
@@ -33,14 +33,11 @@ describe('Google Workspace connection state', () => {
     );
   });
 
-  it('reports only presence state for all six service tokens', async () => {
+  it('reports only presence state for all active service tokens', async () => {
     mocks.exec.mockResolvedValue([
       [null, 1],
       [null, 0],
       [null, 1],
-      [null, 0],
-      [null, 1],
-      [null, 0],
     ]);
 
     const connections = await getGoogleWorkspaceConnections('alice');
@@ -54,7 +51,7 @@ describe('Google Workspace connection state', () => {
         ],
       ]),
     );
-    expect(connections).toHaveLength(6);
+    expect(connections).toHaveLength(3);
     expect(
       connections.map(({ id, authorizationSaved }) => ({
         id,
@@ -63,10 +60,7 @@ describe('Google Workspace connection state', () => {
     ).toEqual([
       { id: 'gmail', authorizationSaved: true },
       { id: 'calendar', authorizationSaved: false },
-      { id: 'drive', authorizationSaved: true },
-      { id: 'docs', authorizationSaved: false },
-      { id: 'sheets', authorizationSaved: true },
-      { id: 'slides', authorizationSaved: false },
+      { id: 'docs', authorizationSaved: true },
     ]);
   });
 });

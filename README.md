@@ -284,7 +284,7 @@ Authentication scope is part of the server contract:
   from the backend Secret and is never user-authorized. A 401/403 is an
   operator incident; `confirm_action` cannot repair it and the agent must not
   retry it in a loop.
-- Gmail, Google Calendar, Drive, Docs, Sheets, and Slides use one shared OAuth
+- Gmail, Google Calendar, and Docs use one shared OAuth
   client configuration with per-user authorization. Google publishes each MCP
   as a separate protected resource, so the first use of each service can still
   require its own consent. NAT stores the resulting tokens in separate
@@ -292,7 +292,7 @@ Authentication scope is part of the server contract:
   survive restarts and work across chats and backend replicas. The frontend
   records each short-lived OAuth state in Redis, sends the callback to the exact
   backend pod that initiated the flow, and exposes one Connections view for all
-  six saved authorizations. Missing, expired, or refresh-rejected tokens produce
+  three saved authorizations. Missing, expired, or refresh-rejected tokens produce
   an `oauth_required` stream event with a service-specific Connect/Reopen action.
   The approval policy must allow a read-only call to reach the provider
   challenge or that reauthorization event cannot be created.

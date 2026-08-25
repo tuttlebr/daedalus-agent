@@ -451,14 +451,7 @@ def test_mutating_approval_rejects_changed_arguments_and_burns_token(monkeypatch
             "create_draft",
             {"to": "user@example.com", "subject": "Hello", "body": "Draft"},
         ),
-        ("drive_mcp_server", "create_file", {"name": "notes.txt"}),
         ("docs_mcp_server", "update_doc", {"document_id": "doc-1"}),
-        ("sheets_mcp_server", "update_values", {"spreadsheet_id": "sheet-1"}),
-        (
-            "slides_mcp_server",
-            "update_presentation",
-            {"presentation_id": "slides-1"},
-        ),
     ],
 )
 def test_google_workspace_writes_require_exact_approval(
@@ -514,10 +507,7 @@ def test_additional_destructive_verbs_require_token(tool_name):
         ("gmail_mcp_server", "get_thread", {}, "read-only"),
         ("calendar_mcp_server", "list_calendars", {}, "read-only"),
         ("calendar_mcp_server", "list_events", {}, "read-only"),
-        ("drive_mcp_server", "search_files", {}, "read-only"),
         ("docs_mcp_server", "read_doc", {}, "read-only"),
-        ("sheets_mcp_server", "get_values", {}, "read-only"),
-        ("slides_mcp_server", "read_presentation", {}, "read-only"),
         ("x_mcp_server", "search_posts_all", {"query": "foo"}, "read-only"),
     ],
 )
@@ -728,10 +718,7 @@ def test_per_user_oauth_registry_is_derived_from_config():
         {
             "gmail_mcp_server",
             "calendar_mcp_server",
-            "drive_mcp_server",
             "docs_mcp_server",
-            "sheets_mcp_server",
-            "slides_mcp_server",
         }
     )
 

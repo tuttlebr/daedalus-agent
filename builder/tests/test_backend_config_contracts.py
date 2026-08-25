@@ -516,10 +516,7 @@ def test_user_document_and_workspace_tools_are_direct_workflow_tools():
     for tool_name in (
         "gmail_mcp_server",
         "calendar_mcp_server",
-        "drive_mcp_server",
         "docs_mcp_server",
-        "sheets_mcp_server",
-        "slides_mcp_server",
     ):
         assert tool_name in workflow_tools
 
@@ -561,11 +558,11 @@ def test_deployed_tool_surface_is_optimized():
         removed_router_tool = "mas" + "_optimizer_tool"
         assert removed_router_tool not in functions, path
         assert removed_router_tool not in workflow_tools, path
-        # The six first-party Workspace resources and official GitHub MCP
-        # resource add a deliberately bounded 35-operation surface. Each
+        # The three first-party Workspace resources and official GitHub MCP
+        # resource add a deliberately bounded 23-operation surface. Each
         # remains server-allowlisted and locally classified as read-only or
         # approval-required.
-        assert _effective_operation_count(config, workflow_tools) <= 83, path
+        assert _effective_operation_count(config, workflow_tools) <= 67, path
 
 
 def test_workflow_uses_responses_api_agent_schema():
@@ -706,10 +703,7 @@ def test_responses_api_workflow_exposes_required_leaf_tools():
         "user_document_tool",
         "gmail_mcp_server",
         "calendar_mcp_server",
-        "drive_mcp_server",
         "docs_mcp_server",
-        "sheets_mcp_server",
-        "slides_mcp_server",
     ]
     for path in DEPLOYED_CONFIGS:
         config = _config(path)
@@ -772,24 +766,6 @@ def test_google_workspace_mcp_uses_per_user_oauth():
                 "search_events",
             ],
         },
-        "drive_mcp_server": {
-            "server_url": "https://drivemcp.googleapis.com/mcp/v1",
-            "auth_server_url": "https://drivemcp.googleapis.com/mcp",
-            "scopes": {
-                "https://www.googleapis.com/auth/drive.readonly",
-                "https://www.googleapis.com/auth/drive.file",
-            },
-            "include": [
-                "copy_file",
-                "create_file",
-                "download_file_content",
-                "get_file_metadata",
-                "get_file_permissions",
-                "list_recent_files",
-                "read_file_content",
-                "search_files",
-            ],
-        },
         "docs_mcp_server": {
             "server_url": "https://docsmcp.googleapis.com/mcp/v1",
             "auth_server_url": "https://docsmcp.googleapis.com/mcp/v1",
@@ -799,31 +775,6 @@ def test_google_workspace_mcp_uses_per_user_oauth():
             },
             "include": ["read_doc", "update_doc"],
         },
-        "sheets_mcp_server": {
-            "server_url": "https://sheetsmcp.googleapis.com/mcp/v1",
-            "auth_server_url": "https://sheetsmcp.googleapis.com/mcp/v1",
-            "scopes": {
-                "https://www.googleapis.com/auth/drive.readonly",
-                "https://www.googleapis.com/auth/spreadsheets",
-            },
-            "include": [
-                "get_values",
-                "get_spreadsheet",
-                "update_spreadsheet",
-                "update_values",
-                "update_formulas",
-                "insert_dimension",
-            ],
-        },
-        "slides_mcp_server": {
-            "server_url": "https://slidesmcp.googleapis.com/mcp/v1",
-            "auth_server_url": "https://slidesmcp.googleapis.com/mcp/v1",
-            "scopes": {
-                "https://www.googleapis.com/auth/drive.readonly",
-                "https://www.googleapis.com/auth/presentations",
-            },
-            "include": ["read_presentation", "update_presentation"],
-        },
     }
 
     for path in DEPLOYED_CONFIGS:
@@ -832,7 +783,26 @@ def test_google_workspace_mcp_uses_per_user_oauth():
         function_groups = config["function_groups"]
         workflow_tools = config["workflow"]["nat_tools"]
 
+        assert {
+            name for name, provider in auth.items() if provider["_type"] == "mcp_oauth2"
+        } == set(expected), path
+        assert {
+            name
+            for name, group in function_groups.items()
+            if group["_type"] == "per_user_mcp_client"
+        } == set(expected), path
+        assert {
+            name
+            for name in config["object_stores"]
+            if name.endswith("_mcp_oauth_tokens")
+        } == {name.replace("_server", "_oauth_tokens") for name in expected}, path
         assert set(expected) <= set(workflow_tools), path
+        workspace_source = next(
+            source
+            for source in config["functions"]["source_verifier_tool"]["source_registry"]
+            if source["id"] == "workspace_data"
+        )
+        assert workspace_source["tools"] == list(expected), path
 
         for name, values in expected.items():
             provider = auth[name]
@@ -952,38 +922,11 @@ def test_mcp_approval_policy_follows_explicit_include_lists():
             "suggest_time",
             "search_events",
         },
-        "drive_mcp_server": {
-            "copy_file",
-            "create_file",
-            "download_file_content",
-            "get_file_metadata",
-            "get_file_permissions",
-            "list_recent_files",
-            "read_file_content",
-            "search_files",
-        },
         "docs_mcp_server": {"read_doc", "update_doc"},
-        "sheets_mcp_server": {
-            "get_values",
-            "get_spreadsheet",
-            "update_spreadsheet",
-            "update_values",
-            "update_formulas",
-            "insert_dimension",
-        },
-        "slides_mcp_server": {"read_presentation", "update_presentation"},
     }
     approval_required = {
         "gmail_mcp_server": {"create_draft"},
-        "drive_mcp_server": {"copy_file", "create_file"},
         "docs_mcp_server": {"update_doc"},
-        "sheets_mcp_server": {
-            "update_spreadsheet",
-            "update_values",
-            "update_formulas",
-            "insert_dimension",
-        },
-        "slides_mcp_server": {"update_presentation"},
     }
     unrestricted = {"k8s_mcp_server", "unifi_mcp_server"}
 

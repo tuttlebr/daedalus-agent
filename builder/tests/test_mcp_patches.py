@@ -669,7 +669,7 @@ def test_mcp_auth_transport_keeps_time_for_cached_token_rejection(monkeypatch):
 
     _patch_mcp_auth_transport_timeout()
     client = FakeMCPBaseClient()
-    client.server_name = "google-drive-transport"
+    client.server_name = "google-docs-transport"
     client._tool_call_timeout = timedelta(seconds=60)
     client._auth_flow_timeout = timedelta(seconds=600)
     client._auth_provider = object()
@@ -677,12 +677,12 @@ def test_mcp_auth_transport_keeps_time_for_cached_token_rejection(monkeypatch):
     monkeypatch.setattr(
         mcp_patches,
         "_PER_USER_MCP_OAUTH_SERVERS",
-        frozenset({"drive_mcp_server"}),
+        frozenset({"docs_mcp_server"}),
     )
     monkeypatch.setitem(
         mcp_patches._mcp_server_group_names,
-        "google-drive-transport",
-        "drive_mcp_server",
+        "google-docs-transport",
+        "docs_mcp_server",
     )
     assert run(client._get_tool_call_timeout()) == timedelta(seconds=600)
 
@@ -703,7 +703,7 @@ def test_disconnected_per_user_mcp_builder_is_rebuilt(monkeypatch):
             client = types.SimpleNamespace(is_connected=connected)
             group = types.SimpleNamespace(mcp_client=client)
             self._per_user_function_groups = {
-                "google_drive_mcp": types.SimpleNamespace(instance=group)
+                "google_docs_mcp": types.SimpleNamespace(instance=group)
             }
 
         async def __aexit__(self, *_args):
@@ -749,14 +749,14 @@ def test_disconnected_per_user_mcp_builder_is_rebuilt(monkeypatch):
     assert cleanup_calls == [old_builder]
     assert original_calls == ["opaque-user-id"]
     assert builder._per_user_function_groups[
-        "google_drive_mcp"
+        "google_docs_mcp"
     ].instance.mcp_client.is_connected
 
     # Recovery must not tear down a workflow that still has an active request.
     active_info = manager._per_user_builders["opaque-user-id"]
     active_info.ref_count = 1
     active_info.builder._per_user_function_groups[
-        "google_drive_mcp"
+        "google_docs_mcp"
     ].instance.mcp_client.is_connected = False
     active_builder, _workflow = run(
         manager._get_or_create_per_user_builder("opaque-user-id")
@@ -2081,10 +2081,7 @@ class TestMcpErrorNoReconnect:
         [
             ("gmail_mcp_server", "mcp_user_authentication_required", "user"),
             ("calendar_mcp_server", "mcp_user_authentication_required", "user"),
-            ("drive_mcp_server", "mcp_user_authentication_required", "user"),
             ("docs_mcp_server", "mcp_user_authentication_required", "user"),
-            ("sheets_mcp_server", "mcp_user_authentication_required", "user"),
-            ("slides_mcp_server", "mcp_user_authentication_required", "user"),
             ("k8s_mcp_server", "mcp_shared_authentication_failed", "shared"),
             ("unifi_mcp_server", "mcp_shared_authentication_failed", "shared"),
         ],
@@ -2137,10 +2134,7 @@ class TestMcpErrorNoReconnect:
                 {
                     "gmail_mcp_server",
                     "calendar_mcp_server",
-                    "drive_mcp_server",
                     "docs_mcp_server",
-                    "sheets_mcp_server",
-                    "slides_mcp_server",
                 }
             ),
         )

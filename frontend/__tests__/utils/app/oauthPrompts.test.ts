@@ -48,9 +48,6 @@ describe('oauthPrompts', () => {
     ['gmail.readonly', 'Gmail'],
     ['calendar.events.readonly', 'Google Calendar'],
     ['documents', 'Google Docs'],
-    ['spreadsheets', 'Google Sheets'],
-    ['presentations', 'Google Slides'],
-    ['drive.readonly', 'Google Drive'],
   ])('identifies the %s authorization as %s', (scope, service) => {
     const [prompt] = oauthPromptsFromStatus(
       {

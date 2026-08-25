@@ -126,17 +126,11 @@ def _default_source_registry() -> list[dict[str, Any]]:
         {
             "id": "workspace_data",
             "name": "Workspace Data",
-            "description": (
-                "Authenticated user's Gmail, Calendar, Drive, Docs, Sheets, "
-                "and Slides data."
-            ),
+            "description": "Authenticated user's Gmail, Calendar, and Docs data.",
             "tools": [
                 "gmail_mcp_server",
                 "calendar_mcp_server",
-                "drive_mcp_server",
                 "docs_mcp_server",
-                "sheets_mcp_server",
-                "slides_mcp_server",
             ],
             "default_enabled": False,
             "requires_auth": True,
@@ -546,13 +540,7 @@ def _question_flags(question: str) -> dict[str, bool]:
                 "my calendar",
                 "schedule",
                 "free time",
-                "my drive",
-                "google drive",
                 "google doc",
-                "spreadsheet",
-                "google sheet",
-                "presentation",
-                "google slides",
             )
         ),
         "news_or_cards": any(
@@ -654,10 +642,7 @@ def _tool_hints(source_id: str, question: str) -> list[dict[str, str]]:
         matches = (
             ("gmail_mcp_server", ("email", "gmail", "inbox", "draft")),
             ("calendar_mcp_server", ("calendar", "schedule", "free time")),
-            ("drive_mcp_server", ("drive", "file", "folder")),
             ("docs_mcp_server", ("google doc", "document")),
-            ("sheets_mcp_server", ("sheet", "spreadsheet", "cells")),
-            ("slides_mcp_server", ("slide", "presentation", "deck")),
         )
         for tool, aliases in matches:
             if any(alias in q for alias in aliases):
