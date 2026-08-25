@@ -21,6 +21,15 @@ describe('html response detection', () => {
     ).toBe('<div>Rendered</div>');
   });
 
+  it('extracts the fenced full-document daily-summary contract', () => {
+    const html =
+      '<!DOCTYPE html><html lang="en"><body><h1>Daedalus Daybook</h1></body></html>';
+
+    expect(extractStandaloneHtmlResponse(`\`\`\`html\n${html}\n\`\`\``)).toBe(
+      html,
+    );
+  });
+
   it('recovers a complete HTML document after leaked progress prose', () => {
     const html =
       '<!DOCTYPE html><html><body><h1>Daily Summary</h1></body></html>';

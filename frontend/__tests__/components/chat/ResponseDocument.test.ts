@@ -13,6 +13,16 @@ describe('response document classification', () => {
     });
   });
 
+  it('unwraps a fenced Daybook document onto the HTML preview path', () => {
+    const html =
+      '<!DOCTYPE html><html><body><h1>Daedalus Daybook</h1></body></html>';
+
+    expect(classifyResponseContent(`\`\`\`html\n${html}\n\`\`\``)).toEqual({
+      kind: 'html',
+      content: html,
+    });
+  });
+
   it('uses the Markdown renderer for long formatted responses', () => {
     const markdown = '# Report\n\n| A | B |\n| - | - |\n| 1 | 2 |';
     expect(classifyResponseContent(markdown)).toEqual({

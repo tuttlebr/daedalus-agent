@@ -34,4 +34,24 @@ describe('Next.js security headers', () => {
       'https:',
     ]);
   });
+
+  it('allows only the pinned NYT origin for Cheltenham webfonts', async () => {
+    const routes = await nextConfig.headers();
+    const applicationRoute = routes.find((route) => route.source === '/:path*');
+    const policy = applicationRoute?.headers.find(
+      (header) => header.key === 'Content-Security-Policy',
+    )?.value;
+    const directives = policy?.split(';').map((directive) => directive.trim());
+
+    expect(
+      directives
+        ?.find((directive) => directive.startsWith('style-src '))
+        ?.split(/\s+/),
+    ).toEqual(['style-src', "'self'", "'unsafe-inline'", 'https://g1.nyt.com']);
+    expect(
+      directives
+        ?.find((directive) => directive.startsWith('font-src '))
+        ?.split(/\s+/),
+    ).toEqual(['font-src', "'self'", 'data:', 'https://g1.nyt.com']);
+  });
 });

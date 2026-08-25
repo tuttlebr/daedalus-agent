@@ -347,13 +347,17 @@ def test_get_memory_expands_daily_summary_queries(monkeypatch):
     assert len(recall_calls) == 1
     call = recall_calls[0]
     assert call["user_id"] == "tuttlebr"
-    assert call["max_tokens"] == 1920
+    assert call["max_tokens"] == 3840
     assert "daily summary briefing preferences" in call["query"]
     assert "Kubernetes cluster status" in call["query"]
     assert "k8s_mcp_server" in call["query"]
-    assert "required live cards" in call["query"]
+    assert "complete interest inventory" in call["query"]
+    assert "required live desks" in call["query"]
+    assert "coverage ledger" in call["query"]
     assert "standalone HTML" in call["query"]
-    assert "no Markdown" in call["query"]
+    assert "fenced HTML code block" in call["query"]
+    assert "no Markdown" not in call["query"]
+    assert "llm_sandbox_tool" in call["query"]
     assert "agent_skills_tool" in call["query"]
 
 

@@ -72,9 +72,10 @@ const nextConfig = {
             key: 'Content-Security-Policy',
             value:
               // HTML previews intentionally embed verified source images from
-              // changing publishers. Allow encrypted passive image loads while
-              // leaving every active-resource and connection directive intact.
-              "default-src 'self'; script-src 'self' 'unsafe-eval' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; connect-src 'self' ws: wss:; frame-ancestors 'none'; base-uri 'self'; form-action 'self';",
+              // changing publishers. Daybook previews additionally load the
+              // pinned Cheltenham stylesheet and font assets from g1.nyt.com;
+              // keep active-resource access narrowed to that one origin.
+              "default-src 'self'; script-src 'self' 'unsafe-eval' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://g1.nyt.com; img-src 'self' data: blob: https:; font-src 'self' data: https://g1.nyt.com; connect-src 'self' ws: wss:; frame-ancestors 'none'; base-uri 'self'; form-action 'self';",
           },
           {
             key: 'Referrer-Policy',

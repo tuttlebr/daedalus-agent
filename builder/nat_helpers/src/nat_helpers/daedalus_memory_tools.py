@@ -18,15 +18,16 @@ from pydantic import BaseModel, ConfigDict, Field
 
 logger = logging.getLogger(__name__)
 
-DAILY_BRIEFING_MIN_TOP_K = 12
+DAILY_BRIEFING_MIN_TOP_K = 24
 DAILY_BRIEFING_QUERY_TERMS = (
-    "daily summary daily briefing daily brief weather locale location timezone "
-    "commute calendar commitments work projects AI infrastructure NVIDIA LLM "
-    "inference optimization robotics Kubernetes cluster status k8s_mcp_server "
-    "read-only operations status sports teams leagues hobbies media reading "
-    "sources preferences routines priorities recommendations required live "
-    "cards agent directive HTML HTML only HTML-only no Markdown "
-    "no code fence standalone HTML skill load_skill agent_skills_tool"
+    "daily summary daily briefing complete user profile complete interest inventory "
+    "weather locale location timezone commute calendar commitments email work "
+    "projects AI infrastructure NVIDIA LLM inference optimization robotics "
+    "Kubernetes cluster status k8s_mcp_server read-only operations status sports "
+    "teams leagues hobbies music culture media reading sources preferences routines "
+    "priorities recommendations required live desks coverage ledger quiet unavailable "
+    "fenced HTML code block standalone HTML skill resources validator llm_sandbox_tool "
+    "load_skill agent_skills_tool"
 )
 DAILY_BRIEFING_TRIGGERS = (
     "daily summary",

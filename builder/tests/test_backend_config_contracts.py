@@ -1487,10 +1487,15 @@ def test_workflow_prompt_prefers_minimal_parallel_tool_use():
         assert "Follow schemas exactly" in normalized_prompt, path
 
 
-def test_daily_briefing_routes_to_image_rich_html_response():
+def test_daily_briefing_routes_to_validated_source_image_html_response():
     for path in DEPLOYED_CONFIGS:
         config = _config(path)
-        visual_media_desc = config["functions"]["visual_media_tool"]["description"]
+        visual_media_desc = " ".join(
+            config["functions"]["visual_media_tool"]["description"].split()
+        )
+        sandbox_desc = " ".join(
+            config["functions"]["llm_sandbox_tool"]["description"].split()
+        )
         memory_desc = " ".join(config["functions"]["get_memory"]["description"].split())
         skills_desc = " ".join(
             config["functions"]["agent_skills_tool"]["description"].split()
@@ -1498,22 +1503,29 @@ def test_daily_briefing_routes_to_image_rich_html_response():
         daily_skill = (SKILLS_DIR / "daily-summary" / "SKILL.md").read_text(
             encoding="utf-8"
         )
-        normalized_daily_skill = " ".join(daily_skill.split())
+        sourcing = (
+            SKILLS_DIR / "daily-summary" / "references" / "research-and-sourcing.md"
+        ).read_text(encoding="utf-8")
 
         assert "daily briefings (FIRST, awaited)" in memory_desc, path
+        assert "at least top_k=24" in memory_desc, path
         assert "task matches a skill's purpose" in skills_desc, path
         assert "operation=list_skills" in skills_desc, path
         assert "operation=load_skill" in skills_desc, path
         assert "no separate skill execution tool" in skills_desc, path
         assert "daily briefing" in daily_skill, path
-        assert "Return only the HTML" in daily_skill, path
         assert (
-            "daily summary or daily briefing only when the user explicitly"
-            in " ".join(visual_media_desc.split())
+            "Return exactly one Markdown code block labeled `html`" in daily_skill
         ), path
+        assert "operation=analyze only" in visual_media_desc, path
         assert "loaded daily-summary skill directs it" in visual_media_desc, path
-        assert "AI-generated editorial illustration" in normalized_daily_skill, path
-        assert "Never put private email" in normalized_daily_skill, path
+        assert (
+            "Never use operation=generate or operation=edit" in visual_media_desc
+        ), path
+        assert "Never call `visual_media_tool`" in sourcing, path
+        assert "Never use `/api/generated-image/` assets" in sourcing, path
+        assert "loaded daily-summary skill directs" in sandbox_desc, path
+        assert "must not publish the generated edition" in sandbox_desc, path
 
 
 def test_visual_media_documents_transparent_background_option():
@@ -1533,9 +1545,17 @@ def test_daily_summary_contracts_structured_briefing():
         daily_skill = (SKILLS_DIR / "daily-summary" / "SKILL.md").read_text(
             encoding="utf-8"
         )
-        normalized_daily_skill = " ".join(daily_skill.split())
+        editorial = (
+            SKILLS_DIR / "daily-summary" / "references" / "editorial-spec.md"
+        ).read_text(encoding="utf-8")
+        sourcing = (
+            SKILLS_DIR / "daily-summary" / "references" / "research-and-sourcing.md"
+        ).read_text(encoding="utf-8")
+        validator = SKILLS_DIR / "daily-summary" / "scripts" / "validate_daybook.py"
 
         assert "visual_media_tool" in tools, path
+        assert "llm_sandbox_tool" in tools, path
+        assert "source_verifier_tool" in tools, path
         assert "current_datetime_tool" in tools, path
         assert "get_memory" in tools, path
         assert "agent_skills_tool" in tools, path
@@ -1544,19 +1564,24 @@ def test_daily_summary_contracts_structured_briefing():
         assert "curated_feed_search_tool" in tools, path
         assert "perplexity_search_tool" in tools, path
 
-        assert "per-user OAuth" in daily_skill, path
+        assert "per-user OAuth" in sourcing, path
         assert "current date and time" in daily_skill, path
         assert "standalone HTML document" in daily_skill, path
-        assert "contemporary broadsheet front page" in normalized_daily_skill, path
-        assert "asymmetric three-column" in normalized_daily_skill, path
+        assert "New York Times-inspired newspaper page" in daily_skill, path
+        assert "minmax(0, 25fr) minmax(0, 45fr) minmax(0, 30fr)" in editorial, path
+        assert "https://g1.nyt.com/fonts/css/web-fonts." in editorial, path
+        assert "Every `<img>` belongs inside a `<figure>`" in editorial, path
+        assert "data-coverage-status" in editorial, path
+        assert "data-edition-strap" in editorial, path
+        assert "data-lead-story" in editorial, path
+        assert 'id="editors-note"' in editorial, path
+        assert "operation=generate" in sourcing, path
+        assert "operation=edit" in sourcing, path
         assert (
-            "Every raster image must belong to a specific ranked story"
-            in normalized_daily_skill
+            "source images only"
+            in config["functions"]["visual_media_tool"]["description"]
         ), path
-        assert "not as a dark technology dashboard" in normalized_daily_skill, path
-        assert "corporate-brand accent" in normalized_daily_skill, path
-        assert "NVIDIA green" not in daily_skill, path
-        assert "dark developer colors" not in daily_skill, path
+        assert validator.is_file(), path
 
 
 def test_source_policy_metadata_is_self_describing():
