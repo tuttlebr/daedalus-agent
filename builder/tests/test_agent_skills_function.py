@@ -50,6 +50,32 @@ def test_skill_operations_use_one_explicit_dispatch_schema(tmp_path):
     ]
 
 
+def test_dispatch_exposes_the_configured_routing_description(tmp_path):
+    async def _run():
+        from agent_skills.agent_skills_function import (
+            AgentSkillsConfig,
+            agent_skills_function,
+        )
+
+        _write_skill(tmp_path)
+        items = []
+        async for item in agent_skills_function(
+            AgentSkillsConfig(
+                skills_directory=str(tmp_path),
+                description="Load daily-summary before any other daily-summary tool.",
+            ),
+            MagicMock(),
+        ):
+            items.append(item)
+        return items
+
+    items = run(_run())
+
+    assert items[0].description == (
+        "Load daily-summary before any other daily-summary tool."
+    )
+
+
 def test_dispatch_denies_script_execution_when_disabled(tmp_path):
     async def _run():
         from agent_skills.agent_skills_function import (

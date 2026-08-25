@@ -21,6 +21,7 @@ MemoryMode = Literal["disabled", "hindsight"]
 _BANK_NAMESPACE = uuid.UUID("21b4c9b7-39a3-4c5e-8e31-66e2223e5040")
 _VALID_MODES: set[str] = {"disabled", "hindsight"}
 _MAX_RETAIN_CHARS = 12_000
+_DEFAULT_API_TIMEOUT_SECONDS = 60.0
 
 
 class HindsightError(RuntimeError):
@@ -123,7 +124,8 @@ class HindsightClient:
         )
         self._api_key = (api_key or os.getenv("HINDSIGHT_API_KEY") or "").strip()
         self._timeout = timeout_seconds or float(
-            os.getenv("HINDSIGHT_API_TIMEOUT_SECONDS") or "20"
+            os.getenv("HINDSIGHT_API_TIMEOUT_SECONDS")
+            or str(_DEFAULT_API_TIMEOUT_SECONDS)
         )
         self._transport = transport
         if not self._base_url.startswith(("http://", "https://")):
@@ -334,7 +336,6 @@ class HindsightClient:
                 "include": {"entities": None, "chunks": None, "source_facts": None},
                 "trace": False,
             },
-            timeout_seconds=12.0,
         )
         results = response.get("results", [])
         return [item for item in results if isinstance(item, dict)]

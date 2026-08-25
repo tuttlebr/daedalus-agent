@@ -1507,12 +1507,15 @@ def test_daily_briefing_routes_to_validated_source_image_html_response():
             SKILLS_DIR / "daily-summary" / "references" / "research-and-sourcing.md"
         ).read_text(encoding="utf-8")
 
-        assert "daily briefings (FIRST, awaited)" in memory_desc, path
+        assert "only after the daily-summary skill is loaded" in memory_desc, path
+        assert "await exactly one call" in memory_desc, path
         assert "at least top_k=24" in memory_desc, path
         assert "task matches a skill's purpose" in skills_desc, path
         assert "operation=list_skills" in skills_desc, path
         assert "operation=load_skill" in skills_desc, path
         assert "no separate skill execution tool" in skills_desc, path
+        assert "skill_name=daily-summary your first tool call" in skills_desc, path
+        assert "Do not call get_memory" in skills_desc, path
         assert "daily briefing" in daily_skill, path
         assert (
             "Return exactly one Markdown code block labeled `html`" in daily_skill

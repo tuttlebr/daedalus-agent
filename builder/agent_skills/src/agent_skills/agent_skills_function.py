@@ -23,6 +23,14 @@ logger = logging.getLogger(__name__)
 
 AgentSkillsOperation = Literal["list_skills", "load_skill", "run_skill_script"]
 _ALL_OPERATIONS = ("list_skills", "load_skill", "run_skill_script")
+_DEFAULT_DESCRIPTION = (
+    "Unified agent-skills dispatcher. Use operation='list_skills' with an "
+    "optional query to discover skills. Then use operation='load_skill' with "
+    "skill_name to read the selected skill's instructions or an optional bundled "
+    "resource. Follow the returned instructions using the ordinary session tools; "
+    "do not look for a separate skill execution tool. operation='run_skill_script' "
+    "is available only when explicitly enabled by the operator."
+)
 
 # Maximum bytes of combined stdout+stderr captured from a skill script.
 # Prevents OOM if a script produces unbounded output.
@@ -255,6 +263,11 @@ async def _run_skill_script(
 class AgentSkillsConfig(FunctionBaseConfig, name="agent_skills"):
     """Configuration for the agent_skills function."""
 
+    description: str = Field(
+        default=_DEFAULT_DESCRIPTION,
+        description="The description exposed to the tool-calling model.",
+    )
+
     skills_directory: str = Field(
         default="/skills",
         description="Filesystem path to the root directory containing skill subdirectories.",
@@ -385,15 +398,7 @@ async def agent_skills_function(config: AgentSkillsConfig, builder: Builder):
         yield FunctionInfo.from_fn(
             agent_skills,
             input_schema=AgentSkillsInput,
-            description=(
-                "Unified agent-skills dispatcher. Use operation='list_skills' with "
-                "an optional query to discover skills. Then use "
-                "operation='load_skill' with skill_name to read the selected skill's "
-                "instructions or an optional bundled resource. Follow the returned "
-                "instructions using the ordinary session tools; do not look for a "
-                "separate skill execution tool. operation='run_skill_script' is "
-                "available only when explicitly enabled by the operator."
-            ),
+            description=config.description,
         )
 
     except GeneratorExit:

@@ -460,14 +460,20 @@ def main() -> None:
                 encoding="utf-8",
             )
 
+            routing_description = "Runtime-configured skill routing description."
             config = AgentSkillsConfig(
                 skills_directory=temp_dir,
                 allow_script_execution=False,
                 enabled_operations=["list_skills", "load_skill"],
+                description=routing_description,
             )
             async with agent_skills_function(
                 config, SimpleNamespace()
             ) as function_info:
+                if function_info.description != routing_description:
+                    raise RuntimeError(
+                        "Agent skills discarded its configured routing description"
+                    )
                 if function_info.input_schema is not AgentSkillsInput:
                     raise RuntimeError(
                         "Agent skills lost its explicit dispatch input schema"

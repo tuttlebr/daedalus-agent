@@ -72,6 +72,42 @@ def test_client_defaults_to_shared_daedalus_service(monkeypatch):
     assert client._base_url == "http://hindsight-api.daedalus.svc.cluster.local:8888"
 
 
+def test_recall_uses_default_api_timeout(monkeypatch):
+    seen_timeout: dict[str, float] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen_timeout.update(request.extensions["timeout"])
+        return httpx.Response(200, json={"results": []})
+
+    monkeypatch.delenv("HINDSIGHT_API_TIMEOUT_SECONDS", raising=False)
+    client = HindsightClient(
+        base_url="http://hindsight.test",
+        api_key="secret-api-key",
+        transport=httpx.MockTransport(handler),
+    )
+
+    assert run(client.recall(user_id="alice", query="daily summary")) == []
+    assert seen_timeout["read"] == 60.0
+
+
+def test_recall_honors_timeout_environment_override(monkeypatch):
+    seen_timeout: dict[str, float] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen_timeout.update(request.extensions["timeout"])
+        return httpx.Response(200, json={"results": []})
+
+    monkeypatch.setenv("HINDSIGHT_API_TIMEOUT_SECONDS", "75")
+    client = HindsightClient(
+        base_url="http://hindsight.test",
+        api_key="secret-api-key",
+        transport=httpx.MockTransport(handler),
+    )
+
+    assert run(client.recall(user_id="alice", query="daily summary")) == []
+    assert seen_timeout["read"] == 75.0
+
+
 def test_retain_uses_derived_bank_bearer_auth_and_idempotent_operation():
     requests: list[httpx.Request] = []
 

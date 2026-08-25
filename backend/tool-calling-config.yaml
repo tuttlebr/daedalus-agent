@@ -362,6 +362,9 @@ functions:
       listing, and skill_name plus optional resource for loading. Returns: skill
       metadata, instructions, or resource content. Fails when: operation is
       disabled, skill not found, or requested resource path escapes skill dir.
+      For a daily summary or daily briefing request, skip discovery and make
+      operation=load_skill with skill_name=daily-summary your first tool call.
+      Do not call get_memory or subject-matter tools until that skill is loaded.
     verbose: false
   add_memory:
     _type: daedalus_add_memory
@@ -396,10 +399,12 @@ functions:
   get_memory:
     _type: daedalus_get_memory
     description: >-
-      Semantic search over this user's memories. Trigger: daily briefings
-      (FIRST, awaited), "remember when" / "what you know about me" /
-      personalized asks, or when prior preferences or project context
-      would materially sharpen the answer. Args: query, top_k (default 5).
+      Semantic search over this user's memories. Trigger: "remember when" /
+      "what you know about me" / personalized asks, or when prior preferences
+      or project context would materially sharpen the answer. For a daily
+      briefing or summary, call this only after the daily-summary skill is
+      loaded and directs it, then await exactly one call. Args: query, top_k
+      (default 5).
       Daily briefing/summary queries are server-expanded and searched with at
       least top_k=24 even if a smaller top_k is supplied, so the complete
       interest inventory, required live desks, and read-only Kubernetes status
