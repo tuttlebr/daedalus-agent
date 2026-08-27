@@ -1532,6 +1532,29 @@ def test_daily_briefing_routes_to_validated_source_image_html_response():
         assert "must not publish the generated edition" in sandbox_desc, path
 
 
+def test_daily_summary_frontloads_personal_source_authorization():
+    daily_skill = (SKILLS_DIR / "daily-summary" / "SKILL.md").read_text(
+        encoding="utf-8"
+    )
+
+    preflight_start = daily_skill.index(
+        "### 2. Front-load personal-source authorization"
+    )
+    gathering_start = daily_skill.index(
+        "### 3. Gather the smallest sufficient evidence set"
+    )
+    preflight = " ".join(daily_skill[preflight_start:gathering_start].split())
+
+    assert "first subject-matter calls" in preflight
+    assert "same parallel tool round" in preflight
+    assert "`gmail_mcp_server.search_threads`" in preflight
+    assert "`calendar_mcp_server.list_events`" in preflight
+    assert "surface every pending prompt and wait" in preflight
+    assert "Do not start source planning" in preflight
+    assert "do not repeat a successful read" in preflight
+    assert gathering_start < daily_skill.index("source_verifier_tool")
+
+
 def test_visual_media_documents_transparent_background_option():
     for path in DEPLOYED_CONFIGS:
         config = _config(path)
@@ -1572,6 +1595,7 @@ def test_daily_summary_contracts_structured_briefing():
         assert "current_datetime_tool" in tools, path
         assert "get_memory" in tools, path
         assert "agent_skills_tool" in tools, path
+        assert "gmail_mcp_server" in tools, path
         assert "calendar_mcp_server" in tools, path
         assert "k8s_mcp_server" in tools, path
         assert "curated_feed_search_tool" in tools, path

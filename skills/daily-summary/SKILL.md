@@ -6,7 +6,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: NVIDIA Corporation and Affiliates <noreply@nvidia.com>
-  version: 4.0.0
+  version: 4.0.1
   tags:
     - daily-briefing
     - html
@@ -76,7 +76,7 @@ artifact.
 
 ## Workflow
 
-### 1. Establish time, policy, and reader context
+### 1. Establish time and policy
 
 1. Call `current_datetime_tool` first. Use its current date and time plus
    timezone for every relative claim and in the visible dateline. If it fails,
@@ -84,16 +84,37 @@ artifact.
 2. Load `references/edition-policy.json`. Start the coverage manifest with
    every policy desk exactly once; preserve its key, label, cadence, topics,
    and lead designation.
-3. Call `get_memory` exactly once with a query that includes `daily summary` and
-   asks only for current preference changes, open operational watch items,
-   timely personal context, and additional interests that should affect this
-   edition. Daily-summary recall is server-expanded to at least 24 results.
-4. Merge explicit current-request directions first, then remembered preference
-   changes, then policy defaults. Add a remembered topic only when it is not an
-   obvious synonym or child of an existing desk. Never remove or demote the
-   policy lead without an explicit newer reader preference.
-5. Retain no raw private memory in the manifest. Use stable lowercase
-   hyphenated keys for any addition.
+3. Load `references/research-and-sourcing.md` before making any subject-matter
+   source call.
+
+### 2. Front-load personal-source authorization
+
+Immediately after time, policy, and sourcing are established, make these the
+first subject-matter calls in the same parallel tool round:
+
+- `gmail_mcp_server.search_threads` with the bounded recent query required by
+  the sourcing reference;
+- `calendar_mcp_server.list_events` for the current local day and the next
+  three calendar days.
+
+These are real evidence reads as well as authorization preflights; do not make
+separate no-op authentication calls. In that same parallel round, call
+`get_memory` exactly once with a query that includes `daily summary` and asks
+only for current preference changes, open operational watch items, timely
+personal context, and additional interests that should affect this edition.
+Daily-summary recall is server-expanded to at least 24 results.
+
+If Gmail or Calendar emits an authorization prompt, surface every pending
+prompt and wait. Do not start source planning, operational checks, weather, or
+public research while personal-source authorization is pending. After
+authorization, resume the existing tool calls and retain any Gmail or Calendar
+result that already completed; do not repeat a successful read.
+
+Merge explicit current-request directions first, then remembered preference
+changes, then policy defaults. Add a remembered topic only when it is not an
+obvious synonym or child of an existing desk. Never remove or demote the policy
+lead without an explicit newer reader preference. Retain no raw private memory
+in the manifest. Use stable lowercase hyphenated keys for any addition.
 
 Use this sandbox manifest shape later:
 
@@ -112,11 +133,11 @@ policy and disclose that personalization could not be refreshed. The policy is
 sufficient to produce this reader's edition; do not fall back to a generic
 briefing.
 
-### 2. Gather the smallest sufficient evidence set
+### 3. Gather the smallest sufficient evidence set
 
-Read the sourcing reference, then use `source_verifier_tool` with
-`operation=plan_sources` once for the full desk manifest. Date-stamp every
-current query with the real date from step 1.
+After the personal-source preflight and memory merge, use
+`source_verifier_tool` with `operation=plan_sources` once for the full desk
+manifest. Date-stamp every current query with the real date from step 1.
 
 Fan out independent read-only calls. Follow the policy's cadence: always check
 daily desks, but research conditional desks only when a quick trusted signal or
@@ -136,7 +157,7 @@ For every manifest desk, record one status:
 Every manifest key must appear exactly once in the compact ledger. Do not turn
 quiet or unavailable status into a filler story.
 
-### 3. Edit the front page and source images
+### 4. Edit the front page and source images
 
 The Cluster & Infrastructure desk leads every normal edition. Rank its live
 subtopics by present operational consequence: active failure or degradation,
@@ -158,7 +179,7 @@ story. Never generate, edit, synthesize, or substitute stock imagery.
 source image loads and matches its proposed caption. If no trustworthy image
 exists, use typography, rules, and compact whitespace.
 
-### 4. Compose structured edition data
+### 5. Compose structured edition data
 
 Read the format and editorial references. Build one `daily-daedalus/v1` JSON
 object from the day's actual reporting. Supply structured text, tables, lists,
@@ -175,7 +196,7 @@ Write concise headlines, useful deks, and short briefs. Target a focused
 five-to-eight-minute read, but prefer a shorter accurate edition over padding.
 Escape all externally sourced text before inserting it into HTML.
 
-### 5. Render and validate through llm-sandbox
+### 6. Render and validate through llm-sandbox
 
 Validation is mandatory for a full edition.
 
