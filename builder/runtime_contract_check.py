@@ -575,10 +575,85 @@ def main() -> None:
         raise RuntimeError("Per-user Responses API schemas aren't registered")
 
     response_fields = set(DaedalusPerUserResponsesAPIAgentWorkflowConfig.model_fields)
-    if not {"instructions", "nat_tools", "parallel_tool_calls"} <= response_fields:
+    required_response_fields = {
+        "instructions",
+        "nat_tools",
+        "parallel_tool_calls",
+        "tool_output_compaction_enabled",
+        "tool_output_compaction_min_chars",
+        "tool_output_compaction_max_items",
+        "tool_output_cache_ttl_seconds",
+    }
+    if not required_response_fields <= response_fields:
         raise RuntimeError("Daedalus Responses API workflow schema is incomplete")
     if {"system_prompt", "tool_names"} & response_fields:
         raise RuntimeError("Daedalus Responses API workflow retained Chat fields")
+
+    # Exercise the reversible compactor and recovery tool through the real NAT
+    # FunctionInfo adapter. Unit tests use a lightweight registry replacement
+    # and cannot prove the runtime schema or async-generator lifecycle.
+    from nat_helpers.tool_output_compaction import (
+        COMPACTION_MARKER,
+        CompactionSettings,
+        optimize_tool_content,
+    )
+    from nat_helpers.tool_output_retriever import (
+        ToolOutputRetrieverConfig,
+        ToolOutputRetrieverInput,
+        tool_output_retriever,
+    )
+
+    class RuntimeToolOutputStore:
+        def __init__(self):
+            self.values: dict[tuple[str, str], str] = {}
+
+        async def put(self, user_id: str, content: str, reference: str) -> bool:
+            self.values[(user_id, reference)] = content
+            return True
+
+    async def assert_tool_output_compaction_contract() -> None:
+        rows = [
+            {
+                "id": index,
+                "status": "ready",
+                "detail": "routine repeated runtime contract metadata",
+            }
+            for index in range(100)
+        ]
+        rows[67]["status"] = "critical failure"
+        rows[73]["detail"] = "runtime-needle selected target"
+        original = json.dumps({"items": rows}, indent=2)
+        store = RuntimeToolOutputStore()
+        optimized = await optimize_tool_content(
+            original,
+            tool_name="runtime_contract",
+            query="Which runtime-needle item failed?",
+            user_id="runtime-user",
+            store=store,  # type: ignore[arg-type]
+            settings=CompactionSettings(
+                min_chars=1_000,
+                min_savings_chars=500,
+            ),
+        )
+        if optimized.mode != "reversible_preview":
+            raise RuntimeError("Structured tool output was not compacted")
+        if COMPACTION_MARKER not in optimized.content:
+            raise RuntimeError("Compacted tool output lost its recovery marker")
+        if store.values.get(("runtime-user", optimized.reference)) != original:
+            raise RuntimeError("Compacted tool output was not exactly recoverable")
+
+        config = ToolOutputRetrieverConfig()
+        async with tool_output_retriever(config, SimpleNamespace()) as function_info:
+            if function_info.input_schema is not ToolOutputRetrieverInput:
+                raise RuntimeError("Tool-output retriever lost its explicit schema")
+            if not function_info.input_schema.__pydantic_complete__:
+                raise RuntimeError("Tool-output retriever schema is incomplete")
+            schema = function_info.input_schema.model_json_schema()
+            properties = schema.get("properties", {})
+            if not {"reference", "query", "offset", "max_chars"} <= set(properties):
+                raise RuntimeError("Tool-output retriever schema is incomplete")
+
+    asyncio.run(assert_tool_output_compaction_contract())
 
     # Prove the pinned LangChain bridge emits the raw Responses request shape:
     # top-level instructions, item input, flat functions with native optional

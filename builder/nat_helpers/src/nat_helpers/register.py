@@ -7,5 +7,6 @@ from nat_helpers import (
     nvidia_docs,
     per_user_tool_calling,
     secure_redis_object_store,
+    tool_output_retriever,
     vllm_embeddings,
 )

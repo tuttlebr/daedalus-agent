@@ -68,6 +68,46 @@ class DaedalusPerUserResponsesAPIAgentWorkflowConfig(
         ge=1,
         description="Maximum number of inbound conversation messages to retain.",
     )
+    tool_output_compaction_enabled: bool = Field(
+        default=True,
+        description=(
+            "Replace large structured tool results with reversible, query-aware "
+            "previews before each model call."
+        ),
+    )
+    tool_output_compaction_min_chars: int = Field(
+        default=8_000,
+        ge=1_000,
+        description="Minimum structured result size eligible for compaction.",
+    )
+    tool_output_compaction_max_items: int = Field(
+        default=16,
+        ge=5,
+        le=100,
+        description="Maximum array rows retained in a compacted preview.",
+    )
+    tool_output_compaction_min_savings_chars: int = Field(
+        default=1_500,
+        ge=256,
+        description="Minimum character savings required before compaction.",
+    )
+    tool_output_compaction_max_ratio: float = Field(
+        default=0.70,
+        gt=0,
+        lt=1,
+        description="Largest compacted/original size ratio worth applying.",
+    )
+    tool_output_compaction_max_original_chars: int = Field(
+        default=4_000_000,
+        ge=8_000,
+        description="Largest exact result accepted into the short-lived cache.",
+    )
+    tool_output_cache_ttl_seconds: int = Field(
+        default=7_200,
+        ge=300,
+        le=86_400,
+        description="Lifetime of an exact cached result used for recovery.",
+    )
 
 
 def _content_text(content: object) -> str:
@@ -183,6 +223,44 @@ async def _responses_api_agent_workflow(
         detailed_logs=config.verbose,
         handle_tool_errors=config.handle_tool_errors,
     )
+    from nat_helpers.tool_output_compaction import (
+        CompactionSettings,
+        ToolOutputStore,
+        optimize_tool_messages,
+    )
+
+    tool_output_settings = CompactionSettings(
+        enabled=config.tool_output_compaction_enabled,
+        min_chars=config.tool_output_compaction_min_chars,
+        max_items=config.tool_output_compaction_max_items,
+        min_savings_chars=config.tool_output_compaction_min_savings_chars,
+        max_compacted_ratio=config.tool_output_compaction_max_ratio,
+        max_original_chars=config.tool_output_compaction_max_original_chars,
+        cache_ttl_seconds=config.tool_output_cache_ttl_seconds,
+    )
+    tool_output_store = ToolOutputStore(
+        ttl_seconds=config.tool_output_cache_ttl_seconds,
+    )
+
+    async def _model_messages(state):
+        messages = state.get("messages", [])
+        if not tool_output_settings.enabled:
+            return messages
+        try:
+            from nat_helpers.identity import authenticated_user_id_from_context
+
+            user_id = authenticated_user_id_from_context()
+        except Exception:
+            # Exact recovery is user-scoped. Without trusted identity, keep the
+            # original result instead of creating an inaccessible preview.
+            return messages
+        return await optimize_tool_messages(
+            messages,
+            user_id=user_id,
+            store=tool_output_store,
+            settings=tool_output_settings,
+        )
+
     # Binding the instructions after the tools retains both sets of invocation
     # kwargs and makes LangChain serialize them as the top-level Responses
     # field. The helper preserves native optional tool arguments rather than
@@ -196,7 +274,7 @@ async def _responses_api_agent_workflow(
     agent.bound_llm = bound_llm
     agent.agent = (
         RunnableLambda(
-            lambda state: state.get("messages", []),
+            _model_messages,
             name="ResponsesInput",
         )
         | bound_llm
@@ -362,11 +440,14 @@ async def _responses_api_agent_workflow(
                 getattr(llm, "model_name", "unknown-model"),
             )
 
-    yield FunctionInfo.create(
-        single_fn=_response_fn,
-        stream_fn=_stream_fn,
-        description=config.description,
-    )
+    try:
+        yield FunctionInfo.create(
+            single_fn=_response_fn,
+            stream_fn=_stream_fn,
+            description=config.description,
+        )
+    finally:
+        await tool_output_store.close()
 
 
 @register_per_user_function(

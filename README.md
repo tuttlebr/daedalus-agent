@@ -528,6 +528,35 @@ Changing cache isolation affects only future provider requests. It does not
 delete Redis application data, conversation history, Hindsight memory, or
 already-created provider cache entries.
 
+### Tool-output context compaction
+
+Daedalus reduces large structured tool results immediately before each model
+call. This is separate from Hindsight memory, provider prompt caching, and the
+manual `content_distiller_tool`:
+
+- Small results, prose, code, malformed JSON, duplicate-key JSON, and
+  non-finite JSON pass through unchanged. Valid JSON can be whitespace-minified
+  without losing data.
+- Large JSON arrays receive a bounded preview containing the first and last
+  rows, error-like rows, query-relevant rows, and an even sample. The model sees
+  the original item count and the exact indices retained. Requests for exact
+  counts, exhaustive lists, absence checks, raw output, or verbatim output keep
+  the complete result instead.
+- Before a preview replaces the result, Daedalus stores the exact original in
+  user-isolated Redis with a two-hour TTL. If storage fails, the original result
+  stays in the prompt. `tool_output_retriever_tool` can search or page the exact
+  cached text when omitted rows could affect the answer.
+- The retriever is exempt from compaction, and every retrieval is bounded.
+  References cannot cross authenticated user boundaries.
+
+The workflow fields under `tool_output_compaction_*` set the activation size,
+preview size, required savings, maximum accepted result size, and cache TTL.
+Disable `tool_output_compaction_enabled` for an A/B baseline. Compare
+provider-reported input tokens and end-to-end latency on the same request set,
+then use exact-answer, exhaustive-list, absence-claim, and anomaly-retention
+checks as quality gates. Logs record only tool names and aggregate sizes; they
+do not record result content or cache references.
+
 ## Frontend Capabilities
 
 The frontend includes:
