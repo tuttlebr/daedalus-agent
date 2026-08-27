@@ -93,6 +93,15 @@ services:
     restart: unless-stopped
     networks:
       - ${NETWORK_NAME:-daedalus-network}
+    # `upstream frontend { server frontend:3000 }` is resolved once at config
+    # load; the resolver directive only applies to variable proxy_pass. Starting
+    # nginx first made it crash-loop on "host not found in upstream" until the
+    # restart policy happened to catch it after the backend health check.
+    depends_on:
+      backend:
+        condition: service_healthy
+      frontend:
+        condition: service_started
 
   frontend:
     build:
@@ -141,8 +150,6 @@ services:
     depends_on:
       backend:
         condition: service_healthy
-      nginx:
-        condition: service_started
       redis:
         condition: service_healthy
       stream-worker:
@@ -204,6 +211,16 @@ services:
     environment:
       - REDIS_USERNAME=${REDIS_USERNAME:-default}
       - REDIS_PASSWORD=${REDIS_PASSWORD:-local-compose-redis-password-change-me}
+    # `--user default reset` disables the internal ACL user that Redis replays
+    # AOF transactions as, which makes EXEC reject replayed Stream PEL updates.
+    # It only appears to work here because REDIS_USERNAME defaults to `default`
+    # and is immediately recreated below; setting it to anything else (the
+    # chart uses `daedalus`) would drop stream state on every restart. Keep the
+    # default user permission-complete but unusable over the network, matching
+    # helm/daedalus/templates/redis-init-configmap.yaml.
+    #
+    # maxmemory keeps Redis evicting instead of being OOMKilled; volatile-lru
+    # only evicts keys that carry a TTL.
     command:
       [
         'redis-server',
@@ -212,9 +229,17 @@ services:
         '1',
         '--appendonly',
         'yes',
+        '--maxmemory',
+        '${REDIS_MAXMEMORY:-1gb}',
+        '--maxmemory-policy',
+        'volatile-lru',
         '--user',
         'default',
-        'reset',
+        'on',
+        'nopass',
+        '~*',
+        '&*',
+        '+@all',
         '--user',
         '${REDIS_USERNAME:-default}',
         'on',

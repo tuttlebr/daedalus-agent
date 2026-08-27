@@ -164,7 +164,14 @@ metadata:
     {{- include "daedalus.labels" . | nindent 4 }}
     app.kubernetes.io/component: frontend-stream-worker
 spec:
-  minAvailable: {{ .Values.frontend.streamWorker.pdb.minAvailable | default 1 }}
+  {{- if .Values.frontend.streamWorker.pdb.minAvailable }}
+  minAvailable: {{ .Values.frontend.streamWorker.pdb.minAvailable }}
+  {{- else }}
+  # minAvailable equal to replicas permits zero voluntary disruptions,
+  # which hangs `kubectl drain` indefinitely and blocks node maintenance.
+  # Express the budget as maxUnavailable so a drain can always proceed.
+  maxUnavailable: {{ .Values.frontend.streamWorker.pdb.maxUnavailable | default 1 }}
+  {{- end }}
   selector:
     matchLabels:
       app.kubernetes.io/name: {{ include "daedalus.name" . }}

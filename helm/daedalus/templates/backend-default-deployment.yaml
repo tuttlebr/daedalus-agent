@@ -13,10 +13,20 @@ spec:
   revisionHistoryLimit: 3
   minReadySeconds: 10
   strategy:
+    {{- if .Values.backend.persistence.enabled }}
+    # The backend PVC is ReadWriteOnce. A surge pod scheduled on another node
+    # cannot attach it while the incumbent holds it, and maxUnavailable: 0
+    # forbids evicting the incumbent, so a RollingUpdate deadlocks until
+    # `helm upgrade --atomic` times out and rolls the release back. Whether it
+    # deadlocks depends on the StorageClass, which makes it a once-per-cluster
+    # surprise. Trade the surge for a brief gap instead.
+    type: Recreate
+    {{- else }}
     type: RollingUpdate
     rollingUpdate:
       maxUnavailable: 0
       maxSurge: 1
+    {{- end }}
   selector:
     matchLabels:
       app.kubernetes.io/name: {{ include "daedalus.name" . }}
@@ -99,7 +109,11 @@ spec:
             initialDelaySeconds: 10
             periodSeconds: 10
             timeoutSeconds: 10
-            failureThreshold: 3
+            # /health/ready checks Redis, memory, and Milvus serially on the
+            # same event loop that serves chat streams, so a slow dependency can
+            # consume most of the budget. Three misses (30s) would eject the
+            # only backend replica while the process is healthy.
+            failureThreshold: 5
           {{- with .Values.backend.default.resources }}
           resources:
             {{- toYaml . | nindent 12 }}

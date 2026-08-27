@@ -8,7 +8,14 @@ metadata:
     {{- include "daedalus.labels" . | nindent 4 }}
     app.kubernetes.io/component: backend-default
 spec:
-  minAvailable: {{ .Values.backend.pdb.minAvailable | default 1 }}
+  {{- if .Values.backend.pdb.minAvailable }}
+  minAvailable: {{ .Values.backend.pdb.minAvailable }}
+  {{- else }}
+  # minAvailable equal to replicas permits zero voluntary disruptions,
+  # which hangs `kubectl drain` indefinitely and blocks node maintenance.
+  # Express the budget as maxUnavailable so a drain can always proceed.
+  maxUnavailable: {{ .Values.backend.pdb.maxUnavailable | default 1 }}
+  {{- end }}
   selector:
     matchLabels:
       app.kubernetes.io/name: {{ include "daedalus.name" . }}

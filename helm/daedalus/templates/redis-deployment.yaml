@@ -91,6 +91,11 @@ spec:
                 - ping
             initialDelaySeconds: 15
             periodSeconds: 15
+            # Spawning redis-cli plus connect and auth must finish inside the
+            # probe timeout. During an AOF rewrite or a BGSAVE on a large volume
+            # Redis blocks, and kubelet's 1s default would restart the only pod.
+            timeoutSeconds: 5
+            failureThreshold: 5
           readinessProbe:
             exec:
               command:
@@ -107,6 +112,7 @@ spec:
                 - ping
             initialDelaySeconds: 5
             periodSeconds: 10
+            timeoutSeconds: 5
           {{- with .Values.redis.resources }}
           resources:
             {{- toYaml . | nindent 12 }}
